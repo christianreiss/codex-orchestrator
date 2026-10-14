@@ -10,6 +10,7 @@ import { Keyring } from '../../../src/security/keyring.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
 import { assertContract } from '../../helpers/contract-schema.js';
 import { wsPublisher } from '../../../src/ws/publisher.js';
+import { SUPPORTED_WRAPPER_PLATFORMS } from '../../../src/services/wrapper-bin-registry.js';
 
 const env = {
   INSTALLATION_ID: 'inst-test',
@@ -528,6 +529,77 @@ describe('POST /cron/check', () => {
       await rm(dataRoot, { recursive: true, force: true });
     }
   });
+
+  it.each(['2026.03.24-05', '2026.05.11-01'])(
+    'sends date wrapper %s to the transition launcher with an empty checksum, never null',
+    async (legacyVersion) => {
+      // Legacy cron parses the field with print(d.get('wrapper',{}).get('sha256','')):
+      // JSON null becomes the string "None" and fails every download as
+      // "hash mismatch", so legacy hosts never reached cxx.
+      const dataRoot = await mkdtemp(join(tmpdir(), 'codex-auth-wrapper-legacy-transition-'));
+      const binaryContents = 'common cxx binary';
+      const binarySha = createHash('sha256').update(binaryContents).digest('hex');
+      // The common cxx artifact counts as current only once every platform has it.
+      for (const platform of SUPPORTED_WRAPPER_PLATFORMS) {
+        const [os, arch] = platform.split('-');
+        const binaryPath = join(dataRoot, 'wrapper', 'v2', 'bin', 'cxx', platform, 'v0.9.82', 'cxx');
+        await mkdir(dirname(binaryPath), { recursive: true });
+        await writeFile(binaryPath, binaryContents);
+        await writeFile(
+          join(dataRoot, 'wrapper', 'v2', 'bin', 'cxx', platform, 'manifest.json'),
+          JSON.stringify({
+            engine: 'cxx',
+            os,
+            arch,
+            current: '0.9.82',
+            builds: [{ version: '0.9.82', sha256: binarySha, size_bytes: Buffer.byteLength(binaryContents) }],
+          }),
+        );
+      }
+      const db = createDbFake();
+      const apiKey = 'sk-codex-cron-legacy-transition';
+      db.tables.set(hostsTable, [hostRow(apiKey)]);
+      db.tables.set(versionsTable, [
+        { name: 'client_version_codex', version: '0.130.0' },
+        { name: 'wrapper_version_codex', version: '0.9.82' },
+        { name: 'wrapper_sha256_codex', version: binarySha },
+        {
+          name: 'wrapper_url_codex',
+          version: 'https://orchestrator.example/wrapper/v2/bin/cxx/linux-amd64/v0.9.82/cxx',
+        },
+        { name: 'auto_update_enabled', version: '1' },
+      ]);
+      let app: Awaited<ReturnType<typeof buildHostApiTestApp>> | null = null;
+      try {
+        app = await buildHostApiTestApp({
+          db: db as any,
+          env: { ...env, DATA_ROOT: dataRoot },
+          keyring: makeKeyring(),
+        });
+        const check = (wrapperVersion: string) =>
+          app!.inject({
+            method: 'POST',
+            url: '/cron/check',
+            headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+            payload: JSON.stringify({ engine: 'codex', client_version: '0.130.0', wrapper_version: wrapperVersion }),
+          });
+        const legacy = await check(legacyVersion);
+        expect(legacy.statusCode).toBe(200);
+        expect(JSON.parse(legacy.payload).wrapper).toEqual({
+          action: 'update',
+          target_version: '0.9.82',
+          sha256: '',
+          url: '/wrapper/download?engine=codex',
+        });
+        // Go wrappers keep the exact artifact checksum.
+        const modern = await check('0.9.81');
+        expect(JSON.parse(modern.payload).wrapper).toMatchObject({ action: 'update', sha256: binarySha });
+      } finally {
+        await app?.close();
+        await rm(dataRoot, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe('POST /cron/check (claude engine)', () => {

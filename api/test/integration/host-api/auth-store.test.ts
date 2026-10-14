@@ -578,6 +578,36 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
     await app.close();
   });
 
+  it('mirrors codex usage under chatgpt_usage only for date-style shell wrappers', async () => {
+    // 2025.11-2026.03.05 shell wrappers run `chatgpt_usage.get(...)` on
+    // data.chatgpt_usage unguarded; a missing key aborts their whole auth pull
+    // with an AttributeError (seen on host 79, wrapper 2026.01.13-03).
+    const apiKey = 'sk-retrieve-legacy-usage-alias';
+    const db = seedDb(apiKey);
+    const app = await buildHostApiTestApp({ db: db as any, env: baseEnv, keyring: makeKeyring() });
+    try {
+      const retrieve = (wrapperVersion: string) =>
+        app.inject({
+          method: 'POST',
+          url: '/auth',
+          headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+          payload: JSON.stringify({ command: 'retrieve', engine: 'codex', wrapper_version: wrapperVersion }),
+        });
+      const legacy = await retrieve('2026.01.13-03');
+      expect(legacy.statusCode).toBe(200);
+      const legacyBody = JSON.parse(legacy.payload);
+      assertContract('auth-retrieve.schema.json', legacyBody);
+      expect(legacyBody.data.chatgpt_usage).toMatchObject({ status: 'unavailable', active_quota_lane: 'normal' });
+      expect(legacyBody.data.chatgpt_usage).toEqual(legacyBody.data.chatgpt);
+
+      const modern = JSON.parse((await retrieve('0.9.82')).payload);
+      expect(modern.chatgpt).toBeDefined();
+      expect(modern).not.toHaveProperty('chatgpt_usage');
+    } finally {
+      await app.close();
+    }
+  });
+
   it('reports unavailable telemetry when the snapshot read fails', async () => {
     const apiKey = 'sk-retrieve-quota-read-fail';
     const db = seedDb(apiKey);

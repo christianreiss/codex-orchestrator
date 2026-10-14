@@ -92,7 +92,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 
 2. **`/auth` retrieve/store**
    - Requires API key header and passes through host/IP policy, insecure host windows, and the kill switch.
-   - Retrieve path (`command=retrieve`, default) validates client digest/timestamp and returns status (`valid`, `outdated`, `upload_required`, `missing`) plus metadata: `versions` (client/wrapper/runner/quota/cdx_silent/installation), host payload, API call count, and current-month token totals. `/auth` response appends `chatgpt_usage`.
+   - Retrieve path (`command=retrieve`, default) validates client digest/timestamp and returns status (`valid`, `outdated`, `upload_required`, `missing`) plus metadata: `versions` (client/wrapper/runner/quota/cdx_silent/installation), host payload, API call count, and current-month token totals. Codex `/auth` responses carry `chatgpt` (date-style shell wrappers also get it as `chatgpt_usage`).
    - Store path (`command=store`) enforces RFC3339 `last_refresh` bounds (`>= 2000-01-01`, `<= now+300s`), token quality, canonical sort/digest, and secretbox persistence to `auth_payloads` + `auth_entries`.
    - Runner validation runs before every host, admin, seed, or bootstrap candidate can advance canonical auth. Runner `updated_auth` can replace uploads when it is same/newer; runner unreachability or non-OK status blocks acceptance, and non-verified replacements remain quarantined.
    - Host uninstall uses `DELETE /auth` (IP binding enforced unless `?force=1`).
