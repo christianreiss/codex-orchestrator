@@ -51,17 +51,24 @@ const toastModule: string = TOAST_STUB;
 const { stub: toastStub } = (await import(toastModule)) as { stub: { calls: ToastCall[] } };
 
 const eventsModule: string = "./events.ts";
-const { DEFAULT_INVALIDATIONS, wireWsToQueryClient } = (await import(
+const { DEFAULT_INVALIDATIONS, createCoalescingInvalidator, wireWsToQueryClient } = (await import(
   eventsModule
 )) as typeof import("./events");
 
 /** Records every key the wiring asks to invalidate, in order. */
 class FakeQueryClient {
   keys: QueryKey[] = [];
+  options: unknown[] = [];
+  fetching = new Set<string>();
 
-  invalidateQueries(filters: { queryKey: QueryKey }): Promise<void> {
+  invalidateQueries(filters: { queryKey: QueryKey }, options?: unknown): Promise<void> {
     this.keys.push(filters.queryKey);
+    this.options.push(options);
     return Promise.resolve();
+  }
+
+  isFetching(filters: { queryKey: QueryKey }): number {
+    return this.fetching.has(JSON.stringify(filters.queryKey)) ? 1 : 0;
   }
 }
 
@@ -73,7 +80,8 @@ beforeEach(() => {
   qc = new FakeQueryClient();
   events = writable(null);
   toastStub.calls.length = 0;
-  unsubscribe = wireWsToQueryClient(qc as unknown as QueryClient, events);
+  // A zero window dispatches synchronously, so the mapping tests stay ordered.
+  unsubscribe = wireWsToQueryClient(qc as unknown as QueryClient, events, DEFAULT_INVALIDATIONS, 0);
 });
 
 afterEach(() => {
@@ -262,5 +270,45 @@ describe("the returned unsubscribe", () => {
     emit("toast", { message: "hello" });
     assert.deepEqual(qc.keys, []);
     assert.deepEqual(toastStub.calls, []);
+  });
+});
+
+describe("coalesced invalidation", () => {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it("collapses a burst into one invalidation per key that never cancels a running fetch", async () => {
+    const fake = new FakeQueryClient();
+    const inv = createCoalescingInvalidator(fake as unknown as QueryClient, 10);
+    for (let i = 0; i < 50; i++) {
+      inv.invalidate(["topology"]);
+      inv.invalidate(["communicators"]);
+    }
+    assert.deepEqual(fake.keys, []);
+    await sleep(30);
+    assert.deepEqual(fake.keys, [["topology"], ["communicators"]]);
+    assert.deepEqual(fake.options, [{ cancelRefetch: false }, { cancelRefetch: false }]);
+    inv.dispose();
+  });
+
+  it("waits for an in-flight fetch and then refreshes exactly once", async () => {
+    const fake = new FakeQueryClient();
+    const inv = createCoalescingInvalidator(fake as unknown as QueryClient, 10);
+    fake.fetching.add(JSON.stringify(["topology"]));
+    inv.invalidate(["topology"]);
+    await sleep(35);
+    assert.deepEqual(fake.keys, []);
+    fake.fetching.clear();
+    await sleep(25);
+    assert.deepEqual(fake.keys, [["topology"]]);
+    inv.dispose();
+  });
+
+  it("drops pending work on dispose", async () => {
+    const fake = new FakeQueryClient();
+    const inv = createCoalescingInvalidator(fake as unknown as QueryClient, 10);
+    inv.invalidate(["topology"]);
+    inv.dispose();
+    await sleep(25);
+    assert.deepEqual(fake.keys, []);
   });
 });

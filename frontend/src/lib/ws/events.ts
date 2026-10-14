@@ -345,6 +345,67 @@ function showServerToast(payload: unknown): void {
 }
 
 /**
+ * Coalescing window for WebSocket-driven invalidations.
+ *
+ * Fleet traffic publishes bursts (relay heartbeats, communicator and session
+ * changes) faster than heavy views such as `/admin/topology` can answer. A
+ * plain `invalidateQueries` cancels the in-flight fetch and starts another, so
+ * under a steady stream the query never completes while the API computes every
+ * aborted request. Keys are therefore collected for a short window, flushed
+ * once, and a key whose query is still fetching waits for that fetch instead
+ * of aborting it, then gets exactly one trailing refresh.
+ */
+export const INVALIDATION_COALESCE_MS = 750;
+
+export interface CoalescingInvalidator {
+  invalidate(key: QueryKey): void;
+  dispose(): void;
+}
+
+export function createCoalescingInvalidator(qc: QueryClient, windowMs: number): CoalescingInvalidator {
+  const pending = new Map<string, QueryKey>();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let disposed = false;
+
+  const schedule = () => {
+    if (timer === null && !disposed) timer = setTimeout(flush, windowMs);
+  };
+
+  function flush(): void {
+    timer = null;
+    const keys = [...pending.entries()];
+    pending.clear();
+    for (const [hash, key] of keys) {
+      if (qc.isFetching({ queryKey: key }) > 0) {
+        // Let the running fetch finish; refresh once more afterwards.
+        pending.set(hash, key);
+        continue;
+      }
+      void qc.invalidateQueries({ queryKey: key }, { cancelRefetch: false });
+    }
+    if (pending.size > 0) schedule();
+  }
+
+  return {
+    invalidate(key) {
+      if (disposed) return;
+      if (windowMs <= 0) {
+        void qc.invalidateQueries({ queryKey: key }, { cancelRefetch: false });
+        return;
+      }
+      pending.set(JSON.stringify(key), key);
+      schedule();
+    },
+    dispose() {
+      disposed = true;
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      pending.clear();
+    },
+  };
+}
+
+/**
  * Subscribe the supplied WebSocket event stream to the query client.
  * Returns an unsubscribe function.
  */
@@ -352,8 +413,10 @@ export function wireWsToQueryClient(
   qc: QueryClient,
   events: Readable<WsEvent | null>,
   invalidations: WsInvalidationMap = DEFAULT_INVALIDATIONS,
+  coalesceMs: number = INVALIDATION_COALESCE_MS,
 ): () => void {
-  return events.subscribe((event) => {
+  const invalidator = createCoalescingInvalidator(qc, coalesceMs);
+  const unsubscribe = events.subscribe((event) => {
     if (!event || !event.type) return;
     if (event.type === "toast") {
       showServerToast(event.payload);
@@ -362,7 +425,7 @@ export function wireWsToQueryClient(
     const keys = invalidations[event.type];
     if (keys && keys.length > 0) {
       for (const key of keys) {
-        void qc.invalidateQueries({ queryKey: key });
+        invalidator.invalidate(key);
       }
     }
     if (PROJECT_SCOPED_EVENTS.has(event.type)) {
@@ -370,13 +433,17 @@ export function wireWsToQueryClient(
       if (slug) {
         const subKey = projectDetailSubKey(event.type);
         if (subKey) {
-          void qc.invalidateQueries({ queryKey: ["project", slug, subKey] });
-          void qc.invalidateQueries({ queryKey: ["project", slug, "changes"] });
+          invalidator.invalidate(["project", slug, subKey]);
+          invalidator.invalidate(["project", slug, "changes"]);
         } else {
-          void qc.invalidateQueries({ queryKey: ["project", slug] });
+          invalidator.invalidate(["project", slug]);
         }
       }
-      void qc.invalidateQueries({ queryKey: ["projects"] });
+      invalidator.invalidate(["projects"]);
     }
   });
+  return () => {
+    unsubscribe();
+    invalidator.dispose();
+  };
 }
