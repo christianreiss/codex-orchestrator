@@ -269,7 +269,14 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 				continue
 			}
 			key := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[engine]
-			fmt.Fprintf(&env, "Environment=%s\n", systemdQuote(key+"="+cfg.SourcePath()))
+			path, ok := daemonAccountConfigPath(cfg.SourcePath(), engine, account.HomeDir)
+			if !ok {
+				continue
+			}
+			fmt.Fprintf(&env, "Environment=%s\n", systemdQuote(key+"="+path))
+		}
+		if env.Len() == 0 {
+			return fmt.Errorf("daemon user %s has no enrolled engine config under %s", settings.Username, account.HomeDir)
 		}
 		unit := hostDaemonUnit(settings.Username, account.HomeDir, env.String(), installed)
 		if residentConfigurationEnabled() {
@@ -842,4 +849,25 @@ func pendingDaemonReceipts(dir string) []string {
 	}
 	peers, _ := filepath.Glob(filepath.Join(dir, "receipts", "*.json"))
 	return append(work, peers...)
+}
+
+// daemonAccountConfigPath keeps the unit on the daemon account's own configs.
+// The configs loaded here belong to whoever runs the install; when that is
+// root installing a daemon for chris, root's paths made the daemon fail with
+// "no active signed engine config available for residence" (feedback
+// d69d6e38). A path already under the daemon's home is used as is; otherwise
+// the account's default path is used when that file exists.
+func daemonAccountConfigPath(loaded, engine, home string) (string, bool) {
+	if home != "" && strings.HasPrefix(filepath.Clean(loaded), filepath.Clean(home)+string(filepath.Separator)) {
+		return loaded, true
+	}
+	name := map[string]string{"codex": "cdx.json", "claude": "clx.json", "grok": "cgx.json"}[engine]
+	if name == "" || home == "" {
+		return "", false
+	}
+	candidate := filepath.Join(home, ".config", "codex-orchestrator", name)
+	if _, err := os.Stat(candidate); err != nil {
+		return "", false
+	}
+	return candidate, true
 }

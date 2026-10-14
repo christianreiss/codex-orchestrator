@@ -232,6 +232,11 @@ func loadMessagingConfigs() (map[string]*config.Config, *config.Config, error) {
 	return loaded, seed, nil
 }
 
+// errRelayConfigRefused marks a signed config that can never run a relay (plain
+// HTTP to a remote server, or TLS verification bypassed). It is permanent for
+// that config, so a worker must not wait or restart for it (feedback 42fe1081).
+var errRelayConfigRefused = errors.New("agent messaging relay")
+
 func newRelayClient(cfg *config.Config) (*relayClient, error) {
 	if cfg == nil {
 		return nil, errors.New("relay config is nil")
@@ -241,10 +246,10 @@ func newRelayClient(cfg *config.Config) (*relayClient, error) {
 		return nil, err
 	}
 	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && (parsed.Hostname() == "127.0.0.1" || parsed.Hostname() == "localhost" || parsed.Hostname() == "::1")) {
-		return nil, errors.New("agent messaging relay requires HTTPS (HTTP is allowed only on loopback)")
+		return nil, fmt.Errorf("%w: requires HTTPS (HTTP is allowed only on loopback)", errRelayConfigRefused)
 	}
 	if cfg.Orchestrator.AllowInsecure {
-		return nil, errors.New("agent messaging relay refuses TLS verification bypass")
+		return nil, fmt.Errorf("%w: refuses TLS verification bypass", errRelayConfigRefused)
 	}
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
 	if cfg.Orchestrator.CABundlePath != nil && strings.TrimSpace(*cfg.Orchestrator.CABundlePath) != "" {

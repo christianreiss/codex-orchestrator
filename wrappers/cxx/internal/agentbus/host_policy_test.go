@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"io"
 	"net/http"
 	"os"
@@ -35,6 +36,7 @@ func TestServiceInstallRetiresWorkerOnNonPersistentHost(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg"))
 	calls := stubServiceProcess(t, nil)
 	stubWorkerPolicy(t, workerForbidden)
+	stubUserManager(t, true)
 
 	// No unit installed: nothing to do, no systemctl call.
 	if err := runServiceCommand([]string{"install"}, io.Discard, io.Discard); err != nil || len(*calls) != 0 {
@@ -178,5 +180,83 @@ func TestWorkerPolicyRequiresTheDaemonUser(t *testing.T) {
 	}
 	if got := workerDecisionFor(daemonSettings{Username: "chris"}, "chris"); got != workerForbidden {
 		t.Fatalf("non-persistent host = %v, want forbidden", got)
+	}
+}
+
+func stubUserManager(t *testing.T, available bool) {
+	t.Helper()
+	old := systemdUserManagerAvailable
+	t.Cleanup(func() { systemdUserManagerAvailable = old })
+	systemdUserManagerAvailable = func() bool { return available }
+}
+
+// Feedback 9c1712dd: without a per-user systemd manager (XCP-ng) the unit can
+// never have run; retiring it removes the file without calling systemctl.
+func TestRetireWithoutUserManagerRemovesTheUnitFile(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd action is Linux-specific")
+	}
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg"))
+	calls := stubServiceProcess(t, map[string]error{"systemctl": errors.New("Failed to get D-Bus connection")})
+	stubWorkerPolicy(t, workerForbidden)
+	stubUserManager(t, false)
+	path, err := servicePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("legacy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runServiceCommand([]string{"install"}, io.Discard, io.Discard); err != nil {
+		t.Fatalf("retire without a user manager failed: %v", err)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("systemctl called without a user manager: %v", *calls)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unit file survived: %v", err)
+	}
+}
+
+// Feedback 42fe1081: a config that can never run a relay (TLS bypass, plain
+// HTTP) is a permanent no, not an unknown to wait out or crash-loop on.
+func TestRefusedRelayConfigForbidsTheWorker(t *testing.T) {
+	_, err := newRelayClient(&config.Config{Orchestrator: config.Orchestrator{BaseURL: "https://api.example", AllowInsecure: true}})
+	if !errors.Is(err, errRelayConfigRefused) {
+		t.Fatalf("TLS bypass error = %v, want errRelayConfigRefused", err)
+	}
+	if got := workerDecisionForError(err); got != workerForbidden {
+		t.Fatalf("decision = %v, want forbidden", got)
+	}
+	if got := workerDecisionForError(errors.New("dial tcp: connection refused")); got != workerUnknown {
+		t.Fatalf("network failure decision = %v, want unknown", got)
+	}
+}
+
+// Feedback d69d6e38: a daemon unit for chris installed by root must use
+// chris's configs, not root's.
+func TestDaemonUnitUsesTheDaemonAccountsConfigs(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".config", "codex-orchestrator")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cdx.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := daemonAccountConfigPath("/root/.config/codex-orchestrator/cdx.json", "codex", home); !ok || got != filepath.Join(dir, "cdx.json") {
+		t.Fatalf("codex path = %q (%v), want the daemon account's", got, ok)
+	}
+	if _, ok := daemonAccountConfigPath("/root/.config/codex-orchestrator/clx.json", "claude", home); ok {
+		t.Fatal("an engine the daemon account has no config for must be skipped")
+	}
+	inside := filepath.Join(dir, "cdx.json")
+	if got, ok := daemonAccountConfigPath(inside, "codex", home); !ok || got != inside {
+		t.Fatalf("a path already under the account home changed: %q", got)
 	}
 }

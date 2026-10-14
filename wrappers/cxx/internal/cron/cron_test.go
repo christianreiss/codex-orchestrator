@@ -1256,3 +1256,25 @@ func TestBackgroundWorkerIgnoresSuspendedEngines(t *testing.T) {
 		t.Fatal("an enabled sibling lost its background worker")
 	}
 }
+
+// Feedback d9e0124c: an empty spool file left by a deleted account (crontab:
+// user X unknown) must not abort reconciliation of everyone else.
+func TestReconcileSkipsCrontabsOfDeletedUsers(t *testing.T) {
+	oldDiscover, oldRead, oldWrite := discoverCrontabOwners, readUserCrontab, writeUserCrontab
+	t.Cleanup(func() { discoverCrontabOwners, readUserCrontab, writeUserCrontab = oldDiscover, oldRead, oldWrite })
+	discoverCrontabOwners = func() ([]string, error) { return []string{"va-wiki", "alice"}, nil }
+	readUserCrontab = func(name string) (string, error) {
+		if name == "va-wiki" {
+			return "", fmt.Errorf("%w: crontab: user va-wiki unknown", errCrontabUserUnknown)
+		}
+		return "1 2 * * * old " + Marker + "\n", nil
+	}
+	written := map[string]string{}
+	writeUserCrontab = func(name, body string) error { written[name] = body; return nil }
+	if _, err := reconcileManagedUserCrontabs(); err != nil {
+		t.Fatalf("reconcile aborted on a deleted user: %v", err)
+	}
+	if body, ok := written["alice"]; !ok || strings.Contains(body, Marker) {
+		t.Fatalf("alice was not reconciled: %q", written)
+	}
+}

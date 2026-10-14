@@ -150,12 +150,18 @@ var workerPolicy = func() workerDecision {
 	defer cancel()
 	_, _, settings, err := daemonConfig(ctx)
 	if err != nil {
-		if strings.Contains(err.Error(), "no signed messaging-enabled engine config") {
-			return workerForbidden
-		}
-		return workerUnknown
+		return workerDecisionForError(err)
 	}
 	return workerDecisionFor(settings, currentUserName())
+}
+
+// workerDecisionForError separates answers that will not change (no messaging
+// config, a config that can never run a relay) from an unreachable server.
+func workerDecisionForError(err error) workerDecision {
+	if strings.Contains(err.Error(), "no signed messaging-enabled engine config") || errors.Is(err, errRelayConfigRefused) {
+		return workerForbidden
+	}
+	return workerUnknown
 }
 
 func workerDecisionFor(settings daemonSettings, user string) workerDecision {
@@ -267,6 +273,15 @@ func runSystemdAction(action string, stdout, stderr io.Writer) error {
 		}
 		return nil
 	case "remove":
+		if !systemdUserManagerAvailable() {
+			// No per-user manager (XCP-ng, containers without logind): the unit can
+			// never have run, so retiring it is removing the file. Calling systemctl
+			// would only fail on every maintenance run (feedback 9c1712dd).
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			return nil
+		}
 		if stopErr := managedServiceProcess(stdout, stderr, "systemctl", "--user", "disable", "--now", unit); stopErr != nil {
 			missing, probeErr := systemdUnitMissing(unit)
 			if probeErr != nil || !missing {
@@ -552,6 +567,19 @@ func recordServiceDeployment(deploymentID string) error {
 		return err
 	}
 	return writeProtectedFile(path, []byte(deploymentID+"\n"))
+}
+
+// systemdUserManagerAvailable reports whether this user's systemd manager bus
+// exists; without it no user unit can run.
+var systemdUserManagerAvailable = func() bool {
+	env := systemdUserEnvironment(os.Environ(), os.Getuid())
+	for _, entry := range env {
+		if address, ok := strings.CutPrefix(entry, "DBUS_SESSION_BUS_ADDRESS=unix:path="); ok {
+			_, err := os.Stat(address)
+			return err == nil
+		}
+	}
+	return true
 }
 
 func detectSystemdUnitMissing(unit string) (bool, error) {

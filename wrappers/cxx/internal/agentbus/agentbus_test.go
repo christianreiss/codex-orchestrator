@@ -337,6 +337,7 @@ func TestSystemdRemovePreservesUnitWhenStopFails(t *testing.T) {
 		return errors.New("systemctl unavailable")
 	}
 	systemdUnitMissing = func(string) (bool, error) { return false, nil }
+	stubUserManager(t, true)
 	if err := runSystemdAction("remove", io.Discard, io.Discard); err == nil {
 		t.Fatal("remove ignored a service stop failure")
 	}

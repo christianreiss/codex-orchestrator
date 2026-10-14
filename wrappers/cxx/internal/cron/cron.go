@@ -815,8 +815,12 @@ func inferConfigHome(fallback string, paths ...string) string {
 	return fallback
 }
 
+// inferHomeOwner names the account a root-written host-wide line runs as: the
+// owner of the home it uses. A line whose user differs from its HOME's owner
+// made root recreate root-owned files in another user's home every night
+// (feedback d7db6710).
 func inferHomeOwner(fallback, home string) string {
-	if os.Geteuid() != 0 || (fallback != "" && fallback != "root") {
+	if os.Geteuid() != 0 {
 		return fallback
 	}
 	if info, err := os.Stat(home); err == nil {
@@ -855,7 +859,31 @@ func ensureCronLog(logFile, home string) error {
 	return nil
 }
 
+// rootEnrolled reports whether root has its own enrolled engine config. On such
+// a host the host-wide schedule belongs to root whoever ran sudo, so its
+// identity no longer depends on who invoked the command last (feedback d7db6710).
+var rootEnrolled = func() bool {
+	if os.Geteuid() != 0 {
+		return false
+	}
+	root, err := user.LookupId("0")
+	if err != nil {
+		return false
+	}
+	for _, name := range []string{"cdx.json", "clx.json", "cgx.json"} {
+		if _, err := os.Stat(filepath.Join(root.HomeDir, ".config", "codex-orchestrator", name)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func installUserContext() (string, string) {
+	if rootEnrolled() {
+		if u, err := user.LookupId("0"); err == nil {
+			return u.Username, u.HomeDir
+		}
+	}
 	if sudoUser := strings.TrimSpace(os.Getenv("SUDO_USER")); sudoUser != "" && sudoUser != "root" {
 		if u, err := user.Lookup(sudoUser); err == nil {
 			return u.Username, u.HomeDir
@@ -936,6 +964,10 @@ func reconcileManagedUserCrontabs() (userCrontabRollback, error) {
 	changes := make([]userCrontabChange, 0, len(users))
 	for _, userName := range users {
 		original, readErr := readUserCrontab(userName)
+		if errors.Is(readErr, errCrontabUserUnknown) {
+			fmt.Fprintf(os.Stderr, "cxx cron: skipping crontab of deleted user %s: %v\n", userName, readErr)
+			continue
+		}
 		if readErr != nil {
 			rollbackErr := restoreUserCrontabs(changes)
 			return nil, errors.Join(fmt.Errorf("read managed crontab for %s: %w", userName, readErr), rollbackErr)
@@ -1128,8 +1160,16 @@ func readCrontabForUser(userName string) (string, error) {
 	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && strings.Contains(strings.ToLower(string(out)), "no crontab for") {
 		return "", nil
 	}
+	if text := strings.ToLower(string(out)); strings.Contains(text, "unknown") && strings.Contains(text, "user") {
+		return "", fmt.Errorf("%w: %s", errCrontabUserUnknown, strings.TrimSpace(string(out)))
+	}
 	return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 }
+
+// errCrontabUserUnknown marks a spool file left behind by a deleted account
+// (crontab: user X unknown). It holds no cxx line anyone can run, so
+// reconciliation skips it instead of aborting (feedback d9e0124c).
+var errCrontabUserUnknown = errors.New("crontab owner no longer exists")
 
 func writeCrontabForUser(userName, body string) error {
 	cmd, cancel := crontabCommandForUser(userName, "-")
