@@ -771,6 +771,30 @@ describe('negotiated resident owner reports', () => {
     },
   );
 
+  // Regression (2026-10-14): a 0.9.81 owner's heartbeat carries `primed` for every
+  // scope. The strict schema rejected it and closed the socket with 1008 after the
+  // first heartbeat, so every such owner redialled about every 17 s.
+  it('keeps a 0.9.81 owner connected when its heartbeat reports primed scopes', async () => {
+    await setup();
+    const ws = await open(true);
+    let closed = false;
+    ws.on('close', () => { closed = true; });
+    const scope = 'a'.repeat(64);
+    const heartbeat = {
+      type: 'heartbeat',
+      sessions: 0,
+      synced_at: '2026-10-14T12:36:05Z',
+      sync_scopes: [{ auth: { type: 'auth_state', scope, engine: 'codex', state: 'pending', native_adoption: 'unknown' }, content_error: '', primed: true, running: false, scope }],
+    };
+    for (const primed of [true, false]) {
+      const response = new Promise<Record<string, unknown>>((resolve) => ws.once('message', (data: unknown) => resolve(JSON.parse(String(data)))));
+      ws.send(JSON.stringify({ ...heartbeat, sync_scopes: [{ ...heartbeat.sync_scopes[0], primed }] }));
+      expect(await response).toEqual({ type: 'heartbeat' });
+    }
+    expect(closed).toBe(false);
+    ws.close();
+  });
+
   it('uses the existing heartbeat authorization after diagnostic reports', async () => {
     await setup();
     const ws = await open(true);

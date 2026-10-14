@@ -1,5 +1,7 @@
 # 2026-10-14
 
+- Communicators running cxx 0.9.81 no longer reconnect every ~17 seconds. Their heartbeat reports `primed` for each sync scope (warm-cache launches), a field the server's strict heartbeat schema did not know: the server closed the socket with 1008 after the first heartbeat, the owner redialled, and Live Topology filled with short-lived connections and tombstones. The server now accepts the optional boolean. No wrapper release is needed.
+
 - Warm-cache launches are always on wherever the communicator transport and central sync are enabled; `CXX_COMMUNICATOR_CACHE_ENABLED` is gone (a leftover `.env` line is ignored). The communicator fetches everything when it starts and pushed invalidations keep it current, so a launch on a synchronized scope sends only the auth exchange and the rest follows in the background. Insecure hosts keep the full bootstrap because their MCP bearer expires on a timer. No wrapper release is needed: cxx 0.9.81 owners already support this, and older owners keep answering "not primed".
 
 - The admin console no longer floods the API with refetches. Every WebSocket event used to cancel the in-flight refetch of each affected view and start a new one, so under steady fleet traffic (relay heartbeats, communicator and session changes) `/admin/topology` was requested ~330 times a minute, almost never finished, and kept the API's event loop saturated, which slowed every cdx/clx/cgx launch. Invalidations are now coalesced into a 750 ms window, never abort a running fetch, and give a still-fetching view one trailing refresh.

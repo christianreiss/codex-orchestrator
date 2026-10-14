@@ -463,6 +463,11 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                         scope: z.string().max(100),
                         running: z.boolean(),
                         content_error: z.string().max(128),
+                        // cxx 0.9.81 owners report whether a scope holds current content
+                        // (warm-cache launches). Unknown here, it failed the strict parse and
+                        // closed every such owner after its first heartbeat; it redialled ~17 s
+                        // later, so connections and tombstones piled up.
+                        primed: z.boolean().optional(),
                         auth: z
                           .object({
                             type: z.literal('auth_state'),
