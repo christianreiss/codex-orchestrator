@@ -72,6 +72,11 @@ The server is the enforcement point; the wrapper follows it.
   installs the worker unit only on a persistent host and otherwise retires it.
   The maintenance crontab line exists only on auto-update hosts, scheduled
   nightly; elsewhere it is removed.
+- **Worker self-gate**: `cxx agent worker` itself asks the server whether the
+  host is persistent before it watches, leases or relays anything, exits
+  cleanly if not, waits (relaying nothing) while the answer is unknown, and
+  re-checks every 5 minutes. This holds even against an API that does not yet
+  refuse relays.
 
 ## What this replaced, and why it was a fatal flaw
 

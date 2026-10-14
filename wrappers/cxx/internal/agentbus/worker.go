@@ -102,6 +102,20 @@ var runNativeAdapter = func(c *relayClient, ctx context.Context, cfg *config.Con
 // and persists only opaque IDs needed for reconnect/idempotency.
 func RunWorker(parent context.Context, version string, stdout, stderr io.Writer) error {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	// The worker itself enforces docs/host-runtime-policy.md before it watches,
+	// leases or relays anything: an older API does not refuse a relay, and a
+	// legacy unit can still start a new binary on a normal host.
+	switch awaitWorkerPolicy(ctx, stderr) {
+	case workerForbidden:
+		fmt.Fprintln(stdout, "cxx background worker: host is not persistent; exiting")
+		return nil
+	case workerUnknown:
+		return nil // context ended while the answer was still unknown
+	}
+	ctx, revoke := context.WithCancel(ctx)
+	defer revoke()
+	go watchWorkerPolicy(ctx, revoke, stderr)
 	var authWatchDone sync.WaitGroup
 	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
 		authWatchDone.Add(1)
@@ -902,6 +916,36 @@ func reconnectDelay(err error) time.Duration {
 
 // relayNotPersistent reports the server's refusal of a per-user relay on a host
 // without the persistent flag.
+// workerPolicyRecheck is how often a running worker re-asks whether its host is
+// still persistent; losing the flag ends the worker even against an API that
+// does not refuse relays.
+var workerPolicyRecheck = 5 * time.Minute
+
+// awaitWorkerPolicy returns allowed or forbidden as soon as the server answers.
+// While the answer is unknown (API unreachable) it waits without relaying.
+func awaitWorkerPolicy(ctx context.Context, stderr io.Writer) workerDecision {
+	for {
+		decision := workerPolicy()
+		if decision != workerUnknown {
+			return decision
+		}
+		fmt.Fprintln(stderr, "cxx background worker: cannot confirm that this host is persistent; waiting")
+		if !waitContext(ctx, 30*time.Second) {
+			return workerUnknown
+		}
+	}
+}
+
+func watchWorkerPolicy(ctx context.Context, revoke context.CancelFunc, stderr io.Writer) {
+	for waitContext(ctx, workerPolicyRecheck) {
+		if workerPolicy() == workerForbidden {
+			fmt.Fprintln(stderr, "cxx background worker: host is no longer persistent; exiting")
+			revoke()
+			return
+		}
+	}
+}
+
 func relayNotPersistent(err error) bool {
 	var apiErr *APIError
 	return errors.As(err, &apiErr) && apiErr.Code == "agent_messaging_relay_not_persistent"

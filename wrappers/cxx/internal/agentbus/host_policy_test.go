@@ -1,6 +1,8 @@
 package agentbus
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -8,7 +10,10 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func stubWorkerPolicy(t *testing.T, decision workerDecision) {
@@ -109,5 +114,51 @@ func TestHostPersistenceMatchesTheServer(t *testing.T) {
 	refused := &APIError{Status: http.StatusServiceUnavailable, Code: "agent_messaging_relay_not_persistent"}
 	if !relayNotPersistent(refused) || relayNotPersistent(&APIError{Status: http.StatusServiceUnavailable, Code: "agent_messaging_disabled"}) {
 		t.Fatal("relay refusal classification is wrong")
+	}
+}
+
+// Regression (Eva-Marie, 2026-10-14): a 0.9.82 worker started directly (a
+// legacy unit after a binary update) against an API that does not refuse relays
+// resumed a dormant agent on a normal host. The worker must gate itself.
+func TestWorkerExitsBeforeRelayingOnNonPersistentHost(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	stubWorkerPolicy(t, workerForbidden)
+	done := make(chan error, 1)
+	var out bytes.Buffer
+	go func() { done <- RunWorker(context.Background(), "test", &out, io.Discard) }()
+	select {
+	case err := <-done:
+		if err != nil || !strings.Contains(out.String(), "not persistent") {
+			t.Fatalf("RunWorker = %v, output %q", err, out.String())
+		}
+		if strings.Contains(out.String(), "relay: connected") {
+			t.Fatal("worker connected a relay on a normal host")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker kept running on a normal host")
+	}
+}
+
+func TestWorkerExitsWhenTheHostLosesItsPersistentFlag(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	old, oldRecheck := workerPolicy, workerPolicyRecheck
+	t.Cleanup(func() { workerPolicy, workerPolicyRecheck = old, oldRecheck })
+	var calls atomic.Int32
+	workerPolicy = func() workerDecision {
+		if calls.Add(1) == 1 {
+			return workerAllowed
+		}
+		return workerForbidden
+	}
+	workerPolicyRecheck = 50 * time.Millisecond
+	done := make(chan error, 1)
+	go func() { done <- RunWorker(context.Background(), "test", io.Discard, io.Discard) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunWorker = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker kept running after the persistent flag was removed")
 	}
 }
