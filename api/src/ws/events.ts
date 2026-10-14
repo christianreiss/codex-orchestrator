@@ -110,6 +110,8 @@ export const WS_EVENT_TYPES = [
   // Settings
   'settings.changed',
   'engine.state.changed',
+  // A cxx release became current; triggers communicator owners' updater.
+  'version.wrapper_published',
 
   // Agent portal
   'agent_portal.state',

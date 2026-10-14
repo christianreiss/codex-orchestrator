@@ -32,6 +32,8 @@ const FRONTEND_EVENTS = resolve(HERE, '../../../../frontend/src/lib/ws/events.ts
 /** Published types that deliberately invalidate nothing, and why. */
 const UNMAPPED_EVENT_TYPES: Record<string, string> = {
   toast: 'not an invalidation — wireWsToQueryClient hands the payload to the sonner toaster',
+  'version.wrapper_published':
+    'communicator update trigger only — no console query reads the published release from this event',
   'host.force_delete_ip_mismatch':
     'audit alarm only — the same request also publishes host.deleted, which refreshes the host queries',
 };

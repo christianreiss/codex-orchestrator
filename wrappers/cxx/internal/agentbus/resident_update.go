@@ -26,11 +26,16 @@ import (
 // unit, verifies the request against the signed configuration itself and runs
 // the existing journaled `daemon install` migration from a root-owned copy.
 const (
-	residentUpdateRequestDir  = "/var/lib/cxx-daemon/requests"
-	residentUpdateRequestFile = residentUpdateRequestDir + "/update.json"
 	residentUpdatePathUnit    = "/etc/systemd/system/cxx-daemon-update.path"
 	residentUpdateServiceUnit = "/etc/systemd/system/cxx-daemon-update.service"
 )
+
+// residentUpdateRequestDir is a variable only so tests can relocate it.
+var residentUpdateRequestDir = "/var/lib/cxx-daemon/requests"
+
+func residentUpdateRequestFile() string {
+	return filepath.Join(residentUpdateRequestDir, "update.json")
+}
 
 // ResidentUpdateRequest names the target and where the verified bytes are. The
 // path is only a hint: the root helper accepts the bytes solely by digest.
@@ -71,13 +76,13 @@ func RequestResidentUpdate(version, sha, source string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), residentUpdateRequestFile)
+	return os.Rename(tmp.Name(), residentUpdateRequestFile())
 }
 
 // residentUpdateUnits renders the root path/oneshot pair. The oneshot inherits
 // the service's HOME and signed config paths so it reads the same configs.
 func residentUpdateUnits(environment, installed string) (pathUnit, serviceUnit string) {
-	pathUnit = fmt.Sprintf("[Unit]\nDescription=Codex Orchestrator resident update handoff\n[Path]\nPathChanged=%s\nUnit=cxx-daemon-update.service\n[Install]\nWantedBy=multi-user.target\n", residentUpdateRequestFile)
+	pathUnit = fmt.Sprintf("[Unit]\nDescription=Codex Orchestrator resident update handoff\n[Path]\nPathChanged=%s\nUnit=cxx-daemon-update.service\n[Install]\nWantedBy=multi-user.target\n", residentUpdateRequestFile())
 	serviceUnit = fmt.Sprintf("[Unit]\nDescription=Codex Orchestrator resident update handoff (root)\n[Service]\nType=oneshot\n%sExecStart=%s daemon apply-update\nUMask=0077\n", environment, systemdQuote(installed))
 	return pathUnit, serviceUnit
 }
@@ -93,16 +98,7 @@ func installResidentUpdateHandoff(account *user.User, environment, installed str
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(residentUpdateRequestDir, 0o700); err != nil {
-		return err
-	}
-	if info, err := os.Lstat(residentUpdateRequestDir); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("unsafe resident update request directory")
-	}
-	if err := os.Chown(residentUpdateRequestDir, uid, gid); err != nil {
-		return err
-	}
-	if err := os.Chmod(residentUpdateRequestDir, 0o700); err != nil {
+	if err := prepareResidentRequestDir(uid, gid); err != nil {
 		return err
 	}
 	pathUnit, serviceUnit := residentUpdateUnits(environment, installed)
@@ -118,13 +114,36 @@ func installResidentUpdateHandoff(account *user.User, environment, installed str
 	return runServiceProcess(stdout, stderr, "systemctl", "enable", "--now", "cxx-daemon-update.path")
 }
 
+// prepareResidentRequestDir creates the traversable parent (0755) and the
+// service-user-owned request directory (0700). A parent created 0700 by root
+// would make the request directory unreachable for the service user.
+func prepareResidentRequestDir(uid, gid int) error {
+	parent := filepath.Dir(residentUpdateRequestDir)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return err
+	}
+	if err := os.Chmod(parent, 0o755); err != nil {
+		return err
+	}
+	if err := os.Mkdir(residentUpdateRequestDir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	if info, err := os.Lstat(residentUpdateRequestDir); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("unsafe resident update request directory")
+	}
+	if err := os.Chown(residentUpdateRequestDir, uid, gid); err != nil {
+		return err
+	}
+	return os.Chmod(residentUpdateRequestDir, 0o700)
+}
+
 // applyResidentUpdate is the root oneshot. It trusts nothing in the request
 // except as a candidate: the signed config (verified with the baked key, not
 // expired) must name exactly that version and digest, the version must be newer
 // than the running service binary, and the bytes are copied into a root-owned
 // staging directory and re-hashed before anything is executed as root.
 func applyResidentUpdate(running string, stdout, stderr io.Writer) error {
-	info, err := os.Lstat(residentUpdateRequestFile)
+	info, err := os.Lstat(residentUpdateRequestFile())
 	if errors.Is(err, os.ErrNotExist) {
 		return nil // the path unit also fires on removal
 	}
@@ -145,7 +164,7 @@ func applyResidentUpdate(running string, stdout, stderr io.Writer) error {
 	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || strconv.FormatUint(uint64(stat.Uid), 10) != owner.Uid {
 		return errors.New("resident update request is not owned by the service user")
 	}
-	raw, err := os.ReadFile(residentUpdateRequestFile)
+	raw, err := os.ReadFile(residentUpdateRequestFile())
 	if err != nil {
 		return err
 	}
@@ -188,7 +207,7 @@ func applyResidentUpdate(running string, stdout, stderr io.Writer) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("resident update install: %w", err)
 	}
-	return os.Remove(residentUpdateRequestFile)
+	return os.Remove(residentUpdateRequestFile())
 }
 
 func unitUser(unit string) (*user.User, error) {

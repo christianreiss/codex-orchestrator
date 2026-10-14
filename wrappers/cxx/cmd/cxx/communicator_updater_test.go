@@ -34,7 +34,7 @@ var testSHA = strings.Repeat("ab", 32)
 func fixtureUpdater(env *fakeUpdaterEnv, signedVersion, signedSHA string, offer *orchestrator.CronWrapperBlock) (*commUpdater, *int) {
 	applied := 0
 	cfg := &config.Config{Engine: "codex", Orchestrator: config.Orchestrator{CommunicatorUpdateProtocol: communicator.UpdateProtocol}, Wrapper: config.Wrapper{Version: signedVersion, BinarySHA256: signedSHA, BinaryURL: "https://o.example/bin"}}
-	u := &commUpdater{env: env, running: env.Version(), backstop: time.Hour, quietPoll: 10 * time.Millisecond, now: time.Now,
+	u := &commUpdater{env: env, running: env.Version(), backstop: time.Hour, quietPoll: 10 * time.Millisecond, now: time.Now, retryDelay: time.Minute,
 		load:  func(string) (*config.Config, error) { return cfg, nil },
 		fetch: func(context.Context, *config.Config) (*config.Config, error) { return cfg, nil },
 		check: func(context.Context, *config.Config) (*orchestrator.CronCheckResponse, error) {
@@ -166,4 +166,48 @@ func (l *lockedEnv) Retire() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.fakeUpdaterEnv.Retire()
+}
+
+func TestUpdaterKeepsTheStagedTargetAcrossATransientApplyFailure(t *testing.T) {
+	env := &fakeUpdaterEnv{}
+	u, _ := fixtureUpdater(env, "0.9.82", testSHA, nil)
+	clock := time.Unix(1_800_000_000, 0)
+	u.now = func() time.Time { return clock }
+	calls := 0
+	u.apply = func(context.Context, string) error {
+		calls++
+		if calls == 1 {
+			return errors.New("maintenance already running")
+		}
+		return nil
+	}
+	target := &updateTarget{Version: "0.9.82", SHA256: testSHA}
+	if u.tryApply(context.Background(), target) {
+		t.Fatal("a transient apply failure must keep the staged target")
+	}
+	if u.tryApply(context.Background(), target) || calls != 1 {
+		t.Fatal("must wait for the retry delay before applying again")
+	}
+	clock = clock.Add(2 * time.Minute)
+	if !u.tryApply(context.Background(), target) || calls != 2 || env.retired != 1 {
+		t.Fatalf("retry after the delay must apply (calls=%d retired=%d)", calls, env.retired)
+	}
+}
+
+func TestUpdaterDropsTheTargetAfterRepeatedApplyFailures(t *testing.T) {
+	env := &fakeUpdaterEnv{}
+	u, _ := fixtureUpdater(env, "0.9.82", testSHA, nil)
+	clock := time.Unix(1_800_000_000, 0)
+	u.now = func() time.Time { return clock }
+	u.apply = func(context.Context, string) error { return errors.New("broken") }
+	target := &updateTarget{Version: "0.9.82", SHA256: testSHA}
+	for i := 1; i < maxApplyFailures; i++ {
+		if u.tryApply(context.Background(), target) {
+			t.Fatalf("dropped after %d failures", i)
+		}
+		clock = clock.Add(time.Hour)
+	}
+	if !u.tryApply(context.Background(), target) || env.reports[len(env.reports)-1].Reason != "apply_failed" {
+		t.Fatal("must drop and report after the bounded number of failures")
+	}
 }

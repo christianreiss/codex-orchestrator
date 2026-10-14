@@ -67,6 +67,11 @@ the same version and SHA-256, and it refuses downgrades.
    new binary.
 
 A shared or root-owned install is left to root and reports `requires_root`.
+A transient apply failure, such as the cron coordinator holding the
+maintenance lease, keeps the staged target and retries after two minutes. The
+target is dropped after five consecutive failures. The updater checks
+through the owner's anchor engine, so if that engine is fleet-suspended it
+reports `idle` (`check_failed`) until the next trigger.
 With the capability signed, scheduled cron ticks defer the wrapper swap and
 provider pointer switch while agents run; explicit `cxx update` is never
 deferred.

@@ -134,7 +134,11 @@ The oneshot (`cxx daemon apply-update`) then:
 - runs the existing journaled `daemon install` migration from that copy
 
 A failed or uncertain handoff keeps its journal and fence; nothing is
-replayed. The isolated systemd lab acceptance for this path is still pending.
+replayed. The oneshot runs the installed service binary, so every existing
+resident host needs one `sudo cxx daemon install` with cxx 0.9.81 or newer
+before handoffs become automatic: older services lack both the units and
+`daemon apply-update`. The isolated systemd lab acceptance for this path is
+still pending.
 
 ## Actual owner diagnostics
 

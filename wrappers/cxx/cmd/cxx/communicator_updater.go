@@ -45,6 +45,12 @@ type commUpdater struct {
 	backstop  time.Duration
 	quietPoll time.Duration
 	now       func() time.Time
+	// retryAfter/failures keep a staged target across transient apply
+	// failures (for example the cron coordinator holding the maintenance
+	// lease); the target is dropped only after maxApplyFailures in a row.
+	retryAfter time.Time
+	failures   int
+	retryDelay time.Duration
 
 	load     func(path string) (*config.Config, error)
 	fetch    func(ctx context.Context, seed *config.Config) (*config.Config, error)
@@ -59,7 +65,7 @@ type commUpdater struct {
 
 func newCommUpdater(env communicator.UpdaterEnv) *commUpdater {
 	return &commUpdater{
-		env: env, running: env.Version(), backstop: 6 * time.Hour, quietPoll: 5 * time.Second, now: time.Now,
+		env: env, running: env.Version(), backstop: 6 * time.Hour, quietPoll: 5 * time.Second, now: time.Now, retryDelay: 2 * time.Minute,
 		load: func(path string) (*config.Config, error) {
 			key, err := signing.PublicKey()
 			if err != nil {
@@ -221,7 +227,12 @@ func (u *commUpdater) run(ctx context.Context) {
 
 // tryApply applies a staged target once the host is quiet. It reports and
 // returns false while agents run, so the next poll re-evaluates the gate.
+const maxApplyFailures = 5
+
 func (u *commUpdater) tryApply(ctx context.Context, t *updateTarget) bool {
+	if u.now().Before(u.retryAfter) {
+		return false
+	}
 	if n := u.agents(); n > 0 {
 		u.report("waiting_for_quiet", t, n, "")
 		return false
@@ -239,9 +250,17 @@ func (u *commUpdater) tryApply(ctx context.Context, t *updateTarget) bool {
 	}
 	u.report("applying", t, 0, "")
 	if err := u.apply(ctx, exe); err != nil {
-		u.report("failed", t, 0, "apply_failed")
-		return true
+		u.failures++
+		if u.failures >= maxApplyFailures {
+			u.failures, u.retryAfter = 0, time.Time{}
+			u.report("failed", t, 0, "apply_failed")
+			return true
+		}
+		u.retryAfter = u.now().Add(u.retryDelay)
+		u.report("failed", t, 0, "apply_failed_retrying")
+		return false
 	}
+	u.failures, u.retryAfter = 0, time.Time{}
 	if u.env.Resident() {
 		if err := u.handoff(*t, exe); err != nil {
 			u.report("failed", t, 0, "handoff_request_failed")
