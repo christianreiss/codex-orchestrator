@@ -1234,6 +1234,29 @@ describe('wrapper-v2 routes', () => {
       }
     });
 
+    // cxx 0.9.71–0.9.74 owners reach the exact artifact here after the
+    // communicator's 307; it must be byte-identical to the bakery URL, and a
+    // version or platform that does not exist must not fall back to another build.
+    it('serves the exact bakery artifact under the /wrapper/v2/download alias', async () => {
+      const host = fakeHost();
+      const app = await productionApp(host);
+      try {
+        const bin = await app.inject({ method: 'GET', url: '/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx' });
+        const alias = await app.inject({ method: 'GET', url: '/wrapper/v2/download/cxx/linux-amd64/v1.0.1/cxx' });
+        expect(alias.statusCode).toBe(200);
+        expect(alias.rawPayload.equals(bin.rawPayload)).toBe(true);
+        expect(alias.headers['x-sha256']).toBe(bin.headers['x-sha256']);
+        for (const url of [
+          '/wrapper/v2/download/cxx/linux-amd64/v9.9.9/cxx',
+          '/wrapper/v2/download/cxx/linux-riscv64/v1.0.1/cxx',
+          '/wrapper/v2/download/cxx/linux-amd64/v1.0.1/cdx',
+        ])
+          expect((await app.inject({ method: 'GET', url })).statusCode, url).toBe(404);
+      } finally {
+        await app.close();
+      }
+    });
+
     it('answers a matching If-None-Match with 304, the same ETag and no body', async () => {
       const host = fakeHost();
       const app = await productionApp(host);

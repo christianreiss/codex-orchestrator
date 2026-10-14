@@ -4,7 +4,7 @@ import { communicatorRegistry } from '../../../src/services/topology/communicato
 import { wsPublisher } from '../../../src/ws/publisher.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { registerCommunicatorRoutes, communicatorPathAllowed, communicatorResponseMayRepeat } from '../../../src/routes/communicator.js';
+import { registerCommunicatorRoutes, communicatorPathAllowed, communicatorResponseMayRepeat, legacyBinaryRedirect } from '../../../src/routes/communicator.js';
 import { buildRouteApp } from '../../helpers/build-route-app.js';
 import { createMockDb } from '../../helpers/in-memory-db.js';
 
@@ -587,6 +587,71 @@ describe('communicator transfer routes stay off the control socket', () => {
     expect(replies).toHaveLength(1);
     expect(replies[0]!.status).toBe(200);
     expect(closed).not.toHaveBeenCalled();
+    ws.close();
+  });
+});
+
+describe('legacy owner self-update redirect', () => {
+  const bin = '/wrapper/v2/bin/cxx/linux-amd64/v0.9.80/cxx';
+  it('points the canonical bakery GET at the exact /download alias on the same origin and prefix', () => {
+    const location = legacyBinaryRedirect({ method: 'GET', path: bin })!;
+    for (const base of ['https://orch.example', 'https://orch.example/prefix'])
+      expect(new URL(location, base + bin).href).toBe(base + '/wrapper/v2/download/cxx/linux-amd64/v0.9.80/cxx');
+    // The owner sends any path containing /download over direct HTTPS, and the
+    // control socket keeps refusing it.
+    expect(communicatorPathAllowed('/wrapper/v2/download/cxx/linux-amd64/v0.9.80/cxx')).toBe(false);
+  });
+  it('redirects nothing else', () => {
+    for (const [method, path] of [
+      ['HEAD', bin],
+      ['POST', bin],
+      ['GET', bin + '?x=1'],
+      ['GET', bin + '/'],
+      ['GET', '/wrapper/v2/bin/cxx/linux-amd64/v0.9.80/..'],
+      ['GET', '/wrapper/v2/bin/cxx/linux-amd64/0.9.80/cxx'],
+      ['GET', '/wrapper/v2/bin/cxx/linux_amd64/v0.9.80/cxx'],
+      ['GET', '/wrapper/v2/bin/../linux-amd64/v0.9.80/cxx'],
+      ['GET', '/wrapper/v2/download/cxx/linux-amd64/v0.9.80/cxx'],
+      ['GET', '/wrapper/v2/meta'],
+    ])
+      expect(legacyBinaryRedirect({ method, path }), `${method} ${path}`).toBeNull();
+  });
+  it('answers the 0.9.72 owner frame with a 307; other forms still get 400', async () => {
+    await setup();
+    const ws = await open();
+    const replies = new Map<string, { status: number; headers: Record<string, string>; body: string }>();
+    ws.on('message', (data: unknown) => {
+      const r = JSON.parse(String(data));
+      replies.set(r.id, r);
+    });
+    const frame = (method: string, path: string) => {
+      const id = randomUUID();
+      ws.send(JSON.stringify({ id, type: 'request', method, path, headers: { 'user-agent': 'cxx-update/0.9.80' }, body: '' }));
+      return id;
+    };
+    const ok = frame('GET', bin);
+    const post = frame('POST', bin);
+    const head = frame('HEAD', bin);
+    const query = frame('GET', bin + '?x=1');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(replies.get(ok)).toEqual({ id: ok, status: 307, headers: { location: '../../../../download/cxx/linux-amd64/v0.9.80/cxx' }, body: '' });
+    for (const id of [post, head, query]) {
+      expect(replies.get(id)?.status).toBe(400);
+      expect(JSON.parse(Buffer.from(replies.get(id)!.body, 'base64').toString())).toMatchObject({ code: 'communicator_invalid_request' });
+    }
+    ws.close();
+  });
+  it('requires the connection to stay authorized', async () => {
+    await setup();
+    const ws = await open();
+    const closed = new Promise<void>((resolve) => ws.once('close', () => resolve()));
+    auth.allowed = false;
+    ws.send(JSON.stringify({ id: randomUUID(), type: 'request', method: 'GET', path: bin, headers: {}, body: '' }));
+    const reply = await Promise.race([
+      new Promise<string>((resolve) => ws.once('message', (data: unknown) => resolve(String(data)))),
+      closed.then(() => 'closed'),
+    ]);
+    if (reply !== 'closed') expect(JSON.parse(reply).status).not.toBe(307);
     ws.close();
   });
 });

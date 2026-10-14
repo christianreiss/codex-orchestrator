@@ -155,7 +155,16 @@ The server also refuses, before dispatch, every route the owner sends over its o
 stream (wrapper artifacts under `/wrapper/v2/bin/`, `/wrapper/v2/download*`,
 `/wrapper/download*`, any `/download` or `/attachments/` path, watchdog and connect
 paths) on every equivalent path form, so the router never buffers a binary or attachment
-for a control frame. Path checks use the pathname the router dispatches, so a trailing slash cannot
+for a control frame. One frame is answered rather than refused: cxx 0.9.71–0.9.74 owners
+route only paths containing `/download` or `/attachments/` (or ending in `/stream`) to HTTPS,
+so their self-update `GET /wrapper/v2/bin/{artifact}/{os-arch}/v{version}/{binary}` arrives
+as a frame, and those owners have no fallback for a refusal. The server answers exactly that
+`GET` (no query, strict segments) with a 307 to the relative
+`../../../../download/{artifact}/{os-arch}/v{version}/{binary}`, which resolves on the same
+origin and base-URL prefix to the exact-version `/wrapper/v2/download/...` alias. The updater
+follows it through the same owner (keeping `X-API-Key`, since the host is unchanged), the
+owner fetches it over direct HTTPS, and the updater's SHA-256 check against the cron-supplied
+digest is unchanged, so the redirect cannot substitute a different binary. Path checks use the pathname the router dispatches, so a trailing slash cannot
 reach a denied stream or skip MCP credential pinning. A malformed or disallowed
 request frame gets its own `400 communicator_invalid_request` reply; only an
 authorization failure closes the shared connection. A `host.*` event that

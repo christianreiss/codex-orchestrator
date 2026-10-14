@@ -55,6 +55,22 @@ export function communicatorPathAllowed(path: string): boolean {
   );
 }
 
+// cxx 0.9.71–0.9.74 owners send the self-update download (the canonical bakery URL)
+// as a control frame, because its path carries none of their transfer markers, and
+// have no fallback when it is refused — so those hosts could never update. Their
+// updater follows redirects through the same owner, which sends any path containing
+// "/download" over its own HTTPS stream. Answer exactly that GET with a 307 to the
+// version- and platform-exact /wrapper/v2/download alias; the binary itself never
+// enters a frame. The Location is relative to the request URL so it stays on the
+// same host (the updater keeps X-API-Key) and under any base-URL path prefix.
+const legacyBinPath = /^\/wrapper\/v2\/bin\/([a-z0-9]+)\/([a-z0-9]+-[a-z0-9]+)\/v([A-Za-z0-9][A-Za-z0-9._+-]*)\/([A-Za-z0-9][A-Za-z0-9._-]*)$/;
+export function legacyBinaryRedirect(frame: { method?: unknown; path?: unknown }): string | null {
+  if (frame.method !== 'GET' || typeof frame.path !== 'string') return null;
+  const m = legacyBinPath.exec(frame.path);
+  if (!m) return null;
+  return `../../../../download/${m[1]}/${m[2]}/v${m[3]}/${m[4]}`;
+}
+
 const requestSchema = z
   .object({
     id: z.string().uuid(),
@@ -457,6 +473,12 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           }
           if (parsed.type === 'request' && z.string().uuid().safeParse(parsed.id).success)
             rejectable = parsed.id;
+          const legacyBin = rejectable ? legacyBinaryRedirect(parsed) : null;
+          if (legacyBin) {
+            await authorize(req);
+            send({ id: parsed.id, status: 307, headers: { location: legacyBin }, body: '' });
+            return;
+          }
           const frame = requestSchema.parse(parsed);
           if (inFlight >= 128) {
             send({ id: frame.id, status: 429, headers: {}, body: '', error: 'communicator_busy' });

@@ -569,6 +569,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /wrapper/v2/download` — streams the binary built for the calling host's platform; `GET /wrapper/download` instead serves the transition script date-versioned shell wrappers update through.
 - `GET /wrapper/v2/manifest/{engine}` — per-platform manifest for `codex`, `claude`, or `grok`; an unknown engine returns `404 unknown_engine`.
 - `GET /wrapper/v2/bin/{engine}/{platform}/v:version/{binary}` — versioned binary route. The canonical common shape is `cxx/{platform}/v:version/cxx`; `{platform}` is `os-arch` (for example `linux-amd64`) and the version segment is a literal `v` followed by the version. Historical `{engine}/.../{cdx|clx}` shapes remain readable: exact old artifacts are immutable, while a new version without a split artifact transparently streams the matching `cxx` bytes.
+- `GET /wrapper/v2/download/{artifact}/{platform}/v:version/{binary}` — the same exact-version artifact under a `/download` path; the communicator 307s cxx 0.9.71–0.9.74 self-update frames here so those owners fetch it over direct HTTPS.
 - Platform is taken from `X-Wrapper-Platform: os-arch` when present, else inferred from the user agent (default `linux-amd64`). All wrapper routes require host auth, and every one of them returns `503 wrapper_v2_unavailable` while no active wrapper signing key is configured.
 
 ### CLI device auth

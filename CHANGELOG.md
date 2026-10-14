@@ -1,5 +1,7 @@
 # 2026-10-14
 
+- Hosts stuck on cxx 0.9.71–0.9.74 can self-update again. Their communicator sent the update download as a control frame, which the server refused with `400 communicator_invalid_request` on every cron tick. The server now answers that one request with a redirect to an exact-version `/wrapper/v2/download/...` URL that those owners fetch over direct HTTPS; the SHA-256 check is unchanged. No new wrapper release is needed.
+
 - Live Topology colors persistent communicators blue and spawned communicators purple using fresh owner-mode reports. Missing or stale reports stay neutral gray; labels and a legend explain the colors, while rings and connection lines retain health status.
 
 - Live Topology communicator labels now show the full FQDN instead of username and shortened host. Graph labels retain the complete domain; lists, details and action targets use the same label, including existing runtime disambiguation suffixes.

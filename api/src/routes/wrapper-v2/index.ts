@@ -46,6 +46,7 @@ import {
  *   GET  /wrapper/v2/download            → binary stream for the calling host's platform
  *   GET  /wrapper/v2/manifest/:engine    → per-platform manifest
  *   GET  /wrapper/v2/bin/:artifact/:plat/v:version/:binary → static binary
+ *   GET  /wrapper/v2/download/:artifact/:plat/v:version/:binary → same, legacy-owner alias
  *
  * Every endpoint is host-authenticated via `app.requireHost`.
  *
@@ -353,33 +354,42 @@ export async function registerWrapperV2Routes(
   );
 
   // GET /wrapper/v2/bin/:artifact/:platform/v:version/:binary
-  app.get<{
+  type BinRoute = {
     Params: { artifact: string; platform: string; version: string; binary: string };
-  }>(
+  };
+  const binHandler = async (req: FastifyRequest<BinRoute>, reply: FastifyReply) => {
+    await unavailableGuard();
+    const { artifact, platform, version, binary } = req.params;
+    const host = req.authHost;
+    if (!host)
+      throw new ServiceUnavailableError('host context missing', 'host_context_missing');
+    const m = /^([a-z0-9]+)-([a-z0-9]+)$/.exec(platform);
+    if (!m || !m[1] || !m[2])
+      throw new ValidationError('bad platform', { param: 'platform' });
+
+    if (artifact === CXX_ARTIFACT) {
+      if (binary !== CXX_ARTIFACT)
+        throw new NotFoundError('binary mismatch', 'binary_mismatch');
+      return streamBinary(req, reply, CXX_ARTIFACT, m[1], m[2], version);
+    }
+
+    if (!isEngine(artifact)) throw new NotFoundError('unknown engine', 'unknown_engine');
+    assertHostEngineAssigned(host, artifact);
+    const expectedName = ENGINE_COMMANDS[artifact];
+    if (binary !== expectedName) throw new NotFoundError('binary mismatch', 'binary_mismatch');
+    return streamBinary(req, reply, artifact, m[1], m[2], version);
+  };
+  app.get<BinRoute>(
     '/wrapper/v2/bin/:artifact/:platform/v:version/:binary',
     { preHandler: [app.requireHost] },
-    async (req, reply) => {
-      await unavailableGuard();
-      const { artifact, platform, version, binary } = req.params;
-      const host = req.authHost;
-      if (!host)
-        throw new ServiceUnavailableError('host context missing', 'host_context_missing');
-      const m = /^([a-z0-9]+)-([a-z0-9]+)$/.exec(platform);
-      if (!m || !m[1] || !m[2])
-        throw new ValidationError('bad platform', { param: 'platform' });
-
-      if (artifact === CXX_ARTIFACT) {
-        if (binary !== CXX_ARTIFACT)
-          throw new NotFoundError('binary mismatch', 'binary_mismatch');
-        return streamBinary(req, reply, CXX_ARTIFACT, m[1], m[2], version);
-      }
-
-      if (!isEngine(artifact)) throw new NotFoundError('unknown engine', 'unknown_engine');
-      assertHostEngineAssigned(host, artifact);
-      const expectedName = ENGINE_COMMANDS[artifact];
-      if (binary !== expectedName) throw new NotFoundError('binary mismatch', 'binary_mismatch');
-      return streamBinary(req, reply, artifact, m[1], m[2], version);
-    },
+    binHandler,
+  );
+  // The same exact-version artifact under a path cxx 0.9.71–0.9.74 owners fetch over
+  // direct HTTPS; the communicator 307s their control-frame bakery request here.
+  app.get<BinRoute>(
+    '/wrapper/v2/download/:artifact/:platform/v:version/:binary',
+    { preHandler: [app.requireHost] },
+    binHandler,
   );
 
   async function streamBinary(
