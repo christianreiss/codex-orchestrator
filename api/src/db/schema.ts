@@ -2318,6 +2318,8 @@ export const hostDaemons = mysqlTable('host_daemons', {
   enabledAt: varchar('enabled_at', { length: 100 }),
   updatedAt: varchar('updated_at', { length: 100 }).notNull(),
 });
+// Migration 0065 matches this table and every column referencing its id to
+// agent_sessions.id's charset/collation; Drizzle does not model per-column collation.
 export const hostDaemonSessions = mysqlTable('host_daemon_sessions', {
   id: char('id', { length: 36 }).primaryKey(),
   hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull().references(() => hosts.id, { onDelete: 'cascade' }),
