@@ -1,5 +1,7 @@
 # 2026-10-14
 
+- Warm-cache launches are always on wherever the communicator transport and central sync are enabled; `CXX_COMMUNICATOR_CACHE_ENABLED` is gone (a leftover `.env` line is ignored). The communicator fetches everything when it starts and pushed invalidations keep it current, so a launch on a synchronized scope sends only the auth exchange and the rest follows in the background. Insecure hosts keep the full bootstrap because their MCP bearer expires on a timer. No wrapper release is needed: cxx 0.9.81 owners already support this, and older owners keep answering "not primed".
+
 - The admin console no longer floods the API with refetches. Every WebSocket event used to cancel the in-flight refetch of each affected view and start a new one, so under steady fleet traffic (relay heartbeats, communicator and session changes) `/admin/topology` was requested ~330 times a minute, almost never finished, and kept the API's event loop saturated, which slowed every cdx/clx/cgx launch. Invalidations are now coalesced into a 750 ms window, never abort a running fetch, and give a still-fetching view one trailing refresh.
 
 - Hosts stuck on cxx 0.9.71–0.9.74 can self-update again. Their communicator sent the update download as a control frame, which the server refused with `400 communicator_invalid_request` on every cron tick. The server now answers that one request with a redirect to an exact-version `/wrapper/v2/download/...` URL that those owners fetch over direct HTTPS; the SHA-256 check is unchanged. No new wrapper release is needed.

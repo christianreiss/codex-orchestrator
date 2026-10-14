@@ -6,9 +6,12 @@ Provider inference still uses each native client's original network path.
 
 ## Warm-cache launches (cxx 0.9.81)
 
-`CXX_COMMUNICATOR_CACHE_ENABLED=true` adds the signed
-`orchestrator.communicator_cache_protocol: 1`. It requires the transport and
-sync capabilities and is never offered on its own. A running owner is current
+Warm-cache launches have no switch of their own: whenever the transport and
+central sync are on, the signed config carries
+`orchestrator.communicator_cache_protocol: 1`. (`CXX_COMMUNICATOR_CACHE_ENABLED`
+was removed on 2026-10-14; a leftover line in `.env` is ignored.) A launch
+loads only what it cannot start without; everything else follows from the
+owner. A running owner is current
 by construction: pushed invalidations, reconnect resyncs and the five-minute
 pass keep each scope's managed content up to date. Only a fresh owner, or a
 scope that owner has never synchronized, needs a blocking exchange.

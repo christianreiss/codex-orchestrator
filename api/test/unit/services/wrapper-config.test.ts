@@ -291,7 +291,7 @@ describe('wrapper-config', () => {
       expect(payload.orchestrator.communicator_sync_protocol).toBeUndefined();
     }
   });
-  it.each(['codex', 'claude', 'grok'] as const)('signs the cache and update capabilities for %s only on top of their prerequisites', async (engine) => {
+  it.each(['codex', 'claude', 'grok'] as const)('signs the cache capability for %s with central sync and the update capability on its flag', async (engine) => {
     const { privateKey } = generateKeyPairSync('ed25519');
     const signer: WrapperSigner = { kid:'1', fingerprint:FAKE_FINGERPRINT, publicKey:'pk', sign:payload => cryptoSign(null,Buffer.from(payload),privateKey) };
     const host = fakeHost({engines:'codex,claude,grok'});
@@ -300,10 +300,10 @@ describe('wrapper-config', () => {
         db: makeFakeDb({hosts:[host],agents:[],agentsState:[],clientConfigs:[],skills:[],updates:[]}),
         keyring:makeKeyring(), binaries:fakeBinaries(), signing:makeSigningService(signer), installationId:'cache-test',
         communicatorEnabled:transport, communicatorSyncEnabled:sync,
-        communicatorCacheEnabled:flag, communicatorUpdateEnabled:flag,
+        communicatorUpdateEnabled:flag,
       });
       const {payload} = await svc.bakeForHost(host,engine,'https://co.example');
-      expect(payload.orchestrator.communicator_cache_protocol).toBe(transport && sync && flag ? 1 : undefined);
+      expect(payload.orchestrator.communicator_cache_protocol).toBe(transport && sync ? 1 : undefined);
       expect(payload.orchestrator.communicator_update_protocol).toBe(transport && flag ? 1 : undefined);
     }
   });

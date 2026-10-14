@@ -172,7 +172,6 @@ export interface WrapperConfigDeps {
   communicatorEnabled?: boolean;
   communicatorSyncEnabled?: boolean;
   communicatorRuntimeEnabled?: boolean;
-  communicatorCacheEnabled?: boolean;
   communicatorUpdateEnabled?: boolean;
   /**
    * Staged cxx rollout state (services/wrapper-rollout.ts). Absent means no
@@ -494,12 +493,11 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         ...(deps.communicatorEnabled ? { communicator_protocol: 1 } : {}),
         ...(deps.communicatorEnabled && deps.communicatorSyncEnabled ? { communicator_sync_protocol: 1 } : {}),
         ...(deps.communicatorRuntimeEnabled ? { communicator_runtime_protocol: 1 } : {}),
-        // Warm-cache launches trust the owner's pushed content, so they need the
-        // shared transport and central sync; the updater needs the transport for
-        // its push trigger. Neither is offered on its own.
-        ...(deps.communicatorEnabled && deps.communicatorSyncEnabled && deps.communicatorCacheEnabled
-          ? { communicator_cache_protocol: 1 }
-          : {}),
+        // Warm-cache launches are part of central sync, not a separate rollout:
+        // the owner fetches everything when it starts and pushed invalidations
+        // keep it current, so a launch only needs what it cannot start without.
+        // The updater needs the transport for its push trigger.
+        ...(deps.communicatorEnabled && deps.communicatorSyncEnabled ? { communicator_cache_protocol: 1 } : {}),
         ...(deps.communicatorEnabled && deps.communicatorUpdateEnabled ? { communicator_update_protocol: 1 } : {}),
       },
       host: {
