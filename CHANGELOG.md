@@ -1,3 +1,7 @@
+# 2026-10-14
+
+- cxx 0.9.79 ships explicit guarded credential recovery, pending-upload protection after transport rollback, first-sync capability reporting, accurate Grok auth status and foreign-home native-entry protection. The accompanying API release avoids exclusive locks for empty relay polls and adds the covering audit-log index for fleet counters.
+
 # 2026-10-13
 
 - Fleet sync counters no longer scan the full audit log on every bootstrap. A covering action/time/host index and one database statement preserve exact recent-host and UTC day/month counts while reducing database work and pool usage. Migration 0063 adds the index online and can be reapplied safely.
