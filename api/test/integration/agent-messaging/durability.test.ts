@@ -23,7 +23,7 @@ import { createHostRegistrationService } from '../../../src/services/host-regist
 import { ENGINES, type Engine } from '../../../src/util/engine.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
-import { markPersistentHost } from '../../helpers/persistent-host.js';
+import { markPersistentHost, persistRelayUsers } from '../../helpers/persistent-host.js';
 
 const PREFIX = 'ztest-agent-messaging';
 const HOST_FQDN = `${PREFIX}.example`;
@@ -98,7 +98,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     host = rows[0]!;
     await markPersistentHost(db, host.id);
     env = { ...loadTestEnv(), AGENT_PORTAL_BRIDGE_TTL_SECONDS: 900 } as Env;
-    service = new AgentMessagingService(db, env, testKeyring());
+    service = persistRelayUsers(db, new AgentMessagingService(db, env, testKeyring()));
   });
 
   beforeEach(async () => {
@@ -255,7 +255,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       .rejects.toMatchObject({ code: 'agent_messaging_adapter_unavailable' });
 
     // A new service has no in-memory queue; admission and idempotency survive it.
-    service = new AgentMessagingService(db, env, testKeyring());
+    service = persistRelayUsers(db, new AgentMessagingService(db, env, testKeyring()));
     const repeated = await service.sendMessage(source.sessionId, source.bridgeToken, input);
     expect(repeated.message).toMatchObject({ id: messageId, status: 'queued' });
     const mailbox = await service.peekMailbox(target.sessionId, target.bridgeToken);

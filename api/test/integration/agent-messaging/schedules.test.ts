@@ -61,7 +61,7 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
       updatedAt: new Date().toISOString(),
     });
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, 'ztest-schedules.example')))[0]!;
-    await markPersistentHost(db, host.id);
+    await markPersistentHost(db, host.id, 'ztest-schedules');
     bus = new AgentMessagingService(db, loadTestEnv(), keyring);
     service = new SchedulesService(db, keyring);
   });
@@ -217,11 +217,19 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
       await expect(create(target.address.address)).rejects.toMatchObject({ code: 'schedule_host_not_persistent' });
       // An ordinary schedule needs no resume and stays allowed.
       await create(target.address.address, false);
+      // Persistence belongs to the daemon's account: another user on that persistent host is a normal user
+      // (feedback d69d6e38).
+      await markPersistentHost(db, host.id, 'someone-else');
+      await expect(bus.registerRelay(host, { username: 'ztest-schedules', instanceId: randomUUID(), wrapperVersion: 'test', capabilities: { execution_contract_version: 2 } }))
+        .rejects.toMatchObject({ code: 'agent_messaging_relay_not_persistent' });
+      await expect(bus.heartbeatRelay(String(relay.relay_id), String(relay.relay_token))).rejects.toMatchObject({ code: 'agent_messaging_relay_not_persistent' });
+      await expect(create(target.address.address)).rejects.toMatchObject({ code: 'schedule_host_not_persistent' });
+      await db.delete(hostDaemons).where(eq(hostDaemons.hostId, host.id));
       // A persistent host whose remote starts expired is not persistent either.
       await db.insert(hostDaemons).values({ hostId: host.id, settings: { enabled: true, expires_at: '2020-01-01T00:00:00.000Z', username: 'root', default_cwd: '', max_parallel: 8, idle_minutes: 60, question_minutes: 1440 }, updatedAt: new Date().toISOString() });
       await expect(create(target.address.address)).rejects.toMatchObject({ code: 'schedule_host_not_persistent' });
     } finally {
-      await markPersistentHost(db, host.id);
+      await markPersistentHost(db, host.id, 'ztest-schedules');
     }
     await expect(bus.heartbeatRelay(String(relay.relay_id), String(relay.relay_token))).resolves.toMatchObject({ enabled: true });
     await create(target.address.address);
@@ -237,7 +245,7 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
       expect(run).toMatchObject({ status: 'blocked', lastError: 'schedule_host_not_persistent', messageId: null });
       expect(await db.select().from(agentBusMessages).where(eq(agentBusMessages.targetAddressId, target.address.id))).toHaveLength(0);
     } finally {
-      await markPersistentHost(db, host.id);
+      await markPersistentHost(db, host.id, 'ztest-schedules');
     }
   });
   it('regular schedules wait instead of resuming an ended session', async () => {

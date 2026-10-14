@@ -1,5 +1,5 @@
 import { expireRebootHandoffs } from './reboot-handoffs.js';
-import { daemonAccepting, daemonResident } from './host-daemon/policy.js';
+import { daemonAccepting, daemonResidentFor } from './host-daemon/policy.js';
 import { assertHousekeepingAvailable } from './session-housekeeping.js';
 import { hostDaemons, hostDaemonSessions } from '../db/schema.js';
 import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from './agent-messaging/presence-feedback.js';
@@ -893,7 +893,7 @@ export class AgentMessagingService {
       const [daemon] = await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, host.id));
       if ((!daemon || !daemonAccepting(daemon.settings)) || username !== daemon.settings.username + ':daemon') throw new ForbiddenError('Daemon relay is not enabled');
     } else {
-      await this.assertPersistentHost(host.id);
+      await this.assertPersistentHost(host.id, username);
     }
     const instanceId = normalizeUuid(input.instanceId, 'instance_id');
     const wrapperVersion = normalizeRequiredText(input.wrapperVersion, 'wrapper_version', 64);
@@ -1889,16 +1889,16 @@ export class AgentMessagingService {
     this.assertEligibleHost(row.host);
     if (row.relay.tokenExpiresAt == null || row.relay.tokenExpiresAt <= nowIso()) throw new UnauthorizedError('Agent relay credential expired', 'agent_messaging_relay_expired');
     if (!safeHashEqual(hostAuthFingerprint(row.host), row.relay.hostAuthFingerprint)) throw new UnauthorizedError('Agent relay host credential changed', 'agent_messaging_relay_host_auth_changed');
-    if (requirePersistent && jsonRecord(row.relay.capabilities)?.host_daemon !== true && !(row.daemon && daemonResident(row.daemon))) {
+    if (requirePersistent && jsonRecord(row.relay.capabilities)?.host_daemon !== true && !(row.daemon && daemonResidentFor(row.daemon, row.relay.username))) {
       throw notPersistentRelay();
     }
     return row.relay;
   }
 
   /** Registration gate for a per-user relay; see authenticateRelay. */
-  private async assertPersistentHost(hostId: number): Promise<void> {
+  private async assertPersistentHost(hostId: number, username: string): Promise<void> {
     const [daemon] = await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, hostId)).limit(1);
-    if (!daemon || !daemonResident(daemon.settings)) throw notPersistentRelay();
+    if (!daemon || !daemonResidentFor(daemon.settings, username)) throw notPersistentRelay();
   }
 
   private async requireBridgeSessionLocked(db: AgentMessagingDb, sessionId: string, rawToken: string, hostId: number): Promise<AgentSession> {

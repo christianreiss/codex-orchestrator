@@ -45,6 +45,9 @@ Status: authoritative operator decision (Chris, 2026-10-14). Applies from cxx
   starts (`enabled`) are on and not expired (`daemonResident()` in
   `api/src/services/host-daemon/policy.ts`). It is set explicitly per host in the
   admin console; nothing else implies it.
+- Persistence belongs to the daemon's account (`host_daemons.settings.username`):
+  only that OS user may run a per-user relay or have dormant agents resumed.
+  Another user on the same host is a normal user.
 - Only here may processes keep running without an agent: the host daemon
   (`cxx-daemon.service`) and the per-user relay worker. Only here are dormant
   agents resumed for peer messages, persistent Wake/Cron schedules and watchdog

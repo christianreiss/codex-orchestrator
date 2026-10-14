@@ -162,3 +162,21 @@ func TestWorkerExitsWhenTheHostLosesItsPersistentFlag(t *testing.T) {
 		t.Fatal("worker kept running after the persistent flag was removed")
 	}
 }
+
+// Feedback d69d6e38: persistence belongs to the daemon's account. Another OS
+// user on a persistent host (root on biest, whose daemon runs as chris) is a
+// normal user and gets no worker.
+func TestWorkerPolicyRequiresTheDaemonUser(t *testing.T) {
+	persistentForChris := daemonSettings{Enabled: true, Username: "chris"}
+	if got := workerDecisionFor(persistentForChris, "chris"); got != workerAllowed {
+		t.Fatalf("daemon user decision = %v, want allowed", got)
+	}
+	for _, user := range []string{"root", ""} {
+		if got := workerDecisionFor(persistentForChris, user); got != workerForbidden {
+			t.Fatalf("user %q on chris's persistent host = %v, want forbidden", user, got)
+		}
+	}
+	if got := workerDecisionFor(daemonSettings{Username: "chris"}, "chris"); got != workerForbidden {
+		t.Fatalf("non-persistent host = %v, want forbidden", got)
+	}
+}

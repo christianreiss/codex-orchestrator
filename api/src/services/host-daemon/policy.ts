@@ -108,3 +108,11 @@ export function daemonExecutionEnabled(settings: DaemonSettings): boolean {
 export function daemonResident(settings: DaemonSettings): boolean {
   return settings.resident_enabled === true || daemonExecutionEnabled(settings);
 }
+
+/**
+ * Persistence belongs to the daemon's account, not the whole host: only that OS user may run a per-user relay or
+ * have dormant agents resumed (docs/host-runtime-policy.md). Another user on a persistent host is a normal user.
+ */
+export function daemonResidentFor(settings: DaemonSettings, username: string): boolean {
+  return daemonResident(settings) && settings.username === username;
+}

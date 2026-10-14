@@ -17,7 +17,7 @@ import {
   hosts,
   versions,
 } from '../db/schema.js';
-import { daemonResident } from './host-daemon/policy.js';
+import { daemonResidentFor } from './host-daemon/policy.js';
 import type { Keyring } from '../security/keyring.js';
 import { encrypt, decrypt } from '../security/secret-box.js';
 import { hostAuthFingerprint, safeHashEqual } from './agent-messaging/internals.js';
@@ -189,7 +189,7 @@ export class SchedulesService {
     // Resuming a dormant agent is remote execution: only a persistent host offers it (docs/host-runtime-policy.md).
     if (v.enabled && v.persistent) {
       const [daemon] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, target.hostId)).limit(1);
-      if (!daemon || !daemonResident(daemon.settings))
+      if (!daemon || !daemonResidentFor(daemon.settings, target.username))
         throw new ForbiddenError('Persistent schedules need a persistent host; this agent runs on a normal host', 'schedule_host_not_persistent');
     }
   }
@@ -499,7 +499,7 @@ export class SchedulesService {
     // ever claim it, and recovery would retry forever (docs/host-runtime-policy.md).
     if (run.persistent) {
       const [daemon] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, target.hostId)).limit(1);
-      if (!daemon || !daemonResident(daemon.settings)) {
+      if (!daemon || !daemonResidentFor(daemon.settings, target.username)) {
         await set({ status: 'blocked', lastError: 'schedule_host_not_persistent' });
         return;
       }

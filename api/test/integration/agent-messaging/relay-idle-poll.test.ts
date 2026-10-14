@@ -9,7 +9,7 @@ import { invalidateFleetEngineState } from '../../../src/services/engine-switch.
 import { ENGINES } from '../../../src/util/engine.js';
 import { readDbConfig } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
-import { markPersistentHost } from '../../helpers/persistent-host.js';
+import { markPersistentHost, persistRelayUsers } from '../../helpers/persistent-host.js';
 
 // Every bus transaction starts with the exclusive row lock on the enable flag; production relays polled it ~50 times a
 // second to find nothing. These tests pin what an idle relay poll may skip (the lock) and what it may never skip.
@@ -54,7 +54,7 @@ describe.skipIf(!config)(
           .onDuplicateKeyUpdate({ set: { version: '0' } });
       }
       invalidateFleetEngineState(db);
-      service = new AgentMessagingService(db, loadTestEnv(), testKeyring());
+      service = persistRelayUsers(db, new AgentMessagingService(db, loadTestEnv(), testKeyring()));
     });
 
     beforeEach(async () => {
@@ -187,9 +187,10 @@ describe.skipIf(!config)(
     }
 
     it('answers idle polls without waiting on the flag lock or pinning pool connections', async () => {
-      const relays = await Promise.all(
-        Array.from({ length: 6 }, (_, i) => offlineTargetWithRelay(`idle-${i}`)),
-      );
+      // Six concurrent idle polls against a two-connection pool. One relay polled six times: relays are per user, and
+      // only the daemon's user of a persistent host may run one (docs/host-runtime-policy.md).
+      const relay = await offlineTargetWithRelay('idle');
+      const relays = Array.from({ length: 6 }, () => relay);
       const lock = await holdFlagLock();
       try {
         const polls = relays.map((r) =>

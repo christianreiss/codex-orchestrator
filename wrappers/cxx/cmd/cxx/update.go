@@ -49,6 +49,10 @@ type hostUpdateDeps struct {
 	sync           func(context.Context, *config.Config) error
 	report         func(context.Context, *config.Config, string) error
 	reconcile      func(*config.Config, io.Writer)
+	// policy applies docs/host-runtime-policy.md right after an update, so a
+	// retired worker or a 15-minute cron line does not outlive the binary that
+	// installed it until the next maintenance run (feedback 5dd116a1).
+	policy func(context.Context, io.Writer) error
 }
 
 type engineUpdate struct {
@@ -255,6 +259,11 @@ func updateHost(ctx context.Context, args []string, w io.Writer, caps ui.Caps, d
 			}
 		}
 	}
+	if deps.policy != nil && ctx.Err() == nil {
+		if err := deps.policy(ctx, w); err != nil {
+			fmt.Fprintln(w, "cxx update: host runtime policy:", err)
+		}
+	}
 	return worst
 }
 
@@ -297,6 +306,11 @@ func defaultHostUpdateDeps() hostUpdateDeps {
 	logger := slog.New(slog.DiscardHandler)
 	return hostUpdateDeps{
 		reconcile: agentbus.ReconcileConfiguredHostDaemon,
+		policy: func(ctx context.Context, w io.Writer) error {
+			// Worker: only on a persistent host for this user, otherwise retired.
+			// Schedule: nightly on auto-update hosts, otherwise removed.
+			return errors.Join(agentbus.EnsureService(w, w), hostcron.Install(ctx, nil))
+		},
 		assignments: func(ctx context.Context, seed *config.Config, output io.Writer) ([]*config.Config, error) {
 			exe, err := os.Executable()
 			if err != nil {

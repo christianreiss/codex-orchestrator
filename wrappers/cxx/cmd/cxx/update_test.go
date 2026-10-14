@@ -394,3 +394,25 @@ func TestHostUpdateReconcilesDaemonWhenAlreadyCurrent(t *testing.T) {
 		t.Fatalf("calls=%d output=%s", calls, &out)
 	}
 }
+
+// Feedback 5dd116a1: the update must apply the host runtime policy itself
+// (retire a worker on a non-persistent host, reconcile the maintenance line)
+// instead of leaving it to the next maintenance run.
+func TestHostUpdateAppliesRuntimePolicyAfterEngines(t *testing.T) {
+	f := newUpdateFixture(t, "codex", "claude")
+	calls := 0
+	f.deps.policy = func(context.Context, io.Writer) error {
+		calls++
+		if len(f.syncs) != 2 {
+			t.Fatal("policy applied before engine sync", f.syncs)
+		}
+		return errors.New("crontab unavailable")
+	}
+	var out bytes.Buffer
+	if code := updateHost(context.Background(), nil, &out, ui.Caps{}, f.deps, false); code != 0 {
+		t.Fatal("a policy failure must not fail an otherwise successful update", code, &out)
+	}
+	if calls != 1 || !strings.Contains(out.String(), "host runtime policy: crontab unavailable") {
+		t.Fatalf("calls=%d output=%s", calls, &out)
+	}
+}

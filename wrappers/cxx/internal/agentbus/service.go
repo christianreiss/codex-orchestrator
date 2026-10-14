@@ -141,8 +141,10 @@ const (
 	workerUnknown
 )
 
-// workerPolicy asks the server whether this host is persistent. A host without
-// a messaging-enabled config cannot run a relay at all.
+// workerPolicy asks the server whether this host is persistent for this OS
+// user: persistence belongs to the daemon's account (settings.Username), so
+// another user on a persistent host gets no worker. A host without a
+// messaging-enabled config cannot run a relay at all.
 var workerPolicy = func() workerDecision {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -153,7 +155,11 @@ var workerPolicy = func() workerDecision {
 		}
 		return workerUnknown
 	}
-	if hostPersistent(settings) {
+	return workerDecisionFor(settings, currentUserName())
+}
+
+func workerDecisionFor(settings daemonSettings, user string) workerDecision {
+	if hostPersistent(settings) && user != "" && settings.Username == user {
 		return workerAllowed
 	}
 	return workerForbidden

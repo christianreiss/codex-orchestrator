@@ -67,7 +67,7 @@ describe.skipIf(!handle)('bounded task watchdogs on MySQL', { timeout: 120000 },
       updatedAt: new Date().toISOString(),
     });
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, 'ztest-watchdogs.example')))[0]!;
-    await markPersistentHost(db, host.id);
+    await markPersistentHost(db, host.id, 'ztest-watchdogs');
     bus = new AgentMessagingService(db, loadTestEnv(), keyring);
     service = new SchedulesService(db, keyring);
     watchdogs = new WatchdogsService(db, keyring);
