@@ -11,6 +11,7 @@
   import NativeSettingsEditor from "$lib/components/settings/NativeSettingsEditor.svelte";
   import ClaudeFleetSettings from "$lib/components/settings/ClaudeFleetSettings.svelte";
   import EngineMasterSwitches from "$lib/components/settings/EngineMasterSwitches.svelte";
+  import WrapperRolloutSection from "$lib/components/settings/WrapperRolloutSection.svelte";
   import { Badge } from "$lib/components/ui/badge";
   import { useFleetEngines, FLEET_DISABLED_TAG } from "$lib/engines/fleet-engines";
   import { ENGINE_META, type Engine } from "$lib/constants/engines";
@@ -41,6 +42,7 @@
 <nav class="mb-6 flex flex-wrap gap-2 rounded-lg border bg-card p-2" aria-label="Engine settings sections">
   {#each [
     { id: 'engine-state', label: 'Master switches', dot: '' },
+    { id: 'cxx-rollout', label: 'cxx rollout', dot: '' },
     { id: 'codex-defaults', label: 'Codex', dot: 'bg-persona-codex' },
     { id: 'claude-defaults', label: 'Claude', dot: 'bg-persona-claude' },
     { id: 'grok-defaults', label: 'Grok', dot: 'bg-persona-grok' },
@@ -61,6 +63,14 @@
       <p>Turn Codex, Claude, or Grok off everywhere at once. The admin console never depends on an engine.</p>
     </div>
     <EngineMasterSwitches headingLevel={3} />
+  </section>
+
+  <section id="cxx-rollout" class="setting-boundary">
+    <div class="setting-boundary__head">
+      <h2>cxx releases</h2>
+      <p>How a newly deployed wrapper reaches the fleet.</p>
+    </div>
+    <WrapperRolloutSection headingLevel={3} />
   </section>
 
   <section id="codex-defaults" class="setting-boundary">

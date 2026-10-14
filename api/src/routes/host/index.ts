@@ -22,6 +22,7 @@ import {
 import { isLegacyShellWrapperVersion } from '../../services/wrapper-transition.js';
 import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
 import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-projection.js';
+import { loadWrapperRollout, resolveHostWrapperTarget } from '../../services/wrapper-rollout.js';
 import { assertHostEngineEnabled, type FleetEngineState } from '../../services/host-engine-policy.js';
 import { readFleetEngineState } from '../../services/engine-switch.js';
 
@@ -136,9 +137,23 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const probe = body.probe === true;
     const requestedPlatform = resolveWrapperPlatform(req.headers);
     const baseUrl = resolvePublicBaseUrl(req, ctx.env.PUBLIC_BASE_URL);
+    const fleetSnapshot = await versions.summary(engine);
+    // Staged rollout: a host not yet admitted keeps its current cxx target.
+    // The signed config's wrapper block applies the same gate (wrapper-config.ts).
+    const gatedSnapshot = fleetSnapshot.wrapper_version
+      ? {
+          ...fleetSnapshot,
+          wrapper_version: resolveHostWrapperTarget(
+            ctx.env.CXX_WRAPPER_ROLLOUT_ENABLED ? await loadWrapperRollout(ctx.db) : null,
+            host.id,
+            fleetSnapshot.wrapper_version,
+            submittedWrapper,
+          ),
+        }
+      : fleetSnapshot;
     const summary = applyHostVersionPolicy(
       await projectWrapperVersionSnapshot({
-        snapshot: await versions.summary(engine),
+        snapshot: gatedSnapshot,
         engine,
         submittedWrapperVersion: submittedWrapper,
         platform: requestedPlatform,

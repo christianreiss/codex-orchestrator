@@ -378,6 +378,11 @@ stop), which stay enforced under `compatible` authorization.
 
 ## Rollout and checks
 
+Which cxx release a host's signed config and `/cron/check` name is subject to the
+staged cxx rollout when `CXX_WRAPPER_ROLLOUT_ENABLED` is on: a host joins a new
+release at its canary or wave stage, not at publish time. See
+[wrapper-v2-architecture.md](wrapper-v2-architecture.md#staged-rollout-canary-and-waves).
+
 Keep the server capability off while deploying the compatible server and wrapper.
 Then enable it, sync clients and validate mixed-engine concurrency, server
 reconnect, local crash recovery, auth isolation and push propagation. Existing

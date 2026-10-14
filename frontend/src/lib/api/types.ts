@@ -818,6 +818,8 @@ export interface HostListItem {
   insecure_window_minutes: number | null;
   curl_insecure: boolean;
   browseros_mcp_enabled: boolean;
+  /** Receives staged cxx rollouts before every wave. Absent from older APIs. */
+  wrapper_canary?: boolean;
   last_cron_check: string | null;
   /** When the one-time installer token was fetched by `/install/:token`. */
   installer_used_at?: string | null;

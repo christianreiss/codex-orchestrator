@@ -40,6 +40,8 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // Hosts + overview dashboard counters
   // `setup` too: the checklist counts registered and synced hosts, and the
   // installer-progress view in the wizard reads both.
+  "version.wrapper_rollout": [["wrapper-rollout"], ["topology"]],
+  "version.wrapper_rollout_advanced": [["wrapper-rollout"], ["topology"]],
   "host.updated": [["hosts"], ["overview"], ["agent-messaging"], ["setup"], ["host-daemons"], ["topology"]],
   "host.created": [["hosts"], ["overview"], ["setup"]],
   "host.deleted": [["hosts"], ["overview"], ["agent-messaging"]],

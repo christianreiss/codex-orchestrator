@@ -757,7 +757,7 @@ function hostRow(apiKey: string) {
     claudeReasoningEffortOverride: null,
     claudeLastRefresh: null,
     configVersion: 0,
-    wrapperTrack: 'v2',
+    wrapperTrack: 'v2', wrapperCanary: 0,
     createdAt: '2026-05-18T00:00:00Z',
     updatedAt: '2026-05-18T00:00:00Z',
   };

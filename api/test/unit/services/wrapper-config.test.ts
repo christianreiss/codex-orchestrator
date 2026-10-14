@@ -97,7 +97,7 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     grokReasoningEffortOverride: null,
     grokLastRefresh: null,
     configVersion: 4,
-    wrapperTrack: 'v2',
+    wrapperTrack: 'v2', wrapperCanary: 0,
     createdAt: '2026-05-01T00:00:00Z',
     updatedAt: '2026-05-15T00:00:00Z',
     ...overrides,
@@ -289,6 +289,34 @@ describe('wrapper-config', () => {
       expect(payload.orchestrator.communicator_runtime_protocol).toBe(enabled ? 1 : undefined);
       expect(payload.orchestrator.communicator_protocol).toBeUndefined();
       expect(payload.orchestrator.communicator_sync_protocol).toBeUndefined();
+    }
+  });
+  it('gates the signed wrapper block with the staged rollout, like /cron/check', async () => {
+    const { privateKey } = generateKeyPairSync('ed25519');
+    const signer: WrapperSigner = { kid:'1', fingerprint:FAKE_FINGERPRINT, publicKey:'pk', sign:payload => cryptoSign(null,Buffer.from(payload),privateKey) };
+    const binaries: WrapperBinRegistry = {
+      ...fakeBinaries(),
+      async resolveVersion(_engine, _os, _arch, version) {
+        return { version, sha256: 'b'.repeat(64), size_bytes: 1, artifact: 'cxx', path: '/fixtures/old' };
+      },
+    };
+    const rollout = {
+      id: 'r1', target_version: '1.0.1', from_version: '1.0.0',
+      stages: [{ kind: 'canary' as const }, { kind: 'percent' as const, percent: 100 }],
+      stage_index: 0, stage_started_at: '2026-10-14T00:00:00Z', soak_minutes: 30,
+      status: 'active' as const, halted_reason: null, admitted_host_ids: [7],
+      started_at: '2026-10-14T00:00:00Z', updated_at: '2026-10-14T00:00:00Z', history: [],
+    };
+    for (const [id, version, sha] of [[7, '1.0.1', 'a'.repeat(64)], [8, '1.0.0', 'b'.repeat(64)]] as const) {
+      const host = fakeHost({ id });
+      const svc = createWrapperConfigService({
+        db: makeFakeDb({hosts:[host],agents:[],agentsState:[],clientConfigs:[],skills:[],updates:[]}),
+        keyring:makeKeyring(), binaries, signing:makeSigningService(signer), installationId:'rollout-test',
+        wrapperRollout: async () => rollout,
+      });
+      const { payload } = await svc.bakeForHost(host, 'codex', 'https://co.example', { os: 'linux', arch: 'amd64' });
+      expect(payload.wrapper.version).toBe(version);
+      expect(payload.wrapper.binary_sha256).toBe(sha);
     }
   });
   it('throws WrapperSigningUnavailableError when no signer is loaded', async () => {

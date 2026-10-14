@@ -109,6 +109,9 @@ export const WS_EVENT_TYPES = [
 
   // Settings
   'settings.changed',
+  // Staged cxx rollout (services/wrapper-rollout.ts). Also re-arms communicator updates.
+  'version.wrapper_rollout',
+  'version.wrapper_rollout_advanced',
   'engine.state.changed',
 
   // Agent portal

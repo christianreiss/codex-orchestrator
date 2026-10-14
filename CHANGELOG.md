@@ -1,5 +1,7 @@
 # 2026-10-14
 
+- cxx releases can roll out in stages: canary hosts first, then 10%, 50% and 100% waves, each after a 30-minute soak and one host confirmed on the new build. `/cron/check` and the signed wrapper config hold not-yet-admitted hosts on their current release. Engines → cxx rollout shows progress with Halt, Resume, Promote and Release-to-all; hosts get a canary toggle, and Live Topology marks outdated communicators. Off by default (`CXX_WRAPPER_ROLLOUT_ENABLED`).
+
 - Live Topology colors persistent communicators blue and spawned communicators purple using fresh owner-mode reports. Missing or stale reports stay neutral gray; labels and a legend explain the colors, while rings and connection lines retain health status.
 
 - Live Topology communicator labels now show the full FQDN instead of username and shortened host. Graph labels retain the complete domain; lists, details and action targets use the same label, including existing runtime disambiguation suffixes.

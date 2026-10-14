@@ -54,7 +54,7 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     claudeReasoningEffortOverride: null,
     claudeLastRefresh: null,
     configVersion: 0,
-    wrapperTrack: 'v2',
+    wrapperTrack: 'v2', wrapperCanary: 0,
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
     ...overrides,

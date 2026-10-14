@@ -473,6 +473,47 @@ migration and rollback window are closed. Editing DB pointers while a complete
 `bin/cxx` matrix remains active is ineffective because boot derives and
 rewrites those compatibility keys from the published artifact store.
 
+### Staged rollout (canary and waves)
+
+With `CXX_WRAPPER_ROLLOUT_ENABLED=true`, a deploy no longer releases a new cxx to
+every host at once. API boot compares the previous fleet version in `versions`
+with the newly projected one; an upgrade opens a rollout in the `wrapper_rollout`
+row (`api/src/services/wrapper-rollout.ts`), a newer publish during a rollout
+supersedes it from the same floor, and a lower `current` (a manifest rollback)
+cancels it.
+
+Stages come from `CXX_WRAPPER_ROLLOUT_STAGES` (default `canary,10,50,100`). The
+canary stage admits hosts with `hosts.wrapper_canary = 1`; each percentage stage
+adds the first ⌈p·n/100⌉ (at least one) remaining hosts in a per-rollout hash
+order. Hosts with auto-update forced off are never counted. Admission only grows.
+
+Two call sites apply the same gate per host: `/cron/check` and the signed
+`/wrapper/v2/config` `wrapper` block. An unadmitted host that does not already
+run the target is offered the version it is on, so `/cron/check` returns
+`wrapper.action:"no_update"`. The communicator updater applies a release only
+when both answers agree, so a disagreement fails safe. If a held host's previous
+build is no longer published, `/cron/check` offers no target at all and the host
+stays put.
+
+A one-minute worker advances the active stage once its soak
+(`CXX_WRAPPER_ROLLOUT_SOAK_MINUTES`, default 30) has passed and at least one
+admitted host reports the target, either through `/cron/report` or a live
+communicator. An empty stage advances at once. Hosts lagging behind are not a
+failure signal: a busy host applies only after its agents are idle. The worker
+halts automatically when a target-version communicator owner on an admitted
+host closes on its own three or more times within the stage. That signal lives
+in the in-memory topology registry and resets on an API restart, so the
+operator's halt is the real control. Each advance publishes
+`version.wrapper_rollout_advanced`, which re-arms the communicator update trigger
+and invalidates signed configs.
+
+Operators manage it from Engines → cxx rollout (`GET /admin/wrapper/rollout`,
+`POST /admin/wrapper/rollout/{halt|resume|promote|complete}`) and mark canaries
+on the host page (`POST /admin/hosts/{id}/wrapper-canary`). Halting freezes the
+waves but never moves a host back; `cxx update` refuses downgrades. A real
+rollback remains the procedure above. Turning the flag off releases every host
+immediately.
+
 ## Observability
 
 Both sides of the wrapper stack can emit OpenTelemetry spans, and both are off
