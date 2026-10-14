@@ -5,6 +5,7 @@
   import { Dialog } from 'bits-ui';
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { authStore } from '$lib/stores/auth';
+  import { engineLabel } from '$lib/constants/engines';
   import { api } from '$lib/api/client';
   import { chattyKeys, fetchChattyStatus, fetchChattySession, chattyContext, type ChattyEvent, type Engine } from '$lib/api/chatty';
   import MarkdownBody from '$lib/components/portal/MarkdownBody.svelte';
@@ -23,6 +24,8 @@
   const status = createQuery(toStore(() => ({ queryKey: [...chattyKeys.status, $authStore.user?.id], queryFn: fetchChattyStatus, enabled: $authStore.can('chatty.use'), refetchInterval: 30000, retry: false })));
   const session = createQuery(toStore(() => ({ queryKey: [...chattyKeys.session, $authStore.user?.id], queryFn: () => fetchChattySession(), enabled: open && $authStore.can('chatty.use'), retry: false })));
   const active = $derived($session.data?.active);
+  const selectionLocked = $derived(busy || !!active || !$session.data);
+  const selectedEngine = $derived($status.data?.engines.find(engine => engine.engine === $session.data?.selection.engine));
   const events = $derived([...($session.data?.generation === olderGeneration ? older : []), ...($session.data?.events ?? [])].filter((e, i, a) => a.findIndex(x => x.id === e.id) === i));
   const canSend = $derived(!!$status.data?.ready && !busy && (!active || active.status === 'waiting_input'));
   const pending = (event: ChattyEvent) => event.body.status === 'pending' && active?.status === 'waiting_confirmation' && active.id === event.runId && !events.some(e => e.kind === 'result' && e.body.id === event.body.id);
@@ -54,6 +57,7 @@
     input?.focus();
   }
   async function select(engine: string, model: string | null = null) {
+    if (selectionLocked) return;
     await operation(() => api.put('/admin/chatty/selection', { engine: (engine || null) as Engine | null, model }));
   }
   async function more() {
@@ -99,16 +103,24 @@
             <Dialog.Close class="icon-button" aria-label="Chatty minimieren"><Minus size={19}/></Dialog.Close>
           </div>
         </div>
-        <div class="flex gap-2 border-b px-3 py-2">
-          <select aria-label="Chatty Engine" class="min-w-0 flex-1 rounded border bg-background p-1 text-xs" value={$session.data?.selection.engine ?? ''} onchange={(e) => void select(e.currentTarget.value)} disabled={busy || !!active}>
-            <option value="">Automatisch</option>
-            {#each $status.data.engines as engine}<option value={engine.engine}>{engine.engine}{engine.ready ? '' : ' · nicht verfügbar'}</option>{/each}
-          </select>
+        <div class="min-w-0 shrink-0 space-y-1 border-b px-3 py-2">
+          <div class="flex flex-wrap gap-1" role="group" aria-label="Chatty Engine">
+            <button type="button" class="selection-button" aria-pressed={!$session.data?.selection.engine} disabled={selectionLocked} onclick={() => void select('')}>Automatisch</button>
+            {#each $status.data.engines as engine (engine.engine)}
+              <button type="button" class="selection-button inline-flex items-center gap-1.5" aria-pressed={$session.data?.selection.engine === engine.engine} disabled={selectionLocked}
+                aria-label={`${engineLabel(engine.engine)}${engine.ready ? '' : ' · nicht verfügbar'}`}
+                title={engine.ready ? undefined : engine.reason ?? 'Nicht verfügbar'} onclick={() => void select(engine.engine)}>
+                {engineLabel(engine.engine)}{#if !engine.ready}<span class="h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true"></span>{/if}
+              </button>
+            {/each}
+          </div>
           {#if $session.data?.selection.engine}
-            <select aria-label="Chatty Modell" class="min-w-0 flex-1 rounded border bg-background p-1 text-xs" value={$session.data.selection.model ?? ''} onchange={(e) => void select($session.data!.selection.engine!, e.currentTarget.value || null)} disabled={busy || !!active}>
-              <option value="">Standardmodell</option>
-              {#each $status.data.engines.find(e => e.engine === $session.data?.selection.engine)?.models ?? [] as model}<option value={model.id}>{model.display_name}</option>{/each}
-            </select>
+            <div class="flex gap-1 overflow-x-auto py-1" role="group" aria-label="Chatty Modell">
+              <button type="button" class="selection-button" aria-pressed={!$session.data.selection.model} disabled={selectionLocked} onclick={() => void select($session.data!.selection.engine!)}>Standardmodell</button>
+              {#each selectedEngine?.models ?? [] as model (model.id)}
+                <button type="button" class="selection-button max-w-[16rem] truncate" title={model.display_name} aria-pressed={$session.data.selection.model === model.id} disabled={selectionLocked} onclick={() => void select($session.data!.selection.engine!, model.id)}>{model.display_name}</button>
+              {/each}
+            </div>
           {/if}
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto p-3" role="log" aria-label="Chatty Gespräch" aria-live="polite" aria-relevant="additions">
@@ -150,6 +162,11 @@
 {/if}
 
 <style>
+  .selection-button { flex-shrink: 0; border-radius: .375rem; padding: .375rem .625rem; font-size: .75rem; line-height: 1rem; font-weight: 500; background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); transition: background-color .15s, color .15s; }
+  .selection-button:hover { color: hsl(var(--foreground)); }
+  .selection-button[aria-pressed="true"] { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+  .selection-button:disabled { cursor: not-allowed; opacity: .5; }
+  .selection-button:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
   :global(.chatty-launcher) { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 40; width: 52px; height: 52px; border-radius: 1rem; color: hsl(var(--primary)); background: hsl(var(--background)); box-shadow: 0 4px 24px #0003; padding: 4px; }
   :global(.chatty-launcher:focus-visible), :global(.icon-button:focus-visible) { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
   :global(.chatty-panel) { position: fixed; right: 1.25rem; bottom: 5.25rem; z-index: 50; width: min(420px, calc(100vw - 2rem)); height: min(640px, calc(100dvh - 7rem)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid hsl(var(--border)); border-radius: 1rem; background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: 0 12px 50px #0004; }

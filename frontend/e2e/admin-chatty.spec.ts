@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import type { Selection } from '../src/lib/api/chatty';
 
 test('Chatty gates availability, persists the conversation and confirms concrete changes', async ({ page }) => {
   let generation = 1;
+  let selection: Selection = { engine: null, model: null };
   let events: unknown[] = [];
   let active: { id: string; status: string; generation: number; steps: number } | null = null;
   let ready = true;
@@ -18,9 +20,14 @@ test('Chatty gates availability, persists the conversation and confirms concrete
     if (path === '/admin/ws/info') return json({ enabled: false });
     if (path === '/admin/engines/state') return json({ engines: ['codex', 'claude', 'grok'].map(engine => ({ engine, enabled: true })) });
     if (path === '/admin/hosts') return json({ hosts: [] });
-    if (path === '/admin/chatty/status') return json({ visible: true, ready, enabled: true, knowledge_version: 'test', engines: [{ engine: 'codex', ready, models: [{ id: 'model', display_name: 'Testmodell' }], default_model: 'model', reason: null }] });
+    if (path === '/admin/chatty/status') return json({ visible: true, ready, enabled: true, knowledge_version: 'test', engines: ['codex', 'claude', 'grok'].map(engine => ({ engine, ready, models: [{ id: 'model', display_name: 'Testmodell' }, { id: 'model-large', display_name: 'Ein Modell mit einem langen Anzeigenamen für schmale Bildschirme' }], default_model: 'model', reason: null })) });
     if (path === '/admin/chatty/session' && req.method() === 'DELETE') { generation++; events = []; active = null; cleared++; return json({ generation }); }
-    if (path === '/admin/chatty/session') return json({ generation, selection: { engine: null, model: null }, events, active, has_older: false });
+    if (path === '/admin/chatty/session') return json({ generation, selection, events, active, has_older: false });
+    if (path === '/admin/chatty/selection' && req.method() === 'PUT') {
+      expect(active).toBe(null);
+      selection = req.postDataJSON();
+      return json(selection);
+    }
     if (path === '/admin/chatty/messages') {
       const body = req.postDataJSON();
       expect(body.generation).toBe(generation); expect(body.client_message_id).toMatch(/^[a-f0-9-]{36}$/);
@@ -40,10 +47,32 @@ test('Chatty gates availability, persists the conversation and confirms concrete
   await page.getByRole('button', { name: 'Chatty öffnen' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('combobox')).toHaveCount(0);
+  const engines = dialog.getByRole('group', { name: 'Chatty Engine', exact: true });
+  const models = dialog.getByRole('group', { name: 'Chatty Modell', exact: true });
+  await expect(engines.getByRole('button', { name: 'Automatisch' })).toHaveAttribute('aria-pressed', 'true');
+  for (const name of ['Codex', 'Claude', 'Grok']) {
+    const engine = engines.getByRole('button', { name, exact: true });
+    await engine.click();
+    await expect(engine).toHaveAttribute('aria-pressed', 'true');
+    await expect(models.getByRole('button', { name: 'Standardmodell' })).toHaveAttribute('aria-pressed', 'true');
+    await models.getByRole('button', { name: 'Testmodell', exact: true }).click();
+    await expect(models.getByRole('button', { name: 'Testmodell', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    expect(selection).toEqual({ engine: name.toLowerCase(), model: 'model' });
+    await models.getByRole('button', { name: 'Standardmodell' }).click();
+    await expect(models.getByRole('button', { name: 'Standardmodell' })).toHaveAttribute('aria-pressed', 'true');
+    expect(selection.model).toBe(null);
+  }
+  await expect(models.getByRole('button', { name: 'Standardmodell' })).toBeEnabled();
+  await page.screenshot({ path: '/tmp/chatty-selection-buttons-desktop.png', animations: 'disabled' });
+  await engines.getByRole('button', { name: 'Automatisch' }).click();
+  await expect(models).toHaveCount(0);
+  expect(selection).toEqual({ engine: null, model: null });
   await page.getByRole('textbox', { name: 'Nachricht an Chatty' }).fill('Lösche den Host test.example');
   await page.getByRole('button', { name: 'Nachricht senden' }).click();
   await expect(page.getByText('Host test.example löschen')).toBeVisible();
   expect(decided).toBe(false);
+  for (const button of await engines.getByRole('button').all()) await expect(button).toBeDisabled();
   await page.getByText('Änderung ansehen').click();
   await expect(dialog.getByText('"id": 42', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Bestätigen', exact: true }).click();
@@ -58,6 +87,18 @@ test('Chatty gates availability, persists the conversation and confirms concrete
   await page.setViewportSize({ width: 390, height: 844 });
   const bounds = await dialog.boundingBox();
   expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.width).toBeLessThanOrEqual(390);
+  await engines.getByRole('button', { name: 'Codex', exact: true }).click();
+  await expect(models).toBeVisible();
+  const longModel = models.getByRole('button', { name: 'Ein Modell mit einem langen Anzeigenamen für schmale Bildschirme', exact: true });
+  await longModel.focus();
+  await longModel.press('Enter');
+  await expect(longModel).toHaveAttribute('aria-pressed', 'true');
+  await expect(models.getByRole('button', { name: 'Standardmodell' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(longModel).toBeEnabled();
+  expect(selection).toEqual({ engine: 'codex', model: 'model-large' });
+  expect(await models.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: '/tmp/chatty-selection-buttons-mobile.png', animations: 'disabled' });
   await page.getByRole('textbox', { name: 'Nachricht an Chatty' }).fill('Unsaved old draft');
   await page.getByRole('button', { name: 'Neues Gespräch' }).click();
   await expect.poll(() => cleared).toBe(1);

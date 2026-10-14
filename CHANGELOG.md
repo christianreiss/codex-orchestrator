@@ -1,5 +1,7 @@
 # 2026-10-14
 
+- Chatty replaces engine and model dropdowns with compact selection buttons. Automatic engine selection and the default model remain one click away, the selected choice is highlighted, and model choices scroll on narrow screens.
+
 - Chatty’s trash button starts a new conversation immediately, without confirmation. It clears the old conversation and draft, cancels pending work through the existing reset endpoint, and focuses the empty message field.
 
 - Active Clients no longer shows a routine Refresh button. WebSocket events, reconnects and polling keep the page current; recovery Retry actions remain when status or timeline requests fail.

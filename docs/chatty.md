@@ -20,7 +20,11 @@ failures may fall back to the next usable engine; manual selection never silentl
 changes engine. Replies identify the engine and model. Grok refresh uses the
 existing centralized owner; all runner homes contain access-only projections.
 
-Engine selection, minimize, stop and new chat live in the chat. The trash button
+Engine and model selection use compact buttons in the chat: Automatisch follows
+the configured engine order, and Standardmodell follows the selected engine’s
+default. The selected choice is highlighted. Model buttons scroll horizontally
+when needed; selection is locked during active work. Minimize, stop and new chat
+also live in the chat. The trash button
 starts a new conversation with one click, without confirmation, and focuses the
 empty message field. Enter sends;
 Shift+Enter inserts a newline. The settings card on `/admin/engines#chatty`
