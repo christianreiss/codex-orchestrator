@@ -1276,6 +1276,8 @@ func TestReconcileSkipsCrontabsOfDeletedUsers(t *testing.T) {
 	}
 	if body, ok := written["alice"]; !ok || strings.Contains(body, Marker) {
 		t.Fatalf("alice was not reconciled: %q", written)
+	}
+}
 
 func TestCoordinatorSummaryMatchesRecordedMaintenanceOutcome(t *testing.T) {
 	stubCoordinator(t)
