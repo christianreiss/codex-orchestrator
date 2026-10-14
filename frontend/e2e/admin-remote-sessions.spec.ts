@@ -10,9 +10,14 @@ function agent(id: string): AgentSessionRow {
   return { id, engine: "codex", launch_name: id === NATIVE ? "Rebecca" : "Judith", session_name: "Review", host_id: 1, host: "worker.test", username: "operator", cwd: "/srv/project", invocation_kind: "interactive", upstream_session_id: "upstream", status: "active", presence: "listening", relay_ready: true, relay_heartbeat_at: stamp(), active_turn_id: null, active_turn_started_at: null, started_at: stamp(), heartbeat_at: stamp(), last_event_at: stamp(), attention: null, ended_at: null, expires_at: null, close_requested_at: null, close: null, read_only: false, pending_prompt: null, work: { task: "Review release", branch: null, target_branch: null, declared_paths: [], worktree_path: null, address: null, address_alias: null } };
 }
 async function fixture(page: Page, read = true, manage = true) {
+  let emit: ((data: string) => void) | undefined;
+  await page.routeWebSocket("**/remote-clients-ws", ws => { emit = data => ws.send(data); });
   const remote: RemoteSession = { id: REMOTE, engine: "codex", title: "Review release on worker", cwd: "/srv/project", status: "idle", sessionId: NATIVE, addressId: "address", createdAt: stamp(), lastActivityAt: stamp(), operations: [{ id: "op", status: "completed", result: { reply: "Diagnostic operation output" } }] };
   const host: DaemonHost = { host_id: 1, fqdn: "worker.test", enabled: true, username: "operator", default_cwd: "/srv/project", engines: ["codex", "claude", "grok"], max_parallel: 8, idle_minutes: 60, question_minutes: 1440, health: { state: "green", reasons: [], heartbeat_at: stamp(), evaluated_at: stamp(), used_slots: 0, max_slots: 8 }, access: { allowed: true, reason: null, secure: true, enabled_until: null }, sessions: [remote] };
-  const state = { host, remote, agents: [agent(NATIVE), agent(OTHER)], failStart: 0, failTurn: 0, calls: [] as string[], posts: [] as { path: string; body: Record<string, unknown> }[] };
+  const state = { update: async (type = "host.daemon.changed") => {
+    await expect.poll(() => Boolean(emit)).toBe(true);
+    emit!(JSON.stringify({ type, payload: {}, ts: new Date().toISOString() }));
+  }, host, remote, agents: [agent(NATIVE), agent(OTHER)], failStart: 0, failTurn: 0, calls: [] as string[], posts: [] as { path: string; body: Record<string, unknown> }[] };
   await page.addInitScript(() => {
     class Feed extends EventTarget { constructor(_url: string) { super(); queueMicrotask(() => this.dispatchEvent(new Event("open"))); } close() {} }
     window.EventSource = Feed as unknown as typeof EventSource;
@@ -25,7 +30,7 @@ async function fixture(page: Page, read = true, manage = true) {
     const json = (body: unknown, status = 200) => route.fulfill({ status, json: body });
     if (path === "/admin/auth/status") return json({ authenticated: true, enforced: true, user: { id: 1, username: "operator", roles: ["owner"] }, capabilities: ["admin.read", "agent_portal.read", ...(read ? ["agent_portal.reveal_transcript"] : []), ...(manage ? ["agent_messaging.manage", "agent_portal.manage"] : [])] });
     if (path === "/admin/setup/status") return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: stamp(), dismissed_at: null } });
-    if (path === "/admin/ws/info") return json({ enabled: false });
+    if (path === "/admin/ws/info") return json({ enabled: true, url: new URL("/remote-clients-ws", req.url()).href.replace(/^http/, "ws") });
     if (path === "/admin/host-daemons") return json({ hosts: [host] });
     if (path === "/admin/agent-sessions") return json({ enabled: true, generated_at: stamp(), timings: { heartbeat_fresh_seconds: 45, relay_fresh_seconds: 60 }, sessions: state.agents });
     if (path.endsWith("/events")) return json({ events: [{ cursor: 1, session_id: NATIVE, type: "assistant_message", source: "engine", payload: { text: "The real conversation is here." }, created_at: stamp() }], next_cursor: 1 });
@@ -53,7 +58,7 @@ async function openRemote(page: Page) {
 
 test("remote and ordinary agents stay separate and use the same real conversation", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await fixture(page);
+  const state = await fixture(page);
   await page.goto("/admin/clients");
   await expect(page.locator(`#client-${OTHER}`)).toBeVisible();
   await expect(page.locator(`#client-${NATIVE}`)).toHaveCount(0);
@@ -66,7 +71,7 @@ test("remote and ordinary agents stay separate and use the same real conversatio
   await workspace(page).getByRole("button", { name: "Agents", exact: true }).click();
   await workspace(page).getByRole("button", { name: "Remote sessions", exact: true }).click();
   await expect(page.getByLabel("Continue remote session")).toHaveValue("Check remaining work");
-  await page.getByRole("button", { name: "Refresh clients" }).click();
+  await state.update();
   await expect(page.getByLabel("Continue remote session")).toHaveValue("Check remaining work");
   await page.screenshot({ path: "/tmp/rebecca-remote-desktop.png", fullPage: true });
   expect((await new AxeBuilder({ page }).include('section[aria-label="Remote session conversation"]').analyze()).violations).toEqual([]);
@@ -80,7 +85,7 @@ test("native and remote bookmarks select the right workspace without pinning lat
     await expect(workspace(page).getByRole("button", { name: "Remote sessions", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("region", { name: "Session timeline" })).toBeVisible();
     await page.locator(`#remote-${OTHER}`).click();
-    await page.getByRole("button", { name: "Refresh clients" }).click();
+    await state.update();
     await expect(page.getByRole("heading", { name: "Second remote", exact: true })).toBeVisible();
     await expect(page.getByRole("region", { name: "Session timeline" })).toHaveCount(0);
   }
@@ -114,10 +119,10 @@ test("continue retries are stable; busy and missing transcripts cannot resume; s
   await expect(page.getByLabel("Continue remote session")).toHaveValue("");
   expect(state.posts[0].body).toEqual(state.posts[1].body);
   state.remote.status = "queued";
-  await page.getByRole("button", { name: "Refresh clients" }).click();
+  await state.update();
   await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
   state.remote.status = "idle"; state.remote.addressId = null;
-  await page.getByRole("button", { name: "Refresh clients" }).click();
+  await state.update();
   await expect(page.getByText(/No native transcript is available/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Details", exact: true }).click();

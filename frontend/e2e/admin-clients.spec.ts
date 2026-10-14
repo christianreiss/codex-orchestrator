@@ -9,7 +9,12 @@ function session(id: string, engine: AgentSessionRow["engine"], presence: AgentS
   return { id, engine, host_id: 1, host: `${engine}.example`, username: "operator", cwd: "/srv/fleet/auth", invocation_kind: "interactive", upstream_session_id: null, status: "active", presence, relay_ready: presence === "listening", relay_enabled: true, relay_heartbeat_at: new Date(now - 2_000).toISOString(), active_turn_id: presence === "working" ? "turn-1" : null, active_turn_started_at: presence === "working" ? new Date(now - 60_000).toISOString() : null, started_at: new Date(now - 600_000).toISOString(), heartbeat_at: new Date(now - 1_000).toISOString(), last_event_at: new Date(now - 10_000).toISOString(), attention: null, ended_at: null, expires_at: null, close_requested_at: null, close: null, read_only: false, pending_prompt: null, work: { task: engine === "codex" ? "Inspect token recovery" : "Review release checks", branch: `fix/${engine}`, target_branch: "main", declared_paths: ["api/auth"], worktree_path: "/srv/fleet", address: `agent-${engine}`, address_alias: `${engine}-review` } };
 }
 async function fixtures(page: Page, manage = true) {
-  const state = { clearPromptOnAttempt: false, dropSendResponses: 0, denySendResponses: 0, sendStatus: "queued", bodies: [] as Array<{ path: string; body: Record<string, unknown> }>, failList: false, failEvents: false, enabled: true, sessions: [session(CODEX, "codex"), session(CLAUDE, "claude", "working")], events: [] as Record<string, unknown>[], calls: [] as string[] };
+  let emit: ((data: string) => void) | undefined;
+  await page.routeWebSocket("**/clients-ws", ws => { emit = data => ws.send(data); });
+  const state = { update: async (type = "agent_portal.sessions.changed") => {
+    await expect.poll(() => Boolean(emit)).toBe(true);
+    emit!(JSON.stringify({ type, payload: {}, ts: new Date().toISOString() }));
+  }, clearPromptOnAttempt: false, dropSendResponses: 0, denySendResponses: 0, sendStatus: "queued", bodies: [] as Array<{ path: string; body: Record<string, unknown> }>, failList: false, failEvents: false, enabled: true, sessions: [session(CODEX, "codex"), session(CLAUDE, "claude", "working")], events: [] as Record<string, unknown>[], calls: [] as string[] };
   await page.addInitScript(() => {
     const feeds: EventTarget[] = [];
     (window as unknown as { clientFeeds: EventTarget[] }).clientFeeds = feeds;
@@ -28,7 +33,7 @@ async function fixtures(page: Page, manage = true) {
     const json = (data: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) });
     if (path === "/admin/auth/status") return json({ authenticated: true, enforced: true, user: { id: 1, username: "operator", roles: ["owner"] }, capabilities: manage ? ["agent_portal.read", "agent_portal.manage", "agent_portal.reveal_transcript", "agent_messaging.manage"] : ["agent_portal.read"] });
     if (path === "/admin/setup/status") return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: "2026-09-28T00:00:00Z", dismissed_at: null } });
-    if (path === "/admin/ws/info") return json({ enabled: false });
+    if (path === "/admin/ws/info") return json({ enabled: true, url: new URL("/clients-ws", request.url()).href.replace(/^http/, "ws") });
     if (path === "/admin/agent-portal/state") {
       if (request.method() === "POST") state.enabled = request.postDataJSON().enabled;
       return json({ enabled: state.enabled, active_sessions: state.sessions.length, queued_messages: 0, dead_messages: 0 });
@@ -86,13 +91,14 @@ test("retained chats stay visible through offline, end, reload and reconnect", a
     }
   }
   state.sessions = state.sessions.filter(row => row.id !== CODEX);
-  await page.getByRole("button", { name: "Refresh clients" }).click();
+  await state.update();
   await expect(page.locator(`#client-${CODEX}`)).toHaveCount(0);
 });
 
 test("client directory exposes both engines, searchable work, and accessible avatar status icons", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await fixtures(page); await open(page);
+  await expect(page.getByRole("button", { name: "Refresh clients" })).toHaveCount(0);
   await expect(page.locator(`#client-${CLAUDE}`).getByRole("img", { name: "Working", exact: true })).toBeVisible();
   const icon = page.locator(`#client-${CODEX} [data-client-status="listening"]`);
   expect(await icon.evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThan(0);
@@ -162,7 +168,7 @@ test("failed refresh retains clients and drafts, then retry restores live action
   await page.getByLabel("Message this agent").fill("Keep this draft");
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
   state.failList = true;
-  await page.getByRole("button", { name: "Refresh clients" }).click();
+  await state.update();
   await expect(page.getByText("Client refresh failed", { exact: true })).toBeVisible();
   await expect(page.locator(`#client-${CODEX}`)).toBeVisible();
   await expect(page.getByLabel("Message this agent")).toHaveValue("Keep this draft");
@@ -322,7 +328,7 @@ for (const engine of ["codex", "claude"] as const) {
     await expect(page.getByRole("region", { name: "Session timeline" })).not.toContainText(/Needed you|Attention resolved|Local acknowledgment needed/);
     // The event alone must not invent a cleared server projection.
     await expect(banner).toContainText("Local acknowledgment needed");
-    await expect(page.getByRole("button", { name: "Refresh clients", exact: true, includeHidden: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Refresh clients", exact: true, includeHidden: true })).toHaveCount(0);
     target.attention = null;
     await stream(page, "agent", JSON.stringify(resolution));
     await expect(banner).not.toContainText("Local acknowledgment needed");
@@ -331,7 +337,7 @@ for (const engine of ["codex", "claude"] as const) {
     await page.getByRole("button", { name: "Answer current question", exact: true }).click();
     await expect.poll(() => state.bodies.some((entry) => entry.path.endsWith(`/prompts/${question}/answer`) && entry.body.version === 3)).toBe(true);
     await expect(page.getByLabel("Message this agent")).toHaveValue("Keep my unrelated draft");
-    await expect(page.getByRole("button", { name: "Refresh clients", exact: true, includeHidden: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Refresh clients", exact: true, includeHidden: true })).toHaveCount(0);
     target.pending_prompt = null;
     await stream(page, "agent", JSON.stringify(resolution));
     await expect(banner).toHaveCount(0);
@@ -536,12 +542,12 @@ test("native activity changes labels without changing receiver send permission",
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
   for (const [activity, label] of [["idle", "Idle"], ["waiting", "Waiting for you"], ["unknown", "Unknown"]] as const) {
     state.sessions[0].activity = { ...state.sessions[0].activity!, state: activity, wait_reason: activity === "waiting" ? "approval" : null };
-    await page.getByRole("button", { name: "Refresh clients" }).click();
+    await state.update();
     await expect(page.locator(`#client-${CODEX}`).getByRole("img", { name: label, exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
   }
   state.sessions[0].activity = { ...state.sessions[0].activity!, state: "working", expires_at: new Date(Date.now() - 1000).toISOString() };
-  await page.getByRole("button", { name: "Refresh clients" }).click();
+  await state.update();
   await expect(page.locator(`#client-${CODEX}`).getByRole("img", { name: "Unknown", exact: true })).toBeVisible();
   await page.screenshot({path: "/tmp/cxx-native-activity-web.png", fullPage: true});
 });

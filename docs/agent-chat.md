@@ -4,6 +4,8 @@ Agent chat is the existing Active Clients / Android Chats conversation with mana
 
 ## Active Clients workspace
 
+The page updates automatically through shared WebSocket events, reconnect resampling and polling, with scoped SSE for the selected timeline. There is no routine Refresh button; Retry remains available for failed or stale status and failed timeline requests.
+
 Active Clients opens on **Agents**. **Remote sessions** has a separate searchable list of host-daemon sessions, including sessions on disabled hosts. Current / Ended / All filters retain access to completed work. A remote session's bound agent is shown only in the Remote sessions workspace, using the same native timeline, attachments, questions and delivery receipts as ordinary agents. Session and address UUIDs establish this association; names and host labels do not.
 
 **Start remote session** opens a side panel for host, engine, title and instruction. The directory override is under Advanced options. Only engines reported ready by the selected daemon can be started. The host page's **Open remote sessions** link opens this workspace scoped to that host. `/admin/clients?session=<native-session-id>` continues to work and selects the Remote sessions workspace when bound; `/admin/clients?remote=<daemon-session-id>` opens a remote session directly.

@@ -1,5 +1,7 @@
 # 2026-10-14
 
+- Active Clients no longer shows a routine Refresh button. WebSocket events, reconnects and polling keep the page current; recovery Retry actions remain when status or timeline requests fail.
+
 - Active Clients now has just Active and Online filters. Needs-you chats stay highlighted in Active, while working, idle, waiting and connection states appear as accessible avatar icons. Search and engine selection remain; redundant status chips and summary counters are removed.
 
 - cxx 0.9.80 integrates the resident communicator with the 0.9.79 startup, credential-recovery and native-entry corrections. Residence and remote execution remain independent; the signed runtime capability defaults off.

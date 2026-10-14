@@ -7,7 +7,6 @@
   import { useQueryClient } from "@tanstack/svelte-query";
   import BotIcon from "@lucide/svelte/icons/bot";
   import PowerOffIcon from "@lucide/svelte/icons/power-off";
-  import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
   import SearchIcon from "@lucide/svelte/icons/search";
   import ChevronLeftIcon from "@lucide/svelte/icons/chevron-left";
   import InfoIcon from "@lucide/svelte/icons/info";
@@ -229,14 +228,7 @@
   }
 </script>
 
-<PageHeader class={selected ? "hidden lg:flex" : ""} title="Active Clients" subtitle="Codex, Claude, and Grok sessions, reported work, and the latest evidence that each client is reachable.">
-  {#snippet actions()}
-    <Button variant="outline" onclick={refresh} disabled={$sessions.isFetching} aria-label="Refresh clients">
-      <RefreshCwIcon class="h-4 w-4 {$sessions.isFetching ? 'motion-safe:animate-spin' : ''}" />
-      {$sessions.isFetching ? "Refreshing…" : "Refresh"}
-    </Button>
-  {/snippet}
-</PageHeader>
+<PageHeader class={selected ? "hidden lg:flex" : ""} title="Active Clients" subtitle="Codex, Claude, and Grok sessions, reported work, and the latest evidence that each client is reachable." />
 
 <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
   <div class="inline-flex rounded-lg bg-muted p-1" role="group" aria-label="Client workspace">
