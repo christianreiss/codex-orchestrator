@@ -23,7 +23,7 @@ test('Chatty gates availability, persists the conversation and confirms concrete
     if (path === '/admin/chatty/session') return json({ generation, selection: { engine: null, model: null }, events, active, has_older: false });
     if (path === '/admin/chatty/messages') {
       const body = req.postDataJSON();
-      expect(body.generation).toBe(1); expect(body.client_message_id).toMatch(/^[a-f0-9-]{36}$/);
+      expect(body.generation).toBe(generation); expect(body.client_message_id).toMatch(/^[a-f0-9-]{36}$/);
       expect(body.context).toEqual({ page: 'hosts' });
       events = [{ id: 1, kind: 'user', runId: 'run', body: { text: body.text } }, { id: 2, kind: 'action', runId: 'run', body: { id: 'action', tool: 'host_delete', description: 'Host test.example löschen', status: 'pending', arguments: { id: 42 }, before: { fqdn: 'test.example' } } }];
       active = { id: 'run', status: 'waiting_confirmation', generation, steps: 1 };
@@ -58,10 +58,22 @@ test('Chatty gates availability, persists the conversation and confirms concrete
   await page.setViewportSize({ width: 390, height: 844 });
   const bounds = await dialog.boundingBox();
   expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.width).toBeLessThanOrEqual(390);
-  await page.getByRole('button', { name: 'Gespräch leeren' }).click();
-  await page.getByRole('button', { name: 'Jetzt leeren' }).click();
-  expect(cleared).toBe(1);
+  await page.getByRole('textbox', { name: 'Nachricht an Chatty' }).fill('Unsaved old draft');
+  await page.getByRole('button', { name: 'Neues Gespräch' }).click();
+  await expect.poll(() => cleared).toBe(1);
+  await expect(page.getByRole('button', { name: 'Jetzt leeren' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Behalten' })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Nachricht an Chatty' })).toHaveValue('');
+  await expect(page.getByRole('textbox', { name: 'Nachricht an Chatty' })).toBeFocused();
   await expect(page.getByText('Änderung ausgeführt')).toHaveCount(0);
+  await page.getByRole('textbox', { name: 'Nachricht an Chatty' }).fill('Neues Thema');
+  await page.getByRole('button', { name: 'Nachricht senden' }).click();
+  await expect(dialog.getByText('Neues Thema', { exact: true })).toBeVisible();
+  expect(generation).toBe(2);
+  await page.getByRole('button', { name: 'Neues Gespräch' }).click();
+  await expect.poll(() => cleared).toBe(2);
+  await expect(page.getByRole('button', { name: 'Bestätigen', exact: true })).toHaveCount(0);
+  await expect(page.getByText('Was möchtest du wissen oder ändern?', { exact: false })).toBeVisible();
   ready = false;
   await page.reload();
   await page.getByRole('button', { name: 'Chatty öffnen' }).click();

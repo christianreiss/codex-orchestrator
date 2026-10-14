@@ -15,7 +15,6 @@
   let draft = $state('');
   let busy = $state(false);
   let error = $state('');
-  let clearPending = $state(false);
   let older = $state<ChattyEvent[]>([]);
   let olderGeneration = $state(0);
   let input = $state<HTMLTextAreaElement>();
@@ -44,6 +43,15 @@
       }
       retryMessage = null; draft = '';
     });
+  }
+  async function newChat() {
+    if (busy) return;
+    await operation(async () => {
+      await api.delete('/admin/chatty/session');
+      older = []; olderGeneration = 0; draft = ''; retryMessage = null;
+    });
+    await tick();
+    input?.focus();
   }
   async function select(engine: string, model: string | null = null) {
     await operation(() => api.put('/admin/chatty/selection', { engine: (engine || null) as Engine | null, model }));
@@ -87,7 +95,7 @@
         <div class="flex items-center justify-between border-b p-3">
           <div><Dialog.Title class="font-semibold">Chatty</Dialog.Title><Dialog.Description class="text-xs text-muted-foreground">Dein Assistent für den Orchestrator</Dialog.Description></div>
           <div class="flex gap-1">
-            <button class="icon-button" aria-label="Gespräch leeren" onclick={() => clearPending = !clearPending}><Trash2 size={17}/></button>
+            <button class="icon-button" aria-label="Neues Gespräch" title="Neues Gespräch" disabled={busy} onclick={() => void newChat()}><Trash2 size={17}/></button>
             <Dialog.Close class="icon-button" aria-label="Chatty minimieren"><Minus size={19}/></Dialog.Close>
           </div>
         </div>
@@ -103,11 +111,6 @@
             </select>
           {/if}
         </div>
-        {#if clearPending}
-          <div class="border-b bg-muted p-3 text-sm">Gespräch auf allen Geräten leeren und laufende Anfrage stoppen? Bereits ausgeführte Änderungen bleiben bestehen.
-            <div class="mt-2 flex gap-3"><button class="text-destructive underline" disabled={busy} onclick={() => void operation(async () => { await api.delete('/admin/chatty/session'); older = []; draft = ''; retryMessage = null; clearPending = false; })}>Jetzt leeren</button><button onclick={() => clearPending = false}>Behalten</button></div>
-          </div>
-        {/if}
         <div class="min-h-0 flex-1 overflow-y-auto p-3" role="log" aria-label="Chatty Gespräch" aria-live="polite" aria-relevant="additions">
           {#if $session.data?.has_older}<button class="mb-3 text-xs underline" onclick={() => void more()} disabled={busy}>Ältere Nachrichten laden</button>{/if}
           {#if !$session.isPending && events.length === 0}<p class="py-8 text-sm text-muted-foreground">Was möchtest du wissen oder ändern? Ich kann das Produkt erklären, den aktuellen Zustand nachsehen und Verwaltungsaufgaben erledigen.</p>{/if}

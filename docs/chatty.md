@@ -20,7 +20,9 @@ failures may fall back to the next usable engine; manual selection never silentl
 changes engine. Replies identify the engine and model. Grok refresh uses the
 existing centralized owner; all runner homes contain access-only projections.
 
-Engine selection, minimize, stop and clear live in the chat. Enter sends;
+Engine selection, minimize, stop and new chat live in the chat. The trash button
+starts a new conversation with one click, without confirmation, and focuses the
+empty message field. Enter sends;
 Shift+Enter inserts a newline. The settings card on `/admin/engines#chatty`
 controls availability, engine priority and concurrency. Deactivation stops active
 model calls. The API kill switch also suspends the worker.

@@ -1,5 +1,7 @@
 # 2026-10-14
 
+- Chatty’s trash button starts a new conversation immediately, without confirmation. It clears the old conversation and draft, cancels pending work through the existing reset endpoint, and focuses the empty message field.
+
 - Active Clients no longer shows a routine Refresh button. WebSocket events, reconnects and polling keep the page current; recovery Retry actions remain when status or timeline requests fail.
 
 - Active Clients now has just Active and Online filters. Needs-you chats stay highlighted in Active, while working, idle, waiting and connection states appear as accessible avatar icons. Search and engine selection remain; redundant status chips and summary counters are removed.
