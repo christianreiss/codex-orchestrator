@@ -148,7 +148,12 @@ normal interactive sessions retain their existing cached-auth fallback.
 cxx 0.8.1 also synchronizes credentials during active sessions and before update
 maintenance, with generation/logout guards and notices to running agents through
 supported hooks/MCP boundaries. Both engine stores have independent background
-coverage. See [credential resilience](auth-resilience.md) for timing, cancellation,
+coverage. Interrupted uploads can be inspected with `cdx auth-reconcile` or
+`clx auth-reconcile`; `--accept-server` explicitly adopts verified same-account
+server credentials on a secure host after a private backup. Native changes,
+logout and pending generation fences remain protected; no upload is replayed or
+new account leased. See [the explicit recovery contract](communicator.md) and
+[credential resilience](auth-resilience.md) for timing, cancellation,
 insecure cleanup, and the limits of native cross-host refresh coordination.
 
 The admin Overview displays reported engine coverage, provider usage, and

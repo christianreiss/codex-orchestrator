@@ -174,7 +174,7 @@ func reconcileUnknownAuth(ctx context.Context, client *orchestrator.Client, path
 		out.Error = syncError(err)
 		return out
 	}
-	out.Error = &communicator.SyncError{Message: "Previous auth upload outcome remains unknown; local credentials retained"}
+	out.Error = &communicator.SyncError{Message: "Previous auth upload outcome remains unknown; local credentials retained; inspect with cdx auth-reconcile"}
 	currentAccount, currentSession := client.Pool.Binding()
 	if resp == nil || (resp.Engine != "" && resp.Engine != "codex") || resp.VerificationState != "verified" {
 		return out

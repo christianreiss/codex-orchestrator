@@ -571,6 +571,16 @@ func WriteSessionAuthIfCurrent(ctx context.Context, payload json.RawMessage, exp
 	return writeAuthPayloadContext(ctx, payload, &expected)
 }
 
+// AdoptAuthForExplicitRecovery is confined to the operator's recovery command.
+// It may replace an older canonical only after explicit choice and backup;
+// native changes, logout and active children still prevent the transaction.
+func AdoptAuthForExplicitRecovery(ctx context.Context, payload json.RawMessage, verification string, expected AuthGeneration) (AuthWriteResult, error) {
+	if !expected.Exists || !strings.EqualFold(strings.TrimSpace(verification), "verified") || !isValidAuthRaw(payload) {
+		return AuthWriteResult{}, errors.New("explicit recovery requires existing auth and verified usable server credentials")
+	}
+	return writeAuthPayloadContext(ctx, payload, &expected, true)
+}
+
 // ConvergeAuthIfCurrent applies a verified canonical response monotonically.
 // Two concurrent requests may share expected: if an older canonical lands
 // first, a later/newer response CASes over it; an older/equal response never

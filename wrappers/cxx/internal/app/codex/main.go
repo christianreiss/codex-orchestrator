@@ -19,6 +19,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authreconcile"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -189,6 +190,7 @@ var wrapperOwnedSubcommands = map[string]bool{
 	"status":           true,
 	"doctor":           true,
 	"auth-upload":      true,
+	"auth-reconcile":   true,
 	"auth-sync":        true, // internal active-session convergence, not CLI launch
 	"auth-upload-auto": true, // internal upload, never an explicit login
 	"lane":             true,
@@ -364,6 +366,10 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 }
 
 func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*quotaadvice.Session) (exitCode int) {
+	if !native && authreconcile.HelpRequested(args) {
+		authreconcile.PrintHelp(stdout)
+		return 0
+	}
 	// A self-update exec hands its durable purge IDs and one inherited shared
 	// lease to the new wrapper. Adopt that handoff before even the restart-depth
 	// or config checks so every exit path services an insecure purge request.
@@ -500,6 +506,9 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 	}
 
 	logger := log.Setup(f.silent, f.debug)
+	if sub == "auth-reconcile" {
+		return authreconcile.Command(ctx, cfg, append(subArgs, passthrough...), stdout, stderr)
+	}
 	if sub == "auth-sync" {
 		return cmdAuthSync(ctx, cfg, stdout, stderr)
 	}

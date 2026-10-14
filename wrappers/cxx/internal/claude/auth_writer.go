@@ -485,6 +485,16 @@ func WriteSessionAuthIfCurrentWithDigest(ctx context.Context, payload json.RawMe
 	return writeAuthContext(ctx, payload, canonicalDigest, &expected, false, true)
 }
 
+// AdoptAuthForExplicitRecovery is used only by the deliberate recovery command.
+// Timestamp ordering is not a decision here; exact native generation, logout
+// intent and the idle-child lease remain authoritative.
+func AdoptAuthForExplicitRecovery(ctx context.Context, payload json.RawMessage, canonicalDigest, verificationState string, expected AuthGeneration) (AuthGeneration, bool, error) {
+	if !expected.Exists || !strings.EqualFold(strings.TrimSpace(verificationState), "verified") || !validDigest(canonicalDigest) {
+		return AuthGeneration{}, false, errors.New("explicit recovery requires existing auth and a verified canonical digest")
+	}
+	return writeAuthContext(ctx, payload, canonicalDigest, &expected, false, true, true)
+}
+
 // AcknowledgeAuthGeneration binds an accepted upload to its canonical digest
 // without rewriting the native file. A native refresh/login or logout that
 // raced the request must remain unacknowledged for the next upload attempt.
@@ -934,6 +944,12 @@ func HasUsableAuth() bool {
 	}
 	intent, err := logoutIntentGenerationAt(paths.logout)
 	return err == nil && !intent.Blocks(snap)
+}
+
+// IsUsableAuthPayload checks a server envelope without touching native files.
+func IsUsableAuthPayload(payload json.RawMessage) bool {
+	native, err := extractClaudeFormat(payload)
+	return err == nil && isUsableAuth(native)
 }
 
 func isUsableAuth(raw []byte) bool {

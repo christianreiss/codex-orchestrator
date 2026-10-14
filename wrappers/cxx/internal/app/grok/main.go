@@ -114,7 +114,7 @@ func parse(args []string) (options, error) {
 		case "resume":
 			o.args = append([]string{"--resume"}, args...)
 			return o, nil
-		case "sync", "status", "doctor", "update", "uninstall", "cron", "login", "logout", "auth-sync", "auth-upload-auto", "help":
+		case "sync", "status", "doctor", "update", "uninstall", "cron", "login", "logout", "auth-sync", "auth-upload-auto", "auth-reconcile", "help":
 			o.command = arg
 			if arg == "sync" || arg == "update" || arg == "cron" || arg == "status" || arg == "doctor" {
 				for _, value := range args {
@@ -183,6 +183,10 @@ func nativeOptions(args []string) (options, error) {
 }
 
 func runOptions(o options, stdout, stderr io.Writer) int {
+	if o.command == "auth-reconcile" {
+		fmt.Fprintln(stderr, "cgx auth-reconcile: unsupported; Grok credentials are server-owned")
+		return 2
+	}
 	var err error
 	if o.command == "version" {
 		terminalui.PrintVersion(stdout, terminalui.BuildInfo{Name: "cgx", Version: Version, Commit: Commit, BuildDate: BuildDate, SigningKey: signing.HasKey()})

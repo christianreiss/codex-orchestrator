@@ -102,15 +102,16 @@ func TestAuthPushDoesNotInvalidateContentOrOtherAccounts(t *testing.T) {
 }
 func TestPendingAuthStoresOnlyDigestAndSurvivesRestart(t *testing.T) {
 	job := fixtureJob(t, "codex")
-	if err := writePending(job, "generation-a"); err != nil {
+	generation := strings.Repeat("a", 64)
+	if err := writePending(job, generation); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(pendingPath(job))
 	info, _ := os.Stat(pendingPath(job))
-	if string(raw) != `{"generation":"generation-a"}` || info.Mode().Perm() != 0600 {
+	if string(raw) != `{"generation":"`+generation+`"}` || info.Mode().Perm() != 0600 {
 		t.Fatalf("pending metadata: %s %v", raw, info.Mode())
 	}
-	if pendingGeneration(job) != "generation-a" {
+	if pendingGeneration(job) != generation {
 		t.Fatal("new process could not recover candidate identity")
 	}
 	if !ambiguous(SyncResult{Error: &SyncError{HTTP: json.RawMessage(`{"StatusCode":409,"Code":"communicator_outcome_unknown"}`)}}) {
