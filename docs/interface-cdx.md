@@ -667,7 +667,10 @@ and its own private prefixes. Pending local auth is guarded before sync; a faile
 maintenance request never authorizes a credential purge.
 
 `~/.cxx/maintenance.json` records start/finish, outcome, and next eligible time
-without credentials or provider error text. Detached output goes to private
+without credentials or provider error text. Each coordinator run ends its output
+with one `maintenance: ok` or `maintenance: failed (...)` line carrying exactly
+the outcome it recorded there; the per-engine `cron: ok (...)` lines describe only
+that engine's update tick. Detached output goes to private
 `~/.cxx/cron.log`; launch-triggered work rotates a log of at least 4 MiB to `.1`.
 Set `CXX_BACKGROUND_MAINTENANCE=0` to disable only launch-triggered jobs; scheduled
 and explicit maintenance remain available. Explicit `--config` and inherited
@@ -1548,7 +1551,7 @@ kept alive merely because the daemon is online.
 
 `cdx housekeeping status`, `cdx housekeeping run --dry-run`, and `cdx housekeeping run` inspect or remove local native sessions using the centrally signed/current effective policy. `--json` returns structured results; `--engine` selects an engine when using `cxx`. `cdx housekeeping pin UUID` and `unpin UUID` manage local protection. Automatic upkeep uses the existing cxx coordinator, at most daily after success; active engines retry on later maintenance ticks.
 
-Default: enabled, 30 days inactivity, 5 GiB session files per engine/local user, with budget removal only after 7 days. Parent/subagent bundles share their newest activity and protection. Native pins, open goals/queued work, incomplete metadata and fleet resume/wake/recovery bindings are retained. Unknown database versions and unavailable protection skip deletion. Supported current native layouts are Codex state_5/thread_history_1/goals_1/queue_1/logs_2/memories_1 SQLite databases, Claude project transcripts/subagent artifacts/session indexes, and Grok native session directories plus external-content FTS search. General logs, provider auth/config and project memory files are not removed.
+Default: enabled, 30 days inactivity, 5 GiB session files per engine/local user, with budget removal only after 7 days. Parent/subagent bundles share their newest activity and protection. Native pins, open goals/queued work, incomplete metadata and fleet resume/wake/recovery bindings are retained. Unknown database versions or schemas and unavailable protection skip deletion. An unknown native database layout is reported as `skipped (unsupported_native_database: <file>/<table>: missing <columns>)` in cron.log and to the central housekeeping report, and does not fail the maintenance run; an older Codex database left beside its newer supported version (e.g. `logs_1.sqlite` next to `logs_2.sqlite`) is ignored and never modified. Supported current native layouts are Codex state_5/thread_history_1/goals_1/queue_1/logs_2/memories_1 SQLite databases, Claude project transcripts/subagent artifacts/session indexes, and Grok native session directories plus external-content FTS search. General logs, provider auth/config and project memory files are not removed.
 
 Removal uses an exclusive native-home guard and a host/engine reservation. A journal under the original native home's `.cxx-housekeeping` records quarantine paths and session IDs. Recovery resumes this cleanup, never native work; run `cdx housekeeping run` to finish it. Reservations do not expire automatically while native data may be inconsistent. The budget can remain exceeded by protected or young sessions; results state this instead of removing them.
 

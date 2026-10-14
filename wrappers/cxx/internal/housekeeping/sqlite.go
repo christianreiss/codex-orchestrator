@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -94,13 +96,53 @@ func inspectDB(root, path string) (database, error) {
 	return result, nil
 }
 func quote(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+
+// errUnsupportedNative marks a native database layout cxx does not know. It is
+// a deliberate fail-closed skip (nothing is deleted), not a maintenance fault.
+var errUnsupportedNative = errors.New("unsupported native database")
+
 func (d database) require(table string, cols ...string) error {
+	if d.tables[table] == nil {
+		return fmt.Errorf("%w schema: %s/%s: missing table", errUnsupportedNative, filepath.Base(d.path), table)
+	}
+	var missing []string
 	for _, c := range cols {
 		if !d.tables[table][c] {
-			return fmt.Errorf("unsupported native database schema: %s/%s", filepath.Base(d.path), table)
+			missing = append(missing, c)
 		}
 	}
+	if len(missing) > 0 {
+		return fmt.Errorf("%w schema: %s/%s: missing %s", errUnsupportedNative, filepath.Base(d.path), table, strings.Join(missing, ","))
+	}
 	return nil
+}
+
+var codexSupportedDatabases = map[string]bool{"state_5.sqlite": true, "thread_history_1.sqlite": true, "goals_1.sqlite": true, "queue_1.sqlite": true, "logs_2.sqlite": true, "memories_1.sqlite": true}
+var versionedDatabase = regexp.MustCompile(`^([a-z][a-z_]*?)_([0-9]+)\.sqlite$`)
+
+// supersededDatabase reports whether name is an older version of a supported
+// family whose newer supported file sits beside it (e.g. logs_1 next to
+// logs_2). Codex leaves such files behind after migrating; it no longer reads
+// them, so they carry no protection data and are left untouched.
+func supersededDatabase(name string, present map[string]bool) bool {
+	m := versionedDatabase.FindStringSubmatch(name)
+	if m == nil {
+		return false
+	}
+	old, err := strconv.Atoi(m[2])
+	if err != nil {
+		return false
+	}
+	for other := range present {
+		o := versionedDatabase.FindStringSubmatch(other)
+		if o == nil || o[1] != m[1] || !codexSupportedDatabases[other] {
+			continue
+		}
+		if v, err := strconv.Atoi(o[2]); err == nil && v > old {
+			return true
+		}
+	}
+	return false
 }
 func nativeDatabases(root, engine string) ([]database, error) {
 	var paths []string
@@ -109,15 +151,24 @@ func nativeDatabases(root, engine string) ([]database, error) {
 		if err != nil {
 			return nil, err
 		}
-		supported := map[string]bool{"state_5.sqlite": true, "thread_history_1.sqlite": true, "goals_1.sqlite": true, "queue_1.sqlite": true, "logs_2.sqlite": true, "memories_1.sqlite": true}
+		present := map[string]bool{}
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".sqlite") {
+				present[e.Name()] = true
+			}
+		}
 		for _, e := range entries {
 			n := e.Name()
-			if strings.HasSuffix(n, ".sqlite") {
-				if !supported[n] {
-					return nil, fmt.Errorf("unsupported native database version: %s", n)
-				}
-				paths = append(paths, filepath.Join(root, n))
+			if !strings.HasSuffix(n, ".sqlite") {
+				continue
 			}
+			if !codexSupportedDatabases[n] {
+				if supersededDatabase(n, present) {
+					continue
+				}
+				return nil, fmt.Errorf("%w version: %s", errUnsupportedNative, n)
+			}
+			paths = append(paths, filepath.Join(root, n))
 		}
 	} else if engine == "grok" {
 		p := filepath.Join(root, "sessions/session_search.sqlite")

@@ -1276,5 +1276,37 @@ func TestReconcileSkipsCrontabsOfDeletedUsers(t *testing.T) {
 	}
 	if body, ok := written["alice"]; !ok || strings.Contains(body, Marker) {
 		t.Fatalf("alice was not reconciled: %q", written)
+
+func TestCoordinatorSummaryMatchesRecordedMaintenanceOutcome(t *testing.T) {
+	stubCoordinator(t)
+	oldHousekeeping := runHousekeeping
+	t.Cleanup(func() { runHousekeeping = oldHousekeeping })
+	recorded := func() string {
+		t.Helper()
+		raw, err := os.ReadFile(filepath.Join(os.Getenv("HOME"), ".cxx", "maintenance.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var s maintenance.State
+		if err := json.Unmarshal(raw, &s); err != nil {
+			t.Fatal(err)
+		}
+		return s.Outcome
+	}
+	runHousekeeping = func(context.Context, *config.Config, io.Writer) error { return nil }
+	var out strings.Builder
+	if err := Run(context.Background(), nil, false, &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if recorded() != "ok" || !strings.HasSuffix(out.String(), "maintenance: ok\n") {
+		t.Fatalf("success summary %q recorded %q", out.String(), recorded())
+	}
+	runHousekeeping = func(context.Context, *config.Config, io.Writer) error { return errors.New("native database locked") }
+	out.Reset()
+	if err := Run(context.Background(), nil, false, &out, io.Discard); err == nil {
+		t.Fatal("housekeeping failure was hidden")
+	}
+	if recorded() != "failed" || !strings.Contains(out.String(), "maintenance: failed") || strings.Contains(out.String(), "maintenance: ok") {
+		t.Fatalf("failure summary %q recorded %q", out.String(), recorded())
 	}
 }

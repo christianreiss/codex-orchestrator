@@ -81,6 +81,7 @@ var (
 	ensureAgentService     = defaultEnsureAgentService
 	refreshRunConfigs      = refreshAuthoritative
 	reconcileRunSchedule   = reconcileSchedule
+	runHousekeeping        = housekeeping.Automatic
 )
 
 // Install reconciles aliases first, then writes exactly one cxx schedule and
@@ -168,7 +169,11 @@ func run(ctx context.Context, seed *config.Config, minimal, due bool, stdout, st
 	if err != nil {
 		return err
 	}
-	defer func() { runErr = errors.Join(runErr, lease.Finish(runErr)) }()
+	defer func() {
+		finishErr := lease.Finish(runErr)
+		runErr = errors.Join(runErr, finishErr)
+		fmt.Fprintln(stdout, maintenanceSummary(lease.Outcome(), finishErr))
+	}()
 
 	sweepLegacyRollback(stderr)
 
@@ -237,7 +242,7 @@ func run(ctx context.Context, seed *config.Config, minimal, due bool, stdout, st
 		errs = append(errs, err)
 	}
 	for _, cfg := range configs {
-		if err := housekeeping.Automatic(runCtx, cfg, stdout); err != nil {
+		if err := runHousekeeping(runCtx, cfg, stdout); err != nil {
 			errs = append(errs, fmt.Errorf("session housekeeping: %w", err))
 		}
 	}
@@ -258,6 +263,19 @@ func run(ctx context.Context, seed *config.Config, minimal, due bool, stdout, st
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// maintenanceSummary is the coordinator's one closing cron.log line. Per-engine
+// "cron: ok" lines describe only that engine's update tick; this line mirrors
+// the outcome just recorded in ~/.cxx/maintenance.json for the whole run.
+func maintenanceSummary(outcome string, finishErr error) string {
+	if finishErr != nil {
+		return fmt.Sprintf("maintenance: %s (state not recorded; error follows)", outcome)
+	}
+	if outcome == "ok" {
+		return "maintenance: ok"
+	}
+	return fmt.Sprintf("maintenance: %s (error follows; retry scheduled)", outcome)
 }
 
 func defaultEnsureAgentService(ctx context.Context, canonical string, stdout, stderr io.Writer) error {
