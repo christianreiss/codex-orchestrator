@@ -18,6 +18,7 @@ import { ok } from '../../http/reply.js';
 import { HostProjectsService } from '../../services/host-projects.js';
 import { HostSkillsService } from '../../services/host-skills.js';
 import { HostAgentsService } from '../../services/host-agents.js';
+import { hostWithCallerWrapper } from '../../services/host-wrapper-capabilities.js';
 import { HostClaudeArtifactsService } from '../../services/host-claude-artifacts.js';
 import { normalizeKind } from '../../services/claude-frontmatter.js';
 import { McpMemoriesService } from '../../services/mcp-memories.js';
@@ -310,7 +311,8 @@ export async function registerProjectsClientRoutes(app: FastifyInstance, ctx: Ro
     const payload = (req.body as Record<string, unknown>) ?? {};
     const sha = typeof payload['sha256'] === 'string' ? (payload['sha256'] as string) : null;
     const engine = extractEngine(req);
-    const result = await agents.retrieveConfig(sha, await requireEngineHost(req, engine, ctx.db), engine, {
+    const host = await requireEngineHost(req, engine, ctx.db);
+    const result = await agents.retrieveConfig(sha, hostWithCallerWrapper(host, engine, req.headers['x-wrapper-version']), engine, {
       home: typeof payload['home'] === 'string' ? payload['home'] : null,
       username: typeof payload['username'] === 'string' ? payload['username'] : null,
     });

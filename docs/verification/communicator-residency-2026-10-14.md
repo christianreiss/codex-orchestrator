@@ -1,8 +1,10 @@
-# Private resident-runtime verification, 2026-10-14
+# Resident-runtime verification, 2026-10-14
 
-Source worktree: `task/communicator-resident-b50a538a`, based on verified audit
-`dc92e547178fb8a5207665ebe9c54db19da0f39d`. No release version allocated,
-shared branch moved, production host updated, or fleet capability enabled.
+Initial implementation worktree: `task/communicator-resident-b50a538a`, based
+on verified audit `dc92e547178fb8a5207665ebe9c54db19da0f39d`. The initial
+private checks below preceded source integration. The 0.9.80 integration
+evidence appears at the end; no production rollout or capability activation
+is claimed.
 
 ## Source and UI checks
 
@@ -148,10 +150,44 @@ Focused normal race checks and traced all-engine process checks are recorded in
 `/tmp/christel-report-review-api-all.log` with final diagnostic/no-publish
 regressions in `/tmp/christel-report-review-api-diagnostic-final.log`.
 
-## Remaining acceptance
+## Integration with 0.9.79
 
-Real provider acceptance where needed, independent migration/reporting review,
-updated audit dependencies and Director integration
-remain outstanding. Incompatible/unresponsive legacy owners and custom systemd
-namespace changes intentionally defer. None of these results is a production
-rollout receipt.
+The operator explicitly requested merge back, push and task cleanup on
+2026-10-14. The complete private history (including mandatory admission and
+reporting corrections) is combined with `839c0a1bc00665641875ed355fe6121c89d96693`.
+The wrapper version becomes 0.9.80; the independent signed runtime capability
+remains default-off. Startup and explicit auth-recovery corrections, the
+foreign-HOME native-entry guard/defer wrapper and idle relay polling changes
+are preserved. CLI status keeps upstream unsafe-runtime errors while using
+verified resident socket discovery. Documentation keeps both interfaces and
+generated SPA assets are rebuilt from combined sources.
+
+Fresh combined-source checks pass:
+
+- Full `go test ./...`, `go build ./...` and `go vet ./...`.
+- Targeted traced race tests for residency, controllers, composed adapters,
+  process/namespace identity, foreign-HOME protection and command dispatch.
+- API typecheck/build, 199 targeted transport/topology/settings/capability
+  tests and 37 additional host-spawn/daemon/insecure-host tests.
+- Frontend check: zero errors/warnings, 928 tests; SPA build and 13 topology
+  and residence-settings Playwright checks.
+- Fresh isolated MySQL 8.4.11 fixture: repository baseline (293 statements)
+  and all 63 migrations, then daemon lifecycle/migration fences plus upstream
+  enable-flag admission and idle relay polling suites: 52 tests pass. This combines
+  the real admission-fence proof with the audited polling optimization.
+
+Logs: `/tmp/tina-resident-integration-go-all.log`, `-go-build.log`, `-go-vet.log`,
+`-race.log`, `-api-tests.log`, `-spawn-final.log`, `-frontend-check.log`,
+`-frontend-build.log`, `-browser.log`, and `-mysql-tests.log` (all with the same
+`tina-resident-integration` prefix). The fixture database/container is removed
+before delivery. No production database, daemon, systemd unit or native
+provider account is changed by integration checks.
+
+## Activation acceptance
+
+Raffaela's second read-only review found no blockers in the reporting/control
+corrections; it did not independently rerun tests or review the broader systemd
+migration implementation. Real-provider and production migration acceptance
+remain activation gates. Incompatible/unresponsive legacy owners and custom
+systemd namespace changes intentionally defer; source merge does not override
+that behavior or grant execution permission.

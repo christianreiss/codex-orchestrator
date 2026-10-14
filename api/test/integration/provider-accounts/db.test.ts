@@ -73,6 +73,29 @@ describe.skipIf(!handle)('provider accounts on MySQL', () => {
     await handle!.pool.end();
   });
 
+  it('counts exactly the accounts acquire could lease, without reserving one', async () => {
+    const at = '2026-10-13T20:00:00Z';
+    const account = async (engine: string, label: string, state: 'enabled' | 'paused', verificationState: string | null) => {
+      await db.insert(providerAccounts).values({ engine, label, state, createdAt: at, updatedAt: at });
+      const id = (await db.select().from(providerAccounts).where(eq(providerAccounts.label, label)))[0]!.id;
+      if (verificationState === null) return id;
+      const result = await db.insert(authPayloads).values({ engine, accountId: id, lastRefresh: at, sha256: sha256(label), body: null, createdAt: at, verificationState });
+      await db.update(providerAccounts).set({ payloadId: Number(result[0].insertId) }).where(eq(providerAccounts.id, id));
+      return id;
+    };
+    const leasable = await account('grok', 'g-ok', 'enabled', 'verified');
+    await account('grok', 'g-paused', 'paused', 'verified');
+    await account('grok', 'g-failed', 'enabled', 'failed');
+    await account('grok', 'g-none', 'enabled', null);
+    await account('codex', 'c-ok', 'enabled', 'verified');
+    expect(await accounts.countLeasable('grok')).toBe(1);
+    expect(await db.select().from(providerAccountSessions)).toEqual([]);
+    expect((await accounts.acquire(1, 'grok', 'scope-a', 'session-a', 90)).account.id).toBe(leasable);
+    await db.update(providerAccounts).set({ state: 'paused' }).where(eq(providerAccounts.id, leasable));
+    expect(await accounts.countLeasable('grok')).toBe(0);
+    await expect(accounts.acquire(1, 'grok', 'scope-b', 'session-b', 90)).rejects.toThrow(/No verified Grok account/);
+  });
+
   it('adopts legacy head bytes without changing its digest or generation and migrates idempotently', async () => {
     const native = auth('codex', 'legacy');
     const entries = validation.normalizeAuthEntries(validation.ensureAuthsFallback(native, 'codex'), 'codex');

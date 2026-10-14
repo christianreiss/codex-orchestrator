@@ -100,6 +100,10 @@ func doctorReport(in doctorInput) terminalui.DoctorReport {
 		authTone, authValue = terminalui.ToneFail, in.AuthErr.Error()
 		hints = append(hints, "Run `cgx login` if the subscription login must be renewed.")
 	case in.Auth == nil || in.Auth.VerificationState != "verified":
+		if in.Auth != nil && in.Auth.PoolVerifiedAccounts > 0 {
+			authValue = fmt.Sprintf("%d leasable pool account(s); no account-less login", in.Auth.PoolVerifiedAccounts)
+			break
+		}
 		authTone, authValue = terminalui.ToneFail, "no verified Grok login"
 	}
 	row("Auth", authTone, authValue)

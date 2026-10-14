@@ -77,6 +77,7 @@ type profAPI struct {
 	byPath   map[string]time.Duration
 	connect  time.Duration // delay before the communicator WebSocket upgrade completes
 	conns    []*websocket.Conn
+	arrived  map[string]int // requests that reached a route, counted before any injected delay
 	skills   []profSkill
 	agents   string
 	root     string
@@ -178,6 +179,10 @@ func (a *profAPI) record(path, transport string, req, resp int, begin time.Time)
 func (a *profAPI) handle(method, path string, body []byte) (int, []byte) {
 	route := strings.Split(path, "?")[0]
 	a.mu.Lock()
+	if a.arrived == nil {
+		a.arrived = map[string]int{}
+	}
+	a.arrived[route]++
 	delay, ok := a.byPath[route]
 	if !ok {
 		delay = a.latency
@@ -242,6 +247,13 @@ func (a *profAPI) handle(method, path string, body []byte) (int, []byte) {
 		return 200, out
 	}
 	return 200, []byte(`{"status":"ok","data":{}}`)
+}
+
+// arrivals counts requests that reached route, including ones still being served.
+func (a *profAPI) arrivals(route string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.arrived[route]
 }
 
 // configure changes the stub's behavior while it serves.
@@ -376,6 +388,10 @@ func newProfRig(t *testing.T, comm bool) *profRig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(runtime) })
+	// socketPath derives the owner socket from the process environment; keep that
+	// pointing at this rig for the test and restore it afterwards, so a later call
+	// cannot recreate the directory after cleanup.
+	t.Setenv("XDG_RUNTIME_DIR", runtime)
 	pub, priv, _ := ed25519.GenerateKey(cryptorand.Reader)
 	der, _ := x509.MarshalPKIXPublicKey(pub)
 	key := base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
@@ -426,30 +442,57 @@ func newProfRig(t *testing.T, comm bool) *profRig {
 	return rig
 }
 
-func (p *profRig) stopOwner() {
-	pid := p.ownerPID()
-	if pid <= 0 {
-		return
-	}
-	tasks, _ := os.ReadDir(fmt.Sprintf("/proc/%d/task", pid))
-	for _, task := range tasks {
-		raw, _ := os.ReadFile(fmt.Sprintf("/proc/%d/task/%s/children", pid, task.Name()))
-		for _, field := range strings.Fields(string(raw)) {
-			if child, err := strconv.Atoi(field); err == nil {
-				_ = syscall.Kill(child, syscall.SIGKILL)
+// ownersOf lists the processes started with this rig's private runtime root. The
+// root is unique per rig, so matching on it identifies exactly the rig's own
+// owner and workers even when the owner is too busy to answer a status request.
+func (p *profRig) ownersOf() []int {
+	var pids []int
+	entries, _ := os.ReadDir("/proc")
+	want := "XDG_RUNTIME_DIR=" + p.runtime
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		env, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid))
+		if err != nil {
+			continue
+		}
+		for _, kv := range bytes.Split(env, []byte{0}) {
+			if string(kv) == want {
+				pids = append(pids, pid)
+				break
 			}
 		}
 	}
-	_ = syscall.Kill(pid, syscall.SIGTERM)
+	return pids
+}
+
+func (p *profRig) stopOwner() {
 	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(fmt.Sprintf("/proc/%d", pid)); os.IsNotExist(err) {
-			return
+	for {
+		pids := p.ownersOf()
+		if len(pids) == 0 {
+			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		signal := syscall.SIGTERM
+		if time.Now().After(deadline) {
+			signal = syscall.SIGKILL
+		}
+		for _, pid := range pids {
+			_ = syscall.Kill(pid, signal)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	_ = syscall.Kill(pid, syscall.SIGKILL)
-	time.Sleep(50 * time.Millisecond)
+	// An owner that is shutting down can still be creating its socket directory.
+	for i := 0; i < 5; i++ {
+		if os.RemoveAll(p.runtime) == nil {
+			if _, err := os.Stat(p.runtime); os.IsNotExist(err) {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 type profRun struct {
@@ -474,7 +517,6 @@ func (p *profRig) ownerPID() int {
 	if err != nil {
 		return 0
 	}
-	_ = os.Setenv("XDG_RUNTIME_DIR", p.runtime)
 	res, err := unixClient(socket, 500*time.Millisecond).Get("http://communicator.local/_comm/status")
 	if err != nil {
 		return 0
@@ -631,7 +673,6 @@ func ms(d time.Duration) float64 { return float64(d) / float64(time.Millisecond)
 // sessions sharing one HOME (biest: 24 leases over a handful of scopes).
 func (p *profRig) standingLeases(n int) func() {
 	p.t.Helper()
-	_ = os.Setenv("XDG_RUNTIME_DIR", p.runtime)
 	socket, err := socketPath(p.srv.URL)
 	if err != nil {
 		p.t.Fatal(err)
@@ -818,6 +859,40 @@ func TestReconnectAfterLaunchStillRefreshesContent(t *testing.T) {
 	for rig.frames("/sync/bootstrap") <= before {
 		if time.Now().After(deadline) {
 			t.Fatalf("reconnect produced no content exchange (bootstraps stayed at %d)", before)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+// A server push that arrives while the cold launch's bootstrap is still in flight
+// is newer than the state that bootstrap is reading, so the scheduler's pass for
+// the scope must still run after it.
+func TestPushDuringColdBootstrapStillRefreshesContent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a signed real binary")
+	}
+	rig := newProfRig(t, true)
+	rig.api.configure(func(a *profAPI) {
+		a.byPath = map[string]time.Duration{"/sync/bootstrap": 1200 * time.Millisecond}
+		a.connect = 200 * time.Millisecond
+	})
+	done := make(chan profRun, 1)
+	go func() { done <- rig.run("cold launch with a push mid-bootstrap", "claude", "run", "--minimal") }()
+	deadline := time.Now().Add(15 * time.Second)
+	for rig.api.arrivals("/sync/bootstrap") == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the cold launch never reached /sync/bootstrap")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	rig.api.push(frame{Type: "invalidate"})
+	launch := <-done
+	if launch.ExitCode != 0 {
+		t.Fatalf("launch failed: %s", launch.Stdout)
+	}
+	for rig.frames("/sync/bootstrap") < 2 {
+		if time.Now().After(deadline.Add(15 * time.Second)) {
+			t.Fatalf("a push during the cold bootstrap produced no second exchange (bootstraps: %d)\n%s", rig.frames("/sync/bootstrap"), launch.timeline())
 		}
 		time.Sleep(25 * time.Millisecond)
 	}

@@ -75,6 +75,48 @@ function makeKeyring(): Keyring {
   } as unknown as Parameters<typeof Keyring.fromEnv>[0]);
 }
 
+describe('first-sync wrapper capabilities', () => {
+  it.each(['codex', 'claude', 'grok'] as const)('%s renders MCP for the running wrapper before its first version report', async engine => {
+    const db = createDbFake();
+    const apiKey = 'sk-first-sync';
+    const host = hostRow(apiKey, { engines: 'codex,claude,grok', wrapperVersion: null, claudeWrapperVersion: null, grokWrapperVersion: null });
+    db.tables.set(hostsTable, [host]);
+    db.tables.set(clientConfigDocuments, [{ id: 1, engine, body: '', sha256: 'first-sync',
+      settings: { orchestrator_mcp_enabled: true, mcp_servers: [] },
+      createdAt: '2026-10-13T00:00:00Z', updatedAt: '2026-10-13T00:00:00Z' }]);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    try {
+      for (const version of ['0.9.79', '0.9.70', 'dev', undefined]) {
+        const response = await app.inject({ method: 'POST', url: '/sync/bootstrap',
+          headers: { authorization: `Bearer ${apiKey}`, ...(version ? { 'x-wrapper-version': version } : {}) },
+          payload: { engine, include_auth: false } });
+        expect(response.statusCode).toBe(200);
+        const body = response.json();
+        const rendered = engine === 'claude' ? JSON.stringify(body.claude_settings.partial) : body.config.content;
+        if (version === '0.9.79') {
+          expect(rendered).toContain('communicator');
+          expect(rendered).not.toContain('https://o.example/mcp');
+        } else {
+          expect(rendered).toContain('https://o.example/mcp');
+          expect(rendered).not.toContain('communicator');
+        }
+        // Request capability is not a host-version report or another engine's upgrade.
+        expect(host.wrapperVersion).toBeNull();
+        expect(host.claudeWrapperVersion).toBeNull();
+        expect(host.grokWrapperVersion).toBeNull();
+      }
+      // A stale newer report must also not upgrade an older caller's capability.
+      host.wrapperVersion = host.claudeWrapperVersion = host.grokWrapperVersion = '0.9.79';
+      const oldCaller = await app.inject({ method: 'POST', url: '/sync/bootstrap',
+        headers: { authorization: `Bearer ${apiKey}`, 'x-wrapper-version': '0.9.70' },
+        payload: { engine, include_auth: false } });
+      expect(oldCaller.statusCode).toBe(200);
+      const oldBody = oldCaller.json();
+      expect(engine === 'claude' ? JSON.stringify(oldBody.claude_settings.partial) : oldBody.config.content).not.toContain('communicator');
+    } finally { await app.close(); }
+  });
+});
+
 describe('native memory routing bootstrap', () => {
   it.each(['codex', 'claude', 'grok'])('%s follows the effective MCP gate even without an agents document', async (engine) => {
     for (const enabled of [true, false]) {

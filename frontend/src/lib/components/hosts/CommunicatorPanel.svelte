@@ -26,7 +26,7 @@
         {#each connection.sync_scopes ?? [] as scope (scope.scope)}
           <p class="mt-1 text-xs text-muted-foreground">
             {scope.auth.engine}{scope.auth.account_id ? ` · Account ${scope.auth.account_id}` : ''} · {scope.running ? 'Synchronizing' : (authLabels[scope.auth.state] ?? 'Waiting for sync')}
-            {#if scope.auth.native_adoption === 'pending'} · Credentials written; native adoption pending{/if}
+            {#if scope.auth.native_adoption === 'pending' || scope.auth.native_adoption === 'unconfirmed'} · Written locally; native process has not confirmed adoption{/if}
           </p>
           {#if scope.content_error || scope.auth.error}<p class="text-xs text-destructive">{scope.content_error || scope.auth.error}</p>{/if}
         {/each}

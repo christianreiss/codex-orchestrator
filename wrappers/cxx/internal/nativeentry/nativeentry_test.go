@@ -2,11 +2,13 @@ package nativeentry
 
 import (
 	"context"
+	"errors"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -278,5 +280,70 @@ func TestResolveVendorPreservesClaudeCodeFallback(t *testing.T) {
 	got, err := ResolveVendor("claude-code", "/other/cxx")
 	if err != nil || got != path {
 		t.Fatalf("vendor fallback = %q, %v", got, err)
+	}
+}
+
+// A privileged process with another user's HOME (sudo env HOME=...) must not
+// create, rewrite or remove anything there: root-owned 0700 shims cannot be
+// read by their user, and the next launch refuses them as unmanaged.
+func TestForeignHomeIsNeverModified(t *testing.T) {
+	home := t.TempDir()
+	rc := filepath.Join(home, ".bashrc")
+	os.WriteFile(rc, []byte("# user\n"), 0600)
+	opts := Options{Home: home, WrapperPath: "/usr/bin/cxx", Engines: []string{"codex", "claude", "grok"}}
+	snapshot := func() map[string]string {
+		files := map[string]string{}
+		filepath.Walk(home, func(path string, info os.FileInfo, err error) error {
+			if err == nil && !info.IsDir() {
+				b, _ := os.ReadFile(path)
+				files[path] = info.Mode().String() + ":" + string(b)
+			} else if err == nil {
+				files[path] = "dir"
+			}
+			return nil
+		})
+		return files
+	}
+	foreign := func(t *testing.T) {
+		owner := os.Geteuid()
+		currentUID = func() int { return owner + 1 }
+		t.Cleanup(func() { currentUID = os.Geteuid })
+	}
+	t.Run("install", func(t *testing.T) {
+		before := snapshot()
+		foreign(t)
+		err := Install(opts)
+		if !errors.Is(err, ErrForeignHome) {
+			t.Fatalf("install into foreign home: %v", err)
+		}
+		if _, statErr := os.Stat(BinDir(home)); !os.IsNotExist(statErr) {
+			t.Fatalf("created %s in a foreign home", BinDir(home))
+		}
+		if after := snapshot(); !reflect.DeepEqual(before, after) {
+			t.Fatalf("foreign home changed:\n%v\n%v", before, after)
+		}
+		if err := Sync(home, "/usr/bin/cxx", nil); !errors.Is(err, ErrForeignHome) {
+			t.Fatalf("authoritative sync into foreign home: %v", err)
+		}
+	})
+	t.Run("remove", func(t *testing.T) {
+		if err := Install(opts); err != nil {
+			t.Fatal(err)
+		}
+		before := snapshot()
+		foreign(t)
+		if err := Remove(Options{Home: home}); !errors.Is(err, ErrForeignHome) {
+			t.Fatalf("remove from foreign home: %v", err)
+		}
+		if after := snapshot(); !reflect.DeepEqual(before, after) {
+			t.Fatalf("foreign home changed:\n%v\n%v", before, after)
+		}
+	})
+	// The owner still installs and removes normally.
+	if err := Install(opts); err != nil {
+		t.Fatal(err)
+	}
+	if err := Remove(Options{Home: home}); err != nil {
+		t.Fatal(err)
 	}
 }

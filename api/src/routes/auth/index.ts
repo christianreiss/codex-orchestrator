@@ -1,4 +1,5 @@
 import { ProviderAccountsService } from '../../services/provider-accounts.js';
+import { hostWithCallerWrapper } from '../../services/host-wrapper-capabilities.js';
 import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../services/pooled-auth-store.js';
 import { readQuotaAdvice, quotaAdviceSnapshot } from '../../services/quota-advice.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -464,7 +465,8 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const configDigest = typeof payload.config === 'string' ? (payload.config as string) : null;
     out.agents = await agentsService.retrieve(agentsDigest, enforced, engine);
     out.memory_routing = (out.agents as Record<string, unknown>).memory_routing;
-    out.config = await agentsService.retrieveConfig(configDigest, enforced, engine, {
+    const configHost = hostWithCallerWrapper(enforced, engine, req.headers['x-wrapper-version']);
+    out.config = await agentsService.retrieveConfig(configDigest, configHost, engine, {
       home: typeof payload.home === 'string' ? payload.home : null,
       username: typeof payload.username === 'string' ? payload.username : null,
     });
@@ -480,7 +482,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
         engine,
         readArtifactDigests(payload),
       );
-      out.claude_settings = await agentsService.retrieveClaudeSettings(enforced, {
+      out.claude_settings = await agentsService.retrieveClaudeSettings(configHost, {
         home: typeof payload.home === 'string' ? payload.home : null,
         username: typeof payload.username === 'string' ? payload.username : null,
       });
@@ -585,6 +587,9 @@ async function handleRetrieve(
         canonical_generation: row?.generation ?? null,
         canonical_last_refresh: snapshot?.last_refresh ?? null,
         ...(snapshot ? grokProjectionMetadata(snapshot.auth) : {}),
+        // status/verification_state describe one head; a launch leases from the
+        // pool, so status also needs to know whether any account is leasable.
+        pool_verified_accounts: await new ProviderAccountsService(ctx.db, ctx.keyring).countLeasable(engine),
         usage: { supported: false },
       };
     }

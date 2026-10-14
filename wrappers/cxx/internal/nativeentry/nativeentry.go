@@ -101,6 +101,10 @@ func install(opts Options, authoritative bool) error {
 		}
 		wanted[e] = true
 	}
+	// Before the lock and any mkdir: nothing may be created in a foreign home.
+	if err := checkHomeOwner(opts.Home); err != nil {
+		return err
+	}
 	lock, err := acquireEntryLock(opts.Home)
 	if err != nil {
 		return err
@@ -153,6 +157,10 @@ func install(opts Options, authoritative bool) error {
 func Remove(opts Options) error {
 	if !filepath.IsAbs(opts.Home) {
 		return errors.New("native entry requires absolute home path")
+	}
+	// Removal rewrites shell files too, which would hand them to root.
+	if err := checkHomeOwner(opts.Home); err != nil {
+		return err
 	}
 	lock, err := acquireEntryLock(opts.Home)
 	if err != nil {

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, asc, desc, eq, gt, inArray, lte } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, lte } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   authCanonicalHeads,
@@ -320,6 +320,26 @@ export class ProviderAccountsService {
       weekly_resets_at: weekly?.reset ?? null,
       weekly_limit_seconds: weekly?.limit ?? null,
     };
+  }
+
+  /**
+   * Accounts a new lease could choose, with no reservation, refresh or credential
+   * read: the candidate filter of `acquire` (enabled, with a verified payload).
+   * Quota only ranks those candidates, it never empties the set.
+   */
+  async countLeasable(engine: Engine): Promise<number> {
+    const [row] = await this.db
+      .select({ leasable: count() })
+      .from(providerAccounts)
+      .innerJoin(authPayloads, eq(authPayloads.id, providerAccounts.payloadId))
+      .where(
+        and(
+          eq(providerAccounts.engine, engine),
+          eq(providerAccounts.state, 'enabled'),
+          eq(authPayloads.verificationState, 'verified'),
+        ),
+      );
+    return Number(row?.leasable ?? 0);
   }
 
   async acquire(

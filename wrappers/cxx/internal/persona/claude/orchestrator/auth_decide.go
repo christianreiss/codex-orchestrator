@@ -88,7 +88,7 @@ func Decide(resp *AuthRetrieveResponse, localAuthPath string, hostSecure bool, p
 	// blindly) but the operator is told exactly why and how to resolve it; this must
 	// never reach the offline cached-auth fallback below.
 	if IsUnresolvedUpload(resp.Message) {
-		d.Reason = "A previous credential upload has no confirmed outcome (marker .cxx-communicator-pending-auth.json in the native credential directory); refusing to start so nothing is replayed or overwritten blindly. Compare this host's credential with the server's, then delete the marker to resume."
+		d.Reason = "A previous credential upload has no confirmed outcome (marker .cxx-communicator-pending-auth.json in the native credential directory); refusing to start so nothing is replayed or overwritten blindly. Differing digests or timestamps do not settle it: the upload may have been committed and replaced since. Inspect the recovery state with `clx auth-reconcile`; `clx auth-reconcile --accept-server` explicitly adopts a verified same-account server credential with a local backup. Either sign in again with `clx login`, which replaces the local credential through the normal flow, or decide explicitly, after verifying that the credential you keep is the intended one for this account, to remove the marker yourself. Never print credentials to compare them."
 		return d
 	}
 	// Engine disabled, by the fleet-wide master switch ("suspended") or by

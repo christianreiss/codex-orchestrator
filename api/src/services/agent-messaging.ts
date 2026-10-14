@@ -1009,7 +1009,27 @@ export class AgentMessagingService {
     const fleet = await readFleetEngineState(this.db);
     const eligible = rows.filter((row) => activeHostEngines(row.hostEngines, fleet).includes(row.engine as Engine) && (daemonRelay ? remoteSessions.some(s => s.addressId === row.id && ['idle', 'waiting'].includes(s.status)) : !remoteIds.has(row.id)));
     if (eligible.length === 0) return null;
-    return await this.claimDelivery(eligible.map((row) => row.id), `relay:${relay.id}:${relay.generation}`, claimId, relay.generation, true);
+    const targetIds = eligible.map((row) => row.id);
+    // Almost every relay poll finds nothing (production: ~18K messages ever against ~100M polls), yet claimDelivery
+    // opens with the exclusive enable-flag row lock. Polling relays therefore queued behind each other and behind real
+    // writers, pinning API pool connections while they waited. A poll that changes nothing needs no fence: with no
+    // pending row it is indistinguishable from one that ran just before any concurrent send or disable.
+    if (!(await this.hasPendingRelayWork(targetIds))) return null;
+    return await this.claimDelivery(targetIds, `relay:${relay.id}:${relay.generation}`, claimId, relay.generation, true);
+  }
+
+  /**
+   * Plain-read peek for `claimDelivery`. It must cover every row the locked body can write: queued (claim, expiry),
+   * leased (requeue, dead-letter, replay) and presence notices (discarded in any of queued/leased/accepted).
+   * Over-matching only costs the locked path; under-matching would skip a state change.
+   */
+  private async hasPendingRelayWork(targetAddressIds: string[]): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: agentBusMessages.id })
+      .from(agentBusMessages)
+      .where(and(inArray(agentBusMessages.targetAddressId, targetAddressIds), inArray(agentBusMessages.status, ['queued', 'leased', 'accepted'])))
+      .limit(1);
+    return rows.length > 0;
   }
 
   private async finishTaskLocked(tx: Parameters<Parameters<Database['transaction']>[0]>[0], message: AgentBusMessage, claimId: string, leaseOwner: string, result?: TaskResult) {

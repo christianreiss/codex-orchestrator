@@ -4,7 +4,7 @@ cxx 0.9.72 introduces one local communicator per OS user and orchestrator base U
 It is started lazily by a managed request and shared by Codex, Claude and Grok.
 Provider inference still uses each native client's original network path.
 
-## Resident owner reporting (private candidate)
+## Resident owner reporting (cxx 0.9.80)
 
 With the default-off signed `orchestrator.communicator_runtime_protocol: 1`,
 the owner sends diagnostics only to a server advertising `resident_runtime`
@@ -68,7 +68,9 @@ and control requests use the communicator whenever the recovered config enables 
 
 `cxx communicator status` reports protocol, version, PID, connected clients,
 forwarded/coalesced requests, last sync and connection error. `doctor` returns
-nonzero when an enabled communicator is absent. The host's Operations tab shows
+nonzero when an enabled communicator is absent. When the wrapper refuses the local socket
+(for example a leaked `XDG_RUNTIME_DIR=/run/user/0` that is not private to the user), the line for that
+server carries `"error"` with the refusal instead of an empty `"socket"`, and `doctor` fails. The host's Operations tab shows
 live server connections and their users, versions and sync timestamps.
 
 The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR`. When a
@@ -177,6 +179,8 @@ exactly one of `result` and `error` is present. A lone `result: null` is valid.
 An error must be an object with an integer `code` and a string `message`;
 null errors, missing fields, and contradictory envelopes return the existing unknown-outcome error with the
 original request ID instead of forwarding an ambiguous result.
+The stdio writer also preserves JSON numbers without passing them through
+`float64`, so large integer IDs stay correlated in single and batch replies.
 
 Remote control of the owner process is negotiated, so old servers and old owners
 never meet a frame or a field they do not know. A server that can stop an owner
@@ -432,10 +436,62 @@ the interrupted generation. A crash before marker cleanup can be reconciled agai
 An older or equal-but-different head, missing verification, or a changed account/session
 remains unresolved and refuses launch with the marker's explicit diagnostic. Timestamp
 comparison alone never authorizes re-offering a local credential or deleting its marker.
+The launch diagnostic says the same: it never reads "compare, then delete the marker". It
+names the marker, explains that differing digests or timestamps do not settle an upload that may
+have been committed and replaced since, and offers re-authentication (`cdx login` / `clx login`,
+which replaces the local credential through the normal flow) or an explicit operator decision after
+verifying that the credential kept is the intended one for the account, without printing
+credentials. There is no force-clear command. A stale marker with a differing server head still
+needs that operator decision; the clearer message is not automatic recovery.
+
+For an unresolved conflict, `cdx auth-reconcile` and `clx auth-reconcile` perform
+an explicit direct account-scoped readback (using the signed config's existing
+API key and TLS/CA policy) and print metadata only: server, engine, local and
+pending SHA256 generations, account/session binding, verified canonical digest
+and generation, and the conflict reason. The command has a 15-second network
+and lock deadline. It does not start an owner or run startup content sync, maintenance, upload,
+provider refresh or account-lease acquisition. Without an active native child,
+an inherited session ID is omitted, so an expired lease does not prevent the
+same account's readback. An active invalid session binding is reported precisely;
+no replacement account is silently reserved.
+Readback and local native files are limited to 1 MiB. An oversized response is
+rejected in full; a valid JSON prefix cannot be accepted by truncating its tail.
+
+`auth-reconcile --accept-server` is an explicit choice to adopt that account's
+verified server credentials, including an older or equal-but-different head.
+It requires a stable positive account binding, an existing pending marker and
+local auth generation, no logout intent, and no active native child. A unique
+0600 copy of the exact observed native bytes is saved and synced beneath the
+native auth directory's private `auth-recovery-backups/` directory before the
+existing guarded writer is called. A native change/deletion/logout during the
+readback or after backup wins. A changed marker is retained: cleanup compares its
+exact bytes after a successful write, while holding the same transaction fence
+as background workers. Success says **adopted server credentials**, never that
+the interrupted upload was acknowledged. Backups remain available for deliberate
+local recovery; restoring one is not permission to replay the interrupted upload.
+
+Credential adoption with a persistent backup is limited to secure hosts. An
+insecure signed config or a readback reporting an insecure host refuses retention;
+inspection still works. Unverified or missing server credentials, changed or
+absent account binding, missing local credentials and logout intent remain fenced
+with diagnostics. There is no cross-account switch or implicit logout recovery.
+Grok rejects this command explicitly: subscription credentials are server-owned.
+
+Malformed pending markers, including valid JSON without a lower-case SHA256
+generation, remain fenced rather than looking absent. The fence survives a
+signed rollback to legacy transport; changing transport does not prove the
+previous store failed. A verified identical Claude readback also supports an
+older API's `digest` field when `canonical_digest` is absent.
+Automatic idle uploads also take the recovery transaction fence and check the
+pending marker before any store, including after a signed transport rollback.
+An unresolved candidate is never reoffered by `auth-upload-auto`.
 
 Local `status`/`doctor` and the host Operations panel show content failures and
 per-scope auth progress. Server confirmation, local writes and native adoption are
-separate: a local write reports native adoption as pending. Model-facing notices
+separate: a local write reports native adoption as unconfirmed. Native processes
+do not provide an adoption acknowledgement, so this is an observation limit,
+not a pending job or a failed sync. Older owners' `pending` reports are displayed
+with the same explanation. Model-facing notices
 are informational and never count as technical adoption acknowledgements. Detailed
 worker errors remain on the protected local socket; heartbeats carry bounded
 metadata only. `doctor` fails for a disconnected owner or failed synchronization.
@@ -453,9 +509,19 @@ push, signed handoff, lost-acknowledgement readback, logout/CAS preservation and
 Grok readiness without token issuance or refresh ownership changes. All process
 fixtures use isolated HOME and runtime directories.
 
+### First-sync capabilities
+
+Starting with cxx 0.9.79, Codex, Claude and Grok HTTP clients send
+`X-Wrapper-Version` from the running binary, including finite workers. The API
+uses it only for the selected engine's config-rendering capabilities, so a fresh
+installation can receive the stdio MCP adapter before its first version report.
+The signed config's target version does not stand in for the running version.
+Older clients without the header retain the stored-version behavior; old and
+non-release callers still fail the existing communicator version gate.
+
 ## Resident communicator workstream
 
-The independent, default-off signed `communicator_runtime_protocol: 1` prepares
+From cxx 0.9.80 the independent, default-off signed `communicator_runtime_protocol: 1` provides
 `cxx communicator run` as the persistent owner for transport, content sync and
 the existing remote execution controller. Residence and remote starts have
 separate settings; native auth/account locks and engine-specific refresh ownership

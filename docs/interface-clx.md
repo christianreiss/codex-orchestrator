@@ -49,6 +49,11 @@ remain authoritative; queue admission and successful work results are separate.
 
 `cxx native-entry install` repairs entries from locally verified signed configs;
 `cxx native-entry remove` removes managed entries and shell blocks for rollback.
+Both refuse, and the automatic post-command reconciliation skips, a home
+directory owned by another user (for example `sudo env HOME=/home/user cxx
+daemon install`), so privileged maintenance never leaves root-owned entries or
+shell files there. Uninstall run that way stops with the same error; run it as
+the owning user.
 Normal later sync/update prepares them again. Uninstall removes only the selected
 engine's entry after confirmed server removal, preserving other engines. No new
 server endpoint or database migration is required.
@@ -1878,6 +1883,10 @@ Equal, older or unverified heads remain unresolved. Successful recovery reports
 adoption and then clears the matching pending marker, never an upload acknowledgement.
 
 See [Communicator ownership and rollout](communicator.md#central-sync-ownership-cxx-0973).
+
+### Explicit interrupted-upload recovery
+
+`clx auth-reconcile` inspects the bound account and pending/local generations without upload, startup sync or a new provider lease. `clx auth-reconcile --accept-server` deliberately adopts verified same-account server credentials on a secure host after saving an exact private local backup. Native changes, logout, active children and changed marker bytes remain protected. Inactive expired session IDs are omitted for account-scoped readback; unverified, absent or changed bindings stay fenced. The result is server adoption, never an acknowledgement of the interrupted upload. See [the recovery contract](communicator.md) for limitations and backup handling.
 
 ## Resident communicator workstream
 

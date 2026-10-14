@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/buildinfo"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"log/slog"
@@ -109,6 +110,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request, retries int) (*http.
 	if req.Header.Get("X-Wrapper-Platform") == "" {
 		req.Header.Set("X-Wrapper-Platform", runtime.GOOS+"-"+runtime.GOARCH)
 	}
+	req.Header.Set("X-Wrapper-Version", buildinfo.Version)
 
 	if retries < 0 {
 		retries = 0

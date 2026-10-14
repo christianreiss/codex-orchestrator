@@ -55,6 +55,11 @@ remain authoritative; queue admission and successful work results are separate.
 
 `cxx native-entry install` repairs entries from locally verified signed configs;
 `cxx native-entry remove` removes managed entries and shell blocks for rollback.
+Both refuse, and the automatic post-command reconciliation skips, a home
+directory owned by another user (for example `sudo env HOME=/home/user cxx
+daemon install`), so privileged maintenance never leaves root-owned entries or
+shell files there. Uninstall run that way stops with the same error; run it as
+the owning user.
 Normal later sync/update prepares them again. Uninstall removes only the selected
 engine's entry after confirmed server removal, preserving other engines. No new
 server endpoint or database migration is required.
@@ -87,6 +92,7 @@ credential values. See [MCP verification](grok-mcp-verification.md).
 | `cron [install\|remove\|run]` / `--cron …` | Manage or run the host-wide `cxx cron` schedule. The coordinator's per-engine Grok tick runs the same maintenance as `update` without forcing a CLI reinstall, reports versions even when content sync fails, and prints one `cron: …` result line. |
 | `uninstall` / `--uninstall` | Refuse a multi-user host without root or passwordless sudo; best-effort server delete; then remove fleet skills, owned config keys, the managed `AGENTS.md` (only if unchanged), pending login, signed config and the private Grok installs. Shared cxx aliases and cron are removed only on a confirmed server result. Native history and unwrapped credentials stay. |
 | `auth-upload-auto` | Accepted no-op for shared callers: managed Grok runtimes hold no canonical refresh token to upload. |
+| `auth-reconcile` | Refused before configuration or network work: Grok credentials are server-owned; explicit local recovery is supported only by Codex and Claude. |
 | `help` / `--wrapper-help` | Wrapper help. Native help (`cgx --help`, `cgx help`, `cgx mcp --help`) goes straight to the native CLI without a lease or sync. |
 
 Flags: `-W`/`--wrapper-version` (the shared version block with the signing-key line),
@@ -369,6 +375,10 @@ Startup, `status` and `doctor` use `/auth` with `metadata_only: true` to inspect
 local canonical metadata without refreshing provider credentials or allocating an
 account lease. A missing/default account cannot block the subsequent account-pool
 selection; the actual runtime grant is obtained through `/auth/sessions`.
+`status` and `doctor` treat auth as healthy when the account-less head reports
+`status:"available"` with `verification_state:"verified"`, or when
+`pool_verified_accounts` is positive (a launch would lease one of those accounts).
+Otherwise they fail; servers that omit the count keep the head-only verdict.
 
 Ordinary credential retrieval through `/auth` returns the access-only envelope with `canonical_generation`,
 `access_token_digest`, `expires_at`, and refresh-state metadata.

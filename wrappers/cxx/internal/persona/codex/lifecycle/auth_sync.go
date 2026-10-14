@@ -38,7 +38,7 @@ func SyncSessionAuth(ctx context.Context, client *orchestrator.Client, logger *s
 	}
 	defer release()
 	if communicator.PendingAuth(client.BaseURL, "codex", fencePath) {
-		return SessionAuthSyncResult{Deferred: true}, errors.New("previous auth upload outcome unresolved; refusing to replay after handoff")
+		return SessionAuthSyncResult{Deferred: true}, errors.New("previous auth upload outcome unresolved; refusing to replay after handoff; inspect with cdx auth-reconcile")
 	}
 
 	if logger == nil {
@@ -134,6 +134,14 @@ func UploadAutomaticAuth(ctx context.Context, client *orchestrator.Client, logge
 	path, err := codex.AuthPath()
 	if err != nil {
 		return SessionAuthSyncResult{}, err
+	}
+	release, err := communicator.AutomaticAuthFence(ctx, client.BaseURL, "codex", path)
+	if err != nil {
+		return SessionAuthSyncResult{}, err
+	}
+	defer release()
+	if communicator.PendingAuth(client.BaseURL, "codex", path) {
+		return SessionAuthSyncResult{Deferred: true}, errors.New("previous auth upload outcome unresolved; refusing automatic replay; inspect with cdx auth-reconcile")
 	}
 	expected, err := codex.CurrentAuthGeneration()
 	if err != nil {

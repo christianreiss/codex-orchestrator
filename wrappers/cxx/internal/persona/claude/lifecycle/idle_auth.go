@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 )
 
@@ -20,6 +21,18 @@ type IdleAuthUploadResult struct {
 // response, and never acknowledges a logout on behalf of an unattended worker.
 func UploadIdleAuth(ctx context.Context, client *orchestrator.Client) (IdleAuthUploadResult, error) {
 	result := IdleAuthUploadResult{}
+	path, err := claude.AuthPath()
+	if err != nil {
+		return result, err
+	}
+	fenceRelease, err := communicator.AutomaticAuthFence(ctx, client.BaseURL, "claude", path)
+	if err != nil {
+		return result, err
+	}
+	defer fenceRelease()
+	if communicator.PendingAuth(client.BaseURL, "claude", path) {
+		return result, errors.New("previous auth upload outcome unresolved; refusing automatic replay; inspect with clx auth-reconcile")
+	}
 	snap, _, release, err := claude.BeginIdleAuthUploadStateContext(ctx)
 	if errors.Is(err, claude.ErrAuthUploadBlockedByLogout) || errors.Is(err, os.ErrNotExist) {
 		return result, nil

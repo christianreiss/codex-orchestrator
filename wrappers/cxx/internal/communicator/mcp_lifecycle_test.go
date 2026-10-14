@@ -256,6 +256,33 @@ func (f *mcpFixture) start(engine string) *mcpChild {
 
 func (c *mcpChild) send(line string) { fmt.Fprintln(c.in, line) }
 
+func TestMCPAdapterPreservesLargeNumericReplyIDs(t *testing.T) {
+	f := newMCPFixture(t)
+	ids := []string{"9007199254740993", "9223372036854775807"}
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		c := f.start(engine)
+		for _, id := range ids {
+			c.send(`{"jsonrpc":"2.0","id":` + id + `,"method":"tools/list"}`)
+			line, ok := c.next(t, 15*time.Second)
+			var reply struct{ ID json.RawMessage }
+			if !ok || json.Unmarshal([]byte(line), &reply) != nil || string(reply.ID) != id {
+				t.Fatalf("%s rounded numeric reply ID %s: %s", engine, id, line)
+			}
+		}
+		c.send(`[{"jsonrpc":"2.0","id":` + ids[0] + `,"method":"tools/list"},{"jsonrpc":"2.0","id":` + ids[1] + `,"method":"tools/list"}]`)
+		line, ok := c.next(t, 15*time.Second)
+		var replies []struct{ ID json.RawMessage }
+		if !ok || json.Unmarshal([]byte(line), &replies) != nil || len(replies) != len(ids) {
+			t.Fatalf("%s invalid batch reply: %s", engine, line)
+		}
+		for i, reply := range replies {
+			if string(reply.ID) != ids[i] {
+				t.Fatalf("%s rounded batch ID %s: %s", engine, ids[i], line)
+			}
+		}
+	}
+}
+
 func (c *mcpChild) next(t *testing.T, within time.Duration) (string, bool) {
 	t.Helper()
 	select {

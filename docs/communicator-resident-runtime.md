@@ -1,9 +1,8 @@
 # Resident communicator implementation
 
-The unified runtime is implemented in the private unification workstream behind
-an independent, default-off signed capability. It has no allocated release or
-production rollout. Fleet integration and remaining acceptance checks remain
-release gates.
+cxx 0.9.80 includes the unified runtime behind an independent, default-off
+signed capability. Source integration does not enable it or deploy it. Provider
+and production migration acceptance remain separate activation gates.
 
 ## Settings and compatibility
 
@@ -98,8 +97,9 @@ Do not treat a successful unit install or WebSocket close as a verified migratio
 
 ## Acceptance and integration
 
-The private branch is based on Dorothea's verified audit source `dc92e547`.
-Dorothea coordinates newer dependencies, shared integration and release allocation.
+The implementation is integrated with the verified 0.9.79 audit source
+`839c0a1b`, preserving startup, explicit credential recovery, native-entry
+ownership guards and idle relay polling corrections.
 The isolated systemd lab verified installation, compatible updates, rollback,
 repeated rollback and recovery from failed admission release without restarting
 the target. It used signed configurations with execution disabled and a stub API.
@@ -108,10 +108,10 @@ exclusion, busy stop refusal, receipt recovery without replay and actual quiet
 exit for every engine, using provider executables as fixtures. Isolated MySQL
 regressions verify real migration/acceptance ordering and peer lease fencing.
 See [verification evidence](verification/communicator-residency-2026-10-14.md).
-Negotiated dashboard owner metadata is implemented in the private candidate.
-Any required real-provider acceptance, independent review and Director integration
-remain pending. Production rollout
-is a separate action.
+Negotiated dashboard owner metadata is implemented; its reporting/control
+corrections passed Raffaela's source review. Broader migration activation and
+any required real-provider acceptance remain pending. Production rollout is
+a separate action.
 
 ## Actual owner diagnostics
 

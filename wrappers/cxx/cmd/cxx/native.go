@@ -45,7 +45,7 @@ func shouldReconcileNativeEntries(args []string) bool {
 			break
 		}
 		switch arg {
-		case "--help", "-h", "help", "--version", "-v", "-V", "--wrapper-version", "-W", "status", "doctor", "--status", "--doctor", "agent", "portal", "grok-auth", "claude-quota-statusline", "uninstall", "--uninstall":
+		case "--help", "-h", "help", "--version", "-v", "-V", "--wrapper-version", "-W", "status", "doctor", "--status", "--doctor", "agent", "portal", "grok-auth", "auth-reconcile", "claude-quota-statusline", "uninstall", "--uninstall":
 			return false
 		}
 	}
@@ -60,6 +60,16 @@ func shouldReconcileNativeEntries(args []string) bool {
 		}
 	}
 	return true
+}
+
+// implicitNativeEntryError keeps the after-command reconciliation from turning
+// a successful privileged command (sudo with another user's HOME) into a
+// failure: that home is left alone. Explicit native-entry commands still report it.
+func implicitNativeEntryError(err error) error {
+	if errors.Is(err, nativeentry.ErrForeignHome) {
+		return nil
+	}
+	return err
 }
 
 func reconcileNativeEntries(requireAssignment ...bool) error {

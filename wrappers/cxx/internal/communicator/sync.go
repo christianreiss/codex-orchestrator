@@ -435,7 +435,7 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 			state.auth.State = "deferred"
 		case out.Adopted:
 			state.auth.State = "locally_written"
-			state.auth.NativeAdoption = "pending"
+			state.auth.NativeAdoption = "unconfirmed"
 		case out.Uploaded:
 			state.auth.State = "server_confirmed"
 		default:

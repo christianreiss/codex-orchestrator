@@ -6,7 +6,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"os"
 	"path/filepath"
@@ -21,9 +20,11 @@ import (
 	claudeapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/claude"
 	codexapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/codex"
 	grokapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/grok"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/buildinfo"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claudequota"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
@@ -64,7 +65,7 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 	communicator.Configure(commCtx)
 	defer func() {
 		if code == 0 && shouldReconcileNativeEntries(args) {
-			if err := reconcileNativeEntries(); err != nil {
+			if err := implicitNativeEntryError(reconcileNativeEntries()); err != nil {
 				fmt.Fprintln(stderr, "cxx native entry integration:", err)
 				code = 1
 			}
@@ -159,6 +160,7 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 }
 
 func setPersonaBuildInfo() {
+	buildinfo.Version = Version
 	codexapp.Version, codexapp.Commit, codexapp.BuildDate = Version, Commit, BuildDate
 	claudeapp.Version, claudeapp.Commit, claudeapp.BuildDate = Version, Commit, BuildDate
 	grokapp.Version, grokapp.Commit, grokapp.BuildDate = Version, Commit, BuildDate

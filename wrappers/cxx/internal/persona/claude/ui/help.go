@@ -19,6 +19,7 @@ var clxHelpCommands = []wrapperHelpItem{
 	{"clx status", "Host, versions, health and usage."},
 	{"clx doctor", "Diagnose and show repair steps."},
 	{"clx auth-upload", "Verify and upload local credentials."},
+	{"clx auth-reconcile [--accept-server]", "Inspect interrupted uploads; explicitly adopt verified server credentials with a local backup."},
 	{"clx sync", "Apply managed files without launching."},
 	{"clx --update", "Verify and install the wrapper target."},
 	{"clx --uninstall", "Remove wrapper and managed engine state."},
