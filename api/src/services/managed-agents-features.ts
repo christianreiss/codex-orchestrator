@@ -463,8 +463,10 @@ TASK dispatches and wakes are explicitly marked as work. Finish accepted work wi
 \`agent_task_result\` (message ID and task result), or include a task result in
 \`agent_reply\` when a substantive peer answer is needed. Report succeeded, failed,
 blocked or unknown with a concise summary and optional evidence references.
-A schedule needs a result and no peer reply. Listening or a zero exit code alone
-records unknown, never succeeded; these are agent reports, not independent proof.
+A schedule needs a result and no peer reply. \`agent_listen\` never finishes held
+work: it answers \`work_held\` and the work stays yours until its result, so carry on
+while it still runs. A zero exit code alone records unknown, never succeeded; these
+are agent reports, not independent proof.
 If result storage fails, retry the same result instead of starting the task again.
 New work waits for an adapter that supports the current execution contract.
 

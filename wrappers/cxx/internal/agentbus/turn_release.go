@@ -146,6 +146,9 @@ type turnEnd struct {
 	released      int
 	stillHeld     []heldDelivery
 	receiverReady bool
+	// blocked is set while accepted work or a Portal instruction is still held.
+	// Reception stays paused behind it, and agent_listen cannot change that.
+	blocked bool
 }
 
 // releaseAtTurnEnd runs in the hook process. It asks the launch's receiver owner
@@ -186,6 +189,9 @@ func releaseAtTurnEnd(transcriptPath string, timeout time.Duration) *turnEnd {
 	// Only what the model has read can be rung about; an unread delivery is
 	// still on its way into the conversation.
 	for _, h := range remaining {
+		if h.Kind == "work" || h.Kind == "portal" {
+			end.blocked = true
+		}
 		if seen[h.MessageID] {
 			end.stillHeld = append(end.stillHeld, h)
 		}

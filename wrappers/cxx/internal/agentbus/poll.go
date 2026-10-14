@@ -154,7 +154,7 @@ func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error 
 	if len(fresh) == 0 && authContext == "" && heldText == "" {
 		return nil
 	}
-	summary := ringSummary(fresh)
+	summary := ringSummary(fresh, end != nil && end.blocked)
 	if heldText != "" {
 		if summary.context != "" {
 			summary.context += "\n"
@@ -207,7 +207,12 @@ type ringText struct {
 	human   string
 }
 
-func ringSummary(fresh []mailboxEntry) ringText {
+// blocked means this session still holds accepted work or a Portal
+// instruction. The pending messages then queue behind it, and the usual advice
+// to call agent_listen is wrong: listen cannot release work, and telling a
+// model it "releases anything you were holding" is how a coordinator ended its
+// own still-running request as unknown on 2026-10-14.
+func ringSummary(fresh []mailboxEntry, blocked bool) ringText {
 	var pending, missed []mailboxEntry
 	for _, entry := range fresh {
 		if entry.MessageID == "" {
@@ -226,11 +231,21 @@ func ringSummary(fresh []mailboxEntry) ringText {
 			}
 			agent.WriteString("\n")
 		}
-		agent.WriteString(
-			"\nThis is a ring, not the message: the body is only released when you collect it. " +
-				"To answer, call `agent_listen`: with the automatic receiver it releases anything you were " +
-				"holding and the message is delivered into this conversation; otherwise it claims the message " +
-				"and binds this session receive-capable. To decline, say so and carry on; it will not ring again.\n")
+		if blocked {
+			agent.WriteString(
+				"\nThis is a ring, not the message. It is queued behind accepted work or an operator Portal " +
+					"instruction you still hold, and arrives on its own once that is answered: report work with " +
+					"`agent_task_result` (or `agent_reply` with task_result) and Portal instructions with " +
+					"`agent_receiver_reply`, but only when they are actually finished. `agent_listen` does not release " +
+					"them. If the work is still running, carry on; this will not ring again.\n")
+		} else {
+			agent.WriteString(
+				"\nThis is a ring, not the message: the body is only released when you collect it. " +
+					"To answer, call `agent_listen`: with the automatic receiver it releases any informational " +
+					"message you were holding and the message is delivered into this conversation; otherwise it " +
+					"claims the message and binds this session receive-capable. To decline, say so and carry on; " +
+					"it will not ring again.\n")
+		}
 		fmt.Fprintf(&human, "☎ %s waiting from %s", plural(len(pending), "call", "calls"), pending[0].From.name())
 		if len(pending) > 1 {
 			fmt.Fprintf(&human, " and %d more", len(pending)-1)

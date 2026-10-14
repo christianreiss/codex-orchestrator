@@ -21,6 +21,7 @@ import {
   inArray,
   isNull,
   lte,
+  ne,
   or,
   sql,
 } from 'drizzle-orm';
@@ -1405,6 +1406,7 @@ export class AgentMessagingService {
     const now = nowIso();
     const leaseUntil = isoOffsetSeconds(AGENT_MESSAGING_LEASE_SECONDS);
     const receiveFreshAfter = isoOffsetSeconds(-AGENT_MESSAGING_RECEIVE_FRESH_SECONDS);
+    const claimingSessionId = relayGeneration == null ? sessionIdFromLeaseOwner(leaseOwner) : null;
     const result = await this.db.transaction(async (tx) => {
       await this.requireEnabledLocked(tx);
       if (relayGeneration != null) {
@@ -1463,7 +1465,20 @@ export class AgentMessagingService {
           inArray(agentBusMessages.targetAddressId, targetAddressIds),
           eq(agentBusMessages.status, 'queued'),
           sql`NOT EXISTS (SELECT 1 FROM agent_reboot_handoffs rh WHERE rh.address_id = ${agentBusMessages.targetAddressId} COLLATE utf8mb4_unicode_ci AND rh.status = 'armed')`,
-          lte(agentBusMessages.nextAttemptAt, now),
+          // Retry backoff fences the delivery path that failed, not the message.
+          // A live session claiming a row that some other path retried (the relay's
+          // native_session_busy, or an earlier session) must not inherit that
+          // backoff: on 2026-10-14 a returning Claude session sat "ready" for over
+          // four minutes behind a message the relay had backed off by 900s, with
+          // every later message queued FIFO behind it while the hook kept ringing.
+          // The session's own retries keep their backoff.
+          claimingSessionId
+            ? or(
+              lte(agentBusMessages.nextAttemptAt, now),
+              isNull(agentBusMessages.deliverySessionId),
+              ne(agentBusMessages.deliverySessionId, claimingSessionId),
+            )
+            : lte(agentBusMessages.nextAttemptAt, now),
           gt(agentBusMessages.expiresAt, now),
           sql`NOT EXISTS (
             SELECT 1

@@ -76,6 +76,7 @@ const NON_TOOL_TOKENS: Record<string, string> = {
   checkout_root: 'agent_list response field identifying the checkout used for occupancy discovery, not a tool',
   delivery_hint: 'send/reply receipt explanation field, not a tool',
   presence_notice: 'informational session-bound bus message kind, not a tool',
+  work_held: 'agent_listen status while accepted work is still owned, not a tool',
  task_key: 'stable watchdog task identity',
  duration_seconds: 'bounded watchdog lifetime',
   git_director_worktree_ambiguous: "error code requiring explicit registration to repair duplicate clone mappings, not a tool",
