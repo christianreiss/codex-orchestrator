@@ -2,7 +2,8 @@ import { markWaitingForPresence } from './agent-messaging/presence-feedback.js';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { agentSessions, agentBusAddresses } from '../db/schema.js';
+import { agentSessions, agentBusAddresses, hosts, versions } from '../db/schema.js';
+import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging/constants.js';
 import type { Env } from '../env.js';
 import type { Keyring } from '../security/keyring.js';
 import { ConflictError, ForbiddenError } from '../http/errors.js';
@@ -39,6 +40,21 @@ export class AgentReceiverService {
     return await this.portal.authenticateBridge(id, token);
   }
 
+  /**
+   * Messaging transactions serialise on the agent_messaging_enabled row and
+   * then lock addresses, hosts and sessions in path-specific orders; the
+   * portal bridge locks hosts -> session. Register binds the native identity
+   * (which locks the host) and both paths update the address after locking
+   * the session, so take the messaging row, the address and the host first
+   * or they deadlock against a concurrent send, claim or activity report.
+   */
+  private async lockAhead(tx: Parameters<Parameters<Database['transaction']>[0]>[0], auth: { hostId: number; agentBusAddressId: string | null }) {
+    await tx.select({ name: versions.name }).from(versions).where(eq(versions.name, AGENT_MESSAGING_ENABLED_KEY)).for('update');
+    if (auth.agentBusAddressId)
+      await tx.select({ id: agentBusAddresses.id }).from(agentBusAddresses).where(eq(agentBusAddresses.id, auth.agentBusAddressId)).for('update');
+    await tx.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, auth.hostId)).for('update');
+  }
+
   private changed(id: string) {
     wsPublisher.publish('agent_portal.sessions.changed', { session_id: id });
     wsPublisher.publish('agent_messaging.address.changed', { session_id: id });
@@ -59,6 +75,7 @@ export class AgentReceiverService {
       sources.push('portal');
     const now = new Date().toISOString();
     const state = await this.db.transaction(async (tx) => {
+      await this.lockAhead(tx, auth);
       const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, id)).for('update');
       if (!session || session.endedAt || session.bridgeTokenHash !== auth.bridgeTokenHash)
         throw new ConflictError('Session changed', 'receiver_session_changed');
@@ -121,6 +138,7 @@ export class AgentReceiverService {
     const peerEnabled = await this.messaging.isEnabled();
     const portalEnabled = await this.portal.isEnabled();
     const result = await this.db.transaction(async (tx) => {
+      await this.lockAhead(tx, auth);
       const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, id)).for('update');
       const state = receiverState(session?.receiver);
       if (

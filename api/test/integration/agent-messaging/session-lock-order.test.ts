@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { agentSessions, hosts } from '../../../src/db/schema.js';
 import { AgentMessagingService } from '../../../src/services/agent-messaging.js';
+import { AgentReceiverService } from '../../../src/services/agent-receiver.js';
 import { getTestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 import { markPersistentHost, persistRelayUsers } from '../../helpers/persistent-host.js';
@@ -15,6 +16,7 @@ const handle = await getTestDb();
 describe.skipIf(!handle)('session heartbeat vs activity lock order', () => {
   let host: typeof hosts.$inferSelect;
   let messaging: AgentMessagingService;
+  let receiver: AgentReceiverService;
   beforeAll(async () => {
     const db = handle!.db, now = new Date().toISOString();
     const fqdn = `lock-order-${randomUUID()}.test`;
@@ -23,6 +25,7 @@ describe.skipIf(!handle)('session heartbeat vs activity lock order', () => {
     await markPersistentHost(db, host.id);
     await db.execute(sql`INSERT INTO versions (name,version,updated_at) VALUES ('agent_messaging_enabled','1',${now}), ('agent_portal_enabled','1',${now}) ON DUPLICATE KEY UPDATE version=VALUES(version)`);
     messaging = persistRelayUsers(db, new AgentMessagingService(db, loadTestEnv(), testKeyring()));
+    receiver = new AgentReceiverService(db, loadTestEnv(), testKeyring());
   });
   afterAll(async () => {
     const db = handle!.db;
@@ -81,5 +84,10 @@ describe.skipIf(!handle)('session heartbeat vs activity lock order', () => {
     const a = await session(), b = await session();
     const target = (await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, b.id)))[0]!;
     await assertHostFirst(a.id, () => messaging.sendMessage(a.id, a.token, { to: `agent:${target.agentBusAddressId}`, content: 'lock order', clientMessageId: randomUUID() }));
+  });
+  it('receiver register locks the host before the session', async () => {
+    const s = await session();
+    const [row] = await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, s.id));
+    await assertHostFirst(s.id, () => receiver.register(s.id, s.token, { generation: randomUUID(), protocol: 'codex-queue-v1', native_session_id: row!.upstreamSessionId! }));
   });
 });

@@ -12,7 +12,9 @@ import {
   hostDaemonSessions,
   hostDaemonPortalBindings,
   hosts,
+  versions,
 } from '../db/schema.js';
+import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging/constants.js';
 import type { Keyring } from '../security/keyring.js';
 import { encrypt, decrypt } from '../security/secret-box.js';
 import { sha256 } from '../security/hash.js';
@@ -38,6 +40,18 @@ export class RebootHandoffs {
       now = nowIso(),
       hash = sha256(JSON.stringify(v));
     const row = await this.db.transaction(async (tx) => {
+      // Serialise with messaging (agent_messaging_enabled row), then lock
+      // address -> host -> session so this cannot deadlock against a send or
+      // an activity report. The unlocked read only picks rows; the checks
+      // below run on locked data.
+      await tx.select({ name: versions.name }).from(versions).where(eq(versions.name, AGENT_MESSAGING_ENABLED_KEY)).for('update');
+      const [owner] = await tx
+        .select({ hostId: agentSessions.hostId, addressId: agentSessions.agentBusAddressId })
+        .from(agentSessions)
+        .where(eq(agentSessions.id, sessionId));
+      if (owner?.addressId)
+        await tx.select({ id: agentBusAddresses.id }).from(agentBusAddresses).where(eq(agentBusAddresses.id, owner.addressId)).for('update');
+      if (owner) await tx.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, owner.hostId)).for('update');
       const [session] = await tx
         .select()
         .from(agentSessions)
