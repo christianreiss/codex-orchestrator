@@ -767,12 +767,13 @@ ensure_claude_prerequisites() {
 bootstrap_host() {
   HOST_BOOT_FAILED=0
 
-  ui_progress "cxx" "auto-update" "" "scheduling"
+  ui_progress "cxx" "maintenance" "" "scheduling"
   : > "$STEP_LOG"
+  # cxx 0.9.82+: a nightly line only on auto-update hosts; otherwise none.
   if "$TARGET_BIN" cron install --minimal >"$STEP_LOG" 2>&1; then
-    ui_ok "cxx" "auto-update" "" "scheduled"
+    ui_ok "cxx" "maintenance" "" "nightly if auto-update"
   else
-    ui_fail "cxx" "auto-update" "" "schedule failed"
+    ui_fail "cxx" "maintenance" "" "schedule failed"
     show_step_log
     HOST_BOOT_FAILED=1
   fi

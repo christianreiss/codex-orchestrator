@@ -108,7 +108,8 @@ const NON_TOOL_TOKENS: Record<string, string> = {
   receiver_unavailable:
     'the status agent_listen returns when the native receiver is down, so a model does not yield on a dead line, not a tool',
   agent_messaging_call_peer_not_listening:
-    'the error agent_call_join returns when the opener has no live receiver, not a tool',
+    'the error agent_call_join returns when the opener has no live receiver, not a tool',  schedule_host_not_persistent:
+    'the refusal code for a persistent schedule on a non-persistent host, not a tool',
 };
 
 interface Mention {

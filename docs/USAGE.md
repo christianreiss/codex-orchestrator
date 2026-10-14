@@ -123,8 +123,9 @@ What the installer does:
 - For Claude-capable hosts, ensures Node.js and npm first. The installer asks
   the OS package manager for the small Node runtime, prefers a managed pinned
   Corepack npm 10.9.2 shim, and uses the OS npm package only as a fallback.
-- Invokes `cxx cron install` and `cxx cron run --minimal` once each. The one
-  shared schedule runs every enabled engine tick exactly once, bootstrapping
+- Invokes `cxx cron install` and `cxx cron run --minimal` once each. From cxx
+  0.9.82 the schedule line is kept only on auto-update hosts (nightly); see
+  [host runtime policy](host-runtime-policy.md). The coordinator runs every enabled engine tick exactly once, bootstrapping
   Codex and/or Claude Code at the server-selected versions. For a privileged
   system schedule, migration discovers every actual owner in the standard
   cron spools. Strictly validated spool filenames remain eligible when static
@@ -164,7 +165,7 @@ The wrapper is the supported entrypoint because it:
 - Pulls/pushes canonical `auth.json` via `/auth`.
 - Syncs effective `CODEX_HOME/config.toml` and `CODEX_HOME/AGENTS.md` via `/sync/status` + `/sync/bootstrap` (with fallback to per-surface endpoints). Skills are read through cdx/MCP `skill://{slug}` resources, and the wrapper removes legacy local skill mirrors on upgrade.
 - Enforces the server’s quota policy and kill switch.
-- Keeps the wrapper and the Codex CLI current through the shared background maintenance coordinator (`cxx cron`, every 15 minutes at a host-specific minute offset). Since cxx 0.8.2 a launch only queues a detached `cxx cron run --due --minimal`; no download, installer, or wrapper re-exec runs inline before or after a session.
+- Keeps the wrapper and the Codex CLI current through the shared maintenance coordinator: launch-time maintenance on every host, plus, from cxx 0.9.82 and only on auto-update hosts, one nightly `cxx cron run --due` at a stable host-specific minute between 02:00 and 04:59 local (no other schedule; see [host runtime policy](host-runtime-policy.md)). Since cxx 0.8.2 a launch only queues a detached `cxx cron run --due --minimal`; no download, installer, or wrapper re-exec runs inline before or after a session.
 
 Common commands:
 
@@ -318,10 +319,12 @@ If you see failures about an insecure window being closed, that’s not somethin
 ### Update the wrapper / Codex CLI on a host
 
 The shared maintenance coordinator (`cxx cron`, installed by the host
-installer) auto-updates the wrapper and the Codex CLI in the background: the
-schedule fires every 15 minutes, successful work cools down for 15 minutes,
-failures retry after five, and a `cdx`/`clx`/`cgx` launch queues a detached tick when
-one is due. Codex upgrades are installed into private versioned prefixes under
+installer) auto-updates the wrapper and the Codex CLI: a `cdx`/`clx`/`cgx`/`cxx`
+launch queues a detached tick when one is due, and on auto-update hosts only
+(cxx 0.9.82+) one nightly schedule runs between 02:00 and 04:59 local time;
+other hosts have no maintenance crontab line
+([host runtime policy](host-runtime-policy.md)). Successful work cools down for
+15 minutes and failures retry after five. Codex upgrades are installed into private versioned prefixes under
 `~/.cxx/engines/codex` and activated atomically, so a running session keeps its
 files; a later tick sweeps the store back down to the one selected version. The registered versioned route is
 `/wrapper/v2/bin/{artifact}/{platform}/v{version}/{binary}`; new releases use

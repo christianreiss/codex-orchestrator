@@ -9,6 +9,7 @@ import { invalidateFleetEngineState } from '../../../src/services/engine-switch.
 import { ENGINES } from '../../../src/util/engine.js';
 import { readDbConfig } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
+import { markPersistentHost } from '../../helpers/persistent-host.js';
 
 // Every bus transaction starts with the exclusive row lock on the enable flag; production relays polled it ~50 times a
 // second to find nothing. These tests pin what an idle relay poll may skip (the lock) and what it may never skip.
@@ -42,6 +43,7 @@ describe.skipIf(!config)(
         updatedAt: now,
       });
       host = (await db.select().from(schema.hosts).where(eq(schema.hosts.fqdn, fqdn)))[0]!;
+      await markPersistentHost(db, host.id);
       priorFlag = (
         await db.select().from(schema.versions).where(eq(schema.versions.name, AGENT_MESSAGING_ENABLED_KEY))
       )[0]?.version;

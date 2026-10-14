@@ -50,7 +50,8 @@ under \`mode\`:
 (or, without one, sitting in \`agent_listen\`). It holds a conversation across many turns and
 can say "hold on, I'm working".
 
-**\`headless\`** — an idle host. Its relay boots it fresh for each delivery, with the
+**\`headless\`** — an idle agent on a persistent host (only persistent hosts run a relay;
+elsewhere an agent that is not running cannot join). Its relay boots it fresh for each delivery, with the
 message as its entire prompt, and its final response *is* its reply. It has no way to
 send a progress update mid-task, and there is no process between deliveries. It does
 keep its transcript: the second task it receives resumes the first, so it remembers the
@@ -64,8 +65,9 @@ returns one report. Do not ask it to check in.
 1. \`agent_conf_open\` with a topic and a purpose. It returns \`conference_id\`, a room
    \`pin\`, and your own address as \`self\`.
 2. Fill the room. Prefer \`agent_conf_invite\` with addresses or aliases from
-   \`agent_list\` — an idle host is woken by its relay with no human present, which is the
-   whole point on a cluster. Print the PIN banner as well only if a peer is already sitting
+   \`agent_list\` — an idle agent on a persistent host is woken by its relay with no human
+   present, which is the whole point on a cluster; on any other host only a running agent
+   can take part. Print the PIN banner as well only if a peer is already sitting
    at a terminal, since the relay will not write to a host that has a wrapper attached:
 
    \`\`\`

@@ -90,11 +90,11 @@ func Install(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	_, _, canonical, err := refreshAuthoritative(ctx, cfg, exe, os.Stderr)
+	configs, _, canonical, err := refreshAuthoritative(ctx, cfg, exe, os.Stderr)
 	if err != nil {
 		return err
 	}
-	return reconcileSchedule(ctx, canonical)
+	return reconcileSchedule(ctx, canonical, nightlyMaintenance(configs))
 }
 
 // Remove deletes the shared schedule and all historical persona schedules.
@@ -195,7 +195,7 @@ func run(ctx context.Context, seed *config.Config, minimal, due bool, stdout, st
 		if err != nil {
 			return errors.Join(append(repairErrors, err)...)
 		}
-		if err := reconcileRunSchedule(runCtx, canonical); err != nil {
+		if err := reconcileRunSchedule(runCtx, canonical, nightlyMaintenance([]*config.Config{fallback})); err != nil {
 			failure := fmt.Errorf("reconcile cxx cron schedule: %w", err)
 			fmt.Fprintln(warnWriter(stderr), failure)
 			repairErrors = append(repairErrors, failure)
@@ -212,7 +212,7 @@ func run(ctx context.Context, seed *config.Config, minimal, due bool, stdout, st
 	// A legacy cdx/clx schedule reaches this path first. Collapse both old
 	// markers/files into the one cxx schedule before any child tick can recurse.
 	var errs []error
-	if err := reconcileRunSchedule(runCtx, canonical); err != nil {
+	if err := reconcileRunSchedule(runCtx, canonical, nightlyMaintenance(configs)); err != nil {
 		failure := fmt.Errorf("reconcile cxx cron schedule: %w", err)
 		fmt.Fprintln(warnWriter(stderr), failure)
 		errs = append(errs, failure)
@@ -267,6 +267,18 @@ func defaultEnsureAgentService(ctx context.Context, canonical string, stdout, st
 	boundCommandChildren(cmd)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	return cmd.Run()
+}
+
+// nightlyMaintenance reports whether this host updates itself: the signed
+// effective auto-update setting of any engine that is not suspended. Only such
+// a host keeps a (nightly) maintenance line.
+func nightlyMaintenance(configs []*config.Config) bool {
+	for _, cfg := range configs {
+		if cfg != nil && !cfg.EngineSuspended(cfg.Engine) && cfg.Wrapper.AutoUpdate {
+			return true
+		}
+	}
+	return false
 }
 
 // backgroundWorkerRequired ignores engines switched off fleet-wide: nothing
@@ -593,7 +605,15 @@ func installUserCron(bin string, minute, hour int) error {
 	return writeCrontab(body)
 }
 
-func reconcileSchedule(ctx context.Context, canonical string) error {
+// reconcileSchedule installs the nightly maintenance line on an auto-update
+// host and removes every managed maintenance line otherwise: a normal host runs
+// nothing on its own (docs/host-runtime-policy.md).
+func reconcileSchedule(ctx context.Context, canonical string, nightly bool) error {
+	if !nightly {
+		return layout.WithTargetLock(ctx, canonical, func() error {
+			return removeSchedulesLocked(os.Geteuid() == 0 || passwordlessSudo())
+		})
+	}
 	return layout.WithTargetLock(ctx, canonical, func() error {
 		host, _ := os.Hostname()
 		minute, hour := deterministicTime(host)
@@ -694,7 +714,7 @@ func resolveSystemCronIdentity() (systemCronIdentity, error) {
 	}, nil
 }
 
-func buildSystemCronBody(bin, cdxPath, clxPath, logFile, userName, home, codexHome string, minute, _ int) string {
+func buildSystemCronBody(bin, cdxPath, clxPath, logFile, userName, home, codexHome string, minute, hour int) string {
 	if strings.TrimSpace(userName) == "" {
 		userName = "root"
 	}
@@ -711,8 +731,8 @@ HOME=%s
 CDX_CONFIG_PATH=%s
 CLX_CONFIG_PATH=%s
 CGX_CONFIG_PATH=%s
-%s * * * * %s %s
-`, shellEscape(home), shellEscape(cdxPath), shellEscape(clxPath), shellEscape(cgxPath), cronMinutes(minute), userName, command)
+%s %s %s
+`, shellEscape(home), shellEscape(cdxPath), shellEscape(clxPath), shellEscape(cgxPath), cronSchedule(minute, hour), userName, command)
 }
 
 func resolveCronGrokPaths(home, cdxPath string) (string, string, error) {
@@ -848,7 +868,7 @@ func installUserContext() (string, string) {
 	return "", home
 }
 
-func buildCronLine(minute, _ int, bin, logFile string, environment map[string]string) string {
+func buildCronLine(minute, hour int, bin, logFile string, environment map[string]string) string {
 	assignments := []string{cronPATHEnv}
 	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CODEX_HOME"} {
 		if value, ok := environment[key]; ok {
@@ -857,7 +877,7 @@ func buildCronLine(minute, _ int, bin, logFile string, environment map[string]st
 	}
 	cmd := fmt.Sprintf("%s %s cron run --due >> %s 2>&1", strings.Join(assignments, " "), shellEscape(bin), shellEscape(logFile))
 	cmd = strings.ReplaceAll(cmd, "%", `\%`)
-	return fmt.Sprintf("%s * * * * %s %s", cronMinutes(minute), cmd, Marker)
+	return fmt.Sprintf("%s %s %s", cronSchedule(minute, hour), cmd, Marker)
 }
 
 func stripManaged(body string) []string {
@@ -1295,6 +1315,10 @@ func shellEscape(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// deterministicTime places a host's nightly maintenance run at a stable minute
+// between 02:00 and 04:59 local time, so the fleet does not update at once.
+// Maintenance runs only nightly and only on auto-update hosts; everything else
+// happens when the user runs a wrapper (docs/host-runtime-policy.md).
 func deterministicTime(host string) (int, int) {
 	if host == "" {
 		host = "unknown"
@@ -1303,12 +1327,12 @@ func deterministicTime(host string) (int, int) {
 	for _, b := range []byte(host) {
 		sum = sum*33 + uint32(b)
 	}
-	return int(sum % 15), 0
+	slot := int(sum % 180)
+	return slot % 60, 2 + slot/60
 }
 
-func cronMinutes(minute int) string {
-	offset := (minute%15 + 15) % 15
-	return fmt.Sprintf("%d,%d,%d,%d", offset, offset+15, offset+30, offset+45)
+func cronSchedule(minute, hour int) string {
+	return fmt.Sprintf("%d %d * * *", (minute%60+60)%60, (hour%24+24)%24)
 }
 
 func setEnv(env []string, key, value string) []string {

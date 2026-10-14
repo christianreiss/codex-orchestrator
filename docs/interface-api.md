@@ -356,7 +356,7 @@ everything without a reinstall.
 - `GET /wrapper` — wrapper bakery v2 manifest. Aliased to `GET /wrapper/v2/meta`. Returns `{engine, binaries: { "<os>-<arch>": {version, sha256, size_bytes, url_path} }, schema_version}` for the calling host's engine. Auth required.
 - `GET /wrapper/download` — host-targeted legacy transition launcher (POSIX `sh`). Auth required; the transition launcher fetches the signed per-host v2 config, installs `cxx` plus the enabled relative alias under the user's data dir, and explicitly execs `cxx <engine>` with the original arguments. Date-versioned shell wrappers receive this URL with no static checksum in `/auth` and `/cron/check` so they do not overwrite themselves with a raw Go binary before config exists.
 - `GET /wrapper/v2/download` — raw common `cxx` binary for the calling host's detected platform. Auth required; intended for v2-aware installers/clients that already write the signed config.
-- `GET /wrapper/v2/config[?sig=1]` — signed per-host config JSON (or detached signature when `?sig=1`); ETag is the SHA256, `X-Config-Version` is the current `hosts.config_version`. The payload carries the decrypted host API key, never the at-rest SHA-256 lookup digest. `engine_options.model_catalog` (`{default_model, models: [{model, efforts, session_efforts, default_effort}]}`) mirrors the engine's model-defaults catalog for the bare-`cxx` launchpad; Claude's native session capabilities add `max` in `session_efforts`, including Opus/Sonnet 4.6 even though their persistent efforts stop at `high`. Auth required and the requested engine must be enabled for the host.
+- `GET /wrapper/v2/config[?sig=1]` — signed per-host config JSON (or detached signature when `?sig=1`); ETag is the SHA256, `X-Config-Version` is the current `hosts.config_version`. The payload carries the decrypted host API key, never the at-rest SHA-256 lookup digest. `engine_options.model_catalog` (`{default_model, models: [{model, efforts, session_efforts, default_effort}]}`) mirrors the engine's model-defaults catalog for the bare-`cxx` launchpad; Claude's native session capabilities add `max` in `session_efforts`, including Opus/Sonnet 4.6 even though their persistent efforts stop at `high`. `wrapper.auto_update` is the host's effective setting (its per-host override, else the fleet default); cxx 0.9.82+ keeps its only, nightly, maintenance cron from it ([host runtime policy](host-runtime-policy.md)). Auth required and the requested engine must be enabled for the host.
 - `GET /wrapper/v2/manifest/{engine}` — per-platform manifest for `codex`, `claude`, or `grok`; an unknown engine returns `404 unknown_engine`. Auth required.
 - `GET /wrapper/v2/bin/{artifact}/{platform}/v:version/{binary}` — versioned binary route; the canonical common shape is `cxx/{platform}/v:version/cxx`. `{platform}` is `os-arch` (for example `linux-amd64`), the version segment is a literal `v` followed by the version, ETag = SHA256, and `Cache-Control: public, max-age=86400, immutable`. Compatible `codex|claude/.../{cdx|clx}` URLs preserve exact historical artifacts and otherwise stream the matching common bytes. Auth required.
 - `GET /wrapper/v2/download/{artifact}/{platform}/v:version/{binary}` — the same exact-version artifact as `/wrapper/v2/bin/...` (same validation, headers and 404s; never another version or platform). It exists for cxx 0.9.71–0.9.74 owners, which reach it through the communicator's 307 (see `GET /host/communicator/connect`) and fetch it over direct HTTPS because the path contains `/download`. Auth required.
@@ -436,9 +436,14 @@ Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a
 
 - `GET /install/{token}` — single-use installer script for a pre-registered host. Tokens minted via `/admin/hosts/register` or `/admin/hosts/{id}/installer` (one pending token per host; issuing a new one deletes prior pending tokens), expire after a TTL fixed at 1800s in the API (no env knob), and embed the resolved public base URL (from token metadata, `PUBLIC_BASE_URL`, or trusted forwarded Host/proto) plus the API key/FQDN into the selected installer mode. Registering an existing FQDN rotates the API key; the host-detail mint endpoint reuses the current encrypted key. The installer fetches all enabled configs first and requires identical common version/SHA metadata, installs one `cxx`, and atomically replaces legacy regular wrappers with relative `cdx`/`clx` aliases for enabled engines. Claude-capable modes preflight Node.js/npm: supported package managers provide Node, a pinned Corepack npm 10.9.2 shim is preferred when npm is absent, and the OS npm package is the fallback. Before printing its header it preflights `python3`, `curl`, and a writable bin root (or `sudo -n`), printing one failure line with the fix for each and exiting 1. It invokes the host-wide `cxx cron install` and `cxx cron run --minimal` paths exactly once each, then runs one non-fatal `cdx`/`clx --allow-concurrent-sync sync </dev/null` per enabled engine (bounded by `timeout 60` when available; a failure is a warning with the retry command, never `INCOMPLETE`). It prints `READY` only after `cxx`, every requested CLI, and cron setup verify; otherwise it prints `INCOMPLETE`, names direct retry commands (`cdx cron install` / `cdx cron run`, `clx` on Claude-only hosts), and exits non-zero. It never auto-launches an interactive engine. For hosts with `curl_insecure=true`, internal downloads default to `curl -k`; the copied command also includes `curl -k` plus `CODEX_INSTALL_CURL_INSECURE=1`. Consuming a token publishes `host.updated` (`{id, fqdn, engine}`). Used/expired/missing tokens and build failures return HTTP 200 with `X-Installer-Error: <code>` (`installer_not_found`, `installer_used`, `installer_expired`, `installer_host_missing`, `installer_base_url_invalid`, `installer_build_failed`) and a script that prints the message to stderr and exits 1, so `curl -fsSL … | sh` shows it instead of piping an empty body.
   The per-user `cxx-agent` background worker is installed by `cxx cron run`
-  itself, not by a separate installer call. It remains present with messaging
-  disabled and, on Claude-capable hosts, uploads changed native auth
-  generations written by detached daemons.
+  itself, not by a separate installer call, and from cxx 0.9.82 only on a
+  persistent host; elsewhere an existing unit is disabled, stopped and removed.
+  Where it runs it remains present with messaging disabled and, on
+  Claude-capable hosts, uploads changed native auth generations written by
+  detached daemons; on other hosts those are uploaded at the next wrapper run.
+  The `# cxx-managed-cron` maintenance line is installed only when the host's
+  effective `wrapper.auto_update` is on, and then runs nightly. See
+  [host runtime policy](host-runtime-policy.md).
 - `GET /install/v2/{token}` — alias of `GET /install/{token}`; wrappers minted against the v2 URL keep working unchanged.
 
 ## Admin (admin session cookie)
@@ -1174,7 +1179,9 @@ transcript. Dormant informational mail without native continuity becomes
 receive readiness, upstream-session continuity, and a generation fence.
 `POST /host/agent-sessions/{id}/finish` unbinds the address, clears receive
 capability, and leaves it `resumable` when an upstream session is known or
-`offline` otherwise. The scoped bridge bearer is kept by `cxx` and proxied to
+`offline` otherwise. Only a persistent host resumes a `resumable` address
+headless; elsewhere its mail waits for a human to restart the agent and expires
+after its TTL. The scoped bridge bearer is kept by `cxx` and proxied to
 the engine over its private Unix socket.
 
 Session-bound operations require `X-Agent-Bridge-Token`:
@@ -1223,7 +1230,8 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   column. `include_offline: false` (the `online: true` MCP argument) filters on
   that derived value, so only `listening` and `online` — an address with a
   wrapper actually behind it — are returned; `resumable` means a session ended
-  and could be resumed, not that anyone is home. `readiness` remains on the wire
+  and could be resumed (automatically only on a persistent host), not that
+  anyone is home. `readiness` remains on the wire
   for compatibility and is **not** a liveness signal: for a session that never
   calls `agent_listen` it is written once at registration and not again until
   finish. Results are ranked reachable-first then most-recently-seen, with
@@ -1281,8 +1289,9 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   room PIN valid to the room's deadline, and return the caller's address as
   `self`. One open conference per owner; re-opening returns it with `reused`.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/invite` — chair only.
-  Creates a member row and queues an `INVITE` per address. Idle hosts are woken
-  by their relay with the invite as the prompt; a host with a wrapper attached is
+  Creates a member row and queues an `INVITE` per address. Idle agents on persistent
+  hosts are woken by their relay with the invite as the prompt (other hosts run
+  no relay, so the invite waits for a live receiver until its TTL); a host with a wrapper attached is
   skipped by the relay and receives through its native receiver or manual listen. Per-member
   results — the fan-out is a loop, not a transaction.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/join` — exactly one of
@@ -1326,7 +1335,14 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   report `accepted`, `completed`, `retry`, `dead`, or `ambiguous` for the owned
   claim.
 
-One outbound-only background relay is registered per host user. Registration
+One outbound-only background relay is registered per host user, and only on a
+persistent host (host daemon `resident_enabled`, or remote starts enabled and
+not expired; `daemonResident()`). For any other host, register, heartbeat and
+claim answer `503 agent_messaging_relay_not_persistent` (503 so pre-0.9.82
+workers back off instead of retrying fast; 0.9.82 workers exit cleanly), while
+stop, renew, reply and ack stay open so in-flight work can finish and be
+recorded. The daemon relay keeps its own remote-starts check. See
+[host runtime policy](host-runtime-policy.md). Registration
 uses normal host API-key/IP policy and returns a generation-fenced 15-minute
 bearer; subsequent calls require `X-Agent-Relay-Token`. The relay never opens a
 listener and never claims an address while its interactive, receive-capable
@@ -1695,7 +1711,7 @@ MCP exposes `schedule_list`, `schedule_get`, `schedule_create`, `schedule_update
 
 Create fields: `name`, stable `target=agent:<uuid>`, `prompt` (max 30000 UTF-8 bytes), `kind=once|cron|interval`, exactly one corresponding timing field (`at` future RFC3339, `cron` five fields, `interval_minutes` positive integer), `timezone` (default Europe/Berlin), `enabled` (default true), `persistent` (default false), `progress_timeout_seconds` (60..604800, required only for persistent recovery). PATCH accepts changed fields plus version; switching timing kinds must clear obsolete timing fields. Invalid combinations fail validation.
 
-Ordinary schedules await a live receiver; their messages can never be claimed by a headless relay. Explicit persistent schedules use the existing per-user cxx-agent worker and exact native-session resume adapters for all three engines. No transcript means blocked, never a fresh-session fallback. Missing host workers leave work queued. No host power-on is performed. Every interval wakes healthy idle sessions too; one unfinished execution per schedule coalesces downtime and busy intervals into one follow-up. Bus FIFO, process writer locks and binding/lease generations prevent concurrent native writers.
+Ordinary schedules await a live receiver; their messages can never be claimed by a headless relay. Explicit persistent schedules use the per-user cxx-agent worker and exact native-session resume adapters for all three engines; they exist only for agents on persistent hosts, and creating or enabling (`enabled` and `persistent`) a schedule whose target agent's host is not persistent is refused with 403 `schedule_host_not_persistent` ([host runtime policy](host-runtime-policy.md)). No transcript means blocked, never a fresh-session fallback. Work for an ended agent without a running host worker stays queued until its TTL (24 hours) and then expires. No host power-on is performed. Every interval wakes healthy idle sessions too; one unfinished execution per schedule coalesces downtime and busy intervals into one follow-up. Bus FIFO, process writer locks and binding/lease generations prevent concurrent native writers.
 
 A durable ten-second scheduler serializes through DB locks. Payload and recovery policy are snapshotted per execution. Recovery after ambiguous crash may repeat external effects and is visibly counted. Capacity failures wait at least the configured interval (five minutes for cron/once); recognized structured provider retry/reset hints extend that wait. No implicit engine switch. Spring nonexistent fixed-hour Cron times are skipped; repeated autumn local times run once. Pause/delete cancels queued work and future recovery but leaves accepted work running.
 
@@ -1889,6 +1905,9 @@ from connection loss.
 `watchdog_disable`, `watchdog_finish` live in the wrapper's `cxx-agent` MCP, not the
 host MCP. AI can protect only its current task; CLI and Admin can explicitly select
 a target. This authority does not enlarge the task. No watchdog is enabled by default.
+Recovery of an ended session runs through the host's relay, so it is executed only
+on a persistent host; elsewhere it expires unexecuted after its TTL
+([host runtime policy](host-runtime-policy.md)).
 
 Enable input: `task_key` (stable per native task, at most 255 UTF-8 bytes), `continuation` (1–30000 UTF-8 bytes),
 `duration_seconds` (default 7200), `progress_timeout_seconds` (default 600), optional

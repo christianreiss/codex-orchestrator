@@ -23,6 +23,7 @@ import { createHostRegistrationService } from '../../../src/services/host-regist
 import { ENGINES, type Engine } from '../../../src/util/engine.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
+import { markPersistentHost } from '../../helpers/persistent-host.js';
 
 const PREFIX = 'ztest-agent-messaging';
 const HOST_FQDN = `${PREFIX}.example`;
@@ -95,6 +96,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     );
     const rows = await db.select().from(hosts).where(eq(hosts.fqdn, HOST_FQDN)).limit(1);
     host = rows[0]!;
+    await markPersistentHost(db, host.id);
     env = { ...loadTestEnv(), AGENT_PORTAL_BRIDGE_TTL_SECONDS: 900 } as Env;
     service = new AgentMessagingService(db, env, testKeyring());
   });

@@ -134,6 +134,13 @@ func RunWorker(parent context.Context, version string, stdout, stderr io.Writer)
 		}
 		registration, err := client.register(ctx, username, instanceID, version)
 		if err != nil {
+			if relayNotPersistent(err) {
+				// Only a persistent host may run a relay (docs/host-runtime-policy.md).
+				// Exit cleanly: Restart=on-failure does not bring the unit back, and the
+				// next maintenance run retires it.
+				fmt.Fprintln(stderr, "agent messaging relay: this host is not persistent; background worker exits")
+				break
+			}
 			if !waitContext(ctx, retryDelay(err)) {
 				break
 			}
@@ -146,6 +153,10 @@ func RunWorker(parent context.Context, version string, stdout, stderr io.Writer)
 		_ = client.stop(stopCtx)
 		cancel()
 		if ctx.Err() != nil {
+			break
+		}
+		if relayNotPersistent(err) {
+			fmt.Fprintln(stderr, "agent messaging relay: this host is no longer persistent; background worker exits")
 			break
 		}
 		if err != nil {
@@ -258,7 +269,17 @@ func (c *relayClient) register(ctx context.Context, username, instanceID, versio
 	return &out, nil
 }
 
-func (c *relayClient) poll(ctx context.Context, configs map[string]*config.Config, stderr io.Writer) (resultErr error) {
+func (c *relayClient) poll(ctx context.Context, configs map[string]*config.Config, stderr io.Writer) error {
+	return c.pollParallel(ctx, configs, stderr, 1)
+}
+
+// pollParallel runs one heartbeat for this registration and `loops` claim loops
+// sharing it. The daemon used to call poll once per parallel slot, so every
+// interval sent max_parallel identical heartbeats for one relay.
+func (c *relayClient) pollParallel(ctx context.Context, configs map[string]*config.Config, stderr io.Writer, loops int) (resultErr error) {
+	if loops < 1 {
+		loops = 1
+	}
 	pollCtx, cancel := context.WithCancel(ctx)
 	heartbeatErr := make(chan error, 1)
 	heartbeatDone := make(chan struct{})
@@ -298,6 +319,27 @@ func (c *relayClient) poll(ctx context.Context, configs map[string]*config.Confi
 		}
 	}()
 
+	loopErr := make(chan error, loops)
+	var loopsDone sync.WaitGroup
+	for i := 0; i < loops; i++ {
+		loopsDone.Add(1)
+		go func() {
+			defer loopsDone.Done()
+			loopErr <- c.claimLoop(pollCtx, configs, stderr)
+			cancel()
+		}()
+	}
+	loopsDone.Wait()
+	close(loopErr)
+	for err := range loopErr {
+		if err != nil && (resultErr == nil || errors.Is(resultErr, context.Canceled)) {
+			resultErr = err
+		}
+	}
+	return resultErr
+}
+
+func (c *relayClient) claimLoop(pollCtx context.Context, configs map[string]*config.Config, stderr io.Writer) error {
 	for pollCtx.Err() == nil {
 		finish := func() {}
 		if c.claimPermit != nil {
@@ -856,6 +898,13 @@ func reconnectDelay(err error) time.Duration {
 		return 2 * time.Second
 	}
 	return retryDelay(err)
+}
+
+// relayNotPersistent reports the server's refusal of a per-user relay on a host
+// without the persistent flag.
+func relayNotPersistent(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.Code == "agent_messaging_relay_not_persistent"
 }
 
 func retryDelay(err error) time.Duration {

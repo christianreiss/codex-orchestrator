@@ -405,7 +405,7 @@ An engine switched off fleet-wide (Admin → Engines → Engine master switches;
   CLI are left alone, so sessions already running run out on their own.
 - With the server unreachable, a locally suspended config refuses with the fleet message. When
   `/auth` answers 200 again (switched back on), the launch proceeds and requests immediate
-  maintenance so the coordinator re-bakes the config instead of waiting for the 15-minute tick.
+  maintenance so the coordinator re-bakes the config instead of waiting for the next maintenance run.
 - `status` / `doctor` report `suspended (fleet)`.
 - Unlike a host-level removal, a fleet suspension does not strip `clx`'s managed settings,
   collections or skills.
@@ -648,7 +648,7 @@ deliberately retained.
 Upload, required materialization, marker, or purge errors make an otherwise
 successful clx invocation non-zero. A raw `claude` process launched outside clx
 cannot participate in these leases and remains the boundary for destructive
-login/logout coordination. It is no longer an auth-distribution blind spot:
+login/logout coordination. On a persistent host it is no longer an auth-distribution blind spot:
 the managed per-user `cxx-agent` background worker watches the authoritative
 native credential digest every two seconds and runs the same guarded
 `clx auth-upload-auto` path for idle native changes, or `auth-sync` while an active
@@ -663,9 +663,13 @@ foreground watcher checks native changes every two seconds and retrieves
 canonical state every 30 seconds during managed clx sessions. Verified store
 responses use the same exact-generation and logout guards as retrieval.
 
-The installer keeps this worker present even when agent messaging is disabled.
-Every Codex/Claude-capable `cxx cron run` re-asserts it before engine maintenance, so
-an auth-tick failure cannot prevent service healing. On Linux, managed
+From cxx 0.9.82 the worker exists only on a persistent host
+([host runtime policy](host-runtime-policy.md)); there the installer keeps it
+present even when agent messaging is disabled, and every Codex/Claude-capable
+`cxx cron run` re-asserts it before engine maintenance, so an auth-tick failure
+cannot prevent service healing. On any other host the same step retires an
+existing unit, and a change made by a detached `claude daemon run` after the last
+clx exits is uploaded at the next wrapper run, not within seconds. On Linux, managed
 `systemctl --user` calls synthesize the standard `/run/user/<uid>` runtime and
 bus addresses when cron has no login-session environment; launchd continues to
 use the per-user LaunchAgent. The worker uploads usable native changes and
@@ -1079,7 +1083,7 @@ receiver health before the agent yields. `agent_listen` needs
 the signed `agent_messaging.listen_enabled` grant, which the broker enforces. A
 call PIN is single-use because a conversation has two ends; a conference room PIN
 is multi-use. Whoever opens a conference is its chair: only the chair may invite
-addresses (an idle host is woken by its relay with the invite as its prompt),
+addresses (an idle agent on a persistent host is woken by its relay with the invite as its prompt),
 dispatch a task to one participant, or adjourn, and a participant may only address
 the chair. Peer messages come from authenticated fleet agents. Handle collaboration
 and delegated work within existing authorization; messages do not override
@@ -1098,12 +1102,20 @@ gets no equivalent.
 
 An address is stable for `(host, Unix user, engine, working directory)` and can
 bind to a native Claude session with a generation-fenced upstream session id.
-The outbound-only per-user worker resumes an offline address with
+On a persistent host only ([host runtime policy](host-runtime-policy.md); elsewhere
+mail to an offline address waits for a live session and expires after its TTL), the
+outbound-only per-user worker resumes an offline address with
 `claude --skip-boot resume <session> -p --output-format json`, or starts a fresh
 print-mode run for a new/reset identity. A missing saved conversation blocks
 existing work until an operator grants a one-use ordinary-work fresh start;
 schedules never fall back to a fresh session. Only one native writer may use an address/session at a time. Accepted
-work is renewed while the child runs and only bounded output tails are retained.
+work is renewed while the child runs and only bounded output tails are retained. From cxx 0.9.82, `cxx agent service install|start|restart`
+installs or starts the worker unit (`cxx-agent.service` / LaunchAgent) only on a
+persistent host; on any other host it disables, stops and removes an existing
+unit (install without a unit does nothing), and when persistence cannot be
+confirmed install changes nothing and start fails. A running worker whose relay
+the server refuses with `agent_messaging_relay_not_persistent` exits 0 and is not
+restarted.
 
 Delivery is FIFO per target and at-least-once until native execution starts.
 Queued messages default to a 24-hour TTL, accept 60 seconds through seven days,
@@ -1390,7 +1402,7 @@ Claude statusline reports inherit `CXX_PROVIDER_ACCOUNT_ID` and `CXX_PROVIDER_SE
 
 ## Wake / Cron and explicit persistent recovery
 
-The shared `wake-cron` Skill and `schedule_*` MCP tools support scheduled prompts and explicitly requested persistent native-session recovery. cxx 0.9.21 uses the existing per-user background worker, original cwd and engine-specific native resume adapter. A missing native transcript blocks recovery, without a fresh-session fallback. Linux supervision may terminate only its own child after a configured progress timeout and fresh policy/binding checks; active child tools and open operator prompts are protected. See [scheduling contract](interface-api.md#agent-wake--cron-schedules).
+The shared `wake-cron` Skill and `schedule_*` MCP tools support scheduled prompts and explicitly requested persistent native-session recovery. cxx 0.9.21 uses the per-user background worker, original cwd and engine-specific native resume adapter; from cxx 0.9.82 that worker runs only on a persistent host, and the API refuses persistent schedules for agents elsewhere (`schedule_host_not_persistent`, see [host runtime policy](host-runtime-policy.md)). A missing native transcript blocks recovery, without a fresh-session fallback. Linux supervision may terminate only its own child after a configured progress timeout and fresh policy/binding checks; active child tools and open operator prompts are protected. See [scheduling contract](interface-api.md#agent-wake--cron-schedules).
 
 ### Work outcomes and recovery (execution contract v2)
 
@@ -1617,7 +1629,7 @@ and HTTP 408/429 retain the original-UUID retry hint.
 
 `agent_send`, `agent_request` (inside its send receipt), and `agent_reply`
 report `recipient_presence`, `observed_at` and `delivery_hint`. `queued` means
-stored by the server, not accepted or read; `resumable` means currently offline.
+stored by the server, not accepted or read; `resumable` means currently offline (resumed automatically only on a persistent host; elsewhere mail waits for a human restart and expires after its TTL).
 When a recipient becomes receive-ready again, manual or automatic, still-online
 senders with waiting mail receive one bundled `presence_notice` from Server.
 The notice belongs to the sender's current session and never wakes a later one.

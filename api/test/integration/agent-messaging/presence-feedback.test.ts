@@ -7,6 +7,7 @@ import { AgentReceiverService } from '../../../src/services/agent-receiver.js';
 import { getTestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 import type { Engine } from '../../../src/util/engine.js';
+import { markPersistentHost } from '../../helpers/persistent-host.js';
 
 const handle = await getTestDb();
 const protocols = { codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' } as const;
@@ -21,6 +22,7 @@ describe.skipIf(!handle)('presence receipts and session-bound return notices', (
     const fqdn = `presence-${randomUUID()}.test`;
     await db.insert(hosts).values({ fqdn, apiKey: 'e'.repeat(64), engines: 'codex,claude,grok', status: 'active', secure: 1, createdAt: now, updatedAt: now });
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, fqdn)))[0]!;
+    await markPersistentHost(db, host.id);
     await db.execute(sql`INSERT INTO versions (name,version,updated_at) VALUES ('agent_messaging_enabled','1',${now}), ('agent_portal_enabled','0',${now}) ON DUPLICATE KEY UPDATE version=VALUES(version)`);
     service = new AgentMessagingService(db, loadTestEnv(), testKeyring());
     receiver = new AgentReceiverService(db, loadTestEnv(), testKeyring());

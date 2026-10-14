@@ -27,6 +27,7 @@ user selection through CLI/admin. This never widens task authority.
 5. Use watchdog_disable with id and version to stop recovery. Honor user STOP.
    A new task needs a new task_key; enable retries do not extend the deadline.
 
+Recovery resumes an ended session only on a persistent host; elsewhere it does not run.
 Only the same engine/native transcript/cwd is resumed. Missing transcripts block;
 never create a replacement. Active tools and open user questions are protected.
 Recovery after ambiguous crashes can repeat effects; preserve idempotency checks.

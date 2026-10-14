@@ -275,7 +275,9 @@ that window rather than instantly; no restart is needed.
   cancels queued/leased work, marks accepted work ambiguous, cancels affected
   conversations, revokes relays where applicable, and generation-fences live
   bindings. A graceful agent exit unbinds but preserves its stable address as
-  resumable/offline; a graceful relay shutdown stops the server generation.
+  resumable/offline (resumed headless only on a persistent host, see
+  [host runtime policy](host-runtime-policy.md)); a graceful relay shutdown
+  stops the server generation.
 - Version 1 has no automatic history purge. Terminal messages, canceled
   conversations, dormant addresses, aliases, and audit history remain visible
   for diagnosis.

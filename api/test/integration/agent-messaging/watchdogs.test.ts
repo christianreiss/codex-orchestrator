@@ -26,6 +26,7 @@ import { decrypt } from '../../../src/security/secret-box.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 import type { Engine } from '../../../src/util/engine.js';
+import { markPersistentHost } from '../../helpers/persistent-host.js';
 const handle = await getTestDb();
 describe.skipIf(!handle)('bounded task watchdogs on MySQL', { timeout: 120000 }, () => {
   const db = handle?.db as TestDb,
@@ -66,6 +67,7 @@ describe.skipIf(!handle)('bounded task watchdogs on MySQL', { timeout: 120000 },
       updatedAt: new Date().toISOString(),
     });
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, 'ztest-watchdogs.example')))[0]!;
+    await markPersistentHost(db, host.id);
     bus = new AgentMessagingService(db, loadTestEnv(), keyring);
     service = new SchedulesService(db, keyring);
     watchdogs = new WatchdogsService(db, keyring);

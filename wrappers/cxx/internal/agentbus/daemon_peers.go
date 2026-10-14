@@ -74,12 +74,7 @@ func runDaemonPeersControlled(ctx context.Context, version string, mu *sync.Mute
 			}
 		}()
 
-		var wg sync.WaitGroup
-		for i := 0; i < settings.MaxParallel; i++ {
-			wg.Add(1)
-			go func() { defer wg.Done(); defer cancel(); _ = client.poll(poolCtx, configs, stderr) }()
-		}
-		wg.Wait()
+		_ = client.pollParallel(poolCtx, configs, stderr, settings.MaxParallel)
 		cancel()
 		<-replayDone
 		if !waitContext(ctx, 5*time.Second) {

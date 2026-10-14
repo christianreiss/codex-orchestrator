@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -14,7 +15,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -39,7 +39,7 @@ func stubCoordinator(t *testing.T) {
 		}
 		return []*config.Config{{Engine: config.EngineCodex}, {Engine: config.EngineClaude}}, []string{config.EngineCodex, config.EngineClaude}, "/fixture/cxx", nil
 	}
-	reconcileRunSchedule = func(context.Context, string) error { return nil }
+	reconcileRunSchedule = func(context.Context, string, bool) error { return nil }
 	ensureAgentService = func(context.Context, string, io.Writer, io.Writer) error { return nil }
 	runEngineTick = func(context.Context, string, []string, []string, io.Writer, io.Writer) error { return nil }
 }
@@ -47,7 +47,7 @@ func stubCoordinator(t *testing.T) {
 func TestCoordinatorContinuesAfterScheduleServiceAndFirstEngineFailures(t *testing.T) {
 	stubCoordinator(t)
 	var calls []string
-	reconcileRunSchedule = func(context.Context, string) error {
+	reconcileRunSchedule = func(context.Context, string, bool) error {
 		calls = append(calls, "schedule")
 		return errors.New("crontab unavailable")
 	}
@@ -115,7 +115,7 @@ func TestCoordinatorRefreshFailureDoesNotRunUnverifiedEngines(t *testing.T) {
 		t.Error("engine ran despite unverified configuration")
 		return nil
 	}
-	reconcileRunSchedule = func(context.Context, string) error {
+	reconcileRunSchedule = func(context.Context, string, bool) error {
 		t.Error("schedule was repaired without a trusted seed")
 		return nil
 	}
@@ -134,7 +134,7 @@ func TestCoordinatorOutageRepairsScheduleAndWorkerFromVerifiedSeedOnly(t *testin
 		return nil, nil, "", errors.New("API unavailable")
 	}
 	var calls []string
-	reconcileRunSchedule = func(context.Context, string) error {
+	reconcileRunSchedule = func(context.Context, string, bool) error {
 		calls = append(calls, "schedule")
 		return nil
 	}
@@ -155,26 +155,42 @@ func TestCoordinatorOutageRepairsScheduleAndWorkerFromVerifiedSeedOnly(t *testin
 	}
 }
 
-func TestCronCadenceRunsEveryFifteenMinutesWithStableHostOffset(t *testing.T) {
+func TestMaintenanceRunsNightlyAtAStableHostSlot(t *testing.T) {
+	seen := map[[2]int]bool{}
 	for _, host := range []string{"", "alpha.example.com", "beta.example.com", "macbook.example.com"} {
-		minute, _ := deterministicTime(host)
-		if minute < 0 || minute > 14 {
-			t.Fatalf("host %q offset outside 0..14: %d", host, minute)
+		minute, hour := deterministicTime(host)
+		if minute < 0 || minute > 59 || hour < 2 || hour > 4 {
+			t.Fatalf("host %q slot %02d:%02d outside 02:00-04:59", host, hour, minute)
 		}
-		again, _ := deterministicTime(host)
-		if again != minute {
-			t.Fatal("host cadence changed across probes")
+		again, againHour := deterministicTime(host)
+		if again != minute || againHour != hour {
+			t.Fatal("host slot changed across probes")
 		}
-		parts := strings.Split(cronMinutes(minute), ",")
-		if len(parts) != 4 {
-			t.Fatalf("cadence = %q", parts)
+		if got, want := cronSchedule(minute, hour), fmt.Sprintf("%d %d * * *", minute, hour); got != want {
+			t.Fatalf("schedule = %q, want one nightly run %q", got, want)
 		}
-		for i, part := range parts {
-			got, err := strconv.Atoi(part)
-			if err != nil || got != minute+i*15 {
-				t.Fatalf("nonuniform cadence %q", parts)
-			}
-		}
+		seen[[2]int{minute, hour}] = true
+	}
+	if len(seen) < 2 {
+		t.Fatal("every host got the same nightly slot")
+	}
+}
+
+func TestOnlyAutoUpdateHostsKeepAMaintenanceLine(t *testing.T) {
+	host := config.Host{ID: 7, FQDN: "host.example.com"}
+	normal := &config.Config{Engine: config.EngineCodex, Host: host}
+	if nightlyMaintenance([]*config.Config{normal}) {
+		t.Fatal("a normal host kept a maintenance cron line")
+	}
+	auto := &config.Config{Engine: config.EngineClaude, Host: host}
+	auto.Wrapper.AutoUpdate = true
+	if !nightlyMaintenance([]*config.Config{normal, auto}) {
+		t.Fatal("an auto-update host lost its nightly line")
+	}
+	suspended := suspendedConfig(config.EngineClaude, host, config.EngineClaude)
+	suspended.Wrapper.AutoUpdate = true
+	if nightlyMaintenance([]*config.Config{suspended}) {
+		t.Fatal("a suspended engine kept the host updating")
 	}
 }
 
@@ -316,7 +332,7 @@ func TestCanWriteBinaryDoesNotOpenExecutingStyleFileForWrite(t *testing.T) {
 
 func TestBuildCronLineUsesCanonicalCommandAndMarker(t *testing.T) {
 	got := buildCronLine(17, 2, "/opt/cxx bin/cxx", "/tmp/cxx cron.log", nil)
-	for _, want := range []string{"2,17,32,47 * * * *", "'/opt/cxx bin/cxx' cron run --due", "# cxx-managed-cron"} {
+	for _, want := range []string{"17 2 * * *", "'/opt/cxx bin/cxx' cron run --due", "# cxx-managed-cron"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("line=%q missing %q", got, want)
 		}
@@ -578,7 +594,7 @@ func TestSystemCronBodyPinsQuotedOverridesAndInstallUser(t *testing.T) {
 		"CDX_CONFIG_PATH='/home/a b/cdx.json'",
 		"CLX_CONFIG_PATH='/home/a b/clx.json'",
 		"CGX_CONFIG_PATH='/home/a b/cgx.json'",
-		"7,22,37,52 * * * * alice CODEX_HOME='/srv/account b' GROK_HOME='/home/a b/.grok' '/opt/cxx bin/cxx' cron run --due",
+		"7 3 * * * alice CODEX_HOME='/srv/account b' GROK_HOME='/home/a b/.grok' '/opt/cxx bin/cxx' cron run --due",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
@@ -1208,7 +1224,7 @@ func TestCoordinatorWithEveryEngineSuspendedRunsNothing(t *testing.T) {
 		}, all, "/fixture/cxx", nil
 	}
 	var calls []string
-	reconcileRunSchedule = func(context.Context, string) error {
+	reconcileRunSchedule = func(context.Context, string, bool) error {
 		calls = append(calls, "schedule")
 		return nil
 	}

@@ -370,7 +370,12 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     publicBaseUrl: string,
     requested?: BakePlatform,
   ) {
-    const autoUpdate = await settings.autoUpdateDefault();
+    // The effective setting: the host's override, else the fleet default. The wrapper schedules its only
+    // maintenance cron (nightly) from this, so it must be per host (docs/host-runtime-policy.md).
+    const autoUpdate =
+      host.autoUpdateOverride === null || host.autoUpdateOverride === undefined
+        ? await settings.autoUpdateDefault()
+        : host.autoUpdateOverride === 1;
     const track = await settings.wrapperTrack();
     const rollout = deps.wrapperRollout ? await deps.wrapperRollout() : null;
     const platformsToTry: Array<[string, string]> = requested?.os && requested?.arch

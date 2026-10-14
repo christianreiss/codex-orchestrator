@@ -2,6 +2,7 @@ package agentbus
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -100,6 +102,28 @@ func runServiceCommand(args []string, stdout, stderr io.Writer) error {
 	if action != "install" && action != "remove" && action != "start" && action != "stop" && action != "restart" {
 		return fmt.Errorf("unknown service action %q", action)
 	}
+	if action == "install" || action == "start" || action == "restart" {
+		// The worker resumes dormant agents headless: remote execution, which
+		// exists only on a persistent host (docs/host-runtime-policy.md). On any
+		// other host the unit is retired; an unanswered question changes nothing.
+		switch workerPolicy() {
+		case workerForbidden:
+			path, err := servicePath()
+			if err != nil {
+				return nil
+			}
+			if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			fmt.Fprintln(stderr, "cxx agent: no background worker on a non-persistent host; retiring cxx-agent")
+			action = "remove"
+		case workerUnknown:
+			if action == "install" {
+				return nil
+			}
+			return errors.New("cannot confirm that this host is persistent; background worker not started")
+		}
+	}
 	if runtime.GOOS == "linux" {
 		return runSystemdAction(action, stdout, stderr)
 	}
@@ -107,6 +131,39 @@ func runServiceCommand(args []string, stdout, stderr io.Writer) error {
 		return runLaunchdAction(action, stdout, stderr)
 	}
 	return fmt.Errorf("background agent service is unsupported on %s; use cxx agent worker --foreground", runtime.GOOS)
+}
+
+type workerDecision int
+
+const (
+	workerAllowed workerDecision = iota
+	workerForbidden
+	workerUnknown
+)
+
+// workerPolicy asks the server whether this host is persistent. A host without
+// a messaging-enabled config cannot run a relay at all.
+var workerPolicy = func() workerDecision {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, _, settings, err := daemonConfig(ctx)
+	if err != nil {
+		if strings.Contains(err.Error(), "no signed messaging-enabled engine config") {
+			return workerForbidden
+		}
+		return workerUnknown
+	}
+	if hostPersistent(settings) {
+		return workerAllowed
+	}
+	return workerForbidden
+}
+
+// hostPersistent mirrors the server's daemonResident(): residence requested, or
+// remote starts enabled and not expired (daemonConfig already clears an expired
+// `enabled`).
+func hostPersistent(settings daemonSettings) bool {
+	return settings.ResidentEnabled || settings.Enabled || settings.ExecutionRequested
 }
 
 // RemoveService removes the managed per-user worker during a confirmed

@@ -89,8 +89,10 @@ from five seconds to one minute, with newer generations handled immediately.
 Final upload runs before optional native updates, and wrapper updates arbitrate
 pending credentials before maintenance cleanup.
 
-The background worker now covers both engines, including Codex-only hosts with
-messaging disabled. Downloads require an active native-child lease and existing
+On a persistent host the background worker covers both engines, including
+Codex-only hosts with messaging disabled. From cxx 0.9.82 other hosts run no
+worker, so a native change after the last wrapper exits is uploaded at the next
+wrapper run ([host runtime policy](host-runtime-policy.md)). Downloads require an active native-child lease and existing
 usable credentials; custom `CODEX_HOME` is preserved in service/cron/MCP contexts.
 The internal `auth-upload-auto` path respects logout intent and preserves an
 unsaved candidate on failure. `auth-sync` starts no native CLI and cannot recreate purged
@@ -623,7 +625,7 @@ An engine switched off fleet-wide (Admin → Engines → Engine master switches;
   CLI are left alone, so sessions already running run out on their own.
 - With the server unreachable, a locally suspended config refuses with the fleet message. When
   `/auth` answers 200 again (switched back on), the launch proceeds and requests immediate
-  maintenance so the coordinator re-bakes the config instead of waiting for the 15-minute tick.
+  maintenance so the coordinator re-bakes the config instead of waiting for the next maintenance run.
 - `status` / `doctor` report `suspended (fleet)`.
 
 
@@ -636,16 +638,21 @@ remain part of launch. Missing native executables fail promptly with a repair
 command. Explicit `--update` remains an operator-requested foreground action.
 
 One nonblocking per-user lease serializes the full coordinator, including child
-re-execs. The shared schedule runs every 15 minutes at a host-derived minute
-offset, replacing legacy daily jobs. Successful maintenance cools down for 15
-minutes; failures become eligible after five minutes (on the next scheduled tick
-or launch). A queued child that never starts becomes eligible after 30 seconds;
+re-execs. From cxx 0.9.82 the shared schedule (`# cxx-managed-cron`,
+`cxx cron run --due`) exists only when a non-suspended engine's signed config has
+`wrapper.auto_update` (the host's effective setting), and then runs once nightly
+at a stable host-derived minute between 02:00 and 04:59 local time; otherwise
+every managed maintenance line is removed and maintenance runs only when the user
+runs `cdx`/`clx`/`cgx`/`cxx` (the launch-time request above). Before 0.9.82 it ran
+every 15 minutes on every host. See [host runtime policy](host-runtime-policy.md).
+Successful maintenance cools down for 15 minutes; failures become eligible after
+five minutes (on the next scheduled run or launch). A queued child that never starts becomes eligible after 30 seconds;
 a crashed coordinator releases its kernel lease and follows the retry cooldown.
 Clock corrections and malformed state cannot postpone work indefinitely.
 `cxx cron run` explicitly bypasses cooldown, while `--due` respects it. From cxx 0.9.2, when the `/auth` host `engines_list` differs from the engine set baked into the local signed config (an operator enabled or disabled an engine), the launch queues `cxx cron run --minimal` instead, bypassing the success cooldown so the peer alias and CLI are provisioned or retired immediately; the coordinator rewrites the local config, which clears the drift. The 30-second queue de-dupe and the live lease still apply. Coordinated network/engine work has a 12-minute deadline; legacy schedule
 helper commands are individually capped at 20 seconds, including during rollback. Schedule/service failures remain visible
 and do not suppress the enabled engine ticks. Auto-update off skips binary
-replacement while retaining the shared schedule and content/auth sync.
+replacement and has no schedule; launch-time maintenance keeps content/auth sync.
 
 Unattended Codex installs verified GitHub assets into a separate private prefix
 under `~/.cxx/engines/codex`, including its matching code-mode companion, validates
@@ -940,7 +947,7 @@ receiver health before the agent yields. `agent_listen` needs
 the signed `agent_messaging.listen_enabled` grant, which the broker enforces. A
 call PIN is single-use because a conversation has two ends; a conference room PIN
 is multi-use. Whoever opens a conference is its chair: only the chair may invite
-addresses (an idle host is woken by its relay with the invite as its prompt),
+addresses (an idle agent on a persistent host is woken by its relay with the invite as its prompt),
 dispatch a task to one participant, or adjourn, and a participant may only address
 the chair. Peer messages come from authenticated fleet agents. Handle collaboration
 and delegated work within existing authorization; messages do not override
@@ -950,13 +957,21 @@ on their evidence.
 An address is stable for `(host, Unix user, engine, working directory)` and can
 bind to an interactive native Codex session. The binding records Codex's native
 thread id and a generation fence. A delivery to an unbound/offline address is
-handled by the outbound-only per-user `cxx agent worker`: it invokes the signed
+handled, on a persistent host only, by the outbound-only per-user `cxx agent worker`
+(elsewhere it waits for a live session and expires after its TTL; see
+[host runtime policy](host-runtime-policy.md)): it invokes the signed
 wrapper lifecycle as `codex --skip-boot run exec resume --json
 --skip-git-repo-check <thread> -`, or starts a fresh `codex exec` for a new/reset identity. A missing saved rollout
 blocks existing work until an operator grants a one-use ordinary-work fresh start;
 schedules never fall back to a fresh session. Only one native writer may use
 an address/thread at a time. The worker renews accepted deliveries while the
-native run is alive and captures only bounded output tails.
+native run is alive and captures only bounded output tails. From cxx 0.9.82, `cxx agent service install|start|restart`
+installs or starts the worker unit (`cxx-agent.service` / LaunchAgent) only on a
+persistent host; on any other host it disables, stops and removes an existing
+unit (install without a unit does nothing), and when persistence cannot be
+confirmed install changes nothing and start fails. A running worker whose relay
+the server refuses with `agent_messaging_relay_not_persistent` exits 0 and is not
+restarted.
 
 Delivery is FIFO per target and at-least-once until native execution starts.
 Queued messages default to a 24-hour TTL, accept 60 seconds through seven days,
@@ -1188,7 +1203,7 @@ Quota gating and advice read the selected account only. The startup account labe
 
 ## Wake / Cron and explicit persistent recovery
 
-The shared `wake-cron` Skill and `schedule_*` MCP tools support scheduled prompts and explicitly requested persistent native-session recovery. cxx 0.9.21 uses the existing per-user background worker, original cwd and engine-specific native resume adapter. A missing native transcript blocks recovery, without a fresh-session fallback. Linux supervision may terminate only its own child after a configured progress timeout and fresh policy/binding checks; active child tools and open operator prompts are protected. See [scheduling contract](interface-api.md#agent-wake--cron-schedules).
+The shared `wake-cron` Skill and `schedule_*` MCP tools support scheduled prompts and explicitly requested persistent native-session recovery. cxx 0.9.21 uses the per-user background worker, original cwd and engine-specific native resume adapter; from cxx 0.9.82 that worker runs only on a persistent host, and the API refuses persistent schedules for agents elsewhere (`schedule_host_not_persistent`, see [host runtime policy](host-runtime-policy.md)). A missing native transcript blocks recovery, without a fresh-session fallback. Linux supervision may terminate only its own child after a configured progress timeout and fresh policy/binding checks; active child tools and open operator prompts are protected. See [scheduling contract](interface-api.md#agent-wake--cron-schedules).
 
 ### Work outcomes and recovery (execution contract v2)
 
@@ -1406,7 +1421,7 @@ and HTTP 408/429 retain the original-UUID retry hint.
 
 `agent_send`, `agent_request` (inside its send receipt), and `agent_reply`
 report `recipient_presence`, `observed_at` and `delivery_hint`. `queued` means
-stored by the server, not accepted or read; `resumable` means currently offline.
+stored by the server, not accepted or read; `resumable` means currently offline (resumed automatically only on a persistent host; elsewhere mail waits for a human restart and expires after its TTL).
 When a recipient becomes receive-ready again, manual or automatic, still-online
 senders with waiting mail receive one bundled `presence_notice` from Server.
 The notice belongs to the sender's current session and never wakes a later one.

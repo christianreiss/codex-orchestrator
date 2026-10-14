@@ -308,8 +308,10 @@ visible with a choice to load the latest values or discard the draft.
      without touching the binary: the same lock, FQDN guard, `POST /sync/bootstrap`, decision matrix,
      collections and skills work a launch performs, stopped before the quota gate, the portal session,
      and PreExec. They are always headless, and self-update is suppressed inside them so a sync can
-     never install and re-exec from within itself. `cxx cron run` performs the same sync each tick, so a
-     host where nobody starts a session still converges on fleet config.
+     never install and re-exec from within itself. `cxx cron run` performs the same sync on each run. From cxx 0.9.82 that
+     scheduled run exists only on auto-update hosts (nightly, 02:00–04:59 local); any other host
+     converges on fleet config when a user next runs a wrapper
+     ([host runtime policy](host-runtime-policy.md)).
    - Interactive SSH terminals launch Codex through the same direct TTY path as local terminals, avoiding wrapper-owned PTYs around the Codex UI. Alt-screen stays enabled: the wrapper never forces inline mode and has no override for it. `cdx doctor` reports SSH env hints and launch mode for troubleshooting.
    - Auth synchronization is generation-based and independent of the managed
      content run lock. Short local locks provide coherent reads/writes. Bounded
@@ -354,13 +356,14 @@ visible with a choice to load the latest values or discard the draft.
    - The active-child guarantee covers processes launched through `cdx`/`clx`.
      A separately invoked raw `codex` or `claude` process does not participate
      in wrapper leases, so destructive login/logout coordination still requires
-     the wrappers. Claude credential rotation is covered separately: the
-     always-on per-user `cxx-agent` worker polls the authoritative native digest
+     the wrappers. Claude credential rotation is covered separately: on a
+     persistent host the per-user `cxx-agent` worker polls the authoritative native digest
      every two seconds and invokes guarded `clx auth-upload` when usable bytes
      change, including changes written by a detached `claude daemon run` after
-     its parent clx exits. It starts with every Claude-capable installation,
-     independent of agent messaging, and the daily coordinator re-asserts it
-     before engine ticks. Headless Linux maintenance supplies the standard
+     its parent clx exits. There it runs independent of agent messaging, and the
+     coordinator re-asserts it before engine ticks. From cxx 0.9.82 no other host
+     runs the worker ([host runtime policy](host-runtime-policy.md)); an idle
+     detached rotation there is uploaded at the next wrapper run. Headless Linux maintenance supplies the standard
      `/run/user/<uid>` systemd-user bus environment when cron omitted it.
    - When a host already has an active wrapper run, the concurrent guard still
      skips managed content/update writes and peer reconciliation, but performs
@@ -666,8 +669,11 @@ identity changes receive separate mailboxes; sharing a working directory never
 transfers queued mail, aliases or subscriptions. Informational mail without a
 resumable transcript cannot start a replacement agent.
 Interactive receive-capable sessions claim directly through the private Unix
-broker. One outbound-only relay per host user handles dormant/resumable
-addresses and never opens a host listener. Session finish clears the live
+broker. On a persistent host only, one outbound-only relay per host user handles
+dormant/resumable addresses and never opens a host listener; the API refuses
+per-user relays on any other host (`503 agent_messaging_relay_not_persistent`),
+so mail to an ended agent there waits for a human restart and expires after its
+24-hour TTL ([host runtime policy](host-runtime-policy.md)). Session finish clears the live
 binding but retains the address as resumable/offline; SIGINT/SIGTERM stops the
 relay generation and erases its server token.
 
@@ -823,7 +829,7 @@ Android 0.4.10 adds a Hosts tab for searchable remote-start hosts, free slots an
 
 ## Wake / Cron
 
-The Wake / Cron page and fleet `wake-cron` Skill manage the same durable scheduled agent prompts. Supports one-shot times, five-field Cron and intervals. Persistent native-session recovery is explicit opt-in, requires a progress timeout and uses the existing cxx-agent worker; no new daemon is installed. See [API scheduling contract](interface-api.md#agent-wake--cron-schedules).
+The Wake / Cron page and fleet `wake-cron` Skill manage the same durable scheduled agent prompts. Supports one-shot times, five-field Cron and intervals. Persistent native-session recovery is explicit opt-in, requires a progress timeout and uses the cxx-agent worker; no new daemon is installed. It exists only for agents on persistent hosts: the API refuses persistent schedules for any other target (`schedule_host_not_persistent`, see [host runtime policy](host-runtime-policy.md)). See [API scheduling contract](interface-api.md#agent-wake--cron-schedules).
 
 The admin page uses a searchable agent-name picker (engine and host disambiguate entries) and a compact schedule list. Creation, editing and execution details open in a right-hand panel, full-screen on mobile; recovery fields appear only when enabled. Agent targets remain canonical UUID addresses, with address fallback for unknown targets.
 

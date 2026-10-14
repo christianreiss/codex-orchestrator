@@ -55,9 +55,13 @@ than silently retaining spendable credentials or claiming synchronization.
 
 ## Background continuity
 
-The per-user worker handles both engines independently even with agent messaging
-disabled. Installation and cron maintenance ensure the worker for both engines.
-Native changes after a foreground wrapper exits are uploaded; exact canonical
+On a persistent host the per-user worker handles both engines independently even
+with agent messaging disabled; installation and maintenance ensure it there. From
+cxx 0.9.82 no other host runs a worker ([host runtime policy](host-runtime-policy.md)):
+a native change made after the last wrapper exits (for example an idle
+detached-native credential rotation) is uploaded at the next wrapper run, not
+within seconds. Where the worker runs, native changes after a foreground wrapper
+exits are uploaded; exact canonical
 bindings avoid no-op uploads after worker restarts or another local sync.
 Idle propagation uses the internal `auth-upload-auto` path: it respects logout
 intent, never downloads credentials, and cannot initiate insecure cleanup of

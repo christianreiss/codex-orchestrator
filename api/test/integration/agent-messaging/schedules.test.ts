@@ -11,6 +11,7 @@ import {
   agentSchedules,
   agentScheduleRuns,
   agentSessions,
+  hostDaemons,
   hosts,
   versions,
 } from '../../../src/db/schema.js';
@@ -21,6 +22,7 @@ import { decrypt } from '../../../src/security/secret-box.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 import type { Engine } from '../../../src/util/engine.js';
+import { markPersistentHost } from '../../helpers/persistent-host.js';
 const handle = await getTestDb();
 describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 120000 }, () => {
   const db = handle?.db as TestDb,
@@ -59,6 +61,7 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
       updatedAt: new Date().toISOString(),
     });
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, 'ztest-schedules.example')))[0]!;
+    await markPersistentHost(db, host.id);
     bus = new AgentMessagingService(db, loadTestEnv(), keyring);
     service = new SchedulesService(db, keyring);
   });
@@ -200,6 +203,29 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
       expect(await runs(schedule.id)).toHaveLength(1);
     },
   );
+  // docs/host-runtime-policy.md: resuming dormant agents is remote execution and exists only on persistent hosts.
+  it('refuses user relays and persistent schedules on a normal host, then admits them once the host is persistent', async () => {
+    const target = await agent('codex');
+    const relay = await bus.registerRelay(host, { username: 'ztest-schedules', instanceId: randomUUID(), wrapperVersion: 'test', capabilities: { execution_contract_version: 2 } });
+    await db.delete(hostDaemons).where(eq(hostDaemons.hostId, host.id));
+    try {
+      await expect(bus.registerRelay(host, { username: 'ztest-schedules', instanceId: randomUUID(), wrapperVersion: 'test', capabilities: { execution_contract_version: 2 } }))
+        .rejects.toMatchObject({ code: 'agent_messaging_relay_not_persistent', status: 503 });
+      // An already registered relay is cut off on its next heartbeat and claim.
+      await expect(bus.heartbeatRelay(String(relay.relay_id), String(relay.relay_token))).rejects.toMatchObject({ code: 'agent_messaging_relay_not_persistent' });
+      await expect(bus.claimForRelay(String(relay.relay_id), String(relay.relay_token), randomUUID())).rejects.toMatchObject({ code: 'agent_messaging_relay_not_persistent' });
+      await expect(create(target.address.address)).rejects.toMatchObject({ code: 'schedule_host_not_persistent' });
+      // An ordinary schedule needs no resume and stays allowed.
+      await create(target.address.address, false);
+      // A persistent host whose remote starts expired is not persistent either.
+      await db.insert(hostDaemons).values({ hostId: host.id, settings: { enabled: true, expires_at: '2020-01-01T00:00:00.000Z', username: 'root', default_cwd: '', max_parallel: 8, idle_minutes: 60, question_minutes: 1440 }, updatedAt: new Date().toISOString() });
+      await expect(create(target.address.address)).rejects.toMatchObject({ code: 'schedule_host_not_persistent' });
+    } finally {
+      await markPersistentHost(db, host.id);
+    }
+    await expect(bus.heartbeatRelay(String(relay.relay_id), String(relay.relay_token))).resolves.toMatchObject({ enabled: true });
+    await create(target.address.address);
+  });
   it('regular schedules wait instead of resuming an ended session', async () => {
     const target = await agent('claude'),
       schedule = await create(target.address.address, false);

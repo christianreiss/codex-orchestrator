@@ -468,7 +468,12 @@ Session operations use the short-lived bridge bearer in
 The outbound-only per-user relay registers with normal host authentication,
 then uses the returned generation-fenced 15-minute bearer in
 `X-Agent-Relay-Token`; it never opens a host listener and does not claim for an
-address while a live interactive session is attached:
+address while a live interactive session is attached. A per-user (non-daemon)
+relay is admitted only on a persistent host (host daemon `resident_enabled`, or
+remote starts enabled and not expired); elsewhere register, heartbeat and claim
+answer 503 `agent_messaging_relay_not_persistent`, while stop, renew, reply and
+ack stay open so in-flight work can finish. See
+[host runtime policy](host-runtime-policy.md):
 
 - `POST /host/agent-relays/register` — register/replace the host-user relay.
 - `POST /host/agent-relays/{id}/heartbeat` — refresh heartbeat and token expiry.
@@ -584,7 +589,9 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/hosts/quick-register` — create an insecure temporary throwaway host with an auto-generated short `tmp-YYYYMMDD-HHMMSS-xxxxxx` name, `secure=false`, `temporary=true`, `vip=false`, and a 2-hour host expiry. Body requires `engines` (any nonempty combination of `codex`, `claude`, and `grok`) and accepts optional `duration_minutes` (`0..480`) for the initial insecure window. Returns the same host + installer metadata shape as `/admin/hosts/register`.
 - `GET /install/{token}` — public single-use installer (TTL fixed at 1800s in the API; no env knob). Marks the token used before emit. It fetches all enabled signed configs before installation and requires every enabled engine's wrapper version and SHA to match, then downloads one `cxx` and atomically installs relative `cdx`/`clx`/`cgx` aliases for enabled engines. Claude-capable installs prepare Node.js/npm (OS Node package, pinned Corepack npm 10.9.2 when available, OS npm fallback). The installer invokes the host-wide `cxx cron install` and `cxx cron run --minimal` coordinator once each; `READY` is gated on the common wrapper, every requested CLI, and the one shared cron setup. Any missing/failed component yields `INCOMPLETE` and a non-zero exit. A preflight for `python3`, `curl` and a writable bin root runs before any output card, and each enabled engine gets one non-fatal `--allow-concurrent-sync sync` after the CLI checks. Token errors are served as HTTP 200 with `X-Installer-Error: <code>` and a script that prints to stderr and exits 1, so `curl -fsSL … | sh` shows the reason; consuming a token publishes `host.updated`.
   `cxx cron run` installs the per-user `cxx-agent` background
-  worker. On Claude-capable hosts it uploads changed native credential
+  worker only on a persistent host and retires it elsewhere; the maintenance
+  crontab line is kept only on auto-update hosts (nightly), see
+  [host runtime policy](host-runtime-policy.md). On Claude-capable hosts it uploads changed native credential
   generations independently of Agent Messaging.
 - `GET /install/v2/{token}` — alias of `GET /install/{token}`; wrappers minted against the v2 URL keep working unchanged.
 - `GET /seed/v2/auth/{uuid}` / `POST /seed/v2/auth/{uuid}` — aliases of the `/seed/auth/{uuid}` pair below.
@@ -965,7 +972,7 @@ MCP exposes `schedule_list`, `schedule_get`, `schedule_create`, `schedule_update
 
 Create fields: `name`, stable `target=agent:<uuid>`, `prompt` (max 30000 UTF-8 bytes), `kind=once|cron|interval`, exactly one corresponding timing field (`at` future RFC3339, `cron` five fields, `interval_minutes` positive integer), `timezone` (default Europe/Berlin), `enabled` (default true), `persistent` (default false), `progress_timeout_seconds` (60..604800, required only for persistent recovery). PATCH accepts changed fields plus version; switching timing kinds must clear obsolete timing fields. Invalid combinations fail validation.
 
-Ordinary schedules await a live receiver; their messages can never be claimed by a headless relay. Explicit persistent schedules use the existing per-user cxx-agent worker and exact native-session resume adapters for all three engines. No transcript means blocked, never a fresh-session fallback. Missing host workers leave work queued. No host power-on is performed. Every interval wakes healthy idle sessions too; one unfinished execution per schedule coalesces downtime and busy intervals into one follow-up. Bus FIFO, process writer locks and binding/lease generations prevent concurrent native writers.
+Ordinary schedules await a live receiver; their messages can never be claimed by a headless relay. Explicit persistent schedules use the per-user cxx-agent worker and exact native-session resume adapters for all three engines; they exist only for agents on persistent hosts, and creating or enabling one for an agent on any other host is refused with 403 `schedule_host_not_persistent` ([host runtime policy](host-runtime-policy.md)). No transcript means blocked, never a fresh-session fallback. Work for an ended agent without a running host worker stays queued until its TTL (24 hours) and then expires. No host power-on is performed. Every interval wakes healthy idle sessions too; one unfinished execution per schedule coalesces downtime and busy intervals into one follow-up. Bus FIFO, process writer locks and binding/lease generations prevent concurrent native writers.
 
 A durable ten-second scheduler serializes through DB locks. Payload and recovery policy are snapshotted per execution. Recovery after ambiguous crash may repeat external effects and is visibly counted. Capacity failures wait at least the configured interval (five minutes for cron/once); recognized structured provider retry/reset hints extend that wait. No implicit engine switch. Spring nonexistent fixed-hour Cron times are skipped; repeated autumn local times run once. Pause/delete cancels queued work and future recovery but leaves accepted work running.
 
@@ -1012,6 +1019,7 @@ Current bridge routes use the session token; operator host routes use host auth 
 - `POST /admin/daemon-sessions/:id/stop`
 - `GET /host/daemon/config`
 - `GET /host/daemon/connect`
+- `POST /host/daemon/migration` — resident-service migration fence/status/release (host-authenticated).
 - `POST /host/daemon/peer-finished`
 
 See the optional host execution daemon contract in [interface-api.md](interface-api.md).

@@ -313,7 +313,7 @@ An engine switched off fleet-wide (Admin → Engines → Engine master switches;
   CLI are left alone, so sessions already running run out on their own.
 - With the server unreachable, a locally suspended config refuses with the fleet message. When
   `/auth` answers 200 again (switched back on), the launch proceeds and requests immediate
-  maintenance so the coordinator re-bakes the config instead of waiting for the 15-minute tick.
+  maintenance so the coordinator re-bakes the config instead of waiting for the next maintenance run.
 - `status` / `doctor` report `suspended (fleet)`.
 - `cgx` now also honours the API kill switch (`versions.api_disabled`), refusing with
   `Auth API disabled by administrator.` like `cdx`/`clx`. The heartbeat of a lease it already holds
@@ -542,7 +542,7 @@ does not become a zero-usage or healthy quota display.
 
 ## Wake / Cron and explicit persistent recovery
 
-The shared `wake-cron` Skill and `schedule_*` MCP tools support scheduled prompts and explicitly requested persistent native-session recovery. cxx 0.9.21 uses the existing per-user background worker, original cwd and engine-specific native resume adapter. A missing native transcript blocks recovery, without a fresh-session fallback. Linux supervision may terminate only its own child after a configured progress timeout and fresh policy/binding checks; active child tools and open operator prompts are protected. See [scheduling contract](interface-api.md#agent-wake--cron-schedules).
+The shared `wake-cron` Skill and `schedule_*` MCP tools support scheduled prompts and explicitly requested persistent native-session recovery. cxx 0.9.21 uses the per-user background worker, original cwd and engine-specific native resume adapter; from cxx 0.9.82 that worker runs only on a persistent host, and the API refuses persistent schedules for agents elsewhere (`schedule_host_not_persistent`, see [host runtime policy](host-runtime-policy.md)). A missing native transcript blocks recovery, without a fresh-session fallback. Linux supervision may terminate only its own child after a configured progress timeout and fresh policy/binding checks; active child tools and open operator prompts are protected. See [scheduling contract](interface-api.md#agent-wake--cron-schedules).
 
 ### Work outcomes and recovery (execution contract v2)
 
@@ -770,7 +770,7 @@ retains manual mode. Existing MCP subprocesses need a restart to use this fix.
 
 `agent_send`, `agent_request` (inside its send receipt), and `agent_reply`
 report `recipient_presence`, `observed_at` and `delivery_hint`. `queued` means
-stored by the server, not accepted or read; `resumable` means currently offline.
+stored by the server, not accepted or read; `resumable` means currently offline (resumed automatically only on a persistent host; elsewhere mail waits for a human restart and expires after its TTL).
 When a recipient becomes receive-ready again, manual or automatic, still-online
 senders with waiting mail receive one bundled `presence_notice` from Server.
 The notice belongs to the sender's current session and never wakes a later one.

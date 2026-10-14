@@ -424,6 +424,8 @@ backoff. An optional maximum recovery count pauses the entire schedule when
 exhausted; re-enabling starts a new execution with a new budget and preserves history.
 Pause/delete cancels pending attempts; accepted work continues. Recovery after an
 ambiguous crash may repeat effects. These tools do not power on a host.
+Persistent recovery exists only for agents on persistent hosts; a persistent schedule
+for an agent on any other host is refused (\`schedule_host_not_persistent\`).
 
 **Watchdog.** Use the shared \`#watchdog\` Skill and the session-scoped
 watchdog_get, watchdog_enable, watchdog_disable and watchdog_finish tools.
@@ -431,7 +433,8 @@ AI may enable bounded recovery for its own current authorized task; announce the
 returned deadline. Defaults are two hours lifetime and ten minutes without progress.
 Server keep-alives every 15 seconds are transport, never progress or model turns.
 Capacity, crash and hang resume the same native transcript with backoff; missing
-transcripts block. Active tools and open user questions prevent local termination.
+transcripts block. Only a persistent host resumes an ended session; elsewhere the
+recovery expires unexecuted. Active tools and open user questions prevent local termination.
 STOP, disable, an explicit task result or the deadline ends future recovery.
 Deadline does not cancel accepted running work. Recovery can repeat ambiguous effects;
 preserve idempotency. Another target requires explicit operator selection via CLI/admin.
@@ -489,8 +492,9 @@ finds peers, \`agent_send\` and \`agent_request\` deliver, \`agent_wait\` and \`
 and \`agent_cancel\` withdraws work you queued. Delivery is ordered and at-least-once, and a queued
 message expires if nothing takes it.
 Send and reply receipts include \`recipient_presence\`, \`observed_at\` and \`delivery_hint\`:
-queued means stored by the server, never accepted or read. Offline peers may be resumed
-by their background worker. When a peer becomes receive-ready again with your mail
+queued means stored by the server, never accepted or read. Only on a persistent host
+is an offline peer resumed by its host's relay; elsewhere mail to an ended agent waits
+for a human to start it again and expires after 24 hours. When a peer becomes receive-ready again with your mail
 waiting and your session is still online, the server sends one \`presence_notice\`.
 It is informational, needs no reply, and never wakes you after your session ends;
 finish its delivery with \`agent_listen\` once and yield.
@@ -567,7 +571,7 @@ retrying blind.
 
 **More than two.** Use \`#conference\` when a task needs several agents at once, across hosts.
 \`agent_conf_open\` makes you the chair and mints a room PIN that many peers may dial;
-\`agent_conf_invite\` reaches them by address instead, waking idle hosts with no human present.
+\`agent_conf_invite\` reaches them by address instead; only a persistent host wakes an idle agent with no human present.
 \`agent_conf_join\` enters a room, \`agent_conf_roster\` shows who is in it, and \`agent_conf_say\`
 speaks. Only the chair may \`agent_conf_dispatch\` a task or \`agent_conf_adjourn\` the room. The
 turn rule from a call does not carry over: everything routes through the chair, whose reply always

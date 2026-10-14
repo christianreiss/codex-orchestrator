@@ -10,6 +10,7 @@ import { wsPublisher } from '../../../src/ws/publisher.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 import type { Engine } from '../../../src/util/engine.js';
+import { markPersistentHost } from '../../helpers/persistent-host.js';
 
 const handle = await getTestDb();
 const prefix = 'ztest-flag-admission';
@@ -103,6 +104,7 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
         `INSERT INTO hosts (fqdn, api_key, status, secure, engines, agent_messaging_enabled, created_at, updated_at) VALUES ('${fqdn}', '${randomBytes(32).toString('hex')}', 'active', 1, 'codex,claude,grok', 1, '${now}', '${now}')`,
       );
       const [host] = await db.select().from(hosts).where(eq(hosts.fqdn, fqdn));
+      await markPersistentHost(db, host!.id);
       hostIds.push(host!.id);
       const sessionId = randomUUID();
       const token = randomBytes(32).toString('base64url');

@@ -167,7 +167,7 @@ session have separate receipts.
 ![Wake / Cron listing one-time, cron and interval tasks, named target agents and recovery settings](docs/img/wake-cron.png)
 
 - **Wake / Cron** schedules one-time, cron or interval work for a specific agent, engine and directory. The console provides a searchable agent picker, execution history and explicit results.
-- **Persistent recovery** is an independent opt-in with a progress timeout and optional recovery limit. It resumes the same native transcript after capacity problems, crashes or hangs; missing transcripts block continuation.
+- **Persistent recovery** is an independent opt-in with a progress timeout and optional recovery limit. It resumes the same native transcript after capacity problems, crashes or hangs; missing transcripts block continuation. It is available only for agents on persistent hosts (a host daemon with residence or remote starts enabled); on every other host nothing runs without a live agent, and mail, wakes and recoveries for an ended agent expire after 24 hours. See the [host runtime policy](docs/host-runtime-policy.md).
 - **Watchdog** protects a current task for a bounded lifetime. Active tools and open questions prevent silence from being mistaken for a hang; completion, STOP, disable or the deadline ends future recovery.
 - **Planned reboot/resume** checkpoints authorized Linux reboots and resumes the exact native session once after boot. It requires root or passwordless sudo and active cron, and cannot overlap an active Watchdog or persistent recovery.
 
@@ -323,7 +323,7 @@ Grok usage is informational: failed refreshes retain a marked last reading,
 and the wrapper does not use it for quota enforcement or account switching.
 The advisor-model setting exposes an experimental Claude feature.
 Scheduled wakes do not implicitly enable recovery; persistent recovery needs
-explicit opt-in and a progress timeout. Watchdog provides separately bounded
+explicit opt-in, a progress timeout and a persistent host. Watchdog provides separately bounded
 recovery for a current task. Missing native transcripts block resumption.
 
 ---

@@ -84,8 +84,8 @@ The builder still accepts a `[security]` block, but be aware of what it does —
   writing it — the field is still accepted/normalized for ingest back-compat, just never rendered.
 - Do **not** "fix" this by baking `engine_options`. That would arm the bypass on every host whose
   `[security]` key is already `true`, over a revoke channel that is not the launch path: the signed
-  config has a 30-day TTL and is refreshed by the shared maintenance cron (`cxx cron`, every 15
-  minutes subject to its cooldown), while a launch refetches it only once it has already expired.
+  config has a 30-day TTL and is refreshed by wrapper maintenance (on each wrapper run, or by the nightly
+  `cxx cron` on auto-update hosts only, from cxx 0.9.82), while a launch refetches it only once it has already expired.
 - The working equivalent is the pair `approval_policy = "never"` + `sandbox_mode =
   "danger-full-access"`, both of which are real Codex keys on the fast path and revoke within one
   launch.

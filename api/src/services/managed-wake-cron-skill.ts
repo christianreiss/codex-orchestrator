@@ -26,7 +26,9 @@ page manages the same records. A Skill does not grant additional authority.
    request to resume after crash/hang/capacity or an explicitly requested persistent
    wake. A repeating schedule alone is not recovery authorization. Require an
    explicit progress_timeout_seconds (60..604800) for hang recovery; ask for it
-   when missing. A known native session and the user's cxx-agent worker are required.
+   when missing. A known native session on a persistent host is required: only a
+   persistent host resumes dormant agents, and persistent schedules for agents on
+   any other host are refused with schedule_host_not_persistent.
    max_recovery_attempts is optional (null means unlimited); only set a finite limit
    as requested. Backoff doubles from the schedule interval, caps at at least one
    hour, adds up to 20% positive jitter and respects later provider reset times.
@@ -38,8 +40,10 @@ page manages the same records. A Skill does not grant additional authority.
 6. Retrieve again after a write and report the exact target, next time/timezone,
    whether persistent recovery is on, and any waiting/blocked state.
 
-Regular schedules wait for a live receiver. Persistent schedules may resume the
-same native session and working directory; they never fall back to a fresh session.
+Regular schedules wait for a live receiver and are never resumed headless; a wake
+for an ended agent expires unexecuted after 24 hours. Persistent schedules (persistent
+hosts only) may resume the same native session and working directory; they never
+fall back to a fresh session.
 An interval wakes healthy idle sessions too. Busy sessions have at most one pending
 wake; missed times are coalesced. Capacity failures wait before retrying. A running
 process is stopped only by its own supervisor after the configured progress timeout

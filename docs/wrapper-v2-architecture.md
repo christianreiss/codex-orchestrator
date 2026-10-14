@@ -55,7 +55,11 @@ pipeline with:
    user-crontab failure or later legacy `/etc/cron.d` cleanup failure restores
    every snapshot and removes the new system entry, so migration fails closed
    instead of committing two jobs.
-   The schedule fires every 15 minutes at a host-derived minute offset and
+   From cxx 0.9.82 the schedule exists only when a non-suspended engine's
+   signed config has `wrapper.auto_update` (otherwise every managed line is
+   removed), and then fires once nightly at a stable host-derived minute between
+   02:00 and 04:59 local time (before: every 15 minutes on every host; see
+   [host runtime policy](host-runtime-policy.md)). It
    invokes `cxx cron run --due`, which honours the cooldown recorded in
    `~/.cxx/maintenance.json` (15 minutes after success, 5 after failure); a bare
    `cxx cron run` bypasses it. `internal/maintenance` holds one per-user lease

@@ -112,9 +112,11 @@ daily fleet re-login). A probe therefore only proves the access token it was
 given; the API never even requests a probe for a credential whose access token
 has expired while its refresh token is still live — that state is served
 as-is and heals when a host refreshes natively and re-uploads. Managed clx
-sessions retain their 30-second foreground watcher, while the per-user
-`cxx-agent` worker watches the same native digest every two seconds even after a
-detached Claude daemon outlives its spawning wrapper. It submits changes through
+sessions retain their 30-second foreground watcher, while on a persistent host the
+per-user `cxx-agent` worker watches the same native digest every two seconds even
+after a detached Claude daemon outlives its spawning wrapper. Other hosts run no
+worker (cxx 0.9.82, [host runtime policy](host-runtime-policy.md)); such a
+change is uploaded at the next wrapper run. It submits changes through
 the normal guarded `clx auth-upload` path; no runner receives the refresh token.
 Genuine API keys use a
 direct Anthropic request; only HTTP 401/`authentication_error` is a definitive
