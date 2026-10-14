@@ -278,7 +278,10 @@
       "POST /admin/feedback/state",
       "POST /admin/feedback",
       "POST /admin/feedback/:id",
-      "POST /admin/feedback/:id/claim"
+      "POST /admin/feedback/:id/claim",
+      "GET /admin/wrapper/rollout",
+      "POST /admin/wrapper/rollout/:action",
+      "POST /admin/hosts/:id/wrapper-canary"
     ]
   },
   "excluded": {

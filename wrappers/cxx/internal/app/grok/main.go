@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentquiet"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"log/slog"
@@ -572,7 +573,12 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			defer lock.Release()
 		}
 	}
-	if syncErr == nil {
+	// A primed owner already holds current content (pushed invalidations keep
+	// it so): the launch needs no content exchange. Explicit syncs always run.
+	if syncErr == nil && communicator.SyncManaged(client.BaseURL) && communicator.Primed(communicator.WithSyncConfig(ctx, cfg), client.BaseURL, "grok", "") {
+		sync.Skills = resourceSync{Checked: true}
+		sync.Config = resourceSync{Checked: true}
+	} else if syncErr == nil {
 		sync, syncErr = syncMeasuredManagedWith(ctx, cfg, client, true)
 	}
 	if syncErr != nil {
@@ -982,6 +988,11 @@ func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.C
 	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{Engine: "grok", ClientVersion: before, WrapperVersion: Version})
 	if err != nil {
 		return err
+	}
+	// A scheduled tick leaves binaries to the communicator updater while agents
+	// run; an explicit update (force) always applies.
+	if !force && path != "" && agentquiet.DeferScheduledUpdates(cfg.Orchestrator.CommunicatorUpdateProtocol) {
+		check.Action, check.Wrapper = "disable", nil
 	}
 	if check.Action != "disable" && check.Wrapper != nil && check.Wrapper.Action == "update" {
 		if os.Getenv(wrapperRestartedEnv) == "1" {

@@ -74,6 +74,9 @@ func Command(args []string, in io.Reader, out, stderr io.Writer, version string)
 					if status["connected"] != true && status["https_fallback"] != true {
 						failed = true
 					}
+					if update, ok := status["update"].(map[string]any); ok && update["state"] == "failed" {
+						failed = true
+					}
 					if scopes, ok := status["sync_scopes"].([]any); ok {
 						for _, raw := range scopes {
 							scope, _ := raw.(map[string]any)

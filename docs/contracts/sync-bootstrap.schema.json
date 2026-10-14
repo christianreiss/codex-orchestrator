@@ -18,11 +18,33 @@
       "required": [
         "status",
         "reasons",
-        "agents",
-        "config",
         "host_users"
       ],
+      "if": {
+        "properties": {
+          "content": {
+            "const": "omitted"
+          }
+        },
+        "required": [
+          "content"
+        ]
+      },
+      "else": {
+        "properties": {
+          "agents": true,
+          "config": true
+        },
+        "required": [
+          "agents",
+          "config"
+        ]
+      },
       "properties": {
+        "content": {
+          "const": "omitted",
+          "description": "Present only for include_content:false (communicator warm-cache launch): every content block is omitted."
+        },
         "status": {
           "enum": [
             "ok",

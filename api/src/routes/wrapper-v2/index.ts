@@ -35,6 +35,7 @@ import {
   assertHostEngineAssigned,
   hostEnginesList,
 } from '../../services/host-engine-policy.js';
+import { loadWrapperRollout } from '../../services/wrapper-rollout.js';
 
 /**
  * Wrapper bakery v2 endpoints.
@@ -98,6 +99,10 @@ export async function registerWrapperV2Routes(
     communicatorEnabled: ctx.env.CXX_COMMUNICATOR_ENABLED,
     communicatorSyncEnabled: ctx.env.CXX_COMMUNICATOR_SYNC_ENABLED,
     communicatorRuntimeEnabled: ctx.env.CXX_COMMUNICATOR_RUNTIME_ENABLED,
+    communicatorCacheEnabled: ctx.env.CXX_COMMUNICATOR_CACHE_ENABLED,
+    communicatorUpdateEnabled: ctx.env.CXX_COMMUNICATOR_UPDATE_ENABLED,
+    // The flag is the kill switch: off ignores any stored rollout entirely.
+    wrapperRollout: ctx.env.CXX_WRAPPER_ROLLOUT_ENABLED ? () => loadWrapperRollout(ctx.db) : undefined,
   });
   const meta = createWrapperMetaService({ binaries, schemaVersion: WRAPPER_CONFIG_SCHEMA_VERSION });
   const download = createWrapperDownloadService({ binaries });

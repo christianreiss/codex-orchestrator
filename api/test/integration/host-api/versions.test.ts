@@ -626,6 +626,32 @@ describe('POST /cron/check (claude engine)', () => {
   });
 });
 
+describe('cron report content invalidation', () => {
+  it('publishes a content-relevant host event only when the stored CLI version changes', async () => {
+    const db = createDbFake();
+    const apiKey = 'sk-cron-report-invalidation';
+    db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: 'codex,claude,grok', claudeClientVersion: '2.1.233' }]);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    const events: Array<Record<string, unknown>> = [];
+    const unsubscribe = wsPublisher.subscribe((e) => { if (e.type === 'host.updated') events.push(e.payload as Record<string, unknown>); });
+    try {
+      for (const version of ['2.1.233', '2.1.240', '2.1.240']) {
+        const host = db.tables.get(hostsTable)?.[0] as Record<string, unknown>;
+        const response = await app.inject({ method: 'POST', url: '/cron/report',
+          headers: { authorization: `Bearer ${apiKey}` }, payload: { engine: 'claude', client_version: version } });
+        expect(response.statusCode).toBe(200);
+        expect(host.claudeClientVersion).toBe(version);
+      }
+      const content = events.filter((p) => p.source === undefined);
+      expect(content).toEqual([expect.objectContaining({ field: 'claudeClientVersion' })]);
+      expect(events.filter((p) => p.source === 'cron_report')).toHaveLength(3);
+    } finally {
+      unsubscribe();
+      await app.close();
+    }
+  });
+});
+
 describe('cron engine routing', () => {
   it.each([
     { headers: { 'x-engine': 'grok' }, url: '/cron/report', payload: { client_version: '1.0.46', wrapper_version: '0.9.10' } },
@@ -757,7 +783,7 @@ function hostRow(apiKey: string) {
     claudeReasoningEffortOverride: null,
     claudeLastRefresh: null,
     configVersion: 0,
-    wrapperTrack: 'v2',
+    wrapperTrack: 'v2', wrapperCanary: 0,
     createdAt: '2026-05-18T00:00:00Z',
     updatedAt: '2026-05-18T00:00:00Z',
   };

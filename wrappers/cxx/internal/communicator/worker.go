@@ -16,6 +16,20 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
 
+func acquireScopeLock(ctx context.Context, path string) (*ipc.Lock, error) {
+	for {
+		lock, err := ipc.TryAcquireExclusivePath(path)
+		if !errors.Is(err, ipc.ErrHeld) {
+			return lock, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
 // WorkerCommand is a private finite dispatcher, entered before persona startup,
 // native-entry reconciliation, cron installation or engine maintenance.
 func WorkerCommand(ctx context.Context, in io.Reader, out io.Writer, dispatch func(context.Context, *config.Config, SyncRequest) SyncResult) int {
@@ -40,22 +54,24 @@ func WorkerCommand(ctx context.Context, in io.Reader, out io.Writer, dispatch fu
 	}
 	// Held by the worker itself: even if its daemon dies, a replacement owner
 	// cannot overlap an already accepted file transaction.
-	var lock *ipc.Lock
-	for {
-		lock, err = ipc.TryAcquireExclusivePath(filepath.Join(filepath.Dir(socket), "sync-"+scopeID(req.Job)+".lock"))
-		if !errors.Is(err, ipc.ErrHeld) {
-			break
-		}
-		select {
-		case <-ctx.Done():
+	contentLock, authLock := syncLocks(req)
+	if contentLock {
+		lock, err := acquireScopeLock(ctx, filepath.Join(filepath.Dir(socket), "sync-"+scopeID(req.Job)+".lock"))
+		if err != nil {
 			return 1
-		case <-time.After(25 * time.Millisecond):
 		}
+		defer lock.Release()
 	}
-	if err != nil {
-		return 1
+	if authLock {
+		lock, err := acquireScopeLock(ctx, filepath.Join(filepath.Dir(socket), "auth-"+scopeID(req.Job)+".lock"))
+		if err != nil {
+			return 1
+		}
+		defer lock.Release()
 	}
-	defer lock.Release()
+	if req.SkipContent {
+		ctx = WithCachedContent(ctx)
+	}
 	Configure(ctx)
 	// Configure normally discovers all installed engines. The worker's explicit
 	// signed path is authoritative even for --config and isolated test users.

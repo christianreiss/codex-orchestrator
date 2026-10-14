@@ -121,6 +121,10 @@ func (c *daemonConnection) rpc(ctx context.Context, kind string, payload any, ou
 	}
 }
 
+// daemonVersion is the running binary's version, for the resident update's
+// no-downgrade check.
+var daemonVersion string
+
 // RunDaemonCommand controls only the explicitly enabled host execution service.
 func RunDaemonCommand(args []string, stdout, stderr io.Writer, version string) int {
 	if runtime.GOOS != "linux" {
@@ -131,6 +135,7 @@ func RunDaemonCommand(args []string, stdout, stderr io.Writer, version string) i
 		fmt.Fprintln(stderr, "usage: cxx daemon install|status|start|stop|uninstall|run")
 		return 2
 	}
+	daemonVersion = version
 	var err error
 	if args[0] == "reconcile" {
 		err = ReconcileHostDaemon(stdout, stderr)
@@ -218,6 +223,8 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 	switch action {
 	case "start", "stop":
 		return runServiceProcess(stdout, stderr, "systemctl", action, "cxx-daemon.service")
+	case "apply-update":
+		return applyResidentUpdate(daemonVersion, stdout, stderr)
 	case "uninstall":
 		if err := runServiceProcess(stdout, stderr, "systemctl", "disable", "--now", "cxx-daemon.service"); err != nil {
 			return err
@@ -268,6 +275,14 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 		if residentConfigurationEnabled() {
 			unit = strings.Replace(unit, " daemon run\n", " communicator run\n", 1)
 			unit = strings.Replace(unit, "KillMode=control-group\n", "KillMode=process\n", 1)
+		}
+		if residentConfigurationEnabled() {
+			// Installed before any migration branch so every resident install,
+			// fresh or migrated, can receive unprivileged update handoffs.
+			handoffEnv := "Environment=" + systemdQuote("HOME="+account.HomeDir) + "\n" + env.String()
+			if err := installResidentUpdateHandoff(account, handoffEnv, installed, stdout, stderr); err != nil {
+				return fmt.Errorf("resident update handoff: %w", err)
+			}
 		}
 		oldUnit, _ := os.ReadFile(daemonUnitPath)
 		runtimeTransition := residentConfigurationEnabled() || strings.Contains(string(oldUnit), " communicator run\n")

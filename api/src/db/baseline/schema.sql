@@ -1043,6 +1043,7 @@ CREATE TABLE `hosts` (
 	`grok_last_refresh` varchar(100),
 	`config_version` bigint unsigned NOT NULL DEFAULT 0,
 	`wrapper_track` varchar(16) NOT NULL DEFAULT 'v2',
+	`wrapper_canary` tinyint NOT NULL DEFAULT 0,
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
 	CONSTRAINT `hosts_id` PRIMARY KEY(`id`),

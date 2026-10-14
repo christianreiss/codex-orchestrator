@@ -386,6 +386,21 @@ describe('agents serve mode', () => {
     expect(await svc.setServeMode('locked', 1, engine)).toMatchObject({ mode: 'locked', served_id: 1 });
   });
 
+  it('publishes agents.stored when returning to latest, like a lock', async () => {
+    const db = makeDb();
+    seedDocs(db, [{ id: 1, body: 'old policy', engine: 'codex' }, { id: 2, body: 'new policy', engine: 'codex' }]);
+    seedState(db, [{ id: 1, mode: 'locked', activeDocumentId: 1, engine: 'codex' }]);
+    const svc = makeService(db);
+    const events: string[] = [];
+    const unsubscribe = wsPublisher.subscribe((e) => events.push(e.type));
+    try {
+      await svc.setServeMode('latest', null, 'codex');
+    } finally {
+      unsubscribe();
+    }
+    expect(events).toContain('agents.stored');
+  });
+
   it('rejects an unknown mode', async () => {
     const svc = makeService(makeDb());
 

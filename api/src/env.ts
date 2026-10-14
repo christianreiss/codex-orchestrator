@@ -64,6 +64,12 @@ const schema = z
     CXX_COMMUNICATOR_ENABLED: boolish.default(false),
     CXX_COMMUNICATOR_SYNC_ENABLED: boolish.default(false),
     CXX_COMMUNICATOR_RUNTIME_ENABLED: boolish.default(false),
+    CXX_COMMUNICATOR_CACHE_ENABLED: boolish.default(false),
+    CXX_COMMUNICATOR_UPDATE_ENABLED: boolish.default(false),
+    /** Staged cxx rollout (services/wrapper-rollout.ts): canary hosts, then percentage waves. */
+    CXX_WRAPPER_ROLLOUT_ENABLED: boolish.default(false),
+    CXX_WRAPPER_ROLLOUT_STAGES: z.string().default('canary,10,50,100'),
+    CXX_WRAPPER_ROLLOUT_SOAK_MINUTES: intish(30).pipe(z.number().int().min(0).max(10080)),
 
     LISTEN_HOST: z.string().default('0.0.0.0'),
     LISTEN_PORT: intish(8080),

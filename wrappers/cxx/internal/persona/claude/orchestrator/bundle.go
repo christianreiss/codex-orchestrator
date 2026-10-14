@@ -25,6 +25,9 @@ type BundleRequest struct {
 	// (kind -> slug -> sha256) so the server can omit `content` for unchanged
 	// items. Shape: {"subagent": {"reviewer": "<sha>"}, "command": {…}, …}.
 	Artifacts map[string]map[string]string `json:"artifacts,omitempty"`
+	// IncludeContent false asks for the auth/host/version blocks only: a
+	// warm-cache launch takes content from the communicator's primed scope.
+	IncludeContent *bool `json:"include_content,omitempty"`
 }
 
 // CollectionFile is one auxiliary file in a directory-backed skill bundle.

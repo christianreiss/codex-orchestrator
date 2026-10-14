@@ -50,7 +50,12 @@ type AuthStatus struct {
 	Fatal          bool   `json:"fatal,omitempty"`
 }
 type scopeState struct {
-	gate         chan struct{}
+	gate chan struct{}
+	// authGate serializes credential work for the scope. Content-only work holds
+	// gate, an auth-only bootstrap holds authGate, and anything that does both
+	// takes gate then authGate, so a warm-cache launch never queues behind a
+	// background content pass.
+	authGate     chan struct{}
 	auth         AuthStatus
 	lastFile     string
 	nextAuth     time.Time
@@ -226,7 +231,7 @@ func (s *server) stateLocked(job syncJob) *scopeState {
 	id := stateID(job)
 	state := s.scopes[id]
 	if state == nil {
-		state = &scopeState{gate: make(chan struct{}, 1), born: time.Now(), auth: AuthStatus{Type: "auth_state", Scope: id, Engine: job.Engine, State: "pending", NativeAdoption: "unknown"}}
+		state = &scopeState{gate: make(chan struct{}, 1), authGate: make(chan struct{}, 1), born: time.Now(), auth: AuthStatus{Type: "auth_state", Scope: id, Engine: job.Engine, State: "pending", NativeAdoption: "unknown"}}
 		s.scopes[id] = state
 	}
 	state.lastUsed = time.Now()
@@ -244,8 +249,12 @@ func (s *server) syncHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch in.Operation {
-	case "bootstrap", "content", "auth", "skills":
+	case "bootstrap", "content", "auth", "skills", "primed":
 	default:
+		http.Error(w, "invalid sync operation", 400)
+		return
+	}
+	if in.SkipContent && (in.Operation != "bootstrap" || !in.IncludeAuth) {
 		http.Error(w, "invalid sync operation", 400)
 		return
 	}
@@ -280,6 +289,11 @@ func coalesceKey(in SyncRequest) string {
 }
 
 func (s *server) runSync(ctx context.Context, in SyncRequest) SyncResult {
+	if in.Operation == "primed" {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return SyncResult{Primed: s.primed[scopeID(in.Job)]}
+	}
 	if in.Operation == "auth" || in.IncludeAuth {
 		return s.executeSync(ctx, in)
 	}
@@ -328,12 +342,23 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 	s.active++
 	s.mu.Unlock()
 	defer func() { s.mu.Lock(); s.active--; s.lastUsed = time.Now(); s.mu.Unlock() }()
-	select {
-	case state.gate <- struct{}{}:
-	case <-ctx.Done():
-		return syncFailure(ctx.Err())
+	contentLock, authLock := syncLocks(in)
+	if contentLock {
+		select {
+		case state.gate <- struct{}{}:
+		case <-ctx.Done():
+			return syncFailure(ctx.Err())
+		}
+		defer func() { <-state.gate }()
 	}
-	defer func() { <-state.gate }()
+	if authLock {
+		select {
+		case state.authGate <- struct{}{}:
+		case <-ctx.Done():
+			return syncFailure(ctx.Err())
+		}
+		defer func() { <-state.authGate }()
+	}
 	if in.Scheduled && in.Operation == "content" {
 		// A launch's own bootstrap normally completes the scope's initial pass while
 		// the scheduler's pass for the same new scope waits on this gate. Running the
@@ -453,8 +478,14 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 		}
 		if state.contentError == "" {
 			s.lastSync = time.Now().UTC().Format(time.RFC3339)
-			if (in.Operation == "bootstrap" || in.Operation == "content") && !in.ReconcileOnly && len(out.Resources) > 0 && !out.Deferred {
+			if (in.Operation == "bootstrap" || in.Operation == "content") && !in.SkipContent && !in.ReconcileOnly && len(out.Resources) > 0 && !out.Deferred {
 				state.contentFresh = workerStart
+				// From here on pushed invalidations keep this scope current for
+				// the life of the owner process.
+				if s.primed == nil {
+					s.primed = map[string]bool{}
+				}
+				s.primed[scopeID(in.Job)] = true
 			}
 		}
 	}
@@ -462,6 +493,20 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 	return out
 }
 func syncFailure(err error) SyncResult { return SyncResult{Error: &SyncError{Message: err.Error()}} }
+
+// syncLocks names the scope locks an operation needs: content for managed files,
+// auth for native credentials (and its pending marker). Lock order is always
+// content before auth.
+func syncLocks(in SyncRequest) (content, auth bool) {
+	switch {
+	case in.SkipContent:
+		return false, true
+	case in.Operation == "auth" || (in.Operation == "bootstrap" && in.IncludeAuth):
+		return true, true
+	default:
+		return true, false
+	}
+}
 
 func revokedGrokAuth(raw json.RawMessage) bool {
 	var failure struct {
@@ -552,7 +597,22 @@ func (s *server) syncLoop(ctx context.Context) {
 		if !connected {
 			continue
 		}
-		for _, job := range jobs {
+		// Content is per engine and native home. Grok runtime brokers sharing a
+		// home are separate auth consumers but must not each repeat the content
+		// exchange: one deterministic job per home schedules it.
+		order := make([]string, 0, len(jobs))
+		for id := range jobs {
+			order = append(order, id)
+		}
+		sort.Strings(order)
+		contentOwner := map[string]string{}
+		for _, id := range order {
+			if home := scopeID(jobs[id]); contentOwner[home] == "" {
+				contentOwner[home] = id
+			}
+		}
+		for _, id := range order {
+			job := jobs[id]
 			if job.Owner && job.Auth && signedSyncDisabled(job) {
 				continue
 			}
@@ -577,7 +637,7 @@ func (s *server) syncLoop(ctx context.Context) {
 				state.nextContent = time.Time{}
 			}
 			authDue := job.Auth && (time.Now().After(state.nextAuth) || digest != state.lastFile)
-			contentDue := time.Now().After(state.nextContent)
+			contentDue := time.Now().After(state.nextContent) && contentOwner[scopeID(job)] == id
 			if contentDue && !force && state.nextContent.IsZero() && state.contentFresh.IsZero() && time.Since(state.born) < initialContentGrace {
 				contentDue = false
 			}
@@ -631,7 +691,8 @@ func (s *server) syncLoop(ctx context.Context) {
 func (s *server) scopeViewsLocked() []map[string]any {
 	views := []map[string]any{}
 	for id, state := range s.scopes {
-		views = append(views, map[string]any{"scope": id, "auth": state.auth, "running": state.running || len(state.gate) > 0, "content_error": state.contentError})
+		home, _, _ := strings.Cut(id, "/")
+		views = append(views, map[string]any{"scope": id, "auth": state.auth, "running": state.running || len(state.gate) > 0 || len(state.authGate) > 0, "content_error": state.contentError, "primed": s.primed[home]})
 	}
 	return views
 }

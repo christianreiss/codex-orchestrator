@@ -365,6 +365,9 @@ export class AgentsService {
     const engine: Engine = parseEngine(rawEngine, ENGINE_CODEX);
     if (mode === AGENTS_MODE_LATEST) {
       await this.writeState(AGENTS_MODE_LATEST, null, engine);
+      // Unlocking changes what every host is served when the lock pinned an
+      // older version; communicator owners must resynchronize like on a lock.
+      wsPublisher.publish('agents.stored', { engine, mode: AGENTS_MODE_LATEST });
       return await this.adminFetch(engine);
     }
     if (versionId === null || versionId <= 0) {

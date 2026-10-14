@@ -62,6 +62,20 @@ func sharedSync(ctx context.Context, client *orchestrator.Client, authPath, oper
 	return out, syncErrorFromWire(out.Error)
 }
 
+// sharedAuthOnly is the warm-cache launch's bootstrap: auth/host/version only,
+// content comes from the owner's primed scope.
+func sharedAuthOnly(ctx context.Context, client *orchestrator.Client, authPath string, args []string) (communicator.SyncResult, error) {
+	account, session := client.Pool.Binding()
+	out, err := communicator.SyncAuthOnly(ctx, client.BaseURL, "claude", authPath, args, account, session)
+	if err != nil {
+		return out, err
+	}
+	if len(out.Auth) > 0 {
+		client.Pool.Observe("/auth", out.Auth)
+	}
+	return out, syncErrorFromWire(out.Error)
+}
+
 // CommunicatorWork reuses the established native writers and auth arbitration.
 // It deliberately never enters Run, PreExec, account selection or installation.
 func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.SyncRequest) communicator.SyncResult {
@@ -117,10 +131,16 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		out.AuthSynced = synced
 		out.Sessions, _ = json.Marshal(sessions)
 		out.Error = syncError(err)
-		out.Resources = map[string]communicator.ResourceResult{"agents": resourceToWire(agents), "config": resourceToWire(settings), "skills": resourceToWire(nativeSkills)}
 		if claude.HasUsableAuth() {
 			ensureOnboardingState(logger)
 		}
+		if communicator.CachedContent(ctx) {
+			// Auth-only: no content was requested or written, so report none
+			// (an empty set never marks the scope as freshly synchronized).
+			out.Resources = nil
+			break
+		}
+		out.Resources = map[string]communicator.ResourceResult{"agents": resourceToWire(agents), "config": resourceToWire(settings), "skills": resourceToWire(nativeSkills)}
 		nativeSkills = combineResourceSync(nativeSkills, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
 		out.Resources["skills"] = resourceToWire(nativeSkills)
 	default:

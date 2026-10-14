@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentquiet"
 	"log/slog"
 	"os"
 	"strings"
@@ -130,6 +131,12 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		logger.Info("cron: automatic binary updates disabled; continuing managed content sync")
 		res.WrapperAction = "disable"
 		res.CodexAction = "disable"
+	} else if agentquiet.DeferScheduledUpdates(cfg.Orchestrator.CommunicatorUpdateProtocol) {
+		// Agents are running: the communicator updater applies binaries once
+		// the host is quiet. Managed content and auth upkeep continue below.
+		logger.Info("cron: binary updates deferred until no agent runs")
+		check.Action, check.Wrapper = "deferred", nil
+		res.WrapperAction, res.CodexAction = "deferred", "deferred"
 	}
 
 	// Wrapper self-update first: if the server wants us on a newer wrapper,

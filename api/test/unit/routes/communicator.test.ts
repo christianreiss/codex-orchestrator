@@ -35,13 +35,13 @@ afterEach(async () => {
   auth.allowed = true;
   await app?.close();
 });
-async function setup(enabled = true) {
+async function setup(enabled = true, update = false) {
   app = await buildRouteApp();
   app.decorateRequest('clientIp', '192.0.2.1');
   const { db } = createMockDb();
   await registerCommunicatorRoutes(app, {
     db,
-    env: { CXX_COMMUNICATOR_ENABLED: enabled } as never,
+    env: { CXX_COMMUNICATOR_ENABLED: enabled, CXX_COMMUNICATOR_UPDATE_ENABLED: update, DATA_ROOT: update ? '/nonexistent-cxx-test-root' : undefined } as never,
     keyring: {} as never,
   });
   app.post('/host/echo', (req) => ({ headers: req.headers, body: req.body, ip: req.socket.remoteAddress }));
@@ -75,13 +75,13 @@ async function openTcpSocket() {
   await new Promise<void>((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
   return ws;
 }
-async function open(realSocket = false) {
+async function open(realSocket = false, control = ['terminate', 'owner_identity', 'resident_runtime']) {
   const ws = realSocket ? await openTcpSocket() : await app.injectWS('/host/communicator/connect', { headers: { 'x-api-key': 'host-one' } });
   const ready = new Promise<string>((resolve) =>
     ws.once('message', (data: unknown) => resolve(String(data))),
   );
   ws.send(JSON.stringify({ type: 'hello', protocol: 1, username: 'tester', version: '0.9.71' }));
-  expect(JSON.parse(await ready)).toEqual({ type: 'ready', protocol: 1, control: ['terminate', 'owner_identity', 'resident_runtime'] });
+  expect(JSON.parse(await ready)).toEqual({ type: 'ready', protocol: 1, control });
   return ws;
 }
 describe('communicator transport', () => {
@@ -282,6 +282,35 @@ describe('communicator transport', () => {
     expect(JSON.parse(messages[0]!)).toMatchObject({ type: 'invalidate' });
     expect(messages[0]).not.toContain('private-test');
     expect(messages[0]).not.toContain('never-forward');
+    ws.close();
+  });
+  it('offers payload-free update triggers only with the update capability', async () => {
+    await setup(true, true);
+    const ws = await open(false, ['terminate', 'owner_identity', 'resident_runtime', 'wrapper_update']);
+    const frames: Record<string, unknown>[] = [];
+    ws.on('message', (data: unknown) => frames.push(JSON.parse(String(data))));
+    wsPublisher.publish('skill.updated', { slug: 'x' });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(frames.map((f) => f.type)).toEqual(['invalidate']);
+    frames.length = 0;
+    wsPublisher.publish('version.wrapper_rollout_advanced', { wave: 2, secret: 'never-forward' });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(frames.map((f) => f.type).sort()).toEqual(['invalidate', 'update_available']);
+    expect(frames.find((f) => f.type === 'update_available')).toEqual({ type: 'update_available' });
+    frames.length = 0;
+    wsPublisher.publish('host.updated', { id: 2, fqdn: 'another-host' });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(frames).toEqual([]);
+    ws.close();
+  });
+  it('never sends update triggers without the update capability', async () => {
+    await setup();
+    const ws = await open();
+    const frames: Record<string, unknown>[] = [];
+    ws.on('message', (data: unknown) => frames.push(JSON.parse(String(data))));
+    wsPublisher.publish('version.wrapper_published', {});
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(frames.map((f) => f.type)).toEqual(['invalidate']);
     ws.close();
   });
   it('ignores host events for other hosts and still follows its own', async () => {

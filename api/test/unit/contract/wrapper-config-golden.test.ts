@@ -279,7 +279,7 @@ function host(overrides: Partial<Host>): Host {
     grokReasoningEffortOverride: null,
     grokLastRefresh: null,
     configVersion: 0,
-    wrapperTrack: 'v2',
+    wrapperTrack: 'v2', wrapperCanary: 0,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-02T00:00:00Z',
     ...overrides,

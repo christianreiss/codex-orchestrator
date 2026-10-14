@@ -822,7 +822,16 @@ func bootstrapWithProgress(
 		if len(launchArgs) > 0 {
 			args = launchArgs[0]
 		}
-		out, err := sharedSync(ctx, client, authPath, "bootstrap", includeAuth, false, args)
+		// A primed owner already holds current content (pushed invalidations
+		// keep it so): the launch fetches only what it needs before exec.
+		cached := includeAuth && communicator.Primed(ctx, client.BaseURL, "claude", authPath)
+		var out communicator.SyncResult
+		var err error
+		if cached {
+			out, err = sharedAuthOnly(ctx, client, authPath, args)
+		} else {
+			out, err = sharedSync(ctx, client, authPath, "bootstrap", includeAuth, false, args)
+		}
 		var auth *orchestrator.AuthRetrieveResponse
 		var sessions *orchestrator.FleetSessions
 		if len(out.Auth) > 0 {
@@ -839,6 +848,10 @@ func bootstrapWithProgress(
 		// carries the reason; without one it can say nothing but "unavailable".
 		if includeAuth && auth == nil && err != nil && orchestrator.IsUnresolvedUpload(err.Error()) {
 			auth = &orchestrator.AuthRetrieveResponse{Status: "offline", Message: err.Error()}
+		}
+		if cached {
+			current := summary.ResourceSync{Checked: true}
+			return auth, err, out.AuthSynced, current, current, current, sessions
 		}
 		return auth, err, out.AuthSynced, resourceFromWire(out.Resources["agents"]), resourceFromWire(out.Resources["config"]), resourceFromWire(out.Resources["skills"]), sessions
 	}
@@ -941,16 +954,22 @@ func bootstrapWithProgress(
 		tracing.String("wrapper.engine", "claude"),
 		tracing.Bool("wrapper.auth_candidate_offered", bundleCandidateSent),
 	)
+	skipContent := communicator.CachedContent(ctx)
+	var includeContent *bool
+	if skipContent {
+		includeContent = new(bool)
+	}
 	resp, berr := client.SyncBootstrap(bctx, orchestrator.BundleRequest{
-		Engine:        "claude",
-		IncludeAuth:   includeAuth,
-		AuthDigest:    digest,
-		AuthCandidate: candidate,
-		Agents:        agentsDigest,
-		Config:        configDigest,
-		Home:          home,
-		Username:      username,
-		Artifacts:     reqArtifacts,
+		IncludeContent: includeContent,
+		Engine:         "claude",
+		IncludeAuth:    includeAuth,
+		AuthDigest:     digest,
+		AuthCandidate:  candidate,
+		Agents:         agentsDigest,
+		Config:         configDigest,
+		Home:           home,
+		Username:       username,
+		Artifacts:      reqArtifacts,
 	})
 	progress.Clear()
 	if berr != nil {
@@ -1057,7 +1076,7 @@ func bootstrapWithProgress(
 	agentsSync := summary.ResourceSync{}
 	configSync := summary.ResourceSync{}
 	nativeSkillsSync := summary.ResourceSync{}
-	if !concurrent {
+	if !concurrent && !skipContent {
 		agentsSync.Checked = true
 		if len(resp.Agents) > 0 {
 			if err := atomicWrite(agentsPath(), resp.Agents, 0o644); err != nil {

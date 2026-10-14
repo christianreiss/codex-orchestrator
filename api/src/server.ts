@@ -15,6 +15,7 @@ import { startMattPocockSkillsWorker } from './ops/mattpocock-skills-worker.js';
 import { startSchedulesWorker } from './ops/schedules-worker.js';
 import { startAgentPortalWorker } from './ops/agent-portal-worker.js';
 import { startInsecureFleetWindowWorker } from './ops/insecure-fleet-window-worker.js';
+import { startWrapperRolloutWorker } from './ops/wrapper-rollout-worker.js';
 import { startAgentTransfersWorker } from './ops/agent-transfers-worker.js';
 import { startAgentMessagingWorker } from './ops/agent-messaging-worker.js';
 import { startGrokUsageWorker } from './ops/grok-usage-worker.js';
@@ -105,6 +106,7 @@ export async function buildServer() {
   startSchedulesWorker(app, db, keyring);
   startAgentMessagingWorker(app, db, env, keyring);
   startInsecureFleetWindowWorker(app, db, env);
+  startWrapperRolloutWorker(app, db, env);
   startAgentTransfersWorker(app, db, env);
   startGrokUsageWorker(app, db, env, keyring);
 

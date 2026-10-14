@@ -17,6 +17,9 @@ import {
   type CommunicatorView,
 } from '../services/topology/communicator-registry.js';
 import type { RouteContext } from './index.js';
+import { join, resolve } from 'node:path';
+import { createWrapperBinRegistry } from '../services/wrapper-bin-registry.js';
+import { startWrapperPublishWatch } from '../services/wrapper-publish-watch.js';
 
 export type { CommunicatorView };
 
@@ -135,6 +138,17 @@ const allowedHeaders = new Set([
 
 export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: RouteContext) {
   await registerWebsocketTransport(app);
+  // Push-triggered updater: owners that see `wrapper_update` in ready.control
+  // receive payload-free `update_available` triggers and read the target from
+  // their signed config and /cron/check, never from the frame.
+  const updateEnabled = Boolean(ctx.env.CXX_COMMUNICATOR_ENABLED && ctx.env.CXX_COMMUNICATOR_UPDATE_ENABLED);
+  if (updateEnabled) {
+    const binRoot = ctx.env.DATA_ROOT
+      ? join(ctx.env.DATA_ROOT, 'wrapper', 'v2', 'bin')
+      : resolve(import.meta.dirname, '..', '..', '..', 'storage', 'wrapper', 'v2', 'bin');
+    const stopWatch = startWrapperPublishWatch(createWrapperBinRegistry({ binRoot }));
+    app.addHook('onClose', async () => stopWatch());
+  }
   const auth = createHostAuthService(ctx);
   const mcpSessions = new McpSessionService(ctx.db);
   const authorize = async (req: FastifyRequest) => {
@@ -208,6 +222,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
       // Only an invalidation is broadcast, never administrative event payloads.
       let dirty = false;
       let authDirty = false;
+      let updateDirty = false;
       const knownAccounts = new Map<string, number>();
       const authChanges = new Map<string, { engine: string; account_id: number; generation: number }>();
       const unsubscribe = wsPublisher.subscribe((event) => {
@@ -256,6 +271,9 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           )
         )
           dirty = true;
+        // A release, rollout step, host version policy or fleet setting may
+        // change this host's update target.
+        if (/^(version|settings\.changed$|host\.updated$)/.test(event.type)) updateDirty = true;
       });
       const invalidationTimer = setInterval(() => {
         if (greeted && authChanges.size > 0) {
@@ -269,6 +287,10 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
         if (dirty && greeted) {
           dirty = false;
           send({ type: 'invalidate', revision: randomUUID() });
+        }
+        if (updateDirty && greeted && updateEnabled) {
+          updateDirty = false;
+          send({ type: 'update_available' });
         }
       }, 250);
       const timer = setInterval(() => {
@@ -325,7 +347,11 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             // `owner_identity` says this server accepts the owner's process identity
             // in `capabilities` and aims a stop at exactly one process: an owner that
             // sees `terminate` without it sends only the legacy fields.
-            send({ type: 'ready', protocol: 1, control: ['terminate', 'owner_identity', 'resident_runtime'] });
+            send({
+              type: 'ready',
+              protocol: 1,
+              control: ['terminate', 'owner_identity', 'resident_runtime', ...(updateEnabled ? ['wrapper_update'] : [])],
+            });
             return;
           }
           if (!greeted) throw new Error('Handshake required');

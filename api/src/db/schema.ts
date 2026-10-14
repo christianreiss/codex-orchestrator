@@ -88,6 +88,8 @@ export const hosts = mysqlTable(
     grokLastRefresh: varchar('grok_last_refresh', { length: 100 }),
     configVersion: bigint('config_version', { mode: 'number', unsigned: true }).notNull().default(0),
     wrapperTrack: varchar('wrapper_track', { length: 16 }).notNull().default('v2'),
+    /** Receives a staged cxx rollout before every wave (services/wrapper-rollout.ts). */
+    wrapperCanary: tinyint('wrapper_canary').notNull().default(0),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
     updatedAt: varchar('updated_at', { length: 100 }).notNull(),
   },

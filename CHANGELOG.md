@@ -2,6 +2,14 @@
 
 - Hosts stuck on cxx 0.9.71–0.9.74 can self-update again. Their communicator sent the update download as a control frame, which the server refused with `400 communicator_invalid_request` on every cron tick. The server now answers that one request with a redirect to an exact-version `/wrapper/v2/download/...` URL that those owners fetch over direct HTTPS; the SHA-256 check is unchanged. No new wrapper release is needed.
 
+- cxx 0.9.81 adds warm-cache launches. With `CXX_COMMUNICATOR_CACHE_ENABLED` (signed `communicator_cache_protocol`, on top of transport + sync), a launch whose engine/home scope the running communicator has already synchronized skips the content exchange: cdx/clx send only an auth-only `/sync/bootstrap` (`include_content:false`), and cgx sends nothing for content. Pushed invalidations keep the owner current. A fresh owner, a new scope and insecure hosts keep the full bootstrap. The auth-only bootstrap no longer waits behind background content passes, and Grok runtime brokers sharing a home run one content pass.
+
+- cxx 0.9.81 adds a push-triggered communicator updater. With `CXX_COMMUNICATOR_UPDATE_ENABLED` (signed `communicator_update_protocol`), a published release or rollout step sends owners a payload-free `update_available`. The owner prefetches the target that `/cron/check` offers and the signed config confirms, then applies it through `cxx update` only when no agent is running on the host, and as soon as the host becomes empty otherwise. Scheduled cron ticks defer binary changes the same way. Resident services are replaced through a new root-run `cxx-daemon-update` path unit that re-verifies the signed target and reuses the journaled migration.
+
+- Communicator owners now also resynchronize content when agents serve mode returns to "latest" and when a host's reported CLI version changes. Both events were previously silent.
+
+- cxx releases can roll out in stages: canary hosts first, then 10%, 50% and 100% waves, each after a 30-minute soak and one of that wave's hosts confirmed on the new build. `/cron/check` and the signed wrapper config hold not-yet-admitted hosts on their current release. Engines → cxx rollout shows progress with Halt, Resume, Promote and Release-to-all; hosts get a canary toggle, and Live Topology marks outdated communicators. Off by default (`CXX_WRAPPER_ROLLOUT_ENABLED`).
+
 - Live Topology colors persistent communicators blue and spawned communicators purple using fresh owner-mode reports. Missing or stale reports stay neutral gray; labels and a legend explain the colors, while rings and connection lines retain health status.
 
 - Live Topology communicator labels now show the full FQDN instead of username and shortened host. Graph labels retain the complete domain; lists, details and action targets use the same label, including existing runtime disambiguation suffixes.

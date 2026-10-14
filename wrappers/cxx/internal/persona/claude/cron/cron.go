@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentquiet"
 	"log/slog"
 	"os"
 	"strings"
@@ -132,6 +133,14 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		logger.Debug("cron: binary updates disabled by server")
 		res.WrapperAction = "disable"
 		res.CodexAction = "disable"
+	} else if agentquiet.DeferScheduledUpdates(cfg.Orchestrator.CommunicatorUpdateProtocol) {
+		// Agents are running: the communicator updater applies binaries once
+		// the host is quiet. Managed content and auth upkeep continue below.
+		logger.Info("cron: binary updates deferred until no agent runs")
+		disabled = true
+		check.Wrapper = nil
+		check.Action = "no_update"
+		res.WrapperAction, res.CodexAction = "deferred", "deferred"
 	}
 
 	if !disabled && check.Wrapper != nil && check.Wrapper.Action == "update" {

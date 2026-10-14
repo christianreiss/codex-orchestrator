@@ -1,12 +1,14 @@
 <script lang="ts">
   import EngineAvatar from "$lib/components/portal/EngineAvatar.svelte";
   import { Badge } from "$lib/components/ui/badge";
+  import { hostWrapperTarget, isWrapperBehind, wrapperRolloutQuery } from "$lib/api/wrapper-rollout";
   import { isEngine } from "$lib/constants/engines";
   import { ageLabel, communicatorAppearance, communicatorLabel, matchesQuery, type GraphModel } from "$lib/topology/model";
   import type { Presence } from "$lib/portal/types";
 
   type Props = { model: GraphModel; selectedId: string | null; query?: string; onselect: (id: string | null) => void };
   let { model, selectedId, query = "", onselect }: Props = $props();
+  const rollout = wrapperRolloutQuery();
 
   const agentsByParent = $derived.by(() => {
     const map = new Map<string, typeof model.agents>();
@@ -62,6 +64,7 @@
           {#if item.ghost}<Badge variant="secondary">disconnected</Badge>
           {:else}<Badge variant={item.node.health === "live" ? "success" : item.node.health === "closing" ? "destructive" : "warning"}>{item.node.health}</Badge>{/if}
           <span class="text-xs text-muted-foreground">cxx {item.node.version} · {children.length} agent{children.length === 1 ? "" : "s"}</span>
+          {#if !item.ghost && isWrapperBehind(item.node.version, hostWrapperTarget($rollout.data, item.node.host_id))}<Badge variant="warning" title={`Behind cxx ${hostWrapperTarget($rollout.data, item.node.host_id)}; applies when its agents are idle`}>outdated</Badge>{/if}
         </button>
         {#if children.length > 0}<ul class="border-t p-1">{#each children as child (child.node.id)}{@render agentRow(child)}{/each}</ul>{/if}
       </section>
