@@ -5,7 +5,8 @@ import { join, resolve } from 'node:path';
 import type { Env } from '../env.js';
 import type { Database } from '../db/client.js';
 import { Keyring } from '../security/keyring.js';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import { versions as versionsTable } from '../db/schema.js';
 import { nowIso } from '../util/timestamp.js';
 import { ENGINES, type Engine } from '../util/engine.js';
 import { writeRunnerTelemetry } from '../services/runner-telemetry.js';
@@ -18,6 +19,7 @@ import {
   type PlatformManifest,
   type WrapperArtifact,
 } from '../services/wrapper-bin-registry.js';
+import { rolloutSettingsFromEnv, startRolloutOnPublish } from '../services/wrapper-rollout.js';
 
 export async function runBootChecks(env: Env, db: Database): Promise<void> {
   const keyring = Keyring.fromEnv(env);
@@ -85,10 +87,22 @@ async function refreshWrapperVersions(env: Env, db: Database): Promise<void> {
       'amd64',
       commonBuild.version,
     );
+    // Read the previous fleet version before overwriting it: a deploy recreates
+    // the API, so boot is where a newly published cxx release becomes a rollout.
+    const rollout = rolloutSettingsFromEnv(env);
+    const previous = rollout.enabled ? await readVersion(db, `wrapper_version_${ENGINES[0]}`) : null;
     // Keep the compatibility DB keys, but make every engine projection share
     // one source of truth. There is no per-engine cxx target to drift.
     for (const engine of ENGINES) {
       await publishWrapperProjection(db, engine, commonBuild, url, publishedAt);
+    }
+    if (rollout.enabled && previous !== commonBuild.version) {
+      try {
+        await startRolloutOnPublish(db, rollout, previous, commonBuild.version);
+      } catch (err) {
+        // A broken rollout must never keep the API down; the release is still served.
+        console.warn(`[boot] could not record cxx rollout ${previous ?? 'none'} -> ${commonBuild.version}: ${String(err)}`);
+      }
     }
     return;
   }
@@ -248,6 +262,14 @@ async function writeRunnerState(
   checkedAt: string,
 ): Promise<void> {
   await writeRunnerTelemetry(db, engine, state, checkedAt);
+}
+
+async function readVersion(db: Database, name: string): Promise<string | null> {
+  const rows = await db
+    .select({ version: versionsTable.version })
+    .from(versionsTable)
+    .where(eq(versionsTable.name, name));
+  return rows[0]?.version ?? null;
 }
 
 async function upsertVersion(

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { wrapperCanaryMutation } from "$lib/api/wrapper-rollout";
   import CommunicatorPanel from "$lib/components/hosts/CommunicatorPanel.svelte";
   import SessionHousekeeping from "$lib/components/policies/SessionHousekeeping.svelte";
   import DaemonPanel from "$lib/components/hosts/DaemonPanel.svelte";
@@ -83,6 +84,7 @@
   const vip = createVipToggleMutation(qc);
   const roaming = createRoamingToggleMutation(qc);
   const autoUpdate = createAutoUpdateToggleMutation(qc);
+  const wrapperCanary = wrapperCanaryMutation();
   const scaling = createScalingExemptToggleMutation(qc);
   const curlInsecure = createCurlInsecureToggleMutation(qc);
   const browserOsMcp = createBrowserOsMcpToggleMutation(qc);
@@ -571,6 +573,11 @@
                   label="Scaling exempt"
                   checked={host.lane_preference === "exempt"}
                   onchange={(v) => runQuiet($scaling.mutateAsync({ id, value: v }))}
+                />
+                <ToggleRow
+                  label="cxx rollout canary"
+                  checked={host.wrapper_canary ?? false}
+                  onchange={(v) => runQuiet($wrapperCanary.mutateAsync({ hostId: Number(id), enabled: v }))}
                 />
                 <ToggleRow
                   label="BrowserOS MCP"

@@ -19,6 +19,11 @@ import {
   wrapperBinaryUrl,
   type WrapperBinRegistry,
 } from './wrapper-bin-registry.js';
+import {
+  hostRunningWrapperVersion,
+  resolveHostWrapperTarget,
+  type WrapperRolloutState,
+} from './wrapper-rollout.js';
 import type { WrapperSigningKeyService } from './wrapper-signing-key.js';
 import { activeHostEngines, disabledEngines, hostEnginesList } from './host-engine-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
@@ -169,6 +174,11 @@ export interface WrapperConfigDeps {
   communicatorRuntimeEnabled?: boolean;
   communicatorCacheEnabled?: boolean;
   communicatorUpdateEnabled?: boolean;
+  /**
+   * Staged cxx rollout state (services/wrapper-rollout.ts). Absent means no
+   * gate: every host is offered the manifest's current build.
+   */
+  wrapperRollout?: () => Promise<WrapperRolloutState | null>;
   db: Database;
   keyring: Keyring;
   binaries: WrapperBinRegistry;
@@ -356,12 +366,14 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
   }
 
   async function wrapperBlock(
+    host: Host,
     engine: Engine,
     publicBaseUrl: string,
     requested?: BakePlatform,
   ) {
     const autoUpdate = await settings.autoUpdateDefault();
     const track = await settings.wrapperTrack();
+    const rollout = deps.wrapperRollout ? await deps.wrapperRollout() : null;
     const platformsToTry: Array<[string, string]> = requested?.os && requested?.arch
       ? [[requested.os, requested.arch]]
       : [
@@ -371,8 +383,16 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
           ['darwin', 'amd64'],
         ];
     for (const [os, arch] of platformsToTry) {
-      const build = await deps.binaries.resolveCurrentBuild(engine, os, arch);
-      if (!build) continue;
+      const current = await deps.binaries.resolveCurrentBuild(engine, os, arch);
+      if (!current) continue;
+      // Same gate as /cron/check: a host the rollout has not admitted yet keeps
+      // its current target. The updater applies only when both agree.
+      const gated = resolveHostWrapperTarget(rollout, host.id, current.version, hostRunningWrapperVersion(host));
+      // A held host whose old build is gone falls back to current here; /cron/check
+      // then offers no target at all, so the two disagree and nothing updates.
+      const build = gated === current.version
+        ? current
+        : (await deps.binaries.resolveVersion(engine, os, arch, gated)) ?? current;
       return {
         version: build.version,
         track,
@@ -425,7 +445,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
           activeSkills(engine),
           settings.silentFlag(),
           settings.adminThemeHint(),
-          wrapperBlock(engine, publicBaseUrl, platform),
+          wrapperBlock(host, engine, publicBaseUrl, platform),
           agentMessagingGloballyEnabled(),
           portalGloballyEnabled(),
           readFleetEngineState(deps.db),

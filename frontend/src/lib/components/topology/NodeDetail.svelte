@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Badge } from "$lib/components/ui/badge";
+  import { hostWrapperTarget, isWrapperBehind, wrapperRolloutQuery } from "$lib/api/wrapper-rollout";
   import { Button } from "$lib/components/ui/button";
   import CopyButton from "$lib/components/ui/copy-button/copy-button.svelte";
   import EngineAvatar from "$lib/components/portal/EngineAvatar.svelte";
@@ -25,6 +26,7 @@
     onselect: (id: string | null) => void;
   };
   let { snapshot, item, onselect }: Props = $props();
+  const rollout = wrapperRolloutQuery();
 
   const node = $derived(item?.node ?? null);
   const communicator = $derived(node?.kind === "communicator" ? node : null);
@@ -236,6 +238,10 @@
         {#if ghost}<Badge variant="secondary">Disconnected</Badge>
         {:else}<Badge variant={healthVariant(communicator.health)}>{communicator.health === "live" ? "Live" : communicator.health === "stale" ? "Gone quiet" : "Closing"}</Badge>{/if}
         <Badge variant="outline">cxx {communicator.version}</Badge>
+        {#if !ghost}
+          {@const target = hostWrapperTarget($rollout.data, communicator.host_id)}
+          {#if isWrapperBehind(communicator.version, target)}<Badge variant="warning" title="Updates when this host's agents are idle">outdated · target {target}</Badge>{/if}
+        {/if}
       </header>
 
       {#if ghost}

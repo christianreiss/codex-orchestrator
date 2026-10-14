@@ -177,6 +177,9 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/hosts/:id/roaming': cap('hosts.manage'),
   'POST /admin/hosts/:id/scaling-exempt': cap('hosts.manage'),
   'POST /admin/hosts/:id/vip': cap('hosts.manage'),
+  'POST /admin/hosts/:id/wrapper-canary': cap('hosts.manage'),
+  'GET /admin/wrapper/rollout': cap('hosts.read'),
+  'POST /admin/wrapper/rollout/:action': cap('hosts.manage'),
 
   // The four transitions that mint or revoke host credentials, plus the CLI
   // approval that registers a host. Owner and admin only — this preserves the
