@@ -18,8 +18,8 @@
  *
  * Lag is not failure. A busy host waits for its agents to finish before it
  * applies anything, so stragglers never block or halt a rollout. A wave
- * advances once its soak time has passed and at least one admitted host runs
- * the target. The only automatic halt is owner churn: a new-version
+ * advances once its soak time has passed and at least one host *that wave
+ * added* runs the target, so a later wave cannot ride on the canary's success. The only automatic halt is owner churn: a new-version
  * communicator that keeps dying. That signal lives in the in-memory topology
  * registry and resets with the API; the operator's halt is the real control.
  *
@@ -66,6 +66,8 @@ export interface WrapperRolloutState {
   status: RolloutStatus;
   halted_reason: string | null;
   admitted_host_ids: number[];
+  /** Hosts this stage added; one of them must run the target before the next stage. */
+  stage_host_ids?: number[];
   started_at: string;
   updated_at: string;
   history: Array<{ at: string; event: string; by: string; detail?: string }>;
@@ -446,6 +448,7 @@ export async function startRolloutOnPublish(
   };
   if (live) pushHistory(state, 'superseded', by, `${live.target_version} → ${target}`);
   state.admitted_host_ids = computeAdmitted(state, await loadRolloutHosts(db), 0);
+  state.stage_host_ids = [...state.admitted_host_ids];
   pushHistory(state, 'started', by, `${floor} → ${target} at ${stageLabel(state.stages[0])}`);
   await saveState(db, state);
   await logRollout(db, 'wrapper.rollout.started', state, { admitted: state.admitted_host_ids.length });
@@ -466,7 +469,9 @@ async function advance(db: Database, state: WrapperRolloutState, by: string, hos
     state.status = 'complete';
     pushHistory(state, 'complete', by);
   } else {
+    const previous = new Set(state.admitted_host_ids);
     state.admitted_host_ids = computeAdmitted(state, hosts ?? (await loadRolloutHosts(db)), state.stage_index);
+    state.stage_host_ids = state.admitted_host_ids.filter((id) => !previous.has(id));
     pushHistory(state, 'advanced', by, stageLabel(state.stages[state.stage_index]));
   }
   await saveState(db, state);
@@ -499,11 +504,16 @@ export async function evaluateRollout(
 
   const soakEnds = Date.parse(state.stage_started_at) + state.soak_minutes * 60_000;
   const hosts = await loadRolloutHosts(db);
-  const stageHasHosts = state.admitted_host_ids.some((id) => hosts.some((h) => h.id === id && !h.excluded));
-  if (stageHasHosts) {
+  // Only the hosts this stage added count; an empty stage advances at once.
+  const stageIds = (state.stage_host_ids ?? state.admitted_host_ids).filter((id) =>
+    hosts.some((h) => h.id === id && !h.excluded),
+  );
+  if (stageIds.length > 0) {
     if (now < soakEnds) return { state, advanced: false, halted: false };
     const live = [...registry.views.values()].map((v) => ({ host_id: v.host_id, version: v.version }));
-    if (confirmedHostIds(state, hosts, live).length === 0) return { state, advanced: false, halted: false };
+    if (confirmedHostIds({ ...state, admitted_host_ids: stageIds }, hosts, live).length === 0) {
+      return { state, advanced: false, halted: false };
+    }
   }
   await advance(db, state, 'auto', hosts);
   return { state, advanced: true, halted: false };

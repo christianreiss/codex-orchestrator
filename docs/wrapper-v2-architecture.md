@@ -497,8 +497,8 @@ stays put.
 
 A one-minute worker advances the active stage once its soak
 (`CXX_WRAPPER_ROLLOUT_SOAK_MINUTES`, default 30) has passed and at least one
-admitted host reports the target, either through `/cron/report` or a live
-communicator. An empty stage advances at once. Hosts lagging behind are not a
+host *added by that stage* reports the target, either through `/cron/report` or a
+live communicator. The canary's success does not carry a later wave. An empty stage advances at once. Hosts lagging behind are not a
 failure signal: a busy host applies only after its agents are idle. The worker
 halts automatically when a target-version communicator owner on an admitted
 host closes on its own three or more times within the stage. That signal lives

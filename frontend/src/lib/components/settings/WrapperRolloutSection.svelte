@@ -50,7 +50,7 @@
 
   const description = $derived(
     $query.data?.enabled
-      ? `A new cxx release goes to canary hosts first, then ${$query.data.settings.stages.filter((s) => s !== "canary").join(" → ")}. Each stage soaks ${$query.data.settings.soak_minutes} min and needs one host on the new build before the next begins. Busy hosts apply when their agents are idle; that delay never blocks a stage.`
+      ? `A new cxx release goes to canary hosts first, then ${$query.data.settings.stages.filter((s) => s !== "canary").join(" → ")}. Each stage soaks ${$query.data.settings.soak_minutes} min and needs one of its own hosts on the new build before the next begins. Busy hosts apply when their agents are idle; that delay never blocks a stage.`
       : "Off: every host is offered the newest cxx release at once. Set CXX_WRAPPER_ROLLOUT_ENABLED=true on the API to stage releases.",
   );
 </script>

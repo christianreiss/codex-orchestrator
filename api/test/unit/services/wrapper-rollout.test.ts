@@ -190,6 +190,22 @@ describe('rollout lifecycle', () => {
     expect(published).toContain(ROLLOUT_ADVANCED_EVENT);
   });
 
+  it('needs a host from the current wave, not just the canary, before the next wave', async () => {
+    const started = await startRolloutOnPublish(db as never, settings, '0.9.80', '0.9.81');
+    const registry = new CommunicatorRegistry();
+    db.tables.get(hostsTable)![0]!.wrapperVersion = '0.9.81';
+    const t0 = Date.parse(started!.stage_started_at);
+    expect((await evaluateRollout(db as never, { now: t0 + 31 * 60_000, registry })).advanced).toBe(true);
+    const tenPercent = await fresh();
+    expect(tenPercent.stage_host_ids).toHaveLength(1);
+    const waveHost = tenPercent.stage_host_ids![0]!;
+    const t1 = Date.parse(tenPercent.stage_started_at);
+    // Soaked, canary still fine, but the wave's own host is stuck on the old build.
+    expect((await evaluateRollout(db as never, { now: t1 + 31 * 60_000, registry })).advanced).toBe(false);
+    db.tables.get(hostsTable)!.find((h) => h.id === waveHost)!.wrapperVersion = '0.9.81';
+    expect((await evaluateRollout(db as never, { now: t1 + 31 * 60_000, registry })).advanced).toBe(true);
+  });
+
   it('halts, refuses to advance while halted, resumes with a fresh soak', async () => {
     await startRolloutOnPublish(db as never, settings, '0.9.80', '0.9.81');
     await haltRollout(db as never, 'ops', 'looks wrong');

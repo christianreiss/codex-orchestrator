@@ -19,6 +19,7 @@ export interface WrapperRollout {
   status: RolloutStatus;
   halted_reason: string | null;
   admitted_host_ids: number[];
+  stage_host_ids?: number[];
   confirmed_host_ids: number[];
   started_at: string;
   history: Array<{ at: string; event: string; by: string; detail?: string }>;
