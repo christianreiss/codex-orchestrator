@@ -434,7 +434,8 @@ the native process. `GROK_AUTH_EXPIRED=1` triggers generation-aware renewal.
 Cxx 0.9.25 decodes the native SessionStart `sessionId` after reading the hook JSON
 and also accepts `session_id`. The shared MCP tools preserve send/request/call
 retry IDs and expose a saved send receipt when only its subsequent wait failed.
-Automatic `agent_listen` releases finished delivery, checks health and yields;
+Automatic `agent_listen` releases finished informational delivery, checks health and yields;
+held accepted work is never released by it (`status: "work_held"`; see `interface-clx.md`);
 background workers retain their accepted lease through result storage. See
 [delivery reliability](interface-api.md#delivery-reliability-cxx-0926) and the
 [2026-10-08 lifecycle audit](agent-messaging-audit-2026-10-08.md).

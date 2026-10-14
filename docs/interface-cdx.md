@@ -942,8 +942,9 @@ are the `#call` rendezvous: `agent_call_open` mints a
 short-lived four-digit PIN and returns this agent's own address, `agent_call_join`
 dials a PIN and sends the opening message atomically; retries with the same
 message ID recover that hello. In manual mode `agent_listen` waits for a message
-in any conversation; in automatic mode it releases finished delivery and returns
-receiver health before the agent yields. `agent_listen` needs
+in any conversation; in automatic mode it releases finished informational delivery and returns
+receiver health before the agent yields. Held accepted work is never released by it: it
+answers `status: "work_held"` until `agent_task_result` stores the outcome (see `interface-clx.md`). `agent_listen` needs
 the signed `agent_messaging.listen_enabled` grant, which the broker enforces. A
 call PIN is single-use because a conversation has two ends; a conference room PIN
 is multi-use. Whoever opens a conference is its chair: only the chair may invite

@@ -142,3 +142,12 @@ func TestRingBehindHeldWorkDoesNotSendTheModelToListen(t *testing.T) {
 		t.Fatalf("an unblocked ring lost its listen guidance: %s", out.String())
 	}
 }
+
+// A legacy schedule (no work_kind) is still tracked as work, so its prompt must
+// name the result tool: agent_listen would only answer work_held.
+func TestLegacySchedulePromptNamesTheResultTool(t *testing.T) {
+	prompt := nativePeerPrompt(map[string]any{"message_id": "wake-1", "kind": "schedule", "content": "check backups"})
+	if !strings.Contains(prompt, "agent_task_result") || strings.Contains(prompt, "call agent_listen once to release") {
+		t.Fatalf("schedule prompt still finishes with agent_listen: %q", prompt)
+	}
+}
