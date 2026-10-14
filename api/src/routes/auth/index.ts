@@ -58,6 +58,7 @@ import {
 import { readFleetEngineState } from '../../services/engine-switch.js';
 import { inspectCredential } from '../../services/auth-generation.js';
 import { resolveAuthRequestEngine } from './engine-resolution.js';
+import { isLegacyShellWrapperVersion } from '../../services/wrapper-transition.js';
 import { resolveWrapperPlatform } from '../../util/wrapper-platform.js';
 import { suspendAgentMessagingRuntimeLocked } from '../../services/agent-messaging.js';
 
@@ -656,7 +657,7 @@ async function handleRetrieve(
     readClaudeSnapshot(ctx, accountId ?? canonicalRow?.accountId ?? undefined),
     readQuotaAdvice(new SettingsService(ctx.db)),
   ]);
-  if (engine === ENGINE_CODEX) baseResponse.chatgpt = chatgpt;
+  if (engine === ENGINE_CODEX) Object.assign(baseResponse, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
   baseResponse.quota_advice = quotaAdviceSnapshot(advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
 
@@ -768,7 +769,7 @@ async function buildRetrieveBaseResponse(
     readClaudeSnapshot(ctx, accountIdFrom(payload.account_id)),
     readQuotaAdvice(new SettingsService(ctx.db)),
   ]);
-  if (engine === ENGINE_CODEX) baseResponse.chatgpt = chatgpt;
+  if (engine === ENGINE_CODEX) Object.assign(baseResponse, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
   baseResponse.quota_advice = quotaAdviceSnapshot(advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
   return baseResponse;
@@ -1114,7 +1115,7 @@ async function handleStore(
     readClaudeSnapshot(ctx, stored.account_id),
     readQuotaAdvice(new SettingsService(ctx.db)),
   ]);
-  if (engine === ENGINE_CODEX) response.chatgpt = chatgpt;
+  if (engine === ENGINE_CODEX) Object.assign(response, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) response.claude_usage = claude;
   response.quota_advice = quotaAdviceSnapshot(advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
   return response;
@@ -1315,6 +1316,23 @@ export async function readQuotaControls(
     quota_limit_percent: Math.max(50, Math.min(100, await settings.getInt('quota_limit_percent', 95))),
     quota_week_partition: rawPartition === '5' ? 5 : rawPartition === '7' ? 7 : 0,
   };
+}
+
+/**
+ * Codex usage block for an `/auth` response. Date-style shell wrappers read
+ * the snapshot under its original `chatgpt_usage` key, and the 2025.11 -
+ * 2026.03.05 scripts dereference it unguarded (`chatgpt_usage.get(...)`):
+ * without the key their auth pull dies with an AttributeError before any
+ * auth, version or wrapper-transition data is applied. Only those callers get
+ * the alias; cxx reads `chatgpt`.
+ */
+function codexUsageFields(
+  chatgpt: Record<string, unknown>,
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  return isLegacyShellWrapperVersion(payload.wrapper_version)
+    ? { chatgpt, chatgpt_usage: chatgpt }
+    : { chatgpt };
 }
 
 async function readChatgptSnapshot(ctx: RouteContext, accountId?: number): Promise<Record<string, unknown>> {

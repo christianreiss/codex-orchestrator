@@ -184,7 +184,16 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const wrapperUpdate = {
       action: 'no_update' as 'no_update' | 'update',
       target_version: targetWrapper,
-      sha256: summary.wrapper_sha256,
+      // Date-style shell wrappers download the per-host transition launcher,
+      // which has no fleet checksum (the launcher verifies the cxx binary
+      // itself). Their cron reads this field with
+      // `print(d.get('wrapper',{}).get('sha256',''))`, which turns JSON null
+      // into the literal string "None" and then fails every download with
+      // "hash mismatch". An empty string is the "no checksum" those scripts
+      // understand; every other caller keeps the null/sha contract.
+      sha256: usingLegacyTransition && summary.wrapper_sha256 === null && summary.wrapper_url !== null
+        ? ''
+        : summary.wrapper_sha256,
       url: summary.wrapper_url,
     };
 
