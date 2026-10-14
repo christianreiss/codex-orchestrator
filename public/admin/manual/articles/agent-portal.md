@@ -11,6 +11,12 @@ sources: api/src/routes/agent-portal/admin-host.ts, api/src/routes/admin/agent-s
 The paired Android companion provides mobile chat, decisions and notifications.
 The old `/go` webchat, magic links and portal-user management have been removed.
 
+The compact directory has **Active** and **Online** filters, search and engine selection.
+Active includes ongoing sessions and unresolved Needs you notices; affected chats are
+highlighted and sorted first. Online shows sessions with fresh heartbeats. Avatar
+icons show working, idle, waiting and connection states, with labels on hover.
+Retained ended chats remain readable through existing session links.
+
 ## Agent session settings
 
 The expandable settings in Active Clients control the existing shared master

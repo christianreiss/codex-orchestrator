@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { HTMLButtonAttributes } from "svelte/elements";
-  import type { Engine, Presence } from "$lib/portal/types";
+  import type { ActivityState, Engine, Presence } from "$lib/portal/types";
   type UnreadBadge = { kind: "attention" } | { kind: "dot" } | { kind: "count"; value: number } | null;
   import EngineAvatar from "./EngineAvatar.svelte";
 
@@ -18,6 +18,7 @@
     preview,
     directory = "",
     status = "",
+    activity = null,
     logo = false,
     selected = false,
     needsYou = false,
@@ -33,6 +34,7 @@
     preview: string;
     directory?: string;
     status?: string;
+    activity?: ActivityState | null;
     logo?: boolean;
     selected?: boolean;
     needsYou?: boolean;
@@ -46,17 +48,18 @@
   type="button"
   class="group flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition
          focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring
-         {selected ? 'bg-primary/15' : 'hover:bg-muted/70'}"
+         {selected ? 'bg-primary/15' : needsYou ? 'bg-destructive/5 hover:bg-destructive/10' : 'hover:bg-muted/70'}
+         {needsYou ? 'ring-1 ring-inset ring-destructive/20' : ''}"
   {...rest}
 >
-  <EngineAvatar {engine} {presence} {logo} badge />
+  <EngineAvatar {engine} {presence} {activity} {status} {logo} badge />
 
   <span class="min-w-0 flex-1">
     <span class="flex items-baseline gap-2">
       <span class="min-w-0 truncate text-body font-semibold {dim ? 'text-muted-foreground' : ''}" title={title}>
         {title}{#if subtitle}<span class="font-normal text-muted-foreground">{" · "}{subtitle}</span>{/if}
       </span>
-      <span class="ml-auto shrink-0 text-[11px] text-muted-foreground">{status || time}</span>
+      <span class="ml-auto shrink-0 text-[11px] text-muted-foreground">{time}</span>
     </span>
     {#if directory}<span class="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground" title={directory}>{directory}</span>{/if}
     <span class="mt-0.5 flex items-center gap-2">

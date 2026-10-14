@@ -1,5 +1,7 @@
 # 2026-10-14
 
+- Active Clients now has just Active and Online filters. Needs-you chats stay highlighted in Active, while working, idle, waiting and connection states appear as accessible avatar icons. Search and engine selection remain; redundant status chips and summary counters are removed.
+
 - cxx 0.9.80 integrates the resident communicator with the 0.9.79 startup, credential-recovery and native-entry corrections. Residence and remote execution remain independent; the signed runtime capability defaults off.
 
 - Resident diagnostics now ignore malformed and future report frames while preserving the shared control connection. Sampling runs outside heartbeats, omits slow snapshots and avoids holding admission locks during receipt I/O; permit and snapshot changes invalidate stale idle evidence. Existing heartbeat authorization remains in force.

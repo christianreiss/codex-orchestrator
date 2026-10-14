@@ -729,7 +729,10 @@ history; there is no automatic Agent Messaging purge.
 Active Clients is the desktop session directory and chat for Codex, Claude and
 Grok. It shows launch names, task summaries, current directories, derived presence,
 Needs you, questions and retained history, with receiver reconnect and close actions.
-The web's default All filter includes retained offline and ended conversations.
+The web defaults to **Active** (ongoing sessions plus unresolved classified notices);
+**Online** narrows to fresh heartbeats. Needs-you chats are highlighted, and avatar
+icons show working, idle, waiting and connection states. Search and engine selection
+remain in the compact toolbar. Retained ended chats are readable through session links.
 Android's All filter shows only online, active agents across engines; its retained
 history is kept independently (session lifetime plus 24 hours by default).
 History remains readable; fresh receiver readiness still gates sending.

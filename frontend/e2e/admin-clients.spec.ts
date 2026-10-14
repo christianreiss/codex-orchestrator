@@ -62,7 +62,7 @@ test("retained chats stay visible through offline, end, reload and reconnect", a
   const state = await fixtures(page);
   state.events = [{ cursor: 1, session_id: CODEX, type: "assistant_message", source: "engine", payload: { text: "Retained conversation" }, created_at: new Date().toISOString() }];
   await open(page);
-  await expect(page.getByRole("button", { name: "All", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Active", exact: true })).toHaveAttribute("aria-pressed", "true");
   for (const presence of ["offline", "ended", "listening"]) {
     Object.assign(state.sessions[0], {
       presence, relay_ready: presence === "listening", read_only: presence === "ended",
@@ -70,8 +70,13 @@ test("retained chats stay visible through offline, end, reload and reconnect", a
       expires_at: presence === "ended" ? new Date(Date.now() + 86_400_000).toISOString() : null,
     });
     await page.reload();
-    await expect(page.locator(`#client-${CODEX}`)).toBeVisible();
-    await page.locator(`#client-${CODEX}`).click();
+    if (presence === "ended") {
+      await expect(page.locator(`#client-${CODEX}`)).toHaveCount(0);
+      await page.goto(`/admin/clients?session=${CODEX}`);
+    } else {
+      await expect(page.locator(`#client-${CODEX}`)).toBeVisible();
+      await page.locator(`#client-${CODEX}`).click();
+    }
     await expect(page.getByRole("region", { name: "Session timeline" })).toContainText("Retained conversation");
     if (presence === "ended") await expect(page.getByLabel("Message this agent")).toHaveCount(0);
     else {
@@ -85,12 +90,12 @@ test("retained chats stay visible through offline, end, reload and reconnect", a
   await expect(page.locator(`#client-${CODEX}`)).toHaveCount(0);
 });
 
-test("client directory exposes both engines, real presence, searchable work, and visible status dots", async ({ page }) => {
+test("client directory exposes both engines, searchable work, and accessible avatar status icons", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await fixtures(page); await open(page);
-  await expect(page.locator(`#client-${CLAUDE}`)).toContainText("Working");
-  const dot = page.locator(`#client-${CODEX} .presence-dot`);
-  expect(await dot.evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThan(0);
+  await expect(page.locator(`#client-${CLAUDE}`).getByRole("img", { name: "Working", exact: true })).toBeVisible();
+  const icon = page.locator(`#client-${CODEX} [data-client-status="listening"]`);
+  expect(await icon.evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThan(0);
   await page.getByLabel("Engine", { exact: true }).selectOption("claude");
   await expect(page.locator(`#client-${CODEX}`)).toHaveCount(0);
   await page.getByLabel("Find a client").fill("release fix/claude");
@@ -104,6 +109,50 @@ test("client directory exposes both engines, real presence, searchable work, and
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations.filter((v) => ["serious", "critical"].includes(v.impact ?? ""))).toEqual([]);
   await page.screenshot({ path: "/tmp/active-clients-desktop.png", fullPage: true });
+});
+
+test("compact Active and Online filters retain attention and show native activity on avatars", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await fixtures(page);
+  const at = new Date().toISOString();
+  const expires = new Date(Date.now() + 120_000).toISOString();
+  state.sessions[0].activity = { state: "idle", source: "engine", wait_reason: null, changed_at: at, expires_at: expires };
+  state.sessions[1].activity = { state: "working", source: "engine", wait_reason: null, changed_at: at, expires_at: expires };
+  const waiting = session("waiting", "grok");
+  waiting.activity = { state: "waiting", source: "engine", wait_reason: "input", changed_at: at, expires_at: expires };
+  const offline = session("offline", "grok", "offline");
+  offline.activity = { state: "working", source: "engine", wait_reason: null, changed_at: at, expires_at: expires };
+  offline.attention = { since: at, summary: "Reconnect needed", severity: "important" };
+  const ended = session("ended-notice", "claude", "ended");
+  ended.ended_at = at;
+  ended.attention = { since: at, summary: "Result needs review", severity: "critical" };
+  const unknown = session("unknown", "codex");
+  unknown.activity = { state: "working", source: "engine", wait_reason: null, changed_at: at, expires_at: new Date(Date.now() - 1_000).toISOString() };
+  state.sessions.push(waiting, offline, ended, unknown);
+  await open(page);
+  const filters = page.getByRole("group", { name: "Show sessions" });
+  await expect(filters.getByRole("button")).toHaveText(["Active", "Online"]);
+  await expect(page.locator(`#client-${CODEX} [data-client-status="idle"]`)).toBeVisible();
+  await expect(page.locator(`#client-${CLAUDE} [data-client-status="working"]`)).toBeVisible();
+  await expect(page.locator('#client-waiting [data-client-status="waiting"]')).toBeVisible();
+  await expect(page.locator('#client-unknown [data-client-status="unknown"]')).toBeVisible();
+  await expect(page.locator('#client-offline [data-client-status="offline"]')).toBeVisible();
+  await expect(page.locator('#client-ended-notice [data-client-status="ended"]')).toBeVisible();
+  await expect(page.locator('#client-offline')).toHaveClass(/ring-destructive/);
+  await expect(page.locator('#client-ended-notice')).toHaveClass(/ring-destructive/);
+  await expect(page.getByRole("region", { name: "Client directory" }).locator('button[id^="client-"]').first()).toHaveAttribute("id", "client-ended-notice");
+  const toolbar = filters.locator('..');
+  expect(await toolbar.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(100);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: "/tmp/active-clients-compact-mobile.png", fullPage: true });
+  await page.getByRole("button", { name: "Online", exact: true }).click();
+  await expect(page.locator('#client-offline')).toHaveCount(0);
+  await expect(page.locator('#client-ended-notice')).toHaveCount(0);
+  await expect(page.locator('#client-waiting')).toBeVisible();
+  await page.getByRole("button", { name: "Active", exact: true }).click();
+  await expect(page.locator('#client-offline')).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: "/tmp/active-clients-compact-desktop.png", fullPage: true });
 });
 
 test("failed refresh retains clients and drafts, then retry restores live actions", async ({ page }) => {
@@ -170,7 +219,7 @@ test("a stale heartbeat becomes offline while stored status remains active", asy
   const state = await fixtures(page);
   state.sessions[0].heartbeat_at = new Date(Date.now() - 120_000).toISOString();
   await open(page);
-  await expect(page.locator(`#client-${CODEX}`)).toContainText("Offline");
+  await expect(page.locator(`#client-${CODEX}`).getByRole("img", { name: "Offline", exact: true })).toBeVisible();
   await page.locator(`#client-${CODEX}`).click();
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
   await expect(page.getByText("No confirmed connection. The client may reconnect; running work is unconfirmed.", { exact: true }).first()).toBeVisible();
@@ -278,7 +327,7 @@ for (const engine of ["codex", "claude"] as const) {
     await stream(page, "agent", JSON.stringify(resolution));
     await expect(banner).not.toContainText("Local acknowledgment needed");
     await expect(banner).toContainText("Keep this question open?");
-    if (engine === "codex") await expect(page.getByRole("button", { name: /Needs you 1/ })).toBeVisible();
+    await expect(page.locator(`#client-${target.id}`)).toHaveClass(/ring-destructive/);
     await page.getByRole("button", { name: "Answer current question", exact: true }).click();
     await expect.poll(() => state.bodies.some((entry) => entry.path.endsWith(`/prompts/${question}/answer`) && entry.body.version === 3)).toBe(true);
     await expect(page.getByLabel("Message this agent")).toHaveValue("Keep my unrelated draft");
@@ -372,7 +421,7 @@ for (const width of [1440, 390]) {
       expect(await logo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
       expect(new URL(await logo.getAttribute("src") ?? "", page.url()).origin).toBe(new URL(page.url()).origin);
     }
-    await expect(page.locator(`#client-${CLAUDE}`)).toContainText("Working");
+    await expect(page.locator(`#client-${CLAUDE}`).getByRole("img", { name: "Working", exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: `/tmp/active-clients-cards-${width}.png`, fullPage: true });
     await page.getByLabel("Find a client").fill("Vivienne Verified codex");
@@ -481,18 +530,18 @@ test("native activity changes labels without changing receiver send permission",
   const state = await fixtures(page);
   state.sessions[0].activity = { state: "working", wait_reason: null, source: "codex-thread", changed_at: new Date().toISOString(), expires_at: new Date(Date.now() + 45_000).toISOString() };
   await open(page);
-  await expect(page.locator(`#client-${CODEX}`)).toContainText("Working");
+  await expect(page.locator(`#client-${CODEX}`).getByRole("img", { name: "Working", exact: true })).toBeVisible();
   await page.locator(`#client-${CODEX}`).click();
   await page.getByLabel("Message this agent").fill("Next instruction");
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
   for (const [activity, label] of [["idle", "Idle"], ["waiting", "Waiting for you"], ["unknown", "Unknown"]] as const) {
     state.sessions[0].activity = { ...state.sessions[0].activity!, state: activity, wait_reason: activity === "waiting" ? "approval" : null };
     await page.getByRole("button", { name: "Refresh clients" }).click();
-    await expect(page.locator(`#client-${CODEX}`)).toContainText(label);
+    await expect(page.locator(`#client-${CODEX}`).getByRole("img", { name: label, exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
   }
   state.sessions[0].activity = { ...state.sessions[0].activity!, state: "working", expires_at: new Date(Date.now() - 1000).toISOString() };
   await page.getByRole("button", { name: "Refresh clients" }).click();
-  await expect(page.locator(`#client-${CODEX}`)).toContainText("Unknown");
+  await expect(page.locator(`#client-${CODEX}`).getByRole("img", { name: "Unknown", exact: true })).toBeVisible();
   await page.screenshot({path: "/tmp/cxx-native-activity-web.png", fullPage: true});
 });

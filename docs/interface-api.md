@@ -830,8 +830,11 @@ All three engine config GET/store routes share the revision contract: `revision`
     audit trail whose subject has been deleted is not one.
 - Live agent sessions (`agent_portal.*`) serve Active Clients and Android.
   Dashboard access uses the admin session and its current role capabilities.
-  Both clients show all retained conversations by default, including offline and
-  ended sessions. Server history lasts for the session lifetime plus
+  Web Active Clients defaults to Active: ongoing sessions, including offline
+  chats, plus unresolved classified notices. Online selects fresh heartbeats;
+  needs-you chats are highlighted and activity is shown by labelled avatar icons.
+  Retained ended conversations remain readable through session links.
+  Server history lasts for the session lifetime plus
   `AGENT_PORTAL_RETENTION_HOURS` after termination (default 24); presence changes
   do not delete history or make an unavailable receiver writable.
   - `GET /admin/agent-sessions` — `{enabled, generated_at, timings, sessions:[…]}`.

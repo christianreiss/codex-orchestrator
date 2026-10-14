@@ -1,7 +1,7 @@
 <script lang="ts">
   import { ENGINE_META } from "$lib/constants/engines";
-  import type { Engine, Presence } from "$lib/portal/types";
-  import PresenceDot from "./PresenceDot.svelte";
+  import type { ActivityState, Engine, Presence } from "$lib/portal/types";
+  import ClientStatusIcon from "./ClientStatusIcon.svelte";
   import codexLogo from "$lib/assets/engines/codex.svg?no-inline";
   import claudeLogo from "$lib/assets/engines/claude.svg?no-inline";
   import grokLogo from "$lib/assets/engines/grok.svg?no-inline";
@@ -13,7 +13,9 @@
     size = "md",
     badge = false,
     logo = false,
-  }: { engine: Engine; presence?: Presence; size?: "xs" | "sm" | "md"; badge?: boolean; logo?: boolean } = $props();
+    activity = null,
+    status = "",
+  }: { engine: Engine; presence?: Presence; size?: "xs" | "sm" | "md"; badge?: boolean; logo?: boolean; activity?: ActivityState | null; status?: string } = $props();
 
   const dim = $derived(presence === "offline" || presence === "ended");
 </script>
@@ -26,9 +28,8 @@
            {dim ? 'grayscale' : ''}"
   >{#if logo}<img src={logos[engine]} alt={ENGINE_META[engine].label} class="h-[55%] w-[55%] brightness-0 invert" />{:else}{ENGINE_META[engine].avatar}{/if}</span>
   {#if badge}
-    <!-- Presence rides on the avatar, Messages style, instead of taking its own column. -->
-    <span class="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-card">
-      <PresenceDot {presence} />
+    <span class="absolute -bottom-1 -right-1">
+      <ClientStatusIcon {presence} {activity} label={status} />
     </span>
   {/if}
 </span>

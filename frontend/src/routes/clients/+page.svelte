@@ -29,9 +29,10 @@
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { authStore } from "$lib/stores/auth";
   import { shortAge } from "$lib/portal/browser";
+  import { liveActivity } from "$lib/portal/activity";
   import { presenceView } from "$lib/portal/presence";
   import { listTime, visibleTimeline } from "$lib/portal/grouping";
-  import { clientClock, clientCounts, snapshotIsStale, visibleClients, type ClientFilter } from "$lib/portal/clients";
+  import { clientClock, snapshotIsStale, visibleClients, type ClientFilter } from "$lib/portal/clients";
   import { watchClientEvents, type ClientFeedState } from "$lib/portal/client-events";
   import type { TimelineSource } from "$lib/portal/types";
   import { reconnectReceiverMutation, agentSessionKeys, agentSessionsQuery, forceCloseMutation, requestCloseMutation, sendMutation, sessionEventsQuery, type AgentSessionRow } from "$lib/api/agentSessions";
@@ -67,7 +68,7 @@
   });
   let search = $state("");
   let engine = $state<"all" | "codex" | "claude" | "grok">("all");
-  let filter = $state<ClientFilter>("all");
+  let filter = $state<ClientFilter>("active");
   let now = $state(Date.now());
   let detailHeading = $state<HTMLHeadingElement | null>(null);
   $effect(() => {
@@ -80,7 +81,6 @@
   const timings = $derived($sessions.data?.timings ?? {});
   const serverNow = $derived(clientClock($sessions.data, $sessions.dataUpdatedAt, now));
   const stale = $derived(Boolean($sessions.data) && snapshotIsStale($sessions.dataUpdatedAt, now, timings));
-  const counts = $derived(clientCounts(rows, serverNow, timings));
   const visible = $derived(visibleClients(rows, { search, engine, filter, sort: "status" }, serverNow, timings));
   const selected = $derived(allRows.find((row) => row.id === selectedId) ?? null);
   const selectedView = $derived(selected ? presenceView(selected, serverNow, timings) : null);
@@ -213,22 +213,14 @@
   }
   function onreply(option?: string) { if (option) void submit(option, true); else composerInput?.focus(); }
   function refresh() { void client.invalidateQueries({ queryKey: ["host-daemons"] }); void client.invalidateQueries({ queryKey: ["daemon-sessions"] }); void client.invalidateQueries({ queryKey: agentSessionKeys.all }); if (feedState === "reconnecting") feedRetry++; }
-  function resetFilters() { search = ""; engine = "all"; filter = "all"; }
+  function resetFilters() { search = ""; engine = "all"; filter = "active"; }
   function agentName(row: AgentSessionRow) { return row.launch_name || row.session_name || row.work.address_alias || `Session ${row.id.slice(0, 8)}`; }
   function age(value: string | null, clock = serverNow) { return value ? shortAge(value, clock) || "unknown" : "unknown"; }
   function exactTime(value: string | null) { const date = value ? new Date(value) : null; return date && Number.isFinite(date.getTime()) ? date.toLocaleString() : "Not reported"; }
-  // Messages-style scope chips; the counts that used to live on four summary cards ride on them.
-  const chips = $derived([
-    { key: "all" as ClientFilter, label: "All", count: null },
-    { key: "active" as ClientFilter, label: "Current", count: null },
-    { key: "attention" as ClientFilter, label: "Needs you", count: counts.attention },
-    { key: "online" as ClientFilter, label: "Online", count: counts.online },
-    { key: "working" as const, label: "Working", count: null },
-    { key: "idle" as const, label: "Idle", count: null },
-    { key: "waiting" as const, label: "Waiting", count: null },
-    { key: "unknown" as const, label: "Unknown", count: null },
-    { key: "ended" as ClientFilter, label: "Ended", count: counts.ended },
-  ]);
+  const chips = [
+    { key: "active" as const, label: "Active" },
+    { key: "online" as const, label: "Online" },
+  ];
   let detailsOpen = $state(false);
   function preview(row: AgentSessionRow, ended: boolean) {
     const ask = row.pending_prompt?.question ?? row.attention?.summary;
@@ -300,20 +292,17 @@
             <label for="client-engine" class="sr-only">Engine</label>
             <select id="client-engine" bind:value={engine} class="client-select shrink-0"><option value="all">All engines</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option></select>
           </div>
-          <div class="flex flex-wrap gap-1" role="group" aria-label="Show sessions">
+          <div class="flex items-center gap-1" role="group" aria-label="Show sessions">
             {#each chips as chip (chip.key)}
               <button type="button" aria-pressed={filter === chip.key} onclick={() => (filter = chip.key)}
-                class="rounded-full px-2.5 py-0.5 text-[11px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
+                class="rounded-lg px-3 py-1 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
                        {filter === chip.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}">
-                {chip.label}{#if chip.count}{" "}<span class="ml-0.5 {chip.key === 'attention' && filter !== chip.key ? 'text-destructive' : ''}">{chip.count}</span>{/if}
+                {chip.label}
               </button>
             {/each}
+            <span class="ml-auto text-[11px] tabular-nums text-muted-foreground" aria-label="Visible clients">{visible.length}</span>
+            {#if search || engine !== "all" || filter !== "active"}<button type="button" class="ml-1 shrink-0 text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onclick={resetFilters}>Clear filters</button>{/if}
           </div>
-          <p class="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <span class="h-1.5 w-1.5 rounded-full {stale || $sessions.isError ? 'bg-warning' : 'bg-success'}" aria-hidden="true"></span>
-            <span class="truncate">{visible.length} of {rows.length} · {counts.codex} Codex · {counts.claude} Claude · {counts.grok} Grok · checked {age(new Date($sessions.dataUpdatedAt).toISOString(), now)} ago</span>
-            {#if search || engine !== "all" || filter !== "all"}<button type="button" class="ml-auto shrink-0 text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onclick={resetFilters}>Clear filters</button>{/if}
-          </p>
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
           {#if !visible.length}
@@ -350,7 +339,7 @@
             <header class="grid shrink-0 grid-cols-[5.5rem_1fr_5.5rem] items-center border-b px-2 py-1.5">
               <div><Button variant="ghost" size="sm" class="-ml-1 px-1.5 text-primary lg:hidden" onclick={closeDetail}><ChevronLeftIcon class="h-5 w-5" /> Clients</Button></div>
               <div class="flex min-w-0 flex-col items-center text-center">
-                <EngineAvatar engine={selected.engine} presence={selectedView.presence} size="xs" badge logo />
+                <EngineAvatar engine={selected.engine} presence={selectedView.presence} activity={liveActivity(selected, serverNow)} status={selectedView.label} size="xs" badge logo />
                 <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-xs font-semibold focus:outline-none">{agentName(selected)}</h2>
                 <p class="max-w-full truncate text-[11px] text-muted-foreground" title={selected.cwd}>{selected.cwd}</p>
                 <p class="max-w-full truncate text-[11px] text-muted-foreground">
@@ -433,6 +422,7 @@
     title={agentName(row)}
     directory={row.cwd || "No directory reported"}
     status={view.label}
+    activity={liveActivity(row, serverNow)}
     logo
     time={listTime(row.last_event_at ?? row.started_at, new Date(serverNow))}
     preview={preview(row, ended)}
