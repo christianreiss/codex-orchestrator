@@ -46,54 +46,7 @@ func Command(args []string, in io.Reader, out, stderr io.Writer, version string)
 	}
 	if len(args) == 0 || args[0] == "status" || args[0] == "doctor" {
 		Configure(ctx)
-		count := 0
-		failed := false
-		registry.Range(func(_, v any) bool {
-			count++
-			ep := v.(*endpoint)
-			if ep.setupErr != nil {
-				// The local socket was refused (an unsafe or unusable runtime directory):
-				// say why instead of an empty socket and no explanation.
-				failed = true
-				json.NewEncoder(out).Encode(map[string]any{"server": ep.base, "running": false, "socket": ep.localSocket(), "error": oneLine(ep.setupErr.Error(), 240)})
-				return true
-			}
-			res, err := unixClient(ep.localSocket(), 2*time.Second).Get("http://communicator.local/_comm/status")
-			if err != nil {
-				failed = true
-				json.NewEncoder(out).Encode(map[string]any{"server": ep.base, "running": false, "socket": ep.localSocket()})
-			} else {
-				var status map[string]any
-				if err := json.NewDecoder(res.Body).Decode(&status); err != nil {
-					failed = true
-				} else {
-					json.NewEncoder(out).Encode(status)
-					if status["resident_error"] != "" && status["resident_error"] != nil {
-						failed = true
-					}
-					if status["connected"] != true && status["https_fallback"] != true {
-						failed = true
-					}
-					if update, ok := status["update"].(map[string]any); ok && update["state"] == "failed" {
-						failed = true
-					}
-					if scopes, ok := status["sync_scopes"].([]any); ok {
-						for _, raw := range scopes {
-							scope, _ := raw.(map[string]any)
-							auth, _ := scope["auth"].(map[string]any)
-							if scope["content_error"] != "" || auth["state"] == "error" {
-								failed = true
-							}
-						}
-					}
-				}
-				res.Body.Close()
-			}
-			return true
-		})
-		if count == 0 {
-			json.NewEncoder(out).Encode(map[string]any{"enabled": false, "reason": "No signed communicator capability"})
-		}
+		failed := statusReport(out)
 		if failed && len(args) > 0 && args[0] == "doctor" {
 			return 1
 		}
@@ -464,4 +417,80 @@ func canonicalRPCNumber(raw string) (string, bool) {
 		digits = "-" + digits
 	}
 	return digits + "e" + strconv.FormatInt(exp+offset, 10), true
+}
+
+// statusReport writes one JSON line per configured endpoint, and always at
+// least one line: a status that prints nothing reads as success to an
+// operator. It reports whether any endpoint is unhealthy.
+func statusReport(out io.Writer) bool {
+	enc := json.NewEncoder(out)
+	count := 0
+	failed := false
+	// Every "not running" line names the runtime directory that was searched:
+	// under sudo without XDG_RUNTIME_DIR the owner usually listens elsewhere.
+	unreachable := func(record map[string]any) {
+		failed = true
+		root, source := runtimeRootSource()
+		record["running"] = false
+		record["runtime_dir"] = root
+		record["runtime_dir_source"] = source
+		if source == "tmp" {
+			record["hint"] = fmt.Sprintf("XDG_RUNTIME_DIR is unset and /run/user/%d is missing or unusable; searched %s. If the owner runs under systemd --user, retry with XDG_RUNTIME_DIR=/run/user/%d", os.Getuid(), root, os.Getuid())
+		}
+		enc.Encode(record)
+	}
+	registry.Range(func(_, v any) bool {
+		count++
+		ep := v.(*endpoint)
+		if ep.setupErr != nil {
+			// The local socket was refused (an unsafe or unusable runtime directory):
+			// say why instead of an empty socket and no explanation.
+			unreachable(map[string]any{"server": ep.base, "socket": ep.localSocket(), "error": oneLine(ep.setupErr.Error(), 240)})
+			return true
+		}
+		res, err := unixClient(ep.localSocket(), 2*time.Second).Get("http://communicator.local/_comm/status")
+		if err != nil {
+			unreachable(map[string]any{"server": ep.base, "socket": ep.localSocket(), "error": oneLine(err.Error(), 240)})
+			return true
+		}
+		defer res.Body.Close()
+		var status map[string]any
+		if res.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(res.Body, 512))
+			unreachable(map[string]any{"server": ep.base, "socket": ep.localSocket(), "error": oneLine(fmt.Sprintf("status endpoint answered HTTP %d: %s", res.StatusCode, strings.TrimSpace(string(body))), 240)})
+			return true
+		}
+		if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&status); err != nil || status == nil {
+			msg := "status endpoint returned no JSON object"
+			if err != nil {
+				msg = "status endpoint returned invalid JSON: " + err.Error()
+			}
+			unreachable(map[string]any{"server": ep.base, "socket": ep.localSocket(), "error": oneLine(msg, 240)})
+			return true
+		}
+		enc.Encode(status)
+		if status["resident_error"] != "" && status["resident_error"] != nil {
+			failed = true
+		}
+		if status["connected"] != true && status["https_fallback"] != true {
+			failed = true
+		}
+		if update, ok := status["update"].(map[string]any); ok && update["state"] == "failed" {
+			failed = true
+		}
+		if scopes, ok := status["sync_scopes"].([]any); ok {
+			for _, raw := range scopes {
+				scope, _ := raw.(map[string]any)
+				auth, _ := scope["auth"].(map[string]any)
+				if scope["content_error"] != "" || auth["state"] == "error" {
+					failed = true
+				}
+			}
+		}
+		return true
+	})
+	if count == 0 {
+		enc.Encode(map[string]any{"enabled": false, "reason": "No signed communicator capability"})
+	}
+	return failed
 }

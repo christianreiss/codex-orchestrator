@@ -14,6 +14,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -93,7 +94,8 @@ func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, ta
 		return "", fmt.Errorf("download binary: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	tmp, err := os.CreateTemp("", "cxx-wrapper-*.new")
+	stageDirs := updateStageDirs(dest)
+	tmp, stageIndex, err := createStageFile(stageDirs)
 	if err != nil {
 		return "", err
 	}
@@ -119,9 +121,12 @@ func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, ta
 	if err := VerifyChecksum(tmpPath, expectedSHA); err != nil {
 		return "", err
 	}
-	if err := verifyExecutable(downloadCtx, tmpPath); err != nil {
+	checkedPath, cleanup, err := verifyStagedExecutable(downloadCtx, tmpPath, stageDirs[stageIndex+1:])
+	defer cleanup()
+	if err != nil {
 		return "", err
 	}
+	tmpPath = checkedPath
 	if err := layout.WithTargetLock(ctx, dest, func() error {
 		// A concurrent persona may already have installed the same common bytes.
 		if VerifyChecksum(dest, expectedSHA) == nil {
@@ -286,7 +291,120 @@ func InstallVerifiedBinary(source, dest string) error {
 	return nil
 }
 
+// updateStageDirs lists where a downloaded candidate is written and executed
+// for its --version check, in order of preference: beside the install target
+// (same filesystem, and it already holds an executable cxx), then the private
+// per-user staging directory, and only last the system temporary directory,
+// which hardened hosts mount noexec.
+func updateStageDirs(dest string) []stageDir {
+	dirs := []stageDir{{path: filepath.Dir(dest)}}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		dirs = append(dirs, stageDir{path: filepath.Join(home, ".cxx", "staging"), create: true})
+	}
+	return append(dirs, stageDir{path: os.TempDir()})
+}
+
+// stageDir is one candidate staging location. Only the private per-user
+// staging directory is ever created; the others must already exist.
+type stageDir struct {
+	path   string
+	create bool
+}
+
+// createStageFile creates a private temporary file in the first writable
+// directory of dirs and reports which one it used.
+func createStageFile(dirs []stageDir) (*os.File, int, error) {
+	var errs []error
+	for i, dir := range dirs {
+		if err := ensureStageDir(dir); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		f, err := os.CreateTemp(dir.path, ".cxx-wrapper-*.new")
+		if err == nil {
+			return f, i, nil
+		}
+		errs = append(errs, err)
+	}
+	return nil, -1, fmt.Errorf("no writable staging directory for the cxx update: %w", errors.Join(errs...))
+}
+
+func ensureStageDir(dir stageDir) error {
+	info, err := os.Stat(dir.path)
+	if err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("%s is not a directory", dir.path)
+		}
+		return nil
+	}
+	if !dir.create {
+		return err
+	}
+	return os.MkdirAll(dir.path, 0o700)
+}
+
+// verifyStagedExecutable runs the --version sanity check on path. When the
+// kernel refuses to execute it (a noexec mount), the verified bytes are copied
+// to the next candidate directory and checked there. It returns the path that
+// passed and a cleanup for any extra copy it made.
+func verifyStagedExecutable(ctx context.Context, path string, fallbacks []stageDir) (string, func(), error) {
+	var copies []string
+	cleanup := func() {
+		for _, p := range copies {
+			_ = os.Remove(p)
+		}
+	}
+	err := verifyExecutable(ctx, path)
+	for err != nil && errors.Is(err, fs.ErrPermission) && len(fallbacks) > 0 {
+		dir := fallbacks[0]
+		fallbacks = fallbacks[1:]
+		next, cerr := copyToStageDir(path, dir)
+		if cerr != nil {
+			continue
+		}
+		copies = append(copies, next)
+		path = next
+		err = verifyExecutable(ctx, path)
+	}
+	if err != nil {
+		return "", cleanup, err
+	}
+	return path, cleanup, nil
+}
+
+func copyToStageDir(source string, dir stageDir) (string, error) {
+	if err := ensureStageDir(dir); err != nil {
+		return "", err
+	}
+	in, err := os.Open(source)
+	if err != nil {
+		return "", err
+	}
+	defer in.Close()
+	out, err := os.CreateTemp(dir.path, ".cxx-wrapper-*.new")
+	if err != nil {
+		return "", err
+	}
+	name := out.Name()
+	_, err = io.Copy(out, in)
+	if err == nil {
+		err = out.Chmod(0o755)
+	}
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(name)
+		return "", err
+	}
+	return name, nil
+}
+
 func verifyExecutable(ctx context.Context, path string) error {
+	return runVersionCheck(ctx, path)
+}
+
+var runVersionCheck = func(ctx context.Context, path string) error {
 	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(checkCtx, path, "--version").CombinedOutput()
