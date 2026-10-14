@@ -1302,7 +1302,7 @@ export class AgentMessagingService {
     await this.authenticateBridge(sessionId, bridgeToken);
     return await this.db.transaction(async tx => {
       await this.requireEnabledLocked(tx);
-      const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).for('update');
+      const session = await this.lockSessionHostFirst(tx, sessionId);
       if (!session || session.endedAt || session.bridgeExpiresAt <= nowIso() || !session.agentBusAddressId)
         throw new ConflictError('Launch identity is unavailable', 'agent_identity_unavailable');
       const address = await this.requireAddressLocked(tx, session.agentBusAddressId);
@@ -1416,8 +1416,7 @@ export class AgentMessagingService {
       } else {
         const sessionId = sessionIdFromLeaseOwner(leaseOwner);
         if (!sessionId) throw new ConflictError('Session lease owner is invalid', 'agent_messaging_lease_lost');
-        const sessionRows = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1).for('update');
-        const session = sessionRows[0];
+        const session = await this.lockSessionHostFirst(tx, sessionId);
         if (!session?.agentBusAddressId || !targetAddressIds.includes(session.agentBusAddressId)) {
           throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
         }
@@ -1914,6 +1913,21 @@ export class AgentMessagingService {
   private async assertPersistentHost(hostId: number, username: string): Promise<void> {
     const [daemon] = await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, hostId)).limit(1);
     if (!daemon || !daemonResidentFor(daemon.settings, username)) throw notPersistentRelay();
+  }
+
+  /**
+   * Lock a session for a transaction that will also lock its host. The order
+   * is hosts -> agent_sessions everywhere (portal bridge, registration,
+   * heartbeat via the housekeeping guard); taking the session first deadlocked
+   * a session claim against a concurrent /activity report. host_id never
+   * changes, so the unlocked read only picks which host row to lock.
+   */
+  private async lockSessionHostFirst(db: AgentMessagingDb, sessionId: string): Promise<AgentSession | undefined> {
+    const [owner] = await db.select({ hostId: agentSessions.hostId }).from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1);
+    if (!owner) return undefined;
+    await db.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, owner.hostId)).limit(1).for('update');
+    const rows = await db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1).for('update');
+    return rows[0];
   }
 
   private async requireBridgeSessionLocked(db: AgentMessagingDb, sessionId: string, rawToken: string, hostId: number): Promise<AgentSession> {
