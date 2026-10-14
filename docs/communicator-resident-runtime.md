@@ -113,6 +113,29 @@ corrections passed Raffaela's source review. Broader migration activation and
 any required real-provider acceptance remain pending. Production rollout is
 a separate action.
 
+## Unprivileged update handoff
+
+With residence and the signed update capability, the resident updater cannot
+replace the root-owned `/usr/local/lib/cxx-daemon/cxx` itself.
+`cxx daemon install` (root) therefore also installs:
+- `cxx-daemon-update.path` and `cxx-daemon-update.service`, a root oneshot
+  with the service's `HOME` and signed config paths
+- `/var/lib/cxx-daemon/requests/`, owned by the service user, mode 0700
+
+After the quiet-gated `cxx update` has installed the user's binary, the
+updater writes `update.json` (`request_id`, `version`, `sha256`, `source`).
+The oneshot (`cxx daemon apply-update`) then:
+- accepts the request only from the unit's `User=`
+- requires an unexpired signed config naming exactly that version and digest
+- requires a version newer than the running service; rollback stays
+  `cxx communicator rollback`
+- stages the bytes root-owned through `residency.StageBinary`, hashing the
+  copy rather than the path
+- runs the existing journaled `daemon install` migration from that copy
+
+A failed or uncertain handoff keeps its journal and fence; nothing is
+replayed. The isolated systemd lab acceptance for this path is still pending.
+
 ## Actual owner diagnostics
 
 The negotiated `resident_runtime` control extension publishes a bounded

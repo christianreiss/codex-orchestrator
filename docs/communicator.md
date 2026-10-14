@@ -4,6 +4,79 @@ cxx 0.9.72 introduces one local communicator per OS user and orchestrator base U
 It is started lazily by a managed request and shared by Codex, Claude and Grok.
 Provider inference still uses each native client's original network path.
 
+## Warm-cache launches (cxx 0.9.81)
+
+`CXX_COMMUNICATOR_CACHE_ENABLED=true` adds the signed
+`orchestrator.communicator_cache_protocol: 1`. It requires the transport and
+sync capabilities and is never offered on its own. A running owner is current
+by construction: pushed invalidations, reconnect resyncs and the five-minute
+pass keep each scope's managed content up to date. Only a fresh owner, or a
+scope that owner has never synchronized, needs a blocking exchange.
+
+The owner marks a scope (engine + canonical native home, shared by every
+session, account and Grok runtime broker on that home) as **primed** once it
+completes a content pass. A launch asks with the local `primed` sync
+operation, which answers from memory without a worker or gate.
+- **Primed:** cdx/clx run an auth-only bootstrap (`skip_content`, sent as
+  `include_content:false`) and apply no content; cgx sends no content exchange
+  at all.
+- **Not primed, older owner, or a failed probe:** the launch runs today's full
+  bootstrap.
+
+Insecure hosts never use the cache, because their rendered config embeds an
+MCP bearer that expires on a timer, not on an event. `status` shows `primed`
+per scope.
+
+Content and credential work now use separate scope gates and worker locks
+(`sync-<scope>.lock`, `auth-<scope>.lock`). An auth-only bootstrap holds only
+the auth lock, so it never waits behind a background content pass. Full
+auth-bearing bootstraps and `auth` operations take both, in content-then-auth
+order. Grok brokers sharing a home now schedule a single content pass.
+
+The server half keeps "always current" true: every input to the content
+renderers emits an event the invalidation filter accepts. This release adds
+the missing `agents.stored` when serve mode returns to `latest`, and a
+content-relevant `host.updated` when `/cron/report` changes a host's stored
+CLI version. Routine reports stay excluded so they cannot loop.
+
+## Push-triggered updater (cxx 0.9.81)
+
+`CXX_COMMUNICATOR_UPDATE_ENABLED=true` adds the signed
+`orchestrator.communicator_update_protocol: 1` (requires transport). The
+server then lists `wrapper_update` in `ready.control` and sends a
+payload-free `{type:"update_available"}` on `version.*` events,
+`settings.changed` and this host's `host.updated`. A watcher publishes
+`version.wrapper_published` when any platform manifest's `current` cxx
+release changes. Rollout tooling can publish its own `version.*` event, such
+as `version.wrapper_rollout_advanced`. Owners also check on every
+(re)connect and on a six-hour backstop.
+
+The frame is only a trigger. The owner's updater takes the target from
+`/cron/check`, which applies auto-update, fleet locks and host or rollout
+policy. It accepts the target only if the freshly fetched signed config names
+the same version and SHA-256, and it refuses downgrades.
+
+1. It prefetches the verified artifact into `~/.cxx/staging/` (0700) right away.
+2. It waits until **no agent is running** for the OS user. Every managed
+   native launch (local, remote-daemon or legacy) holds its engine's shared
+   housekeeping lock for the native child's whole life; the owner's finite
+   workers and resident execution workload count too.
+3. It then applies through the ordinary `cxx update`, which installs from the
+   staged copy, updates the provider CLIs and syncs.
+4. An on-demand owner retires afterwards, so the next managed call starts the
+   new binary.
+
+A shared or root-owned install is left to root and reports `requires_root`.
+With the capability signed, scheduled cron ticks defer the wrapper swap and
+provider pointer switch while agents run; explicit `cxx update` is never
+deferred.
+
+`status` reports `update.state`: `current`, `idle` (with a reason), `staged`,
+`waiting_for_quiet` (with an `agents` count), `applying`, `applied`,
+`handoff_requested`, `requires_root` or `failed`. `doctor` fails on `failed`.
+Resident replacement is described in
+[runtime, migration and acceptance](communicator-resident-runtime.md#unprivileged-update-handoff).
+
 ## Resident owner reporting (cxx 0.9.80)
 
 With the default-off signed `orchestrator.communicator_runtime_protocol: 1`,

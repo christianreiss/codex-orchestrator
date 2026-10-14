@@ -691,7 +691,8 @@ func (s *server) syncLoop(ctx context.Context) {
 func (s *server) scopeViewsLocked() []map[string]any {
 	views := []map[string]any{}
 	for id, state := range s.scopes {
-		views = append(views, map[string]any{"scope": id, "auth": state.auth, "running": state.running || len(state.gate) > 0, "content_error": state.contentError})
+		home, _, _ := strings.Cut(id, "/")
+		views = append(views, map[string]any{"scope": id, "auth": state.auth, "running": state.running || len(state.gate) > 0 || len(state.authGate) > 0, "content_error": state.contentError, "primed": s.primed[home]})
 	}
 	return views
 }
