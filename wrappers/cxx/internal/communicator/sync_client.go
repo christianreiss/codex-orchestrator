@@ -20,6 +20,9 @@ import (
 
 const SyncProtocol = 1
 
+// CacheProtocol is the signed warm-cache launch capability.
+const CacheProtocol = 1
+
 type SyncError struct {
 	Message         string          `json:"message"`
 	HTTP            json.RawMessage `json:"http,omitempty"`
@@ -58,6 +61,9 @@ type SyncResult struct {
 	Resources  map[string]ResourceResult `json:"resources,omitempty"`
 	Error      *SyncError                `json:"error,omitempty"`
 	Generation string                    `json:"generation,omitempty"`
+	// Primed answers a "primed" operation: this owner has completed a content
+	// pass for the scope, so pushed invalidations keep that content current.
+	Primed bool `json:"primed,omitempty"`
 	Uploaded   bool                      `json:"uploaded,omitempty"`
 	Adopted    bool                      `json:"adopted,omitempty"`
 	Deferred   bool                      `json:"deferred,omitempty"`
@@ -78,6 +84,10 @@ type SyncRequest struct {
 	IncludeAuth   bool     `json:"include_auth,omitempty"`
 	Concurrent    bool     `json:"concurrent,omitempty"`
 	Args          []string `json:"args,omitempty"`
+	// SkipContent asks a bootstrap for its auth/host/version blocks only
+	// (`include_content:false`): a warm-cache launch takes content from the
+	// owner's primed scope instead. Valid only with an auth-bearing bootstrap.
+	SkipContent bool `json:"skip_content,omitempty"`
 	// Scheduled marks a content pass started by the owner's own scheduler. It is
 	// never sent over the wire: an explicit caller always gets a real exchange.
 	Scheduled bool `json:"-"`
@@ -192,6 +202,68 @@ func Sync(ctx context.Context, base, engine, authPath, operation string, include
 	job.AccountID, job.SessionID = account, session
 	return submitSync(ctx, base, SyncRequest{Job: job, Operation: operation, IncludeAuth: includeAuth, Concurrent: concurrent, Args: args})
 }
+// CacheEnabled reports whether this launch may take content from a primed owner:
+// the signed config must carry the cache capability on top of central sync.
+func CacheEnabled(ctx context.Context, base string) bool {
+	if !SyncManaged(base) {
+		return false
+	}
+	if cfg, ok := ctx.Value(configContextKey{}).(*config.Config); ok && cfg != nil {
+		return cfg.Orchestrator.CommunicatorCacheProtocol == CacheProtocol
+	}
+	ep := endpointFor(base)
+	if ep == nil {
+		return false
+	}
+	ep.mu.Lock()
+	defer ep.mu.Unlock()
+	return ep.anchor != nil && ep.anchor.Orchestrator.CommunicatorCacheProtocol == CacheProtocol
+}
+
+// Primed asks the owner whether it already holds current content for this
+// engine and native home. A running owner is current by construction (pushed
+// invalidations keep it so); only a fresh owner, or a scope it has never
+// synchronized, answers false. Any failure, including an older owner that does
+// not know the operation, is "not primed": the launch then bootstraps as before.
+func Primed(ctx context.Context, base, engine, authPath string) bool {
+	if !CacheEnabled(ctx, base) {
+		return false
+	}
+	job, err := newSyncJob(ctx, base, engine, authPath)
+	if err != nil {
+		return false
+	}
+	probe, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	out, err := submitSync(probe, base, SyncRequest{Job: job, Operation: "primed"})
+	return err == nil && out.Error == nil && out.Primed
+}
+
+// SyncAuthOnly runs the launch's auth bootstrap without content. It never waits
+// behind a background content pass: content and credential work hold separate
+// scope locks.
+func SyncAuthOnly(ctx context.Context, base, engine, authPath string, args []string, account int64, session string) (SyncResult, error) {
+	job, err := newSyncJob(ctx, base, engine, authPath)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	job.AccountID, job.SessionID = account, session
+	return submitSync(ctx, base, SyncRequest{Job: job, Operation: "bootstrap", IncludeAuth: true, SkipContent: true, Args: args})
+}
+
+type cachedContentKey struct{}
+
+// WithCachedContent marks a worker's bootstrap as auth-only (see SkipContent).
+func WithCachedContent(ctx context.Context) context.Context {
+	return context.WithValue(ctx, cachedContentKey{}, true)
+}
+
+// CachedContent reports whether the bootstrap must request and apply no content.
+func CachedContent(ctx context.Context) bool {
+	v, _ := ctx.Value(cachedContentKey{}).(bool)
+	return v
+}
+
 func submitSync(ctx context.Context, base string, request SyncRequest) (SyncResult, error) {
 	ep := endpointFor(base)
 	if ep == nil {

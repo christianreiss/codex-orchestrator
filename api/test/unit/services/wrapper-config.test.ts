@@ -291,6 +291,22 @@ describe('wrapper-config', () => {
       expect(payload.orchestrator.communicator_sync_protocol).toBeUndefined();
     }
   });
+  it.each(['codex', 'claude', 'grok'] as const)('signs the cache and update capabilities for %s only on top of their prerequisites', async (engine) => {
+    const { privateKey } = generateKeyPairSync('ed25519');
+    const signer: WrapperSigner = { kid:'1', fingerprint:FAKE_FINGERPRINT, publicKey:'pk', sign:payload => cryptoSign(null,Buffer.from(payload),privateKey) };
+    const host = fakeHost({engines:'codex,claude,grok'});
+    for (const transport of [false,true]) for (const sync of [false,true]) for (const flag of [false,true]) {
+      const svc = createWrapperConfigService({
+        db: makeFakeDb({hosts:[host],agents:[],agentsState:[],clientConfigs:[],skills:[],updates:[]}),
+        keyring:makeKeyring(), binaries:fakeBinaries(), signing:makeSigningService(signer), installationId:'cache-test',
+        communicatorEnabled:transport, communicatorSyncEnabled:sync,
+        communicatorCacheEnabled:flag, communicatorUpdateEnabled:flag,
+      });
+      const {payload} = await svc.bakeForHost(host,engine,'https://co.example');
+      expect(payload.orchestrator.communicator_cache_protocol).toBe(transport && sync && flag ? 1 : undefined);
+      expect(payload.orchestrator.communicator_update_protocol).toBe(transport && flag ? 1 : undefined);
+    }
+  });
   it('throws WrapperSigningUnavailableError when no signer is loaded', async () => {
     const svc = createWrapperConfigService({
       db: makeFakeDb({

@@ -70,6 +70,10 @@ type server struct {
 	// missed nothing, from a reconnect.
 	invalidatedAt time.Time
 	everConnected bool
+	// primed records, per engine and native home, that this owner process has
+	// completed a content pass. Pushed invalidations keep primed scopes current,
+	// so a warm-cache launch takes content from disk without an exchange.
+	primed map[string]bool
 	// stop ends the owner (set by serve); terminating makes a remote terminate
 	// request single-shot.
 	stop        context.CancelFunc

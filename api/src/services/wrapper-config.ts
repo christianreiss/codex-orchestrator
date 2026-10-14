@@ -92,6 +92,8 @@ export interface WrapperConfigPayload {
     communicator_protocol?: number;
     communicator_sync_protocol?: number;
     communicator_runtime_protocol?: number;
+    communicator_cache_protocol?: number;
+    communicator_update_protocol?: number;
   };
   host: {
     id: number;
@@ -165,6 +167,8 @@ export interface WrapperConfigDeps {
   communicatorEnabled?: boolean;
   communicatorSyncEnabled?: boolean;
   communicatorRuntimeEnabled?: boolean;
+  communicatorCacheEnabled?: boolean;
+  communicatorUpdateEnabled?: boolean;
   db: Database;
   keyring: Keyring;
   binaries: WrapperBinRegistry;
@@ -470,6 +474,13 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         ...(deps.communicatorEnabled ? { communicator_protocol: 1 } : {}),
         ...(deps.communicatorEnabled && deps.communicatorSyncEnabled ? { communicator_sync_protocol: 1 } : {}),
         ...(deps.communicatorRuntimeEnabled ? { communicator_runtime_protocol: 1 } : {}),
+        // Warm-cache launches trust the owner's pushed content, so they need the
+        // shared transport and central sync; the updater needs the transport for
+        // its push trigger. Neither is offered on its own.
+        ...(deps.communicatorEnabled && deps.communicatorSyncEnabled && deps.communicatorCacheEnabled
+          ? { communicator_cache_protocol: 1 }
+          : {}),
+        ...(deps.communicatorEnabled && deps.communicatorUpdateEnabled ? { communicator_update_protocol: 1 } : {}),
       },
       host: {
         id: host.id,

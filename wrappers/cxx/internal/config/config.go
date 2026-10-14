@@ -52,6 +52,8 @@ type Orchestrator struct {
 	CommunicatorProtocol        int     `json:"communicator_protocol,omitempty"`
 	CommunicatorSyncProtocol    int     `json:"communicator_sync_protocol,omitempty"`
 	CommunicatorRuntimeProtocol int     `json:"communicator_runtime_protocol,omitempty"`
+	CommunicatorCacheProtocol   int     `json:"communicator_cache_protocol,omitempty"`
+	CommunicatorUpdateProtocol  int     `json:"communicator_update_protocol,omitempty"`
 	BaseURL                     string  `json:"base_url"`
 	APIKey                      string  `json:"api_key"`
 	CABundlePath                *string `json:"ca_bundle_path,omitempty"`

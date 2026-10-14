@@ -14,6 +14,7 @@ import {
   versions as versionsTable,
   agentsDocuments,
   clientConfigDocuments,
+  mcpSessionTokens,
 } from '../../../src/db/schema.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { encrypt } from '../../../src/security/secret-box.js';
@@ -1393,6 +1394,44 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
     expect(typeof body.sessions.month).toBe('number');
     expect(body.sessions.now).toBeGreaterThanOrEqual(0);
     await app.close();
+  });
+});
+
+describe('POST /sync/bootstrap include_content:false (communicator warm cache)', () => {
+  it.each(['codex', 'claude', 'grok'] as const)('%s returns only the pre-exec blocks and renders no content', async (engine) => {
+    const apiKey = 'sk-bootstrap-no-content';
+    const db = createDbFake();
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude,grok' })]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(mcpSessionTokens, []);
+    db.tables.set(clientConfigDocuments, [{ id: 1, engine, body: '', sha256: 'no-content',
+      settings: { orchestrator_mcp_enabled: true, mcp_servers: [] },
+      createdAt: '2026-10-14T00:00:00Z', updatedAt: '2026-10-14T00:00:00Z' }]);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    try {
+      const response = await app.inject({ method: 'POST', url: '/sync/bootstrap',
+        headers: { authorization: `Bearer ${apiKey}`, 'x-wrapper-version': '0.9.81' },
+        payload: { engine, include_auth: false, include_content: false } });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.content).toBe('omitted');
+      expect(body.versions).toMatchObject({ engine });
+      for (const key of ['agents', 'config', 'memory_routing', 'claude_artifacts', 'claude_settings',
+        'claude_skills', 'grok_skills', 'sessions']) {
+        expect(body).not.toHaveProperty(key);
+      }
+      // The renderers mint the MCP bearer; skipping them must mint nothing.
+      expect(db.tables.get(mcpSessionTokens) ?? []).toHaveLength(0);
+
+      const full = await app.inject({ method: 'POST', url: '/sync/bootstrap',
+        headers: { authorization: `Bearer ${apiKey}`, 'x-wrapper-version': '0.9.81' },
+        payload: { engine, include_auth: false } });
+      expect(full.statusCode).toBe(200);
+      expect(full.json().content).toBeUndefined();
+      expect(full.json().agents).toBeDefined();
+    } finally {
+      await app.close();
+    }
   });
 });
 

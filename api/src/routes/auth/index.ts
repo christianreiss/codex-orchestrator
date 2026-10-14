@@ -424,6 +424,13 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
     await enforceAccountSession(accounts, host.id, engine, payload);
     const includeAuth = normalizeBoolean(payload.include_auth) !== false;
+    // `include_content:false` is the communicator warm-cache launch: the local
+    // owner already holds current content (kept fresh by pushed invalidations),
+    // so the launch asks only for the auth/host/version blocks it needs before
+    // exec. No content renderer runs, so no MCP token is minted and no content
+    // log is written; the response omits every content key rather than sending
+    // empty ones, which a wrapper could otherwise mistake for a deletion.
+    const includeContent = normalizeBoolean(payload.include_content) !== false;
     const enforced = await maybeEnforceInsecure(
       insecure,
       host,
@@ -454,6 +461,13 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
         out.reasons.push(`auth_${status !== '' ? status : 'unknown'}`);
       }
       if (status === 'updated') out.reasons.push('auth_stored');
+    }
+
+    if (!includeContent) {
+      out.content = 'omitted';
+      out.reasons = uniqueNonEmpty(out.reasons);
+      out.status = out.reasons.length === 0 ? 'ok' : 'update';
+      return out;
     }
 
     // Inline the agents + client-config bodies so the wrapper's bundle path can
