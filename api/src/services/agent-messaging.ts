@@ -2104,6 +2104,9 @@ export class AgentMessagingService {
     sessionId: string,
     address: AgentBusAddress,
   ): Promise<void> {
+    // hosts before agent_sessions, see lockSessionHostFirst; the eligibility
+    // check below re-locks the same host row.
+    await db.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, address.hostId)).limit(1).for('update');
     const rows = await db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1).for('update');
     const session = rows[0];
     if (

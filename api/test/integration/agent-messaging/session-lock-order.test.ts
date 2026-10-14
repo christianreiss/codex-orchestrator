@@ -77,4 +77,9 @@ describe.skipIf(!handle)('session heartbeat vs activity lock order', () => {
     const s = await session();
     await assertHostFirst(s.id, () => messaging.heartbeatSession(s.id, s.token, {}));
   });
+  it('sending a message locks the host before the session', async () => {
+    const a = await session(), b = await session();
+    const target = (await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, b.id)))[0]!;
+    await assertHostFirst(a.id, () => messaging.sendMessage(a.id, a.token, { to: `agent:${target.agentBusAddressId}`, content: 'lock order', clientMessageId: randomUUID() }));
+  });
 });
