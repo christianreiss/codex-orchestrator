@@ -226,6 +226,20 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
     await expect(bus.heartbeatRelay(String(relay.relay_id), String(relay.relay_token))).resolves.toMatchObject({ enabled: true });
     await create(target.address.address);
   });
+  it('blocks an existing persistent schedule once its host is no longer persistent, without queuing work', async () => {
+    const target = await agent('claude'),
+      schedule = await create(target.address.address);
+    await bus.finishSession(target.id, target.token, 'completed');
+    await db.delete(hostDaemons).where(eq(hostDaemons.hostId, host.id));
+    try {
+      await service.tick(due());
+      const [run] = await runs(schedule.id);
+      expect(run).toMatchObject({ status: 'blocked', lastError: 'schedule_host_not_persistent', messageId: null });
+      expect(await db.select().from(agentBusMessages).where(eq(agentBusMessages.targetAddressId, target.address.id))).toHaveLength(0);
+    } finally {
+      await markPersistentHost(db, host.id);
+    }
+  });
   it('regular schedules wait instead of resuming an ended session', async () => {
     const target = await agent('claude'),
       schedule = await create(target.address.address, false);

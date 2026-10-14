@@ -968,8 +968,7 @@ export class AgentMessagingService {
   }
 
   async heartbeatRelay(relayId: string, rawToken: string): Promise<Record<string, unknown>> {
-    const relay = await this.authenticateRelay(relayId, rawToken);
-    await this.assertPersistentUserRelay(relay);
+    const relay = await this.authenticateRelay(relayId, rawToken, true);
     const now = nowIso();
     const expiresAt = isoOffsetSeconds(AGENT_MESSAGING_RELAY_TOKEN_SECONDS);
     await this.db
@@ -991,8 +990,7 @@ export class AgentMessagingService {
   }
 
   async claimForRelay(relayId: string, rawToken: string, claimId: string): Promise<MessageDelivery | null> {
-    const relay = await this.authenticateRelay(relayId, rawToken);
-    await this.assertPersistentUserRelay(relay);
+    const relay = await this.authenticateRelay(relayId, rawToken, true);
     const daemonRelay = jsonRecord(relay.capabilities)?.host_daemon === true;
     const targetUsername = daemonRelay ? relay.username.replace(/:daemon$/, '') : relay.username;
     const remoteSessions = await this.db.select().from(hostDaemonSessions).where(eq(hostDaemonSessions.hostId, relay.hostId));
@@ -1868,13 +1866,20 @@ export class AgentMessagingService {
     return row;
   }
 
-  private async authenticateRelay(relayId: string, rawToken: string): Promise<AgentBusRelay> {
+  /**
+   * `requirePersistent` gates heartbeat and claim: a per-user relay resumes dormant agents headless, which is remote
+   * execution and exists only on a persistent host (docs/host-runtime-policy.md). The host-daemon row rides on the
+   * same query, so the hot polling path stays one statement. Stop, renew, reply and ack pass false so in-flight work
+   * can finish and be recorded.
+   */
+  private async authenticateRelay(relayId: string, rawToken: string, requirePersistent = false): Promise<AgentBusRelay> {
     await this.requireEnabled();
     const id = normalizeUuid(relayId, 'relay_id');
     const rows = await this.db
-      .select({ relay: agentBusRelays, host: hosts })
+      .select({ relay: agentBusRelays, host: hosts, daemon: hostDaemons.settings })
       .from(agentBusRelays)
       .innerJoin(hosts, eq(hosts.id, agentBusRelays.hostId))
+      .leftJoin(hostDaemons, eq(hostDaemons.hostId, agentBusRelays.hostId))
       .where(eq(agentBusRelays.id, id))
       .limit(1);
     const row = rows[0];
@@ -1884,24 +1889,16 @@ export class AgentMessagingService {
     this.assertEligibleHost(row.host);
     if (row.relay.tokenExpiresAt == null || row.relay.tokenExpiresAt <= nowIso()) throw new UnauthorizedError('Agent relay credential expired', 'agent_messaging_relay_expired');
     if (!safeHashEqual(hostAuthFingerprint(row.host), row.relay.hostAuthFingerprint)) throw new UnauthorizedError('Agent relay host credential changed', 'agent_messaging_relay_host_auth_changed');
+    if (requirePersistent && jsonRecord(row.relay.capabilities)?.host_daemon !== true && !(row.daemon && daemonResident(row.daemon))) {
+      throw notPersistentRelay();
+    }
     return row.relay;
   }
 
-  /**
-   * A per-user relay resumes dormant agents headless: remote execution. That exists only on a persistent host
-   * (docs/host-runtime-policy.md). Everywhere else it is refused on register, heartbeat and claim. 503, not 403:
-   * workers before cxx 0.9.82 back off 30 s on a 503 but retry a 403 every 3 s.
-   */
-  /** Heartbeat and claim gate. Stop, renew, reply and ack stay open so in-flight work can finish and be recorded. */
-  private async assertPersistentUserRelay(relay: AgentBusRelay): Promise<void> {
-    if (jsonRecord(relay.capabilities)?.host_daemon !== true) await this.assertPersistentHost(relay.hostId);
-  }
-
+  /** Registration gate for a per-user relay; see authenticateRelay. */
   private async assertPersistentHost(hostId: number): Promise<void> {
     const [daemon] = await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, hostId)).limit(1);
-    if (!daemon || !daemonResident(daemon.settings)) {
-      throw new ServiceUnavailableError('Agent relays run only on persistent hosts', 'agent_messaging_relay_not_persistent');
-    }
+    if (!daemon || !daemonResident(daemon.settings)) throw notPersistentRelay();
   }
 
   private async requireBridgeSessionLocked(db: AgentMessagingDb, sessionId: string, rawToken: string, hostId: number): Promise<AgentSession> {
@@ -2107,4 +2104,9 @@ export class AgentMessagingService {
 
 export function createAgentMessagingService(db: Database, env: Env, keyring: Keyring): AgentMessagingService {
   return new AgentMessagingService(db, env, keyring);
+}
+
+/** 503, not 403: workers before cxx 0.9.82 back off 30 s on a 503 but retry a 403 every 3 s. */
+function notPersistentRelay(): ServiceUnavailableError {
+  return new ServiceUnavailableError('Agent relays run only on persistent hosts', 'agent_messaging_relay_not_persistent');
 }

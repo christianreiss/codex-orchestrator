@@ -64,8 +64,10 @@ The server is the enforcement point; the wrapper follows it.
   own existing check (remote starts accepting).
 - **Persistent schedules**: creating or enabling a persistent Wake/Cron schedule
   for an agent on a non-persistent host is refused
-  (`schedule_host_not_persistent`). Ordinary schedules still reach a live
-  receiver only.
+  (`schedule_host_not_persistent`). An existing persistent schedule whose host
+  is no longer persistent is blocked with the same code when it falls due,
+  without queuing a delivery. Ordinary schedules still reach a live receiver
+  only.
 - **Wrapper**: `cxx agent service install` (run by maintenance and installers)
   installs the worker unit only on a persistent host and otherwise retires it.
   The maintenance crontab line exists only on auto-update hosts, scheduled

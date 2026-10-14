@@ -495,6 +495,15 @@ export class SchedulesService {
       await set({ status: 'blocked', lastError: 'native_session_missing' });
       return;
     }
+    // A schedule created while the host was persistent must not keep firing after the flag is gone: no relay would
+    // ever claim it, and recovery would retry forever (docs/host-runtime-policy.md).
+    if (run.persistent) {
+      const [daemon] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, target.hostId)).limit(1);
+      if (!daemon || !daemonResident(daemon.settings)) {
+        await set({ status: 'blocked', lastError: 'schedule_host_not_persistent' });
+        return;
+      }
+    }
     if (!run.persistent) {
       if (!target.currentSessionId) return;
       const [session] = await tx
