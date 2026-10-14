@@ -63,11 +63,11 @@ type SyncResult struct {
 	Generation string                    `json:"generation,omitempty"`
 	// Primed answers a "primed" operation: this owner has completed a content
 	// pass for the scope, so pushed invalidations keep that content current.
-	Primed bool `json:"primed,omitempty"`
-	Uploaded   bool                      `json:"uploaded,omitempty"`
-	Adopted    bool                      `json:"adopted,omitempty"`
-	Deferred   bool                      `json:"deferred,omitempty"`
-	HostSecure *bool                     `json:"host_secure,omitempty"`
+	Primed     bool  `json:"primed,omitempty"`
+	Uploaded   bool  `json:"uploaded,omitempty"`
+	Adopted    bool  `json:"adopted,omitempty"`
+	Deferred   bool  `json:"deferred,omitempty"`
+	HostSecure *bool `json:"host_secure,omitempty"`
 }
 
 func (r SyncResult) Err() error {
@@ -202,14 +202,17 @@ func Sync(ctx context.Context, base, engine, authPath, operation string, include
 	job.AccountID, job.SessionID = account, session
 	return submitSync(ctx, base, SyncRequest{Job: job, Operation: operation, IncludeAuth: includeAuth, Concurrent: concurrent, Args: args})
 }
+
 // CacheEnabled reports whether this launch may take content from a primed owner:
 // the signed config must carry the cache capability on top of central sync.
 func CacheEnabled(ctx context.Context, base string) bool {
 	if !SyncManaged(base) {
 		return false
 	}
+	// An insecure host's rendered config embeds a short-lived MCP bearer that
+	// expires on a timer, not on an event, so its content is never cached.
 	if cfg, ok := ctx.Value(configContextKey{}).(*config.Config); ok && cfg != nil {
-		return cfg.Orchestrator.CommunicatorCacheProtocol == CacheProtocol
+		return cfg.Host.Secure && cfg.Orchestrator.CommunicatorCacheProtocol == CacheProtocol
 	}
 	ep := endpointFor(base)
 	if ep == nil {
@@ -217,7 +220,7 @@ func CacheEnabled(ctx context.Context, base string) bool {
 	}
 	ep.mu.Lock()
 	defer ep.mu.Unlock()
-	return ep.anchor != nil && ep.anchor.Orchestrator.CommunicatorCacheProtocol == CacheProtocol
+	return ep.anchor != nil && ep.anchor.Host.Secure && ep.anchor.Orchestrator.CommunicatorCacheProtocol == CacheProtocol
 }
 
 // Primed asks the owner whether it already holds current content for this

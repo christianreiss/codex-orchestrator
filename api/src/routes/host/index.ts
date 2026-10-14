@@ -240,6 +240,13 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
       createdAt: nowIso(),
     });
     wsPublisher.publish('host.updated', { id: host.id, fqdn: host.fqdn, source: 'cron_report' });
+    // The stored CLI version selects rendered native config (Codex profile files,
+    // native-settings support). A real change is a content change for this host;
+    // the routine report above stays excluded so reports cannot loop.
+    const previousClient = (host as unknown as Record<string, unknown>)[fields.clientVersion];
+    if (clientVersion && previousClient !== clientVersion) {
+      wsPublisher.publish('host.updated', { id: host.id, fqdn: host.fqdn, field: fields.clientVersion });
+    }
     return { recorded: true };
   });
 

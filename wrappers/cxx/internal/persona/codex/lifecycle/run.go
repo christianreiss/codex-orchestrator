@@ -801,7 +801,16 @@ func bootstrapWithProgress(
 		if len(launchArgs) > 0 {
 			args = launchArgs[0]
 		}
-		out, err := sharedSync(ctx, client, authPath, "bootstrap", includeAuth, false, args)
+		// A primed owner already holds current content (pushed invalidations
+		// keep it so): the launch fetches only what it needs before exec.
+		cached := includeAuth && communicator.Primed(ctx, client.BaseURL, "codex", authPath)
+		var out communicator.SyncResult
+		var err error
+		if cached {
+			out, err = sharedAuthOnly(ctx, client, authPath, args)
+		} else {
+			out, err = sharedSync(ctx, client, authPath, "bootstrap", includeAuth, false, args)
+		}
 		var auth *orchestrator.AuthRetrieveResponse
 		var sessions *orchestrator.FleetSessions
 		if len(out.Auth) > 0 {
@@ -818,6 +827,10 @@ func bootstrapWithProgress(
 		// carries the reason; without one it can say nothing but "unavailable".
 		if includeAuth && auth == nil && err != nil && orchestrator.IsUnresolvedUpload(err.Error()) {
 			auth = &orchestrator.AuthRetrieveResponse{Status: "offline", Message: err.Error()}
+		}
+		if cached {
+			current := summary.ResourceSync{Checked: true}
+			return auth, err, out.AuthSynced, current, current, sessions
 		}
 		return auth, err, out.AuthSynced, resourceFromWire(out.Resources["agents"]), resourceFromWire(out.Resources["config"]), sessions
 	}
@@ -917,15 +930,21 @@ func bootstrapWithProgress(
 		tracing.String("wrapper.engine", "codex"),
 		tracing.Bool("wrapper.auth_candidate_offered", len(candidate) > 0),
 	)
+	skipContent := communicator.CachedContent(ctx)
+	var includeContent *bool
+	if skipContent {
+		includeContent = new(bool)
+	}
 	resp, berr := client.SyncBootstrap(bctx, orchestrator.BundleRequest{
-		Engine:        "codex",
-		IncludeAuth:   includeAuth,
-		AuthDigest:    digest,
-		AuthCandidate: candidate,
-		Agents:        agentsDigest,
-		Config:        configDigest,
-		Home:          home,
-		Username:      username,
+		IncludeContent: includeContent,
+		Engine:         "codex",
+		IncludeAuth:    includeAuth,
+		AuthDigest:     digest,
+		AuthCandidate:  candidate,
+		Agents:         agentsDigest,
+		Config:         configDigest,
+		Home:           home,
+		Username:       username,
 	})
 	progress.Clear()
 	if berr != nil {
@@ -1029,7 +1048,7 @@ func bootstrapWithProgress(
 
 	agentsSync := summary.ResourceSync{}
 	configSync := summary.ResourceSync{}
-	if !concurrent {
+	if !concurrent && !skipContent {
 		agentsSync.Checked = true
 		agentsSync.Err = agentsPathErr
 		if agentsSync.Err == nil && len(resp.Agents) > 0 {

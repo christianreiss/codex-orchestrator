@@ -71,6 +71,24 @@ func sharedSync(ctx context.Context, client *orchestrator.Client, authPath, oper
 	return out, errors.Join(err, syncErrorFromWire(out.Error))
 }
 
+// sharedAuthOnly is the warm-cache launch's bootstrap: auth/host/version only,
+// content comes from the owner's primed scope.
+func sharedAuthOnly(ctx context.Context, client *orchestrator.Client, authPath string, args []string) (communicator.SyncResult, error) {
+	account, session := client.Pool.Binding()
+	out, err := communicator.SyncAuthOnly(ctx, client.BaseURL, "codex", authPath, args, account, session)
+	if err != nil {
+		return out, err
+	}
+	if len(out.Auth) > 0 {
+		client.Pool.Observe("/auth", out.Auth)
+		var auth *orchestrator.AuthRetrieveResponse
+		if json.Unmarshal(out.Auth, &auth) == nil {
+			err = errors.Join(err, updateAuthSessionSecurityContext(ctx, auth))
+		}
+	}
+	return out, errors.Join(err, syncErrorFromWire(out.Error))
+}
+
 // CommunicatorWork reuses the established native writers and auth arbitration.
 // It deliberately never enters Run, PreExec, account selection or installation.
 func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.SyncRequest) communicator.SyncResult {
@@ -130,6 +148,11 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		out.AuthSynced = synced
 		out.Sessions, _ = json.Marshal(sessions)
 		out.Error = syncError(err)
+		if communicator.CachedContent(ctx) {
+			// Auth-only: no content was requested or written, so report none.
+			out.Resources = nil
+			break
+		}
 		out.Resources = map[string]communicator.ResourceResult{"agents": resourceToWire(agents), "config": resourceToWire(settings)}
 		if req.Operation == "content" {
 			out.Resources["skills"] = resourceToWire(combineResourceSync(syncSkills(ctx, client, logger), pruneLegacySkillDirs(wrapperVersion(cfg), logger)))

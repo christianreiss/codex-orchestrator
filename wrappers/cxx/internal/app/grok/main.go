@@ -572,7 +572,12 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			defer lock.Release()
 		}
 	}
-	if syncErr == nil {
+	// A primed owner already holds current content (pushed invalidations keep
+	// it so): the launch needs no content exchange. Explicit syncs always run.
+	if syncErr == nil && communicator.SyncManaged(client.BaseURL) && communicator.Primed(communicator.WithSyncConfig(ctx, cfg), client.BaseURL, "grok", "") {
+		sync.Skills = resourceSync{Checked: true}
+		sync.Config = resourceSync{Checked: true}
+	} else if syncErr == nil {
 		sync, syncErr = syncMeasuredManagedWith(ctx, cfg, client, true)
 	}
 	if syncErr != nil {

@@ -39,6 +39,9 @@ type BundleRequest struct {
 	// Skills carries per-slug digests of the native on-disk skill store (Grok)
 	// so the server can omit unchanged bundles.
 	Skills map[string]string `json:"skills,omitempty"`
+	// IncludeContent false asks for the auth/host/version blocks only: a
+	// warm-cache launch takes content from the communicator's primed scope.
+	IncludeContent *bool `json:"include_content,omitempty"`
 }
 
 // BundleResponse matches the envelope returned by /sync/bootstrap. The auth

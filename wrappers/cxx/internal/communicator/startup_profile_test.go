@@ -84,6 +84,8 @@ type profAPI struct {
 	priv     ed25519.PrivateKey
 	comm     bool
 	frameOut chan frame
+	// contentless counts bootstraps that asked for include_content:false.
+	contentless int
 }
 
 func profDigest(s string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(s))) }
@@ -208,8 +210,20 @@ func (a *profAPI) handle(method, path string, body []byte) (int, []byte) {
 			Agents      string                       `json:"agents"`
 			Config      string                       `json:"config"`
 			Artifacts   map[string]map[string]string `json:"artifacts"`
+			Content     *bool                        `json:"include_content"`
 		}
 		_ = json.Unmarshal(body, &req)
+		if req.Content != nil && !*req.Content {
+			a.mu.Lock()
+			a.contentless++
+			a.mu.Unlock()
+			data := map[string]any{"status": "ok", "content": "omitted", "host": map[string]any{"secure": true}}
+			if req.IncludeAuth {
+				data["auth"] = map[string]any{"status": "valid", "digest": req.AuthDigest, "canonical_digest": req.AuthDigest, "verification_state": "verified", "engine": "claude", "host": map[string]any{"secure": true}}
+			}
+			out, _ := json.Marshal(map[string]any{"status": "ok", "data": data})
+			return 200, out
+		}
 		have := req.Artifacts["skill"]
 		items := make([]map[string]any, 0, len(a.skills))
 		for _, s := range a.skills {
@@ -380,7 +394,7 @@ func envInt(name string, def int) int {
 	return def
 }
 
-func newProfRig(t *testing.T, comm bool) *profRig {
+func newProfRig(t *testing.T, comm bool, adjust ...func(*config.Config)) *profRig {
 	t.Helper()
 	root := t.TempDir()
 	runtime, err := os.MkdirTemp("", "cc-prof-")
@@ -424,6 +438,9 @@ func newProfRig(t *testing.T, comm bool) *profRig {
 		protocol, syncProtocol = 1, 1
 	}
 	cfg := config.Config{SchemaVersion: 1, Engine: "claude", IssuedAt: "2026-10-13T00:00:00Z", Orchestrator: config.Orchestrator{BaseURL: srv.URL, APIKey: "fixture-host-key", InstallationID: "fixture", CommunicatorProtocol: protocol, CommunicatorSyncProtocol: syncProtocol}, Host: config.Host{ID: 1, FQDN: hostname, Secure: true}, Wrapper: config.Wrapper{Version: "0.9.76", Track: "stable", BinaryURL: srv.URL + "/download", BinarySHA256: strings.Repeat("0", 64)}}
+	for _, change := range adjust {
+		change(&cfg)
+	}
 	path := filepath.Join(root, "claude.json")
 	raw, _ := json.Marshal(cfg)
 	_ = os.WriteFile(path, raw, 0600)
@@ -895,5 +912,35 @@ func TestPushDuringColdBootstrapStillRefreshesContent(t *testing.T) {
 			t.Fatalf("a push during the cold bootstrap produced no second exchange (bootstraps: %d)\n%s", rig.frames("/sync/bootstrap"), launch.timeline())
 		}
 		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+// A primed owner serves the next launch from its warm cache: the launch's only
+// bootstrap is auth-only (include_content:false) and no content worker runs in
+// front of it. A fresh owner still performs the full first exchange.
+func TestPrimedOwnerLaunchSkipsContentExchange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a signed real binary")
+	}
+	rig := newProfRig(t, true, func(cfg *config.Config) { cfg.Orchestrator.CommunicatorCacheProtocol = CacheProtocol })
+	cold := rig.run("fresh owner launch", "claude", "run", "--minimal")
+	if cold.ExitCode != 0 || cold.count("/sync/bootstrap") != 1 {
+		t.Fatalf("cold launch: exit=%d bootstraps=%d\n%s", cold.ExitCode, cold.count("/sync/bootstrap"), cold.timeline())
+	}
+	rig.api.mu.Lock()
+	if rig.api.contentless != 0 {
+		rig.api.mu.Unlock()
+		t.Fatal("a fresh owner must perform the full content exchange first")
+	}
+	rig.api.mu.Unlock()
+	warm := rig.run("primed launch", "claude", "run", "--minimal")
+	if warm.ExitCode != 0 {
+		t.Fatalf("warm launch failed: %s", warm.Stdout)
+	}
+	rig.api.mu.Lock()
+	contentless := rig.api.contentless
+	rig.api.mu.Unlock()
+	if warm.count("/sync/bootstrap") != 1 || contentless != 1 {
+		t.Fatalf("primed launch: bootstraps=%d contentless=%d\n%s", warm.count("/sync/bootstrap"), contentless, warm.timeline())
 	}
 }
