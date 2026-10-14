@@ -163,9 +163,10 @@ describe('served document byte invariance', () => {
     expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
     // 2026-10-11: compact project discovery consistently starts with project_summary.
     // 2026-10-14: offline resume, persistent Wake/Cron and watchdog recovery only on persistent hosts (docs/host-runtime-policy.md).
-    expect(out.features_sha256).toBe('274ff18020d66f86bda6d70227b5e916a230a478170e0f421d4b3f8bfd502f8b');
-    expect(out.managed_sha256).toBe('8c7cd6c1271c6d25c67bacb1494b9476508b58b7c7b01ccf223b8b676cf4a00d');
-    expect(sha256(out.body)).toBe('45b3c11075fba23f0b1624f1e27d9a81b235dbb1500be453de5556ea6584706a');
+    // 2026-10-14: agent_listen never finishes held work; it answers work_held (feedback 8efceda3).
+    expect(out.features_sha256).toBe('845e5067f1464fbec25dd1e7b73ea8016841805b33a9718401f3411a30aec32b');
+    expect(out.managed_sha256).toBe('e2a559601dc2ed92dbfb52f9e2fdb76b1f3ec4605e2dc2b22b2500fc10dee3a9');
+    expect(sha256(out.body)).toBe('b96433e29b88266f70116bd08d8d7af0a44059bcf69bee5d97a2ed89da9ef80d');
   });
 });
 

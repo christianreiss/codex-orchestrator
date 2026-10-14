@@ -1289,8 +1289,18 @@ requested task itself succeeded.
 
 A peer delivery stays held, and blocks the next one, until the model is done with it.
 `agent_reply` releases it, as does `agent_listen` (which in automatic mode never
-claims). From cxx 0.9.27, `agent_conf_join` and `agent_conf_say` release only the
-matching room's informational delivery; they preserve held tasks and other rooms'
+claims) for informational deliveries. From the first cxx release after 0.9.82,
+`agent_listen` never finishes accepted work. Before, it completed held work without
+a body, so the server stored `unknown` and ended the claim while the work could still be running, which
+is how a coordinator waiting on its subagents lost its request's result route on
+2026-10-14. It now releases only informational deliveries (and replays an explicit
+result whose storage receipt was lost) and, while work is still held, answers
+`status: "work_held"` with `held_work` message IDs and makes no claim, in automatic
+and manual mode alike. The turn-end ring likewise stops pointing at `agent_listen`
+when pending mail waits behind held work or a Portal instruction, and names the
+result tools instead.
+
+From cxx 0.9.27, `agent_conf_join` and `agent_conf_say` release only the matching room's informational delivery; they preserve held tasks and other rooms'
 messages. Report a work outcome through `agent_task_result` or `agent_reply` with
 `task_result`; a progress update does not finish it.
 

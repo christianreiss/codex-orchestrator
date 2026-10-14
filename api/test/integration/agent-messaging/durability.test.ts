@@ -403,6 +403,31 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       .toMatchObject({ message_id: secondId, content: 'second' });
   });
 
+  it('does not hold a returning live session behind backoff another delivery path accrued', async () => {
+    // Feedback 93b054f5 (2026-10-14): the relay retried f45d9bf2 eleven times with
+    // native_session_busy; attempt 11 set next_attempt_at 900s out. The restarted
+    // session was ready but could not claim it, and FIFO held every later message.
+    const source = await register('codex', 'backoff-source');
+    const target = await register('claude', 'backoff-target');
+    const head = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'relay-retried', clientMessageId: randomUUID(),
+    });
+    const later = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'queued-behind', clientMessageId: randomUUID(),
+    });
+    const headId = String((head.message as Record<string, unknown>).id);
+    const laterId = String((later.message as Record<string, unknown>).id);
+    await db.update(agentBusMessages).set({
+      attempts: 11, nextAttemptAt: '2999-01-01T00:00:00.000Z', deliverySessionId: null, lastErrorCode: 'native_session_busy',
+    }).where(eq(agentBusMessages.id, headId));
+    const claim = randomUUID();
+    expect(await service.claimForSession(target.sessionId, target.bridgeToken, claim))
+      .toMatchObject({ message_id: headId, attempts: 12 });
+    await service.acknowledgeSessionDelivery(target.sessionId, target.bridgeToken, headId, { claimId: claim, outcome: 'completed' });
+    expect(await service.claimForSession(target.sessionId, target.bridgeToken, randomUUID()))
+      .toMatchObject({ message_id: laterId, content: 'queued-behind' });
+  });
+
   it('does not let sixty-four blocked later rows starve another target', async () => {
     const source = await register('codex', 'starvation-source');
     const blockedTarget = await register('claude', 'starvation-blocked');

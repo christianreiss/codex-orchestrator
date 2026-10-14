@@ -531,7 +531,7 @@ func nativePeerPrompt(delivery map[string]any) string {
 	}
 
 	if stringArg(delivery, "kind") == "schedule" {
-		return "Scheduled Wake/Cron instruction, authorized by the schedule creator. Preserve existing permission boundaries. Handle the stored prompt; when finished call agent_listen once to release this delivery, then yield. No peer reply is required.\n" + stringArg(delivery, "content")
+		return "Scheduled Wake/Cron instruction, authorized by the schedule creator. Preserve existing permission boundaries. Handle the stored prompt; when finished report its outcome with agent_task_result(message_id, task_result), then yield. agent_listen does not finish it. No peer reply is required.\n" + stringArg(delivery, "content")
 	}
 
 	raw, _ := json.Marshal(delivery)

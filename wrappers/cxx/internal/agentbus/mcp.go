@@ -10,6 +10,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -210,15 +211,63 @@ func (t *channelTracker) drop(messageID string, expected *channelPending) {
 	t.mu.Unlock()
 }
 
-// completeOutstanding finishes every delivery this process is still holding.
+// completeOutstanding finishes every releasable delivery this process holds.
 //
 // Required before claiming again, not politeness: the server hands out at most
 // one in-flight delivery per address, and a fresh claim_id gets no replay match,
 // so a second agent_listen would return empty until the previous lease expired.
 // Calling listen therefore means "I am done with the previous message" -- which
 // is also how a model declines to answer one.
+//
+// Accepted work is the exception. Completing it here, without a body, stores an
+// "unknown" outcome and ends the claim while the work may still be running --
+// seen live on 2026-10-14, when a coordinator waiting on its own subagents
+// answered a turn-end ring with agent_listen and its 20-host maintenance request
+// became completed/unknown mid-flight. Work therefore stays held until
+// agent_task_result or agent_reply carries its result; only a result whose
+// storage receipt is still uncertain is retried here.
 func (t *channelTracker) completeOutstanding(ctx context.Context) error {
-	return t.completeMatching(ctx, func(*channelPending) bool { return true })
+	return t.completeMatching(ctx, releasableByListen)
+}
+
+func releasableByListen(p *channelPending) bool {
+	return p.workKind == "" || p.completion() != nil || p.reply() != nil
+}
+
+// heldWork lists accepted work that listen must not release.
+func (t *channelTracker) heldWork() []heldDelivery {
+	if t == nil {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var held []heldDelivery
+	for id, p := range t.items {
+		if !releasableByListen(p) {
+			held = append(held, heldDelivery{MessageID: id, Kind: "work", Sender: p.sender})
+		}
+	}
+	sort.Slice(held, func(i, j int) bool { return held[i].MessageID < held[j].MessageID })
+	return held
+}
+
+// workHeldResult answers agent_listen while accepted work is still owned. The
+// server leases one delivery per address, so nothing else can arrive until the
+// work's result is stored; saying so beats a silent "automatic" or timeout.
+func workHeldResult(held []heldDelivery, receiver map[string]any) map[string]any {
+	ids := make([]string, 0, len(held))
+	for _, h := range held {
+		ids = append(ids, h.MessageID)
+	}
+	out := map[string]any{
+		"status":    "work_held",
+		"held_work": ids,
+		"message":   "You still hold accepted work (" + strings.Join(ids, ", ") + "). agent_listen does not finish work: report its outcome with agent_task_result (or agent_reply with task_result) when it is actually done. Until then no other message, wake or call can be delivered to this session. If the work is still running, for example in subagents, carry on and report when it finishes; never report success early.",
+	}
+	if receiver != nil {
+		out["receiver"] = receiver
+	}
+	return out
 }
 
 func (t *channelTracker) completeConference(ctx context.Context, conferenceID string) error {
@@ -1155,6 +1204,9 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 		if err := state.completeOutstanding(ctx); err != nil {
 			return nil, err
 		}
+		if held := state.heldWork(); len(held) > 0 {
+			return workHeldResult(held, state.receiver.health()), nil
+		}
 		// Report the receiver's real state. "automatic" used to be a local string
 		// that said nothing about whether anything was on the line, so a model with
 		// a dead receiver yielded and waited for a delivery that could not come.
@@ -1178,6 +1230,9 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 	}
 	if err := state.completeOutstanding(ctx); err != nil {
 		return nil, err
+	}
+	if held := state.heldWork(); len(held) > 0 {
+		return workHeldResult(held, nil), nil
 	}
 	if err := state.ensureListenBind(ctx); err != nil {
 		return nil, err

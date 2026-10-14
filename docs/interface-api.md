@@ -1383,6 +1383,10 @@ sequence provide per-target FIFO; a delayed retry remains head-of-line, and no
 target may have more than one leased or accepted message. Claims and sender
 `client_message_id` values are idempotent. Leases last 60 seconds, retries use
 bounded exponential backoff, and the twelfth attempt is terminal `dead`.
+Backoff fences the delivery path that failed, not the message: a live session's
+claim ignores `next_attempt_at` on a row whose last delivery session was another
+one or none (the relay's `native_session_busy` retries), so a returning session
+is never held behind backoff it did not cause; its own retries keep theirs.
 Messages are at most 32 KiB UTF-8. TTL defaults to 24 hours and accepts 60
 seconds through seven days. Expired queued/leased rows become `expired`.
 
