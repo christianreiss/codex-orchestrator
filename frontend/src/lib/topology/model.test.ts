@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import type { Topology, TopologyAgent, TopologyCommunicator } from "../api/topology";
 
 const modelModule: string = "./model.ts";
-const { trackGhosts, emptyGhostState, graphModel, matchesQuery, nodeState, communicatorLabel, summarize, actionReason, ageLabel, GHOST_TTL_MS } =
+const { trackGhosts, emptyGhostState, graphModel, matchesQuery, nodeState, communicatorAppearance, communicatorLabel, summarize, actionReason, ageLabel, GHOST_TTL_MS } =
   (await import(modelModule)) as typeof import("./model");
 
 const comm = (id: string, overrides: Partial<TopologyCommunicator> = {}): TopologyCommunicator => ({
@@ -87,6 +87,13 @@ describe("labels and summaries", () => {
   it("labels a communicator by full FQDN and retains runtime disambiguation", () => {
     assert.equal(communicatorLabel(comm("c1")), "web01.example.com");
     assert.equal(communicatorLabel(comm("c2", { label: "alice@web01 · rt0123" })), "web01.example.com · rt0123");
+  });
+  it("uses fresh owner mode rather than requested residence or daemon attachment", () => {
+    const report = { mode: "on_demand", resident_enabled: true, stale: false } as NonNullable<TopologyCommunicator["resident"]>;
+    assert.equal(communicatorAppearance(comm("c1", { resident: report, daemon_attached: true })).kind, "spawned");
+    assert.equal(communicatorAppearance(comm("c1", { resident: { ...report, mode: "resident" } })).kind, "persistent");
+    assert.equal(communicatorAppearance(comm("c1", { resident: { ...report, mode: "resident", stale: true } })).kind, "unknown");
+    assert.equal(communicatorAppearance(comm("c1", { daemon_attached: true })).kind, "unknown");
   });
   it("summarises the tree", () => {
     const s = summarize(snapshot([comm("c1"), comm("c2", { health: "stale" })], [agent("a1", { presence: "working" }), agent("a2")]));

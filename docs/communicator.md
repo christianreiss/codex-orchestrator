@@ -328,6 +328,10 @@ communicators connected to it and the agent sessions each one carries. The view 
 the connection set of the API process that answers, never a fleet-wide inference.
 Communicator labels show the full FQDN, without a username prefix or hostname
 shortening, and retain any runtime suffix used to distinguish connections.
+Node fill and icon color show the fresh reported owner mode: blue for persistent
+(`resident`), purple for spawned (`on_demand`), neutral gray when missing or stale.
+The ring and connection line continue to show health. List and detail views name
+the mode; requested residence and attached daemon channels do not classify it.
 
 Connection lines keep their screen width while zooming: 4 px from server to
 communicator, 3 px to carried agents and 2.5 px to direct agents. Selecting a path

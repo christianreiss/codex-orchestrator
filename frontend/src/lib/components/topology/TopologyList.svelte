@@ -2,7 +2,7 @@
   import EngineAvatar from "$lib/components/portal/EngineAvatar.svelte";
   import { Badge } from "$lib/components/ui/badge";
   import { isEngine } from "$lib/constants/engines";
-  import { ageLabel, communicatorLabel, matchesQuery, type GraphModel } from "$lib/topology/model";
+  import { ageLabel, communicatorAppearance, communicatorLabel, matchesQuery, type GraphModel } from "$lib/topology/model";
   import type { Presence } from "$lib/portal/types";
 
   type Props = { model: GraphModel; selectedId: string | null; query?: string; onselect: (id: string | null) => void };
@@ -48,6 +48,7 @@
   {#each model.communicators as item (item.node.id)}
     {@const children = agentsByParent.get(item.node.id) ?? []}
     {#if visible(item.node) || children.some((child) => visible(child.node))}
+      {@const appearance = communicatorAppearance(item.node)}
       <section class="rounded-lg border bg-card" aria-label="Communicator {communicatorLabel(item.node)}">
         <button
           type="button"
@@ -57,6 +58,7 @@
           onclick={() => onselect(selectedId === item.node.id ? null : item.node.id)}
         >
           <span class="font-semibold">{communicatorLabel(item.node)}</span>
+          <span class="inline-flex items-center gap-1.5 text-xs" style:color={appearance.color}><span class="h-2 w-2 rounded-full" style:background={appearance.color} aria-hidden="true"></span>{appearance.label}</span>
           {#if item.ghost}<Badge variant="secondary">disconnected</Badge>
           {:else}<Badge variant={item.node.health === "live" ? "success" : item.node.health === "closing" ? "destructive" : "warning"}>{item.node.health}</Badge>{/if}
           <span class="text-xs text-muted-foreground">cxx {item.node.version} · {children.length} agent{children.length === 1 ? "" : "s"}</span>

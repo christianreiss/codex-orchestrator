@@ -7,7 +7,7 @@
   import MaximizeIcon from "@lucide/svelte/icons/maximize";
   import { ENGINE_META, isEngine } from "$lib/constants/engines";
   import { radialLayout, traversalOrder, SERVER_ID, polar, type PlacedNode } from "$lib/topology/layout";
-  import { communicatorLabel, matchesQuery, nodeState, type GraphModel } from "$lib/topology/model";
+  import { communicatorAppearance, communicatorLabel, matchesQuery, nodeState, type GraphModel } from "$lib/topology/model";
   import type { TopologyAgent, TopologyCommunicator, TopologyServer } from "$lib/api/topology";
 
   type Props = {
@@ -252,7 +252,7 @@
   function describeCommunicator(item: (typeof model.communicators)[number]): string {
     const c = item.node;
     const kids = c.agent_ids.length;
-    return `Communicator ${communicatorLabel(c)}, cxx ${c.version}, ${item.ghost ? "disconnected" : c.health}, ${kids} ${kids === 1 ? "agent" : "agents"}`;
+    return `Communicator ${communicatorLabel(c)}, ${communicatorAppearance(c).label}, cxx ${c.version}, ${item.ghost ? "disconnected" : c.health}, ${kids} ${kids === 1 ? "agent" : "agents"}`;
   }
   function describeAgent(item: (typeof model.agents)[number]): string {
     const a = item.node;
@@ -348,8 +348,10 @@
         {@const state = nodeState(item.node, item.ghost !== null)}
         {@const selected = selectedId === id}
         {@const lit = selected || hoverId === id || focusId === id}
+        {@const appearance = communicatorAppearance(item.node)}
         <g
           data-node={id}
+          data-communicator-mode={appearance.kind}
           class="node node--communicator"
           class:node--selected={selected}
           style:transform="translate({pos.x}px, {pos.y}px)"
@@ -369,8 +371,8 @@
           <circle r="32" class="hit" fill="transparent" />
           <circle r="34" class="halo" fill="none" stroke="hsl(var(--ring))" stroke-width="3" opacity={lit ? 1 : 0} />
           {#if state === "closing"}<circle r="30" fill="none" stroke="hsl(var(--destructive))" stroke-width="2" class="pulse" />{/if}
-          <circle r="24" fill="hsl(var(--card))" stroke={healthColor(state)} stroke-width="2.75" stroke-dasharray={state === "live" ? undefined : "5 4"} />
-          <RadioTowerIcon x={-10} y={-10} size={20} class="text-foreground" />
+          <circle r="24" fill={appearance.fill} stroke={healthColor(state)} stroke-width="2.75" stroke-dasharray={state === "live" ? undefined : "5 4"} />
+          <RadioTowerIcon x={-10} y={-10} size={20} style={`color: ${appearance.color}`} />
           {#if item.node.agent_ids.length > 0}
             <g transform="translate(18 -18)">
               <circle r="10" fill="hsl(var(--primary))" />

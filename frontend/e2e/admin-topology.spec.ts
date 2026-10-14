@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import type { Topology, TopologyAgent, TopologyCommunicator } from "../src/lib/api/topology";
+import type { ResidentRuntimeReport, Topology, TopologyAgent, TopologyCommunicator } from "../src/lib/api/topology";
 
 const C1 = "c1111111-1111-4111-8111-111111111111";
 const C2 = "c2222222-2222-4222-8222-222222222222";
@@ -102,6 +102,40 @@ test("draws the server, communicators and agents and says who carries whom", asy
   await expect(details.getByText("Carried by")).toBeVisible();
   await expect(details.getByRole("button", { name: "Stop the process…" })).toBeDisabled();
   await expect(details.getByText(/not launched by a host daemon/)).toBeVisible();
+});
+
+test("communicator colors distinguish fresh owner modes without replacing health", async ({ page }) => {
+  const state = await fixtures(page);
+  const persistent = state.topology.communicators[0];
+  const spawned = state.topology.communicators[1];
+  spawned.process = { ...persistent.process!, instance_id: "22222222-aaaa-4aaa-8aaa-222222222222" };
+  const report = (owner: TopologyCommunicator, mode: ResidentRuntimeReport["mode"]): ResidentRuntimeReport => ({
+    sequence: 1, owner_instance_id: owner.process!.instance_id!, runtime_protocol: 1,
+    mode, managed: mode === "resident", resident_enabled: true, execution_enabled: false,
+    binary_sha256: "a".repeat(64), draining: false, local_requests: 0, legacy_clients: 0, execution: null,
+    received_at: new Date().toISOString(), age_s: 0, stale: false,
+  });
+  persistent.resident = report(persistent, "resident");
+  spawned.resident = report(spawned, "on_demand");
+  spawned.daemon_attached = true; // Attachment is not ownership evidence.
+  await open(page);
+  const first = page.locator(`[data-node="${C1}"]`);
+  const second = page.locator(`[data-node="${C2}"]`);
+  await expect(first).toHaveAttribute("data-communicator-mode", "persistent");
+  await expect(second).toHaveAttribute("data-communicator-mode", "spawned");
+  expect(await first.locator('circle[r="24"]').getAttribute("fill")).not.toBe(await second.locator('circle[r="24"]').getAttribute("fill"));
+  expect(await first.locator('circle[r="24"]').getAttribute("stroke")).toBe(await second.locator('circle[r="24"]').getAttribute("stroke"));
+  await page.screenshot({ path: "/tmp/topology-communicator-colors.png", animations: "disabled", fullPage: true });
+  await first.locator(".hit").click();
+  await expect(page.getByRole("complementary", { name: "Selection details" }).getByText("Persistent", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "List", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Communicator web01.example" })).toContainText("Persistent");
+  await expect(page.getByRole("region", { name: "Communicator app02.example" })).toContainText("Spawned");
+  persistent.resident.stale = true;
+  spawned.resident = null;
+  await page.reload();
+  await expect(first).toHaveAttribute("data-communicator-mode", "unknown");
+  await expect(second).toHaveAttribute("data-communicator-mode", "unknown");
 });
 
 test("disconnecting a communicator names the target and its agents, then reports the result", async ({ page }) => {

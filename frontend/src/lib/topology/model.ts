@@ -18,6 +18,19 @@ export function communicatorLabel(c: Pick<TopologyCommunicator, "host"> & { labe
   return c.host + (suffix >= 0 ? c.label!.slice(suffix) : "");
 }
 
+export const COMMUNICATOR_APPEARANCE = {
+  persistent: { kind: "persistent", label: "Persistent", color: "hsl(var(--info))", fill: "hsl(var(--info) / .16)" },
+  spawned: { kind: "spawned", label: "Spawned", color: "hsl(var(--persona-claude))", fill: "hsl(var(--persona-claude) / .16)" },
+  unknown: { kind: "unknown", label: "Mode unknown", color: "hsl(var(--muted-foreground))", fill: "hsl(var(--muted-foreground) / .12)" },
+} as const;
+
+/** Requested residence and an attached daemon do not prove the owner's mode. */
+export function communicatorAppearance(c: Pick<TopologyCommunicator, "resident">) {
+  const report = c.resident;
+  if (!report || report.stale) return COMMUNICATOR_APPEARANCE.unknown;
+  return report.mode === "resident" ? COMMUNICATOR_APPEARANCE.persistent : COMMUNICATOR_APPEARANCE.spawned;
+}
+
 export function shortId(id: string): string {
   return id.slice(0, 8);
 }

@@ -15,7 +15,7 @@
     type TopologyCommunicator,
     type TopologyDisconnect,
   } from "$lib/api/topology";
-  import { actionReason, ageLabel, communicatorLabel, shortId, type ActionPhase, type GraphItem } from "$lib/topology/model";
+  import { actionReason, ageLabel, COMMUNICATOR_APPEARANCE, communicatorAppearance, communicatorLabel, shortId, type ActionPhase, type GraphItem } from "$lib/topology/model";
   import ConfirmAction from "./ConfirmAction.svelte";
   import type { Presence } from "$lib/portal/types";
 
@@ -218,6 +218,8 @@
     <section class="space-y-2">
       <h2 class="text-sm font-semibold">Legend</h2>
       <ul class="space-y-1 text-xs text-muted-foreground">
+        <li class="flex flex-wrap gap-x-3 gap-y-1">{#each Object.values(COMMUNICATOR_APPEARANCE) as appearance (appearance.kind)}<span><span class="legend-dot" style:border-color={appearance.color} style:background={appearance.fill}></span>{appearance.label}</span>{/each}</li>
+        <li>Communicator fill is its reported owner mode; the ring and link are its health.</li>
         <li><span class="legend-dot" style="border-color: hsl(var(--success))"></span> Live link · solid, flowing</li>
         <li><span class="legend-dot" style="border-color: hsl(var(--warning)); border-style: dashed"></span> Quiet or stale · dashed amber</li>
         <li><span class="legend-dot" style="border-color: hsl(var(--muted-foreground)); border-style: dotted"></span> Direct, no communicator · dotted grey</li>
@@ -225,10 +227,12 @@
       </ul>
     </section>
   {:else if communicator}
+    {@const appearance = communicatorAppearance(communicator)}
     <!-- ── a communicator ─────────────────────────────────────────────────── -->
     <section class="space-y-3">
       <header class="flex flex-wrap items-center gap-2">
         <h2 class="text-base font-semibold">{communicatorLabel(communicator)}</h2>
+        <span class="rounded-full border px-2 py-0.5 text-[11px] font-medium" style:color={appearance.color} style:background={appearance.fill} title={appearance.kind === "unknown" ? "Owner mode is missing or stale" : "Reported owner mode"}>{appearance.label}</span>
         {#if ghost}<Badge variant="secondary">Disconnected</Badge>
         {:else}<Badge variant={healthVariant(communicator.health)}>{communicator.health === "live" ? "Live" : communicator.health === "stale" ? "Gone quiet" : "Closing"}</Badge>{/if}
         <Badge variant="outline">cxx {communicator.version}</Badge>

@@ -1,5 +1,7 @@
 # 2026-10-14
 
+- Live Topology colors persistent communicators blue and spawned communicators purple using fresh owner-mode reports. Missing or stale reports stay neutral gray; labels and a legend explain the colors, while rings and connection lines retain health status.
+
 - Live Topology communicator labels now show the full FQDN instead of username and shortened host. Graph labels retain the complete domain; lists, details and action targets use the same label, including existing runtime disambiguation suffixes.
 
 - Live Topology connection lines are thicker: server-to-communicator links use 4 px, carried-agent links 3 px and direct-agent links 2.5 px. Widths stay readable while zooming; status colors, dashed patterns and focus emphasis are preserved.
