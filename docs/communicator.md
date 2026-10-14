@@ -151,7 +151,12 @@ and control requests use the communicator whenever the recovered config enables 
 forwarded/coalesced requests, last sync and connection error. `doctor` returns
 nonzero when an enabled communicator is absent. When the wrapper refuses the local socket
 (for example a leaked `XDG_RUNTIME_DIR=/run/user/0` that is not private to the user), the line for that
-server carries `"error"` with the refusal instead of an empty `"socket"`, and `doctor` fails. The host's Operations tab shows
+server carries `"error"` with the refusal instead of an empty `"socket"`, and `doctor` fails. Status
+always prints at least one line: an owner that cannot be reached, answers non-200 or
+returns no JSON gets `"running":false` with `"error"`, the searched `"runtime_dir"` and its
+`"runtime_dir_source"` (`XDG_RUNTIME_DIR`, `logind` or `tmp`); with the `tmp` fallback (for
+example `sudo` without `XDG_RUNTIME_DIR` and no `/run/user/<uid>`) a `"hint"` names the
+`XDG_RUNTIME_DIR` to retry with. The host's Operations tab shows
 live server connections and their users, versions and sync timestamps.
 
 The Unix socket lives in a mode-0700 directory below `XDG_RUNTIME_DIR`. When a

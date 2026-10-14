@@ -57,17 +57,24 @@ var sessionRuntimeRoot = func() string { return fmt.Sprintf("/run/user/%d", os.G
 // falling straight to /tmp there would elect a second owner and split the
 // sync fences, so the logind directory is preferred whenever it exists.
 func runtimeRoot() string {
+	root, _ := runtimeRootSource()
+	return root
+}
+
+// runtimeRootSource also names where the root came from ("XDG_RUNTIME_DIR",
+// "logind" or "tmp") so status output can explain a missed owner.
+func runtimeRootSource() (string, string) {
 	if root := os.Getenv("XDG_RUNTIME_DIR"); root != "" {
-		return root
+		return root, "XDG_RUNTIME_DIR"
 	}
 	if root := sessionRuntimeRoot(); root != "" {
 		if info, err := os.Lstat(root); err == nil && info.IsDir() && info.Mode().Perm() == 0700 {
 			if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) == os.Getuid() {
-				return root
+				return root, "logind"
 			}
 		}
 	}
-	return filepath.Join(os.TempDir(), fmt.Sprintf("cxx-%d", os.Getuid()))
+	return filepath.Join(os.TempDir(), fmt.Sprintf("cxx-%d", os.Getuid())), "tmp"
 }
 
 // sun_path is 108 bytes on Linux and 104 on the BSDs and macOS, terminator included,

@@ -219,6 +219,12 @@ type Status struct {
 	Installed            []string `json:"installed"`
 	PathActive           bool     `json:"path_active"`
 	ShellRestartRequired bool     `json:"shell_restart_required"`
+	// LoginProfile is the file a bash login shell reads; LoginProfileActive
+	// reports whether it carries the managed PATH block. False with installed
+	// entries means `su -l`/ssh login shells miss native-bin until
+	// `cxx native-entry install` repairs it.
+	LoginProfile       string `json:"login_profile,omitempty"`
+	LoginProfileActive bool   `json:"login_profile_active"`
 }
 
 // Diagnose reports executable PATH resolution; shell aliases/functions must be
@@ -245,6 +251,11 @@ func Diagnose(home string) Status {
 		}
 	}
 	status.ShellRestartRequired = len(status.Installed) > 0 && !status.PathActive
+	if len(status.Installed) > 0 {
+		status.LoginProfile = LoginProfile(home)
+		body, err := os.ReadFile(status.LoginProfile)
+		status.LoginProfileActive = err == nil && strings.Contains(string(body), blockStart)
+	}
 	return status
 }
 

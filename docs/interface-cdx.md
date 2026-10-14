@@ -34,7 +34,13 @@ The automatic receiver reads Codex `session_index.jsonl` entries matching the bo
 Fleet installation, update/sync and successful managed launches prepare the native
 `codex`, `claude` and `grok` command names for assigned engines. Per-user scripts
 under `~/.cxx/native-bin` invoke `cxx native <engine> -- <native arguments>`;
-managed Bash, Zsh and Fish PATH blocks activate them in new shells. Existing
+managed Bash, Zsh and Fish PATH blocks activate them in new shells. Bash login
+shells (`su -l`, ssh) get the same guarded block in the login file bash reads
+(the first existing `~/.bash_profile`, `~/.bash_login`, `~/.profile`; `~/.profile`
+is created only when none exists) and in an existing `~/.profile`; the PATH
+test keeps a profile that also sources `~/.bashrc` from duplicating the entry.
+`native-entry status` reports that file as `login_profile` and whether it holds
+the block as `login_profile_active`. Existing
 shell aliases/functions and cached commands can take precedence: open a new
 shell and inspect `cxx native-entry status`. Provider binaries are not replaced.
 
@@ -1370,7 +1376,11 @@ user session data.
 Equal wrapper versions mean up to date: no artifact download, replacement or
 restart. New wrapper releases are SHA256-verified and atomically installed,
 then the new binary continues the engine phases without repeating the wrapper
-receipt. Downgrades and unverifiable wrapper versions are refused.
+receipt. The downloaded artifact is staged and run for its `--version`
+sanity check beside the install target, else in the private `~/.cxx/staging`,
+and only last in the system temp directory (`TMPDIR`); a candidate
+the kernel refuses to execute (a `noexec` mount) is retried in the next
+location before the update fails. Downgrades and unverifiable wrapper versions are refused.
 
 Update runs use compact engine-colored rows instead of startup dashboards:
 animated checks and installation stages, plus download bars with actual byte
