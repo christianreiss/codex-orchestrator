@@ -395,6 +395,13 @@ the interrupted generation. A crash before marker cleanup can be reconciled agai
 An older or equal-but-different head, missing verification, or a changed account/session
 remains unresolved and refuses launch with the marker's explicit diagnostic. Timestamp
 comparison alone never authorizes re-offering a local credential or deleting its marker.
+The launch diagnostic says the same: it never reads "compare, then delete the marker". It
+names the marker, explains that differing digests or timestamps do not settle an upload that may
+have been committed and replaced since, and offers re-authentication (`cdx login` / `clx login`,
+which replaces the local credential through the normal flow) or an explicit operator decision after
+verifying that the credential kept is the intended one for the account, without printing
+credentials. There is no force-clear command. A stale marker with a differing server head still
+needs that operator decision; the clearer message is not automatic recovery.
 
 For an unresolved conflict, `cdx auth-reconcile` and `clx auth-reconcile` perform
 an explicit direct account-scoped readback (using the signed config's existing

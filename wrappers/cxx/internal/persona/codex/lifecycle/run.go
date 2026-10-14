@@ -327,12 +327,23 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		probedVersion = func() string { return <-versionCh }
 	}
 	var skillsPrefetch func() skillsListing
-	if !opts.SkipAuthSync && !concurrent {
+	// A managed launch gets its skills result from the shared skills operation below,
+	// so a prefetched listing would only be thrown away.
+	managedSkills := !opts.SkipAuthSync && !concurrent && communicator.SyncManaged(client.BaseURL)
+	if !opts.SkipAuthSync && !concurrent && !managedSkills {
 		skillsPrefetch = prefetchSkills(ctx, client)
 	}
 
+	var skillsJoin func() summary.ResourceSync
 	if !opts.SkipAuthSync {
 		syncBundle()
+		if managedSkills {
+			// The shared operation shares the scope's gate with the bundle, so it starts
+			// only after the bundle: queued first it would delay the bundle the launch is
+			// waiting for. From here it overlaps account selection and session start, and
+			// the launch joins it where the skills result is needed.
+			skillsJoin = startManagedSkills(ctx, client)
+		}
 		// A content-only pass leaves the decision at its zero value on purpose:
 		// there is no auth response to judge. Every branch that reads `dec`
 		// below carries the same `!opts.SkipCredentialExchange` guard, so the
@@ -487,7 +498,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 					listed = &got
 				}
 			}
-			skillsSync = syncSkillsListed(ctx, client, logger, listed)
+			if skillsJoin != nil && bundleRounds <= 1 {
+				// The early result is only as new as the first bundle round.
+				skillsSync = skillsJoin()
+			} else {
+				skillsSync = syncSkillsListed(ctx, client, logger, listed)
+			}
 			if !communicator.SyncManaged(client.BaseURL) {
 				skillsSync = combineResourceSync(skillsSync, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
 			}

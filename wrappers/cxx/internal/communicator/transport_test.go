@@ -548,10 +548,15 @@ func TestRuntimeRootFenceAcrossProcesses(t *testing.T) {
 // must still stop that stream promptly and keep the shared control
 // connection serving other requests.
 func TestStalledDaemonReaderIsDisconnectedPromptly(t *testing.T) {
+	started := make(chan struct{}, 1)
 	payload := json.RawMessage(`{"blob":"` + strings.Repeat("x", 8192) + `"}`)
 	c := testConnection(t, func(ws *websocket.Conn, f frame) {
 		switch f.Type {
 		case "daemon":
+			select {
+			case started <- struct{}{}:
+			default:
+			}
 			go func() {
 				for i := 0; i < 2000; i++ {
 					if websocket.JSON.Send(ws, frame{Type: "daemon_event", Payload: payload}) != nil {
@@ -573,6 +578,14 @@ func TestStalledDaemonReaderIsDisconnectedPromptly(t *testing.T) {
 	defer ws.Close()
 	if err := websocket.JSON.Send(ws, map[string]any{"type": "heartbeat"}); err != nil {
 		t.Fatal(err)
+	}
+	// The HTTP upgrade can return before the handler attaches the stream.
+	// Wait for its forwarded heartbeat so the initial nil daemon cannot be
+	// mistaken for a completed detach (reading then would prevent overflow).
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("daemon heartbeat never reached the control connection")
 	}
 	// Do not read until the communicator has had to give up on this stream.
 	deadline := time.Now().Add(5 * time.Second)

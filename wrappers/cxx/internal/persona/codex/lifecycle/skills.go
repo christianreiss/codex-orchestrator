@@ -81,6 +81,21 @@ func prefetchSkills(ctx context.Context, client *orchestrator.Client) func() ski
 	return func() skillsListing { return <-ch }
 }
 
+// startManagedSkills runs the shared skills operation in the background and returns the
+// function that waits for its result. It is the managed counterpart of prefetchSkills:
+// the same read, but performed (and its digest written) by the communicator's worker.
+func startManagedSkills(ctx context.Context, client *orchestrator.Client) func() summary.ResourceSync {
+	ch := make(chan summary.ResourceSync, 1)
+	go func() {
+		path, _ := codex.AuthPath()
+		out, err := sharedSync(ctx, client, path, "skills", false, false, nil)
+		result := resourceFromWire(out.Resources["skills"])
+		result.Err = errors.Join(result.Err, err)
+		ch <- result
+	}()
+	return func() summary.ResourceSync { return <-ch }
+}
+
 // syncSkillsListed is syncSkills with an optional prefetched listing. A nil
 // listing fetches inline. Only the network read is ever overlapped; the digest
 // compare and write still happen here, after the bundle has been applied.
