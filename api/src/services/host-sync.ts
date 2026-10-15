@@ -18,6 +18,9 @@ export interface SyncCollectInput {
   host: Host;
   engine: Engine;
   bootstrap: boolean;
+  // Bootstrap already needs this request's snapshot for its projected auth
+  // response; reuse it rather than refreshing a value it immediately replaces.
+  versionSnapshot?: VersionSnapshot;
   // Callers reach `collect` via `recordHostUser`, which already returns the
   // host's users -- they hand that array back instead of making us re-read it.
   users: Array<{ username: string; hostname: string | null; last_seen: string }>;
@@ -49,8 +52,8 @@ export function createHostSyncService(deps: HostSyncDeps): HostSyncService {
   const { db, versions } = deps;
 
   return {
-    async collect({ host, engine, bootstrap, users }) {
-      const summary = applyHostVersionPolicy(await versions.summary(engine), host, engine);
+    async collect({ host, engine, bootstrap, users, versionSnapshot }) {
+      const summary = applyHostVersionPolicy(versionSnapshot ?? await versions.summary(engine), host, engine);
       return {
         status: 'ok',
         reasons: [],

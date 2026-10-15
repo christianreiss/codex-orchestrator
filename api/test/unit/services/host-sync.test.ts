@@ -119,6 +119,22 @@ function hostUserInserts(db: DbFake): Array<Record<string, unknown>> {
 }
 
 describe('HostSyncService.collect', () => {
+  it('uses a supplied request snapshot without another refresh and keeps host policy', async () => {
+    const versions = makeVersions();
+    const service = makeService(makeDb(), versions);
+    const out = await service.collect({
+      host: makeHost({ autoUpdateOverride: 0, clientVersionOverride: '0.99.0' }),
+      engine: ENGINE_CODEX, bootstrap: true, users: SUPPLIED_USERS,
+      versionSnapshot: SNAPSHOT,
+    });
+    expect(versions.calls).toEqual([]);
+    expect(out.versions).toMatchObject({ auto_update_enabled: false,
+      client_version_override: '0.99.0', client_version_enforce_exact: true });
+    expect(out.host_users).toBe(SUPPLIED_USERS);
+    expect(SNAPSHOT.auto_update_enabled).toBe(true);
+    expect(SNAPSHOT.client_version_override).toBeNull();
+  });
+
   it('returns an ok payload with the stub snapshot, the engine and the bootstrap flag verbatim', async () => {
     const versions = makeVersions();
     const service = makeService(makeDb(), versions);

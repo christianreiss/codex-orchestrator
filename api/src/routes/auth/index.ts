@@ -92,22 +92,51 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     ? join(ctx.env.DATA_ROOT, 'wrapper', 'v2', 'bin')
     : resolve(import.meta.dirname, '..', '..', '..', '..', 'storage', 'wrapper', 'v2', 'bin');
   const binaries = createWrapperBinRegistry({ binRoot });
-  const requestVersions = (req: FastifyRequest, host: Host): RequestVersionProjector => {
+  const requestVersions = (
+    req: FastifyRequest,
+    host: Host,
+    reuse = false,
+  ): RequestVersionProjector => {
     const platform = resolveWrapperPlatform(req.headers);
     const publicBaseUrl = resolvePublicBaseUrl(req, ctx.env.PUBLIC_BASE_URL);
-    return async (engine, submittedWrapperVersion) =>
-      applyHostVersionPolicy(
-        await projectWrapperVersionSnapshot({
-          snapshot: await versions.summary(engine),
+    const summaries = new Map<Engine, Promise<VersionSnapshot>>();
+    const projections = new Map<Engine, Map<unknown, Promise<VersionSnapshot>>>();
+    const invalidate = () => { summaries.clear(); projections.clear(); };
+    const summary = (engine: Engine): Promise<VersionSnapshot> => {
+      if (!reuse) return versions.summary(engine);
+      let pending = summaries.get(engine);
+      if (!pending) {
+        pending = versions.summary(engine).catch(error => { invalidate(); throw error; });
+        summaries.set(engine, pending);
+      }
+      return pending;
+    };
+    const project: RequestVersionProjector = Object.assign(
+      (engine: Engine, submittedWrapperVersion: unknown): Promise<VersionSnapshot> => {
+        const cached = projections.get(engine)?.get(submittedWrapperVersion);
+        if (cached) return cached;
+        const pending = (async () => applyHostVersionPolicy(
+          await projectWrapperVersionSnapshot({
+            snapshot: await summary(engine),
+            engine,
+            submittedWrapperVersion,
+            platform,
+            publicBaseUrl,
+            binaries,
+          }),
+          host,
           engine,
-          submittedWrapperVersion,
-          platform,
-          publicBaseUrl,
-          binaries,
-        }),
-        host,
-        engine,
-      );
+        ))().catch(error => { invalidate(); throw error; });
+        if (reuse) {
+          const byVersion = projections.get(engine) ?? new Map<unknown, Promise<VersionSnapshot>>();
+          byVersion.set(submittedWrapperVersion, pending);
+          projections.set(engine, byVersion);
+        }
+        return pending;
+      },
+      { summary, invalidate },
+    );
+    return project;
   };
   const agentsService = new HostAgentsService(ctx.db, {
     publicBaseUrl: ctx.env.PUBLIC_BASE_URL ?? null,
@@ -438,11 +467,16 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       includeAuth ? 'retrieve' : null,
       req.clientIp,
     );
-    const projectedVersions = requestVersions(req, enforced);
+    // This request's collect/envelope/auth reads share one refresh and artifact
+    // projection. Auth mutations below invalidate it before reading again.
+    const projectedVersions = requestVersions(req, enforced, true);
 
     const userInput = extractHostUserInput(payload);
     const users = await syncService.recordHostUser(enforced.id, userInput.username, userInput.hostname);
-    const out = await syncService.collect({ host: enforced, engine, bootstrap: true, users });
+    const out = await syncService.collect({
+      host: enforced, engine, bootstrap: true, users,
+      versionSnapshot: await projectedVersions.summary(engine),
+    });
     out.versions = await projectedVersions(engine, payload.wrapper_version);
 
     if (includeAuth) {
@@ -576,7 +610,11 @@ function readArtifactDigests(payload: Record<string, unknown>): ArtifactDigestMa
 // /auth retrieve / store
 // ───────────────────────────────────────────────────────────────────────────
 
-type RequestVersionProjector = (engine: Engine, submittedWrapperVersion: unknown) => Promise<VersionSnapshot>;
+type RequestVersionProjector = {
+  (engine: Engine, submittedWrapperVersion: unknown): Promise<VersionSnapshot>;
+  summary(engine: Engine): Promise<VersionSnapshot>;
+  invalidate(): void;
+};
 
 async function handleRetrieve(
   app: FastifyInstance,
@@ -611,6 +649,7 @@ async function handleRetrieve(
     const refresh = payload.refresh_if_generation;
     if (refresh !== undefined && (!Number.isSafeInteger(refresh) || Number(refresh) < 0)) throw new ValidationError('refresh_if_generation must be a non-negative integer', { param: 'refresh_if_generation' });
     const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner: createRunnerClient({ env: ctx.env }) }).ensureFresh({ accountId: accountIdFrom(payload.account_id), sourceHostId: host.id, sessionId: typeof payload.session_id === 'string' ? payload.session_id : undefined, refreshIfGeneration: refresh === undefined ? undefined : Number(refresh) });
+    projectVersions.invalidate();
     const base = await buildRetrieveBaseResponse(ctx, host, payload, engine, projectVersions);
     await touchHostAuthState(ctx.db, host.id, snapshot.row.id, snapshot.digest, engine);
     await touchHostAuthFields(ctx.db, host.id, snapshot.last_refresh, snapshot.digest, engine);
@@ -941,6 +980,9 @@ async function handleBootstrapAuth(
     }
   }
 
+  // A store attempt can change runner/version state even when it falls back
+  // to retrieve. Do not reuse the pre-store bootstrap snapshot in either case.
+  projectVersions.invalidate();
   try {
     const stored = await authStore.storeCandidate({
       auth: candidate,
