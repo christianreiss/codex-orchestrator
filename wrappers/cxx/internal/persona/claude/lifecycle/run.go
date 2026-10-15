@@ -371,7 +371,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 				authCandidateErr = nil
 				restoreAccountEnv := client.Pool.ActivateEnvironment()
 				defer restoreAccountEnv()
-				authResp, authErr = client.AuthRetrieve(ctx, lease.CanonicalDigest)
+				authResp, authErr = client.AuthAfterAssignment(ctx, authResp, lease)
 				dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
 				if !opts.SkipBoot {
 					ui.Say(updateprogress.Output(ctx, os.Stderr), "clx", ui.ToneDim, "account", lease.AccountLabel)

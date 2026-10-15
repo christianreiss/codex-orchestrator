@@ -696,7 +696,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	if lease == nil {
 		return 1, errors.New("Grok account lease unavailable")
 	}
-	if err := rt.Initialize(ctx); err != nil {
+	if err := rt.Initialize(ctx, lease); err != nil {
 		return 1, errors.New("Grok leased credentials unavailable")
 	}
 	initial = leasedStartupAuth(initial, lease)

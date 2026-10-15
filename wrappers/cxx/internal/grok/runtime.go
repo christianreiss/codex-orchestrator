@@ -333,42 +333,65 @@ func (r *Runtime) retrieve(ctx context.Context, refresh bool) (*Projection, Cred
 	if err := r.Client.JSON(ctx, http.MethodPost, "/auth", body, &projection, 0); err != nil {
 		return nil, Credential{}, err
 	}
-	if projection.AccountID != r.Pool.AccountID || projection.VerificationState != "verified" || projection.CanonicalGeneration <= 0 {
-		return nil, Credential{}, errors.New("Grok auth response changed leased account or lacks verification")
-	}
-	_, _, credential, err := nativeProjection(projection.Auth)
+	credential, err := r.validateProjection(&projection)
 	if err != nil {
 		return nil, Credential{}, err
-	}
-	if projection.AccessTokenDigest != "" && projection.AccessTokenDigest != tokenDigest(credential.Key) {
-		return nil, Credential{}, errors.New("Grok access-token digest mismatch")
-	}
-	if projection.AccessTokenDigest == "" {
-		return nil, Credential{}, errors.New("Grok access-token digest missing")
-	}
-	expires, err := time.Parse(time.RFC3339Nano, projection.ExpiresAt)
-	if err != nil || !expires.Equal(credential.ExpiresAt) {
-		return nil, Credential{}, errors.New("Grok access-token expiry mismatch")
-	}
-	if len(r.issued) > 0 && projection.CanonicalGeneration < r.issued[0].Generation {
-		return nil, Credential{}, errors.New("Grok canonical generation regressed")
 	}
 	if refresh && projection.CanonicalGeneration <= observed {
 		return nil, Credential{}, errors.New("Grok refresh returned no successor")
 	}
-	if !credential.ExpiresAt.After(time.Now().Add(5 * time.Second)) {
-		return nil, Credential{}, errors.New("Grok access token has no remaining lifetime")
-	}
 	return &projection, credential, nil
+}
+
+// validateProjection applies the same account, generation and access-only
+// credential checks to a lease projection and a later auth response.
+func (r *Runtime) validateProjection(projection *Projection) (Credential, error) {
+	if projection.AccountID != r.Pool.AccountID || projection.VerificationState != "verified" || projection.CanonicalGeneration <= 0 {
+		return Credential{}, errors.New("Grok auth response changed leased account or lacks verification")
+	}
+	_, _, credential, err := nativeProjection(projection.Auth)
+	if err != nil {
+		return Credential{}, err
+	}
+	if projection.AccessTokenDigest != "" && projection.AccessTokenDigest != tokenDigest(credential.Key) {
+		return Credential{}, errors.New("Grok access-token digest mismatch")
+	}
+	if projection.AccessTokenDigest == "" {
+		return Credential{}, errors.New("Grok access-token digest missing")
+	}
+	expires, err := time.Parse(time.RFC3339Nano, projection.ExpiresAt)
+	if err != nil || !expires.Equal(credential.ExpiresAt) {
+		return Credential{}, errors.New("Grok access-token expiry mismatch")
+	}
+	if len(r.issued) > 0 && projection.CanonicalGeneration < r.issued[0].Generation {
+		return Credential{}, errors.New("Grok canonical generation regressed")
+	}
+	if !credential.ExpiresAt.After(time.Now().Add(5 * time.Second)) {
+		return Credential{}, errors.New("Grok access token has no remaining lifetime")
+	}
+	return credential, nil
 }
 
 // Initialize is the sole wrapper-side native write after lease assignment.
 // It runs before any native process can retain a bearer in memory.
-func (r *Runtime) Initialize(ctx context.Context) error {
+func (r *Runtime) Initialize(ctx context.Context, leases ...*accountpool.LeaseResponse) error {
 	if err := r.lock(ctx); err != nil {
 		return err
 	}
 	defer r.mu.Unlock()
+	// Current servers already ensured freshness while reserving the account.
+	// Reuse that exact projection before native exec; older responses still
+	// retrieve it. A complete but inconsistent response is refused.
+	if len(leases) > 0 && leases[0] != nil {
+		lease := leases[0]
+		if lease.CanonicalGeneration > 0 && lease.AccessTokenDigest != "" && lease.AccessExpiresAt != "" {
+			projection := &Projection{AccountID: lease.AccountID, Auth: lease.Auth, VerificationState: lease.VerificationState, CanonicalGeneration: lease.CanonicalGeneration, AccessTokenDigest: lease.AccessTokenDigest, ExpiresAt: lease.AccessExpiresAt}
+			if _, err := r.validateProjection(projection); err != nil {
+				return err
+			}
+			return r.Apply(projection.Auth, projection.CanonicalGeneration)
+		}
+	}
 	projection, _, err := r.retrieve(ctx, false)
 	if err != nil {
 		return err

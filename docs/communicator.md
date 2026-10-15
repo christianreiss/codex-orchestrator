@@ -42,6 +42,27 @@ the missing `agents.stored` when serve mode returns to `latest`, and a
 content-relevant `host.updated` when `/cron/report` changes a host's stored
 CLI version. Routine reports stay excluded so they cannot loop.
 
+## Launch round trips (cxx 0.9.86)
+
+Each cdx/clx launch still obtains a fresh auth/usage snapshot and a verified
+account lease. When the lease confirms the same account and canonical digest
+as that launch's valid, verified snapshot, the wrapper reuses the snapshot and
+applies quota controls from the newer lease. A changed account or digest,
+incomplete metadata, rejected candidate or unverified response retains the
+additional account-scoped `/auth` request. This reuse is confined to one launch;
+it is independent of managed content caching and never caches auth across launches.
+
+Grok initializes its private runtime from the access-only projection just issued
+by `/auth/sessions` when generation, token digest and expiry are present. It uses
+the same account, generation, scope, digest, expiry and verification checks as a
+later `/auth` response, and records the issued generation before native exec.
+Older responses without that metadata still retrieve `/auth`; inconsistent
+projections refuse the launch. Refresh ownership remains server-side.
+
+Identity confirmation and advisory peer discovery run concurrently after bridge
+registration. Confirmation still gates native exec and an unavailable discovery
+still produces an explicit unavailable snapshot.
+
 ## Push-triggered updater (cxx 0.9.81)
 
 `CXX_COMMUNICATOR_UPDATE_ENABLED=true` adds the signed

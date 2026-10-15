@@ -1,5 +1,7 @@
 # 2026-10-15
 
+- cxx 0.9.86 shortens launch setup for Codex, Claude and Grok by reusing verified auth snapshots confirmed by the new account lease, initializing Grok from its freshly leased access projection, and overlapping identity confirmation with peer discovery. Account switches and auth rotations retain account-scoped retrieval; identity and credential checks still gate native exec.
+
 - Admin pages render after authentication while first-run setup checks continue in the background. Concurrent setup requests share one call, and repeated infrastructure checks reuse verified wrapper digests while still detecting changed binaries. Slow setup probes no longer keep the whole console on its loading screen.
 
 - Live Topology now has a compact dismissible inspector, embedded client conversations and host-prefilled remote starts, runtime/engine/status/host filters, collapsible branches, focus previews and fullscreen controls. Server links distinguish reported Persistent, On demand and Unknown runtime modes without inferring them from daemon attachment.

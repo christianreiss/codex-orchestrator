@@ -19,6 +19,16 @@ import (
 )
 
 func TestAccountPoolLaunchBindsSelectedCredentialsAndReleases(t *testing.T) {
+	for _, reuse := range []bool{false, true} {
+		name := "new_account"
+		if reuse {
+			name = "same_verified_head"
+		}
+		t.Run(name, func(t *testing.T) { accountPoolLaunchFixture(t, reuse) })
+	}
+}
+
+func accountPoolLaunchFixture(t *testing.T, reuse bool) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
@@ -37,14 +47,29 @@ func TestAccountPoolLaunchBindsSelectedCredentialsAndReleases(t *testing.T) {
 	t.Setenv("CDX_CODEX_BIN", cli)
 	t.Setenv("PATH", bin)
 	payload := json.RawMessage(fmt.Sprintf(`{"last_refresh":%q,"tokens":{"access_token":"selected-access","refresh_token":"selected-refresh"}}`, time.Now().UTC().Format(time.RFC3339Nano)))
-	// Start without native credentials: the healthy pool must fill them before launch.
-	var acquired, released atomic.Int32
-	var wrongBinding atomic.Bool
+	if reuse {
+		path, err := codex.AuthPath()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, payload, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var acquired, released, authCalls atomic.Int32
+	var wrongBinding, portalStarted atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/sync/bootstrap":
-			_ = json.NewEncoder(w).Encode(map[string]any{"agents": "# fleet", "auth": map[string]any{"status": "missing", "account_pool": true, "host": map[string]any{"secure": true, "engines_list": []string{"codex"}}}})
+			auth := map[string]any{"status": "missing", "account_pool": true, "host": map[string]any{"secure": true, "engines_list": []string{"codex"}}}
+			if reuse {
+				auth["status"], auth["account_id"], auth["canonical_digest"], auth["verification_state"], auth["versions"] = "valid", 2, strings.Repeat("b", 64), "verified", map[string]any{}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"agents": "# fleet", "auth": auth})
 		case "/auth/sessions":
 			acquired.Add(1)
 			var in map[string]any
@@ -53,6 +78,9 @@ func TestAccountPoolLaunchBindsSelectedCredentialsAndReleases(t *testing.T) {
 		case "/auth":
 			var in map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&in)
+			if in["command"] == "retrieve" && in["digest"] == strings.Repeat("b", 64) && !portalStarted.Load() {
+				authCalls.Add(1)
+			}
 			if in["account_id"] != float64(2) || in["session_id"] == nil {
 				wrongBinding.Store(true)
 			}
@@ -60,6 +88,10 @@ func TestAccountPoolLaunchBindsSelectedCredentialsAndReleases(t *testing.T) {
 		case "/auth/sessions/release":
 			released.Add(1)
 			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		case "/host/agent-sessions":
+			// Later auth-watcher pulls are independent of launch setup.
+			portalStarted.Store(true)
+			http.NotFound(w, r)
 		case "/skills":
 			_, _ = w.Write([]byte(`{"skills":[]}`))
 		default:
@@ -78,6 +110,13 @@ func TestAccountPoolLaunchBindsSelectedCredentialsAndReleases(t *testing.T) {
 	}
 	if wrongBinding.Load() || acquired.Load() != 1 || released.Load() != 1 {
 		t.Fatalf("bindings: invalid=%v, acquire=%d, release=%d", wrongBinding.Load(), acquired.Load(), released.Load())
+	}
+	wantCalls := int32(1)
+	if reuse {
+		wantCalls = 0
+	}
+	if authCalls.Load() != wantCalls {
+		t.Fatalf("post-assignment auth calls=%d, want %d", authCalls.Load(), wantCalls)
 	}
 	native, err := codex.ReadAuth()
 	if err != nil || !strings.Contains(string(native), "selected-access") {

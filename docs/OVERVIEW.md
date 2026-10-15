@@ -907,6 +907,14 @@ historical assignment. Manual aliases cannot claim pool names; pre-existing
 alias collisions keep the affected name out of allocation.
 
 
+cxx 0.9.86 reduces launch round trips: Codex and Claude reuse this launch's
+verified auth/usage snapshot only when the newly acquired lease confirms the same
+account and canonical digest, taking the lease's newer quota controls. Account
+switches, rotations and incomplete snapshots still retrieve account-scoped auth.
+Grok validates and initializes from its freshly leased access-only projection,
+with a retrieve fallback for older servers. Identity confirmation and advisory
+peer discovery overlap. See [launch round trips](communicator.md#launch-round-trips-cxx-0986).
+
 ### Confirmed launch identity (cxx 0.9.37)
 
 Before any messaging-enabled provider starts, the wrapper confirms its name,

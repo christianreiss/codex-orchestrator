@@ -1415,6 +1415,10 @@ of Git Director. Non-Git or legacy sessions use directory matching; inspect
 `effective_scope` and `coverage.limited` for missing metadata. Results add task
 titles and match reasons while retaining presence and pagination.
 
+From cxx 0.9.86, identity confirmation and advisory peer discovery run in
+parallel through the registered bridge. Identity confirmation still gates native
+exec; discovery retains its two-second bound and unavailable result.
+
 After identity confirmation, each new managed launch or resume receives up to ten
 online project peers in its private native context, with observation time and
 remaining count. A two-second timeout or lookup failure reports unavailable and

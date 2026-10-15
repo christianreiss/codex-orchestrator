@@ -49,6 +49,61 @@ func projectedFixture(token string, expires time.Time) json.RawMessage {
 	raw, _ := json.Marshal(doc)
 	return raw
 }
+
+func TestInitializeUsesVerifiedLeaseProjectionAndFallsBackForOldServer(t *testing.T) {
+	for _, scenario := range []string{"verified", "legacy", "foreign-account", "wrong-digest", "wrong-expiry", "unverified", "expired"} {
+		t.Run(scenario, func(t *testing.T) {
+			r, pool := runtimeFixture(t)
+			expires := time.Now().UTC().Add(time.Hour)
+			if scenario == "expired" {
+				expires = time.Now().Add(-time.Minute)
+			}
+			lease := &accountpool.LeaseResponse{AccountID: pool.AccountID, Auth: projectedFixture("lease-access", expires), VerificationState: "verified", CanonicalGeneration: 17, AccessTokenDigest: tokenDigest("lease-access"), AccessExpiresAt: expires.Format(time.RFC3339Nano)}
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				calls++
+				_ = json.NewEncoder(w).Encode(Projection{AccountID: pool.AccountID, Auth: lease.Auth, VerificationState: "verified", CanonicalGeneration: 17, AccessTokenDigest: tokenDigest("lease-access"), ExpiresAt: expires.Format(time.RFC3339Nano)})
+			}))
+			defer server.Close()
+			client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.Client = client
+			switch scenario {
+			case "legacy":
+				lease.CanonicalGeneration = 0
+			case "foreign-account":
+				lease.AccountID++
+			case "wrong-digest":
+				lease.AccessTokenDigest = "different"
+			case "wrong-expiry":
+				lease.AccessExpiresAt = expires.Add(time.Minute).Format(time.RFC3339Nano)
+			case "unverified":
+				lease.VerificationState = "failed"
+			}
+			err = r.Initialize(context.Background(), lease)
+			if scenario == "verified" || scenario == "legacy" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantCalls := 0
+				if scenario == "legacy" {
+					wantCalls = 1
+				}
+				if calls != wantCalls || len(r.issued) != 1 || r.issued[0].Generation != 17 || r.issued[0].Digest != tokenDigest("lease-access") {
+					t.Fatalf("initialization lost lease generation: calls=%d issued=%+v", calls, r.issued)
+				}
+				raw, err := os.ReadFile(r.AuthPath)
+				if err != nil || !bytes.Contains(raw, []byte("lease-access")) {
+					t.Fatal("lease credential not materialized")
+				}
+			} else if err == nil || calls != 0 || len(r.issued) != 0 {
+				t.Fatalf("invalid lease projection accepted: err=%v calls=%d issued=%+v", err, calls, r.issued)
+			}
+		})
+	}
+}
 func TestRuntimeProjectsAccessOnlyAndSharesOnlyNoncredentialPaths(t *testing.T) {
 	r, _ := runtimeFixture(t)
 	if err := AtomicWrite(filepath.Join(r.BaseHome, "auth.json"), []byte("original untouched fixture"), 0o600); err != nil {

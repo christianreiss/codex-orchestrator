@@ -9,9 +9,51 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 )
+
+func TestIdentityConfirmationOverlapsPeerDiscovery(t *testing.T) {
+	const uuid = "12345678-1234-4123-8123-123456789abc"
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			// The self response waits for the independent peer request. This
+			// proves overlap without a wall-clock speed assertion.
+			peersStarted := make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				switch {
+				case strings.HasSuffix(req.URL.Path, "/self"):
+					select {
+					case <-peersStarted:
+					case <-req.Context().Done():
+						return
+					case <-time.After(2 * time.Second):
+						return
+					}
+					_ = json.NewEncoder(w).Encode(Identity{Version: 1, Name: "Claudia", UUID: uuid, Address: "agent:" + uuid, SessionID: "launch", Engine: engine})
+				case strings.HasSuffix(req.URL.Path, "/list"):
+					close(peersStarted)
+					_, _ = w.Write([]byte(`{"scope":"project","effective_scope":"project","observed_at":"2026-10-15T11:00:00Z","addresses":[],"total":0}`))
+				default:
+					http.NotFound(w, req)
+				}
+			}))
+			defer server.Close()
+			session := &Session{ID: "launch", Engine: engine, LaunchName: "Claudia", BridgeToken: "test-token", BaseURL: server.URL, http: server.Client()}
+			runtime := &ConnectionRuntime{session: session, broker: &Broker{}}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			identity, err := runtime.RequireIdentity(ctx, &config.Config{AgentMessaging: config.AgentMessaging{Enabled: true}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if identity.Peers == nil || identity.Peers.Status != "available" || identity.UUID != uuid {
+				t.Fatalf("incomplete launch context: %+v", identity)
+			}
+		})
+	}
+}
 
 func TestIdentityProviderProcess(t *testing.T) {
 	if os.Getenv("CXX_TEST_IDENTITY_PROVIDER") != "1" {

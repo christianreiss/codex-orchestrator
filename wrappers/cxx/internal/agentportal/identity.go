@@ -60,6 +60,13 @@ func (r *ConnectionRuntime) RequireIdentity(ctx context.Context, cfg *config.Con
 	if pending || strings.TrimSpace(name) == "" {
 		return Identity{}, fmt.Errorf("agent identity: registration has no confirmed name; native launch refused")
 	}
+	// Both reads use the already registered bridge. Discovery is independent
+	// of confirmation, so pay their network waits together while retaining the
+	// identity gate. Cancel the advisory request if confirmation fails.
+	peersCtx, cancelPeers := context.WithCancel(ctx)
+	defer cancelPeers()
+	peers := make(chan *PeerSnapshot, 1)
+	go func() { peers <- s.peerSnapshot(peersCtx) }()
 	var identity Identity
 	err := s.bridgeJSON(ctx, http.MethodPost, "/host/agent-sessions/"+url.PathEscape(s.ID)+"/agent-messaging/self", map[string]any{}, &identity)
 	if err != nil {
@@ -68,7 +75,7 @@ func (r *ConnectionRuntime) RequireIdentity(ctx context.Context, cfg *config.Con
 	if identity.Version != 1 || identity.SessionID != s.ID || identity.Engine != s.Engine || identity.Name != name || !isCanonicalUUID(identity.UUID) || identity.Address != "agent:"+identity.UUID {
 		return Identity{}, fmt.Errorf("agent identity: confirmation does not match this launch; native launch refused")
 	}
-	identity.Peers = s.peerSnapshot(ctx)
+	identity.Peers = <-peers
 	return identity, nil
 }
 
