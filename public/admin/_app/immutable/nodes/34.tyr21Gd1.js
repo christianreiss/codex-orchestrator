@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/CSnVEN_y2.js";export{e as component};

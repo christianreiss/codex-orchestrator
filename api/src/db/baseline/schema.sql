@@ -1160,6 +1160,7 @@ CREATE TABLE `openai_api_keys` (
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL DEFAULT '',
 	`engine` varchar(16) NOT NULL DEFAULT 'codex',
+	`backend_engine` varchar(16),
 	CONSTRAINT `openai_api_keys_id` PRIMARY KEY(`id`),
 	CONSTRAINT `key_hash` UNIQUE(`key_hash`)
 );

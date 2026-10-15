@@ -339,6 +339,8 @@ export type ApiKeyEngine = "openai" | "claude" | "grok";
  *   use_count, last_used_at, expires_at, engine, created_at, updated_at.
  */
 export interface AdminApiKey {
+  /** NULL or omitted means the endpoint default. */
+  backend_engine?: ApiBackendEngine | null;
   id: number;
   name: string;
   key_prefix: string;
@@ -366,6 +368,7 @@ export interface AdminApiKillSwitchState {
 }
 
 export interface CreateApiKeyPayload {
+  backend_engine?: ApiBackendEngine;
   name: string;
   /** ISO 8601 timestamp or `null` to never expire. */
   expires_at?: string | null;

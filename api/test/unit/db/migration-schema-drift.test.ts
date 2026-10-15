@@ -309,6 +309,7 @@ describe('migrations against the test baseline', () => {
       'agent_messages.metadata_enc',
       'agent_sessions.workspace',
       'agent_sessions.activity',
+      'openai_api_keys.backend_engine',
     ]);
   });
 

@@ -1424,6 +1424,7 @@ export const openaiApiKeys = mysqlTable(
     createdAt: varchar('created_at', { length: 100 }).notNull(),
     updatedAt: varchar('updated_at', { length: 100 }).notNull().default(''),
     engine: varchar('engine', { length: 16 }).notNull().default('codex'),
+    backendEngine: varchar('backend_engine', { length: 16 }),
   },
   (t) => ({
     keyHashUnique: uniqueIndex('key_hash').on(t.keyHash),

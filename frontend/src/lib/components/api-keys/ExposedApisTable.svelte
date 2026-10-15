@@ -55,7 +55,7 @@
         <Table.Row>
           <Table.Head>API</Table.Head>
           <Table.Head>Base URL</Table.Head>
-          <Table.Head>Backend</Table.Head>
+          <Table.Head>Default engine</Table.Head>
           <Table.Head class="text-center">Enabled</Table.Head>
           <Table.Head class="text-right">Keys</Table.Head>
         </Table.Row>
@@ -144,7 +144,7 @@
 <details class="mt-2 text-xs text-muted-foreground">
   <summary class="w-fit cursor-pointer py-1">How routing works</summary>
   <p class="mt-1 max-w-prose leading-relaxed">
-  Each API keeps its URL, wire format, keys and on/off switch; the backend decides whose subscription answers.
+  Each API keeps its URL, wire format, keys and on/off switch; the default engine serves keys without an engine assignment. Keys with an assigned engine keep using it when this default changes.
   Limits follow the backend — Grok refuses streaming and images, Codex reports no token usage — and a model id
   native to the API that the backend does not serve runs on the backend's default model.
   </p>

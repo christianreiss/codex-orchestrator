@@ -10,11 +10,12 @@
  * Grok: its auth owner is the fleet's single refresher of the Grok grant, so
  * two surfaces on the Grok backend must share one owner, never build their own.
  */
+import type { FastifyRequest } from 'fastify';
 import { ApiError } from '../http/errors.js';
 import type { Database } from '../db/client.js';
 import type { Env } from '../env.js';
 import type { Keyring } from '../security/keyring.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_LABELS, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_LABELS, isEngine, type Engine } from '../util/engine.js';
 import { createAuthTrafficVerifier, type AuthTrafficVerifier } from './auth-traffic-verification.js';
 import { createRunnerValidationService } from './runner-validation.js';
 import { createRunnerClient } from './runner-client.js';
@@ -78,19 +79,33 @@ export interface GatewayContext {
   keyring: Keyring;
 }
 
-/**
- * A surface stops when the engine *serving* it is switched off fleet-wide
- * (engine-switch.ts) — not when the engine its name suggests is. Keys and the
- * surface's own kill switch are untouched, so switching the engine back on or
- * rerouting the surface restores service. Same 503 `api_disabled` shape as the
- * surface kill switch, rendered in the surface's own wire envelope.
- */
-export async function assertSurfaceBackendEnabled(
-  db: Database,
-  routing: SurfaceRouting,
-  surface: ApiSurfaceId,
+declare module 'fastify' {
+  interface FastifyRequest {
+    gatewayBackendEngine?: Engine;
+  }
+}
+
+/** Resolve exactly once after authentication, shared by availability and execution. */
+export async function resolveRequestBackend(
+  req: FastifyRequest, routing: SurfaceRouting, surface: ApiSurfaceId,
+): Promise<Engine> {
+  if (req.gatewayBackendEngine) return req.gatewayBackendEngine;
+  const assigned = req.openaiKey?.backendEngine ?? req.claudeApiKey?.backendEngine;
+  if (assigned != null && !isEngine(assigned)) {
+    throw new ApiError('API key has an invalid backend assignment', {
+      status: 503, code: 'backend_unavailable', type: 'api_error',
+    });
+  }
+  const backend = assigned ?? await routing.backendFor(surface);
+  req.gatewayBackendEngine = backend;
+  return backend;
+}
+
+/** Endpoint switches apply to every key; fleet switches follow the effective backend. */
+export async function assertRequestBackendEnabled(
+  db: Database, req: FastifyRequest, routing: SurfaceRouting, surface: ApiSurfaceId,
 ): Promise<void> {
-  const backend = await routing.backendFor(surface);
+  const backend = await resolveRequestBackend(req, routing, surface);
   if ((await readFleetEngineState(db))[backend]) return;
   throw new ApiError(
     `${API_SURFACES[surface].label} API is unavailable: its backend engine ${ENGINE_LABELS[backend]} is disabled fleet-wide by the administrator`,

@@ -1,3 +1,8 @@
+# 2026-10-15
+
+- API Access key creation now separates API format from an explicit per-key engine choice. Assigned keys retain their engine when endpoint defaults change; existing keys and older callers keep endpoint-default routing. Model discovery, execution, capabilities and fleet availability use the effective engine on all three APIs.
+- Reworked the key dialog with a wider responsive layout, persistent header and actions, wrapped credentials, copyable SDK and request URLs, connection status and a curl example. Key lists show engine assignments; Configuration labels routing as the default for unassigned keys.
+
 # 2026-10-14
 
 - cxx 0.9.80 integrates the resident communicator with the 0.9.79 startup, credential-recovery and native-entry corrections. Residence and remote execution remain independent; the signed runtime capability defaults off.

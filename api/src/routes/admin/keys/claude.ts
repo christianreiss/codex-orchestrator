@@ -1,3 +1,4 @@
+import { parseKeyBackend } from '../../../services/api-key-routing.js';
 /**
  * Admin Claude API key management. Mirrors src/Http/Controllers/AdminClaudeKeyController.php.
  *
@@ -66,6 +67,7 @@ export async function registerAdminClaudeKeyRoutes(
 
       const issued = await service.create({
         name,
+        backendEngine: await parseKeyBackend(ctx.db, body.backend_engine),
         adminUserId,
         expiresAt: expiresAt && expiresAt !== '' ? expiresAt : null,
       });

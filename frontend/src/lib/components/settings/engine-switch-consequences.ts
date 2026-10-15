@@ -72,10 +72,10 @@ export function engineSwitchConfirmCopy(
         `${capitalize(hostsPhrase(ctx.activeHosts, label))} ${ctx.activeHosts === null || ctx.activeHosts === 1 ? "resumes" : "resume"} ${command} on the next launch, or within 15 minutes through background maintenance.`,
         `The server resumes token refresh, verification, quota polling, account leasing, seeding and installers for ${label}.`,
         routed === null
-          ? `Any exposed API whose backend is ${label} answers again.`
+          ? `Keys assigned to ${label}, and unassigned keys whose endpoint default is ${label}, can answer again.`
           : routed.length > 0
-            ? `${apis} ${routed.length === 1 ? "answers" : "answer"} again, since ${routed.length === 1 ? "its" : "their"} backend is ${label}.`
-            : `No exposed API is routed to ${label}, so the gateways are unaffected.`,
+            ? `Unassigned keys on ${apis} can answer again. Keys assigned to ${label} on any endpoint can also answer again.`
+            : `No endpoint default uses ${label}. Keys assigned to ${label} can answer again on any endpoint.`,
         `If ${label} was off for a long time, check Accounts first: a credential whose refresh lapsed while it was off has to be re-seeded before hosts can launch it.`,
       ],
       warning: null,
@@ -92,10 +92,10 @@ export function engineSwitchConfirmCopy(
       `Sessions already running are not killed, but no new ${label} session starts and no new account lease is granted.`,
       `The server stops token refresh, verification and quota polling for ${label} accounts, and refuses seeding and installers for it.`,
       routed === null
-        ? `Any exposed API whose backend is ${label} answers 503 until it is turned back on or rerouted under API Access.`
+        ? `Keys assigned to ${label}, and unassigned keys whose endpoint default is ${label}, answer 503 until the engine is enabled or their routing changes.`
         : routed.length > 0
-          ? `${apis} ${routed.length === 1 ? "answers" : "answer"} 503 while ${routed.length === 1 ? "its" : "their"} backend is ${label}. Reroute under API Access to keep ${routed.length === 1 ? "it" : "them"} up.`
-          : `No exposed API is routed to ${label}, so the gateways keep answering.`,
+          ? `Unassigned keys on ${apis} answer 503 while the default engine is ${label}. Keys assigned to ${label} on any endpoint also answer 503; keys assigned to another enabled engine keep working.`
+          : `No endpoint default uses ${label}. Keys assigned to ${label} still answer 503; keys using another enabled engine keep working.`,
       `Tokens are not refreshed while it is off. After a long pause, ${label} accounts may need to be re-seeded before hosts can launch again.`,
       `Model defaults, instructions and other configuration stay editable while it is off.`,
     ],
