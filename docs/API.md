@@ -1006,6 +1006,7 @@ Current bridge routes use the session token; operator host routes use host auth 
 - `GET /admin/daemon-sessions/:id`
 - `POST /admin/daemon-sessions/:id/messages`
 - `POST /admin/daemon-sessions/:id/stop`
+- `POST /host/daemon/migration` — UUID-scoped fence, status and release for resident-runtime migration.
 - `GET /host/daemon/config`
 - `GET /host/daemon/connect`
 - `POST /host/daemon/peer-finished`
@@ -1135,3 +1136,13 @@ Reads require `feedback.read`; writes require `feedback.manage`. Fields and life
 - `GET /admin/communicators`: requires `hosts.read`; reports the API process's live communicator connections, users, versions, client counts and last sync.
 
 See [CoCo Communicator](communicator.md) for the local socket, reconnect and rollout contract.
+
+### Per-key inference engine
+
+Key creation on `/admin/openai/keys`, `/admin/claude/keys` and `/admin/grok/keys`
+accepts optional `backend_engine: "codex"|"claude"|"grok"`. Omission keeps the
+endpoint default. Explicit invalid values return 400; disabled engines return
+409. Creation and list records include nullable `backend_engine`. Assigned
+keys keep their engine when endpoint defaults change; model discovery, fleet
+availability and execution use that assignment. Endpoint switches still apply
+to every key. See [Exposed API routing](interface-api.md#exposed-api-routing-any-to-any).

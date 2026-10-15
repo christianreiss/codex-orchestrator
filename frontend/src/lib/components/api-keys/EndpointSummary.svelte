@@ -33,7 +33,7 @@
         {@const backend = $engines.data?.engines?.find((entry) => entry.engine === row.backend)}
         {@const unknown = $state.isError || $engines.isError || !backend || !$state.data}
         {@const off = $state.data?.disabled || row.disabled || backend?.enabled === false}
-        {@const status = $state.data?.disabled ? "All traffic off" : row.disabled ? "Disabled" : backend?.enabled === false ? "Backend off" : unknown ? ($state.isPending || $engines.isPending ? "Checking…" : "Status unavailable") : "Enabled"}
+        {@const status = $state.data?.disabled ? "All traffic off" : row.disabled ? "Disabled" : backend?.enabled === false ? "Default engine off" : unknown ? ($state.isPending || $engines.isPending ? "Checking…" : "Status unavailable") : "Enabled"}
         <div class="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 py-2 sm:grid-cols-[8rem_minmax(0,1fr)_auto_auto]" data-endpoint={row.surface}>
           <button
             type="button"
@@ -43,7 +43,7 @@
             onclick={() => onSelect(keyTab[row.surface])}
           >{labels[row.surface]}</button>
           <code class="col-start-1 row-start-2 min-w-0 break-all font-mono text-xs text-muted-foreground sm:col-start-auto sm:row-start-auto">{url}</code>
-          <span class="col-start-2 row-start-1 flex items-center gap-1.5 text-xs text-muted-foreground sm:col-start-auto sm:row-start-auto" title={`Backend: ${row.backend}`}>
+          <span class="col-start-2 row-start-1 flex items-center gap-1.5 text-xs text-muted-foreground sm:col-start-auto sm:row-start-auto" title={`Default engine: ${row.backend}. Assigned keys use their own engine.`}>
             <span aria-hidden="true" class="h-1.5 w-1.5 rounded-full {off ? 'bg-warning' : unknown ? 'bg-muted-foreground' : 'bg-success'}"></span>
             {status}
           </span>

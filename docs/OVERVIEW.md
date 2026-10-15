@@ -35,7 +35,7 @@ Git Director opens on Settings with compact service and commit controls and a se
 - Audit who synced/rotated auth, what versions they run, and how many tokens they burn.
 - Run Codex in environments that require IP binding and TLS.
 
-API Access opens with compact, copyable endpoints and per-API keys. Configuration holds routing, backend defaults, and the global API control; existing settings anchors open the matching section automatically.
+API Access opens with compact, copyable endpoints and per-API keys. New keys select an API format and a separate answering engine; the wider creation dialog reveals the key with copyable connection URLs and a curl example. Existing keys without an assignment keep following the endpoint default. Configuration holds routing, backend defaults, and the global API control; existing settings anchors open the matching section automatically.
 
 The header Appearance menu applies light, dark, or system mode immediately and saves it through `/admin/theme`, matching Appearance settings. Failed header saves restore the previous choice and report the error; startup hydration cannot overwrite a newer user choice.
 
@@ -119,7 +119,7 @@ minutes, with provider-defined periods and explicit stale/unknown states. CLI
 quota enforcement and account assignment are unchanged. See [Grok interface](interface-cgx.md).
 
 The three inference gateways (`/v1`, `/anthropic/v1`, `/grok/v1`) are surfaces
-whose answering engine is configurable per surface (API Access → Configuration → Routing & availability,
+whose answering engine is selected per key, with a configurable endpoint default for unassigned keys (API Access → Configuration → Routing & availability,
 `versions.api_surface_backend_*`, identity by default). Keys, URL, wire format
 and kill switch stay with the surface; credentials, capabilities and the model
 catalog come from the backend. See [Exposed API routing](interface-api.md#exposed-api-routing-any-to-any).

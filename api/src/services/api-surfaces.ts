@@ -13,7 +13,8 @@
  * (`codex` = `/v1`, `claude` = `/anthropic/v1`, `grok` = `/grok/v1`), not the
  * backend that answers.
  *
- * The mapping lives in `versions` rows `api_surface_backend_<surface>`. A
+ * A key with non-null `backend_engine` overrides the endpoint default; NULL
+ * preserves this mapping for existing keys. The default mapping lives in `versions` rows `api_surface_backend_<surface>`. A
  * missing or unparseable row means the identity backend — that is exactly the
  * behaviour every install had before the mapping existed.
  */

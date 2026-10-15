@@ -17,6 +17,7 @@
   import SortableHead from "$lib/components/data-table/SortableHead.svelte";
   import { keysApi, keyQueryKeys, engineLabel, isActive } from "$lib/api/keys";
   import type { AdminApiKey, ApiKeyEngine } from "$lib/api/types";
+  import { BACKEND_LABEL } from "./connection";
   import { relativeTime } from "$lib/utils/format";
 
   type Props = { engine: ApiKeyEngine };
@@ -230,6 +231,7 @@
         <Table.Row>
           <SortableHead label="Name" active={sortKey === "name"} dir={sortDir} onclick={() => onSort("name")} />
           <Table.Head>Key prefix</Table.Head>
+          <Table.Head>Engine</Table.Head>
           <Table.Head class="text-center">Active</Table.Head>
           <Table.Head class="text-right">Uses</Table.Head>
           <SortableHead
@@ -246,7 +248,7 @@
         {#if isLoading}
           {#each Array(3) as _, i (i)}
             <Table.Row>
-              {#each Array(7) as _2, j (j)}
+              {#each Array(8) as _2, j (j)}
                 <Table.Cell><Skeleton class="h-4 w-full" /></Table.Cell>
               {/each}
             </Table.Row>
@@ -262,6 +264,7 @@
                   >{record.key_prefix}</code
                 >
               </Table.Cell>
+              <Table.Cell>{record.backend_engine ? BACKEND_LABEL[record.backend_engine] : "Endpoint default"}</Table.Cell>
               <Table.Cell class="text-center">
                 <Switch
                   checked={active}

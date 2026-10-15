@@ -30,6 +30,7 @@ export interface ClaudeApiKeyContext {
   name: string;
   keyPrefix: string;
   adminUserId: number | null;
+  backendEngine?: string | null;
 }
 
 export interface ClaudeKeyResolver {
@@ -125,6 +126,7 @@ export function createClaudeKeyResolver(db: Database): ClaudeKeyResolver {
       name: row.name,
       keyPrefix: row.keyPrefix,
       adminUserId: row.adminUserId ?? null,
+      backendEngine: row.backendEngine ?? null,
     };
     return ctx;
   }

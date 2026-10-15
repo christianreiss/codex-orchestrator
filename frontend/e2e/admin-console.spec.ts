@@ -2405,12 +2405,14 @@ test("API Access shows the Grok text gateway and issues a scoped client key", as
   await page.getByRole("tab", { name: "Grok", exact: true }).click();
   await page.getByRole("button", { name: "New key", exact: true }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByRole("button", { name: "Engine", exact: true })).toContainText("Grok");
+  await expect(dialog.getByRole("button", { name: "API format", exact: true })).toContainText("Grok");
+  await dialog.getByRole("button", { name: "Engine", exact: true }).click();
+  await page.getByRole("option", { name: "Grok", exact: true }).click();
   await dialog.getByRole("textbox", { name: "Name", exact: true }).fill("Grok test");
   await dialog.getByRole("button", { name: "Create key" }).click();
   await expect.poll(() => writes.some(w => w.path === "/admin/grok/keys")).toBe(true);
   expect(writes).toContainEqual({ path: "/admin/api/surfaces/grok", body: { disabled: true } });
-  expect(writes).toContainEqual({ path: "/admin/grok/keys", body: { name: "Grok test", expires_at: null } });
+  expect(writes).toContainEqual({ path: "/admin/grok/keys", body: { name: "Grok test", backend_engine: "grok", expires_at: null } });
   expect(writes).toContainEqual({ path: "/admin/grok/models/grok-4.5/toggle", body: { enabled: false } });
 });
 
@@ -2572,7 +2574,7 @@ test("API Access keeps keys visible, copies endpoints and preserves selection", 
   await page.getByRole("button", { name: "Back to keys" }).click();
   await expect(page.getByRole("tab", { name: "Anthropic", exact: true })).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "New key", exact: true }).click();
-  await expect(page.getByRole("dialog").getByRole("button", { name: "Engine", exact: true })).toContainText("Claude");
+  await expect(page.getByRole("dialog").getByRole("button", { name: "API format", exact: true })).toContainText("Anthropic");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, { timeout: 10000 });
@@ -2592,7 +2594,7 @@ test("API Access resolves legacy anchors and the new-key deep link", async ({ pa
     await expect(page.getByRole("button", { name: "Back to keys" })).toBeVisible();
   }
   await page.goto("/admin/api-keys?dialog=new&engine=grok");
-  await expect(page.getByRole("dialog").getByRole("button", { name: "Engine", exact: true })).toContainText("Grok");
+  await expect(page.getByRole("dialog").getByRole("button", { name: "API format", exact: true })).toContainText("Grok");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page).not.toHaveURL(/dialog=new/);
   await expect(page.getByRole("tab", { name: "Grok", exact: true })).toHaveAttribute("aria-selected", "true");
@@ -2610,9 +2612,9 @@ test("API Access reports disabled and rerouted backends without changing key nam
     }
   });
   await page.goto("/admin/api-keys");
-  await expect(page.locator('[data-endpoint="openai"]')).toContainText("Backend off");
+  await expect(page.locator('[data-endpoint="openai"]')).toContainText("Default engine off");
   await expect(page.locator('[data-endpoint="anthropic"]')).toContainText("Disabled");
-  await expect(page.locator('[data-endpoint="grok"]')).toContainText("Backend off");
+  await expect(page.locator('[data-endpoint="grok"]')).toContainText("Default engine off");
   await page.getByRole("button", { name: "Show OpenAI keys" }).click();
   await expect(page.getByRole("textbox", { name: "Search OpenAI keys" })).toBeVisible();
   await installFixtures(page, path => path === "/admin/api/state" ? { disabled: true } : undefined);

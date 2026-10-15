@@ -109,6 +109,17 @@ so a change applies without a restart.
   surface and never change with the backend; `openai_api_keys.engine` names the
   surface's key namespace, not the engine that answers. A missing or invalid
   backend row means the identity backend (migration `0038` seeds it explicitly).
+- Each key may independently pin `backend_engine` to `codex`, `claude`, or
+  `grok`. NULL keeps endpoint-default routing. Resolve the effective backend
+  once per authenticated request and use it for availability, models and execution;
+  a disabled endpoint default does not block keys assigned to an enabled engine.
+- Key creation on `/admin/openai/keys`, `/admin/claude/keys` and
+  `/admin/grok/keys` accepts optional `backend_engine`
+  alongside `name` and `expires_at`. Omission preserves legacy default routing;
+  explicit invalid values (including NULL) return 400, and fleet-disabled engines
+  return `409 engine_disabled`. Creation and list records include nullable
+  `backend_engine`; the legacy `engine` field remains the key namespace.
+  Assignments cannot be edited; issue a replacement key to change the engine.
 - The backend supplies the canonical credential snapshot, the runner `engine`,
   the capability table and the model catalog. Each engine's backend exists once
   per API process, so Grok's single central refresher is shared by every surface
@@ -137,7 +148,7 @@ so a change applies without a restart.
   Routing a surface onto a backend that is switched off fleet-wide returns
   `409 engine_disabled` (`scope:"fleet"`); leaving it where it is stays allowed.
 
-The API Access UI defaults to endpoints and key management. `#configuration` opens routing, collapsible backend defaults and the global API control. Existing anchors (`#service-availability`, `#exposed-apis`, `#claude-proxy`, `#grok-proxy`, including inner engine anchors) still open their matching controls. `?dialog=new&engine=openai|claude|grok` opens key creation and selects that API's key tab; key namespaces are independent of the selected backend. These are UI navigation changes; HTTP contracts are unchanged.
+The API Access UI defaults to endpoints and key management. `#configuration` opens routing, collapsible backend defaults and the global API control. Existing anchors (`#service-availability`, `#exposed-apis`, `#claude-proxy`, `#grok-proxy`, including inner engine anchors) still open their matching controls. `?dialog=new&engine=openai|claude|grok` opens key creation and selects that API's key tab; key namespaces are independent of the selected backend. The creation dialog requires an explicit engine choice independently of API format. Its responsive connection summary shows the assigned engine, expiry, availability, copyable key, SDK base URL, models and generation URLs, plus a curl example with a model placeholder. The key list distinguishes assigned engines from Endpoint default. Configuration changes the default only for unassigned keys; endpoint switches apply to all keys.
 
 ## Engine master switches
 
@@ -186,9 +197,9 @@ everything without a reinstall.
   config and `/auth` (`host.fleet_disabled_engines` is separate), so drift
   detection never mistakes a suspension for a removal. `/versions` and the
   `/auth` `versions` block carry `fleet_disabled_engines` too.
-- Gateways: a surface whose **backend** is switched off returns `503 api_disabled`
+- Gateways: a request whose **effective backend** (key assignment, else endpoint default) is switched off returns `503 api_disabled`
   (`reason:"backend_engine_disabled"`, `engine`) in the surface's own wire
-  envelope. A surface named after the engine but routed elsewhere keeps serving.
+  envelope. Keys using another enabled engine keep serving, including when the endpoint default is disabled. The endpoint kill switch still blocks every key on that endpoint.
 - Admin actions that would reach a provider, the runner or a host for a
   switched-off engine return `409 engine_disabled` (`scope:"fleet"`): canonical
   auth stores (admin upload, seed, bootstrap — the `storeCandidate` chokepoint),
@@ -531,7 +542,7 @@ The Quick Settings page (`/admin/quick-settings`) reuses `GET/POST /admin/model-
 - `GET /admin/engines/state` / `POST /admin/engines/{engine}/state` — fleet-wide engine master switches: list each engine's on/off state, or switch one with `{enabled}`. See [Engine master switches](#engine-master-switches).
 - `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently). `settings.read` / `settings.manage`.
 - `GET /admin/openai/keys` — list all OpenAI API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
-- `POST /admin/openai/keys` — create a new OpenAI API key. Body: `{name: string, expires_at?: string}`. Returns the full key (shown once) and the record. Keys use the `sk-cdx-` prefix.
+- `POST /admin/openai/keys` — create a new OpenAI API key. Body: `{name: string, expires_at?: string, backend_engine?: "codex"|"claude"|"grok"}`. Returns the full key (shown once) and the record. Keys use the `sk-cdx-` prefix.
 - `POST /admin/openai/keys/{id}/toggle` — enable or disable an OpenAI API key. Body: `{active: bool}`.
 - `DELETE /admin/openai/keys/{id}` — delete an OpenAI API key.
 - `GET /admin/claude/state` / `POST /admin/claude/state` — read/set persisted `claude_api_disabled` flag (toggles Anthropic-compatible API independently). `settings.read` / `settings.manage`. See [Admin: Claude management](#admin-claude-management) for full details.
@@ -539,7 +550,7 @@ The Quick Settings page (`/admin/quick-settings`) reuses `GET/POST /admin/model-
 - For Grok only, the model-defaults response also includes `context_window` and each catalog entry adds `context_windows: [256000, 500000]` and `default_context_window: 256000`. POST additionally accepts `context_window?: number|null`: omission preserves the saved window (256000 on a new config), `null` resets to the catalog default, and other values return HTTP 422. The canonical structured setting renders as `[model."<effective-model>"].context_window` in native Grok TOML, including when a host overrides the model. Model/effort-only callers remain compatible; Codex and Claude reject this field. The selected window is included in the `admin.model_defaults` audit event.
 - `POST /admin/model-defaults/{engine}` — set the fleet CLI defaults. Strict body: `{model: string, reasoning_effort?: string|null}`. Omitted/null effort selects the model's `default_effort`; unsupported engines, models, efforts, or extra fields return HTTP 422 `validation_failed`. Codex persists `model` / `model_reasoning_effort`; Claude stores the abstract fleet `model` / `effortLevel` and renders native `modelSettings[canonicalModel].effortLevel`; older models also receive the compatible top-level key. Claude persistent capabilities are Fable 5/5.1, Opus 5, Opus 4.8, and Sonnet 5 `low|medium|high|xhigh` (default `high`); Opus/Sonnet/Haiku 5.5 have the same set with default `medium`; Opus 4.7 defaults to `xhigh`; Opus/Sonnet 4.6 support `low|medium|high` (default `high`); Opus 4.5 and Haiku 4.5 have no native effort value (`null`, so managed effort keys are removed). This follows the native CLI settings schemas: Codex effort is model-dependent, while Claude Code persists only `low|medium|high|xhigh`; its `max` effort is session-only and is intentionally not offered here.
 - `GET /admin/claude/keys` — list all Claude API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
-- `POST /admin/claude/keys` — create a new Claude API key. Body: `{name: string, expires_at?: string}`. Returns the full key (shown once) and the record. Keys use the `sk-ant-` prefix.
+- `POST /admin/claude/keys` — create a new Claude API key. Body: `{name: string, expires_at?: string, backend_engine?: "codex"|"claude"|"grok"}`. Returns the full key (shown once) and the record. Keys use the `sk-ant-` prefix.
 - `POST /admin/claude/keys/{id}/toggle` — enable or disable a Claude API key. Body: `{active: bool}`.
 - `DELETE /admin/claude/keys/{id}` — delete a Claude API key.
 - `GET /admin/claude/version` — Claude Code fleet version summary (the same shape the Codex version card uses).
@@ -971,7 +982,7 @@ Authentication: `Authorization: Bearer sk-ant-...` or `x-api-key: sk-ant-...` he
 
 - `GET /admin/claude/keys` — List all Claude API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
 
-- `POST /admin/claude/keys` — Create a new Claude API key. Body: `{name: string, expires_at?: string}`. Returns the full key (shown once) and the record. Keys use the `sk-ant-` prefix.
+- `POST /admin/claude/keys` — Create a new Claude API key. Body: `{name: string, expires_at?: string, backend_engine?: "codex"|"claude"|"grok"}`. Returns the full key (shown once) and the record. Keys use the `sk-ant-` prefix.
 
 - `POST /admin/claude/keys/{id}/toggle` — Enable or disable a Claude API key. Body: `{active: bool}`.
 
@@ -1597,7 +1608,7 @@ The API background worker polls `https://cli-chat-proxy.grok.com/v1/billing?form
 - `GET /grok/v1/models` — Enabled Grok native model catalog.
 - `GET /grok/v1/models/:model` — Retrieve an enabled native model.
 - `GET /admin/grok/keys` — List Grok gateway keys without credential bodies.
-- `POST /admin/grok/keys` — Issue a scoped sk-cgx- gateway key, returned once.
+- `POST /admin/grok/keys` — Issue a scoped sk-cgx- gateway key, returned once. Body: `{name: string, expires_at?: string, backend_engine?: "codex"|"claude"|"grok"}`. Omitted `backend_engine` retains endpoint-default routing.
 - `POST /admin/grok/keys/:id/toggle` — Change a Grok gateway key active state.
 - `DELETE /admin/grok/keys/:id` — Remove a Grok gateway key.
 - `GET /admin/grok/state` — Read the independent Grok API switch.

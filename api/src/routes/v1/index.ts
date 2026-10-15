@@ -1,4 +1,4 @@
-import type { FastifyInstance, preHandlerHookHandler } from 'fastify';
+import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import type { RouteContext } from '../index.js';
 import { ApiError } from '../../http/errors.js';
 import { createGatewayLifecycle } from '../../http/gateway-lifecycle.js';
@@ -19,7 +19,8 @@ import {
 import { API_SURFACES, type ApiSurfaceId } from '../../services/api-surfaces.js';
 import {
   assertBackendRequestControls,
-  assertSurfaceBackendEnabled,
+  assertRequestBackendEnabled,
+  resolveRequestBackend,
   defaultGatewayWiring,
   openAiModelObject,
   resolveGenerationModel,
@@ -68,9 +69,10 @@ export async function registerOpenAiCompatRoutes(
   const keys = overrides.keys ?? new OpenAiKeyService({ db: ctx.db, keyring: ctx.keyring });
   const killSwitch = overrides.killSwitch ?? makeOpenAiKillSwitch(ctx.db, surface.disabledFlag, surface.id === 'grok' ? 'Grok' : 'OpenAI');
   const keyResolver = makeOpenAiKeyResolver({ keys, engine: surface.keyEngine });
-  const killSwitchHook = makeKillSwitchPreHandler(killSwitch, () =>
-    assertSurfaceBackendEnabled(ctx.db, gateway.routing, surface.id),
-  );
+  const killSwitchHook = makeKillSwitchPreHandler(killSwitch);
+  const backendHook: preHandlerHookHandler = async (req) => {
+    await assertRequestBackendEnabled(ctx.db, req, gateway.routing, surface.id);
+  };
 
   const identity = surface.identityBackend;
   const adapters = new Map<Engine, RunnerOpenAiAdapter | null>();
@@ -90,8 +92,8 @@ export async function registerOpenAiCompatRoutes(
     }
     return adapters.get(backend.engine) ?? null;
   };
-  const backendNow = async (): Promise<GatewayBackend> =>
-    gateway.backends.get(await gateway.routing.backendFor(surface.id));
+  const backendNow = async (req: FastifyRequest): Promise<GatewayBackend> =>
+    gateway.backends.get(await resolveRequestBackend(req, gateway.routing, surface.id));
   const resolveRequested = (backend: GatewayBackend, value: unknown): Promise<string> =>
     backend.engine === identity && overrides.models
       ? overrides.models.resolveRequestedModel(value)
@@ -106,9 +108,9 @@ export async function registerOpenAiCompatRoutes(
   });
 
   app.post('/v1/chat/completions', {
-    preHandler: [killSwitchHook, keyResolver],
+    preHandler: [killSwitchHook, keyResolver, backendHook],
     handler: async (req, reply) => runGeneration(reply, async (signal) => {
-      const backend = await backendNow();
+      const backend = await backendNow(req);
       const adapter = adapterFor(backend);
       ensureAdapter(adapter);
       const payload = parseBody(req.body);
@@ -154,9 +156,9 @@ export async function registerOpenAiCompatRoutes(
   });
 
   app.post('/v1/responses', {
-    preHandler: [killSwitchHook, keyResolver],
+    preHandler: [killSwitchHook, keyResolver, backendHook],
     handler: async (req, reply) => runGeneration(reply, async (signal) => {
-      const backend = await backendNow();
+      const backend = await backendNow(req);
       const adapter = adapterFor(backend);
       ensureAdapter(adapter);
       const payload = parseBody(req.body);
@@ -187,9 +189,9 @@ export async function registerOpenAiCompatRoutes(
   });
 
   app.post('/v1/completions', {
-    preHandler: [killSwitchHook, keyResolver],
+    preHandler: [killSwitchHook, keyResolver, backendHook],
     handler: async (req, reply) => runGeneration(reply, async (signal) => {
-      const backend = await backendNow();
+      const backend = await backendNow(req);
       const adapter = adapterFor(backend);
       ensureAdapter(adapter);
       const payload = parseBody(req.body);
@@ -216,7 +218,7 @@ export async function registerOpenAiCompatRoutes(
   });
 
   app.post('/v1/embeddings', {
-    preHandler: [killSwitchHook, keyResolver],
+    preHandler: [killSwitchHook, keyResolver, backendHook],
     handler: async () => {
       // Runner backend has no embeddings support. Return a non-retriable 4xx
       // with an OpenAI-shaped type: a 501 (`not_implemented`) leaked an
@@ -231,9 +233,9 @@ export async function registerOpenAiCompatRoutes(
   });
 
   app.get('/v1/models', {
-    preHandler: [killSwitchHook, keyResolver],
-    handler: async () => {
-      const backend = await backendNow();
+    preHandler: [killSwitchHook, keyResolver, backendHook],
+    handler: async (req) => {
+      const backend = await backendNow(req);
       if (backend.engine === identity && overrides.models) return overrides.models.modelsResponse();
       return { object: 'list', data: (await backend.models.catalog()).map(openAiModelObject) };
     },
@@ -244,7 +246,7 @@ export async function registerOpenAiCompatRoutes(
   // client.models.retrieve(...) 404'd. Unknown ids get the same 404 +
   // model_not_found shape as the chat/completions path.
   app.get('/v1/models/:model', {
-    preHandler: [killSwitchHook, keyResolver],
+    preHandler: [killSwitchHook, keyResolver, backendHook],
     handler: async (req) => {
       const { model } = req.params as { model?: string };
       const id = typeof model === 'string' ? model.trim() : '';
@@ -258,7 +260,7 @@ export async function registerOpenAiCompatRoutes(
       // Strict lookup in the backend's catalog: legacy aliases upgrade, unknown
       // ids throw the 404 model_not_found shape, and — unlike a generation
       // request — another wire's model id never falls back to the default.
-      const backend = await backendNow();
+      const backend = await backendNow(req);
       const selected = backend.engine === identity && overrides.models
         ? await overrides.models.resolveRequestedModel(id)
         : await backend.models.resolve(id);
@@ -267,11 +269,10 @@ export async function registerOpenAiCompatRoutes(
   });
 }
 
-function makeKillSwitchPreHandler(kill: KillSwitch, backendEnabled: () => Promise<void>): preHandlerHookHandler {
+function makeKillSwitchPreHandler(kill: KillSwitch): preHandlerHookHandler {
   return async function killSwitchPreHandler(req): Promise<void> {
     if (req.method === 'OPTIONS') return;
     await kill.throwIfDisabled();
-    await backendEnabled();
   };
 }
 

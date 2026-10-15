@@ -42,6 +42,7 @@ function makeRecord(overrides: Partial<OpenaiApiKey> = {}): OpenaiApiKey {
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     engine: ENGINE_CODEX,
+    backendEngine: null,
     ...overrides,
   };
 }

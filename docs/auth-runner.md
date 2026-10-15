@@ -76,6 +76,49 @@ new route has to be documented here before it can ship.
   be lost; an unexpected timeout outside that lifecycle may still be HTTP 504.
   API-side runner HTTP errors are always non-definitive infrastructure failures.
 
+## Live gateway acceptance matrix
+
+`api/scripts/verify-gateway-matrix.ts` is an opt-in acceptance test against real
+providers. It starts the production gateway routes on loopback, uses real key
+issuance/resolution and DB-backed routing in a dedicated MySQL database, and
+forwards generation to a separately started runner. It never changes production
+routing or writes provider credentials to its test database.
+
+Supply a JSON object on stdin with `snapshots.codex`, `snapshots.claude` and
+`snapshots.grok` containing enabled, verified canonical access snapshots. All
+refresh-token fields must be empty or absent. Grok snapshots must come from the
+existing central owner and remain valid for the runner timeout plus its refresh
+buffer; the test must not create another refresher.
+
+From `api/`, with that snapshot pipe already connected to stdin:
+
+```sh
+GATEWAY_MATRIX_LIVE=1 \
+TEST_DATABASE_URL='mysql://matrix:matrix-test-only@127.0.0.1:3307/gateway_matrix' \
+GATEWAY_MATRIX_RUNNER_URL='http://127.0.0.1:8081' \
+GATEWAY_MATRIX_RUNNER_SECRET='matrix-test-only' \
+GATEWAY_MATRIX_RUNNER_IMAGE='<tested image digest>' \
+GATEWAY_MATRIX_REPORT='/tmp/gateway-matrix.json' \
+./node_modules/.bin/tsx scripts/verify-gateway-matrix.ts
+```
+
+The verifier permits only loopback endpoints and a `gateway_matrix` database
+name (optionally suffixed with `_name`). It runs the normal idempotent migration
+runner, creates temporary gateway keys and deletes them on exit. Credentials
+stay in process memory and the runner's disposable native homes. The JSON
+report contains no auth payloads or API keys.
+
+Each of the nine surface/backend combinations exercises every generation
+endpoint and supported stream with an assigned key while the endpoint default
+deliberately names another engine. Unassigned keys also exercise all nine
+endpoint-default combinations. Fresh arithmetic challenges verify answer content;
+a recording HTTP relay verifies the actual runner engine, model, matching
+credential snapshot and successful execution. Catalog/list/retrieve, namespace
+rejection, native-model fallback, backend master switches, token estimation and
+documented unsupported operations are checked separately. Unsupported Grok
+streaming, Responses streaming and embeddings remain explicit error contracts,
+not claimed capabilities. Exit status is nonzero on any failed check.
+
 ## Grok credential ownership
 
 Grok uses centralized refresh ownership. The runner receives only the selected

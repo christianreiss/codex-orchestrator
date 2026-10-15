@@ -27,6 +27,7 @@ export interface CreateKeyInput {
   adminUserId?: number | null;
   expiresAt?: string | null;
   engine?: Engine;
+  backendEngine?: Engine | null;
 }
 
 export interface OpenAiKeyServiceDeps {
@@ -65,6 +66,7 @@ export class OpenAiKeyService {
       useCount: 0,
       expiresAt: input.expiresAt ?? null,
       engine,
+      backendEngine: input.backendEngine ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -164,6 +166,7 @@ export class OpenAiKeyService {
         lastUsedAt: openaiApiKeys.lastUsedAt,
         expiresAt: openaiApiKeys.expiresAt,
         engine: openaiApiKeys.engine,
+        backendEngine: openaiApiKeys.backendEngine,
         createdAt: openaiApiKeys.createdAt,
         updatedAt: openaiApiKeys.updatedAt,
       })
