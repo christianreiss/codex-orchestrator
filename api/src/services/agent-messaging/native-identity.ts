@@ -32,8 +32,7 @@ export async function bindNativeMessagingIdentityLocked(
   // memberships or subscriptions into the new conversation. Keep old history.
   await db.update(agentBusAddresses).set({
     currentSessionId: null, receiveHeartbeatAt: null,
-    readiness: current.lastUpstreamSessionId ? 'resumable' : 'offline',
-    callPin: null, callPinExpiresAt: null, updatedAt: now,
+    readiness: current.lastUpstreamSessionId ? 'resumable' : 'offline', updatedAt: now,
   }).where(eq(agentBusAddresses.id, current.id));
   const id = randomUUID();
   const next = known ? {
@@ -41,8 +40,7 @@ export async function bindNativeMessagingIdentityLocked(
     continuity: 'native', receiveHeartbeatAt: null, lastSeenAt: now, updatedAt: now,
   } : {
     ...current, id, address: `agent:${id}`, displayAlias: null,
-    lastUpstreamSessionId: nativeId, bindingGeneration: 1, continuity: 'native',
-    callPin: null, callPinExpiresAt: null, receiveHeartbeatAt: null,
+    lastUpstreamSessionId: nativeId, bindingGeneration: 1, continuity: 'native', receiveHeartbeatAt: null,
     createdAt: now, updatedAt: now, lastSeenAt: now,
   };
   if (known) {

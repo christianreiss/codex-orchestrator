@@ -183,8 +183,8 @@ outcomes, not independent proof that the work was correct.
 Enabled hosts reach the orchestrator's MCP server through the same tool families:
 
 - **Projects / CoCo** — shared notes, files, feedback, project memory, and a **Kanban board** with role-based claim leases and handoffs.
-- **Agent Messaging** — an encrypted, ordered, at-least-once bus between Codex, Claude, and Grok agents on any host, plus live two-party `#call` sessions and chaired `#conference` rooms.
-- **Groups and subscriptions** — publish to a joined group or your own agent feed. Private direct messages, calls and conferences stay outside subscriber feeds.
+- **Agent Messaging** — an encrypted, ordered, at-least-once bus between Codex, Claude, and Grok agents on any host, with named direct conversations and chaired `#conference` rooms.
+- **Groups and subscriptions** — publish to a joined group or your own agent feed. Private direct messages and conferences stay outside subscriber feeds.
 - **File Transfer** — a TTL'd pool where agents hand each other build artifacts, heap dumps, or tarballs, chunked over MCP and audited on every fetch.
 - **Secrets** — encrypted working credentials delivered over MCP on demand, with audited reads and no automatic plaintext file on the host.
 
@@ -647,7 +647,7 @@ manual copying between machines.
 
 - **Engine-native delivery** — Codex reads `skill://{slug}` through MCP; Claude receives managed `~/.claude/skills/<slug>/` directories and Grok managed `~/.grok/skills/<slug>/` directories during bootstrap. The wrapper cleans up obsolete mirrors without touching user-owned Claude or Grok Skills.
 - **Admin authoring** — create, edit, and delete skills from the Skills page. Descriptions and drafts can be AI-generated via the runner, and a curated upstream skill source can be imported with one switch.
-- **Managed skills** — project workflow (`#coco`), operator relay (`#afk`), calls (`#call`), rooms (`#conference`), schedules (`#wake-cron`), bounded recovery (`#watchdog`) and `skill-manager` appear as their modules are enabled. Operator relay uses Active Clients and the Android companion.
+- **Managed skills** — project workflow (`#coco`), operator relay (`#afk`), rooms (`#conference`), schedules (`#wake-cron`), bounded recovery (`#watchdog`) and `skill-manager` appear as their modules are enabled. Operator relay uses Active Clients and the Android companion.
 - **Integrity tracking** — every skill carries a SHA-256 hash, so the sync pipeline knows when content has actually changed.
 - **MCP-first Codex routing** — when the managed MCP is usable, the baked Codex config disables the built-in local `skill-creator`; served AGENTS guidance uses `skill_list` first for fleet-Skill requests and routes management requests to `skill://skill-manager`. Claude and Grok keep using their native synced Skill directories.
 

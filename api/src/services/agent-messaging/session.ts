@@ -248,8 +248,6 @@ export class SessionRegistry {
           cwdHash: sha256(cwd),
           enabled: 1,
           currentSessionId: sessionId,
-          callPin: null,
-          callPinExpiresAt: null,
           lastUpstreamSessionId: normalizeOptionalText(input.upstreamSessionId, 255),
           bindingGeneration: 1,
           continuity: input.continuity ?? (input.upstreamSessionId ? 'native' : 'reset'),
@@ -472,10 +470,7 @@ export class SessionRegistry {
         if (bound?.currentSessionId === sessionId) await markWaitingForPresence(tx, session.agentBusAddressId);
         await tx
           .update(agentBusAddresses)
-          // The PIN dies with the session that opened it: it lives on the
-          // address, which outlives the session, so a survivor would leave a
-          // later join dialling an address with nobody on it.
-          .set({ currentSessionId: null, readiness: session.upstreamSessionId ? 'resumable' : 'offline', receiveHeartbeatAt: null, callPin: null, callPinExpiresAt: null, lastUpstreamSessionId: session.upstreamSessionId, lastSeenAt: now, updatedAt: now })
+          .set({ currentSessionId: null, readiness: session.upstreamSessionId ? 'resumable' : 'offline', receiveHeartbeatAt: null, lastUpstreamSessionId: session.upstreamSessionId, lastSeenAt: now, updatedAt: now })
           .where(and(eq(agentBusAddresses.id, session.agentBusAddressId), eq(agentBusAddresses.currentSessionId, sessionId)));
       }
       if (session.agentBusAddressId) await discardPresenceNotices(tx, now, [session.agentBusAddressId]);

@@ -1083,7 +1083,7 @@ Portal acceptance atomically records its supplied upstream turn ID as
 the same message and lease, requires a confirmed `accepted` status, and submits
 without a second heartbeat dependency. Deploy the API before wrapper 0.9.26.
 
-The local MCP `agent_send`, `agent_request` and `agent_call_join` tools accept an
+The local MCP `agent_send` and `agent_request` tools accept an
 optional UUID `client_message_id`. Keep it unchanged when retrying an uncertain
 send; an uncertain send failure also reports the generated ID. A permanent
 rejection omits the unchanged-payload retry hint. A successful request followed
@@ -1093,11 +1093,6 @@ An empty `result.messages` when the wait window expires is a normal success, not
 `wait_error`: the work may still be queued or running. `agent_wait` returns only
 messages addressed to the caller, so a peer's outgoing reply is not echoed in
 that peer's wait result.
-Call joins replay their original hello by sender and message ID before trying to
-consume a PIN again, returning `created: false`; changed content conflicts. That
-ID names the original hello even if the PIN later expires or is reused. Use a new
-ID for a new call.
-
 Acceptance of a still-leased message checks its TTL inside the transaction;
 expiry cannot be bypassed by beating the maintenance tick. Work already accepted
 may finish after its queue TTL. Background workers continue lease renewal through
@@ -1289,22 +1284,6 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   participant-visible message by UUID.
 - `POST /host/agent-sessions/{id}/agent-messaging/cancel` — cancel an open
   participant conversation and all queued/leased messages in it.
-- `POST /host/agent-sessions/{id}/agent-messaging/call/open` — mint a `#call`
-  rendezvous PIN (four digits, fleet-unique while live, `ttl_seconds` 60..3600,
-  default 600) bound to the caller's own address, returned alongside that address
-  as `self` (with its derived `presence`). Idempotent while a PIN is live
-  (`reused: true`). `listening` is `false` when the caller has no live receiver:
-  the PIN is still minted, but a joiner would be refused, so the caller should
-  say so instead of printing a banner nobody can answer.
-- `POST /host/agent-sessions/{id}/agent-messaging/call/join` — redeem a PIN:
-  resolve the opener, open the conversation, queue the opening message and
-  consume the PIN, all in one transaction. A join that fails validation, targets
-  itself, or finds an ineligible opener leaves the PIN live. So does a join onto
-  an opener that cannot be woken: unless the opener's derived presence is
-  `listening` (a fresh, non-failed receiver, or a fresh legacy receive heartbeat)
-  the join is refused with `409 agent_messaging_call_peer_not_listening` before
-  the PIN is consumed. Without that gate the opening message would queue,
-  nothing would claim it, and both agents would yield waiting on each other.
 - `POST /host/agent-sessions/{id}/agent-messaging/mailbox` — peek the queue for
   this session's address: what is waiting, and what expired unanswered in the
   last 30 minutes. Strictly read-only (no lease, no status transition, no
@@ -1323,7 +1302,7 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   results — the fan-out is a loop, not a transaction.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/join` — exactly one of
   `pin` or `conference_id`. The PIN is **multi-use** and is never consumed by a
-  join, unlike `call/join`; `conference_id` admits only an already-invited
+  join; `conference_id` admits only an already-invited
   member. Invitations reserve capacity as `state: invited`, `joined_at: null`;
   they receive no broadcast or task until they call join. Joining sets the
   actual `joined_at`, changes state to `seated`, and queues `HELLO` to the chair.
@@ -2050,7 +2029,7 @@ without reporting it. A changed mailbox/native binding rejects completion.
 MCP tools: `agent_spawn` takes `host_id`, `engine`, optional absolute `cwd`,
 `title`, `prompt`, and stable UUID `client_message_id`. It returns
 `operation_id` and logical `session_id`. `agent_spawn_status` reads that session
-and its eventual agent address; omit `session_id` to discover enabled hosts and readiness. Use existing messaging/calls for conversation.
+and its eventual agent address; omit `session_id` to discover enabled hosts and readiness. Use direct messaging for conversation.
 `agent_stop` stops only helpers created by the calling agent; operators may
 stop any remote session. Stop is cooperative, followed after 30 seconds by
 SIGTERM and ten seconds later by SIGKILL to the owned process group. Offline

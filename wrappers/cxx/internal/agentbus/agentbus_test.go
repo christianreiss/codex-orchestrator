@@ -51,7 +51,7 @@ func TestReadMessageBodyRequiresExplicitStdin(t *testing.T) {
 
 func TestMCPToolCatalogHasMessagingButNoPermissionRelay(t *testing.T) {
 	raw := string(toolCatalogJSON())
-	for _, name := range []string{"agent_list", "agent_send", "agent_request", "agent_wait", "agent_reply", "agent_message_get", "agent_cancel", "agent_call_open", "agent_call_join", "agent_listen"} {
+	for _, name := range []string{"agent_list", "agent_send", "agent_request", "agent_wait", "agent_reply", "agent_message_get", "agent_cancel", "agent_listen"} {
 		if !strings.Contains(raw, `"name":"`+name+`"`) {
 			t.Fatalf("tool catalog missing %s: %s", name, raw)
 		}
@@ -362,7 +362,7 @@ func newListenClient(messageID, conversationID string, requests *[]recordedReque
 		if strings.HasSuffix(req.URL.Path, "/deliveries/claim") {
 			payload["delivery"] = map[string]any{
 				"message_id": messageID, "conversation_id": conversationID,
-				"content": "CALL/1 SAY\nhello",
+				"content": "hello",
 				"sender":  map[string]any{"address": "agent:sender"},
 			}
 		}
@@ -498,40 +498,12 @@ func TestAgentReplyCompletesAListenedDelivery(t *testing.T) {
 		t.Fatalf("agent_listen: %v", err)
 	}
 	if _, err := callMCPTool(ctx, client, state, "agent_reply", map[string]any{
-		"message_id": messageID, "content": "CALL/1 SAY\nanswer",
+		"message_id": messageID, "content": "answer",
 	}); err != nil {
 		t.Fatalf("agent_reply: %v", err)
 	}
 	if got := ackOutcomes(requests); len(got) != 1 || got[0] != "completed" {
 		t.Fatalf("outcomes after reply = %v", got)
-	}
-}
-
-func TestAgentCallJoinRejectsAMalformedPinBeforeAnyRequest(t *testing.T) {
-	requests := []recordedRequest{}
-	client := newListenClient("", "", &requests)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	state := newChannelTracker(client)
-
-	for _, pin := range []string{"", "42", "12345", "abcd", "12 4"} {
-		if _, err := callMCPTool(ctx, client, state, "agent_call_join", map[string]any{
-			"pin": pin, "content": "hello",
-		}); err == nil {
-			t.Fatalf("pin %q was accepted", pin)
-		}
-	}
-	if len(requests) != 0 {
-		t.Fatalf("a malformed pin still reached the server: %+v", requests)
-	}
-	// `0042` is the case a numeric pin would silently destroy.
-	if _, err := callMCPTool(ctx, client, state, "agent_call_join", map[string]any{
-		"pin": "0042", "content": "hello",
-	}); err != nil {
-		t.Fatalf("agent_call_join with a leading-zero pin: %v", err)
-	}
-	if len(requests) != 1 || requests[0].body["pin"] != "0042" {
-		t.Fatalf("join sent pin = %+v", requests)
 	}
 }
 

@@ -31,7 +31,7 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 	if err := json.Unmarshal(toolCatalogJSON(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 46 {
+	if len(catalog) != 44 {
 		t.Fatalf("review new tools: got %d", len(catalog))
 	}
 	// Optional export lets the real Grok MCP doctor load exactly this catalogue
@@ -50,8 +50,6 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 			switch tool.Name {
 			case "agent_subscribe", "agent_unsubscribe", "agent_publish":
 				args["topic"] = "group:fixture"
-			case "agent_call_join":
-				args["pin"] = "0042"
 			case "agent_conf_join":
 				args["conference_id"] = "fixture"
 			case "agent_conf_invite":

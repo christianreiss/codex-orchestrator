@@ -173,10 +173,6 @@ export async function releaseAgentMessagingBindingsLocked(
         adapterCapabilities: null,
         readiness: upstream ? 'resumable' : 'offline',
         receiveHeartbeatAt: null,
-        // Same reason as finishSession: a reaped binding must not leave a live
-        // PIN pointing at an address that is no longer on the line.
-        callPin: null,
-        callPinExpiresAt: null,
         bindingGeneration: row.address.bindingGeneration + 1,
         lastSeenAt: now,
         updatedAt: now,

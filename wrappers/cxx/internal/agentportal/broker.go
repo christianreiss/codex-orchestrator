@@ -253,7 +253,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //
 // `receive_capable` is sniffed only to decide whether the gate *applies*, never
 // to satisfy it: the body is authored by the same MCP process the gate defends
-// against. The send side -- including call/open and call/join -- is not listed
+// against. The send side -- including direct messages and requests -- is not listed
 // here, so opening a rendezvous never needs the receive grant.
 func (b *Broker) requiresReceivePlanePolicy(path string, body json.RawMessage) bool {
 	if b == nil || b.session == nil {
@@ -311,7 +311,6 @@ func (b *Broker) allowedPath(path string) bool {
 		"watchdog/get", "watchdog/enable", "watchdog/disable", "watchdog/finish",
 		"spawn", "spawn-status", "stop", "insecure-enable",
 		"list", "self", "translate", "send", "reply", "wait", "message", "cancel", "bind", "mailbox", "deliveries/claim",
-		"call/open", "call/join",
 		"groups/list", "groups/create", "groups/detail", "subscribe", "unsubscribe", "subscriptions", "publish",
 		"conf/open", "conf/invite", "conf/join", "conf/roster", "conf/say", "conf/dispatch", "conf/adjourn",
 	} {

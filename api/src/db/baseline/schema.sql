@@ -127,8 +127,6 @@ CREATE TABLE `agent_bus_addresses` (
 	`adapter_capabilities` json,
 	`readiness` varchar(24) NOT NULL DEFAULT 'offline',
 	`receive_heartbeat_at` varchar(100),
-	`call_pin` char(4),
-	`call_pin_expires_at` varchar(100),
 	`last_seen_at` varchar(100) NOT NULL,
 	`archived_at` varchar(100),
 	`created_at` varchar(100) NOT NULL,
@@ -136,8 +134,7 @@ CREATE TABLE `agent_bus_addresses` (
 	CONSTRAINT `agent_bus_addresses_id` PRIMARY KEY(`id`),
 	CONSTRAINT `uq_agent_bus_addresses_address` UNIQUE(`address`),
 	CONSTRAINT `uq_agent_bus_addresses_alias` UNIQUE(`display_alias`),
-	CONSTRAINT `uq_agent_bus_addresses_session` UNIQUE(`current_session_id`),
-	CONSTRAINT `uq_agent_bus_addresses_call_pin` UNIQUE(`call_pin`)
+	CONSTRAINT `uq_agent_bus_addresses_session` UNIQUE(`current_session_id`)
 );
 
 CREATE TABLE `agent_bus_conference_members` (
@@ -960,6 +957,9 @@ CREATE TABLE `grok_auth_refresh_state` (
 );
 
 CREATE TABLE `grok_usage_snapshots` (
+	`plan_name` varchar(128),
+	`plan_fetched_at` varchar(100),
+	`plan_error_code` varchar(48),
 	`account_id` bigint unsigned NOT NULL,
 	`used_percent` double,
 	`period_type` varchar(16),

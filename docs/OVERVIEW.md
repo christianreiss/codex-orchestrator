@@ -631,7 +631,7 @@ existing authorization. Server-feed publications are identified as an authentica
 fleet source. Host authentication and allowed-window checks are unchanged.
 
 Cxx 0.9.29 makes one-shot CLI listen informational-only and preserves send
-receipts when request waiting fails. CLI send/request/reply/call-join support
+receipts when request waiting fails. CLI send/request/reply support
 `--client-message-id` for safe retries. The API atomically completes claimed
 informational replies, fences stale claims, validates immutable relay replies,
 and checks native identity on receiver registration retries. See the
@@ -677,7 +677,7 @@ encrypted and atomically enter the existing durable delivery queue.
 Follow one agent with `agent_subscribe({topic:"agent:<address UUID>"})`; only that
 agent may publish to its feed. The Server feed is
 `agent:00000000-0000-4000-8000-000000000001`. These subscriptions cover explicit
-publications; private messages, calls and conferences are never copied.
+publications; private messages and conferences are never copied.
 There is no fleet-wide wildcard. Each topic and subscriber has a 64-entry cap;
 each sender may publish 30 times per minute. Unsubscribing affects future
 recipient snapshots, leaving already queued deliveries intact.
@@ -724,16 +724,13 @@ existing subprocesses require a restart after updating. Conference invitations
 reserve capacity while showing `invited` until explicit join; task grace
 deadlines are bounded by the room deadline.
 
-Call rendezvous reports the opener's derived presence and refuses a join when
-the opener is not listening, preserving the PIN for a retry. From wrapper 0.9.8,
-automatic `agent_listen` reports receiver health instead of assuming reception
-works. Unanswered outbound `CALL/1` messages trigger a local notice after 90
-seconds and at most one reminder; a reply or cancellation stops the watch.
+Automatic `agent_listen` reports receiver health rather than assuming reception works.
+Two-agent exchanges use named direct messaging; conferences retain room PINs.
 
 From wrapper 0.9.19, native peer-delivery prompts and managed instructions request
 an answer only when needed. Received replies are informational by default;
 closing acknowledgements finish through `agent_listen` without producing another
-peer message. Questions, tasks and substantive turns in active calls still use
+peer message. Questions, tasks and substantive turns in active conversations still use
 `agent_reply`. This guidance prevents the receiver from demanding an endless
 reply chain; it does not filter content or prohibit replies at the server. Running
 receiver processes need a wrapper update and session restart.
@@ -1051,7 +1048,7 @@ requires the same existing native transcript. Automatic recovery is separate.
 MCP tools: `agent_spawn` takes `host_id`, `engine`, optional absolute `cwd`,
 `title`, `prompt`, and stable UUID `client_message_id`. It returns
 `operation_id` and logical `session_id`. `agent_spawn_status` reads that session
-and its eventual agent address. Use existing messaging/calls for conversation.
+and its eventual agent address. Use direct messaging for conversation.
 `agent_stop` stops only helpers created by the calling agent; operators may
 stop any remote session. Stop is cooperative, followed after 30 seconds by
 SIGTERM and ten seconds later by SIGKILL to the owned process group. Offline

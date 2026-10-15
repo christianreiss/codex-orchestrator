@@ -484,7 +484,7 @@ admission; the prompt RPC's eventual turn-completion response is not admission.
 Existing durable acceptance, ambiguous-delivery fencing, generation fencing,
 deduplication, and reconnect behavior apply. Admission is not an agent reply.
 
-From cxx 0.9.29, `cxx agent send|request|reply|call-join` accept an optional
+From cxx 0.9.29, `cxx agent send|request|reply` accept an optional
 `--client-message-id <uuid>`; uncertain sends report the generated retry ID.
 Retry with the same routing and content. A request whose send committed but
 whose wait failed returns `sent`, `wait_error` and recovery guidance; continue
@@ -1093,3 +1093,10 @@ remain in their existing lifecycles. See [runtime, migration and acceptance](com
 ### Native process stop (cxx 0.9.85)
 
 Managed native launches expose a launch-scoped stop capability only after their owned child starts. Live Topology can request TERM followed by KILL after five seconds. The wrapper signals only its own child or owned process group, never an inherited terminal process group, and reports exit only after Wait. The same channel works during a model turn. Old servers disable this optional polling with 404; old wrappers offer no native capability. See [native control endpoints](interface-api.md#live-topology-endpoints) for identity, recovery and receipt semantics.
+
+## Direct agent conversations
+
+From cxx 0.9.88, two-agent exchanges use `agent_send`, `agent_request`, and
+`agent_reply` with a peer name or address. The call rendezvous tools and CLI
+commands are removed for all engines. Conferences retain their room PINs and
+chair-managed task lifecycle.

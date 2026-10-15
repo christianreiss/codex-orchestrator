@@ -144,7 +144,7 @@ Claude settings and MCP merges preserve unreadable or non-object user files and 
 | `auth-upload` | Stabilize and POST native `~/.claude/.credentials.json`; apply the authoritative response only if that native generation is still current |
 | `auth ...` | Passed through to upstream Claude under the active-child/session leases. `auth login` uploads the resulting generation and applies guarded canonical writeback; `auth logout` journals durable intent before destructive native mutation; `auth status` remains read-only passthrough. The top-level `login`/`logout` aliases follow the same rules. |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
-| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude\|grok`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
+| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude\|grok`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
 | `--continue` / `-c` | Passed straight through to the upstream `claude` binary |
 | `resume [<session>] [<prompt>]` | Reopen a previous Claude session through the normal startup lifecycle. With no session id, the upstream picker is shown |
 | `--resume[=<session>]` / `-r` | Alias for the `resume` subcommand above — the session is optional, and a following option is never consumed as its value |
@@ -1083,21 +1083,16 @@ engine to remain enabled. An **insecure** host is eligible too, but only while
 its allowed window (`insecure_enabled_until`) is open; outside it the server
 refuses with `agent_messaging_insecure_window_closed`. The signed
 `agent_messaging.enabled` value is the wrapper's local gate. Managed Claude settings then own the `cxx-agent`
-stdio MCP server (`cxx agent mcp`) and allow its direct/call/conference tools without prompting:
+stdio MCP server (`cxx agent mcp`) and allow its direct/conference tools without prompting:
 `agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
-`agent_message_get`, `agent_cancel`, `agent_call_open`, `agent_call_join`,
+`agent_message_get`, `agent_cancel`,
 `agent_listen`, and the `#conference` set `agent_conf_open`, `agent_conf_invite`,
 `agent_conf_join`, `agent_conf_roster`, `agent_conf_say`, `agent_conf_dispatch`,
-and `agent_conf_adjourn`. `agent_call_open`, `agent_call_join`, and `agent_listen`
-are the `#call` rendezvous: `agent_call_open` mints a
-short-lived four-digit PIN and returns this agent's own address, `agent_call_join`
-dials a PIN and sends the opening message atomically; retries with the same
-message ID recover that hello. In manual mode `agent_listen` waits for a message
+and `agent_conf_adjourn`. Start a direct exchange with `agent_send` or assign work
+with `agent_request`, using the peer's name or address. In manual mode `agent_listen` waits for a message
 in any conversation; in automatic mode it releases finished delivery and returns
 receiver health before the agent yields. `agent_listen` needs
-the signed `agent_messaging.listen_enabled` grant, which the broker enforces. A
-call PIN is single-use because a conversation has two ends; a conference room PIN
-is multi-use. Whoever opens a conference is its chair: only the chair may invite
+the signed `agent_messaging.listen_enabled` grant, which the broker enforces. A conference room PIN is multi-use. Whoever opens a conference is its chair: only the chair may invite
 addresses (an idle agent on a persistent host is woken by its relay with the invite as its prompt),
 dispatch a task to one participant, or adjourn, and a participant may only address
 the chair. Peer messages come from authenticated fleet agents. Handle collaboration
@@ -1273,7 +1268,7 @@ decision for mobile cards and push. `cxx portal say` and `ask` also accept
 `--summary TEXT`; older callers may omit it. Durable acceptance precedes native
 submission, so uncertain submission is not automatically replayed as fresh work.
 
-From cxx 0.9.29, `cxx agent send|request|reply|call-join` accept an optional
+From cxx 0.9.29, `cxx agent send|request|reply` accept an optional
 `--client-message-id <uuid>`; uncertain sends report the generated retry ID.
 Retry with the same routing and content. A request whose send committed but
 whose wait failed returns `sent`, `wait_error` and recovery guidance; continue
@@ -1345,19 +1340,6 @@ when the receiver never registered (a starting receiver gets five seconds) or it
 heartbeat is older than 45 seconds. The model must not yield expecting a delivery in
 that case, and must tell the user instead. The receiver's own connection state is
 local; `agent_listen` makes no server call for it.
-
-A model that has yielded has no clock, so dead air on a `#call` is watched by the
-wrapper. When this process sends a `CALL/1` message someone must answer (`HELLO`,
-`HELLO-ACK`, `SAY`, `ASK`, `BYE`, via `agent_call_join`, `agent_send` or
-`agent_reply`) and no delivery arrives on that conversation within 90 seconds, it
-looks up that message's status and injects one `cxx notice` through the same path
-peer messages use (no delivery row, so it can never hold the address): `queued`
-means the peer's receiver never claimed the message, `accepted` that it was claimed
-but not answered. It repeats once after another 90 seconds, then stops. A delivery
-arriving on the conversation, `agent_cancel`, or the process exiting cancels the
-watch; `WAIT`, `HOLD`, `BYE-ACK`, `FIN` and non-`CALL/1` messages are never watched.
-The notice is written by the wrapper, not a peer, and tells the model to tell the
-user and stop waiting.
 
 Native permission settings are preserved. Real message replies remain subject to
 the model's tool permissions; no remote permission approval capability is advertised.

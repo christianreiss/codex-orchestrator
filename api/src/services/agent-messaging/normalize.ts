@@ -7,9 +7,6 @@
 
 import { ValidationError } from '../../http/errors.js';
 import {
-  AGENT_MESSAGING_CALL_PIN_MAX_TTL_SECONDS,
-  AGENT_MESSAGING_CALL_PIN_MIN_TTL_SECONDS,
-  AGENT_MESSAGING_CALL_PIN_TTL_SECONDS,
   AGENT_MESSAGING_CONFERENCE_DISPATCH_FLOOR_SECONDS,
   AGENT_MESSAGING_CONFERENCE_DISPATCH_MAX_SECONDS,
   AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS,
@@ -21,7 +18,7 @@ import {
   AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS,
   AGENT_MESSAGING_MAX_TTL_SECONDS,
   AGENT_MESSAGING_MIN_TTL_SECONDS,
-  CALL_PIN_RE,
+  CONFERENCE_PIN_RE,
   UUID_RE,
 } from './constants.js';
 
@@ -36,26 +33,13 @@ export function normalizeMessageBody(value: unknown): string {
   return value;
 }
 
-export function normalizeCallPin(value: unknown): string {
+export function normalizeConferencePin(value: unknown): string {
   // Always a string. A number would drop the leading zeros of `0042`.
   const pin = typeof value === 'string' ? value.trim() : '';
-  if (!CALL_PIN_RE.test(pin)) {
+  if (!CONFERENCE_PIN_RE.test(pin)) {
     throw new ValidationError('pin must be four digits', { param: 'pin' });
   }
   return pin;
-}
-
-export function normalizeCallPinTtl(value: unknown): number {
-  if (value === undefined || value === null) return AGENT_MESSAGING_CALL_PIN_TTL_SECONDS;
-  const ttl = Number(value);
-  if (
-    !Number.isSafeInteger(ttl) ||
-    ttl < AGENT_MESSAGING_CALL_PIN_MIN_TTL_SECONDS ||
-    ttl > AGENT_MESSAGING_CALL_PIN_MAX_TTL_SECONDS
-  ) {
-    throw new ValidationError('ttl_seconds must be between 60 and 3600', { param: 'ttl_seconds' });
-  }
-  return ttl;
 }
 
 export function normalizeConferenceTtl(value: unknown): number {

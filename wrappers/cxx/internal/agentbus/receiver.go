@@ -43,8 +43,6 @@ type autoReceiver struct {
 	lastBeatOK time.Time
 	gate       string
 	gateSince  time.Time
-	// stall is the dead-air watch for messages this process sent (see stall.go).
-	stall *stallWatcher
 	// turnBusyAt and turnIdleSince follow a Codex/Grok thread through the turn
 	// that consumes a native delivery (see releaseAfterNativeTurn). Only the
 	// connection goroutine touches them.
@@ -473,7 +471,6 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				d := claimed.Delivery
 				id := stringArg(d, "message_id")
 				// Anything arriving on a conversation is the peer being alive there.
-				r.stall.cancel(stringArg(d, "conversation_id"))
 				pending := r.tracker.track(parent, id, claimID, d)
 				// Fence execution in the durable queue before writing to the native
 				// adapter. Lost receipts must never requeue a model-started task.
@@ -599,7 +596,7 @@ func (r *autoReceiver) coordinationEnabled() bool {
 }
 
 func (r *autoReceiver) deliver(id, content string) error {
-	// The stall timer calls this from its own goroutine while connection() sets
+	// Delivery can run concurrently while connection() sets
 	// and clears the queue on reconnect, so the read has to be locked.
 	r.mu.Lock()
 	queue := r.queue

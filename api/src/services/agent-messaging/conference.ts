@@ -6,7 +6,7 @@
  * remains the interface every caller uses.
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 
 import {
   and,
@@ -26,6 +26,7 @@ import {
   agentBusConferences,
   agentBusConversations,
   agentBusMessages,
+  agentSessions,
   hosts,
   type AgentBusAddress,
   type AgentBusConference,
@@ -48,6 +49,7 @@ import { wsPublisher } from '../../ws/publisher.js';
 import {
   AGENT_MESSAGING_MAX_BODY_BYTES,
   AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP,
+  AGENT_MESSAGING_CONFERENCE_PIN_SPACE,
 } from './constants.js';
 import {
   conferenceEnvelope,
@@ -56,7 +58,7 @@ import {
 } from './conference-protocol.js';
 import { errorCodeOf, errorMessageOf } from './internals.js';
 import {
-  normalizeCallPin,
+  normalizeConferencePin,
   normalizeConferenceMaxMembers,
   normalizeConferenceTtl,
   normalizeDispatchEta,
@@ -66,7 +68,7 @@ import {
   normalizeUuid,
 } from './normalize.js';
 import type { AgentMessagingDb } from './types.js';
-import type { AgentAddressPresence } from '../agent-presence.js';
+import { deriveAddressPresence, type AgentAddressPresence } from '../agent-presence.js';
 import { newQueuedMessage, publicAddress, publicConferenceMember } from './views.js';
 
 /**
@@ -74,7 +76,7 @@ import { newQueuedMessage, publicAddress, publicConferenceMember } from './views
  *
  * Conferences ride on ordinary two-party conversations, so every primitive here
  * is one the 1:1 path already owns: address resolution, bridge authentication,
- * the shared four-digit PIN space, and conversation cancellation. Naming them
+ * and conversation cancellation. Conferences own their four-digit PIN space. Naming them
  * as an interface rather than reaching into the service keeps the direction of
  * the dependency one-way and makes the room's own rules the only thing this
  * file is about.
@@ -82,7 +84,7 @@ import { newQueuedMessage, publicAddress, publicConferenceMember } from './views
 export interface ConferenceCore {
   readonly db: Database;
   readonly keyring: Keyring;
-  presenceLocked(db: AgentMessagingDb, address: AgentBusAddress): Promise<AgentAddressPresence>;
+  readonly presenceFreshSeconds: number;
   requireEnabledLocked(db: AgentMessagingDb): Promise<void>;
   requireAddressLocked(db: AgentMessagingDb, id: string): Promise<AgentBusAddress>;
   resolveAddressLocked(db: AgentMessagingDb, raw: string, forUpdate: boolean): Promise<AgentBusAddress>;
@@ -93,9 +95,6 @@ export interface ConferenceCore {
   ): Promise<{ session: AgentSession; host: Host }>;
   assertSessionAddressLocked(db: AgentMessagingDb, sessionId: string, address: AgentBusAddress): Promise<void>;
   assertAddressEligibleLocked(db: AgentMessagingDb, address: AgentBusAddress): Promise<void>;
-  sweepCallPinsLocked(db: AgentMessagingDb, now: string): Promise<void>;
-  livePinsLocked(db: AgentMessagingDb): Promise<Set<string>>;
-  pickFreePin(taken: Set<string>): string;
   requireConversationLocked(db: AgentMessagingDb, id: string): Promise<AgentBusConversation>;
   cancelConversationInternal(
     conversationId: string,
@@ -110,6 +109,40 @@ export interface ConferenceCore {
 export class ConferenceCoordinator {
   constructor(private readonly core: ConferenceCore) {}
 
+  private async presenceLocked(db: AgentMessagingDb, address: AgentBusAddress): Promise<AgentAddressPresence> {
+    const rows = address.currentSessionId
+      ? await db
+          .select({ heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt, receiver: agentSessions.receiver })
+          .from(agentSessions)
+          .where(eq(agentSessions.id, address.currentSessionId))
+          .limit(1)
+      : [];
+    return deriveAddressPresence(address, rows[0] ?? null, isoOffsetSeconds(-this.core.presenceFreshSeconds));
+  }
+
+  /** Expired conference PINs no longer reserve a rendezvous slot. */
+  async sweepPinsLocked(db: AgentMessagingDb, now: string): Promise<void> {
+    await db.update(agentBusConferences)
+      .set({ pin: null, pinExpiresAt: null, updatedAt: now })
+      .where(and(isNotNull(agentBusConferences.pin), lte(agentBusConferences.pinExpiresAt, now)));
+  }
+
+  private async livePinsLocked(db: AgentMessagingDb): Promise<Set<string>> {
+    const rows = await db.select({ pin: agentBusConferences.pin }).from(agentBusConferences)
+      .where(isNotNull(agentBusConferences.pin)).for('update');
+    return new Set(rows.map((row) => row.pin!));
+  }
+
+  private pickFreePin(taken: Set<string>): string {
+    const free: string[] = [];
+    for (let candidate = 0; candidate < AGENT_MESSAGING_CONFERENCE_PIN_SPACE; candidate += 1) {
+      const pin = String(candidate).padStart(4, '0');
+      if (!taken.has(pin)) free.push(pin);
+    }
+    if (free.length === 0) throw new ConflictError('No conference PIN is available', 'agent_messaging_conference_pin_exhausted');
+    return free[randomInt(free.length)]!;
+  }
+
   // =====================================================================
   // Conferences
   //
@@ -120,9 +153,7 @@ export class ConferenceCoordinator {
   // per-conversation sequence and the one-in-flight-per-address rule in
   // `claimDelivery` are all written against exactly two participants.
   //
-  // The 1:1 call's token invariant -- "at any instant exactly one side holds
-  // the token" -- does not survive N parties, so it is replaced rather than
-  // stretched. Every message creates exactly one obligation, and the chair's
+  // Every message creates exactly one obligation, and the chair's
   // reply to a participant is always turn-terminal: a participant that
   // receives one goes back to listening or exits, it does not reply again.
   // Only the chair opens a round. That asymmetry is what makes a five-way
@@ -339,8 +370,7 @@ export class ConferenceCoordinator {
    * read 2 while 21 messages had flown, and nothing server-side was going to end
    * it before the wall-clock deadline. On the headless path every one of those
    * exchanges is a fresh engine boot, so "bounded only by an hour" is not a bound
-   * worth having. This is the same runaway the `call` skill's own rationale
-   * warns about, reappearing through the one path that was not counted.
+   * worth having. Every reply path must charge the same budget.
    *
    * Spending the budget closes the member's conversation rather than refusing the
    * reply. Refusing would strand the peer holding an unanswerable message, and on
@@ -425,7 +455,7 @@ export class ConferenceCoordinator {
     const result = await this.core.db.transaction(async (tx) => {
       await this.core.requireEnabledLocked(tx);
       const now = nowIso();
-      await this.core.sweepCallPinsLocked(tx, now);
+      await this.sweepPinsLocked(tx, now);
       const self = await this.core.requireAddressLocked(tx, authenticated.session.agentBusAddressId!);
       await this.core.assertSessionAddressLocked(tx, authenticated.session.id, self);
       await this.core.assertAddressEligibleLocked(tx, self);
@@ -630,8 +660,8 @@ export class ConferenceCoordinator {
   /**
    * Join a room, by PIN or by invitation.
    *
-   * The PIN path is multi-use, which is the whole difference from `#call`: four
-   * agents dial the same four digits, so unlike `consumeCallPinLocked` this must
+   * The PIN path is multi-use: four
+   * agents dial the same four digits, so this must
    * never clear the PIN on success. It dies with the room's deadline or when the
    * room fills, not on first use.
    *
@@ -652,14 +682,14 @@ export class ConferenceCoordinator {
     if (hasPin === hasId) {
       throw new ValidationError('Provide exactly one of pin or conference_id', { param: 'pin' });
     }
-    const pin = hasPin ? normalizeCallPin(input.pin) : null;
+    const pin = hasPin ? normalizeConferencePin(input.pin) : null;
     const conferenceId = hasId ? normalizeUuid(input.conferenceId, 'conference_id') : null;
     const purpose = normalizeOptionalText(input.purpose, 1024);
     const body = normalizeOptionalText(input.content, AGENT_MESSAGING_MAX_BODY_BYTES) ?? '';
     const result = await this.core.db.transaction(async (tx) => {
       await this.core.requireEnabledLocked(tx);
       const now = nowIso();
-      await this.core.sweepCallPinsLocked(tx, now);
+      await this.sweepPinsLocked(tx, now);
       const self = await this.core.requireAddressLocked(tx, selfId);
       await this.core.assertSessionAddressLocked(tx, authenticated.session.id, self);
       const conference = pin
@@ -671,7 +701,7 @@ export class ConferenceCoordinator {
       }
       const chair = await this.core.requireAddressLocked(tx, conference.ownerAddressId);
       await this.core.assertAddressEligibleLocked(tx, chair);
-      if ((await this.core.presenceLocked(tx, chair)) !== 'listening') {
+      if ((await this.presenceLocked(tx, chair)) !== 'listening') {
         throw new ConflictError(
           'The conference chair has no live receiver, so a join would go unanswered',
           'agent_messaging_conference_chair_not_listening',
@@ -756,10 +786,8 @@ export class ConferenceCoordinator {
   /**
    * Resolve a room PIN without spending it.
    *
-   * The contrast with `consumeCallPinLocked` is the point: a call PIN is
-   * single-use because it names one rendezvous between two agents, while a room
-   * PIN is how every member finds the same room. Clearing it on first join would
-   * admit exactly one participant and turn a conference into a call.
+   * Every member uses the same room PIN. Clearing it on first join would
+   * prevent the remaining members from joining.
    */
   private async resolveConferencePinLocked(db: AgentMessagingDb, pin: string, now: string): Promise<AgentBusConference> {
     const rows = await db
@@ -1071,7 +1099,7 @@ export class ConferenceCoordinator {
     expiresAt: string,
     now: string,
   ): Promise<string> {
-    const pin = this.core.pickFreePin(await this.core.livePinsLocked(db));
+    const pin = this.pickFreePin(await this.livePinsLocked(db));
     await db
       .update(agentBusConferences)
       .set({ pin, pinExpiresAt: expiresAt, updatedAt: now })

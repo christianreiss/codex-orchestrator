@@ -192,9 +192,10 @@ describe('served document byte invariance', () => {
     // 2026-10-14: offline resume, persistent Wake/Cron and watchdog recovery only on persistent hosts (docs/host-runtime-policy.md).
     // 2026-10-15: negotiated coordination and digests preserve held work (smart-queue v1).
     // 2026-10-15: managed Skills guidance invokes fleet-reflect before final work results.
-    expect(out.features_sha256).toBe('3593d8a440f227922ab26685f892fe742eed860ef8ba321f6c43e063b41063e8');
-    expect(out.managed_sha256).toBe('d13e9a6655ed4e0b891f8d63aec8142728fc1552a39f6224264fb8da8fcc7e26');
-    expect(sha256(out.body)).toBe('574da857c9ae0991a743b5a6ca9ae8de9567414f2100a9676530f98f6fd73e12');
+    // 2026-10-15: named direct messaging supersedes the call rendezvous.
+    expect(out.features_sha256).toBe('a23ab33da0b12c0c4349bc95c8c190a41358d3bee44ab38d589e1f6895867f6c');
+    expect(out.managed_sha256).toBe('df626a86147d068d8cde1603a00111ae4f29688946b2e0de3b80c90ee7ae04d2');
+    expect(sha256(out.body)).toBe('5070291645b7ce6cae2bb745d3552f6dff65afff3e9198024b3558840b62df66');
   });
 });
 
@@ -759,7 +760,8 @@ describe('managed Agent Messaging guidance', () => {
     for (const tool of AGENT_MESSAGING_TOOLS) {
       expect(body, tool).toContain(tool);
     }
-    expect(body).toContain('#call');
+    expect(body).not.toContain('#call');
+    expect(body).toContain('**Direct conversation.**');
   });
 
   it('asks all engines to name an unnamed session without replacing a known name', () => {
@@ -785,16 +787,14 @@ describe('managed Agent Messaging guidance', () => {
     }
   });
 
-  it('carries the stopping rule, not just the tool list', () => {
-    // Two agents told only to keep replying have run 17 and 33 turns on this
-    // bus. The turn-holding rule is the structural answer; without it the block
-    // would hand out tools and no way to stop using them.
-    const body = rendered(ENGINE_CODEX).body;
-    expect(body).toMatch(/four-digit PIN/i);
-    expect(body).toMatch(/exactly one side holds the turn/i);
-    expect(body).toMatch(/not holding it, call `agent_listen` once and yield/);
-    expect(body).toMatch(/instead waits and returns empty[\s\S]*nothing will wake you/i);
-    expect(body).toMatch(/Say\s+`BYE` and see it acknowledged/i);
+  it('uses named direct exchanges without a call rendezvous or hangup protocol', () => {
+    for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
+      const body = rendered(engine).body;
+      expect(body).toContain("peer's name or address");
+      expect(body).toContain('closing\nacknowledgement ends the exchange');
+      expect(body).toContain('idempotency UUID');
+      expect(body).not.toMatch(/#call|agent_call_|CALL\/1|BYE-ACK/);
+    }
   });
 
   it('ends closing acknowledgements without asking the peer for another acknowledgement', () => {
@@ -808,20 +808,15 @@ describe('managed Agent Messaging guidance', () => {
   });
 
   it('tells a model what to do when the line is dead, not just when it is quiet', () => {
-    // A yielded model has no clock and a dead receiver never wakes it, so the
-    // block has to name the two signals that replace waiting: the honest listen
-    // status and the wrapper's own notice.
     const body = rendered(ENGINE_CODEX).body;
-    expect(body).toMatch(/`receiver_unavailable`/);
-    expect(body).toMatch(/`cxx notice`/);
-    expect(body).toMatch(/comes from the\s+wrapper, not a peer/i);
-    expect(body).toMatch(/agent_messaging_call_peer_not_listening/);
-    expect(body).not.toMatch(/End your turn only\s+once the call is closed/i);
+    expect(body).toContain('`receiver_unavailable`');
+    expect(body).toContain('do not yield waiting for a peer');
+    expect(body).toContain('do not open or join a conference until the receiver is back');
   });
 
   it('renders byte-identical guidance for both engines', () => {
     // The tools are the same cxx-agent server on both engines and the block
-    // names only the `#call` trigger, so there is nothing to branch on.
+    // uses the shared direct-messaging contract, so there is nothing to branch on.
     expect(rendered(ENGINE_CLAUDE).sections.agent_messaging.sha256).toBe(
       rendered(ENGINE_CODEX).sections.agent_messaging.sha256,
     );

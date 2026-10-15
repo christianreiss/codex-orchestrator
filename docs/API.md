@@ -425,15 +425,8 @@ Session operations use the short-lived bridge bearer in
   visible to the participant.
 - `POST /host/agent-sessions/{id}/agent-messaging/cancel` — cancel an open
   participant conversation.
-- `POST /host/agent-sessions/{id}/agent-messaging/call/open` — mint a short-lived
-  fleet-unique 4-digit `#call` PIN for the caller's own address, and return that
-  address. Re-opening while a PIN is live returns the same one with
-  `reused: true`.
-- `POST /host/agent-sessions/{id}/agent-messaging/call/join` — dial a PIN. Opens
-  the conversation and queues the first message in one transaction, then
-  consumes the PIN. `pin` is a four-character string, never a number.
 - `POST /host/agent-sessions/{id}/agent-messaging/mailbox` — the ring: report
-  what is queued for this session, plus calls that recently expired unanswered.
+  what is queued for this session, plus messages that recently expired unanswered.
   Read-only — no lease, no status change — and usable before the session has
   ever bound receive-capable, which is the state it exists to rescue. Returns no
   message bodies: hearing the phone ring is not answering it.
@@ -445,8 +438,8 @@ Session operations use the short-lived bridge bearer in
   Invite up to 8 addresses or aliases. One result per address; a partial fan-out
   is reported, not rolled back.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/join` — join by room PIN
-  or by the `conference_id` from an invitation (exactly one). Unlike a call PIN
-  the room PIN is not consumed. The `conference_id` form requires an existing
+  or by the `conference_id` from an invitation (exactly one). The room PIN is
+  multi-use and is not consumed. The `conference_id` form requires an existing
   member row, so knowing a UUID is not an entry ticket.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/roster` — list members
   with host, engine, role, declared purpose, delivery mode and floor state.

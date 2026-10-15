@@ -494,10 +494,6 @@ func TestBrokerAllowsOrdinaryMessagingWithoutChannelPreview(t *testing.T) {
 		{name: "message", body: `{}`},
 		{name: "cancel", body: `{}`},
 		{name: "bind", body: `{"receive_capable":false}`},
-		// Opening and dialling a rendezvous are send-side: they push nothing
-		// toward this session, so they must not need the receive grant.
-		{name: "call/open", body: `{}`},
-		{name: "call/join", body: `{"pin":"0042"}`},
 	} {
 		path := "/host/agent-sessions/" + sessionID + "/agent-messaging/" + operation.name
 		response := serveBrokerRequest(broker, path, operation.body)
@@ -505,7 +501,7 @@ func TestBrokerAllowsOrdinaryMessagingWithoutChannelPreview(t *testing.T) {
 			t.Fatalf("%s status=%d body=%s", operation.name, response.Code, response.Body.String())
 		}
 	}
-	if len(upstreamPaths) != 9 {
+	if len(upstreamPaths) != 7 {
 		t.Fatalf("ordinary upstream paths = %v", upstreamPaths)
 	}
 }

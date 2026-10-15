@@ -1,5 +1,5 @@
 {
-    "version": "2026-10-01T00:00:00Z",
+    "version": "2026-10-15T00:00:00Z",
     "docs": [
         {
             "slug": "welcome",
@@ -1375,8 +1375,8 @@
                     "level": 2
                 },
                 {
-                    "id": "calls-call",
-                    "text": "Calls (`#call`)",
+                    "id": "direct-conversations",
+                    "text": "Direct conversations",
                     "level": 2
                 },
                 {
@@ -1738,10 +1738,6 @@
         "#afk": [
             10,
             11
-        ],
-        "#call": [
-            20,
-            22
         ],
         "#conference": [
             20,
@@ -3388,12 +3384,6 @@
             23
         ],
         "/host/agent-sessions/{id}/agent-messaging/bind": [
-            20
-        ],
-        "/host/agent-sessions/{id}/agent-messaging/call/join": [
-            20
-        ],
-        "/host/agent-sessions/{id}/agent-messaging/call/open": [
             20
         ],
         "/host/agent-sessions/{id}/agent-messaging/cancel": [
@@ -5535,12 +5525,6 @@
         ],
         "agent_bus_relays": [
             1,
-            20
-        ],
-        "agent_call_join": [
-            20
-        ],
-        "agent_call_open": [
             20
         ],
         "agent_cancel": [
@@ -9162,12 +9146,6 @@
         ],
         "call.": [
             7,
-            20
-        ],
-        "call/join": [
-            20
-        ],
-        "call/open": [
             20
         ],
         "call`.": [

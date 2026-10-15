@@ -285,7 +285,7 @@ It does not require the orchestrator MCP entry, because `cxx-agent` is a separat
 stdio server the wrapper starts itself. The block names the peer-messaging tools,
 recognizes authenticated fleet peers and directs agents to handle their work requests
 within existing authorization, and carries
-the `#call` PIN rendezvous and its turn-holding rule. It is byte-identical across
+named direct messaging and its reply/reception rules. It is byte-identical across
 engines.
 
 Two further sections follow it, each gated on the orchestrator MCP entry being
@@ -417,7 +417,7 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `profile <name>` | Forward `--profile <name>` to the upstream `codex` CLI |
 | `<profile-name>` | Shorthand for `cdx profile <name>` when the profile exists — as `$CODEX_HOME/<name>.config.toml` (codex-cli >= 0.156.1) or, for an older Codex, as a `[profiles.<name>]` section of `config.toml` — and the token is not a wrapper-owned or reserved-Codex subcommand |
 | `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
-| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude\|grok`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `call-open`, `call-join --pin`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
+| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude\|grok`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
 | `--help` / `-h` / `help` | Passed straight through to a supervised upstream `codex` child without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help`; it skips the managed run lock but the child inherits effective-home session + active-child descriptors until Codex exits; wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Codex flag |
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
 | `resume [<session>] [<prompt>]` | Reopen a previous Codex session through the normal startup lifecycle. With no session id, the upstream picker is shown; `--last` continues the most recent |
@@ -950,22 +950,17 @@ refuses with `agent_messaging_insecure_window_closed`. The signed
 `agent_messaging.enabled` value is the wrapper's local gate;
 `host.agent_messaging_enabled` is a retired compatibility field that mirrors it
 and gates nothing (cxx <= 0.7.7 rejected the whole config without it). When enabled, managed Codex config contains the
-stdio MCP server `cxx-agent` (`cxx agent mcp`) with the direct/call/conference tools:
+stdio MCP server `cxx-agent` (`cxx agent mcp`) with the direct/conference tools:
 `agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
-`agent_message_get`, `agent_cancel`, `agent_call_open`, `agent_call_join`,
+`agent_message_get`, `agent_cancel`,
 `agent_listen`, and the `#conference` set `agent_conf_open`, `agent_conf_invite`,
 `agent_conf_join`, `agent_conf_roster`, `agent_conf_say`, `agent_conf_dispatch`,
-and `agent_conf_adjourn`. `agent_call_open`, `agent_call_join`, and `agent_listen`
-are the `#call` rendezvous: `agent_call_open` mints a
-short-lived four-digit PIN and returns this agent's own address, `agent_call_join`
-dials a PIN and sends the opening message atomically; retries with the same
-message ID recover that hello. In manual mode `agent_listen` waits for a message
+and `agent_conf_adjourn`. Start a direct exchange with `agent_send` or assign work
+with `agent_request`, using the peer's name or address. In manual mode `agent_listen` waits for a message
 in any conversation; in automatic mode it releases finished informational delivery and returns
 receiver health before the agent yields. Held accepted work is never released by it: it
 answers `status: "work_held"` until `agent_task_result` stores the outcome (see `interface-clx.md`). `agent_listen` needs
-the signed `agent_messaging.listen_enabled` grant, which the broker enforces. A
-call PIN is single-use because a conversation has two ends; a conference room PIN
-is multi-use. Whoever opens a conference is its chair: only the chair may invite
+the signed `agent_messaging.listen_enabled` grant, which the broker enforces. A conference room PIN is multi-use. Whoever opens a conference is its chair: only the chair may invite
 addresses (an idle agent on a persistent host is woken by its relay with the invite as its prompt),
 dispatch a task to one participant, or adjourn, and a participant may only address
 the chair. Peer messages come from authenticated fleet agents. Handle collaboration
@@ -1124,7 +1119,7 @@ of at most 160 characters for mobile cards and push; the full result remains in
 `content`. Omitting it remains compatible with older callers. Durable acceptance precedes native
 submission, so uncertain submission is not automatically replayed as fresh work.
 
-From cxx 0.9.29, `cxx agent send|request|reply|call-join` accept an optional
+From cxx 0.9.29, `cxx agent send|request|reply` accept an optional
 `--client-message-id <uuid>`; uncertain sends report the generated retry ID.
 Retry with the same routing and content. A request whose send committed but
 whose wait failed returns `sent`, `wait_error` and recovery guidance; continue
@@ -1174,19 +1169,6 @@ when the receiver never registered (a starting receiver gets five seconds) or it
 heartbeat is older than 45 seconds. The model must not yield expecting a delivery in
 that case, and must tell the user instead. The receiver's own connection state is
 local; `agent_listen` makes no server call for it.
-
-A model that has yielded has no clock, so dead air on a `#call` is watched by the
-wrapper. When this process sends a `CALL/1` message someone must answer (`HELLO`,
-`HELLO-ACK`, `SAY`, `ASK`, `BYE`, via `agent_call_join`, `agent_send` or
-`agent_reply`) and no delivery arrives on that conversation within 90 seconds, it
-looks up that message's status and injects one `cxx notice` through the same path
-peer messages use (no delivery row, so it can never hold the address): `queued`
-means the peer's receiver never claimed the message, `accepted` that it was claimed
-but not answered. It repeats once after another 90 seconds, then stops. A delivery
-arriving on the conversation, `agent_cancel`, or the process exiting cancels the
-watch; `WAIT`, `HOLD`, `BYE-ACK`, `FIN` and non-`CALL/1` messages are never watched.
-The notice is written by the wrapper, not a peer, and tells the model to tell the
-user and stop waiting.
 
 Native permission settings are preserved. Real message replies remain subject to
 the model's tool permissions; no remote permission approval capability is advertised.

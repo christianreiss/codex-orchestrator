@@ -21,12 +21,9 @@ export const AGENT_MESSAGING_RECEIVE_FRESH_SECONDS = 45;
  */
 export const AGENT_MESSAGING_LIST_LIMIT = 50;
 export const AGENT_MESSAGING_WAIT_PAGE_SIZE = 100;
-export const AGENT_MESSAGING_CALL_PIN_TTL_SECONDS = 10 * 60;
-export const AGENT_MESSAGING_CALL_PIN_MIN_TTL_SECONDS = 60;
-export const AGENT_MESSAGING_CALL_PIN_MAX_TTL_SECONDS = 60 * 60;
 /** `0000`..`9999`. The PIN is read aloud off one terminal into another, so it stays four digits. */
-export const AGENT_MESSAGING_CALL_PIN_SPACE = 10_000;
-/** How far back a mailbox peek reports calls that expired unanswered. */
+export const AGENT_MESSAGING_CONFERENCE_PIN_SPACE = 10_000;
+/** How far back a mailbox peek reports messages that expired unanswered. */
 export const AGENT_MESSAGING_MISSED_WINDOW_SECONDS = 30 * 60;
 export const AGENT_MESSAGING_CONFERENCE_TTL_SECONDS = 60 * 60;
 export const AGENT_MESSAGING_CONFERENCE_MIN_TTL_SECONDS = 5 * 60;
@@ -38,8 +35,7 @@ export const AGENT_MESSAGING_CONFERENCE_MAX_TTL_SECONDS = 6 * 60 * 60;
 export const AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS = 8;
 /**
  * Messages one member may exchange with the chair before the room is out of
- * budget. The 1:1 call's sixteen-turn bound is meaningless here -- a single
- * broadcast round across five members is already ten-plus messages -- so the
+ * budget. A single broadcast round across five members is already ten-plus messages -- so the
  * budget is per member and the deadline is wall-clock.
  */
 export const AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP = 12;
@@ -50,7 +46,7 @@ export const AGENT_MESSAGING_CONFERENCE_DISPATCH_MAX_SECONDS = 4 * 60 * 60;
 export const AGENT_MESSAGING_MAILBOX_PAGE_SIZE = 20;
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-export const CALL_PIN_RE = /^[0-9]{4}$/;
+export const CONFERENCE_PIN_RE = /^[0-9]{4}$/;
 export const LIVE_MESSAGE_STATUSES = ['queued', 'leased', 'accepted', 'reboot_hold'] as const;
 export const CANCELABLE_MESSAGE_STATUSES = ['queued', 'leased', 'reboot_hold', 'batched'] as const;
 export const TERMINAL_MESSAGE_STATUSES = ['completed', 'ambiguous', 'dead', 'expired', 'canceled', 'digested', 'superseded'] as const;

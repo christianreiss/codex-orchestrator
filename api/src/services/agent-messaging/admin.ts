@@ -290,8 +290,6 @@ export class AgentMessagingAdmin {
           currentSessionId: null,
           readiness: 'disabled',
           receiveHeartbeatAt: null,
-          callPin: null,
-          callPinExpiresAt: null,
           bindingGeneration: sql`${agentBusAddresses.bindingGeneration} + 1`,
           updatedAt: now,
         })
@@ -427,9 +425,6 @@ export class AgentMessagingAdmin {
         .set({
           enabled: enabled ? 1 : 0,
           currentSessionId: enabled ? address.currentSessionId : null,
-          // A disabled address must not stay dialable.
-          callPin: enabled ? address.callPin : null,
-          callPinExpiresAt: enabled ? address.callPinExpiresAt : null,
           readiness: enabled
             ? address.currentSessionId
               ? address.readiness

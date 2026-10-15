@@ -527,7 +527,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         queued_ttl_seconds: 86_400,
         channel_preview_enabled: engine === 'claude' && fleet[engine] && (messagingBaked || portalEnabled),
         receiver_enabled: engineActive && (messagingBaked || portalEnabled),
-        // The model-initiated receive plane (`agent_listen`), which `#call`
+        // The model-initiated receive plane (`agent_listen`), which direct messaging
         // needs to keep an agent on the line. It mirrors the fleet switch
         // because that switch is deliberately the only Agent Messaging switch;
         // this stays a separate signed field so listen can be revoked without

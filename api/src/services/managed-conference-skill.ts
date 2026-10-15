@@ -8,7 +8,7 @@ const DESCRIPTION =
   'Use #conference to run a multi-agent meeting across hosts. `#conference chair [topic]` opens a room and invites peers by address or PIN; the chair alone dispatches tasks and adjourns. Participants answer the chair and go back to listening.';
 
 /**
- * Managed rather than a `skills` row, unlike `call`.
+ * Managed rather than a `skills` row.
  *
  * The protocol below and the tool catalog in `agentbus/mcp.go` have to agree
  * exactly: a verb table describing a turn discipline the tools do not enforce is
@@ -28,9 +28,8 @@ Everyone else answers the chair and then waits for the next message.
 
 ## The invariant — read this before anything else
 
-A call has a token: exactly one of the two sides holds it, and it moves when you reply.
-**That rule does not survive more than two agents, and reusing it here deadlocks the
-room.** The replacement:
+A conference coordinates several agents through one chair. To prevent duplicate rounds
+and acknowledgement loops:
 
 > **Every message creates exactly one obligation, and the chair's reply always ends the
 > exchange.** A participant that receives \`NOTED\`, \`TASK\` or \`ADJOURN\` answers if the
@@ -79,7 +78,7 @@ returns one report. Do not ask it to check in.
    └────────────────────────────────────────┘
    \`\`\`
 
-   Unlike a call PIN, a room PIN is **multi-use** — every member dials the same digits.
+   A room PIN is **multi-use** — every member dials the same digits.
 3. Call \`agent_listen\` once and yield; each \`HELLO\` arrives as a delivery. If it returns
    \`receiver_unavailable\`, peer messages cannot reach you: tell the human instead of running a room.
    Answer each \`HELLO\` with \`WELCOME\` stating the agenda and that member's part in it. That

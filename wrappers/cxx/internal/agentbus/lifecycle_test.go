@@ -71,17 +71,17 @@ func TestDirectSendRetainsCallerRetryID(t *testing.T) {
 	client := &sessionClient{id: "session", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		var body map[string]any
 		_ = json.NewDecoder(req.Body).Decode(&body)
-		if strings.HasSuffix(req.URL.Path, "/send") || strings.HasSuffix(req.URL.Path, "/call/join") {
+		if strings.HasSuffix(req.URL.Path, "/send") {
 			ids = append(ids, stringArg(body, "client_message_id"))
 		}
 		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"message":{"id":"message","conversation_id":"conversation","sequence":1}}`))}, nil
 	})}}
-	for _, name := range []string{"agent_send", "agent_request", "agent_call_join"} {
-		if _, err := callMCPTool(context.Background(), client, newChannelTracker(client), name, map[string]any{"to": "peer", "pin": "0042", "content": "check fixture", "client_message_id": id, "wait_seconds": 0}); err != nil {
+	for _, name := range []string{"agent_send", "agent_request"} {
+		if _, err := callMCPTool(context.Background(), client, newChannelTracker(client), name, map[string]any{"to": "peer", "content": "check fixture", "client_message_id": id, "wait_seconds": 0}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if len(ids) != 3 || ids[0] != id || ids[1] != id || ids[2] != id {
+	if len(ids) != 2 || ids[0] != id || ids[1] != id {
 		t.Fatalf("retry IDs changed: %v", ids)
 	}
 }

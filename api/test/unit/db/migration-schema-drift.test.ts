@@ -143,6 +143,8 @@ describe('migrations against the test baseline', () => {
   // would make the check above start reporting retired schema as drift.
   it('reads the tables and columns the shipped migrations actually remove', async () => {
     expect([...(await migrationRemovals())].sort()).toEqual([
+      'agent_bus_addresses.call_pin',
+      'agent_bus_addresses.call_pin_expires_at',
       'agent_matrix_outbox',
       'agent_portal_browser_sessions',
       'agent_portal_users',
@@ -320,6 +322,9 @@ describe('migrations against the test baseline', () => {
       'agent_bus_messages.digest_id',
       'agent_bus_messages.superseded_by_id',
       'agent_bus_messages.presented_at',
+      'grok_usage_snapshots.plan_name',
+      'grok_usage_snapshots.plan_fetched_at',
+      'grok_usage_snapshots.plan_error_code',
     ]);
   });
 

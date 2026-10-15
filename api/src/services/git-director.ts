@@ -327,7 +327,7 @@ export class GitDirectorService {
    *     the TTL is the only signal left. It is the fallback, never the primary.
    *
    * Swept on read, at the top of every listing and every decision, like
-   * `sweepCallPinsLocked` in agent-messaging.ts — a timer nobody can observe is
+   * `sweepPinsLocked` in agent-messaging/conference.ts — a timer nobody can observe is
    * worse than work done by whoever next looks.
    *
    * Nothing is deleted. An expired registration keeps its row so `git_list` and

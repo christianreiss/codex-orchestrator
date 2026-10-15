@@ -31,7 +31,7 @@ cxx sync                      # write fleet-managed content for every installed 
 cxx update                    # verify + install the wrapper target, then re-exec into `cxx sync`
 cxx cron [install|remove|run [--due]]   # the shared 15-minute maintenance schedule / tick
 cxx portal [status|notify|resolve|say|ask|wait|accept|leave]   # agent portal relay (#afk)
-cxx agent [list|send|request|wait|reply|message|cancel|call-open|call-join|listen|poll|status|service|worker|mcp]
+cxx agent [list|send|request|wait|reply|message|cancel|listen|poll|status|service|worker|mcp]
 cxx claude-quota-statusline   # Claude Code statusLine command that relays quota readings
 cxx grok-auth                # internal native token accessor; requires a live private broker
 ```

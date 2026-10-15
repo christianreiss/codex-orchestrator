@@ -36,10 +36,6 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 		err = runMessage(args[1:], stdout)
 	case "cancel":
 		err = runCancel(args[1:], stdout, stderr)
-	case "call-open":
-		err = runCallOpen(args[1:], stdout, stderr)
-	case "call-join":
-		err = runCallJoin(args[1:], stdin, stdout, stderr)
 	case "listen":
 		err = runListen(args[1:], stdout, stderr)
 	case "poll":
@@ -289,79 +285,6 @@ func runCancel(args []string, stdout, stderr io.Writer) error {
 	return writeJSON(stdout, out)
 }
 
-func runCallOpen(args []string, stdout, stderr io.Writer) error {
-	flags := newFlagSet("cxx agent call-open", stderr)
-	ttl := flags.Int("ttl-seconds", 0, "how long the PIN stays dialable")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if flags.NArg() != 0 {
-		return errorsUsage("cxx agent call-open", "no positional arguments are accepted")
-	}
-	if *ttl != 0 && (*ttl < 60 || *ttl > 3600) {
-		return errorsUsage("cxx agent call-open", "--ttl-seconds must be between 60 and 3600")
-	}
-	body := map[string]any{}
-	if *ttl != 0 {
-		body["ttl_seconds"] = *ttl
-	}
-	client, err := sessionClientFromEnv(30 * time.Second)
-	if err != nil {
-		return err
-	}
-	var out map[string]any
-	if err := client.post(context.Background(), "call/open", body, &out); err != nil {
-		return err
-	}
-	return writeJSON(stdout, out)
-}
-
-func runCallJoin(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	flags := newFlagSet("cxx agent call-join", stderr)
-	pin := flags.String("pin", "", "the peer's four-digit PIN")
-	clientID := flags.String("client-message-id", "", "stable UUID for retrying this hello")
-	stdinFlag := flags.Bool("stdin", false, "read the opening message from stdin")
-	ttl := flags.Int("ttl-seconds", 0, "queued TTL")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if flags.NArg() != 0 || !callPinPattern.MatchString(strings.TrimSpace(*pin)) {
-		return errorsUsage("cxx agent call-join", "--pin must be four digits and --stdin is required")
-	}
-	if *ttl != 0 && (*ttl < 60 || *ttl > 604800) {
-		return errorsUsage("cxx agent call-join", "--ttl-seconds must be between 60 and 604800")
-	}
-	content, err := readMessageBody(stdin, *stdinFlag)
-	if err != nil {
-		return err
-	}
-	retryID, err := commandRetryID(*clientID)
-	if err != nil {
-		return err
-	}
-	body := map[string]any{"pin": strings.TrimSpace(*pin), "content": content, "client_message_id": retryID}
-	if *ttl != 0 {
-		body["ttl_seconds"] = *ttl
-	}
-	client, err := sessionClientFromEnv(30 * time.Second)
-	if err != nil {
-		return err
-	}
-	var out map[string]any
-	if err := client.post(context.Background(), "call/join", body, &out); err != nil {
-		return fmt.Errorf("%w; retry the same command with --client-message-id %s", err, retryID)
-	}
-	return writeJSON(stdout, out)
-}
-
-// runListen deliberately diverges from the `agent_listen` MCP tool: it
-// acknowledges an informational delivery `completed` before returning. Work
-// stays queued for a persistent adapter that can renew and report its result.
-//
-// The MCP lane can leave a message `leased` because that process outlives the
-// tool call and keeps renewing the lease until agent_reply. A CLI invocation is
-// one shot with no successor, so an unacknowledged message would be redelivered
-// sixty seconds after a human already read it.
 func runListen(args []string, stdout, stderr io.Writer) error {
 	flags := newFlagSet("cxx agent listen", stderr)
 	seconds := flags.Int("seconds", 25, "how long to wait")
@@ -471,8 +394,6 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx agent reply --message-id <id> --stdin [--client-message-id <uuid>]")
 	fmt.Fprintln(w, "  cxx agent message <id>")
 	fmt.Fprintln(w, "  cxx agent cancel --conversation <id>")
-	fmt.Fprintln(w, "  cxx agent call-open [--ttl-seconds 600]")
-	fmt.Fprintln(w, "  cxx agent call-join --pin <4 digits> --stdin [--client-message-id <uuid>]")
 	fmt.Fprintln(w, "  cxx agent listen [--seconds 25] (informational messages only; work uses native MCP)")
 	fmt.Fprintln(w, "  cxx agent poll [--hook Stop|UserPromptSubmit]")
 	fmt.Fprintln(w, "  cxx agent status")

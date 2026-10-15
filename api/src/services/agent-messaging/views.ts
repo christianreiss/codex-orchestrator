@@ -23,7 +23,7 @@ import type { MessageDelivery } from './types.js';
  *
  * `sendMessage`, `replyMessage`, `replyFromRelayDelivery` and `redriveMessage`
  * each carry their own hand-written copy of this 30-field literal. Those are
- * left alone; this exists so `joinCall` does not become the fifth.
+ * left alone; new messaging paths should use the same projection.
  */
 export function newQueuedMessage(input: {
   id: string;

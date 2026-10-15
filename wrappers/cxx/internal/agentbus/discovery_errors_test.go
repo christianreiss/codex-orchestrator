@@ -13,7 +13,7 @@ import (
 )
 
 func TestMessagingSendRetryAdvice(t *testing.T) {
-	for _, tool := range []string{"agent_send", "agent_request", "agent_call_join"} {
+	for _, tool := range []string{"agent_send", "agent_request"} {
 		for _, status := range []int{400, 403, 404, 409, 422, 408, 429, 500, 503, 0} {
 			t.Run(tool+"/"+http.StatusText(status), func(t *testing.T) {
 				client := &sessionClient{id: "private-session", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {

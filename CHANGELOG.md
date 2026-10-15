@@ -1,5 +1,7 @@
 # 2026-10-15
 
+- **Direct messaging replaces two-agent calls (cxx 0.9.88).** Removed the `call` Skill, PIN rendezvous routes, local MCP tools, CLI commands, and call-only silence watcher. Use agent names with direct messages or requests. Conferences keep their room PINs, budgets, and task lifecycle; migration 0070 removes obsolete call PIN metadata while preserving message history.
+
 - Added the shared `fleet-reflect` Skill and an automatic closing-review trigger in managed Skills guidance for Codex, Claude and Grok. Completed, failed and blocked work briefly reviews observed fleet-tool experience, searches existing feedback and reports only actionable findings, with bounded retries and honest pending outcomes. Feedback capability settings remain enforced. The intentional managed-document digest change reaches hosts on their next sync after API deployment; the stored Skill is published separately through MCP.
 
 - Dashboard quota cards now show the account's provider plan for ChatGPT, Claude and Grok, including Claude Max 5×/20× when reported. Source and observation time distinguish login metadata from provider readings; missing plans stay unavailable and stale plans are marked. Grok settings refresh independently of quota readings.

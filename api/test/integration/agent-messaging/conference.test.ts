@@ -257,7 +257,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
   it('admits many members on one PIN — the room PIN is not consumed by a join', async () => {
     const { conferenceId, pin, one, two } = await room();
 
-    // The whole difference from #call: four agents dial the same four digits.
+    // Four agents can join through the same conference PIN.
     expect((await conferenceRow(conferenceId))?.pin).toBe(pin);
 
     const roster = await service.conferenceRoster(one.sessionId, one.bridgeToken, conferenceId);
@@ -295,16 +295,15 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     ).rejects.toMatchObject({ code: 'agent_messaging_conference_not_member' });
   });
 
-  it('mints conference PINs from the same space as call PINs', async () => {
+  it('mints distinct PINs for concurrent conferences', async () => {
     const chair = await register('claude', 'chair');
-    const caller = await register('claude', 'caller');
+    const otherChair = await register('claude', 'other-chair');
 
     const opened = await service.openConference(chair.sessionId, chair.bridgeToken, {});
-    const called = await service.openCall(caller.sessionId, caller.bridgeToken);
+    const other = await service.openConference(otherChair.sessionId, otherChair.bridgeToken, {});
 
-    // A human carrying four digits between terminals cannot also be expected to
-    // carry which kind of thing they open, so the two spaces are one space.
-    expect(String(called.pin)).not.toBe(String(opened.pin));
+    // Every active room owns a distinct PIN.
+    expect(String(other.pin)).not.toBe(String(opened.pin));
   });
 
   it('lets only the chair dispatch and adjourn', async () => {

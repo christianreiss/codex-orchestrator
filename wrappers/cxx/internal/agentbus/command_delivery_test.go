@@ -65,7 +65,7 @@ func TestCLIOneShotListenNeverClaimsWork(t *testing.T) {
 
 func TestCLIMessageCommandsRetainRetryIDs(t *testing.T) {
 	const id = "11111111-1111-4111-8111-111111111111"
-	for _, command := range []string{"send", "request", "reply", "call-join"} {
+	for _, command := range []string{"send", "request", "reply"} {
 		t.Run(command, func(t *testing.T) {
 			commandBroker(t, func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any
@@ -82,8 +82,6 @@ func TestCLIMessageCommandsRetainRetryIDs(t *testing.T) {
 				err = runSend(append(args, "--to", "agent:peer"), strings.NewReader("body"), io.Discard, io.Discard, command == "request")
 			case "reply":
 				err = runReply(append(args, "--message-id", id), strings.NewReader("body"), io.Discard, io.Discard)
-			case "call-join":
-				err = runCallJoin(append(args, "--pin", "0042"), strings.NewReader("body"), io.Discard, io.Discard)
 			}
 			if err == nil || !strings.Contains(err.Error(), id) {
 				t.Fatalf("retry guidance lost: %v", err)

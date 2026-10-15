@@ -107,7 +107,6 @@ import {
 } from './agent-messaging/views.js';
 import { AgentMessagingConferenceAdmin, type ConferencePageOptions } from './agent-messaging/conference-admin.js';
 import { AgentMessagingAdmin } from './agent-messaging/admin.js';
-import { CallCoordinator } from './agent-messaging/call.js';
 import {
   reapExpiredAgentMessagingBindingsLocked,
 } from './agent-messaging/bindings.js';
@@ -136,10 +135,6 @@ import {
  */
 
 export {
-  AGENT_MESSAGING_CALL_PIN_MAX_TTL_SECONDS,
-  AGENT_MESSAGING_CALL_PIN_MIN_TTL_SECONDS,
-  AGENT_MESSAGING_CALL_PIN_SPACE,
-  AGENT_MESSAGING_CALL_PIN_TTL_SECONDS,
   AGENT_MESSAGING_CONFERENCE_DISPATCH_FLOOR_SECONDS,
   AGENT_MESSAGING_CONFERENCE_DISPATCH_MAX_SECONDS,
   AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS,
@@ -172,8 +167,6 @@ export {
 export {
   deliveryBackoffSeconds,
   normalizeAgentAlias,
-  normalizeCallPin,
-  normalizeCallPinTtl,
   normalizeConferenceMaxMembers,
   normalizeConferenceTtl,
   normalizeDispatchEta,
@@ -196,7 +189,6 @@ export {
 export class AgentMessagingService {
   private readonly settings: SettingsService;
   private readonly sessions: SessionRegistry;
-  private readonly call: CallCoordinator;
   private readonly conference: ConferenceCoordinator;
   private readonly admin: AgentMessagingAdmin;
   private readonly conferenceAdmin: AgentMessagingConferenceAdmin;
@@ -241,23 +233,10 @@ export class AgentMessagingService {
         this.assertAddressRegistration(address, host, engine, username, cwd),
       assertAddressEligibleLocked: (tx, address) => this.assertAddressEligibleLocked(tx, address),
     });
-    this.call = new CallCoordinator({
-      db,
-      keyring,
-      presenceFreshSeconds: env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,
-      requireEnabledLocked: (tx) => this.requireEnabledLocked(tx),
-      requireAddressLocked: (tx, id) => this.requireAddressLocked(tx, id),
-      authenticateBridge: (sessionId, rawToken, allowEnded) =>
-        this.authenticateBridge(sessionId, rawToken, allowEnded),
-      assertSessionAddressLocked: (tx, sessionId, address) =>
-        this.assertSessionAddressLocked(tx, sessionId, address),
-      assertAddressEligibleLocked: (tx, address) => this.assertAddressEligibleLocked(tx, address),
-      recordRuntime: (action, hostId, engine, details) => this.recordRuntime(action, hostId, engine, details),
-    });
     this.conference = new ConferenceCoordinator({
       db,
       keyring,
-      presenceLocked: (tx, address) => this.call.presenceLocked(tx, address),
+      presenceFreshSeconds: env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,
       requireEnabledLocked: (tx) => this.requireEnabledLocked(tx),
       requireAddressLocked: (tx, id) => this.requireAddressLocked(tx, id),
       resolveAddressLocked: (tx, raw, forUpdate) => this.resolveAddressLocked(tx, raw, forUpdate),
@@ -266,9 +245,6 @@ export class AgentMessagingService {
       assertSessionAddressLocked: (tx, sessionId, address) =>
         this.assertSessionAddressLocked(tx, sessionId, address),
       assertAddressEligibleLocked: (tx, address) => this.assertAddressEligibleLocked(tx, address),
-      sweepCallPinsLocked: (tx, now) => this.call.sweepCallPinsLocked(tx, now),
-      livePinsLocked: (tx) => this.call.livePinsLocked(tx),
-      pickFreePin: (taken) => this.call.pickFreePin(taken),
       requireConversationLocked: (tx, id) => this.requireConversationLocked(tx, id),
       cancelConversationInternal: (conversationId, canceledBy, reason, addressId, sessionId) =>
         this.cancelConversationInternal(conversationId, canceledBy, reason, addressId, sessionId),
@@ -367,26 +343,6 @@ export class AgentMessagingService {
 
   async listAddresses(sessionId: string, bridgeToken: string, filters: AgentDiscoveryFilters = {}): Promise<Record<string, unknown>> {
     return this.sessions.listAddresses(sessionId, bridgeToken, filters);
-  }
-
-  // =====================================================================
-  // Calls -- delegated to `CallCoordinator`, which also owns the PIN space.
-  // =====================================================================
-
-  async openCall(
-    sessionId: string,
-    bridgeToken: string,
-    input: { ttlSeconds?: number | null } = {},
-  ): Promise<Record<string, unknown>> {
-    return this.call.openCall(sessionId, bridgeToken, input);
-  }
-
-  async joinCall(
-    sessionId: string,
-    bridgeToken: string,
-    input: { pin: string; content: string; clientMessageId: string; ttlSeconds?: number | null },
-  ): Promise<Record<string, unknown>> {
-    return this.call.joinCall(sessionId, bridgeToken, input);
   }
 
   // =====================================================================
@@ -1393,8 +1349,8 @@ export class AgentMessagingService {
       const releasedBindings = await reapExpiredAgentMessagingBindingsLocked(tx, now);
       // Expired PINs are also swept at mint and redeem time; doing it here as
       // well means a PIN nobody ever dials does not squat its slot in the unique
-      // index until the next `#call` happens to run.
-      await this.call.sweepCallPinsLocked(tx, now);
+      // index until the next conference operation.
+      await this.conference.sweepPinsLocked(tx, now);
       const expiring = await tx.select({ value: count() }).from(agentBusMessages).where(and(inArray(agentBusMessages.status, ['queued', 'leased']), lte(agentBusMessages.expiresAt, now)));
       const retryable = await tx.select({ value: count() }).from(agentBusMessages).where(and(eq(agentBusMessages.status, 'leased'), lte(agentBusMessages.leaseUntil, now), lte(agentBusMessages.attempts, AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS - 1), gt(agentBusMessages.expiresAt, now)));
       const exhausted = await tx.select({ value: count() }).from(agentBusMessages).where(and(eq(agentBusMessages.status, 'leased'), lte(agentBusMessages.leaseUntil, now), gt(agentBusMessages.attempts, AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS - 1)));

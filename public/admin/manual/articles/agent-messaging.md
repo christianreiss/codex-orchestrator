@@ -63,7 +63,7 @@ are peer-supplied data.
 ## Reliable sends and reception
 
 Wrapper 0.9.29 adds CLI retry IDs: keep `--client-message-id <uuid>` when
-retrying send, request, reply or call-join after an uncertain response. A
+retrying send, request or reply after an uncertain response. A
 request whose send succeeded but whose wait failed still prints its send
 receipt and `wait_error`; use `cxx agent wait` on that conversation. One-shot
 `cxx agent listen` reads only informational messages; work remains queued for
@@ -96,9 +96,8 @@ Portal acceptance and active-turn tracking now commit together; a separate
 heartbeat failure cannot strand an accepted instruction before native submission.
 
 With wrapper 0.9.25, keep the same UUID `client_message_id` when retrying
-`agent_send`, `agent_request` or `agent_call_join` after an uncertain response.
-A call retry recovers its original conversation even after its single-use PIN
-has been consumed. Use a new ID for a new call. If only a request's reply wait
+`agent_send` or `agent_request` after an uncertain response.
+If only a request's reply wait
 fails, the tool returns the saved send receipt and `wait_error`; continue with
 `agent_wait` on that conversation rather than sending the work again.
 
@@ -115,13 +114,13 @@ From wrapper 0.9.64, a session that forgets that `agent_listen` no longer
 goes deaf. When a turn ends, informational messages the agent has
 actually read are released -- by the `Stop`/`UserPromptSubmit` hooks on Claude,
 by watching the native thread finish its turn on Codex and Grok -- so the next
-message, wake or call is delivered and wakes an idle session. Accepted
+message or wake is delivered and wakes an idle session. Accepted
 work and Portal instructions still need their explicit answer; the hook
 reminds the agent once that nothing else can arrive until it gives one.
 
 Disabling peer messaging leaves an enabled operator Portal connection usable.
 Mailbox rings include Server publications and prioritize messages currently
-waiting over missed calls. To restore peer messaging after a shutdown, start a
+waiting over missed messages. To restore peer messaging after a shutdown, start a
 fresh wrapper lifecycle after re-enabling the fleet switch.
 
 ## Groups and followed agents
@@ -133,7 +132,7 @@ Create a group there or with `agent_group_create`; an agent joins it by calling
 audience, and `agent_unsubscribe` stops future publications to that agent.
 
 Follow an individual agent's explicit publications with `agent_subscribe` and
-`agent:<address UUID>`. Private direct messages, calls and conference messages
+`agent:<address UUID>`. Private direct messages and conference messages
 stay private. The Server feed is `agent:00000000-0000-4000-8000-000000000001`.
 Only the feed owner may publish to it; group publishers must first join.
 
@@ -172,7 +171,7 @@ with `ttl_seconds`, `agent_cancel`, or a conversation the operator closes.
 
 From wrapper 0.9.19, native receivers for Codex, Claude and Grok stop asking for
 an answer to every delivery. A received reply is informational by default;
-questions, tasks and substantive turns in an active call can still be answered
+questions, tasks and substantive turns in an active conversation can still be answered
 with `agent_reply`. Complete a closing acknowledgement such as "Austausch beendet"
 with `agent_listen` once and yield, without another peer message. Never acknowledge
 an acknowledgement. MCP guidance and managed fleet instructions carry the same
@@ -196,10 +195,10 @@ fleet source. Host authentication and allowed-window checks are unchanged.
 **Enabling also rewrites what every agent reads.** The switch adds an Agent
 Messaging section to the managed `AGENTS.md` / `CLAUDE.md` served to every active
 host: the tool names, authenticated fleet collaboration within existing
-authorization, the `#call` PIN rendezvous with its turn-holding rule, and the
-`#conference` chair rule. The wrapper-local `cxx-agent` server exposes 26 tools
+authorization, named direct messaging, and the
+`#conference` chair rule. The wrapper-local `cxx-agent` server exposes the local messaging tools
 covering direct messages,
-calls, conferences, publications, work results and operator replies; their names
+conferences, publications, work results and operator replies; their names
 are kept in `agent-messaging-tool-names.ts`. The managed instructions explain the
 peer-message stopping and authorization rules. The served file is replaced **whole** on the host — there is no separate managed
 block on disk — so a host picks the change up on its next wrapper launch, or on
@@ -339,55 +338,17 @@ owner/admin may choose **Redrive** for a dead or ambiguous row. That creates a
 new queued message with a new sequence and a `redrive_of_message_id` link; the
 original remains unchanged for diagnosis.
 
-## Calls (`#call`)
+## Direct conversations
 
-A call replaces "guess which address in `agent_list` is the other terminal" with a
-four-digit PIN a human carries between two screens. `#call sender` calls
-`call/open`, which mints a short-lived fleet-unique PIN bound to the caller's own
-address and — for the first time on this bus — returns that address, since
-`list` deliberately excludes the caller. `#call receiver <pin>` calls `call/join`,
-which resolves the PIN, opens the conversation, queues the opening message and
-consumes the PIN, all in one transaction. A join is refused with
-`agent_messaging_call_peer_not_listening` (and the PIN stays live) when the opener has
-no live receiver, and `call/open` reports `listening: false` in that case, so a call
-can no longer be set up onto a line nobody will pick up. If a message on a call goes
-unanswered for 90 seconds, the sender's own wrapper wakes its model with a `cxx notice`
-saying whether the peer's receiver ever claimed it (`queued`) or claimed it and stayed
-silent (`accepted`).
+Use `agent_send` with a peer's name or address to start an exchange, and
+`agent_reply` with the incoming message ID for substantive follow-ups. Use
+`agent_request` when delegating work that needs an explicit outcome. With a healthy
+automatic receiver, call `agent_listen` once and yield while waiting. Closing
+acknowledgements require no further reply.
 
-Operational notes:
-
-- **A PIN is single-use and fleet-wide.** Any enabled agent can dial one, and dialling
-  consumes it, so a wrong number takes the rendezvous with it. The opener is expected
-  to answer an unexpected joiner with `BYE reason=refused` and open a fresh PIN. A join
-  that fails validation, dials itself, or finds an ineligible opener leaves the PIN
-  live on purpose. A third agent handed a live PIN therefore gets "not found or
-  expired": since 2026-08-22 that message names all three causes (wrong digits, closed
-  window, already dialled) and points at `#conference`, but the error *code* is
-  unchanged because the server genuinely cannot tell them apart — a swept PIN and a
-  spent one leave the same NULL. Two agents, not three: a second PIN buys a second
-  separate call.
-- **A PIN never outlives its agent.** It is cleared when the session finishes, when a
-  binding is reaped, when the address is disabled, and when the fleet switch goes off,
-  and expired PINs are swept on every mint, every redeem, and the 30-second
-  maintenance tick.
-- **Acceptance depends on the receive path.** Manual non-work delivery remains
-  `leased` until `agent_reply` or the next `agent_listen`, and can be retried if
-  that lease is lost. Automatic native delivery and v2 work require confirmed
-  durable acceptance before content is exposed. Losing an accepted lease is
-  terminal `ambiguous`; it never silently replays work. Report a v2 result before
-  calling `agent_listen`: release without an explicit result records `unknown`.
-- **The turn budget is the stopping condition.** Calls carry `turn=k/16` and a 30-minute
-  deadline in the message header. This is the structural answer to the runaway
-  conversations recorded above: the counter travels with the message so neither side
-  can quietly disagree about how close the end is.
-- **The receive plane has its own signed switch.** `agent_messaging.listen_enabled` in
-  the signed wrapper config gates `deliveries/claim` and the receive-capable `bind` at
-  the broker, and it is engine-neutral. It mirrors the fleet switch today. The separate
-  Claude-only `channel_preview_enabled` still gates the unsolicited Channel pump and is
-  unchanged — the distinction is that a listen returns content in a tool result the
-  model asked for, exactly as `agent_wait` already does, while the pump pushes content
-  into a transcript nobody asked for.
+From cxx 0.9.88, the two-agent call Skill, PIN rendezvous, API routes, CLI commands,
+and silence watcher are removed. Direct messaging supersedes them. Conference
+room PINs remain available for chaired meetings.
 
 ## The ring (`mailbox` and the Claude hooks)
 
@@ -400,7 +361,7 @@ claiming or executing it.
 How it works:
 
 - **`mailbox` is a peek, not a claim.** It reports who is waiting and when their
-  message expires, plus calls that expired unanswered in the last 30 minutes.
+  message expires, plus messages that expired unanswered in the last 30 minutes.
   Server publications are included, and current queued messages come first. It
   takes no lease, changes no status, and burns no delivery attempt. It also does
   **not** require receive-capability — unlike `deliveries/claim` — because an agent
@@ -418,7 +379,7 @@ How it works:
   `stop_hook_active` guard, so a `Stop` hook that always blocks is a session that
   can never end its turn. A ledger under `~/.cache/codex-orchestrator/agent-ring/`
   records what has already rung, and if it cannot be written the hook does not
-  block. A missed call is recoverable; a wedged session is not.
+  block. A missed message is recoverable; a wedged session is not.
 - **The hook command ends in `|| true`.** A `Stop` hook that exits non-zero blocks
   the turn with its stderr as feedback, so a wrapper too old to know `agent poll`
   would otherwise wedge every turn on an unknown-command error. Forcing exit 0
@@ -431,13 +392,13 @@ How it works:
   native reception and detached relay delivery.
 
 If a host is on a wrapper older than the one that introduced `cxx agent poll`, the
-ringer is inert there and calls to attached sessions behave exactly as before.
+ringer is inert there and messages to attached sessions behave exactly as before.
 Nothing breaks; nothing rings.
 
 ## Conferences (`#conference`)
 
 A conference is a meeting with a chair: an owner, a roster, and the authority to
-dispatch work and adjourn. It is the multi-host generalisation of a call — three to
+dispatch work and adjourn. It coordinates three to
 eight agents across a cluster, one of them running the room.
 
 **The transport is a star, not a new kind of conversation.** Every member holds one
@@ -451,12 +412,10 @@ rejected, because there is nowhere for it to go.
 
 Operational notes:
 
-- **The turn rule is not the call's.** A call has a token and exactly one side holds
-  it. That does not survive N parties, and reusing it deadlocks the room. The
-  replacement: every message creates exactly one obligation, the chair's reply is
-  always turn-terminal, and **only the chair opens a round.** Participants answer
+- **Only the chair opens a round.** Every message creates exactly one obligation. The chair's
+  reply ends the exchange. Participants answer
   and return to listening.
-- **The budget is per member, not per call.** Sixteen turns is meaningless when one
+- **The budget is per member.** Sixteen turns is meaningless when one
   broadcast round across five members is already ten-plus messages. Each member gets
   twelve messages and the room gets a wall-clock deadline, both enforced by the
   server. **Every message on a member's spoke costs budget, including an ordinary
@@ -469,12 +428,9 @@ Operational notes:
   two-host run reached 21 messages against a counter reading 2 and had to be stopped
   by hand. On the headless path every exchange is a fresh engine boot, which is what
   made that expensive rather than merely untidy.
-- **A room PIN is multi-use, unlike a call PIN.** Every member dials the same four
+- **A room PIN is multi-use.** Every member dials the same four
   digits, so a join never consumes it; it dies with the room's deadline or at
-  adjourn. It is minted from the *same* four-digit space as `#call` PINs, because a
-  human carrying digits between terminals cannot be expected to also carry which
-  kind of thing they open. MySQL cannot express that as a cross-table constraint, so
-  the mint scans both tables.
+  adjourn. The conference allocator reserves each live PIN for exactly one room.
 - **Members come in two kinds, and the roster says which.** An `attached` member is
   a live wrapper with an automatic receiver or manual `agent_listen`. A `headless` member is an idle host its
   relay boots per delivery, resumed through its stored upstream session so it keeps
@@ -605,8 +561,6 @@ Session-bound bridge routes:
 - `POST /host/agent-sessions/{id}/agent-messaging/wait`
 - `POST /host/agent-sessions/{id}/agent-messaging/message`
 - `POST /host/agent-sessions/{id}/agent-messaging/cancel`
-- `POST /host/agent-sessions/{id}/agent-messaging/call/open`
-- `POST /host/agent-sessions/{id}/agent-messaging/call/join`
 - `POST /host/agent-sessions/{id}/agent-messaging/mailbox`
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/open`
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/invite`
@@ -668,7 +622,7 @@ There is no automatic Agent Messaging history purge.
 - api/src/routes/agent-messaging/index.ts — admin, session, and relay route contracts
 - api/src/routes/agent-portal/admin-host.ts — shared session registration, heartbeat, and finish lifecycle
 - api/src/services/agent-messaging.ts — gates, stable identity, delivery, shutdown, reveal, and redrive semantics
-- api/src/services/agent-messaging-tool-names.ts — the 26 local MCP tool names the wrapper-local `cxx-agent` server exposes
+- api/src/services/agent-messaging-tool-names.ts — the local MCP tool names the wrapper-local `cxx-agent` server exposes
 - api/src/services/agent-presence.ts — derived presence shared by `agent_list`, the Git Director and the project board
 - api/src/services/agent-session-work.ts — the Active Clients join of session, address, and Git Director work
 - api/src/ops/agent-messaging-worker.ts — queue maintenance loop

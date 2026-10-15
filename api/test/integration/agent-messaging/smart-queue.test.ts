@@ -372,23 +372,18 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
       1, 1, 1,
     ]);
   });
-  it('allows full calls and conferences ahead of catch-up', async () => {
+  it('allows direct coordination and conferences ahead of catch-up', async () => {
     const source = await peer(),
       target = await peer();
     await send(source, target, 'info one');
     await send(source, target, 'info two');
-    const opened = (await service.openCall(target.id, target.token)) as { pin: string };
-    await service.joinCall(source.id, source.token, {
-      pin: opened.pin,
-      content: 'LIVE CALL full',
-      clientMessageId: randomUUID(),
-    });
-    const call = (await claim(target))!;
-    expect(call.delivery_class).toBe('coordination');
-    expect(call.content).toContain('LIVE CALL full');
-    expect(call.kind).not.toBe('digest');
-    await ack(target, call, 'accepted');
-    await ack(target, call, 'completed');
+    await send(source, target, 'LIVE MESSAGE full', { queue: { delivery_class: 'coordination' } });
+    const message = (await claim(target))!;
+    expect(message.delivery_class).toBe('coordination');
+    expect(message.content).toContain('LIVE MESSAGE full');
+    expect(message.kind).not.toBe('digest');
+    await ack(target, message, 'accepted');
+    await ack(target, message, 'completed');
     const room = (await service.openConference(source.id, source.token, { topic: 'full conference' })) as {
       conference_id: string;
     };

@@ -45,8 +45,6 @@ export const AGENT_MESSAGING_TOOLS = [
   'agent_message_get',
   'agent_digest_get',
   'agent_cancel',
-  'agent_call_open',
-  'agent_call_join',
   'agent_listen',
   'agent_conf_open',
   'agent_conf_invite',
