@@ -1,3 +1,4 @@
+import { smartQueueAllowed } from './agent-messaging/smart-queue.js';
 import { markWaitingForPresence } from './agent-messaging/presence-feedback.js';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
@@ -26,7 +27,7 @@ export class AgentReceiverService {
   private portal;
   constructor(
     private db: Database,
-    env: Env,
+    private env: Env,
     keyring: Keyring,
   ) {
     this.messaging = createAgentMessagingService(db, env, keyring);
@@ -63,7 +64,7 @@ export class AgentReceiverService {
   async register(
     id: string,
     token: string,
-    input: { generation: string; protocol: ReceiverState['protocol']; native_session_id: string },
+    input: { generation: string; protocol: ReceiverState['protocol']; native_session_id: string; capabilities?: { queue_delivery_v1?: boolean } },
   ) {
     const auth = await this.authenticate(id, token);
     if ({ codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' }[auth.engine] !== input.protocol)
@@ -91,6 +92,7 @@ export class AgentReceiverService {
         ...input,
         portal_closed: old?.portal_closed,
         activity_v1: activityEnabled,
+        queue_delivery_v1: smartQueueAllowed(this.env, auth.hostId, { queue_delivery_v1: input.capabilities?.queue_delivery_v1 === true }),
         heartbeat_at: now,
         failure: null,
         probes: Object.fromEntries(sources.map((source) => [source, {}])),
@@ -124,7 +126,7 @@ export class AgentReceiverService {
     this.changed(id);
     const [bound] = await this.db.select({ bindingGeneration: agentSessions.bindingGeneration }).from(agentSessions).where(eq(agentSessions.id, id));
     return { receiver: receiverView(state), sources: Object.keys(state.probes) as ReceiverSource[],
-      capabilities: { activity_v1: state.activity_v1 === true }, binding_generation: bound?.bindingGeneration ?? 0 };
+      capabilities: { activity_v1: state.activity_v1 === true, queue_policy_v1: true, queue_delivery_v1: state.queue_delivery_v1 === true }, binding_generation: bound?.bindingGeneration ?? 0 };
   }
 
   async update(
@@ -155,7 +157,10 @@ export class AgentReceiverService {
         (state.failure || Date.parse(state.heartbeat_at) <= now - RECEIVER_FRESH_MS)
       )
         throw new ConflictError('Receiver connection expired; reconnect', 'receiver_expired');
-      if (operation === 'heartbeat') state.heartbeat_at = new Date(now).toISOString();
+      if (operation === 'heartbeat') {
+        state.heartbeat_at = new Date(now).toISOString();
+        state.queue_delivery_v1 = smartQueueAllowed(this.env, session.hostId, state);
+      }
       if (operation === 'stop') {
         state.failure = input.failure ?? 'receiver_stopped';
         if (session.agentBusAddressId && state.probes.peer) await markWaitingForPresence(tx, session.agentBusAddressId);
@@ -209,7 +214,7 @@ export class AgentReceiverService {
     return { receiver: receiverView((await this.authenticate(id, token)).receiver) };
   }
 
-  async claim(id: string, token: string, generation: string, source: ReceiverSource, claimId: string) {
+  async claim(id: string, token: string, generation: string, source: ReceiverSource, claimId: string, informationalOnly = false) {
     const auth = await this.authenticate(id, token, source);
     await this.db.transaction(async (tx) => {
       const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, id)).for('update');
@@ -229,7 +234,7 @@ export class AgentReceiverService {
     });
     if (source === 'peer') {
       await this.messaging.notifyPresenceReturn(id);
-      return { delivery: await this.messaging.claimForSession(id, token, claimId, generation) };
+      return { delivery: await this.messaging.claimForSession(id, token, claimId, generation, informationalOnly) };
     }
     return { message: await this.portal.claimMessage(id, token, claimId, undefined, generation) };
   }

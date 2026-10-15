@@ -199,6 +199,15 @@ CREATE TABLE `agent_bus_conversations` (
 );
 
 CREATE TABLE `agent_bus_messages` (
+  `delivery_class` VARCHAR(16) NOT NULL DEFAULT 'information',
+  `coalesce_key` VARCHAR(128) NULL,
+  `related_work_id` CHAR(36) NULL,
+  `event_count` INT UNSIGNED NOT NULL DEFAULT 1,
+  `event_first_at` VARCHAR(100) NULL,
+  `event_last_at` VARCHAR(100) NULL,
+  `digest_id` CHAR(36) NULL,
+  `superseded_by_id` CHAR(36) NULL,
+  `presented_at` VARCHAR(100) NULL,
 	`sender_name` varchar(96),
 	`target_name` varchar(96),
 	`requested_target` varchar(96),
@@ -246,6 +255,8 @@ CREATE TABLE `agent_bus_messages` (
 	`canceled_at` varchar(100),
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
+	INDEX `idx_agent_bus_messages_digest` (`digest_id`, `dispatch_order`),
+	INDEX `idx_agent_bus_messages_queue_class` (`target_address_id`, `status`, `delivery_class`, `dispatch_order`),
 	CONSTRAINT `agent_bus_messages_id` PRIMARY KEY(`id`),
 	CONSTRAINT `uq_agent_bus_messages_presence_notice` UNIQUE(`presence_notice_key`),
 	CONSTRAINT `uq_agent_bus_messages_dispatch_order` UNIQUE(`dispatch_order`),

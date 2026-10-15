@@ -1,3 +1,4 @@
+import { queuePolicy, assertQueuePolicyReplay, validateRelatedWork, smartQueueAllowed, prepareSmartDigest, restoreUnpresentedDigests, presentDigest, type QueuePolicy } from './agent-messaging/smart-queue.js';
 import { expireRebootHandoffs } from './reboot-handoffs.js';
 import { daemonAccepting, daemonResidentFor } from './host-daemon/policy.js';
 import { assertHousekeepingAvailable } from './session-housekeeping.js';
@@ -470,6 +471,7 @@ export class AgentMessagingService {
       conversationId?: string | null;
       ttlSeconds?: number | null;
       kind?: 'message' | 'request';
+      queue?: QueuePolicy;
     },
   ): Promise<Record<string, unknown>> {
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
@@ -479,10 +481,15 @@ export class AgentMessagingService {
     const content = normalizeMessageBody(input.content);
     const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
     const ttlSeconds = normalizeMessageTtl(input.ttlSeconds);
+    let policy = queuePolicy(input.queue, input.kind === 'request');
     const result = await this.db.transaction(async (tx) => {
       await this.requireEnabledLocked(tx);
       const sender = await this.requireAddressLocked(tx, authenticated.session.agentBusAddressId!);
       await this.assertSessionAddressLocked(tx, authenticated.session.id, sender);
+      if (!input.queue && input.kind !== 'request' && input.conversationId) {
+        const [opening] = await tx.select({ deliveryClass: agentBusMessages.deliveryClass }).from(agentBusMessages).where(eq(agentBusMessages.conversationId, input.conversationId)).orderBy(asc(agentBusMessages.sequence)).limit(1);
+        if (opening?.deliveryClass === 'coordination') policy = { ...policy, deliveryClass: 'coordination' };
+      }
       const existingRows = await tx
         .select()
         .from(agentBusMessages)
@@ -496,10 +503,12 @@ export class AgentMessagingService {
         ? await this.requireAddressLocked(tx, existing.targetAddressId)
         : await this.resolveAddressLocked(tx, input.to, true, !!existing);
       if (existing) {
+        assertQueuePolicyReplay(existing, policy);
         this.assertMessageIdempotency(existing, target.id, input.conversationId ?? null, null, content, input.kind ?? 'message');
         return { message: existing, sender, target, content, created: false };
       }
       await this.assertAddressEligibleLocked(tx, target);
+      await validateRelatedWork(tx, policy.relatedWorkId, target.id);
       if (sender.id === target.id) {
         throw new ValidationError('An agent cannot message itself', { param: 'to' });
       }
@@ -545,6 +554,7 @@ export class AgentMessagingService {
         sourceEngine: sender.engine,
         targetEngine: target.engine,
         kind: input.kind ?? 'message',
+        ...policy,
         executionContractVersion: input.kind === 'request' ? 2 : 1,
         workKind: input.kind === 'request' ? 'request' : null,
         contentEnc: encrypt(content, this.keyring),
@@ -606,7 +616,7 @@ export class AgentMessagingService {
     sessionId: string,
     bridgeToken: string,
     parentMessageId: string,
-    input: { content: string; clientMessageId: string; ttlSeconds?: number | null; claimId?: string; taskResult?: TaskResult },
+    input: { content: string; clientMessageId: string; ttlSeconds?: number | null; claimId?: string; taskResult?: TaskResult; queue?: QueuePolicy },
   ): Promise<Record<string, unknown>> {
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     const senderAddressId = authenticated.session.agentBusAddressId;
@@ -614,6 +624,7 @@ export class AgentMessagingService {
     const content = normalizeMessageBody(input.content);
     const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
     const ttlSeconds = normalizeMessageTtl(input.ttlSeconds);
+    let policy = queuePolicy(input.taskResult ? { delivery_class: 'coordination' } : input.queue);
     const parentId = normalizeUuid(parentMessageId, 'message_id');
     const result = await this.db.transaction(async (tx) => {
       await this.requireEnabledLocked(tx);
@@ -624,13 +635,14 @@ export class AgentMessagingService {
       if (!parent || parent.targetAddressId !== sender.id) {
         throw new NotFoundError('Message not found', 'agent_messaging_message_not_found');
       }
+      if (!input.queue && parent.deliveryClass === 'coordination') policy = { ...policy, deliveryClass: 'coordination' };
       if (input.taskResult && !parent.workKind) throw new ValidationError('Only work deliveries accept a task result');
       if (input.taskResult && !input.claimId) throw new ValidationError('Task result requires the current claim');
       if (parent.workKind && !input.claimId) {
         throw new ConflictError('Work replies require the accepted delivery claim', 'agent_task_result_not_accepted');
       }
       if (parent.kind === 'presence_notice') throw new ConflictError('Presence notices are informational and cannot be replied to', 'agent_messaging_presence_notice_reply');
-      if (!parent.workKind && parent.attempts > 0 && parent.status !== 'completed' && !input.claimId) {
+      if (!parent.workKind && parent.attempts > 0 && !['completed', 'digested', 'superseded'].includes(parent.status) && !input.claimId) {
         throw new ConflictError('A delivered message requires its current claim; use send for a new follow-up', 'agent_messaging_lease_lost');
       }
       if (parent.workKind && input.claimId) await this.finishTaskLocked(tx, parent, input.claimId, `session:${sessionId}`, input.taskResult);
@@ -650,10 +662,12 @@ export class AgentMessagingService {
         .for('update');
       const existing = existingRows[0];
       if (existing) {
+        assertQueuePolicyReplay(existing, policy);
         this.assertMessageIdempotency(existing, target.id, parent.conversationId, parent.id, content, 'reply');
         return { message: existing, sender, target, content, created: false };
       }
       await this.assertAddressEligibleLocked(tx, target);
+      await validateRelatedWork(tx, policy.relatedWorkId, target.id);
       const conversation = await this.requireConversationLocked(tx, parent.conversationId);
       this.assertConversationParticipants(conversation, sender.id, target.id);
       if (conversation.status !== 'open') throw new ConflictError('Conversation is canceled', 'agent_messaging_conversation_canceled');
@@ -675,6 +689,7 @@ export class AgentMessagingService {
         sourceEngine: sender.engine,
         targetEngine: target.engine,
         kind: 'reply',
+        ...policy,
         contentEnc: encrypt(content, this.keyring),
         contentBytes: Buffer.byteLength(content, 'utf8'),
         clientMessageId,
@@ -783,6 +798,18 @@ export class AgentMessagingService {
     return { message: { ...messageForParticipant(message, this.decodeContent(message), addresses.get(message.senderAddressId)!, addresses.get(message.targetAddressId)!), task_results: reports.map(r => ({ claim_id: r.claimId, created_at: r.createdAt, task_result: taskResultSchema.parse(JSON.parse(decrypt(r.bodyEnc, this.keyring))) })) } };
   }
 
+  async getDigest(sessionId: string, token: string, digestId: string, after = 0, limit = 20): Promise<Record<string, unknown>> {
+    const auth = await this.authenticateBridge(sessionId, token);
+    const id = normalizeUuid(digestId, 'digest_id');
+    const root = await this.getMessage(sessionId, token, id);
+    const message = root.message as Record<string, unknown>;
+    if (message.kind !== 'digest') throw new NotFoundError('Digest not found', 'agent_messaging_message_not_found');
+    const members = await this.db.select().from(agentBusMessages).where(and(or(eq(agentBusMessages.digestId, id), sql`${agentBusMessages.supersededById} IN (SELECT member.id FROM agent_bus_messages member WHERE member.digest_id = ${id})`), eq(agentBusMessages.targetAddressId, auth.session.agentBusAddressId!), gt(agentBusMessages.dispatchOrder, after))).orderBy(asc(agentBusMessages.dispatchOrder)).limit(limit + 1);
+    const page = members.slice(0, limit);
+    const addresses = await this.addressMap(page.flatMap(m => [m.senderAddressId, m.targetAddressId]));
+    return { digest_id: id, messages: page.map(m => messageForParticipant(m, this.decodeContent(m), addresses.get(m.senderAddressId)!, addresses.get(m.targetAddressId)!)), next_after: members.length > limit ? page[page.length - 1]!.dispatchOrder : null };
+  }
+
   async cancelConversation(sessionId: string, bridgeToken: string, conversationId: string, reason?: string | null): Promise<Record<string, unknown>> {
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     const addressId = authenticated.session.agentBusAddressId;
@@ -808,7 +835,7 @@ export class AgentMessagingService {
     }
     normalizeUuid(claimId, 'claim_id');
     if (await idleSessionPoll(this.db, sessionId, this.env, { bridgeToken, receiverGeneration })) return null;
-    return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly);
+    return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly, smartQueueAllowed(this.env, authenticated.host.id, authenticated.session.receiver));
   }
 
   /**
@@ -1204,6 +1231,7 @@ export class AgentMessagingService {
         sourceEngine: sender.engine,
         targetEngine: target.engine,
         kind: 'reply',
+        deliveryClass: parent.workKind || parent.deliveryClass === 'coordination' ? 'coordination' : 'information',
         contentEnc: encrypt(content, this.keyring),
         contentBytes: Buffer.byteLength(content, 'utf8'),
         clientMessageId,
@@ -1338,7 +1366,7 @@ export class AgentMessagingService {
     return this.admin.listAdminConversations(options);
   }
 
-  async listAdminMessages(options: { conversationId?: string; status?: string; limit?: number } = {}): Promise<Record<string, unknown>> {
+  async listAdminMessages(options: { conversationId?: string; messageId?: string; status?: string; limit?: number } = {}): Promise<Record<string, unknown>> {
     return this.admin.listAdminMessages(options);
   }
 
@@ -1405,6 +1433,7 @@ export class AgentMessagingService {
     skipReceiveCapable: boolean,
     receiverGeneration?: string,
     informationalOnly = false,
+    smartQueue = false,
   ): Promise<MessageDelivery | null> {
     const claimId = normalizeUuid(rawClaimId, 'claim_id');
     const now = nowIso();
@@ -1461,6 +1490,11 @@ export class AgentMessagingService {
         return { message: replayRows[0], sender, target };
       }
 
+      if (relayGeneration == null) {
+        const target = await this.requireAddressLocked(tx, targetAddressIds[0]!);
+        await restoreUnpresentedDigests(tx, target.id, !smartQueue);
+        if (smartQueue) await prepareSmartDigest(tx, target, { keyring: this.keyring, server: db => this.groups.server(db) });
+      }
       const candidates = await tx
         .select()
         .from(agentBusMessages)
@@ -1483,6 +1517,24 @@ export class AgentMessagingService {
             )
             : lte(agentBusMessages.nextAttemptAt, now),
           gt(agentBusMessages.expiresAt, now),
+          smartQueue ? sql`NOT EXISTS (
+            SELECT 1 FROM agent_bus_messages AS earlier
+             WHERE earlier.target_address_id = ${agentBusMessages.targetAddressId}
+               AND earlier.status IN ('queued','leased','accepted','reboot_hold')
+               AND earlier.id <> ${agentBusMessages.id}
+               AND (
+                 ((${agentBusMessages.workKind} IS NOT NULL OR ${agentBusMessages.kind} IN ('request','task','schedule'))
+                   AND (earlier.status IN ('leased','accepted','reboot_hold') OR
+                     ((earlier.work_kind IS NOT NULL OR earlier.kind IN ('request','task','schedule')) AND earlier.dispatch_order < ${agentBusMessages.dispatchOrder})))
+                 OR ((${agentBusMessages.workKind} IS NULL AND ${agentBusMessages.kind} NOT IN ('request','task','schedule'))
+                   AND earlier.work_kind IS NULL AND earlier.kind NOT IN ('request','task','schedule')
+                   AND (earlier.status IN ('leased','accepted','reboot_hold') OR
+                     (${agentBusMessages.deliveryClass} = 'coordination' AND earlier.delivery_class = 'coordination' AND earlier.dispatch_order < ${agentBusMessages.dispatchOrder}) OR
+                     (${agentBusMessages.deliveryClass} <> 'coordination' AND (earlier.delivery_class = 'coordination' OR
+                       (${agentBusMessages.kind} = 'digest' AND earlier.kind = 'digest' AND earlier.dispatch_order < ${agentBusMessages.dispatchOrder}) OR
+                       (${agentBusMessages.kind} <> 'digest' AND (earlier.kind = 'digest' OR earlier.dispatch_order < ${agentBusMessages.dispatchOrder}))))))
+               )
+          )` : and(
           sql`NOT EXISTS (
             SELECT 1
               FROM agent_bus_messages AS earlier
@@ -1497,8 +1549,11 @@ export class AgentMessagingService {
                AND in_flight.status IN ('leased', 'accepted', 'reboot_hold')
                AND in_flight.id <> ${agentBusMessages.id}
           )`,
+          ),
+          ...(!smartQueue ? [sql`${agentBusMessages.kind} <> 'digest'`] : []),
+          ...(informationalOnly ? [sql`${agentBusMessages.workKind} IS NULL AND ${agentBusMessages.kind} NOT IN ('request','task','schedule')`] : []),
         ))
-        .orderBy(asc(agentBusMessages.dispatchOrder))
+        .orderBy(smartQueue ? sql`CASE WHEN ${agentBusMessages.deliveryClass} = 'coordination' THEN 0 WHEN ${agentBusMessages.workKind} IS NOT NULL THEN 1 WHEN ${agentBusMessages.kind} = 'digest' THEN 2 ELSE 3 END` : asc(agentBusMessages.dispatchOrder), asc(agentBusMessages.dispatchOrder))
         .limit(64)
         .for('update');
       for (const candidate of candidates) {
@@ -1781,6 +1836,7 @@ export class AgentMessagingService {
         await this.conference.settleConferenceDispatchLocked(tx, message.id, now);
       }
       await tx.update(agentBusMessages).set(patch).where(eq(agentBusMessages.id, id));
+      if (input.outcome === 'completed') await presentDigest(tx, message, now);
       if (upstreamSessionId && input.outcome !== 'retry' && input.outcome !== 'dead') {
         const targetRows = await tx
           .select()

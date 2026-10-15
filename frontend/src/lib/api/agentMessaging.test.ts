@@ -169,6 +169,7 @@ describe("Agent Messaging query builders", () => {
       "messages",
       {
         conversation_id: conversationId.trim(),
+        message_id: null,
         status: "ambiguous",
         limit: 500,
         enabled: true,
@@ -186,6 +187,14 @@ describe("Agent Messaging query builders", () => {
     ]);
   });
 
+  it("links a digest to retained originals using a distinct metadata query", async () => {
+    const id = "123e4567-e89b-42d3-a456-426614174000";
+    const query = asQuery(messaging.agentMessagingMessagesQuery({ messageId: id }));
+    await query.queryFn();
+    assert.equal(calls[0].path, `/admin/agent-messaging/messages?message_id=${id}&limit=100`);
+    assert.notDeepEqual(query.queryKey, asQuery(messaging.agentMessagingMessagesQuery()).queryKey);
+  });
+
   it("disables an invalid non-empty conversation UUID without sharing the unfiltered key", () => {
     const query = asQuery(
       messaging.agentMessagingMessagesQuery({
@@ -200,7 +209,7 @@ describe("Agent Messaging query builders", () => {
     assert.deepEqual(query.queryKey, [
       "agent-messaging",
       "messages",
-      { conversation_id: null, status: "queued", limit: 100, enabled: false },
+      { conversation_id: null, message_id: null, status: "queued", limit: 100, enabled: false },
     ]);
     assert.deepEqual(calls, []);
   });

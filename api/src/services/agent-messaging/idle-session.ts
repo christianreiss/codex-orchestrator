@@ -43,7 +43,11 @@ export async function idleSessionPoll(
       // awaitingPresence on accepted relay work; never exclude accepted rows.
       sql`NOT EXISTS (SELECT 1 FROM ${agentBusMessages}
         WHERE ${agentBusMessages.targetAddressId} = ${agentBusAddresses.id}
-          AND ${agentBusMessages.status} IN ('queued', 'leased', 'accepted')
+          AND (${agentBusMessages.status} IN ('queued', 'leased', 'accepted')
+          ${claim ? sql`OR (${agentBusMessages.status} = 'batched' AND EXISTS (
+            SELECT 1 FROM agent_bus_messages digest_root WHERE digest_root.id = ${agentBusMessages.digestId}
+              AND digest_root.accepted_at IS NULL AND digest_root.status IN ('expired','dead','canceled')
+          ))` : sql``})
           ${claim ? sql`` : sql`AND ${agentBusMessages.awaitingPresence} = 1`})`,
     )).limit(1);
   if (!row) return false;

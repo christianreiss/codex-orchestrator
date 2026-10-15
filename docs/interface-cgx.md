@@ -1,5 +1,14 @@
 # cgx — Grok Build fleet wrapper
 
+## Smart queue delivery v1 (cxx 0.9.87)
+
+Native receivers negotiate an opt-in catch-up digest and a coordination lane
+while accepted work remains held. Send/reply accept explicit `delivery_class`,
+`coalesce_key`, and `related_work_id`; `agent_digest_get` retrieves paginated
+originals. Calls, conferences, task results and operator messages remain full.
+Work IDs and auth/admission fences are preserved. The server flag defaults off;
+see [Smart queue](smart-queue.md) for limits, canary setup and rollback.
+
 The legacy `/go` magic-link webchat is removed. Active Clients and Android
 continue using the existing session/receiver contracts and `cxx portal` commands;
 operator access requires a dashboard account or its paired device. Session

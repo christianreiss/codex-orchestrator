@@ -271,6 +271,7 @@ export class ConferenceCoordinator {
         senderSessionId: input.senderSessionId,
         target,
         kind: input.verb === 'TASK' ? 'task' : 'message',
+        deliveryClass: input.verb === 'TASK' ? 'information' : 'coordination',
         content,
         contentEnc: encrypt(content, this.core.keyring),
         // Server-generated: a conference send is a fan-out, so there is no single

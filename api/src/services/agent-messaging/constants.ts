@@ -52,5 +52,5 @@ export const AGENT_MESSAGING_MAILBOX_PAGE_SIZE = 20;
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export const CALL_PIN_RE = /^[0-9]{4}$/;
 export const LIVE_MESSAGE_STATUSES = ['queued', 'leased', 'accepted', 'reboot_hold'] as const;
-export const CANCELABLE_MESSAGE_STATUSES = ['queued', 'leased', 'reboot_hold'] as const;
-export const TERMINAL_MESSAGE_STATUSES = ['completed', 'ambiguous', 'dead', 'expired', 'canceled'] as const;
+export const CANCELABLE_MESSAGE_STATUSES = ['queued', 'leased', 'reboot_hold', 'batched'] as const;
+export const TERMINAL_MESSAGE_STATUSES = ['completed', 'ambiguous', 'dead', 'expired', 'canceled', 'digested', 'superseded'] as const;

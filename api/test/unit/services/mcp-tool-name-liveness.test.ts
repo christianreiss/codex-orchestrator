@@ -63,6 +63,10 @@ const IDENTIFIER = /[a-z][a-z0-9]*(?:_(?:[a-z0-9]+|\*))+/g;
  * reason each one is there. Anything not listed here has to be a live tool.
  */
 const NON_TOOL_TOKENS: Record<string, string> = {
+  queue_delivery_v1: 'Negotiated receiver capability, not a tool.',
+  held_work: 'Accepted work IDs in a listen result.',
+  delivery_class: 'Explicit queue routing argument.',
+  coalesce_key: 'Explicit pending event stream key.',
   answer_mode: 'Operator question answer mode argument, not a tool.',
   notice_id: 'Stable classified attention identifier, not a tool.',
   reply_to: 'Conversation event reference, not a tool.',

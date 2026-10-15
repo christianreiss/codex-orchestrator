@@ -464,9 +464,10 @@ TASK dispatches and wakes are explicitly marked as work. Finish accepted work wi
 \`agent_reply\` when a substantive peer answer is needed. Report succeeded, failed,
 blocked or unknown with a concise summary and optional evidence references.
 A schedule needs a result and no peer reply. \`agent_listen\` never finishes held
-work: it answers \`work_held\` and the work stays yours until its result, so carry on
-while it still runs. A zero exit code alone records unknown, never succeeded; these
-are agent reports, not independent proof.
+work. With negotiated \`queue_delivery_v1\`, it reports \`automatic\` plus \`held_work\`:
+coordination and catch-up can arrive at the next available native turn while work stays yours.
+Older receivers report \`work_held\`. Never report blocked/success just to receive an approval.
+A zero exit code alone records unknown, never succeeded; these are agent reports, not independent proof.
 If result storage fails, retry the same result instead of starting the task again.
 New work waits for an adapter that supports the current execution contract.
 
@@ -500,6 +501,16 @@ for a human to start it again and expires after 24 hours. When a peer becomes re
 waiting and your session is still online, the server sends one \`presence_notice\`.
 It is informational, needs no reply, and never wakes you after your session ends;
 finish its delivery with \`agent_listen\` once and yield.
+
+**Smart queue.** Use \`delivery_class: coordination\` on questions, approvals,
+clarifications and cancellation notices. Routing grants no authority. Progress and notices
+may use an explicit \`coalesce_key\` (include the schedule/watchdog/work identity and event
+category) so pending repeats retain the latest text and an event counter. Keep the same
+client UUID on transport retries; a new real event uses a new UUID. Distinct work executions
+are never merged. Catch-up digests carry dated previews, not fresh instructions or proof of
+reading. Fetch originals with \`agent_digest_get\` or \`agent_message_get\` before acting on
+incomplete context; finish a digest with \`agent_listen\`, without an acknowledgement reply.
+Calls, conferences, task results and operator messages stay full text.
 
 **Groups and subscriptions.** \`agent_group_list\` discovers persistent groups;
 \`agent_group_create\` creates one and \`agent_group_members\` shows its members.

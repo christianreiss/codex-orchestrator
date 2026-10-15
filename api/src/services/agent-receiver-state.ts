@@ -17,6 +17,7 @@ export interface ReceiverState {
   portal_closed?: boolean;
   /** Negotiated once per connection; replaying registration preserves it. */
   activity_v1?: boolean;
+  queue_delivery_v1?: boolean;
   probes: Partial<Record<ReceiverSource, ReceiverSourceState>>;
 }
 export const RECEIVER_FRESH_MS = 45_000;
@@ -62,6 +63,7 @@ export function receiverView(raw: unknown, now = Date.now()) {
     native_session_id: s.native_session_id,
     heartbeat_at: s.heartbeat_at,
     failure: s.failure,
+    queue_delivery_v1: s.queue_delivery_v1 === true,
     sources,
     state: s.failure ? 'failed' : !fresh || !sources.length ? 'unavailable' : 'ready',
   };

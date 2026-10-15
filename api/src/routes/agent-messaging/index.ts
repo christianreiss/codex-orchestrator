@@ -1,3 +1,4 @@
+import { queuePolicySchema } from '../../services/agent-messaging/smart-queue.js';
 import { RebootHandoffs } from '../../services/reboot-handoffs.js';
 import { taskResultSchema, type TaskResult } from '../../services/agent-messaging/task-execution.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -174,6 +175,7 @@ export async function registerAgentMessagingRoutes(
     const query = (req.query ?? {}) as Record<string, unknown>;
     return await messaging.listAdminMessages({
       conversationId: optionalString(query.conversation_id),
+      messageId: optionalString(query.message_id),
       status: optionalString(query.status),
       limit: optionalPositiveInt(query.limit),
     });
@@ -274,6 +276,7 @@ export async function registerAgentMessagingRoutes(
         conversation_id: z.string().uuid().nullable().optional(),
         ttl_seconds: z.number().int().nullable().optional(),
         kind: z.enum(['message', 'request']).optional(),
+        ...queuePolicySchema.shape,
       })
       .strict()
       .parse(req.body ?? {});
@@ -284,13 +287,14 @@ export async function registerAgentMessagingRoutes(
       conversationId: body.conversation_id,
       ttlSeconds: body.ttl_seconds,
       kind: body.kind,
+      queue: body.delivery_class || body.coalesce_key || body.related_work_id ? { delivery_class: body.delivery_class, coalesce_key: body.coalesce_key, related_work_id: body.related_work_id } : undefined,
     });
   });
   app.post('/host/agent-sessions/:id/agent-messaging/reply', async (req) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
     const body = z
-      .object({ message_id: z.string().uuid(), content: z.string(), client_message_id: z.string().uuid(), ttl_seconds: z.number().int().nullable().optional(), claim_id: z.string().uuid().optional(), task_result: taskResultSchema.optional() })
+      .object({ message_id: z.string().uuid(), content: z.string(), client_message_id: z.string().uuid(), ttl_seconds: z.number().int().nullable().optional(), claim_id: z.string().uuid().optional(), task_result: taskResultSchema.optional(), ...queuePolicySchema.shape })
       .strict()
       .parse(req.body ?? {});
     return await messaging.replyMessage(id, token, body.message_id, {
@@ -299,6 +303,7 @@ export async function registerAgentMessagingRoutes(
       ttlSeconds: body.ttl_seconds,
       claimId: body.claim_id,
       taskResult: body.task_result,
+      queue: body.delivery_class || body.coalesce_key || body.related_work_id ? { delivery_class: body.delivery_class, coalesce_key: body.coalesce_key, related_work_id: body.related_work_id } : undefined,
     });
   });
   app.post('/host/agent-sessions/:id/agent-messaging/wait', async (req, reply) => {
@@ -311,6 +316,12 @@ export async function registerAgentMessagingRoutes(
       if ((result.messages as unknown[]).length > 0 || Date.now() >= deadline || clientGone(reply)) return result;
       await delay(400);
     }
+  });
+  app.post('/host/agent-sessions/:id/agent-messaging/digest', async req => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    const body = z.object({ digest_id: z.string().uuid(), after: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0), limit: z.number().int().min(1).max(20).default(20) }).strict().parse(req.body ?? {});
+    return messaging.getDigest(id, token, body.digest_id, body.after, body.limit);
   });
   app.post('/host/agent-sessions/:id/agent-messaging/message', async (req) => {
     const id = stringParam(req.params, 'id');

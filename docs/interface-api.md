@@ -1,5 +1,16 @@
 # API Interface (Source of Truth)
 
+- `POST /host/agent-sessions/{id}/agent-messaging/digest` — bridge-authenticated original retrieval for a negotiated smart-queue digest. Body: `digest_id`, optional `after` dispatch cursor and `limit` (1–20). Returns `messages` and `next_after`; grouping is never a read receipt. See [Smart queue](smart-queue.md).
+
+## Smart queue delivery v1 (cxx 0.9.87)
+
+Native receivers negotiate an opt-in catch-up digest and a coordination lane
+while accepted work remains held. Send/reply accept explicit `delivery_class`,
+`coalesce_key`, and `related_work_id`; `agent_digest_get` retrieves paginated
+originals. Calls, conferences, task results and operator messages remain full.
+Work IDs and auth/admission fences are preserved. The server flag defaults off;
+see [Smart queue](smart-queue.md) for limits, canary setup and rollback.
+
 ## Automatic repository delivery
 
 When Git Director is enabled, its managed instructions require agents to call

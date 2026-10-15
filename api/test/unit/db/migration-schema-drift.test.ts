@@ -311,6 +311,15 @@ describe('migrations against the test baseline', () => {
       'agent_sessions.activity',
       'hosts.wrapper_canary',
       'openai_api_keys.backend_engine',
+      'agent_bus_messages.delivery_class',
+      'agent_bus_messages.coalesce_key',
+      'agent_bus_messages.related_work_id',
+      'agent_bus_messages.event_count',
+      'agent_bus_messages.event_first_at',
+      'agent_bus_messages.event_last_at',
+      'agent_bus_messages.digest_id',
+      'agent_bus_messages.superseded_by_id',
+      'agent_bus_messages.presented_at',
     ]);
   });
 

@@ -227,7 +227,7 @@ export async function queueTaskResultReply(
         sender,
         senderSessionId: message.deliverySessionId,
         target,
-        kind: 'reply',
+        kind: 'reply', deliveryClass: 'coordination',
         content: report.summary,
         contentEnc: encrypt(report.summary, keyring),
         clientMessageId: randomUUID(),

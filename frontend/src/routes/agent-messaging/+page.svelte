@@ -2,6 +2,7 @@
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { writable } from "svelte/store";
   import { page } from "$app/state";
+  import { base } from "$app/paths";
   import { goto } from "$app/navigation";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import MessageSquareShare from "@lucide/svelte/icons/message-square-share";
@@ -60,6 +61,9 @@
     "ambiguous",
     "expired",
     "canceled",
+    "batched",
+    "digested",
+    "superseded",
   ] as const;
   const LIMITS = [50, 100, 250, 500] as const;
   const WORKSPACE_VIEWS = ["addresses", "groups", "conferences", "conversations", "deliveries"] as const;
@@ -166,6 +170,7 @@
   const messageOptions = writable(
     agentMessagingMessagesQuery({
       conversationId: validConversationId,
+        messageId: page.url.searchParams.get("message_id") ?? undefined,
       status: messageStatus === "all" ? undefined : messageStatus,
       limit,
       enabled: messageConversationFilterValid,
@@ -175,6 +180,7 @@
     messageOptions.set(
       agentMessagingMessagesQuery({
         conversationId: validConversationId,
+        messageId: page.url.searchParams.get("message_id") ?? undefined,
         status: messageStatus === "all" ? undefined : messageStatus,
         limit,
         enabled: messageConversationFilterValid,
@@ -197,7 +203,7 @@
   // message body on screen it can no longer ask for.
   const grantSignature = $derived([...$authStore.capabilities].sort().join("\u0000"));
   const revealFilterSignature = $derived(
-    [workspaceView, conversationStatus, messageStatus, messageConversationId.trim(), String(limit)].join("\u0000"),
+    [workspaceView, conversationStatus, messageStatus, messageConversationId.trim(), page.url.searchParams.get("message_id"), String(limit)].join("\u0000"),
   );
   const pending = $derived(
     ($stateQuery.data?.messages.queued ?? 0) +
@@ -257,6 +263,12 @@
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Conversation cancellation failed");
     }
+  }
+
+  function clearMessageLink() {
+    const url = new URL(page.url);
+    url.searchParams.delete("message_id");
+    void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
   }
 
   async function reveal(item: AgentMessageMetadata) {
@@ -570,6 +582,9 @@
       <header class="border-b border-border px-3 py-3">
         <h2 id="deliveries-heading" class="text-sm font-semibold">Deliveries</h2>
         <p class="mt-1 text-sm text-muted-foreground">Metadata is visible by default. Owner/admin content reveal is explicit and audited.</p>
+        {#if page.url.searchParams.get("message_id")}
+          <p class="mt-2 text-xs text-muted-foreground">Showing linked message history · {page.url.searchParams.get("message_id")} <Button size="sm" variant="ghost" onclick={clearMessageLink}>Clear filter</Button></p>
+        {/if}
       </header>
       <div class="divide-y divide-border">
         {#if !messageConversationFilterValid}
@@ -580,7 +595,11 @@
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
                   <p class="truncate text-sm font-medium">{routeLabel(message.sender)} → {routeLabel(message.target)}</p>
-                  <p class="text-xs text-muted-foreground">#{message.sequence} · {message.kind} · {formatBytes(message.content_bytes)} · attempt {message.attempts} · {relativeTime(message.created_at)}</p>
+                  <p class="text-xs text-muted-foreground">#{message.sequence} · {message.kind} · {message.delivery_class ?? "information"} · {formatBytes(message.content_bytes)} · attempt {message.attempts} · {relativeTime(message.created_at)}</p>
+                  {#if (message.event_count ?? 1) > 1}<p class="text-xs text-muted-foreground">{message.event_count} grouped events · first {relativeTime(message.event_first_at ?? message.created_at)} · last {relativeTime(message.event_last_at ?? message.created_at)}</p>{/if}
+                  {#if message.kind === "digest"}<a data-sveltekit-reload class="text-xs underline" href={`${base}/agent-messaging?view=deliveries&message_id=${message.id}`}>View retained originals</a>{/if}
+                  {#if message.digest_id}<p class="text-xs text-muted-foreground">Retained original · <a data-sveltekit-reload class="underline" href={`${base}/agent-messaging?view=deliveries&message_id=${message.digest_id}`}>digest and originals</a> · presentation is not a read receipt</p>{/if}
+                  {#if message.superseded_by_id}<p class="text-xs text-muted-foreground">Superseded by <a data-sveltekit-reload class="underline" href={`${base}/agent-messaging?view=deliveries&message_id=${message.superseded_by_id}`}>{message.superseded_by_id}</a> · original retained</p>{/if}
                 </div>
                 <span class="rounded-full border px-2 py-0.5 text-[10px] uppercase {statusTone(message.status)}">{message.status}</span>
                 {#if message.work_kind || message.kind === "request" || message.kind === "schedule"}<span class="text-xs">Task: {message.task_result_status ?? "unknown"} · agent report</span>{/if}

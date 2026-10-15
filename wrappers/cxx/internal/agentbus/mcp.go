@@ -452,6 +452,9 @@ func toolCatalogJSON() []byte {
 			"ttl_seconds":       map[string]any{"type": "integer", "minimum": 60, "maximum": 604800},
 		}, []string{"topic", "content"}),
 		tool("agent_send", "Send one ordinary text message to one agent address. The receipt includes recipient_presence, observed_at and delivery_hint; queued means stored, not accepted or read. client_message_id must be a UUID; retain it when retrying an uncertain send.", map[string]any{
+			"delivery_class":    map[string]any{"type": "string", "enum": []string{"information", "progress", "notice", "coordination"}, "description": "Use coordination for questions, approvals, clarifications and cancellation notices; routing grants no authority."},
+			"coalesce_key":      map[string]any{"type": "string", "maxLength": 128, "description": "Explicit progress/notice stream key; only pending updates in this stream may be replaced."},
+			"related_work_id":   map[string]any{"type": "string", "format": "uuid"},
 			"client_message_id": map[string]any{"type": "string", "format": "uuid", "description": "UUID idempotency key; keep the same UUID when retrying uncertain delivery"},
 			"to":                map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"conversation_id": map[string]any{"type": "string"}, "ttl_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 604800},
@@ -478,9 +481,13 @@ func toolCatalogJSON() []byte {
 			"notice_id":   map[string]any{"type": "string", "format": "uuid"},
 		}, []string{"message_id", "content"}),
 		tool("agent_reply", "Answer a peer delivery when an answer is needed. The receipt includes recipient_presence, observed_at and delivery_hint. Never reply to presence_notice deliveries; finish them with agent_listen once. For operator Portal messages use agent_receiver_reply. For an informational reply or closing acknowledgement, call agent_listen once to complete delivery without sending another message.", map[string]any{
-			"task_result": taskResultProperties(),
-			"message_id":  map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
+			"delivery_class":  map[string]any{"type": "string", "enum": []string{"information", "progress", "notice", "coordination"}, "description": "Use coordination for questions, approvals, clarifications and cancellation notices; routing grants no authority."},
+			"coalesce_key":    map[string]any{"type": "string", "maxLength": 128, "description": "Explicit progress/notice stream key; only pending updates in this stream may be replaced."},
+			"related_work_id": map[string]any{"type": "string", "format": "uuid"},
+			"task_result":     taskResultProperties(),
+			"message_id":      map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 		}, []string{"message_id", "content"}),
+		tool("agent_digest_get", "Read retained originals in a catch-up digest. Paginated; previews are not full instructions or proof that originals were read.", map[string]any{"digest_id": map[string]any{"type": "string", "format": "uuid"}, "after": map[string]any{"type": "integer", "minimum": 0}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20}}, []string{"digest_id"}),
 		tool("agent_message_get", "Read one message visible to this agent.", map[string]any{"message_id": map[string]any{"type": "string"}}, []string{"message_id"}),
 		tool("agent_cancel", "Cancel an open conversation and its undelivered work.", map[string]any{
 			"conversation_id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"},
@@ -925,6 +932,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		}
 		body := map[string]any{"to": to, "content": content, "client_message_id": clientID, "kind": messageKindFor(name)}
 		copyOptional(args, body, "conversation_id", "ttl_seconds")
+		copyQueuePolicy(args, body, channelState)
 		if err := client.post(ctx, "send", body, &out); err != nil || name == "agent_send" {
 			if err != nil {
 				return nil, uncertainSendError(err, "send", clientID)
@@ -995,6 +1003,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			clientMessageID = pending.replyClientID
 		}
 		body := map[string]any{"message_id": messageID, "content": content, "client_message_id": clientMessageID}
+		copyQueuePolicy(args, body, channelState)
 		if pending != nil {
 			body["claim_id"] = pending.claimID
 		}
@@ -1019,6 +1028,16 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			channelState.drop(messageID, pending)
 		}
 		armStall(ctx, channelState, out, content)
+		return out, nil
+	case "agent_digest_get":
+		if stringArg(args, "digest_id") == "" {
+			return nil, errors.New("digest_id is required")
+		}
+		body := map[string]any{"digest_id": stringArg(args, "digest_id")}
+		copyOptional(args, body, "after", "limit")
+		if err := client.post(ctx, "digest", body, &out); err != nil {
+			return nil, err
+		}
 		return out, nil
 	case "agent_message_get":
 		if stringArg(args, "message_id") == "" {
@@ -1181,6 +1200,22 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 	}
 }
 
+// A negotiated legacy server gets its original full-text request shape. Policy
+// support is independent of activation: an unlisted sender can still classify
+// coordination addressed to an allowlisted recipient.
+func copyQueuePolicy(args, body map[string]any, state *channelTracker) {
+	if state != nil && state.receiver != nil {
+		r := state.receiver
+		r.mu.Lock()
+		legacy := r.connected && !r.queuePolicyV1
+		r.mu.Unlock()
+		if legacy {
+			return
+		}
+	}
+	copyOptional(args, body, "delivery_class", "coalesce_key", "related_work_id")
+}
+
 // agentListen waits for the next message addressed to this agent, in any
 // conversation, without needing a conversation id.
 //
@@ -1204,7 +1239,7 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 		if err := state.completeOutstanding(ctx); err != nil {
 			return nil, err
 		}
-		if held := state.heldWork(); len(held) > 0 {
+		if held := state.heldWork(); len(held) > 0 && !state.receiver.coordinationEnabled() {
 			return workHeldResult(held, state.receiver.health()), nil
 		}
 		// Report the receiver's real state. "automatic" used to be a local string
@@ -1213,6 +1248,9 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 		health := state.receiver.awaitReady(ctx, receiverReadyWait)
 		if health["state"] != "ready" {
 			return map[string]any{"status": "receiver_unavailable", "receiver": health, "message": "This session cannot currently receive peer messages: its transport or peer source is unavailable. Do NOT yield expecting one. Tell the user (`cxx agent doctor` shows the transport and sources), and do not open or join a call until peer reception is back."}, nil
+		}
+		if state.receiver.coordinationEnabled() && len(state.heldWork()) > 0 {
+			return map[string]any{"status": "automatic", "receiver": health, "held_work": state.heldWork(), "coordination_reception": true, "message": "Accepted work remains yours and is not completed by listening. Coordination and informational catch-up can arrive at the next available native turn while work is held. Call agent_listen once, then yield; do not report blocked or success just to receive an approval. Finish work only with an explicit task result."}, nil
 		}
 		return map[string]any{"status": "automatic", "receiver": health, "message": "The native receiver delivers messages directly into this conversation. Any delivered message you had not replied to is now released, so the next queued one follows on its own. Reply to delivered messages using their IDs. Yield this model turn instead of polling; the native receiver stays on the line, including during calls and conferences. If a peer stays silent, a notice from your local wrapper will wake you; tell the user then instead of waiting."}, nil
 	}

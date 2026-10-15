@@ -1,0 +1,511 @@
+import { randomBytes, randomUUID } from 'node:crypto';
+import mysql from 'mysql2/promise';
+import { drizzle } from 'drizzle-orm/mysql2';
+import { eq, inArray, or } from 'drizzle-orm';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import * as schema from '../../../src/db/schema.js';
+import { AgentMessagingService, AGENT_MESSAGING_ENABLED_KEY } from '../../../src/services/agent-messaging.js';
+import { AgentReceiverService } from '../../../src/services/agent-receiver.js';
+import { invalidateFleetEngineState } from '../../../src/services/engine-switch.js';
+import { ENGINES, type Engine } from '../../../src/util/engine.js';
+import { readDbConfig } from '../../helpers/test-db.js';
+import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
+
+const config = readDbConfig();
+const protocols = { codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' } as const;
+
+describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000 }, () => {
+  const pool = mysql.createPool({ ...config, connectionLimit: 4 });
+  const db = drizzle(pool, { schema, mode: 'default' });
+  const env = { ...loadTestEnv(), CXX_QUEUE_DELIVERY_V1_ENABLED: true, CXX_QUEUE_DELIVERY_V1_HOST_IDS: '' };
+  const service = new AgentMessagingService(db, env, testKeyring());
+  const receiver = new AgentReceiverService(db, env, testKeyring());
+  let host: typeof schema.hosts.$inferSelect;
+  const prior = new Map<string, string | undefined>();
+  const flagNames = [AGENT_MESSAGING_ENABLED_KEY, ...ENGINES.map((e) => `${e}_engine_disabled`)];
+
+  async function flag(name: string, value: string) {
+    await db
+      .insert(schema.versions)
+      .values({ name, version: value, updatedAt: new Date().toISOString() })
+      .onDuplicateKeyUpdate({ set: { version: value } });
+    invalidateFleetEngineState(db);
+  }
+  beforeAll(async () => {
+    for (const name of flagNames)
+      prior.set(
+        name,
+        (await db.select().from(schema.versions).where(eq(schema.versions.name, name)))[0]?.version ??
+          undefined,
+      );
+    const fqdn = `session-idle-${randomUUID()}.test`,
+      now = new Date().toISOString();
+    await db.insert(schema.hosts).values({
+      fqdn,
+      apiKey: randomBytes(32).toString('hex'),
+      status: 'active',
+      secure: 1,
+      engines: ENGINES.join(','),
+      createdAt: now,
+      updatedAt: now,
+    });
+    host = (await db.select().from(schema.hosts).where(eq(schema.hosts.fqdn, fqdn)))[0]!;
+  });
+  beforeEach(async () => {
+    env.CXX_QUEUE_DELIVERY_V1_ENABLED = true;
+    env.CXX_QUEUE_DELIVERY_V1_HOST_IDS = '';
+    await flag(AGENT_MESSAGING_ENABLED_KEY, '1');
+    for (const engine of ENGINES) await flag(`${engine}_engine_disabled`, '0');
+    await db.update(schema.hosts).set({ status: 'active' }).where(eq(schema.hosts.id, host.id));
+  });
+  afterAll(async () => {
+    if (host) {
+      const addresses = await db
+        .select()
+        .from(schema.agentBusAddresses)
+        .where(eq(schema.agentBusAddresses.hostId, host.id));
+      const ids = addresses.map((a) => a.id);
+      if (ids.length) {
+        await db
+          .delete(schema.agentBusMessages)
+          .where(
+            or(
+              inArray(schema.agentBusMessages.targetAddressId, ids),
+              inArray(schema.agentBusMessages.senderAddressId, ids),
+            ),
+          );
+        await db
+          .delete(schema.agentBusConversations)
+          .where(
+            or(
+              inArray(schema.agentBusConversations.addressAId, ids),
+              inArray(schema.agentBusConversations.addressBId, ids),
+            ),
+          );
+      }
+      await db.delete(schema.agentSessions).where(eq(schema.agentSessions.hostId, host.id));
+      await db.delete(schema.agentBusAddresses).where(eq(schema.agentBusAddresses.hostId, host.id));
+      await db.delete(schema.logs).where(eq(schema.logs.hostId, host.id));
+      await db.delete(schema.hosts).where(eq(schema.hosts.id, host.id));
+    }
+    for (const [name, value] of prior) {
+      if (value === undefined) await db.delete(schema.versions).where(eq(schema.versions.name, name));
+      else await flag(name, value);
+    }
+    await pool.end();
+  });
+
+  async function peer(engine: Engine = 'codex', capable = true) {
+    const id = randomUUID(),
+      token = randomBytes(32).toString('base64url'),
+      generation = randomUUID(),
+      native = randomUUID();
+    const result = await service.registerSession(host, {
+      engine,
+      username: randomUUID(),
+      cwd: '/tmp/session-idle',
+      invocationKind: 'interactive',
+      sessionId: id,
+      bridgeToken: token,
+      upstreamSessionId: native,
+      adapterCapabilities: { execution_contract_version: 2 },
+    });
+    const address = result.address as { id: string; address: string };
+    await receiver.register(id, token, {
+      generation,
+      protocol: protocols[engine],
+      native_session_id: native,
+      capabilities: capable ? { queue_delivery_v1: true } : undefined,
+    });
+    return { id, token, generation, address: address.address, addressId: address.id };
+  }
+  type Peer = Awaited<ReturnType<typeof peer>>;
+  async function send(
+    source: Peer,
+    target: Peer,
+    content: string,
+    extra: Partial<Parameters<typeof service.sendMessage>[2]> = {},
+  ) {
+    return (await service.sendMessage(source.id, source.token, {
+      to: target.address,
+      content,
+      clientMessageId: randomUUID(),
+      ...extra,
+    })) as { message: { id: string } };
+  }
+  async function claim(p: Peer, id = randomUUID(), info = false) {
+    return service.claimForSession(p.id, p.token, id, p.generation, info);
+  }
+  async function ack(
+    p: Peer,
+    d: NonNullable<Awaited<ReturnType<typeof claim>>>,
+    outcome: 'accepted' | 'completed',
+  ) {
+    return service.acknowledgeSessionDelivery(p.id, p.token, d.message_id, { claimId: d.claim_id, outcome });
+  }
+  for (const engine of ENGINES) {
+    it(`${engine}: seven stale updates are one retrievable digest`, async () => {
+      const source = await peer(engine),
+        target = await peer(engine),
+        ids: string[] = [];
+      for (let i = 0; i < 7; i++) ids.push((await send(source, target, `original ${i}`)).message.id);
+      await db
+        .update(schema.agentBusMessages)
+        .set({ createdAt: '2026-01-01T00:00:00Z' })
+        .where(inArray(schema.agentBusMessages.id, ids));
+      const d = (await claim(target))!;
+      expect(d.kind).toBe('digest');
+      const body = JSON.parse(d.content);
+      expect(body.entries.map((e: { message_id: string }) => e.message_id)).toEqual(ids);
+      expect(body.remaining).toBe(0);
+      await ack(target, d, 'accepted');
+      expect((await service.getDigest(target.id, target.token, d.message_id)).messages).toHaveLength(7);
+      await expect(service.getDigest(source.id, source.token, d.message_id)).rejects.toMatchObject({
+        status: 404,
+      });
+      await ack(target, d, 'completed');
+      await ack(target, d, 'completed');
+      const originals = await db
+        .select()
+        .from(schema.agentBusMessages)
+        .where(inArray(schema.agentBusMessages.id, ids));
+      expect(
+        originals.every(
+          (x) => x.status === 'digested' && x.presentedAt && !x.completedAt && x.attempts === 0,
+        ),
+      ).toBe(true);
+      expect(await claim(target)).toBeNull();
+      expect(
+        ((await service.getMessage(target.id, target.token, ids[0]!)).message as { content: string }).content,
+      ).toBe('original 0');
+      await expect(
+        service.replyMessage(target.id, target.token, ids[0]!, {
+          content: 'substantive answer',
+          clientMessageId: randomUUID(),
+        }),
+      ).resolves.toBeDefined();
+    });
+    it(`${engine}: approval passes held work and does not start the next task`, async () => {
+      const source = await peer(engine),
+        target = await peer(engine);
+      const first = await send(source, target, 'first task', { kind: 'request' });
+      const work = (await claim(target))!;
+      await ack(target, work, 'accepted');
+      const second = await send(source, target, 'second task', { kind: 'request' });
+      await send(source, target, 'old progress');
+      const approval = await send(source, target, 'APPROVED full text', {
+        queue: { delivery_class: 'coordination', related_work_id: first.message.id },
+      });
+      const d = (await claim(target, randomUUID(), true))!;
+      expect(d.message_id).toBe(approval.message.id);
+      expect(d.content).toBe('APPROVED full text');
+      await ack(target, d, 'accepted');
+      await ack(target, d, 'completed');
+      const [held] = await db
+        .select()
+        .from(schema.agentBusMessages)
+        .where(eq(schema.agentBusMessages.id, first.message.id));
+      const [waiting] = await db
+        .select()
+        .from(schema.agentBusMessages)
+        .where(eq(schema.agentBusMessages.id, second.message.id));
+      expect(held?.status).toBe('accepted');
+      expect(waiting?.status).toBe('queued');
+      expect(waiting?.attempts).toBe(0);
+    });
+  }
+  it('counts repeated keyed notices once per event, not per transport retry', async () => {
+    const source = await peer(),
+      target = await peer(),
+      clientMessageId = randomUUID();
+    const queue = { delivery_class: 'notice' as const, coalesce_key: 'watchdog:one:capacity' };
+    const first = await send(source, target, 'tick one', { clientMessageId, queue });
+    expect((await send(source, target, 'tick one', { clientMessageId, queue })).message.id).toBe(
+      first.message.id,
+    );
+    await expect(
+      send(source, target, 'tick one', {
+        clientMessageId,
+        queue: { delivery_class: 'progress', coalesce_key: 'different' },
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    const latest = await send(source, target, 'latest', { queue });
+    const d = (await claim(target))!;
+    const body = JSON.parse(d.content);
+    expect(body.entries).toHaveLength(1);
+    expect(body.entries[0]).toMatchObject({
+      message_id: latest.message.id,
+      event_count: 2,
+      preview: 'latest',
+    });
+    const [old] = await db
+      .select()
+      .from(schema.agentBusMessages)
+      .where(eq(schema.agentBusMessages.id, first.message.id));
+    expect(old?.status).toBe('superseded');
+    expect(old?.supersededById).toBe(latest.message.id);
+  });
+  it('keeps legacy clients single-message and gated while accepted work is held', async () => {
+    const source = await peer(),
+      target = await peer('claude', false);
+    await send(source, target, 'A');
+    await send(source, target, 'B');
+    const d = (await claim(target))!;
+    expect(d.kind).toBe('message');
+    expect(d.content).toBe('A');
+    await ack(target, d, 'accepted');
+    expect(await claim(target)).toBeNull();
+  });
+  it('bounds Unicode previews and paginates retained originals', async () => {
+    const source = await peer(),
+      target = await peer();
+    for (let i = 0; i < 25; i++) await send(source, target, '🧯'.repeat(400));
+    const d = (await claim(target))!,
+      body = JSON.parse(d.content);
+    expect(Buffer.byteLength(d.content)).toBeLessThanOrEqual(8192);
+    expect(body.entries.length).toBeLessThanOrEqual(20);
+    expect(body.entries.length + body.remaining).toBe(25);
+    const page = await service.getDigest(target.id, target.token, d.message_id, 0, 2);
+    expect(page.messages).toHaveLength(2);
+    expect(page.next_after).not.toBeNull();
+  });
+  it('replays one claim and does not replay a leased digest after feature rollback', async () => {
+    const source = await peer(),
+      target = await peer();
+    await send(source, target, 'A');
+    await send(source, target, 'B');
+    const id = randomUUID(),
+      deliveries = await Promise.all([claim(target, id), claim(target, id)]);
+    expect(deliveries[0]?.message_id).toBe(deliveries[1]?.message_id);
+    env.CXX_QUEUE_DELIVERY_V1_ENABLED = false;
+    expect(await claim(target)).toBeNull();
+  });
+  it('rejects work condensation and related-work references for another recipient', async () => {
+    const source = await peer(),
+      target = await peer(),
+      other = await peer();
+    await expect(
+      send(source, target, 'work', {
+        kind: 'request',
+        queue: { delivery_class: 'notice', coalesce_key: 'no' },
+      }),
+    ).rejects.toMatchObject({ status: 422 });
+    const work = await send(source, other, 'other task', { kind: 'request' });
+    await expect(
+      send(source, target, 'go', {
+        queue: { delivery_class: 'coordination', related_work_id: work.message.id },
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+  it('restores a certainly unpresented digest on rollback without reviving cancellation', async () => {
+    const source = await peer(),
+      target = await peer();
+    const a = await send(source, target, 'cancel me'),
+      b = await send(source, target, 'keep me');
+    const d = (await claim(target))!;
+    await service.acknowledgeSessionDelivery(target.id, target.token, d.message_id, {
+      claimId: d.claim_id,
+      outcome: 'retry',
+    });
+    const [original] = await db
+      .select()
+      .from(schema.agentBusMessages)
+      .where(eq(schema.agentBusMessages.id, a.message.id));
+    await service.cancelConversation(source.id, source.token, original!.conversationId);
+    env.CXX_QUEUE_DELIVERY_V1_ENABLED = false;
+    const next = (await claim(target))!;
+    expect(next.kind).toBe('message');
+    expect(next.message_id).toBe(b.message.id);
+    const [canceled] = await db
+      .select()
+      .from(schema.agentBusMessages)
+      .where(eq(schema.agentBusMessages.id, a.message.id));
+    expect(canceled?.status).toBe('canceled');
+  });
+  it('expires individual batched entries before restoring the remaining originals', async () => {
+    const source = await peer(),
+      target = await peer();
+    const a = await send(source, target, 'expires'),
+      b = await send(source, target, 'live');
+    const d = (await claim(target))!;
+    await service.acknowledgeSessionDelivery(target.id, target.token, d.message_id, {
+      claimId: d.claim_id,
+      outcome: 'retry',
+    });
+    await db
+      .update(schema.agentBusMessages)
+      .set({ expiresAt: '2020-01-01T00:00:00Z' })
+      .where(eq(schema.agentBusMessages.id, a.message.id));
+    expect((await claim(target))?.message_id).toBe(b.message.id);
+    expect(
+      (await db.select().from(schema.agentBusMessages).where(eq(schema.agentBusMessages.id, a.message.id)))[0]
+        ?.status,
+    ).toBe('expired');
+  });
+  it('never replays originals after an accepted digest becomes ambiguous', async () => {
+    const source = await peer(),
+      target = await peer();
+    await send(source, target, 'one');
+    await send(source, target, 'two');
+    const d = (await claim(target))!;
+    await ack(target, d, 'accepted');
+    await service.acknowledgeSessionDelivery(target.id, target.token, d.message_id, {
+      claimId: d.claim_id,
+      outcome: 'ambiguous',
+    });
+    env.CXX_QUEUE_DELIVERY_V1_ENABLED = false;
+    expect(await claim(target)).toBeNull();
+    expect((await service.getDigest(target.id, target.token, d.message_id)).messages).toHaveLength(2);
+  });
+  it('keeps coalescing scoped to sender, recipient, class and explicit key', async () => {
+    const source = await peer(),
+      other = await peer(),
+      target = await peer();
+    for (const [sender, key] of [
+      [source, 'a'],
+      [source, 'b'],
+      [other, 'a'],
+    ] as const)
+      await send(sender, target, key, { queue: { delivery_class: 'progress', coalesce_key: key } });
+    const d = (await claim(target))!;
+    expect(JSON.parse(d.content).entries.map((x: { event_count: number }) => x.event_count)).toEqual([
+      1, 1, 1,
+    ]);
+  });
+  it('allows full calls and conferences ahead of catch-up', async () => {
+    const source = await peer(),
+      target = await peer();
+    await send(source, target, 'info one');
+    await send(source, target, 'info two');
+    const opened = (await service.openCall(target.id, target.token)) as { pin: string };
+    await service.joinCall(source.id, source.token, {
+      pin: opened.pin,
+      content: 'LIVE CALL full',
+      clientMessageId: randomUUID(),
+    });
+    const call = (await claim(target))!;
+    expect(call.delivery_class).toBe('coordination');
+    expect(call.content).toContain('LIVE CALL full');
+    expect(call.kind).not.toBe('digest');
+    await ack(target, call, 'accepted');
+    await ack(target, call, 'completed');
+    const room = (await service.openConference(source.id, source.token, { topic: 'full conference' })) as {
+      conference_id: string;
+    };
+    await service.inviteToConference(source.id, source.token, {
+      conferenceId: room.conference_id,
+      to: [target.address],
+      note: 'LIVE INVITE',
+    });
+    const invite = (await claim(target))!;
+    expect(invite.kind).not.toBe('digest');
+    expect(invite.delivery_class).toBe('coordination');
+    expect(invite.content).toContain('LIVE INVITE');
+  });
+  it('negotiates only allowlisted hosts and withdraws capability on heartbeat', async () => {
+    env.CXX_QUEUE_DELIVERY_V1_HOST_IDS = String(host.id + 9999);
+    const source = await peer(),
+      target = await peer();
+    await send(source, target, 'one');
+    await send(source, target, 'two');
+    expect((await claim(target))?.kind).toBe('message');
+    env.CXX_QUEUE_DELIVERY_V1_HOST_IDS = '';
+    const enabled = await peer();
+    env.CXX_QUEUE_DELIVERY_V1_ENABLED = false;
+    const status = await receiver.update(enabled.id, enabled.token, enabled.generation, 'heartbeat', {});
+    expect(status.receiver?.queue_delivery_v1).toBe(false);
+  });
+  for (const engine of ENGINES)
+    it(`${engine}: catch-up preserves auth, engine and receiver fences`, async () => {
+      const source = await peer(engine),
+        target = await peer(engine);
+      await send(source, target, 'A');
+      await send(source, target, 'B');
+      await expect(
+        service.claimForSession(target.id, 'wrong-token', randomUUID(), target.generation),
+      ).rejects.toBeDefined();
+      await flag(`${engine}_engine_disabled`, '1');
+      await expect(claim(target)).rejects.toBeDefined();
+      await flag(`${engine}_engine_disabled`, '0');
+      await expect(
+        service.claimForSession(target.id, target.token, randomUUID(), randomUUID()),
+      ).rejects.toBeDefined();
+      await db.update(schema.hosts).set({ status: 'disabled' }).where(eq(schema.hosts.id, host.id));
+      await expect(claim(target)).rejects.toBeDefined();
+      await db.update(schema.hosts).set({ status: 'active' }).where(eq(schema.hosts.id, host.id));
+      expect((await claim(target))?.kind).toBe('digest');
+    });
+
+  it('restores an expired, never-accepted group even when the queue otherwise looks empty', async () => {
+    const source = await peer(),
+      target = await peer();
+    const a = await send(source, target, 'one'),
+      b = await send(source, target, 'two');
+    const d = (await claim(target))!;
+    await db
+      .update(schema.agentBusMessages)
+      .set({ status: 'expired', expiredAt: new Date().toISOString(), leaseUntil: null })
+      .where(eq(schema.agentBusMessages.id, d.message_id));
+    const replacement = (await claim(target))!;
+    expect(replacement.kind).toBe('digest');
+    expect(replacement.message_id).not.toBe(d.message_id);
+    expect(JSON.parse(replacement.content).entries.map((x: { message_id: string }) => x.message_id)).toEqual([
+      a.message.id,
+      b.message.id,
+    ]);
+    await expect(service.redriveMessage(d.message_id)).rejects.toMatchObject({ status: 409 });
+  });
+  it('uses exact case-sensitive keys and retains earlier coalesced events after safe regrouping', async () => {
+    const source = await peer(),
+      target = await peer();
+    const queue = { delivery_class: 'notice' as const, coalesce_key: 'watchdog:exact:capacity' };
+    const a = await send(source, target, 'first', { queue });
+    const b = await send(source, target, 'second', { queue });
+    const first = (await claim(target))!;
+    await db
+      .update(schema.agentBusMessages)
+      .set({ status: 'dead', leaseUntil: null })
+      .where(eq(schema.agentBusMessages.id, first.message_id));
+    const c = await send(source, target, 'third', { queue });
+    const different = await send(source, target, 'different case', {
+      queue: { ...queue, coalesce_key: 'watchdog:EXACT:capacity' },
+    });
+    const next = (await claim(target))!,
+      body = JSON.parse(next.content);
+    expect(body.entries).toHaveLength(2);
+    expect(body.entries.find((x: { message_id: string }) => x.message_id === c.message.id).event_count).toBe(
+      3,
+    );
+    expect(
+      body.entries.find((x: { message_id: string }) => x.message_id === different.message.id).event_count,
+    ).toBe(1);
+    const originals = (await service.getDigest(target.id, target.token, next.message_id)).messages as Array<{
+      id: string;
+    }>;
+    expect(originals.map((x) => x.id)).toEqual([
+      a.message.id,
+      b.message.id,
+      c.message.id,
+      different.message.id,
+    ]);
+  });
+  it('delivers one fresh update normally and summarizes one update older than 60 seconds', async () => {
+    const source = await peer(),
+      target = await peer();
+    await send(source, target, 'fresh');
+    const fresh = (await claim(target))!;
+    expect(fresh.kind).toBe('message');
+    await ack(target, fresh, 'accepted');
+    await ack(target, fresh, 'completed');
+    const old = await send(source, target, 'old full text');
+    await db
+      .update(schema.agentBusMessages)
+      .set({ createdAt: new Date(Date.now() - 61_000).toISOString() })
+      .where(eq(schema.agentBusMessages.id, old.message.id));
+    const digest = (await claim(target))!;
+    expect(digest.kind).toBe('digest');
+    expect(JSON.parse(digest.content).entries.map((x: { message_id: string }) => x.message_id)).toEqual([
+      old.message.id,
+    ]);
+  });
+});

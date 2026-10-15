@@ -44,6 +44,15 @@ export interface MessageDelivery {
   sequence: number;
   reply_to_message_id: string | null;
   kind: string;
+  delivery_class?: string;
+  coalesce_key?: string | null;
+  related_work_id?: string | null;
+  event_count?: number;
+  event_first_at?: string | null;
+  event_last_at?: string | null;
+  digest_id?: string | null;
+  superseded_by_id?: string | null;
+  presented_at?: string | null;
   content: string;
   content_bytes: number;
   sender: Record<string, unknown>;

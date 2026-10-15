@@ -28,7 +28,7 @@ export async function recipientSnapshot(tx: AgentMessagingDb, address: AgentBusA
 export async function discardPresenceNotices(tx: AgentMessagingDb, now: string, targetIds?: string[]) {
   await tx.update(agentBusMessages).set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, lastErrorCode: 'presence_notice_session_ended', updatedAt: now }).where(and(
     eq(agentBusMessages.kind, 'presence_notice'),
-    inArray(agentBusMessages.status, ['queued', 'leased', 'accepted']),
+    inArray(agentBusMessages.status, ['queued', 'leased', 'accepted', 'batched']),
     ...(targetIds ? [inArray(agentBusMessages.targetAddressId, targetIds)] : []),
     sql`NOT EXISTS (SELECT 1 FROM agent_sessions AS notice_session INNER JOIN agent_bus_addresses AS notice_address ON notice_address.id = ${agentBusMessages.targetAddressId} WHERE notice_session.id = ${agentBusMessages.targetSessionId} AND notice_session.ended_at IS NULL AND notice_address.current_session_id = notice_session.id)`,
   ));
@@ -92,7 +92,7 @@ export async function queuePresenceNotices(tx: AgentMessagingDb, sessionId: stri
     const content = `PRESENCE/1\n${address.launchName ?? address.address} (${address.address}) is ready to receive again; your waiting messages can now be delivered. This is an informational server presence update, not proof of acceptance or reading and not a work request. No reply required; finish with agent_listen once and yield.\n${JSON.stringify(details)}`;
     const messageId = randomUUID();
     await tx.insert(agentBusMessages).values({
-      ...newQueuedMessage({ id: messageId, conversationId, sequence: 1, sender: server, senderSessionId: null, target: sender, kind: 'presence_notice', content, contentEnc: encrypt(content, core.keyring), clientMessageId: randomUUID(), expiresAt: new Date(now.getTime() + 24 * 3600_000).toISOString(), now: instant }),
+      ...newQueuedMessage({ id: messageId, conversationId, sequence: 1, sender: server, senderSessionId: null, target: sender, kind: 'presence_notice', deliveryClass: 'notice', content, contentEnc: encrypt(content, core.keyring), clientMessageId: randomUUID(), expiresAt: new Date(now.getTime() + 24 * 3600_000).toISOString(), now: instant }),
       targetSessionId: senderSession!.id, presenceNoticeKey: key,
     });
     receipts.push({ message_id: messageId, conversation_id: conversationId, status: 'queued' });

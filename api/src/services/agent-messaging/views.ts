@@ -33,6 +33,7 @@ export function newQueuedMessage(input: {
   senderSessionId: string | null;
   target: AgentBusAddress;
   kind: string;
+  deliveryClass?: string;
   content: string;
   contentEnc: string;
   clientMessageId: string;
@@ -53,6 +54,7 @@ export function newQueuedMessage(input: {
     sourceEngine: input.sender.engine,
     targetEngine: input.target.engine,
     kind: input.kind,
+    deliveryClass: input.deliveryClass ?? 'information',
     executionContractVersion: ['request', 'schedule', 'task'].includes(input.kind) ? 2 : 1,
     workKind: ['request', 'schedule', 'task'].includes(input.kind) ? input.kind : null,
     contentEnc: input.contentEnc,
@@ -159,6 +161,15 @@ export function messageMetadata(message: AgentBusMessage, sender?: AgentBusAddre
     sender: sender ? { ...publicAddress(sender), name: message.senderName ?? null } : { id: message.senderAddressId, engine: message.sourceEngine },
     target: target ? { ...publicAddress(target), name: message.targetName ?? null } : { id: message.targetAddressId, engine: message.targetEngine },
     kind: message.kind,
+    delivery_class: message.deliveryClass ?? 'information',
+    coalesce_key: message.coalesceKey,
+    related_work_id: message.relatedWorkId,
+    event_count: message.eventCount ?? 1,
+    event_first_at: message.eventFirstAt,
+    event_last_at: message.eventLastAt,
+    digest_id: message.digestId,
+    superseded_by_id: message.supersededById,
+    presented_at: message.presentedAt,
     target_session_id: message.targetSessionId,
     execution_contract_version: message.executionContractVersion,
     work_kind: message.workKind,
@@ -191,6 +202,15 @@ export function deliveryView(message: AgentBusMessage, content: string, sender: 
     sequence: message.sequence,
     reply_to_message_id: message.replyToMessageId,
     kind: message.kind,
+    delivery_class: message.deliveryClass ?? 'information',
+    coalesce_key: message.coalesceKey,
+    related_work_id: message.relatedWorkId,
+    event_count: message.eventCount ?? 1,
+    event_first_at: message.eventFirstAt,
+    event_last_at: message.eventLastAt,
+    digest_id: message.digestId,
+    superseded_by_id: message.supersededById,
+    presented_at: message.presentedAt,
     execution_contract_version: message.executionContractVersion,
     work_kind: message.workKind,
     task_result_status: message.taskResultStatus,

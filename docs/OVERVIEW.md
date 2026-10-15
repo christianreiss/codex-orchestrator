@@ -1,5 +1,14 @@
 # Overview
 
+## Smart queue delivery v1 (cxx 0.9.87)
+
+Native receivers negotiate an opt-in catch-up digest and a coordination lane
+while accepted work remains held. Send/reply accept explicit `delivery_class`,
+`coalesce_key`, and `related_work_id`; `agent_digest_get` retrieves paginated
+originals. Calls, conferences, task results and operator messages remain full.
+Work IDs and auth/admission fences are preserved. The server flag defaults off;
+see [Smart queue](smart-queue.md) for limits, canary setup and rollback.
+
 ## What it is
 
 Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex, Claude, and Grok subscription credentials for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx`/`clx`/`cgx` wrappers. The same API also ships Skills, shared project coordination, fleet memories and secrets, agent-to-agent messaging, a TTL'd file transfer pool, token-usage telemetry, and ChatGPT/Claude usage snapshots.

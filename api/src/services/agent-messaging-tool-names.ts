@@ -43,6 +43,7 @@ export const AGENT_MESSAGING_TOOLS = [
   'agent_attachment_upload',
   'agent_attachment_get',
   'agent_message_get',
+  'agent_digest_get',
   'agent_cancel',
   'agent_call_open',
   'agent_call_join',

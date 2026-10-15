@@ -56,8 +56,9 @@ type heldDelivery struct {
 }
 
 type heldReport struct {
-	Held          []heldDelivery `json:"held"`
-	ReceiverReady bool           `json:"receiver_ready"`
+	Held                  []heldDelivery `json:"held"`
+	ReceiverReady         bool           `json:"receiver_ready"`
+	CoordinationReception bool           `json:"coordination_reception,omitempty"`
 }
 
 type releaseReport struct {
@@ -86,6 +87,7 @@ func (t *channelTracker) heldReport() heldReport {
 		}
 		r.mu.Unlock()
 		report.ReceiverReady = r.health()["state"] == "ready"
+		report.CoordinationReception = r.coordinationEnabled()
 	}
 	return report
 }
@@ -177,6 +179,7 @@ func releaseAtTurnEnd(transcriptPath string, timeout time.Duration) *turnEnd {
 		}
 	}
 	end := &turnEnd{receiverReady: held.ReceiverReady}
+	coordination := held.CoordinationReception
 	remaining := held.Held
 	if len(release) > 0 {
 		var out releaseReport
@@ -184,11 +187,15 @@ func releaseAtTurnEnd(transcriptPath string, timeout time.Duration) *turnEnd {
 			end.released = len(out.Released)
 			end.receiverReady = out.ReceiverReady
 			remaining = out.Held
+			coordination = out.CoordinationReception
 		}
 	}
 	// Only what the model has read can be rung about; an unread delivery is
 	// still on its way into the conversation.
 	for _, h := range remaining {
+		if h.Kind == "work" && coordination && end.receiverReady {
+			continue
+		}
 		if h.Kind == "work" || h.Kind == "portal" {
 			end.blocked = true
 		}

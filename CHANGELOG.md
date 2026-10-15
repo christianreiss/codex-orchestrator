@@ -1,5 +1,7 @@
 # 2026-10-15
 
+- cxx 0.9.87 adds opt-in smart queue delivery for Codex, Claude and Grok: dated catch-up previews with retained originals, explicit progress/notice coalescing with counters, and full coordination messages while accepted work remains held. Calls, conferences, operator messages and work outcomes keep their existing fences. The dashboard links digest history; the server feature defaults off for staged adoption.
+
 - cxx 0.9.86 shortens launch setup for Codex, Claude and Grok by reusing verified auth snapshots confirmed by the new account lease, initializing Grok from its freshly leased access projection, and overlapping identity confirmation with peer discovery. Account switches and auth rotations retain account-scoped retrieval; identity and credential checks still gate native exec. The API also reuses bootstrap version data within each request while refreshing again after credential mutations.
 
 - Empty agent receiver polls and presence checks avoid taking global messaging and host-row locks after a single consistent snapshot confirms admission and an empty queue. This reduces polling contention with new launches across all three engines. Pending deliveries and invalid bindings keep the existing locked checks.

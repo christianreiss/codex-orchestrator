@@ -19,6 +19,8 @@ import (
 )
 
 type autoReceiver struct {
+	queueDeliveryV1 bool
+	queuePolicyV1   bool
 	client          *sessionClient
 	tracker         *channelTracker
 	output          *mcpWriter
@@ -300,15 +302,29 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	var registered struct {
 		Sources      []string `json:"sources"`
 		Capabilities struct {
-			Activity bool `json:"activity_v1"`
+			Activity      bool `json:"activity_v1"`
+			QueueDelivery bool `json:"queue_delivery_v1"`
+			QueuePolicy   bool `json:"queue_policy_v1"`
 		} `json:"capabilities"`
 		BindingGeneration int `json:"binding_generation"`
 	}
-	if err := r.client.receiver(ctx, "register", map[string]any{"generation": generation, "protocol": protocol, "native_session_id": nativeID}, &registered); err != nil {
-		return err
+	registration := map[string]any{"generation": generation, "protocol": protocol, "native_session_id": nativeID, "capabilities": map[string]any{"queue_delivery_v1": true}}
+	if err := r.client.receiver(ctx, "register", registration, &registered); err != nil {
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || (apiErr.Status != 400 && apiErr.Status != 422) {
+			return err
+		}
+		// Older servers reject unknown registration fields. Same generation, no
+		// new identity, no fallback after an ambiguous transport failure.
+		delete(registration, "capabilities")
+		if err := r.client.receiver(ctx, "register", registration, &registered); err != nil {
+			return err
+		}
 	}
 	r.mu.Lock()
 	r.generation = generation
+	r.queueDeliveryV1 = registered.Capabilities.QueueDelivery
+	r.queuePolicyV1 = registered.Capabilities.QueuePolicy || registered.Capabilities.QueueDelivery
 	r.sources = slices.Clone(registered.Sources)
 	r.mu.Unlock()
 	r.setConnected(true)
@@ -352,7 +368,8 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			}
 			var health struct {
 				Receiver *struct {
-					Sources []struct {
+					QueueDelivery *bool `json:"queue_delivery_v1"`
+					Sources       []struct {
 						Source string `json:"source"`
 					} `json:"sources"`
 				} `json:"receiver"`
@@ -361,6 +378,11 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				return err
 			}
 			if health.Receiver != nil {
+				if health.Receiver.QueueDelivery != nil {
+					r.mu.Lock()
+					r.queueDeliveryV1 = *health.Receiver.QueueDelivery
+					r.mu.Unlock()
+				}
 				registered.Sources = nil
 				for _, source := range health.Receiver.Sources {
 					registered.Sources = append(registered.Sources, source.Source)
@@ -390,22 +412,35 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			r.mu.Unlock()
 		}
 		gate := "open"
+		coordinationOnly := false
 		r.mu.Lock()
 		if r.pendingPortal != nil {
 			gate = "portal_pending"
 		}
 		r.mu.Unlock()
+		coordinationCapable := r.coordinationEnabled()
 		r.tracker.mu.Lock()
 		if gate == "open" && len(r.tracker.items) > 0 {
 			gate = "held_delivery"
+			onlyWork := true
+			for _, pending := range r.tracker.items {
+				if pending.workKind == "" {
+					onlyWork = false
+					break
+				}
+			}
+			if coordinationCapable && onlyWork {
+				gate = "work_active"
+				coordinationOnly = true
+			}
 		}
 		r.tracker.mu.Unlock()
-		if (gate == "open" || gate == "held_delivery") && r.queue != nil {
+		if (gate == "open" || gate == "held_delivery" || gate == "work_active") && r.queue != nil {
 			status, err := r.queue.status()
 			if err != nil {
 				return err
 			}
-			if gate == "open" && status != "idle" {
+			if (gate == "open" || gate == "work_active") && status != "idle" {
 				gate = "thread_" + status
 			}
 			if gate == "held_delivery" {
@@ -413,7 +448,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			}
 		}
 		r.setGate(gate)
-		busy := gate != "open"
+		busy := gate != "open" && gate != "work_active"
 		if !busy && len(registered.Sources) > 0 {
 			source := registered.Sources[nextSource%len(registered.Sources)]
 			nextSource++
@@ -423,7 +458,11 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				Message  map[string]any `json:"message"`
 			}
 			claimID := newUUID()
-			if err := r.client.receiver(ctx, "claim", map[string]any{"generation": generation, "source": source, "claim_id": claimID}, &claimed); err != nil {
+			claimBody := map[string]any{"generation": generation, "source": source, "claim_id": claimID}
+			if r.coordinationEnabled() {
+				claimBody["informational_only"] = coordinationOnly
+			}
+			if err := r.client.receiver(ctx, "claim", claimBody, &claimed); err != nil {
 				return err
 			}
 			if claimed.Probe != nil {
@@ -535,6 +574,9 @@ func nativePeerPrompt(delivery map[string]any) string {
 	}
 
 	raw, _ := json.Marshal(delivery)
+	if stringArg(delivery, "kind") == "digest" {
+		return "Informational catch-up digest, not a new work request. Entries are previews of retained originals, not current instructions or proof of reading. Creation times show when each update was sent; later updates may supersede earlier ones. Use agent_digest_get with this message_id as digest_id (or agent_message_get for one original) before acting on incomplete information. Do not reply to or acknowledge the digest. Call agent_listen once when handled; it releases only this presentation, never held work.\n" + string(raw)
+	}
 	if stringArg(delivery, "kind") == "presence_notice" {
 		return "This is an informational presence notice from the orchestrator server, not a peer reply or a work request. It reports reception readiness, not acceptance or reading. Do not reply or acknowledge it with a message. To finish this delivery, call agent_listen once, then yield.\n" + string(raw)
 	}
@@ -545,6 +587,15 @@ func nativePeerPrompt(delivery map[string]any) string {
 		guidance = "This is an informational publication; no reply is required. " + guidance
 	}
 	return peerDeliveryGuidance(stringArg(delivery, "kind")) + " " + guidance + "\n" + string(raw)
+}
+
+func (r *autoReceiver) coordinationEnabled() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.queueDeliveryV1
 }
 
 func (r *autoReceiver) deliver(id, content string) error {

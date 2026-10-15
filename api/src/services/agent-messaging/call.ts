@@ -329,7 +329,7 @@ export class CallCoordinator {
           sender: self,
           senderSessionId: authenticated.session.id,
           target: opener,
-          kind: 'message',
+          kind: 'message', deliveryClass: 'coordination',
           content,
           contentEnc: encrypt(content, this.core.keyring),
           clientMessageId,

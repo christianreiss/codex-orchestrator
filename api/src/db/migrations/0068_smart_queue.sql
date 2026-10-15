@@ -1,0 +1,23 @@
+-- Smart queue metadata and durable digest membership. Original ciphertext is retained.
+SET @queue_ddl = IF(EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='agent_bus_messages' AND column_name='delivery_class'), 'SELECT 1', 'ALTER TABLE agent_bus_messages ADD COLUMN delivery_class VARCHAR(16) NOT NULL DEFAULT ''information''');
+PREPARE queue_stmt FROM @queue_ddl; EXECUTE queue_stmt; DEALLOCATE PREPARE queue_stmt;
+SET @queue_ddl = IF(EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='agent_bus_messages' AND column_name='coalesce_key'), 'SELECT 1', 'ALTER TABLE agent_bus_messages ADD COLUMN coalesce_key VARCHAR(128) NULL');
+PREPARE queue_stmt FROM @queue_ddl; EXECUTE queue_stmt; DEALLOCATE PREPARE queue_stmt;
+SET @queue_ddl = IF(EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='agent_bus_messages' AND column_name='related_work_id'), 'SELECT 1', 'ALTER TABLE agent_bus_messages ADD COLUMN related_work_id CHAR(36) NULL');
+PREPARE queue_stmt FROM @queue_ddl; EXECUTE queue_stmt; DEALLOCATE PREPARE queue_stmt;
+SET @queue_ddl = IF(EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='agent_bus_messages' AND column_name='event_count'), 'SELECT 1', 'ALTER TABLE agent_bus_messages ADD COLUMN event_count INT UNSIGNED NOT NULL DEFAULT 1');
+PREPARE queue_stmt FROM @queue_ddl; EXECUTE queue_stmt; DEALLOCATE PREPARE queue_stmt;
+SET @queue_ddl = IF(EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='agent_bus_messages' AND column_name='event_first_at'), 'SELECT 1', 'ALTER TABLE agent_bus_messages ADD COLUMN event_first_at VARCHAR(100) NULL');
+PREPARE queue_stmt FROM @queue_ddl; EXECUTE queue_stmt; DEALLOCATE PREPARE queue_stmt;
+SET @queue_ddl = IF(EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='agent_bus_messages' AND column_name='event_last_at'), 'SELECT 1', 'ALTER TABLE agent_bus_messages ADD COLUMN event_last_at VARCHAR(100) NULL');
+PREPARE queue_stmt FROM @queue_ddl; EXECUTE queue_stmt; DEALLOCATE PREPARE queue_stmt;
+SET @queue_ddl = IF(EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='agent_bus_messages' AND column_name='digest_id'), 'SELECT 1', 'ALTER TABLE agent_bus_messages ADD COLUMN digest_id CHAR(36) NULL');
+PREPARE queue_stmt FROM @queue_ddl; EXECUTE queue_stmt; DEALLOCATE PREPARE queue_stmt;
+SET @queue_ddl = IF(EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='agent_bus_messages' AND column_name='superseded_by_id'), 'SELECT 1', 'ALTER TABLE agent_bus_messages ADD COLUMN superseded_by_id CHAR(36) NULL');
+PREPARE queue_stmt FROM @queue_ddl; EXECUTE queue_stmt; DEALLOCATE PREPARE queue_stmt;
+SET @queue_ddl = IF(EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='agent_bus_messages' AND column_name='presented_at'), 'SELECT 1', 'ALTER TABLE agent_bus_messages ADD COLUMN presented_at VARCHAR(100) NULL');
+PREPARE queue_stmt FROM @queue_ddl; EXECUTE queue_stmt; DEALLOCATE PREPARE queue_stmt;
+SET @queue_ddl = IF(EXISTS(SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='agent_bus_messages' AND index_name='idx_agent_bus_messages_digest'), 'SELECT 1', 'CREATE INDEX idx_agent_bus_messages_digest ON agent_bus_messages (digest_id, dispatch_order)');
+PREPARE queue_stmt FROM @queue_ddl; EXECUTE queue_stmt; DEALLOCATE PREPARE queue_stmt;
+SET @queue_ddl = IF(EXISTS(SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='agent_bus_messages' AND index_name='idx_agent_bus_messages_queue_class'), 'SELECT 1', 'CREATE INDEX idx_agent_bus_messages_queue_class ON agent_bus_messages (target_address_id, status, delivery_class, dispatch_order)');
+PREPARE queue_stmt FROM @queue_ddl; EXECUTE queue_stmt; DEALLOCATE PREPARE queue_stmt;

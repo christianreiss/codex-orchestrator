@@ -491,10 +491,14 @@ export class AgentMessagingAdmin {
     };
   }
 
-  async listAdminMessages(options: { conversationId?: string; status?: string; limit?: number } = {}): Promise<Record<string, unknown>> {
+  async listAdminMessages(options: { conversationId?: string; messageId?: string; status?: string; limit?: number } = {}): Promise<Record<string, unknown>> {
     const limit = Math.max(1, Math.min(500, Math.trunc(options.limit ?? 100)));
     const predicates = [];
     if (options.conversationId) predicates.push(eq(agentBusMessages.conversationId, normalizeUuid(options.conversationId, 'conversation_id')));
+    if (options.messageId) {
+      const id = normalizeUuid(options.messageId, 'message_id');
+      predicates.push(or(eq(agentBusMessages.id, id), eq(agentBusMessages.digestId, id), eq(agentBusMessages.supersededById, id)));
+    }
     if (options.status) predicates.push(eq(agentBusMessages.status, options.status));
     const rows = predicates.length > 0
       ? await this.core.db.select().from(agentBusMessages).where(and(...predicates)).orderBy(desc(agentBusMessages.createdAt)).limit(limit)
@@ -528,6 +532,7 @@ export class AgentMessagingAdmin {
       const rows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, id)).limit(1).for('update');
       const original = rows[0];
       if (!original) throw new NotFoundError('Message not found', 'agent_messaging_message_not_found');
+      if (original.kind === 'digest') throw new ConflictError('Digest presentations cannot be redriven; inspect retained originals', 'agent_messaging_digest_redrive');
       if (original.kind === 'presence_notice') throw new ConflictError('Presence notices belong to one live session and cannot be redriven', 'agent_messaging_redrive_not_allowed');
       if (original.kind === 'schedule') throw new ConflictError('Manage schedule recovery through its schedule', 'schedule_redrive_not_allowed');
       if (original.status !== 'dead' && original.status !== 'ambiguous') {

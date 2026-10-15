@@ -27,7 +27,10 @@ export type AgentMessageStatus =
   | "dead"
   | "ambiguous"
   | "expired"
-  | "canceled";
+  | "canceled"
+  | "batched"
+  | "digested"
+  | "superseded";
 
 export interface AgentMessagingState {
   enabled: boolean;
@@ -122,6 +125,15 @@ export interface AgentConversation extends AgentConversationMetadata {
 }
 
 export interface AgentMessageMetadata {
+  delivery_class?: 'information' | 'progress' | 'notice' | 'coordination';
+  coalesce_key?: string | null;
+  related_work_id?: string | null;
+  event_count?: number;
+  event_first_at?: string | null;
+  event_last_at?: string | null;
+  digest_id?: string | null;
+  superseded_by_id?: string | null;
+  presented_at?: string | null;
   target_session_id?: string | null;
   execution_contract_version?: number;
   work_kind?: string | null;
@@ -165,6 +177,7 @@ export interface AgentConversationFilters {
 }
 
 export interface AgentMessageFilters {
+  messageId?: string;
   conversationId?: string;
   status?: AgentMessageStatus;
   limit?: number;
@@ -252,14 +265,15 @@ export function agentMessagingMessagesQuery(
   filters: AgentMessageFilters = {},
 ): CreateQueryOptions<{ messages: AgentMessageMetadata[] }, Error> {
   const conversationId = normalizedText(filters.conversationId);
+  const messageId = normalizedText(filters.messageId);
   const status = normalizedText(filters.status) as AgentMessageStatus | undefined;
   const limit = normalizedLimit(filters.limit);
   const enabled = filters.enabled !== false;
-  const query = queryString({ conversation_id: conversationId, status, limit });
+  const query = queryString({ conversation_id: conversationId, message_id: messageId, status, limit });
   return {
     queryKey: [
       ...agentMessagingKeys.messages,
-      { conversation_id: conversationId ?? null, status: status ?? null, limit, enabled },
+      { conversation_id: conversationId ?? null, message_id: messageId ?? null, status: status ?? null, limit, enabled },
     ] as const,
     queryFn: () =>
       api.get<{ messages: AgentMessageMetadata[] }>(`/admin/agent-messaging/messages${query}`),
