@@ -1,3 +1,7 @@
+# 2026-10-15
+
+- The auth runner pins Codex CLI 0.162.1 to match the advertised gateway model catalog. This fixes `gpt-6.1-sol` generation failures with valid ChatGPT credentials on the older 0.154.0 runner. Failed executions retain the diagnostic tail so CLI banners no longer hide the provider error.
+
 # 2026-10-14
 
 - cxx 0.9.80 integrates the resident communicator with the 0.9.79 startup, credential-recovery and native-entry corrections. Residence and remote execution remain independent; the signed runtime capability defaults off.

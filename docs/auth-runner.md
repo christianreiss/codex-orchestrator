@@ -2,6 +2,13 @@
 
 The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) that sanity-checks auth payloads, generates short skill/memory summaries, drafts new skill manifests, revises skill and project drafts from a conversation, and executes one-shot prompts by running `/usr/local/bin/codex` (or the Claude or Grok CLI) in an isolated temp `$HOME`.
 
+The bundled Codex CLI is pinned to 0.162.1, matching the fleet catalog. Older
+0.154.0 runners reject `gpt-6.1-sol` with ChatGPT credentials even while
+`/health` and the gateway's `/v1/models` return success. A runner update requires
+rebuilding and recreating the `auth-runner` service; restarting the API alone
+does not update its CLI. Failed `/exec` calls retain the last 500 characters of
+the native diagnostic so the provider error survives a long CLI banner.
+
 ## HTTP surface (runner container)
 
 - `GET /chatty/capabilities` — authenticated Chatty protocol and installed engines.
