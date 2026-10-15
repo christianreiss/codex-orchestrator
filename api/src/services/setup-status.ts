@@ -18,6 +18,7 @@ import {
   CXX_ARTIFACT,
   SUPPORTED_WRAPPER_PLATFORMS,
   createWrapperBinRegistry,
+  type WrapperBinRegistry,
 } from './wrapper-bin-registry.js';
 import { createWrapperSigningKeyService } from './wrapper-signing-key.js';
 import { parseEnginesInput } from './host-management.js';
@@ -58,12 +59,20 @@ export interface SetupStatus {
 }
 
 export class SetupStatusService {
+  private readonly binaries: WrapperBinRegistry;
+
   constructor(
     private readonly db: Database,
     private readonly env: Env,
     private readonly keyring: Keyring,
     private readonly fetchImpl: typeof fetch = fetch,
-  ) {}
+  ) {
+    const binRoot = this.env.DATA_ROOT
+      ? join(this.env.DATA_ROOT, 'wrapper', 'v2', 'bin')
+      : resolve(import.meta.dirname, '..', '..', '..', '..', 'storage', 'wrapper', 'v2', 'bin');
+    // Retain the registry's mtime/size-aware digest cache across status polls.
+    this.binaries = createWrapperBinRegistry({ binRoot });
+  }
 
   async status(requestOrigin?: string | null): Promise<SetupStatus> {
     // Probed first so a dead database reports as a failing check instead of
@@ -245,17 +254,13 @@ export class SetupStatusService {
   }
 
   private async wrapperCheck(): Promise<SetupCheck> {
-    const binRoot = this.env.DATA_ROOT
-      ? join(this.env.DATA_ROOT, 'wrapper', 'v2', 'bin')
-      : resolve(import.meta.dirname, '..', '..', '..', '..', 'storage', 'wrapper', 'v2', 'bin');
-    const registry = createWrapperBinRegistry({ binRoot });
     const versions = new Set<string>();
     for (const platform of SUPPORTED_WRAPPER_PLATFORMS) {
-      const manifest = await registry.manifestForPlatform(CXX_ARTIFACT, platform);
+      const manifest = await this.binaries.manifestForPlatform(CXX_ARTIFACT, platform);
       const build = manifest?.builds.find((candidate) => candidate.version === manifest.current);
       if (!manifest || !build) return wrapperFailure(`${platform} manifest missing or invalid`);
       const [os, arch] = platform.split('-');
-      const descriptor = await registry.binaryDescriptor(CXX_ARTIFACT, os!, arch!, build.version);
+      const descriptor = await this.binaries.binaryDescriptor(CXX_ARTIFACT, os!, arch!, build.version);
       if (!descriptor || descriptor.sha256 !== build.sha256 || descriptor.size !== build.size_bytes) {
         return wrapperFailure(`${platform} artifact missing or checksum mismatch`);
       }

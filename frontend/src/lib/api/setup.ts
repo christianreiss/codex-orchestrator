@@ -92,8 +92,14 @@ export const setupKeys = {
   status: () => ["setup", "status"] as const,
 };
 
+let pendingStatus: Promise<SetupStatus> | null = null;
+
 export function getSetupStatus(): Promise<SetupStatus> {
-  return api.get<SetupStatus>("/admin/setup/status");
+  // The layout and dashboard can request the same probes during startup.
+  // Share only in-flight work; later refreshes must still read current state.
+  pendingStatus ??= api.get<SetupStatus>("/admin/setup/status")
+    .finally(() => { pendingStatus = null; });
+  return pendingStatus;
 }
 
 export function setupStatusQuery(enabled = true) {

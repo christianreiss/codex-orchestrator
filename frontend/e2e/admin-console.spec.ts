@@ -1206,6 +1206,43 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   await expect(page.getByRole("option", { name: /Agent Portal/ })).toHaveCount(0);
 });
 
+test("dashboard renders while setup infrastructure checks are pending", async ({ page }) => {
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  let requests = 0;
+  await page.route("**/admin/setup/status", async route => {
+    requests++;
+    await pending;
+    await route.fulfill({ json: {
+      ...fixture("/admin/setup/status"), owner_created: true, hosts: { total: 3, synced: 3 },
+      wizard: { completed_at: null, dismissed_at: null, last_step: null, engines: null },
+    } });
+  });
+  try {
+    await page.goto("/admin/dashboard");
+    await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible({ timeout: 3_000 });
+    await expect.poll(() => requests).toBe(1);
+    await page.getByRole("link", { name: "Hosts", exact: true }).first().click();
+    await expect(page).toHaveURL(/\/admin\/hosts$/);
+    await expect(page.getByRole("heading", { name: "Hosts", level: 1 })).toBeVisible();
+    expect(requests).toBe(1);
+  } finally {
+    release();
+  }
+  await expect(page).toHaveURL(/\/admin\/hosts$/);
+});
+
+test("a first-run fleet still enters setup after the background check", async ({ page }) => {
+  await installFixtures(page, path => path === "/admin/setup/status" ? {
+    ...fixture(path), owner_created: true, hosts: { total: 0, synced: 0 },
+    next_actions: [{ id: "first_host", complete: false, label: "Register the first host", href: "/admin/hosts" }],
+    wizard: { completed_at: null, dismissed_at: null, last_step: null, engines: null },
+  } : undefined);
+  await page.goto("/admin/dashboard");
+  await expect(page).toHaveURL(/\/admin\/setup$/);
+  await expect(page.getByRole("heading", { name: "Set up Codex Orchestrator" })).toBeVisible();
+});
+
 test("an existing fleet skips automatic first-run setup without wizard history", async ({ page }) => {
   await installFixtures(page, path => path === "/admin/setup/status" ? {
     ...fixture(path), owner_created: true, hosts: { total: 3, synced: 3 },

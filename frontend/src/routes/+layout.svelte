@@ -48,7 +48,6 @@
   let unsubscribeShortcuts: (() => void) | null = null;
   let unsubscribeWs: (() => void) | null = null;
   let unsubscribeWsStatus: (() => void) | null = null;
-  let setupLoading = $state(false);
   let setupError = $state<string | null>(null);
 
   // sessionStorage can throw (private mode, blocked storage); without it we
@@ -87,23 +86,21 @@
       } else if (!state.loading && state.enforced && !state.authenticated && !isStandalone) {
         void goto(`${base}/login`, { replaceState: true });
       } else if (!state.loading && state.authenticated && !isStandalone && !setupRedirected()) {
-        // The wizard is offered once per browser session, and only while it is
-        // neither finished nor dismissed and something is actually still open.
-        // Checked before the fetch so a flagged session never sees the gate.
-        setupLoading = true;
+        // Check first-run setup in the background: infrastructure probes must
+        // not hold up authenticated pages. Remember successful checks once per
+        // browser session, including established fleets with no wizard history.
         setupError = null;
         void getSetupStatus()
           .then((status) => {
             const wizard = status.wizard;
             const open = status.next_actions.some((action) => !action.complete);
             const established = status.owner_created && status.hosts?.total > 0;
+            markSetupRedirected();
             if (!wizard.completed_at && !wizard.dismissed_at && open && !established) {
-              markSetupRedirected();
               void goto(`${base}/setup`, { replaceState: true });
             }
           })
-          .catch((err) => { setupError = err instanceof Error ? err.message : "API unreachable"; })
-          .finally(() => { setupLoading = false; });
+          .catch((err) => { setupError = err instanceof Error ? err.message : "API unreachable"; });
       }
     });
 
@@ -174,7 +171,7 @@
     </div>
   {:else if standalone}
     {@render children?.()}
-  {:else if auth.loading || setupLoading}
+  {:else if auth.loading}
     <div class="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
       Loading…
     </div>
