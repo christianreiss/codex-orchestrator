@@ -87,6 +87,7 @@ export interface TopologyAgentNode {
   kind: 'agent';
   id: string;
   name: string;
+  task_title?: string | null;
   engine: string;
   host_id: number;
   host: string;
@@ -105,6 +106,7 @@ export interface TopologyAgentNode {
   close: { state: string; requested_at: string | null } | null;
   /** Present when the host daemon launched this session and can stop its process. */
   daemon: { session_id: string; status: string } | null;
+  native_control?: { instance_id: string; binding_generation: number; status: string; request_id: string | null; available: boolean; updated_at: string } | null;
   association: TopologyAssociation;
   actions: {
     request_close: ActionAvailability;

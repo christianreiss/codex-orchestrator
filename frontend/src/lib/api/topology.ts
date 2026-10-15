@@ -99,6 +99,7 @@ export interface TopologyAgent {
   kind: "agent";
   id: string;
   name: string;
+  task_title?: string | null;
   engine: string;
   host_id: number;
   host: string;
@@ -116,6 +117,7 @@ export interface TopologyAgent {
   binding_generation: number | null;
   close: { state: string; requested_at: string | null } | null;
   daemon: { session_id: string; status: string } | null;
+  native_control?: { instance_id: string; binding_generation: number; status: string; request_id: string | null; available: boolean; updated_at: string } | null;
   association: TopologyAssociation;
   actions: {
     request_close: ActionAvailability;
@@ -282,5 +284,18 @@ export function stopDaemonSessionMutation() {
       void client.invalidateQueries({ queryKey: ["daemon-sessions"] });
       void client.invalidateQueries({ queryKey: ["host-daemons"] });
     },
+  });
+}
+
+export function stopNativeSessionMutation() {
+  const client = useQueryClient();
+  const write = writer();
+  return createMutation({
+    mutationFn: (target: TopologyAgent) => {
+      if (!target.native_control) throw new Error("Native process control is unavailable.");
+      const expect = { instance_id: target.native_control.instance_id, binding_generation: target.native_control.binding_generation };
+      return write(JSON.stringify(["native-stop", target.id, expect]), (key, signal) => api.post<{ status: string }>(`/admin/agent-sessions/${encodeURIComponent(target.id)}/stop`, { client_message_id: key, expect }, { signal }));
+    },
+    onSettled: () => client.invalidateQueries({ queryKey: topologyKeys.all }),
   });
 }

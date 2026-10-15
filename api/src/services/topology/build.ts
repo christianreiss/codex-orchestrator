@@ -179,6 +179,7 @@ export function buildTopology(input: TopologyInputs): TopologySnapshot {
     return {
       kind: 'agent',
       id: session.id,
+      task_title: session.session_name,
       name: session.launch_name || session.session_name || `${session.engine} ${session.id.slice(0, 8)}`,
       engine: session.engine,
       host_id: session.host_id,

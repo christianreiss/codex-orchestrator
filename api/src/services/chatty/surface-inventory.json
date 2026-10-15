@@ -76,6 +76,8 @@
   "interactive_handoff": {
     "reason": "Existing authenticated UI owns this operation, validation or interactive flow. Chatty explains and links; it does not claim execution.",
     "routes": [
+      "GET /admin/agent-sessions/:id/stop",
+      "POST /admin/agent-sessions/:id/stop",
       "DELETE /admin/agent-policy-profiles/:id",
       "DELETE /admin/agents/versions/:id",
       "DELETE /admin/companion/devices/:id",

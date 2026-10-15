@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { createQuery } from "@tanstack/svelte-query";
+  import { toStore } from "svelte/store";
+  import { api } from "$lib/api/client";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import CopyButton from "$lib/components/ui/copy-button/copy-button.svelte";
@@ -9,13 +12,14 @@
   import {
     disconnectCommunicatorMutation,
     stopDaemonSessionMutation,
+    stopNativeSessionMutation,
     terminateCommunicatorMutation,
     type Topology,
     type TopologyAgent,
     type TopologyCommunicator,
     type TopologyDisconnect,
   } from "$lib/api/topology";
-  import { actionReason, ageLabel, communicatorLabel, shortId, type ActionPhase, type GraphItem } from "$lib/topology/model";
+  import { runtimeStyle, actionReason, ageLabel, communicatorLabel, shortId, type ActionPhase, type GraphItem } from "$lib/topology/model";
   import ConfirmAction from "./ConfirmAction.svelte";
   import type { Presence } from "$lib/portal/types";
 
@@ -23,8 +27,10 @@
     snapshot: Topology | undefined;
     item: GraphItem | null;
     onselect: (id: string | null) => void;
+    onchat?: (id: string) => void;
+    onspawn?: (host: number) => void;
   };
-  let { snapshot, item, onselect }: Props = $props();
+  let { snapshot, item, onselect, onchat, onspawn }: Props = $props();
 
   const node = $derived(item?.node ?? null);
   const communicator = $derived(node?.kind === "communicator" ? node : null);
@@ -56,6 +62,7 @@
   const terminate = terminateCommunicatorMutation();
   const requestClose = requestCloseMutation();
   const forceClose = forceCloseMutation();
+  const stopNative = stopNativeSessionMutation();
   const stopDaemon = stopDaemonSessionMutation();
 
   function begin(kind: ActionKind, id: string) {
@@ -80,6 +87,19 @@
     action = null;
   }
 
+  const nativeReceipt = createQuery(toStore(() => ({
+    queryKey: ["native-stop", action?.id],
+    enabled: dialogOpen && phase === "done" && action?.kind === "stop_process" && Boolean(action.agent?.native_control),
+    queryFn: ({ signal }: { signal: AbortSignal }) => api.get<{ status: string }>(`/admin/agent-sessions/${encodeURIComponent(action!.id)}/stop`, { signal }),
+    refetchInterval: 2000,
+  })));
+  $effect(() => {
+    if (action?.kind !== "stop_process" || !action.agent?.native_control || phase !== "done" || !$nativeReceipt.data) return;
+    const status = $nativeReceipt.data.status;
+    if (status === "exited") outcome = { title: "Process exited", lines: ["The owning wrapper observed the native process exit. Recovery of this execution is disabled."] };
+    else if (status === "unknown") outcome = { title: "Stop outcome unknown", tone: "warning", lines: ["The wrapper has not supplied a recent receipt. No exit is assumed; a delayed receipt will update this status."] };
+    else if (status === "refused") outcome = { title: "Process stop refused", tone: "warning", lines: ["The owning wrapper could not signal this process."] };
+  });
   const targetCommunicator = $derived(action?.communicator ?? null);
   const targetAgent = $derived(action?.agent ?? null);
   // What the live tree says now about the target, for the follow-up lines.
@@ -121,6 +141,9 @@
       } else if (action.kind === "request_close" && targetAgent) {
         await $requestClose.mutateAsync({ id: targetAgent.id, note: note.trim() || undefined });
         outcome = { title: "Close request queued", lines: ["The agent picks it up the next time it listens; the live view shows when it does."] };
+      } else if (action.kind === "stop_process" && targetAgent?.native_control?.available) {
+        const result = await $stopNative.mutateAsync(targetAgent);
+        outcome = { title: "Process stop requested", lines: [`Status: ${result.status}. The owning wrapper sends TERM, then KILL after five seconds if needed. Check the live status for the exit receipt.`] };
       } else if (action.kind === "stop_process" && targetAgent?.daemon) {
         const result = await $stopDaemon.mutateAsync({ daemonSessionId: targetAgent.daemon.session_id });
         outcome = { title: "Stop requested", lines: [`Daemon session is now “${result.status}”. The host daemon stops the process on its next sweep.`] };
@@ -218,8 +241,8 @@
     <section class="space-y-2">
       <h2 class="text-sm font-semibold">Legend</h2>
       <ul class="space-y-1 text-xs text-muted-foreground">
-        <li><span class="legend-dot" style="border-color: hsl(var(--success))"></span> Live link · solid, flowing</li>
-        <li><span class="legend-dot" style="border-color: hsl(var(--warning)); border-style: dashed"></span> Quiet or stale · dashed amber</li>
+        <li><span class="legend-dot" style="border-color: hsl(var(--success))"></span> Live link · green</li>
+        <li><span class="legend-dot" style="border-color: hsl(var(--warning)); border-style: dashed"></span> Quiet or stale · amber</li>
         <li><span class="legend-dot" style="border-color: hsl(var(--muted-foreground)); border-style: dotted"></span> Direct, no communicator · dotted grey</li>
         <li>Agent fill is its engine; the ring is its presence.</li>
       </ul>
@@ -234,6 +257,8 @@
         <Badge variant="outline">cxx {communicator.version}</Badge>
       </header>
 
+      <div class="flex gap-2"><Badge variant="outline">{runtimeStyle(communicator).label}</Badge>{#if !ghost && onspawn}<Button size="sm" disabled={!canRemote} onclick={() => onspawn?.(communicator.host_id)}>Start agent</Button>{/if}</div>
+      <details><summary class="cursor-pointer text-xs">Connection details</summary>
       {#if ghost}
         <div class="rounded-md border bg-muted/40 p-3 text-sm">
           <p>
@@ -265,9 +290,10 @@
         <dt class="text-muted-foreground">Last sync</dt><dd>{when(communicator.synced_at)}{#if communicator.sync_errors > 0} · <span class="text-destructive">{communicator.sync_errors} scope{communicator.sync_errors === 1 ? "" : "s"} failing</span>{/if}</dd>
         {#if communicator.remote_address}<dt class="text-muted-foreground">Address</dt><dd class="font-mono text-xs">{communicator.remote_address}</dd>{/if}
         <dt class="text-muted-foreground">Host daemon</dt><dd>{communicator.daemon_attached ? "channel attached" : "not attached"}</dd>
-      </dl>
+      </dl></details>
     </section>
 
+    <details><summary class="cursor-pointer text-xs">Runtime and connected agents</summary>
     {#if communicator.resident}
       {@const report = communicator.resident}
       <section class="space-y-2 rounded-md border p-3" aria-label="Resident owner report">
@@ -308,21 +334,22 @@
       {/if}
     </section>
 
+    </details>
     {#if !ghost}
-      <section class="sticky bottom-0 mt-auto space-y-2 border-t bg-card pb-1 pt-3">
-        <h3 class="section-label">Control</h3>
-        <Button variant="outline" class="w-full justify-start text-destructive" disabled={!canPortal || communicator.health === "closing"} onclick={() => begin("disconnect", communicator.id)}>
+      <section class="flex flex-wrap items-center gap-2 border-t bg-card pt-2">
+        <h3 class="sr-only">Control</h3>
+        <Button variant="outline" size="sm" class="justify-start text-destructive" disabled={!canPortal || communicator.health === "closing"} onclick={() => begin("disconnect", communicator.id)}>
           Disconnect this communicator…
         </Button>
         <p class="text-xs text-muted-foreground">
           {#if !canPortal}Requires the agent-sessions management permission.
-          {:else}Closes this one server connection. The communicator process keeps running and redials within 1–30 s; its agents keep running.{/if}
+          {:else}Reconnects automatically; agents keep running.{/if}
         </p>
         {#if communicator.can_terminate}
-          <Button variant="outline" class="w-full justify-start text-destructive" disabled={!canPortal || communicator.health === "closing"} onclick={() => begin("terminate", communicator.id)}>
+          <Button variant="outline" size="sm" class="justify-start text-destructive" disabled={!canPortal || communicator.health === "closing"} onclick={() => begin("terminate", communicator.id)}>
             Stop the communicator process…
           </Button>
-          <p class="text-xs text-muted-foreground">Asks the process (pid {communicator.process?.pid ?? "?"}, its own report) to exit. The result says what the server observed: its acknowledgement and whether its connection closed, not a confirmed exit. A client starts a new one when needed.</p>
+          <p class="text-xs text-muted-foreground">A stop acknowledgement alone does not confirm exit.</p>
         {:else}
           <p class="text-xs text-muted-foreground">This communicator did not announce that it can be stopped remotely, so only its connection can be closed from here.</p>
         {/if}
@@ -337,6 +364,10 @@
         {#if ghost}<Badge variant="secondary">Ended</Badge>{:else}<Badge variant={presenceVariant(agent.presence)}>{agent.presence}</Badge>{/if}
       </header>
 
+      <p class="text-xs text-muted-foreground">{agent.username}@{agent.host}</p>
+      {#if agent.task_title}<p class="text-sm">{agent.task_title}</p>{/if}
+      {#if onchat}<Button size="sm" onclick={() => onchat?.(agent.id)}>Chat</Button>{/if}
+      <details><summary class="cursor-pointer text-xs">Session details</summary>
       <div class="rounded-md border p-3 text-sm">
         {#if agent.association.state === "unattributed"}
           <p class="font-medium">Direct</p>
@@ -366,20 +397,21 @@
         <dt class="text-muted-foreground">Started</dt><dd>{when(agent.started_at)}</dd>
         <dt class="text-muted-foreground">Heartbeat</dt><dd>{ageLabel(agent.heartbeat_age_s)}</dd>
         {#if agent.close}<dt class="text-muted-foreground">Close request</dt><dd>{agent.close.state === "acknowledged" ? "acknowledged by the agent" : agent.close.state === "undeliverable" ? "could not be delivered" : "waiting for the agent"}</dd>{/if}
-      </dl>
+      </dl></details>
     </section>
 
     {#if !ghost}
-      <section class="sticky bottom-0 mt-auto space-y-2 border-t bg-card pb-1 pt-3">
-        <h3 class="section-label">Control</h3>
-        <Button variant="outline" class="w-full justify-start" disabled={!canPortal || !agent.actions.request_close.allowed} onclick={() => begin("request_close", agent.id)}>Ask the agent to close…</Button>
+      <section class="flex flex-wrap items-center gap-2 border-t bg-card pt-2">
+        <h3 class="sr-only">Control</h3>
+        <Button variant="outline" size="sm" class="justify-start" disabled={!canPortal || !agent.actions.request_close.allowed} onclick={() => begin("request_close", agent.id)}>Ask the agent to close…</Button>
         {#if !agent.actions.request_close.allowed}<p class="text-xs text-muted-foreground">{actionReason(agent.actions.request_close.reason)}</p>{/if}
-        <Button variant="outline" class="w-full justify-start text-destructive" disabled={!canRemote || !agent.actions.stop_process.allowed} onclick={() => begin("stop_process", agent.id)}>Stop the process…</Button>
-        {#if !agent.actions.stop_process.allowed}<p class="text-xs text-muted-foreground">{actionReason(agent.actions.stop_process.reason)}</p>{/if}
-        <Button variant="outline" class="w-full justify-start text-destructive" disabled={!canPortal || !agent.actions.end_record.allowed} onclick={() => begin("end_record", agent.id)}>End the session record…</Button>
+        <Button variant="outline" size="sm" class="justify-start text-destructive" disabled={agent.native_control ? !canPortal || !agent.native_control.available : !canRemote || !agent.actions.stop_process.allowed} onclick={() => begin("stop_process", agent.id)}>Stop the process…</Button>
+        {#if agent.native_control}<p class="text-xs text-muted-foreground">Native process: {agent.native_control.status}</p>{:else if !agent.actions.stop_process.allowed}<p class="text-xs text-muted-foreground">{actionReason(agent.actions.stop_process.reason)}</p>{/if}
+        <details><summary class="cursor-pointer text-xs">More actions</summary>
+        <Button variant="outline" size="sm" class="justify-start text-destructive" disabled={!canPortal || !agent.actions.end_record.allowed} onclick={() => begin("end_record", agent.id)}>End the session record…</Button>
         <p class="text-xs text-muted-foreground">
           {#if !canPortal}Requires the agent-sessions management permission.{:else}Ending the record changes what the server believes; it does not signal the agent's process.{/if}
-        </p>
+        </p></details>
       </section>
     {/if}
   {/if}
@@ -476,7 +508,7 @@
       description={action.kind === "request_close"
         ? "Queues a close request for the agent to honour in its own time."
         : action.kind === "stop_process"
-          ? "Asks the host daemon that launched this session to stop its process."
+          ? targetAgent?.native_control ? "Stops the native process owned by this session’s wrapper." : "Asks the host daemon that launched this session to stop its process."
           : "Marks the session ended on the server, even if the agent can no longer be reached."}
       target={[
         { label: "Agent", value: targetAgent?.name ?? "—" },
@@ -492,7 +524,7 @@
         : action.kind === "stop_process"
           ? [
               "Unstarted work for this session is cancelled; a running turn is stopped by the daemon.",
-              "Only sessions launched by a host daemon can be stopped this way. The stop is recorded on the daemon session.",
+              targetAgent?.native_control ? "TERM is followed by KILL after five seconds. Recovery of this execution is disabled. Other sessions and the terminal shell are not targeted." : "Only sessions launched by a host daemon can be stopped this way. The stop is recorded on the daemon session.",
             ]
           : [
               "The server stops treating the session as live straight away.",

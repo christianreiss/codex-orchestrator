@@ -288,3 +288,7 @@ native conversation activity contract in `interface-api.md`.
 - **feedback_items** — `id` CHAR(36), `request_key` CHAR(64), `request_digest` CHAR(64), `type` VARCHAR(16), `title` VARCHAR(255), `component` VARCHAR(100), `priority` VARCHAR(16), `status` VARCHAR(16), `report` JSON, `source` JSON, `result` JSON, `deployment` VARCHAR(16), `deployment_ref` VARCHAR(1000), `duplicate_of` CHAR(36), `claim_owner` JSON, `claim_request_key` CHAR(64), `claim_token_hash` CHAR(64), `claim_token_enc` LONGTEXT, `claim_expires_at` VARCHAR(100), `version` INT, `created_at` VARCHAR(100), `updated_at` VARCHAR(100).
 
 - **feedback_events** — `id` CHAR(36), `feedback_id` CHAR(36), `version` INT, `action` VARCHAR(32), `actor` JSON, `detail` JSON, `created_at` VARCHAR(100).
+
+## Native process control receipts
+
+Migration `0065_agent_native_controls.sql` adds `agent_native_controls`: one row per portal session, FK cascade on session retention, immutable process instance UUID and binding generation, request UUID/client idempotency UUID, initiating admin ID, status and receipt time. The session ID column inherits the parent column charset/collation so both legacy and fresh installations support the FK. Requests serialize under the session row lock. `unknown` is derived from a missing recent receipt, never persisted over an observed exit. No credentials or transcript content are stored here.

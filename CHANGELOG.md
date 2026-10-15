@@ -1,5 +1,8 @@
 # 2026-10-15
 
+- Live Topology now has a compact dismissible inspector, embedded client conversations and host-prefilled remote starts, runtime/engine/status/host filters, collapsible branches, focus previews and fullscreen controls. Server links distinguish reported Persistent, On demand and Unknown runtime modes without inferring them from daemon attachment.
+- cxx 0.9.81 adds identity-bound native session stops for managed Codex, Claude and Grok launches: TERM, then KILL after five seconds, durable idempotent requests and explicit exit receipts. Stopping disables the bound watchdog and recovery of the current scheduled execution; stale receipts show an unknown outcome. Older wrappers remain compatible.
+
 - API Access key creation now separates API format from an explicit per-key engine choice. Assigned keys retain their engine when endpoint defaults change; existing keys and older callers keep endpoint-default routing. Model discovery, execution, capabilities and fleet availability use the effective engine on all three APIs.
 - Reworked the key dialog with a wider responsive layout, persistent header and actions, wrapped credentials, copyable SDK and request URLs, connection status and a curl example. Key lists show engine assignments; Configuration labels routing as the default for unassigned keys.
 

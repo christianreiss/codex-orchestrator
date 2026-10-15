@@ -1146,3 +1146,7 @@ endpoint default. Explicit invalid values return 400; disabled engines return
 keys keep their engine when endpoint defaults change; model discovery, fleet
 availability and execution use that assignment. Endpoint switches still apply
 to every key. See [Exposed API routing](interface-api.md#exposed-api-routing-any-to-any).
+
+## Native session process controls
+
+`POST /host/agent-sessions/{id}/native-control` registers/polls the cxx 0.9.81 process capability and reports stop receipts using the session bridge token. `POST /admin/agent-sessions/{id}/stop` requires `agent_portal.manage` and an expected process/binding identity; `GET` on the same path requires `agent_portal.read` and returns the durable result. See [Live topology endpoints](interface-api.md#live-topology-endpoints) for complete bodies, statuses and recovery behavior.

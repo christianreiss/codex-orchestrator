@@ -1721,3 +1721,7 @@ The independent, default-off signed `communicator_runtime_protocol: 1` prepares
 the existing remote execution controller. Residence and remote starts have
 separate settings; native auth/account locks and engine-specific refresh ownership
 remain in their existing lifecycles. See [runtime, migration and acceptance](communicator-resident-runtime.md).
+
+### Native process stop (cxx 0.9.81)
+
+Managed native launches expose a launch-scoped stop capability only after their owned child starts. Live Topology can request TERM followed by KILL after five seconds. The wrapper signals only its own child or owned process group, never an inherited terminal process group, and reports exit only after Wait. The same channel works during a model turn. Old servers disable this optional polling with 404; old wrappers offer no native capability. See [native control endpoints](interface-api.md#live-topology-endpoints) for identity, recovery and receipt semantics.

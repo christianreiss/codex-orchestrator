@@ -1,3 +1,4 @@
+import { NativeStopService } from '../../../services/native-stop.js';
 import { chatMetadataSchema } from '../../../services/agent-chat/contracts.js';
 import { createSseLifecycle } from '../../../http/sse-lifecycle.js';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -90,6 +91,16 @@ export async function registerAdminAgentSessionsRoutes(
   const trackStream = createSseLifecycle(app);
   const events = new AdminEventsService(ctx.db);
   const auth = new AdminAuthService(ctx.db, ctx.env);
+
+  app.get('/admin/agent-sessions/:id/stop', { preHandler: app.requireAdmin }, async req => new NativeStopService(ctx.db).get(stringParam(req.params, 'id')));
+
+  app.post('/admin/agent-sessions/:id/stop', { preHandler: app.requireAdmin }, async req => {
+    if (!(await portal.isEnabled())) throw new ServiceUnavailableError('Agent sessions are disabled', 'agent_portal_disabled');
+    const body = z.object({ client_message_id: z.string().uuid(), expect: z.object({ instance_id: z.string().uuid(), binding_generation: z.number().int().nonnegative() }).strict() }).strict().parse(req.body);
+    const result = await new NativeStopService(ctx.db).request(stringParam(req.params, 'id'), body.client_message_id, body.expect, req.admin!.user.id);
+    if (!result.replayed) await events.record({ type: 'agent_session.native_stop', payload: { session_id: stringParam(req.params, 'id'), request_id: result?.request_id, admin_user_id: req.admin!.user.id } });
+    return result;
+  });
 
   app.get('/admin/agent-sessions', { preHandler: app.requireAdmin }, async (req) => {
     // `enabled` travels with the rows because an empty list has two very

@@ -458,6 +458,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/agent-sessions/:id/events': cap('agent_portal.reveal_transcript'),
   'POST /admin/agent-sessions/:id/messages': cap('agent_portal.manage'),
   'POST /admin/agent-sessions/:id/prompts/:promptId/answer': cap('agent_portal.manage'),
+  'GET /admin/agent-sessions/:id/stop': cap('agent_portal.read'),
+  'POST /admin/agent-sessions/:id/stop': cap('agent_portal.manage'),
   'POST /admin/agent-sessions/:id/close': cap('agent_portal.manage'),
   'POST /admin/agent-sessions/:id/close/force': cap('agent_portal.manage'),
 

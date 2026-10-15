@@ -1154,3 +1154,9 @@ The independent, default-off signed `communicator_runtime_protocol: 1` prepares
 the existing remote execution controller. Residence and remote starts have
 separate settings; native auth/account locks and engine-specific refresh ownership
 remain in their existing lifecycles. See [runtime, migration and acceptance](communicator-resident-runtime.md).
+
+## Live Topology workspace
+
+Live Topology combines the live connection graph with a compact inspector, shared Clients chat panel and remote-session start form. Selection never retargets an open conversation; drafts stay with their session. Start on a communicator prefills its host, while the global button offers host selection. Runtime, host, engine and presence filters and the list/radial preference persist locally; conversation content does not. Branches can be collapsed, selections centered and the canvas expanded to fullscreen.
+
+Solid server links mean reported Persistent mode, dashed links On demand, and dotted links Unknown. Health uses color independently. Stale reports are labeled as last reported; daemon attachment does not prove persistence. Native stop uses the wrapper's bound process identity and a TERM/KILL sequence; disconnect, communicator stop and ending a server record remain distinct operations.

@@ -1,3 +1,5 @@
+import { NativeStopService } from '../../../src/services/native-stop.js';
+import { agentNativeControls, agentSessions, agentWatchdogs, agentSchedules } from '../../../src/db/schema.js';
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -125,6 +127,9 @@ describe.skipIf(!handle)('topology service against MySQL', () => {
     });
     await db!.insert(hostDaemonPortalBindings).values({ portalSessionId: managed.session_id, daemonSessionId });
 
+    const controls = new NativeStopService(db!); const instance = randomUUID();
+    await controls.poll(managed.session_id, instance);
+    await expect(controls.request(managed.session_id, randomUUID(), { instance_id: instance, binding_generation: 0 }, 1)).rejects.toThrow('daemon session stop');
     const snapshot = await topology.snapshot();
     const byId = Object.fromEntries(snapshot.agents.map((n) => [n.id, n]));
     expect(byId[managed.session_id]!.daemon).toEqual({ session_id: daemonSessionId, status: 'running' });
@@ -167,4 +172,70 @@ describe.skipIf(!handle)('topology service against MySQL', () => {
       await portal.setEnabled(true);
     }
   });
+  it('binds native stop to a launch, serializes duplicate requests and preserves exit evidence', async () => {
+    const a = await live(host, 'codex');
+    const control = new NativeStopService(db!);
+    const instance = randomUUID();
+    const registration = await control.poll(a.session_id, instance);
+    const expected = { instance_id: instance, binding_generation: registration.binding_generation };
+    const key = randomUUID();
+    const [first, duplicate] = await Promise.all([control.request(a.session_id, key, expected, 1), control.request(a.session_id, key, expected, 1)]);
+    expect(first?.request_id).toBe(duplicate?.request_id);
+    expect(first?.status).toBe('requested');
+    await expect(control.request(a.session_id, randomUUID(), expected, 1)).rejects.toThrow('already exists');
+    await expect(control.poll(a.session_id, randomUUID())).rejects.toThrow('binding changed');
+    await expect(control.poll(a.session_id, instance, { request_id: randomUUID(), status: 'exited' })).rejects.toThrow('request changed');
+    await control.poll(a.session_id, instance, { request_id: first!.request_id!, status: 'accepted' });
+    await control.poll(a.session_id, instance, { request_id: first!.request_id!, status: 'exited' });
+    await expect(control.poll(a.session_id, instance, { request_id: first!.request_id!, status: 'accepted' })).rejects.toThrow('settled');
+    expect((await control.get(a.session_id))?.status).toBe('exited');
+    await db!.update(agentNativeControls).set({ updatedAt: '2000-01-01T00:00:00Z' }).where(eq(agentNativeControls.sessionId, a.session_id));
+    expect((await control.get(a.session_id))?.status).toBe('exited');
+  });
+
+  it('refuses stale and changed native bindings without queuing a stop', async () => {
+    const a = await live(host, 'claude');
+    const control = new NativeStopService(db!);
+    const instance = randomUUID();
+    await control.poll(a.session_id, instance);
+    await expect(control.request(a.session_id, randomUUID(), { instance_id: randomUUID(), binding_generation: 0 }, 1)).rejects.toThrow('binding changed');
+    await db!.update(agentNativeControls).set({ updatedAt: '2000-01-01T00:00:00Z' }).where(eq(agentNativeControls.sessionId, a.session_id));
+    await expect(control.request(a.session_id, randomUUID(), { instance_id: instance, binding_generation: 0 }, 1)).rejects.toThrow('Refresh session');
+    await db!.update(agentSessions).set({ bindingGeneration: 1 }).where(eq(agentSessions.id, a.session_id));
+    await expect(control.poll(a.session_id, instance)).rejects.toThrow('binding changed');
+    expect((await control.get(a.session_id))?.request_id).toBeNull();
+  });
+
+  it('reports an unknown outcome on silence and accepts a delayed exit receipt', async () => {
+    const a = await live(host, 'codex');
+    const control = new NativeStopService(db!);
+    const instance = randomUUID();
+    await control.poll(a.session_id, instance);
+    const request = await control.request(a.session_id, randomUUID(), { instance_id: instance, binding_generation: 0 }, 1);
+    await db!.update(agentNativeControls).set({ updatedAt: '2000-01-01T00:00:00Z' }).where(eq(agentNativeControls.sessionId, a.session_id));
+    expect((await control.get(a.session_id))?.status).toBe('unknown');
+    await control.poll(a.session_id, instance, { request_id: request!.request_id!, status: 'exited' });
+    expect((await control.get(a.session_id))?.status).toBe('exited');
+  });
+
+  it('disables the bound watchdog without pausing ordinary scheduled work', async () => {
+    const a = await live(host, 'codex');
+    const scheduleId = randomUUID(), ordinaryId = randomUUID(), targetId = randomUUID(), watchdogId = randomUUID();
+    const now = new Date().toISOString();
+    const schedule = { name: 'native stop fixture', targetAddressId: targetId, promptEnc: 'fixture', kind: 'once', timezone: 'UTC', createdBy: 'test', updatedBy: 'test', createdAt: now, updatedAt: now };
+    await db!.insert(agentSchedules).values([{ ...schedule, id: scheduleId }, { ...schedule, id: ordinaryId }]);
+    await db!.insert(agentWatchdogs).values({ id: watchdogId, targetAddressId: targetId, nativeSessionId: 'native', sessionId: a.session_id, taskKey: 'test', scheduleId, continuationSha: 'a'.repeat(64), deadlineAt: '2099-01-01T00:00:00Z', progressTimeoutSeconds: 600, lastProgressAt: now, createdBy: 'test', createdAt: now, updatedAt: now });
+    try {
+      const control = new NativeStopService(db!); const instance = randomUUID();
+      await control.poll(a.session_id, instance);
+      await control.request(a.session_id, randomUUID(), { instance_id: instance, binding_generation: 0 }, 1);
+      expect((await db!.select().from(agentWatchdogs).where(eq(agentWatchdogs.id, watchdogId)))[0]!.status).toBe('disabled');
+      expect((await db!.select().from(agentSchedules).where(eq(agentSchedules.id, scheduleId)))[0]!.enabled).toBe(0);
+      expect((await db!.select().from(agentSchedules).where(eq(agentSchedules.id, ordinaryId)))[0]!.enabled).toBe(1);
+    } finally {
+      await db!.delete(agentWatchdogs).where(eq(agentWatchdogs.id, watchdogId));
+      for (const id of [scheduleId, ordinaryId]) await db!.delete(agentSchedules).where(eq(agentSchedules.id, id));
+    }
+  });
+
 });

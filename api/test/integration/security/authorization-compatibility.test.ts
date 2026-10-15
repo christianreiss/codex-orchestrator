@@ -305,6 +305,7 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/agent-messaging/publish',
       'POST /admin/agent-messaging/state',
       'POST /admin/agent-portal/state',
+      'POST /admin/agent-sessions/:id/stop',
       'POST /admin/agent-sessions/:id/close',
       'POST /admin/agent-sessions/:id/close/force',
       'POST /admin/agent-sessions/:id/messages',
