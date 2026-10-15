@@ -1,6 +1,6 @@
 # 2026-10-15
 
-- cxx 0.9.86 shortens launch setup for Codex, Claude and Grok by reusing verified auth snapshots confirmed by the new account lease, initializing Grok from its freshly leased access projection, and overlapping identity confirmation with peer discovery. Account switches and auth rotations retain account-scoped retrieval; identity and credential checks still gate native exec.
+- cxx 0.9.86 shortens launch setup for Codex, Claude and Grok by reusing verified auth snapshots confirmed by the new account lease, initializing Grok from its freshly leased access projection, and overlapping identity confirmation with peer discovery. Account switches and auth rotations retain account-scoped retrieval; identity and credential checks still gate native exec. The API also reuses bootstrap version data within each request while refreshing again after credential mutations.
 
 - Admin pages render after authentication while first-run setup checks continue in the background. Concurrent setup requests share one call, and repeated infrastructure checks reuse verified wrapper digests while still detecting changed binaries. Slow setup probes no longer keep the whole console on its loading screen.
 

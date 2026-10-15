@@ -59,6 +59,10 @@ later `/auth` response, and records the issued generation before native exec.
 Older responses without that metadata still retrieve `/auth`; inconsistent
 projections refuse the launch. Refresh ownership remains server-side.
 
+The API reuses version snapshots and wrapper projections within a bootstrap
+request. Credential mutations and failed reads invalidate them; the next request
+still performs its own refresh.
+
 Identity confirmation and advisory peer discovery run concurrently after bridge
 registration. Confirmation still gates native exec and an unavailable discovery
 still produces an explicit unavailable snapshot.

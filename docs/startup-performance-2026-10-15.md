@@ -55,3 +55,26 @@ local harness, diagnostic source and biest samples are under
 /tmp/cxx-startup-f21ba129/. These are ephemeral evidence paths and contain no
 intentionally copied credential files. Release acceptance and combined API results
 are recorded after deployment below when available.
+
+## Source verification before rollout
+
+The integrated source includes API commit ee0a5bda: bootstrap version summaries
+and wrapper/platform projections are reused per request, with invalidation around
+credential-store attempts and Grok refresh, and retry after failed reads.
+
+- Full `make test` passed in the production Go builder image in an isolated
+  non-root container, including release-manifest and publication checks. The
+  image needed the test fixtures and sudo expected by the repository tests.
+- Local `go build ./...` and `go vet ./...` passed. All seven affected packages
+  passed `go test -race ... -count=1`, including both complete lifecycle suites.
+- Two local nativeentry login-profile tests also fail on the unchanged baseline
+  because the workstation's system login profile emits tput errors without TERM.
+  Setting TERM in the parent cannot fix their explicitly minimal child environment;
+  both pass in the clean container. No unrelated test or system profile was changed.
+- Combined API typecheck/build and the bootstrap-version, sync-bootstrap and
+  host-sync suites passed: 56 tests. The API owner separately ran 209 related
+  route/contract/version tests; 10 real-DB tests were skipped in that run.
+- All three real-native candidate launches exited zero on the VM. Sampled engine
+  exec times were 3.072 / 3.194 / 4.044 seconds for Codex / Claude / Grok. These
+  samples overlap build-test load and are functional checks, not an improvement
+  claim against the earlier quiet VM matrix.
