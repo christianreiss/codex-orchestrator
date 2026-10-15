@@ -78,3 +78,28 @@ credential-store attempts and Grok refresh, and retry after failed reads.
   exec times were 3.072 / 3.194 / 4.044 seconds for Codex / Claude / Grok. These
   samples overlap build-test load and are functional checks, not an improvement
   claim against the earlier quiet VM matrix.
+
+## Shared server contention
+
+Production inspection found a hot host-row lock propagating through a waiting
+claim transaction that held the global messaging flag lock. Empty session claims
+and presence-return checks previously entered these locking transactions too.
+The follow-up certifies valid empty polls with a single nonlocking MVCC snapshot
+of host/engine/bridge/address/receiver admission and queue absence. Pending,
+expired, leased and accepted rows conservatively retain the locked path. There
+is no settings cache, changed delivery lease or weakened admission fence.
+
+Thirteen real-MySQL regressions cover all three engines, a two-connection service
+pool with deliberately held host and global flag locks, stale receiver generation,
+invalid IDs/tokens, expired heartbeats, disabled admission, real pending/expired
+deliveries, presence notices and concurrent queue-consumption/admission changes.
+The three held-lock empty-poll cases fail on the unchanged source and pass with
+the fix. Full API tests pass: 4,851 passed, 710 DB-dependent skips. Typecheck,
+focused lint and build pass. Canonical real-DB integration results follow below.
+
+A bounded pool-size experiment on docker01 proved transient acquisition queues:
+32 connections reduced acquisition time but increased observed SQL lock waiting.
+It did not establish a native-entry benefit. The original pool size 10 was
+restored; diagnostic preload and temporary credentials were removed. No pool,
+durability or authentication setting is part of the source change. Tina's
+sanitized rollout proofs are under /tmp/tina-startup-rollout-20261015/.

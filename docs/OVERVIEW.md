@@ -66,6 +66,12 @@ usage text with exit 2. Details are in `docs/interface-cdx.md`.
 
 ## Managed native starts (cxx 0.9.24)
 
+cxx 0.9.86 reuses verified credentials confirmed by a fresh matching account lease
+and overlaps launch identity confirmation with peer discovery. Bootstrap version
+data is reused within each request. The API also keeps valid empty receiver polls
+off the global messaging and host-row locks; real deliveries retain their fences.
+See [startup measurements and verification](startup-performance-2026-10-15.md).
+
 Fleet installation, update/sync and successful managed launches prepare the native
 `codex`, `claude` and `grok` command names for assigned engines. Per-user scripts
 under `~/.cxx/native-bin` invoke `cxx native <engine> -- <native arguments>`;

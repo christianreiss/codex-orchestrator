@@ -1,0 +1,68 @@
+import { and, eq, sql } from 'drizzle-orm';
+import type { Database } from '../../db/client.js';
+import { agentBusAddresses, agentBusMessages, agentSessions, hosts, versions } from '../../db/schema.js';
+import type { Env } from '../../env.js';
+import { sha256 } from '../../security/hash.js';
+import { isEngine } from '../../util/engine.js';
+import { isoOffsetSeconds, nowIso } from '../../util/timestamp.js';
+import { deriveAddressPresence } from '../agent-presence.js';
+import { receiverReady, receiverState } from '../agent-receiver-state.js';
+import { hostEnginesList } from '../host-engine-policy.js';
+import { isTruthyFlagValue } from '../settings.js';
+import { AGENT_MESSAGING_ENABLED_KEY, AGENT_MESSAGING_RECEIVE_FRESH_SECONDS } from './constants.js';
+import { messagingHostEligible } from './eligibility.js';
+import { hostAuthFingerprint, safeHashEqual } from './internals.js';
+
+/**
+ * Certify only a valid, empty poll. All uncertain/invalid/nonempty cases retain
+ * the existing locked path and its error order, admission and delivery fences.
+ *
+ * Gates and absence MUST come from one statement's MVCC snapshot. Separate
+ * reads could see an old receiver generation, then an empty queue after its
+ * successor consumed a message, with no valid linearization point in between.
+ */
+export async function idleSessionPoll(
+  db: Database,
+  sessionId: string,
+  env: Env,
+  claim?: { bridgeToken: string; receiverGeneration?: string },
+): Promise<boolean> {
+  const [row] = await db.select({
+    session: agentSessions,
+    address: agentBusAddresses,
+    host: hosts,
+    enabled: sql<string | null>`(SELECT ${versions.version} FROM ${versions} WHERE ${versions.name} = ${AGENT_MESSAGING_ENABLED_KEY} LIMIT 1)`,
+    engineDisabled: sql<string | null>`(SELECT ${versions.version} FROM ${versions} WHERE ${versions.name} = CONCAT(${agentSessions.engine}, '_engine_disabled') LIMIT 1)`,
+  }).from(agentSessions)
+    .innerJoin(hosts, eq(hosts.id, agentSessions.hostId))
+    .innerJoin(agentBusAddresses, eq(agentBusAddresses.id, agentSessions.agentBusAddressId))
+    .where(and(
+      eq(agentSessions.id, sessionId),
+      // Superset of every row the locked body can mutate: claim/expiry/retry,
+      // replay and stale presence notices. Presence-return also consumes
+      // awaitingPresence on accepted relay work; never exclude accepted rows.
+      sql`NOT EXISTS (SELECT 1 FROM ${agentBusMessages}
+        WHERE ${agentBusMessages.targetAddressId} = ${agentBusAddresses.id}
+          AND ${agentBusMessages.status} IN ('queued', 'leased', 'accepted')
+          ${claim ? sql`` : sql`AND ${agentBusMessages.awaitingPresence} = 1`})`,
+    )).limit(1);
+  if (!row) return false;
+  const { session, address, host } = row;
+  const now = nowIso();
+  if (!isTruthyFlagValue(row.enabled, false) || isTruthyFlagValue(row.engineDisabled) ||
+    !isEngine(session.engine) || !hostEnginesList(host.engines).includes(session.engine) ||
+    !messagingHostEligible(host) || session.endedAt || session.bridgeExpiresAt <= now ||
+    !safeHashEqual(hostAuthFingerprint(host), session.hostAuthFingerprint) ||
+    address.hostId !== host.id || address.engine !== session.engine ||
+    address.currentSessionId !== session.id || address.bindingGeneration !== session.bindingGeneration ||
+    address.enabled !== 1 || address.archivedAt) return false;
+  if (claim) {
+    if (!safeHashEqual(sha256(claim.bridgeToken), session.bridgeTokenHash) ||
+      !session.receiveHeartbeatAt || session.receiveHeartbeatAt <= isoOffsetSeconds(-AGENT_MESSAGING_RECEIVE_FRESH_SECONDS)) return false;
+    const receiver = receiverState(session.receiver);
+    if (receiver && (receiver.generation !== claim.receiverGeneration || !receiverReady(receiver, 'peer'))) return false;
+    return true;
+  }
+  const cutoff = isoOffsetSeconds(-env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS);
+  return deriveAddressPresence(address, session, cutoff) === 'listening';
+}

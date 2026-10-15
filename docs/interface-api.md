@@ -1564,6 +1564,11 @@ applicable peer/portal switch. No host credential is sent to the model process.
   queue `delivery` (peer) or `message` (portal), possibly null. It never returns a probe.
   Queue transactions check generation again before leasing ordinary work; manual
   claims cannot race the automatic owner. Enabled sources need no model acknowledgment.
+  Empty peer polls and presence-return checks use one nonlocking database snapshot
+  of admission, binding, receiver health and queue absence. They avoid global bus
+  and host-row locks only when that snapshot certifies a valid empty result.
+  Pending/expired deliveries, waiting presence notices and uncertain or invalid
+  admission retain the existing locked path, error handling and delivery fences.
 - `ack`: deprecated compatibility endpoint for already-delivered old probes. Requires
   a matching generation/source/nonce and delivered legacy probe on a healthy connection.
   Returns status without changing stored evidence, renewing health, or reviving a receiver.

@@ -3,6 +3,7 @@ import { daemonAccepting, daemonResidentFor } from './host-daemon/policy.js';
 import { assertHousekeepingAvailable } from './session-housekeeping.js';
 import { hostDaemons, hostDaemonSessions } from '../db/schema.js';
 import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from './agent-messaging/presence-feedback.js';
+import { idleSessionPoll } from './agent-messaging/idle-session.js';
 import { type AgentDiscoveryFilters } from './agent-messaging/discovery.js';
 import { translateAgent } from './agent-messaging/names.js';
 import { jsonRecord } from './agent-messaging/normalize.js';
@@ -342,6 +343,7 @@ export class AgentMessagingService {
 
   async notifyPresenceReturn(sessionId: string): Promise<void> {
     if (!await this.isEnabled()) return;
+    if (await idleSessionPoll(this.db, sessionId, this.env)) return;
     const receipts = await this.db.transaction(async (tx) => {
       await this.requireEnabledLocked(tx);
       return queuePresenceNotices(tx, sessionId, {
@@ -804,6 +806,8 @@ export class AgentMessagingService {
     if (!authenticated.session.receiveHeartbeatAt) {
       throw new ConflictError('Agent session is not receive-capable', 'agent_messaging_adapter_unavailable');
     }
+    normalizeUuid(claimId, 'claim_id');
+    if (await idleSessionPoll(this.db, sessionId, this.env, { bridgeToken, receiverGeneration })) return null;
     return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly);
   }
 
