@@ -97,9 +97,85 @@ The three held-lock empty-poll cases fail on the unchanged source and pass with
 the fix. Full API tests pass: 4,851 passed, 710 DB-dependent skips. Typecheck,
 focused lint and build pass. Canonical real-DB integration results follow below.
 
+`npm run test:db` completed all 121 integration files against the private MySQL
+8.4 container: 1,534 tests passed; two global-count assertions in the durability
+file failed because a repeated run retained unrelated fixture rows. Recreating
+a separate clean database and rerunning the entire durability file passed all
+57 tests, including both failures. Every one of the 1,536 integration cases
+therefore passed, with the fixture-reuse limitation recorded rather than hidden.
+The initial snapshot lacked contract/frontend files; those fixtures were copied
+before this complete run. No production database was used for tests. The owned
+test container and its anonymous volume were removed after log collection.
+
 A bounded pool-size experiment on docker01 proved transient acquisition queues:
 32 connections reduced acquisition time but increased observed SQL lock waiting.
 It did not establish a native-entry benefit. The original pool size 10 was
 restored; diagnostic preload and temporary credentials were removed. No pool,
 durability or authentication setting is part of the source change. Tina's
 sanitized rollout proofs are under /tmp/tina-startup-rollout-20261015/.
+
+## Deployed acceptance
+
+Both changes are on main and deployed on docker01. The initial wrapper/API
+rollout used c3df70a7; the API-only idle-poll rollout used
+`a255745aca8a48f8a17f2d8a832850cd3af7851c`, with
+`scripts/deploy.sh --backup --no-cleanup --service api --skip-git --skip-wrappers`.
+The latter API started at 2026-10-15T12:08:01.602802507Z, image
+`sha256:92e2294ff1f367252646136a7d45dc19bcbe94194f1f030340c7ed2f27f4aef0`.
+All 339 embedded API source bodies and 295 SPA hashes matched the checkout;
+health checks passed, restart count zero, 67 migrations applied with none pending
+or drifted. The other stack containers were retained.
+
+All four official 0.9.86 artifacts were unchanged by the API-only rollout. The
+VM runs the published linux-amd64 binary, SHA-256
+`71210a508702df90a6af6dd9452c208d1fb9f7566457a5a1bc95620b21d9a6ba`.
+
+Five serial, engine-interleaved samples per engine immediately before the
+idle-poll rollout and five after it, using that same official binary and harness:
+
+| Engine | Before idle fix median | After median | Observed reduction | After range |
+| --- | ---: | ---: | ---: | ---: |
+| cdx | 3.450 s | 1.350 s | 61% | 1.214–1.706 s |
+| clx | 3.026 s | 1.871 s | 38% | 1.248–2.123 s |
+| cgx | 4.659 s | 2.140 s | 54% | 1.383–3.281 s |
+
+The before directories are unfortunately named `released-pool32-*`, but their
+timestamps are AFTER the 11:54:26Z return to pool 10; both rows use pool 10.
+Live sequential traffic differs between windows, so these are observed results,
+not a controlled causal percentage or a latency guarantee. The earlier quiet
+0.9.85 comparison above remains separate. Native startup/inference is excluded.
+
+After samples in engine order, seconds:
+
+- cdx: 1.706, 1.316, 1.350, 1.582, 1.214.
+- clx: 1.871, 2.123, 2.033, 1.248, 1.307.
+- cgx: 3.281, 2.589, 1.383, 1.692, 2.140.
+
+All 15 marker starts exited zero. Three additional real-native launches each
+returned OK and exited zero (Grok's answer is in its JSON `text` field). Sampled
+native exec was 2.405 / 2.219 / 3.355 seconds for Codex / Claude / Grok under
+concurrent workplace probes; these are functional evidence, not the serial
+marker performance matrix. The busy biest workplace's three-sample medians
+were 3.017 / 2.338 / 1.799 seconds, ranges 2.205–3.845 / 1.539–2.396 /
+1.454–4.300. Existing workplace sessions were left running.
+
+The warm server window observed global aggregate row-wait time fall from
+36,647 to 10,863 ms over roughly 31 seconds, and row waits from 830 to 346.
+These counters include other clients. CPU remained high. No HTTP 500 appeared
+among 4,671 completed requests after rollout; nine relay-register 503s remained.
+One initial API database connection lock timeout could not be attributed to a
+handler; the subsequent warm window had no new timeout or deadlock. The known
+binding-reaper/address-insertion deadlock from the previous control period is
+not fixed by this change. Therefore this result does not claim elimination of
+all server contention or all fleet errors.
+
+Tina's complete sanitized proof is under
+`/tmp/tina-idle-poll-rollout-20261015/`; raw VM results remain in the directory
+above. A local copy of final samples is
+`/tmp/cxx-startup-f21ba129/cxx-startup-f21ba129-final-evidence.tgz`.
+The pre-idle API image is retained as
+`codex-orchestrator/api:pre-idle-poll-20261015`; no migration was added by this
+diff, so rollback can recreate the API from that image after checking subsequent
+schema activity. Database backup completion and checksum were verified; restore
+was not tested. Test-VM binary rollback is the preserved 0.9.85 artifact, while
+the original 0.9.84 user binary also remains backed up.
