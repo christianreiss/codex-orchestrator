@@ -50,6 +50,33 @@ function context(
 
 const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
 
+describe('automatic fleet work reflection guidance', () => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s reviews completed work through its existing Skill mechanism', (engine) => {
+    // Reflection remains available with reporting disabled; the Skill handles
+    // unavailable feedback without bypassing the operator's capability setting.
+    for (const feedback of [enabled(), disabled('feedback_disabled')]) {
+      const ctx = context(engine, { skills: enabled(3), feedback });
+      const on = renderManagedAgentFeatures('# House rules\nPreserve this text.\n', ctx);
+      expect(on.body).toContain('final response or managed work-result delivery');
+      expect(on.body).toContain('including failed or blocked work');
+      expect(on.body).toContain('read and follow the available `fleet-reflect` Skill once');
+      expect(on.body).toContain('retries need no new review');
+      expect(on.body).toContain('If the Skill is unavailable, finish the original work');
+      expect(on.body.split('`fleet-reflect`')).toHaveLength(2);
+      expect(on.sections.skills.transport).toBe(engine === ENGINE_CODEX ? 'mcp' : 'native');
+      expect(on.body).toContain(engine === ENGINE_CODEX ? 'skill_retrieve' : `~/.${engine}/skills/<slug>/SKILL.md`);
+      const repeat = renderManagedAgentFeatures(on.body, ctx);
+      expect(repeat.body).toBe(on.body);
+      expect(repeat.managed_sha256).toBe(on.managed_sha256);
+      const off = renderManagedAgentFeatures(on.body, context(engine, { feedback }));
+      expect(off.body).not.toContain('`fleet-reflect`');
+      expect(off.body).toContain('Preserve this text.');
+      expect(off.sections.skills.present).toBe(false);
+      expect(off.managed_sha256).not.toBe(on.managed_sha256);
+    }
+  });
+});
+
 describe('dynamic orchestrator feedback guidance', () => {
   for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
     it(`${engine}: toggle adds/removes guidance and updates served digest without altering authored rules`, () => {
@@ -164,9 +191,10 @@ describe('served document byte invariance', () => {
     // 2026-10-11: compact project discovery consistently starts with project_summary.
     // 2026-10-14: offline resume, persistent Wake/Cron and watchdog recovery only on persistent hosts (docs/host-runtime-policy.md).
     // 2026-10-15: negotiated coordination and digests preserve held work (smart-queue v1).
-    expect(out.features_sha256).toBe('599d373ee563b12430b5664e8d2c6c677767ec3004980c58547b54a6df2ed9aa');
-    expect(out.managed_sha256).toBe('e99898b3011bfb1db06b058e2e2da473de3bfb235ab946ffec10fa5fed25ed62');
-    expect(sha256(out.body)).toBe('cd4945de0105e22f390358e144418ba33009f261b7410db26ac001103c9c6031');
+    // 2026-10-15: managed Skills guidance invokes fleet-reflect before final work results.
+    expect(out.features_sha256).toBe('3593d8a440f227922ab26685f892fe742eed860ef8ba321f6c43e063b41063e8');
+    expect(out.managed_sha256).toBe('d13e9a6655ed4e0b891f8d63aec8142728fc1552a39f6224264fb8da8fcc7e26');
+    expect(sha256(out.body)).toBe('574da857c9ae0991a743b5a6ca9ae8de9567414f2100a9676530f98f6fd73e12');
   });
 });
 

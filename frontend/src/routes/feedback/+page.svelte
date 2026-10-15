@@ -134,7 +134,7 @@
 </PageHeader>
 {#if $stateQuery.isError}<p role="alert" class="mb-4 text-destructive">{$stateQuery.error.message}</p>{/if}
 <ModuleSwitchRow id="feedback-enabled" label="Agent feedback" checked={enabled}
-  description={enabled ? 'Agents can report and claim work. AGENTS.md, CLAUDE.md and Grok instructions include the workflow.' : 'Agent tools and managed instructions are disabled. Retained reports remain available here.'}
+  description={enabled ? 'Agents can report and claim work. With Skills enabled, agents review fleet experience before final work results and report actionable findings.' : 'Agent feedback tools and reporting instructions are disabled. Closing reviews can still run with Skills enabled; retained reports remain available here.'}
   disabled={!canManage || $stateMutation.isPending || $stateQuery.isPending}
   onCheckedChange={(value) => $stateMutation.mutate(value)} />
 

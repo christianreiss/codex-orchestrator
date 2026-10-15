@@ -1013,6 +1013,20 @@ preserving user edits. Ordinary network failure retains the last synced content.
 
 ## Orchestrator Feedback
 
+With Skills enabled, managed Skills guidance automatically invokes the shared stored
+`fleet-reflect` Skill once before each final work response or managed work-result
+delivery, including failed or blocked work. Progress messages, acknowledgements and
+result retries do not repeat the review. Codex loads it through MCP; Claude and Grok
+use their native synced Skill files. The Skill reviews observed orchestrator/tool
+experience, searches reports across statuses, appends materially new evidence or
+submits an actionable bug, feature or usability report. No finding means no report
+or extra final-response paragraph. Disabled/unavailable feedback leaves useful
+findings pending without bypassing the setting or delaying the original result;
+reflection does not authorize fixes or deployments. The manifest is published via
+`skill_store` (review copy: `docs/skills/fleet-reflect.SKILL.md`); the automatic trigger
+requires the API change and the host's next instructions sync. This is agent guidance,
+not a runtime completion hook or a background schedule.
+
 The independent central inbox provides `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim` and `feedback_update` across Codex, Claude and Grok. The fleet switch `feedback_enabled` defaults off, hides tools during discovery and blocks calls while disabled. Enable it under Feedback in the WebUI (`/admin/feedback/state`); managed AGENTS.md/CLAUDE.md/Grok AGENTS.md dynamically gain the workflow on the next sync only when usable managed MCP configuration exists. Disabling removes that section on sync without changing canonical authored rules or deleting reports.
 
 Claims are exclusive, token-fenced and renewable for 30 minutes. Updates check the item version and append history. Resolved requires a fix reference and verification evidence; deployment is recorded separately. Host/engine attribution is authenticated; optional agent UUIDs are descriptive. Admin routes use `feedback.read`/`feedback.manage`. No agent is started and no merge or deployment is implied. See [MCP workflow](MCP.md#orchestrator-feedback-workflow) for request/response contracts.

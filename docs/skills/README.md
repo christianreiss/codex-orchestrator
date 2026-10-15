@@ -178,6 +178,14 @@ slug and deleting the module is Release B, once the fleet has converged.
 
 ## Current manifests
 
+- `#fleet-reflect` — shared stored Skill, with the review copy in
+  `docs/skills/fleet-reflect.SKILL.md`. Publish with MCP `skill_store`; a git
+  commit alone does not install it. With Skills enabled, managed guidance for
+  Codex, Claude and Grok invokes it before final work results, including failed
+  or blocked work. It briefly reviews observed fleet experience and reports
+  actionable findings through the existing feedback tools after deduplication.
+  The automatic trigger ships with the API; the Skill remains separately editable.
+
 - `#afk` — code-derived in `api/src/services/managed-afk-skill.ts`, unconditional.
   Keeps a root agent available in the permanent web portal without raising
   attention unless user input is actually needed; since cxx 0.8.4 opening it

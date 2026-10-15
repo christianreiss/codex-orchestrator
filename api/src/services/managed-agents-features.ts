@@ -220,6 +220,11 @@ function present(
 
 function skillsSection(context: ManagedAgentFeatureContext): RenderedSection | null {
   if (!context.skills.enabled) return null;
+  const reflection = `Before the final response or managed work-result delivery for each completed work item,
+including failed or blocked work, read and follow the available \`fleet-reflect\` Skill once.
+Use the Skill-loading mechanism above. Progress messages, acknowledgements and result
+retries need no new review. If the Skill is unavailable, finish the original work and
+mention any actionable fleet finding that could not be reported.`;
   if (context.engine === ENGINE_CLAUDE) {
     return present(
       context.skills,
@@ -227,7 +232,9 @@ function skillsSection(context: ManagedAgentFeatureContext): RenderedSection | n
 
 Fleet Skills are synced as native Claude Code skills under
 \`~/.claude/skills/<slug>/SKILL.md\`. Read the matching \`SKILL.md\` when a Skill's description or
-trigger applies, and follow its instructions.`,
+trigger applies, and follow its instructions.
+
+${reflection}`,
       'native',
     );
   }
@@ -239,7 +246,9 @@ trigger applies, and follow its instructions.`,
 Fleet Skills are synced as native Grok skills under \`~/.grok/skills/<slug>/SKILL.md\`. Read the
 matching \`SKILL.md\` when a Skill's description or trigger applies, and follow its instructions.
 To create, update, delete, or explain fleet Skills, follow the \`skill-manager\` Skill instead of
-\`/create-skill\`.`,
+\`/create-skill\`.
+
+${reflection}`,
       'native',
     );
   }
@@ -253,7 +262,9 @@ or explain the fleet Skill-management workflow, read \`skill://skill-manager\` w
 and follow it. Use \`skill_retrieve\` for other manifests and \`skill://{slug}/<path>\` for support
 files. An unqualified "Skill" means a fleet Skill; do not substitute Codex's built-in
 \`skill-creator\`. Higher-level runtime requirements for built-in or system Skills still take
-precedence.`,
+precedence.
+
+${reflection}`,
     'mcp',
   );
 }

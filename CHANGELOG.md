@@ -1,5 +1,7 @@
 # 2026-10-15
 
+- Added the shared `fleet-reflect` Skill and an automatic closing-review trigger in managed Skills guidance for Codex, Claude and Grok. Completed, failed and blocked work briefly reviews observed fleet-tool experience, searches existing feedback and reports only actionable findings, with bounded retries and honest pending outcomes. Feedback capability settings remain enforced. The intentional managed-document digest change reaches hosts on their next sync after API deployment; the stored Skill is published separately through MCP.
+
 - Dashboard quota cards now show the account's provider plan for ChatGPT, Claude and Grok, including Claude Max 5×/20× when reported. Source and observation time distinguish login metadata from provider readings; missing plans stay unavailable and stale plans are marked. Grok settings refresh independently of quota readings.
 
 - cxx 0.9.87 adds opt-in smart queue delivery for Codex, Claude and Grok: dated catch-up previews with retained originals, explicit progress/notice coalescing with counters, and full coordination messages while accepted work remains held. Calls, conferences, operator messages and work outcomes keep their existing fences. The dashboard links digest history; the server feature defaults off for staged adoption.
