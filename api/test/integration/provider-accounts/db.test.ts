@@ -73,6 +73,28 @@ describe.skipIf(!handle)('provider accounts on MySQL', () => {
     await handle!.pool.end();
   });
 
+  it('lists account-scoped ChatGPT and Claude plans without exposing credential bodies', async () => {
+    const codex = await enroll('codex', 'plan-codex');
+    const claude = await store.storeCandidate({
+      engine: 'claude',
+      auth: { ...auth('claude', 'plan-claude'), claudeAiOauth: {
+        accessToken: 'sk-ant-oat01-plan-claude', refreshToken: 'private-plan-refresh',
+        subscriptionType: 'max', rateLimitTier: 'default_claude_max_20x',
+      } },
+      sourceHostId: null, requireLastRefresh: false, logAction: 'test.plan', enrollAccount: true,
+    });
+    const other = await enroll('claude', 'plan-unknown');
+    const now = new Date().toISOString();
+    await db.insert(chatgptUsageSnapshots).values({ accountId: codex, status: 'ok', planType: 'pro', fetchedAt: now, createdAt: now, nextEligibleAt: now });
+    const listed = await accounts.list();
+    expect(listed.find(a => a.id === codex)?.plan).toMatchObject({ name: 'Pro', source: 'chatgpt_usage', stale: false });
+    expect(listed.find(a => a.id === claude.account_id)?.plan).toMatchObject({ name: 'Max 20×', source: 'claude_login' });
+    expect(listed.find(a => a.id === other)?.plan).toMatchObject({ name: null, source: 'claude_login' });
+    expect(JSON.stringify(listed)).not.toMatch(/private-plan-refresh|sk-ant-oat01-plan-claude|accessToken|refreshToken/);
+    await db.update(authPayloads).set({ verificationState: 'failed' }).where(eq(authPayloads.accountId, claude.account_id!));
+    expect((await accounts.list('claude')).find(a => a.id === claude.account_id)?.plan?.name).toBeNull();
+  });
+
   it('counts exactly the accounts acquire could lease, without reserving one', async () => {
     const at = '2026-10-13T20:00:00Z';
     const account = async (engine: string, label: string, state: 'enabled' | 'paused', verificationState: string | null) => {

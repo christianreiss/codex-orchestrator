@@ -12,6 +12,12 @@ export interface ProviderAccount {
   verification_checked_at: string | null;
   generation: number | null;
   refresh_state?: "idle" | "refreshing" | "pending_verification" | "uncertain" | "login_required";
+  plan?: {
+    name: string | null;
+    source: "chatgpt_usage" | "claude_login" | "grok_settings";
+    observed_at: string | null;
+    stale: boolean;
+  };
   usage: {
     supported?: boolean;
     fetched_at: string | null;

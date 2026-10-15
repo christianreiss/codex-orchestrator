@@ -1639,6 +1639,29 @@ Before a launch reservation, a host's saved account ID is a discovery hint: a re
 
 Selection runs once per native CLI launch. It prefers verified enabled accounts with lower short/weekly utilization below the configured quota threshold; readings within five percentage points share assignments by active session count, then least recent selection. Unknown/reset accounts get bounded trials to obtain usage. Stale utilization stays conservative until its reset; reset windows become unknown rather than fabricated zero usage. Active sessions retain their account, including overlapping launches sharing native files. If all known quotas are exhausted, existing hard-fail/warn and VIP behavior still governs the selected account. There is no cross-engine fallback or manual host pinning.
 
+### Provider subscription plans
+
+`GET /admin/accounts` includes an account-scoped `plan` object for every engine:
+`{name: string|null, source: chatgpt_usage|claude_login|grok_settings,
+observed_at: string|null, stale: boolean}`. ChatGPT plan names come from that
+account's successful usage snapshot `plan_type`; Claude names come only from
+`claudeAiOauth.subscriptionType` in its verified canonical login, with
+`rateLimitTier` distinguishing Max 5×/20×. Claude observation time is the stored
+payload's creation time, not a live billing check. Unknown types remain null;
+quota sizes, selected models and account labels never determine a plan.
+Metadata older than ten minutes, missing timestamps and failed settings polls
+are stale. No credential fields are returned in `plan`.
+
+Migration `0069_provider_plan.sql` adds Grok's cached plan name, observation time
+and sanitized plan error to `grok_usage_snapshots`. The existing five-minute
+account poll also reads `https://cli-chat-proxy.grok.com/v1/settings`, using the
+same fenced access bearer, engine/account gates, ten-second timeout and redirect
+refusal as billing. `subscription_tier_display` is preferred over known
+`subscription_tier` values, following [official Grok Build RemoteSettings](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-config/src/remote_settings.rs).
+Plan and quota freshness are independent: a settings failure retains the previous
+plan as stale; a successful response with no recognized plan clears the old name.
+No additional Claude provider request or wrapper update is needed.
+
 ### Grok subscription usage
 
 `GET /admin/accounts` adds `usage.current_window` for Grok: `{used_percent, period: weekly|monthly|null, starts_at, resets_at, shared}` or `null` when no provider reading exists. `usage.supported` is true; `fetched_at` is the last successful reading, `checked_at` the last attempt, and `error_code` is a sanitized failure code. `stale` is true after ten minutes, after the provider period expires, or on a failed poll; failed polls retain the last successful window. Missing percentages never become zero. Legacy `short_*`/`weekly_*` fields stay null for Grok: this is a dashboard observation and does not change account selection or wrapper quota contracts.

@@ -1,5 +1,7 @@
 # 2026-10-15
 
+- Dashboard quota cards now show the account's provider plan for ChatGPT, Claude and Grok, including Claude Max 5×/20× when reported. Source and observation time distinguish login metadata from provider readings; missing plans stay unavailable and stale plans are marked. Grok settings refresh independently of quota readings.
+
 - cxx 0.9.87 adds opt-in smart queue delivery for Codex, Claude and Grok: dated catch-up previews with retained originals, explicit progress/notice coalescing with counters, and full coordination messages while accepted work remains held. Calls, conferences, operator messages and work outcomes keep their existing fences. The dashboard links digest history; the server feature defaults off for staged adoption.
 
 - cxx 0.9.86 shortens launch setup for Codex, Claude and Grok by reusing verified auth snapshots confirmed by the new account lease, initializing Grok from its freshly leased access projection, and overlapping identity confirmation with peer discovery. Account switches and auth rotations retain account-scoped retrieval; identity and credential checks still gate native exec. The API also reuses bootstrap version data within each request while refreshing again after credential mutations.

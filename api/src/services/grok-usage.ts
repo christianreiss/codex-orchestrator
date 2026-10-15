@@ -6,8 +6,10 @@ import { readFleetEngineState } from './engine-switch.js';
 import { selectGrokCredential, GROK_AUTH_TARGET } from './grok-auth.js';
 import type { createGrokAuthOwner } from './grok-auth-owner.js';
 import { wsPublisher } from '../ws/publisher.js';
+import { grokPlanName, providerPlan } from './provider-plan.js';
 
 export const GROK_USAGE_URL = `https://${GROK_AUTH_TARGET}/v1/billing?format=credits`;
+export const GROK_SETTINGS_URL = `https://${GROK_AUTH_TARGET}/v1/settings`;
 export const GROK_USAGE_INTERVAL_MS = 300_000;
 export const GROK_USAGE_STALE_MS = 600_000;
 
@@ -90,6 +92,7 @@ export async function readGrokUsage(reader: Pick<Database, 'select'>, accountId:
         };
   return {
     supported: true,
+    plan: providerPlan(row?.planName ?? null, 'grok_settings', row?.planFetchedAt, !!row?.planErrorCode),
     fetched_at: row?.fetchedAt ?? null,
     checked_at: row?.checkedAt ?? null,
     error_code: row?.errorCode ?? null,
@@ -153,6 +156,9 @@ export class GrokUsageService {
     if (previous && Date.now() - Date.parse(previous.checkedAt) < GROK_USAGE_INTERVAL_MS) return;
     let window: GrokUsageWindow | null = null;
     let errorCode: string | null = null;
+    let planName: string | null = null;
+    let planErrorCode: string | null = 'auth_unavailable';
+    let planFetched = false;
     try {
       // All renewal stays with the existing fenced owner. No independent refresh
       // grant, browser cookies, or native unmanaged login is used by this poller.
@@ -180,6 +186,20 @@ export class GrokUsageService {
       } catch {
         errorCode = 'provider_unavailable';
       }
+      // Plan freshness is independent of quota freshness. A settings outage
+      // retains the prior plan without invalidating a successful quota reading.
+      if (!(await this.eligible(accountId))) return;
+      try {
+        const response = await (this.deps.fetchImpl ?? fetch)(GROK_SETTINGS_URL, {
+          method: 'GET', headers, redirect: 'error', signal: AbortSignal.timeout(10_000),
+        });
+        if (!response.ok) planErrorCode = `provider_http_${response.status}`;
+        else {
+          planName = grokPlanName(await response.json());
+          planFetched = true;
+          planErrorCode = planName ? null : 'plan_unavailable';
+        }
+      } catch { planErrorCode = 'provider_unavailable'; }
     } catch {
       errorCode = 'auth_unavailable';
     }
@@ -189,6 +209,8 @@ export class GrokUsageService {
     const values = {
       checkedAt,
       errorCode,
+      planErrorCode,
+      ...(planFetched ? { planName, planFetchedAt: checkedAt } : {}),
       ...(window
         ? {
             usedPercent: window.used_percent,

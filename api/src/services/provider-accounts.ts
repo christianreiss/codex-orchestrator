@@ -25,6 +25,7 @@ import { createRunnerValidationService } from './runner-validation.js';
 import { resolveProviderAccount } from './provider-account-reference.js';
 import { withGrokAccountLock } from './grok-auth-lock.js';
 import { readGrokUsage } from './grok-usage.js';
+import { chatGptPlanName, claudePlanName, providerPlan } from './provider-plan.js';
 
 type Account = typeof providerAccounts.$inferSelect;
 const PROVIDER_LABELS: Record<Engine, string> = { codex: 'ChatGPT', claude: 'Claude', grok: 'Grok' };
@@ -250,6 +251,12 @@ export class ProviderAccountsService {
                   .limit(1)
               )[0];
           const usage = await this.usage(a.id, a.engine as Engine);
+          let plan = 'plan' in usage ? usage.plan : providerPlan(null, 'claude_login', null);
+          if (a.engine === 'claude' && payload?.verificationState === 'verified' && payload.body) {
+            try {
+              plan = providerPlan(claudePlanName(JSON.parse(decrypt(payload.body, this.keyring))), 'claude_login', payload.createdAt);
+            } catch { /* Unreadable metadata stays unavailable; account listing still works. */ }
+          }
           const refresh = a.engine === 'grok' ? (await this.db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, a.id)))[0] : null;
           return {
             id: a.id,
@@ -265,6 +272,7 @@ export class ProviderAccountsService {
             updated_at: a.updatedAt,
             last_selected_at: a.lastSelectedAt,
             usage,
+            plan,
             sessions: sessions
               .filter((s) => s.accountId === a.id)
               .map((s) => ({ id: s.id, host_id: s.hostId, expires_at: s.expiresAt })),
@@ -313,6 +321,7 @@ export class ProviderAccountsService {
     return {
       fetched_at: r?.fetchedAt ?? null,
       stale: !r || now - Date.parse(r.fetchedAt) > 600_000,
+      plan: providerPlan(chatGptPlanName(r?.planType), 'chatgpt_usage', r?.fetchedAt),
       short_used_percent: short?.used ?? null,
       short_resets_at: short?.reset ?? null,
       short_limit_seconds: short?.limit ?? null,

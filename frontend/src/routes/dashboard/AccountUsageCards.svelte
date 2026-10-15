@@ -48,6 +48,21 @@
     </div>
 
     <div class="space-y-3">
+      <div class="flex flex-wrap items-center justify-between gap-2 text-xs" data-testid="provider-plan">
+        <span class="text-muted-foreground">Plan</span>
+        <span class="flex flex-wrap items-center gap-2">
+          <Badge variant="outline">{account.plan?.name ?? "Plan unavailable"}</Badge>
+          {#if account.plan?.name && account.plan.stale}<Badge variant="warning">Last known plan</Badge>{/if}
+        </span>
+        {#if account.plan?.name}
+          <span class="w-full text-muted-foreground">
+            {account.plan.source === "claude_login" ? "Login metadata" : "Provider reported"}
+            {#if account.plan.observed_at}
+              · <time datetime={account.plan.observed_at} title={account.plan.observed_at}>{relativeTime(account.plan.observed_at)}</time>
+            {/if}
+          </span>
+        {/if}
+      </div>
       {#if account.usage.supported === false}
         <p class="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">Subscription quota unavailable</p>
       {:else if account.engine === "grok"}

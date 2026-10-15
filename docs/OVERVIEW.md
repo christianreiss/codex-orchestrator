@@ -24,6 +24,12 @@ Claude and Grok, with three columns on desktop, two on tablets and one on mobile
 Each card shows its last observation and marks retained stale readings. ChatGPT
 windows are labelled from their reported duration, including a 5-hour window
 when supplied; missing windows never become zero-percent meters.
+Beside the quota bars, each account shows its reported subscription plan (including
+Claude Max 5×/20× when present), its source and observation time. ChatGPT uses the
+account's usage snapshot, Claude uses metadata from its verified native login,
+and Grok uses provider settings. Missing/unrecognized plans say “Plan unavailable”;
+observations older than ten minutes or retained after a failed poll say “Last known
+plan”. Claude login metadata is a login/refresh observation, not live billing data.
 
 The Git Director page also holds fleet-wide **Commit messages** preferences for Codex, Claude and Grok: short (subject only) or long (subject, change/reason and relevant verification), plus optional AI attribution. Defaults are short and attribution off. These rules are always included in managed AGENTS.md / CLAUDE.md output even with Director or Skills disabled; hosts adopt them on their next sync/launch. Explicit operator instructions take precedence, and Git identities and commit/push authority are unchanged.
 

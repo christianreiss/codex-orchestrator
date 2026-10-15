@@ -1308,6 +1308,9 @@ export const claudeUsageSnapshots = mysqlTable(
 // Latest provider reading and poll status, isolated by Grok subscription account.
 export const grokUsageSnapshots = mysqlTable('grok_usage_snapshots', {
   accountId: bigint('account_id', { mode: 'number', unsigned: true }).primaryKey(),
+  planName: varchar('plan_name', { length: 128 }),
+  planFetchedAt: varchar('plan_fetched_at', { length: 100 }),
+  planErrorCode: varchar('plan_error_code', { length: 48 }),
   usedPercent: double('used_percent'),
   periodType: varchar('period_type', { length: 16 }),
   periodStartsAt: varchar('period_starts_at', { length: 100 }),

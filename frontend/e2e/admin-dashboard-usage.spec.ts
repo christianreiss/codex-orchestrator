@@ -12,11 +12,15 @@ function account(id: number, engine: ProviderAccount["engine"], label: string, c
     } };
 }
 function providers() {
-  return [
+  const accounts = [
     account(2, "codex", "ChatGPT", { weekly_used_percent: 15, weekly_limit_seconds: 604800 }),
     account(1, "claude", "Claude", { short_used_percent: 0, short_limit_seconds: 18000, weekly_used_percent: 24, weekly_limit_seconds: 604800, stale: true }),
     account(7, "grok", "Grok account", { current_window: { used_percent: 87, period: "weekly", starts_at: null, resets_at: reset, shared: true } }),
   ];
+  accounts[0].plan = { name: 'Pro', source: 'chatgpt_usage', observed_at: now, stale: false };
+  accounts[1].plan = { name: 'Max 20×', source: 'claude_login', observed_at: now, stale: true };
+  accounts[2].plan = { name: 'SuperGrok Heavy', source: 'grok_settings', observed_at: now, stale: false };
+  return accounts;
 }
 async function fixtures(page: Page, accounts: ProviderAccount[], options: { wait?: Promise<void>; fail?: boolean; off?: boolean } = {}) {
   await page.route("**/admin/**", async route => {
@@ -51,6 +55,11 @@ test("three providers share card and meter geometry in light/dark desktop, table
     await page.goto("/admin/dashboard");
     const cards = page.locator("a[aria-labelledby^='usage-account-']");
     await expect(cards).toHaveCount(3);
+    await expect(cards.nth(0).getByTestId('provider-plan')).toContainText('Pro');
+    await expect(cards.nth(1).getByTestId('provider-plan')).toContainText('Max 20×');
+    await expect(cards.nth(1).getByTestId('provider-plan')).toContainText('Login metadata');
+    await expect(cards.nth(1).getByTestId('provider-plan')).toContainText('Last known plan');
+    await expect(cards.nth(2).getByTestId('provider-plan')).toContainText('SuperGrok Heavy');
     await expect(cards.nth(0).getByRole("meter")).toHaveCount(1);
     await expect(cards.nth(0)).not.toContainText("Short window");
     await expect(cards.nth(1).getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
@@ -88,7 +97,7 @@ test("ChatGPT renders a supplied five-hour zero reading and retains account navi
   const card = page.getByRole("link", { name: "ChatGPT", exact: true });
   await expect(card.getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
   await expect(card.getByRole("meter")).toHaveCount(2);
-  await expect(card.locator("time").first()).toHaveAttribute("datetime", reset);
+  await expect(card.locator(`time[datetime='${reset}']`)).toBeVisible();
   await card.focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/admin\/accounts$/);
@@ -100,12 +109,16 @@ test("unknown, unavailable and login-required accounts never show zero quota", a
   accounts[1].usage = { ...accounts[1].usage, supported: false };
   accounts[2].usage = { ...accounts[2].usage, fetched_at: null, checked_at: now, current_window: null };
   accounts[2].refresh_state = "login_required";
+  delete accounts[0].plan; // older-server compatibility
+  accounts[1].plan = { name: null, source: 'claude_login', observed_at: null, stale: true };
   await fixtures(page, accounts, { off: true });
   await page.goto("/admin/dashboard");
   const cards = page.locator("a[aria-labelledby^='usage-account-']");
   await expect(cards).toHaveCount(3);
   await expect(cards.getByRole("meter")).toHaveCount(0);
   await expect(cards.nth(0)).toContainText("Waiting for usage data");
+  await expect(cards.nth(0).getByTestId('provider-plan')).toContainText('Plan unavailable');
+  await expect(cards.nth(1).getByTestId('provider-plan')).toContainText('Plan unavailable');
   await expect(cards.nth(0)).toContainText("Disabled fleet-wide");
   await expect(cards.nth(1)).toContainText("Subscription quota unavailable");
   await expect(cards.nth(2)).toContainText("Usage unavailable");

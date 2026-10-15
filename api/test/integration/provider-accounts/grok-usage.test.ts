@@ -5,7 +5,7 @@ import { getTestDb } from '../../helpers/test-db.js';
 import { testKeyring } from '../../helpers/test-keyring.js';
 import { grokUsageSnapshots, providerAccounts, versions } from '../../../src/db/schema.js';
 import { GROK_AUTH_SCOPE } from '../../../src/services/grok-auth.js';
-import { GrokUsageService, GROK_USAGE_URL, readGrokUsage } from '../../../src/services/grok-usage.js';
+import { GrokUsageService, GROK_USAGE_URL, GROK_SETTINGS_URL, readGrokUsage } from '../../../src/services/grok-usage.js';
 import type { Database } from '../../../src/db/client.js';
 import { ProviderAccountsService } from '../../../src/services/provider-accounts.js';
 
@@ -60,7 +60,8 @@ describe.skipIf(!handle)('Grok subscription observations in the account dashboar
   });
   beforeEach(async () => {
     ensureFresh.mockClear();
-    request = vi.fn<typeof fetch>(async () => response());
+    request = vi.fn<typeof fetch>(async (url) => url === GROK_SETTINGS_URL
+      ? new Response(JSON.stringify({ subscription_tier_display: 'SuperGrok Heavy' })) : response());
     service = new GrokUsageService({ db: db, authOwner: { ensureFresh }, fetchImpl: request });
     await db.delete(grokUsageSnapshots).where(inArray(grokUsageSnapshots.accountId, ids));
     await db.update(providerAccounts).set({ state: 'enabled' }).where(inArray(providerAccounts.id, ids));
@@ -99,6 +100,7 @@ describe.skipIf(!handle)('Grok subscription observations in the account dashboar
       stale: false,
       error_code: null,
       current_window: { used_percent: 5, period: 'weekly', shared: true },
+      plan: { name: 'SuperGrok Heavy', source: 'grok_settings', stale: false },
     });
     expect(usage.short_used_percent).toBeNull();
     expect(usage.weekly_used_percent).toBeNull(); // display does not introduce automatic quota gating
@@ -112,7 +114,7 @@ describe.skipIf(!handle)('Grok subscription observations in the account dashboar
     await new GrokUsageService({ db: db, authOwner: { ensureFresh }, fetchImpl: request }).refreshAccount(
       ids[0]!,
     );
-    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledTimes(2);
     expect(await readGrokUsage(db, ids[0]!)).toMatchObject({
       stale: false,
       current_window: { used_percent: 0 },
@@ -129,7 +131,7 @@ describe.skipIf(!handle)('Grok subscription observations in the account dashboar
     request.mockImplementation(async () => new Response('private upstream message', { status: 503 }));
     await service.refreshAccount(ids[0]!);
     await service.refreshAccount(ids[0]!);
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledTimes(4);
     expect(await readGrokUsage(db, ids[0]!)).toMatchObject({
       stale: true,
       fetched_at: previous.fetched_at,
@@ -183,5 +185,32 @@ describe.skipIf(!handle)('Grok subscription observations in the account dashboar
       stale: true,
       current_window: { used_percent: 5 },
     });
+  });
+
+  it('keeps plan and quota failures independent, clears absent plan metadata, and isolates accounts', async () => {
+    await service.refreshAccount(ids[0]!);
+    expect((await new ProviderAccountsService(db, testKeyring()).list('grok')).find(a => a.id === ids[0])?.plan)
+      .toMatchObject({ name: 'SuperGrok Heavy', stale: false });
+    const expirePoll = () => db.update(grokUsageSnapshots)
+      .set({ checkedAt: new Date(Date.now() - 360_000).toISOString() })
+      .where(eq(grokUsageSnapshots.accountId, ids[0]!));
+    await expirePoll();
+    request.mockImplementation(async url => url === GROK_SETTINGS_URL ? new Response('', { status: 503 }) : response(7));
+    await service.refreshAccount(ids[0]!);
+    expect(await readGrokUsage(db, ids[0]!)).toMatchObject({
+      stale: false, current_window: { used_percent: 7 }, plan: { name: 'SuperGrok Heavy', stale: true },
+    });
+    await expirePoll();
+    request.mockImplementation(async url => url === GROK_SETTINGS_URL
+      ? new Response(JSON.stringify({ subscription_tier_display: 'SuperGrok' })) : new Response('', { status: 503 }));
+    await service.refreshAccount(ids[0]!);
+    expect(await readGrokUsage(db, ids[0]!)).toMatchObject({
+      stale: true, current_window: { used_percent: 7 }, plan: { name: 'SuperGrok', stale: false },
+    });
+    await expirePoll();
+    request.mockImplementation(async url => url === GROK_SETTINGS_URL ? new Response('{}') : response(9));
+    await service.refreshAccount(ids[0]!);
+    expect(await readGrokUsage(db, ids[0]!)).toMatchObject({ stale: false, plan: { name: null, stale: true } });
+    expect(await readGrokUsage(db, ids[1]!)).toMatchObject({ plan: { name: null, observed_at: null } });
   });
 });
