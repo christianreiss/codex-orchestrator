@@ -1528,7 +1528,9 @@ def _exec_prompt(payload: ExecRequest, cancelled: Optional[threading.Event] = No
             # `--output-format json` can still carry a usable error message.
             if parsed is not None and parsed["output"]:
                 message = parsed["output"]
-            result["error"] = message[:500] if message else f"{engine} exec failed"
+            # Native CLI banners can fill the field before the provider's
+            # actual error appears. Keep the diagnostic tail, like probes do.
+            result["error"] = message[-500:] if message else f"{engine} exec failed"
             return result
 
         if engine == "grok":

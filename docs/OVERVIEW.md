@@ -786,6 +786,7 @@ use an isolated database and deterministic native-socket fixtures.
 Agent Messaging → Conferences exposes retained rooms and a live member/task overview for all three engines. Its combined timeline uses the existing member conversation links, including ordinary replies. Metadata refreshes through the central WebSocket invalidations and a 15-second visible-page poll; an explicit audited transcript reveal requires the existing content capability. No schema migration or wrapper update is required.
 
 GPT-6.1 Sol (`gpt-6.1-sol`) is selectable for Codex fleet defaults, host overrides, and OpenAI-compatible inference; its native default effort is `low`, with `low|medium|high|xhigh|max|ultra` available.
+The auth-runner image pins Codex 0.162.1 to serve that catalog; updating only the API leaves older runner binaries in place. See `auth-runner.md` for rebuild requirements and execution diagnostics.
 
 ## Account management
 
