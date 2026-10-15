@@ -310,6 +310,7 @@ describe('migrations against the test baseline', () => {
       'agent_sessions.workspace',
       'agent_sessions.activity',
       'hosts.wrapper_canary',
+      'openai_api_keys.backend_engine',
     ]);
   });
 

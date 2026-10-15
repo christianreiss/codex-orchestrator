@@ -1,11 +1,11 @@
 /**
  * API-keys feature endpoints.
  *
- * Engine-scoped: the backend exposes parallel routes under
- * `/admin/openai/...` (Codex / OpenAI), `/admin/claude/...` (Anthropic), and
+ * Endpoint-scoped: the backend exposes parallel routes under
+ * `/admin/openai/...` (OpenAI), `/admin/claude/...` (Anthropic), and
  * `/admin/grok/...` (Grok). We thin-wrap all three behind a single typed
- * surface so the route can render each engine's section without duplicating
- * fetch logic.
+ * surface so the route can render each endpoint's section without duplicating
+ * fetch logic. `backend_engine` selects the answering engine independently.
  */
 import { api } from "./client";
 import type {

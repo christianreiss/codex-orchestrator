@@ -275,6 +275,7 @@ func runCaptureWithHeldAuthLeaseUsing(
 		}
 		return 127, nil, fmt.Errorf("start claude: %w", err)
 	}
+	supervisor.StartControl()
 	stopScheduleWatch := schedulewatch.Start(ctx, cmd)
 	quotaadvice.MarkStarted(ctx)
 	closeExtras()

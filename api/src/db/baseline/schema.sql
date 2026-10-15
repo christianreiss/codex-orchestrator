@@ -1161,6 +1161,7 @@ CREATE TABLE `openai_api_keys` (
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL DEFAULT '',
 	`engine` varchar(16) NOT NULL DEFAULT 'codex',
+	`backend_engine` varchar(16),
 	CONSTRAINT `openai_api_keys_id` PRIMARY KEY(`id`),
 	CONSTRAINT `key_hash` UNIQUE(`key_hash`)
 );
@@ -1935,3 +1936,17 @@ CREATE INDEX `idx_feedback_inbox` ON `feedback_items` (`status`,`priority`,`crea
 CREATE INDEX `idx_feedback_component` ON `feedback_items` (`component`,`type`);
 
 CREATE INDEX `idx_feedback_claim_expiry` ON `feedback_items` (`claim_expires_at`);
+
+CREATE TABLE `agent_native_controls` (
+	`session_id` char(36) NOT NULL,
+	`instance_id` char(36) NOT NULL,
+	`binding_generation` int unsigned NOT NULL,
+	`request_id` char(36),
+	`client_message_id` char(36),
+	`actor_id` bigint unsigned,
+	`status` varchar(24) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_native_controls_session_id` PRIMARY KEY(`session_id`)
+);
+
+ALTER TABLE `agent_native_controls` ADD CONSTRAINT `fk_native_control_session` FOREIGN KEY (`session_id`) REFERENCES `agent_sessions`(`id`) ON DELETE CASCADE;

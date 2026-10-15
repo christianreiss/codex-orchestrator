@@ -92,11 +92,13 @@ test("draws the server, communicators and agents and says who carries whom", asy
   await expect(page.locator(`[data-node="${C1}"] .node-label--strong`)).toHaveText("web01.office.long-domain.example");
   const details = page.getByRole("complementary", { name: "Selection details" });
   await expect(details.getByRole("heading", { name: "web01.office.long-domain.example" })).toBeVisible();
+  await details.getByText("Runtime and connected agents", { exact: true }).click();
   await expect(details.getByText("Agents on this connection (2)")).toBeVisible();
   await expect(details.getByRole("button", { name: /Raffaela/ })).toBeVisible();
   await expect(details.getByRole("button", { name: /Lisanne/ })).toHaveCount(0);
 
   await page.locator(`[data-node="${A3}"] .hit`).click();
+  await details.getByText("Session details", { exact: true }).click();
   await expect(details.getByText("Direct", { exact: true })).toBeVisible();
   await page.locator(`[data-node="${A1}"] .hit`).click();
   await expect(details.getByText("Carried by")).toBeVisible();
@@ -134,6 +136,8 @@ test("communicator colors distinguish fresh owner modes without replacing health
   persistent.resident.stale = true;
   spawned.resident = null;
   await page.reload();
+  await expect(page.getByRole("button", { name: "List", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Radial", exact: true }).click();
   await expect(first).toHaveAttribute("data-communicator-mode", "unknown");
   await expect(second).toHaveAttribute("data-communicator-mode", "unknown");
 });
@@ -177,6 +181,7 @@ test("controls are unavailable without the management permission", async ({ page
   await expect(page.getByRole("button", { name: "Disconnect this communicator…" })).toBeDisabled();
   await page.locator(`[data-node="${A1}"] .hit`).click();
   await expect(page.getByRole("button", { name: "Ask the agent to close…" })).toBeDisabled();
+  await page.getByText("More actions", { exact: true }).click();
   await expect(page.getByRole("button", { name: "End the session record…" })).toBeDisabled();
 });
 
@@ -188,7 +193,7 @@ test("works from the keyboard and offers the same tree as a list", async ({ page
   await page.keyboard.press("Enter");
   await expect(page.getByRole("complementary", { name: "Selection details" }).getByRole("heading", { name: "Raffaela" })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("complementary", { name: "Selection details" }).getByRole("heading", { name: "Server" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Selection details" })).toBeHidden();
 
   await page.getByRole("button", { name: "List", exact: true }).click();
   await expect(page.getByRole("region", { name: "Communicator web01.example" })).toContainText("Raffaela");
@@ -217,6 +222,7 @@ test("stopping the communicator process is only offered to an owner that said it
   await expect(page.getByText(/did not announce that it can be stopped remotely/)).toBeVisible();
 
   await page.locator(`[data-node="${C1}"] .hit`).click();
+  await page.getByText("Connection details", { exact: true }).click();
   await expect(page.getByText("pid 4242", { exact: false }).first()).toBeVisible();
   await page.getByRole("button", { name: "Stop the communicator process…" }).click();
   const dialog = page.getByRole("dialog");
@@ -297,6 +303,7 @@ test("owner runtime is a stale report with retained work, never exit proof", asy
   };
   await open(page);
   await page.locator(`[data-node="${C1}"] .hit`).click();
+  await page.getByText("Runtime and connected agents", { exact: true }).click();
   const report = page.getByRole("region", { name: "Resident owner report" });
   await expect(report).toBeVisible();
   await expect(report).toContainText("Latest report · stale");
@@ -308,4 +315,102 @@ test("owner runtime is a stale report with retained work, never exit proof", asy
   await expect(report).toContainText("a".repeat(64));
   await page.locator(`[data-node="${C2}"] .hit`).click();
   await expect(report).toHaveCount(0); // An older owner never fabricated this report.
+});
+
+test("filters, collapses and persists preferences without inventing runtime mode", async ({ page }) => {
+  await fixtures(page); await open(page);
+  await expect(page.locator('path[data-runtime="unknown"]')).toHaveCount(2);
+  await page.locator(`[data-node="${C1}"] .hit`).click();
+  await page.getByRole('button', { name: 'Collapse agents (2)' }).click();
+  await expect(page.locator(`[data-node="${A1}"]`)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Expand agents (2)' }).click();
+  await expect(page.locator(`[data-node="${A1}"]`)).toHaveCount(1);
+  await page.getByLabel('Filter runtime').selectOption('resident');
+  await expect(page.locator('[data-node]')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByLabel('Filter runtime')).toHaveValue('resident');
+  await page.getByRole('button', { name: 'Reset filters' }).click();
+  await expect(page.locator('[data-node]')).toHaveCount(5);
+  await page.getByRole('button', { name: 'Fullscreen', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Exit fullscreen' })).toBeVisible();
+  await page.screenshot({ path: '/tmp/alicia-topology.png' });
+});
+
+test("native stop keeps its target and waits for an exit receipt", async ({ page }) => {
+  const state = await fixtures(page);
+  state.topology.agents[0].native_control = { instance_id: C2, binding_generation: 3, status: 'ready', request_id: null, available: true, updated_at: new Date().toISOString() };
+  let status = 'requested';
+  await page.route(`**/admin/agent-sessions/${A1}/stop`, async route => {
+    if (route.request().method() === 'POST') state.posts.push({ path: new URL(route.request().url()).pathname, body: route.request().postDataJSON() });
+    await route.fulfill({ json: { status } });
+  });
+  await open(page);
+  await page.locator(`[data-node="${A1}"] .hit`).click();
+  await page.getByRole('button', { name: 'Stop the process…' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Stop process', exact: true }).click();
+  await expect(page.getByText('Process stop requested', { exact: true })).toBeVisible();
+  expect(state.posts[0].body).toMatchObject({ expect: { instance_id: C2, binding_generation: 3 } });
+  status = 'unknown';
+  await expect(page.getByText('Stop outcome unknown', { exact: true })).toBeVisible();
+  status = 'exited';
+  await expect(page.getByText('Process exited', { exact: true })).toBeVisible();
+});
+
+test("embedded chat preserves drafts and spawn preselects the communicator host", async ({ page }) => {
+  const state = await fixtures(page, ['hosts.read','agent_portal.read','agent_portal.manage','agent_portal.reveal_transcript','agent_messaging.manage']);
+  const stamp = () => new Date().toISOString();
+  const sessions = state.topology.agents.map(a => ({ ...a, launch_name: a.name, read_only: false, ended_at: null, pending_prompt: null, attention: null, active_turn_id: null, close_requested_at: null, relay_enabled: true, relay_heartbeat_at: stamp(), last_event_at: stamp(), work: { task: 'Topology fixture', declared_paths: [], address: a.address } }));
+  await page.route('**/admin/agent-sessions', route => route.fulfill({ json: { enabled: true, generated_at: stamp(), timings: { heartbeat_fresh_seconds: 45, relay_fresh_seconds: 60 }, sessions } }));
+  await page.route('**/admin/agent-sessions/events?*', route => route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': fixture\n\n' }));
+  await page.route('**/admin/agent-sessions/*/events*', route => route.fulfill({ json: { events: [], next_cursor: 0 } }));
+  await page.route('**/admin/host-daemons', route => route.fulfill({ json: { hosts: [{ host_id: 4, fqdn: 'web01.example', enabled: true, username: 'alice', default_cwd: '/srv/work', max_parallel: 4, idle_minutes: 60, question_minutes: 60, health: { state: 'green', reasons: [], used_slots: 0, max_slots: 4, heartbeat_at: stamp(), evaluated_at: stamp() }, access: { allowed: true, reason: null }, engines: ['codex', 'claude', 'grok'], sessions: [] }] } }));
+  await open(page);
+  await page.locator(`[data-node="${A1}"] .hit`).click();
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  const chat = page.getByRole('complementary', { name: 'Topology conversation' });
+  const composer = chat.locator('textarea');
+  await expect(composer).toBeVisible();
+  await composer.fill('Keep this draft on Raffaela');
+  await page.locator(`[data-node="${A2}"] .hit`).click();
+  await expect(composer).toHaveValue('Keep this draft on Raffaela');
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  await expect(composer).toHaveValue('');
+  await page.locator(`[data-node="${A1}"] .hit`).click();
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  await expect(composer).toHaveValue('Keep this draft on Raffaela');
+  await page.getByRole('button', { name: 'Close chat', exact: true }).click();
+  await page.locator(`[data-node="${C1}"] .hit`).click();
+  await page.getByRole('complementary', { name: 'Selection details' }).getByRole('button', { name: 'Start agent' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('Host', { exact: true })).toHaveValue('4');
+  await dialog.getByLabel('Title', { exact: true }).fill('Inspect host');
+  await dialog.getByLabel('Instruction', { exact: true }).fill('Inspect this host');
+  await page.route('**/admin/daemon-sessions', async route => {
+    state.posts.push({ path: '/admin/daemon-sessions', body: route.request().postDataJSON() });
+    await route.fulfill({ json: { session_id: C2 } });
+  });
+  await page.route(`**/admin/daemon-sessions/${C2}`, route => route.fulfill({ json: { id: C2, title: 'Inspect host', engine: 'codex', cwd: '/srv/work', status: 'queued', sessionId: null, addressId: null } }));
+  await dialog.getByRole('button', { name: 'Start session', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(state.posts.at(-1)?.body).toMatchObject({ host_id: 4, cwd: '/srv/work', prompt: 'Inspect this host' });
+  await expect(chat.getByText('Inspect host', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-node]')).toHaveCount(5);
+  await page.screenshot({ path: '/tmp/alicia-topology-spawn.png' });
+});
+
+test("mobile inspector stays within the viewport and closes without losing the graph", async ({ page }) => {
+  await fixtures(page); await open(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator(`[data-node="${C1}"] .hit`).click();
+  const inspector = page.getByRole('complementary', { name: 'Selection details' });
+  await expect(inspector).toBeVisible();
+  const box = await inspector.boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(845);
+  await page.screenshot({ path: '/tmp/alicia-topology-mobile.png' });
+  await page.getByRole('button', { name: 'Close inspector' }).click();
+  await expect(inspector).toBeHidden();
+  await expect(page.locator('[data-node]')).toHaveCount(5);
 });

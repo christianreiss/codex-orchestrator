@@ -295,6 +295,7 @@ func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, a
 	if err := cmd.Start(); err != nil {
 		return 127, nil, errors.Join(fmt.Errorf("start codex: %w", err), closeExtras())
 	}
+	supervisor.StartControl()
 	stopScheduleWatch := schedulewatch.Start(ctx, cmd)
 	quotaadvice.MarkStarted(ctx)
 	bridgeErr := closeExtras()

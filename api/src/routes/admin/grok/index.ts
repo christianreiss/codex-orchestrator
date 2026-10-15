@@ -1,3 +1,4 @@
+import { parseKeyBackend } from '../../../services/api-key-routing.js';
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../../index.js';
 import { ApiError, NotFoundError, ValidationError } from '../../../http/errors.js';
@@ -23,13 +24,13 @@ export async function registerAdminGrokRoutes(app: FastifyInstance, ctx: RouteCo
   async function audit(action: string, detail: Record<string, unknown>) {
     await ctx.db.insert(logs).values({ action, engine: 'grok', details: JSON.stringify(detail), createdAt: nowIso() });
   }
-  const wireKey = (row: Awaited<ReturnType<typeof keys.issue>>['record']) => ({ id: row.id, name: row.name, key_prefix: row.keyPrefix, is_active: row.isActive === 1, use_count: Number(row.useCount), last_used_at: row.lastUsedAt, expires_at: row.expiresAt, engine: 'grok', created_at: row.createdAt, updated_at: row.updatedAt });
+  const wireKey = (row: Awaited<ReturnType<typeof keys.issue>>['record']) => ({ id: row.id, name: row.name, key_prefix: row.keyPrefix, is_active: row.isActive === 1, use_count: Number(row.useCount), last_used_at: row.lastUsedAt, expires_at: row.expiresAt, engine: 'grok', backend_engine: row.backendEngine ?? null, created_at: row.createdAt, updated_at: row.updatedAt });
 
   app.get('/admin/grok/keys', { preHandler: app.requireAdmin }, async () => (await keys.listByEngine('grok')).map(row => wireKey(row as Awaited<ReturnType<typeof keys.issue>>['record'])));
   app.post('/admin/grok/keys', { preHandler: app.requireAdmin }, async req => {
-    const body = (req.body ?? {}) as { name?: unknown; expires_at?: unknown };
+    const body = (req.body ?? {}) as { name?: unknown; expires_at?: unknown; backend_engine?: unknown };
     if (typeof body.name !== 'string' || !body.name.trim()) throw new ValidationError('name is required', { param: 'name' });
-    const issued = await keys.issue({ engine: 'grok', name: body.name.trim(), adminUserId: req.admin?.user.id ?? null, expiresAt: typeof body.expires_at === 'string' ? body.expires_at : null });
+    const issued = await keys.issue({ backendEngine: await parseKeyBackend(ctx.db, body.backend_engine), engine: 'grok', name: body.name.trim(), adminUserId: req.admin?.user.id ?? null, expiresAt: typeof body.expires_at === 'string' ? body.expires_at : null });
     await audit('grok.key.create', { key_id: issued.record.id, name: issued.record.name });
     wsPublisher.publish('apikey.created', { id: issued.record.id, engine: 'grok' });
     return { key: issued.key, record: wireKey(issued.record) };

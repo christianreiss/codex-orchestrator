@@ -126,3 +126,19 @@ describe("graph model", () => {
     assert.equal(graphModel(undefined, emptyGhostState(), 0).agents.length, 0);
   });
 });
+
+const { runtimeStyle, filterGraph } = (await import(modelModule)) as typeof import("./model");
+
+it("runtime style never infers persistence from daemon attachment", () => {
+  assert.equal(runtimeStyle(comm("a", { daemon_attached: true })).mode, "unknown");
+  const resident = { mode: "resident", stale: true } as TopologyCommunicator["resident"];
+  assert.equal(runtimeStyle(comm("a", { resident })).label, "Last reported: Persistent");
+  assert.equal(runtimeStyle(comm("a", { resident })).dash, undefined);
+});
+it("filtered and collapsed branches retain evidence-based parentage", () => {
+  const model = { communicators: [{ node: comm("c"), ghost: null, strength: 1 }], agents: [{ node: agent("a", { association: { state: "attributed", basis: "session_traffic", parent_id: "c", last_seen_at: null, age_s: 0, also_seen_on: [] } }), ghost: null, strength: 1 }] };
+  const filters = { engine: "all", status: "all", host: "all", mode: "all" };
+  assert.equal(filterGraph(model, filters, new Set(["c"])).agents.length, 0);
+  assert.equal(filterGraph(model, { ...filters, mode: "resident" }, new Set()).agents.length, 0);
+  assert.equal(filterGraph(model, filters, new Set()).agents[0].node.association.parent_id, "c");
+});

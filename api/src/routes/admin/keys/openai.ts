@@ -1,3 +1,4 @@
+import { parseKeyBackend } from '../../../services/api-key-routing.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../../index.js';
@@ -16,6 +17,7 @@ import type { OpenaiApiKey } from '../../../db/schema.js';
  * publisher; the SvelteKit admin invalidates its key list cache in response.
  */
 const createSchema = z.object({
+  backend_engine: z.unknown().optional(),
   name: z.string().trim().min(1, 'name is required'),
   expires_at: z
     .string()
@@ -62,6 +64,7 @@ export async function registerAdminOpenAiKeyRoutes(
         adminUserId: req.admin?.user.id ?? null,
         expiresAt: parsed.data.expires_at ?? null,
         engine: ENGINE_CODEX,
+        backendEngine: await parseKeyBackend(ctx.db, parsed.data.backend_engine),
       });
       wsPublisher.publish('apikey.created', {
         id: issued.record.id,
@@ -125,7 +128,7 @@ export function toAdminApiKey(
     | 'engine'
     | 'createdAt'
     | 'updatedAt'
-  >,
+  > & { backendEngine?: string | null },
 ) {
   return {
     id: row.id,
@@ -140,6 +143,7 @@ export function toAdminApiKey(
     last_used_at: row.lastUsedAt ?? null,
     expires_at: row.expiresAt ?? null,
     engine: row.engine,
+    backend_engine: row.backendEngine ?? null,
     created_at: row.createdAt ?? null,
     updated_at: row.updatedAt ?? null,
   };

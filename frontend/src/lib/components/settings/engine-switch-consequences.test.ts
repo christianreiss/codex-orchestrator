@@ -66,15 +66,16 @@ describe("engineSwitchConfirmCopy", () => {
 
   it("names the exposed APIs routed to the engine, and says so when there are none", () => {
     const one = engineSwitchConfirmCopy(false, ctx({ routedApis: ["/grok/v1"] })).consequences.join("\n");
-    assert.match(one, /\/grok\/v1 answers 503 while its backend is Grok/);
+    assert.match(one, /Unassigned keys on \/grok\/v1 answer 503 while the default engine is Grok/);
     const two = engineSwitchConfirmCopy(false, ctx({ routedApis: ["/v1", "/grok/v1"] })).consequences.join("\n");
-    assert.match(two, /\/v1 and \/grok\/v1 answer 503 while their backend is Grok/);
+    assert.match(two, /Unassigned keys on \/v1 and \/grok\/v1 answer 503 while the default engine is Grok/);
     const none = engineSwitchConfirmCopy(false, ctx({ routedApis: [] })).consequences.join("\n");
-    assert.match(none, /No exposed API is routed to Grok/);
-    assert.match(engineSwitchConfirmCopy(true, ctx({ routedApis: ["/grok/v1"] })).consequences.join("\n"), /\/grok\/v1 answers again/);
+    assert.match(none, /No endpoint default uses Grok/);
+    assert.match(none, /Keys assigned to Grok still answer 503/);
+    assert.match(engineSwitchConfirmCopy(true, ctx({ routedApis: ["/grok/v1"] })).consequences.join("\n"), /Unassigned keys on \/grok\/v1 can answer again/);
     // Unknown (surfaces still loading): never claim there are none.
     const unknown = engineSwitchConfirmCopy(false, ctx({ routedApis: null })).consequences.join("\n");
-    assert.match(unknown, /Any exposed API whose backend is Grok answers 503/);
+    assert.match(unknown, /Keys assigned to Grok, and unassigned keys whose endpoint default is Grok, answer 503/);
     assert.doesNotMatch(unknown, /No exposed API/);
   });
 

@@ -1426,6 +1426,7 @@ export const openaiApiKeys = mysqlTable(
     createdAt: varchar('created_at', { length: 100 }).notNull(),
     updatedAt: varchar('updated_at', { length: 100 }).notNull().default(''),
     engine: varchar('engine', { length: 16 }).notNull().default('codex'),
+    backendEngine: varchar('backend_engine', { length: 16 }),
   },
   (t) => ({
     keyHashUnique: uniqueIndex('key_hash').on(t.keyHash),
@@ -2508,3 +2509,15 @@ export const feedbackEvents = mysqlTable('feedback_events', {
   detail: json('detail').$type<Record<string, unknown>>().notNull(),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
 }, (t) => ({ versionIdx: uniqueIndex('idx_feedback_event_version').on(t.feedbackId, t.version) }));
+
+// Capability and durable stop receipt for one wrapper-owned native process.
+export const agentNativeControls = mysqlTable('agent_native_controls', {
+  sessionId: char('session_id', { length: 36 }).primaryKey().references(() => agentSessions.id, { onDelete: 'cascade' }),
+  instanceId: char('instance_id', { length: 36 }).notNull(),
+  bindingGeneration: int('binding_generation', { unsigned: true }).notNull(),
+  requestId: char('request_id', { length: 36 }),
+  clientMessageId: char('client_message_id', { length: 36 }),
+  actorId: bigint('actor_id', { mode: 'number', unsigned: true }),
+  status: varchar('status', { length: 24 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+});

@@ -37,6 +37,20 @@ asyncio.set_event_loop(asyncio.new_event_loop())
 
 
 class RunnerAppTest(unittest.TestCase):
+    def test_codex_exec_failure_keeps_provider_error_after_long_banner(self):
+        payload = runner_app.ExecRequest(
+            auth_json={"tokens": {"access_token": "test-token"}},
+            prompt="Reply OK.", model="gpt-6.1-sol", timeout_seconds=2,
+        )
+        failure = "ERROR: The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account."
+        proc = subprocess.CompletedProcess([], 1, stdout="", stderr="CLI banner\n" * 80 + failure)
+        with patch.object(runner_app, "run_prompt_process", return_value=proc):
+            result = runner_app._exec_prompt(payload)
+        self.assertEqual("fail", result["status"])
+        self.assertEqual("", result["output"])
+        self.assertIn(failure, result["error"])
+        self.assertLessEqual(len(result["error"]), 500)
+
     def test_codex_probe_failure_keeps_provider_error_after_long_banner(self):
         payload = runner_app.VerifyRequest(
             auth_json={"tokens": {"access_token": "test-token"}}, timeout_seconds=2,

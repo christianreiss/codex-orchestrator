@@ -1,0 +1,2825 @@
+{
+  "started_at": "2026-10-15T07:49:47.362Z",
+  "finished_at": "2026-10-15T07:52:00.149Z",
+  "run_id": "B19C8810349F",
+  "source_commit": "37ac633a5a7c691e2cd58f4b64f340084c380dd2",
+  "boundary": "Isolated MySQL and HTTP API/runner; production route, key, model and adapter code; access-only verified canonical snapshots injected; no production routing changes.",
+  "runner_url": "http://127.0.0.1:32930",
+  "runner_image": "sha256:27fc893237a0c82a23e0cca47a628f2d73cb5452aa57c8cfebcdcb31655954e2",
+  "runner_health": {
+    "status": "ok",
+    "required_engines": [
+      "codex",
+      "claude",
+      "grok"
+    ],
+    "engines": {
+      "codex": {
+        "available": true,
+        "binary": "/usr/local/bin/codex",
+        "version": "0.162.1",
+        "expected_version": "0.162.1",
+        "version_matches": true,
+        "detail": "ready"
+      },
+      "claude": {
+        "available": true,
+        "binary": "/usr/local/bin/claude",
+        "version": "2.1.296",
+        "expected_version": "2.1.296",
+        "version_matches": true,
+        "detail": "ready"
+      },
+      "grok": {
+        "available": true,
+        "binary": "/usr/local/bin/grok",
+        "version": "1.0.50",
+        "expected_version": "1.0.50",
+        "version_matches": true,
+        "detail": "ready"
+      }
+    },
+    "problems": []
+  },
+  "harness_sha256": "139426a04a9230a57bc80c86be40bff2280f4fa0f5ff21d1560a7324072fb50b",
+  "combinations": [
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "result": "pass",
+      "generated": 6
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "result": "pass",
+      "generated": 7
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "result": "pass",
+      "generated": 5
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "result": "pass",
+      "generated": 9
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "result": "pass",
+      "generated": 8
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "result": "pass",
+      "generated": 6
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "result": "pass",
+      "generated": 7
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "result": "pass",
+      "generated": 7
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "result": "pass",
+      "generated": 4
+    }
+  ],
+  "checks": [
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 24
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 27
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 26
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "retrieve-model",
+      "path": "/models/gpt-6.1-sol",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 7
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "retrieve-model",
+      "path": "/models/gpt-6.1-sol",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 11
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "retrieve-model",
+      "path": "/models/gpt-6.1-sol",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 13
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "reject-other-key-namespace",
+      "path": "/models",
+      "http": 401,
+      "error": {
+        "message": "Incorrect API key provided",
+        "type": "invalid_request_error",
+        "code": "invalid_api_key"
+      },
+      "result": "pass",
+      "elapsed_ms": 11
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "reject-other-key-namespace",
+      "path": "/models",
+      "http": 401,
+      "error": {
+        "message": "Incorrect API key provided",
+        "type": "invalid_request_error",
+        "code": "invalid_api_key"
+      },
+      "result": "pass",
+      "elapsed_ms": 13
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "reject-other-key-namespace",
+      "path": "/models",
+      "http": 401,
+      "error": {
+        "type": "authentication_error",
+        "message": "Invalid API key.",
+        "code": "invalid_api_key"
+      },
+      "result": "pass",
+      "elapsed_ms": 13
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "generate/messages",
+      "path": "/messages",
+      "http": 200,
+      "output": "471",
+      "model": "gpt-6.1-sol",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_12",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_12",
+        "left": 235,
+        "right": 236,
+        "expected_sum": "471"
+      },
+      "result": "pass",
+      "elapsed_ms": 5063
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "generate/chat/completions",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "513",
+      "model": "gpt-6.1-sol",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_11",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_11",
+        "left": 271,
+        "right": 242,
+        "expected_sum": "513"
+      },
+      "result": "pass",
+      "elapsed_ms": 5218
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "generate/chat/completions",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "216",
+      "model": "gpt-6.1-sol",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_10",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_10",
+        "left": 115,
+        "right": 101,
+        "expected_sum": "216"
+      },
+      "result": "pass",
+      "elapsed_ms": 5858
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "generate/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "479",
+      "model": "gpt-6.1-sol",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_14",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_14",
+        "left": 281,
+        "right": 198,
+        "expected_sum": "479"
+      },
+      "result": "pass",
+      "elapsed_ms": 4976
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "generate/complete",
+      "path": "/complete",
+      "http": 200,
+      "output": "372",
+      "model": "gpt-6.1-sol",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_13",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_13",
+        "left": 254,
+        "right": 118,
+        "expected_sum": "372"
+      },
+      "result": "pass",
+      "elapsed_ms": 6202
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "generate/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "431",
+      "model": "gpt-6.1-sol",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_15",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_15",
+        "left": 166,
+        "right": 265,
+        "expected_sum": "431"
+      },
+      "result": "pass",
+      "elapsed_ms": 5513
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "generate/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "533",
+      "model": "gpt-6.1-sol",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_17",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_17",
+        "left": 258,
+        "right": 275,
+        "expected_sum": "533"
+      },
+      "result": "pass",
+      "elapsed_ms": 4822
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "generate/responses",
+      "path": "/responses",
+      "http": 200,
+      "output": "472",
+      "model": "gpt-6.1-sol",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_16",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_16",
+        "left": 352,
+        "right": 120,
+        "expected_sum": "472"
+      },
+      "result": "pass",
+      "elapsed_ms": 6005
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "generate/responses",
+      "path": "/responses",
+      "http": 200,
+      "output": "723",
+      "model": "gpt-6.1-sol",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_18",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_18",
+        "left": 340,
+        "right": 383,
+        "expected_sum": "723"
+      },
+      "result": "pass",
+      "elapsed_ms": 5849
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "generate/responses",
+      "path": "/responses",
+      "http": 200,
+      "output": "463",
+      "model": "gpt-6.1-sol",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_19",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_19",
+        "left": 177,
+        "right": 286,
+        "expected_sum": "463"
+      },
+      "result": "pass",
+      "elapsed_ms": 5096
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "stream/chat/completions",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "471",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_20",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_20",
+        "left": 121,
+        "right": 350,
+        "expected_sum": "471"
+      },
+      "result": "pass",
+      "elapsed_ms": 5110
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "stream/chat/completions",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "774",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_21",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_21",
+        "left": 375,
+        "right": 399,
+        "expected_sum": "774"
+      },
+      "result": "pass",
+      "elapsed_ms": 5481
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "stream/messages",
+      "path": "/messages",
+      "http": 200,
+      "output": "404",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_22",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_22",
+        "left": 169,
+        "right": 235,
+        "expected_sum": "404"
+      },
+      "result": "pass",
+      "elapsed_ms": 4691
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "stream/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "552",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_23",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_23",
+        "left": 185,
+        "right": 367,
+        "expected_sum": "552"
+      },
+      "result": "pass",
+      "elapsed_ms": 5937
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "responses-reject-stream",
+      "path": "/responses",
+      "http": 400,
+      "error": {
+        "message": "Streaming responses are not implemented for this backend yet.",
+        "type": "invalid_request_error",
+        "code": "unsupported_stream"
+      },
+      "result": "pass",
+      "elapsed_ms": 6
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "embeddings-contract",
+      "path": "/embeddings",
+      "http": 400,
+      "error": {
+        "message": "Embeddings are not supported by this backend",
+        "type": "invalid_request_error",
+        "code": "unsupported_endpoint"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "unknown-model",
+      "path": "/models/unknown-matrix-model",
+      "http": 404,
+      "error": {
+        "message": "Unsupported model \"unknown-matrix-model\". Supported models: gpt-6.1-sol, gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna",
+        "type": "invalid_request_error",
+        "code": "model_not_found"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "stream/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "750",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_24",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_24",
+        "left": 395,
+        "right": 355,
+        "expected_sum": "750"
+      },
+      "result": "pass",
+      "elapsed_ms": 5764
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "responses-reject-stream",
+      "path": "/responses",
+      "http": 400,
+      "error": {
+        "message": "Streaming responses are not implemented for this backend yet.",
+        "type": "invalid_request_error",
+        "code": "unsupported_stream"
+      },
+      "result": "pass",
+      "elapsed_ms": 4
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "stream/complete",
+      "path": "/complete",
+      "http": 200,
+      "output": "485",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_25",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_25",
+        "left": 160,
+        "right": 325,
+        "expected_sum": "485"
+      },
+      "result": "pass",
+      "elapsed_ms": 5440
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "native-model-fallback",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "716",
+      "model": "gpt-6-astra",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_30",
+          "engine": "codex",
+          "model": "gpt-6-astra",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_30",
+        "left": 353,
+        "right": 363,
+        "expected_sum": "716"
+      },
+      "result": "pass",
+      "elapsed_ms": 5839
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "embeddings-contract",
+      "path": "/embeddings",
+      "http": 400,
+      "error": {
+        "message": "Embeddings are not supported by this backend",
+        "type": "invalid_request_error",
+        "code": "unsupported_endpoint"
+      },
+      "result": "pass",
+      "elapsed_ms": 5
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "unknown-model",
+      "path": "/models/unknown-matrix-model",
+      "http": 404,
+      "error": {
+        "message": "Unsupported model \"unknown-matrix-model\". Supported models: gpt-6.1-sol, gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna",
+        "type": "invalid_request_error",
+        "code": "model_not_found"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "stream/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "279",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_31",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_31",
+        "left": 172,
+        "right": 107,
+        "expected_sum": "279"
+      },
+      "result": "pass",
+      "elapsed_ms": 6661
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "responses-reject-stream",
+      "path": "/responses",
+      "http": 400,
+      "error": {
+        "type": "invalid_request_error",
+        "message": "Streaming responses are not implemented for this backend yet.",
+        "code": "unsupported_stream"
+      },
+      "result": "pass",
+      "elapsed_ms": 5
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "native-model-fallback",
+      "path": "/messages",
+      "http": 200,
+      "output": "531",
+      "model": "gpt-6-astra",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_35",
+          "engine": "codex",
+          "model": "gpt-6-astra",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_35",
+        "left": 384,
+        "right": 147,
+        "expected_sum": "531"
+      },
+      "result": "pass",
+      "elapsed_ms": 5780
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "count-tokens",
+      "path": "/messages/count_tokens",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 4
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "embeddings-contract",
+      "path": "/embeddings",
+      "http": 501,
+      "error": {
+        "type": "invalid_request_error",
+        "message": "Anthropic API does not support embeddings",
+        "code": "embeddings_unsupported"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "unknown-model",
+      "path": "/models/unknown-matrix-model",
+      "http": 404,
+      "error": {
+        "type": "not_found_error",
+        "message": "Unsupported model \"unknown-matrix-model\". Supported models: gpt-6.1-sol, gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna",
+        "code": "model_not_found"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "backend-master-switch",
+      "path": "/chat/completions",
+      "http": 503,
+      "error": {
+        "message": "OpenAI-compatible API is unavailable: its backend engine Codex is disabled fleet-wide by the administrator",
+        "type": "server_error",
+        "code": "api_disabled"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "backend-master-switch",
+      "path": "/messages",
+      "http": 503,
+      "error": {
+        "type": "api_error",
+        "message": "Anthropic-compatible API is unavailable: its backend engine Codex is disabled fleet-wide by the administrator",
+        "code": "api_disabled"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "assigned_key",
+      "check": "backend-master-switch",
+      "path": "/chat/completions",
+      "http": 503,
+      "error": {
+        "message": "Grok (OpenAI-compatible) API is unavailable: its backend engine Codex is disabled fleet-wide by the administrator",
+        "type": "server_error",
+        "code": "api_disabled"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 6
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 7
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 8
+    },
+    {
+      "surface": "grok",
+      "backend": "codex",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-generate",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "496",
+      "model": "gpt-6.1-sol",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_47",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_47",
+        "left": 178,
+        "right": 318,
+        "expected_sum": "496"
+      },
+      "result": "pass",
+      "elapsed_ms": 5076
+    },
+    {
+      "surface": "anthropic",
+      "backend": "codex",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-generate",
+      "path": "/messages",
+      "http": 200,
+      "output": "466",
+      "model": "gpt-6.1-sol",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_45",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_45",
+        "left": 189,
+        "right": 277,
+        "expected_sum": "466"
+      },
+      "result": "pass",
+      "elapsed_ms": 5294
+    },
+    {
+      "surface": "openai",
+      "backend": "codex",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-generate",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "500",
+      "model": "gpt-6.1-sol",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_46",
+          "engine": "codex",
+          "model": "gpt-6.1-sol",
+          "credential_engine": "codex",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_46",
+        "left": 264,
+        "right": 236,
+        "expected_sum": "500"
+      },
+      "result": "pass",
+      "elapsed_ms": 5356
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 7
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 8
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 8
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "retrieve-model",
+      "path": "/models/claude-sonnet-5",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 4
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "retrieve-model",
+      "path": "/models/claude-sonnet-5",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 5
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "retrieve-model",
+      "path": "/models/claude-sonnet-5",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 6
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "reject-other-key-namespace",
+      "path": "/models",
+      "http": 401,
+      "error": {
+        "type": "authentication_error",
+        "message": "Invalid API key.",
+        "code": "invalid_api_key"
+      },
+      "result": "pass",
+      "elapsed_ms": 5
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "reject-other-key-namespace",
+      "path": "/models",
+      "http": 401,
+      "error": {
+        "message": "Incorrect API key provided",
+        "type": "invalid_request_error",
+        "code": "invalid_api_key"
+      },
+      "result": "pass",
+      "elapsed_ms": 4
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "reject-other-key-namespace",
+      "path": "/models",
+      "http": 401,
+      "error": {
+        "message": "Incorrect API key provided",
+        "type": "invalid_request_error",
+        "code": "invalid_api_key"
+      },
+      "result": "pass",
+      "elapsed_ms": 5
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "generate/messages",
+      "path": "/messages",
+      "http": 200,
+      "output": "490",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_57",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_57",
+        "left": 245,
+        "right": 245,
+        "expected_sum": "490"
+      },
+      "result": "pass",
+      "elapsed_ms": 3419
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "generate/chat/completions",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "672",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_59",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_59",
+        "left": 360,
+        "right": 312,
+        "expected_sum": "672"
+      },
+      "result": "pass",
+      "elapsed_ms": 3434
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "generate/chat/completions",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "568",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_58",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_58",
+        "left": 275,
+        "right": 293,
+        "expected_sum": "568"
+      },
+      "result": "pass",
+      "elapsed_ms": 3628
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "generate/complete",
+      "path": "/complete",
+      "http": 200,
+      "output": "528",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_60",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_60",
+        "left": 358,
+        "right": 170,
+        "expected_sum": "528"
+      },
+      "result": "pass",
+      "elapsed_ms": 3554
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "generate/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "653",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_61",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_61",
+        "left": 261,
+        "right": 392,
+        "expected_sum": "653"
+      },
+      "result": "pass",
+      "elapsed_ms": 3571
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "generate/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "535",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_62",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_62",
+        "left": 393,
+        "right": 142,
+        "expected_sum": "535"
+      },
+      "result": "pass",
+      "elapsed_ms": 3656
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "generate/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "450",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_63",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_63",
+        "left": 156,
+        "right": 294,
+        "expected_sum": "450"
+      },
+      "result": "pass",
+      "elapsed_ms": 2831
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "generate/responses",
+      "path": "/responses",
+      "http": 200,
+      "output": "396",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_64",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_64",
+        "left": 156,
+        "right": 240,
+        "expected_sum": "396"
+      },
+      "result": "pass",
+      "elapsed_ms": 3851
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "generate/responses",
+      "path": "/responses",
+      "http": 200,
+      "output": "567",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_65",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_65",
+        "left": 216,
+        "right": 351,
+        "expected_sum": "567"
+      },
+      "result": "pass",
+      "elapsed_ms": 4208
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "generate/responses",
+      "path": "/responses",
+      "http": 200,
+      "output": "453",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_66",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_66",
+        "left": 266,
+        "right": 187,
+        "expected_sum": "453"
+      },
+      "result": "pass",
+      "elapsed_ms": 3741
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "stream/chat/completions",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "559",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_67",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_67",
+        "left": 277,
+        "right": 282,
+        "expected_sum": "559"
+      },
+      "result": "pass",
+      "elapsed_ms": 3393
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "stream/chat/completions",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "667",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_68",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_68",
+        "left": 390,
+        "right": 277,
+        "expected_sum": "667"
+      },
+      "result": "pass",
+      "elapsed_ms": 3578
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "stream/messages",
+      "path": "/messages",
+      "http": 200,
+      "output": "477",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_69",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_69",
+        "left": 124,
+        "right": 353,
+        "expected_sum": "477"
+      },
+      "result": "pass",
+      "elapsed_ms": 3523
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "stream/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "322",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_70",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_70",
+        "left": 103,
+        "right": 219,
+        "expected_sum": "322"
+      },
+      "result": "pass",
+      "elapsed_ms": 3741
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "responses-reject-stream",
+      "path": "/responses",
+      "http": 400,
+      "error": {
+        "message": "Streaming responses are not implemented for this backend yet.",
+        "type": "invalid_request_error",
+        "code": "unsupported_stream"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "stream/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "373",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_71",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_71",
+        "left": 265,
+        "right": 108,
+        "expected_sum": "373"
+      },
+      "result": "pass",
+      "elapsed_ms": 3404
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "responses-reject-stream",
+      "path": "/responses",
+      "http": 400,
+      "error": {
+        "message": "Streaming responses are not implemented for this backend yet.",
+        "type": "invalid_request_error",
+        "code": "unsupported_stream"
+      },
+      "result": "pass",
+      "elapsed_ms": 4
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "stream/complete",
+      "path": "/complete",
+      "http": 200,
+      "output": "403",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_72",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_72",
+        "left": 159,
+        "right": 244,
+        "expected_sum": "403"
+      },
+      "result": "pass",
+      "elapsed_ms": 2552
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "native-model-fallback",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "322",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_76",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_76",
+        "left": 107,
+        "right": 215,
+        "expected_sum": "322"
+      },
+      "result": "pass",
+      "elapsed_ms": 3429
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "embeddings-contract",
+      "path": "/embeddings",
+      "http": 400,
+      "error": {
+        "message": "Embeddings are not supported by this backend",
+        "type": "invalid_request_error",
+        "code": "unsupported_endpoint"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "unknown-model",
+      "path": "/models/unknown-matrix-model",
+      "http": 404,
+      "error": {
+        "message": "Unsupported model \"unknown-matrix-model\". Supported models: claude-fable-5-1, claude-fable-5, claude-opus-5-5, claude-opus-5, claude-opus-4-8, claude-sonnet-5-5, claude-sonnet-5, claude-opus-4-7, claude-sonnet-4-6, claude-haiku-5-5, claude-opus-4-6, claude-opus-4-5-20251101, claude-haiku-4-5-20251001",
+        "type": "invalid_request_error",
+        "code": "model_not_found",
+        "param": "model"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "native-model-fallback",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "532",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_74",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_74",
+        "left": 288,
+        "right": 244,
+        "expected_sum": "532"
+      },
+      "result": "pass",
+      "elapsed_ms": 4373
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "embeddings-contract",
+      "path": "/embeddings",
+      "http": 400,
+      "error": {
+        "message": "Embeddings are not supported by this backend",
+        "type": "invalid_request_error",
+        "code": "unsupported_endpoint"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "unknown-model",
+      "path": "/models/unknown-matrix-model",
+      "http": 404,
+      "error": {
+        "message": "Unsupported model \"unknown-matrix-model\". Supported models: claude-fable-5-1, claude-fable-5, claude-opus-5-5, claude-opus-5, claude-opus-4-8, claude-sonnet-5-5, claude-sonnet-5, claude-opus-4-7, claude-sonnet-4-6, claude-haiku-5-5, claude-opus-4-6, claude-opus-4-5-20251101, claude-haiku-4-5-20251001",
+        "type": "invalid_request_error",
+        "code": "model_not_found",
+        "param": "model"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "stream/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "512",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_77",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_77",
+        "left": 321,
+        "right": 191,
+        "expected_sum": "512"
+      },
+      "result": "pass",
+      "elapsed_ms": 3468
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "responses-reject-stream",
+      "path": "/responses",
+      "http": 400,
+      "error": {
+        "type": "invalid_request_error",
+        "message": "Streaming responses are not implemented for this backend yet.",
+        "code": "unsupported_stream"
+      },
+      "result": "pass",
+      "elapsed_ms": 4
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "count-tokens",
+      "path": "/messages/count_tokens",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "embeddings-contract",
+      "path": "/embeddings",
+      "http": 501,
+      "error": {
+        "type": "invalid_request_error",
+        "message": "Anthropic API does not support embeddings",
+        "code": "embeddings_unsupported"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "unknown-model",
+      "path": "/models/unknown-matrix-model",
+      "http": 404,
+      "error": {
+        "type": "not_found_error",
+        "message": "Unsupported model \"unknown-matrix-model\". Supported models: claude-fable-5-1, claude-fable-5, claude-opus-5-5, claude-opus-5, claude-opus-4-8, claude-sonnet-5-5, claude-sonnet-5, claude-opus-4-7, claude-sonnet-4-6, claude-haiku-5-5, claude-opus-4-6, claude-opus-4-5-20251101, claude-haiku-4-5-20251001",
+        "code": "model_not_found"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "backend-master-switch",
+      "path": "/chat/completions",
+      "http": 503,
+      "error": {
+        "message": "OpenAI-compatible API is unavailable: its backend engine Claude is disabled fleet-wide by the administrator",
+        "type": "server_error",
+        "code": "api_disabled"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "backend-master-switch",
+      "path": "/messages",
+      "http": 503,
+      "error": {
+        "type": "api_error",
+        "message": "Anthropic-compatible API is unavailable: its backend engine Claude is disabled fleet-wide by the administrator",
+        "code": "api_disabled"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "assigned_key",
+      "check": "backend-master-switch",
+      "path": "/chat/completions",
+      "http": 503,
+      "error": {
+        "message": "Grok (OpenAI-compatible) API is unavailable: its backend engine Claude is disabled fleet-wide by the administrator",
+        "type": "server_error",
+        "code": "api_disabled"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 6
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 7
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 8
+    },
+    {
+      "surface": "openai",
+      "backend": "claude",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-generate",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "352",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_93",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_93",
+        "left": 132,
+        "right": 220,
+        "expected_sum": "352"
+      },
+      "result": "pass",
+      "elapsed_ms": 3296
+    },
+    {
+      "surface": "grok",
+      "backend": "claude",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-generate",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "447",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_94",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_94",
+        "left": 159,
+        "right": 288,
+        "expected_sum": "447"
+      },
+      "result": "pass",
+      "elapsed_ms": 3366
+    },
+    {
+      "surface": "anthropic",
+      "backend": "claude",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-generate",
+      "path": "/messages",
+      "http": 200,
+      "output": "328",
+      "model": "claude-sonnet-5",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_92",
+          "engine": "claude",
+          "model": "claude-sonnet-5",
+          "credential_engine": "claude",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_92",
+        "left": 208,
+        "right": 120,
+        "expected_sum": "328"
+      },
+      "result": "pass",
+      "elapsed_ms": 3813
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 6
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 6
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 7
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "retrieve-model",
+      "path": "/models/grok-4.7",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 5
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "retrieve-model",
+      "path": "/models/grok-4.7",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 7
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "retrieve-model",
+      "path": "/models/grok-4.7",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 7
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "reject-other-key-namespace",
+      "path": "/models",
+      "http": 401,
+      "error": {
+        "type": "authentication_error",
+        "message": "Invalid API key.",
+        "code": "invalid_api_key"
+      },
+      "result": "pass",
+      "elapsed_ms": 4
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "reject-other-key-namespace",
+      "path": "/models",
+      "http": 401,
+      "error": {
+        "message": "Incorrect API key provided",
+        "type": "invalid_request_error",
+        "code": "invalid_api_key"
+      },
+      "result": "pass",
+      "elapsed_ms": 6
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "reject-other-key-namespace",
+      "path": "/models",
+      "http": 401,
+      "error": {
+        "message": "Incorrect API key provided",
+        "type": "invalid_request_error",
+        "code": "invalid_api_key"
+      },
+      "result": "pass",
+      "elapsed_ms": 6
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "generate/chat/completions",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "713",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_105",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_105",
+        "left": 392,
+        "right": 321,
+        "expected_sum": "713"
+      },
+      "result": "pass",
+      "elapsed_ms": 5035
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "generate/chat/completions",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "441",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_106",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_106",
+        "left": 105,
+        "right": 336,
+        "expected_sum": "441"
+      },
+      "result": "pass",
+      "elapsed_ms": 7786
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "generate/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "596",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_107",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_107",
+        "left": 307,
+        "right": 289,
+        "expected_sum": "596"
+      },
+      "result": "pass",
+      "elapsed_ms": 4723
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "generate/responses",
+      "path": "/responses",
+      "http": 200,
+      "output": "760",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_109",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_109",
+        "left": 375,
+        "right": 385,
+        "expected_sum": "760"
+      },
+      "result": "pass",
+      "elapsed_ms": 4917
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "stream/chat/completions",
+      "path": "/chat/completions",
+      "http": 400,
+      "error": {
+        "message": "This deployment executes grok through its CLI, which cannot honor stream. Remove it from the request, or configure a provider API credential whose transport supports it.",
+        "type": "invalid_request_error",
+        "code": "unsupported_generation_control"
+      },
+      "result": "pass",
+      "elapsed_ms": 4
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "stream/completions",
+      "path": "/completions",
+      "http": 400,
+      "error": {
+        "message": "This deployment executes grok through its CLI, which cannot honor stream. Remove it from the request, or configure a provider API credential whose transport supports it.",
+        "type": "invalid_request_error",
+        "code": "unsupported_generation_control"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "responses-reject-stream",
+      "path": "/responses",
+      "http": 400,
+      "error": {
+        "message": "This deployment executes grok through its CLI, which cannot honor stream. Remove it from the request, or configure a provider API credential whose transport supports it.",
+        "type": "invalid_request_error",
+        "code": "unsupported_generation_control"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "generate/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "502",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_108",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_108",
+        "left": 344,
+        "right": 158,
+        "expected_sum": "502"
+      },
+      "result": "pass",
+      "elapsed_ms": 7548
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "native-model-fallback",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "372",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_113",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_113",
+        "left": 122,
+        "right": 250,
+        "expected_sum": "372"
+      },
+      "result": "pass",
+      "elapsed_ms": 3325
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "embeddings-contract",
+      "path": "/embeddings",
+      "http": 400,
+      "error": {
+        "message": "Embeddings are not supported by this backend",
+        "type": "invalid_request_error",
+        "code": "unsupported_endpoint"
+      },
+      "result": "pass",
+      "elapsed_ms": 4
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "unknown-model",
+      "path": "/models/unknown-matrix-model",
+      "http": 404,
+      "error": {
+        "message": "Unsupported Grok model",
+        "type": "invalid_request_error",
+        "code": "model_not_found",
+        "param": "model"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "generate/messages",
+      "path": "/messages",
+      "http": 200,
+      "output": "530",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_104",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_104",
+        "left": 370,
+        "right": 160,
+        "expected_sum": "530"
+      },
+      "result": "pass",
+      "elapsed_ms": 27781
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "generate/complete",
+      "path": "/complete",
+      "http": 200,
+      "output": "316",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_117",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_117",
+        "left": 112,
+        "right": 204,
+        "expected_sum": "316"
+      },
+      "result": "pass",
+      "elapsed_ms": 4877
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "generate/completions",
+      "path": "/completions",
+      "http": 200,
+      "output": "430",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_118",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_118",
+        "left": 249,
+        "right": 181,
+        "expected_sum": "430"
+      },
+      "result": "pass",
+      "elapsed_ms": 3321
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "generate/responses",
+      "path": "/responses",
+      "http": 200,
+      "output": "526",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_119",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_119",
+        "left": 293,
+        "right": 233,
+        "expected_sum": "526"
+      },
+      "result": "pass",
+      "elapsed_ms": 3743
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "stream/messages",
+      "path": "/messages",
+      "http": 400,
+      "error": {
+        "type": "invalid_request_error",
+        "message": "This deployment executes grok through its CLI, which cannot honor stream. Remove it from the request, or configure a provider API credential whose transport supports it.",
+        "code": "unsupported_generation_control"
+      },
+      "result": "pass",
+      "elapsed_ms": 4
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "stream/complete",
+      "path": "/complete",
+      "http": 400,
+      "error": {
+        "type": "invalid_request_error",
+        "message": "This deployment executes grok through its CLI, which cannot honor stream. Remove it from the request, or configure a provider API credential whose transport supports it.",
+        "code": "unsupported_generation_control"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "stream/completions",
+      "path": "/completions",
+      "http": 400,
+      "error": {
+        "type": "invalid_request_error",
+        "message": "This deployment executes grok through its CLI, which cannot honor stream. Remove it from the request, or configure a provider API credential whose transport supports it.",
+        "code": "unsupported_generation_control"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "responses-reject-stream",
+      "path": "/responses",
+      "http": 400,
+      "error": {
+        "type": "invalid_request_error",
+        "message": "Streaming responses are not implemented for this backend yet.",
+        "code": "unsupported_stream"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "native-model-fallback",
+      "path": "/messages",
+      "http": 200,
+      "output": "375",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_124",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_124",
+        "left": 102,
+        "right": 273,
+        "expected_sum": "375"
+      },
+      "result": "pass",
+      "elapsed_ms": 4165
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "count-tokens",
+      "path": "/messages/count_tokens",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "embeddings-contract",
+      "path": "/embeddings",
+      "http": 501,
+      "error": {
+        "type": "invalid_request_error",
+        "message": "Anthropic API does not support embeddings",
+        "code": "embeddings_unsupported"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "unknown-model",
+      "path": "/models/unknown-matrix-model",
+      "http": 404,
+      "error": {
+        "type": "not_found_error",
+        "message": "Unsupported Grok model",
+        "code": "model_not_found"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "generate/responses",
+      "path": "/responses",
+      "http": 200,
+      "output": "268",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_114",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_114",
+        "left": 167,
+        "right": 101,
+        "expected_sum": "268"
+      },
+      "result": "pass",
+      "elapsed_ms": 35996
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "stream/chat/completions",
+      "path": "/chat/completions",
+      "http": 400,
+      "error": {
+        "message": "This deployment executes grok through its CLI, which cannot honor stream. Remove it from the request, or configure a provider API credential whose transport supports it.",
+        "type": "invalid_request_error",
+        "code": "unsupported_generation_control"
+      },
+      "result": "pass",
+      "elapsed_ms": 4
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "stream/completions",
+      "path": "/completions",
+      "http": 400,
+      "error": {
+        "message": "This deployment executes grok through its CLI, which cannot honor stream. Remove it from the request, or configure a provider API credential whose transport supports it.",
+        "type": "invalid_request_error",
+        "code": "unsupported_generation_control"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "responses-reject-stream",
+      "path": "/responses",
+      "http": 400,
+      "error": {
+        "message": "This deployment executes grok through its CLI, which cannot honor stream. Remove it from the request, or configure a provider API credential whose transport supports it.",
+        "type": "invalid_request_error",
+        "code": "unsupported_generation_control"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "embeddings-contract",
+      "path": "/embeddings",
+      "http": 400,
+      "error": {
+        "message": "Embeddings are not supported by this backend",
+        "type": "invalid_request_error",
+        "code": "unsupported_endpoint"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "unknown-model",
+      "path": "/models/unknown-matrix-model",
+      "http": 404,
+      "error": {
+        "message": "Unsupported Grok model",
+        "type": "invalid_request_error",
+        "code": "model_not_found",
+        "param": "model"
+      },
+      "result": "pass",
+      "elapsed_ms": 2
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "backend-master-switch",
+      "path": "/chat/completions",
+      "http": 503,
+      "error": {
+        "message": "OpenAI-compatible API is unavailable: its backend engine Grok is disabled fleet-wide by the administrator",
+        "type": "server_error",
+        "code": "api_disabled"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "backend-master-switch",
+      "path": "/messages",
+      "http": 503,
+      "error": {
+        "type": "api_error",
+        "message": "Anthropic-compatible API is unavailable: its backend engine Grok is disabled fleet-wide by the administrator",
+        "code": "api_disabled"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "assigned_key",
+      "check": "backend-master-switch",
+      "path": "/chat/completions",
+      "http": 503,
+      "error": {
+        "message": "Grok (OpenAI-compatible) API is unavailable: its backend engine Grok is disabled fleet-wide by the administrator",
+        "type": "server_error",
+        "code": "api_disabled"
+      },
+      "result": "pass",
+      "elapsed_ms": 3
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 7
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 8
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-models",
+      "path": "/models",
+      "http": 200,
+      "result": "pass",
+      "elapsed_ms": 10
+    },
+    {
+      "surface": "grok",
+      "backend": "grok",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-generate",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "513",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_141",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_141",
+        "left": 225,
+        "right": 288,
+        "expected_sum": "513"
+      },
+      "result": "pass",
+      "elapsed_ms": 4145
+    },
+    {
+      "surface": "anthropic",
+      "backend": "grok",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-generate",
+      "path": "/messages",
+      "http": 200,
+      "output": "640",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_139",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_139",
+        "left": 261,
+        "right": 379,
+        "expected_sum": "640"
+      },
+      "result": "pass",
+      "elapsed_ms": 4996
+    },
+    {
+      "surface": "openai",
+      "backend": "grok",
+      "routing_mode": "endpoint_default",
+      "check": "legacy-generate",
+      "path": "/chat/completions",
+      "http": 200,
+      "output": "486",
+      "model": "grok-4.7",
+      "dispatch": [
+        {
+          "marker": "MATRIX_B19C8810349F_140",
+          "engine": "grok",
+          "model": "grok-4.7",
+          "credential_engine": "grok",
+          "http": 200,
+          "runner_status": "ok"
+        }
+      ],
+      "challenge": {
+        "marker": "MATRIX_B19C8810349F_140",
+        "left": 249,
+        "right": 237,
+        "expected_sum": "486"
+      },
+      "result": "pass",
+      "elapsed_ms": 5098
+    }
+  ]
+}

@@ -32,6 +32,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // A reconnect has no durable WS replay; resample retained client snapshots.
   "transport.connected": [["agent-sessions"], ["agent-messaging"], ["host-daemons"], ["daemon-sessions"], ["topology"]],
   "agent_portal.sessions.changed": [["agent-sessions"], ["topology"]],
+  "agent_session.native_stop": [["agent-sessions"], ["topology"], ["native-stop"]],
   // Logs
   "log.created": [["logs"], ["logs", "api"], ["logs", "events"]],
   "log.updated": [["logs"], ["logs", "events"]],

@@ -450,7 +450,7 @@ socket finish as `communicator_outcome_unknown`, and no session is stopped or
 replayed. Sessions are stopped through their own contracts: cooperative close
 (`POST /admin/agent-sessions/{id}/close`), ending the server-side record
 (`…/close/force`, which does not signal the process) and, only for sessions a host
-daemon launched, a daemon stop (`POST /admin/daemon-sessions/{id}/stop`).
+daemon launched, a daemon stop (`POST /admin/daemon-sessions/{id}/stop`). Managed native launches from cxx 0.9.85 also support the identity-bound native stop (`POST /admin/agent-sessions/{id}/stop`) described below.
 `POST /admin/communicators/{id}/terminate` asks the owner *process* to stop, for an owner that
 announced the capability above, and says only what the server observed: `acknowledged_closed`
 (the addressed process acknowledged, then its connection closed), `acknowledged` (acknowledged,
@@ -636,3 +636,9 @@ From cxx 0.9.80 the independent, default-off signed `communicator_runtime_protoc
 the existing remote execution controller. Residence and remote starts have
 separate settings; native auth/account locks and engine-specific refresh ownership
 remain in their existing lifecycles. See [runtime, migration and acceptance](communicator-resident-runtime.md).
+
+### Topology workspace and native stops (0.9.85)
+
+The topology inspector opens technical fields on demand. Chat and Spawn reuse the Clients workspace; filters and collapsing change only presentation and never infer a parent. Server edges use solid/dashed/dotted patterns for reported resident/on-demand/unknown mode; stale reports remain visibly stale. Color represents connection health independently of mode.
+
+Native-session process stop is a separate session-bridge protocol, not a communicator terminate frame. It binds to the wrapper's random process instance and the session binding generation and is polled independently of model turns. Only the process-owning supervisor signals the native child (TERM, then KILL after five seconds). A communicator restart cannot retarget a stop. The wrapper's exit receipt is distinct from a transport close or a server-side record close. See the API contract for receipt and recovery semantics.

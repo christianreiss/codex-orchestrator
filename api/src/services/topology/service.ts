@@ -1,6 +1,7 @@
+import { controlView } from '../native-stop.js';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
-import { agentBusAddresses, hostDaemonPortalBindings, hostDaemonSessions, hosts } from '../../db/schema.js';
+import { agentNativeControls, agentBusAddresses, hostDaemonPortalBindings, hostDaemonSessions, hosts } from '../../db/schema.js';
 import { createAgentPortalService } from '../agent-portal.js';
 import { communicatorRegistry, type CommunicatorRegistry } from './communicator-registry.js';
 import { buildTopology, type DaemonBindingInput, type PortalSessionInput } from './build.js';
@@ -131,6 +132,7 @@ export class TopologyService {
       /* An unparsable base URL keeps the generic label. */
     }
 
+    const nativeControls = sessionIds.length ? await db.select().from(agentNativeControls).where(inArray(agentNativeControls.sessionId, sessionIds)) : [];
     const value = buildTopology({
       now,
       serverLabel: label,
@@ -145,6 +147,8 @@ export class TopologyService {
       daemonBySession,
       tombstones: this.registry.tombstones(now),
     });
+    const nativeBySession = new Map(nativeControls.map(row => [row.sessionId, controlView(row)]));
+    for (const agent of value.agents) agent.native_control = agent.daemon ? null : nativeBySession.get(agent.id) ?? null;
     this.cached = { at: Date.now(), value };
     return value;
   }

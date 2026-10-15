@@ -1,3 +1,4 @@
+import { NativeStopService } from '../../services/native-stop.js';
 import { activityInputSchema } from '../../services/agent-activity.js';
 import { taskResultSchema } from '../../services/agent-messaging/task-execution.js';
 import { workspaceInputSchema } from '../../services/agent-messaging/workspace.js';
@@ -189,6 +190,13 @@ export async function registerAgentPortalAdminHostRoutes(
       },
       ...(messagingResult.address ? { agent_address: messagingResult.address, name_status: messagingResult.name_status } : {}),
     };
+  });
+
+  app.post('/host/agent-sessions/:id/native-control', async req => {
+    const id = stringParam(req.params, 'id');
+    const body = z.object({ protocol: z.literal(1), instance_id: z.string().uuid(), report: z.object({ request_id: z.string().uuid(), status: z.enum(['accepted', 'exited', 'refused']) }).strict().optional() }).strict().parse(req.body);
+    await portal.authenticateBridge(id, requireBridgeToken(req), undefined, Boolean(body.report));
+    return new NativeStopService(ctx.db).poll(id, body.instance_id, body.report);
   });
 
   app.post('/host/agent-sessions/:id/activity', async (req) =>

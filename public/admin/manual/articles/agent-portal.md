@@ -93,3 +93,13 @@ Revoke a lost phone under **Account → Android devices**. Signing out on the ph
 revokes that device too. If Firebase is not configured, the app still supports
 chat and approval review while open. See the repository's
 `docs/android-companion.md` for Firebase setup and signed APK builds.
+
+## Work directly in Live Topology
+
+Open **Live Topology** to select a session and use **Chat** without leaving its connection graph. The chat keeps its selected conversation when you inspect another node; press that node’s **Chat** button to switch conversations. Drafts stay with their original session.
+
+**Start agent** on a communicator fills in its host; the toolbar action lets you choose any eligible host. A queued start appears as a pending remote session until the host actually starts it. Filters, collapsed branches, centering and fullscreen make larger fleets easier to navigate.
+
+The server link is solid for reported **Persistent** runtime, dashed for **On demand**, and dotted when the mode is **Unknown**. Connection health is separate. Old reports are labeled as last reported rather than assumed current.
+
+**Ask to close** is cooperative. **Stop the process** uses the owning wrapper when supported (cxx 0.9.85), sending TERM and escalating to KILL after five seconds. The dialog waits for the wrapper’s exit receipt; **unknown** means no recent receipt, not success. Recovery of the stopped execution is disabled. **End the session record**, under More actions, changes the server record without signaling the process. Communicator disconnect and communicator stop have their own separate effects and confirmation dialogs.

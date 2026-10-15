@@ -14,6 +14,7 @@ import type { Keyring } from '../security/keyring.js';
 import { encrypt as encryptSecret } from '../security/secret-box.js';
 import { sha256 } from '../security/hash.js';
 import { nowIso, isRfc3339 } from '../util/timestamp.js';
+import type { Engine } from '../util/engine.js';
 import { ApiError } from '../http/errors.js';
 
 export const CLAUDE_ENGINE = 'claude' as const;
@@ -29,6 +30,7 @@ export interface ClaudeKeyRecord {
   last_used_at: string | null;
   expires_at: string | null;
   engine: 'claude';
+  backend_engine: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -38,6 +40,7 @@ export interface ClaudeKeyCreate {
   adminUserId?: number | null;
   expiresAt?: string | null;
   prefix?: string;
+  backendEngine?: Engine | null;
 }
 
 export interface ClaudeKeyIssued {
@@ -65,6 +68,7 @@ function toRecord(row: typeof openaiApiKeys.$inferSelect): ClaudeKeyRecord {
     last_used_at: row.lastUsedAt ?? null,
     expires_at: row.expiresAt ?? null,
     engine: 'claude',
+    backend_engine: row.backendEngine ?? null,
     created_at: row.createdAt,
     updated_at: row.updatedAt,
   };
@@ -94,7 +98,7 @@ export function createClaudeKeysService(db: Database, keyring: Keyring): ClaudeK
       return load(id);
     },
 
-    async create({ name, adminUserId, expiresAt, prefix }) {
+    async create({ name, adminUserId, expiresAt, prefix, backendEngine }) {
       const cleanName = name.trim();
       if (!cleanName) throw new Error('name is required');
       const exp = expiresAt && expiresAt.trim() !== '' ? expiresAt.trim() : null;
@@ -124,6 +128,7 @@ export function createClaudeKeysService(db: Database, keyring: Keyring): ClaudeK
         useCount: 0,
         expiresAt: exp,
         engine: CLAUDE_ENGINE,
+        backendEngine: backendEngine ?? null,
         createdAt: now,
         updatedAt: now,
       });

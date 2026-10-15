@@ -46,12 +46,13 @@ func Headless(stdin io.Reader) bool {
 }
 
 type Supervisor struct {
-	ctx    context.Context
-	cmd    *exec.Cmd
-	group  bool
-	mu     sync.Mutex
-	timer  *time.Timer
-	closed bool
+	ctx           context.Context
+	cmd           *exec.Cmd
+	group         bool
+	mu            sync.Mutex
+	timer         *time.Timer
+	closed        bool
+	finishControl func()
 }
 
 // Prepare must precede Start. Close must follow Wait (and also run on start
@@ -102,11 +103,19 @@ func prepare(ctx context.Context, cmd *exec.Cmd, group bool, grace time.Duration
 // It never signals an inherited foreground group, which may contain the shell.
 func (s *Supervisor) Close() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var finish func()
+	defer func() {
+		s.mu.Unlock()
+		if finish != nil {
+			finish()
+		}
+	}()
 	if s.closed {
 		return
 	}
 	s.closed = true
+	finish = s.finishControl
+	s.finishControl = nil
 	if s.timer != nil {
 		s.timer.Stop()
 	}

@@ -57,7 +57,7 @@ Open **Configuration** for routing, backend defaults and global API control; **B
 |--------|---------|
 | API | `OpenAI-compatible` (`/v1`), `Anthropic-compatible` (`/anthropic/v1`) or `Grok (OpenAI-compatible)` (`/grok/v1`), with its wire format |
 | Base URL | `{origin}` + the base path, with a **Copy** button; derived from the browser origin |
-| Backend | Which engine answers: **Codex**, **Claude** or **Grok**. A **rerouted** badge marks an API not on its own engine. Changes apply to the next request — no restart. An engine switched off under **Engines → Engine master switches** cannot be picked, and a row whose backend is off shows **backend off** and answers `503 api_disabled` until the engine is back on or the API is rerouted |
+| Default engine | Which engine answers keys without an assignment: **Codex**, **Claude** or **Grok**. A **rerouted** badge marks an API not on its own engine. Changes apply to the next request — no restart. An engine switched off under **Engines → Engine master switches** cannot be picked, and a row whose default engine is off shows **backend off**. Unassigned keys answer `503 api_disabled` until it is enabled or the default changes; keys assigned to another enabled engine keep working |
 | Enabled | The API's own kill switch (`openai_api_disabled`, `claude_api_disabled`, `grok_api_disabled`); off returns `503 api_disabled` on that API only |
 | Keys | Active keys for that API; the link opens its key tab |
 
@@ -69,17 +69,20 @@ The backend decides whose subscription, model catalog and limits apply; the API 
 
 **Keys table**
 
-Lists all keys for the API with columns: Name, Key prefix (first 16 chars followed by `...`), Active (toggle switch), Uses (request count), Last used (relative time), Expires (date, "Never", or an "Expired" badge), and Actions (enable/disable power icon and a trash/revoke icon). Clicking the revoke icon shows a confirmation dialog before permanently deleting the key.
+Lists all keys for the API with columns: Name, Key prefix (first 16 chars followed by `...`), Engine (assigned engine or Endpoint default), Active (toggle switch), Uses (request count), Last used (relative time), Expires (date, "Never", or an "Expired" badge), and Actions (enable/disable power icon and a trash/revoke icon). Clicking the revoke icon shows a confirmation dialog before permanently deleting the key.
 
 ### Creating a key
 
 Click **New key** (or run "New API key" from the command palette). The dialog form has:
 
-- **Engine** — select "OpenAI (Codex)", "Claude (Anthropic)", or "Grok subscription gateway"
+- **API format** — OpenAI-compatible, Anthropic-compatible, or Grok (OpenAI-compatible), preselected from the active tab
+- **Engine** — explicitly select Codex, Claude, or Grok for this key; fleet-disabled engines cannot be selected. This assignment applies only to the new key and is independent of API format.
 - **Name** — required text field
 - **Expires** — toggle off for no expiry; toggle on to reveal a datetime picker
 
-On success the dialog switches to a reveal screen showing the full plaintext key with a copy button and the warning: "We don't store the plaintext key. If you lose it, you'll need to issue a new one." Close the dialog after copying — the key cannot be retrieved again.
+The connection preview shows the base URL and current availability before creation. On success, the wider dialog shows the full key, assigned engine, expiration and availability, with individual copy buttons for the key, SDK base URL, models URL and generation URLs. Expand the curl example and replace its model placeholder with an ID from the models endpoint. Long values wrap; only the body scrolls when needed on small screens. Save the key before closing — the full key is shown only once.
+
+Existing keys and older API callers that omit `backend_engine` retain endpoint-default routing. New UI-created keys keep their assigned engine when the endpoint default changes. To change an assigned engine, create a replacement key. `POST /admin/{openai|claude|grok}/keys` accepts optional `backend_engine: codex|claude|grok`; creation and list records return its nullable value. Invalid assignments return 400 and disabled engines return 409.
 
 ## Admin HTTP routes
 

@@ -1,3 +1,13 @@
+# 2026-10-15
+
+- Live Topology now has a compact dismissible inspector, embedded client conversations and host-prefilled remote starts, runtime/engine/status/host filters, collapsible branches, focus previews and fullscreen controls. Server links distinguish reported Persistent, On demand and Unknown runtime modes without inferring them from daemon attachment.
+- cxx 0.9.85 adds identity-bound native session stops for managed Codex, Claude and Grok launches: TERM, then KILL after five seconds, durable idempotent requests and explicit exit receipts. Stopping disables the bound watchdog and recovery of the current scheduled execution; stale receipts show an unknown outcome. Older wrappers remain compatible.
+
+- Added an opt-in live acceptance matrix for all nine API surface/backend combinations, including assigned and endpoint-default key routing, every generation endpoint, supported streams and explicit unsupported-operation contracts. Reports verify actual runner dispatch and fresh arithmetic answers without retaining credentials.
+- The auth runner pins Codex CLI 0.162.1 to match the advertised gateway model catalog. This fixes `gpt-6.1-sol` generation failures with valid ChatGPT credentials on the older 0.154.0 runner. Failed executions retain the diagnostic tail so CLI banners no longer hide the provider error.
+- API Access key creation now separates API format from an explicit per-key engine choice. Assigned keys retain their engine when endpoint defaults change; existing keys and older callers keep endpoint-default routing. Model discovery, execution, capabilities and fleet availability use the effective engine on all three APIs.
+- Reworked the key dialog with a wider responsive layout, persistent header and actions, wrapped credentials, copyable SDK and request URLs, connection status and a curl example. Key lists show engine assignments; Configuration labels routing as the default for unassigned keys.
+
 # 2026-10-14
 
 - cxx 0.9.84: a non-root `cxx update` or `cxx cron install` no longer deletes another account's host-wide schedule. On a host where root is enrolled, an update run as a user with a private cxx replaced root's `/etc/cron.d/cxx-managed` job with a user crontab, so root's own configs stopped getting their nightly maintenance. A non-root run now keeps an `/etc/cron.d` schedule whose cron user is a different account (or cannot be attributed) and only manages its own crontab. Root still reconciles every schedule.

@@ -33,7 +33,7 @@ func StartConnection(ctx context.Context, cfg *config.Config, input StartInput) 
 		return &ConnectionRuntime{ctx: ctx, restore: restore, stopHeartbeat: func() {}}, startErr
 	}
 	session.watchdog = &watchdogFeed{}
-	runtime := &ConnectionRuntime{session: session, ctx: session.WithScheduleWatch(ctx), restore: restore}
+	runtime := &ConnectionRuntime{session: session, ctx: session.withNativeControl(session.WithScheduleWatch(ctx)), restore: restore}
 	runtime.stopWatchdog = session.startWatchdogFeed(runtime.ctx)
 	broker, brokerErr := session.StartBroker(runtime.ctx)
 	runtime.broker = broker

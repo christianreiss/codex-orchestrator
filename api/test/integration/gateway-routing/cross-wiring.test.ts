@@ -17,6 +17,8 @@ import { OPENAI_DEFAULT_MODEL } from '../../../src/services/openai-models.js';
 import type { OpenAiKeyService } from '../../../src/services/openai-keys.js';
 import type { ClaudeKeyResolver } from '../../../src/services/claude-key-resolver.js';
 import type { ClaudeKillSwitch } from '../../../src/services/claude-kill-switch.js';
+import { versions } from '../../../src/db/schema.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import type { Engine } from '../../../src/util/engine.js';
 
 /**
@@ -61,7 +63,7 @@ function stubModels(engine: 'claude' | 'grok'): GatewayBackendModels {
   };
 }
 
-async function harness(backend: Engine) {
+async function harness(backend: Engine, opts: { assigned?: Engine; disabled?: Engine[]; endpointDisabled?: boolean } = {}) {
   const app = Fastify({ logger: false });
   await app.register(cookie);
   await app.register(requestIdPlugin);
@@ -77,7 +79,7 @@ async function harness(backend: Engine) {
 
   const execs: Array<{ engine: Engine; snapshot: unknown }> = [];
   const ctx = {
-    db: {} as never,
+    db: createDbFake(new Map([[versions, (opts.disabled ?? []).map(engine => ({ name: `${engine}_engine_disabled`, version: '1' }))]])) as never,
     keyring: {} as never,
     env: { AUTH_RUNNER_URL: 'http://runner/verify', AUTH_RUNNER_SHARED_SECRET: 'secret', AUTH_RUNNER_EXEC_TIMEOUT: 600 } as never,
   };
@@ -86,33 +88,35 @@ async function harness(backend: Engine) {
     onExecSuccess: (snapshot: unknown) => { execs.push({ engine, snapshot }); },
     ...(engine === 'codex' ? {} : { models: stubModels(engine) }),
   }]));
+  const routingCalls = vi.fn(async () => backend);
   const gateway: GatewayWiring = {
     backends: createGatewayBackends(ctx, undefined, overrides),
-    routing: { backendFor: async () => backend },
+    routing: { backendFor: routingCalls },
   };
 
   const keys = {
-    findActiveByBearer: async (token: string, engine: string) => (KEYS[engine] === token ? { id: 1, engine } : null),
+    findActiveByBearer: async (token: string, engine: string) => (KEYS[engine] === token ? { id: 1, engine, backendEngine: opts.assigned } : null),
     touch: async () => undefined,
   } as unknown as OpenAiKeyService;
-  const killSwitch = { isDisabled: async () => false, throwIfDisabled: async () => undefined };
+  const ensureEndpoint = async () => { if (opts.endpointDisabled) throw new ApiError('Endpoint disabled', { status: 503, code: 'api_disabled', type: 'api_error' }); };
+  const killSwitch = { isDisabled: async () => Boolean(opts.endpointDisabled), throwIfDisabled: ensureEndpoint };
   const keyResolver: ClaudeKeyResolver = {
     resolve: async () => ({ id: 1, name: 'test', keyPrefix: 'sk-ant-', adminUserId: null }),
     preHandler: async (req) => {
       if (req.headers['x-api-key'] !== KEYS.claude) {
         throw new ApiError('Invalid API key.', { status: 401, code: 'invalid_api_key', type: 'authentication_error' });
       }
-      req.claudeApiKey = { id: 1, name: 'test', keyPrefix: 'sk-ant-', adminUserId: null };
+      req.claudeApiKey = { backendEngine: opts.assigned, id: 1, name: 'test', keyPrefix: 'sk-ant-', adminUserId: null };
     },
   };
-  const claudeKillSwitch: ClaudeKillSwitch = { isDisabled: async () => false, ensureEnabled: async () => undefined, setDisabled: async () => undefined };
+  const claudeKillSwitch: ClaudeKillSwitch = { isDisabled: async () => false, ensureEnabled: ensureEndpoint, setDisabled: async () => undefined };
 
   await registerOpenAiCompatRoutes(app, ctx, { gateway, keys, killSwitch });
   await registerGrokCompatRoutes(app, ctx, { gateway, keys, killSwitch });
   await registerAnthropicCompatRoutes(app, ctx, { gateway, keyResolver, killSwitch: claudeKillSwitch });
   await app.ready();
   const dispatched = () => JSON.parse(String(runner.mock.calls.at(-1)?.[1]?.body)) as Record<string, unknown>;
-  return { app, runner, dispatched, execs };
+  return { app, runner, dispatched, execs, routingCalls };
 }
 
 const DEFAULT_MODEL: Record<Engine, string> = { codex: OPENAI_DEFAULT_MODEL, claude: 'claude-sonnet-5', grok: 'grok-4.7' };
@@ -128,6 +132,65 @@ describe('any-to-any gateway routing', () => {
     { surface: 'openai', base: '/v1', key: KEYS.codex, identity: 'codex' as Engine, model: OPENAI_DEFAULT_MODEL },
     { surface: 'grok', base: '/grok/v1', key: KEYS.grok, identity: 'grok' as Engine, model: 'grok-4.6' },
   ];
+
+  const ALL_SURFACES = [
+    ...OPENAI_SURFACES.map(s => ({ ...s, headers: { authorization: `Bearer ${s.key}` } as Record<string, string>, generate: '/chat/completions' })),
+    { surface: 'anthropic', base: '/anthropic/v1', headers: { 'x-api-key': KEYS.claude!, 'anthropic-version': '2023-06-01' }, generate: '/messages' },
+  ];
+
+  for (const surface of ALL_SURFACES) for (const assigned of BACKENDS) {
+    it(`${surface.base}: assigned ${assigned} overrides a disabled endpoint default for models and generation`, async () => {
+      const fallback = BACKENDS.find(engine => engine !== assigned)!;
+      const { app, dispatched, routingCalls } = await harness(fallback, { assigned, disabled: [fallback] });
+      try {
+        const headers = surface.headers;
+        const models = await app.inject({ url: `${surface.base}/models`, headers });
+        expect(models.statusCode, models.body).toBe(200);
+        expect(models.json().data.map((m: { id: string }) => m.id)).toContain(DEFAULT_MODEL[assigned]);
+        const reply = await app.inject({ method: 'POST', url: `${surface.base}${surface.generate}`, headers,
+          payload: { model: DEFAULT_MODEL[assigned], messages: [{ role: 'user', content: 'hi' }], ...(surface.surface === 'anthropic' ? { max_tokens: 64 } : {}) } });
+        expect(reply.statusCode, reply.body).toBe(200);
+        expect(dispatched()).toMatchObject({ engine: assigned, auth_json: SNAPSHOTS[assigned] });
+        expect(routingCalls).not.toHaveBeenCalled();
+        if (assigned === 'grok') {
+          const streaming = await app.inject({ method: 'POST', url: `${surface.base}${surface.generate}`, headers,
+            payload: { stream: true, messages: [{ role: 'user', content: 'hi' }], max_tokens: 64 } });
+          expect(streaming.statusCode).toBe(400);
+        }
+      } finally { await close(app); }
+    });
+
+    it(`${surface.base}: refuses disabled assigned ${assigned} without falling back`, async () => {
+      const fallback = BACKENDS.find(engine => engine !== assigned)!;
+      const { app, runner, routingCalls } = await harness(fallback, { assigned, disabled: [assigned] });
+      try {
+        const reply = await app.inject({ url: `${surface.base}/models`, headers: surface.headers });
+        expect(reply.statusCode).toBe(503);
+        expect(reply.json()).toMatchObject({ error: { type: surface.surface === 'anthropic' ? 'api_error' : 'server_error' } });
+        expect(runner).not.toHaveBeenCalled();
+        expect(routingCalls).not.toHaveBeenCalled();
+      } finally { await close(app); }
+    });
+  }
+
+  for (const surface of ALL_SURFACES) {
+    it(`${surface.base}: endpoint switch still blocks assigned keys`, async () => {
+      const { app, runner } = await harness('codex', { assigned: 'claude', endpointDisabled: true });
+      try {
+        const reply = await app.inject({ url: `${surface.base}/models`, headers: surface.headers });
+        expect(reply.statusCode).toBe(503);
+        expect(runner).not.toHaveBeenCalled();
+      } finally { await close(app); }
+    });
+    it(`${surface.base}: legacy key resolves routing once per request`, async () => {
+      const { app, routingCalls } = await harness('codex');
+      try {
+        const reply = await app.inject({ url: `${surface.base}/models`, headers: surface.headers });
+        expect(reply.statusCode, reply.body).toBe(200);
+        expect(routingCalls).toHaveBeenCalledTimes(1);
+      } finally { await close(app); }
+    });
+  }
 
   for (const s of OPENAI_SURFACES) {
     for (const backend of BACKENDS) {

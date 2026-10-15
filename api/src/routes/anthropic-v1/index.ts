@@ -53,7 +53,8 @@ import { API_SURFACES } from '../../services/api-surfaces.js';
 import {
   anthropicModelObject,
   assertBackendRequestControls,
-  assertSurfaceBackendEnabled,
+  assertRequestBackendEnabled,
+  resolveRequestBackend,
   defaultGatewayWiring,
   resolveGenerationModel,
   type GatewayBackend,
@@ -72,9 +73,9 @@ interface AnthropicRouteDeps {
   keyResolver: ClaudeKeyResolver;
   killSwitch: ClaudeKillSwitch;
   /** The backend this request runs on right now, with its adapter and models. */
-  backend(): Promise<{ backend: GatewayBackend; adapter: RunnerClaudeAdapter | null; models: AnthropicModels }>;
+  backend(req: FastifyRequest): Promise<{ backend: GatewayBackend; adapter: RunnerClaudeAdapter | null; models: AnthropicModels }>;
   /** Throws 503 when that backend engine is switched off fleet-wide. */
-  backendEnabled(): Promise<void>;
+  backendEnabled(req: FastifyRequest): Promise<void>;
 }
 
 export interface RegisterAnthropicCompatOptions {
@@ -156,11 +157,11 @@ export async function registerAnthropicCompatRoutes(
   const deps: AnthropicRouteDeps = {
     keyResolver,
     killSwitch,
-    async backend() {
-      const backend = gateway.backends.get(await gateway.routing.backendFor(SURFACE.id));
+    async backend(req) {
+      const backend = gateway.backends.get(await resolveRequestBackend(req, gateway.routing, SURFACE.id));
       return { backend, adapter: adapterFor(backend), models: modelsFor(backend) };
     },
-    backendEnabled: () => assertSurfaceBackendEnabled(ctx.db, gateway.routing, SURFACE.id),
+    backendEnabled: (req) => assertRequestBackendEnabled(ctx.db, req, gateway.routing, SURFACE.id),
   };
 
   // OPTIONS preflight — CORS plugin handles headers; we just need a 204.
@@ -181,10 +182,11 @@ export async function registerAnthropicCompatRoutes(
       requestIdHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
+      backendEnabledHook(deps),
       versionHeaderHook(),
     ],
     handler: async (req, reply) => runGeneration(reply, async (signal) => {
-      const { backend, adapter, models } = await deps.backend();
+      const { backend, adapter, models } = await deps.backend(req);
       const payload = (req.body ?? {}) as Record<string, unknown>;
       let messages = normalizeChatMessages(payload.messages);
       if (!messages) {
@@ -239,10 +241,11 @@ export async function registerAnthropicCompatRoutes(
       requestIdHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
+      backendEnabledHook(deps),
       versionHeaderHook(),
     ],
     handler: async (req) => {
-      const { models } = await deps.backend();
+      const { models } = await deps.backend(req);
       const payload = (req.body ?? {}) as Record<string, unknown>;
       const messages = normalizeChatMessages(payload.messages);
       if (!messages) {
@@ -266,10 +269,11 @@ export async function registerAnthropicCompatRoutes(
     requestIdHook(),
     killSwitchHook(deps),
     keyResolver.preHandler,
+    backendEnabledHook(deps),
     versionHeaderHook(),
   ];
   const completionsHandler = async (req: FastifyRequest, reply: FastifyReply) => runGeneration(reply, async (signal) => {
-    const { backend, adapter, models } = await deps.backend();
+    const { backend, adapter, models } = await deps.backend(req);
     const payload = (req.body ?? {}) as Record<string, unknown>;
     const prompt = typeof payload.prompt === 'string' ? payload.prompt : '';
     if (!prompt.trim()) {
@@ -342,10 +346,11 @@ export async function registerAnthropicCompatRoutes(
       requestIdHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
+      backendEnabledHook(deps),
       versionHeaderHook(),
     ],
-    handler: async () => {
-      const { models } = await deps.backend();
+    handler: async (req) => {
+      const { models } = await deps.backend(req);
       return models.modelsResponse();
     },
   });
@@ -358,10 +363,11 @@ export async function registerAnthropicCompatRoutes(
       requestIdHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
+      backendEnabledHook(deps),
       versionHeaderHook(),
     ],
     handler: async (req) => {
-      const { models } = await deps.backend();
+      const { models } = await deps.backend(req);
       const { model_id: modelId } = req.params as { model_id?: string };
       return models.modelResponse(modelId ?? '');
     },
@@ -376,10 +382,11 @@ export async function registerAnthropicCompatRoutes(
       requestIdHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
+      backendEnabledHook(deps),
       versionHeaderHook(),
     ],
     handler: async (req, reply) => runGeneration(reply, async (signal) => {
-      const { backend, adapter, models } = await deps.backend();
+      const { backend, adapter, models } = await deps.backend(req);
       const payload = (req.body ?? {}) as Record<string, unknown>;
       if (payload.stream === true) {
         throw new ApiError(
@@ -417,6 +424,7 @@ export async function registerAnthropicCompatRoutes(
       requestIdHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
+      backendEnabledHook(deps),
       versionHeaderHook(),
     ],
     handler: async () => {
@@ -432,8 +440,11 @@ export async function registerAnthropicCompatRoutes(
 function killSwitchHook(deps: AnthropicRouteDeps) {
   return async function checkKillSwitch(_req: FastifyRequest) {
     await deps.killSwitch.ensureEnabled();
-    await deps.backendEnabled();
   };
+}
+
+function backendEnabledHook(deps: AnthropicRouteDeps) {
+  return async (req: FastifyRequest) => deps.backendEnabled(req);
 }
 
 /** Anthropic SDKs read this specific header for diagnostics/support requests —

@@ -7,7 +7,7 @@
   import MaximizeIcon from "@lucide/svelte/icons/maximize";
   import { ENGINE_META, isEngine } from "$lib/constants/engines";
   import { radialLayout, traversalOrder, SERVER_ID, polar, type PlacedNode } from "$lib/topology/layout";
-  import { communicatorAppearance, communicatorLabel, matchesQuery, nodeState, type GraphModel } from "$lib/topology/model";
+  import { runtimeStyle, communicatorAppearance, communicatorLabel, matchesQuery, nodeState, type GraphModel } from "$lib/topology/model";
   import type { TopologyAgent, TopologyCommunicator, TopologyServer } from "$lib/api/topology";
 
   type Props = {
@@ -118,6 +118,10 @@
     panX = cx - width / 2 - (cx - width / 2 - panX) * k;
     panY = cy - height / 2 - (cy - height / 2 - panY) * k;
     zoom = next;
+  }
+  export function centerSelection() {
+    const pos = selectedId ? shown[selectedId] : null;
+    if (pos) { panX = -pos.x * scale; panY = -pos.y * scale; }
   }
   function resetView() {
     zoom = 1;
@@ -260,6 +264,7 @@
       a.association.state === "unattributed" ? "direct, no communicator" : a.association.state === "stale" ? "carried by a communicator, link quiet" : "carried by a communicator";
     return `Agent ${a.name}, ${a.engine}, ${item.ghost ? "ended" : a.presence}, ${where}`;
   }
+  const preview = $derived([...model.communicators, ...model.agents].find(item => item.node.id === (hoverId ?? focusId)));
 </script>
 
 <div
@@ -304,9 +309,9 @@
               stroke={healthColor(state)}
               stroke-width={4 + edgeBoost(item.node.id, SERVER_ID)}
               stroke-linecap="round"
-              stroke-dasharray={state === "live" ? undefined : "5 6"}
-              opacity={(state === "live" ? 0.55 : 0.8) * item.strength * edgeFocus(item.node.id, SERVER_ID)}
-              class:edge-flow={state === "live" && flowing && !reduced}
+              stroke-dasharray={runtimeStyle(item.node).dash}
+              opacity={(runtimeStyle(item.node).stale ? 0.3 : state === "live" ? 0.55 : 0.8) * item.strength * edgeFocus(item.node.id, SERVER_ID)}
+              data-runtime={runtimeStyle(item.node).mode}
               vector-effect="non-scaling-stroke"
             />
           {/if}
@@ -367,7 +372,7 @@
           onpointerenter={() => (hoverId = id)}
           onpointerleave={() => (hoverId === id ? (hoverId = null) : null)}
         >
-          <title>{describeCommunicator(item)}</title>
+          <title>{describeCommunicator(item)} · {runtimeStyle(item.node).label}</title>
           <circle r="32" class="hit" fill="transparent" />
           <circle r="34" class="halo" fill="none" stroke="hsl(var(--ring))" stroke-width="3" opacity={lit ? 1 : 0} />
           {#if state === "closing"}<circle r="30" fill="none" stroke="hsl(var(--destructive))" stroke-width="2" class="pulse" />{/if}
@@ -434,6 +439,15 @@
     </div>
   {/if}
 
+  {#if preview && preview.node.id !== selectedId}
+    <div class="pointer-events-none absolute left-3 top-3 max-w-64 rounded-lg border bg-background/95 px-3 py-2 text-xs shadow-sm" role="status">
+      <p class="font-semibold">{preview.node.kind === "agent" ? preview.node.name : communicatorLabel(preview.node)}</p>
+      <p class="text-muted-foreground">{preview.node.kind === "agent" ? `${preview.node.engine} · ${preview.node.presence} · ${preview.node.host}` : `${runtimeStyle(preview.node).label} · ${preview.node.health}`}</p>
+    </div>
+  {/if}
+  <div class="pointer-events-none absolute bottom-3 right-3 rounded-md border bg-background/90 px-3 py-2 text-[11px] text-muted-foreground" aria-label="Connection legend">
+    <span>━━ Persistent</span> · <span>╍╍ On demand</span> · <span>··· Unknown</span>
+  </div>
   <div class="absolute right-3 top-3 flex flex-col gap-1 rounded-md border bg-background/90 p-1 shadow-sm backdrop-blur" role="group" aria-label="Zoom">
     <button type="button" class="zoom-button" aria-label="Zoom in" onpointerdown={(e) => e.stopPropagation()} onclick={() => zoomAround(1.25)}><ZoomInIcon class="h-4 w-4" /></button>
     <button type="button" class="zoom-button" aria-label="Zoom out" onpointerdown={(e) => e.stopPropagation()} onclick={() => zoomAround(0.8)}><ZoomOutIcon class="h-4 w-4" /></button>

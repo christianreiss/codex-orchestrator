@@ -35,7 +35,7 @@ Git Director opens on Settings with compact service and commit controls and a se
 - Audit who synced/rotated auth, what versions they run, and how many tokens they burn.
 - Run Codex in environments that require IP binding and TLS.
 
-API Access opens with compact, copyable endpoints and per-API keys. Configuration holds routing, backend defaults, and the global API control; existing settings anchors open the matching section automatically.
+API Access opens with compact, copyable endpoints and per-API keys. New keys select an API format and a separate answering engine; the wider creation dialog reveals the key with copyable connection URLs and a curl example. Existing keys without an assignment keep following the endpoint default. Configuration holds routing, backend defaults, and the global API control; existing settings anchors open the matching section automatically.
 
 The header Appearance menu applies light, dark, or system mode immediately and saves it through `/admin/theme`, matching Appearance settings. Failed header saves restore the previous choice and report the error; startup hydration cannot overwrite a newer user choice.
 
@@ -125,7 +125,7 @@ minutes, with provider-defined periods and explicit stale/unknown states. CLI
 quota enforcement and account assignment are unchanged. See [Grok interface](interface-cgx.md).
 
 The three inference gateways (`/v1`, `/anthropic/v1`, `/grok/v1`) are surfaces
-whose answering engine is configurable per surface (API Access → Configuration → Routing & availability,
+whose answering engine is selected per key, with a configurable endpoint default for unassigned keys (API Access → Configuration → Routing & availability,
 `versions.api_surface_backend_*`, identity by default). Keys, URL, wire format
 and kill switch stay with the surface; credentials, capabilities and the model
 catalog come from the backend. See [Exposed API routing](interface-api.md#exposed-api-routing-any-to-any).
@@ -801,6 +801,7 @@ use an isolated database and deterministic native-socket fixtures.
 Agent Messaging → Conferences exposes retained rooms and a live member/task overview for all three engines. Its combined timeline uses the existing member conversation links, including ordinary replies. Metadata refreshes through the central WebSocket invalidations and a 15-second visible-page poll; an explicit audited transcript reveal requires the existing content capability. No schema migration or wrapper update is required.
 
 GPT-6.1 Sol (`gpt-6.1-sol`) is selectable for Codex fleet defaults, host overrides, and OpenAI-compatible inference; its native default effort is `low`, with `low|medium|high|xhigh|max|ultra` available.
+The auth-runner image pins Codex 0.162.1 to serve that catalog; updating only the API leaves older runner binaries in place. See `auth-runner.md` for rebuild requirements and execution diagnostics.
 
 ## Account management
 
@@ -1169,3 +1170,9 @@ The independent, default-off signed `communicator_runtime_protocol: 1` prepares
 the existing remote execution controller. Residence and remote starts have
 separate settings; native auth/account locks and engine-specific refresh ownership
 remain in their existing lifecycles. See [runtime, migration and acceptance](communicator-resident-runtime.md).
+
+## Live Topology workspace
+
+Live Topology combines the live connection graph with a compact inspector, shared Clients chat panel and remote-session start form. Selection never retargets an open conversation; drafts stay with their session. Start on a communicator prefills its host, while the global button offers host selection. Runtime, host, engine and presence filters and the list/radial preference persist locally; conversation content does not. Branches can be collapsed, selections centered and the canvas expanded to fullscreen.
+
+Solid server links mean reported Persistent mode, dashed links On demand, and dotted links Unknown. Health uses color independently. Stale reports are labeled as last reported; daemon attachment does not prove persistence. Native stop uses the wrapper's bound process identity and a TERM/KILL sequence; disconnect, communicator stop and ending a server record remain distinct operations.

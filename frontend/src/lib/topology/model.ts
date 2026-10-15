@@ -178,3 +178,28 @@ export function graphModel(snapshot: Topology | undefined, state: GhostState, no
 
 /** Where a confirmed action stands: awaiting the operator, in flight, or settled. */
 export type ActionPhase = "confirm" | "pending" | "done" | "error";
+
+/** Runtime policy and connection health are independent visual dimensions. */
+export function runtimeStyle(node: TopologyCommunicator) {
+  const report = node.resident;
+  return {
+    mode: report?.mode ?? "unknown",
+    label: report ? `${report.stale ? "Last reported: " : ""}${report.mode === "resident" ? "Persistent" : "On demand"}` : "Unknown runtime",
+    dash: !report ? "1 5" : report.mode === "resident" ? undefined : "8 5",
+    stale: report?.stale ?? false,
+  };
+}
+export interface TopologyFilters { engine: string; status: string; host: string; mode: string }
+export function filterGraph(model: GraphModel, filters: TopologyFilters, collapsed: Set<string>): GraphModel {
+  const communicators = model.communicators.filter(({ node }) =>
+    (filters.host === "all" || String(node.host_id) === filters.host) &&
+    (filters.mode === "all" || runtimeStyle(node).mode === filters.mode));
+  const parents = new Set(communicators.map(item => item.node.id));
+  const agents = model.agents.filter(({ node }) =>
+    (filters.host === "all" || String(node.host_id) === filters.host) &&
+    (filters.engine === "all" || node.engine === filters.engine) &&
+    (filters.status === "all" || node.presence === filters.status) &&
+    (node.association.parent_id === "server" ? filters.mode === "all" : parents.has(node.association.parent_id)) &&
+    !collapsed.has(node.association.parent_id));
+  return { communicators, agents };
+}

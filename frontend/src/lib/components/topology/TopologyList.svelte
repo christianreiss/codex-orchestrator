@@ -3,7 +3,7 @@
   import { Badge } from "$lib/components/ui/badge";
   import { hostWrapperTarget, isWrapperBehind, wrapperRolloutQuery } from "$lib/api/wrapper-rollout";
   import { isEngine } from "$lib/constants/engines";
-  import { ageLabel, communicatorAppearance, communicatorLabel, matchesQuery, type GraphModel } from "$lib/topology/model";
+  import { runtimeStyle, ageLabel, communicatorAppearance, communicatorLabel, matchesQuery, type GraphModel } from "$lib/topology/model";
   import type { Presence } from "$lib/portal/types";
 
   type Props = { model: GraphModel; selectedId: string | null; query?: string; onselect: (id: string | null) => void };
@@ -63,7 +63,7 @@
           <span class="inline-flex items-center gap-1.5 text-xs" style:color={appearance.color}><span class="h-2 w-2 rounded-full" style:background={appearance.color} aria-hidden="true"></span>{appearance.label}</span>
           {#if item.ghost}<Badge variant="secondary">disconnected</Badge>
           {:else}<Badge variant={item.node.health === "live" ? "success" : item.node.health === "closing" ? "destructive" : "warning"}>{item.node.health}</Badge>{/if}
-          <span class="text-xs text-muted-foreground">cxx {item.node.version} · {children.length} agent{children.length === 1 ? "" : "s"}</span>
+          <span class="text-xs text-muted-foreground">{runtimeStyle(item.node).label} · cxx {item.node.version} · {children.length} agent{children.length === 1 ? "" : "s"}</span>
           {#if !item.ghost && isWrapperBehind(item.node.version, hostWrapperTarget($rollout.data, item.node.host_id))}<Badge variant="warning" title={`Behind cxx ${hostWrapperTarget($rollout.data, item.node.host_id)}; applies when its agents are idle`}>outdated</Badge>{/if}
         </button>
         {#if children.length > 0}<ul class="border-t p-1">{#each children as child (child.node.id)}{@render agentRow(child)}{/each}</ul>{/if}

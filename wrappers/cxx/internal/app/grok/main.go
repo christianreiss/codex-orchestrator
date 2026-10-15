@@ -931,6 +931,7 @@ func execute(ctx context.Context, path string, args, env []string, stdout, stder
 	err := cmd.Start()
 	closeLease()
 	if err == nil {
+		supervisor.StartControl()
 		stopWatch := schedulewatch.Start(ctx, cmd)
 		err = cmd.Wait()
 		supervisor.Close()
