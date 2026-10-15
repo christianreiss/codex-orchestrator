@@ -78,6 +78,9 @@ new route has to be documented here before it can ship.
 
 ## Live gateway acceptance matrix
 
+The dated [2026-10-15 receipt](gateway-matrix-2026-10-15.md) records the tested
+source/image, all nine outcomes and the production acceptance boundary.
+
 `api/scripts/verify-gateway-matrix.ts` is an opt-in acceptance test against real
 providers. It starts the production gateway routes on loopback, uses real key
 issuance/resolution and DB-backed routing in a dedicated MySQL database, and
