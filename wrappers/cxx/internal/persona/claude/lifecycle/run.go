@@ -1108,15 +1108,15 @@ func bootstrapWithProgress(
 		updated, err := applyClaudeArtifactsResult(ctx, resp.ClaudeArtifacts, logger)
 		configSync.Updated = configSync.Updated || updated
 		configSync.Err = errors.Join(configSync.Err, err)
-		// On-disk skills → ~/.claude/skills/<slug>/SKILL.md (Claude Code's native
-		// skill layout; it can't read skills over MCP like codex does). Keep this
-		// outcome on the skills marker rather than masking it as config health.
+		// Native skills remain the fallback for older servers and configurations
+		// without central MCP. MCP-first servers send an empty collection to
+		// retire previously managed native copies. Keep this on the skills marker.
 		nativeSkillsSync = applyBundleClaudeSkills(ctx, resp.ClaudeSkills, logger)
 
 		if resp.MemoryRouting != nil {
 			var args []string
 			if len(launchArgs) > 0 {
-				args = launchArgs[0]
+				args = memoryRoutingArgs(launchArgs[0])
 			}
 			updated, err := memoryrouting.Apply("claude", filepath.Dir(authPath), resp.MemoryRouting, args)
 			configSync.Checked = true

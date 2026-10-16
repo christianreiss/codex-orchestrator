@@ -32,7 +32,11 @@ func TestContentOnlyLifecycleConvergesRemindersWithoutCredentials(t *testing.T) 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				if responseCode != "" {
-					w.WriteHeader(http.StatusForbidden)
+					if responseCode == "api_unavailable" {
+						w.WriteHeader(http.StatusServiceUnavailable)
+					} else {
+						w.WriteHeader(http.StatusForbidden)
+					}
 					_ = json.NewEncoder(w).Encode(map[string]any{"code": responseCode, "scope": "fleet", "message": "fixture refusal"})
 					return
 				}
@@ -66,6 +70,13 @@ func TestContentOnlyLifecycleConvergesRemindersWithoutCredentials(t *testing.T) 
 			if engine == "claude" {
 				path = filepath.Join(custom, "MEMORY.md")
 			}
+			const localNotes = "existing local notes\r\n"
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(localNotes), 0o640); err != nil {
+				t.Fatal(err)
+			}
 			for range 2 {
 				if exit, err := run(); err != nil || exit != 0 {
 					t.Fatalf("content lifecycle: %d %v", exit, err)
@@ -83,21 +94,23 @@ func TestContentOnlyLifecycleConvergesRemindersWithoutCredentials(t *testing.T) 
 			if string(unchanged) != string(body) {
 				t.Fatal("older server erased reminder")
 			}
-			responseCode = "engine_disabled"
-			if exit, err := run(); exit != 1 || err == nil {
-				t.Fatalf("suspension accepted: %d %v", exit, err)
-			}
-			unchanged, _ = os.ReadFile(path)
-			if string(unchanged) != string(body) {
-				t.Fatal("fleet suspension erased reminder")
+			for _, code := range []string{"engine_disabled", "api_unavailable"} {
+				responseCode = code
+				if exit, err := run(); exit != 1 || err == nil {
+					t.Fatalf("%s accepted: %d %v", code, exit, err)
+				}
+				unchanged, _ = os.ReadFile(path)
+				if string(unchanged) != string(body) {
+					t.Fatalf("%s erased reminder or notes", code)
+				}
 			}
 			responseCode = "invalid_api_key"
 			if exit, err := run(); exit != 1 || err == nil {
 				t.Fatalf("host trust loss accepted: %d %v", exit, err)
 			}
 			unchanged, _ = os.ReadFile(path)
-			if strings.Contains(string(unchanged), memoryrouting.Start) {
-				t.Fatal("explicit host trust loss left reminder")
+			if string(unchanged) != localNotes {
+				t.Fatal("explicit host trust loss left reminder or changed notes")
 			}
 			responseCode = ""
 			bundle = &memoryrouting.Bundle{}
@@ -105,8 +118,8 @@ func TestContentOnlyLifecycleConvergesRemindersWithoutCredentials(t *testing.T) 
 				t.Fatalf("disabled gate: %d %v", exit, err)
 			}
 			body, _ = os.ReadFile(path)
-			if strings.Contains(string(body), memoryrouting.Start) {
-				t.Fatal("disabled reminder survived")
+			if string(body) != localNotes {
+				t.Fatal("disabled reminder survived or notes changed")
 			}
 			for _, credential := range []string{filepath.Join(root, ".codex", "auth.json"), filepath.Join(root, ".claude", ".credentials.json")} {
 				if _, err := os.Stat(credential); !os.IsNotExist(err) {
