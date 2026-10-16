@@ -316,6 +316,12 @@ func (ep *endpoint) ensure(ctx context.Context) error {
 		conn.Close()
 		return nil
 	}
+	if !runtime && ep.relocate(ctx) {
+		if conn, err := (&net.Dialer{}).DialContext(ctx, "unix", ep.localSocket()); err == nil {
+			conn.Close()
+			return nil
+		}
+	}
 	exe, err := executable()
 	if err != nil {
 		return err
@@ -395,6 +401,30 @@ func (ep *endpoint) ensure(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// relocate re-resolves the owner's socket after a failed dial, the way Configure
+// first resolved it, and reports whether the path changed. A long-lived process
+// (a supervising clx/cdx broker, a `communicator mcp` server) resolves once at
+// start; when its owner later exits and the replacement binds elsewhere, a fixed
+// path would leave it dialling a dead socket and starting owners it can never
+// reach. On 2026-10-14 (feedback 93b054f5) a self-update moved the owner from
+// /tmp/cxx-0 to /run/user/0 and every agent_* call of a running Claude session
+// failed with broker_upstream_unavailable until the session restarted. The same
+// move happens without an update when the logind directory appears or vanishes.
+// The runtime protocol already re-resolves on every call.
+func (ep *endpoint) relocate(ctx context.Context) bool {
+	socket, err := resolvedRuntimeSocket(ctx, ep.base)
+	if err != nil {
+		return false
+	}
+	ep.mu.Lock()
+	defer ep.mu.Unlock()
+	if socket == ep.socket {
+		return false
+	}
+	ep.socket = socket
+	return true
 }
 
 const serveLogLimit = 64 * 1024
