@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.7
-# Auth-runner image: FastAPI plus both engine CLIs.
+# Auth-runner image: FastAPI plus all three engine CLIs.
 #
-# Every layer here fails closed. An image that builds without one of the two
+# Every layer here fails closed. An image that builds without one of the three
 # CLIs is worse than a build error — it boots, answers /health, and reports a
-# dual-engine runner that silently cannot verify half the fleet's credentials.
+# multi-engine runner that silently cannot verify part of the fleet's credentials.
 # Base pinned by multi-arch index digest; `scripts/update-base-images.sh`
 # refreshes it, `runner/test_dockerfile_claims.py` holds the rules.
 ARG PYTHON_IMAGE=python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a
@@ -21,12 +21,12 @@ RUN apt-get update \
 #
 # The SHA256s are the release assets' published digests. A tag can be moved;
 # a digest cannot, so the download is verified before anything is unpacked.
-ARG CODEX_TAG=rust-v0.162.1
-ARG CODEX_VERSION=0.162.1
+ARG CODEX_TAG=rust-v0.163.0
+ARG CODEX_VERSION=0.163.0
 ARG CODEX_ASSET_AMD64=codex-x86_64-unknown-linux-musl.tar.gz
 ARG CODEX_ASSET_ARM64=codex-aarch64-unknown-linux-musl.tar.gz
-ARG CODEX_SHA256_AMD64=86f268d81b898f3e144c5ecff2ad2fda2c5802e042d6195b72538fe0fa125057
-ARG CODEX_SHA256_ARM64=bf3ca2719f1143b1440fbd85c149379e696c782c50ad7991f8bfcec60b2600c1
+ARG CODEX_SHA256_AMD64=beb339e8ecd9ba057a6bb2dc81ad8ca474812edfbf0fc5056ca818797648dde4
+ARG CODEX_SHA256_ARM64=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4
 ARG TARGETARCH
 RUN set -euo pipefail; \
     arch="${TARGETARCH:-amd64}"; \
@@ -67,11 +67,12 @@ RUN set -euo pipefail; \
     test "$(node --version)" = "v${NODE_VERSION}"; \
     npm --version
 
-# --- Claude Code CLI (exact version, verified) ---
+# --- Claude Code CLI (exact latest-normal release, verified) ---
+# Latest normal release as of 2026-10-16; vendor conservative stable is 2.1.292.
 # No `|| true`. The previous form installed whatever npm served that minute and
 # swallowed the failure, so a registry hiccup produced an image that claimed
 # dual-engine readiness with no `claude` on PATH at all.
-ARG CLAUDE_CODE_VERSION=2.1.296
+ARG CLAUDE_CODE_VERSION=2.1.301
 RUN set -euo pipefail; \
     npm install -g --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
     command -v claude >/dev/null || { echo "claude not on PATH after install" >&2; exit 1; }; \
@@ -87,7 +88,7 @@ WORKDIR /app
 # Official Grok native npm artifact, pinned by version AND sha512 integrity.
 # Extract only package/bin/grok.br; Node's built-in Brotli avoids installers.
 COPY install-grok.mjs /tmp/install-grok.mjs
-ARG GROK_VERSION=1.0.50
+ARG GROK_VERSION=1.0.60
 RUN set -eu; GROK_VERSION="${GROK_VERSION}" node /tmp/install-grok.mjs "${TARGETARCH:-amd64}"; \
     grok --version | grep -F "grok ${GROK_VERSION} "; \
     rm /tmp/install-grok.mjs
