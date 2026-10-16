@@ -1395,7 +1395,11 @@ not expired; `daemonResident()`). For any other host, register, heartbeat and
 claim answer `503 agent_messaging_relay_not_persistent` (503 so pre-0.9.82
 workers back off instead of retrying fast; 0.9.82 workers exit cleanly), while
 stop, renew, reply and ack stay open so in-flight work can finish and be
-recorded. The daemon relay keeps its own remote-starts check. See
+recorded. The daemon relay keeps its own remote-starts check (`daemonAccepting()`)
+on register and, from 0.9.92, on heartbeat and claim: an idle daemon relay is
+refused `403` as soon as the daemon is disabled, expired or migration-fenced;
+one with running sessions or leased/accepted peer work keeps both until it
+drains, without new work. See
 [host runtime policy](host-runtime-policy.md). Registration
 uses normal host API-key/IP policy and returns a generation-fenced 15-minute
 bearer; subsequent calls require `X-Agent-Relay-Token`. The relay never opens a

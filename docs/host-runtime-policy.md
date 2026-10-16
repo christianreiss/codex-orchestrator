@@ -64,7 +64,13 @@ The server is the enforcement point; the wrapper follows it.
   host is answered `503 agent_messaging_relay_not_persistent` on register,
   heartbeat and claim, so a worker that still runs gets nothing to execute and
   older wrappers back off instead of retrying fast. The daemon relay keeps its
-  own existing check (remote starts accepting).
+  own check (remote starts accepting: enabled, not expired, not migration-fenced)
+  on register and, from 0.9.92, on every heartbeat and claim too: once the
+  operator disables the daemon, its deadline passes or a fence commits, an idle
+  daemon relay is refused `403 Daemon relay is not enabled` immediately rather
+  than at token expiry. While remote sessions are still running or a peer
+  delivery is leased/accepted it keeps heartbeat and claim (claim hands out no
+  new work) so accepted turns drain and their results are recorded.
 - **Persistent schedules**: creating or enabling a persistent Wake/Cron schedule
   for an agent on a non-persistent host is refused
   (`schedule_host_not_persistent`). An existing persistent schedule whose host
