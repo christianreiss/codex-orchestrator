@@ -120,6 +120,19 @@
     onSuccess: ({ feedback }) => { loadVersion(feedback); reason = ''; void refresh(); toast.success('Claim released; previous token is invalid'); },
     onError: (e: Error) => toast.error(e.message),
   });
+  const closedStatuses = ['resolved', 'dismissed', 'duplicate'];
+  const deleteMutation = createMutation({
+    mutationFn: (id: string) => feedbackApi.remove(id),
+    onSuccess: ({ deleted, cascaded_duplicates }) => {
+      selected = ''; editingId = ''; void refresh();
+      toast.success(cascaded_duplicates ? `Deleted ${deleted} reports including ${cascaded_duplicates} duplicates` : 'Report deleted');
+    },
+    onError: (e: Error) => { toast.error(e.message); void refresh(); },
+  });
+  function remove() {
+    if (!item || !confirm('Permanently delete this closed report, its history and any duplicates of it? This cannot be undone.')) return;
+    $deleteMutation.mutate(item.id);
+  }
   function actorLabel(actor: Record<string, unknown> | null) {
     if (!actor) return 'Unassigned';
     if (actor.kind === 'system') return 'System';
@@ -220,6 +233,7 @@
           <div class="sm:col-span-2"><Button type="submit" disabled={$updateMutation.isPending || draftVersion !== item.version}>Save update</Button></div>
         </form>
         {#if item.claim_owner}<form class="mt-5 flex flex-wrap gap-2 border-t pt-4" onsubmit={(e) => { e.preventDefault(); if (item) $releaseMutation.mutate({ id: item.id, reason }); }}><label class="min-w-0 flex-1 text-sm">Release reason<input class={control} bind:value={reason} required maxlength="1000" /></label><Button type="submit" variant="outline" disabled={$releaseMutation.isPending}>Force release</Button></form>{/if}
+        {#if closedStatuses.includes(item.status) && !item.claim_owner}<div class="mt-5 flex flex-wrap items-center gap-2 border-t pt-4"><p class="min-w-0 flex-1 text-xs text-muted-foreground">Closed reports can be deleted with their history. Duplicates of this report are deleted too.</p><Button variant="destructive" disabled={$deleteMutation.isPending} onclick={remove}>Delete report</Button></div>{/if}
       {/if}
       <div class="mt-6 border-t pt-4"><h3 class="mb-3 font-semibold">History</h3>{#each $detailQuery.data?.events ?? [] as event (event.id)}<details class="mb-2 rounded border p-3"><summary class="cursor-pointer text-sm">v{event.version} · {event.action.replaceAll('_', ' ')} · {actorLabel(event.actor)}<span class="ml-2 text-xs text-muted-foreground">{relativeTime(event.created_at)}</span></summary><pre class="mt-3 whitespace-pre-wrap break-all text-xs">{JSON.stringify(event.detail, null, 2)}</pre></details>{/each}</div>
     {/if}

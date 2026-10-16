@@ -1,15 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { and, asc, eq, lte, like, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, lt, lte, like, or, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { feedbackItems, feedbackEvents } from '../db/schema.js';
+import { adminEvents, feedbackItems, feedbackEvents } from '../db/schema.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../http/errors.js';
 import type { Keyring } from '../security/keyring.js';
 import { encrypt, decrypt } from '../security/secret-box.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { SettingsService } from './settings.js';
 import {
-  FEEDBACK_ENABLED_KEY, FEEDBACK_CLAIM_SECONDS, feedbackId, feedbackSubmitSchema,
-  feedbackListSchema, feedbackClaimSchema, feedbackUpdateSchema, parseFeedback, type FeedbackActor,
+  FEEDBACK_ENABLED_KEY, FEEDBACK_CLAIM_SECONDS, FEEDBACK_CLOSED_STATUSES, feedbackId, feedbackSubmitSchema,
+  feedbackListSchema, feedbackClaimSchema, feedbackUpdateSchema, feedbackPurgeSchema, parseFeedback, type FeedbackActor,
 } from './feedback-contract.js';
 
 type Item = typeof feedbackItems.$inferSelect;
@@ -18,7 +18,7 @@ const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const clearedClaim = { claimOwner: null, claimRequestKey: null, claimTokenHash: null, claimTokenEnc: null, claimExpiresAt: null };
 const system: FeedbackActor = { host_id: null, engine: null, kind: 'system' };
 const scope = (actor: FeedbackActor) => `${actor.host_id ?? 'admin'}:${actor.engine ?? ''}:${actor.admin_user_id ?? ''}`;
-const terminal = (status: string) => ['resolved', 'dismissed', 'duplicate'].includes(status);
+const terminal = (status: string) => (FEEDBACK_CLOSED_STATUSES as readonly string[]).includes(status);
 
 /** Token material never leaves claim responses; read APIs and events use this projection. */
 export function feedbackView(row: Item, full = true) {
@@ -221,6 +221,64 @@ export class FeedbackService {
       return { feedback: feedbackView(next) };
     });
     this.publish(id);
+    return result;
+  }
+
+  /**
+   * Hard-deletes closed items with their history. Duplicates pointing at a deleted
+   * item are deleted with it: they are always closed, and keeping them with a null
+   * duplicate_of would break the duplicate invariant. Items, events and the audit
+   * row commit together.
+   */
+  private async purgeRows(tx: Tx, rows: Item[], auditType: string, actor: FeedbackActor, criteria: Record<string, unknown>) {
+    const seed = rows.map((r) => r.id);
+    const duplicates = seed.length ? await tx.select().from(feedbackItems)
+      .where(inArray(feedbackItems.duplicateOf, seed)).orderBy(asc(feedbackItems.id)).for('update') : [];
+    const all = [...rows, ...duplicates.filter((d) => !seed.includes(d.id))];
+    const ids = all.map((r) => r.id);
+    let events = 0;
+    if (ids.length) {
+      const eventResult = await tx.delete(feedbackEvents).where(inArray(feedbackEvents.feedbackId, ids));
+      events = Number(eventResult[0]?.affectedRows ?? 0);
+      await tx.delete(feedbackItems).where(inArray(feedbackItems.id, ids));
+    }
+    const byStatus: Record<string, number> = {};
+    for (const row of all) byStatus[row.status] = (byStatus[row.status] ?? 0) + 1;
+    const summary = { deleted: ids.length, events, cascaded_duplicates: all.length - rows.length, by_status: byStatus };
+    await tx.insert(adminEvents).values({ type: auditType, hostId: null, createdAt: new Date().toISOString(), payload: {
+      ...summary, ...criteria, admin_user_id: actor.admin_user_id ?? null,
+      items: all.map((r) => ({ id: r.id, title: r.title, status: r.status, duplicate_of: r.duplicateOf })),
+    } });
+    return { ...summary, ids };
+  }
+
+  async remove(input: unknown, actor: FeedbackActor) {
+    if (actor.admin_user_id === undefined) throw new ForbiddenError('Only administrators can delete feedback');
+    const id = feedbackId(input);
+    const result = await this.db.transaction(async (tx) => {
+      const row = await this.row(tx, id);
+      // Closed items never hold a claim (every status change clears it), so this also refuses live claims.
+      if (!terminal(row.status) || (row.claimExpiresAt && row.claimExpiresAt > new Date().toISOString())) {
+        throw new ConflictError('Only resolved, dismissed or duplicate feedback without a live claim can be deleted', 'feedback_not_closed');
+      }
+      return this.purgeRows(tx, [row], 'feedback.deleted', actor, { id });
+    });
+    this.publish(id);
+    return result;
+  }
+
+  async purge(input: unknown, actor: FeedbackActor) {
+    if (actor.admin_user_id === undefined) throw new ForbiddenError('Only administrators can purge feedback');
+    const args = parseFeedback(feedbackPurgeSchema, input);
+    const statuses = [...new Set(args.statuses)];
+    const result = await this.db.transaction(async (tx) => {
+      const rows = await tx.select().from(feedbackItems).where(and(
+        inArray(feedbackItems.status, statuses),
+        args.older_than ? lt(feedbackItems.updatedAt, args.older_than) : undefined,
+      )).orderBy(asc(feedbackItems.id)).for('update');
+      return this.purgeRows(tx, rows, 'feedback.purged', actor, { statuses, older_than: args.older_than ?? null });
+    });
+    if (result.deleted) this.publish();
     return result;
   }
 }

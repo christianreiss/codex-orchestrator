@@ -437,6 +437,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/feedback': cap('feedback.manage'),
   'POST /admin/feedback/:id': cap('feedback.manage'),
   'POST /admin/feedback/:id/claim': cap('feedback.manage'),
+  'POST /admin/feedback/purge': cap('feedback.manage'),
+  'DELETE /admin/feedback/:id': cap('feedback.manage'),
 
   // ── Agent portal ─────────────────────────────────────────────────────────
   'GET /admin/agent-portal/state': cap('agent_portal.read'),

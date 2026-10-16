@@ -45,5 +45,6 @@ export const feedbackApi = {
   get: (id: string) => api.get<{ feedback: FeedbackItem; events: FeedbackEvent[] }>(`/admin/feedback/${encodeURIComponent(id)}`),
   submit: (body: FeedbackSubmission) => api.post<{ feedback: FeedbackItem; replayed: boolean }>('/admin/feedback', body),
   update: (id: string, body: Record<string, unknown>) => api.post<{ feedback: FeedbackItem }>(`/admin/feedback/${encodeURIComponent(id)}`, body),
+  remove: (id: string) => api.delete<{ deleted: number; cascaded_duplicates: number; ids: string[] }>(`/admin/feedback/${encodeURIComponent(id)}`),
   forceRelease: (id: string, reason: string) => api.post<{ feedback: FeedbackItem }>(`/admin/feedback/${encodeURIComponent(id)}/claim`, { action: 'force_release', reason }),
 };

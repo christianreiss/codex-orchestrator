@@ -292,6 +292,8 @@
       "DELETE /admin/agent-sessions/:id/attachments/:attachmentId",
       "DELETE /admin/agent-messaging/groups/:slug",
       "DELETE /admin/chatty/session",
+      "DELETE /admin/feedback/:id",
+      "POST /admin/feedback/purge",
       "GET /admin/*",
       "GET /admin/agent-chat/limits",
       "GET /admin/agent-messaging",
