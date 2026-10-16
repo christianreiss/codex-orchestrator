@@ -1564,16 +1564,23 @@ root across subdirectories and linked worktrees. Long project keys use Claude's 
 200-character prefix and signed-32-bit UTF-16 hash suffix. User `autoMemoryDirectory`,
 trusted repository/local selectors, explicit `--settings` JSON/file and managed policy
 selectors are respected (policy wins), including `--setting-sources` exclusions.
-Repository/local settings come from the active worktree while its default memory
-index stays shared with the main checkout. Repository selectors are consumed only with an
-existing native workspace-trust receipt; settings must select an absolute or `~/` path.
+Project `.claude/settings.json` is read from the session working directory, with
+no parent-directory fallback. On POSIX, canonical local settings come from the
+main repository root's `.claude/settings.local.json` when owned by the running
+user and the repository root is not that user's home. Existing cwd-local settings
+merge beneath that canonical local file for native compatibility. The default memory index
+stays shared with the main checkout. Tracked or symlinked local settings, and
+files remembered by native `localSettingsSeenGitTracked`, are repository-supplied;
+untracked nonsymlink local settings are operator-owned. Repository-supplied
+selectors require an existing native workspace-trust receipt; settings must
+select an absolute or `~/` path.
 From cxx 0.9.90, memory selectors follow native option grammar: option values
 and prompt text after `--` cannot masquerade as `--settings` or
 `--setting-sources`. With `permissions.blockReadsOutsideWorkingDirectories`
-enabled, a repository-selected memory directory does not receive a reminder
-or trigger an index scan; previously owned reminder blocks are removed through
-the ownership manifest, preserving local notes. Explicit CLI and managed-policy
-directory selections remain supported.
+true in any enabled settings source, a repository-selected memory directory
+does not receive a reminder or trigger an index scan; previously owned reminder
+blocks are removed through the ownership manifest, preserving local notes.
+Explicit CLI, user and managed-policy directory selections remain supported.
 The wrapper already strips `CLAUDE_CONFIG_DIR`, so its inherited project-directory-name
 selector does not redirect a managed launch. Previously owned custom locations remain
 tracked for cleanup even after a setting changes. Native auto-memory switches

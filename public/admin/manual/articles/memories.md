@@ -23,9 +23,13 @@ local notes are preserved; they are not automatically migrated into the Atlas.
 
 From cxx 0.9.90, Claude memory-directory selection respects native argument
 boundaries. A repository-selected directory is not scanned or given a reminder
-when `permissions.blockReadsOutsideWorkingDirectories` is enabled; old owned
-blocks are removed while notes remain. Explicit CLI and managed policy selections
-remain supported.
+when `permissions.blockReadsOutsideWorkingDirectories` is true in any enabled
+settings source; old owned blocks are removed while notes remain. Explicit CLI,
+user and managed policy selections remain supported. Project settings come from
+the session working directory; local settings use the canonical main repository
+root with native ownership safeguards. Tracked, symlinked or previously tracked
+local settings count as repository-supplied; untracked nonsymlink local settings
+are operator-owned.
 
 The reminder follows central MCP availability. Turning that off removes only the
 managed reminder, as does an explicit loss of host trust; a service outage leaves
