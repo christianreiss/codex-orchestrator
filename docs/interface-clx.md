@@ -872,6 +872,12 @@ store/fetch and both settings renders. Examples include `modelSettings`,
 `ultracode`, `worktree`, `voice`, `attribution`, and plugin configuration. These
 are opt-in; an absent extension adds no native defaults or features.
 
+`idleCompaction` is an optional boolean: `false` stops idle conversation
+compaction; `true` leaves native eligibility in control and does not force it
+on. Removing the key withdraws fleet ownership without changing local sibling
+settings. Claude Code introduced it in 2.1.290, below the existing 2.1.296
+minimum for native settings; this addition does not raise that minimum.
+
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
 checked against Claude Code 2.1.301 on 2026-10-16. Validation rejects unknown
 root keys and fields in fixed nested objects, invalid types/enums, malformed
