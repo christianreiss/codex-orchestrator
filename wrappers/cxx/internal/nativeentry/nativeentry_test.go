@@ -1,6 +1,7 @@
 package nativeentry
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -175,12 +176,15 @@ func TestShellBlocksSourceIdempotentlyWithQuotedHome(t *testing.T) {
 			}
 			cmd := exec.Command(shell, args...)
 			cmd.Env = append(os.Environ(), "PATH=/usr/bin:/bin")
-			out, err := cmd.CombinedOutput()
+			// Shell startup diagnostics (e.g. /etc/zshenv) must not become part of the measured PATH.
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			out, err := cmd.Output()
 			if err != nil {
-				t.Fatalf("source: %v %s", err, out)
+				t.Fatalf("source: %v; stdout: %q; stderr: %q", err, out, stderr.String())
 			}
 			if got := strings.TrimSpace(string(out)); got != BinDir(home)+":/usr/bin:/bin" {
-				t.Fatalf("sourced PATH %q", got)
+				t.Fatalf("sourced PATH %q; stderr: %q", got, stderr.String())
 			}
 		})
 	}
