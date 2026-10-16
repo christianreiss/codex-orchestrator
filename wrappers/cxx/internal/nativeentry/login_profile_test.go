@@ -1,6 +1,7 @@
 package nativeentry
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +14,8 @@ import (
 func TestInstallReachesBashProfileThatSkipsBashrc(t *testing.T) {
 	home := t.TempDir()
 	profile := filepath.Join(home, ".bash_profile")
-	if err := os.WriteFile(profile, []byte("[ -x /usr/local/sbin/motd.sh ] && /usr/local/sbin/motd.sh\n"), 0644); err != nil {
+	const originalProfile = "[ -x /usr/local/sbin/motd.sh ] && /usr/local/sbin/motd.sh\nprintf 'login profile diagnostic\\n' >&2\n"
+	if err := os.WriteFile(profile, []byte(originalProfile), 0644); err != nil {
 		t.Fatal(err)
 	}
 	opts := Options{Home: home, WrapperPath: "/usr/bin/cxx", Engines: []string{"codex"}}
@@ -23,7 +25,7 @@ func TestInstallReachesBashProfileThatSkipsBashrc(t *testing.T) {
 		}
 	}
 	body, _ := os.ReadFile(profile)
-	if !strings.HasPrefix(string(body), "[ -x /usr/local/sbin/motd.sh ] && /usr/local/sbin/motd.sh\n") || strings.Count(string(body), blockStart) != 1 {
+	if !strings.HasPrefix(string(body), originalProfile) || strings.Count(string(body), blockStart) != 1 {
 		t.Fatalf(".bash_profile = %q", body)
 	}
 	for _, shadow := range []string{".profile", ".bash_login"} {
@@ -41,18 +43,24 @@ func TestInstallReachesBashProfileThatSkipsBashrc(t *testing.T) {
 	if bash, err := exec.LookPath("bash"); err == nil {
 		cmd := exec.Command(bash, "--login", "-c", `printf '%s' "$PATH"`)
 		cmd.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin"}
-		out, err := cmd.CombinedOutput()
+		// Login startup diagnostics must not become part of the measured PATH.
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
 		if err != nil {
-			t.Fatalf("login shell: %v %s", err, out)
+			t.Fatalf("login shell: %v; stdout: %q; stderr: %q", err, out, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "login profile diagnostic\n") {
+			t.Fatalf("login profile did not emit its diagnostic: %q", stderr.String())
 		}
 		if !strings.HasPrefix(string(out), BinDir(home)+":") {
-			t.Fatalf("login shell PATH %q does not start with %s", out, BinDir(home))
+			t.Fatalf("login shell PATH %q does not start with %s; stderr: %q", out, BinDir(home), stderr.String())
 		}
 	}
 	if err := Remove(Options{Home: home}); err != nil {
 		t.Fatal(err)
 	}
-	if body, _ := os.ReadFile(profile); string(body) != "[ -x /usr/local/sbin/motd.sh ] && /usr/local/sbin/motd.sh\n" {
+	if body, _ := os.ReadFile(profile); string(body) != originalProfile {
 		t.Fatalf("remove left %q", body)
 	}
 }
@@ -93,12 +101,14 @@ func TestInstallLoginProfileFallbackAndNoPathDuplication(t *testing.T) {
 	if bash, err := exec.LookPath("bash"); err == nil {
 		cmd := exec.Command(bash, "--login", "-c", `printf '%s' "$PATH"`)
 		cmd.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin"}
-		out, err := cmd.CombinedOutput()
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
 		if err != nil {
-			t.Fatalf("login shell: %v %s", err, out)
+			t.Fatalf("login shell: %v; stdout: %q; stderr: %q", err, out, stderr.String())
 		}
 		if n := strings.Count(":"+string(out)+":", ":"+BinDir(home)+":"); n != 1 {
-			t.Fatalf("login PATH %q has native-bin %d times", out, n)
+			t.Fatalf("login PATH %q has native-bin %d times; stderr: %q", out, n, stderr.String())
 		}
 	}
 }
