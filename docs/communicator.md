@@ -203,6 +203,13 @@ Each process holds a local streaming lease; a surviving client restarts a crashe
 owner. The last lease starts a five-minute idle period, after which the owner
 closes its socket and exits (the next managed call starts a new one). Status checks do not
 extend it. A connected persistent host daemon holds a lease too.
+A long-running client (a session's supervising wrapper and its agent broker, a
+`communicator mcp` server) resolves the socket at start and re-resolves it whenever a
+dial fails, the same way it first did (live owner record, then the runtime root above).
+When a replacement owner binds in a different root, for example after `/run/user/<uid>`
+appears or after a self-update moves an owner from `/tmp/cxx-<uid>`, the client follows
+it on its next call. It also waits for an owner it starts itself at that fresh path. A
+session started on 0.9.90 or earlier still keeps its original path and needs a restart.
 
 Because a lease (agent worker, host daemon, native launch) blocks that idle exit,
 an on-demand owner also watches its own executable. When any `cxx update` (cron,
