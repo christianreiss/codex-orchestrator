@@ -37,7 +37,14 @@ automatic notices, use `watchdog:<watchdog UUID>:capacity` or
 `schedule:<schedule UUID>:late`. Only pending, never leased/accepted, events are
 coalesced. Related-work references must also match, and keys are case-sensitive.
 Latest text wins; the event count and first/last timestamps survive,
-and previous encrypted messages remain in history as `superseded`.
+and previous encrypted messages remain in history as `superseded` with
+`superseded_by_id` naming the replacement. Coalescing happens when the repeat is
+sent, for every recipient and independent of `queue_delivery_v1` or the server
+flag below: a still-`queued` earlier update is superseded in the same transaction,
+so legacy receivers and relays deliver only the latest text with its
+`event_count`. Coalescing does not merge conversations; each send without
+`conversation_id` still opens its own. Catch-up digest presentation remains
+gated by the flag.
 
 Actual schedule wakes and watchdog recovery attempts are durable work, not
 notices. Their run/claim/recovery IDs and existing missed-tick coalescing are

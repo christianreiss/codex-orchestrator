@@ -245,6 +245,56 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
     expect(old?.status).toBe('superseded');
     expect(old?.supersededById).toBe(latest.message.id);
   });
+  for (const capable of [false, true])
+    it(`supersedes a still-pending keyed update at send time (queue_delivery_v1 ${capable ? 'on' : 'off'})`, async () => {
+      env.CXX_QUEUE_DELIVERY_V1_ENABLED = capable;
+      const source = await peer(),
+        target = await peer('codex', capable);
+      const queue = { delivery_class: 'progress' as const, coalesce_key: 'build:send-time:compile' };
+      const v1 = await send(source, target, 'v1', { queue });
+      const v2 = await send(source, target, 'v2', { queue });
+      const v3 = await send(source, target, 'v3', { queue });
+      // Before any claim: the recipient-side record already shows the replacement.
+      for (const old of [v1, v2]) {
+        const view = (await service.getMessage(target.id, target.token, old.message.id)).message as Record<string, unknown>;
+        expect(view).toMatchObject({ status: 'superseded', superseded_by_id: v3.message.id });
+      }
+      const latest = (await service.getMessage(target.id, target.token, v3.message.id)).message as Record<string, unknown>;
+      expect(latest).toMatchObject({ status: 'queued', event_count: 3, content: 'v3' });
+      expect(latest.event_first_at).toBeTruthy();
+      const d = (await claim(target))!;
+      if (capable) {
+        expect(d.kind).toBe('digest');
+        const body = JSON.parse(d.content);
+        expect(body.entries).toEqual([expect.objectContaining({ message_id: v3.message.id, event_count: 3, preview: 'v3' })]);
+        await ack(target, d, 'accepted');
+        expect((await service.getDigest(target.id, target.token, d.message_id)).messages).toHaveLength(3);
+      } else {
+        expect(d).toMatchObject({ kind: 'message', message_id: v3.message.id, content: 'v3', event_count: 3 });
+        await ack(target, d, 'accepted');
+        await ack(target, d, 'completed');
+      }
+      expect(await claim(target)).toBeNull();
+    });
+  it('never supersedes a leased update and keeps other streams independent at send time', async () => {
+    env.CXX_QUEUE_DELIVERY_V1_ENABLED = false;
+    const source = await peer(),
+      target = await peer('codex', false);
+    const queue = { delivery_class: 'notice' as const, coalesce_key: 'watchdog:lease:capacity' };
+    const v1 = await send(source, target, 'v1', { queue });
+    const leased = (await claim(target))!;
+    expect(leased.message_id).toBe(v1.message.id);
+    const v2 = await send(source, target, 'v2', { queue });
+    const other = await send(source, target, 'other key', { queue: { ...queue, coalesce_key: 'watchdog:LEASE:capacity' } });
+    const plain = await send(source, target, 'plain info');
+    const rows = await db
+      .select()
+      .from(schema.agentBusMessages)
+      .where(inArray(schema.agentBusMessages.id, [v1.message.id, v2.message.id, other.message.id, plain.message.id]));
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(byId.get(v1.message.id)).toMatchObject({ status: 'leased', supersededById: null });
+    for (const m of [v2, other, plain]) expect(byId.get(m.message.id)).toMatchObject({ status: 'queued', eventCount: 1, supersededById: null });
+  });
   it('keeps legacy clients single-message and gated while accepted work is held', async () => {
     const source = await peer(),
       target = await peer('claude', false);

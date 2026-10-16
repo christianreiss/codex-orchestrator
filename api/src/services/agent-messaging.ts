@@ -1,4 +1,4 @@
-import { queuePolicy, assertQueuePolicyReplay, validateRelatedWork, smartQueueAllowed, prepareSmartDigest, restoreUnpresentedDigests, presentDigest, type QueuePolicy } from './agent-messaging/smart-queue.js';
+import { queuePolicy, assertQueuePolicyReplay, validateRelatedWork, smartQueueAllowed, prepareSmartDigest, restoreUnpresentedDigests, presentDigest, coalescePendingRepeats, type QueuePolicy } from './agent-messaging/smart-queue.js';
 import { expireRebootHandoffs } from './reboot-handoffs.js';
 import { daemonAccepting, daemonResidentFor } from './host-daemon/policy.js';
 import { assertHousekeepingAvailable } from './session-housekeeping.js';
@@ -540,6 +540,7 @@ export class AgentMessagingService {
         updatedAt: now,
       };
       await tx.insert(agentBusMessages).values(message);
+      await coalescePendingRepeats(tx, { messageId, senderAddressId: sender.id, targetAddressId: target.id, policy, now });
       const persistedRows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId)).limit(1);
       const persisted = persistedRows[0];
       if (!persisted) throw new Error('Inserted agent message could not be read back');
@@ -673,6 +674,7 @@ export class AgentMessagingService {
         updatedAt: now,
       };
       await tx.insert(agentBusMessages).values(message);
+      await coalescePendingRepeats(tx, { messageId, senderAddressId: sender.id, targetAddressId: target.id, policy, now });
       const persistedRows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId)).limit(1);
       const persisted = persistedRows[0];
       if (!persisted) throw new Error('Inserted agent reply could not be read back');
