@@ -2,6 +2,7 @@ package agentbus
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -174,5 +175,42 @@ func TestPeerNameFallsBackFromAliasToHost(t *testing.T) {
 		if got := tc.peer.name(); got != tc.want {
 			t.Errorf("name() = %q, want %q", got, tc.want)
 		}
+	}
+}
+
+// Grok imports Claude's settings.json hooks through its compatibility layer. A
+// blocking Stop there keeps the Grok thread working, which is exactly what keeps
+// the automatic receiver's claim gate shut (claim_gate thread_working).
+func TestRingHooksAreSilentUnderGrok(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(envSessionID, "77777777-7777-4777-8777-777777777777")
+	t.Setenv("CXX_AGENT_PORTAL_ENGINE", "grok")
+	box := &mailbox{
+		Pending: []mailboxEntry{{MessageID: "m-1", From: mailboxPeer{Alias: "web02"}}},
+		Missed:  []mailboxEntry{{From: mailboxPeer{Address: "agent:x"}, ExpiredAt: "2026-10-16T06:14:39Z"}},
+	}
+	end := &turnEnd{stillHeld: []heldDelivery{{MessageID: "w-1", Kind: "work"}}, blocked: true}
+	for _, event := range []string{hookEventStop, hookEventPrompt} {
+		var out strings.Builder
+		if err := emitHook(&out, event, box, end); err != nil {
+			t.Fatalf("%s: emitHook: %v", event, err)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%s under Grok must print nothing (no decision), got %q", event, out.String())
+		}
+	}
+	// Nothing was rung, so nothing may be recorded as rung.
+	if fresh, _ := unrung(hookEventStop, box); len(fresh) != 2 {
+		t.Fatalf("Grok hook must not commit the ring ledger, fresh=%d", len(fresh))
+	}
+
+	// The CLI entry returns before touching the receiver owner or the server.
+	t.Setenv(envSocket, filepath.Join(t.TempDir(), "missing.sock"))
+	var out, errs strings.Builder
+	if err := runPoll([]string{"--hook", hookEventStop}, strings.NewReader(`{"transcriptPath":"/nonexistent"}`), &out, &errs); err != nil {
+		t.Fatalf("runPoll: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("Grok Stop hook must print nothing, got %q", out.String())
 	}
 }

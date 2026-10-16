@@ -518,6 +518,16 @@ later message and schedule wake queued until a human typed. Accepted work and
 open Portal instructions are never released this way. Claude uses its
 `Stop`/`UserPromptSubmit` hooks for the same release (see `interface-clx.md`).
 
+From cxx 0.9.91 the Claude ringer (`cxx agent poll --hook Stop|UserPromptSubmit`)
+prints nothing inside a Grok lifecycle (`CXX_AGENT_PORTAL_ENGINE=grok`). On hosts
+that also run clx, Grok's Claude compatibility layer imports those hooks from
+`~/.claude/settings.json`; a blocking `Stop` kept the Grok thread `working`, so the
+automatic receiver's `claim_gate` stayed `thread_working` and the ring told the
+model to call `agent_listen`, which cannot force a claim. A clean yield now lets
+the thread go idle, and the receiver submits the next message itself. Deliveries
+that arrive during a long tool turn still wait for that idle boundary, as on
+Codex. User-authored Claude hooks and `compat.claude.hooks` are untouched.
+
 From cxx 0.9.20, Grok exposes the same seven group/subscription MCP tools as
 Codex and Claude: `agent_group_list`, `agent_group_create`, `agent_group_members`,
 `agent_subscribe`, `agent_unsubscribe`, `agent_subscriptions` and `agent_publish`.

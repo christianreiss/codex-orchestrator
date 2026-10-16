@@ -94,6 +94,10 @@ func runPoll(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return errorsUsage("cxx agent poll", "--hook must be "+hookEventStop+" or "+hookEventPrompt)
 	}
 
+	if event != "" && ringHooksDisabled() {
+		// Empty stdout with exit 0 is "no decision" for the native hook runner.
+		return nil
+	}
 	if event == "" {
 		box, err := peekMailbox(5 * time.Second)
 		if err != nil {
@@ -129,7 +133,24 @@ func peekMailbox(timeout time.Duration) (*mailbox, error) {
 	return &box, nil
 }
 
+// ringHooksDisabled reports a lifecycle whose native turn boundaries this ring
+// must not touch. The hooks are rendered for Claude only, but Grok's Claude
+// compatibility layer imports ~/.claude/settings.json hooks on hosts that also
+// run clx. There a blocking Stop keeps the Grok thread `working`, and the
+// automatic Grok receiver claims only while the thread is idle: the ring itself
+// held reception shut (claim_gate thread_working) and asked the model to call
+// agent_listen, which cannot force a claim. The transcript check in
+// releaseAtTurnEnd also only understands Claude's channel entries. Grok releases
+// read informational deliveries on its own once the thread settles idle
+// (releaseAfterNativeTurn), so the clean yield is what delivers the next body.
+func ringHooksDisabled() bool {
+	return strings.TrimSpace(os.Getenv("CXX_AGENT_PORTAL_ENGINE")) == "grok"
+}
+
 func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error {
+	if ringHooksDisabled() {
+		return nil
+	}
 	if end != nil && end.released > 0 && len(end.stillHeld) == 0 && end.receiverReady {
 		// Reception just reopened on a healthy receiver: what is pending will be
 		// pushed into the conversation, waking it if idle. Ringing it as well
