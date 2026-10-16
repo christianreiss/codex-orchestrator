@@ -35,7 +35,7 @@
  *   …
  */
 import { createHash } from 'node:crypto';
-import { codexMcpServers, mergeNativeSettings, nativeRecord, validateCodexConfigDocument } from './codex-native-settings.js';
+import { codexMcpServers, mergeNativeSettings, nativeRecord, validateCodexConfigDocument, validateCodexFeatureDocument } from './codex-native-settings.js';
 import { desc, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { clientConfigDocuments } from '../db/schema.js';
@@ -52,6 +52,7 @@ import {
   normalizeReasoningEffort,
   normalizeReasoningEffortForModel,
   normalizeSettings,
+  validateCodexFeatureAuthoring,
   normalizeStoredModel,
   normalizeClaudeModel,
   normalizeClaudeEffortLevel,
@@ -202,6 +203,7 @@ export function codexUsesProfileFiles(clientVersion: string | null | undefined):
  */
 export function renderProfileToml(profile: Record<string, unknown>): string {
   if (profile.native_settings) return renderNativeToml(codexRenderDocument(profile));
+  validateCodexFeatureDocument(asRecord(profile.features), 'settings.profiles');
   const lines: string[] = [];
   for (const key of SCALAR_KEYS) {
     if (key === 'profile' || key === 'local_provider') continue;
@@ -226,6 +228,11 @@ export function renderToml(normalized: NormalizedSettings, opts: { profileTables
         .map(profile => [String(profile.name), codexRenderDocument(profile)]));
     }
     return renderNativeToml(document);
+  }
+  validateCodexFeatureDocument(normalized.features, 'settings');
+  for (const profile of normalized.profiles) {
+    if (profile.native_settings) codexRenderDocument(profile);
+    else validateCodexFeatureDocument(asRecord(profile.features), 'settings.profiles');
   }
   const lines: string[] = [];
 
@@ -1380,6 +1387,7 @@ export class ClientConfigService {
   }
 
   render(settingsInput: unknown, engine: Engine = ENGINE_CODEX): RenderResult {
+    if (engine === ENGINE_CODEX) validateCodexFeatureAuthoring(settingsInput);
     const normalized = engine === ENGINE_GROK ? normalizeGrokSettings(settingsInput) : normalizeSettings(settingsInput, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
     const content = engine === ENGINE_GROK ? renderGrokSettings(normalized) : engine === ENGINE_CLAUDE ? renderClaudeSettings(normalized) : renderToml(normalized);
     return {

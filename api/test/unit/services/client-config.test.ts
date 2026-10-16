@@ -96,17 +96,20 @@ describe('client-config: renderToml', () => {
 
   it('emits a [features] section sorted alphabetically', () => {
     const s = normalizeSettings({
-      features: { zebra: true, apple: false, mango: true },
+      features: { hooks: true, apps: false, memories: true },
     });
     const toml = renderToml(s);
     const featuresIdx = toml.indexOf('[features]');
     expect(featuresIdx).toBeGreaterThan(-1);
     const after = toml.slice(featuresIdx);
-    const appleIdx = after.indexOf('apple');
-    const mangoIdx = after.indexOf('mango');
-    const zebraIdx = after.indexOf('zebra');
-    expect(appleIdx).toBeLessThan(mangoIdx);
-    expect(mangoIdx).toBeLessThan(zebraIdx);
+    const appsIdx = after.indexOf('apps');
+    const hooksIdx = after.indexOf('hooks');
+    const memoriesIdx = after.indexOf('memories');
+    expect(appsIdx).toBeGreaterThanOrEqual(0);
+    expect(hooksIdx).toBeGreaterThanOrEqual(0);
+    expect(memoriesIdx).toBeGreaterThanOrEqual(0);
+    expect(appsIdx).toBeLessThan(hooksIdx);
+    expect(hooksIdx).toBeLessThan(memoriesIdx);
   });
 
   it('never emits [security]: codex-cli 0.156.1 reports the whole table ignored', () => {

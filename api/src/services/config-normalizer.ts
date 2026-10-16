@@ -28,7 +28,7 @@
 
 import { createHash } from 'node:crypto';
 import { ValidationError } from '../http/errors.js';
-import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, type CodexApprovalPolicy } from './codex-native-settings.js';
+import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, validateCodexFeatureDocument, type CodexApprovalPolicy } from './codex-native-settings.js';
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
 import { CLAUDE_LEGACY_MODEL_UPGRADES as CLAUDE_MODEL_UPGRADES, CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_ENV_KEYS, normalizeClaudeModelReference } from './claude-models.js';
 import { normalizeClaudeNativeSettings } from './claude-native-settings.js';
@@ -336,6 +336,16 @@ function normalizeWebSearch(value: unknown): CodexWebSearch | null {
   return legacy ? 'live' : 'disabled';
 }
 
+function normalizeLegacyWebSearch(settings: Record<string, unknown>): CodexWebSearch | null {
+  const features = asRecord(settings.features);
+  return normalizeWebSearch(settings.web_search ?? (
+    features.web_search_request === true ? 'live'
+      : features.web_search_cached === true ? 'cached'
+        : features.web_search === true ? 'live'
+          : ['web_search_request', 'web_search_cached', 'web_search'].some(key => features[key] === false) ? 'disabled' : undefined
+  ));
+}
+
 function normalizeFeatures(value: unknown): Record<string, unknown> {
   const features = { ...asRecord(value) };
   if (features.hooks === undefined && features.codex_hooks !== undefined) features.hooks = features.codex_hooks;
@@ -352,6 +362,39 @@ function normalizeFeatures(value: unknown): Record<string, unknown> {
   return cleaned;
 }
 
+/** Validate author input before stored-data coercions can discard invalid values. */
+export function validateCodexFeatureAuthoring(raw: unknown): void {
+  const input = asRecord(raw);
+  const scopes: Array<[Record<string, unknown>, string]> = [[input, 'settings']];
+  if (Array.isArray(input.profiles)) {
+    input.profiles.forEach((profile, i) => scopes.push([asRecord(profile), `settings.profiles[${i}]`]));
+  }
+  for (const [scope, path] of scopes) {
+    if (scope.features === undefined || scope.features === null) continue;
+    if (typeof scope.features !== 'object' || Array.isArray(scope.features)) {
+      throw new ValidationError(`${path}.features must be an object or null to clear it`, { param: `${path}.features` });
+    }
+    const features = { ...scope.features as Record<string, unknown> };
+    for (const [key, value] of Object.entries(features)) {
+      // Only value-preserving aliases retain authoring compatibility.
+      if (['codex_hooks', 'web_search', 'web_search_request', 'web_search_cached'].includes(key)) {
+        if (value !== null && typeof value !== 'boolean') {
+          throw new ValidationError(`${path}.features.${key} must be boolean or null`, { param: `${path}.features.${key}` });
+        }
+        delete features[key];
+        if (key === 'codex_hooks' && features.hooks === undefined) features.hooks = value;
+      } else if (DROPPED_FEATURE_KEYS.includes(key) || key === 'guardianv2.thread_context') {
+        throw new ValidationError(`${path}.features.${key} is removed or deprecated; omit it`, { param: `${path}.features.${key}` });
+      }
+    }
+    if (Object.hasOwn(asRecord(features.guardianv2), 'thread_context')) {
+      throw new ValidationError(`${path}.features.guardianv2.thread_context is removed; omit it`, { param: `${path}.features.guardianv2.thread_context` });
+    }
+    // These may be partial overlays. Check cross-field requirements after merging.
+    validateCodexFeatureDocument(features, path, true);
+  }
+}
+
 function normalizeProfiles(value: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) return [];
   const out: Array<Record<string, unknown>> = [];
@@ -364,6 +407,8 @@ function normalizeProfiles(value: unknown): Array<Record<string, unknown>> {
       }
       const profile: Record<string, unknown> = { ...input, ...(native !== undefined && { native_settings: native }) };
       if (profile.approval_policy !== undefined) profile.approval_policy = normalizeApprovalPolicy(profile.approval_policy);
+      const webSearch = normalizeLegacyWebSearch(input);
+      if (webSearch !== null) profile.web_search = webSearch;
       if (profile.features !== undefined) profile.features = normalizeFeatures(profile.features);
       const rawModel = profile.model;
       const model = normalizeStoredModel(rawModel);
@@ -438,11 +483,7 @@ export function normalizeSettings(
     personality,
     approval_policy: normalizeApprovalPolicy(settings.approval_policy),
     sandbox_mode: normalizeString(settings.sandbox_mode),
-    web_search: normalizeWebSearch(settings.web_search ?? (
-      asRecord(settings.features).web_search_request === true ? 'live'
-        : asRecord(settings.features).web_search_cached === true ? 'cached'
-          : asRecord(settings.features).web_search === true ? 'live' : undefined
-    )),
+    web_search: normalizeLegacyWebSearch(settings),
     model_reasoning_effort: reasoning,
     model_reasoning_summary: normalizeString(settings.model_reasoning_summary),
     model_verbosity: normalizeString(settings.model_verbosity),
