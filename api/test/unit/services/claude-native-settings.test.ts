@@ -82,6 +82,43 @@ describe('Claude native user settings', () => {
     expect(afterRemoval.owned_paths.some(path => path.includes('pluginConfigs'))).toBe(false);
   });
 
+  it('preserves public autoMode rule lists, their defaults marker and exact ownership', () => {
+    const publicExample = { autoMode: { soft_deny: ['$defaults', 'Never run terraform apply'] } };
+    expect(normalizeClaudeNativeSettings(publicExample)).toEqual(publicExample);
+    const native = { autoMode: {
+      environment: ['$defaults', 'Trust repositories under /srv/team'],
+      allow: ['$defaults', 'Allow read-only internal issue lookups'],
+      soft_deny: ['$defaults', 'Never run terraform apply'],
+      hard_deny: ['Never delete a production database'],
+      classifyAllShell: true,
+    }, permissions: { disableAutoMode: 'disable' } };
+    expect(normalizeClaudeNativeSettings(native)).toEqual(native);
+    expect(normalize(native).native_settings).toEqual(native);
+    expect(JSON.parse(new ClientConfigService({} as never).render({ native_settings: native }, 'claude').content)).toMatchObject(native);
+    const rendered = renderClaudeSettingsPartialForHost({
+      host: { claudeClientVersion: '2.1.301', claudeWrapperVersion: '0.9.88' } as never,
+      settings: { native_settings: native }, baseUrl: null, apiKey: null,
+    });
+    expect(rendered.partial).toMatchObject(native);
+    for (const key of Object.keys(native.autoMode)) expect(rendered.owned_paths).toContain(`autoMode.${key}`);
+    expect(rendered.owned_paths).toContain('permissions.disableAutoMode');
+    const removed = renderClaudeSettingsPartial(normalize({ env: { LOCAL_SIBLING: 'preserved' } }));
+    expect(removed.owned_paths.some(path => path.startsWith('autoMode.'))).toBe(false);
+    expect(removed.partial.env).toEqual({ LOCAL_SIBLING: 'preserved' });
+    expect(normalize({}).native_settings).toBeUndefined();
+  });
+
+  it.each(['environment', 'allow', 'soft_deny', 'hard_deny'])('validates autoMode.%s as a string array', field => {
+    expect(() => normalizeClaudeNativeSettings({ autoMode: { [field]: 'rule' } })).toThrow(`native_settings.autoMode.${field}`);
+    expect(() => normalizeClaudeNativeSettings({ autoMode: { [field]: ['$defaults', false] } })).toThrow(`native_settings.autoMode.${field}.1`);
+  });
+
+  it('still rejects autoMode typos and invalid disableAutoMode aliases', () => {
+    expect(() => normalizeClaudeNativeSettings({ autoMode: { softDenies: ['$defaults'] } })).toThrow('native_settings.autoMode.softDenies');
+    expect(() => normalizeClaudeNativeSettings({ permissions: { disableAutoMode: true } })).toThrow('native_settings.permissions.disableAutoMode');
+    expect(() => normalizeClaudeNativeSettings({ permissions: { disableAutoMode: 'enabled' } })).toThrow('native_settings.permissions.disableAutoMode');
+  });
+
   it('migrates deprecated model references without changing custom IDs or current overrides', () => {
     const native = {
       modelSettings: {
@@ -193,8 +230,17 @@ describe('Claude native user settings', () => {
       } }),
     };
     const service = new ClientConfigService(db as never);
-    await service.store({ settings: { native_settings: { env: { CUSTOM: 'first' }, permissions: { defaultMode: 'plan' } } } }, null, 'claude');
+    const autoMode = {
+      environment: ['$defaults', 'Trust internal infrastructure'],
+      allow: ['$defaults', 'Allow read-only lookups'],
+      soft_deny: ['$defaults', 'Never run terraform apply'],
+      hard_deny: ['Never delete production data'],
+      classifyAllShell: true,
+    };
+    await service.store({ settings: { native_settings: { autoMode, env: { CUSTOM: 'first' }, permissions: { defaultMode: 'plan' } } } }, null, 'claude');
     const first = await service.adminFetch('claude');
+    expect(first.settings?.native_settings?.autoMode).toEqual(autoMode);
+    expect(JSON.parse(first.content!).autoMode).toEqual(autoMode);
     const beforeInvalid = structuredClone(row);
     await expect(service.store({ settings: { native_settings: { voice: { enabld: true } } } }, null, 'claude'))
       .rejects.toThrow('native_settings.voice.enabld');
@@ -202,14 +248,16 @@ describe('Claude native user settings', () => {
     expect(await service.adminFetch('claude')).toEqual(first);
     expect(first.settings?.env).toBeUndefined();
     expect(first.settings?.permissionMode).toBeUndefined();
-    const changed = await service.store({ settings: { ...first.settings, native_settings: { env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual' } } } }, null, 'claude');
+    const changed = await service.store({ settings: { ...first.settings, native_settings: { autoMode: { ...autoMode, soft_deny: ['Replacement rule without defaults'] }, env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual' } } } }, null, 'claude');
     expect(JSON.parse(changed.content)).toMatchObject({ env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual' } });
     const second = await service.adminFetch('claude');
+    expect(second.settings?.native_settings?.autoMode).toEqual({ ...autoMode, soft_deny: ['Replacement rule without defaults'] });
     await service.store({ settings: { ...second.settings, native_settings: {} } }, null, 'claude');
     const cleared = await service.adminFetch('claude');
     expect(cleared.settings?.native_settings).toBeUndefined();
     const rendered = JSON.parse(cleared.content!);
     expect(rendered.env).toBeUndefined();
+    expect(rendered.autoMode).toBeUndefined();
     expect(rendered.permissions.defaultMode).not.toBe('manual');
   });
 

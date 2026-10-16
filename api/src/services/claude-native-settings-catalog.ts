@@ -203,6 +203,10 @@ export const CLAUDE_GLOBAL_ONLY_SETTINGS: readonly string[] = [
 
 export const CLAUDE_NATIVE_NESTED_SETTING_RULES: Readonly<Record<string, ClaudeNativeSettingRule>> = {
   "autoMode.classifyAllShell": {"type": "boolean"},
+  "autoMode.environment": {"type": "array", "items": "string"},
+  "autoMode.allow": {"type": "array", "items": "string"},
+  "autoMode.soft_deny": {"type": "array", "items": "string"},
+  "autoMode.hard_deny": {"type": "array", "items": "string"},
   "permissions.allow": {"type": "array", "items": "string"},
   "permissions.ask": {"type": "array", "items": "string"},
   "permissions.deny": {"type": "array", "items": "string"},
@@ -210,6 +214,7 @@ export const CLAUDE_NATIVE_NESTED_SETTING_RULES: Readonly<Record<string, ClaudeN
   "permissions.blockReadsOutsideWorkingDirectories": {"type": "boolean"},
   "permissions.defaultMode": {"type": "string", "values": ["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions", "manual"]},
   "permissions.disableBypassPermissionsMode": {"type": "string", "values": ["disable"]},
+  "permissions.disableAutoMode": {"type": "string", "values": ["disable"]},
   "sandbox.enabled": {"type": "boolean"},
   "sandbox.failIfUnavailable": {"type": "boolean"},
   "sandbox.autoAllowBashIfSandboxed": {"type": "boolean"},

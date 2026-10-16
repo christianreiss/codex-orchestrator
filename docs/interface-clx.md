@@ -885,6 +885,13 @@ Unknown fixed fields are rejected even where the native parser would strip or
 preserve them without a consumer. Validation does not execute hooks, resolve
 external files, install plugins, or prove that an external service is reachable.
 
+The optional `autoMode` object supports `environment`, `allow`, `soft_deny`, and
+`hard_deny` arrays of prose strings plus `classifyAllShell`. The literal
+`"$defaults"` marker stays at its authored position: it retains native built-in
+rules there; omitting it replaces those rules for that list. No marker or list
+is inserted by the orchestrator. `permissions.disableAutoMode` accepts the
+same `"disable"` value as the documented top-level setting.
+
 Deprecated keys `includeCoAuthoredBy`, `disableArtifact`, `voiceEnabled`,
 `keybindingFlavor`, `taskOutputMaxChars`, `ignorePatterns`,
 `permissionExplainerEnabled`, and `teammateDefaultModel` are rejected with
