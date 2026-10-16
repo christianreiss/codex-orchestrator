@@ -92,7 +92,9 @@ the same version and SHA-256, and it refuses downgrades.
 3. It then applies through the ordinary `cxx update`, which installs from the
    staged copy, updates the provider CLIs and syncs.
 4. An on-demand owner retires afterwards, so the next managed call starts the
-   new binary.
+   new binary. An update installed by anything else (root cron, a shared install
+   reporting `requires_root`, an explicit `cxx update`) is caught by the owner's
+   replaced-executable check described under the local lease lifecycle.
 
 A shared or root-owned install is left to root and reports `requires_root`.
 A transient apply failure, such as the cron coordinator holding the
@@ -201,6 +203,16 @@ Each process holds a local streaming lease; a surviving client restarts a crashe
 owner. The last lease starts a five-minute idle period, after which the owner
 closes its socket and exits (the next managed call starts a new one). Status checks do not
 extend it. A connected persistent host daemon holds a lease too.
+
+Because a lease (agent worker, host daemon, native launch) blocks that idle exit,
+an on-demand owner also watches its own executable. When any `cxx update` (cron,
+explicit or the updater) renames a different file over the path the owner started
+from, `status` reports `executable_replaced: true`. Once no request, shared call,
+sync worker or scope pass is in flight and no native agent runs for the OS user
+(the updater's quiet gate, probed at most every 30 s), the owner closes admission,
+drains in-flight work for up to the terminate bound and exits. Lease holders redial
+and start the installed binary; a request refused while draining is a definitive
+"not sent". Residents are replaced by the root handoff instead.
 
 From cxx 0.9.77, reconnect and owner replacement are independent of the engine
 whose config first started the owner. If that file is missing, invalid, suspended

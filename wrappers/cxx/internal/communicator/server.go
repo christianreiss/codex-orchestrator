@@ -87,6 +87,11 @@ type server struct {
 	resident           atomic.Bool
 	residentReportBusy atomic.Bool
 	residentState      *residentState
+	// image is the executable an on-demand owner started from; exeReplaced is
+	// set once the installed path names another file (see retireIfReplaced).
+	image            *executableImage
+	exeReplaced      atomic.Bool
+	replacedProbedAt time.Time
 }
 
 func (s *server) configSnapshot() *config.Config {
@@ -156,6 +161,9 @@ func serveWithResident(ctx context.Context, path, version string, options *Resid
 		s.residentState = &residentState{socket: socket}
 		httpServer.Handler = residentHandler{s}
 	}
+	if options == nil {
+		s.image = currentExecutable()
+	}
 	if options != nil {
 		if cfg.Orchestrator.CommunicatorRuntimeProtocol != residency.Protocol {
 			return fmt.Errorf("resident runtime not enabled in signed config")
@@ -209,6 +217,9 @@ func (s *server) supervise(ctx context.Context, cancel context.CancelFunc, httpS
 				s.mu.Unlock()
 				if idle {
 					cancel()
+					return
+				}
+				if s.retireIfReplaced(cancel) {
 					return
 				}
 			}
@@ -421,6 +432,9 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		status := map[string]any{"protocol": Protocol, "version": s.version, "pid": os.Getpid(), "connected": s.conn != nil, "https_fallback": s.fallback, "sessions": s.leases, "requests": s.requests, "coalesced": s.shared, "last_error": s.lastError, "synced_at": s.lastSync, "sync_protocol": SyncProtocol, "sync_scopes": s.scopeViewsLocked(), "local_errors": s.localErrorsLocked()}
 		if s.updateStatus != nil {
 			status["update"] = *s.updateStatus
+		}
+		if s.exeReplaced.Load() {
+			status["executable_replaced"] = true
 		}
 		s.mu.Unlock()
 		for key, value := range residentView {
