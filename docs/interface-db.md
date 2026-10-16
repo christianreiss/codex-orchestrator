@@ -1,5 +1,20 @@
 # Database Interface (Source of Truth)
 
+## Native configuration data repairs (0071/0072)
+
+These idempotent data migrations change `client_config_documents.settings`, with
+no table or column change. `0071` removes Codex's retired `shell_zsh_fork` only
+at structured/native root and profile feature paths. `0072` removes corroborated
+Grok memory controls and repairs known invalid inheritance/status-line/notice
+shapes, including conditional version layers and the accidental per-model
+`6.api_key` path. Opaque model IDs and unrelated valid siblings are preserved;
+unknown custom content remains visible to validation.
+
+Historical `body` and `sha256` remain together unchanged. Host configuration and
+admin previews render the repaired JSON; the next normal revision-checked save
+writes a new consistent settings/body/digest snapshot. A GET's saved content is
+historical evidence, rather than proof of the currently rendered host config.
+
 ## Smart queue metadata (migration 0068)
 
 `agent_bus_messages` adds `delivery_class` (VARCHAR(16), default `information`),

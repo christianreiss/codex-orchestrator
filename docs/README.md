@@ -49,6 +49,8 @@ Keep these aligned with implementation and executable tests.
 
 ## Evidence and assets
 
+- [Engine maintenance, 2026-10-16](engine-maintenance-2026-10-16.md): current-run
+  source audit, isolated issue ledger, verification and deployment evidence.
 - [Historical reports](archive/README.md): dated audits, investigations, rollout
   procedures and measurements retained for their findings and provenance.
 - [Bug audit disposition](bug-audit/2026-10-11-triage.md) and its

@@ -1,5 +1,9 @@
 # 2026-10-16
 
+- **Engine maintenance (cxx 0.9.89).** Support Codex 0.163 configuration with conditional native version checks, Claude idle compaction preferences and stricter nested settings, and current Grok settings. Invalid authoring receives field errors; migrations 0071/0072 remove confirmed obsolete or invalid stored controls while preserving unrelated settings and historical content/digest snapshots.
+
+- Native argument parsing preserves variadic image paths and option values across command routing, session identity and workspace capture. Managed starts reject external background interfaces whose auth/session lifecycle cannot be transferred. Runner pins advance to Codex 0.163.0, Claude's latest normal release 2.1.301 and Grok stable 1.0.60 with verified release artifacts; model catalogs remain unchanged.
+
 - The reusable engine-maintenance prompt now requires dedicated research subagents for every supported engine and separate implementation subagents per engine and confirmed issue, with explicit research handoffs, shared-file coordination and delegation evidence.
 
 - Organized documentation around a new index: retained current guides, contracts, schemas and assets; moved 15 historical reports to `docs/archive/` with updated references; removed two obsolete PHP-console redesign notes and their export entries. Historical findings and verification evidence remain available.
