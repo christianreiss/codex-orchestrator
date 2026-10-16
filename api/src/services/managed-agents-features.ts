@@ -558,7 +558,8 @@ command there. Never copy, stash, reset or commit pre-existing changes from the 
 When free, work in place. On a detached HEAD always isolate and keep the result until the operator
 names a target branch. Read-only tasks create no worktree, branch or commit. This is the default
 delivery contract: commit verified task-owned changes and merge them back without asking again.
-Push and deploy still require separate explicit instructions.
+Push and deploy still require what Hard Stop Lines and Standing Authorizations say; this contract
+grants neither.
 
 **Register where you actually work.** Call \`git_register\` with the absolute checkout and
 common-dir facts, branch, HEAD, origin and engine, then \`git_join\` with the task, target branch

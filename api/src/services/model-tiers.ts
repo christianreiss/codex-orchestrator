@@ -107,7 +107,8 @@ assumption once and proceed; never abort on a guess.
 | --- | --- | --- |
 ${rows.join('\n')}
 
-- **Underclassed** (task tier above yours): do not start. Report
+- **Underclassed** (task tier above yours): do not start unless the operator explicitly
+  asked this model to proceed anyway. This is the one stop beyond Hard Stop Lines. Report
   \`Underclassed: Tier <n> required, running <model> (Tier <m>). Recommended: <model>.\`
   Recommend the lowest listed model that fits, preferring your own engine. For accepted
   work, finish with \`agent_task_result\` status \`blocked\` and that line as summary.
