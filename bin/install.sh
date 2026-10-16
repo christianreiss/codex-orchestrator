@@ -859,43 +859,23 @@ configure_proxy_trust() {
   fi
 }
 
+# The generator lives in bin/lib/selfsigned-tls.sh so an operator can run the
+# same repair outside the installer. It always reuses an existing ca.key, so a
+# re-run never invalidates the CA that clients already trust: a CA certificate
+# missing keyUsage (which Python 3.13+ strict verification rejects) is re-signed
+# from the same key and subject, and the leaf is reissued under it.
 generate_self_signed() {
-  local dir="$1" cn="$2"
+  local dir="$1" cn="$2" sans="${ARG_TLS_SANS:-localhost,127.0.0.1}"
   mkdir -p "$dir"
-  if [[ -f "$dir/server.crt" && -f "$dir/server.key" ]] && ! forced tls; then
-    info "reusing the existing self-signed certificate (--force tls to regenerate)"
-    return 0
+  if forced tls; then
+    info "reissuing the self-signed server certificate (existing CA key is kept)"
+    FORCE_LEAF=1 bash "$ROOT_DIR/bin/lib/selfsigned-tls.sh" issue "$dir" "$cn" "$sans"
+  elif [[ -f "$dir/server.crt" && -f "$dir/server.key" ]] &&
+    bash "$ROOT_DIR/bin/lib/selfsigned-tls.sh" check "$dir" 2>/dev/null; then
+    info "reusing the existing self-signed certificate (--force tls to reissue it)"
+  else
+    bash "$ROOT_DIR/bin/lib/selfsigned-tls.sh" issue "$dir" "$cn" "$sans"
   fi
-  openssl req -x509 -new -nodes -sha256 -days 3650 -subj "/CN=${cn} Local CA" \
-    -newkey rsa:4096 -keyout "$dir/ca.key" -out "$dir/ca.crt" >/dev/null 2>&1
-  chmod 600 "$dir/ca.key"
-
-  local sans="${ARG_TLS_SANS:-localhost,127.0.0.1}" lines=() idx=1 entry
-  IFS=',' read -ra entries <<<"$sans"
-  for entry in "${entries[@]}"; do
-    entry="$(printf '%s' "$entry" | tr -d '[:space:]')"
-    [[ -z "$entry" ]] && continue
-    if [[ "$entry" =~ ^[0-9.]+$ ]]; then lines+=("IP.$idx = $entry"); else lines+=("DNS.$idx = $entry"); fi
-    idx=$((idx + 1))
-  done
-  lines+=("DNS.$idx = $cn")
-
-  cat > "$dir/server.ext" <<EOF
-[v3_req]
-basicConstraints = CA:FALSE
-keyUsage = digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth
-subjectAltName = @alt_names
-
-[alt_names]
-$(printf '%s\n' "${lines[@]}")
-EOF
-
-  openssl req -new -nodes -newkey rsa:4096 -keyout "$dir/server.key" -subj "/CN=${cn}" -out "$dir/server.csr" >/dev/null 2>&1
-  openssl x509 -req -in "$dir/server.csr" -CA "$dir/ca.crt" -CAkey "$dir/ca.key" -CAcreateserial \
-    -out "$dir/server.crt" -days 825 -sha256 -extfile "$dir/server.ext" -extensions v3_req >/dev/null 2>&1
-  rm -f "$dir/server.csr" "$dir/server.ext"
-  chmod 600 "$dir/server.key"
 }
 
 # Steps reachable via `--only` cannot assume `step_dataroot` ran in this
