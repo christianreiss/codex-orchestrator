@@ -61,7 +61,7 @@ describe('Codex structured feature authoring', () => {
     // The minimal DB fake ignores ORDER BY; present the newest row first.
     db.tables.get(clientConfigDocuments)!.sort((a, b) => Number(b.id) - Number(a.id));
     const removed = await service.store({ settings: { features: null, profiles: [] }, expected_revision: changed.revision });
-    expect(removed.content).toContain('async_compaction = true');
+    expect(removed.content).not.toContain('async_compaction');
   });
 
   it('validates partial structured overlays after merging native values', () => {
@@ -75,7 +75,7 @@ describe('Codex structured feature authoring', () => {
   it('documents null as withdrawal of a structured override, preserving native fallback', () => {
     const service = new ClientConfigService({} as never);
     expect(service.render({ features: { hooks: null, async_compaction: null } }).content).not.toMatch(/hooks =/);
-    expect(service.render({ features: { hooks: null, async_compaction: null } }).content).toContain('async_compaction = true');
+    expect(service.render({ features: { hooks: null, async_compaction: null } }).content).not.toContain('async_compaction');
     expect(service.render({ native_settings: { features: { hooks: true } }, features: { hooks: null } }).content).toContain('hooks = true');
     for (const native_settings of [null, {}]) {
       expect(service.render({ native_settings, features: { hooks: false } }).content).toContain('hooks = false');
