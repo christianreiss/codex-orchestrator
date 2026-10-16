@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -83,5 +84,42 @@ func TestNativeOptionsDoNotAliasCallerArguments(t *testing.T) {
 	o.args[0] = "changed"
 	if args[0] != "--config" {
 		t.Fatal("native arguments share caller storage")
+	}
+}
+
+func TestNativeGlobalOptionsKeepManagedAuthAndUpdates(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, command := range []string{"login", "logout", "update", "upgrade", "install"} {
+		for _, prefix := range [][]string{{"--debug"}, {"--debug-file", "update"}, {"hello", "--debug"}} {
+			args := append(append([]string{}, prefix...), command)
+			o, err := nativeOptions(args)
+			if command == "login" || command == "logout" {
+				if err != nil || o.command != command {
+					t.Fatalf("%q: %+v %v", args, o, err)
+				}
+			} else if err == nil {
+				t.Fatalf("%q escaped managed update", args)
+			}
+			help := append(args, "--help")
+			if o, err := nativeOptions(help); err != nil || o.command != "run" || !isHelpPassthrough(o.args) {
+				t.Fatalf("help %q blocked: %+v %v", help, o, err)
+			}
+		}
+	}
+	for _, args := range [][]string{{"--debug-file", "login"}, {"--worktree", "logout"}, {"--print", "update"}, {"--", "login"}} {
+		o, err := nativeOptions(args)
+		if err != nil || o.command != "run" {
+			t.Fatalf("value %q became managed command: %+v %v", args, o, err)
+		}
+	}
+}
+
+func TestNativeServiceRefusalPrecedesConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, args := range [][]string{{"--debug", "cursor-worker", "start"}, {"--leader-socket", "/unmanaged/leader.sock"}, {"agent", "--agent-profile", "leader", "serve"}, {"agent", "headless"}, {"agent", "leader"}} {
+		var out, stderr bytes.Buffer
+		if code := RunNative(args, &out, &stderr); code != 2 || !strings.Contains(stderr.String(), "separate managed auth/session lifecycle") {
+			t.Fatalf("%q: %d %s", args, code, stderr.String())
+		}
 	}
 }

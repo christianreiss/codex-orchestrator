@@ -35,6 +35,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	hostmaintenance "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
@@ -173,13 +174,27 @@ func nativeOptions(args []string) (options, error) {
 		return options{}, err
 	}
 	o := options{configPath: path, command: "run", args: append([]string(nil), args...), skipBoot: true}
-	if len(args) > 0 && (args[0] == "update" || args[0] == "upgrade" || args[0] == "install") && !isHelpPassthrough(args) {
-		return options{}, errors.New("Grok installation is fleet-managed; use cgx update")
+	command, at := nativeargs.Command("grok", args)
+	if !isHelpPassthrough(args) {
+		if command == "update" || command == "upgrade" || command == "install" {
+			return options{}, errors.New("Grok installation is fleet-managed; use cgx update")
+		}
+		if command == "login" || command == "logout" {
+			o.command = command
+			// Native root session options/prompt do not apply to its login command.
+			// Preserve global diagnostics, which native accepts on either side.
+			o.args = []string{}
+			for i := 0; i < at; i++ {
+				name, _, end := nativeargs.Option("grok", args, i)
+				if name == "--debug" || name == "--debug-file" || name == "--leader-socket" {
+					o.args = append(o.args, args[i:end+1]...)
+				}
+				i = end
+			}
+			o.args = append(o.args, args[at+1:]...)
+		}
 	}
-	// Subscription login is centrally owned even through the native name.
-	if len(args) > 0 && (args[0] == "login" || args[0] == "logout") && !isHelpPassthrough(args) {
-		o.command, o.args = args[0], append([]string(nil), args[1:]...)
-	}
+
 	return o, nil
 }
 
@@ -199,7 +214,7 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := nativeprocess.NotifyContext(context.Background())
 	defer cancel()
-	if o.command == "run" && len(o.args) > 0 && (o.args[0] == "--version" || o.args[0] == "-v" || isHelpPassthrough(o.args)) {
+	if o.command == "run" && len(o.args) > 0 && (nativeAnyFlag(o.args, "--version") || nativeVersionCommand(o.args) || isHelpPassthrough(o.args)) {
 		path, err := native.FindCLI()
 		if err != nil {
 			fmt.Fprintln(stderr, "cgx:", err)
@@ -207,6 +222,13 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 		}
 		return execute(ctx, path, o.args, native.NativeEnv(os.Environ()), stdout, stderr)
 	}
+	if o.command == "run" || o.command == "execute" {
+		if service := nativeargs.UnsupportedService("grok", o.args); service != "" {
+			fmt.Fprintf(stderr, "cgx: %s requires a separate managed auth/session lifecycle and is not supported; native --help remains available\n", service)
+			return 2
+		}
+	}
+
 	cfg, err := load(ctx, o.configPath)
 	if err != nil {
 		fmt.Fprintln(stderr, "cgx:", err)
@@ -558,7 +580,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	if err := requireSupportedNativeCLI(ctx); err != nil {
 		return 1, err
 	}
-	headless := o.command == "execute" || nativeAnyFlag(o.args, "-p", "--single", "--print", "--prompt-file", "--prompt-json") || len(o.args) > 0 && o.args[0] == "agent"
+	headless := o.command == "execute" || nativeAnyFlag(o.args, "-p", "--single", "--print", "--prompt-file", "--prompt-json") || nativeCommand(o.args) == "agent"
 	// Like cdx: another lifecycle holding the sync lock pauses managed content
 	// writes for this launch; auth freshness and the lease remain active.
 	var sync managedSyncSummary
@@ -718,7 +740,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		f.Close()
 		args = []string{"--prompt-file", f.Name(), "--output-format", "json"}
 	}
-	connection, portalErr := agentportal.StartConnection(ctx, cfg, agentportal.StartInput{NativeArgs: args, Engine: "grok", InvocationKind: map[bool]string{true: "execute", false: "interactive"}[headless], Resumed: nativeAnyFlag(args, "--resume", "--continue", "-r", "-c"), UpstreamSessionID: agentportal.ExplicitResumeSessionID(args)})
+	connection, portalErr := agentportal.StartConnection(ctx, cfg, agentportal.StartInput{NativeArgs: args, Engine: "grok", InvocationKind: map[bool]string{true: "execute", false: "interactive"}[headless], Resumed: nativeAnyFlag(args, "--resume", "--continue", "--load"), UpstreamSessionID: agentportal.NativeResumeSessionID("grok", args)})
 	identity, identityErr := connection.RequireIdentity(ctx, cfg)
 	if identityErr != nil {
 		_ = connection.Close("failed", "Launch identity could not be confirmed")

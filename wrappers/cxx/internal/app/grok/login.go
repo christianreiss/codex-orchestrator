@@ -111,7 +111,7 @@ func validateLogin(candidate json.RawMessage) error {
 }
 func login(ctx context.Context, cfg *config.Config, client *orchestrator.Client, args []string, stdout, stderr io.Writer) error {
 	retry := len(args) == 1 && (args[0] == "retry" || args[0] == "--retry")
-	if hasArg(args, "--api-key", "--devbox") {
+	if nativeAnyFlag(args, "--api-key", "--devbox") {
 		return errors.New("cgx login accepts subscription OAuth only")
 	}
 	if retry && !cfg.Host.Secure {

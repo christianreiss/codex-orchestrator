@@ -93,3 +93,41 @@ func TestNativeCommandAliasesAndCurrentOptionValues(t *testing.T) {
 		t.Fatal("removed MCP server command still advertised")
 	}
 }
+
+func TestVariadicImagesAreNeverManagedCommands(t *testing.T) {
+	for _, name := range []string{"login", "logout", "exec", "e", "resume"} {
+		args := []string{"--image", "first.png", name}
+		_, pos, pass := invocationFlags(args, true)
+		if len(pos) != 0 || nativeSubcommand(args) != "" || nativeHeadless(args) || !reflect.DeepEqual(pass, args) {
+			t.Fatalf("image %s became command: %q %q", name, pos, pass)
+		}
+		if !isHelpPassthrough(append(args, "--help")) {
+			t.Fatalf("image %s hid root help", name)
+		}
+	}
+	for _, args := range [][]string{{"--image=first.png", "login"}, {"-ifirst.png", "login"}} {
+		if nativeSubcommand(args) != "login" {
+			t.Fatalf("inline image swallowed command: %q", args)
+		}
+	}
+	if isHelpPassthrough([]string{"exec", "--model", "--help"}) {
+		t.Fatal("subcommand help scanner stole a value")
+	}
+}
+
+func TestUnsupportedNativeServicesFailBeforeConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, args := range [][]string{{"remote-control"}, {"--model", "fixture", "exec-server"}, {"app-server", "--listen", "unix:///tmp/unmanaged.sock"}, {"--remote", "unix:///tmp/unmanaged.sock"}} {
+		var out, stderr bytes.Buffer
+		if code := RunNative(args, &out, &stderr); code != 2 || !strings.Contains(stderr.String(), "separate managed auth/session lifecycle") {
+			t.Fatalf("%q: %d %s", args, code, stderr.String())
+		}
+	}
+}
+
+func TestNativePromptBeforeSubcommandRetainsHelpAndAuth(t *testing.T) {
+	f, pos, pass := invocationFlags([]string{"hello", "login", "--help"}, true)
+	if !f.helpPassthrough || len(pos) != 1 || pos[0] != "login" || len(pass) != 3 {
+		t.Fatalf("prompt-prefixed login lost help/auth boundary: %+v %q %q", f, pos, pass)
+	}
+}

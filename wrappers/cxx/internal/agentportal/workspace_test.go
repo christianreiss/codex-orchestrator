@@ -96,3 +96,27 @@ func TestDiscoveryOrigin(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceUsesNativeValueCardinality(t *testing.T) {
+	cwd, _ := os.Getwd()
+	for _, args := range [][]string{{"--print", "--cwd=/fake"}, {"--debug-file", "--cwd=/fake"}, {"--json-schema", "--cwd=/fake"}, {"--worktree", "--cwd=/actual"}, {"--single=--cwd=/fake", "--cwd=/actual"}} {
+		want := cwd
+		if args[len(args)-1] == "--cwd=/actual" {
+			want = "/actual"
+		}
+		got, err := launchCwd("grok", args)
+		if err != nil || got != want {
+			t.Errorf("%q => %q %v want %q", args, got, err, want)
+		}
+	}
+	for _, args := range [][]string{{"--image", "a.png", "login", "resume"}, {"--image", "a.png", "--cd", "/actual"}} {
+		want := cwd
+		if args[len(args)-1] == "/actual" {
+			want = "/actual"
+		}
+		got, err := launchCwd("codex", args)
+		if err != nil || got != want {
+			t.Errorf("%q => %q %v", args, got, err)
+		}
+	}
+}

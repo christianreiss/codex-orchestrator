@@ -14,6 +14,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	hostmaintenance "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 )
@@ -76,12 +77,10 @@ func isHelpPassthrough(args []string) bool {
 		if arg == "--" {
 			return false
 		}
-		if arg == "--help" || arg == "-h" || (i == 0 && arg == "help") {
+		if arg == "--help" || arg == "-h" || (arg == "help" && nativeCommand(args) == "help") {
 			return true
 		}
-		if nativeTakesValue(arg) {
-			i++ // an option value (prompt, path) is data, never a help flag
-		}
+		i = nativeargs.ValueEnd("grok", args, i)
 	}
 	return false
 }

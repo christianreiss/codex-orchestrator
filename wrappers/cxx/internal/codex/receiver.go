@@ -7,10 +7,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 )
@@ -18,11 +18,10 @@ import (
 // The native TUI and receive adapter share this one app-server process. Its
 // private socket lives beside the already protected portal broker socket.
 func startReceiverServer(ctx context.Context, binary string, args, env []string, session *AuthSession, lease *ipc.Lock, extraLeases ...*ipc.Lock) ([]string, func(), error) {
-	for _, arg := range args {
-		if arg == "--remote" || strings.HasPrefix(arg, "--remote=") {
-			return args, func() {}, fmt.Errorf("existing remote endpoint owns the native session")
-		}
+	if nativeargs.Has("codex", args, "--remote") {
+		return args, func() {}, fmt.Errorf("existing remote endpoint owns the native session")
 	}
+
 	broker := os.Getenv("CXX_AGENT_PORTAL_SOCKET")
 	if broker == "" {
 		return args, func() {}, fmt.Errorf("private broker unavailable")
@@ -31,18 +30,14 @@ func startReceiverServer(ctx context.Context, binary string, args, env []string,
 	serverArgs := []string{"app-server", "--listen", "unix://" + socket}
 	// MCP per-lifecycle overrides and engine configuration must be identical on
 	// the server and TUI. Prompt text and interactive flags stay with the TUI.
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--" {
-			break
+	for i := 0; i < len(args) && args[i] != "--"; i++ {
+		name, value, end := nativeargs.Option("codex", args, i)
+		if name == "--config" {
+			serverArgs = append(serverArgs, "-c", value)
 		}
-		if (args[i] == "-c" || args[i] == "--config") && i+1 < len(args) {
-			serverArgs = append(serverArgs, args[i], args[i+1])
-			i++
-		}
-		if strings.HasPrefix(args[i], "--config=") {
-			serverArgs = append(serverArgs, args[i])
-		}
+		i = end
 	}
+
 	wrapper, err := os.Executable()
 	if err != nil {
 		return args, func() {}, err

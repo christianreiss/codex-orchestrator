@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 )
 
 // applyLaneAndProfile injects the signed per-host model override when the user
@@ -82,22 +83,17 @@ func EffectiveLane(preference, reported string) string {
 // ModelContext returns the launch selection suitable for the glanceable card.
 // A profile is named explicitly because its model is resolved by Codex itself.
 func ModelContext(args []string, lane string) string {
-	for i, arg := range args {
-		switch {
-		case arg == "--model" || arg == "-m":
-			if i+1 < len(args) {
-				return strings.TrimSpace(args[i+1])
-			}
-		case strings.HasPrefix(arg, "--model="):
-			return strings.TrimSpace(strings.TrimPrefix(arg, "--model="))
-		case arg == "--profile" || arg == "-p":
-			if i+1 < len(args) {
-				return "profile:" + strings.TrimSpace(args[i+1])
-			}
-		case strings.HasPrefix(arg, "--profile="):
-			return "profile:" + strings.TrimSpace(strings.TrimPrefix(arg, "--profile="))
+	for i := 0; i < len(args) && args[i] != "--"; i++ {
+		name, value, end := nativeargs.Option("codex", args, i)
+		if name == "--model" {
+			return strings.TrimSpace(value)
 		}
+		if name == "--profile" {
+			return "profile:" + strings.TrimSpace(value)
+		}
+		i = end
 	}
+
 	return LaneModel(lane)
 }
 
@@ -105,15 +101,15 @@ func ModelContext(args []string, lane string) string {
 // --config values win; otherwise the launch keeps its configured effort, so an
 // empty result tells the summary to keep its existing fallback.
 func EffortContext(args []string, lane string) string {
-	for i, arg := range args {
-		if arg != "--config" || i+1 >= len(args) {
-			continue
-		}
+	for i := 0; i < len(args) && args[i] != "--"; i++ {
+		name, value, end := nativeargs.Option("codex", args, i)
 		const key = "model_reasoning_effort="
-		if strings.HasPrefix(args[i+1], key) {
-			return strings.TrimSpace(strings.TrimPrefix(args[i+1], key))
+		if name == "--config" && strings.HasPrefix(value, key) {
+			return strings.TrimSpace(strings.TrimPrefix(value, key))
 		}
+		i = end
 	}
+
 	return ""
 }
 
@@ -142,13 +138,5 @@ func applyDangerousBypass(cfg *config.Config, args []string) []string {
 }
 
 func hasFlag(args []string, flag string) bool {
-	for _, a := range args {
-		if a == flag {
-			return true
-		}
-		if strings.HasPrefix(a, flag+"=") {
-			return true
-		}
-	}
-	return false
+	return nativeargs.Has("codex", args, flag)
 }

@@ -85,13 +85,30 @@ refresh ownership and native isolation differ. See [Grok interface](interface-cg
 
 ### Native command maintenance (cxx 0.9.66)
 
-The native command catalog was checked against Codex CLI **0.162.1** on
-2026-10-12 and the [official CLI reference](https://learn.chatgpt.com/docs/cli/reference).
+The native command catalog was checked against Codex CLI **0.163.0** on
+2026-10-16 and the [official CLI reference](https://learn.chatgpt.com/docs/cli/reference).
 `e` (exec) and `a` (apply) are reserved native aliases, including help passthrough,
 so a matching fleet profile cannot shadow them. The removed `mcp-server` command
 is no longer advertised as supported. Native command detection consumes current
 root option values, including `--add-dir` and `--remote-auth-token-env`, before
 classifying an auth command or headless run.
+
+Native dispatch, identity additions, workspace capture, model/effort readers and
+receiver config extraction share the same argument boundaries. Separate
+`--image FILE…` / `-i FILE…` consumes all following non-option image paths,
+including `-` and names such as `login`, `logout`, `exec` and `resume`. An attached value
+(`--image=a.png` / `-ia.png`) ends that occurrence, matching the native parser.
+Required values, optional values, aliases, equal/attached forms and `--` remain
+native input; managed additions never split an image list. A native initial prompt
+may precede a subcommand without hiding its auth/help boundary. Explicit resumed
+UUIDs are read only from an actual resume command, including `exec resume`.
+
+Direct public `app-server`, `exec-server`, `remote-control` and `--remote`
+invocations are refused before configuration/auth work: their independent or
+external processes do not inherit the wrapper's private account/auth broker,
+receiver and teardown lifecycle. Their native `--help` remains available. This
+does not affect the wrapper-owned private app-server used by normal managed
+interactive launches; help acceptance alone is not remote lifecycle support.
 
 
 ## Session credential resilience

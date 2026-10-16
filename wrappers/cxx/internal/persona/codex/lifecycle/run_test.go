@@ -1350,3 +1350,26 @@ func TestCodexOverridesLandAfterTheSubcommand(t *testing.T) {
 		t.Fatalf("no overrides changed args: %q", got)
 	}
 }
+
+func TestCodexOverridesDoNotSplitNativeValues(t *testing.T) {
+	for _, args := range [][]string{{"--image", "a.png", "exec", "resume"}, {"--model", "exec", "exec", "--json"}, {"--image=a.png", "exec", "resume", "native-id"}} {
+		got := insertCodexOverrides(args, []string{"-c", "test=1"})
+		var cleaned []string
+		for at := 0; at < len(got); at++ {
+			if got[at] == "-c" && at+1 < len(got) && got[at+1] == "test=1" {
+				at++
+				continue
+			}
+			cleaned = append(cleaned, got[at])
+		}
+		if !reflect.DeepEqual(cleaned, args) {
+			t.Fatalf("original bytes changed: %q => %q", args, got)
+		}
+		if args[0] == "--image" && got[0] != "-c" {
+			t.Fatalf("override inserted in image values: %q", got)
+		}
+		if args[0] == "--model" && got[3] != "-c" {
+			t.Fatalf("override inserted in model value: %q", got)
+		}
+	}
+}
