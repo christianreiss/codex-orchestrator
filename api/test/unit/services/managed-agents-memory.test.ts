@@ -61,7 +61,8 @@ describe('managed memory block', () => {
     const block = buildManagedMemoryBlock(ENGINE_CODEX);
     expect(block).toMatch(/recorded decisions, conventions, runbooks, and handoffs/i);
     expect(block).toMatch(/not automatically as current code or runtime truth/i);
-    expect(block).toMatch(/verify mutable facts against the\s+present repository or system/i);
+    // "Verify mutable facts at their source" is said once, in Fleet Management.
+    expect(block).not.toMatch(/verify mutable facts/i);
   });
 
   // The whole reason #context was retired into this block: the doctrine only
@@ -73,7 +74,7 @@ describe('managed memory block', () => {
     expect(block).toMatch(/contradicts what you just\s+verified/i);
     expect(block).toMatch(/part of the task you are already doing/i);
     // Every whole-body surface must name its tool and safe trigger.
-    expect(block).toMatch(/through `shared_memory_write`, `resource_create`, or\s+`resource_update` on `shared:\/\/`/i);
+    expect(block).toMatch(/through `shared_memory_write`, `resource_create`, or `resource_update` on `shared:\/\/`/i);
     expect(block).toMatch(/`shared_memory_delete` or `resource_delete` on `shared:\/\/` only when the whole record is\s+invalid or superseded/i);
     expect(block).toMatch(/wrong\s+context is worse than no context/i);
     expect(block).toMatch(/near-duplicates\s+are how this corpus rots/i);
@@ -83,12 +84,10 @@ describe('managed memory block', () => {
     'requires a stable complete read before replacement, for %s',
     (engine) => {
       const block = buildManagedMemoryBlock(engine);
-      expect(block).toMatch(/start\s+`shared_memory_read` at offset 0 without chunk selectors/i);
-      expect(block).toMatch(/through\s+`next_offset` until `truncated` is false/i);
-      expect(block).toMatch(/same `memory\.sha256` on every window/i);
-      expect(block).toMatch(/search excerpt, preview, isolated chunk, or other partial read/i);
-      expect(block).toMatch(/every\s+shared write path replaces the entire body/i);
-      expect(block).toMatch(/conflict or a changed digest between windows, restart the complete read/i);
+      // The step-by-step procedure lives in the write tools' descriptions
+      // (asserted in mcp-tools.test.ts), present exactly when the call is made.
+      expect(block).toMatch(/replaces\s+the entire body: only from a complete read/i);
+      expect(block).toMatch(/digest as\s+`expected_sha256`; those tool descriptions give the procedure/i);
       expect(block).toMatch(/complete body cannot be loaded\s+and preserved safely, do not overwrite it/i);
     },
   );

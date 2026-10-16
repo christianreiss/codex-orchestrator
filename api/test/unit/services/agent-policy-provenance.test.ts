@@ -142,10 +142,18 @@ describe('axis to policy section projection', () => {
     expect(sectionsAt(presetLevels('standard')).git_history).toEqual(['safety_floor', 'hard_stops']);
   });
 
-  it('security_controls always reaches safety_floor (stricterMechanismClause)', () => {
-    // Not an operation, so bucket projection alone never finds it.
+  it('security_controls reaches safety_floor below level 4 and the sandbox grant at level 4', () => {
+    // Not an operation, so bucket projection alone never finds it. At level 4
+    // the clause is a grant, which belongs in Standing Authorizations.
     for (const preset of PRESETS) {
-      expect(sectionsAt(presetLevels(preset)).security_controls, preset).toContain('safety_floor');
+      const levels = presetLevels(preset);
+      const sections = sectionsAt(levels).security_controls;
+      if (levels.security_controls >= 4) {
+        expect(sections, preset).toContain('standing_authorizations');
+        expect(sections, preset).not.toContain('safety_floor');
+      } else {
+        expect(sections, preset).toContain('safety_floor');
+      }
     }
   });
 

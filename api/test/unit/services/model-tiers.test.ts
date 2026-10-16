@@ -74,9 +74,13 @@ describe('renderModelTierGuidance', () => {
     expect(text).toContain('| 1 | ');
     expect(text).toContain('`gpt-6-luna`');
     expect(text).not.toContain('| 2 | ');
-    expect(text).toContain('**Underclassed**');
+    expect(text).toContain('`Underclassed: Tier <n> required');
+    // A one-tier gap is a self-rating too fuzzy to stop on; only two or more stop.
+    expect(text).toMatch(/\*\*Task one tier above yours:\*\* state that line once, then proceed/);
+    expect(text).toMatch(/\*\*Task two or more tiers above yours:\*\* the one stop beyond Hard Stop Lines/);
+    expect(text).not.toContain('Overclassed');
     // An explicit operator instruction outranks fleet policy; the stop must say so.
-    expect(text).toMatch(/Do not start unless\s+the operator explicitly asked this model to proceed/);
+    expect(text).toMatch(/Do not start unless the\s+operator explicitly asked this model to proceed/);
     expect(text).toContain('never abort on a guess');
   });
 

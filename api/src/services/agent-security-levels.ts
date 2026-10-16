@@ -258,6 +258,13 @@ export interface PolicyOperation {
   /** When set, the `ask` phrase is a noun fragment composed into a shared bullet. */
   group?: OperationGroup;
   phrase: Record<Stance, string>;
+  /**
+   * The obligation an `allow` still carries ("say so", "report what ran").
+   * When every operation is granted the bullet list is collapsed to these: the
+   * permissions themselves are implied by the empty Hard Stop Lines, the duties
+   * are not. Identical duties are emitted once.
+   */
+  duty?: string;
 }
 
 const EXTERNAL_SIDE_EFFECT = (rank: number): OperationGroup => ({
@@ -303,6 +310,7 @@ export const POLICY_OPERATIONS: readonly PolicyOperation[] = [
       ask: 'The target repository, host, environment, account, database, or dataset cannot be identified safely and choosing incorrectly has material blast radius.',
       allow: 'Pick the most likely target when identification is uncertain, and name the one you chose.',
     },
+    duty: 'Name the target and the product outcome you chose when either was uncertain.',
   },
   {
     id: 'autonomy.multiple_outcomes',
@@ -315,6 +323,7 @@ export const POLICY_OPERATIONS: readonly PolicyOperation[] = [
       ask: 'Multiple materially different product or business outcomes are valid and no low-risk reversible default exists.',
       allow: 'Choose between valid product outcomes without checking in, and say which you chose.',
     },
+    duty: 'Name the target and the product outcome you chose when either was uncertain.',
   },
 
   // ── git_history ───────────────────────────────────────────────────────────
@@ -395,6 +404,7 @@ export const POLICY_OPERATIONS: readonly PolicyOperation[] = [
       ask: 'remote mutation',
       allow: 'Make task-relevant changes on an explicitly named remote host, and say what you changed.',
     },
+    duty: 'Name the host and what you changed on it.',
   },
   {
     id: 'remote.host_key',
@@ -435,6 +445,7 @@ export const POLICY_OPERATIONS: readonly PolicyOperation[] = [
       ask: 'production restart, production migration',
       allow: 'Restart and migrate production without asking, and report what ran.',
     },
+    duty: 'Report what ran in production.',
   },
 
   // ── destructive_data ──────────────────────────────────────────────────────
@@ -449,6 +460,7 @@ export const POLICY_OPERATIONS: readonly PolicyOperation[] = [
       ask: 'The next action is destructive or irreversible, or may lose user, production, or previously existing data.',
       allow: 'Delete or overwrite task-owned data without asking; say what was removed and how to restore it.',
     },
+    duty: 'Say what you deleted or overwrote and how to restore it.',
   },
 
   // ── secrets_exposure ──────────────────────────────────────────────────────
@@ -463,6 +475,7 @@ export const POLICY_OPERATIONS: readonly PolicyOperation[] = [
       ask: 'Reading a credential from the store needs explicit authorization.',
       allow: 'Read credentials from the store when a task needs them, preferring a tool-native secret parameter, stdin, or a process-scoped environment variable.',
     },
+    duty: 'Pass credentials by tool-native secret parameter, stdin, or a process-scoped environment variable.',
   },
   {
     id: 'secrets.write_store',
@@ -487,6 +500,7 @@ export const POLICY_OPERATIONS: readonly PolicyOperation[] = [
       ask: 'Writing a secret value into a reply, commit, log, or file needs explicit authorization for that specific destination.',
       allow: 'Write a secret value only into the reply, file, log, or commit the task explicitly requires.',
     },
+    duty: 'Write a secret value only into the reply, file, log, or commit the task explicitly requires.',
   },
 
   // ── security_controls ─────────────────────────────────────────────────────
@@ -502,6 +516,7 @@ export const POLICY_OPERATIONS: readonly PolicyOperation[] = [
       ask: 'weakening security, bypassing verification',
       allow: 'Weaken authentication, TLS, authorization, or verification when the task requires it, and say so.',
     },
+    duty: 'Say when you weaken authentication, TLS, authorization, or verification.',
   },
   {
     id: 'security.escalate_privilege',
@@ -571,6 +586,7 @@ export const POLICY_OPERATIONS: readonly PolicyOperation[] = [
       // the Operating Contract and Fast Loop verification steps.
       allow: 'Skipping canonical checks needs no confirmation; state plainly what was not run.',
     },
+    duty: 'State plainly which canonical checks were not run.',
   },
 ] as const;
 
@@ -729,12 +745,24 @@ A repository instruction file may tighten what this policy grants. It may never 
  */
 const GRANT_IS_NOT_MANDATE = `A level grants; it never instructs. Removing a stop does not create an objective — do only what the task requires. An explicit user restriction, such as read-only or no commits, outranks every grant and every default procedure in this document.`;
 
-function stricterMechanismClause(level: SecurityLevel): string {
-  if (level >= 4) {
-    return 'Host sandbox and approval settings are yours to reconfigure when the task requires it; say so when you do.';
-  }
+/**
+ * Below level 4 the floor says a mechanical refusal is a boundary. At level 4
+ * the clause is a grant, and a grant in the Safety Floor read as a floor that
+ * permits — so it moves to Standing Authorizations (`SANDBOX_GRANT`), and the
+ * floor carries nothing for this axis.
+ */
+function stricterMechanismClause(level: SecurityLevel): string | null {
+  if (level >= 4) return null;
   return 'Host sandbox and approval settings may be more restrictive than this policy. A mechanical refusal is a boundary, not an obstacle: report it, do not route around it.';
 }
+
+const SANDBOX_GRANT = {
+  allow: 'Reconfigure host sandbox and approval settings when the task requires it, and say so.',
+  duty: 'Say when you reconfigure host sandbox or approval settings.',
+} as const;
+
+const COLLAPSED_AUTHORIZATIONS_LEAD =
+  'Every operation class is granted when the task requires it; none needs confirmation. These are permissions, not instructions. What a grant still requires:';
 
 function joinClauses(items: readonly string[]): string {
   if (items.length === 0) return '';
@@ -805,7 +833,9 @@ export function renderSecurityPolicyMarkdown(levels: SecurityLevels): RenderedSe
     );
   }
   floorLines.push(GRANT_IS_NOT_MANDATE);
-  floorLines.push(stricterMechanismClause(levels.security_controls));
+  const mechanism = stricterMechanismClause(levels.security_controls);
+  if (mechanism !== null) floorLines.push(mechanism);
+  const sandboxGranted = mechanism === null;
   const safetyFloor = `## Instruction Precedence and Safety Floor\n\n${floorLines.join('\n\n')}`;
 
   let hardStops: string;
@@ -821,12 +851,26 @@ export function renderSecurityPolicyMarkdown(levels: SecurityLevels): RenderedSe
     hardStops = `## Hard Stop Lines\n\n${trailerOp.op.phrase[trailerOp.stance]}`;
   }
 
-  const standingAuthorizations =
-    allowed.length > 0
-      ? `## Standing Authorizations\n\nThese need no confirmation. They are permissions, not instructions.\n\n${allowed
-          .map((s) => `- ${s.op.phrase.allow}`)
-          .join('\n')}`
-      : null;
+  // With nothing asked or forbidden the empty Hard Stop Lines already grant
+  // every operation, so listing each grant restated them in twenty bullets —
+  // and an incomplete list read as if an omitted operation needed a question.
+  // What a grant still obliges the agent to do is the only new information.
+  const collapsed = asked.length === 0 && forbidden.length === 0 && trailerOp.stance === 'allow';
+  let standingAuthorizations: string | null = null;
+  if (collapsed) {
+    const duties = [...new Set([
+      ...allowed.flatMap((s) => (s.op.duty === undefined ? [] : [s.op.duty])),
+      ...(sandboxGranted ? [SANDBOX_GRANT.duty] : []),
+    ])];
+    standingAuthorizations = `## Standing Authorizations\n\n${COLLAPSED_AUTHORIZATIONS_LEAD}\n\n${duties
+      .map((duty) => `- ${duty}`)
+      .join('\n')}`;
+  } else if (allowed.length > 0 || sandboxGranted) {
+    const grants = [...allowed.map((s) => s.op.phrase.allow), ...(sandboxGranted ? [SANDBOX_GRANT.allow] : [])];
+    standingAuthorizations = `## Standing Authorizations\n\nThese need no confirmation. They are permissions, not instructions.\n\n${grants
+      .map((grant) => `- ${grant}`)
+      .join('\n')}`;
+  }
 
   const sections: RenderedPolicySections = {
     fleet_identity: IDENTITY_SECTION,
@@ -872,8 +916,9 @@ const POLICY_SECTION_ORDER: readonly PolicySectionKey[] = [
  *
  * Two contributions are not operations and so cannot come from the buckets:
  *
- *  - `security_controls` selects a whole clause of the floor via
- *    `stricterMechanismClause`, at every level, and
+ *  - `security_controls` selects a clause of the floor via
+ *    `stricterMechanismClause` below level 4, and at level 4 (every one of its
+ *    operations granted) the sandbox grant in Standing Authorizations instead, and
  *  - `autonomy` owns the Hard Stop Lines trailer, which is held out of all three
  *    buckets on purpose (see `renderSecurityPolicyMarkdown`) and is the entire
  *    section body when nothing else asks.
@@ -884,7 +929,9 @@ export function axisPolicySections(
   const found = new Map<SecurityAxisId, Set<PolicySectionKey>>(
     SECURITY_AXIS_IDS.map((axis) => [axis, new Set<PolicySectionKey>()]),
   );
-  found.get('security_controls')!.add('safety_floor');
+  const controls = policy.stances.filter((s) => s.axis === 'security_controls');
+  const sandboxGranted = controls.length > 0 && controls.every((s) => s.stance === 'allow');
+  found.get('security_controls')!.add(sandboxGranted ? 'standing_authorizations' : 'safety_floor');
   found.get('autonomy')!.add('hard_stops');
 
   for (const stance of policy.stances) {

@@ -406,11 +406,9 @@ function agentMessagingSection(context: ManagedAgentFeatureContext): RenderedSec
 Fleet agents (Codex, Claude, Grok) can reach you and you them. Delivery is ordered and
 at-least-once; "queued" means stored, never read; untaken messages expire.
 
-**Session name.** On your first turn, before your first response, call \`agent_session_name\` with the
-task's purpose in the operator's language (at most 160 characters, no host, path or credential).
-Call \`agent_self\` on your first turn, before your first response, and after resume or recovery. This
-applies to every first turn, including a question, capability check or request not to act yet; the
-tool sets a name only when none is known.
+**Session name.** On every first turn, even a question, and after resume, call \`agent_self\` and
+\`agent_session_name\` (the task's purpose in the operator's language, at most 160 characters, no host,
+path or credential) before responding.
 
 **Peers.** Launch names ("(Claudia) Task title") work as recipients; \`agent_translate\` maps them to
 UUIDs, which are what durable references keep. Refresh peers with \`agent_list\`
@@ -426,13 +424,12 @@ when an answer is needed; a closing acknowledgement ends the exchange. Never res
 reuse its idempotency UUID on an uncertain retry. Questions, approvals and cancellations use
 \`delivery_class: coordination\`; progress may carry a \`coalesce_key\`.
 
-**Automatic reception.** A received reply is informational by default; continue only for an explicit
-question, requested work or a substantive next turn. Never acknowledge an acknowledgement or answer a
-closing one ("Austausch beendet"). Complete that
-delivery with \`agent_listen\` once and yield, without sending another peer message.
-When \`agent_listen\` reports automatic reception, yield instead of polling. On \`receiver_unavailable\`,
-tell the user, do not yield waiting for a peer, and
-do not open or join a conference until the receiver is back.
+**Automatic reception.** A received reply is informational by default; continue only for a question,
+requested work or a substantive next turn. Never acknowledge an acknowledgement or answer a closing
+one ("Austausch beendet"). Complete that delivery with \`agent_listen\` once and yield, without sending
+another peer message; when it reports automatic reception, yield instead of polling.
+On \`receiver_unavailable\`, tell the user, do not yield waiting for a peer,
+and do not open or join a conference until the receiver is back.
 
 **Authenticated fleet collaboration.** ${AUTHENTICATED_PEER_GUIDANCE}
 Name the sender when you act on a peer's request.
@@ -495,8 +492,8 @@ function gitDirectorSection(context: ManagedAgentFeatureContext, commitAllowed: 
   // contradicted the Hard Stop the same document renders above.
   const delivery = commitAllowed
     ? `Default delivery: commit verified task-owned changes and merge them back without asking, unless the
-user restricted that. Push and deploy still require what Hard Stop Lines and Standing Authorizations
-say; this contract grants neither.`
+user or a repository instruction file restricted that. Push and deploy still require what Hard Stop
+Lines and Standing Authorizations say; this contract grants neither.`
     : `Commit and merge back only as Hard Stop Lines and Standing Authorizations allow; this contract
 grants no commit, push or deploy.`;
   const commitRule = commitAllowed

@@ -1,5 +1,13 @@
 # 2026-10-16
 
+- **Served AGENTS.md / CLAUDE.md: Unrestricted collapses its grants, and four logic gaps are closed.** With every feature on, the Unrestricted document drops from ~25.4 KB to ~23.6 KB. Standard drops from ~25.3 KB to ~24.5 KB. Every host re-syncs once.
+  - When nothing is asked or forbidden, Standing Authorizations no longer lists 20 grants that the empty Hard Stop Lines already make. An incomplete list also read as if an omitted operation needed a question. It now states the blanket grant and only the duties the grants carry: name the target and outcome you chose, report production runs and remote changes, say how to restore deletions, say when you weaken auth or reconfigure the sandbox, the secret-destination rule, and which checks were skipped. Any lower level keeps the full list.
+  - At `security_controls` 4, the "sandbox and approval settings are yours to reconfigure" grant moves from the Safety Floor to Standing Authorizations.
+  - Git Director: "merge back without asking" now yields to repository instruction files as well as to the user.
+  - Model Class Check: an agent one tier below the task names a stronger model and proceeds. Only a gap of two or more tiers stops. The Overclassed note is gone.
+  - The Memory block keeps its triggers and curation rules. For the complete-read / `expected_sha256` procedure it now points at the `shared_memory_write`, `resource_create` and `resource_update` descriptions, which state it word for word when the call is made. Agent Messaging's session-name and reception paragraphs are condensed; every tool name stays.
+  - The size-budget test now renders what the fleet actually runs: every module and a four-tier table. The old fixture let a 25.4 KB fleet pass a 25 KB budget. The new limit is 24 750 B.
+
 - **Composer module edits now reach the fleet without a re-save.** In `managed` generation mode the canonical middle of AGENTS.md / CLAUDE.md is re-composed from the stored composition when it is served. Before, the stored body was a snapshot as of the last save, so the module diet above reached no host, and the Git Director dedupe of "Git and Shared-Worktree Safety" silently missed every stale body (hosts got the git rules twice). `manual` still serves the stored document verbatim; hand-written rows are unchanged. Retired authority sentences in legacy bodies are now removed with their line, without leaving a run of blank lines. Every host re-syncs its document once.
 - **Commit, secret and peer rules no longer contradict the posture.**
   - Below the level that grants committing (Standard), the Git Director block no longer says "commit … and merge back without asking"; it defers to Hard Stop Lines and Standing Authorizations.

@@ -194,10 +194,13 @@ describe('served document size budget', () => {
    * back. Raise one only with a reason, and look for a cut elsewhere first.
    */
   it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s stays within budget with every feature on', async (engine) => {
-    const { renderAgentPolicyBase, defaultAgentPolicyComposition } = await import(
+    const { renderAgentPolicyBase, defaultAgentPolicyComposition, AGENT_POLICY_MODULE_IDS } = await import(
       '../../../src/services/agent-policy-composer.js'
     );
-    const base = renderAgentPolicyBase(defaultAgentPolicyComposition());
+    // Every module and a full four-tier table, as the production fleet runs it:
+    // the default composition and a one-row table let a 25.4 KB fleet pass a
+    // 25 KB budget.
+    const base = renderAgentPolicyBase({ ...defaultAgentPolicyComposition(), enabled_modules: [...AGENT_POLICY_MODULE_IDS] });
     const ctx = context(engine, {
       skills: enabled(3),
       skillsTransport: 'mcp',
@@ -213,23 +216,34 @@ describe('served document size budget', () => {
       hostSpawn: enabled(),
       modelTiers: {
         ...enabled(),
-        table: [{ tier: 3, models: [{ engine: ENGINE_CLAUDE, model: 'claude-opus-5-5' }] }],
+        table: [
+          { tier: 1, models: [{ engine: ENGINE_CODEX, model: 'gpt-6-luna' }, { engine: ENGINE_CLAUDE, model: 'claude-haiku-5-5' }, { engine: ENGINE_GROK, model: 'grok-4.7-build-fast' }] },
+          { tier: 2, models: [{ engine: ENGINE_CODEX, model: 'gpt-5.6-terra' }, { engine: ENGINE_CLAUDE, model: 'claude-sonnet-5-5' }, { engine: ENGINE_GROK, model: 'grok-4.7' }] },
+          { tier: 3, models: [{ engine: ENGINE_CODEX, model: 'gpt-6.1-sol' }, { engine: ENGINE_CLAUDE, model: 'claude-opus-5-5' }] },
+          { tier: 4, models: [{ engine: ENGINE_CODEX, model: 'gpt-6-astra' }, { engine: ENGINE_CLAUDE, model: 'claude-fable-5-1' }] },
+        ],
         configured: { engine: ENGINE_CLAUDE, model: 'claude-opus-5-5' },
       },
     });
     for (const levels of [presetLevels('standard'), presetLevels('unrestricted')]) {
       const out = renderManagedAgentFeatures(base.content, ctx, levels, base.provenance);
-      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(25_000);
+      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(24_750);
       const section = (heading: string): string => {
         const start = out.body.indexOf(`## ${heading}\n`);
         expect(start).toBeGreaterThanOrEqual(0);
         const next = out.body.indexOf('\n## ', start + 1);
         return out.body.slice(start, next === -1 ? undefined : next);
       };
-      expect(section('Agent Messaging').length).toBeLessThan(4_800);
+      expect(section('Agent Messaging').length).toBeLessThan(4_600);
       expect(section('Git Director').length).toBeLessThan(3_100);
       expect(section('File Transfer').length).toBeLessThan(1_400);
+      expect(section('Memory').length).toBeLessThan(2_700);
+      expect(section('Model Class Check').length).toBeLessThan(1_500);
     }
+    // All granted: the list collapses to duties instead of restating every grant.
+    const open = renderManagedAgentFeatures(base.content, ctx, presetLevels('unrestricted'), base.provenance).body;
+    const start = open.indexOf('## Standing Authorizations\n');
+    expect(open.indexOf('\n## ', start + 1) - start).toBeLessThan(900);
   });
 });
 
@@ -290,9 +304,11 @@ describe('served document byte invariance', () => {
     //             Director verdicts, trust boundary) and Codex/Grok Skills gain the support-script inspection rule.
     // 2026-10-16: Secrets defers store/value authority to the posture; security module carves out
     //             authenticated fleet peers (base digest).
-    expect(out.features_sha256).toBe('ea4f883fd7fe0b468af09dfa0d37f6a4b0114ab5bdcfa841e8b68187377ceef7');
-    expect(out.managed_sha256).toBe('0bdbd1dc476a8c48f811bdd5cf38cb7397b0d38ff1c481ba3c529942751b92a6');
-    expect(sha256(out.body)).toBe('4668e57b74548c3537927d79a745b8cc14ee904a22e2112ddc81a45609f08302');
+    // 2026-10-16: Memory defers the complete-read procedure to the write tool descriptions; Agent
+    //             Messaging session-name/reception condensed; Git Director honours repository restrictions.
+    expect(out.features_sha256).toBe('0b5638ae0febf4ec5e05ae44aa4c86d35ee695614a2180564185b5059d6b33ca');
+    expect(out.managed_sha256).toBe('59c50590dac6d4812c5451aa483ab81ade4f4fa448b774a4687a42f71cdbc33f');
+    expect(sha256(out.body)).toBe('312dc9f6fefb40418a54d277be77de460b76bd0437a5bb274de3444ca298a62b');
   });
 });
 
@@ -424,9 +440,9 @@ describe('renderManagedAgentFeatures', () => {
       // this is the text that replaced the retired #context skill.
       expect(out.body).toMatch(/contradicts what you just\s+verified/i);
       expect(out.body).toMatch(/wrong\s+context is worse than no context/i);
-      expect(out.body).toMatch(/offset 0 without chunk selectors/i);
-      expect(out.body).toMatch(/same `memory\.sha256` on every window/i);
-      expect(out.body).toMatch(/replaces the entire body/i);
+      expect(out.body).toMatch(/only from a complete read/i);
+      expect(out.body).toMatch(/`expected_sha256`; those tool descriptions give the procedure/i);
+      expect(out.body).toMatch(/replaces\s+the entire body/i);
     }
     expect(codex.body).toContain("Codex's own local memories feature");
     expect(codex.body).not.toContain('~/.claude/projects');
@@ -813,8 +829,9 @@ describe('retired authority sentences', () => {
     // Only the retired sentence goes; operator prose around it survives.
     expect(out.body).toContain('Keep this operator note.');
     expect(out.body).toContain('# House rules');
-    // And the level's grant is now unopposed.
-    expect(out.body).toContain('Make task-relevant changes on an explicitly named remote host');
+    // And the level's grant is now unopposed: at Unrestricted only its duty remains to say.
+    expect(out.body).toContain('Every operation class is granted when the task requires it');
+    expect(out.body).toContain('Name the host and what you changed on it.');
   });
 
   it('takes the retired bullet\'s line with it instead of leaving a blank-line run', () => {
@@ -888,12 +905,11 @@ describe('managed Agent Messaging guidance', () => {
     for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
       const body = rendered(engine).body;
       expect(body).toContain('agent_session_name');
-      expect(body).toContain('only when none is known');
       expect(body).toContain("operator's language");
       // 2026-10-16: a capability-only first turn skipped setup; the timing is the first turn, not "work".
-      expect(body).toContain('**Session name.** On your first turn, before your first response, call `agent_session_name`');
-      expect(body).toContain('Call `agent_self` on your first turn, before your first');
-      expect(body).toMatch(/including a question, capability check or request\s+not to act yet/);
+      // The launch identity prompt repeats this in full; the document keeps the trigger.
+      expect(body).toMatch(/\*\*Session name\.\*\* On every first turn, even a question, and after resume, call `agent_self` and\s+`agent_session_name`/);
+      expect(body).toMatch(/before responding\./);
       expect(body).not.toContain('Near the start of work');
     }
   });
@@ -928,7 +944,7 @@ describe('managed Agent Messaging guidance', () => {
       expect(body).toContain('reply is informational by default');
       expect(body).toContain('Never acknowledge an acknowledgement');
       expect(body).toContain('Austausch beendet');
-      expect(body).toMatch(/Complete that\s+delivery with `agent_listen` once and yield, without sending another peer message/);
+      expect(body).toMatch(/Complete that delivery with `agent_listen` once and yield, without sending\s+another peer message/);
     }
   });
 

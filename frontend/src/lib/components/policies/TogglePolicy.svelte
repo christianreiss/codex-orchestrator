@@ -28,7 +28,7 @@
     "model-tier-check": { query: modelTierCheckQuery, mutation: modelTierCheckMutation, title: "Model Class Check",
       label: "Include model tier self-check guidance", scope: "Agent instructions · Codex, Claude and Grok",
       description: "Agents compare their own model tier with the task before starting work.",
-      details: "On by default. Underclassed agents stop and recommend a stronger model; overclassed agents may note a cheaper one and continue. The tier table lists only the latest enabled models of each host's active engines. Managed documents update on the next sync or launch." },
+      details: "On by default. Agents one tier below the task name a stronger model and continue; two or more tiers below, they stop and recommend one. The tier table lists only the latest enabled models of each host's active engines. Managed documents update on the next sync or launch." },
     "insecure-approval": { query: insecureApprovalQuery, mutation: insecureApprovalMutation, title: "Insecure-host approvals",
       label: "Enable approval requests", scope: "Fleet access workflow · insecure hosts",
       description: "Let insecure hosts request administrator approval when their access window is closed.",

@@ -105,12 +105,13 @@ unknown, say so once and proceed; never abort on a guess.
 | --- | --- | --- |
 ${rows.join('\n')}
 
-- **Underclassed** (task tier above yours): the one stop beyond Hard Stop Lines. Do not start unless
-  the operator explicitly asked this model to proceed; report
-  \`Underclassed: Tier <n> required, running <model> (Tier <m>). Recommended: <model>.\` naming the lowest
-  fitting model, own engine first. Accepted work ends with \`agent_task_result\` \`blocked\` and that line.
-- **Overclassed** (two or more tiers below): you may note
-  \`Overclassed: <model> (Tier <m>) for a Tier <n> task; <model> would suffice.\` once, then proceed.
+The line is \`Underclassed: Tier <n> required, running <model> (Tier <m>). Recommended: <model>.\`,
+naming the lowest fitting model, own engine first.
+
+- **Task one tier above yours:** state that line once, then proceed.
+- **Task two or more tiers above yours:** the one stop beyond Hard Stop Lines. Do not start unless the
+  operator explicitly asked this model to proceed; report the line. Accepted work ends with
+  \`agent_task_result\` \`blocked\` and that line.
 - Otherwise proceed silently; re-check when the scope grows.
 `;
 }

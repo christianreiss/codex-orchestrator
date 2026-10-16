@@ -21,6 +21,12 @@
  * Retiring the skill and paying for these lines on every run is the whole point,
  * so resist trimming this back into a stub.
  *
+ * What may leave is mechanics that are present exactly when they are executed:
+ * the complete-read / `expected_sha256` / restart-on-conflict procedure is
+ * stated verbatim in the `shared_memory_write` and `resource_update` tool
+ * descriptions, which an agent necessarily has when it calls them. The trigger,
+ * the delete rule and the no-near-duplicates principle stay here.
+ *
  * The curation trigger is deliberately bound to the READ, not to end-of-task.
  * Traffic runs ~113 reads per 3 writes, so the moment an agent reads a record
  * that contradicts what it just verified is both the commonest moment and the
@@ -65,8 +71,7 @@ export function buildManagedMemoryBlock(engine: Engine): string {
 
 This fleet keeps recorded decisions, conventions, runbooks, and handoffs in the orchestrator,
 shared across every host and all three engines. Treat those records as authoritative over your own
-assumptions, not automatically as current code or runtime truth. Verify mutable facts against the
-present repository or system.
+assumptions, not automatically as current code or runtime truth.
 
 **Looking something up.** If you are asked about this fleet, a host, a convention, a runbook, or any
 past decision — and you do not already know the answer — call \`shared_memory_list\` (it takes no
@@ -76,17 +81,10 @@ that is where the answer lives. \`memory_*\` is host-local scratch and is NOT a 
 it cannot be listed, so it can never tell you what exists.
 
 **When a record is wrong, fix it then.** If something you read here contradicts what you just
-verified, correcting it is part of the task you are already doing — not follow-up work. Before
-replacing an existing shared document through \`shared_memory_write\`, \`resource_create\`, or
-\`resource_update\` on \`shared://\`, reconstruct its complete current body: start
-\`shared_memory_read\` at offset 0 without chunk selectors, concatenate every window through
-\`next_offset\` until \`truncated\` is false, and require the same \`memory.sha256\` on every window.
-Preserve all unaffected content.
-
-Never replace a document from a search excerpt, preview, isolated chunk, or other partial read: every
-shared write path replaces the entire body. Pass the stable digest as \`expected_sha256\`. On a
-conflict or a changed digest between windows, restart the complete read and reapply the correction.
-Use \`shared_memory_delete\` or \`resource_delete\` on \`shared://\` only when the whole record is
+verified, correcting it is part of the task you are already doing — not follow-up work. Writing
+through \`shared_memory_write\`, \`resource_create\`, or \`resource_update\` on \`shared://\` replaces
+the entire body: only from a complete read, preserving unaffected content, with its digest as
+\`expected_sha256\`; those tool descriptions give the procedure. Use \`shared_memory_delete\` or \`resource_delete\` on \`shared://\` only when the whole record is
 invalid or superseded, not because one fact inside it is stale. If the complete body cannot be loaded
 and preserved safely, do not overwrite it; report the blocked correction. Never leave a corrected
 fact beside the stale one — near-duplicates are how this corpus rots into uselessness, and wrong

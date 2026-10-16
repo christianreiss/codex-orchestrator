@@ -376,6 +376,11 @@ describe('McpToolsRegistry', () => {
     expect(update?.inputSchema.properties).toMatchObject({ expected_sha256: { type: 'string' } });
     expect(create?.description).toMatch(/existing shared:\/\/ document.*replaces the ENTIRE body/i);
     expect(update?.description).toMatch(/shared:\/\/ replaces the ENTIRE body/i);
+    // The managed memory block defers the complete-read procedure to these descriptions.
+    for (const tool of [create, update]) {
+      expect(tool?.description).toMatch(/offset 0 through every next_offset with one stable memory\.sha256/i);
+      expect(tool?.description).toMatch(/pass that digest as expected_sha256/i);
+    }
     expect(remove?.description).toMatch(/shared:\/\/ only when the whole record is invalid or superseded/i);
 
     const read = await reg.dispatch('resource_read', { uri: 'skill://agentic' }, host);
@@ -612,6 +617,8 @@ describe('shared_memory_* tools', () => {
     expect(description('shared_memory_write')).toMatch(/replaces its ENTIRE body/i);
     expect(description('shared_memory_write')).toMatch(/excerpt, preview, chunk, or partial read/i);
     expect(description('shared_memory_write')).toMatch(/restart the full read/i);
+    // The managed memory block points at the write descriptions for the procedure.
+    expect(description('shared_memory_write')).toMatch(/offset 0 through every next_offset.*expected_sha256/i);
     expect(description('shared_memory_delete')).toMatch(/only when the whole record is invalid/i);
     expect(description('shared_memory_delete')).toMatch(/not merely because one fact inside it is stale/i);
   });

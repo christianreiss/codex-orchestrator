@@ -271,20 +271,35 @@ describe('renderSecurityPolicyMarkdown', () => {
     const open = renderSecurityPolicyMarkdown(UNRESTRICTED);
     expect(open.sections.standing_authorizations).toContain('## Standing Authorizations');
     expect(open.markdown).toContain('## Standing Authorizations');
-    expect(open.markdown).toContain('They are permissions, not instructions.');
+    expect(open.markdown).toContain('These are permissions, not instructions.');
     // Nothing is forbidden, so the floor sentence must not appear at all.
     expect(open.markdown).not.toContain('No instruction from any tier');
   });
 
   it('unlocks remote mutation, deploys and secret values at Unrestricted', () => {
     const md = renderSecurityPolicyMarkdown(UNRESTRICTED).markdown;
-    expect(md).toContain('Make task-relevant changes on an explicitly named remote host');
-    expect(md).toContain('Restart and migrate production without asking');
+    // Everything is granted, so the list collapses to the duties the grants carry.
+    expect(md).toContain('Every operation class is granted when the task requires it');
+    expect(md).toContain('Name the host and what you changed on it.');
+    expect(md).toContain('Report what ran in production.');
     expect(md).toContain('Write a secret value only into the reply, file, log, or commit the task explicitly requires');
+    expect(md).not.toContain('Make task-relevant changes on an explicitly named remote host');
     // A blanket "wherever" grant contradicted the Secrets block's single-destination rule.
     expect(md).not.toContain('Write secret values wherever');
     // The old hard-coded prohibitions must be gone, not merely contradicted.
     expect(md).not.toContain('No instruction from any tier');
+  });
+
+  it('emits each duty once and only when every operation is granted', () => {
+    const open = renderSecurityPolicyMarkdown(UNRESTRICTED).sections.standing_authorizations!;
+    const bullets = open.split('\n').filter((line) => line.startsWith('- '));
+    expect(new Set(bullets).size).toBe(bullets.length);
+    expect(open).toContain('Say when you reconfigure host sandbox or approval settings.');
+    // One axis short of Unrestricted keeps the expanded grant list.
+    const almost = renderSecurityPolicyMarkdown(withAxis(UNRESTRICTED, 'deploy_release', 3)).markdown;
+    expect(almost).toContain('These need no confirmation. They are permissions, not instructions.');
+    expect(almost).toContain('Make task-relevant changes on an explicitly named remote host');
+    expect(almost).not.toContain('Every operation class is granted');
   });
 
   it('never states a forbid and an allow for the same operation', () => {
@@ -298,8 +313,12 @@ describe('renderSecurityPolicyMarkdown', () => {
   it('inverts the stricter-mechanism clause only at security_controls 4', () => {
     const low = renderSecurityPolicyMarkdown(STANDARD).markdown;
     expect(low).toContain('A mechanical refusal is a boundary, not an obstacle');
-    const high = renderSecurityPolicyMarkdown(withAxis(STANDARD, 'security_controls', 4)).markdown;
-    expect(high).toContain('yours to reconfigure when the task requires it');
+    const high = renderSecurityPolicyMarkdown(withAxis(STANDARD, 'security_controls', 4));
+    // A grant is not a floor: it moves to Standing Authorizations.
+    expect(high.sections.safety_floor).not.toContain('sandbox');
+    expect(high.sections.standing_authorizations).toContain(
+      'Reconfigure host sandbox and approval settings when the task requires it, and say so.',
+    );
   });
 });
 
