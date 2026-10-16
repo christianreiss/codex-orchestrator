@@ -181,8 +181,36 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     const roomDeadline = new Date(Date.now() + 120_000).toISOString();
     await db.update(agentBusConferences).set({ deadlineAt: roomDeadline }).where(eq(agentBusConferences.id, conferenceId));
     const dispatched = await service.conferenceDispatch(chair.sessionId, chair.bridgeToken, { conferenceId, to: one.address, task: 'short room', etaSeconds: 120 });
-    expect(dispatched.eta_seconds).toBe(900);
+    expect(dispatched).toMatchObject({ eta_seconds: 120, grace_seconds: 900, dispatch_deadline_at: roomDeadline });
     expect((await memberRow(conferenceId, one.addressId))?.dispatchDeadlineAt).toBe(roomDeadline);
+  });
+
+  // Feedback bee63f6f: a short estimate was rewritten to the 900-second grace
+  // floor in the TASK header and the echo. The floor belongs to the sweep only.
+  it('advertises the chair estimate unchanged while flooring only the sweep grace', async () => {
+    for (const [eta, header, grace] of [[30, 30, 900], [180, 180, 900], [3600, 3600, 3600], [undefined, 900, 900]] as const) {
+      const { chair, one, conferenceId } = await room();
+      const before = Date.now();
+      const dispatched = await service.conferenceDispatch(chair.sessionId, chair.bridgeToken, {
+        conferenceId, to: one.address, task: 'estimate check', etaSeconds: eta,
+      });
+      expect(dispatched).toMatchObject({ eta_seconds: header, grace_seconds: grace });
+      const revealed = await service.revealAdminConferenceMessages(conferenceId, [String(dispatched.message_id)]);
+      expect(String(revealed.messages[0]?.content)).toMatch(new RegExp(`^CONF/1 TASK conference=${conferenceId} eta=${header} `));
+      const deadline = Date.parse(String((await memberRow(conferenceId, one.addressId))?.dispatchDeadlineAt));
+      expect(deadline).toBeGreaterThanOrEqual(before + grace * 1000 - 1000);
+      expect(deadline).toBeLessThanOrEqual(Date.now() + grace * 1000 + 1000);
+    }
+  });
+
+  it('rejects an out-of-range estimate instead of clamping it', async () => {
+    const { chair, one, conferenceId } = await room();
+    for (const eta of [-1, 14401, 1.5]) {
+      await expect(service.conferenceDispatch(chair.sessionId, chair.bridgeToken, {
+        conferenceId, to: one.address, task: 'bad estimate', etaSeconds: eta,
+      })).rejects.toMatchObject({ code: 'validation_failed', message: 'eta_seconds must be between 0 and 14400' });
+    }
+    expect((await memberRow(conferenceId, one.addressId))?.state).toBe('seated');
   });
 
   it('keeps a dispatched member busy when it joins again', async () => {

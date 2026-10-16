@@ -61,6 +61,7 @@ import {
   normalizeConferencePin,
   normalizeConferenceMaxMembers,
   normalizeConferenceTtl,
+  dispatchGraceSeconds,
   normalizeDispatchEta,
   normalizeMessageBody,
   normalizeOptionalText,
@@ -896,6 +897,7 @@ export class ConferenceCoordinator {
     const to = normalizeRequiredText(input.to, 'to', 96);
     const task = normalizeMessageBody(input.task);
     const etaSeconds = normalizeDispatchEta(input.etaSeconds);
+    const graceSeconds = dispatchGraceSeconds(etaSeconds);
     const result = await this.core.db.transaction(async (tx) => {
       await this.core.requireEnabledLocked(tx);
       const now = nowIso();
@@ -927,17 +929,20 @@ export class ConferenceCoordinator {
         body: task,
         now,
       });
+      const dispatchDeadlineAt = new Date(
+        Math.min(Date.parse(now) + graceSeconds * 1000, Date.parse(conference.deadlineAt)),
+      ).toISOString();
       await tx
         .update(agentBusConferenceMembers)
         .set({
           state: 'dispatched',
           dispatchMessageId: message.id,
-          dispatchDeadlineAt: new Date(Math.min(Date.parse(now) + etaSeconds * 1000, Date.parse(conference.deadlineAt))).toISOString(),
+          dispatchDeadlineAt,
           dispatchedAt: now,
           updatedAt: now,
         })
         .where(eq(agentBusConferenceMembers.id, member.id));
-      return { message, target };
+      return { message, target, dispatchDeadlineAt };
     });
     wsPublisher.publish('agent_messaging.message.changed', {
       message_id: result.message.id,
@@ -950,6 +955,8 @@ export class ConferenceCoordinator {
       dispatched_to: publicAddress(result.target),
       message_id: result.message.id,
       eta_seconds: etaSeconds,
+      grace_seconds: graceSeconds,
+      dispatch_deadline_at: result.dispatchDeadlineAt,
     };
   }
 

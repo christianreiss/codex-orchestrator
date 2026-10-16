@@ -166,6 +166,7 @@ export {
 
 export {
   deliveryBackoffSeconds,
+  dispatchGraceSeconds,
   normalizeAgentAlias,
   normalizeConferenceMaxMembers,
   normalizeConferenceTtl,

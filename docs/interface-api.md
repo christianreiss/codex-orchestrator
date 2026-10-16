@@ -1330,10 +1330,14 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   one named member; a participant's `to` is ignored since the star has no
   participant-to-participant edge.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/dispatch` — chair only.
-  Sets the member `dispatched` with a `dispatch_deadline_at` (`eta_seconds`
-  0..14400, floored at 900) that the maintenance sweep uses to un-strand a member
-  whose run died. This grace deadline is capped at the room deadline; the
-  returned `eta_seconds` still reports the normalized grace duration.
+  Optional `eta_seconds` is the chair's estimate, an integer 0..14400 (default
+  900); anything else is rejected as a validation error, never clamped. It is carried
+  unchanged in the `CONF/1 TASK … eta=<s>` header and echoed as `eta_seconds`.
+  Separately, the member goes `dispatched` with a `dispatch_deadline_at` that the
+  maintenance sweep uses to un-strand a member whose run died: the grace is
+  `max(eta_seconds, 900)` (returned as `grace_seconds`), because a headless run
+  spends most of a short window booting an engine, and the deadline is capped at
+  the room deadline. The response also returns `dispatch_deadline_at`.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/adjourn` — chair only.
   Default leaves `dispatched` members to finish and parks the room in
   `adjourning`; `force: true` cancels their conversations, which revokes the
