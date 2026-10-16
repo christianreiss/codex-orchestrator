@@ -328,4 +328,38 @@ describe.skipIf(!handle)('directory, checkout and project discovery on MySQL', {
       await app.close();
     }
   });
+
+  it('lists only the authenticated host for an operator shell, read-only and host-scoped', async () => {
+    const local = await launch();
+    const localClaude = await launch(workspace('/srv', '/srv', '/srv/.git'), testHosts[0]!, 'claude');
+    const remote = await launch(workspace(), testHosts[1]!);
+    const app = Fastify({ logger: false });
+    await app.register(envelopePlugin);
+    app.decorate('requireAdmin', async () => {});
+    app.decorate('resolveAdmin', async () => null);
+    await registerAgentMessagingRoutes(app, {
+      db: db!,
+      env: loadTestEnv(),
+      keyring: testKeyring(),
+    } as RouteContext);
+    const url = '/host/agent-messaging/list';
+    const headers = { 'x-api-key': testHosts[0]!.apiKey! };
+    try {
+      expect((await app.inject({ method: 'POST', url, payload: {} })).statusCode).toBe(401);
+      const listed = await app.inject({ method: 'POST', url, headers, payload: {} });
+      expect(listed.statusCode).toBe(200);
+      const body = listed.json() as { scope: string; read_only: boolean; host_id: number; total: number; addresses: Array<{ address: string; host_id: number; queue_depth: number; accepted_work: number }> };
+      expect(body).toMatchObject({ scope: 'host', read_only: true, enabled: true, host_id: testHosts[0]!.id, total: 2 });
+      expect(body.addresses.map((a) => a.address).sort()).toEqual([local.address.address, localClaude.address.address].sort());
+      expect(body.addresses.every((a) => a.host_id === testHosts[0]!.id && a.queue_depth === 0 && a.accepted_work === 0)).toBe(true);
+      expect(body.addresses.map((a) => a.address)).not.toContain(remote.address.address);
+      const claude = await app.inject({ method: 'POST', url, headers, payload: { engine: 'claude' } });
+      expect(claude.json()).toMatchObject({ total: 1, addresses: [{ address: localClaude.address.address }] });
+      // Host keys authenticate one host: no scope or host selection is accepted.
+      expect((await app.inject({ method: 'POST', url, headers, payload: { host_id: testHosts[1]!.id } })).statusCode).toBe(422);
+      expect((await app.inject({ method: 'POST', url, headers, payload: { scope: 'fleet' } })).statusCode).toBe(422);
+    } finally {
+      await app.close();
+    }
+  });
 });

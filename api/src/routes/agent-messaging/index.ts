@@ -509,6 +509,19 @@ export async function registerAgentMessagingRoutes(
     const body = z.object({ value: z.string().min(1).max(96) }).strict().parse(req.body ?? {});
     return await messaging.translateForHost(host, body.value);
   });
+  // Read-only operator inventory outside a managed lifecycle. The host key
+  // authenticates one host, so the listing is pinned to it server-side.
+  app.post('/host/agent-messaging/list', async req => {
+    const host = await hostAuth.authenticate(req);
+    const body = z
+      .object({ engine: z.enum(['codex', 'claude', 'grok']).optional(), include_offline: z.boolean().optional() })
+      .strict()
+      .parse(req.body ?? {});
+    return await messaging.listAddressesForHost(host, {
+      engine: body.engine ? parseEngine(body.engine) : undefined,
+      includeOffline: body.include_offline,
+    });
+  });
   app.post('/host/agent-relays/register', async (req) => {
     const host = await hostAuth.authenticate(req);
     const body = z

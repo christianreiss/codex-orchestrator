@@ -1874,6 +1874,28 @@ Launch registration adds `address.name` and `name_status`
 (`assigned|unavailable`); agent-address projections add nullable `name`.
 Session snapshots add nullable `launch_name`, `task_title`, `session_name`.
 
+#### Host-scope agent inventory (read-only)
+
+`POST /host/agent-messaging/list` lets an operator shell outside any managed
+lifecycle enumerate the agents registered on its own host. Authentication is the
+host API key with host/IP/window policy (an insecure host needs an open window).
+The body is closed: `{engine?: "codex"|"claude"|"grok", include_offline?: boolean}`
+(default `true`); `scope`, `host_id`, `limit` and `offset` are rejected with 422,
+because the key authenticates exactly one host and the listing is pinned to it.
+It sends, claims and renews nothing.
+
+Response: `{scope: "host", read_only: true, enabled, host_id, fqdn, observed_at,
+total, addresses[]}`. `enabled` reflects the messaging master switch; rows are
+returned either way so an operator can still decide whether a worker is safe to
+stop. Each address carries the public address projection (`name`, `engine`,
+`username`, `cwd`, `presence`, `readiness`, …) plus `receiver`,
+`current_session_id`, `upstream_session_id`, `last_upstream_session_id`
+(resumability), `engine_active` (false while the engine is fleet-suspended or
+unassigned), `queue_depth` (live messages: queued, leased, accepted,
+reboot_hold), `accepted_work` (accepted work still awaiting a result) and
+`queue` (counts by status). Archived addresses are omitted; disabled ones are
+listed with `presence: "disabled"`.
+
 
 ### Confirmed launch identity (cxx 0.9.37)
 

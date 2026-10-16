@@ -1462,6 +1462,20 @@ does not block launch. Peer titles are quoted data, not instructions. Refresh
 with `agent_list(scope:"project", online:true)` or
 `cxx agent list --scope project --online`; page with `--limit` and `--offset`.
 
+Outside a managed lifecycle (an ops or root shell), `cxx agent list` no longer
+fails with "available only inside a managed cdx/clx/cgx lifecycle": it reads
+this host's signed config and calls `POST /host/agent-messaging/list` with the
+host key, printing a read-only host-scope inventory (`scope: "host"`) with
+presence, resumable session ids and live/accepted work counts. `--scope host`
+forces that path inside a lifecycle too. Only `--engine` and `--online` apply;
+`--scope fleet|directory|checkout|project`, `--host`, `--limit` and `--offset`
+are refused outside a lifecycle rather than silently dropped. Nothing is sent or
+claimed. When no signed config with messaging enabled is found the error names
+every searched path (under `sudo`, HOME/XDG_CONFIG_HOME select the install).
+`cxx agent status` outside a lifecycle stays local and adds
+`host_config_available` and a `hint` pointing at the host inventory; the other
+session-only commands' refusal carries the same hint.
+
 From wrapper 0.9.39, `agent_list` excludes your own agent and accepts `name`
 (a literal case-insensitive substring of name, alias or address), `limit` (1–50,
 default 50) and `offset` (default 0). If `truncated` is true, pass `next_offset`
