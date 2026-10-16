@@ -48,3 +48,45 @@ describe('profile and native file scopes', () => {
     expect(() => normalizeCodexNativeSettings({ allowed_sandbox_modes: ['read-only'] })).toThrow(/admin-enforced requirements.toml/);
   });
 });
+
+
+describe('Codex 0.163 conditional capability floor', () => {
+  const render = (version: string | null, settings: unknown) => renderTomlForHost({ settings,
+    host: { clientVersion: version } as never, baseUrl: null, apiKey: null });
+  const fields = [
+    { include_environment_context_time: false },
+    ...['async_compaction', 'code_mode_host_grpc', 'code_mode_tool_description_first', 'credential_masking',
+      'guardian_trust_orchestrator_connectors', 'output_token_replay', 'retain_client_tool_outputs',
+      'subagent_default_context_limits'].map(key => ({ features: { [key]: false } })),
+    { features: { multi_agent_v2: { disable_native_tools: false } } },
+    { features: { multi_agent_v2: { preserve_fork_prefix: false } } },
+    { plugins: { _default: { enabled: false } } },
+    { tui: { copy_on_select_clear_selection: false } },
+    { tui: { keymap: { global: { leader: [] } } } },
+    { windows: { allow_mxc: false } }, { notice: { hide_gov_cloud_guidance: false } },
+    ...['aube', 'bubbie', 'haetsal', 'hanul', 'himari', 'leher', 'miko', 'neer', 'porto', 'rindo', 'rio',
+      'rivage', 'selva', 'sonna', 'tinta', 'viola'].map(voice => ({ realtime: { voice } })),
+  ];
+  it.each(fields)('gates new fields, even false/empty values, in root and profile extensions: %j', input => {
+    for (const settings of [{ native_settings: input }, { profiles: [{ name: 'modern', native_settings: input }] }]) {
+      expect(() => render('0.162.1', settings)).toThrow(/0\.163\.0.*cdx update/);
+      expect(() => render(null, settings)).toThrow(/0\.163\.0.*unreported/);
+      expect(() => render('0.163.0', settings)).not.toThrow();
+      expect(() => render('0.164.0', settings)).not.toThrow();
+    }
+  });
+  it('gates structured new feature and notice fields too', () => {
+    for (const settings of [{ features: { credential_masking: false } },
+      { profiles: [{ name: 'modern', features: { async_compaction: false } }] },
+      { notice: { hide_gov_cloud_guidance: false } }]) {
+      expect(() => render('0.162.1', settings)).toThrow(/0\.163\.0/);
+      expect(() => render('0.163.0', settings)).not.toThrow();
+    }
+  });
+  it('retains old supported settings and opaque map keys at the old floor', () => {
+    expect(() => render('0.162.1', { native_settings: { realtime: { voice: 'alloy' },
+      mcp_servers: { 'tui.keymap.global.leader': { command: '/bin/echo' } },
+      plugins: { 'include_environment_context_time': { enabled: true } },
+    } })).not.toThrow();
+  });
+});

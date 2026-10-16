@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { normalizeSettings, normalizeApprovalPolicy } from '../../../src/services/config-normalizer.js';
 import { normalizeCodexNativeSettings } from '../../../src/services/codex-native-settings.js';
 import { ClientConfigService, renderToml, renderTomlForHost } from '../../../src/services/client-config.js';
@@ -168,5 +172,95 @@ describe('Codex native configuration', () => {
     expect(result.settings.native_settings).toEqual(native);
     expect(result.content).toContain('[apps.calendar.tools.read_event]');
     expect(result.sha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+});
+
+
+const native163 = {
+  include_environment_context_time: false,
+  features: {
+    async_compaction: { enabled: true, model_async_compact_threshold_percent: 65 },
+    code_mode_host_grpc: false, code_mode_tool_description_first: true,
+    credential_masking: true, guardian_trust_orchestrator_connectors: false,
+    output_token_replay: false, retain_client_tool_outputs: true,
+    subagent_default_context_limits: true,
+    multi_agent_v2: { disable_native_tools: false, preserve_fork_prefix: true },
+  },
+  plugins: { _default: { enabled: false }, 'test.plugin': { enabled: true } },
+  tui: { keymap: { global: { leader: ['ctrl-x', 'ctrl-space'] } }, copy_on_select_clear_selection: true },
+  windows: { allow_mxc: false }, notice: { hide_gov_cloud_guidance: true },
+  realtime: { voice: 'aube' },
+  mcp_servers: { 'custom.example': { command: '/bin/echo' } },
+};
+
+describe('Codex 0.163 native configuration', () => {
+  it('stores, fetches and renders new fields in root and profile scopes without changing dotted ids', async () => {
+    const service = new ClientConfigService(createDbFake() as never);
+    const first = await service.store({ settings: { native_settings: native163,
+      profiles: [{ name: 'new-features', native_settings: native163 }] } });
+    expect(first.settings.native_settings).toEqual(native163);
+    const fetched = await service.adminFetch();
+    expect(fetched.settings?.profiles[0]?.native_settings).toEqual(native163);
+    const preview = service.render(fetched.settings);
+    for (const body of [preview.content, preview.profiles![0]!.content]) {
+      expect(body).toContain('include_environment_context_time = false');
+      expect(body).toContain('[features.async_compaction]');
+      expect(body).toContain('model_async_compact_threshold_percent = 65');
+      expect(body).toContain('[plugins."test.plugin"]');
+      expect(body).toContain('[mcp_servers."custom.example"]');
+      expect(body).toContain('voice = "aube"');
+    }
+    const edited = fetched.settings!;
+    edited.native_settings = { include_environment_context_time: true };
+    edited.profiles[0]!.native_settings = { features: { async_compaction: false } };
+    const changed = await service.store({ settings: edited, expected_revision: fetched.revision });
+    expect(changed.content).toContain('include_environment_context_time = true');
+    expect(changed.content).not.toContain('model_async_compact_threshold_percent');
+    const cleared = await service.store({ settings: { native_settings: {}, profiles: [] } });
+    expect(cleared.content).not.toMatch(/include_environment_context_time|async_compaction|test.plugin/);
+  });
+
+  it.each([
+    { include_environment_context_time: 'false' }, { features: { async_compaction: { model_async_compact_threshold_percent: 'many' } } },
+    { features: { async_compaction: { unexpected: true } } },
+    { features: { async_compaction: { enabled: false, model_async_compact_threshold_percent: 0 } } },
+    { features: { async_compaction: { model_async_compact_threshold_percent: 101 } } },
+    { features: { async_compaction: { model_async_compact_threshold_percent: 1.5 } } }, { features: { multi_agent_v2: { preserve_fork_prefix: 'yes' } } },
+    { plugins: { _default: { enabled: 'yes' } } }, { tui: { keymap: { global: { leader: 42 } } } },
+    { tui: { copy_on_select_clear_selection: 'yes' } }, { windows: { allow_mxc: 'yes' } },
+    { notice: { hide_gov_cloud_guidance: 'yes' } }, { realtime: { voice: 'unknown-voice' } },
+    { features: { shell_zsh_fork: false } },
+  ])('rejects invalid newly supported values: %j', input => {
+    expect(() => normalizeCodexNativeSettings(input)).toThrow();
+    expect(() => normalizeSettings({ profiles: [{ name: 'invalid', native_settings: input }] })).toThrow();
+  });
+
+  it.each([
+    { features: { shell_zsh_fork: true } },
+    { profiles: [{ name: 'old', features: { shell_zsh_fork: false } }] },
+  ])('rejects retired structured input instead of silently discarding it: %j', input => {
+    expect(() => new ClientConfigService({} as never).render(input)).toThrow(/shell_zsh_fork.*removed/);
+  });
+
+  it('does not enable new experimental features by default', () => {
+    expect(render({}).content).not.toMatch(/async_compaction|code_mode_host_grpc|credential_masking/);
+  });
+
+  it.skipIf(!process.env.CODEX_NATIVE_TEST_BIN)('parses root and profile TOML with the actual 0.163 CLI without auth or a session', () => {
+    const result = new ClientConfigService({} as never).render({ native_settings: native163,
+      profiles: [{ name: 'native-parser', native_settings: native163 }] });
+    const home = mkdtempSync(join(tmpdir(), 'codex-163-parser-'));
+    try {
+      for (const content of [result.content, result.profiles![0]!.content]) {
+        writeFileSync(join(home, 'config.toml'), content);
+        const probe = spawnSync(process.env.CODEX_NATIVE_TEST_BIN!, ['features', 'list'], {
+          env: { ...process.env, CODEX_HOME: home }, encoding: 'utf8', timeout: 15000,
+        });
+        expect(probe.error).toBeUndefined();
+        expect(probe.stderr).not.toContain('Error loading configuration');
+        expect(probe.status, probe.stderr).toBe(0);
+        expect(probe.stdout).toContain('async_compaction');
+      }
+    } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });

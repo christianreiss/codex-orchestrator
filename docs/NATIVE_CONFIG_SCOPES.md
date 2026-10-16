@@ -4,8 +4,8 @@ The Engines page authors fleet **user defaults**: Codex `config.toml` and named
 profile sidecars, Claude `settings.json`, and Grok `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
-can be authored centrally. Coverage was reviewed on 2026-10-12 against Codex
-0.162.1, Claude Code 2.1.296 and Grok Build 1.0.50.
+can be authored centrally. Coverage was reviewed against Codex 0.163.0 on 2026-10-16,
+and Claude Code 2.1.296 and Grok Build 1.0.50 on 2026-10-12.
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -37,7 +37,14 @@ only with **user-default** semantics, never as an enforced requirement.
 ## Native version compatibility
 
 Nonempty Codex native settings, including profile native settings, require a
-reported native CLI version of at least 0.162.1. Claude native settings require
+reported native CLI version of at least 0.162.1. Fields introduced in 0.163.0
+raise the floor to 0.163.0 only when configured, even when false or empty: environment
+context time, async compaction and the new feature switches, the new multi-agent
+options, plugin defaults, global leader binding, selection clearing, Windows MXC,
+government-cloud guidance and the new realtime voices. This checks both root and
+profile settings, including structured feature/notice controls, using exact field
+paths. Opaque plugin/MCP names never trigger a version gate. Existing supported
+values retain the 0.162.1 floor. Claude native settings require
 2.1.296. Older or unreported versions receive an actionable config validation
 error with observed and required versions. Empty extensions and existing
 structured-only settings do not raise either fleet-wide minimum. Grok already

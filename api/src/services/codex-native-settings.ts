@@ -1,8 +1,8 @@
 /**
- * Codex 0.162.1 native configuration, audited 2026-10-12.
+ * Codex 0.163.0 native configuration, audited 2026-10-16.
  * Schema: https://learn.chatgpt.com/docs/config-schema.json (redirect target of
  * https://developers.openai.com/codex/config-schema.json).
- * Original SHA-256: 7933a70506e753a6e98c16800d2a76770b2af2b7295491f8f0b8e713e952027e.
+ * Original SHA-256: e9dd16b9d1710e57b020e42da4af6d6606e8f44cb028a2e94196dee3890d9170.
  * Feature retirement comes from `codex features list`, not the schema: upstream
  * deliberately retains removed keys in that schema for compatibility.
  */
@@ -40,6 +40,7 @@ export const CODEX_RETIRED_FEATURE_KEYS: readonly string[] = [
   "responses_websockets_v2",
   "search_tool",
   "send_async_message",
+  "shell_zsh_fork",
   "skill_env_var_dependency_prompt",
   "sqlite",
   "steer",
