@@ -401,6 +401,20 @@ export function normalizeSettings(
   const applyCodexDefaults = opts.applyCodexDefaults ?? true;
   const engine = opts.engine ?? (applyCodexDefaults ? 'codex' : 'claude');
   const isCodex = engine === 'codex';
+  // 0071 explicitly migrates saved documents. New authoring must never silently
+  // discard this newly retired option, including the legacy structured surface.
+  if (isCodex) {
+    const input = asRecord(raw);
+    const scopes: Array<[Record<string, unknown>, string]> = [[input, 'settings']];
+    if (Array.isArray(input.profiles)) {
+      input.profiles.forEach((profile, i) => scopes.push([asRecord(profile), `settings.profiles[${i}]`]));
+    }
+    for (const [scope, path] of scopes) {
+      if (Object.hasOwn(asRecord(scope.features), 'shell_zsh_fork')) {
+        throw new ValidationError(`${path}.features.shell_zsh_fork is removed in Codex 0.163.0; omit it`, { param: `${path}.features.shell_zsh_fork` });
+      }
+    }
+  }
   const native = isCodex ? normalizeCodexNativeSettings(asRecord(raw).native_settings) : undefined;
   const settings = asRecord(raw);
   const rawModel = settings.model ?? (applyCodexDefaults ? DEFAULT_CODEX_MODEL : undefined);

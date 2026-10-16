@@ -1661,17 +1661,26 @@ This is agent-executed guidance shared by all three engines, adopted on the next
 sync/launch, not wrapper-enforced automation. See
 [Automatic repository delivery](interface-api.md#automatic-repository-delivery).
 
-## Native configuration maintenance (Codex 0.162.1)
+## Native configuration maintenance (Codex 0.163.0)
 
 `POST /admin/config/render` and `/admin/config/store` accept the optional
 `settings.native_settings` JSON object. It uses the official native config
 schema, vendored from <https://learn.chatgpt.com/docs/config-schema.json> on
-2026-10-12 (SHA-256 `7933a70506e753a6e98c16800d2a76770b2af2b7295491f8f0b8e713e952027e`).
+2026-10-16, byte-identical to the [0.163.0 release schema](https://raw.githubusercontent.com/openai/codex/rust-v0.163.0/codex-rs/core/config.schema.json)
+(SHA-256 `e9dd16b9d1710e57b020e42da4af6d6606e8f44cb028a2e94196dee3890d9170`).
 The JSON schema covers native root settings and nested settings including agents,
 apps, hooks, browser/desktop controls, history, service tiers, providers, MCP
 transport/tool configuration, and structured feature options. Schema-defined
 constraints apply; permissive upstream objects remain permissive. Experimental
 features remain opt-in and require a native version that supports them.
+
+The editor supports the 0.163 additions: environment-context time, async
+compaction options, new code-mode/credential/connector/output/subagent feature
+switches, `multi_agent_v2.disable_native_tools` and `preserve_fork_prefix`, plugin
+`_default.enabled`, the global leader key, clearing selection after copy,
+Windows `allow_mxc`, government-cloud notice visibility and expanded realtime
+voices. The schema reference in the editor identifies 0.163.0. This adds authoring
+support without enabling any optional feature.
 
 The API rejects invalid types, unknown schema properties, unsafe object keys,
 and removed/deprecated native keys with HTTP 422 and a field path. It does not
@@ -1699,6 +1708,13 @@ Legacy structured `on-failure` migrates to `on-request`; posture also stops
 emitting `on-failure`. Root `personality` is no longer emitted. Removed and
 deprecated feature switches are dropped, while legacy web-search and hook
 aliases migrate to canonical settings. Native authoring requires canonical keys.
+Codex 0.163 removed `shell_zsh_fork`: new structured or native input is rejected,
+including profiles. Idempotent migration `0071` removes only that exact feature
+from saved root/profile structured and native settings before strict validation.
+Sibling settings, literal dotted map keys, other engines and profile order remain
+intact. Historical `adminFetch.content` and its digest remain the saved snapshot;
+current preview and host delivery regenerate from migrated settings. The next
+normal revision-checked save updates the body and digest together.
 
 This config surface does not manage `requirements.toml`, MDM settings or cloud
 Agent Security policy. Those admin-enforced requirements are separate from
