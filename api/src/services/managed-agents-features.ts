@@ -343,6 +343,9 @@ requires interactive browser automation or live page inspection.`,
  * the correct trade.
  */
 function secretsSection(context: ManagedAgentFeatureContext): RenderedSection | null {
+  // Craft only. Storing, rotating and writing values are owned by the
+  // `secrets_exposure` axis; a sentence here that granted or withheld them
+  // contradicted the policy block at both Standard and Unrestricted.
   if (!context.secrets.enabled) return null;
   return present(
     context.secrets,
@@ -354,12 +357,12 @@ call \`secret_list\` or \`secret_search\` **first, before asking the human and
 before hunting through env files**, config or shell history, and read it with \`secret_get\`.
 Whether the store is available or writable is answered by \`secret_list\`'s live \`status\` and
 \`capabilities\`; a capability question is read-only. \`secret_store\` saves or rotates and
-\`secret_delete\` retires host-owned credentials, only with explicit user intent and the value.
+\`secret_delete\` retires host-owned credentials; whether you may, and where a value may be written,
+is set by the Hard Stop Lines and Standing Authorizations above.
 
 Pass a value by tool-native secret parameter,
 stdin, an inherited file descriptor, or a process-scoped environment variable.
-When a task explicitly requires a credential in a configuration, file, log, or response, write it
-there and nowhere else. Do not enable shell tracing; sanitize diagnostic subprocess output;
+Do not enable shell tracing; sanitize diagnostic subprocess output;
 unset process-scoped secret variables after use.`,
     'mcp',
   );
@@ -485,8 +488,20 @@ recovery off; after resume check \`agent_self\` and \`agent_reboot_status\`; nev
  * No line may begin with `- `: `managed-agents-features.test.ts` slices the body
  * from `## Secrets` to the end and asserts no bullet list follows.
  */
-function gitDirectorSection(context: ManagedAgentFeatureContext): RenderedSection | null {
+function gitDirectorSection(context: ManagedAgentFeatureContext, commitAllowed: boolean): RenderedSection | null {
   if (!context.gitDirector.enabled) return null;
+  // Whether committing needs a question is the `git_history` axis's call. Below
+  // the level that grants it, an unconditional "commit … without asking" here
+  // contradicted the Hard Stop the same document renders above.
+  const delivery = commitAllowed
+    ? `Default delivery: commit verified task-owned changes and merge them back without asking, unless the
+user restricted that. Push and deploy still require what Hard Stop Lines and Standing Authorizations
+say; this contract grants neither.`
+    : `Commit and merge back only as Hard Stop Lines and Standing Authorizations allow; this contract
+grants no commit, push or deploy.`;
+  const commitRule = commitAllowed
+    ? 'Commit finished changes even when working alone, never empty.'
+    : 'Once committing is authorized, commit finished changes even when working alone, never empty.';
   return present(
     context.gitDirector,
     `## Git Director
@@ -506,9 +521,7 @@ queries or other gaps mean unknown occupancy, never free. Recheck right before t
 detached, create a task branch and linked worktree outside the original checkout from the recorded
 HEAD (task slug plus your agent UUID) and work only there; never copy, stash, reset or commit
 pre-existing changes. When free, work in place. Read-only tasks create no worktree, branch or commit.
-Default delivery: commit verified task-owned changes and merge them back without asking, unless the
-user restricted that. Push and deploy still require what Hard Stop Lines and Standing Authorizations
-say; this contract grants neither.
+${delivery}
 
 **Register, then join.** \`git_register\` with the absolute checkout and common dir, branch, HEAD,
 origin and engine; \`git_join\` with task, target branch and expected paths. Never register over a
@@ -517,7 +530,7 @@ peer's path. Polling \`git_list(worktree_path: ...)\` keeps you registered; on
 an older mapping.
 
 **Completion.** Run checks, inspect diff and index, stage only task-owned paths.
-Commit finished changes even when working alone, never empty. A direct commit on a shared branch
+${commitRule} A direct commit on a shared branch
 needs a lease with \`changed_paths\` from the task-owned staged diff. Isolated work: commit in the worktree, then
 \`git_merge_request\` with \`changed_paths\` from \`git diff --name-only base...head\`; poll \`wait\` with
 \`git_merge_status\`; \`deny\` leaves it pending. Merge under the lease only while the original checkout is
@@ -607,9 +620,16 @@ function stripManagedContent(body: string): { body: string; changed: boolean } {
   // the editor or because the stored body predates this change. Left in place
   // they would forbid, below the policy block, exactly what a level grants
   // above it.
+  // Take the sentence's own line break with it, then close any gap a removed
+  // bullet left: splitting out the bare sentence alone served a heading followed
+  // by a run of blank lines.
+  let retiredRemoved = false;
   for (const retired of RETIRED_AUTHORITY_SENTENCES_LONGEST_FIRST) {
-    stripped = stripped.split(retired).join('');
+    if (!stripped.includes(retired)) continue;
+    retiredRemoved = true;
+    stripped = stripped.split(`${retired}\n`).join('').split(retired).join('');
   }
+  if (retiredRemoved) stripped = stripped.replace(/\n{3,}/g, '\n\n');
   return { body: stripped, changed: stripped !== body };
 }
 
@@ -660,7 +680,8 @@ existing host. Start work separately with agent_spawn. Timed deadlines start at 
 and never extend; accepted work drains before exit.
 `) : null;
   const agentMessaging = agentMessagingSection(context);
-  const gitDirector = gitDirectorSection(context);
+  const commitAllowed = policy.stances.find((s) => s.id === 'git.commit')?.stance === 'allow';
+  const gitDirector = gitDirectorSection(context, commitAllowed);
   const fileTransfer = fileTransferSection(context);
   const feedbackState = context.feedback ?? { enabled: false, reason: 'feedback_disabled' };
   const feedback = feedbackState.enabled ? present(feedbackState, `## Orchestrator Feedback

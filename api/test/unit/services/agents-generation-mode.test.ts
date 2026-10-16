@@ -6,7 +6,7 @@ import {
   normalizeAgentsGenerationMode,
   parseAgentsGenerationMode,
 } from '../../../src/services/agents-generation-mode.js';
-import { defaultAgentPolicyComposition } from '../../../src/services/agent-policy-composer.js';
+import { defaultAgentPolicyComposition, renderAgentPolicyBase } from '../../../src/services/agent-policy-composer.js';
 
 function builderState(customInstructions: string): Record<string, unknown> {
   return { ...defaultAgentPolicyComposition(), custom_instructions: customInstructions };
@@ -62,10 +62,25 @@ describe('compositionForMode', () => {
 describe('baseBodyForMode', () => {
   const body = '## Operating Contract (FAST)\n\nstored bytes\n';
 
-  it('serves the stored body unchanged outside off', () => {
+  it('serves the stored body verbatim at manual', () => {
     const row = { body, builderState: builderState('house rules') };
-    expect(baseBodyForMode('managed', row)).toBe(body);
     expect(baseBodyForMode('manual', row)).toBe(body);
+  });
+
+  // The stored body is a snapshot of the module text at save time. Serving it
+  // verbatim at managed meant a module edit reached no host until an operator
+  // re-saved, and the exact-text dedupe downstream silently missed it.
+  it('recomposes a builder document from its composition at managed', () => {
+    const state = builderState('house rules');
+    const out = baseBodyForMode('managed', { body: 'a stale snapshot of older module text\n', builderState: state });
+    expect(out).toBe(renderAgentPolicyBase(state).content);
+    expect(out).toContain('## Operating Contract (FAST)');
+    expect(out).toContain('house rules');
+  });
+
+  it('serves a hand-written or unparseable managed row unchanged', () => {
+    expect(baseBodyForMode('managed', { body, builderState: null })).toBe(body);
+    expect(baseBodyForMode('managed', { body, builderState: { schema_version: 99 } })).toBe(body);
   });
 
   it('recomposes a builder document down to its custom instructions at off', () => {

@@ -456,8 +456,9 @@ idempotent.
 
 The fleet-wide `agents_generation_mode` setting (`GET`/`POST
 /admin/agents-generation-mode`) applies to CLAUDE.md and AGENTS.md alike: it is
-one fleet switch, not one per engine. `managed` (default) serves the composed
-policy modules plus custom instructions, `manual` serves the stored document
+one fleet switch, not one per engine. `managed` (default) re-composes the
+policy modules plus custom instructions from the stored composition at serve
+time, `manual` serves the stored document
 verbatim, and `off` drops the generated modules while keeping the operator's
 custom instructions. No position suppresses the policy prefix or the feature
 block, and the mode is applied at render time, so switching it changes what
@@ -478,8 +479,9 @@ with one stable `memory.sha256`; excerpts, previews, chunks, and other partial
 reads must never be written back. BrowserOS remains Codex-only. The
 fleet secrets paragraph — the complete `secret_list` / `secret_search` /
 `secret_get` / `secret_store` / `secret_delete` lifecycle, with a read-only
-capability probe and rules that keep values out of shell text, argv, URLs,
-source, logged requests, tracing, files, output, and memory — is byte-identical
+capability probe and value-passing craft; whether a credential may be stored,
+rotated, retired or written anywhere is left to the posture's Hard Stop Lines and
+Standing Authorizations — is byte-identical
 to the Codex one, since neither engine ships a native credential store to defer
 to; it appears whenever `secrets_module_enabled` and orchestrator MCP are on,
 including when this engine can see no secrets yet. The block never inventories

@@ -120,7 +120,9 @@ describe('dynamic orchestrator feedback guidance', () => {
 describe('automatic Git delivery guidance', () => {
   it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s isolates occupied checkouts and commits and merges back', (engine) => {
     const ctx = context(engine, { gitDirector: enabled(), agentMessaging: enabled() });
-    const out = renderManagedAgentFeatures('# Base\n', ctx);
+    // Committing without asking is a git_history grant; the Director block only
+    // repeats it where the posture grants it.
+    const out = renderManagedAgentFeatures('# Base\n', ctx, presetLevels('trusted'));
     const block = out.body.split('## Git Director')[1]!.split('## File Transfer')[0]!;
     for (const requirement of [
       'scope: "checkout", online: true', 'checkout_root', 'coverage.limited',
@@ -130,11 +132,29 @@ describe('automatic Git delivery guidance', () => {
       'git merge-base --is-ancestor', 'already integrated result',
       'Read-only tasks create no worktree', 'Push and deploy still require',
     ]) expect(block).toContain(requirement);
-    expect(renderManagedAgentFeatures(out.body, ctx).body).toBe(out.body);
+    expect(block).toContain('merge them back without asking');
+    expect(renderManagedAgentFeatures(out.body, ctx, presetLevels('trusted')).body).toBe(out.body);
     const disabledAgain = renderManagedAgentFeatures(out.body, context(engine));
     expect(disabledAgain.body).not.toContain('Isolation is automatic');
     const noMessaging = renderManagedAgentFeatures('# Base\n', context(engine, { gitDirector: enabled() }));
     expect(noMessaging.body).toContain('Missing tools, unsupported scope');
+  });
+});
+
+describe('Git Director defers commit authority to the posture', () => {
+  it.each(['contained', 'standard'])('%s: no unconditional commit or merge without asking', (preset) => {
+    const out = renderManagedAgentFeatures('# Base\n', context(ENGINE_CLAUDE, { gitDirector: enabled() }), presetLevels(preset));
+    const block = out.body.split('## Git Director')[1]!.split('## Git commit messages')[0]!;
+    expect(block).not.toContain('without asking');
+    expect(block).not.toMatch(/^Commit finished changes/m);
+    expect(block).toContain('Once committing is authorized, commit finished changes');
+    expect(block).toContain('only as Hard Stop Lines and Standing Authorizations allow');
+  });
+
+  it.each(['trusted', 'unrestricted'])('%s: keeps the default delivery', (preset) => {
+    const out = renderManagedAgentFeatures('# Base\n', context(ENGINE_CLAUDE, { gitDirector: enabled() }), presetLevels(preset));
+    expect(out.body).toContain('commit verified task-owned changes and merge them back without asking');
+    expect(out.body).toContain('Commit finished changes even when working alone');
   });
 });
 
@@ -252,7 +272,7 @@ describe('served document byte invariance', () => {
       base.provenance,
     );
 
-    expect(base.sha256).toBe('dd982675034d822d72268a9e7f18ce5ee990064e6f95a874eaab0a5a968c884f');
+    expect(base.sha256).toBe('b0dbfff2b92182e13faf1171f6daf6910c8e59839ce64b67798b6c38af759740');
     expect(out.policy_sha256).toBe('63a9a7c40faccd3da6fde10471a0076948be0fb1fdd1d38e2510f8c3aeffe512');
     // 2026-10-11: compact project discovery consistently starts with project_summary.
     // 2026-10-14: offline resume, persistent Wake/Cron and watchdog recovery only on persistent hosts (docs/host-runtime-policy.md).
@@ -268,9 +288,11 @@ describe('served document byte invariance', () => {
     //             security module and dependency/verification grants no longer contradict each other.
     // 2026-10-16: self-contradictions resolved (stops, secrets in chat, check skipping, force-push scope,
     //             Director verdicts, trust boundary) and Codex/Grok Skills gain the support-script inspection rule.
-    expect(out.features_sha256).toBe('caaaed08cf2df026a240673ebff5a09e1d8ad87509d6060339e0c1e662085c1d');
-    expect(out.managed_sha256).toBe('f110099860bb8606a0c2d4f0c167ac6457d326684f493c0d8d5373f9b66bc1f4');
-    expect(sha256(out.body)).toBe('a62e83246a9ba5a31edf3a443e0d24184b9aded4e9b315e0aa1106a00de25411');
+    // 2026-10-16: Secrets defers store/value authority to the posture; security module carves out
+    //             authenticated fleet peers (base digest).
+    expect(out.features_sha256).toBe('ea4f883fd7fe0b468af09dfa0d37f6a4b0114ab5bdcfa841e8b68187377ceef7');
+    expect(out.managed_sha256).toBe('0bdbd1dc476a8c48f811bdd5cf38cb7397b0d38ff1c481ba3c529942751b92a6');
+    expect(sha256(out.body)).toBe('4668e57b74548c3537927d79a745b8cc14ee904a22e2112ddc81a45609f08302');
   });
 });
 
@@ -619,11 +641,9 @@ describe('managed Secrets guidance', () => {
     expect(out.body).toMatch(/before hunting through env files/i);
     expect(out.body).toMatch(/whether the store is available/i);
     expect(out.body).toMatch(/capability question is read-only/i);
-    // The old blanket ban on writing secret values was unworkable for
-    // task-authorized configuration and handoff work. The rendered policy
-    // instead scopes any persistence to the requested task destination.
-    expect(out.body).toMatch(/task explicitly requires a credential/i);
-    expect(out.body).toMatch(/configuration, file, log, or response/i);
+    // Whether a value may be written, and whether the store may be changed, is
+    // the `secrets_exposure` axis's call; this block only points at it.
+    expect(out.body).toMatch(/set by the Hard Stop Lines and Standing Authorizations above/i);
     expect(out.body).not.toMatch(/never write a secret value into your reply/i);
     expect(out.body).toMatch(/tool-native secret parameter/i);
     expect(out.body).toMatch(
@@ -634,6 +654,17 @@ describe('managed Secrets guidance', () => {
     expect(out.body).toMatch(/unset process-scoped secret variables/i);
     // The store does not create a local copy; task-authorized work may.
     expect(out.body).toMatch(/does not automatically write its values to this machine's disk/i);
+  });
+
+  it('carries no authority of its own, so it reads the same at every posture', () => {
+    const section = (preset: string) => {
+      const body = renderManagedAgentFeatures('# Base\n', context(ENGINE_CODEX, { secrets: enabled(3) }), presetLevels(preset)).body;
+      return body.slice(body.indexOf('## Secrets')).split('\n## ')[0]!;
+    };
+    const standard = section('standard');
+    for (const preset of ['contained', 'trusted', 'unrestricted']) expect(section(preset)).toBe(standard);
+    expect(standard).not.toMatch(/explicit user intent/i);
+    expect(standard).not.toMatch(/write it\s+there/i);
   });
 
   it('does not enumerate individual secrets', () => {
@@ -784,6 +815,20 @@ describe('retired authority sentences', () => {
     expect(out.body).toContain('# House rules');
     // And the level's grant is now unopposed.
     expect(out.body).toContain('Make task-relevant changes on an explicitly named remote host');
+  });
+
+  it('takes the retired bullet\'s line with it instead of leaving a blank-line run', () => {
+    const pasted = [
+      '## Security and Trust Boundaries',
+      '',
+      '- Never weaken authentication, TLS, authorization, or verification merely to make a check pass.',
+      '- Do not add telemetry, new network calls, or phone-home dependencies unless explicitly requested.',
+      '',
+      '- Keep this bullet.',
+    ].join('\n');
+    const out = renderManagedAgentFeatures(pasted, ctx(), presetLevels('unrestricted'));
+    expect(out.body).toContain('## Security and Trust Boundaries\n\n- Keep this bullet.');
+    expect(out.body).not.toContain('\n\n\n');
   });
 
   it('strips the whole retired mandatory prefix from a stale stored body', () => {

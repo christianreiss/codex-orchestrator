@@ -88,7 +88,8 @@ describe('McpServer.handlePayload', () => {
     // The handshake defers to the served document on what may be done with a
     // secret value, rather than restating it more permissively — it used to be
     // a second voice that would silently override a tightened secrets level.
-    expect(result.instructions).toContain('set by the Secrets section of your served');
+    expect(result.instructions).toContain('set by the Hard Stop Lines and Standing Authorizations of your served');
+    expect(result.instructions).not.toContain('only with explicit user intent');
     expect(result.instructions).not.toContain('may be persisted or relayed');
     expect(result.instructions).not.toContain('Never persist secret values');
   });

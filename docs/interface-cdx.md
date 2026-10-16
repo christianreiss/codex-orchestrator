@@ -261,8 +261,10 @@ replaced so repeated renders are idempotent.
 
 The fleet-wide `agents_generation_mode` setting (`GET`/`POST
 /admin/agents-generation-mode`) decides what the stored document contributes to
-that middle, and nothing else: `managed` (default) serves the composed policy
-modules plus custom instructions, `manual` serves the stored document verbatim,
+that middle, and nothing else: `managed` (default) re-composes the policy
+modules plus custom instructions from the stored composition at serve time (so a
+module text change reaches every host on its next retrieve without a re-save),
+`manual` serves the stored document verbatim,
 and `off` drops the generated modules and keeps only the operator's custom
 instructions. No position suppresses the policy prefix or the feature block — a
 host at `off` still receives the fleet rules and the live capability guidance,

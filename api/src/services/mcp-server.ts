@@ -19,7 +19,7 @@ import { ENGINE_CODEX, type Engine } from '../util/engine.js';
  * the served document instead of competing with it.
  */
 export const MCP_SERVER_INSTRUCTIONS =
-  'This is the authoritative fleet MCP. Do not infer that a capability is absent from a partial or deferred client tool list: inspect this server\'s tools or call the safe discovery tool named in AGENTS.md or CLAUDE.md. For secrets, call secret_list before answering whether the store is available or can save credentials; its status and capabilities report live state. Use secret_store only with explicit user intent and a supplied value. What may be done with a secret value once retrieved is set by the Secrets section of your served AGENTS.md or CLAUDE.md; follow that, and do not infer a broader permission from this handshake.';
+  'This is the authoritative fleet MCP. Do not infer that a capability is absent from a partial or deferred client tool list: inspect this server\'s tools or call the safe discovery tool named in AGENTS.md or CLAUDE.md. For secrets, call secret_list before answering whether the store is available or can save credentials; its status and capabilities report live state. Whether you may use secret_store or secret_delete, and what may be done with a secret value once retrieved, is set by the Hard Stop Lines and Standing Authorizations of your served AGENTS.md or CLAUDE.md; follow that, and do not infer a broader permission from this handshake.';
 
 export interface JsonRpcRequest {
   jsonrpc?: unknown;

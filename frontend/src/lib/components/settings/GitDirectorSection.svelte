@@ -56,7 +56,8 @@
     Enabling updates the managed Git Director section in Codex, Claude and Grok instructions on
     their next wrapper launch. Agents check independent live sessions in the same checkout,
     isolate when occupied or unknown, then verify, commit and merge back under a lease.
-    Finished changes are committed even when working alone. Push and deploy require explicit instructions. Disabling stops the <code>git_*</code> tools from serving
+    Finished changes are committed even when working alone where the fleet posture grants committing;
+    commit, push and deploy follow the posture's Hard Stop Lines and Standing Authorizations. Disabling stops the <code>git_*</code> tools from serving
     but keeps existing registrations, so turning it back on does not lose the picture.
   </p>
 

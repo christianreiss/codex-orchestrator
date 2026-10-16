@@ -68,21 +68,28 @@ export function compositionForMode(mode: AgentsGenerationMode, composition: unkn
 /**
  * The canonical middle a stored row contributes at this mode.
  *
+ * `managed` and `off` re-compose a builder row from its stored composition at
+ * serve time. The stored `body` is a snapshot of the module text as of the last
+ * save, so serving it verbatim meant a module edit reached no host until an
+ * operator re-saved — and the exact-text rewrites downstream
+ * (`dedupeGitModule`, `stripResponseStyleModule`) silently missed every stale
+ * body. `manual` is the documented "serve the stored document verbatim" mode.
+ *
  * A row with no `builder_state` was hand-written: nothing in it was generated,
- * so `off` has nothing to drop and the body is served unchanged. The same is
- * true of a `builder_state` this version cannot parse — suppressing prose on the
- * strength of a JSON column we failed to read would be the fail-closed behavior
- * `normalizeAgentsGenerationMode` exists to avoid.
+ * so there is nothing to re-compose and the body is served unchanged. The same
+ * is true of a `builder_state` this version cannot parse — suppressing prose on
+ * the strength of a JSON column we failed to read would be the fail-closed
+ * behavior `normalizeAgentsGenerationMode` exists to avoid.
  */
 export function baseBodyForMode(
   mode: AgentsGenerationMode,
   row: { body: string | null; builderState: unknown },
 ): string {
   const body = row.body ?? '';
-  if (mode !== 'off') return body;
+  if (mode === 'manual') return body;
   if (row.builderState === null || row.builderState === undefined) return body;
   try {
-    return renderAgentPolicyBase(compositionForMode('off', row.builderState)).content;
+    return renderAgentPolicyBase(compositionForMode(mode, row.builderState)).content;
   } catch {
     return body;
   }
