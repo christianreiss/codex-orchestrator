@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -74,5 +75,32 @@ esac
 	}
 	if _, err := os.Stat(filepath.Join(dir, "codex.sock")); !os.IsNotExist(err) {
 		t.Fatalf("receiver socket remained: %v", err)
+	}
+}
+
+func TestReceiverMCPCommandUsesCxxForPersonaAlias(t *testing.T) {
+	bin := t.TempDir()
+	canonical := filepath.Join(bin, "cxx")
+	if err := os.WriteFile(canonical, []byte("cxx"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(bin, "cdx")
+	if err := os.Symlink("cxx", alias); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior := selfExecutable
+	selfExecutable = func() (string, error) { return alias, nil } // macOS keeps the alias
+	t.Cleanup(func() { selfExecutable = prior })
+	got, err := receiverMCPOverrides("/run/codex.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(got, " ")
+	if !strings.Contains(joined, "mcp_servers.cxx-agent.command="+strconv.Quote(want)) || strings.Contains(joined, alias) {
+		t.Fatalf("MCP command must name cxx, not the cdx alias: %v", got)
 	}
 }

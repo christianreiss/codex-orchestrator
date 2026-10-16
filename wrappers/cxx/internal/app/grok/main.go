@@ -769,7 +769,10 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	if identityErr != nil {
 		return 1, identityErr
 	}
-	exe, err := os.Executable()
+	// Grok spawns the rendered MCP, hook and auth-provider commands with
+	// argv[0] = exe; a cgx alias path (kept by os.Executable on macOS) would
+	// reject `agent ...` and `grok-auth`, which only the cxx grammar serves.
+	exe, err := layout.SelfCommonExecutable()
 	if err != nil {
 		return 1, err
 	}

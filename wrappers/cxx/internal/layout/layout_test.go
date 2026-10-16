@@ -540,3 +540,57 @@ func TestRemoveSharedClearsPublishedPathLink(t *testing.T) {
 	}
 	_ = binDir
 }
+
+// A native CLI spawns a rendered command with argv[0] equal to its path, and
+// cxx picks its persona from that basename. macOS os.Executable keeps the
+// invoked alias, so every persona symlink must resolve to the cxx dispatcher.
+func TestCommonExecutableResolvesPersonaAliasToCxx(t *testing.T) {
+	bin := t.TempDir()
+	canonical := filepath.Join(bin, "cxx")
+	if err := os.WriteFile(canonical, []byte("cxx"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, alias := range []string{"cdx", "clx", "cgx"} {
+		path := filepath.Join(bin, alias)
+		if err := os.Symlink("cxx", path); err != nil {
+			t.Fatal(err)
+		}
+		got, err := CommonExecutable(path)
+		if err != nil || got != want {
+			t.Fatalf("%s: got %q, %v; want %q", alias, got, err, want)
+		}
+	}
+	// An absolute PATH-visible alias chained into the artifact behaves the same.
+	other := t.TempDir()
+	link := filepath.Join(other, "cdx")
+	if err := os.Symlink(filepath.Join(bin, "cdx"), link); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := CommonExecutable(link); err != nil || got != want {
+		t.Fatalf("chained alias: got %q, %v; want %q", got, err, want)
+	}
+	if got, err := CommonExecutable(canonical); err != nil || got != want {
+		t.Fatalf("cxx itself: got %q, %v; want %q", got, err, want)
+	}
+}
+
+// CanonicalExecutable names a not-yet-existing sibling cxx as the migration
+// destination of a legacy regular cdx; an exec path must never be that.
+func TestCommonExecutableNeverReturnsMissingMigrationTarget(t *testing.T) {
+	bin := t.TempDir()
+	legacy := filepath.Join(bin, "cdx")
+	if err := os.WriteFile(legacy, []byte("legacy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := CommonExecutable(legacy); err != nil || got != want {
+		t.Fatalf("got %q, %v; want %q", got, err, want)
+	}
+}
