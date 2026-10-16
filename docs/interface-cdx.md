@@ -1701,6 +1701,25 @@ sync/launch, not wrapper-enforced automation. See
 
 ## Native configuration maintenance (Codex 0.163.0)
 
+### Async compaction fleet default
+
+Engines → Codex exposes an **Async compaction** switch that saves immediately
+through the existing config preview/store endpoints and revision guard. Missing
+root configuration defaults to `features.async_compaction = true` when rendering
+for Codex 0.163.0 or newer, or for admin previews. Older/unreported clients omit
+this implicit default so update/report/sync recovery remains usable. Explicit
+native or structured values still require 0.163.0, including an explicit false.
+
+The switch writes the canonical `native_settings.features.async_compaction`
+value, retaining object thresholds and independent settings; an existing legacy
+structured override is folded into that native value. Explicit false stays off.
+Threshold-only objects retain native semantics (they do not enable the feature).
+Removing the whole option restores the fleet default. Profile sidecars inherit
+the root default unless they contain an explicit override; no default is injected
+into individual profiles. Existing sessions are not restarted by the switch.
+
+### Audited configuration surface
+
 `POST /admin/config/render` and `/admin/config/store` accept the optional
 `settings.native_settings` JSON object. It uses the official native config
 schema, vendored from <https://learn.chatgpt.com/docs/config-schema.json> on
@@ -1710,7 +1729,8 @@ The JSON schema covers native root settings and nested settings including agents
 apps, hooks, browser/desktop controls, history, service tiers, providers, MCP
 transport/tool configuration, and structured feature options. Schema-defined
 constraints apply; permissive upstream objects remain permissive. Experimental
-features remain opt-in and require a native version that supports them.
+features require a native version that supports them; async compaction uses the
+fleet default above, while other optional features remain opt-in.
 
 The editor supports the 0.163 additions: environment-context time, async
 compaction options, new code-mode/credential/connector/output/subagent feature
@@ -1718,7 +1738,7 @@ switches, `multi_agent_v2.disable_native_tools` and `preserve_fork_prefix`, plug
 `_default.enabled`, the global leader key, clearing selection after copy,
 Windows `allow_mxc`, government-cloud notice visibility and expanded realtime
 voices. The schema reference in the editor identifies 0.163.0. This adds authoring
-support without enabling any optional feature.
+support; the subsequent async-compaction fleet default is described above.
 
 The API rejects invalid types, unknown schema properties, unsafe object keys,
 and removed/deprecated native keys with HTTP 422 and a field path. It does not

@@ -219,7 +219,13 @@ export function renderProfileToml(profile: Record<string, unknown>): string {
   return lines.length > 0 ? lines.join('\n') + '\n' : '';
 }
 
-export function renderToml(normalized: NormalizedSettings, opts: { profileTables?: boolean } = {}): string {
+export function renderToml(normalized: NormalizedSettings, opts: { profileTables?: boolean; asyncCompactionDefault?: boolean } = {}): string {
+  // A fleet default, applied only to the root config. Explicit native/legacy
+  // values (including threshold-only objects) retain their native semantics.
+  if (opts.asyncCompactionDefault !== false && normalized.features.async_compaction == null
+    && nativeRecord(normalized.native_settings?.features).async_compaction === undefined) {
+    normalized = { ...normalized, features: { ...normalized.features, async_compaction: true } };
+  }
   if (normalized.native_settings) {
     const document = codexRenderDocument(normalized as unknown as Record<string, unknown>);
     if (opts.profileTables === true && normalized.profiles.length > 0) {
@@ -517,9 +523,13 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
   );
   if (engine === ENGINE_CODEX && managedMcpInjected) withManaged = injectManagedCodexNativeSkillPolicy(withManaged);
   const profileFiles = engine === ENGINE_CODEX && codexUsesProfileFiles(opts.host?.clientVersion);
+  const codexVersion = opts.host?.clientVersion?.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0];
+  // Do not send an unknown key to older/unreported clients or block their
+  // update/report path merely because this implicit default was introduced.
+  const asyncCompactionDefault = !opts.host || Boolean(codexVersion && versionCompare(codexVersion, '0.163.0') >= 0);
   let content = engine === ENGINE_GROK ? renderGrokNativeToml(grokSettingsDocument(withManaged, false)) : engine === ENGINE_CLAUDE
     ? renderClaudeSettings(withManaged)
-    : renderToml(withManaged, { profileTables: !profileFiles });
+    : renderToml(withManaged, { profileTables: !profileFiles, asyncCompactionDefault });
   const profiles: RenderedProfile[] | undefined = profileFiles
     ? sortEntriesByName(withManaged.profiles).flatMap((profile) => {
         const name = normalizeName(profile['name']);
@@ -531,7 +541,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
           }, opts.host, ENGINE_CODEX), opts.securityLevels, ENGINE_CODEX);
           let profileSettings = injectManagedMcp(normalizeSettings(profileInput, { applyCodexDefaults: false, engine: ENGINE_CODEX }), { ...opts, engine: ENGINE_CODEX });
           if (managedMcpInjected) profileSettings = injectManagedCodexNativeSkillPolicy(profileSettings);
-          body = injectTrustedProjectToml(renderToml(profileSettings), normalizeHomePath(opts.home, opts.username));
+          body = injectTrustedProjectToml(renderToml(profileSettings, { asyncCompactionDefault: false }), normalizeHomePath(opts.home, opts.username));
         } else {
           body = renderProfileToml(profile);
         }

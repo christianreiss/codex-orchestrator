@@ -6,6 +6,7 @@
   import GrokVersionSection from "$lib/components/settings/GrokVersionSection.svelte";
   import ClaudeVersionSection from "$lib/components/settings/ClaudeVersionSection.svelte";
   import CdxSilentSection from "$lib/components/settings/CdxSilentSection.svelte";
+  import CodexCompactionSection from "$lib/components/settings/CodexCompactionSection.svelte";
   import QuotasSection from "$lib/components/settings/QuotasSection.svelte";
   import ScalingSection from "$lib/components/settings/ScalingSection.svelte";
   import NativeSettingsEditor from "$lib/components/settings/NativeSettingsEditor.svelte";
@@ -83,6 +84,7 @@
       <ModelDefaultsSection engine="codex" headingLevel={3} />
       <CodexVersionSection headingLevel={3} />
       <CdxSilentSection bordered={false} />
+      <CodexCompactionSection />
       <NativeSettingsEditor engine="codex" />
       <NativeSettingsEditor engine="codex" profiles />
     </div>

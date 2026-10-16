@@ -1,5 +1,7 @@
 # 2026-10-16
 
+- Codex async compaction has an immediately saved toggle under Engines → Codex and defaults on for clients from 0.163.0. Explicit opt-outs and thresholds are preserved; older/unreported clients omit the implicit default until upgraded, and profile overrides remain independent. Toggle saves retain concurrent unrelated edits and use the existing revision guard.
+
 - **Engine maintenance (cxx 0.9.89).** Support Codex 0.163 configuration with conditional native version checks, Claude idle compaction preferences and stricter nested settings, and current Grok settings. Invalid authoring receives field errors; migrations 0071/0072 remove confirmed obsolete or invalid stored controls while preserving unrelated settings and historical content/digest snapshots.
 
 - Native argument parsing preserves variadic image paths and option values across command routing, session identity and workspace capture. Managed starts reject external background interfaces whose auth/session lifecycle cannot be transferred. Runner pins advance to Codex 0.163.0, Claude's latest normal release 2.1.301 and Grok stable 1.0.60 with verified release artifacts; model catalogs remain unchanged.

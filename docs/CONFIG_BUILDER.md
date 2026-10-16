@@ -211,7 +211,12 @@ then rendered as TOML with nested tables and arrays intact. Unknown schema field
 invalid types and removed/deprecated keys return a validation error. This includes
 agents, hooks, apps, service tiers, permission profiles, TUI, history, providers,
 MCP transport/tool settings and structured feature options. Experimental features
-remain opt-in; omitting them does not enable them.
+remain opt-in except the requested fleet default for async compaction: absent
+root settings render `features.async_compaction = true` for Codex 0.163.0+.
+Engines → Codex offers an immediately saved switch. Explicit false and tuning
+objects retain their semantics; deleting the whole option restores the default.
+Older/unreported clients omit the implicit key until upgraded. Profiles inherit
+the root default unless they contain an explicit override.
 
 Explicit structured settings win over native values; empty/null defaults do not
 erase native values. Native values stay in the native object

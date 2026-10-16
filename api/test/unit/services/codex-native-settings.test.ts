@@ -163,7 +163,8 @@ describe('Codex native configuration', () => {
     cleared.native_settings = {};
     cleared.profiles[0]!.native_settings = {};
     const deleted = await service.store({ settings: cleared });
-    expect(deleted.content).not.toMatch(/notify|model_provider|mcp_servers|shell_environment_policy|\[features/);
+    expect(deleted.content).not.toMatch(/notify|model_provider|mcp_servers|shell_environment_policy|hooks|apps|rollout_budget/);
+    expect(deleted.content).toContain('[features]\nasync_compaction = true');
     expect(render(deleted.settings as unknown as Record<string, unknown>).profiles?.[0]?.content).not.toContain('/bin/');
   });
 
@@ -217,7 +218,8 @@ describe('Codex 0.163 native configuration', () => {
     expect(changed.content).toContain('include_environment_context_time = true');
     expect(changed.content).not.toContain('model_async_compact_threshold_percent');
     const cleared = await service.store({ settings: { native_settings: {}, profiles: [] } });
-    expect(cleared.content).not.toMatch(/include_environment_context_time|async_compaction|test.plugin/);
+    expect(cleared.content).not.toMatch(/include_environment_context_time|model_async_compact_threshold_percent|test.plugin/);
+    expect(cleared.content).toContain('async_compaction = true');
   });
 
   it.each([
@@ -242,8 +244,9 @@ describe('Codex 0.163 native configuration', () => {
     expect(() => new ClientConfigService({} as never).render(input)).toThrow(/shell_zsh_fork.*removed/);
   });
 
-  it('does not enable new experimental features by default', () => {
-    expect(render({}).content).not.toMatch(/async_compaction|code_mode_host_grpc|credential_masking/);
+  it('enables the requested async compaction default while other experimental features remain opt-in', () => {
+    expect(render({}).content).toContain('async_compaction = true');
+    expect(render({}).content).not.toMatch(/code_mode_host_grpc|credential_masking/);
   });
 
   it.skipIf(!process.env.CODEX_NATIVE_TEST_BIN)('parses root and profile TOML with the actual 0.163 CLI without auth or a session', () => {
