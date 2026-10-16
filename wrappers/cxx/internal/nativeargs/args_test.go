@@ -78,6 +78,9 @@ func TestNativeHelpOracle(t *testing.T) {
 					heading string
 				}{
 					{[]string{"--image", "a.png", "login", "--help"}, "Codex CLI"},
+					{[]string{"agents", "--help"}, "Browse all agent sessions on the shared local app-server daemon"},
+					{[]string{"--image", "a.png", "agents", "--help"}, "Codex CLI"},
+					{[]string{"--model", "agents", "--help"}, "Codex CLI"},
 					{[]string{"--image", "-", "login", "--help"}, "Codex CLI"},
 					{[]string{"hello", "login", "--help"}, "Manage login"},
 					{[]string{"--image", "exec", "resume", "logout", "--help"}, "Codex CLI"},
@@ -113,6 +116,9 @@ func TestNativeHelpOracle(t *testing.T) {
 				wantCommand := ""
 				if tc.heading == "Manage login" || tc.heading == "Sign in to Grok" {
 					wantCommand = "login"
+				}
+				if strings.HasPrefix(tc.heading, "Browse all agent sessions") {
+					wantCommand = "agents"
 				}
 				got, _ := Command(engine, tc.args)
 				if got != wantCommand {

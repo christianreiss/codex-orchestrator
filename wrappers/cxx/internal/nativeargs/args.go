@@ -258,7 +258,7 @@ func Command(engine string, args []string) (string, int) {
 func UnsupportedService(engine string, args []string) string {
 	command, at := Command(engine, args)
 	if engine == "codex" {
-		if command == "app-server" || command == "exec-server" || command == "remote-control" {
+		if command == "app-server" || command == "exec-server" || command == "remote-control" || command == "agents" {
 			return command
 		}
 		if Has(engine, args, "--remote") {

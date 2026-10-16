@@ -103,12 +103,21 @@ native input; managed additions never split an image list. A native initial prom
 may precede a subcommand without hiding its auth/help boundary. Explicit resumed
 UUIDs are read only from an actual resume command, including `exec resume`.
 
-Direct public `app-server`, `exec-server`, `remote-control` and `--remote`
+Direct public `app-server`, `exec-server`, `remote-control`, `agents` and `--remote`
 invocations are refused before configuration/auth work: their independent or
 external processes do not inherit the wrapper's private account/auth broker,
 receiver and teardown lifecycle. Their native `--help` remains available. This
 does not affect the wrapper-owned private app-server used by normal managed
 interactive launches; help acceptance alone is not remote lifecycle support.
+
+The `agents` overview explicitly starts the native shared daemon when no remote
+endpoint is supplied (Codex 0.163.0). A disabled receiver or failed private
+receiver startup would otherwise reach that path, so the public command is
+refused independently of receiver state; `agents --help` and `help agents`
+remain safe. Image paths and prompt/option values named `agents` remain data.
+Ordinary native TUI daemon defaults and the existing receiver-failure fallback
+are a separate baseline integration boundary: this command guard does not
+establish full lifecycle ownership of every native daemon/default path.
 
 
 ## Session credential resilience

@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 )
 
 func TestNativeInvocationPreservesArgumentsAndBypassesWrapperGrammar(t *testing.T) {
@@ -54,7 +56,7 @@ func TestNativeDiagnosticsUseVendorWithoutFleetConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("CDX_CODEX_BIN", cli)
-	for _, args := range [][]string{{"--version"}, {"-V"}, {"--help"}, {"--config", "model=fixture", "--help"}} {
+	for _, args := range [][]string{{"--version"}, {"-V"}, {"--help"}, {"--config", "model=fixture", "--help"}, {"agents", "--help"}, {"help", "agents"}, {"--model", "fixture", "agents", "--help"}} {
 		var out, errOut bytes.Buffer
 		if code := RunNative(args, &out, &errOut); code != 7 || out.String() != strings.Join(args, "\n")+"\n" {
 			t.Fatalf("native %v: code %d output %q stderr %q", args, code, out.String(), errOut.String())
@@ -95,7 +97,7 @@ func TestNativeCommandAliasesAndCurrentOptionValues(t *testing.T) {
 }
 
 func TestVariadicImagesAreNeverManagedCommands(t *testing.T) {
-	for _, name := range []string{"login", "logout", "exec", "e", "resume"} {
+	for _, name := range []string{"login", "logout", "exec", "e", "resume", "agents"} {
 		args := []string{"--image", "first.png", name}
 		_, pos, pass := invocationFlags(args, true)
 		if len(pos) != 0 || nativeSubcommand(args) != "" || nativeHeadless(args) || !reflect.DeepEqual(pass, args) {
@@ -117,7 +119,7 @@ func TestVariadicImagesAreNeverManagedCommands(t *testing.T) {
 
 func TestUnsupportedNativeServicesFailBeforeConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	for _, args := range [][]string{{"remote-control"}, {"--model", "fixture", "exec-server"}, {"app-server", "--listen", "unix:///tmp/unmanaged.sock"}, {"--remote", "unix:///tmp/unmanaged.sock"}} {
+	for _, args := range [][]string{{"agents"}, {"--model", "fixture", "agents"}, {"prompt", "agents"}, {"--image=a.png", "agents"}, {"remote-control"}, {"--model", "fixture", "exec-server"}, {"app-server", "--listen", "unix:///tmp/unmanaged.sock"}, {"--remote", "unix:///tmp/unmanaged.sock"}} {
 		var out, stderr bytes.Buffer
 		if code := RunNative(args, &out, &stderr); code != 2 || !strings.Contains(stderr.String(), "separate managed auth/session lifecycle") {
 			t.Fatalf("%q: %d %s", args, code, stderr.String())
@@ -129,5 +131,13 @@ func TestNativePromptBeforeSubcommandRetainsHelpAndAuth(t *testing.T) {
 	f, pos, pass := invocationFlags([]string{"hello", "login", "--help"}, true)
 	if !f.helpPassthrough || len(pos) != 1 || pos[0] != "login" || len(pass) != 3 {
 		t.Fatalf("prompt-prefixed login lost help/auth boundary: %+v %q %q", f, pos, pass)
+	}
+}
+
+func TestAgentsValuesDoNotBecomeDaemonStarts(t *testing.T) {
+	for _, args := range [][]string{{"--image", "a.png", "agents"}, {"--image=agents"}, {"--model", "agents"}, {"--", "agents"}, {"exec", "--", "agents"}} {
+		if service := nativeargs.UnsupportedService("codex", args); service != "" {
+			t.Fatalf("value %q became daemon start %q", args, service)
+		}
 	}
 }
