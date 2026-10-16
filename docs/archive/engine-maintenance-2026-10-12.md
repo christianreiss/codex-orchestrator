@@ -77,7 +77,7 @@ The parent reviews, integrates and verifies the combined result.
 
 ## Scope and evidence limits
 
-The [scope matrix](NATIVE_CONFIG_SCOPES.md) gives exact destinations, native
+The [scope matrix](../NATIVE_CONFIG_SCOPES.md) gives exact destinations, native
 precedence, version requirements and profile authoring examples.
 
 - Native settings must retain their own engine's names, types and scope. Fleet

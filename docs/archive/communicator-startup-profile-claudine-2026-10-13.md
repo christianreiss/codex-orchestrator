@@ -28,7 +28,7 @@ Raw logs and scripts (ephemeral, on biest): `/tmp/claudine-startup-profile-82e5b
    round trip is slow: a **global row-lock convoy** on one `versions` row held by
    every agent-bus and portal transaction (see "Production database"). A
    pre-communicator build takes 13.8 s to the native exec on the current API
-   (Elvira, `docs/communicator-startup-native-elvira-2026-10-13.md`), so the API,
+   (Elvira, `docs/archive/communicator-startup-native-elvira-2026-10-13.md`), so the API,
    not the communicator, sets the floor.
 
 ## Method

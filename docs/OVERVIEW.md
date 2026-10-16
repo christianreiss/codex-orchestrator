@@ -85,7 +85,7 @@ cxx 0.9.86 reuses verified credentials confirmed by a fresh matching account lea
 and overlaps launch identity confirmation with peer discovery. Bootstrap version
 data is reused within each request. The API also keeps valid empty receiver polls
 off the global messaging and host-row locks; real deliveries retain their fences.
-See [startup measurements and verification](startup-performance-2026-10-15.md).
+See [startup measurements and verification](archive/startup-performance-2026-10-15.md).
 
 Fleet installation, update/sync and successful managed launches prepare the native
 `codex`, `claude` and `grok` command names for assigned engines. Per-user scripts
@@ -256,7 +256,7 @@ visible with a choice to load the latest values or discard the draft.
   memory schema and does not turn that retention-bound activity into immutable
   body history.
 - **`api/src/services/client-config.ts`** — renders/stores engine-scoped canonical client config from structured and validated native settings. Codex uses native `config.toml` `model` / `model_reasoning_effort`; Claude uses native `settings.json` `model` / `modelSettings[model].effortLevel` and deep-merges the fleet-owned paths. Older Claude models also receive the compatible top-level effort key. `/config/retrieve` bakes a per-host Codex copy using either the host API key (secure hosts) or a short-lived MCP bearer (insecure hosts) for the managed HTTP MCP entry, plus a Codex-only BrowserOS MCP entry when the host toggle is enabled. A successfully injected Codex MCP entry also adds a `[[skills.config]]` entry selecting `skill-creator` with `enabled = false`, removing the built-in local workflow that would otherwise outrank fleet discovery.
-- **Native engine configuration** — the Engines page exposes validated native JSON and separate Codex profile editing with server previews and exact revision conflict checks. [Scope and version requirements](NATIVE_CONFIG_SCOPES.md) distinguish managed user defaults from native enterprise policy and local state. The [2026-10-12 audit](engine-maintenance-2026-10-12.md) records model, effort and feature decisions. Use the [reusable maintenance prompt](prompts/engine-maintenance.md) for subsequent autonomous audits, isolated fixes and Git delivery.
+- **Native engine configuration** — the Engines page exposes validated native JSON and separate Codex profile editing with server previews and exact revision conflict checks. [Scope and version requirements](NATIVE_CONFIG_SCOPES.md) distinguish managed user defaults from native enterprise policy and local state. The [2026-10-12 audit](archive/engine-maintenance-2026-10-12.md) records model, effort and feature decisions. Use the [reusable maintenance prompt](prompts/engine-maintenance.md) for subsequent autonomous audits, isolated fixes and Git delivery.
 - **`api/src/services/chatgpt-usage.ts` + `api/src/ops/chatgpt-usage-worker.ts`** — uses canonical auth to poll ChatGPT quotas and capture normal plus Spark quota lanes. The `quota-cron` Compose sidecar polls immediately at startup and then on `CHATGPT_USAGE_CRON_INTERVAL` (default 15 minutes); its healthcheck follows a successful-refresh heartbeat rather than only process liveness.
 - Accounts displays all providers together for up to six accounts in total, including paused and removing accounts; above six, engine tabs filter the view. Each card names its provider. The combined Add account dialog lets operators select an engine; fleet suspension still blocks provider actions.
 - Engine coverage shows one independent bar per engine, using reported CLI-version counts divided by all hosts. Multi-engine hosts count towards each engine; hosts without any reported CLI version are listed separately. Older snapshots show unavailable engine counts as “No data”.
@@ -563,7 +563,7 @@ status stays available. See [installation](INSTALL.md#instance-management).
   top-level key; models without effort support omit it. Claude's `max` is
   session-only, while `ultracode` is a separate native toggle. Current
   per-model levels and defaults are in the engine interface references and
-  the [maintenance report](engine-maintenance-2026-10-12.md).
+  the [maintenance report](archive/engine-maintenance-2026-10-12.md).
   The nearby Claude API defaults (`default_model`,
   `max_tokens`) also default to Sonnet 5 but configure only the
   Anthropic-compatible proxy and do not change managed Claude Code sessions.
@@ -635,7 +635,7 @@ receipts when request waiting fails. CLI send/request/reply support
 `--client-message-id` for safe retries. The API atomically completes claimed
 informational replies, fences stale claims, validates immutable relay replies,
 and checks native identity on receiver registration retries. See the
-[fourth lifecycle audit](agent-messaging-audit-2026-10-08.md#fourth-pass--2026-10-08-cxx-0928).
+[fourth lifecycle audit](archive/agent-messaging-audit-2026-10-08.md#fourth-pass--2026-10-08-cxx-0928).
 
 Cxx 0.9.27 adds third-pass conference and acceptance fixes: progress/join calls
 preserve held work, rejoining keeps dispatched seats busy, work replies require
@@ -646,7 +646,7 @@ Cxx 0.9.26 adds second-pass recovery fixes across all three engines: receiver
 reconnects preserve outstanding work, uncertain result receipts retain their
 original payload, and concurrent completion tools serialize per delivery.
 Explicit ordinary fresh-start approval renews its queue window and attempt budget.
-See the [full lifecycle audit](agent-messaging-audit-2026-10-08.md) and
+See the [full lifecycle audit](archive/agent-messaging-audit-2026-10-08.md) and
 [API reliability contract](interface-api.md#delivery-reliability-cxx-0926).
 
 Agent Messaging lets any eligible managed agent address any other one, covering
@@ -687,7 +687,7 @@ members and subscriptions, and publishes as Server with recipient receipts.
 Membership remains an agent's explicit choice. **Active Clients** carries direct
 operator conversations. The direction counters show observed queue/event
 activity, not a guarantee of model execution; fresh native canaries provide that
-separate proof. See [verification](agent-messaging-2026.md).
+separate proof. See [verification](archive/agent-messaging-2026.md).
 
 Wrapper lifecycles bind a stable canonical `agent:<uuid>` address. Native
 resumes recover the same exact upstream identity, including picker/continue
@@ -806,7 +806,7 @@ For opt-in native verification, build `make -C wrappers cxx` and run
 the exact managed binary when the CLI on PATH is older. The separate opt-in
 Grok canary is `go test ./internal/agentbus -run TestGrokNativeLeaderCanary -count=1 -v`
 from `wrappers/cxx`, using its pinned native CLI and access-only fixture auth.
-See [dated native evidence](receiver-verification.md) for fixture variables and
+See [dated native evidence](archive/receiver-verification.md) for fixture variables and
 results. This uses a temporary local broker and work directory,
 real installed CLIs and real model credentials/quota. It checks correlated ordinary replies from both sources, then forces reconnection
 and checks replies again in the same native conversation, without sending fleet messages. The harness

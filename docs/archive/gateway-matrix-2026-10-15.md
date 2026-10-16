@@ -2,7 +2,7 @@
 
 All nine API surface/backend combinations passed real-provider acceptance:
 141 checks and 59 successful native runner executions. The machine-readable
-[receipt](evidence/gateway-matrix-2026-10-15.json) includes every check, fresh
+[receipt](../evidence/gateway-matrix-2026-10-15.json) includes every check, fresh
 arithmetic challenge, output, dispatch engine/model, credential-engine match,
 HTTP status and elapsed time.
 
@@ -61,5 +61,5 @@ replaces production account selection/refresh; those lifecycle paths are outside
 this receipt. No production configuration or running service was changed.
 
 Run `api/scripts/verify-gateway-matrix.ts` as described in
-[auth-runner.md](auth-runner.md#live-gateway-acceptance-matrix). Production rollout
+[auth-runner.md](../auth-runner.md#live-gateway-acceptance-matrix). Production rollout
 and fresh calls through the public deployment remain separate acceptance steps.
