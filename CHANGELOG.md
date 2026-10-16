@@ -1,5 +1,11 @@
 # 2026-10-16
 
+- **Follow-up fixes (cxx 0.9.92).**
+  - Codex async compaction is off by default again for every client version. Codex 0.163.0 still marks `features.async_compaction` as under development with `default_enabled: false`. The Engines → Codex toggle stays, labelled experimental. Values an operator saved explicitly are unchanged.
+  - On macOS, the managed cxx-agent MCP, hook and grok-auth commands name the real cxx binary instead of the `cdx`/`clx`/`cgx` symlink, so the receiver starts for Codex, Claude and Grok.
+  - A registered host-daemon relay is refused at its next heartbeat or claim once the operator disables the daemon, its timed deadline passes or a migration fence commits. Before, it lost access only at token expiry. A daemon still draining accepted work finishes first.
+  - Admins can permanently delete closed feedback (resolved/dismissed/duplicate), one report at a time from the Feedback page or in bulk via `POST /admin/feedback/purge {statuses, older_than?}`. Each delete is audited, and duplicates of a deleted report go with it. Open, blocked and claimed reports are refused.
+
 - **Feedback fixes (cxx 0.9.91).** Work on 22 orchestrator feedback reports:
   - Agent messaging: an `agent_reply` with `delivery_class: progress` and no `task_result` now leaves accepted work held, so the final result can still be reported. Deploy the API before rolling out cxx.
   - Agent messaging: conference dispatch keeps the chair's `eta_seconds` and returns the 900-second stuck-member floor separately as `grace_seconds`.
@@ -23,7 +29,7 @@
 
 - cxx 0.9.90 follows native Claude argument grammar for memory-directory selectors, so option values and prompt text after `--` cannot redirect the reminder. Memory selectors follow native cwd/project and canonical local-settings precedence; tracked, symlinked or previously tracked local settings remain repository-supplied. Repository-selected directories respect restrictive `permissions.blockReadsOutsideWorkingDirectories` values across enabled sources; existing owned reminder blocks are removed without deleting notes. Native auto-memory preferences stay unchanged.
 
-- Codex async compaction has an immediately saved toggle under Engines → Codex and defaults on for clients from 0.163.0. Explicit opt-outs and thresholds are preserved; older/unreported clients omit the implicit default until upgraded, and profile overrides remain independent. Toggle saves retain concurrent unrelated edits and use the existing revision guard.
+- Codex async compaction has an immediately saved toggle under Engines → Codex. (Initially it defaulted on for clients from 0.163.0; that was reverted the same day, see the cxx 0.9.92 entry above.) Explicit opt-outs and thresholds are preserved; older/unreported clients omit the implicit default until upgraded, and profile overrides remain independent. Toggle saves retain concurrent unrelated edits and use the existing revision guard.
 
 - **Engine maintenance (cxx 0.9.89).** Support Codex 0.163 configuration with conditional native version checks, Claude idle compaction preferences and stricter nested settings, and current Grok settings. Invalid authoring receives field errors; migrations 0071/0072 remove confirmed obsolete or invalid stored controls while preserving unrelated settings and historical content/digest snapshots.
 

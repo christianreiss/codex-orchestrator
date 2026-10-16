@@ -1136,6 +1136,8 @@ Audio and video preparation runs locally in the isolated `media-worker` service 
 - `GET /admin/feedback/:id` — original report, current claim/outcome and history.
 - `POST /admin/feedback/:id` — version-checked triage/comment/outcome update.
 - `POST /admin/feedback/:id/claim` — acquire/renew/release; administrative force_release requires reason.
+- `DELETE /admin/feedback/:id` — permanently delete one closed (resolved/dismissed/duplicate) report with its history and its duplicates; 409 `feedback_not_closed` for open, blocked or claimed reports; audited as `feedback.deleted`.
+- `POST /admin/feedback/purge` — bulk-delete closed reports `{statuses, older_than?}` in one transaction; returns `{deleted, events, cascaded_duplicates, by_status, ids}`; audited as `feedback.purged`.
 
 Reads require `feedback.read`; writes require `feedback.manage`. Fields and lifecycle are documented in [MCP.md](MCP.md#orchestrator-feedback-workflow).
 
