@@ -79,7 +79,18 @@ The server is the enforcement point; the wrapper follows it.
   host is persistent before it watches, leases or relays anything, exits
   cleanly if not, waits (relaying nothing) while the answer is unknown, and
   re-checks every 5 minutes. This holds even against an API that does not yet
-  refuse relays.
+  refuse relays. A signed config that stays unreadable (permission denied, e.g.
+  after the move to a root-owned layout) or expired for 5 minutes ends the
+  worker with exit 0, so `Restart=on-failure` leaves it down; maintenance starts
+  it again once a usable config is back on a persistent host.
+- **Other accounts' legacy workers**: when root runs `cxx agent service install`
+  (cron run, `cxx update`) and the server answered, it also retires every other
+  account's `cxx agent worker --foreground` process (SIGTERM, a clean exit) and
+  its cxx-written `~/.config/systemd/user/cxx-agent.service` plus
+  `default.target.wants` link — on a non-persistent host for every non-root
+  account, on a persistent host for every account except the daemon user. An
+  unanswered check, or a daemon user missing from `/etc/passwd`, changes
+  nothing.
 
 ## What this replaced, and why it was a fatal flaw
 

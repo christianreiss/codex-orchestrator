@@ -1162,7 +1162,10 @@ persistent host; on any other host it disables, stops and removes an existing
 unit (install without a unit does nothing), and when persistence cannot be
 confirmed install changes nothing and start fails. A running worker whose relay
 the server refuses with `agent_messaging_relay_not_persistent` exits 0 and is not
-restarted.
+restarted; so does one whose signed config stays unreadable or expired for 5
+minutes. Run as root, `install` also retires other accounts' legacy workers and
+their `cxx-agent.service` where the server says they may not run one (see
+[host runtime policy](host-runtime-policy.md)).
 
 Delivery is FIFO per target and at-least-once until native execution starts.
 Queued messages default to a 24-hour TTL, accept 60 seconds through seven days,
