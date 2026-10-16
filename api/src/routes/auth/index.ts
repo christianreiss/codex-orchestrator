@@ -535,11 +535,14 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
         home: typeof payload.home === 'string' ? payload.home : null,
         username: typeof payload.username === 'string' ? payload.username : null,
       });
-      // On-disk skills: Claude Code can't read skills over MCP (unlike codex), so
-      // the fleet's shared skills are delivered as native ~/.claude/skills/<slug>/
-      // SKILL.md directories. Complete live set; content/files are omitted when
-      // the wrapper reports the matching complete-bundle digest.
-      out.claude_skills = await skillsService.bundle(enforced, engine, readSkillDigests(payload));
+      // The memory-routing flag is the resolved managed-MCP availability gate,
+      // returned even without an agents document. Reuse it so Skill guidance and
+      // delivery cannot disagree. An explicit empty set retires only previously
+      // fleet-owned native copies; omitted/disabled MCP keeps the native fallback.
+      const managedMcpEnabled = (out.memory_routing as { enabled?: boolean } | undefined)?.enabled === true;
+      out.claude_skills = managedMcpEnabled
+        ? []
+        : await skillsService.bundle(enforced, engine, readSkillDigests(payload));
     }
     // Grok Build loads the same SKILL.md layout natively from ~/.grok/skills, so
     // it receives the identical complete live set instead of relying on MCP alone.

@@ -45,6 +45,8 @@ export interface ManagedAgentFeatureContext {
   engine: Engine;
   hostSpawn?: ManagedFeatureState;
   skills: ManagedFeatureState;
+  /** Claude uses native Skills only when the managed MCP entry is unavailable. */
+  skillsTransport?: 'mcp' | 'native';
   memory: ManagedFeatureState;
   projects: ManagedFeatureState;
   browseros: ManagedFeatureState;
@@ -225,6 +227,27 @@ including failed or blocked work, read and follow the available \`fleet-reflect\
 Use the Skill-loading mechanism above. Progress messages, acknowledgements and result
 retries need no new review. If the Skill is unavailable, finish the original work and
 mention any actionable fleet finding that could not be reported.`;
+  if (context.engine === ENGINE_CLAUDE && context.skillsTransport === 'mcp') {
+    return present(
+      context.skills,
+      `## Skills
+
+The orchestrator MCP is authoritative for fleet Skill content. Call \`skill_list\` first,
+then read the matching manifest with \`resource_read\` on \`skill://{slug}\`. Read support files
+with \`resource_read\` on \`skill://{slug}/<path>\`; these resources resolve bundled file
+references. Use \`skill_retrieve\` only when the resource reader is unavailable. To create,
+update, delete, or explain fleet Skills, read \`skill://skill-manager\` and follow it.
+Respect \`allow_implicit_invocation\` from the listing: false requires an explicit request.
+
+These are instructions loaded as MCP content. They do not register native slash commands
+or apply Claude Code Skill frontmatter controls. Support scripts are content too; fetch
+and inspect them before any task-authorized local execution. Fleet Skills are not copied
+to \`~/.claude/skills\` while this managed MCP entry is enabled.
+
+${reflection}`,
+      'mcp',
+    );
+  }
   if (context.engine === ENGINE_CLAUDE) {
     return present(
       context.skills,

@@ -77,6 +77,24 @@ describe('automatic fleet work reflection guidance', () => {
   });
 });
 
+describe('Claude MCP Skill content guidance', () => {
+  it('loads manifests and bundled support through resources without promising native Skill behavior', () => {
+    const ctx = context(ENGINE_CLAUDE, { skills: enabled(3), skillsTransport: 'mcp' });
+    const out = renderManagedAgentFeatures('# Rules\n', ctx);
+    expect(out.sections.skills).toMatchObject({ present: true, transport: 'mcp' });
+    for (const text of ['skill_list', 'resource_read', 'skill://{slug}', 'skill://{slug}/<path>',
+      'allow_implicit_invocation', 'do not register native slash commands', 'frontmatter controls',
+      'fetch\nand inspect', 'fleet-reflect']) expect(out.body).toContain(text);
+    expect(out.body).not.toContain('synced as native Claude Code skills');
+    expect(renderManagedAgentFeatures(out.body, ctx).body).toBe(out.body);
+    const fallback = renderManagedAgentFeatures(out.body, { ...ctx, skillsTransport: 'native' });
+    expect(fallback.sections.skills.transport).toBe('native');
+    expect(fallback.body).toContain('~/.claude/skills/<slug>/SKILL.md');
+    expect(fallback.body).not.toContain('skill_list');
+    expect(fallback.managed_sha256).not.toBe(out.managed_sha256);
+  });
+});
+
 describe('dynamic orchestrator feedback guidance', () => {
   for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
     it(`${engine}: toggle adds/removes guidance and updates served digest without altering authored rules`, () => {

@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { skillFiles as skillFilesTable, skills as skillsTable, versions as versionsTable } from '../../../src/db/schema.js';
 import { HostSkillsService } from '../../../src/services/host-skills.js';
+import { McpResourcesService } from '../../../src/services/mcp-resources.js';
+import { McpToolsRegistry } from '../../../src/services/mcp-tools.js';
 import { MANAGED_COCO_SKILL_SLUG, PROJECTS_ENABLED_FLAG } from '../../../src/services/managed-coco-skill.js';
 import { computeSkillBundleDigest } from '../../../src/services/skill-provenance.js';
 import { createDbFake } from '../../helpers/db-fake.js';
@@ -344,6 +346,44 @@ describe('HostSkillsService source-owned skills', () => {
       bundleSha256: computeSkillBundleDigest([{ path: 'SKILL.md', sha256: manifestSha }, ...files]),
     };
   }
+
+  it('Claude MCP tools read scoped manifests and bundled resources without native copies', async () => {
+    const manifest = '---\nname: agentic\ndisable-model-invocation: true\n---\n\nSee references/guide.md\n';
+    const supportContent = '# Claude guide';
+    const supportSha = createHash('sha256').update(supportContent).digest('hex');
+    const service = makeService(false, [
+      skillRow({ id: 1, slug: 'agentic', engine: 'claude', manifest,
+        ...sourceFor(manifest, [{ path: 'references/guide.md', sha256: supportSha }]) }),
+      skillRow({ id: 2, slug: 'codex-private', engine: 'codex', manifest: 'Codex-only instructions' }),
+      skillRow({ id: 3, slug: 'grok-private', engine: 'grok', manifest: 'Grok-only instructions' }),
+    ], [{ id: 1, skillId: 1, path: 'references/guide.md', sha256: supportSha, content: supportContent }]);
+    const resources = new McpResourcesService({ memories: {} as never, projects: {} as never, skills: service });
+    const registry = new McpToolsRegistry({ memories: {} as never, projects: {} as never, skills: service, resources });
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const result = await registry.dispatch(name, args, host, 'host', 'claude');
+      expect(result.isError).toBe(false);
+      const content = result.content as Array<{ text: string }>;
+      return JSON.parse(content[0]!.text);
+    };
+    const listed = await call('skill_list', { engine: 'codex' });
+    expect(listed.engine).toBe('claude');
+    expect(listed.skills).toContainEqual(expect.objectContaining({ slug: 'agentic', allow_implicit_invocation: false }));
+    expect(listed.skills).not.toContainEqual(expect.objectContaining({ slug: 'codex-private' }));
+    expect(listed.skills).not.toContainEqual(expect.objectContaining({ slug: 'grok-private' }));
+    expect(await call('skill_retrieve', { slug: 'agentic' })).toMatchObject({ manifest });
+    const resource = await call('resource_read', { uri: 'skill://agentic' });
+    expect(resource.contents[0].text).toContain('skill://agentic/<path>');
+    expect(resource.contents[0].text).toContain('See references/guide.md');
+    const support = await call('resource_read', { uri: 'skill://agentic/references/guide.md' });
+    expect(support.contents[0].text).toBe(supportContent);
+    for (const slug of ['codex-private', 'grok-private']) {
+      expect(await call('skill_retrieve', { slug })).toMatchObject({ status: 'missing' });
+      const hidden = await call('resource_read', { uri: `skill://${slug}` });
+      expect(JSON.parse(hidden.contents[0].text)).toMatchObject({ status: 'missing' });
+    }
+    const hiddenSupport = await registry.dispatch('resource_read', { uri: 'skill://codex-private/guide.md' }, host, 'host', 'claude');
+    expect(hiddenSupport.isError).toBe(true);
+  });
 
   it('uses the bundle digest and complete support files in list, retrieve, and Claude bundle responses', async () => {
     const manifest = '---\nname: agentic\ndescription: Agentic\n---\n\nBody\n';

@@ -247,22 +247,33 @@ describe('HostAgentsService.retrieve', () => {
     expect(stale['sha256']).toBe(servedSha);
   });
 
-  it('uses Claude-native skills and omits Codex-only BrowserOS guidance', async () => {
+  it.each([true, false])('Claude uses MCP Skill content when available and native fallback otherwise (MCP=%s)', async enabled => {
     const body = 'Canonical CLAUDE body\n';
     const db = makeDb([
       [agentsDocuments, [agentsRow(4, body, ENGINE_CLAUDE)]],
-      [clientConfigDocuments, [configRow(1, ENGINE_CLAUDE, { orchestrator_mcp_enabled: true })]],
+      [clientConfigDocuments, [configRow(1, ENGINE_CLAUDE, { orchestrator_mcp_enabled: enabled })]],
     ]);
-
     const out = await makeService(db).retrieve(null, makeHost({ browserosMcpEnabled: 1 }), ENGINE_CLAUDE);
-
-    expect(out['content']).toContain('~/.claude/skills/<slug>/SKILL.md');
-    expect(out['content']).not.toContain('skill_list');
+    expect(out['content']).toContain(enabled ? 'skill_list' : '~/.claude/skills/<slug>/SKILL.md');
     expect(out['content']).not.toContain('BrowserOS');
     expect(out['sections']).toMatchObject({
-      skills: { present: true, transport: 'native' },
-      memories: { present: true },
+      skills: { present: true, transport: enabled ? 'mcp' : 'native' },
+      memories: { present: enabled },
       browseros: { present: false, reason: 'unsupported_engine' },
+    });
+  });
+
+  it.each(['base_url', 'key'])('Claude retains native fallback when MCP cannot be provisioned (%s)', async missing => {
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, 'Rules\n', ENGINE_CLAUDE)]],
+      [clientConfigDocuments, [configRow(1, ENGINE_CLAUDE, { orchestrator_mcp_enabled: true })]],
+    ]);
+    const service = makeService(db, missing === 'base_url' ? { publicBaseUrl: null } : {});
+    const host = makeHost(missing === 'key' ? { apiKey: null, apiKeyEnc: null } : {});
+    const out = await service.retrieve(null, host, ENGINE_CLAUDE);
+    expect(out['sections']).toMatchObject({
+      skills: { present: true, transport: 'native' },
+      memories: { present: false, reason: 'service_unavailable' },
     });
   });
 

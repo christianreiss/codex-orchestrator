@@ -192,8 +192,8 @@ export class HostSkillsService {
 
   /**
    * Complete live set of skills visible to `engine`, rendered as Claude Code
-   * SKILL.md files, for on-disk distribution (claude only — codex reads skills
-   * via MCP). `content` is omitted when the wrapper's supplied digest matches the
+   * SKILL.md files for native distribution (Claude fallback and Grok; Codex
+   * and MCP-enabled Claude read Skill content via MCP). `content` is omitted when the wrapper's supplied digest matches the
    * host-facing change digest. Source-owned bundles prefer `bundle_sha256` so a
    * referenced file change invalidates the wrapper cache; ordinary rows retain
    * the rendered SKILL.md sha used historically. Mirrors

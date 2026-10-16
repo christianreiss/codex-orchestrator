@@ -1,7 +1,8 @@
 // Package lifecycle — skills.go handles the legacy skill fingerprint fallback.
 //
-// Current servers send the complete native Claude skill set in /sync/bootstrap;
-// collections.go checks and applies those files before launch. Older servers
+// Current servers send native fallback Skills, or an explicit empty set when
+// MCP supplies Skill content, in /sync/bootstrap. collections.go reconciles only
+// fleet-owned files before launch. Older servers
 // that omit claude_skills use the fingerprint probe below instead:
 //
 //  1. Probe `GET /skills?engine=claude` once per run, hash the
@@ -11,8 +12,8 @@
 //  2. One-shot purge of legacy bash-era on-disk skill caches (`~/.agents/skills`,
 //     `~/.clx/skills`) the first time we boot at this wrapper version.
 //     `~/.claude/skills` is NOT purged — it is the fleet-managed native skill
-//     store written by applyClaudeSkills (Claude Code reads skills on-disk, not
-//     over MCP, unlike codex).
+//     fallback store reconciled by applyClaudeSkills. MCP content does not
+//     register native Claude Code Skills.
 //
 // Both operations are best-effort: any failure is logged at debug and the
 // caller never refuses to launch over it.
@@ -172,9 +173,8 @@ func pruneLegacySkillDirsWith(version string, logger *slog.Logger, removeAll fun
 		state.Err = err
 		return state
 	}
-	// NOTE: ~/.claude/skills is deliberately NOT pruned anymore — it is now the
-	// fleet-managed on-disk skill store (applyClaudeSkills writes <slug>/SKILL.md
-	// there; Claude Code can't read skills over MCP). Only the truly bash-era
+	// NOTE: ~/.claude/skills is reconciled by applyClaudeSkills using ownership
+	// manifests, including retirement when MCP supplies Skill content. Only legacy
 	// caches below are purged. A host already pruned at an older version self-heals:
 	// the wrapper advertises no skill digest → the server returns content → the
 	// skills are rewritten on the next run.

@@ -504,8 +504,8 @@ func artifactDigestsForRequest() map[string]map[string]string {
 // files at ~/.claude/skills/<slug>/SKILL.md. Unlike the flat collections above,
 // each skill is its own DIRECTORY (Claude Code's native skill layout), so prune
 // uses RemoveAll on the skill dir — only manifest-recorded ones; user-authored
-// skill dirs and the skills/ root are never touched. (Claude Code can't read
-// skills over MCP, so on-disk is the only way; codex stays MCP-only.)
+// skill dirs and the skills/ root are never touched. An explicit empty set
+// retires these native fallback copies when MCP supplies fleet Skill content.
 func applyClaudeSkills(items []orchestrator.CollectionItem, logger *slog.Logger) bool {
 	updated, _ := applyClaudeSkillsResult(context.Background(), items, logger)
 	return updated

@@ -448,7 +448,7 @@ export class HostAgentsService {
       ? state(false, 'service_unavailable')
       : skillCount === 0
         ? state(false, 'no_skills', 0)
-        // Claude and Grok load Skills natively from disk; only Codex needs MCP.
+        // Claude falls back to native Skills without MCP; Grok stays native.
         : engine === ENGINE_CODEX && !mcp.enabled
           ? state(false, mcp.reason, skillCount)
           : state(true, 'ok', skillCount);
@@ -544,6 +544,7 @@ export class HostAgentsService {
     return {
       engine,
       skills,
+      skillsTransport: engine === ENGINE_CODEX || (engine === ENGINE_CLAUDE && mcp.enabled) ? 'mcp' : 'native',
       memory,
       projects,
       browseros,

@@ -118,6 +118,41 @@ describe('first-sync wrapper capabilities', () => {
   });
 });
 
+describe('Claude Skill delivery transport', () => {
+  it.each([true, false, null])('uses the same effective MCP gate without an agents document (MCP=%s)', async enabled => {
+    const db = createDbFake();
+    const apiKey = 'sk-claude-skill-transport';
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude,grok' })]);
+    if (enabled !== null) db.tables.set(clientConfigDocuments, [{
+      id: 1, engine: 'claude', body: '', sha256: 'skill-transport',
+      settings: { orchestrator_mcp_enabled: enabled, mcp_servers: [] },
+      createdAt: '2026-10-16T00:00:00Z', updatedAt: '2026-10-16T00:00:00Z',
+    }]);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    try {
+      for (const engine of ['claude', 'grok', 'codex']) {
+        const response = await app.inject({ method: 'POST', url: '/sync/bootstrap',
+          headers: { authorization: `Bearer ${apiKey}` }, payload: { engine, include_auth: false } });
+        expect(response.statusCode).toBe(200);
+        const body = response.json();
+        if (engine === 'claude') {
+          // Claude settings defaults can provision MCP even without a stored row.
+          expect(body.memory_routing.enabled).toBe(enabled !== false);
+          if (enabled !== false) expect(body.claude_skills).toEqual([]);
+          else expect(body.claude_skills.length).toBeGreaterThan(0);
+          expect(body.grok_skills).toBeUndefined();
+        } else if (engine === 'grok') {
+          expect(body.grok_skills.length).toBeGreaterThan(0);
+          expect(body.claude_skills).toBeUndefined();
+        } else {
+          expect(body.claude_skills).toBeUndefined();
+          expect(body.grok_skills).toBeUndefined();
+        }
+      }
+    } finally { await app.close(); }
+  });
+});
+
 describe('native memory routing bootstrap', () => {
   it.each(['codex', 'claude', 'grok'])('%s follows the effective MCP gate even without an agents document', async (engine) => {
     for (const enabled of [true, false]) {
@@ -571,8 +606,9 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
         browseros: { present: false, reason: 'unsupported_engine' },
       },
     });
-    expect(servedAgents).toContain('~/.claude/skills/<slug>/SKILL.md');
-    expect(servedAgents).not.toContain('skill_list');
+    expect(servedAgents).toContain('skill_list');
+    expect(body.agents.sections.skills.transport).toBe('mcp');
+    expect(body.claude_skills).toEqual([]);
     expect(servedAgents).toContain('shared_memory_list');
     expect(servedAgents).toContain('~/.claude/projects/');
     expect(servedAgents).toContain('#coco');
