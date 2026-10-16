@@ -1118,7 +1118,9 @@ regressions verify this boundary alongside the matching Codex/Claude behavior.
 From cxx 0.9.74, managed MCP errors preserve the original request ID and bounded
 `code`, `http_status` and `outcome_unknown` data. Unknown or invalid replies require
 result verification before retrying with the original work identifiers. The stdio
-adapter never replays a call.
+adapter never replays a call. From cxx 0.9.91 the data also carries `retryable`, true
+only for a local `503 communicator_unavailable` (the request provably never reached the
+orchestrator, e.g. while the control connection redials), so the caller may simply retry.
 
 
 ### Communicator sync ownership
