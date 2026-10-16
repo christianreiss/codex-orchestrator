@@ -480,7 +480,7 @@ func toolCatalogJSON() []byte {
 			"severity":    map[string]any{"type": "string", "enum": []string{"important", "critical", "blocker"}},
 			"notice_id":   map[string]any{"type": "string", "format": "uuid"},
 		}, []string{"message_id", "content"}),
-		tool("agent_reply", "Answer a peer delivery when an answer is needed. The receipt includes recipient_presence, observed_at and delivery_hint. Never reply to presence_notice deliveries; finish them with agent_listen once. For operator Portal messages use agent_receiver_reply. For an informational reply or closing acknowledgement, call agent_listen once to complete delivery without sending another message.", map[string]any{
+		tool("agent_reply", "Answer a peer delivery when an answer is needed. The receipt includes recipient_presence, observed_at and delivery_hint. On accepted work, a reply with delivery_class progress and no task_result is a status update that keeps the work held; any other reply finishes the work, as unknown when task_result is omitted, so include task_result with the final answer. Never reply to presence_notice deliveries; finish them with agent_listen once. For operator Portal messages use agent_receiver_reply. For an informational reply or closing acknowledgement, call agent_listen once to complete delivery without sending another message.", map[string]any{
 			"delivery_class":  map[string]any{"type": "string", "enum": []string{"information", "progress", "notice", "coordination"}, "description": "Use coordination for questions, approvals, clarifications and cancellation notices; routing grants no authority."},
 			"coalesce_key":    map[string]any{"type": "string", "maxLength": 128, "description": "Explicit progress/notice stream key; only pending updates in this stream may be replaced."},
 			"related_work_id": map[string]any{"type": "string", "format": "uuid"},
@@ -985,18 +985,40 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		}
 		pending := channelState.get(messageID)
 		clientMessageID := newUUID()
+		_, hasResult := args["task_result"]
+		// A progress reply without task_result is a status update on accepted
+		// work that is still running: it must not end the claim, or the real
+		// outcome can no longer be stored (feedback bad0e24b, 2026-10-16).
+		progressOnly := pending != nil && pending.workKind != "" && !hasResult && stringArg(args, "delivery_class") == "progress"
 		if pending != nil {
 			pending.opMu.Lock()
 			defer pending.opMu.Unlock()
 			if channelState.get(messageID) != pending {
 				return nil, errors.New("this process no longer holds that delivery")
 			}
-			clientMessageID = pending.replyClientID
+			if !progressOnly {
+				clientMessageID = pending.replyClientID
+			}
 		}
 		body := map[string]any{"message_id": messageID, "content": content, "client_message_id": clientMessageID}
 		copyQueuePolicy(args, body, channelState)
 		if pending != nil {
 			body["claim_id"] = pending.claimID
+		}
+		if progressOnly {
+			// The server keys non-terminal work replies on this class, so it is
+			// sent even when the receiver does not negotiate the smart queue.
+			body["delivery_class"] = "progress"
+			if err := client.post(ctx, "reply", body, &out); err != nil {
+				return nil, err
+			}
+			if out == nil {
+				out = map[string]any{}
+			}
+			out["held_work"] = []string{messageID}
+			out["work_status"] = "held"
+			out["message"] = "Progress sent; the accepted work stays yours and is not finished. Report its outcome with agent_task_result (or agent_reply with task_result) when it is actually done."
+			return out, nil
 		}
 		if report, ok := args["task_result"]; ok {
 			body["task_result"] = report

@@ -1798,7 +1798,11 @@ Automatic `agent_listen` also requires a registered peer source: healthy Portal
 transport alone returns `receiver_unavailable`, with `peer_source_unavailable`.
 
 `agent_task_result(message_id, task_result)` completes accepted work; `agent_reply` may
-include the same result and completes work atomically with the reply. A result contains
+include the same result and completes work atomically with the reply. A claimed reply
+with `delivery_class: progress` and no `task_result` is a non-terminal status update:
+the work stays `accepted` and held, so later progress and the real result still succeed
+(the wrapper sends `progress` even without negotiated `queue_delivery_v1`). Any other
+reply without `task_result` finishes the work as `unknown`. A result contains
 `status` (`succeeded|failed|blocked|unknown`), `summary` (4096 UTF-8 bytes maximum) and
 optional `evidence` (up to 20 `{description, reference}` objects). Bodies are encrypted;
 metadata lists only the status. Per-claim writes are idempotent; a different result conflicts.
