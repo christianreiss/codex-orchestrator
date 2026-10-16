@@ -7,10 +7,13 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/contentnotice"
+	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
 )
 
 // CommunicatorWork calls only the content writer or the already running private
@@ -42,7 +45,13 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 	}
 	client, err := newClient(cfg, false)
 	if err == nil {
+		before := contentSnapshot()
 		result, e := syncMeasuredManagedWith(ctx, cfg, client, true)
+		// Running sessions loaded the previous content at startup. A launching
+		// session primes itself after this pass, so only its peers are told.
+		if home, herr := native.Home(); herr == nil {
+			_ = contentnotice.PublishChanges("grok", filepath.Join(home, "AGENTS.md"), before, contentSnapshot())
+		}
 		err = e
 		out.Sessions, _ = json.Marshal(result.Sessions)
 		var skillErr error
@@ -56,4 +65,22 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		out.Error = &communicator.SyncError{Message: err.Error()}
 	}
 	return out
+}
+
+// contentSnapshot digests what a content pass may rewrite, per notice kind.
+// An unreadable home yields an empty snapshot, which never publishes.
+func contentSnapshot() contentnotice.Snapshot {
+	home, err := native.Home()
+	if err != nil {
+		return contentnotice.Snapshot{}
+	}
+	state, err := native.StateDir()
+	if err != nil {
+		return contentnotice.Snapshot{}
+	}
+	return contentnotice.Capture(map[string][]string{
+		contentnotice.KindInstructions: {filepath.Join(home, "AGENTS.md")},
+		contentnotice.KindSkills:       {filepath.Join(state, "skills.json")},
+		contentnotice.KindConfig:       {filepath.Join(home, "config.toml")},
+	})
 }

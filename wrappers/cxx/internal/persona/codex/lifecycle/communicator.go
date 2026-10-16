@@ -15,6 +15,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/contentnotice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/summary"
 )
@@ -140,9 +141,13 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 			_ = authnotice.Publish("codex", result.Generation.Digest)
 		}
 	case "skills":
+		before := contentSnapshot()
 		result := combineResourceSync(syncSkills(ctx, client, logger), pruneLegacySkillDirs(wrapperVersion(cfg), logger))
 		out.Resources["skills"] = resourceToWire(result)
+		instructions, _ := agentsPath()
+		_ = contentnotice.PublishChanges("codex", instructions, before, contentSnapshot())
 	case "bootstrap", "content":
+		before := contentSnapshot()
 		auth, err, synced, agents, settings, sessions := bootstrapWithProgress(ctx, client, logger, false, path, req.IncludeAuth, nil, req.Args)
 		out.Auth, _ = json.Marshal(auth)
 		out.AuthSynced = synced
@@ -157,6 +162,10 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		if req.Operation == "content" {
 			out.Resources["skills"] = resourceToWire(combineResourceSync(syncSkills(ctx, client, logger), pruneLegacySkillDirs(wrapperVersion(cfg), logger)))
 		}
+		// Running sessions loaded the previous content at startup. A launching
+		// session primes itself after this pass, so only its peers are told.
+		instructions, _ := agentsPath()
+		_ = contentnotice.PublishChanges("codex", instructions, before, contentSnapshot())
 	default:
 		out.Error = &communicator.SyncError{Message: "unsupported sync operation"}
 	}
@@ -248,4 +257,15 @@ func reconcileUnknownAuth(ctx context.Context, client *orchestrator.Client, path
 		out.Error = &communicator.SyncError{Message: "Auth changed during upload reconciliation"}
 	}
 	return out
+}
+
+// contentSnapshot digests what a content pass may rewrite, per notice kind.
+func contentSnapshot() contentnotice.Snapshot {
+	instructions, _ := agentsPath()
+	settings, _ := configTomlPath()
+	return contentnotice.Capture(map[string][]string{
+		contentnotice.KindInstructions: {instructions},
+		contentnotice.KindSkills:       {skillsDigestPath()},
+		contentnotice.KindConfig:       {settings},
+	})
 }

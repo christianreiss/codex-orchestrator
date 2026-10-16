@@ -17,6 +17,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authnotice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/contentnotice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
 
@@ -677,29 +678,29 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 			request := req
 			go func() {
 				response := handleMCPRequest(ctx, client, request, channel, channelState)
-				notice := prepareAuthNotice(response, os.Getenv("CXX_AGENT_PORTAL_ENGINE"), client.id)
+				notice := prepareSessionNotices(response, os.Getenv("CXX_AGENT_PORTAL_ENGINE"), client.id)
 				if err := output.send(response); err != nil {
 					notice.Abort()
 					cancel()
 					return
 				}
 				if err := notice.Commit(); err != nil {
-					fmt.Fprintln(stderr, "cxx auth notice acknowledgement failed; notice remains pending")
+					fmt.Fprintln(stderr, "cxx session notice acknowledgement failed; notice remains pending")
 				}
 			}()
 			continue
 		}
 		response := handleMCPRequest(ctx, client, req, channel, channelState)
-		var authDelivery *authnotice.Delivery
+		var notices sessionNotices
 		if req.Method == "tools/call" {
-			authDelivery = prepareAuthNotice(response, os.Getenv("CXX_AGENT_PORTAL_ENGINE"), client.id)
+			notices = prepareSessionNotices(response, os.Getenv("CXX_AGENT_PORTAL_ENGINE"), client.id)
 		}
 		if err := output.send(response); err != nil {
-			authDelivery.Abort()
+			notices.Abort()
 			return err
 		}
-		if err := authDelivery.Commit(); err != nil {
-			fmt.Fprintln(stderr, "cxx auth notice acknowledgement failed; notice remains pending")
+		if err := notices.Commit(); err != nil {
+			fmt.Fprintln(stderr, "cxx session notice acknowledgement failed; notice remains pending")
 		}
 		if req.Method == "initialize" {
 			initialized = true
@@ -726,6 +727,39 @@ func prepareAuthNotice(response map[string]any, engine, session string) *authnot
 	result["content"] = append(content, map[string]any{"type": "text", "text": delivery.Notice.Message()})
 	return delivery
 }
+
+// prepareContentNotice appends a fleet content-change notice the same way.
+func prepareContentNotice(response map[string]any, engine, session string) *contentnotice.Delivery {
+	result, ok := response["result"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	content, ok := result["content"].([]map[string]any)
+	if !ok {
+		return nil
+	}
+	delivery, err := contentnotice.Prepare(engine, session)
+	if err != nil || delivery == nil {
+		return nil
+	}
+	result["content"] = append(content, map[string]any{"type": "text", "text": delivery.Notice.Message()})
+	return delivery
+}
+
+// sessionNotices holds every local notice reserved for one output, so each is
+// acknowledged only once that output was actually written.
+type sessionNotices struct {
+	auth    *authnotice.Delivery
+	content *contentnotice.Delivery
+}
+
+func prepareSessionNotices(response map[string]any, engine, session string) sessionNotices {
+	return sessionNotices{auth: prepareAuthNotice(response, engine, session), content: prepareContentNotice(response, engine, session)}
+}
+
+func (n sessionNotices) Abort() { n.auth.Abort(); n.content.Abort() }
+
+func (n sessionNotices) Commit() error { return errors.Join(n.auth.Commit(), n.content.Commit()) }
 
 // messageKindFor maps a tool name to the wire `kind` the server accepts.
 func messageKindFor(tool string) string {

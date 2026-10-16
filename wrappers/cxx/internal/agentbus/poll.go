@@ -27,6 +27,7 @@ package agentbus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -36,6 +37,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authnotice"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/contentnotice"
 )
 
 const (
@@ -172,7 +174,16 @@ func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error 
 		}
 	}
 	defer authDelivery.Abort()
-	if len(fresh) == 0 && authContext == "" && heldText == "" {
+	var contentContext string
+	var contentDelivery *contentnotice.Delivery
+	if event == hookEventPrompt {
+		if delivery, err := contentnotice.Prepare("claude", os.Getenv(envSessionID)); err == nil && delivery != nil {
+			contentDelivery = delivery
+			contentContext = delivery.Notice.Message()
+		}
+	}
+	defer contentDelivery.Abort()
+	if len(fresh) == 0 && authContext == "" && contentContext == "" && heldText == "" {
 		return nil
 	}
 	summary := ringSummary(fresh, end != nil && end.blocked)
@@ -195,6 +206,16 @@ func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error 
 		summary.context += authContext
 		summary.human += "Claude credentials updated"
 	}
+	if contentContext != "" {
+		if summary.context != "" {
+			summary.context += "\n\n"
+		}
+		if summary.human != "" {
+			summary.human += "\n"
+		}
+		summary.context += contentContext
+		summary.human += "Fleet content updated"
+	}
 	// Only commit the ledger once the ring is certain to be emitted, so a write
 	// that fails here cannot silently swallow a call.
 	ledger.commit()
@@ -209,7 +230,7 @@ func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error 
 		}); err != nil {
 			return err
 		}
-		return authDelivery.Commit()
+		return errors.Join(authDelivery.Commit(), contentDelivery.Commit())
 	}
 	// Stop blocks, because that is the whole point: informing the agent after
 	// the turn has already ended reaches nobody until the next prompt, which

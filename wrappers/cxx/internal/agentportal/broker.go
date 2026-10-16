@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authnotice"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/contentnotice"
 )
 
 const brokerBodyLimit = 256 * 1024
@@ -338,6 +339,7 @@ func (b *Broker) ActivateEnvironment() func() {
 		return func() {}
 	}
 	_ = authnotice.Prime(b.session.Engine, b.session.ID)
+	_ = contentnotice.Prime(b.session.Engine, b.session.ID)
 	return swapPortalEnvironment(map[string]*string{
 		envLaunchName:    &b.session.LaunchName,
 		envSocket:        &b.socketPath,

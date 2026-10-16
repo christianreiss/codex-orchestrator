@@ -152,6 +152,9 @@ unsaved candidate on failure. `auth-sync` starts no native CLI and cannot recrea
 auth. Actual adoptions produce a per-session notice at the next agent MCP tool
 result. See [credential resilience](auth-resilience.md) for delivery, cancellation,
 insecure cleanup, native reload semantics, and the cross-host refresh boundary.
+Fleet content changes (instructions, Skills, managed config) that a content
+pass writes while a session runs produce a per-session content-change notice at
+the same boundaries; see [Content-change notices](communicator.md#content-change-notices-cxx-0996).
 
 ## Build + Publish
 - `cdx` is the Codex persona of the static `cxx` Go binary built from `wrappers/cxx/cmd/cxx`; the installed `cdx` path is a relative `cdx -> cxx` symlink. During legacy self-update migration, a `cdx-<major>.<minor>.<patch>` filename selects the same persona.

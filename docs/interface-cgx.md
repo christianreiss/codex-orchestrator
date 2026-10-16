@@ -1169,6 +1169,10 @@ invalidations converge through the existing validated writers. Local materializa
 is reported separately from native adoption. Signed rollback drains auth work and
 hands polling back to the existing wrapper without restarting the native CLI.
 See [Communicator ownership and rollout](communicator.md#central-sync-ownership-cxx-0973).
+From cxx 0.9.96 a content pass that changes `~/.grok/AGENTS.md`, the native
+Skill manifest or `config.toml` while a session runs produces a per-session
+content-change notice at the next agent MCP tool result; see
+[Content-change notices](communicator.md#content-change-notices-cxx-0996).
 
 ## Resident communicator workstream
 

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
@@ -13,6 +15,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/contentnotice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/summary"
 )
@@ -123,9 +126,12 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		out.Error = syncError(err)
 		out.HostSecure = result.HostSecure
 	case "skills":
+		before := contentSnapshot()
 		result := combineResourceSync(syncSkills(ctx, client, logger), pruneLegacySkillDirs(wrapperVersion(cfg), logger))
 		out.Resources["skills"] = resourceToWire(result)
+		_ = contentnotice.PublishChanges("claude", agentsPath(), before, contentSnapshot())
 	case "bootstrap", "content":
+		before := contentSnapshot()
 		auth, err, synced, agents, settings, nativeSkills, sessions := bootstrapWithProgress(ctx, client, logger, false, path, req.IncludeAuth, nil, req.Args)
 		out.Auth, _ = json.Marshal(auth)
 		out.AuthSynced = synced
@@ -142,6 +148,14 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		}
 		out.Resources = map[string]communicator.ResourceResult{"agents": resourceToWire(agents), "config": resourceToWire(settings), "skills": resourceToWire(nativeSkills)}
 		nativeSkills = combineResourceSync(nativeSkills, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
+		if req.Operation == "content" {
+			// MCP-served Skills leave no file behind; the /skills fingerprint is
+			// what tells a running session that skill_list changed.
+			nativeSkills = combineResourceSync(nativeSkills, syncSkills(ctx, client, logger))
+		}
+		// Running sessions loaded the previous content at startup. A launching
+		// session primes itself after this pass, so only its peers are told.
+		_ = contentnotice.PublishChanges("claude", agentsPath(), before, contentSnapshot())
 		out.Resources["skills"] = resourceToWire(nativeSkills)
 	default:
 		out.Error = &communicator.SyncError{Message: "unsupported sync operation"}
@@ -234,4 +248,16 @@ func reconcileUnknownAuth(ctx context.Context, client *orchestrator.Client, path
 		out.Error = &communicator.SyncError{Message: "Auth changed during upload reconciliation"}
 	}
 	return out
+}
+
+// contentSnapshot digests what a content pass may rewrite, per notice kind.
+// ~/.claude.json is left out: Claude Code rewrites it constantly on its own.
+func contentSnapshot() contentnotice.Snapshot {
+	home, _ := os.UserHomeDir()
+	dir := filepath.Join(home, ".claude")
+	return contentnotice.Capture(map[string][]string{
+		contentnotice.KindInstructions: {agentsPath()},
+		contentnotice.KindSkills:       {skillsDigestPath(), filepath.Join(dir, "skills")},
+		contentnotice.KindConfig:       {settingsPath(), filepath.Join(dir, "agents"), filepath.Join(dir, "commands"), filepath.Join(dir, "output-styles")},
+	})
 }

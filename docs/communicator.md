@@ -270,6 +270,39 @@ registrations are removed when their last client lease closes. Files update
 atomically using the existing writers. Native settings that are only read at
 startup become effective on the next launch.
 
+### Content-change notices (cxx 0.9.96)
+
+A running model loaded its instructions and Skill list at startup, so a pushed
+content pass alone never reaches it. Every `bootstrap`, `content` and `skills`
+worker therefore digests the files it may rewrite before and after the pass,
+per kind:
+
+| Kind | Codex | Claude | Grok |
+|---|---|---|---|
+| `instructions` | `$CODEX_HOME/AGENTS.md` | `~/.claude/CLAUDE.md` | `$GROK_HOME/AGENTS.md` |
+| `skills` | `/skills` fingerprint (`skills-digest`) | `/skills` fingerprint (`clx-skills-digest`) + `~/.claude/skills` | `~/.cgx/state/skills.json` |
+| `config` | `config.toml` | `settings.json`, `agents/`, `commands/`, `output-styles/` | `config.toml` |
+
+When any digest moved, the worker publishes one opaque generation under
+`~/.cache/codex-orchestrator/content-notices/<engine>-<scope>` (the
+`authnotice` mechanism, without content). Claude content passes now also refresh
+the `/skills` fingerprint, because MCP-served Skills leave no file behind.
+`~/.claude.json` is not digested: Claude Code rewrites it on its own.
+
+Delivery uses the same boundaries as credential notices: the next managed agent
+MCP tool result for all engines, and the Claude `UserPromptSubmit` hook. Each
+session gets a generation once. It is told to re-read the instructions file, to
+call `skill_list` again (Grok: re-read `~/.grok/skills`), and that config changes
+apply on the next launch. A session primes its ledger when its broker starts, so
+content it launched with never triggers a notice. A newer generation that lands
+before a session read the previous one keeps the earlier kinds. Notices expire
+after 24 hours and never signal, restart or count as native adoption.
+
+Idle hosts have no owner to receive the push once the on-demand owner idles out.
+They converge at the next launch or nightly `cxx cron run --due`, unless the
+resident runtime keeps content scopes alive (see
+[communicator-resident-runtime.md](communicator-resident-runtime.md)).
+
 ## Protocol and failure handling
 
 `GET /host/communicator/connect` upgrades to WebSocket protocol 1, authenticated

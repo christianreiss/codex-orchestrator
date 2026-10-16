@@ -703,6 +703,10 @@ arbitration, upload-before-maintenance ordering, running-agent notices, and the
 remaining cross-host refresh boundary. The internal `auth-sync` command requires
 an active child and existing credentials; it never starts a native CLI.
 
+Fleet content changes (instructions, Skills, managed config) that a content
+pass writes while a session runs produce a per-session content-change notice at
+the next agent MCP tool result or prompt hook; see [Content-change notices](communicator.md#content-change-notices-cxx-0996).
+
 Engine-specific details:
 
 - Credentials are read only from `~/.claude/.credentials.json`. Server-accepted
