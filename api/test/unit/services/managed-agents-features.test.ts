@@ -84,7 +84,7 @@ describe('Claude MCP Skill content guidance', () => {
     expect(out.sections.skills).toMatchObject({ present: true, transport: 'mcp' });
     for (const text of ['skill_list', 'resource_read', 'skill://{slug}', 'skill://{slug}/<path>',
       'allow_implicit_invocation', 'do not register native slash commands', 'frontmatter controls',
-      'fetch\nand inspect', 'fleet-reflect']) expect(out.body).toContain(text);
+      'native Skill tool reports a fleet\nSkill as unknown', 'fetch\nand inspect', 'fleet-reflect']) expect(out.body).toContain(text);
     expect(out.body).not.toContain('synced as native Claude Code skills');
     expect(renderManagedAgentFeatures(out.body, ctx).body).toBe(out.body);
     const fallback = renderManagedAgentFeatures(out.body, { ...ctx, skillsTransport: 'native' });
