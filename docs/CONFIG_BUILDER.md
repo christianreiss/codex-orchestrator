@@ -59,16 +59,21 @@ The config builder exposes current Codex feature flags under **Security & Featur
 - `prevent_idle_sleep` — keep the computer awake while Codex is running a thread (disabled by default; still `experimental` stage upstream as of codex-cli 0.147.0).
 - `multi_agent` — allow Codex to spawn multiple agents in parallel (enabled by default).
 - `code_mode_host` — spawns a companion `codex-code-mode-host` process to back Code Mode execution. Upstream ships this **stable and enabled by default**. **Do not disable this in the template as a fix** — verified 2026-08-08 that disabling it does not even suppress the warning (`claude`/`codex` still prints "Code Mode is unavailable because code-mode host is disabled"; only an absent/true key with the binary actually present produces clean output). The real gap is that the fleet's own wrapper distribution has never published the companion binary to any host's `/usr/local/bin` (confirmed absent from the wrapper store, 2026-08-08) — but it is a real, version-pinned artifact OpenAI publishes on every `openai/codex` GitHub release (e.g. `codex-code-mode-host-x86_64-unknown-linux-musl.tar.gz` on tag `rust-v0.147.0`, matching `codex-cli` 0.147.0 exactly; the CLI and host binary share a versioned handshake, so they must be pinned together). Manually installed and proven clean (real `cdx --execute` round trip, zero warning) on 2 hosts on 2026-08-08. Fleet-wide fix is to teach the wrapper's install/update path to fetch and place this binary alongside `codex` itself, the same way it already tracks the `codex` version — not yet built.
-- Additional feature flags may be supplied in the API `features` object. The
-  normalizer is a denylist, not an allowlist: every key that is not dropped
-  below survives into normalized `features` and is rendered under `[features]`,
-  so a typo reaches the host verbatim.
-- Feature values are coerced to booleans (`true`/`1`/`"yes"`/`"on"` and their negatives). A value that is not boolean-ish normalizes to `null` and that key is then omitted from the rendered `[features]` block.
+- Additional current feature flags may be supplied in the API `features` object.
+  Root and profile input is validated before normalization against the native
+  schema: unknown names, invalid types and invalid nested feature options fail
+  preview/store with HTTP 422 and a field path, including without `native_settings`.
+- New values must be native booleans or supported structured feature objects.
+  A known feature set to null withdraws its structured override, preserving any
+  native fallback; an empty/null features object withdraws all structured feature
+  overrides. Unknown names remain invalid even with null. Nested nulls and null
+  values inside native feature objects are invalid because TOML has no null.
+- Historical stored values retain boolean-ish read normalization (`true`/`1`/`"yes"`/`"on"` and their negatives). Unrecognized stored values may normalize to null, but new author input is never coerced this way. The final legacy feature render is schema-validated too.
 
 Legacy compatibility:
-- Dropped feature keys: `apply_patch_freeform`, `apply_patch_preserve_line_endings`, `apps_mcp_path_override`, `code_mode_buffered_exec`, `codex_git_commit`, `collaboration_modes`, `elevated_windows_sandbox`, `enable_fanout`, `experimental_windows_sandbox`, `external_migration`, `guardian_ext`, `image_detail_original`, `item_ids`, `js_repl`, `js_repl_tools_only`, `local_thread_store_shared_compression`, `multi_agent_mode`, `personality`, `plugin_hooks`, `remote_compaction_v2`, `remote_control`, `remote_models`, `request_rule`, `resize_all_images`, `responses_websockets`, `responses_websockets_v2`, `search_tool`, `send_async_message`, `skill_env_var_dependency_prompt`, `sqlite`, `steer`, `terminal_resize_reflow`, `tool_search`, `tool_search_always_defer_mcp_tools`, `transcript_v2`, `tui_app_server`, `unavailable_dummy_tools`, `undo`, `unified_exec_zsh_fork`, `use_legacy_landlock`, `use_linux_sandbox_bwrap`, `web_search_cached`, `web_search_request`, `workspace_owner_usage_nudge`, `enable_experimental_windows_sandbox`, `request_permissions`, `voice_transcription`, `web_search`, `codex_hooks`.
-- Legacy structured input drops these retired keys. The web-search aliases migrate to the root mode and `codex_hooks` migrates to `hooks`; an explicit canonical setting wins.
-- The list was rechecked against Codex 0.162.1 on 2026-10-12 and includes both removed and deprecated switches. Structured feature tables remain intact. Strict `native_settings` authoring rejects retired switches instead of silently dropping them.
+- Dropped feature keys: `apply_patch_freeform`, `apply_patch_preserve_line_endings`, `apps_mcp_path_override`, `code_mode_buffered_exec`, `codex_git_commit`, `collaboration_modes`, `elevated_windows_sandbox`, `enable_fanout`, `experimental_windows_sandbox`, `external_migration`, `guardian_ext`, `image_detail_original`, `item_ids`, `js_repl`, `js_repl_tools_only`, `local_thread_store_shared_compression`, `multi_agent_mode`, `personality`, `plugin_hooks`, `remote_compaction_v2`, `remote_control`, `remote_models`, `request_rule`, `resize_all_images`, `responses_websockets`, `responses_websockets_v2`, `search_tool`, `send_async_message`, `shell_zsh_fork`, `skill_env_var_dependency_prompt`, `sqlite`, `steer`, `terminal_resize_reflow`, `tool_search`, `tool_search_always_defer_mcp_tools`, `transcript_v2`, `tui_app_server`, `unavailable_dummy_tools`, `undo`, `unified_exec_zsh_fork`, `use_legacy_landlock`, `use_linux_sandbox_bwrap`, `web_search_cached`, `web_search_request`, `workspace_owner_usage_nudge`, `enable_experimental_windows_sandbox`, `request_permissions`, `voice_transcription`, `web_search`, `codex_hooks`.
+- Historical structured settings drop these retired keys. New structured input rejects removed/inert controls; only the boolean web-search aliases and `codex_hooks` retain value-preserving migration to current controls. An explicit canonical setting wins.
+- The list was rechecked against Codex 0.163.0 on 2026-10-16 and includes both removed and deprecated switches. Migration 0071 removes `shell_zsh_fork` from saved documents; new input rejects it. Structured feature tables remain intact. Strict `native_settings` authoring requires canonical keys.
 
 ## Security toggles
 
@@ -138,7 +143,7 @@ cannot take the fleet down.
   documents still hold them: `true`/`1`/`"yes"`/`"on"` become `live`, and
   `false`/`0`/`"no"`/`"off"` become `disabled`.
 - Anything else, including an absent key, normalizes to `null`, and the root `web_search` line is then omitted from the rendered config.
-- Legacy true `features.web_search_request` or `features.web_search` becomes root `live`; otherwise true `features.web_search_cached` becomes `cached`. An explicit root setting wins; retired feature keys are removed.
+- Legacy true `features.web_search_request` becomes `live`; otherwise true `features.web_search_cached` becomes `cached`, then true `features.web_search` becomes `live`. False aliases without an enabled alias become `disabled`. The migration applies at root and profile scope; an explicit setting in that scope wins.
 
 ## OTEL wiring
 
@@ -201,7 +206,7 @@ The builder can also set:
 ## Current native Codex settings
 
 The API accepts `settings.native_settings` as a native JSON configuration object. It is
-validated against the vendored official Codex 0.162.1 schema (retrieved 2026-10-12),
+validated against the vendored official Codex 0.163.0 schema (retrieved 2026-10-16),
 then rendered as TOML with nested tables and arrays intact. Unknown schema fields,
 invalid types and removed/deprecated keys return a validation error. This includes
 agents, hooks, apps, service tiers, permission profiles, TUI, history, providers,
@@ -222,8 +227,11 @@ Profiles can carry their own `native_settings`, rendered into current native
 inside native settings. Root `personality` is deprecated in 0.162.1 and is no
 longer emitted; use developer instructions for writing-style guidance.
 
-Legacy web-search feature switches migrate to the root `web_search` mode, with
-an explicit root value winning. `features.codex_hooks` migrates to `features.hooks`.
+Legacy web-search feature switches migrate to the root or profile `web_search`
+mode, with an explicit setting in that scope winning. Enabled request selects
+`live`, then enabled cached search selects `cached`, then enabled web search
+selects `live`; false aliases
+without an enabled alias select `disabled`. `features.codex_hooks` migrates to `features.hooks`.
 Native authoring uses canonical keys and rejects these deprecated aliases.
 
 ## Configuration scope and client compatibility

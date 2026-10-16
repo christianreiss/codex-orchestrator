@@ -132,11 +132,12 @@ export function normalizeCodexNativeSettings(value: unknown): NativeSettings | u
 }
 
 /** Validate the final render-equivalent object after explicit fleet overrides. */
-export function validateCodexConfigDocument(out: NativeSettings): void {
+export function validateCodexConfigDocument(out: NativeSettings, opts: { partialFeatures?: boolean; path?: string } = {}): void {
+  const path = opts.path ?? 'native_settings';
   const budget = nativeRecord(nativeRecord(out.features).rollout_budget);
-  if (budget.enabled === true) {
+  if (!opts.partialFeatures && budget.enabled === true) {
     for (const key of ['limit_tokens', 'reminder_at_remaining_tokens']) {
-      if (!Object.hasOwn(budget, key)) throw new ValidationError(`native_settings.features.rollout_budget.${key} is required when enabled`, { param: `native_settings.features.rollout_budget.${key}` });
+      if (!Object.hasOwn(budget, key)) throw new ValidationError(`${path}.features.rollout_budget.${key} is required when enabled`, { param: `${path}.features.rollout_budget.${key}` });
     }
   }
   if (!validate(out)) {
@@ -144,8 +145,16 @@ export function validateCodexConfigDocument(out: NativeSettings): void {
     const location = error?.instancePath.replaceAll('/', '.') ?? '';
     const property = error?.keyword === 'additionalProperties' ? `.${String(error.params.additionalProperty)}` : '';
     // Only describe paths/rules, never echo settings (which may hold credentials).
-    throw new ValidationError(`native_settings${location}${property}: ${error?.message ?? 'invalid Codex configuration'}`, { param: `native_settings${location}${property}` });
+    throw new ValidationError(`${path}${location}${property}: ${error?.message ?? 'invalid Codex configuration'}`, { param: `${path}${location}${property}` });
   }
+}
+
+/** Known structured feature nulls withdraw an override; validate their keys too.
+ * Nested nulls remain invalid because TOML cannot represent them.
+ */
+export function validateCodexFeatureDocument(features: NativeSettings, path: string, partialFeatures = false): void {
+  const checked = Object.fromEntries(Object.entries(features).map(([key, value]) => [key, value === null ? false : value]));
+  validateCodexConfigDocument({ features: cloneJson(checked, `${path}.features`) }, { path, partialFeatures });
 }
 
 /** Deep merge with explicit values winning. No array concatenation or mutation. */

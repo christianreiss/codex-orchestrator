@@ -1690,6 +1690,14 @@ The rendered TOML preserves arrays, nested tables and literal names. Settings
 persist with the existing config document and survive model-default updates.
 
 Structured controls override native values; empty defaults do not erase them.
+New root and profile `features` input is validated before legacy normalization,
+including when `native_settings` is absent. Unknown names, invalid types and
+invalid nested options fail preview/store with a field path. Boolean-like
+strings and numbers are normalized only when reading historical stored data.
+Known structured feature values may be `null` to withdraw that override (and
+use any native fallback); a null/empty features object clears all structured
+feature overrides. Unknown feature names remain invalid even with null values.
+Nested nulls are invalid, as are null feature values inside `native_settings`.
 The merged render document is validated again. Native values stay in the native object
 when stored; editing or deleting them never competes with an older structured
 copy. `model` and `model_reasoning_effort` belong to the existing structured
@@ -1706,7 +1714,8 @@ posture, model, managed MCP and skill policy overrides also apply to these layer
 
 Legacy structured `on-failure` migrates to `on-request`; posture also stops
 emitting `on-failure`. Root `personality` is no longer emitted. Removed and
-deprecated feature switches are dropped, while legacy web-search and hook
+deprecated feature switches are dropped when reading historical structured
+settings; new structured input rejects them. Legacy boolean web-search and hook
 aliases migrate to canonical settings. Native authoring requires canonical keys.
 Codex 0.163 removed `shell_zsh_fork`: new structured or native input is rejected,
 including profiles. Idempotent migration `0071` removes only that exact feature

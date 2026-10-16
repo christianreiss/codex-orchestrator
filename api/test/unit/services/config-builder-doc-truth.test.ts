@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { renderToml } from '../../../src/services/client-config.js';
+import { ClientConfigService, renderToml } from '../../../src/services/client-config.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import { CODEX_WEB_SEARCH_VALUES } from '../../../src/services/agent-security-levels.js';
 import {
   APPROVAL_POLICIES,
@@ -13,12 +14,9 @@ import {
 
 /**
  * `docs/CONFIG_BUILDER.md` is what operators read before editing fleet
- * `config.toml`, so a wrong value set there produces settings the normalizer
- * silently discards. It had drifted on every value list at once: `web_search`
- * was documented as `live`/`cached`/`disabled` (it is a boolean), `on-failure`
- * was said to be rewritten to `on-request` (it is kept verbatim), and the
- * feature textarea was said to keep only supported flags (the normalizer is a
- * denylist).
+ * `config.toml`, so its value lists and authoring contract must match the API.
+ * Feature authoring was once a denylist. New input now uses the native schema;
+ * stored read normalization remains compatible with historical documents.
  *
  * This scan reads the backticked value lists out of the doc and compares them
  * against the exported constants, and runs the documented `web_search` shape
@@ -77,10 +75,17 @@ describe('docs/CONFIG_BUILDER.md value sets', () => {
     expect(droppedFeatureKeys).toEqual([...DROPPED_FEATURE_KEYS]);
   });
 
-  it('documents the denylist as a denylist', () => {
+  it('distinguishes historical normalization from strict feature authoring', async () => {
     const s = normalizeSettings({ features: { memories: true, some_new_codex_flag: true } });
     expect(s.features).toEqual({ memories: true, some_new_codex_flag: true });
-    expect(renderToml(s)).toContain('some_new_codex_flag = true');
+    expect(() => renderToml(s)).toThrow(/features.some_new_codex_flag/);
+    const db = createDbFake();
+    const service = new ClientConfigService(db as never);
+    const settings = { features: { some_new_codex_flag: true } };
+    expect(() => service.render(settings)).toThrow(/features.some_new_codex_flag/);
+    await expect(service.store({ settings })).rejects.toMatchObject({ status: 422 });
+    expect(db.inserts).toHaveLength(0);
+    expect(service.render({ features: { memories: true } }).content).toContain('memories = true');
   });
 });
 
