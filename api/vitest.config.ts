@@ -1,8 +1,35 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vitest/config';
+
+// Several suites import frontend sources (e.g. frontend-path-coverage loads
+// frontend/src/lib/api/nativeSettings.ts). Left to itself, Vite's esbuild
+// transform resolves the nearest tsconfig.json per file, and
+// frontend/tsconfig.json extends ./.svelte-kit/tsconfig.json — generated only
+// by `svelte-kit sync`, absent in a clean checkout and in the api CI job. A
+// string `tsconfigRaw` makes Vite skip that lookup for every file, so the api
+// suite needs no frontend setup. The value carries the api tsconfig's
+// esbuild-relevant fields, read here so the two cannot drift.
+const ESBUILD_TSCONFIG_FIELDS = [
+  'alwaysStrict',
+  'experimentalDecorators',
+  'importsNotUsedAsValues',
+  'preserveValueImports',
+  'target',
+  'useDefineForClassFields',
+  'verbatimModuleSyntax',
+];
+const apiCompilerOptions: Record<string, unknown> =
+  JSON.parse(readFileSync(new URL('./tsconfig.json', import.meta.url), 'utf8')).compilerOptions ?? {};
+const tsconfigRaw = JSON.stringify({
+  compilerOptions: Object.fromEntries(
+    ESBUILD_TSCONFIG_FIELDS.filter((field) => field in apiCompilerOptions).map((field) => [field, apiCompilerOptions[field]]),
+  ),
+});
 
 export default defineConfig({
   esbuild: {
     target: 'es2022',
+    tsconfigRaw,
   },
   test: {
     globals: false,

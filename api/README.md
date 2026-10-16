@@ -35,6 +35,13 @@ npm run build    # esbuild -> dist/server.js
 skip unless `TEST_USE_DB=1` is set. CI runs typecheck, lint, this fast tier and
 the build, then enforces coverage in a separate MySQL 8.4 job.
 
+The suite needs only `api/` dependencies. Some tests read or import frontend
+sources, but none require `frontend/node_modules` or a generated
+`frontend/.svelte-kit/`: `vitest.config.ts` passes esbuild a fixed
+`tsconfigRaw` (the esbuild-relevant fields of `api/tsconfig.json`), so Vite
+never resolves `frontend/tsconfig.json` and its `./.svelte-kit/tsconfig.json`
+base. No `svelte-kit sync` is needed in a clean checkout or in CI.
+
 For the complete coverage gate, configure `DB_HOST`, `DB_PORT`, `DB_DATABASE`,
 `DB_USERNAME`, `DB_PASSWORD` and `ENCRYPTION_ACTIVE_KEY` for an empty disposable
 MySQL database, then run from `api/`:
