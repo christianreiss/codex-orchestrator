@@ -141,7 +141,7 @@ const nestedSchemas: Record<string, z.ZodTypeAny> = {
   env: textMap,
   modelOverrides: textMap,
   vimInsertModeRemaps: z.record(z.literal('<Esc>')).superRefine((value, ctx) => {
-    for (const name of Object.keys(value)) if (name.length !== 2 || /[\x00-\x1f\x7f]/.test(name))
+    for (const name of Object.keys(value)) if (name.length !== 2 || name.split('').some(character => character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f))
       ctx.addIssue({ code: 'custom', path: [name], message: 'expected a two-character printable key mapped to <Esc>' });
   }),
   enabledPlugins: z.record(flag),

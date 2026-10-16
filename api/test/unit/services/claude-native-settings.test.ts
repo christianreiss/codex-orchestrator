@@ -358,6 +358,22 @@ describe('Claude native user settings', () => {
     expect(() => normalize({ sandbox: { network: { allowManagedDomainsOnly: true } } })).toThrow('requires native managed settings');
   });
 
+  it('rejects every ASCII control code in either Vim remap key position', () => {
+    const controls = [...Array.from({ length: 32 }, (_, index) => String.fromCharCode(index)), String.fromCharCode(127)];
+    for (const character of controls) {
+      for (const name of [`${character}j`, `j${character}`]) {
+        expect(() => normalizeClaudeNativeSettings({ vimInsertModeRemaps: { [name]: '<Esc>' } })).toThrow('expected a two-character printable key');
+      }
+    }
+  });
+
+  it('preserves printable Vim remap keys without changing their two-code-unit contract', () => {
+    const native = { vimInsertModeRemaps: { jj: '<Esc>', ' j': '<Esc>', '~j': '<Esc>', 'äj': '<Esc>' } };
+    expect(normalizeClaudeNativeSettings(native)).toEqual(native);
+    expect(() => normalizeClaudeNativeSettings({ vimInsertModeRemaps: { j: '<Esc>' } })).toThrow('two-character printable key');
+    expect(() => normalizeClaudeNativeSettings({ vimInsertModeRemaps: { jjj: '<Esc>' } })).toThrow('two-character printable key');
+  });
+
   it('rejects prototype keys and encodes literal dots in ownership paths', () => {
     expect(() => normalize(JSON.parse('{"env":{"__proto__":"x"}}'))).toThrow('unsafe key');
     const { partial, owned_paths } = renderClaudeSettingsPartial(normalize({ modelSettings: { 'custom.model': { effortLevel: 'high' } } }));
