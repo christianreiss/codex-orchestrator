@@ -78,6 +78,37 @@ func TestMergeRemovesStaleFleetPath(t *testing.T) {
 	}
 }
 
+func TestMergeIdleCompactionBooleanAndWithdrawal(t *testing.T) {
+	user := []byte(`{"autoCompactEnabled":false,"env":{"LOCAL":"keep"},"voice":{"mode":"tap"}}`)
+	local := parseObj(t, user)
+	state := emptyState()
+	for _, value := range []bool{false, true} {
+		out, next, err := MergeSettings(user, map[string]any{"idleCompaction": value}, []string{"idleCompaction"}, state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		merged := parseObj(t, out)
+		if got, exists := merged["idleCompaction"]; !exists || got != value {
+			t.Fatalf("idleCompaction = %v (present %v), want %v", got, exists, value)
+		}
+		delete(merged, "idleCompaction")
+		if !reflect.DeepEqual(merged, local) {
+			t.Fatalf("local settings changed: %v", merged)
+		}
+		user, state = out, next
+	}
+	out, state, err := MergeSettings(user, map[string]any{}, []string{}, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged := parseObj(t, out); !reflect.DeepEqual(merged, local) {
+		t.Fatalf("withdrawal must remove only the fleet value: %v", merged)
+	}
+	if len(state.KeyPaths) != 0 {
+		t.Fatalf("ownership retained after withdrawal: %v", state.KeyPaths)
+	}
+}
+
 func TestMergePermissionsUnionAndPrevFleetStrip(t *testing.T) {
 	// User has their own deny rule + one the fleet injected last run (rm -rf).
 	user := []byte(`{"permissions":{"deny":["Bash(sudo *)","Bash(rm -rf *)"]}}`)

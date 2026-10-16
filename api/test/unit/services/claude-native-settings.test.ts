@@ -12,6 +12,27 @@ const normalize = (native: Record<string, unknown>, structured: Record<string, u
   normalizeSettings({ native_settings: native, ...structured }, { applyCodexDefaults: false, engine: 'claude' });
 
 describe('Claude native user settings', () => {
+  it.each([false, true])('preserves explicit idleCompaction=%s through preview and host rendering', idleCompaction => {
+    const native = { idleCompaction };
+    const settings = normalize(native);
+    expect(settings.native_settings).toEqual(native);
+    expect(JSON.parse(new ClientConfigService({} as never).render(settings, 'claude').content))
+      .toMatchObject(native);
+    const rendered = renderClaudeSettingsPartialForHost({
+      host: { claudeClientVersion: '2.1.296', claudeWrapperVersion: '0.9.66' } as never,
+      settings, baseUrl: null, apiKey: null,
+    });
+    expect(rendered.partial).toMatchObject(native);
+    expect(rendered.owned_paths).toContain('idleCompaction');
+    const removed = renderClaudeSettingsPartial(normalize({}));
+    expect(removed.partial).not.toHaveProperty('idleCompaction');
+    expect(removed.owned_paths).not.toContain('idleCompaction');
+  });
+
+  it.each(['false', 0, null, {}, []])('rejects non-boolean idleCompaction=%j', idleCompaction => {
+    expect(() => normalize({ idleCompaction })).toThrow('native_settings.idleCompaction');
+  });
+
   it.each([
     [{ voice: { enabld: true } }, 'voice.enabld'],
     [{ permissions: { additionalDirectory: ['/tmp'] } }, 'permissions.additionalDirectory'],
@@ -193,22 +214,28 @@ describe('Claude native user settings', () => {
       } }),
     };
     const service = new ClientConfigService(db as never);
-    await service.store({ settings: { native_settings: { env: { CUSTOM: 'first' }, permissions: { defaultMode: 'plan' } } } }, null, 'claude');
+    await service.store({ settings: { native_settings: { env: { CUSTOM: 'first' }, permissions: { defaultMode: 'plan' }, idleCompaction: false } } }, null, 'claude');
     const first = await service.adminFetch('claude');
+    expect(first.settings?.native_settings?.idleCompaction).toBe(false);
     const beforeInvalid = structuredClone(row);
     await expect(service.store({ settings: { native_settings: { voice: { enabld: true } } } }, null, 'claude'))
       .rejects.toThrow('native_settings.voice.enabld');
     expect(row).toEqual(beforeInvalid);
     expect(await service.adminFetch('claude')).toEqual(first);
+    await expect(service.store({ settings: { native_settings: { idleCompaction: 'false' } } }, null, 'claude'))
+      .rejects.toThrow('native_settings.idleCompaction');
+    expect(row).toEqual(beforeInvalid);
     expect(first.settings?.env).toBeUndefined();
     expect(first.settings?.permissionMode).toBeUndefined();
-    const changed = await service.store({ settings: { ...first.settings, native_settings: { env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual' } } } }, null, 'claude');
-    expect(JSON.parse(changed.content)).toMatchObject({ env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual' } });
+    const changed = await service.store({ settings: { ...first.settings, native_settings: { env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual' }, idleCompaction: true } } }, null, 'claude');
+    expect(JSON.parse(changed.content)).toMatchObject({ env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual' }, idleCompaction: true });
     const second = await service.adminFetch('claude');
+    expect(second.settings?.native_settings?.idleCompaction).toBe(true);
     await service.store({ settings: { ...second.settings, native_settings: {} } }, null, 'claude');
     const cleared = await service.adminFetch('claude');
     expect(cleared.settings?.native_settings).toBeUndefined();
     const rendered = JSON.parse(cleared.content!);
+    expect(rendered).not.toHaveProperty('idleCompaction');
     expect(rendered.env).toBeUndefined();
     expect(rendered.permissions.defaultMode).not.toBe('manual');
   });

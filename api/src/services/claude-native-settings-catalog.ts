@@ -1,4 +1,4 @@
-/** Public user-scope settings from Claude Code 2.1.296, verified 2026-10-12.
+/** Public user-scope settings from Claude Code 2.1.301, verified 2026-10-16.
  * Source: https://code.claude.com/docs/en/settings-reference
  * Only key names, JSON types and fixed enum values are recorded here. Native
  * settings remain opt-in; this registry does not activate any feature.
@@ -45,6 +45,7 @@ export const CLAUDE_NATIVE_SETTING_RULES: Readonly<Record<string, ClaudeNativeSe
   "claudeMdExcludes": {"type": "array", "items": "string"},
   "env": {"type": "object"},
   "fileCheckpointingEnabled": {"type": "boolean"},
+  "idleCompaction": {"type": "boolean"},
   "plansDirectory": {"type": "string"},
   "skillListingBudgetFraction": {"type": "number"},
   "skillListingMaxDescChars": {"type": "number"},
