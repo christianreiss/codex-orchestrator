@@ -3,11 +3,16 @@ title: Memories and the Memory Atlas
 section: Admin workspace
 summary: Host, project, and shared memory in one graph or list, the inspector, and the ETag-guarded create, edit, append, and delete flows.
 tags: [memory, atlas, mcp]
-verified: 2026-10-08
+verified: 2026-10-16
 sources: api/src/services/managed-memory-routing.ts, wrappers/cxx/internal/memoryrouting/routing.go, api/src/routes/admin/memories/index.ts, api/src/services/admin-memory-catalog.ts, api/src/services/admin-memory-lifecycle.ts, api/src/services/shared-memories.ts, api/src/services/mcp-memories.ts, api/src/routes/admin/config/index.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, frontend/src/routes/memories/+page.svelte, frontend/src/routes/authoring/memories/+page.svelte, frontend/src/lib/ws/events.ts
 ---
 
 **Memories** (`/memories`, under *Knowledge*) opens the **Memory Atlas**: one filterable workspace over the three memory scopes agents write through MCP — **host** memory (`mcp_memories`, per host and engine, the `memory_*` tools), **project** memory (`coord_project_memories`, per Projects workspace, the `project_memory_*` tools), and **shared** memory (`shared_memories`, fleet-wide, the `shared_memory_*` tools). The legacy `/authoring/memories` URL resolves to the same page.
+
+Claude Code can search and read these central stores through MCP tools. Its
+built-in auto-memory continues using `MEMORY.md` and topic files: there is no
+native MCP storage backend configured by the fleet. The local routing reminder
+below points to central knowledge without copying its contents locally.
 
 ## Local reminders for agents
 
@@ -15,6 +20,12 @@ From wrapper 0.9.35, managed Codex, Claude and Grok launches keep a short remind
 beside native local memories: look up and save durable knowledge in the central
 Orchestrator through MCP. Startup, `sync` and content cron refresh it. Existing
 local notes are preserved; they are not automatically migrated into the Atlas.
+
+From cxx 0.9.90, Claude memory-directory selection respects native argument
+boundaries. A repository-selected directory is not scanned or given a reminder
+when `permissions.blockReadsOutsideWorkingDirectories` is enabled; old owned
+blocks are removed while notes remain. Explicit CLI and managed policy selections
+remain supported.
 
 The reminder follows central MCP availability. Turning that off removes only the
 managed reminder, as does an explicit loss of host trust; a service outage leaves

@@ -1,5 +1,9 @@
 # 2026-10-16
 
+- Claude reads fleet Skill manifests and support files through MCP when orchestrator MCP is usable. Bootstrap retires only previously fleet-owned native copies; unavailable MCP retains native bundle fallback, and Grok keeps native Skills. Central memory remains available through MCP with a small local routing reminder; Claude auto-memory still uses files. Interface docs and console help distinguish content retrieval from native Skill registration, hooks and slash commands.
+
+- cxx 0.9.90 follows native Claude argument grammar for memory-directory selectors, so option values and prompt text after `--` cannot redirect the reminder. Repository-selected directories respect `permissions.blockReadsOutsideWorkingDirectories`; existing owned reminder blocks are removed without deleting notes. Native auto-memory preferences stay unchanged.
+
 - Codex async compaction has an immediately saved toggle under Engines → Codex and defaults on for clients from 0.163.0. Explicit opt-outs and thresholds are preserved; older/unreported clients omit the implicit default until upgraded, and profile overrides remain independent. Toggle saves retain concurrent unrelated edits and use the existing revision guard.
 
 - **Engine maintenance (cxx 0.9.89).** Support Codex 0.163 configuration with conditional native version checks, Claude idle compaction preferences and stricter nested settings, and current Grok settings. Invalid authoring receives field errors; migrations 0071/0072 remove confirmed obsolete or invalid stored controls while preserving unrelated settings and historical content/digest snapshots.

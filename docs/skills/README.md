@@ -1,8 +1,10 @@
 # Authored skill manifests
 
 Fleet skills live in the `skills` table and are served over `/skills` and MCP
-(`skill_list` / `skill_retrieve`); Codex reads them only through MCP, `clx` syncs them
-to `~/.claude/skills/<slug>/SKILL.md` on Claude hosts, and `cgx` syncs them to
+(`skill_list` / `skill_retrieve` / `resource_read`); Codex and MCP-enabled Claude
+read their content through MCP. Claude falls back to native
+`~/.claude/skills/<slug>/SKILL.md` bundles when orchestrator MCP is unavailable,
+and `cgx` syncs them to
 `~/.grok/skills/<slug>/SKILL.md` on Grok hosts. **The database is the runtime source of truth** — nothing reads this
 directory, and a file here does not ship anything.
 
@@ -85,14 +87,20 @@ License, Copyright (c) 2026 Matt Pocock**. A non-blank source type is an ownersh
 marker, so the ordinary admin/host Skill store and delete endpoints reject direct
 changes; edits must come from a validated source refresh.
 
-Delivery remains engine-native:
+Delivery follows the engine's effective transport:
 
 - Codex reads the manifest at `skill://<slug>` and support files at
   `skill://<slug>/<path>`. The MCP catalogue labels upstream
   `disable-model-invocation: true` as `[Explicit user invocation only]`, and a
   read-time note routes relative paths through MCP. Bundled scripts are reference
   text, not permission to execute them.
-- Claude receives the complete directory in `claude_skills`; cxx 0.7.3 validates
+- MCP-enabled Claude uses the same manifest/support-file MCP reads as Codex.
+  This loads instruction content without registering native Skills or activating
+  native frontmatter hooks, slash commands, or filesystem script helpers. An
+  explicit empty `claude_skills` list retires only previously fleet-owned local
+  copies; user-authored directories remain.
+- Without usable orchestrator MCP, Claude receives the complete native fallback
+  directory in `claude_skills`; cxx validates
   every path/digest, recomputes the canonical complete-bundle digest, stages it,
   and atomically swaps
   `~/.claude/skills/<slug>/`. Its ownership manifest records every fleet-owned
@@ -105,9 +113,9 @@ Delivery remains engine-native:
   ownership manifest in `~/.cgx/state/skills.json`.
 
 Turning inclusion off soft-deletes only rows owned by this source. Codex stops
-listing them immediately; Claude and Grok remove only those fleet-owned directories on
-their next complete bootstrap. The cached rows, files, and last-known-good source
-metadata remain server-side for a safe re-enable. Locally authored Skills and
+listing them immediately, as does MCP-enabled Claude; native fallback Claude
+and Grok remove only those fleet-owned directories on their next complete
+bootstrap. The cached rows, files, and last-known-good source metadata remain server-side for a safe re-enable. Locally authored Skills and
 code-derived managed Skills are untouched.
 
 ## Storing one
