@@ -376,3 +376,53 @@ func TestClaudePluginHooksCombineActivityAndFailureLifecycle(t *testing.T) {
 		})
 	}
 }
+
+// Claude spawns the plugin's MCP server and hooks with argv[0] = the rendered
+// path; a clx alias (kept by os.Executable on macOS) rejects `agent ...`.
+func TestClaudePluginCommandsUseCxxForPersonaAlias(t *testing.T) {
+	dir := t.TempDir()
+	bin := t.TempDir()
+	canonical := filepath.Join(bin, "cxx")
+	if err := os.WriteFile(canonical, []byte("cxx"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(bin, "clx")
+	if err := os.Symlink("cxx", alias); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior := selfExecutable
+	selfExecutable = func() (string, error) { return alias, nil }
+	t.Cleanup(func() { selfExecutable = prior })
+	t.Setenv(envSocket, filepath.Join(dir, "portal.sock"))
+	t.Setenv(envSessionID, "session")
+	t.Setenv(channelPolicyDirEnv, filepath.Join(dir, "managed"))
+	if _, err := ClaudeReceiverArgs(nil); err != nil {
+		t.Fatal(err)
+	}
+	var mcp struct {
+		Servers map[string]struct {
+			Command string `json:"command"`
+		} `json:"mcpServers"`
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, PluginName, ".mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &mcp); err != nil {
+		t.Fatal(err)
+	}
+	if got := mcp.Servers["cxx-agent"].Command; got != want {
+		t.Fatalf("MCP command %q, want %q", got, want)
+	}
+	hooks, err := os.ReadFile(filepath.Join(dir, PluginName, "hooks", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(hooks), alias) || !strings.Contains(string(hooks), want+"' agent ") {
+		t.Fatalf("hooks must invoke cxx, not the clx alias: %s", hooks)
+	}
+}

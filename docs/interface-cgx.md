@@ -492,6 +492,9 @@ The native external-auth command is internal `cxx grok-auth`. It returns only
 `{access_token, expires_in, issuer:"https://auth.x.ai"}` and completes within the
 native seven-second timeout. It bypasses normal wrapper sync/lease acquisition
 and never takes the native auth-file lock: native refresh already holds it.
+
+From cxx 0.9.92 every command the wrapper renders into native configuration (the `cxx-agent` MCP server, lifecycle hooks, the `grok-auth` provider) names the resolved common `cxx` executable, never the `cgx` alias: the native CLI spawns it with argv[0] equal to that path, cxx selects its persona from the basename, and macOS `os.Executable` keeps the invoked alias symlink. A legacy regular `cgx` binary without a `cxx` sibling keeps its own path.
+
 The bridge tracks current/previous issued token digests and generations so a
 heartbeat's newer fetched head cannot misidentify the bearer actually held by
 the native process. `GROK_AUTH_EXPIRED=1` triggers generation-aware renewal.

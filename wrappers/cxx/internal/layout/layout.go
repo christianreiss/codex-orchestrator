@@ -266,6 +266,43 @@ func pathVisibleLinks(canonical string) []string {
 	return out
 }
 
+// CommonExecutable returns an existing executable path whose basename selects
+// the common `cxx` grammar, for commands that the wrapper renders into native
+// configuration (MCP servers, hooks, auth helpers). The native CLI spawns such
+// a path with argv[0] equal to it, and cxx picks its persona from that
+// basename: a `cdx`/`clx`/`cgx` path rejects `agent ...` and `grok-auth`.
+// os.Executable keeps the invoked persona symlink on macOS, while Linux
+// resolves /proc/self/exe to cxx and hides the difference.
+//
+// Unlike CanonicalExecutable (an update destination), the result must exist:
+// a legacy regular persona binary without a cxx sibling falls back to the
+// resolved running path.
+func CommonExecutable(executable string) (string, error) {
+	canonical, err := CanonicalExecutable(executable)
+	if err == nil && filepath.Base(canonical) == "cxx" {
+		if info, statErr := os.Stat(canonical); statErr == nil && !info.IsDir() {
+			return canonical, nil
+		}
+	}
+	abs, absErr := filepath.Abs(executable)
+	if absErr != nil {
+		return "", absErr
+	}
+	if resolved, evalErr := filepath.EvalSymlinks(abs); evalErr == nil {
+		return resolved, nil
+	}
+	return abs, nil
+}
+
+// SelfCommonExecutable is CommonExecutable for the running process.
+func SelfCommonExecutable() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return CommonExecutable(exe)
+}
+
 // CanonicalExecutable returns the cxx target when it exists beside a legacy
 // regular cdx/clx path, otherwise the resolved running executable. This keeps
 // self-update from replacing a multicall symlink with a regular file.

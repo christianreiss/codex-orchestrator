@@ -6,7 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 )
+
+// selfExecutable is os.Executable; tests replace it to model a persona alias.
+var selfExecutable = os.Executable
 
 // PluginName is the directory and manifest name of the per-launch plugin the
 // wrapper hands Claude. It is load-bearing twice over: Claude Code derives the
@@ -61,7 +66,13 @@ func claudePluginArgs(args []string, receiver bool) ([]string, error) {
 	if socket == "" {
 		return args, fmt.Errorf("private broker unavailable")
 	}
-	binary, err := os.Executable()
+	// Every command below is spawned by Claude with argv[0] = binary, so it
+	// must name the common cxx dispatcher, never the clx persona alias.
+	binary, err := selfExecutable()
+	if err != nil {
+		return args, err
+	}
+	binary, err = layout.CommonExecutable(binary)
 	if err != nil {
 		return args, err
 	}

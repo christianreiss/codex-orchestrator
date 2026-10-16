@@ -1239,6 +1239,8 @@ not acquire this local adapter. The installed CLI must support the app-server Un
 listener, remote TUI and experimental thread queue API; unsupported clients remain
 not listening. These native APIs are experimental.
 
+From cxx 0.9.92 every command the wrapper renders into native configuration (the `cxx-agent` MCP server, lifecycle hooks) names the resolved common `cxx` executable, never the `cdx` alias: the native CLI spawns it with argv[0] equal to that path, cxx selects its persona from the basename, and macOS `os.Executable` keeps the invoked alias symlink. A legacy regular `cdx` binary without a `cxx` sibling keeps its own path.
+
 Before each queue admission, and for failure observation, the adapter reads only the
 newest turn (`thread/turns/list`, `limit: 1`, `sortDirection: "desc"`,
 `itemsView: "notLoaded"`). Before the first cxx release after 0.9.90 it read the

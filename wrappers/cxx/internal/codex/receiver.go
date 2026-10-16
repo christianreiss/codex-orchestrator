@@ -10,10 +10,31 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 )
+
+// selfExecutable is os.Executable; tests replace it to model a persona alias.
+var selfExecutable = os.Executable
+
+// receiverMCPOverrides renders the per-lifecycle cxx-agent MCP server. Codex
+// spawns the command with argv[0] = that path, and cxx selects its persona
+// from the basename, so it must name the common cxx dispatcher: a `cdx` path
+// (what os.Executable keeps on macOS) answers `agent` with a usage error.
+func receiverMCPOverrides(socket string) ([]string, error) {
+	wrapper, err := selfExecutable()
+	if err != nil {
+		return nil, err
+	}
+	wrapper, err = layout.CommonExecutable(wrapper)
+	if err != nil {
+		return nil, err
+	}
+	return []string{"-c", "mcp_servers.cxx-agent.command=" + strconv.Quote(wrapper), "-c", `mcp_servers.cxx-agent.args=["agent","mcp","--auto"]`,
+		"-c", "mcp_servers.cxx-agent.env.CXX_CODEX_SOCKET=" + strconv.Quote(socket)}, nil
+}
 
 // The native TUI and receive adapter share this one app-server process. Its
 // private socket lives beside the already protected portal broker socket.
@@ -38,12 +59,10 @@ func startReceiverServer(ctx context.Context, binary string, args, env []string,
 		i = end
 	}
 
-	wrapper, err := os.Executable()
+	overrides, err := receiverMCPOverrides(socket)
 	if err != nil {
 		return args, func() {}, err
 	}
-	overrides := []string{"-c", "mcp_servers.cxx-agent.command=" + strconv.Quote(wrapper), "-c", `mcp_servers.cxx-agent.args=["agent","mcp","--auto"]`,
-		"-c", "mcp_servers.cxx-agent.env.CXX_CODEX_SOCKET=" + strconv.Quote(socket)}
 	serverArgs = append(serverArgs, overrides...)
 	serverCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(serverCtx, binary, serverArgs...)

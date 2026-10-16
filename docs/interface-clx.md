@@ -1424,6 +1424,8 @@ plugin-provided server whose plugin is approved in managed settings, and a bare
 `server:` entry has no allowlist path at all. The wrapper therefore adds
 `--plugin-dir <broker>/cxx-receiver` and `--channels plugin:cxx-receiver@inline`.
 
+From cxx 0.9.92 every command the wrapper renders into native configuration (the `cxx-agent` MCP server, lifecycle hooks) names the resolved common `cxx` executable, never the `clx` alias: the native CLI spawns it with argv[0] equal to that path, cxx selects its persona from the basename, and macOS `os.Executable` keeps the invoked alias symlink. A legacy regular `clx` binary without a `cxx` sibling keeps its own path.
+
 The approval is a managed-settings **drop-in**, written by the wrapper at
 `/etc/claude-code/managed-settings.d/50-cxx-channels.json` (`…/ClaudeCode/…` on
 macOS), directly or through non-interactive `sudo`; drop-ins compose, so an
