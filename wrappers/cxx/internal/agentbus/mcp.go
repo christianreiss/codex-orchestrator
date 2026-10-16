@@ -524,7 +524,10 @@ func toolCatalogJSON() []byte {
 			"conference_id": map[string]any{"type": "string"},
 			"to":            map[string]any{"type": "string"},
 			"task":          map[string]any{"type": "string", "maxLength": maxBodyBytes},
-			"eta_seconds":   map[string]any{"type": "integer", "minimum": 0, "maximum": 14400},
+			"eta_seconds": map[string]any{
+				"type": "integer", "minimum": 0, "maximum": 14400,
+				"description": "Estimated seconds for the task (0-14400, default 900). Sent unchanged as the TASK eta; the server's stuck-member grace (grace_seconds) is never shorter than 900.",
+			},
 		}, []string{"conference_id", "to", "task"}),
 		tool("agent_conf_adjourn", "Chair only. Close the conference. By default members still working are left to finish and the room closes when they report. Force cancels outstanding delivery leases; relays stop on renewal failure, but already running native work and its side effects may continue.", map[string]any{
 			"conference_id": map[string]any{"type": "string"},

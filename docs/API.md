@@ -446,7 +446,9 @@ Session operations use the short-lived bridge bearer in
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/say` — chair broadcasts to
   seated members or one named member; a participant reaches only the chair.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/dispatch` — chair only.
-  Hand one member a task and take it off the floor until it reports.
+  Hand one member a task and take it off the floor until it reports. Optional
+  `eta_seconds` (integer 0..14400, default 900) is sent unchanged as the TASK
+  `eta`; the stuck-member grace (`grace_seconds`) is floored at 900.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/adjourn` — chair only.
   Graceful by default: members still working finish first and the room reports
   `adjourning`. `force` cuts them off, killing any running task.

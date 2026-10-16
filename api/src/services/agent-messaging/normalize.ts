@@ -66,17 +66,30 @@ export function normalizeConferenceMaxMembers(value: unknown): number {
   return max;
 }
 
+/**
+ * The chair's estimate, exactly as given: it is what the TASK header advertises
+ * and what dispatch echoes back. Omitted means the grace floor. Out-of-range
+ * values are rejected rather than clamped, so a caller never sees a rewrite.
+ */
 export function normalizeDispatchEta(value: unknown): number {
   if (value === undefined || value === null) return AGENT_MESSAGING_CONFERENCE_DISPATCH_FLOOR_SECONDS;
   const eta = Number(value);
   if (!Number.isSafeInteger(eta) || eta < 0 || eta > AGENT_MESSAGING_CONFERENCE_DISPATCH_MAX_SECONDS) {
-    throw new ValidationError('eta_seconds must be between 0 and 14400', { param: 'eta_seconds' });
+    throw new ValidationError(`eta_seconds must be between 0 and ${AGENT_MESSAGING_CONFERENCE_DISPATCH_MAX_SECONDS}`, {
+      param: 'eta_seconds',
+    });
   }
-  // The floor is not a minimum the caller asked for -- it is how long the sweep
-  // waits before declaring a silent member stuck. A task that claims it needs
-  // thirty seconds still gets the full grace period, because a headless run
-  // spends most of that booting an engine.
-  return Math.max(eta, AGENT_MESSAGING_CONFERENCE_DISPATCH_FLOOR_SECONDS);
+  return eta;
+}
+
+/**
+ * How long the sweep waits before declaring a silent dispatched member stuck.
+ * The floor is not a minimum the caller asked for: a task that claims it needs
+ * thirty seconds still gets the full grace period, because a headless run
+ * spends most of that booting an engine. It never rewrites the advertised ETA.
+ */
+export function dispatchGraceSeconds(etaSeconds: number): number {
+  return Math.max(etaSeconds, AGENT_MESSAGING_CONFERENCE_DISPATCH_FLOOR_SECONDS);
 }
 
 export function normalizeMessageTtl(value: unknown): number {
