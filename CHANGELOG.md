@@ -1,3 +1,7 @@
+# 2026-10-16
+
+- The reusable engine-maintenance prompt now requires dedicated research subagents for every supported engine and separate implementation subagents per engine and confirmed issue, with explicit research handoffs, shared-file coordination and delegation evidence.
+
 # 2026-10-15
 
 - **Direct messaging replaces two-agent calls (cxx 0.9.88).** Removed the `call` Skill, PIN rendezvous routes, local MCP tools, CLI commands, and call-only silence watcher. Use agent names with direct messages or requests. Conferences keep their room PINs, budgets, and task lifecycle; migration 0070 removes obsolete call PIN metadata while preserving message history.
