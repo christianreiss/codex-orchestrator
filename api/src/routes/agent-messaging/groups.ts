@@ -56,6 +56,13 @@ export function registerAgentGroupRoutes(
       });
     return result;
   });
+  app.delete('/admin/agent-messaging/groups/:slug', { preHandler: app.requireAdmin }, async (req) => {
+    const result = await messaging.deleteAdminGroup(
+      z.string().parse((req.params as { slug?: string }).slug),
+    );
+    await audit(req, 'agent_messaging.group.deleted', { group_id: result.group.id, slug: result.slug });
+    return result;
+  });
   app.get('/admin/agent-messaging/subscriptions', { preHandler: app.requireAdmin }, () =>
     messaging.listAdminSubscriptions(),
   );
@@ -99,6 +106,11 @@ export function registerAgentGroupRoutes(
     const body = z.object({ slug: z.string() }).strict().parse(req.body);
     const { id, token } = bridge(req);
     return messaging.groupMembers(id, token, body.slug);
+  });
+  app.post('/host/agent-sessions/:id/agent-messaging/groups/delete', (req) => {
+    const body = z.object({ slug: z.string() }).strict().parse(req.body);
+    const { id, token } = bridge(req);
+    return messaging.deleteGroup(id, token, body.slug);
   });
   app.post('/host/agent-sessions/:id/agent-messaging/subscribe', (req) => {
     const body = z.object({ topic: z.string() }).strict().parse(req.body);

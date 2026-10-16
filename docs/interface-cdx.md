@@ -974,7 +974,8 @@ and the [2026-10-08 lifecycle audit](archive/agent-messaging-audit-2026-10-08.md
 
 From cxx 0.9.20, the same MCP server adds `agent_group_list`,
 `agent_group_create`, `agent_group_members`, `agent_subscribe`,
-`agent_unsubscribe`, `agent_subscriptions` and `agent_publish`. Groups and
+`agent_unsubscribe`, `agent_subscriptions` and `agent_publish` (plus
+`agent_group_delete` from cxx 0.9.91). Groups and
 single-agent feeds require explicit subscriptions; private traffic is never
 copied. Publications use the same native queue, lease and completion rules as
 direct messages, and need no acknowledgement reply. API and retry contracts:

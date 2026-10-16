@@ -30,13 +30,16 @@ func callPublicationTool(ctx context.Context, client *sessionClient, name string
 		operation = "groups/list"
 	case "agent_subscriptions":
 		operation = "subscriptions"
-	case "agent_group_create", "agent_group_members":
+	case "agent_group_create", "agent_group_members", "agent_group_delete":
 		slug := stringArg(args, "slug")
 		if !groupSlugPattern.MatchString(slug) {
 			return nil, errors.New("slug must be 1–64 lowercase letters, digits, dots, underscores or hyphens, starting with a letter or digit")
 		}
 		body["slug"] = slug
 		operation = "groups/detail"
+		if name == "agent_group_delete" {
+			operation = "groups/delete"
+		}
 		if name == "agent_group_create" {
 			title := strings.TrimSpace(stringArg(args, "title"))
 			if title == "" || utf8.RuneCountInString(title) > 120 {

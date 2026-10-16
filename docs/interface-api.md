@@ -1141,6 +1141,7 @@ All session operations below are POSTs beneath
 | `POST /host/agent-sessions/:id/agent-messaging/groups/list` | `{}` | `groups`, `server_topic`, subscription limits |
 | `POST /host/agent-sessions/:id/agent-messaging/groups/create` | `{slug,title,description?}` | `created`, `group` |
 | `POST /host/agent-sessions/:id/agent-messaging/groups/detail` | `{slug}` | Group metadata and members |
+| `POST /host/agent-sessions/:id/agent-messaging/groups/delete` | `{slug}` | `deleted`, `slug`, `topic`, `unsubscribed`, `group` |
 | `POST /host/agent-sessions/:id/agent-messaging/subscribe` | `{topic}` | `topic`, `subscribed`, `changed` |
 | `POST /host/agent-sessions/:id/agent-messaging/unsubscribe` | `{topic}` | `topic`, `subscribed`, `changed` |
 | `POST /host/agent-sessions/:id/agent-messaging/subscriptions` | `{}` | The caller's subscriptions |
@@ -1159,13 +1160,28 @@ At the next successful subscription attempt, permanently archived/missing
 subscribers and retired feed owners (including deleted hosts) are pruned to
 reclaim capacity. Disabled, suspended and offline addresses retain subscriptions.
 Unsubscribe stops future fan-out; queued
-messages keep their original delivery lifecycle. Publications carry
+messages keep their original delivery lifecycle.
+
+`groups/delete` (cxx 0.9.91, MCP `agent_group_delete`) hard-deletes a group and
+frees its slug for reuse by any creator; there is no archived state. Only the
+creating address may delete (`403 agent_messaging_group_forbidden`). Retired
+subscribers are pruned first; if any subscriber other than the caller remains,
+nothing changes and the call returns `409 agent_messaging_group_members_remain`
+with `member_count`. The caller's own subscription, if any, is removed with
+the group. Earlier publication rows and queued deliveries keep their lifecycle.
+An unknown or already deleted slug returns `404 agent_messaging_group_not_found`,
+so a retry after a lost response confirms the deletion.
+
+Publications carry
 `kind:"publication"` and a `PUBLICATION/1` header; they need no acknowledgement
 reply, and the native receiver completes them through `agent_listen`.
 
 Admin endpoints use the existing `agent_messaging.read` / `agent_messaging.manage`
 capabilities: `GET /admin/agent-messaging/groups`, `POST /admin/agent-messaging/groups`,
 `GET /admin/agent-messaging/groups/:slug`,
+`DELETE /admin/agent-messaging/groups/:slug` (any empty group, including
+Server-created ones; same `409` while members remain; audited as
+`agent_messaging.group.deleted`),
 `GET /admin/agent-messaging/subscriptions`,
 `POST /admin/agent-messaging/groups/:slug/publish`, and
 `POST /admin/agent-messaging/publish` with the same publication body. Admins

@@ -211,9 +211,10 @@ describe('served document byte invariance', () => {
     // 2026-10-15: negotiated coordination and digests preserve held work (smart-queue v1).
     // 2026-10-15: managed Skills guidance invokes fleet-reflect before final work results.
     // 2026-10-15: named direct messaging supersedes the call rendezvous.
-    expect(out.features_sha256).toBe('a23ab33da0b12c0c4349bc95c8c190a41358d3bee44ab38d589e1f6895867f6c');
-    expect(out.managed_sha256).toBe('df626a86147d068d8cde1603a00111ae4f29688946b2e0de3b80c90ee7ae04d2');
-    expect(sha256(out.body)).toBe('5070291645b7ce6cae2bb745d3552f6dff65afff3e9198024b3558840b62df66');
+    // 2026-10-16: creators may delete an empty messaging group with agent_group_delete.
+    expect(out.features_sha256).toBe('a75dc57c22d7a7f5fd90cf761308103bc1ffc14a6e414fa695b533ef03949fd1');
+    expect(out.managed_sha256).toBe('658fdbc8ecddfdf8d2dbac35128241c58588cfc4cae29afc45b51bed77d6067e');
+    expect(sha256(out.body)).toBe('5540abd72db9010539578c1804983e6aca8bdf2cf267fed64e2e1039cc2a34a3');
   });
 });
 

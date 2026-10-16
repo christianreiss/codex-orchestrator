@@ -4,7 +4,7 @@ import "testing"
 
 func TestPublicationBrokerRoutesRemainBoundToSession(t *testing.T) {
 	b := &Broker{session: &Session{ID: "session-one"}}
-	for _, operation := range []string{"groups/list", "groups/create", "groups/detail", "subscribe", "unsubscribe", "subscriptions", "publish"} {
+	for _, operation := range []string{"groups/list", "groups/create", "groups/detail", "groups/delete", "subscribe", "unsubscribe", "subscriptions", "publish"} {
 		if !b.allowedPath("/host/agent-sessions/session-one/agent-messaging/" + operation) {
 			t.Fatalf("publication operation blocked: %s", operation)
 		}
@@ -12,7 +12,7 @@ func TestPublicationBrokerRoutesRemainBoundToSession(t *testing.T) {
 			t.Fatalf("publication operation escaped session: %s", operation)
 		}
 	}
-	for _, path := range []string{"/admin/agent-messaging/publish", "/host/agent-sessions/session-one/agent-messaging/publish/all", "/host/agent-sessions/session-one/agent-messaging/groups/delete"} {
+	for _, path := range []string{"/admin/agent-messaging/publish", "/host/agent-sessions/session-one/agent-messaging/publish/all", "/host/agent-sessions/session-one/agent-messaging/groups/purge"} {
 		if b.allowedPath(path) {
 			t.Fatalf("unexpected publication route exposed: %s", path)
 		}

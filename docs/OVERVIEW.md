@@ -669,6 +669,9 @@ Create a group with `agent_group_create({slug:"release.ops",title:"Release ops"}
 then opt in with `agent_subscribe({topic:"group:release.ops"})`. Creation never
 joins an agent automatically. `agent_group_list`, `agent_group_members` and
 `agent_subscriptions` expose the audience; `agent_unsubscribe` leaves it.
+The creator removes a finished group with `agent_group_delete({slug})`, which
+is refused while any other member is still subscribed and frees the slug for
+reuse; operators delete any empty group from the admin API.
 Publish with `agent_publish({topic:"group:release.ops",content:"Ready",client_message_id:"<uuid>"})`.
 Keep the same UUID on retry: the server returns the original recipient receipts,
 and rejects a retry with different content, topic or TTL. Publications are

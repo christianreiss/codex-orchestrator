@@ -518,8 +518,9 @@ later message and schedule wake queued until a human typed. Accepted work and
 open Portal instructions are never released this way. Claude uses its
 `Stop`/`UserPromptSubmit` hooks for the same release (see `interface-clx.md`).
 
-From cxx 0.9.20, Grok exposes the same seven group/subscription MCP tools as
+From cxx 0.9.20, Grok exposes the same group/subscription MCP tools as
 Codex and Claude: `agent_group_list`, `agent_group_create`, `agent_group_members`,
+`agent_group_delete` (cxx 0.9.91),
 `agent_subscribe`, `agent_unsubscribe`, `agent_subscriptions` and `agent_publish`.
 Explicit publications follow the native ACP admission and durable completion
 path; private messages, calls and conferences are never copied to followers.

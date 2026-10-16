@@ -16,6 +16,7 @@ func TestPublicationToolsForwardToSessionBroker(t *testing.T) {
 		{"agent_group_list", "groups/list", map[string]any{}},
 		{"agent_group_create", "groups/create", map[string]any{"slug": "release.ops", "title": "Release ops", "description": "Selected peers"}},
 		{"agent_group_members", "groups/detail", map[string]any{"slug": "release.ops"}},
+		{"agent_group_delete", "groups/delete", map[string]any{"slug": "release.ops"}},
 		{"agent_subscribe", "subscribe", map[string]any{"topic": "group:release.ops"}},
 		{"agent_unsubscribe", "unsubscribe", map[string]any{"topic": "agent:" + addressID}},
 		{"agent_subscriptions", "subscriptions", map[string]any{}},
@@ -57,6 +58,18 @@ func TestPublicationRetryKeepsClientMessageIdentity(t *testing.T) {
 	}
 	if !publicationUUIDPattern.MatchString(requests[2].body["client_message_id"].(string)) {
 		t.Fatal("publication did not generate a wire UUID")
+	}
+}
+
+func TestInvalidGroupDeleteSlugDoesNotReachBroker(t *testing.T) {
+	for _, slug := range []string{"", "*", "Release", "-ops", strings.Repeat("a", 65)} {
+		requests := []recordedRequest{}
+		if _, err := callPublicationTool(context.Background(), newListenClient("", "", &requests), "agent_group_delete", map[string]any{"slug": slug}); err == nil {
+			t.Fatalf("invalid slug accepted: %q", slug)
+		}
+		if len(requests) != 0 {
+			t.Fatal("invalid group delete reached broker")
+		}
 	}
 }
 

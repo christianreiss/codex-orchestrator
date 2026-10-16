@@ -211,6 +211,66 @@ export class AgentMessagingGroups {
     return result;
   }
 
+  /**
+   * Hard delete that frees the slug for reuse. Fails closed while anyone other
+   * than the actor is still subscribed; the actor's own opt-in (if any) goes
+   * with the group. Past publications and queued deliveries are history and
+   * keep their lifecycle. `actorId` null is the operator, who holds no
+   * subscription and may remove any empty group.
+   */
+  private async remove(tx: AgentMessagingDb, actorId: string | null, rawSlug: string) {
+    const group = await this.group(tx, normalizeGroupSlug(rawSlug));
+    if (actorId !== null && group.createdByAddressId !== actorId)
+      throw new ForbiddenError(
+        'Only the agent that created a group may delete it',
+        'agent_messaging_group_forbidden',
+      );
+    // A retired member can never unsubscribe itself; reclaim it first so a
+    // dead host cannot make a short-lived group undeletable.
+    await this.pruneRetiredSubscriptions(tx);
+    const topic = `group:${group.slug}`;
+    const members = await tx
+      .select({ subscriberAddressId: agentBusSubscriptions.subscriberAddressId })
+      .from(agentBusSubscriptions)
+      .where(eq(agentBusSubscriptions.topic, topic));
+    const others = members.filter((row) => row.subscriberAddressId !== actorId).length;
+    if (others > 0)
+      throw new ConflictError(
+        `Group still has ${others} other member${others === 1 ? '' : 's'}; they must unsubscribe first`,
+        'agent_messaging_group_members_remain',
+        { member_count: others },
+      );
+    await tx.delete(agentBusSubscriptions).where(eq(agentBusSubscriptions.topic, topic));
+    await tx.delete(agentBusGroups).where(eq(agentBusGroups.id, group.id));
+    return {
+      deleted: true as const,
+      slug: group.slug,
+      topic,
+      unsubscribed: members.length > 0,
+      group: this.view(group, 0),
+    };
+  }
+
+  private announceRemoval(result: Awaited<ReturnType<AgentMessagingGroups['remove']>>) {
+    wsPublisher.publish('agent_messaging.groups.changed', { slug: result.slug });
+    if (result.unsubscribed)
+      wsPublisher.publish('agent_messaging.subscriptions.changed', { topic: result.topic });
+    return result;
+  }
+  async deleteForAgent(sessionId: string, token: string, slug: string) {
+    return this.announceRemoval(
+      await this.asAgent(sessionId, token, (tx, actor) => this.remove(tx, actor.id, slug)),
+    );
+  }
+  async deleteAdmin(slug: string) {
+    return this.announceRemoval(
+      await this.core.db.transaction(async (tx) => {
+        await this.core.requireEnabledLocked(tx);
+        return this.remove(tx, null, slug);
+      }),
+    );
+  }
+
   private async detail(tx: AgentMessagingDb, rawSlug: string) {
     const group = await this.group(tx, normalizeGroupSlug(rawSlug));
     const rows = await tx
