@@ -13,11 +13,21 @@ func ValidateAuth(engine string, args []string) error {
 	if command != "login" && command != "logout" {
 		return nil
 	}
+	if engine == "codex" && command == "login" {
+		authArgs := args[at+1:]
+		if Has(engine, authArgs, "--api-key") {
+			return fmt.Errorf("managed native login: --api-key is no longer supported; pipe the key to --with-api-key instead")
+		}
+		if Has(engine, authArgs, "--with-api-key") && Has(engine, authArgs, "--with-access-token") {
+			return fmt.Errorf("managed native login: choose only one of --with-api-key and --with-access-token")
+		}
+	}
+
 	rootValues := "--config --model --profile --cd --ask-for-approval --sandbox --enable --disable --local-provider --remote --remote-auth-token-env --add-dir --image"
 	rootBools := "--oss --approve-for-me --not-so-yolo --dangerously-bypass-approvals-and-sandbox --yolo --dangerously-bypass-hook-trust --worktree --search --no-alt-screen --no-daemon --strict-config"
 	globals := "--config --enable --disable"
 	loginBools := "--with-api-key --with-access-token --device-auth"
-	loginValues := "--experimental_issuer --experimental_client-id --api-key"
+	loginValues := "--experimental_issuer --experimental_client-id"
 	if engine == "grok" {
 		rootValues = "--model --single --rules --system-prompt-override --reasoning-effort --allow --deny --cwd --debug-file --leader-socket --agent --agents --prompt-file --prompt-json --output-format --json-schema --max-turns --permission-mode --tools --disallowed-tools --session-id --sandbox --worktree-ref --load --compaction-mode --compaction-detail --background-wait-timeout --storage-mode --client-identifier --hunk-tracker-mode --installer --resume --worktree"
 		rootBools = "--debug --always-approve --continue --fork-session --restore-code --no-plan --no-subagents --disable-web-search --verbatim --include-partial-messages --no-ask-user --experimental-memory --no-memory --memory-flush --no-wait-for-background --terminal --fs-read --fs-write --no-auto-update --todo-gate --no-alt-screen --minimal --fullscreen --log-sampling --force-login --oauth --leader --no-leader --trust --trust-folder"

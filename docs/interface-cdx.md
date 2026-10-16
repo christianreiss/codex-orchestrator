@@ -125,6 +125,9 @@ Native login/logout rejects unknown options, missing structural values and
 unsupported trailing auth arguments before managed auth work. Logout applies
 this check again at its transaction entry, before any deferred intent journal:
 an active peer must not turn a malformed native invocation into a future logout.
+The retired `login --api-key [VALUE]` spelling is refused with `--with-api-key`
+guidance before that lifecycle; simultaneous `--with-api-key` and
+`--with-access-token` are also refused before managed cleanup can run.
 The native CLI retains semantic config/provider validation; help still receives
 the original argv and its parser errors directly without starting auth work.
 
