@@ -1934,7 +1934,8 @@ export class AgentMessagingService {
 
   /**
    * `requirePersistent` gates heartbeat and claim: a per-user relay resumes dormant agents headless, which is remote
-   * execution and exists only on a persistent host (docs/host-runtime-policy.md). The host-daemon row rides on the
+   * execution and exists only on a persistent host (docs/host-runtime-policy.md); a host-daemon relay instead re-checks
+   * the registration gate (daemonAccepting) unless it is draining. The host-daemon row rides on the
    * same query, so the hot polling path stays one statement. Stop, renew, reply and ack pass false so in-flight work
    * can finish and be recorded.
    */
@@ -1955,10 +1956,35 @@ export class AgentMessagingService {
     this.assertEligibleHost(row.host);
     if (row.relay.tokenExpiresAt == null || row.relay.tokenExpiresAt <= nowIso()) throw new UnauthorizedError('Agent relay credential expired', 'agent_messaging_relay_expired');
     if (!safeHashEqual(hostAuthFingerprint(row.host), row.relay.hostAuthFingerprint)) throw new UnauthorizedError('Agent relay host credential changed', 'agent_messaging_relay_host_auth_changed');
-    if (requirePersistent && jsonRecord(row.relay.capabilities)?.host_daemon !== true && !(row.daemon && daemonResidentFor(row.daemon, row.relay.username))) {
-      throw notPersistentRelay();
+    if (requirePersistent) {
+      if (jsonRecord(row.relay.capabilities)?.host_daemon === true) {
+        if (!(row.daemon && daemonAccepting(row.daemon)) && !(await this.daemonRelayDraining(row.relay.hostId))) {
+          throw new ForbiddenError('Daemon relay is not enabled');
+        }
+      } else if (!(row.daemon && daemonResidentFor(row.daemon, row.relay.username))) {
+        throw notPersistentRelay();
+      }
     }
     return row.relay;
+  }
+
+  /**
+   * A daemon relay outside its registration gate (disabled, timed deadline passed, migration fence) keeps heartbeat
+   * and claim only while accepted work drains: the wrapper runs every turn under the poll context that a heartbeat
+   * or claim error cancels, and the 15-minute token must stay valid so the result can still be recorded. claimDelivery
+   * hands such a relay no new work. Mirrors HostDaemonService.migration's readiness count.
+   */
+  private async daemonRelayDraining(hostId: number): Promise<boolean> {
+    const work = await this.db.select().from(hostDaemonSessions).where(eq(hostDaemonSessions.hostId, hostId));
+    if (work.some((s) => s.status === 'running' || s.status === 'stopping')) return true;
+    const addresses = work.map((s) => s.addressId).filter((a): a is string => Boolean(a));
+    if (addresses.length === 0) return false;
+    const claims = await this.db
+      .select({ id: agentBusMessages.id })
+      .from(agentBusMessages)
+      .where(and(inArray(agentBusMessages.targetAddressId, addresses), inArray(agentBusMessages.status, ['leased', 'accepted'])))
+      .limit(1);
+    return claims.length > 0;
   }
 
   /** Registration gate for a per-user relay; see authenticateRelay. */
