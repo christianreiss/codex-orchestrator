@@ -64,7 +64,15 @@ function patternMatches(pattern: string[], path: string[]): boolean {
   return path.every((part, i) => pattern[i] === '*' || pattern[i] === part);
 }
 
+// Removed in Grok 1.0.51; other memory_v2 tuning fields still have native consumers.
+const removedMemory = new Set(['embedding', 'initial_injection', 'search', 'session', 'watcher']);
+const removedMemoryV2 = new Set(['automatic_dream_enabled', 'capture_enabled', 'capture_status_enabled', 'file_writes_enabled', 'manual_dream_enabled', 'rollout']);
+
 function validate(value: unknown, path: string[], candidates = fields): void {
+  if (path.length === 2 && ((path[0] === 'memory' && removedMemory.has(path[1]!))
+    || (path[0] === 'memory_v2' && removedMemoryV2.has(path[1]!)))) {
+    fail(path, 'removed in Grok Build 1.0.51; use memory.enabled to turn memory on or off');
+  }
   const matching = candidates.filter(field => field.parts.length >= path.length && patternMatches(field.parts, path));
   const exact = matching.find(field => field.parts.length === path.length);
   if (!matching.length) fail(path, 'unknown Grok setting');
@@ -122,6 +130,22 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
   const compat = grokRecord(value.compat);
   for (const vendor of ['claude', 'cursor']) {
     if (grokRecord(compat[vendor]).mcps === true) fail(['compat', vendor, 'mcps'], 'managed sessions disable implicit cross-engine MCP imports');
+  }
+  const statusLine = grokRecord(grokRecord(value.ui).status_line);
+  if ('status_line' in grokRecord(value.ui)) {
+    if (!['builtin', 'command', 'disabled', 'off', 'none', 'hidden'].includes(String(statusLine.type))) fail(['ui', 'status_line', 'type'], 'required; expected builtin, command or disabled');
+    if (statusLine.type === 'builtin') {
+      const segments = ['cwd', 'model', 'context', 'cost', 'turn-timer', 'session-name'];
+      if (Array.isArray(statusLine.items) && statusLine.items.length === 0) fail(['ui', 'status_line', 'items'], 'builtin status lines require at least one item; omit items to use native defaults');
+      for (const [index, item] of ((statusLine.items ?? []) as string[]).entries()) {
+        if (!segments.includes(item)) fail(['ui', 'status_line', 'items', String(index)], `expected ${segments.join(', ')}`);
+      }
+      if (statusLine.refresh_interval !== undefined) fail(['ui', 'status_line', 'refresh_interval'], 'only command status lines schedule refreshes');
+    }
+    if (statusLine.type === 'command' && (typeof statusLine.command !== 'string' || !statusLine.command.trim())) fail(['ui', 'status_line', 'command'], 'command status lines require a nonempty command');
+  }
+  for (const [name, model] of Object.entries(grokRecord(value.model))) {
+    if ('notice' in grokRecord(model) && typeof grokRecord(grokRecord(model).notice).text !== 'string') fail(['model', name, 'notice', 'text'], 'notice requires text (use an empty string to clear it)');
   }
   // Native range/type constraints that otherwise silently clamp or drop input.
   const ranges: Array<[string[], number, number]> = [

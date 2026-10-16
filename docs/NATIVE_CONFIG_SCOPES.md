@@ -5,7 +5,7 @@ profile sidecars, Claude `settings.json`, and Grok `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
 can be authored centrally. Coverage was reviewed on 2026-10-12 against Codex
-0.162.1, Claude Code 2.1.296 and Grok Build 1.0.50.
+0.162.1, Claude Code 2.1.296 and Grok Build 1.0.60 (Grok rechecked 2026-10-16).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -31,8 +31,11 @@ Use the official native mechanisms for the separate scopes:
 Wrong-scope input is not silently accepted as support. Claude reports managed-only
 and global-only keys explicitly; Codex identifies requirements-only root keys and
 rejects other unknown schema keys. Grok rejects keys outside its current user
-configuration registry. A key shared by multiple native scopes is authored here
-only with **user-default** semantics, never as an enforced requirement.
+configuration registry, with removed memory controls rejected on new input and
+removed from saved settings by migration 0072 (including version layers). Existing
+body/hash pairs remain historical snapshots until the next save; generated host
+config and validation previews use the migrated settings. A key shared by multiple
+native scopes is authored here only with **user-default** semantics, never as an enforced requirement.
 
 ## Native version compatibility
 

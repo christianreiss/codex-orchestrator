@@ -19,7 +19,7 @@
   const references = {
     codex: { version: "0.162.1", url: "https://developers.openai.com/codex/config-reference/" },
     claude: { version: "2.1.296", url: "https://code.claude.com/docs/en/settings-reference" },
-    grok: { version: "1.0.50", url: "https://docs.x.ai/build/settings/reference" },
+    grok: { version: "1.0.60", url: "https://docs.x.ai/build/settings/reference" },
   };
   const qc = useQueryClient();
   const query = createQuery<EngineConfig>(derived(authStore, auth => ({
