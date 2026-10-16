@@ -110,15 +110,15 @@ func Remove(ctx context.Context) error {
 		return err
 	}
 	return layout.WithTargetLock(ctx, canonical, func() error {
-		return removeSchedulesLocked(os.Geteuid() == 0 || passwordlessSudo())
+		return removeSchedulesLocked(canonical, os.Geteuid() == 0 || passwordlessSudo())
 	})
 }
 
-func removeSchedulesLocked(allUsers bool) error {
+func removeSchedulesLocked(canonical string, allUsers bool) error {
 	rollbackUsers := userCrontabRollback(func() error { return nil })
 	if allUsers {
 		var err error
-		rollbackUsers, err = reconcileUserSchedules()
+		rollbackUsers, err = reconcileUserSchedules(canonical)
 		if err != nil {
 			return err
 		}
@@ -629,7 +629,7 @@ func installUserCron(bin string, minute, hour int) error {
 func reconcileSchedule(ctx context.Context, canonical string, nightly bool) error {
 	if !nightly {
 		return layout.WithTargetLock(ctx, canonical, func() error {
-			return removeSchedulesLocked(os.Geteuid() == 0 || passwordlessSudo())
+			return removeSchedulesLocked(canonical, os.Geteuid() == 0 || passwordlessSudo())
 		})
 	}
 	return layout.WithTargetLock(ctx, canonical, func() error {
@@ -661,7 +661,7 @@ func reconcileSystemSchedule(canonical string, minute, hour int) error {
 	if err := installSystemSchedule(canonical, minute, hour); err != nil {
 		return err
 	}
-	rollbackUsers, cleanupErr := reconcileUserSchedules()
+	rollbackUsers, cleanupErr := reconcileUserSchedules(canonical)
 	if cleanupErr != nil {
 		// User cleanup is transactional internally. The new system entry must
 		// not survive if any owner could not be inspected or reconciled.
@@ -973,11 +973,19 @@ func stripManagedBody(body string) (string, bool) {
 
 // reconcileManagedUserCrontabs transactionally removes every cxx/cdx/clx
 // marker from all discovered per-user crontabs. Discovery includes standard
-// cron spool owners plus root/current/sudo/config-owner safeguards.
-func reconcileManagedUserCrontabs() (userCrontabRollback, error) {
+// cron spool owners plus root/current/sudo/config-owner safeguards. The one
+// exception is another account's own private install (privateInstallSchedule):
+// the host-wide line maintains only the configs of its single cron identity,
+// so removing that account's line would leave its install unmaintained
+// (feedback 64e69d0d). canonical is the binary of the reconciling install.
+func reconcileManagedUserCrontabs(canonical string) (userCrontabRollback, error) {
 	users, err := discoverCrontabOwners()
 	if err != nil {
 		return nil, err
+	}
+	coveredUser := ""
+	if identity, identityErr := resolveCronIdentity(); identityErr == nil {
+		coveredUser = identity.userName
 	}
 	changes := make([]userCrontabChange, 0, len(users))
 	for _, userName := range users {
@@ -990,7 +998,9 @@ func reconcileManagedUserCrontabs() (userCrontabRollback, error) {
 			rollbackErr := restoreUserCrontabs(changes)
 			return nil, errors.Join(fmt.Errorf("read managed crontab for %s: %w", userName, readErr), rollbackErr)
 		}
-		updated, changed := stripManagedBody(original)
+		updated, changed := stripManagedBodyKeeping(original, func(line string) bool {
+			return privateInstallSchedule(userName, line, canonical, coveredUser)
+		})
 		if !changed {
 			continue
 		}
@@ -1003,6 +1013,179 @@ func reconcileManagedUserCrontabs() (userCrontabRollback, error) {
 		}
 	}
 	return func() error { return restoreUserCrontabs(changes) }, nil
+}
+
+// stripManagedBodyKeeping is stripManagedBody except that the first managed
+// line keep accepts survives; every further managed line is still removed, so
+// an account never keeps more than one maintenance line.
+func stripManagedBodyKeeping(body string, keep func(line string) bool) (string, bool) {
+	var kept strings.Builder
+	changed, retained := false, false
+	for len(body) > 0 {
+		line := body
+		body = ""
+		if newline := strings.IndexByte(line, '\n'); newline >= 0 {
+			body = line[newline+1:]
+			line = line[:newline+1]
+		}
+		if isManagedCrontabLine(line) {
+			if !retained && keep != nil && keep(line) {
+				retained = true
+				kept.WriteString(line)
+				continue
+			}
+			changed = true
+			continue
+		}
+		kept.WriteString(line)
+	}
+	return kept.String(), changed
+}
+
+var statCronBinary = os.Stat
+
+// privateInstallSchedule reports whether a managed user crontab line belongs
+// to that account's own private cxx install, which the host-wide schedule does
+// not maintain. It keeps the line only when all of these hold:
+//   - it carries the current cxx marker (legacy cdx/clx lines always go) and a
+//     nightly "M H * * *" schedule (legacy 15-minute lines always go);
+//   - the account is neither root nor the host-wide line's cron identity,
+//     whose configs the host-wide line already maintains;
+//   - its command is "<bin> cron run --due", bin is not the reconciling
+//     install's binary and is an existing regular file owned by that account;
+//   - at least one config the line points at (CDX/CLX_CONFIG_PATH or the
+//     sibling cgx.json) exists.
+//
+// Anything it cannot attribute is removed, as before.
+func privateInstallSchedule(userName, line, canonical, coveredUser string) bool {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasSuffix(trimmed, Marker) || userName == "" || userName == "root" || userName == coveredUser {
+		return false
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) < 6 || !cronNumber(fields[0], 59) || !cronNumber(fields[1], 23) ||
+		fields[2] != "*" || fields[3] != "*" || fields[4] != "*" {
+		return false
+	}
+	rest := strings.TrimSpace(strings.TrimSuffix(trimmed, Marker))
+	for i := 0; i < 5; i++ {
+		rest = strings.TrimSpace(rest)
+		if cut := strings.IndexAny(rest, " \t"); cut >= 0 {
+			rest = rest[cut:]
+		}
+	}
+	tokens, ok := shellTokens(strings.ReplaceAll(rest, `\%`, "%"))
+	if !ok {
+		return false
+	}
+	env := map[string]string{}
+	idx := 0
+	for ; idx < len(tokens); idx++ {
+		key, value, isAssign := strings.Cut(tokens[idx], "=")
+		if !isAssign || key == "" || strings.ContainsAny(key, "/'") {
+			break
+		}
+		env[key] = value
+	}
+	if idx+3 >= len(tokens) || tokens[idx+1] != "cron" || tokens[idx+2] != "run" || tokens[idx+3] != "--due" {
+		return false
+	}
+	bin := tokens[idx]
+	if !filepath.IsAbs(bin) || sameFile(bin, canonical) {
+		return false
+	}
+	account, err := lookupCrontabUser(userName)
+	if err != nil || account.Uid == "0" {
+		return false
+	}
+	info, err := statCronBinary(bin)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || fmt.Sprintf("%d", st.Uid) != account.Uid {
+		return false
+	}
+	var configs []string
+	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH"} {
+		if path := env[key]; filepath.IsAbs(path) {
+			configs = append(configs, path, filepath.Join(filepath.Dir(path), "cgx.json"))
+		}
+	}
+	for _, path := range configs {
+		if _, err := statCronBinary(path); err == nil {
+			fmt.Fprintf(os.Stderr, "cxx cron: keeping %s's schedule for its private install %s\n", userName, bin)
+			return true
+		}
+	}
+	return false
+}
+
+func cronNumber(field string, max int) bool {
+	if field == "" || len(field) > 2 {
+		return false
+	}
+	n := 0
+	for _, r := range field {
+		if r < '0' || r > '9' {
+			return false
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n <= max
+}
+
+func sameFile(a, b string) bool {
+	if a == b {
+		return true
+	}
+	if b == "" {
+		return false
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
+}
+
+// shellTokens splits the POSIX-sh subset buildCronLine emits: whitespace
+// separated words with single-quoted segments, including the '\'' escape.
+func shellTokens(s string) ([]string, bool) {
+	var tokens []string
+	var cur strings.Builder
+	inWord, quoted := false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quoted:
+			if c == '\'' {
+				quoted = false
+			} else {
+				cur.WriteByte(c)
+			}
+		case c == '\'':
+			quoted, inWord = true, true
+		case c == '\\' && i+1 < len(s):
+			i++
+			cur.WriteByte(s[i])
+			inWord = true
+		case c == ' ' || c == '\t':
+			if inWord {
+				tokens = append(tokens, cur.String())
+				cur.Reset()
+				inWord = false
+			}
+		default:
+			cur.WriteByte(c)
+			inWord = true
+		}
+	}
+	if quoted {
+		return nil, false
+	}
+	if inWord {
+		tokens = append(tokens, cur.String())
+	}
+	return tokens, true
 }
 
 func restoreUserCrontabs(changes []userCrontabChange) error {

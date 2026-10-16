@@ -761,7 +761,7 @@ func TestSystemScheduleCleanupFailureRollsBackNewSharedEntry(t *testing.T) {
 	oldLegacy, oldRemove := removeLegacySchedules, removeSystemSchedule
 	var calls []string
 	installSystemSchedule = func(string, int, int) error { calls = append(calls, "install"); return nil }
-	reconcileUserSchedules = func() (userCrontabRollback, error) {
+	reconcileUserSchedules = func(string) (userCrontabRollback, error) {
 		calls = append(calls, "reconcile-users")
 		return nil, errors.New("user cleanup failed")
 	}
@@ -785,7 +785,7 @@ func TestSystemLegacyCleanupFailureRestoresUsersBeforeSharedRollback(t *testing.
 	oldLegacy, oldRemove := removeLegacySchedules, removeSystemSchedule
 	var calls []string
 	installSystemSchedule = func(string, int, int) error { calls = append(calls, "install"); return nil }
-	reconcileUserSchedules = func() (userCrontabRollback, error) {
+	reconcileUserSchedules = func(string) (userCrontabRollback, error) {
 		calls = append(calls, "reconcile-users")
 		return func() error { calls = append(calls, "restore-users"); return nil }, nil
 	}
@@ -872,7 +872,7 @@ func TestReconcileManagedUserCrontabsRemovesOtherUserMarkerAndCanRollback(t *tes
 		discoverCrontabOwners, readUserCrontab, writeUserCrontab = oldDiscover, oldRead, oldWrite
 	})
 
-	rollback, err := reconcileManagedUserCrontabs()
+	rollback, err := reconcileManagedUserCrontabs("/usr/local/bin/cxx")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -910,7 +910,7 @@ func TestReconcileManagedUserCrontabsRestoresEarlierWritesOnPartialFailure(t *te
 		discoverCrontabOwners, readUserCrontab, writeUserCrontab = oldDiscover, oldRead, oldWrite
 	})
 
-	if _, err := reconcileManagedUserCrontabs(); err == nil {
+	if _, err := reconcileManagedUserCrontabs("/usr/local/bin/cxx"); err == nil {
 		t.Fatal("partial write failure hidden")
 	}
 	if !reflect.DeepEqual(bodies, original) {
@@ -921,7 +921,7 @@ func TestReconcileManagedUserCrontabsRestoresEarlierWritesOnPartialFailure(t *te
 func TestPrivilegedRemoveRestoresUsersWhenSystemCleanupFails(t *testing.T) {
 	oldReconcile, oldRemove := reconcileUserSchedules, removeSystemSchedule
 	var calls []string
-	reconcileUserSchedules = func() (userCrontabRollback, error) {
+	reconcileUserSchedules = func(string) (userCrontabRollback, error) {
 		calls = append(calls, "reconcile-users")
 		return func() error { calls = append(calls, "restore-users"); return nil }, nil
 	}
@@ -936,7 +936,7 @@ func TestPrivilegedRemoveRestoresUsersWhenSystemCleanupFails(t *testing.T) {
 		reconcileUserSchedules, removeSystemSchedule = oldReconcile, oldRemove
 	})
 
-	if err := removeSchedulesLocked(true); err == nil {
+	if err := removeSchedulesLocked("/usr/local/bin/cxx", true); err == nil {
 		t.Fatal("system cleanup failure hidden")
 	}
 	want := []string{
@@ -1271,7 +1271,7 @@ func TestReconcileSkipsCrontabsOfDeletedUsers(t *testing.T) {
 	}
 	written := map[string]string{}
 	writeUserCrontab = func(name, body string) error { written[name] = body; return nil }
-	if _, err := reconcileManagedUserCrontabs(); err != nil {
+	if _, err := reconcileManagedUserCrontabs("/usr/local/bin/cxx"); err != nil {
 		t.Fatalf("reconcile aborted on a deleted user: %v", err)
 	}
 	if body, ok := written["alice"]; !ok || strings.Contains(body, Marker) {
@@ -1360,3 +1360,121 @@ func TestSystemScheduleUser(t *testing.T) {
 		}
 	}
 }
+
+// Feedback 64e69d0d: a root reconcile kept stripping a private per-user cxx
+// install's own nightly line, although the host-wide line maintains only the
+// configs of its single cron identity.
+func TestRootReconcileKeepsAnotherAccountsPrivateInstallLine(t *testing.T) {
+	dir := t.TempDir()
+	privateBin := filepath.Join(dir, "home", "chris", ".local", "bin", "cxx")
+	configDir := filepath.Join(dir, "home", "chris", ".config", "codex-orchestrator")
+	for _, path := range []string{privateBin, filepath.Join(configDir, "cdx.json")} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rootBin := filepath.Join(dir, "usr", "local", "bin", "cxx")
+	if err := os.MkdirAll(filepath.Dir(rootBin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rootBin, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Report every file as owned by uid 1000 so the test also holds as root.
+	const uid = "1000"
+	oldStat := statCronBinary
+	t.Cleanup(func() { statCronBinary = oldStat })
+	statCronBinary = func(path string) (os.FileInfo, error) {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		return ownedFileInfo{FileInfo: info, uid: 1000}, nil
+	}
+	line := func(bin, config string) string {
+		return buildCronLine(30, 4, bin, "/home/chris/.cxx/cron.log", map[string]string{
+			"CDX_CONFIG_PATH": config,
+			"CLX_CONFIG_PATH": filepath.Join(filepath.Dir(config), "clx.json"),
+			"CODEX_HOME":      "/home/chris/.codex",
+		})
+	}
+	private := line(privateBin, filepath.Join(configDir, "cdx.json"))
+
+	oldDiscover, oldRead, oldWrite, oldLookup, oldIdentity := discoverCrontabOwners, readUserCrontab, writeUserCrontab, lookupCrontabUser, resolveCronIdentity
+	t.Cleanup(func() {
+		discoverCrontabOwners, readUserCrontab, writeUserCrontab, lookupCrontabUser, resolveCronIdentity = oldDiscover, oldRead, oldWrite, oldLookup, oldIdentity
+	})
+	lookupCrontabUser = func(name string) (*user.User, error) {
+		if name == "mallory" {
+			return &user.User{Username: name, Uid: "424242"}, nil
+		}
+		return &user.User{Username: name, Uid: uid}, nil
+	}
+	resolveCronIdentity = func() (systemCronIdentity, error) { return systemCronIdentity{userName: "root"}, nil }
+
+	cases := []struct {
+		name, user, body string
+		covered           string
+		keep              bool
+	}{
+		{name: "private install keeps its line", user: "chris", body: "MAILTO=x\n" + private + "\n", keep: true},
+		{name: "only one line survives", user: "chris", body: private + "\n" + private + "\n", keep: true},
+		{name: "line of the host-wide binary", user: "chris", body: line(rootBin, filepath.Join(configDir, "cdx.json")) + "\n"},
+		{name: "account covered by the host-wide line", user: "chris", covered: "chris", body: private + "\n"},
+		{name: "legacy persona marker", user: "chris", body: strings.TrimSuffix(private, Marker) + "# cdx-managed-cron\n"},
+		{name: "legacy 15-minute line", user: "chris", body: "*/15 * * * *" + strings.TrimPrefix(private, cronSchedule(30, 4)) + "\n"},
+		{name: "missing binary", user: "chris", body: line(filepath.Join(dir, "gone", "cxx"), filepath.Join(configDir, "cdx.json")) + "\n"},
+		{name: "no config of its own", user: "chris", body: line(privateBin, filepath.Join(dir, "none", "cdx.json")) + "\n"},
+		{name: "binary owned by someone else", user: "mallory", body: private + "\n"},
+		{name: "root's own line", user: "root", body: private + "\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resolveCronIdentity = func() (systemCronIdentity, error) {
+				covered := tc.covered
+				if covered == "" {
+					covered = "root"
+				}
+				return systemCronIdentity{userName: covered}, nil
+			}
+			bodies := map[string]string{tc.user: tc.body}
+			discoverCrontabOwners = func() ([]string, error) { return []string{tc.user}, nil }
+			readUserCrontab = func(name string) (string, error) { return bodies[name], nil }
+			writeUserCrontab = func(name, body string) error { bodies[name] = body; return nil }
+			if _, err := reconcileManagedUserCrontabs(rootBin); err != nil {
+				t.Fatal(err)
+			}
+			got := strings.Count(bodies[tc.user], "cron run --due")
+			if tc.keep && (got != 1 || !strings.Contains(bodies[tc.user], private)) {
+				t.Fatalf("private line not kept exactly once: %q", bodies[tc.user])
+			}
+			if !tc.keep && got != 0 {
+				t.Fatalf("covered or stale line kept: %q", bodies[tc.user])
+			}
+			if strings.HasPrefix(tc.body, "MAILTO=x\n") && !strings.HasPrefix(bodies[tc.user], "MAILTO=x\n") {
+				t.Fatalf("unrelated bytes lost: %q", bodies[tc.user])
+			}
+		})
+	}
+}
+
+func TestShellTokensReadsBuildCronLineQuoting(t *testing.T) {
+	got, ok := shellTokens(`A='it'\''s here' '/opt/c x/cxx' cron run`)
+	want := []string{"A=it's here", "/opt/c x/cxx", "cron", "run"}
+	if !ok || !reflect.DeepEqual(got, want) {
+		t.Fatalf("tokens=%q ok=%v", got, ok)
+	}
+	if _, ok := shellTokens(`'unterminated`); ok {
+		t.Fatal("unterminated quote accepted")
+	}
+}
+
+type ownedFileInfo struct {
+	os.FileInfo
+	uid uint32
+}
+
+func (f ownedFileInfo) Sys() any { return &syscall.Stat_t{Uid: f.uid} }
