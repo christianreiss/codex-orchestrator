@@ -64,4 +64,11 @@ func TestListenReportsHealthyReceiverAndClaimGate(t *testing.T) {
 	if out["status"] != "automatic" || health["state"] != "ready" || health["claim_gate"] != "thread_active" {
 		t.Fatalf("out = %+v", out)
 	}
+	if note, _ := health["claim_gate_note"].(string); !strings.Contains(note, "Not a fault") {
+		t.Fatalf("a closed gate carries no reassurance: %+v", health)
+	}
+	tracker.receiver.setGate("open")
+	if out, _ = agentListen(context.Background(), c, tracker, map[string]any{}); out["receiver"].(map[string]any)["claim_gate_note"] != nil {
+		t.Fatalf("an open gate needs no note: %+v", out)
+	}
 }

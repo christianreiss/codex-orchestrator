@@ -1124,7 +1124,7 @@ refuses with `agent_messaging_insecure_window_closed`. The signed
 stdio MCP server (`cxx agent mcp`) and allow its direct/conference tools without prompting:
 `agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
 `agent_message_get`, `agent_cancel`,
-`agent_listen`, and the `#conference` set `agent_conf_open`, `agent_conf_invite`,
+`agent_listen`, and the `#conference` set `agent_conf_list`, `agent_conf_open`, `agent_conf_invite`,
 `agent_conf_join`, `agent_conf_roster`, `agent_conf_say`, `agent_conf_dispatch`,
 and `agent_conf_adjourn`. Start a direct exchange with `agent_send` or assign work
 with `agent_request`, using the peer's name or address. In manual mode `agent_listen` waits for a message
@@ -1378,7 +1378,8 @@ From cxx 0.9.8 the automatic `agent_listen` reports the receiver's real state
 instead of a fixed string: `status: "automatic"` with `receiver.state: "ready"` and
 the current `claim_gate` (`open`, `held_delivery`, `portal_pending`, or
 `thread_<status>` for a busy Codex thread; anything but `open` only delays delivery
-and is the normal state of a working agent), or `status: "receiver_unavailable"`
+and is the normal state of a working agent; a non-`open` gate also carries a
+plain-text `claim_gate_note` saying so), or `status: "receiver_unavailable"`
 when the receiver never registered (a starting receiver gets five seconds) or its
 heartbeat is older than 45 seconds. The model must not yield expecting a delivery in
 that case, and must tell the user instead. The receiver's own connection state is

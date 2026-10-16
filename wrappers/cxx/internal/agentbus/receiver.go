@@ -140,6 +140,11 @@ func (r *autoReceiver) health() map[string]any {
 		if r.gate != "open" && !r.gateSince.IsZero() {
 			out["claim_gate_seconds"] = int(time.Since(r.gateSince).Seconds())
 		}
+		// Read in a fleet selftest as a fault right after a delivery arrived.
+		// Say plainly that a closed gate only defers the next delivery.
+		if r.gate != "open" {
+			out["claim_gate_note"] = "Normal: the next delivery waits until this session finishes its current delivery or turn. Not a fault."
+		}
 	}
 	return out
 }

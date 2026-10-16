@@ -213,9 +213,10 @@ describe('served document byte invariance', () => {
     // 2026-10-15: named direct messaging supersedes the call rendezvous.
     // 2026-10-16: progress-class agent_reply without a task result keeps work held.
     // 2026-10-16: creators may delete an empty messaging group with agent_group_delete.
-    expect(out.features_sha256).toBe('1efd7a0191808ae636b3fe4dc902eaa70e4fbcf8d30b86d72d63a09722e04189');
-    expect(out.managed_sha256).toBe('90116ca8cb479b53fac4273c459763ee8446a2e5b7cea3d4d2b3a6c8584b71a9');
-    expect(sha256(out.body)).toBe('c6fa84f1d03e46ca04a46d069a70ae1fae70fdfd12e825e52ddb905527e0999d');
+    // 2026-10-16: agent_conf_list before opening a room; publish skips the sender visibly.
+    expect(out.features_sha256).toBe('4c1461f69f41269b22de765f893526cdb2c77dadc797cecaaf1715a06f6d49c7');
+    expect(out.managed_sha256).toBe('4b641629cf1461f19b1b14e60c302e4ce6834d04e2221617bfa12ed2ffd68c8f');
+    expect(sha256(out.body)).toBe('1aec3dbdfcbdb78f5f8f3425d89070f426b89bd890f8aaba6b9a9adba663e20b');
   });
 });
 

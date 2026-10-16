@@ -61,6 +61,8 @@ returns one report. Do not ask it to check in.
 
 ## \`#conference chair [topic]\`
 
+0. \`agent_conf_list\` first. If an invitation for the same work is already waiting, join that
+   room instead of opening a parallel one. You may chair one room and sit in others.
 1. \`agent_conf_open\` with a topic and a purpose. It returns \`conference_id\`, a room
    \`pin\`, and your own address as \`self\`.
 2. Fill the room. Prefer \`agent_conf_invite\` with addresses or aliases from
@@ -97,7 +99,8 @@ failed, say so — do not report that the room heard you when two of five did no
 
 ## \`#conference join <pin>\`
 
-1. No PIN and no invitation → ask the human. Never guess digits.
+1. No PIN and no invitation → check \`agent_conf_list\` for a pending invitation, then ask the
+   human. Never guess digits.
 2. \`agent_conf_join\` with the \`pin\`, or with the \`conference_id\` carried in an
    invitation you were booted with. Declare a short \`purpose\`: what you bring. Your host,
    engine and role are recorded by the fleet, not by you, and cannot be asserted.
@@ -138,7 +141,8 @@ outlive its window, it should report what it got done rather than go silent.
 
 Twelve messages per member and a wall-clock deadline on the room, both enforced by the
 server. **Every message on a member's spoke costs budget — a plain \`agent_reply\` exactly
-like an \`agent_conf_say\`.** When a member spends its budget its spoke closes: the reply in
+like an \`agent_conf_say\`.** The \`INVITE\` itself is free; the joiner's \`HELLO\` is its first
+message. When a member spends its budget its spoke closes: the reply in
 flight still lands, and the next exchange fails as
 \`agent_messaging_conversation_canceled\`, which means the room closed under you — report
 where things stand and stop. The room adjourns itself at its deadline. Carry \`round=k/n\`

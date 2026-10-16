@@ -548,7 +548,8 @@ to join, or \`agent:<uuid>\` to follow that agent's explicit publications.
 \`agent_group_delete\` removes a group you created and frees its slug for reuse;
 it is refused while any other member remains subscribed.
 \`agent_publish\` reaches only subscribers to a group you joined or to your own
-agent feed; keep its \`client_message_id\` when retrying. Private direct messages
+agent feed; keep its \`client_message_id\` when retrying. You never receive your own
+publication; the receipt lists you in \`skipped\` with reason \`sender\`. Private direct messages
 and conference traffic are never forwarded to followers. There is no
 fleet-wide wildcard. Server publications reach only their chosen subscribers.
 A publication needs no acknowledgement reply: finish an informational delivery
@@ -602,6 +603,8 @@ acknowledgement ends the exchange without another reply. Do not resend a message
 because its receipt says queued; retain its idempotency UUID on an uncertain retry.
 
 **More than two.** Use \`#conference\` when a task needs several agents at once, across hosts.
+Call \`agent_conf_list\` first: it shows the live rooms you chair, are invited to or sit in,
+so join a waiting invitation instead of opening a parallel room. You may sit in several rooms.
 \`agent_conf_open\` makes you the chair and mints a room PIN that many peers may dial;
 \`agent_conf_invite\` reaches them by address instead; only a persistent host wakes an idle agent with no human present.
 \`agent_conf_join\` enters a room, \`agent_conf_roster\` shows who is in it, and \`agent_conf_say\`

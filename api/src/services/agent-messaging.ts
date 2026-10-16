@@ -378,6 +378,10 @@ export class AgentMessagingService {
     return this.conference.join(sessionId, bridgeToken, input);
   }
 
+  async listConferences(sessionId: string, bridgeToken: string): Promise<Record<string, unknown>> {
+    return this.conference.list(sessionId, bridgeToken);
+  }
+
   async conferenceRoster(sessionId: string, bridgeToken: string, conferenceId: string): Promise<Record<string, unknown>> {
     return this.conference.roster(sessionId, bridgeToken, conferenceId);
   }

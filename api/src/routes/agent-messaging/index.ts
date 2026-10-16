@@ -400,6 +400,12 @@ export async function registerAgentMessagingRoutes(
       content: body.content,
     });
   });
+  app.post('/host/agent-sessions/:id/agent-messaging/conf/list', async (req) => {
+    const id = stringParam(req.params, 'id');
+    const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
+    z.object({}).strict().parse(req.body ?? {});
+    return await messaging.listConferences(id, token);
+  });
   app.post('/host/agent-sessions/:id/agent-messaging/conf/roster', async (req) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');

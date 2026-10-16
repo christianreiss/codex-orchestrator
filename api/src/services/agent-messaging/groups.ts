@@ -525,7 +525,13 @@ export class AgentMessagingGroups {
       `PUBLICATION/1 topic=${topic} publication_id=${publicationId}\nInformational publication; no reply required.\n\n${content}`,
     );
     for (const subscription of subscribers) {
-      if (subscription.subscriberAddressId === sender.id) continue;
+      // A publisher never receives its own copy, but says so: without this a
+      // sole-subscriber publish was indistinguishable from an empty audience.
+      // An own feed cannot carry this row, since self-follow is refused.
+      if (subscription.subscriberAddressId === sender.id) {
+        receipts.skipped.push({ address_id: sender.id, reason: 'sender' });
+        continue;
+      }
       let target: AgentBusAddress;
       try {
         target = await this.core.requireAddressLocked(tx, subscription.subscriberAddressId);
