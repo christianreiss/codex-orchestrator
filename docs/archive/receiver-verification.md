@@ -275,4 +275,4 @@ organization policy still apply. Both native integration APIs are experimental.
 
 A model receipt proves reception/response, not successful completion of arbitrary
 work. Ambiguous accepted work is not automatically resubmitted. Re-run the canary
-when upgrading either CLI; the commands are documented in [OVERVIEW.md](OVERVIEW.md).
+when upgrading either CLI; the commands are documented in [OVERVIEW.md](../OVERVIEW.md).

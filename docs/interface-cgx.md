@@ -33,7 +33,7 @@ Managed AGENTS.md carries the fleet's short/long commit preference and AI attrib
 
 Managed interactive starts write background leader stderr to a unique mode-0600 file under `~/.cgx/state/leader-logs/`, instead of sharing the native TUI terminal. Each file holds at most 1 MiB; overflow starts a new chunk, and files remain available after runtime cleanup. `cgx doctor` prints the directory; startup failures and observed unexpected leader failures name the specific file. Old log files may be removed when no longer needed. Native tool results, foreground stderr, custom leaders and headless output are unaffected. Existing processes need a normal exit/resume through the updated wrapper.
 
-For the 2026-10-08 `read_file` / `task_ids exceeds maximum of 20 entries` incident, the exact native tool call contained only `target_file` and `limit`; its ACP result was `ReadFile.FileNotFound`. Treat the structured tool result as the evidence for this call, rather than interpreting a raw trace fragment drawn over the terminal as a task batch failure. The wrapper corrects background output routing, not the closed-source provider tool implementation; see [investigation and live checks](grok-tool-diagnostics-2026-10-08.md).
+For the 2026-10-08 `read_file` / `task_ids exceeds maximum of 20 entries` incident, the exact native tool call contained only `target_file` and `limit`; its ACP result was `ReadFile.FileNotFound`. Treat the structured tool result as the evidence for this call, rather than interpreting a raw trace fragment drawn over the terminal as a task batch failure. The wrapper corrects background output routing, not the closed-source provider tool implementation; see [investigation and live checks](archive/grok-tool-diagnostics-2026-10-08.md).
 
 ## Native names in Android (cxx 0.9.32)
 
@@ -90,7 +90,7 @@ messaging surfaces with `engine=grok` / `X-Engine: grok`.
 Working secrets are shared across Codex, Claude and Grok. `X-Engine` remains
 part of the secret read audit and creation provenance, but never restricts
 visibility. Migration 0044 removes the obsolete scope column without changing
-credential values. See [MCP verification](grok-mcp-verification.md).
+credential values. See [MCP verification](archive/grok-mcp-verification.md).
 
 ## CLI surface
 
@@ -453,7 +453,7 @@ Automatic `agent_listen` releases finished informational delivery, checks health
 held accepted work is never released by it (`status: "work_held"`; see `interface-clx.md`);
 background workers retain their accepted lease through result storage. See
 [delivery reliability](interface-api.md#delivery-reliability-cxx-0926) and the
-[2026-10-08 lifecycle audit](agent-messaging-audit-2026-10-08.md).
+[2026-10-08 lifecycle audit](archive/agent-messaging-audit-2026-10-08.md).
 
 From cxx 0.9.64 the automatic receiver also releases a read informational
 delivery when the model ends its turn without `agent_reply` or `agent_listen`.

@@ -686,6 +686,8 @@ media.
 
 ## Documentation
 
+Start with the [documentation index](docs/README.md) for current guides, contracts and historical evidence.
+
 | Doc | What's inside |
 |-----|---------------|
 | [`INSTALL.md`](docs/INSTALL.md) | Install wizard, Docker services, TLS, backups |

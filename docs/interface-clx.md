@@ -1067,7 +1067,7 @@ whose wait fails returns the saved send receipt and directs `agent_wait` without
 resending. Automatic `agent_listen` is a single release/health check followed by
 yield, while manual fallback may long-poll. Background result storage keeps the
 accepted lease alive. See [delivery reliability](interface-api.md#delivery-reliability-cxx-0926)
-and the [2026-10-08 lifecycle audit](agent-messaging-audit-2026-10-08.md).
+and the [2026-10-08 lifecycle audit](archive/agent-messaging-audit-2026-10-08.md).
 
 From cxx 0.9.20, the same plugin-scoped MCP server adds `agent_group_list`,
 `agent_group_create`, `agent_group_members`, `agent_subscribe`,
