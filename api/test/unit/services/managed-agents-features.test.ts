@@ -214,9 +214,10 @@ describe('served document byte invariance', () => {
     // 2026-10-16: progress-class agent_reply without a task result keeps work held.
     // 2026-10-16: creators may delete an empty messaging group with agent_group_delete.
     // 2026-10-16: agent_conf_list before opening a room; publish skips the sender visibly.
-    expect(out.features_sha256).toBe('4c1461f69f41269b22de765f893526cdb2c77dadc797cecaaf1715a06f6d49c7');
-    expect(out.managed_sha256).toBe('4b641629cf1461f19b1b14e60c302e4ce6834d04e2221617bfa12ed2ffd68c8f');
-    expect(sha256(out.body)).toBe('1aec3dbdfcbdb78f5f8f3425d89070f426b89bd890f8aaba6b9a9adba663e20b');
+    // 2026-10-16: agent_self/agent_session_name run on the first turn, including question-only turns.
+    expect(out.features_sha256).toBe('5995669bb5fe80b70b76328b8bd28a5bfbbe1d64da46e431e5ee9f173ac295a8');
+    expect(out.managed_sha256).toBe('80f101db7ee3c88f70f5e7c1b6f545dadda36819ec429a4bc816d6a9a4d4cedd');
+    expect(sha256(out.body)).toBe('e306f77af4d44a000ec2b7c18f20e6442127c76586c72dafd31fc2825de67a7c');
   });
 });
 
@@ -791,6 +792,11 @@ describe('managed Agent Messaging guidance', () => {
       expect(body).toContain('agent_session_name');
       expect(body).toContain('only when none is known');
       expect(body).toContain("operator's language");
+      // 2026-10-16: a capability-only first turn skipped setup; the timing is the first turn, not "work".
+      expect(body).toContain('**Session name.** On your first turn, before your first response, call `agent_session_name`');
+      expect(body).toContain('Call `agent_self` on your first turn, before your first');
+      expect(body).toContain('including a question, capability check or request\nnot to act yet');
+      expect(body).not.toContain('Near the start of work');
     }
   });
   it('permits authenticated peer work within existing authorization on every engine', () => {
