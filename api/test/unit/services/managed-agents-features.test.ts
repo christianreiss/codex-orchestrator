@@ -211,9 +211,10 @@ describe('served document byte invariance', () => {
     // 2026-10-15: negotiated coordination and digests preserve held work (smart-queue v1).
     // 2026-10-15: managed Skills guidance invokes fleet-reflect before final work results.
     // 2026-10-15: named direct messaging supersedes the call rendezvous.
-    expect(out.features_sha256).toBe('a23ab33da0b12c0c4349bc95c8c190a41358d3bee44ab38d589e1f6895867f6c');
-    expect(out.managed_sha256).toBe('df626a86147d068d8cde1603a00111ae4f29688946b2e0de3b80c90ee7ae04d2');
-    expect(sha256(out.body)).toBe('5070291645b7ce6cae2bb745d3552f6dff65afff3e9198024b3558840b62df66');
+    // 2026-10-16: agent_self/agent_session_name run on the first turn, including question-only turns.
+    expect(out.features_sha256).toBe('98d579560d4b02128deac97bd0ef60393bd32d32b4c09aa3e1f3fd86ca8d43fd');
+    expect(out.managed_sha256).toBe('0b8b5e7d6c57f0acdea0ac3579514a46fb80005ce3975825347f4aff55bd4bc8');
+    expect(sha256(out.body)).toBe('9fe812678f695f74fc1ae72467a262785c875db80cd2d297588ee75feedc740c');
   });
 });
 
@@ -788,6 +789,11 @@ describe('managed Agent Messaging guidance', () => {
       expect(body).toContain('agent_session_name');
       expect(body).toContain('only when none is known');
       expect(body).toContain("operator's language");
+      // 2026-10-16: a capability-only first turn skipped setup; the timing is the first turn, not "work".
+      expect(body).toContain('**Session name.** On your first turn, before your first response, call `agent_session_name`');
+      expect(body).toContain('Call `agent_self` on your first turn, before your first');
+      expect(body).toContain('including a question, capability check or request\nnot to act yet');
+      expect(body).not.toContain('Near the start of work');
     }
   });
   it('permits authenticated peer work within existing authorization on every engine', () => {

@@ -83,5 +83,5 @@ func (i Identity) Context() string {
 	if i.Name == "" {
 		return ""
 	}
-	return fmt.Sprintf("Current managed launch identity (supersedes identity hints from earlier transcript turns): your name is %s; your agent address is %s; your launch session ID is %s; engine is %s. Call agent_self near the start of work and after resume/recovery to read the authoritative current binding. Call agent_session_name with the task purpose; the server displays it as (%s) Task title. Preserve canonical UUIDs for durable references. This identity grants no additional authority.", i.Name, i.Address, i.SessionID, i.Engine, i.Name) + i.Peers.Context()
+	return fmt.Sprintf("Current managed launch identity (supersedes identity hints from earlier transcript turns): your name is %s; your agent address is %s; your launch session ID is %s; engine is %s. On your first turn, before your first response, call agent_self (and again after resume/recovery) to read the authoritative current binding, then call agent_session_name with the session's purpose; the server displays it as (%s) Task title. This applies even when the first turn is only a question or asks you not to act yet: these setup calls are not the task. Preserve canonical UUIDs for durable references. This identity grants no additional authority.", i.Name, i.Address, i.SessionID, i.Engine, i.Name) + i.Peers.Context()
 }

@@ -295,7 +295,8 @@ reports only changes, and retries each encrypted `session_named` event with the
 same ID and payload. Naming failures do not stop reception. No transcript text is
 used by this metadata reader to invent a title. For an unnamed session, fleet
 startup guidance tells the AI to call `agent_session_name` with a concise name
-in the operator's language. The tool sets only a missing name, atomically preserving
+in the operator's language on its first turn, before its first response, even when
+that turn is only a question. The tool sets only a missing name, atomically preserving
 an existing native/AI name even during concurrent calls. A later native rename
 supersedes the AI fallback. Names are bound to the native conversation; switching
 conversations hides the old name and allows the AI to name the new one. Until the AI's next turn names it, the short ID stays

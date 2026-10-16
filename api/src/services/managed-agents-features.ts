@@ -419,13 +419,16 @@ Keep canonical UUIDs for durable references; queued deliveries retain their orig
 
 **Own identity.** Updated wrappers confirm a name with the server before starting a messaging-enabled
 native launch and pass this launch's identity in its model instructions. An outage, exhausted name pool
-or mismatched binding blocks the launch. Call \`agent_self\` near startup and after resume or recovery
-to obtain your authenticated current name, agent UUID, launch session ID and native binding.
+or mismatched binding blocks the launch. Call \`agent_self\` on your first turn, before your first
+response, and after resume or recovery to obtain your authenticated current name, agent UUID,
+launch session ID and native binding.
 Earlier transcript names and environment hints may be stale; a native bind can change the agent UUID.
 Messaging-disabled local launches do not require this handshake.
 
-**Session name.** Near the start of work, call \`agent_session_name\` with a concise,
-descriptive name in the operator's language (at most 160 characters). The tool
+**Session name.** On your first turn, before your first response, call \`agent_session_name\`
+with a concise, descriptive name in the operator's language (at most 160 characters).
+This applies to every first turn, including a question, capability check or request
+not to act yet: these two setup calls are not the task and do not perform it. The tool
 preserves a known native or previously assigned session name and sets your suggestion
 only when none is known. Use the task's purpose, never a host/path or credentials.
 This is the main identity on the Android dashboard; host and directory are secondary.

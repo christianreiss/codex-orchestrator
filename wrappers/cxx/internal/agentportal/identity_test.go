@@ -203,3 +203,21 @@ func TestRecoveryKeepsNameAndRejectsIdentityReplacement(t *testing.T) {
 		})
 	}
 }
+
+// 2026-10-16: a capability-only first turn skipped identity and naming because
+// the context said "near the start of work"; the timing is the first turn.
+func TestIdentityContextRequiresSetupOnEveryFirstTurn(t *testing.T) {
+	text := Identity{Name: "Veronica", Address: "agent:12345678-1234-4123-8123-123456789abc", SessionID: "s", Engine: "codex"}.Context()
+	for _, want := range []string{
+		"On your first turn, before your first response, call agent_self",
+		"then call agent_session_name",
+		"even when the first turn is only a question or asks you not to act yet",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("identity context missing %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "near the start of work") {
+		t.Fatalf("identity context keeps work-gated timing: %s", text)
+	}
+}
