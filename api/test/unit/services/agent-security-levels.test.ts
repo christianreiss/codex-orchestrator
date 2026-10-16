@@ -21,6 +21,7 @@ import {
   type SecurityLevels,
 } from '../../../src/services/agent-security-levels.js';
 import { ValidationError } from '../../../src/http/errors.js';
+import { defaultAgentPolicyComposition, renderAgentPolicyBase } from '../../../src/services/agent-policy-composer.js';
 
 const preset = (id: string): SecurityLevels => presetLevels(id);
 const CONTAINED = preset('contained');
@@ -94,6 +95,25 @@ describe('topic ownership', () => {
         `topic "${op.topic}" is claimed by both ${existing} and ${op.axis}; two axes must never govern one action`,
       ).toBe(existing);
     }
+  });
+
+  // The same rule between a module and an axis: the `security` module once said
+  // "Avoid `curl | sh`" while `dependencies` at level 4 granted piped installers.
+  it('keeps every axis phrase out of the static policy modules', () => {
+    const modules = renderAgentPolicyBase(defaultAgentPolicyComposition()).content;
+    for (const op of POLICY_OPERATIONS) {
+      // Forbid phrases and grouped ask phrases are fragments ("pushing to any
+      // remote", "push") spliced into a sentence; whole sentences are what a
+      // module could duplicate.
+      for (const phrase of [op.phrase.ask, op.phrase.allow].filter((p) => p.endsWith('.'))) {
+        expect(modules, `${op.id} phrase also appears in a module: ${phrase}`).not.toContain(phrase);
+      }
+    }
+  });
+
+  it('grants rather than instructs at Unrestricted', () => {
+    const grants = renderSecurityPolicyMarkdown(UNRESTRICTED).sections.standing_authorizations!;
+    expect(grants).not.toMatch(/\bAvoid\b|\bPrefer\b|by default/);
   });
 });
 

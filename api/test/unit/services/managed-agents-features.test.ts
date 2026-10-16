@@ -204,8 +204,8 @@ describe('served document byte invariance', () => {
       base.provenance,
     );
 
-    expect(base.sha256).toBe('30abaea24c8809d8634670f0eceb3004aabb4eafb5416c78333c719e8b67e14b');
-    expect(out.policy_sha256).toBe('3d8a8c754d80369c46a16c3350db8461520d3ae14b1de7ac03ad9454925ad5e5');
+    expect(base.sha256).toBe('46918277f54f35666e018f93075e3d1dcaf47223e46507112939adc664a70946');
+    expect(out.policy_sha256).toBe('1f3ab7dee8a6076576561e977ce6c846bdd088a27e7bb5dd904f6714809690df');
     // 2026-10-11: compact project discovery consistently starts with project_summary.
     // 2026-10-14: offline resume, persistent Wake/Cron and watchdog recovery only on persistent hosts (docs/host-runtime-policy.md).
     // 2026-10-15: negotiated coordination and digests preserve held work (smart-queue v1).
@@ -215,9 +215,11 @@ describe('served document byte invariance', () => {
     // 2026-10-16: creators may delete an empty messaging group with agent_group_delete.
     // 2026-10-16: agent_conf_list before opening a room; publish skips the sender visibly.
     // 2026-10-16: agent_self/agent_session_name run on the first turn, including question-only turns.
-    expect(out.features_sha256).toBe('5995669bb5fe80b70b76328b8bd28a5bfbbe1d64da46e431e5ee9f173ac295a8');
-    expect(out.managed_sha256).toBe('80f101db7ee3c88f70f5e7c1b6f545dadda36819ec429a4bc816d6a9a4d4cedd');
-    expect(sha256(out.body)).toBe('e306f77af4d44a000ec2b7c18f20e6442127c76586c72dafd31fc2825de67a7c');
+    // 2026-10-16: Agent Messaging/Git Director condensed to triggers + invariants (procedure lives in managed Skills);
+    //             security module and dependency/verification grants no longer contradict each other.
+    expect(out.features_sha256).toBe('9b65082d850ed17c451cf1e74ed90d1c0abf14cb5494090c151eaec3735a75cb');
+    expect(out.managed_sha256).toBe('02f1d014a7f726ca07df76f6973aeab569c15ffedfc05f232a020657e5c5a339');
+    expect(sha256(out.body)).toBe('936fa276215939efc5f7e41984a126d793ba05f38178e372201bc712c17a02dd');
   });
 });
 

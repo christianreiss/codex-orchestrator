@@ -39,6 +39,11 @@ export const RETIRED_AUTHORITY_SENTENCES: readonly string[] = [
   // security — superseded by `security_controls`.
   '- Never weaken authentication, TLS, authorization, or verification merely to make a check pass.',
 
+  // security — superseded by the `dependencies` axis (deps.telemetry, deps.install,
+  // deps.unreviewed_code), which grants both at level 4.
+  '- Do not add telemetry, new network calls, or phone-home dependencies unless explicitly requested.',
+  '- Avoid `curl | sh` installers; prefer pinned, reviewable dependencies.',
+
   // git_shared_worktree — superseded by `git_history` and `deploy_release`.
   '- Commit, push, create or switch branches, deploy, publish, restart production, and run production migrations only when explicitly authorized.',
 

@@ -324,10 +324,12 @@ export const POLICY_OPERATIONS: readonly PolicyOperation[] = [
     topic: 'commit',
     gate_ask: 0,
     gate_allow: 2,
+    // How to stage is craft and belongs to the `git_shared_worktree` module; the
+    // axis only says whether committing needs a question.
     phrase: {
       forbid: 'committing anything',
-      ask: 'Committing requires explicit authorization; stage only task-owned paths and never `git add .` or `git add -A`.',
-      allow: 'Commit task-owned paths without asking. Never `git add .` or `git add -A`.',
+      ask: 'Committing requires explicit authorization.',
+      allow: 'Commit task-owned paths without asking.',
     },
   },
   {
@@ -525,7 +527,9 @@ export const POLICY_OPERATIONS: readonly PolicyOperation[] = [
     phrase: {
       forbid: 'installing dependencies or reaching the network',
       ask: 'Adding a dependency needs explicit authorization.',
-      allow: 'Prefer pinned, reviewable dependencies. Avoid `curl | sh` installers.',
+      // A grant, not a preference: the old "Avoid `curl | sh`" sat beside
+      // `deps.unreviewed_code`'s "Run piped installers" at level 4.
+      allow: 'Install pinned, reviewable dependencies without asking.',
     },
   },
   {
@@ -563,7 +567,9 @@ export const POLICY_OPERATIONS: readonly PolicyOperation[] = [
     phrase: {
       forbid: 'claiming success without running the canonical repository checks',
       ask: 'Skipping the canonical repository checks needs explicit authorization.',
-      allow: 'Skip verification by default; state plainly what was not run.',
+      // "by default" turned a permission into an instruction and contradicted
+      // the Operating Contract and Fast Loop verification steps.
+      allow: 'Skipping canonical checks needs no confirmation; state plainly what was not run.',
     },
   },
 ] as const;
