@@ -254,6 +254,13 @@ export class ConferenceCoordinator {
       headers: Record<string, string | number | null | undefined>;
       body: string;
       now: string;
+      /**
+       * False for protocol overhead the member did not choose to spend. An
+       * INVITE used to cost the invitee one of its twelve messages before it had
+       * even joined. Still refused once the budget is spent, and still bounded:
+       * a member can only be re-invited after it left, and a spent spoke stays closed.
+       */
+      charge?: boolean;
     },
   ): Promise<AgentBusMessage> {
     const { conference, member, sender, target, now } = input;
@@ -323,6 +330,13 @@ export class ConferenceCoordinator {
       .set({ nextSequence: sequence + 1, lastActivityAt: now, updatedAt: now })
       .where(eq(agentBusConversations.id, conversationId));
     const participant = sender.id === conference.ownerAddressId ? target : sender;
+    if (input.charge === false) {
+      await tx
+        .update(agentBusConferenceMembers)
+        .set({ mode: this.conferenceMode(participant), updatedAt: now })
+        .where(eq(agentBusConferenceMembers.id, member.id));
+      return persisted;
+    }
     const spent = member.messageCount + 1;
     await tx
       .update(agentBusConferenceMembers)
@@ -634,6 +648,7 @@ export class ConferenceCoordinator {
             },
             body: conferenceInviteBody(conference, note),
             now,
+            charge: false,
           });
           return { message, invitee, mode: stored.mode };
         });
@@ -823,6 +838,72 @@ export class ConferenceCoordinator {
         max_members: conference.maxMembers,
         members: roster.map((row) => publicConferenceMember(row.member, row.address, row.fqdn)),
       };
+    });
+  }
+
+  /**
+   * The live rooms this agent chairs, is invited to, or sits in.
+   *
+   * Membership-scoped on purpose: a room is entered by invitation or PIN, so a
+   * fleet-wide directory would hand every agent a list of meetings it was never
+   * asked to. What this does fix is the observed failure: an agent about to
+   * open a room can see the invitation already waiting for it, and a member can
+   * find a room again after losing its id. The PIN is never listed; the chair
+   * gets it back from `agent_conf_open`, which returns the existing room.
+   */
+  async list(sessionId: string, bridgeToken: string): Promise<Record<string, unknown>> {
+    const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
+    const selfId = authenticated.session.agentBusAddressId;
+    if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+    return await this.core.db.transaction(async (tx) => {
+      await this.core.requireEnabledLocked(tx);
+      const now = nowIso();
+      const rows = await tx
+        .select({ conference: agentBusConferences, member: agentBusConferenceMembers })
+        .from(agentBusConferenceMembers)
+        .innerJoin(agentBusConferences, eq(agentBusConferences.id, agentBusConferenceMembers.conferenceId))
+        .where(
+          and(
+            eq(agentBusConferenceMembers.addressId, selfId),
+            ne(agentBusConferenceMembers.state, 'left'),
+            ne(agentBusConferences.status, 'adjourned'),
+            gt(agentBusConferences.deadlineAt, now),
+          ),
+        )
+        .orderBy(asc(agentBusConferences.createdAt))
+        .limit(50);
+      const conferences: Record<string, unknown>[] = [];
+      for (const { conference, member } of rows) {
+        const [seated] = await tx
+          .select({ value: count() })
+          .from(agentBusConferenceMembers)
+          .where(and(eq(agentBusConferenceMembers.conferenceId, conference.id), ne(agentBusConferenceMembers.state, 'left')));
+        const chairRows = await tx
+          .select({ address: agentBusAddresses, fqdn: hosts.fqdn })
+          .from(agentBusAddresses)
+          .innerJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
+          .where(eq(agentBusAddresses.id, conference.ownerAddressId))
+          .limit(1);
+        const chair = chairRows[0];
+        conferences.push({
+          conference_id: conference.id,
+          topic: conference.topic,
+          purpose: conference.purpose,
+          status: conference.status,
+          deadline_at: conference.deadlineAt,
+          created_at: conference.createdAt,
+          max_members: conference.maxMembers,
+          member_count: Number(seated?.value ?? 0),
+          chair: chair
+            ? { address: chair.address.address, name: chair.address.launchName ?? null, alias: chair.address.displayAlias, engine: chair.address.engine, fqdn: chair.fqdn }
+            : null,
+          role: member.role,
+          state: member.state,
+          messages_used: member.messageCount,
+          messages_budget: AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP,
+        });
+      }
+      return { enabled: true, conferences };
     });
   }
 

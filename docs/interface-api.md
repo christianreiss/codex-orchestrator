@@ -1150,7 +1150,12 @@ The existing engine, address and host gates apply to each publication and
 delivery. The transaction snapshots subscribed eligible recipients and queues
 the encrypted messages atomically. `client_message_id` is scoped to the sender;
 replaying identical topic/content/TTL returns the original receipts, while a
-different payload gives `409 agent_messaging_publication_conflict`. There is no
+different payload gives `409 agent_messaging_publication_conflict`. The sender
+never receives its own copy: when it is itself a group subscriber, `skipped`
+lists it as `{address_id, reason:"sender"}` (other skip reasons:
+`address_ineligible`), so `recipient_count: 0` with an empty `skipped` means the
+topic has no other subscriber. An own feed cannot list the sender, since
+self-follow is refused. There is no
 wildcard topic. Maximum 64 subscribers per topic, 64 subscriptions per agent,
 and 30 publications per minute per sender (`429`, `Retry-After: 60`). TTL uses the
 existing 60–604800 second bounds. Publication bodies are limited to 30 KiB UTF-8,
@@ -1296,8 +1301,20 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   (`ttl_seconds` 300..21600 default 3600, `max_members` 2..8 default 8), mint a
   room PIN valid to the room's deadline, and return the caller's address as
   `self`. One open conference per owner; re-opening returns it with `reused`.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/list` — body `{}`. The
+  caller's live rooms (not adjourned, before deadline) where it has a member row
+  that has not left: chair, `invited`, `seated` or `dispatched`. Per room:
+  `conference_id`, `topic`, `purpose`, `status`, `deadline_at`, `created_at`,
+  `max_members`, `member_count`, `chair` (address/name/alias/engine/fqdn), the
+  caller's `role` and `state`, `messages_used`, `messages_budget`. At most 50,
+  oldest first. Membership-scoped: rooms the caller was never invited to or
+  joined are not listed, and the PIN is never returned (the chair gets it from
+  `conf/open`, which reuses the open room). An agent may sit in several rooms,
+  including chairing one and participating in others.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/invite` — chair only.
-  Creates a member row and queues an `INVITE` per address. Idle agents on persistent
+  Creates a member row and queues an `INVITE` per address. The `INVITE` does not
+  count against the invitee's twelve-message budget; its `HELLO` on join is its
+  first charged message. Idle agents on persistent
   hosts are woken by their relay with the invite as the prompt (other hosts run
   no relay, so the invite waits for a live receiver until its TTL); a host with a wrapper attached is
   skipped by the relay and receives through its native receiver or manual listen. Per-member

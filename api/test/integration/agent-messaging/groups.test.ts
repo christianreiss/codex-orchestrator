@@ -421,7 +421,13 @@ describe.skipIf(!handle)('persistent opt-in publications against MySQL', { timeo
       clientMessageId: randomUUID(),
     });
     expect(result.deliveries.map((r) => r.address_id)).toEqual([offline.addressId]);
-    expect(result.skipped).toEqual([{ address_id: grok.addressId, reason: 'address_ineligible' }]);
+    expect(result.skipped).toHaveLength(2);
+    expect(result.skipped).toEqual(
+      expect.arrayContaining([
+        { address_id: grok.addressId, reason: 'address_ineligible' },
+        { address_id: sender.addressId, reason: 'sender' },
+      ]),
+    );
     await expect(
       service.publish(grok.sessionId, grok.token, {
         topic: grok.address,
@@ -434,6 +440,30 @@ describe.skipIf(!handle)('persistent opt-in publications against MySQL', { timeo
     await expect(
       service.publishAdmin({ topic, content: 'disabled', clientMessageId: randomUUID() }),
     ).rejects.toMatchObject({ code: 'agent_messaging_disabled' });
+  });
+
+  it('reports the publishing member as skipped instead of leaving an empty audience ambiguous', async () => {
+    const sole = await register('grok', 'sole');
+    const topic = await group([sole], `${PREFIX}-sole`);
+    const input = { topic, content: 'anyone here?', clientMessageId: randomUUID() };
+    const grouped = await service.publish(sole.sessionId, sole.token, input);
+    expect(grouped).toMatchObject({
+      recipient_count: 0,
+      deliveries: [],
+      skipped: [{ address_id: sole.addressId, reason: 'sender' }],
+    });
+    // The idempotent retry replays the same stored receipts.
+    const retried = await service.publish(sole.sessionId, sole.token, input);
+    expect(retried).toMatchObject({ created: false, publication_id: grouped.publication_id });
+    expect(retried.skipped).toEqual([{ address_id: sole.addressId, reason: 'sender' }]);
+    // An own feed with no followers is a genuinely empty audience.
+    expect(
+      await service.publish(sole.sessionId, sole.token, {
+        topic: sole.address,
+        content: 'feed news',
+        clientMessageId: randomUUID(),
+      }),
+    ).toMatchObject({ recipient_count: 0, deliveries: [], skipped: [] });
   });
 
   it('rate limits zero-recipient publishes and rolls back queues if publication persistence fails', async () => {

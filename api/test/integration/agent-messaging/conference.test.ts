@@ -176,6 +176,55 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     expect(joined.members.find((member) => member.address_id === invitee.addressId)).toMatchObject({ state: 'seated', joined_at: expect.any(String), purpose: 'joined now' });
   });
 
+  it('does not charge the invitee for the invitation it never chose to receive', async () => {
+    const { chair, conferenceId } = await room();
+    const invitee = await register('grok', 'free-invite');
+    const invited = await service.inviteToConference(chair.sessionId, chair.bridgeToken, { conferenceId, to: [invitee.address] });
+    expect((invited.results as Record<string, unknown>[])[0]).toMatchObject({ delivered: true });
+    expect((await memberRow(conferenceId, invitee.addressId))?.messageCount).toBe(0);
+    await service.joinConference(invitee.sessionId, invitee.bridgeToken, { conferenceId, purpose: 'joined' });
+    // The HELLO is the member's own first message.
+    expect((await memberRow(conferenceId, invitee.addressId))?.messageCount).toBe(1);
+  });
+
+  it('lists the live rooms the caller chairs, is invited to or sits in, and nothing else', async () => {
+    const { chair, one, conferenceId } = await room();
+    const invitee = await register('grok', 'listed');
+    const stranger = await register('codex', 'stranger');
+    await service.inviteToConference(chair.sessionId, chair.bridgeToken, { conferenceId, to: [invitee.address] });
+    // A second room chaired by a participant of the first: one agent, two rooms.
+    const other = await service.openConference(one.sessionId, one.bridgeToken, { topic: 'side room' });
+
+    const chairView = (await service.listConferences(chair.sessionId, chair.bridgeToken)).conferences as Record<string, unknown>[];
+    expect(chairView).toEqual([
+      expect.objectContaining({ conference_id: conferenceId, topic: 'migration 0021', role: 'owner', state: 'seated', member_count: 4, status: 'open' }),
+    ]);
+    expect(JSON.stringify(chairView)).not.toContain(String(other.pin));
+    expect(chairView[0]).not.toHaveProperty('pin');
+
+    const invitedView = (await service.listConferences(invitee.sessionId, invitee.bridgeToken)).conferences as Record<string, unknown>[];
+    expect(invitedView).toEqual([
+      expect.objectContaining({
+        conference_id: conferenceId,
+        role: 'participant',
+        state: 'invited',
+        messages_used: 0,
+        messages_budget: AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP,
+        chair: expect.objectContaining({ address: chair.address }),
+      }),
+    ]);
+
+    const both = (await service.listConferences(one.sessionId, one.bridgeToken)).conferences as Record<string, unknown>[];
+    expect(both.map((row) => [row.conference_id, row.role]).sort()).toEqual(
+      [[conferenceId, 'participant'], [String(other.conference_id), 'owner']].sort(),
+    );
+
+    expect((await service.listConferences(stranger.sessionId, stranger.bridgeToken)).conferences).toEqual([]);
+
+    await service.adjournConference(chair.sessionId, chair.bridgeToken, { conferenceId, force: true });
+    expect((await service.listConferences(invitee.sessionId, invitee.bridgeToken)).conferences).toEqual([]);
+  });
+
   it('caps the dispatch grace deadline at the room deadline', async () => {
     const { chair, one, conferenceId } = await room();
     const roomDeadline = new Date(Date.now() + 120_000).toISOString();

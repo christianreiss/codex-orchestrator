@@ -434,8 +434,11 @@ Session operations use the short-lived bridge bearer in
   and become its chair. Mints a multi-use room PIN and returns the caller's own
   address. One open conference per owner; re-opening returns it with
   `reused: true`.
+- `POST /host/agent-sessions/{id}/agent-messaging/conf/list` — the caller's live
+  rooms (chair, invited or member) with role, state, member count and budget.
+  Membership-scoped; never returns a PIN.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/invite` — chair only.
-  Invite up to 8 addresses or aliases. One result per address; a partial fan-out
+  Invite up to 8 addresses or aliases; the invite does not spend the invitee's budget. One result per address; a partial fan-out
   is reported, not rolled back.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/join` — join by room PIN
   or by the `conference_id` from an invitation (exactly one). The room PIN is

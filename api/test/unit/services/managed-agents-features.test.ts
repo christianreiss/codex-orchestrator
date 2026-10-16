@@ -211,9 +211,10 @@ describe('served document byte invariance', () => {
     // 2026-10-15: negotiated coordination and digests preserve held work (smart-queue v1).
     // 2026-10-15: managed Skills guidance invokes fleet-reflect before final work results.
     // 2026-10-15: named direct messaging supersedes the call rendezvous.
-    expect(out.features_sha256).toBe('a23ab33da0b12c0c4349bc95c8c190a41358d3bee44ab38d589e1f6895867f6c');
-    expect(out.managed_sha256).toBe('df626a86147d068d8cde1603a00111ae4f29688946b2e0de3b80c90ee7ae04d2');
-    expect(sha256(out.body)).toBe('5070291645b7ce6cae2bb745d3552f6dff65afff3e9198024b3558840b62df66');
+    // 2026-10-16: agent_conf_list before opening a room; publish skips the sender visibly.
+    expect(out.features_sha256).toBe('d808171ee04b568146a262f71bcfcd81cb91932076f344e172c56afd86cbb8ab');
+    expect(out.managed_sha256).toBe('b7844727317181415d71ca493e9031a6993fb597179c5a17da1898ee83353b56');
+    expect(sha256(out.body)).toBe('120c604a1e8a572914ef012135b79f0712e61df5d4595471b2f398d93f0db67f');
   });
 });
 

@@ -515,6 +515,7 @@ func toolCatalogJSON() []byte {
 		tool("agent_conf_roster", "List conference members with their host, engine, role, declared purpose, delivery mode and whether each is seated or away on a task.", map[string]any{
 			"conference_id": map[string]any{"type": "string"},
 		}, []string{"conference_id"}),
+		tool("agent_conf_list", "List the live conferences this agent chairs, is invited to, or sits in, with role, member state, member count and message budget. Check it before agent_conf_open so you join a room already waiting for you instead of opening a parallel one. Membership-scoped: rooms you were never invited to are not listed.", map[string]any{}, nil),
 		tool("agent_conf_say", "Speak in the conference. The chair broadcasts to every seated member, or to one named member. A participant may only address the chair; there is no direct participant-to-participant path. Returns one result per recipient. A progress message does not finish held work; use agent_task_result or agent_reply with task_result when the task is done.", map[string]any{
 			"conference_id": map[string]any{"type": "string"},
 			"content":       map[string]any{"type": "string", "maxLength": maxBodyBytes},
@@ -1102,6 +1103,11 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			return nil, errors.New("conference_id is required")
 		}
 		if err := client.post(ctx, "conf/roster", map[string]any{"conference_id": stringArg(args, "conference_id")}, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+	case "agent_conf_list":
+		if err := client.post(ctx, "conf/list", map[string]any{}, &out); err != nil {
 			return nil, err
 		}
 		return out, nil
