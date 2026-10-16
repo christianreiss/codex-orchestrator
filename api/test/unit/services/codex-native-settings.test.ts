@@ -164,7 +164,7 @@ describe('Codex native configuration', () => {
     cleared.profiles[0]!.native_settings = {};
     const deleted = await service.store({ settings: cleared });
     expect(deleted.content).not.toMatch(/notify|model_provider|mcp_servers|shell_environment_policy|hooks|apps|rollout_budget/);
-    expect(deleted.content).toContain('[features]\nasync_compaction = true');
+    expect(deleted.content).not.toContain('async_compaction');
     expect(render(deleted.settings as unknown as Record<string, unknown>).profiles?.[0]?.content).not.toContain('/bin/');
   });
 
@@ -219,7 +219,7 @@ describe('Codex 0.163 native configuration', () => {
     expect(changed.content).not.toContain('model_async_compact_threshold_percent');
     const cleared = await service.store({ settings: { native_settings: {}, profiles: [] } });
     expect(cleared.content).not.toMatch(/include_environment_context_time|model_async_compact_threshold_percent|test.plugin/);
-    expect(cleared.content).toContain('async_compaction = true');
+    expect(cleared.content).not.toContain('async_compaction');
   });
 
   it.each([
@@ -244,8 +244,8 @@ describe('Codex 0.163 native configuration', () => {
     expect(() => new ClientConfigService({} as never).render(input)).toThrow(/shell_zsh_fork.*removed/);
   });
 
-  it('enables the requested async compaction default while other experimental features remain opt-in', () => {
-    expect(render({}).content).toContain('async_compaction = true');
+  it('leaves async compaction and other under-development features opt-in', () => {
+    expect(render({}).content).not.toContain('async_compaction');
     expect(render({}).content).not.toMatch(/code_mode_host_grpc|credential_masking/);
   });
 

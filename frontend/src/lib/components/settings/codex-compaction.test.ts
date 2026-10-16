@@ -3,8 +3,11 @@ import { it } from "node:test";
 const modulePath = "./codex-compaction.ts";
 const { codexAsyncCompactionEnabled: enabled, setCodexAsyncCompaction: set } = await import(modulePath) as typeof import("./codex-compaction");
 
-it("shows the fleet default and respects explicit boolean, object and legacy settings", () => {
-  assert.equal(enabled({}), true);
+it("shows the native default (off) and respects explicit boolean, object and legacy settings", () => {
+  assert.equal(enabled({}), false);
+  assert.equal(enabled({ native_settings: { features: { async_compaction: null } } }), false);
+  assert.equal(enabled({ native_settings: { features: { async_compaction: true } } }), true);
+  assert.equal(enabled({ native_settings: { features: { async_compaction: { enabled: true, model_async_compact_threshold_percent: 70 } } } }), true);
   for (const value of [false, { enabled: false }, { model_async_compact_threshold_percent: 71 }]) {
     assert.equal(enabled({ native_settings: { features: { async_compaction: value } } }), false);
   }

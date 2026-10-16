@@ -49,24 +49,24 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
   };
 }
 
-test("Codex compaction defaults on and saves the toggle without losing concurrent tuning or profiles", async ({ page }) => {
+test("Codex compaction defaults off and saves the toggle without losing concurrent tuning or profiles", async ({ page }) => {
   const shared = state(); await fixture(page, shared); await page.goto("/admin/engines");
   const toggle = page.getByRole("switch", { name: "Async compaction", exact: true });
-  await expect(toggle).toBeChecked(); await expect(toggle).toBeEnabled();
+  await expect(toggle).not.toBeChecked(); await expect(toggle).toBeEnabled();
   shared.configs.codex.settings.model = "newer-model";
   shared.configs.codex.settings.profiles = [{ name: "off", native_settings: { features: { async_compaction: false } } }];
-  shared.configs.codex.settings.native_settings = { language: "en", features: { hooks: false, async_compaction: { enabled: true, model_async_compact_threshold_percent: 73 } } };
+  shared.configs.codex.settings.native_settings = { language: "en", features: { hooks: false, async_compaction: { enabled: false, model_async_compact_threshold_percent: 73 } } };
   shared.configs.codex.revision = "3";
   await toggle.click();
   await expect.poll(() => shared.writes.at(-1)?.body).toMatchObject({ expected_revision: "3", settings: {
-    model: "newer-model", native_settings: { features: { hooks: false, async_compaction: { enabled: false, model_async_compact_threshold_percent: 73 } } },
+    model: "newer-model", native_settings: { features: { hooks: false, async_compaction: { enabled: true, model_async_compact_threshold_percent: 73 } } },
     profiles: [{ name: "off", native_settings: { features: { async_compaction: false } } }],
   } });
-  await expect(toggle).not.toBeChecked();
-  await expect(page.locator("#codex-native-settings textarea")).toHaveValue(/"enabled": false/);
-  await page.reload(); await expect(toggle).not.toBeChecked();
-  await toggle.click(); await expect(toggle).toBeChecked();
-  await expect.poll(() => shared.configs.codex.settings.native_settings).toMatchObject({ features: { async_compaction: { enabled: true, model_async_compact_threshold_percent: 73 } } });
+  await expect(toggle).toBeChecked();
+  await expect(page.locator("#codex-native-settings textarea")).toHaveValue(/"enabled": true/);
+  await page.reload(); await expect(toggle).toBeChecked();
+  await toggle.click(); await expect(toggle).not.toBeChecked();
+  await expect.poll(() => shared.configs.codex.settings.native_settings).toMatchObject({ features: { async_compaction: { enabled: false, model_async_compact_threshold_percent: 73 } } });
 });
 
 test("Codex compaction retains its state after validation and revision failures", async ({ page }) => {
@@ -74,17 +74,17 @@ test("Codex compaction retains its state after validation and revision failures"
   const row = page.locator("#codex-async-compaction"), toggle = row.getByRole("switch");
   await expect(toggle).toBeEnabled();
   shared.fail = "codex"; await toggle.click();
-  await expect(row).toContainText("removed_option is deprecated"); await expect(toggle).toBeChecked();
+  await expect(row).toContainText("removed_option is deprecated"); await expect(toggle).not.toBeChecked();
   expect(shared.writes).toEqual([]);
   shared.fail = ""; shared.race = true; await toggle.click();
-  await expect(row).toContainText("Configuration changed; reload before saving"); await expect(toggle).toBeChecked();
+  await expect(row).toContainText("Configuration changed; reload before saving"); await expect(toggle).not.toBeChecked();
   expect(shared.writes).toEqual([]);
 });
 
 test("Codex compaction is read-only without content.manage", async ({ page }) => {
   const shared = state(); await fixture(page, shared, false); await page.goto("/admin/engines");
   const toggle = page.getByRole("switch", { name: "Async compaction", exact: true });
-  await expect(toggle).toBeChecked(); await expect(toggle).toBeDisabled(); expect(shared.writes).toEqual([]);
+  await expect(toggle).not.toBeChecked(); await expect(toggle).toBeDisabled(); expect(shared.writes).toEqual([]);
 });
 
 test("native JSON validates, previews and saves each engine without losing separate settings", async ({ page }) => {

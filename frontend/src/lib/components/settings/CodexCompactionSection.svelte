@@ -25,7 +25,7 @@
       void qc.invalidateQueries({ queryKey: ["settings"] });
     },
   });
-  let checked = $state(true);
+  let checked = $state(false);
   $effect(() => {
     const current = codexAsyncCompactionEnabled($query.data?.settings ?? {});
     if (!$mutation.isPending) checked = current;
@@ -39,7 +39,7 @@
 
 <SettingRow id="codex-async-compaction" bordered={false}
   label="Async compaction"
-  description={$query.isError ? "Could not load Codex settings. Reload the page to retry." : "Compacts conversation context in the background. On by default for Codex 0.163.0 and newer; changes save immediately and apply on the next config sync."}
+  description={$query.isError ? "Could not load Codex settings. Reload the page to retry." : "Experimental: prepares conversation compaction in the background. Codex 0.163.0 still marks it under development and off by default, so the fleet leaves it off unless enabled here (requires Codex 0.163.0+). Changes save immediately and apply on the next config sync."}
   {checked}
   disabled={!$authStore.can("content.manage") || !$query.data || $query.isError || $mutation.isPending}
   onCheckedChange={save}

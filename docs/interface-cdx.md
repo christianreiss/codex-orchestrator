@@ -1737,22 +1737,28 @@ sync/launch, not wrapper-enforced automation. See
 
 ## Native configuration maintenance (Codex 0.163.0)
 
-### Async compaction fleet default
+### Async compaction (experimental, default off)
 
 Engines → Codex exposes an **Async compaction** switch that saves immediately
-through the existing config preview/store endpoints and revision guard. Missing
-root configuration defaults to `features.async_compaction = true` when rendering
-for Codex 0.163.0 or newer, or for admin previews. Older/unreported clients omit
-this implicit default so update/report/sync recovery remains usable. Explicit
-native or structured values still require 0.163.0, including an explicit false.
+through the existing config preview/store endpoints and revision guard. The
+fleet renders **no implicit value**: Codex rust-v0.163.0 registers
+`async_compaction` as `Stage::UnderDevelopment` with `default_enabled: false`
+([`codex-rs/features/src/lib.rs`](https://raw.githubusercontent.com/openai/codex/rust-v0.163.0/codex-rs/features/src/lib.rs),
+`FeatureSpec { id: Feature::AsyncCompaction, key: "async_compaction", … }`;
+`codex features list` on 0.163.0 reports `async_compaction  under development  false`).
+Missing configuration therefore keeps the native default (off) on every client
+version. (A short-lived 2026-10-16 build rendered an implicit `true` for 0.163.0+
+clients; that default was withdrawn the same day without touching stored values.)
+Explicit native or structured values still require 0.163.0, including an explicit false.
 
 The switch writes the canonical `native_settings.features.async_compaction`
 value, retaining object thresholds and independent settings; an existing legacy
 structured override is folded into that native value. Explicit false stays off.
 Threshold-only objects retain native semantics (they do not enable the feature).
-Removing the whole option restores the fleet default. Profile sidecars inherit
-the root default unless they contain an explicit override; no default is injected
-into individual profiles. Existing sessions are not restarted by the switch.
+Explicit true (or `{ enabled = true, … }`) is rendered exactly as stored.
+Removing the whole option restores the native default (off). Profile sidecars
+inherit the root value unless they contain an explicit override; no default is
+injected into individual profiles. Existing sessions are not restarted by the switch.
 
 ### Audited configuration surface
 
@@ -1765,8 +1771,8 @@ The JSON schema covers native root settings and nested settings including agents
 apps, hooks, browser/desktop controls, history, service tiers, providers, MCP
 transport/tool configuration, and structured feature options. Schema-defined
 constraints apply; permissive upstream objects remain permissive. Experimental
-features require a native version that supports them; async compaction uses the
-fleet default above, while other optional features remain opt-in.
+features require a native version that supports them and remain opt-in,
+including async compaction (see above).
 
 The editor supports the 0.163 additions: environment-context time, async
 compaction options, new code-mode/credential/connector/output/subagent feature

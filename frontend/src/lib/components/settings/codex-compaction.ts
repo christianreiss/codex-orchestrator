@@ -11,7 +11,7 @@ function feature(settings: Settings): unknown {
 }
 export function codexAsyncCompactionEnabled(settings: Settings): boolean {
   const value = feature(settings);
-  return value == null ? true : typeof value === "boolean" ? value : record(value).enabled === true;
+  return value == null ? false : typeof value === "boolean" ? value : record(value).enabled === true;
 }
 /** Canonicalize this one control into native JSON, retaining tuning and siblings. */
 export function setCodexAsyncCompaction(settings: Settings, enabled: boolean): Settings {
