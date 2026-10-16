@@ -1145,7 +1145,9 @@ when there is nothing to report or the
 orchestrator is unreachable, and `|| true` keeps a wrapper too old to know
 `agent poll` from blocking every turn. Operator-configured hooks for the same
 events are preserved and the ring is appended. Codex has no hook surface and
-gets no equivalent.
+gets no equivalent. From cxx 0.9.91 the ring is a silent no-op inside a Grok
+lifecycle (`CXX_AGENT_PORTAL_ENGINE=grok`), where Grok's Claude compatibility
+layer can import these hooks; see `interface-cgx.md`.
 
 An address is stable for `(host, Unix user, engine, working directory)` and can
 bind to a native Claude session with a generation-fenced upstream session id.
