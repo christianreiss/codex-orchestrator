@@ -275,7 +275,8 @@ ${reflection}`,
 Fleet Skills are synced as native Grok skills under \`~/.grok/skills/<slug>/SKILL.md\`. Read the
 matching \`SKILL.md\` when a Skill's description or trigger applies, and follow its instructions.
 To create, update, delete, or explain fleet Skills, follow the \`skill-manager\` Skill instead of
-\`/create-skill\`.
+\`/create-skill\`. Bundled scripts are content too; inspect them before any task-authorized local
+execution.
 
 ${reflection}`,
       'native',
@@ -289,7 +290,9 @@ The orchestrator MCP is authoritative for fleet Skills. For a fleet-Skill reques
 \`skill_list\` before consulting host-local Skill copies. For requests to create, update, delete,
 or explain the fleet Skill-management workflow, read \`skill://skill-manager\` with \`resource_read\`
 and follow it. Use \`skill_retrieve\` for other manifests and \`skill://{slug}/<path>\` for support
-files. An unqualified "Skill" means a fleet Skill; do not substitute Codex's built-in
+files. Respect \`allow_implicit_invocation\` from the listing: false requires an explicit request.
+Support scripts are content too; fetch and inspect them before any task-authorized local execution.
+An unqualified "Skill" means a fleet Skill; do not substitute Codex's built-in
 \`skill-creator\`. Higher-level runtime requirements for built-in or system Skills still take
 precedence.
 
@@ -538,8 +541,8 @@ function gitDirectorSection(context: ManagedAgentFeatureContext): RenderedSectio
 
 The Director is an MCP registry of who works in which clone and the arbiter for merges into shared
 branches. It never touches your worktree: you run every git command yourself and report what you
-did. Its verdicts are advisory and this fleet expects you to honor them; if one looks wrong, say so
-in your report instead of working around it quietly.
+did. Git does not enforce its verdicts, but this fleet requires you to honor them; if one looks wrong,
+say so in your report instead of working around it quietly.
 
 **Before you start work in a repository.** Call \`git_list\` first, before registering or changing
 files. Record the checkout root, common dir, branch and HEAD with
@@ -557,7 +560,8 @@ outside the original checkout from the recorded HEAD (task slug plus your agent 
 command there. Never copy, stash, reset or commit pre-existing changes from the original checkout.
 When free, work in place. On a detached HEAD always isolate and keep the result until the operator
 names a target branch. Read-only tasks create no worktree, branch or commit. This is the default
-delivery contract: commit verified task-owned changes and merge them back without asking again.
+delivery contract: commit verified task-owned changes and merge them back without asking again,
+unless the user restricted commits or merges.
 Push and deploy still require what Hard Stop Lines and Standing Authorizations say; this contract
 grants neither.
 

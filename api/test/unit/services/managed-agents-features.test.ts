@@ -204,8 +204,8 @@ describe('served document byte invariance', () => {
       base.provenance,
     );
 
-    expect(base.sha256).toBe('46918277f54f35666e018f93075e3d1dcaf47223e46507112939adc664a70946');
-    expect(out.policy_sha256).toBe('1f3ab7dee8a6076576561e977ce6c846bdd088a27e7bb5dd904f6714809690df');
+    expect(base.sha256).toBe('ee6dc3f8adca86b37e32878bcb98abce05078360c346d4f85c819c85914f3dc0');
+    expect(out.policy_sha256).toBe('f5043a546c90da06a731dba35a46f603a0f877dad175701c3fbb93b46822cf28');
     // 2026-10-11: compact project discovery consistently starts with project_summary.
     // 2026-10-14: offline resume, persistent Wake/Cron and watchdog recovery only on persistent hosts (docs/host-runtime-policy.md).
     // 2026-10-15: negotiated coordination and digests preserve held work (smart-queue v1).
@@ -217,9 +217,11 @@ describe('served document byte invariance', () => {
     // 2026-10-16: agent_self/agent_session_name run on the first turn, including question-only turns.
     // 2026-10-16: Agent Messaging/Git Director condensed to triggers + invariants (procedure lives in managed Skills);
     //             security module and dependency/verification grants no longer contradict each other.
-    expect(out.features_sha256).toBe('9b65082d850ed17c451cf1e74ed90d1c0abf14cb5494090c151eaec3735a75cb');
-    expect(out.managed_sha256).toBe('02f1d014a7f726ca07df76f6973aeab569c15ffedfc05f232a020657e5c5a339');
-    expect(sha256(out.body)).toBe('936fa276215939efc5f7e41984a126d793ba05f38178e372201bc712c17a02dd');
+    // 2026-10-16: self-contradictions resolved (stops, secrets in chat, check skipping, force-push scope,
+    //             Director verdicts, trust boundary) and Codex/Grok Skills gain the support-script inspection rule.
+    expect(out.features_sha256).toBe('0395d7b3fc916adff830ab62b0a417bf86568a16f60a2b376ef08116062307e5');
+    expect(out.managed_sha256).toBe('4fbb5cd0236b4493ca597c06aebd937501c046a41d07feb988b3ea509e6f2a62');
+    expect(sha256(out.body)).toBe('cf880560792a6932c19b76c674bdae48701b3ad888c5d2448fa0f2654969dde8');
   });
 });
 
@@ -511,7 +513,7 @@ describe('managed API keys in chat guidance', () => {
     expect(out.body).toMatch(/without generic security lectures or repeated warnings/i);
     expect(out.body).toMatch(/avoid echoing a key\s+unless technically necessary/i);
     expect(out.body).toMatch(/never place it in source control, persistent logs, durable\s+memory/i);
-    expect(out.body).toMatch(/do not use it beyond the requested task/i);
+    expect(out.body).toMatch(/do not use it beyond\s+the requested task/i);
     expect(out.sections.api_keys_in_chat).toMatchObject({
       present: true,
       reason: 'ok',

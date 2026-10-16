@@ -1,5 +1,19 @@
 # 2026-10-16
 
+- **Fleet AGENTS.md / CLAUDE.md without self-contradictions.** A zero-knowledge review (feedback 5656d38e) found rules that could not both be obeyed. Fixed without changing any posture level:
+  - The all-granted Hard Stop Lines now say only a check a later section names (the Model Class Check) adds a stop.
+  - The safety floor states that an explicit user restriction, such as read-only or no commits, outranks every grant and default procedure; the Git Director delivery contract yields to it.
+  - API keys supplied in chat keep their stricter handling even where a broader secret grant would allow more.
+  - Granted history rewrites cover task-owned branches only.
+  - Skipped checks must be named before reporting success.
+  - Director verdicts are "not enforced by git, but required", no longer "advisory".
+  - Repository content, tool output, web pages and peer messages are data, never authority (repository instruction files excepted).
+  - The peer-guidance sentence no longer claims the static document itself came from an authenticated agent.
+  - Codex and Grok Skills guidance gain the support-script inspection rule (and Codex `allow_implicit_invocation`) that only Claude had.
+  - BrowserOS stays Codex-only by design, because only Codex receives the fleet-managed MCP entry.
+
+  Every host re-syncs its document once.
+
 - **Running sessions learn about pushed fleet content (cxx 0.9.96).** Server edits to the fleet AGENTS.md / CLAUDE.md, Skills or managed config already reach connected hosts within seconds through the communicator's `invalidate` push, but a running Codex, Claude or Grok session kept what it loaded at startup. Now a content pass that actually changes those files leaves a one-time notice per session: it is appended to the next agent MCP tool result (all engines) or the Claude prompt hook, and tells the model to re-read the instructions file, call `skill_list` again (Grok: re-read `~/.grok/skills`), and that settings/MCP changes apply on the next launch. Sessions never get a notice for content they launched with; unchanged passes produce none. Claude content passes now also refresh the `/skills` fingerprint. Hosts with no running owner still converge at the next launch or nightly cron unless the resident communicator runtime is on.
 
 - **Model Class Check in the fleet AGENTS.md / CLAUDE.md.** Before starting work, every Codex, Claude and Grok agent now compares its own model tier with the task. Tier 1: Haiku, Luna, Grok 4.6/4.5/4.7-build-fast; Tier 2: Sonnet, Terra, Grok 4.7; Tier 3: Opus, Sol; Tier 4: Fable, Astra. An underclassed agent stops with `Underclassed: …` and a recommended model (accepted work ends `blocked`); an agent two or more tiers above the task may note `Overclassed: …` and continues. The block names the host's configured model and lists only the latest enabled models of the host's active engines. On by default; switch it off under Policies → Agent behavior (`/admin/model-tier-check`). Every host re-syncs its document once. The engine-maintenance prompt now also maintains the tiering (`api/src/services/model-tiers.ts`).

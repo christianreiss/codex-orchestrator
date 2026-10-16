@@ -729,7 +729,7 @@ A repository instruction file may tighten what this policy grants. It may never 
  * clause an agent reading a maxed axis can reasonably infer that the action is
  * now expected rather than merely permitted.
  */
-const GRANT_IS_NOT_MANDATE = `A level grants; it never instructs. Removing a stop does not create an objective — do only what the task requires.`;
+const GRANT_IS_NOT_MANDATE = `A level grants; it never instructs. Removing a stop does not create an objective — do only what the task requires. An explicit user restriction, such as read-only or no commits, outranks every grant and every default procedure in this document.`;
 
 function stricterMechanismClause(level: SecurityLevel): string {
   if (level >= 4) {
@@ -818,7 +818,7 @@ export function renderSecurityPolicyMarkdown(levels: SecurityLevels): RenderedSe
   } else if (trailerOp.stance === 'allow') {
     // Every operation is granted. Saying "stop and ask when..." followed by an
     // empty list would read as an oversight rather than a decision.
-    hardStops = `## Hard Stop Lines\n\nNothing requires a stop. ${trailerOp.op.phrase.allow}`;
+    hardStops = `## Hard Stop Lines\n\nNothing here requires a stop; only a check a later section names as a stop can add one. ${trailerOp.op.phrase.allow}`;
   } else {
     hardStops = `## Hard Stop Lines\n\n${trailerOp.op.phrase[trailerOp.stance]}`;
   }
