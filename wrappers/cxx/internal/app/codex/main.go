@@ -420,6 +420,10 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 			}
 		}
 	}
+	if err := nativeargs.ValidateAuth("codex", serviceArgs); err != nil {
+		fmt.Fprintln(stderr, "codex:", err)
+		return 2
+	}
 	if service := nativeargs.UnsupportedService("codex", serviceArgs); service != "" {
 		fmt.Fprintf(stderr, "cdx: %s requires a separate managed auth/session lifecycle and is not supported; native --help remains available\n", service)
 		return 2
@@ -1616,15 +1620,24 @@ func loginNeedsAuthUpload(exit int, beforeDigest, afterDigest string, logoutInte
 // to upload after a real successful login, but never after `codex login status`.
 func loginStatusInvocation(subArgs, passthrough []string) bool {
 	args := append(append([]string(nil), subArgs...), passthrough...)
-	for _, arg := range args {
+	if command, at := nativeargs.Command("codex", args); command == "login" {
+		args = args[at+1:]
+	}
+	for at := 0; at < len(args); at++ {
+		arg := args[at]
 		if arg == "--" {
-			continue
+			if at+1 < len(args) {
+				return args[at+1] == "status"
+			}
+			return false
 		}
 		if strings.HasPrefix(arg, "-") {
+			at = nativeargs.ValueEnd("codex", args, at)
 			continue
 		}
 		return arg == "status"
 	}
+
 	return false
 }
 

@@ -134,6 +134,13 @@ An explicit resume UUID may follow global options; a title, picker or fork does
 not prove continuity with an existing native session. Native help and version
 requests bypass signed config, account leasing, sync and private-runtime starts.
 
+Before central auth routing removes root session options, native login/logout
+checks structural option names/value boundaries and the command's trailing
+arguments. Unknown leading flags and unsupported logout arguments are refused,
+so invalid native argv cannot clear a pending login. Supported global diagnostic
+options are retained; a native version request never routes into auth cleanup.
+The native CLI retains semantic config/provider validation.
+
 Public `cursor-worker`, `agent serve`, `agent leader`, `agent headless` commands
 and explicit external `--leader-socket` targets are refused before configuration/auth work. A persistent Cursor worker or an
 existing external leader/relay cannot inherit this launch's private leased-account

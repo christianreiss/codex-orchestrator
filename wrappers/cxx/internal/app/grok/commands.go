@@ -77,7 +77,7 @@ func isHelpPassthrough(args []string) bool {
 		if arg == "--" {
 			return false
 		}
-		if arg == "--help" || arg == "-h" || (arg == "help" && nativeCommand(args) == "help") {
+		if nativeFlag([]string{arg}, "--help") || (arg == "help" && nativeCommand(args) == "help") {
 			return true
 		}
 		i = nativeargs.ValueEnd("grok", args, i)

@@ -101,7 +101,9 @@ including `-` and names such as `login`, `logout`, `exec` and `resume`. An attac
 Required values, optional values, aliases, equal/attached forms and `--` remain
 native input; managed additions never split an image list. A native initial prompt
 may precede a subcommand without hiding its auth/help boundary. Explicit resumed
-UUIDs are read only from an actual resume command, including `exec resume`.
+UUIDs are read only from an actual resume command, including
+`exec --model MODEL resume UUID` and its `e` alias. Shared options and image
+values before a nested command retain their native cardinality.
 
 Direct public `app-server`, `exec-server`, `remote-control`, `agents` and `--remote`
 invocations are refused before configuration/auth work: their independent or
@@ -118,6 +120,13 @@ remain safe. Image paths and prompt/option values named `agents` remain data.
 Ordinary native TUI daemon defaults and the existing receiver-failure fallback
 are a separate baseline integration boundary: this command guard does not
 establish full lifecycle ownership of every native daemon/default path.
+
+Native login/logout rejects unknown options, missing structural values and
+unsupported trailing auth arguments before managed auth work. Logout applies
+this check again at its transaction entry, before any deferred intent journal:
+an active peer must not turn a malformed native invocation into a future logout.
+The native CLI retains semantic config/provider validation; help still receives
+the original argv and its parser errors directly without starting auth work.
 
 
 ## Session credential resilience

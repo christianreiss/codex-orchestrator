@@ -13,6 +13,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 )
 
 var errAuthChangedBeforeLogout = errors.New("a newer usable Codex login appeared before logout could be ordered")
@@ -31,6 +32,9 @@ type explicitLogoutGuard struct {
 // final peer exit. With exclusivity, intent is on disk before native logout is
 // started and both maintenance/writer descriptors are inherited by the child.
 func RunExplicitLogout(ctx context.Context, cfg *config.Config, args []string, before AuthGeneration) (exit int, marked, deferred bool, retErr error) {
+	if err := nativeargs.ValidateAuth("codex", args); err != nil {
+		return 2, false, false, err
+	}
 	maintenance, err := TryAcquireAuthMaintenance()
 	if errors.Is(err, ipc.ErrHeld) {
 		// Distinguish ordinary shared peers from uninstall/another logout. A

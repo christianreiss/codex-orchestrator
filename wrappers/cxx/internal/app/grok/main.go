@@ -175,11 +175,14 @@ func nativeOptions(args []string) (options, error) {
 	}
 	o := options{configPath: path, command: "run", args: append([]string(nil), args...), skipBoot: true}
 	command, at := nativeargs.Command("grok", args)
-	if !isHelpPassthrough(args) {
+	if !isHelpPassthrough(args) && !nativeAnyFlag(args, "--version") {
 		if command == "update" || command == "upgrade" || command == "install" {
 			return options{}, errors.New("Grok installation is fleet-managed; use cgx update")
 		}
 		if command == "login" || command == "logout" {
+			if err := nativeargs.ValidateAuth("grok", args); err != nil {
+				return options{}, err
+			}
 			o.command = command
 			// Native root session options/prompt do not apply to its login command.
 			// Preserve global diagnostics, which native accepts on either side.

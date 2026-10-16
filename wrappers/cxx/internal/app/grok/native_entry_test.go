@@ -27,8 +27,8 @@ func TestNativeOptionsPreserveCLIGrammar(t *testing.T) {
 		}
 	}
 	for _, command := range []string{"login", "logout"} {
-		o, err := nativeOptions([]string{command, "--native-option"})
-		if err != nil || o.command != command || !reflect.DeepEqual(o.args, []string{"--native-option"}) {
+		o, err := nativeOptions([]string{command, "--debug"})
+		if err != nil || o.command != command || !reflect.DeepEqual(o.args, []string{"--debug"}) {
 			t.Fatalf("native %s lost central auth owner: %+v %v", command, o, err)
 		}
 	}
@@ -120,6 +120,20 @@ func TestNativeServiceRefusalPrecedesConfig(t *testing.T) {
 		var out, stderr bytes.Buffer
 		if code := RunNative(args, &out, &stderr); code != 2 || !strings.Contains(stderr.String(), "separate managed auth/session lifecycle") {
 			t.Fatalf("%q: %d %s", args, code, stderr.String())
+		}
+	}
+}
+
+func TestNativeAuthRejectsUnknownAndTrailingArguments(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, args := range [][]string{{"--not-a-native-flag", "logout"}, {"--not-a-native-flag", "login"}, {"logout", "extra"}, {"logout", "--not-a-native-flag"}, {"logout", "--model", "fixture"}} {
+		if o, err := nativeOptions(args); err == nil {
+			t.Fatalf("malformed native auth %q routed to %+v", args, o)
+		}
+	}
+	for _, args := range [][]string{{"--version", "logout"}, {"--debug", "--version", "login"}} {
+		if o, err := nativeOptions(args); err != nil || o.command != "run" {
+			t.Fatalf("version diagnostic became auth: %q %+v %v", args, o, err)
 		}
 	}
 }

@@ -141,3 +141,16 @@ func TestAgentsValuesDoNotBecomeDaemonStarts(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeLoginStatusIgnoresRootAndOptionValues(t *testing.T) {
+	for _, args := range [][]string{{"--model", "fixture", "login", "status"}, {"login", "-c", "model='x'", "status"}} {
+		if !loginStatusInvocation(nil, args) {
+			t.Fatalf("native status became login/upload: %q", args)
+		}
+	}
+	for _, args := range [][]string{{"--model", "status", "login"}, {"status", "login"}} {
+		if loginStatusInvocation(nil, args) {
+			t.Fatalf("native option/root prompt became status: %q", args)
+		}
+	}
+}

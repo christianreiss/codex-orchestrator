@@ -1385,12 +1385,9 @@ func insertCodexOverrides(args []string, overrides []string) []string {
 		return args
 	}
 	at := 0
-	command, index := nativeargs.Command("codex", args)
+	command, index := nativeargs.CodexSessionCommand(args)
 	if command == "exec" || command == "e" || command == "resume" || command == "review" || command == "fork" {
 		at = index + 1
-		if (command == "exec" || command == "e") && at < len(args) && args[at] == "resume" {
-			at++
-		}
 	} else if index < 0 && !nativeargs.Has("codex", args, "--image") {
 		at = len(args)
 	}

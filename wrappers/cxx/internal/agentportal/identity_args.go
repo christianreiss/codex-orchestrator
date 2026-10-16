@@ -106,11 +106,8 @@ func AppendIdentityArgs(engine string, args []string, identity Identity) ([]stri
 }
 
 func codexIdentityOverridePosition(args []string) int {
-	command, at := nativeargs.Command("codex", args)
-	if command == "exec" || command == "e" || command == "resume" || command == "review" {
-		if (command == "exec" || command == "e") && at+1 < len(args) && args[at+1] == "resume" {
-			return at + 2
-		}
+	command, at := nativeargs.CodexSessionCommand(args)
+	if command == "exec" || command == "e" || command == "resume" || command == "review" || command == "fork" {
 		return at + 1
 	}
 	return 0

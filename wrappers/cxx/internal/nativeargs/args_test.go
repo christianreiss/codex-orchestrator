@@ -128,3 +128,45 @@ func TestNativeHelpOracle(t *testing.T) {
 		})
 	}
 }
+
+func TestNestedCodexResumeAfterSharedOptions(t *testing.T) {
+	for _, args := range [][]string{{"exec", "--model", "foo", "resume", "native-id"}, {"e", "--image=a.png", "resume", "native-id"}, {"--model", "exec", "exec", "--profile", "work", "resume", "native-id"}} {
+		command, at := CodexSessionCommand(args)
+		if command != "resume" || args[at] != "resume" || !Resumed("codex", args) {
+			t.Fatalf("nested resume lost: %q => %q %d", args, command, at)
+		}
+	}
+	if Resumed("codex", []string{"exec", "--image", "a.png", "resume"}) {
+		t.Fatal("image value became nested resume")
+	}
+}
+
+func TestNativeAuthAndNestedResumeHelpOracle(t *testing.T) {
+	for _, engine := range []string{"codex", "grok"} {
+		binary := os.Getenv("NATIVE_" + strings.ToUpper(engine) + "_ORACLE")
+		if binary == "" {
+			continue
+		}
+		for _, args := range [][]string{{"--not-a-native-flag", "logout", "--help"}, {"logout", "extra", "--help"}, {"logout", "--not-a-native-flag", "--help"}} {
+			home := t.TempDir()
+			cmd := exec.Command(binary, args...)
+			cmd.Env = []string{"HOME=" + home, "CODEX_HOME=" + home, "GROK_HOME=" + home, "GROK_NO_AUTO_UPDATE=1", "PATH=" + os.Getenv("PATH")}
+			if err := cmd.Run(); err == nil {
+				t.Fatalf("native %s accepted malformed auth help %q", engine, args)
+			}
+			if err := ValidateAuth(engine, args[:len(args)-1]); err == nil {
+				t.Fatalf("managed %s discarded malformed auth %q", engine, args)
+			}
+		}
+		if engine == "codex" {
+			home := t.TempDir()
+			args := []string{"exec", "--model", "foo", "resume", "01234567-89ab-4cde-8fab-0123456789ab", "--help"}
+			cmd := exec.Command(binary, args...)
+			cmd.Env = []string{"HOME=" + home, "CODEX_HOME=" + home, "PATH=" + os.Getenv("PATH")}
+			out, err := cmd.Output()
+			if err != nil || !strings.HasPrefix(string(out), "Resume a previous session") {
+				t.Fatalf("nested resume oracle: %v %s", err, out)
+			}
+		}
+	}
+}

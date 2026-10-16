@@ -53,6 +53,8 @@ func init() {
 		add(codex, required, names...)
 	}
 	add(codex, variadic, "--image", "-i")
+	add(codex, optional, "--api-key")
+	add(grok, 0, "--debug")
 	for _, names := range [][]string{
 		{"--model", "-m"},
 		{"--single", "-p", "--print"},
@@ -287,10 +289,23 @@ func UnsupportedService(engine string, args []string) string {
 	return ""
 }
 
+// CodexSessionCommand also reads an exec/e nested command after its shared
+// options. An image value named resume is consumed before this classification.
+func CodexSessionCommand(args []string) (string, int) {
+	command, at := Command("codex", args)
+	if command == "exec" || command == "e" {
+		nested, index := Command("codex", args[at+1:])
+		if nested == "resume" || nested == "fork" || nested == "review" {
+			return nested, at + 1 + index
+		}
+	}
+	return command, at
+}
+
 func Resumed(engine string, args []string) bool {
 	if engine == "grok" {
 		return Has(engine, args, "--resume", "--continue", "--load")
 	}
-	command, at := Command(engine, args)
-	return command == "resume" || (command == "exec" || command == "e") && at+1 < len(args) && args[at+1] == "resume"
+	command, _ := CodexSessionCommand(args)
+	return command == "resume"
 }

@@ -190,6 +190,7 @@ func TestNativeResumeIdentityUsesOptionBoundaries(t *testing.T) {
 		{"codex", []string{"--model", "resume", "resume", "-c", "model='x'", id}, id},
 		{"codex", []string{"--image", "resume", id}, ""},
 		{"codex", []string{"e", "resume", "--", id}, id},
+		{"codex", []string{"exec", "--model", "foo", "resume", id}, id},
 		{"grok", []string{"--debug", "--resume=" + id}, id},
 		{"grok", []string{"--print", "--resume=" + id}, ""},
 		{"grok", []string{"--load", id}, id},
@@ -199,5 +200,13 @@ func TestNativeResumeIdentityUsesOptionBoundaries(t *testing.T) {
 		if got := NativeResumeSessionID(tc.engine, tc.args); got != tc.want {
 			t.Errorf("%s %q => %q want %q", tc.engine, tc.args, got, tc.want)
 		}
+	}
+}
+
+func TestCodexIdentityFollowsNestedResumeOptions(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	got, err := AppendIdentityArgs("codex", []string{"exec", "--model", "foo", "resume", "native-id"}, Identity{Name: "Ava"})
+	if err != nil || len(got) < 6 || got[3] != "resume" || got[4] != "-c" {
+		t.Fatalf("nested identity misplaced: %q %v", got, err)
 	}
 }

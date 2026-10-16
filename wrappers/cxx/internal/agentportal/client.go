@@ -85,11 +85,7 @@ func NativeResumeSessionID(engine string, args []string) string {
 		}
 		candidate = nativeargs.Value(engine, args, "--resume", "--load")
 	} else {
-		cmd, at := nativeargs.Command("codex", args)
-		if (cmd == "exec" || cmd == "e") && at+1 < len(args) && args[at+1] == "resume" {
-			at++
-			cmd = "resume"
-		}
+		cmd, at := nativeargs.CodexSessionCommand(args)
 		if cmd != "resume" {
 			return ""
 		}
