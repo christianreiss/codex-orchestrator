@@ -4,6 +4,8 @@ import { ValidationError } from '../http/errors.js';
 export const FEEDBACK_ENABLED_KEY = 'feedback_enabled';
 export const FEEDBACK_TYPES = ['bug', 'feature', 'feedback'] as const;
 export const FEEDBACK_STATUSES = ['open', 'in_progress', 'blocked', 'resolved', 'dismissed', 'duplicate'] as const;
+/** Closed statuses never carry a claim and are the only ones an administrator may delete. */
+export const FEEDBACK_CLOSED_STATUSES = ['resolved', 'dismissed', 'duplicate'] as const;
 export const FEEDBACK_PRIORITIES = ['low', 'normal', 'high', 'critical'] as const;
 export const FEEDBACK_DEPLOYMENTS = ['unknown', 'not_deployed', 'deployed'] as const;
 export const FEEDBACK_CLAIM_SECONDS = 1800;
@@ -61,6 +63,12 @@ export const feedbackUpdateSchema = z.object({
   duplicate_of: uuid.optional(),
   deployment: z.enum(FEEDBACK_DEPLOYMENTS).optional(),
   deployment_ref: short.optional(),
+}).strict();
+
+export const feedbackPurgeSchema = z.object({
+  statuses: z.array(z.enum(FEEDBACK_CLOSED_STATUSES)).min(1).max(FEEDBACK_CLOSED_STATUSES.length),
+  // Compared against updated_at, i.e. when the item was last changed (normally its closure).
+  older_than: z.string().datetime({ offset: true }).transform((value) => new Date(value).toISOString()).optional(),
 }).strict();
 
 export function parseFeedback<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, input: unknown): T {

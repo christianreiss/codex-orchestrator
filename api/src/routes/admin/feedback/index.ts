@@ -22,5 +22,8 @@ export async function registerAdminFeedbackRoutes(app: FastifyInstance, ctx: Rou
   app.post('/admin/feedback', { preHandler: app.requireAdmin }, (req) => feedback.submit(req.body, actor(req)));
   app.get('/admin/feedback/:id', { preHandler: app.requireAdmin }, (req) => feedback.get(id(req), actor(req)));
   app.post('/admin/feedback/:id', { preHandler: app.requireAdmin }, (req) => feedback.update({ ...(req.body as object), id: id(req) }, actor(req)));
+  // Destructive, audited (admin_events feedback.deleted / feedback.purged inside the same transaction).
+  app.post('/admin/feedback/purge', { preHandler: app.requireAdmin }, (req) => feedback.purge(req.body ?? {}, actor(req)));
+  app.delete('/admin/feedback/:id', { preHandler: app.requireAdmin }, (req) => feedback.remove(id(req), actor(req)));
   app.post('/admin/feedback/:id/claim', { preHandler: app.requireAdmin }, (req) => feedback.claim({ ...(req.body as object), id: id(req) }, actor(req)));
 }

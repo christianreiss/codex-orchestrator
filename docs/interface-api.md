@@ -2487,6 +2487,10 @@ Claims are exclusive, token-fenced and renewable for 30 minutes. Updates check t
 - `GET /admin/feedback/:id` — original report, current claim/outcome and history.
 - `POST /admin/feedback/:id` — version-checked triage/comment/outcome update.
 - `POST /admin/feedback/:id/claim` — acquire/renew/release; administrative force_release requires reason.
+- `DELETE /admin/feedback/:id` — hard-deletes one **closed** item (`resolved|dismissed|duplicate`) and its whole event history. `open`, `in_progress` and `blocked` items, and any item still holding a live claim, return `409 feedback_not_closed`; an unknown or already deleted ID returns `404`.
+- `POST /admin/feedback/purge` — bulk delete: body `{statuses:[...closed statuses], older_than?: RFC3339}` (strict; any open status is `422`). `older_than` is compared against `updated_at`, i.e. when the item last changed (normally its closure), not `created_at`.
+
+Both deletes return `{deleted, events, cascaded_duplicates, by_status, ids}`. **Duplicates of a deleted item are deleted with it** (they are always closed, and keeping them with `duplicate_of: null` would break the rule that a `duplicate` names its canonical); they are counted in `cascaded_duplicates`. Items, events and the audit row commit in one transaction: an `admin_events` row `feedback.deleted` / `feedback.purged` records the admin user, criteria, counts and each removed item's id/title/status. The inbox is invalidated through the existing `feedback.changed` WebSocket event. There is no restore path and no MCP tool for this — agents cannot delete feedback; take a `mysqldump` of `feedback_items`/`feedback_events` first if you may need the history. Chatty excludes both routes.
 
 Reads require `feedback.read`; writes require `feedback.manage`. Fields and lifecycle are documented in [MCP.md](MCP.md#orchestrator-feedback-workflow).
 

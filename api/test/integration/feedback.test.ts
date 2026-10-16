@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import Fastify from 'fastify';
 import fp from 'fastify-plugin';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { feedbackItems, feedbackEvents, versions } from '../../src/db/schema.js';
+import { adminEvents, feedbackItems, feedbackEvents, versions } from '../../src/db/schema.js';
 import { splitSqlStatements } from '../../src/db/migration-sql.js';
 import { FeedbackService } from '../../src/services/feedback.js';
 import { McpToolsRegistry, type ToolDeps } from '../../src/services/mcp-tools.js';
@@ -248,6 +248,81 @@ describe.skipIf(!handle)('central feedback with real MySQL', () => {
     expect(published).not.toHaveBeenCalled();
   });
 
+  async function close(id: string, status: 'resolved' | 'dismissed' | 'duplicate', extra: Record<string, unknown> = {}) {
+    const current = (await service.get(id, admin)).feedback;
+    const outcome = status === 'resolved' ? { resolution: 'r', fix_ref: 'commit:x', verification: 'v' } : status === 'dismissed' ? { reason: 'noise' } : {};
+    return (await service.update({ id, expected_version: current.version, status, ...outcome, ...extra }, admin)).feedback;
+  }
+  const exists = async (id: string) => (await db.select({ id: feedbackItems.id }).from(feedbackItems).where(eq(feedbackItems.id, id))).length > 0;
+  const eventCount = async (id: string) => (await db.select({ id: feedbackEvents.id }).from(feedbackEvents).where(eq(feedbackEvents.feedbackId, id))).length;
+
+  it('deletes only closed items, with history and duplicates, and audits in the same transaction', async () => {
+    const open = await submit();
+    const blocked = await submit();
+    await service.update({ id: blocked.id, expected_version: 1, status: 'blocked', reason: 'waiting' }, admin);
+    const claimed = await submit();
+    await acquire(claimed.id);
+    for (const row of [open, blocked, claimed]) {
+      await expect(service.remove(row.id, admin)).rejects.toMatchObject({ status: 409 });
+      expect(await exists(row.id)).toBe(true);
+    }
+    await expect(service.remove(open.id, actor)).rejects.toThrow('administrators');
+
+    const canonical = await submit();
+    const dup = await submit();
+    await close(dup.id, 'duplicate', { duplicate_of: canonical.id });
+    await close(canonical.id, 'resolved');
+    const published = vi.spyOn(wsPublisher, 'publish');
+    const result = await service.remove(canonical.id, admin);
+    expect(result).toMatchObject({ deleted: 2, cascaded_duplicates: 1, by_status: { resolved: 1, duplicate: 1 } });
+    expect(result.events).toBeGreaterThanOrEqual(4);
+    for (const id of [canonical.id, dup.id]) { expect(await exists(id)).toBe(false); expect(await eventCount(id)).toBe(0); }
+    expect(published).toHaveBeenCalledWith('feedback.changed', { id: canonical.id });
+    const [audit] = await db.select().from(adminEvents).where(eq(adminEvents.type, 'feedback.deleted')).orderBy(sql`id DESC`).limit(1);
+    expect(audit!.payload).toMatchObject({ id: canonical.id, deleted: 2, admin_user_id: 1 });
+    await expect(service.remove(canonical.id, admin)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('rolls back a delete when the audit insert fails', async () => {
+    const row = await submit();
+    await close(row.id, 'dismissed');
+    const spy = vi.spyOn(service as unknown as { purgeRows: (...a: unknown[]) => Promise<unknown> }, 'purgeRows');
+    spy.mockImplementationOnce(async (tx: unknown) => {
+      await (tx as typeof db).delete(feedbackEvents).where(eq(feedbackEvents.feedbackId, row.id));
+      throw new Error('audit unavailable');
+    });
+    await expect(service.remove(row.id, admin)).rejects.toThrow('audit unavailable');
+    expect(await eventCount(row.id)).toBeGreaterThan(0);
+  });
+
+  it('purges by closed status and age, cascading duplicates of purged canonicals', async () => {
+    const oldResolved = await submit();
+    const newResolved = await submit();
+    const dismissed = await submit();
+    const stillOpen = await submit();
+    const dupOfOld = await submit();
+    await close(dupOfOld.id, 'duplicate', { duplicate_of: oldResolved.id });
+    await close(oldResolved.id, 'resolved');
+    await close(newResolved.id, 'resolved');
+    await close(dismissed.id, 'dismissed');
+    await db.update(feedbackItems).set({ updatedAt: '2001-01-01T00:00:00.000Z' }).where(eq(feedbackItems.id, oldResolved.id));
+    await expect(service.purge({ statuses: ['open'] }, admin)).rejects.toMatchObject({ status: 422 });
+    await expect(service.purge({ statuses: [] }, admin)).rejects.toMatchObject({ status: 422 });
+    await expect(service.purge({ statuses: ['resolved'] }, actor)).rejects.toThrow('administrators');
+    const aged = await service.purge({ statuses: ['resolved'], older_than: '2002-01-01T00:00:00Z' }, admin);
+    expect(aged.ids.sort()).toEqual([oldResolved.id, dupOfOld.id].sort());
+    expect(aged).toMatchObject({ deleted: 2, cascaded_duplicates: 1 });
+    expect(await exists(newResolved.id)).toBe(true);
+    // Keep the purge scoped to this test's rows: other closed fixtures may share the database.
+    await db.update(feedbackItems).set({ updatedAt: '2001-06-01T00:00:00.000Z' }).where(inArray(feedbackItems.id, [newResolved.id, dismissed.id, stillOpen.id]));
+    const rest = await service.purge({ statuses: ['resolved', 'dismissed'], older_than: '2001-12-31T00:00:00Z' }, admin);
+    expect(rest.ids).not.toContain(stillOpen.id);
+    expect(await exists(stillOpen.id)).toBe(true);
+    const [audit] = await db.select().from(adminEvents).where(eq(adminEvents.type, 'feedback.purged')).orderBy(sql`id DESC`).limit(1);
+    expect(rest.ids.sort()).toEqual([newResolved.id, dismissed.id].sort());
+    expect(audit!.payload).toMatchObject({ statuses: ['resolved', 'dismissed'], older_than: '2001-12-31T00:00:00.000Z' });
+  });
+
   it.each(['codex', 'claude', 'grok'] as const)('%s: MCP discovery/calls follow the switch in the same registry', async (engine) => {
     const registry = new McpToolsRegistry({ feedback: service } as unknown as ToolDeps);
     const host = { id: 700 } as Host;
@@ -288,6 +363,16 @@ describe.skipIf(!handle)('central feedback with real MySQL', () => {
       ids.push(created.json().feedback.id);
       const read = await app.inject({ url: `/admin/feedback/${ids.at(-1)}`, headers: { 'x-role': 'viewer' } });
       expect(read.json().feedback.report.description).toContain('wrapper error');
+      const target = ids.at(-1)!;
+      expect((await app.inject({ method: 'DELETE', url: `/admin/feedback/${target}`, headers: { 'x-role': 'viewer' } })).statusCode).toBe(403);
+      expect((await app.inject({ method: 'POST', url: '/admin/feedback/purge', headers: { 'x-role': 'viewer' }, payload: { statuses: ['resolved'] } })).statusCode).toBe(403);
+      expect((await app.inject({ method: 'DELETE', url: `/admin/feedback/${target}`, headers: { 'x-role': 'fleet_operator' } })).statusCode).toBe(409);
+      await close(target, 'dismissed');
+      const removed = await app.inject({ method: 'DELETE', url: `/admin/feedback/${target}`, headers: { 'x-role': 'fleet_operator' } });
+      expect(removed.statusCode).toBe(200);
+      expect(removed.json()).toMatchObject({ deleted: 1, ids: [target] });
+      const purged = await app.inject({ method: 'POST', url: '/admin/feedback/purge', headers: { 'x-role': 'fleet_operator' }, payload: { statuses: ['dismissed'], older_than: '2001-01-01T00:00:00Z' } });
+      expect(purged.statusCode).toBe(200);
     } finally { await app.close(); }
   });
 });
