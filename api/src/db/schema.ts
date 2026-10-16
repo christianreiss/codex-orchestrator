@@ -1974,6 +1974,8 @@ export const gitWorktrees = mysqlTable(
     agentBusAddressId: char('agent_bus_address_id', { length: 36 }),
     branch: varchar('branch', { length: 255 }),
     headSha: varchar('head_sha', { length: 64 }),
+    /** When the agent last reported head_sha; the Director never reads a worktree. */
+    headObservedAt: varchar('head_observed_at', { length: 100 }),
     task: text('task'),
     declaredPaths: json('declared_paths'),
     targetBranch: varchar('target_branch', { length: 255 }),
