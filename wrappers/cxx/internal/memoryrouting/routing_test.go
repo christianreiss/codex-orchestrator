@@ -231,20 +231,42 @@ func TestClaudeRepoSubdirectoryAndWorktreeShareNativeRoot(t *testing.T) {
 	if err != nil || dir != filepath.Join(home, "projects", claudeProjectKey(repo), "memory") {
 		t.Fatalf("native worktree root = %s, %v", dir, err)
 	}
-	// A path selector in this worktree must win over a different main checkout.
-	write(t, filepath.Join(repo, ".claude", "settings.local.json"), []byte(`{"autoMemoryDirectory":"/wrong-checkout"}`))
+	// Local consent settings belong to the canonical checkout, while project
+	// settings come from cwd with no fallback to the active worktree root.
+	write(t, filepath.Join(worktree, ".claude", "settings.local.json"), []byte(`{"autoMemoryDirectory":"/wrong-checkout"}`))
 	selected := filepath.Join(root, "worktree-memory")
 	settings, _ := json.Marshal(map[string]string{"autoMemoryDirectory": selected})
-	write(t, filepath.Join(worktree, ".claude", "settings.local.json"), settings)
+	write(t, filepath.Join(repo, ".claude", "settings.local.json"), settings)
 	trust, _ := json.Marshal(map[string]any{"projects": map[string]any{worktree: map[string]bool{"hasTrustDialogAccepted": true}}})
 	write(t, filepath.Join(root, ".claude.json"), trust)
 	dir, err = claudeMemoryDir(home, nil)
 	if err != nil || dir != selected {
-		t.Fatalf("active worktree settings missed: %s %v", dir, err)
+		t.Fatalf("canonical local settings missed: %s %v", dir, err)
 	}
 	dir, err = claudeMemoryDir(home, []string{"--setting-sources", "user"})
 	if err != nil || dir != filepath.Join(home, "projects", claudeProjectKey(repo), "memory") {
 		t.Fatalf("excluded local settings applied: %s %v", dir, err)
+	}
+	project := filepath.Join(root, "cwd-project-memory")
+	settings, _ = json.Marshal(map[string]string{"autoMemoryDirectory": project})
+	write(t, filepath.Join(sub, ".claude", "settings.json"), settings)
+	dir, err = claudeMemoryDir(home, []string{"--setting-sources", "project"})
+	if err != nil || dir != project {
+		t.Fatalf("cwd project settings missed: %s %v", dir, err)
+	}
+	legacy := filepath.Join(root, "cwd-legacy-memory")
+	settings, _ = json.Marshal(map[string]string{"autoMemoryDirectory": legacy})
+	write(t, filepath.Join(sub, ".claude", "settings.local.json"), settings)
+	dir, err = claudeMemoryDir(home, nil)
+	if err != nil || dir != selected {
+		t.Fatalf("legacy settings overrode canonical local settings: %s %v", dir, err)
+	}
+	if err := os.Remove(filepath.Join(repo, ".claude", "settings.local.json")); err != nil {
+		t.Fatal(err)
+	}
+	dir, err = claudeMemoryDir(home, nil)
+	if err != nil || dir != legacy {
+		t.Fatalf("legacy cwd settings compatibility lost: %s %v", dir, err)
 	}
 }
 
@@ -257,6 +279,100 @@ func TestClaudeUntrustedRepoCannotRedirectMemory(t *testing.T) {
 	dir, err := claudeMemoryDir(home, nil)
 	if err != nil || dir != filepath.Join(root, "safe") {
 		t.Fatalf("untrusted selector applied: %s, %v", dir, err)
+	}
+}
+
+func TestClaudeReadBoundarySkipsRepositorySelectedMemoryAndPreservesNotes(t *testing.T) {
+	root := t.TempDir()
+	chdir(t, root)
+	home := filepath.Join(root, ".claude")
+	t.Setenv("CLAUDE_CODE_MANAGED_SETTINGS_PATH", filepath.Join(root, "policy.json"))
+	// Put the selected directory in the legacy scan too: skipping only the
+	// current target must not recreate the pointer through project discovery.
+	selected := filepath.Join(home, "projects", "selected", "memory")
+	path := filepath.Join(selected, "MEMORY.md")
+	notes := []byte("existing local notes\r\n")
+	write(t, path, notes)
+	settings, _ := json.Marshal(map[string]any{"autoMemoryDirectory": selected})
+	write(t, filepath.Join(root, ".claude", "settings.json"), settings)
+	trust, _ := json.Marshal(map[string]any{"projects": map[string]any{root: map[string]bool{"hasTrustDialogAccepted": true}}})
+	write(t, filepath.Join(root, ".claude.json"), trust)
+	bundle := &Bundle{Enabled: true, Content: "shared_memory_search central memory"}
+	if _, err := Apply("claude", home, bundle, nil); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(root, "policy.json"), []byte(`{"permissions":{"blockReadsOutsideWorkingDirectories":true}}`))
+	if _, err := Apply("claude", home, bundle, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(read(t, path), notes) {
+		t.Fatal("blocked repository memory retained pointer or lost local notes")
+	}
+	if changed, err := Apply("claude", home, bundle, nil); changed || err != nil {
+		t.Fatalf("blocked target was rediscovered: %v, %v", changed, err)
+	}
+	if dir, err := claudeMemoryDir(home, []string{"--settings", `{"permissions":{"blockReadsOutsideWorkingDirectories":false}}`}); err != nil || dir != "" {
+		t.Fatalf("CLI false relaxed existing restriction: %s, %v", dir, err)
+	}
+	// An explicit operator-selected CLI directory still works with the read
+	// boundary, as does a policy-selected directory.
+	for _, source := range []string{"cli", "policy"} {
+		t.Run(source, func(t *testing.T) {
+			var args []string
+			if source == "cli" {
+				args = []string{"--settings", string(settings)}
+			} else {
+				policy, _ := json.Marshal(map[string]any{"autoMemoryDirectory": selected, "permissions": map[string]bool{"blockReadsOutsideWorkingDirectories": true}})
+				write(t, filepath.Join(root, "policy.json"), policy)
+			}
+			if _, err := Apply("claude", home, bundle, args); err != nil {
+				t.Fatal(err)
+			}
+			if body := read(t, path); !bytes.HasSuffix(body, notes) || !bytes.Contains(body, []byte(Start)) {
+				t.Fatalf("trusted override missing or notes lost: %q", body)
+			}
+		})
+	}
+}
+
+func TestClaudeReadBoundaryDistinguishesUserLocalFromTrackedSettings(t *testing.T) {
+	root := t.TempDir()
+	chdir(t, root)
+	home := filepath.Join(t.TempDir(), ".claude")
+	t.Setenv("CLAUDE_CODE_MANAGED_SETTINGS_PATH", filepath.Join(root, "policy.json"))
+	write(t, filepath.Join(root, "policy.json"), []byte(`{"permissions":{"blockReadsOutsideWorkingDirectories":true}}`))
+	write(t, filepath.Join(root, ".claude", "settings.local.json"), []byte(`{"autoMemoryDirectory":"/user-owned-memory"}`))
+	trust, _ := json.Marshal(map[string]any{"projects": map[string]any{root: map[string]bool{"hasTrustDialogAccepted": true}}})
+	write(t, filepath.Join(filepath.Dir(home), ".claude.json"), trust)
+	for _, args := range [][]string{{"init", "-q", root}, {"-C", root, "add", "-f", ".claude/settings.local.json"}} {
+		if args[2] == "add" {
+			if dir, err := claudeMemoryDir(home, nil); err != nil || dir != "/user-owned-memory" {
+				t.Fatalf("untracked user local memory blocked: %s, %v", dir, err)
+			}
+		}
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git: %s %v", out, err)
+		}
+	}
+	if dir, err := claudeMemoryDir(home, nil); err != nil || dir != "" {
+		t.Fatalf("tracked repository local memory allowed: %s, %v", dir, err)
+	}
+}
+
+func TestClaudeLiteralPromptCannotSelectMemorySettings(t *testing.T) {
+	root := t.TempDir()
+	chdir(t, root)
+	home := filepath.Join(root, ".claude")
+	t.Setenv("CLAUDE_CODE_MANAGED_SETTINGS_PATH", filepath.Join(root, "absent-policy.json"))
+	write(t, filepath.Join(home, "settings.json"), []byte(`{"autoMemoryDirectory":"~/safe"}`))
+	for _, args := range [][]string{
+		{"--", "--settings", `{"autoMemoryDirectory":"/wrong"}`},
+		{"--", "--setting-sources="},
+	} {
+		dir, err := claudeMemoryDir(home, args)
+		if err != nil || dir != filepath.Join(root, "safe") {
+			t.Fatalf("literal prompt changed memory target: %s, %v", dir, err)
+		}
 	}
 }
 

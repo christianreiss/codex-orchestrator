@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf16"
 )
@@ -44,15 +45,18 @@ func targets(engine, home string, enabled bool, args []string) ([]string, error)
 		add(filepath.Join(home, "memories", "MEMORY.md"))
 		add(filepath.Join(home, "memories", "memory_summary.md"))
 	case "claude":
-		if err := scan(filepath.Join(home, "projects"), "memory", "MEMORY.md"); err != nil {
-			return nil, err
-		}
 		if enabled {
 			dir, err := claudeMemoryDir(home, args)
 			if err != nil {
 				return nil, err
 			}
+			if dir == "" {
+				break
+			}
 			add(filepath.Join(dir, "MEMORY.md"))
+		}
+		if err := scan(filepath.Join(home, "projects"), "memory", "MEMORY.md"); err != nil {
+			return nil, err
 		}
 	case "grok":
 		add(filepath.Join(home, "memory", "MEMORY.md"))
@@ -74,7 +78,8 @@ func targets(engine, home string, enabled bool, args []string) ([]string, error)
 	return out, nil
 }
 
-// Memory is shared across worktrees; repository settings belong to the active one.
+// Memory and local consent settings share the canonical repository root;
+// project settings belong to the session's working directory.
 func projectRoots(cwd string) (memoryRoot, workspaceRoot string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -128,26 +133,53 @@ func claudeMemoryDir(home string, args []string) (string, error) {
 	}
 	root, workspace := projectRoots(cwd)
 	userHome := filepath.Dir(home)
+	// The lifecycle filters native option values before passing selectors here.
+	// Also honor the literal separator for direct callers.
+	var settingsArgs []string
 	// --setting-sources can intentionally omit native user/project/local settings.
 	sources := map[string]bool{"user": true, "project": true, "local": true}
 	for i := 0; i < len(args); i++ {
-		var value string
-		found := false
-		if args[i] == "--setting-sources" && i+1 < len(args) {
-			i++
-			value, found = args[i], true
-		} else if strings.HasPrefix(args[i], "--setting-sources=") {
-			value, found = strings.TrimPrefix(args[i], "--setting-sources="), true
+		if args[i] == "--" {
+			break
 		}
-		if found {
+		name, value, inline := strings.Cut(args[i], "=")
+		if (name == "--settings" || name == "--setting-sources") && !inline && i+1 < len(args) && args[i+1] != "--" {
+			i++
+			value, inline = args[i], true
+		}
+		if name == "--setting-sources" && inline {
 			sources = map[string]bool{}
 			for _, source := range strings.Split(value, ",") {
 				sources[strings.TrimSpace(source)] = true
 			}
+		} else if name == "--settings" && value != "" {
+			settingsArgs = append(settingsArgs, value)
 		}
 	}
 	var selected string
-	readSettings := func(path string) error {
+	var repositorySelected bool
+	readRestrictions := map[string]bool{}
+	applySettings := func(raw []byte, repository bool, source string) error {
+		var settings struct {
+			Directory   *string `json:"autoMemoryDirectory"`
+			Permissions struct {
+				BlockReads *bool `json:"blockReadsOutsideWorkingDirectories"`
+			} `json:"permissions"`
+		}
+		if err := json.Unmarshal(raw, &settings); err != nil {
+			return err
+		}
+		if settings.Directory != nil {
+			selected, repositorySelected = *settings.Directory, repository
+		}
+		if settings.Permissions.BlockReads != nil {
+			// Native Claude treats this as a restriction: true in any enabled
+			// scope wins, including over a later false value.
+			readRestrictions[source] = *settings.Permissions.BlockReads
+		}
+		return nil
+	}
+	readSettings := func(path string, repository bool, source string) error {
 		raw, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
 			return nil
@@ -155,62 +187,60 @@ func claudeMemoryDir(home string, args []string) (string, error) {
 		if err != nil {
 			return err
 		}
-		var settings struct {
-			Directory *string `json:"autoMemoryDirectory"`
-		}
-		if err := json.Unmarshal(raw, &settings); err != nil {
+		if err := applySettings(raw, repository, source); err != nil {
 			return fmt.Errorf("read memory settings %s: %w", path, err)
-		}
-		if settings.Directory != nil {
-			selected = *settings.Directory
 		}
 		return nil
 	}
 	if sources["user"] {
-		if err := readSettings(filepath.Join(home, "settings.json")); err != nil {
+		if err := readSettings(filepath.Join(home, "settings.json"), false, "user"); err != nil {
 			return "", err
 		}
 	}
 	// Only consume repository path selectors after native workspace trust.
 	var trust struct {
 		Projects map[string]struct {
-			Accepted bool `json:"hasTrustDialogAccepted"`
+			Accepted     bool `json:"hasTrustDialogAccepted"`
+			LocalTracked bool `json:"localSettingsSeenGitTracked"`
 		} `json:"projects"`
 	}
 	if raw, err := os.ReadFile(filepath.Join(userHome, ".claude.json")); err == nil {
 		_ = json.Unmarshal(raw, &trust)
 	}
 	if trust.Projects[workspace].Accepted || trust.Projects[root].Accepted || trust.Projects[cwd].Accepted {
-		for _, entry := range []struct{ source, name string }{{"project", "settings.json"}, {"local", "settings.local.json"}} {
+		localRoot := claudeLocalSettingsRoot(cwd, root, userHome)
+		localRepository := trust.Projects[root].LocalTracked || trust.Projects[workspace].LocalTracked || trust.Projects[cwd].LocalTracked
+		localRepository = localRepository || claudeLocalSettingsInRepository(cwd)
+		if localRoot != cwd {
+			localRepository = localRepository || claudeLocalSettingsInRepository(localRoot)
+		}
+		type settingsFile struct {
+			source, path string
+			repository   bool
+		}
+		entries := []settingsFile{
+			{"project", filepath.Join(cwd, ".claude", "settings.json"), true},
+		}
+		// Native keeps older cwd-local settings below the canonical consent
+		// store, so existing subdirectory/worktree preferences still apply.
+		if localRoot != cwd {
+			entries = append(entries, settingsFile{"local", filepath.Join(cwd, ".claude", "settings.local.json"), localRepository})
+		}
+		entries = append(entries, settingsFile{"local", filepath.Join(localRoot, ".claude", "settings.local.json"), localRepository})
+		for _, entry := range entries {
 			if sources[entry.source] {
-				if err := readSettings(filepath.Join(workspace, ".claude", entry.name)); err != nil {
+				if err := readSettings(entry.path, entry.repository, entry.source); err != nil {
 					return "", err
 				}
 			}
 		}
 	}
-	for i := 0; i < len(args); i++ {
-		var value string
-		if args[i] == "--settings" && i+1 < len(args) {
-			i++
-			value = args[i]
-		} else if strings.HasPrefix(args[i], "--settings=") {
-			value = strings.TrimPrefix(args[i], "--settings=")
-		}
-		if value == "" {
-			continue
-		}
+	for _, value := range settingsArgs {
 		if strings.HasPrefix(strings.TrimSpace(value), "{") {
-			var settings struct {
-				Directory *string `json:"autoMemoryDirectory"`
-			}
-			if err := json.Unmarshal([]byte(value), &settings); err != nil {
+			if err := applySettings([]byte(value), false, "flag"); err != nil {
 				return "", errors.New("invalid --settings JSON for memory routing")
 			}
-			if settings.Directory != nil {
-				selected = *settings.Directory
-			}
-		} else if err := readSettings(value); err != nil {
+		} else if err := readSettings(value, false, "flag"); err != nil {
 			return "", err
 		}
 	}
@@ -221,8 +251,17 @@ func claudeMemoryDir(home string, args []string) (string, error) {
 			policy = "/Library/Application Support/ClaudeCode/managed-settings.json"
 		}
 	}
-	if err := readSettings(policy); err != nil {
+	if err := readSettings(policy, false, "policy"); err != nil {
 		return "", err
+	}
+	// Native Claude disables memory selected by repository settings while this
+	// read boundary is active, even when the directory is inside the workspace.
+	if repositorySelected {
+		for _, restricted := range readRestrictions {
+			if restricted {
+				return "", nil
+			}
+		}
 	}
 	if strings.HasPrefix(selected, "~/") {
 		selected = filepath.Join(userHome, strings.TrimPrefix(selected, "~/"))
@@ -236,4 +275,58 @@ func claudeMemoryDir(home string, args []string) (string, error) {
 	// The managed wrapper removes CLAUDE_CONFIG_DIR before launching Claude;
 	// CLAUDE_CODE_PROJECT_DIR_NAME only applies together with that variable.
 	return filepath.Join(home, "projects", claudeProjectKey(root), "memory"), nil
+}
+
+// Claude canonicalizes local consent only on POSIX repositories owned by the
+// current user, and never into the home directory's repository (2.1.301).
+func claudeLocalSettingsRoot(cwd, root, userHome string) string {
+	if runtime.GOOS == "windows" || root == userHome {
+		return cwd
+	}
+	for _, name := range []string{"", ".git", ".claude"} {
+		info, err := os.Lstat(filepath.Join(root, name))
+		if os.IsNotExist(err) && name == ".claude" {
+			continue
+		}
+		if err != nil {
+			return cwd
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || stat.Uid != uint32(os.Geteuid()) {
+			return cwd
+		}
+	}
+	return root
+}
+
+// An untracked local file is operator-owned. A linked .claude directory or a
+// tracked local file is repository-supplied and subject to the read boundary.
+func claudeLocalSettingsInRepository(dir string) bool {
+	// No path selector can come from an absent local file. Avoid starting Git
+	// during the common launch with no local settings at either location.
+	if _, err := os.Lstat(filepath.Join(dir, ".claude", "settings.local.json")); os.IsNotExist(err) {
+		return false
+	}
+	for _, path := range []string{filepath.Join(dir, ".claude"), filepath.Join(dir, ".claude", "settings.local.json")} {
+		if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(dir, ".claude", ".git")); err == nil {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "ls-files", "--error-unmatch", "--", ":(icase).claude/settings.local.json")
+	cmd.Env = append(os.Environ(), "GIT_LITERAL_PATHSPECS=")
+	err := cmd.Run()
+	if err == nil {
+		return true
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return false
+	}
+	// Unknown provenance must not bypass the native restriction.
+	return true
 }
