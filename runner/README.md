@@ -21,13 +21,15 @@ docker build -t codex-auth-runner -f runner/Dockerfile .
 
 The image bundles:
 
-- Grok Build 1.0.50 from the official `@xai-official/grok-linux-{x64,arm64}` native package, installed by `install-grok.mjs` using Node's built-in Brotli decoder.
+- Grok Build 1.0.60 from the official `@xai-official/grok-linux-{x64,arm64}` native package, installed by `install-grok.mjs` using Node's built-in Brotli decoder.
 
-- The Codex CLI (default `rust-v0.162.1`, musl builds; see `CODEX_TAG` in `runner/Dockerfile`). The pin has to stay in step with the fleet's codex target so probes and gateway requests run the same model catalog as real hosts. Confirmed on 2026-10-15: 0.154.0 rejects `gpt-6.1-sol` with ChatGPT credentials; 0.162.1 completes the same prompt with the same refresh-stripped credentials. Override via build args `CODEX_TAG`, `CODEX_VERSION`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`, `CODEX_SHA256_AMD64`, `CODEX_SHA256_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
-- Node.js 22.14.0 plus `@anthropic-ai/claude-code@2.1.296` (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
+- The Codex CLI (default `rust-v0.163.0`, musl builds; see `CODEX_TAG` in `runner/Dockerfile`). The pin has to stay in step with the fleet's codex target so probes and gateway requests run the same model catalog as real hosts. Confirmed on 2026-10-15: 0.154.0 rejects `gpt-6.1-sol` with ChatGPT credentials; 0.162.1 completes the same prompt with the same refresh-stripped credentials. Override via build args `CODEX_TAG`, `CODEX_VERSION`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`, `CODEX_SHA256_AMD64`, `CODEX_SHA256_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
+- Node.js 22.14.0 plus `@anthropic-ai/claude-code@2.1.301` (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
 
-Codex and Node archives are checked against pinned SHA256 digests. The official Grok native package is pinned to 1.0.50 with separate Linux amd64/arm64 sha512 integrity digests, verified against the exact
-platform dependencies of `@xai-official/grok@1.0.50` on 2026-10-12, and only `package/bin/grok.br` is decoded; npm lifecycle scripts are never run. All three CLIs must report the expected version after installation; a missing, unreadable, or mismatched binary fails the build. There is no `|| true`. The base image is pinned by multi-arch index digest — `scripts/update-base-images.sh` refreshes that pin and the Node/Codex checksums together.
+Codex and Node archives are checked against pinned SHA256 digests. The official Grok native package is pinned to 1.0.60 with separate Linux amd64/arm64 sha512 integrity digests, verified against the exact
+platform dependencies of `@xai-official/grok@1.0.60` on 2026-10-16, and only `package/bin/grok.br` is decoded; npm lifecycle scripts are never run. All three CLIs must report the expected version after installation; a missing, unreadable, or mismatched binary fails the build. There is no `|| true`. The base image is pinned by multi-arch index digest — `scripts/update-base-images.sh` refreshes that pin and the Node/Codex checksums together.
+
+These are runner execution pins, separate from host minimum-version and private-install fallback policies. Claude 2.1.301 tracks the latest normal release reviewed on 2026-10-16; the vendor conservative `stable` channel remains 2.1.292. Codex 0.163.0 and Grok 1.0.60 are their reviewed stable releases.
 
 The image records what it installed in `RUNNER_CODEX_VERSION`, `RUNNER_CLAUDE_VERSION`, and `RUNNER_GROK_VERSION`, and names the engines it must have in `RUNNER_REQUIRED_ENGINES` (`codex,claude,grok`). `entrypoint.sh` and `app.py` both refuse to start when one of those is absent or has drifted, so a runner can never advertise an engine it cannot actually run.
 
@@ -90,16 +92,24 @@ Returns what the image actually carries, probed once at import:
     "codex": {
       "available": true,
       "binary": "/usr/local/bin/codex",
-      "version": "0.162.1",
-      "expected_version": "0.162.1",
+      "version": "0.163.0",
+      "expected_version": "0.163.0",
       "version_matches": true,
       "detail": "ready"
     },
     "claude": {
       "available": true,
       "binary": "/usr/local/bin/claude",
-      "version": "2.1.296",
-      "expected_version": "2.1.296",
+      "version": "2.1.301",
+      "expected_version": "2.1.301",
+      "version_matches": true,
+      "detail": "ready"
+    },
+    "grok": {
+      "available": true,
+      "binary": "/usr/local/bin/grok",
+      "version": "1.0.60",
+      "expected_version": "1.0.60",
       "version_matches": true,
       "detail": "ready"
     }

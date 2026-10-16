@@ -45,6 +45,7 @@ CLAIMED_BUILD_ARGS_RE = re.compile(r"Override via build args ([^.]*)\.")
 CLAIMED_ARCHES_RE = re.compile(r"Supported `TARGETARCH` values are ([^.]*)\.")
 CLAIMED_NODE_VERSION_RE = re.compile(r"Node\.js (\d+(?:\.\d+)+)")
 CLAIMED_CLAUDE_VERSION_RE = re.compile(r"`@anthropic-ai/claude-code@([^`]+)`")
+CLAIMED_GROK_VERSION_RE = re.compile(r"Grok Build (\d+(?:\.\d+)+)")
 CLAIMED_HOME_PARENT_RE = re.compile(
     r"`RUNNER_HOME_PARENT`[^.\n]*?"
     r"the bundled image (?:sets it to|defaults this to) `([^`]+)`"
@@ -158,6 +159,7 @@ class RunnerDockerfileClaimsTest(unittest.TestCase):
             ("the supported architectures", CLAIMED_ARCHES_RE.findall(BUILD)),
             ("the Node version", CLAIMED_NODE_VERSION_RE.findall(BUILD)),
             ("the Claude Code pin", CLAIMED_CLAUDE_VERSION_RE.findall(BUILD)),
+            ("the Grok Build pin", CLAIMED_GROK_VERSION_RE.findall(BUILD)),
             ("RUNNER_HOME_PARENT", CLAIMED_HOME_PARENT_RE.findall(ENVIRONMENT)),
         ):
             with self.subTest(claim=claim):
@@ -234,6 +236,11 @@ class RunnerDockerfileClaimsTest(unittest.TestCase):
             f"{', '.join(claimed)}, but runner/Dockerfile declares "
             f"ARG CLAUDE_CODE_VERSION={declared}",
         )
+
+    def test_claimed_grok_version_is_the_grok_version_arg(self):
+        claimed = CLAIMED_GROK_VERSION_RE.findall(BUILD)
+        self.assertNotEqual([], claimed)
+        self.assertEqual([ARGS["GROK_VERSION"]] * len(claimed), claimed)
 
 
 class RunnerDockerfileFailsClosedTest(unittest.TestCase):
