@@ -604,6 +604,7 @@ export class GitDirectorService {
           agentBusAddressId: address?.id ?? null,
           branch,
           headSha,
+          headObservedAt: headSha ? now : null,
           task: null,
           declaredPaths: null,
           targetBranch: null,
@@ -649,6 +650,7 @@ export class GitDirectorService {
           agentBusAddressId: address?.id ?? null,
           branch,
           headSha,
+          headObservedAt: headSha ? now : null,
           worktreePath,
           status: 'active',
           heartbeatAt: now,
@@ -724,6 +726,12 @@ export class GitDirectorService {
     const scopeRaw = String(args.scope ?? 'host').trim().toLowerCase();
     const scope = scopeRaw === 'fleet' || scopeRaw === 'clone' ? scopeRaw : 'host';
     const worktreePath = optionalString(args, 'worktree_path');
+    // The Director never reads a worktree, so the HEAD it lists is only ever
+    // what the agent last said. A heartbeat may carry a fresh report; without
+    // one the stored head_sha and its head_observed_at stay exactly as they were
+    // rather than being silently re-stamped as if re-observed.
+    const reportedHead = optionalString(args, 'head_sha', 64);
+    const reportedBranch = optionalString(args, 'branch', 255);
 
     // Watching counts as working. An agent that polls git_list to see whether a
     // peer has appeared is plainly still alive, and reaping it for "going quiet"
@@ -736,7 +744,17 @@ export class GitDirectorService {
       const normalized = normalizePath(worktreePath);
       try {
         await this.deps.db.transaction(async (tx) => {
-          await this.requireWorktree(tx, host, normalized, now);
+          const { worktree } = await this.requireWorktree(tx, host, normalized, now);
+          if (reportedHead || reportedBranch) {
+            await tx
+              .update(gitWorktrees)
+              .set({
+                ...(reportedHead ? { headSha: reportedHead, headObservedAt: now } : {}),
+                ...(reportedBranch ? { branch: reportedBranch } : {}),
+                updatedAt: now,
+              })
+              .where(eq(gitWorktrees.id, worktree.id));
+          }
         });
       } catch (error) {
         if (error instanceof ConflictError && error.code === 'git_director_worktree_ambiguous') throw error;
@@ -1608,7 +1626,9 @@ export class GitDirectorService {
       username: row.username,
       engine: row.engine,
       branch: row.branch,
+      // Agent-reported at git_register or a git_list refresh, never a live read.
       head_sha: row.headSha,
+      head_observed_at: row.headObservedAt ?? null,
       task: row.task,
       declared_paths: readPaths(row.declaredPaths),
       target_branch: row.targetBranch,

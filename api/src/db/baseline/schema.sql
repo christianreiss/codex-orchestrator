@@ -927,6 +927,7 @@ CREATE TABLE `git_worktrees` (
 	`agent_bus_address_id` char(36),
 	`branch` varchar(255),
 	`head_sha` varchar(64),
+	`head_observed_at` varchar(100),
 	`task` text,
 	`declared_paths` json,
 	`target_branch` varchar(255),

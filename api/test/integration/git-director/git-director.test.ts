@@ -37,7 +37,7 @@ import type { Host } from '../../../src/db/schema.js';
  * the path that must keep working when inference is unreachable.
  */
 
-const MIGRATIONS = ['0025_add_git_director.sql'].map((f) =>
+const MIGRATIONS = ['0025_add_git_director.sql', '0073_git_worktree_head_observed_at.sql'].map((f) =>
   join(dirname(fileURLToPath(import.meta.url)), '../../../src/db/migrations/', f),
 );
 
@@ -553,6 +553,62 @@ describe.skipIf(!handle)('git director against a real database', () => {
         unknown
       >;
       expect(listed['scope']).toBe('host');
+    });
+
+    describe('reported HEAD is a labelled snapshot, never a live read', () => {
+      const listedSelf = async (args: Record<string, unknown>) => {
+        const listed = (await svc.list({ scope: 'clone', worktree_path: MAIN_WT, ...args }, host)) as Record<
+          string,
+          unknown
+        >;
+        const clone = (listed['clones'] as Array<Record<string, unknown>>)[0]!;
+        return (clone['worktrees'] as Array<Record<string, unknown>>).find((w) => w['worktree_path'] === MAIN_WT)!;
+      };
+      const PAST = '2026-01-01T00:00:00Z';
+
+      it('stamps head_observed_at when git_register reports a head', async () => {
+        await register(MAIN_WT, { head_sha: 'aaaa1111' });
+        const self = await listedSelf({});
+        expect(self['head_sha']).toBe('aaaa1111');
+        expect(typeof self['head_observed_at']).toBe('string');
+      });
+
+      it('leaves head_sha and head_observed_at alone on a plain heartbeat', async () => {
+        // The reported bug: heartbeat_at advanced while head_sha silently stayed
+        // old, and nothing said it was old.
+        await register(MAIN_WT, { head_sha: 'aaaa1111' });
+        await exec(
+          `UPDATE git_worktrees SET heartbeat_at = '${PAST}', head_observed_at = '${PAST}' WHERE worktree_path = '${MAIN_WT}'`,
+        );
+        const self = await listedSelf({});
+        expect(self['head_sha']).toBe('aaaa1111');
+        expect(self['head_observed_at']).toBe(PAST);
+        expect(String(self['heartbeat_at']) > PAST).toBe(true);
+      });
+
+      it('refreshes the recorded head and branch when git_list carries them', async () => {
+        await register(MAIN_WT, { head_sha: 'aaaa1111' });
+        await exec(`UPDATE git_worktrees SET head_observed_at = '${PAST}' WHERE worktree_path = '${MAIN_WT}'`);
+        const self = await listedSelf({ head_sha: 'bbbb2222', branch: 'release' });
+        expect(self['head_sha']).toBe('bbbb2222');
+        expect(self['branch']).toBe('release');
+        expect(String(self['head_observed_at']) > PAST).toBe(true);
+
+        // Branch alone does not restamp the HEAD observation.
+        await exec(`UPDATE git_worktrees SET head_observed_at = '${PAST}' WHERE worktree_path = '${MAIN_WT}'`);
+        const branchOnly = await listedSelf({ branch: 'main' });
+        expect(branchOnly['branch']).toBe('main');
+        expect(branchOnly['head_sha']).toBe('bbbb2222');
+        expect(branchOnly['head_observed_at']).toBe(PAST);
+      });
+
+      it('ignores a reported head for an unregistered path instead of creating one', async () => {
+        await svc.list({ scope: 'host', worktree_path: '/srv/ztest-gd/never-seen', head_sha: 'cccc3333' }, host);
+        const rows = rowsOf(
+          await exec(`SELECT id FROM git_worktrees WHERE worktree_path = '/srv/ztest-gd/never-seen'`),
+        );
+        expect(rows).toHaveLength(0);
+      });
     });
 
     it('keeps a live-but-quiet agent alive: any call is proof of life', async () => {

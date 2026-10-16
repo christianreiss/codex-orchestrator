@@ -798,6 +798,15 @@ All three engine config GET/store routes share the revision contract: `revision`
   survive registration TTL, while ended or stale sessions are reclaimed on
   sweep. `git_merge_status` also refreshes an active registration before sweeping;
   an expired merge lease still requires a new request.
+  Each listed worktree's `branch` and `head_sha` are the snapshot its agent last
+  reported, never a live read; `head_observed_at` (additive, nullable) is when
+  that `head_sha` was reported. `git_register` sets both (an omitted `head_sha`
+  clears them). A `git_list` call naming a registered `worktree_path` refreshes
+  `heartbeat_at` only, unless it also carries optional `head_sha` and/or
+  `branch`, which replace the stored values (`head_sha` restamps
+  `head_observed_at`). For an unregistered path they are ignored and nothing is
+  created. Rows registered before 0073 carry `registered_at` as their
+  conservative `head_observed_at`.
   - `GET /admin/git-director/state` — `{enabled, model, clones, worktrees,
     updated_at}` for the `git_director_enabled` switch.
   - `POST /admin/git-director/state` — `{enabled}` (boolean, `0`/`1`, or
