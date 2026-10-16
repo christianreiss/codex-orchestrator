@@ -199,7 +199,7 @@ engine-specific deltas are called out in [clx](/admin/manual/clx):
    `~/.cache/codex-orchestrator/skills-digest`. A successful unchanged check is
    green, a changed digest gets the updated marker, failures warn, and an
    intentionally skipped check is dim. The combined agents/config marker uses
-   the same evidence-based states; bundled Claude-native skill application
+   the same evidence-based states; Claude native fallback Skill application or MCP-mode owned-copy cleanup
    contributes to the skills marker, not config. On the first run of a new
    wrapper version, it performs a one-shot purge of legacy on-disk skill
    directories (`~/.agents/skills`, effective `CODEX_HOME/skills`, and effective

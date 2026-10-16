@@ -1669,8 +1669,8 @@ daily usage remains visibly unavailable; no zero-use reading is invented.
 With Skills enabled, managed Skills guidance automatically invokes the shared stored
 `fleet-reflect` Skill once before each final work response or managed work-result
 delivery, including failed or blocked work. Progress messages, acknowledgements and
-result retries do not repeat the review. Codex loads it through MCP; Claude and Grok
-use their native synced Skill files. The Skill reviews observed orchestrator/tool
+result retries do not repeat the review. Codex and MCP-enabled Claude load it through MCP;
+Claude without usable MCP and Grok use their native synced Skill files. The Skill reviews observed orchestrator/tool
 experience, searches reports across statuses, appends materially new evidence or
 submits an actionable bug, feature or usability report. No finding means no report
 or extra final-response paragraph. Disabled/unavailable feedback leaves useful

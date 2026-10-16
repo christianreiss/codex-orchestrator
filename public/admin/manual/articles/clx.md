@@ -1,7 +1,7 @@
 ---
 title: clx — the Claude Code wrapper
 section: Fleet operations
-verified: 2026-09-09
+verified: 2026-10-16
 sources: wrappers/cxx, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/services/claude-artifacts.ts, api/src/services/client-config.ts, wrappers/schemas/host-config-v1.json
 ---
 
@@ -186,7 +186,12 @@ Implemented in `wrappers/cxx/internal/persona/claude/lifecycle/` as `lifecycle.R
    - Write `~/.claude/agents/<slug>.md`, `commands/<slug>.md`,
      `output-styles/<slug>.md` from `claude_artifacts` (see
      [Claude-native collections](#claude-native-collections) below).
-   - Write `~/.claude/skills/<slug>/SKILL.md` from `claude_skills`.
+   - With usable orchestrator MCP, read fleet Skill content through `skill_list`
+     and `resource_read` (`skill://<slug>` and `skill://<slug>/<path>`), or
+     `skill_retrieve`. Bootstrap sends an explicit empty `claude_skills` list
+     to retire previously fleet-owned native directories. User Skills remain.
+     Without usable MCP, install the native `claude_skills` fallback under
+     `~/.claude/skills/<slug>/`. Missing fields from older servers do not prune.
    - All writes are manifest-tracked; only manifest-recorded files are pruned
      on removal. Missing changed skill content, write failures, and prune
      failures preserve the last-good file/manifest entry for retry.
@@ -434,6 +439,23 @@ The bootstrap bundle returns `claude_settings: {sha256, partial, owned_paths}`.
   strips only fleet-owned settings, MCP servers, collections, and skills. If a
   removal fails, its ownership sidecar/manifest entry is retained so a later
   run retries it; transient `offline` status never triggers this cleanup.
+
+## Skills and memory through MCP
+
+With orchestrator MCP usable, Claude discovers fleet Skills through `skill_list`
+and reads current manifests and support files on demand. Changes become available
+on the next read. Reading instructions through MCP does not register them in
+Claude's native Skill menu or activate native frontmatter hooks, permissions,
+argument substitution, or filesystem-relative scripts. Native fallback bundles
+remain available when orchestrator MCP is disabled or unconfigured; Grok continues
+using native bundles. This choice follows the managed MCP configuration, not a
+live connection check; temporary outages do not recreate native fallback Skills.
+
+Claude can also search and read central fleet memories with `shared_memory_*`
+and project context with `project_memory_*`. Host `memory_*` is scratch. The small
+managed reminder in native `MEMORY.md` points to these stores. Claude's built-in
+auto-memory still uses files; no MCP backend switch or automatic migration of local
+notes is provided. See [Memories](/admin/manual/memories).
 
 ## Claude-native collections
 

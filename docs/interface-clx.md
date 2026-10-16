@@ -152,11 +152,11 @@ Claude settings and MCP merges preserve unreadable or non-object user files and 
 | `--dangerously-skip-permissions` | Passed straight through to the upstream `claude` binary for this run only; lights an explicit warning badge (`warning` row in `--minimal`) without misreporting the launch as failed. Not persisted — the fleet-managed `permissions.defaultMode` in `settings.json` is unaffected. A durable bypass is selected by security posture (autonomy 4 with every axis at 3+), not by `/admin/claude/config`, which posture overrides for Claude. Note that upstream refuses this flag entirely under root/sudo, so it cannot make a root session permissive |
 | `--help` / `-h` / `help` | Passed straight through to the upstream `claude` binary without running auth/sync/boot. It skips the managed run lock but keeps a neutral auth session plus the native-auth active-child lease until the help child exits, so another insecure invocation's final purge cannot be stranded. A bare leading `help` token is normalized to `--help` first, because upstream `claude help` treats `help` as a prompt and opens an interactive session instead of printing help. Wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Claude flag. |
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |
-| `cron [install\|remove\|run]` / `--cron [install\|remove\|run]` | Forward to the host-wide `cxx cron` coordinator. It owns one schedule (`# cxx-managed-cron`, system fallback `/etc/cron.d/cxx-managed`), removes historical persona schedules, validates each signed config's host/engine membership, and runs each enabled engine tick exactly once. Config wrapper metadata may differ during rolling refresh and is not a coordinator gate. The first upgraded legacy cron tick migrates itself to the shared schedule. Privileged system install/remove discovers every actual owner represented in the standard cron spools. A strictly validated spool filename remains authoritative when the static wrapper's Go `os/user` lookup cannot resolve an NSS/SSSD-only account; config-owner/sudo/current/root safeguards remain lookup-validated. The coordinator snapshots each crontab, removes only lines ending in an exact cxx/cdx/clx managed marker, and restores every changed crontab if cross-user or legacy-system cleanup fails; install also removes its new system entry. Explicit minimal mode stays ASCII throughout. The tick's managed sync is content-only: it converges CLAUDE.md, settings, MCP servers, collections and native skills and never requests, receives, writes or uploads credentials, so an unattended host can never open an insecure-approval request nobody is there to answer, and a credential-scoped refusal can no longer strip managed content on a tick (an unsent local login is still preserved through the ungated `/auth` store call before each update). |
+| `cron [install\|remove\|run]` / `--cron [install\|remove\|run]` | Forward to the host-wide `cxx cron` coordinator. It owns one schedule (`# cxx-managed-cron`, system fallback `/etc/cron.d/cxx-managed`), removes historical persona schedules, validates each signed config's host/engine membership, and runs each enabled engine tick exactly once. Config wrapper metadata may differ during rolling refresh and is not a coordinator gate. The first upgraded legacy cron tick migrates itself to the shared schedule. Privileged system install/remove discovers every actual owner represented in the standard cron spools. A strictly validated spool filename remains authoritative when the static wrapper's Go `os/user` lookup cannot resolve an NSS/SSSD-only account; config-owner/sudo/current/root safeguards remain lookup-validated. The coordinator snapshots each crontab, removes only lines ending in an exact cxx/cdx/clx managed marker, and restores every changed crontab if cross-user or legacy-system cleanup fails; install also removes its new system entry. Explicit minimal mode stays ASCII throughout. The tick's managed sync is content-only: it converges CLAUDE.md, settings, MCP servers, collections and Skill fallback/cleanup and never requests, receives, writes or uploads credentials, so an unattended host can never open an insecure-approval request nobody is there to answer, and a credential-scoped refusal can no longer strip managed content on a tick (an unsent local login is still preserved through the ungated `/auth` store call before each update). |
 | `--version` / `-V` / `--wrapper-version` / `-W` | Print version + commit + embedded pubkey status |
 | `cxx claude-quota-statusline` | The fleet-owned Claude Code `statusLine` command. Claude Code runs it on every statusline render with its status JSON on stdin; it prints a usable statusline and, throttled, reports the payload's own `rate_limits` utilization for the 5-hour and 7-day windows to the orchestrator. This is the only way the fleet obtains Claude quota data — the server never holds or uses a Claude OAuth token. Managed settings inject it by default (see the `statusLine` note under Settings.json sub-blocks). |
 | `update` / `--update` | Self-update now (verifies SHA256 before swapping), then re-exec the freshly installed binary into `sync` so managed content is written by the new code rather than the one being replaced. This command's auth session is finalized before the exec, because the claude re-exec carries no session handoff. `clx update` re-execs into `clx sync`; `cxx update` uses the host update coordinator described below; after a newer wrapper is installed, it resumes the native update and content-sync phases for every currently assigned engine. If the exec itself fails, the new binary is installed but content is unsynced and the wrapper says so and exits 1 |
-| `sync` | Write fleet-managed `CLAUDE.md`, `settings.json` (deep merge), `~/.claude.json` MCP servers, `~/.claude/{agents,commands,output-styles}/`, and `~/.claude/skills/<slug>/SKILL.md` without launching Claude and without touching the binary. Runs the same lock, FQDN guard, `POST /sync/bootstrap`, decision matrix, collections, and skills work an interactive run performs, then stops before the portal session and the launch. Always headless. Exit 0 only after online managed sync succeeds; exit 1 for failed managed-file writes/probes, offline fallback, concurrent-run pauses, or a refused host — including a host with no usable Claude credential, which exits 1 even though `bootstrap` already wrote the managed content, keeping parity with `run`. Trust-loss teardown (`stripManagedSettings`/`stripClaudeCollections`/`stripClaudeSkills`) still runs on an explicit server refusal. Self-update is deliberately suppressed here |
+| `sync` | Write fleet-managed `CLAUDE.md`, `settings.json` (deep merge), `~/.claude.json` MCP servers, `~/.claude/{agents,commands,output-styles}/`, and native Skill fallback directories when MCP is unavailable, without launching Claude and without touching the binary. Runs the same lock, FQDN guard, `POST /sync/bootstrap`, decision matrix, collections, and skills work an interactive run performs, then stops before the portal session and the launch. Always headless. Exit 0 only after online managed sync succeeds; exit 1 for failed managed-file writes/probes, offline fallback, concurrent-run pauses, or a refused host — including a host with no usable Claude credential, which exits 1 even though `bootstrap` already wrote the managed content, keeping parity with `run`. Trust-loss teardown (`stripManagedSettings`/`stripClaudeCollections`/`stripClaudeSkills`) still runs on an explicit server refusal. Self-update is deliberately suppressed here |
 | `uninstall` / `--uninstall` | Take the native-auth exclusive maintenance lease, remove Claude-local credentials/state, and request engine-scoped server deletion. An authoritative response with Codex remaining removes only `clx` and retains `cxx`, `cdx`, and the shared cron; confirmed last-engine removal deletes both aliases, `cxx`, and the cron. Offline, non-2xx, or malformed responses preserve every shared artifact. Refuses while another clx auth session is active, on a known multi-user host without sudo, or when user lookup fails without root/passwordless-sudo fallback. |
 
 ### Wrapper-only flags
@@ -208,9 +208,10 @@ quota provider question now appears before the clx boot screen, matching cdx.
 
 Hidden boot screens omit the native version subprocess used only for the
 display; visible boot/status reports still inspect the installed Claude CLI.
-A verified `claude_skills` bootstrap bundle also supplies the skills health
-result, avoiding a second list request. Older servers that omit that bundle
-continue through the list endpoint; bundle failures remain visible failures.
+A verified `claude_skills` bootstrap bundle also supplies the local skills sync
+result, including owned-directory retirement in MCP mode, avoiding a second list
+request. This result does not prove that a running Claude session can call MCP.
+Older servers that omit that bundle continue through the list endpoint; bundle failures remain visible failures.
 
 Claude quota rows consume the stored `claude_usage` snapshot returned alongside
 auth. Only reported percentages produce rows (including a real `0%`); missing
@@ -463,11 +464,14 @@ block, and the mode is applied at render time, so switching it changes what
 hosts receive on their next retrieve without creating a version. See
 `docs/interface-cdx.md` for the full contract.
 
-The Claude block points Skill discovery at the native managed
-`~/.claude/skills/<slug>/SKILL.md` directories, never at Codex's MCP Skill
-transport. With orchestrator MCP enabled it routes durable fleet, workstream,
-and host facts through `shared_memory_*`, `project_memory_*`, and `memory_*`
-instead of Claude's local `~/.claude/projects/.../memory/` / `MEMORY.md`; enabled
+With orchestrator MCP usable, the Claude block requires fleet Skill discovery
+through `skill_list`, then reads manifests through `resource_read` at
+`skill://<slug>` (or `skill_retrieve`) and support files at
+`skill://<slug>/<path>`. Without usable orchestrator MCP, it points at the
+managed native `~/.claude/skills/<slug>/SKILL.md` fallback. With MCP enabled,
+durable fleet and workstream facts use `shared_memory_*` and
+`project_memory_*`; `memory_*` remains host-local scratch. Claude's local
+`~/.claude/projects/.../memory/` / `MEMORY.md` is not the shared store; enabled
 Projects add the `#coco` / `project_*` hint. A whole-body shared-memory
 replacement requires a complete read from offset 0 through `truncated:false`,
 with one stable `memory.sha256`; excerpts, previews, chunks, and other partial
@@ -759,23 +763,36 @@ Engine-specific details:
   `~/.claude/settings.json` is written.
 - `CLAUDE_MD` env exported to the synced AGENTS path so the upstream CLI
   picks up the orchestrator-managed `CLAUDE.md`.
-- **Skills are synced ON-DISK** as native
-  `~/.claude/skills/<slug>/SKILL.md` directories. Unlike Codex — which reads
-  skills live over MCP (`resource_read skill://<slug>`) — Claude Code cannot
-  consume skills over MCP, so `/sync/bootstrap` returns `claude_skills`, the
-  complete live set of `engine` null/`claude` skills. Manifest-only Skills carry
-  `content`; source-owned Skills carry `content` plus the complete auxiliary
-  `files[]` tree, including `LICENSE.mattpocock` for the optional MIT-licensed
-  Matt Pocock source. The item SHA is the complete bundle digest and
-  `content`/`files` are omitted together when the wrapper already has it.
+- **Fleet Skills use MCP when orchestrator MCP is usable.** Call `skill_list`
+  first, then `resource_read` at `skill://<slug>` or `skill_retrieve`; resolve
+  support-file references at `skill://<slug>/<path>`. The next read sees current
+  canonical content without waiting for another wrapper sync. This is on-demand
+  instruction content, not registration with Claude's native Skill loader:
+  native slash commands, frontmatter-controlled hooks/permissions, argument
+  substitution, and filesystem-relative script execution are not supplied by
+  reading an MCP resource. Bundled scripts are reference text, not execution
+  authority. See Anthropic's [MCP resources](https://code.claude.com/docs/en/mcp#use-mcp-resources)
+  and [native Skill sources](https://code.claude.com/docs/en/skills#choose-where-skills-load).
+- MCP usability here is the managed configuration gate (MCP enabled with a
+  service URL and host credential), not a live connectivity probe. A transient
+  MCP outage does not automatically materialize native fallback Skills.
+- When `agents.memory_routing.enabled` reports usable orchestrator MCP,
+  `/sync/bootstrap` returns an explicit empty `claude_skills` list to retire
+  previously fleet-owned native Skill directories. User-authored directories
+  remain untouched, and failed cleanup stays tracked for retry. An omitted
+  `claude_skills` field from an older server is not an empty-list instruction.
+- Without usable orchestrator MCP, `/sync/bootstrap` returns the complete live
+  set of `engine` null/`claude` native Skill bundles in `claude_skills`.
+  Manifest-only Skills carry `content`; source-owned Skills carry `content`
+  plus the complete auxiliary `files[]` tree, including `LICENSE.mattpocock`
+  for the optional MIT-licensed Matt Pocock source. The item SHA is the complete
+  bundle digest and `content`/`files` are omitted together when already cached.
 - Claude agents can call MCP `skill_store` / `skill_delete` to mutate the same
-  shared manifest-only fleet Skills. The canonical API state changes immediately,
-  but Claude's native directory is refreshed on the next unlocked wrapper
-  bootstrap, not live inside the running session. The managed `skill-manager`
-  Skill is delivered through that same native bundle and covers workflow
-  questions as well as list/retrieve/store/delete/verify operations. The
-  Codex-only config rule that suppresses its built-in `skill-creator` is never
-  emitted for Claude.
+  shared manifest-only fleet Skills. The managed `skill-manager` Skill explains
+  list/retrieve/store/delete/verify operations and is read through MCP in MCP
+  mode. A native fallback directory refreshes on the next unlocked bootstrap.
+  The Codex-only config rule suppressing its built-in `skill-creator` is never
+  emitted for Claude. Grok continues using its native `grok_skills` bundle.
 - **cxx 0.7.3 installs a Skill directory atomically.** It validates every
   slash-separated relative path, rejects traversal/duplicates/backslashes,
   verifies the manifest and each file SHA-256, recomputes the canonical complete
@@ -802,13 +819,14 @@ Engine-specific details:
   manifest-recorded Skill directories; user-authored directories are never
   touched. Legacy bash-era caches are still purged one-shot:
   `~/.agents/skills`, `~/.clx/skills`. **`~/.claude/skills` is no longer
-  wholesale-purged** — it is the native fleet-managed store. Failed pruning
+  wholesale-purged** — it remains the native fallback store. Failed pruning
   remains tracked so the next sync retries it.
 - The Matt Pocock source is an admin opt-in and is off by default; this contract
   does not mean it is enabled on a given fleet. When enabled, only the upstream
-  plugin allowlist at a validated immutable SHA enters `claude_skills`. Turning
-  it off soft-deletes those source rows from served inventory, so the next
-  complete bootstrap prunes only their fleet-owned directories. Cached
+  plugin allowlist at a validated immutable SHA enters the served inventory
+  and, in native fallback mode, `claude_skills`. Turning it off removes those
+  source rows from MCP inventory immediately; the next native fallback bootstrap
+  prunes only their fleet-owned directories. Cached
   last-known-good rows/files stay on the server, and unrelated fleet/user
   Skills remain untouched.
 - Stored Claude usage reports supply advisory quota bars and headless warnings.
@@ -1549,9 +1567,20 @@ selectors are respected (policy wins), including `--setting-sources` exclusions.
 Repository/local settings come from the active worktree while its default memory
 index stays shared with the main checkout. Repository selectors are consumed only with an
 existing native workspace-trust receipt; settings must select an absolute or `~/` path.
+From cxx 0.9.90, memory selectors follow native option grammar: option values
+and prompt text after `--` cannot masquerade as `--settings` or
+`--setting-sources`. With `permissions.blockReadsOutsideWorkingDirectories`
+enabled, a repository-selected memory directory does not receive a reminder
+or trigger an index scan; previously owned reminder blocks are removed through
+the ownership manifest, preserving local notes. Explicit CLI and managed-policy
+directory selections remain supported.
 The wrapper already strips `CLAUDE_CONFIG_DIR`, so its inherited project-directory-name
 selector does not redirect a managed launch. Previously owned custom locations remain
-tracked for cleanup even after a setting changes. Native auto-memory switches are unchanged.
+tracked for cleanup even after a setting changes. Native auto-memory switches
+are unchanged. Claude can search and read central memories using MCP, but its built-in auto-memory remains file-based; no native
+MCP storage backend is configured. The managed index block is only a routing
+reminder, not a local copy of central knowledge. See Anthropic's
+[auto-memory documentation](https://code.claude.com/docs/en/memory#auto-memory).
 
 The additive bootstrap contract, marker ownership, cleanup and failure behavior are
 documented in [interface-api.md](interface-api.md#native-memory-reminders-cxx-0935).
@@ -1868,8 +1897,8 @@ bundle can replace the pending intent.
 With Skills enabled, managed Skills guidance automatically invokes the shared stored
 `fleet-reflect` Skill once before each final work response or managed work-result
 delivery, including failed or blocked work. Progress messages, acknowledgements and
-result retries do not repeat the review. Codex loads it through MCP; Claude and Grok
-use their native synced Skill files. The Skill reviews observed orchestrator/tool
+result retries do not repeat the review. Codex and MCP-enabled Claude load it through MCP;
+Claude without usable MCP and Grok use their native synced Skill files. The Skill reviews observed orchestrator/tool
 experience, searches reports across statuses, appends materially new evidence or
 submits an actionable bug, feature or usability report. No finding means no report
 or extra final-response paragraph. Disabled/unavailable feedback leaves useful

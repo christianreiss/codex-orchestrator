@@ -309,7 +309,7 @@ unchanged previously owned value and preserves user-authored siblings.
 Grok Build loads `~/.grok/skills/<name>/SKILL.md` natively, with the same
 frontmatter Claude Code uses. `/sync/bootstrap` for `engine=grok` returns
 `grok_skills`, the complete live set of shared and Grok-scoped Skills, and cgx
-installs it exactly like clx installs `claude_skills`: every bundle is verified
+installs it exactly like clx installs native fallback `claude_skills`: every bundle is verified
 against its advertised digest (including auxiliary files), staged and swapped in
 atomically; ownership is recorded in `~/.cgx/state/skills.json`; only
 manifest-owned directories are pruned, stripped or replaced; a directory the
@@ -1068,8 +1068,8 @@ preserving user edits. Ordinary network failure retains the last synced content.
 With Skills enabled, managed Skills guidance automatically invokes the shared stored
 `fleet-reflect` Skill once before each final work response or managed work-result
 delivery, including failed or blocked work. Progress messages, acknowledgements and
-result retries do not repeat the review. Codex loads it through MCP; Claude and Grok
-use their native synced Skill files. The Skill reviews observed orchestrator/tool
+result retries do not repeat the review. Codex and MCP-enabled Claude load it through MCP;
+Claude without usable MCP and Grok use their native synced Skill files. The Skill reviews observed orchestrator/tool
 experience, searches reports across statuses, appends materially new evidence or
 submits an actionable bug, feature or usability report. No finding means no report
 or extra final-response paragraph. Disabled/unavailable feedback leaves useful
