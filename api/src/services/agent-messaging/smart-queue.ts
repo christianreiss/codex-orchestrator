@@ -82,6 +82,82 @@ export async function validateRelatedWork(
     );
 }
 
+/** Event totals a new keyed update inherits from the pending rows it replaces. */
+export function coalescedEventStats(
+  replaced: Array<Pick<AgentBusMessage, 'eventCount' | 'eventFirstAt' | 'createdAt'>>,
+  now: string,
+) {
+  let eventCount = 1;
+  let eventFirstAt = now;
+  for (const m of replaced) {
+    eventCount += Number(m.eventCount ?? 1);
+    const first = m.eventFirstAt ?? m.createdAt;
+    if (first < eventFirstAt) eventFirstAt = first;
+  }
+  return { eventCount, eventFirstAt, eventLastAt: now };
+}
+
+/**
+ * Send-time coalescing, independent of digest presentation (queue_delivery_v1).
+ * Caller holds the target address lock and has just inserted `messageId`.
+ * Only still-queued, never leased/accepted/batched, repeats are superseded.
+ */
+export async function coalescePendingRepeats(
+  tx: AgentMessagingDb,
+  input: {
+    messageId: string;
+    senderAddressId: string;
+    targetAddressId: string;
+    policy: ReturnType<typeof queuePolicy>;
+    now: string;
+  },
+): Promise<string[]> {
+  const { policy, now } = input;
+  if (!policy.coalesceKey || !['progress', 'notice'].includes(policy.deliveryClass)) return [];
+  const replaced = await tx
+    .select()
+    .from(agentBusMessages)
+    .where(
+      and(
+        eq(agentBusMessages.targetAddressId, input.targetAddressId),
+        eq(agentBusMessages.senderAddressId, input.senderAddressId),
+        eq(agentBusMessages.status, 'queued'),
+        isNull(agentBusMessages.workKind),
+        gt(agentBusMessages.expiresAt, now),
+        inArray(agentBusMessages.kind, ['message', 'reply']),
+        eq(agentBusMessages.deliveryClass, policy.deliveryClass),
+        sql`BINARY ${agentBusMessages.coalesceKey} = BINARY ${policy.coalesceKey}`,
+        policy.relatedWorkId
+          ? eq(agentBusMessages.relatedWorkId, policy.relatedWorkId)
+          : isNull(agentBusMessages.relatedWorkId),
+        sql`${agentBusMessages.id} <> ${input.messageId}`,
+      ),
+    )
+    .for('update');
+  if (!replaced.length) return [];
+  const ids = replaced.map((m) => m.id);
+  // Flatten: digest retrieval follows one superseded_by_id level only.
+  await tx
+    .update(agentBusMessages)
+    .set({ supersededById: input.messageId, updatedAt: now })
+    .where(
+      and(
+        eq(agentBusMessages.targetAddressId, input.targetAddressId),
+        eq(agentBusMessages.status, 'superseded'),
+        inArray(agentBusMessages.supersededById, ids),
+      ),
+    );
+  await tx
+    .update(agentBusMessages)
+    .set({ status: 'superseded', supersededById: input.messageId, updatedAt: now })
+    .where(and(inArray(agentBusMessages.id, ids), eq(agentBusMessages.status, 'queued')));
+  await tx
+    .update(agentBusMessages)
+    .set(coalescedEventStats(replaced, now))
+    .where(eq(agentBusMessages.id, input.messageId));
+  return ids;
+}
+
 export interface SmartQueueCore {
   keyring: Keyring;
   server(tx: AgentMessagingDb): Promise<AgentBusAddress>;
