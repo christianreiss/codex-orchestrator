@@ -770,7 +770,10 @@ Engine-specific details:
   instruction content, not registration with Claude's native Skill loader:
   native slash commands, frontmatter-controlled hooks/permissions, argument
   substitution, and filesystem-relative script execution are not supplied by
-  reading an MCP resource. Bundled scripts are reference text, not execution
+  reading an MCP resource. Claude Code's native Skill tool therefore answers
+  "Unknown skill" for a fleet slug in MCP mode; that is expected, and the
+  rendered guidance tells agents to read it through MCP instead. Bundled
+  scripts are reference text, not execution
   authority. See Anthropic's [MCP resources](https://code.claude.com/docs/en/mcp#use-mcp-resources)
   and [native Skill sources](https://code.claude.com/docs/en/skills#choose-where-skills-load).
 - MCP usability here is the managed configuration gate (MCP enabled with a

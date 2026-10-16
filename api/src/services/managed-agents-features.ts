@@ -240,7 +240,8 @@ update, delete, or explain fleet Skills, read \`skill://skill-manager\` and foll
 Respect \`allow_implicit_invocation\` from the listing: false requires an explicit request.
 
 These are instructions loaded as MCP content. They do not register native slash commands
-or apply Claude Code Skill frontmatter controls. Support scripts are content too; fetch
+or apply Claude Code Skill frontmatter controls, so the native Skill tool reports a fleet
+Skill as unknown; read it through MCP instead. Support scripts are content too; fetch
 and inspect them before any task-authorized local execution. Fleet Skills are not copied
 to \`~/.claude/skills\` while this managed MCP entry is enabled.
 
