@@ -68,6 +68,14 @@ function baseTables(apiKey: string, engines: string) {
   return db;
 }
 
+function disableClaudeMcp(db: ReturnType<typeof createDbFake>): void {
+  db.tables.set(clientConfigDocuments, [{
+    id: 1, engine: 'claude', body: '{}', sha256: 'native-skill-fallback',
+    settings: { orchestrator_mcp_enabled: false, mcp_servers: [] },
+    createdAt: 't', updatedAt: 't',
+  }]);
+}
+
 async function bootstrap(db: ReturnType<typeof createDbFake>, apiKey: string, engine: string, payload: Record<string, unknown> = {}) {
   const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
   const r = await app.inject({
@@ -272,7 +280,7 @@ describe('fresh Codex Skill bootstrap', () => {
 });
 
 describe('POST /sync/bootstrap claude_skills bundle', () => {
-  it('keeps one Skill lifecycle interoperable across Codex MCP and Claude bootstrap', async () => {
+  it('keeps one Skill lifecycle interoperable across Codex and Claude MCP without native copies', async () => {
     const apiKey = 'sk-dual-engine-skill-crud';
     const slug = 'dual-engine-crud';
     const manifestHeader = `---
@@ -308,11 +316,8 @@ description: Shared lifecycle integration fixture
       await expect(listedSkillSlugs(app, apiKey, 'codex')).resolves.toContain(slug);
       await expect(listedSkillSlugs(app, apiKey, 'claude')).resolves.toContain(slug);
       await expect(readSkillResource(app, apiKey, 'codex', slug)).resolves.toContain(manifestV1);
-      expect(await bootstrapClaudeSkills(app, apiKey)).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ slug, status: 'updated', content: expect.stringContaining('Version one.') }),
-        ]),
-      );
+      await expect(readSkillResource(app, apiKey, 'claude', slug)).resolves.toBe(manifestV1);
+      expect(await bootstrapClaudeSkills(app, apiKey)).toEqual([]);
 
       await expect(
         callSkillTool(app, apiKey, 'claude', 'skill_store', { slug, manifest: manifestV2 }),
@@ -320,11 +325,8 @@ description: Shared lifecycle integration fixture
       await expect(
         callSkillTool(app, apiKey, 'codex', 'skill_retrieve', { slug }),
       ).resolves.toMatchObject({ status: 'updated', slug, manifest: manifestV2 });
-      expect(await bootstrapClaudeSkills(app, apiKey)).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ slug, status: 'updated', content: expect.stringContaining('Version two.') }),
-        ]),
-      );
+      await expect(readSkillResource(app, apiKey, 'claude', slug)).resolves.toBe(manifestV2);
+      expect(await bootstrapClaudeSkills(app, apiKey)).toEqual([]);
 
       await expect(
         callSkillTool(app, apiKey, 'claude', 'skill_delete', { slug }),
@@ -334,7 +336,8 @@ description: Shared lifecycle integration fixture
       ).resolves.toMatchObject({ status: 'deleted', slug });
       await expect(listedSkillSlugs(app, apiKey, 'codex')).resolves.not.toContain(slug);
       await expect(listedSkillSlugs(app, apiKey, 'claude')).resolves.not.toContain(slug);
-      expect((await bootstrapClaudeSkills(app, apiKey)).some((skill) => skill.slug === slug)).toBe(false);
+      expect(JSON.parse(await readSkillResource(app, apiKey, 'claude', slug))).toMatchObject({ status: 'deleted', slug });
+      expect(await bootstrapClaudeSkills(app, apiKey)).toEqual([]);
 
       await expect(
         callSkillTool(app, apiKey, 'claude', 'skill_store', { slug, manifest: manifestV1 }),
@@ -344,6 +347,8 @@ description: Shared lifecycle integration fixture
       ).resolves.toMatchObject({ status: 'updated', slug, manifest: manifestV1 });
       await expect(listedSkillSlugs(app, apiKey, 'codex')).resolves.toContain(slug);
       await expect(listedSkillSlugs(app, apiKey, 'claude')).resolves.toContain(slug);
+      await expect(readSkillResource(app, apiKey, 'claude', slug)).resolves.toBe(manifestV1);
+      expect(await bootstrapClaudeSkills(app, apiKey)).toEqual([]);
 
       await expect(
         callSkillTool(app, apiKey, 'codex', 'skill_delete', { slug }),
@@ -359,6 +364,7 @@ description: Shared lifecycle integration fixture
   it('renders claude-visible skills as SKILL.md, coerces name to slug, excludes codex-only + deleted', async () => {
     const apiKey = 'sk-claude-skills';
     const db = baseTables(apiKey, 'claude');
+    disableClaudeMcp(db);
     db.tables.set(skillsTable, [
       skillRow({ id: 1, slug: 'git-commit', manifest: 'Run a tidy git commit.', engine: null }), // raw, no frontmatter
       skillRow({ id: 2, slug: 'reviewer', manifest: '---\nname: "Code Reviewer"\ndescription: Reviews code\n---\n\nReview.\n', engine: 'claude' }),
@@ -371,7 +377,7 @@ description: Shared lifecycle integration fixture
     expect(body.claude_skills).toBeDefined();
     const slugs = body.claude_skills.map((s: { slug: string }) => s.slug).sort();
     // These are MANAGED skills: derived from code, not skills rows, and
-    // unconditionally bundled to every Claude host.
+    // bundled to Claude hosts using the native fallback.
     expect(slugs).toEqual(['afk', 'conference', 'git-commit', 'reviewer', 'skill-manager', 'wake-cron', 'watchdog']); // codex-only + deleted excluded
 
     // `context` is retired, and its ABSENCE from this array is what deletes it
@@ -400,6 +406,7 @@ description: Shared lifecycle integration fixture
   it('omits content when the wrapper digest matches the rendered SKILL.md sha', async () => {
     const apiKey = 'sk-claude-skills-inm';
     const db = baseTables(apiKey, 'claude');
+    disableClaudeMcp(db);
     const row = skillRow({ id: 1, slug: 'noop', manifest: 'does nothing', engine: null });
     db.tables.set(skillsTable, [row]);
     const renderedSha = createHash('sha256').update(renderSkillFile(row as never)).digest('hex');
@@ -414,6 +421,7 @@ description: Shared lifecycle integration fixture
   it('delivers the complete external skill directory and caches it by bundle digest', async () => {
     const apiKey = 'sk-claude-source-bundle';
     const db = baseTables(apiKey, 'claude');
+    disableClaudeMcp(db);
     const manifest = '---\nname: tdd\ndescription: Test driven development\n---\n\nRead references/red-green.md.\n';
     const manifestSha = createHash('sha256').update(manifest).digest('hex');
     const guideContent = '# Red, green, refactor';
