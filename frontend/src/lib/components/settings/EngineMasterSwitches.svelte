@@ -22,14 +22,17 @@
   import { fleetEngineView } from "$lib/engines/fleet-state";
   import { relativeTime } from "$lib/utils/format";
   import type { EngineStateRow, EngineStateValue } from "$lib/api/types";
+  import { Switch } from "$lib/components/ui/switch";
+  import { Label } from "$lib/components/ui/label";
   import SectionCard from "./SectionCard.svelte";
   import SwitchRow from "./SwitchRow.svelte";
   import EngineSwitchConfirmDialog from "./EngineSwitchConfirmDialog.svelte";
   import EngineDestroyPanel from "./EngineDestroyPanel.svelte";
   import { engineSwitchConfirmCopy } from "./engine-switch-consequences";
 
-  type Props = { headingLevel?: 2 | 3 };
-  let { headingLevel = 3 }: Props = $props();
+  /** `strip` renders compact per-engine cards for the top of /engines; the destroy panel then lives in each engine's tab. */
+  type Props = { headingLevel?: 2 | 3; variant?: "list" | "strip" };
+  let { headingLevel = 3, variant = "list" }: Props = $props();
 
   type Intent = { engine: Engine; enabled: boolean };
 
@@ -134,6 +137,43 @@
   }
 </script>
 
+{#if variant === "strip"}
+  <section aria-label="Fleet engine switches" class="mb-5">
+    {#if view.known && view.enabled.length === 0}
+      <Alert variant="destructive" class="mb-3">
+        <AlertTriangle class="h-4 w-4" />
+        <AlertTitle>Every engine is off</AlertTitle>
+        <AlertDescription>
+          No host can launch an agent until an engine is turned back on. The admin console and
+          configuration keep working.
+        </AlertDescription>
+      </Alert>
+    {/if}
+    <div class="grid gap-3 md:grid-cols-3">
+      {#each ENGINES as engine (engine)}
+        {@const on = view.isEnabled(engine)}
+        <div class="flex items-start justify-between gap-3 rounded-lg border bg-card p-3 {on ? '' : 'border-warning/40'}">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="h-2.5 w-2.5 rounded-full {ENGINE_META[engine].color}" aria-hidden="true"></span>
+              <Label for="engine-switch-{engine}" class="text-sm font-semibold">{label(engine)}</Label>
+              <code class="text-xs text-muted-foreground">{ENGINE_META[engine].command}</code>
+            </div>
+            <p class="mt-1 text-xs text-muted-foreground">{describe(engine)}</p>
+          </div>
+          <Switch
+            id="engine-switch-{engine}"
+            checked={pending?.engine === engine ? pending.enabled : on}
+            disabled={!canMutate || !view.known || $mutation.isPending}
+            onCheckedChange={(next) => request(engine, next)}
+            aria-label="{label(engine)} ({ENGINE_META[engine].command})"
+          />
+        </div>
+      {/each}
+    </div>
+    {#if $mutation.isError}<p class="mt-2 text-xs text-destructive" role="alert">{$mutation.error?.message}</p>{/if}
+  </section>
+{:else}
 <SectionCard
   id="engine-master-switches"
   title="Master switches"
@@ -176,6 +216,7 @@
     Both directions confirm before applying.
   </p>
 </SectionCard>
+{/if}
 
 <EngineSwitchConfirmDialog
   open={confirmOpen}
