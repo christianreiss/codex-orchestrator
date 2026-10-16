@@ -873,11 +873,17 @@ store/fetch and both settings renders. Examples include `modelSettings`,
 are opt-in; an absent extension adds no native defaults or features.
 
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
-checked against Claude Code 2.1.296 on 2026-10-12. Validation rejects unknown
-root keys, invalid root types/enums, malformed common nested controls, and
-unsafe JSON keys with HTTP 422 and a `native_settings.<key>` parameter. Vendor
-extensions inside complex objects are preserved; the registry does not replace
-the CLI's entire nested settings schema.
+checked against Claude Code 2.1.301 on 2026-10-16. Validation rejects unknown
+root keys and fields in fixed nested objects, invalid types/enums, malformed
+hook events and handlers, and unsafe JSON keys with HTTP 422. Diagnostics name
+the full `native_settings` path, including array indices; literal dotted keys
+use bracket notation. Fixed objects include per-model settings, plugin config
+entries and marketplace sources, sandbox credentials, voice and UI controls.
+Free names remain supported in environment/model/plugin/MCP/violation maps;
+plugin option names and MCP tool input payloads remain application-defined.
+Unknown fixed fields are rejected even where the native parser would strip or
+preserve them without a consumer. Validation does not execute hooks, resolve
+external files, install plugins, or prove that an external service is reachable.
 
 Deprecated keys `includeCoAuthoredBy`, `disableArtifact`, `voiceEnabled`,
 `keybindingFlavor`, `taskOutputMaxChars`, `ignorePatterns`,

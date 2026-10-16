@@ -12,6 +12,76 @@ const normalize = (native: Record<string, unknown>, structured: Record<string, u
   normalizeSettings({ native_settings: native, ...structured }, { applyCodexDefaults: false, engine: 'claude' });
 
 describe('Claude native user settings', () => {
+  it.each([
+    [{ voice: { enabld: true } }, 'voice.enabld'],
+    [{ permissions: { additionalDirectory: ['/tmp'] } }, 'permissions.additionalDirectory'],
+    [{ sandbox: { filesystem: { denyReads: ['/tmp'] } } }, 'sandbox.filesystem.denyReads'],
+    [{ sandbox: { credentials: { files: [{ path: '/tmp/key', mode: 'mask', injectHost: ['example.com'] }] } } }, 'sandbox.credentials.files.0.injectHost'],
+    [{ sandbox: { credentials: { envVars: [{ name: 'KEY', mode: 'secret' }] } } }, 'sandbox.credentials.envVars.0.mode'],
+    [{ sandbox: { credentials: { sigv4: { streaming: 'allow' } } } }, 'sandbox.credentials.sigv4.streaming'],
+    [{ sandbox: { ripgrep: { command: 'rg', args: [false] } } }, 'sandbox.ripgrep.args.0'],
+    [{ modelSettings: { 'vendor.model': { effortLevels: 'high' } } }, 'modelSettings["vendor.model"].effortLevels'],
+    [{ modelPicker: { options: [{ model: 'sonnet', lable: 'Test' }] } }, 'modelPicker.options.0.lable'],
+    [{ statusLine: { type: 'command', command: 'test', refreshIntervals: 10 } }, 'statusLine.refreshIntervals'],
+    [{ fileSuggestion: { type: 'command', command: 'test', padding: 2 } }, 'fileSuggestion.padding'],
+    [{ subagentStatusLine: { type: 'command', command: 'test', hideVimModeIndicator: true } }, 'subagentStatusLine.hideVimModeIndicator'],
+    [{ spinnerVerbs: { mode: 'merge', verbs: [] } }, 'spinnerVerbs.mode'],
+    [{ spinnerTipsOverride: { tips: [{ id: 'tip', text: 'test', cooldownSession: 2 }] } }, 'spinnerTipsOverride.tips.0.cooldownSession'],
+    [{ spellcheck: { checker: 'magic' } }, 'spellcheck.checker'],
+    [{ pluginConfigs: { 'plugin@fleet.example': { option: {} } } }, 'pluginConfigs["plugin@fleet.example"].option'],
+    [{ extraKnownMarketplaces: { 'fleet.example': { source: { source: 'github', repo: 'org/repo', brach: 'main' } } } }, 'extraKnownMarketplaces["fleet.example"].source.brach'],
+    [{ extraKnownMarketplaces: { fleet: { source: { source: 'github', repo: 'org/repo', skipLfs: true } } } }, 'extraKnownMarketplaces.fleet.source.skipLfs'],
+    [{ allowedMcpServers: [{ serverCommands: ['test'] }] }, 'allowedMcpServers.0.serverCommands'],
+    [{ deniedMcpServers: [{ serverName: 'test', serverUrl: 'https://example.com' }] }, 'deniedMcpServers.0'],
+    [{ sshConfigs: [{ id: 'test', name: 'Test', sshHost: 'host', sshPort: '22' }] }, 'sshConfigs.0.sshPort'],
+    [{ footerLinksRegexes: [{ type: 'regexp', pattern: '.*', url: 'https://example.com' }] }, 'footerLinksRegexes.0.type'],
+    [{ hooks: { PostToolUses: [] } }, 'hooks.PostToolUses'],
+    [{ hooks: { PermissionRequest: [{ hooks: [{ type: 'agent', prompt: 'test' }] }] } }, 'hooks.PermissionRequest.0.hooks.0.type'],
+    [{ hooks: { SessionStart: [{ hooks: [{ type: 'http', url: 'https://example.com' }] }] } }, 'hooks.SessionStart.0.hooks.0.type'],
+    [{ hooks: { PreCompact: [{ hooks: [{ type: 'prompt', prompt: 'test' }] }] } }, 'hooks.PreCompact.0.hooks.0.type'],
+    [{ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'test', if: 'Bash(*)' }] }] } }, 'hooks.Stop.0.hooks.0.if'],
+    [{ hooks: { Stop: [{ hook: [] }] } }, 'hooks.Stop.0.hooks'],
+    [{ hooks: { Stop: [{ hooks: [{ type: 'prompt', prompt: 'test', modle: 'sonnet' }] }] } }, 'hooks.Stop.0.hooks.0.modle'],
+    [{ hooks: { PostToolUse: [{ hooks: [{ type: 'command', command: 'test', async: 'true' }] }] } }, 'hooks.PostToolUse.0.hooks.0.async'],
+    [{ hooks: { PostToolUse: [{ hooks: [{ type: 'http', url: 'https://example.com', headers: { 'X.Test': false } }] }] } }, 'hooks.PostToolUse.0.hooks.0.headers["X.Test"]'],
+    [{ hooks: { Stop: [{ hooks: [{ type: 'agent', prompt: 'test', command: 'inert' }] }] } }, 'hooks.Stop.0.hooks.0.command'],
+    [{ hooks: { Stop: [{ hooks: [{ type: 'mcp_tool', server: 'name.with.dots', tool: 'test', onFailure: 'block' }] }] } }, 'hooks.Stop.0.hooks.0.onFailure'],
+  ])('rejects nested invalid authoring at the exact path: %j', (native, path) => {
+    expect(() => normalizeClaudeNativeSettings(native)).toThrow(`native_settings.${path}`);
+    expect(() => new ClientConfigService({} as never).render({ native_settings: native }, 'claude')).toThrow(`native_settings.${path}`);
+  });
+
+  it('retains arbitrary map keys and payloads through normalization, host render and exact ownership', () => {
+    const native = {
+      env: { 'custom.name': 'value' },
+      modelSettings: { 'custom.model': { effortLevel: 'high', autoCompactWindow: 'auto' } },
+      enabledPlugins: { 'review@fleet.example': true },
+      skillOverrides: { 'review.code': 'name-only' },
+      pluginConfigs: { 'review@fleet.example': { options: { 'custom.option': ['one'] }, mcpServers: { 'server.name': { 'custom.field': true } } } },
+      sandbox: { ignoreViolations: { '/tmp/*.socket': ['network'] }, credentials: { files: [{ path: '/tmp/key', mode: 'mask', decode: 'jwt', maskClaims: ['api_key'] }], envVars: [{ name: 'TOKEN', mode: 'mask' }], sigv4: { streaming: 'deny' } } },
+      extraKnownMarketplaces: { 'fleet.example': { source: { source: 'settings', name: 'fleet.example', plugins: [{ name: 'review', source: { source: 'archive', url: 'https://example.com/plugin.zip' } }] } } },
+      hooks: { PostToolUse: [{ matcher: 'mcp__server.name__tool', hooks: [
+        { type: 'command', command: 'test', args: ['--test'], async: true, shell: 'bash', onFailure: 'continue', timeout: 10 },
+        { type: 'http', url: 'https://example.com', headers: { 'X.Name': 'value' }, allowedEnvVars: ['NAME'] },
+        { type: 'mcp_tool', server: 'server.name', tool: 'tool.name', input: { arbitrary: { 'nested.name': [true, 1, null] } } },
+        { type: 'prompt', prompt: 'test', model: 'sonnet', continueOnBlock: true },
+        { type: 'agent', prompt: 'test', statusMessage: 'checking' },
+      ] }] },
+    };
+    expect(normalizeClaudeNativeSettings(native)).toEqual(native);
+    const rendered = renderClaudeSettingsPartialForHost({
+      host: { claudeClientVersion: '2.1.301', claudeWrapperVersion: '0.9.88' } as never,
+      settings: { native_settings: native }, baseUrl: null, apiKey: null,
+    });
+    expect(rendered.partial).toMatchObject(native);
+    expect(rendered.owned_paths).toContain('json:["pluginConfigs","review@fleet.example","mcpServers","server.name","custom.field"]');
+    expect(rendered.owned_paths).toContain('json:["sandbox","ignoreViolations","/tmp/*.socket"]');
+    expect(rendered.owned_paths).toContain('hooks.PostToolUse');
+    const afterRemoval = renderClaudeSettingsPartial(normalize({ env: native.env }));
+    expect(afterRemoval.owned_paths).toContain('json:["env","custom.name"]');
+    expect(afterRemoval.owned_paths.some(path => path.includes('pluginConfigs'))).toBe(false);
+  });
+
   it('migrates deprecated model references without changing custom IDs or current overrides', () => {
     const native = {
       modelSettings: {
@@ -125,6 +195,11 @@ describe('Claude native user settings', () => {
     const service = new ClientConfigService(db as never);
     await service.store({ settings: { native_settings: { env: { CUSTOM: 'first' }, permissions: { defaultMode: 'plan' } } } }, null, 'claude');
     const first = await service.adminFetch('claude');
+    const beforeInvalid = structuredClone(row);
+    await expect(service.store({ settings: { native_settings: { voice: { enabld: true } } } }, null, 'claude'))
+      .rejects.toThrow('native_settings.voice.enabld');
+    expect(row).toEqual(beforeInvalid);
+    expect(await service.adminFetch('claude')).toEqual(first);
     expect(first.settings?.env).toBeUndefined();
     expect(first.settings?.permissionMode).toBeUndefined();
     const changed = await service.store({ settings: { ...first.settings, native_settings: { env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual' } } } }, null, 'claude');

@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_ENV_KEYS, normalizeClaudeModelReference } from './claude-models.js';
 import { claudeSessionEfforts } from './claude-effort.js';
 import { ValidationError } from '../http/errors.js';
@@ -69,44 +70,164 @@ function jsonCopy(value: unknown, path: string, depth = 0): unknown {
   return fail(path, 'expected a JSON value');
 }
 
-function validateObject(key: string, value: Record<string, unknown>): void {
-  if (key === 'env' || key === 'modelOverrides' || key === 'vimInsertModeRemaps') {
-    for (const [name, item] of Object.entries(value)) {
-      assertType(item, 'string', `${key}.${name}`);
-      if (key === 'vimInsertModeRemaps' && (name.length !== 2 || item !== '<Esc>')) fail(`${key}.${name}`, 'expected a two-character key mapped to <Esc>');
-    }
+// Public fixed-object grammar, verified against the 2.1.301 native schema and
+// https://code.claude.com/docs/en/{settings-reference,hooks,plugins/marketplace-reference}.
+// Maps deliberately validate their values without interpreting names as paths.
+const text = z.string();
+const flag = z.boolean();
+const textList = z.array(text);
+const textMap = z.record(text);
+const commandLine = z.object({ type: z.literal('command'), command: text }).strict();
+const modelEntry = z.object({
+  effortLevel: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
+  maxEffortLevel: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+  autoCompactWindow: z.union([z.number().int().min(100_000).max(1_000_000), z.literal('auto')]).optional(),
+}).strict();
+const pluginOption = z.union([text, z.number(), flag, textList]);
+const commonHook = {
+  if: text.optional(), timeout: z.number().positive().optional(),
+  statusMessage: text.optional(), once: flag.optional(),
+};
+const onFailure = z.enum(['continue', 'block']).optional();
+const hook = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('command'), ...commonHook, command: text, args: textList.optional(),
+    async: flag.optional(), asyncRewake: flag.optional(), shell: z.enum(['bash', 'powershell']).optional(), onFailure }).strict(),
+  z.object({ type: z.literal('http'), ...commonHook, url: text, headers: textMap.optional(), allowedEnvVars: textList.optional(), onFailure }).strict(),
+  z.object({ type: z.literal('mcp_tool'), ...commonHook, server: text, tool: text, input: z.record(z.unknown()).optional() }).strict(),
+  z.object({ type: z.literal('prompt'), ...commonHook, prompt: text, model: text.optional(), continueOnBlock: flag.optional() }).strict(),
+  z.object({ type: z.literal('agent'), ...commonHook, prompt: text, model: text.optional() }).strict(),
+]);
+const hookGroup = z.object({ matcher: text.optional(), hooks: z.array(hook) }).strict();
+const hookEvents = [
+  'SessionStart', 'Setup', 'UserPromptSubmit', 'UserPromptExpansion', 'PreToolUse',
+  'PermissionRequest', 'PermissionDenied', 'PostToolUse', 'PostToolUseFailure', 'PostToolBatch',
+  'Notification', 'MessageDisplay', 'SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted',
+  'Stop', 'StopFailure', 'TeammateIdle', 'InstructionsLoaded', 'ConfigChange', 'CwdChanged',
+  'DirectoryAdded', 'FileChanged', 'WorktreeCreate', 'WorktreeRemove', 'PreCompact', 'PostCompact',
+  'PreModelSwitch', 'PostModelSwitch', 'Elicitation', 'ElicitationResult', 'SessionEnd',
+];
+const pluginSource = z.discriminatedUnion('source', [
+  z.object({ source: z.literal('github'), repo: text, ref: text.optional(), sha: text.optional() }).strict(),
+  z.object({ source: z.literal('url'), url: text, ref: text.optional(), sha: text.optional() }).strict(),
+  z.object({ source: z.literal('git-subdir'), url: text, path: text, ref: text.optional(), sha: text.optional() }).strict(),
+  z.object({ source: z.literal('npm'), package: text, version: text.optional(), registry: text.optional() }).strict(),
+  z.object({ source: z.literal('archive'), url: text, sha256: text.optional() }).strict(),
+  z.object({ source: z.literal('command'), command: text, timeout: z.number().optional(), mode: z.enum(['copy', 'link']).optional() }).strict(),
+]);
+const inlinePlugin = z.object({
+  name: text, source: pluginSource, description: text.optional(), version: text.optional(),
+  strict: flag.optional(), headers: textMap.optional(), headersHelper: text.optional(),
+}).strict();
+const removedSkipLfs = z.never({ invalid_type_error: 'Removed: marketplace downloads always skip Git LFS; skipLfs has no effect.' }).optional();
+const marketplaceSource = z.discriminatedUnion('source', [
+  z.object({ source: z.literal('github'), repo: text, ref: text.optional(), path: text.optional(), sparsePaths: textList.optional(), skipLfs: removedSkipLfs }).strict(),
+  z.object({ source: z.literal('git'), url: text, ref: text.optional(), path: text.optional(), sparsePaths: textList.optional(), skipLfs: removedSkipLfs }).strict(),
+  z.object({ source: z.literal('url'), url: text, headers: textMap.optional(), headersHelper: text.optional() }).strict(),
+  z.object({ source: z.literal('file'), path: text }).strict(),
+  z.object({ source: z.literal('directory'), path: text }).strict(),
+  z.object({ source: z.literal('settings'), name: text, plugins: z.array(inlinePlugin),
+    owner: z.object({ name: text, email: text.optional(), url: text.optional() }).strict().optional() }).strict(),
+]);
+const maskFields = {
+  mode: z.enum(['deny', 'mask']), extract: text.optional(), decode: z.literal('jwt').optional(),
+  onExtractNoMatch: z.enum(['warn', 'deny', 'error']).optional(),
+  maskClaims: textList.min(1).optional(), injectHosts: textList.optional(),
+};
+const credentialFile = z.object({ path: text, ...maskFields, maskDuplicates: flag.optional() }).strict();
+const credentialEnv = z.object({ name: text.regex(/^[A-Za-z_][A-Za-z0-9_]*$/), ...maskFields }).strict();
+const mcpMatcher = z.object({ serverName: text.optional(), serverCommand: textList.optional(), serverUrl: text.optional() })
+  .strict().refine(value => Object.keys(value).length === 1, 'expected exactly one MCP matcher field');
+const nestedSchemas: Record<string, z.ZodTypeAny> = {
+  env: textMap,
+  modelOverrides: textMap,
+  vimInsertModeRemaps: z.record(z.literal('<Esc>')).superRefine((value, ctx) => {
+    for (const name of Object.keys(value)) if (name.length !== 2 || /[\x00-\x1f\x7f]/.test(name))
+      ctx.addIssue({ code: 'custom', path: [name], message: 'expected a two-character printable key mapped to <Esc>' });
+  }),
+  enabledPlugins: z.record(flag),
+  skillOverrides: z.record(z.enum(['on', 'name-only', 'user-invocable-only', 'off'])),
+  modelSettings: z.record(modelEntry),
+  modelPicker: z.object({ options: z.array(z.object({ model: text, label: text.optional(), description: text.optional(), behavesAs: text.optional() }).strict()), replaceBuiltInOptions: flag.optional() }).strict(),
+  pluginConfigs: z.record(z.object({ options: z.record(pluginOption).optional(), mcpServers: z.record(z.record(pluginOption)).optional() }).strict()),
+  extraKnownMarketplaces: z.record(z.object({ source: marketplaceSource, autoUpdate: flag.optional() }).strict()).superRefine((value, ctx) => {
+    for (const [name, entry] of Object.entries(value)) if (entry.source.source === 'settings' && entry.source.name !== name)
+      ctx.addIssue({ code: 'custom', path: [name, 'source', 'name'], message: 'must match the marketplace map key' });
+  }),
+  hooks: z.object(Object.fromEntries(hookEvents.map(event => [event, z.array(hookGroup).optional()]))).strict(),
+  fileSuggestion: commandLine,
+  subagentStatusLine: commandLine,
+  statusLine: commandLine.extend({ padding: z.number().optional(), refreshInterval: z.number().min(1).optional(), hideVimModeIndicator: flag.optional() }),
+  voice: z.object({ enabled: flag.optional(), mode: z.enum(['hold', 'tap']).optional(), autoSubmit: flag.optional() }).strict(),
+  spellcheck: z.object({ enabled: flag.optional(), checker: z.enum(['aspell', 'hunspell', 'ispell', 'auto']).optional(), language: text.optional(), color: text.optional() }).strict(),
+  spinnerVerbs: z.object({ mode: z.enum(['append', 'replace']), verbs: textList }).strict(),
+  spinnerTipsOverride: z.object({
+    excludeDefault: flag.optional(), tipsFile: text.optional(), label: text.max(40).optional(),
+    tips: z.array(z.union([text, z.object({ id: text.regex(/^[A-Za-z0-9._-]{1,64}$/), text: text.max(500), cooldownSessions: z.number().int().min(0).max(1000).optional(), priority: z.number().int().min(-10).max(10).optional() }).strict()])).max(200).optional(),
+  }).strict(),
+  footerLinksRegexes: z.array(z.object({ type: z.literal('regex'), pattern: text, url: text, label: text.optional() }).strict()),
+  allowedMcpServers: z.array(mcpMatcher), deniedMcpServers: z.array(mcpMatcher),
+  sshConfigs: z.array(z.object({ id: text, name: text, sshHost: text, sshPort: z.number().int().optional(), sshIdentityFile: text.optional(), startDirectory: text.optional() }).strict()),
+  'sandbox.ignoreViolations': z.record(textList),
+  'sandbox.ripgrep': z.object({ command: text, args: textList.optional() }).strict(),
+  'sandbox.credentials.files': z.array(credentialFile),
+  'sandbox.credentials.envVars': z.array(credentialEnv),
+  'sandbox.credentials.awsPairs': z.array(z.object({ accessKeyIdVar: text, secretAccessKeyVar: text, sessionTokenVar: text.optional() }).strict()),
+  'sandbox.credentials.sigv4': z.object({ streaming: z.enum(['deny', 'passthrough']).optional(), presigned: z.enum(['deny', 'passthrough']).optional(), sigv4a: z.enum(['deny', 'passthrough']).optional() }).strict(),
+};
+
+/** Build closed fixed objects from the shared field catalog; special maps/arrays above take precedence. */
+function nestedSchema(path: string): z.ZodTypeAny {
+  if (Object.hasOwn(nestedSchemas, path)) return nestedSchemas[path]!;
+  const rule = CLAUDE_NATIVE_NESTED_SETTING_RULES[path];
+  if (rule && rule.type !== 'object') {
+    if (rule.values) return z.string().refine(value => rule.values!.includes(value), `expected ${rule.values.join(', ')}`);
+    if (rule.type === 'array') return z.array(text);
+    if (rule.type === 'boolean') return flag;
+    if (rule.type === 'number') return z.number();
+    return text;
   }
-  if (key === 'enabledPlugins') {
-    for (const [name, item] of Object.entries(value)) assertType(item, 'boolean', `${key}.${name}`);
+  const fields: Record<string, z.ZodTypeAny> = {};
+  for (const child of Object.keys(CLAUDE_NATIVE_NESTED_SETTING_RULES)) {
+    if (child.startsWith(`${path}.`) && !child.slice(path.length + 1).includes('.'))
+      fields[child.slice(path.length + 1)] = nestedSchema(child).optional();
   }
-  if (key === 'modelPicker') {
-    assertType(value.options, 'array', `${key}.options`);
-    if ('replaceBuiltInOptions' in value) assertType(value.replaceBuiltInOptions, 'boolean', `${key}.replaceBuiltInOptions`);
-    for (const item of value.options as unknown[]) {
-      assertType(item, 'object', `${key}.options`);
-      const option = item as Record<string, unknown>;
-      assertType(option.model, 'string', `${key}.options.model`);
-      for (const field of ['label', 'description', 'behavesAs']) if (field in option) assertType(option[field], 'string', `${key}.options.${field}`);
-    }
+  return z.object(fields).strict();
+}
+
+function validateNested(key: string, value: unknown): void {
+  // Root primitive/array types are checked by the catalog; only complex arrays
+  // and records need this second pass. No root object is allowed to fail open.
+  if (!record(value) && !Object.hasOwn(nestedSchemas, key)) return;
+  const result = nestedSchema(key).safeParse(value);
+  if (!result.success) {
+    // Union branches can otherwise hide the actual bad field at their parent.
+    const expand = (issue: z.ZodIssue): z.ZodIssue[] => issue.code === 'invalid_union'
+      ? issue.unionErrors.flatMap(error => error.issues.flatMap(expand)) : [issue];
+    const issue = result.error.issues.flatMap(expand).sort((a, b) =>
+      b.path.length - a.path.length || Number(b.code === 'unrecognized_keys') - Number(a.code === 'unrecognized_keys'))[0]!;
+    const parts = [key, ...issue.path, ...(issue.code === 'unrecognized_keys' ? [issue.keys[0]!] : [])];
+    const path = parts.map((part, index) => typeof part === 'string' && part.includes('.') ? `[${JSON.stringify(part)}]` : `${index ? '.' : ''}${part}`).join('');
+    fail(path, issue.code === 'unrecognized_keys' ? 'unknown Claude Code setting' : issue.message);
   }
-  if (key === 'pluginConfigs') {
-    const options = (input: unknown, path: string) => {
-      assertType(input, 'object', path);
-      for (const [name, item] of Object.entries(input as Record<string, unknown>)) {
-        if (Array.isArray(item)) strings(item, `${path}.${name}`);
-        else assertType(item, ['string', 'number', 'boolean'], `${path}.${name}`);
+  if (key === 'hooks' && record(value)) {
+    const llmEvents = new Set(['PermissionDenied', 'PostToolBatch', 'PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'Stop', 'SubagentStop', 'TaskCompleted', 'TaskCreated', 'TeammateIdle', 'UserPromptExpansion', 'UserPromptSubmit']);
+    const toolEvents = new Set(['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest', 'PermissionDenied']);
+    for (const [event, groups] of Object.entries(value)) {
+      for (const [groupIndex, group] of (groups as { hooks: Record<string, unknown>[] }[]).entries()) {
+        for (const [hookIndex, entry] of group.hooks.entries()) {
+          const path = `hooks.${event}.${groupIndex}.hooks.${hookIndex}`;
+          if ((entry.type === 'prompt' && !llmEvents.has(event) && event !== 'PermissionRequest') ||
+              (entry.type === 'agent' && !llmEvents.has(event)) ||
+              (entry.type === 'http' && ['SessionStart', 'Setup'].includes(event)))
+            fail(`${path}.type`, `hook type ${entry.type} is not supported on ${event}`);
+          if ('if' in entry && !toolEvents.has(event)) fail(`${path}.if`, 'if is only evaluated on tool events; this handler would never run');
+        }
       }
-    };
-    for (const [plugin, input] of Object.entries(value)) {
-      assertType(input, 'object', `${key}.${plugin}`);
-      const entry = input as Record<string, unknown>;
-      if ('options' in entry) options(entry.options, `${key}.${plugin}.options`);
-      if ('mcpServers' in entry) {
-        assertType(entry.mcpServers, 'object', `${key}.${plugin}.mcpServers`);
-        for (const [server, config] of Object.entries(entry.mcpServers as Record<string, unknown>)) options(config, `${key}.${plugin}.mcpServers.${server}`);
-      }
     }
   }
+}
+
+function validateModelSettings(key: string, value: Record<string, unknown>): void {
   if (key === 'modelSettings') {
     for (const [model, settings] of Object.entries(value)) {
       assertType(settings, 'object', `${key}.${model}`);
@@ -123,51 +244,6 @@ function validateObject(key: string, value: Record<string, unknown>): void {
         choice(entry.maxEffortLevel, [...supported, ...sessions], `${key}.${model}.maxEffortLevel`);
       }
       if ('autoCompactWindow' in entry && entry.autoCompactWindow !== 'auto') range(entry.autoCompactWindow, 100_000, 1_000_000, `${key}.${model}.autoCompactWindow`);
-    }
-  }
-  if (['statusLine', 'fileSuggestion', 'subagentStatusLine'].includes(key)) {
-    choice(value.type, ['command'], `${key}.type`);
-    assertType(value.command, 'string', `${key}.command`);
-    if ('padding' in value) assertType(value.padding, 'number', `${key}.padding`);
-    if ('refreshInterval' in value) range(value.refreshInterval, 1, Number.MAX_VALUE, `${key}.refreshInterval`, false);
-    if ('hideVimModeIndicator' in value) assertType(value.hideVimModeIndicator, 'boolean', `${key}.hideVimModeIndicator`);
-  }
-  if (key === 'permissions') {
-    for (const field of ['allow', 'ask', 'deny', 'additionalDirectories']) if (field in value) strings(value[field], `${key}.${field}`);
-    if ('defaultMode' in value) choice(value.defaultMode, ['default', 'manual', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions'], `${key}.defaultMode`);
-    if ('blockReadsOutsideWorkingDirectories' in value) assertType(value.blockReadsOutsideWorkingDirectories, 'boolean', `${key}.blockReadsOutsideWorkingDirectories`);
-    for (const field of ['disableBypassPermissionsMode', 'disableAutoMode']) if (field in value) choice(value[field], ['disable'], `${key}.${field}`);
-  }
-  if (key === 'attribution') {
-    for (const field of ['commit', 'pr']) if (field in value) assertType(value[field], 'string', `${key}.${field}`);
-    if ('sessionUrl' in value) assertType(value.sessionUrl, 'boolean', `${key}.sessionUrl`);
-  }
-  if (key === 'voice') {
-    for (const field of ['enabled', 'autoSubmit']) if (field in value) assertType(value[field], 'boolean', `${key}.${field}`);
-    if ('mode' in value) choice(value.mode, ['hold', 'tap'], `${key}.mode`);
-  }
-  if (key === 'worktree') {
-    for (const field of ['symlinkDirectories', 'sparsePaths']) if (field in value) strings(value[field], `${key}.${field}`);
-    for (const field of ['baseRef', 'location']) if (field in value) assertType(value[field], 'string', `${key}.${field}`);
-    if ('bgIsolation' in value) choice(value.bgIsolation, ['worktree', 'none'], `${key}.bgIsolation`);
-  }
-  if (key === 'hooks') {
-    for (const [event, groups] of Object.entries(value)) {
-      assertType(groups, 'array', `${key}.${event}`);
-      for (const group of groups as unknown[]) {
-        assertType(group, 'object', `${key}.${event}`);
-        const item = group as Record<string, unknown>;
-        if ('matcher' in item) assertType(item.matcher, 'string', `${key}.${event}.matcher`);
-        assertType(item.hooks, 'array', `${key}.${event}.hooks`);
-        for (const hook of item.hooks as unknown[]) {
-          assertType(hook, 'object', `${key}.${event}.hooks`);
-          const entry = hook as Record<string, unknown>;
-          choice(entry.type, ['command', 'prompt', 'agent', 'http', 'mcp_tool'], `${key}.${event}.hooks.type`);
-          const required = entry.type === 'command' ? 'command' : entry.type === 'http' ? 'url' : entry.type === 'mcp_tool' ? 'server' : 'prompt';
-          assertType(entry[required], 'string', `${key}.${event}.hooks.${required}`);
-          if (entry.type === 'mcp_tool') assertType(entry.tool, 'string', `${key}.${event}.hooks.tool`);
-        }
-      }
     }
   }
 }
@@ -220,6 +296,9 @@ export function normalizeClaudeNativeSettings(value: unknown): Record<string, un
   if (value === undefined || value === null) return {};
   if (!record(value)) fail('', 'expected an object');
   const out = jsonCopy(value, '') as Record<string, unknown>;
+  for (const path of CLAUDE_MANAGED_ONLY_NESTED_SETTINGS) {
+    if (valueAtPath(out, path) !== undefined) fail(path, 'requires native managed settings; user settings cannot apply it');
+  }
   for (const [key, item] of Object.entries(out)) {
     if (Object.hasOwn(deprecated, key)) fail(key, deprecated[key]!);
     if (Object.hasOwn(reserved, key)) fail(key, reserved[key]!);
@@ -241,10 +320,8 @@ export function normalizeClaudeNativeSettings(value: unknown): Record<string, un
     }
     if (key === 'skillListingMaxDescChars' || key === 'bashOutputMaxChars') range(item, 1, Number.MAX_SAFE_INTEGER, key);
     if (key === 'maxProseWidth') range(item, 40, Number.MAX_SAFE_INTEGER, key);
-    if (record(item)) validateObject(key, item);
-  }
-  for (const path of CLAUDE_MANAGED_ONLY_NESTED_SETTINGS) {
-    if (valueAtPath(out, path) !== undefined) fail(path, 'requires native managed settings; user settings cannot apply it');
+    validateNested(key, item);
+    if (record(item)) validateModelSettings(key, item);
   }
   for (const [path, rule] of Object.entries(CLAUDE_NATIVE_NESTED_SETTING_RULES)) {
     const item = valueAtPath(out, path);
