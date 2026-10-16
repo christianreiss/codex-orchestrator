@@ -1,8 +1,21 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { appendFile, mkdtemp, readFile, readdir, rm, stat, truncate, utimes, writeFile, mkdir } from 'node:fs/promises';
+import {
+  appendFile,
+  open,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  truncate,
+  utimes,
+  writeFile,
+  mkdir,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { Readable } from 'node:stream';
+import { createHash, randomUUID } from 'node:crypto';
 
 import {
   AgentTransfersService,
@@ -19,7 +32,6 @@ import {
 } from '../../../src/services/agent-transfers.js';
 import { agentTransferEvents, agentTransfers, type Host } from '../../../src/db/schema.js';
 import type { Database } from '../../../src/db/client.js';
-import type { SettingsService } from '../../../src/services/settings.js';
 
 /**
  * A behavioural fake, not the shared `db-fake`: that one only *records* updates,
@@ -33,133 +45,11 @@ import type { SettingsService } from '../../../src/services/settings.js';
  * fake anything about SQL, and a predicate over some other column would simply
  * match nothing rather than silently matching everything.
  */
-function paramsOf(node: unknown, out: unknown[] = []): unknown[] {
-  if (node == null) return out;
-  if (Array.isArray(node)) {
-    for (const child of node) paramsOf(child, out);
-    return out;
-  }
-  if (typeof node === 'object') {
-    const obj = node as Record<string, unknown>;
-    if ('queryChunks' in obj) paramsOf(obj['queryChunks'], out);
-    else if ('value' in obj) out.push(obj['value']);
-  }
-  return out;
-}
-
+import {
+  createTransferDb as createDb,
+  createTransferSettings as createSettings,
+} from '../../helpers/transfer-store.js';
 type Row = Record<string, unknown>;
-
-function createDb(): Database & { rows: Map<unknown, Row[]> } {
-  const rows = new Map<unknown, Row[]>([
-    [agentTransfers, []],
-    [agentTransferEvents, []],
-  ]);
-  const get = (table: unknown): Row[] => {
-    if (!rows.has(table)) rows.set(table, []);
-    return rows.get(table)!;
-  };
-  const locks = new Map<unknown, Promise<void>>();
-
-  const db = {
-    rows,
-    select(releases?: Array<() => void>) {
-      return {
-        from(table: unknown) {
-          const result: Row[] = get(table).map((row) => ({ ...row }));
-          const chain = {
-            where: (predicate: unknown) => {
-              const ids = new Set(paramsOf(predicate));
-              const filtered = result.filter((row) => ids.has(row['id']));
-              return Object.assign(Promise.resolve(filtered), {
-                limit: () => Promise.resolve(filtered),
-                orderBy: () => Promise.resolve(filtered),
-                for: async () => {
-                  if (!releases) throw new Error('Row locks require a transaction');
-                  for (const id of ids) {
-                    const previous = locks.get(id) ?? Promise.resolve();
-                    let release!: () => void;
-                    locks.set(id, new Promise<void>((resolve) => { release = resolve; }));
-                    await previous;
-                    releases.push(release);
-                  }
-                  // A locking read sees the row after its preceding writer
-                  // commits, rather than the snapshot at query construction.
-                  return get(table).filter((row) => ids.has(row['id'])).map((row) => ({ ...row }));
-                },
-              });
-            },
-            orderBy: () => Object.assign(Promise.resolve(result), { limit: () => Promise.resolve(result) }),
-            limit: () => Promise.resolve(result),
-            then: (resolve: (value: Row[]) => unknown) => Promise.resolve(result).then(resolve),
-          };
-          return chain;
-        },
-      };
-    },
-    async transaction<T>(callback: (tx: Database) => Promise<T>): Promise<T> {
-      const releases: Array<() => void> = [];
-      try {
-        return await callback({ ...db, select: () => db.select(releases) } as unknown as Database);
-      } finally {
-        for (const release of releases.reverse()) release();
-      }
-    },
-    insert(table: unknown) {
-      return {
-        values: (value: Row | Row[]) => {
-          get(table).push(...(Array.isArray(value) ? value : [value]));
-          return Promise.resolve([{ affectedRows: 1 }]);
-        },
-      };
-    },
-    update(table: unknown) {
-      return {
-        set: (patch: Row) => ({
-          where: (predicate: unknown) => {
-            const ids = new Set(paramsOf(predicate));
-            for (const row of get(table)) {
-              if (ids.has(row['id'])) Object.assign(row, patch);
-            }
-            return Promise.resolve([{ affectedRows: 1 }]);
-          },
-        }),
-      };
-    },
-    delete(table: unknown) {
-      return {
-        where: (predicate: unknown) => {
-          const ids = new Set(paramsOf(predicate));
-          rows.set(
-            table,
-            get(table).filter((row) => !ids.has(row['id'])),
-          );
-          return Promise.resolve([{ affectedRows: 1 }]);
-        },
-      };
-    },
-  };
-  return db as unknown as Database & { rows: Map<unknown, Row[]> };
-}
-
-/** A settings fake over a plain map, matching SettingsService's surface. */
-function createSettings(initial: Record<string, string> = {}) {
-  const store = new Map<string, string>(Object.entries(initial));
-  return {
-    store,
-    getRaw: async (key: string) => store.get(key) ?? null,
-    getWithMeta: async (key: string) => ({ value: store.get(key) ?? null, updatedAt: null }),
-    getFlag: async (key: string, fallback = false) =>
-      store.has(key) ? ['1', 'true', 'yes', 'on'].includes(String(store.get(key))) : fallback,
-    getInt: async (key: string, fallback: number) =>
-      store.has(key) ? Number(store.get(key)) : fallback,
-    getString: async (key: string, fallback: string | null = null) => store.get(key) ?? fallback,
-    set: async (key: string, value: string) => void store.set(key, value),
-    setFlag: async (key: string, value: boolean) => void store.set(key, value ? '1' : '0'),
-    setInt: async (key: string, value: number) => void store.set(key, String(value)),
-    delete: async (key: string) => void store.delete(key),
-    deleteIf: async () => true,
-  } as unknown as SettingsService & { store: Map<string, string> };
-}
 
 const HOST = { id: 7 } as Host;
 
@@ -252,9 +142,7 @@ describe('put', () => {
     expect(result.complete).toBe(true);
     expect(result.bytes_written).toBe(11);
     expect(result.transfer.status).toBe(TRANSFER_STATUS_LIVE);
-    expect(result.transfer.content_sha256).toBe(
-      createHash('sha256').update('hello world').digest('hex'),
-    );
+    expect(result.transfer.content_sha256).toBe(createHash('sha256').update('hello world').digest('hex'));
     // Sharded by the first two characters of the id, not one flat directory.
     const shard = result.transfer.id.slice(0, 2);
     const info = await stat(join(dataRoot, 'transfers', shard, result.transfer.id));
@@ -269,8 +157,7 @@ describe('put', () => {
     const result = await put({ ttl_seconds: 999_999 });
     expect(result.ttl_clamped).toBe(true);
     expect(result.transfer.requested_ttl_seconds).toBe(999_999);
-    const granted =
-      (Date.parse(result.transfer.expires_at) - Date.parse(result.transfer.created_at)) / 1000;
+    const granted = (Date.parse(result.transfer.expires_at) - Date.parse(result.transfer.created_at)) / 1000;
     expect(granted).toBeLessThanOrEqual(DEFAULT_MAX_TTL_SECONDS);
   });
 
@@ -301,9 +188,12 @@ describe('chunked put', () => {
     const first = await put({ content_b64: Buffer.from('AAAA').toString('base64'), final: false });
     const id = first.transfer.id;
     const input = { id, content_b64: Buffer.from('BBBB').toString('base64'), offset: 4 };
-    const update = vi.spyOn(db, 'update').mockImplementationOnce(() => ({
-      set: () => ({ where: () => Promise.reject(new Error('database connection lost')) }),
-    }) as unknown as ReturnType<Database['update']>);
+    const update = vi.spyOn(db, 'update').mockImplementationOnce(
+      () =>
+        ({
+          set: () => ({ where: () => Promise.reject(new Error('database connection lost')) }),
+        }) as unknown as ReturnType<Database['update']>,
+    );
     await expect(service.put(input, HOST)).rejects.toThrow('database connection lost');
     update.mockRestore();
     expect((await service.info(id)).size_bytes).toBe(4);
@@ -369,8 +259,9 @@ describe('chunked put', () => {
     const id = first.transfer.id;
     const path = join(dataRoot, 'transfers', id.slice(0, 2), id);
     await truncate(path, 2);
-    await expect(service.put({ id, content_b64: Buffer.from('BBBB').toString('base64'), offset: 4 }, HOST))
-      .rejects.toThrow(/shorter than its committed size/);
+    await expect(
+      service.put({ id, content_b64: Buffer.from('BBBB').toString('base64'), offset: 4 }, HOST),
+    ).rejects.toThrow(/shorter than its committed size/);
     expect(await readFile(path, 'utf8')).toBe('AA');
     expect((await service.info(id)).status).toBe(TRANSFER_STATUS_UPLOADING);
   });
@@ -395,9 +286,7 @@ describe('chunked put', () => {
     expect(second.transfer.status).toBe(TRANSFER_STATUS_LIVE);
     expect(second.transfer.size_bytes).toBe(8);
     // Over the whole reassembled file, not the last chunk.
-    expect(second.transfer.content_sha256).toBe(
-      createHash('sha256').update('AAAABBBB').digest('hex'),
-    );
+    expect(second.transfer.content_sha256).toBe(createHash('sha256').update('AAAABBBB').digest('hex'));
   });
 
   it('refuses a chunk whose offset does not match, and says where to resume', async () => {
@@ -413,10 +302,7 @@ describe('chunked put', () => {
   it('refuses to append to a transfer that is already sealed', async () => {
     const first = await put();
     await expect(
-      service.put(
-        { id: first.transfer.id, content_b64: Buffer.from('X').toString('base64') },
-        HOST,
-      ),
+      service.put({ id: first.transfer.id, content_b64: Buffer.from('X').toString('base64') }, HOST),
     ).rejects.toThrow(/no longer accepts chunks/);
   });
 
@@ -590,7 +476,9 @@ describe('module state', () => {
       /default_ttl_seconds must be/,
     );
     await expect(service.setLimits({ max_ttl_seconds: 1 })).rejects.toThrow(/max_ttl_seconds/);
-    await expect(service.setLimits({ quota_bytes: 1024 })).rejects.toThrow(/at least max_file_bytes/);
+    await expect(service.setLimits({ max_file_bytes: 2048, quota_bytes: 1024 })).rejects.toThrow(
+      /at least max_file_bytes/,
+    );
   });
 
   it('stores a coherent set', async () => {
@@ -651,5 +539,168 @@ describe('audit trail', () => {
     await service.get(b.transfer.id);
     expect(await service.events(a.transfer.id)).toHaveLength(1);
     expect(await service.events(b.transfer.id)).toHaveLength(2);
+  });
+});
+
+describe('binary uploads', () => {
+  const data = Buffer.from([0, 255, 128, 10, 0, 42]);
+  const input = () => ({
+    id: randomUUID(),
+    name: 'blob.bin',
+    size_bytes: data.length,
+    content_sha256: createHash('sha256').update(data).digest('hex'),
+    ttl_seconds: 600,
+  });
+
+  it('is idempotent, host-bound, and hides bytes until verified', async () => {
+    const metadata = input();
+    const created = await service.createBinary(metadata, HOST);
+    expect((await service.createBinary(metadata, HOST)).id).toBe(created.id);
+    expect(transferRows()).toHaveLength(1);
+    await expect(service.createBinary({ ...metadata, size_bytes: 10 }, HOST)).rejects.toThrow(
+      /different upload/,
+    );
+    await expect(
+      service.appendBinary(created.id, 0, data.length, Readable.from([data]), { id: 8 } as Host),
+    ).rejects.toThrow(/uploading host/);
+    await expect(service.get(created.id)).rejects.toThrow(/still being uploaded/);
+    await service.appendBinary(created.id, 0, data.length, Readable.from([data]), HOST);
+    expect((await service.sealBinary(created.id, HOST)).content_sha256).toBe(metadata.content_sha256);
+    expect((await service.sealBinary(created.id, HOST)).status).toBe('live');
+    expect(Buffer.from((await service.get(created.id)).content_b64, 'base64')).toEqual(data);
+  });
+
+  it('resumes after disconnect, service restart and an uncommitted disk tail', async () => {
+    const metadata = input();
+    await service.createBinary(metadata, HOST);
+    await service.appendBinary(metadata.id, 0, 2, Readable.from([data.subarray(0, 2)]), HOST);
+    const broken = Readable.from(
+      (async function* () {
+        yield data.subarray(2, 3);
+        throw new Error('connection lost');
+      })(),
+    );
+    await expect(service.appendBinary(metadata.id, 2, 4, broken, HOST)).rejects.toThrow('connection lost');
+    expect((await service.info(metadata.id)).size_bytes).toBe(2);
+    const path = join(dataRoot, 'transfers', metadata.id.slice(0, 2), metadata.id);
+    await appendFile(path, 'uncommitted tail');
+    const restarted = new AgentTransfersService({ db, settings, dataRoot });
+    await restarted.appendBinary(metadata.id, 2, 4, Readable.from([data.subarray(2)]), HOST);
+    await restarted.sealBinary(metadata.id, HOST);
+    expect(await readFile(path)).toEqual(data);
+    expect(
+      (await readdir(join(dataRoot, 'transfers', metadata.id.slice(0, 2)))).filter((f) =>
+        f.endsWith('.part'),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('accepts only one concurrent writer at a confirmed offset', async () => {
+    const metadata = input();
+    await service.createBinary(metadata, HOST);
+    const other = new AgentTransfersService({ db, settings, dataRoot });
+    const results = await Promise.allSettled(
+      [service, other].map((s) => s.appendBinary(metadata.id, 0, data.length, Readable.from([data]), HOST)),
+    );
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect((await service.info(metadata.id)).size_bytes).toBe(data.length);
+  });
+
+  it('reserves optional quotas before bytes arrive, including competing uploads', async () => {
+    settings.store.set('transfers_quota_bytes', '10');
+    const results = await Promise.allSettled([
+      service.createBinary(input(), HOST),
+      service.createBinary(input(), HOST),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect((await service.adminState()).used_bytes).toBe(data.length);
+    await expect(put()).rejects.toThrow(/pool is full/);
+  });
+
+  it('refuses corrupt and incomplete uploads, and accepts empty files', async () => {
+    const metadata = input();
+    await service.createBinary(metadata, HOST);
+    await expect(service.sealBinary(metadata.id, HOST)).rejects.toThrow(/incomplete/);
+    await service.appendBinary(metadata.id, 0, data.length, Readable.from([Buffer.alloc(data.length)]), HOST);
+    await expect(service.sealBinary(metadata.id, HOST)).rejects.toThrow(/SHA-256 mismatch/);
+    expect((await service.info(metadata.id)).status).toBe('uploading');
+    const empty = { ...input(), size_bytes: 0, content_sha256: createHash('sha256').digest('hex') };
+    await service.createBinary(empty, HOST);
+    expect((await service.sealBinary(empty.id, HOST)).status).toBe('live');
+    const download = await service.openBinaryDownload(empty.id, 0, { kind: 'agent', hostId: 8, label: null });
+    let bytes = 0;
+    for await (const part of download.stream) bytes += part.length;
+    expect(bytes).toBe(0);
+  });
+
+  it('never resurrects a transfer deleted during receipt', async () => {
+    const metadata = input();
+    await service.createBinary(metadata, HOST);
+    const source = Readable.from(
+      (async function* () {
+        yield data.subarray(0, 2);
+        await service.remove(metadata.id, { kind: 'system', label: 'test' });
+        yield data.subarray(2);
+      })(),
+    );
+    await expect(service.appendBinary(metadata.id, 0, data.length, source, HOST)).rejects.toThrow(/deleted/);
+    expect((await service.info(metadata.id)).status).toBe('deleted');
+  });
+
+  it('refuses expiry during receipt and sweeps its files', async () => {
+    const metadata = input();
+    await service.createBinary(metadata, HOST);
+    const source = Readable.from(
+      (async function* () {
+        yield data.subarray(0, 2);
+        transferRows()[0]!['expiresAt'] = '2000-01-01T00:00:00Z';
+        yield data.subarray(2);
+      })(),
+    );
+    await expect(service.appendBinary(metadata.id, 0, data.length, source, HOST)).rejects.toThrow(/expired/);
+    await service.sweepExpired();
+    expect(await readdir(join(dataRoot, 'transfers', metadata.id.slice(0, 2)))).toEqual([]);
+  });
+
+  it('defaults to unlimited and preserves explicit limits above 64 MiB', async () => {
+    expect((await service.getLimits()).max_file_bytes).toBe(0);
+    expect((await service.getLimits()).quota_bytes).toBe(0);
+    await service.setLimits({ max_file_bytes: 1024 ** 4, quota_bytes: 0 });
+    expect((await service.getLimits()).max_file_bytes).toBe(1024 ** 4);
+    await service.setLimits({ max_file_bytes: 0, quota_bytes: 0 });
+  });
+});
+
+describe('binary storage failures', () => {
+  it.each([1, 2])('keeps confirmed offset after ENOSPC at write %s', async (failureAt) => {
+    const data = Buffer.from('binary data');
+    const metadata = {
+      id: randomUUID(),
+      name: 'disk.bin',
+      size_bytes: data.length,
+      content_sha256: createHash('sha256').update(data).digest('hex'),
+      ttl_seconds: 600,
+    };
+    await service.createBinary(metadata, HOST);
+    const probe = await open(join(dataRoot, 'probe'), 'w+');
+    const prototype = Object.getPrototypeOf(probe);
+    const original = prototype.write;
+    let writes = 0;
+    const spy = vi.spyOn(prototype, 'write').mockImplementation(function (this: unknown, ...args: unknown[]) {
+      if (++writes === failureAt)
+        return Promise.reject(Object.assign(new Error('no space left on device'), { code: 'ENOSPC' }));
+      return original.apply(this, args);
+    });
+    try {
+      await expect(
+        service.appendBinary(metadata.id, 0, data.length, Readable.from([data]), HOST),
+      ).rejects.toThrow('no space left');
+    } finally {
+      spy.mockRestore();
+      await probe.close();
+    }
+    expect((await service.info(metadata.id)).size_bytes).toBe(0);
+    await service.appendBinary(metadata.id, 0, data.length, Readable.from([data]), HOST);
+    expect((await service.sealBinary(metadata.id, HOST)).content_sha256).toBe(metadata.content_sha256);
   });
 });

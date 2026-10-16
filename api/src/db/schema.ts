@@ -2081,6 +2081,9 @@ export const agentTransfers = mysqlTable(
     /** Grows with each chunk, and doubles as the append offset. */
     sizeBytes: bigint('size_bytes', { mode: 'number', unsigned: true }).notNull().default(0),
     contentSha256: char('content_sha256', { length: 64 }),
+    /** Binary uploads reserve their complete size; NULL identifies legacy MCP uploads. */
+    expectedSizeBytes: bigint('expected_size_bytes', { mode: 'number', unsigned: true }),
+    expectedSha256: char('expected_sha256', { length: 64 }),
     /** Relative to DATA_ROOT, e.g. `transfers/ab/ab12…`. */
     storagePath: varchar('storage_path', { length: 512 }).notNull(),
     /** `uploading` | `live` | `expired` | `deleted`. Rows are never removed; bytes are. */

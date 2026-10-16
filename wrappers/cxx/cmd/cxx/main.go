@@ -14,6 +14,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/housekeeping"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/transfers"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
@@ -109,6 +110,8 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	switch args[0] {
+	case "transfer":
+		return transfers.Command(args[1:], "", stdout, stderr)
 	case "housekeeping":
 		return housekeeping.Command(args[1:], "", stdout, stderr)
 	case "native":
@@ -377,6 +380,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx native-entry status|install|remove")
 	fmt.Fprintln(w, "  cxx update [--minimal]")
 	fmt.Fprintln(w, "  cxx sync")
+	fmt.Fprintln(w, "  cxx transfer put FILE | get ID --output FILE [--resume] [--engine ENGINE] [--json]")
 	fmt.Fprintln(w, "  cxx housekeeping [status|run [--dry-run]|pin|unpin] [--engine ENGINE] [--json]")
 	fmt.Fprintln(w, "  cxx cron [install|remove|run [--due]]")
 	fmt.Fprintln(w, "  cxx portal [status|notify|resolve|say|ask|wait|accept|leave]")
@@ -391,6 +395,9 @@ func printSelectorHelp(w io.Writer) {
 
 // Dispatch only after the first app returns, including all deferred auth cleanup.
 func runPersona(engine string, args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "transfer" {
+		return transfers.Command(args[1:], engine, stdout, stderr)
+	}
 	communicator.RegisterSync(engine)
 	if len(args) > 0 && args[0] == "reboot" {
 		return agentbus.RunRebootCommand(args[1:], os.Stdin, stdout, stderr)

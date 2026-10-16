@@ -1,5 +1,7 @@
 # 2026-10-16
 
+- **Binary file transfers (cxx 0.9.93).** `cxx transfer put FILE` and `cxx transfer get ID --output FILE` stream files through the orchestrator without base64 or a fixed file-size cap, for Codex, Claude and Grok. `--resume` continues interrupted transfers; SHA-256 verification precedes download publication, and existing targets require `--overwrite`. The communicator streams bytes outside control frames. Optional file/pool limits now default to unlimited (`0`), preserving explicitly saved limits; binary uploads reserve quota before receiving bytes. Migration 0074 adds expected size/hash and commit coordination. TTLs, audit history and automatic cleanup remain in place.
+
 - **Follow-up fixes (cxx 0.9.92).**
   - Codex async compaction is off by default again for every client version. Codex 0.163.0 still marks `features.async_compaction` as under development with `default_enabled: false`. The Engines → Codex toggle stays, labelled experimental. Values an operator saved explicitly are unchanged.
   - On macOS, the managed cxx-agent MCP, hook and grok-auth commands name the real cxx binary instead of the `cdx`/`clx`/`cgx` symlink, so the receiver starts for Codex, Claude and Grok.

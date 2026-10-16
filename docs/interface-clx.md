@@ -2023,3 +2023,10 @@ remain in their existing lifecycles. See [runtime, migration and acceptance](com
 ### Native process stop (cxx 0.9.85)
 
 Managed native launches expose a launch-scoped stop capability only after their owned child starts. Live Topology can request TERM followed by KILL after five seconds. The wrapper signals only its own child or owned process group, never an inherited terminal process group, and reports exit only after Wait. The same channel works during a model turn. Old servers disable this optional polling with 404; old wrappers offer no native capability. See [native control endpoints](interface-api.md#live-topology-endpoints) for identity, recovery and receipt semantics.
+
+## Binary file transfer (cxx 0.9.93)
+
+The shared `cxx transfer put FILE` / `get ID --output FILE` commands use this
+engine via its alias or `--engine`. Bytes stream through the orchestrator with
+`--resume`, SHA-256 verification and optional limits defaulting to unlimited.
+See [file-transfers.md](file-transfers.md) for CLI, HTTP, journal and rollout contracts.

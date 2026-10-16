@@ -1167,3 +1167,15 @@ to every key. See [Exposed API routing](interface-api.md#exposed-api-routing-any
 ## Native session process controls
 
 `POST /host/agent-sessions/{id}/native-control` registers/polls the cxx 0.9.85 process capability and reports stop receipts using the session bridge token. `POST /admin/agent-sessions/{id}/stop` requires `agent_portal.manage` and an expected process/binding identity; `GET /admin/agent-sessions/{id}/stop` requires `agent_portal.read` and returns the durable result. See [Live topology endpoints](interface-api.md#live-topology-endpoints) for complete bodies, statuses and recovery behavior.
+
+## Binary file transfers
+
+Host-authenticated requests require an explicit engine, enabled engine assignment,
+managed MCP configuration and the transfer module. See [file-transfers.md](file-transfers.md)
+for the full metadata, offset, quota, retry and SHA-256 contracts.
+
+- `POST /host/transfers` — create or repeat an upload by stable UUID and declared size/hash/TTL; returns the transfer and binary request size.
+- `GET /host/transfers/{id}` — read metadata and the confirmed upload offset.
+- `PUT /host/transfers/{id}/content` — append raw binary bytes at the explicit `offset` query value with `Content-Length`.
+- `POST /host/transfers/{id}/complete` — verify size/hash and make the file available; repeatable after a lost response.
+- `GET /host/transfers/{id}/content` — stream a live file, with optional open-ended HTTP byte range.

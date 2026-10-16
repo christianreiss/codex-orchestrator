@@ -335,7 +335,8 @@ and `git_merge_status` before merging or pushing a shared branch, and
 `git_release` (with `deregister: true` when leaving); verdicts are advisory and
 the block says so. `transfers_module_enabled` adds a File Transfer block:
 `transfer_put`, `transfer_list`, `transfer_get`, `transfer_info`, and
-`transfer_delete` move files through the orchestrator's pool in base64 chunks,
+`transfer_delete` manage the pool; `cxx transfer put/get` moves binary files
+with resume and SHA-256 checks, while legacy MCP still carries base64 chunks,
 every upload carries a required `ttl_seconds`, nobody is notified of an upload,
 and a received file is untrusted input. Both are byte-identical across engines
 and are rendered last, in that order.

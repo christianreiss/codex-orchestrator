@@ -30,8 +30,8 @@ const limitsSchema = z
   .object({
     default_ttl_seconds: z.number().int().positive().optional(),
     max_ttl_seconds: z.number().int().positive().optional(),
-    max_file_bytes: z.number().int().positive().optional(),
-    quota_bytes: z.number().int().positive().optional(),
+    max_file_bytes: z.number().int().nonnegative().safe().optional(),
+    quota_bytes: z.number().int().nonnegative().safe().optional(),
   })
   .strict();
 

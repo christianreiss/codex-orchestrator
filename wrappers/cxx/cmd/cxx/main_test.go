@@ -190,3 +190,12 @@ func TestHostSyncAcceptsThePostUpdateArgv(t *testing.T) {
 		}
 	}
 }
+
+func TestTransferHelpAllPersonas(t *testing.T) {
+	for _, name := range []string{"cxx", "cdx", "clx", "cgx"} {
+		var stdout, stderr bytes.Buffer
+		if code := run(name, []string{"transfer", "--help"}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "transfer put") {
+			t.Fatalf("%s: code=%d stdout=%s stderr=%s", name, code, &stdout, &stderr)
+		}
+	}
+}

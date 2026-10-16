@@ -231,6 +231,7 @@ describe('listing shape', () => {
       'created_at',
       'description',
       'download_count',
+      'expected_size_bytes',
       'expires_at',
       'id',
       'mime_type',

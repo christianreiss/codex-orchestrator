@@ -759,17 +759,23 @@ function fileTransferSection(context: ManagedAgentFeatureContext): RenderedSecti
     context.fileTransfer,
     `## File Transfer
 
-Files move between agents through the orchestrator, not between hosts. \`transfer_put\` uploads bytes
-and returns an id, \`transfer_list\` shows what the pool is currently holding, \`transfer_get\` fetches
-one back, \`transfer_info\` reads its metadata without moving the bytes, and \`transfer_delete\` retires
-one early. Content travels base64-encoded, and both put and get take an \`offset\`, so a file too large
-for one call moves in chunks rather than not at all.
+Use the wrapper for binary files: \`cxx transfer put FILE --ttl-seconds 3600 --json\` uploads and
+returns an id; \`cxx transfer get ID --output FILE --json\` downloads and verifies SHA-256 before
+publishing the local file. Add \`--resume\` after an interruption; keep the adjacent resume journal
+and partial file. Existing targets require \`--overwrite\`. The commands use the current agent's
+engine, or \`--engine codex|claude|grok\`; \`cdx transfer\`, \`clx transfer\` and \`cgx transfer\`
+select their engine explicitly. Bytes stream through the server without base64 or a fixed file-size
+limit. Optional operator limits and free disk still apply.
+
+\`transfer_list\`, \`transfer_info\` and \`transfer_delete\` manage the same pool through MCP.
+Legacy \`transfer_put\` / \`transfer_get\` still carry base64 chunks with offsets, but use the
+wrapper for large files; never pass file bytes through the model context.
 
 **Every upload expires, and the TTL is yours to choose.** \`ttl_seconds\` is required — decide how long
 the peer plausibly needs the file, not how long you would like it kept. The fleet clamps the value to
 an operator-set maximum and the reply tells you the \`expires_at\` you actually got; that timestamp,
 not what you asked for, is when the bytes go. Nothing here is storage: a file worth keeping belongs in
-a repository or in \`shared_memory_write\`, and the pool is a shared disk with a quota, so an oversized
+a repository or in \`shared_memory_write\`, and the pool is a shared disk with optional quotas, so an oversized
 transfer you no longer need is worth deleting rather than leaving to lapse.
 
 **Hand the id over yourself.** The pool is fleet-wide, so any agent that knows an id can fetch it, and

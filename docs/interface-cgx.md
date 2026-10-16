@@ -1186,3 +1186,10 @@ From cxx 0.9.88, two-agent exchanges use `agent_send`, `agent_request`, and
 `agent_reply` with a peer name or address. The call rendezvous tools and CLI
 commands are removed for all engines. Conferences retain their room PINs and
 chair-managed task lifecycle.
+
+## Binary file transfer (cxx 0.9.93)
+
+The shared `cxx transfer put FILE` / `get ID --output FILE` commands use this
+engine via its alias or `--engine`. Bytes stream through the orchestrator with
+`--resume`, SHA-256 verification and optional limits defaulting to unlimited.
+See [file-transfers.md](file-transfers.md) for CLI, HTTP, journal and rollout contracts.
