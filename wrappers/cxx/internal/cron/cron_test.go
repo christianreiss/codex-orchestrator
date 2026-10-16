@@ -194,6 +194,53 @@ func TestOnlyAutoUpdateHostsKeepAMaintenanceLine(t *testing.T) {
 	}
 }
 
+// A normal (non-auto-update) host runs nothing on its own: reconciling its
+// schedule removes the managed maintenance line and keeps every other entry
+// (docs/host-runtime-policy.md, feedback b2b5267c).
+func TestNormalHostScheduleReconcileRemovesTheManagedLine(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("exercises the non-root user crontab path")
+	}
+	dir := t.TempDir()
+	store := filepath.Join(dir, "crontab.txt")
+	// PATH holds only the fake crontab: no sudo, so the run stays on this
+	// user's own (fake) crontab and never reaches the real spool.
+	t.Setenv("PATH", dir)
+	t.Setenv("SUDO_USER", "")
+	t.Setenv("TMPDIR", dir) // the target lock lives in os.TempDir
+	script := `#!/bin/sh
+for last; do :; done
+if [ "$last" = -l ]; then
+  [ -f "` + store + `" ] || { echo 'no crontab for test' >&2; exit 1; }
+  while IFS= read -r line; do printf '%s\n' "$line"; done < "` + store + `"
+  exit 0
+fi
+: > "` + store + `"
+while IFS= read -r line; do printf '%s\n' "$line" >> "` + store + `"; done
+`
+	if err := os.WriteFile(filepath.Join(dir, "crontab"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	before := "MAILTO=ops@example.com\n7 3 * * * /usr/bin/backup\n*/15 * * * * /opt/cxx cron run --due # " + Marker + "\n"
+	if err := os.WriteFile(store, []byte(before), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	canonical := filepath.Join(dir, "cxx")
+	if err := os.WriteFile(canonical, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconcileSchedule(context.Background(), canonical, false); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(after), Marker) || !strings.Contains(string(after), "MAILTO=ops@example.com") || !strings.Contains(string(after), "/usr/bin/backup") {
+		t.Fatalf("normal host crontab after reconcile = %q", after)
+	}
+}
+
 func TestScheduleReadFailureCannotReplaceExistingCrontab(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)
