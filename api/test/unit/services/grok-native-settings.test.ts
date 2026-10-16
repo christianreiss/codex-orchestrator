@@ -15,7 +15,8 @@ const native = {
   session: { auto_compact_threshold_percent: 75, load_envrc: false },
   subagents: { enabled: true, max_concurrent: 3, models: { reviewer: 'grok-4.7' } },
   goal: { enabled: false },
-  memory_v2: { enabled: false, rollout: 'off' },
+  memory: { enabled: false },
+  memory_v2: { enabled: false, batch_dream_enabled: false },
   skills: { paths: ['/srv/skills'] },
   plugins: { disabled: ['unused'] },
   ui: {
@@ -108,6 +109,21 @@ describe('Grok native settings', () => {
   });
 
   it.each([
+    [{ memory: { embedding: { dimensions: 128 } } }, 'native_settings.memory.embedding: removed'],
+    [{ memory: { initial_injection: {} } }, 'native_settings.memory.initial_injection: removed'],
+    [{ memory_v2: { rollout: 'off' } }, 'native_settings.memory_v2.rollout: removed'],
+    [{ version_overrides: [{ minimum_version: '1.0.50', memory_v2: { capture_enabled: false } }] }, 'removed'],
+    [{ shell_environment_policy: { inherit: 'audit' } }, 'native_settings.shell_environment_policy.inherit: expected =core'],
+    [{ ui: { status_line: { type: 'builtin', items: [] } } }, 'builtin status lines require at least one item'],
+    [{ ui: { status_line: { type: 'builtin', items: ['unknown'] } } }, 'native_settings.ui.status_line.items.0: expected cwd'],
+    [{ ui: { status_line: { type: 'builtin', refresh_interval: 5 } } }, 'only command status lines'],
+    [{ ui: { status_line: { command: 'audit' } } }, 'native_settings.ui.status_line.type: required'],
+    [{ ui: { status_line: { type: 'command' } } }, 'native_settings.ui.status_line.command: command status lines require'],
+    [{ model: { 'custom.with.dots': { notice: {} } } }, 'native_settings.model.custom.with.dots.notice.text: notice requires text'],
+    [{ model: { custom: { notice: { text: 'hello', extra: true } } } }, 'unknown Grok setting'],
+    [{ model: { custom: { notice: { text: 'hello', severity: 'bad' } } } }, 'expected =info'],
+    [{ model: { custom: { 6: { api_key: 'invalid' } } } }, 'unknown Grok setting'],
+    [{ features: { tool_search: true } }, 'unknown Grok setting'],
     [{ unknown: true }, 'unknown Grok setting'],
     [{ ui: { unknown: true } }, 'unknown Grok setting'],
     [{ features: { lsp_tools: 'yes' } }, 'expected boolean'],
@@ -132,9 +148,31 @@ describe('Grok native settings', () => {
     expect(() => normalizeGrokNativeSettings(value)).toThrow(error);
   });
 
+  it.each(['core', 'all', 'none'])('accepts native shell inheritance %s', inherit => {
+    const input = { shell_environment_policy: { inherit }, memory: { enabled: false }, workflows: { enabled: false }, model: { 'custom.with.dots': { notice: { text: '', severity: 'info', label: 'custom' } } } };
+    expect(normalizeGrokNativeSettings(input)).toEqual(input);
+    expect(renderGrokNativeToml(input)).toContain('[model."custom.with.dots".notice]');
+  });
+
+  it.each(['builtin', 'disabled', 'off', 'none', 'hidden'])('accepts native status line type %s', type => {
+    expect(normalizeGrokNativeSettings({ ui: { status_line: { type } } })).toEqual({ ui: { status_line: { type } } });
+  });
+
   it('preserves opt-in HTTP hooks and version-scoped native features', () => {
     const value = { hooks: { Stop: [{ hooks: [{ type: 'http', url: 'https://hook.invalid', timeout: 10 }] }] }, version_overrides: [{ minimum_version: '1.0.50', ui: { timestamps: 'minimal' } }] };
     expect(normalizeGrokNativeSettings(value)).toEqual(value);
+  });
+
+  it.each([
+    ['memory', 'embedding'], ['memory', 'initial_injection'], ['memory', 'search'], ['memory', 'session'], ['memory', 'watcher'],
+    ['memory_v2', 'automatic_dream_enabled'], ['memory_v2', 'capture_enabled'], ['memory_v2', 'capture_status_enabled'],
+    ['memory_v2', 'file_writes_enabled'], ['memory_v2', 'manual_dream_enabled'], ['memory_v2', 'rollout'],
+  ])('rejects removed %s.%s before storing any row', async (root, key) => {
+    const db = createDbFake();
+    const configs = new ClientConfigService(db as never);
+    const settings = { native_settings: { [root]: { [key]: false } } };
+    await expect(configs.store({ settings }, null, 'grok')).rejects.toThrow(`native_settings.${root}.${key}: removed`);
+    expect(db.tables.get(clientConfigDocuments)).toBeUndefined();
   });
 
   it('rejects pollution and control keys throughout nested dictionaries', () => {
@@ -168,6 +206,8 @@ describe('Grok native settings', () => {
   });
 
   it.each([
+    { field: 'memory switch', first: { memory: { enabled: false } }, next: { memory: { enabled: true } }, initialText: 'enabled = false', editedText: 'enabled = true', absentText: '[memory]' },
+    { field: 'workflows switch', first: { workflows: { enabled: false } }, next: { workflows: { enabled: true } }, initialText: 'enabled = false', editedText: 'enabled = true', absentText: '[workflows]' },
     { field: 'selected model context', first: { model: { 'grok-4.7': { context_window: 500000 } } }, next: { model: { 'grok-4.7': { context_window: 256000 } } }, initialText: 'context_window = 500000', editedText: 'context_window = 256000', absentText: 'context_window = 500000' },
     { field: 'other model context', first: { model: { 'grok-4.5': { context_window: 500000 } } }, next: { model: { 'grok-4.5': { context_window: 256000 } } }, initialText: '[model."grok-4.5"]\ncontext_window = 500000', editedText: '[model."grok-4.5"]\ncontext_window = 256000', absentText: '[model."grok-4.5"]' },
     { field: 'permission mode', first: { ui: { permission_mode: 'ask' } }, next: { ui: { permission_mode: 'default' } }, initialText: 'permission_mode = "ask"', editedText: 'permission_mode = "default"', absentText: 'permission_mode' },

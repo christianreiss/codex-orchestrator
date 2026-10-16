@@ -205,7 +205,7 @@ is deliberately not derived: its interplay with the isolated managed runtime is
 unverified and Grok runs unsandboxed when a profile cannot be applied; the
 enforcement report lists it under `not_enforced`.
 
-## Native configuration maintenance (2026-10-12)
+## Native configuration maintenance (2026-10-16)
 
 The config API accepts `settings.native_settings`, a JSON object with the native
 `config.toml` table shape. The Grok validator preserves documented fields through
@@ -214,11 +214,11 @@ subagents, plugins, goals, memory, native command/HTTP hooks, notification hooks
 and built-in or command status lines. Features are configured only when an
 operator supplies them; support does not turn experimental features on.
 
-The field/type registry is audited against Grok Build **1.0.50 stable** and the
+The field/type registry is audited against Grok Build **1.0.60 stable** and the
 [official complete reference](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md),
 supplemented by the matching configuration, hooks and status-line guides and
 [current settings reference](https://docs.x.ai/build/settings/reference).
-The complete field set requires Grok Build 1.0.50, including the new
+The existing native floor remains Grok Build 1.0.50, including the
 `ui.timestamps` setting. `pager.toml`, custom
 `sandbox.toml` profiles and enterprise `requirements.toml` are separate files;
 this interface edits the user `config.toml` partial only.
@@ -226,7 +226,31 @@ this interface edits the user `config.toml` partial only.
 Unknown keys, wrong types/enums, deprecated per-model `reasoning_effort` and
 `supports_reasoning_effort`, `ui.approval_mode`, `ui.ui_theme`, and
 `ui.show_timestamps` produce a 422 with the offending setting path. The message
-names the current replacement. Omit absent values; TOML has no `null`.
+names the current replacement. The shell inheritance enum is `core|all|none`;
+model notices require string `text`, optional string `label`, and
+`severity=info|warning|critical`. Status lines require a `type`; command rows also
+require a nonempty command, and built-in rows validate segment names and reject
+command-only refresh timers. Native disabled aliases `off|none|hidden` are accepted.
+
+Grok 1.0.51 removed `memory.embedding`, `initial_injection`, `search`, `session`
+and `watcher`, plus `memory_v2.automatic_dream_enabled`, `capture_enabled`,
+`capture_status_enabled`, `file_writes_enabled`, `manual_dream_enabled` and `rollout`.
+New input rejects those exact paths with a 422 and points to `memory.enabled`.
+Migration 0072 removes them from stored Grok native settings and conditional
+version layers, preserving other memory-v2 tuning fields and unrelated values.
+It also removes proven invalid shell-inheritance values, known invalid status-line
+shapes, and malformed notices. Invalid built-in segments are removed in order;
+empty lists are omitted to restore native defaults. Exact inert
+`model.<id>.6.api_key` leaves are removed and only empty `6` tables are pruned.
+Unknown custom siblings stay visible as validation errors instead of being
+silently removed. Valid aliases and absent native defaults are preserved.
+The saved `content`/`sha256` remain the historical snapshot until the next normal
+save; host rendering and validation previews use the migrated settings immediately.
+The accidental `model.<id>.6.api_key` registry path is also rejected; documented
+`model.<id>.api_key` remains supported. `features.tool_search` is not accepted:
+the current web reference and stable 1.0.60 consumer disagree.
+
+Omit absent values; TOML has no `null`.
 
 Model and effort belong to the structured controls: native `models.default` and
 `models.default_reasoning_effort` are rejected with the corresponding control
