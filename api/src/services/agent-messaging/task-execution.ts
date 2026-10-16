@@ -2,7 +2,7 @@
 import { newQueuedMessage } from './views.js';
 import { AGENT_MESSAGING_DEFAULT_TTL_SECONDS } from './constants.js';
 import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../../db/client.js';
 import {
@@ -207,6 +207,8 @@ export async function queueTaskResultReply(
       and(
         eq(agentBusMessages.replyToMessageId, message.id),
         eq(agentBusMessages.senderAddressId, message.targetAddressId),
+        // Progress replies sent while the work ran are not its answer.
+        ne(agentBusMessages.deliveryClass, 'progress'),
       ),
     )
     .limit(1)

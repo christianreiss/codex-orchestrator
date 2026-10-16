@@ -151,3 +151,60 @@ func TestLegacySchedulePromptNamesTheResultTool(t *testing.T) {
 		t.Fatalf("schedule prompt still finishes with agent_listen: %q", prompt)
 	}
 }
+
+// Regression for feedback bad0e24b / 19c4817d (2026-10-16): a progress-only
+// agent_reply on accepted work acknowledged the delivery as completed, so the
+// server stored "unknown" and the later agent_task_result found no held delivery.
+func TestProgressReplyKeepsAcceptedWorkHeld(t *testing.T) {
+	var posted []string
+	var bodies []map[string]any
+	c := heldWorkClient(t, &posted, &bodies)
+	tracker := newChannelTracker(c)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	work := tracker.track(ctx, "work-1", "claim-work", map[string]any{"work_kind": "request"})
+
+	for _, text := range []string{"accepted, deploying", "half done"} {
+		out, err := callMCPTool(ctx, c, tracker, "agent_reply", map[string]any{"message_id": "work-1", "content": text, "delivery_class": "progress"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out["work_status"] != "held" {
+			t.Fatalf("receipt must say work stays held: %v", out)
+		}
+	}
+	if tracker.get("work-1") != work || work.reply() != nil || len(tracker.heldWork()) != 1 {
+		t.Fatal("progress reply released accepted work")
+	}
+	if len(posted) != 2 || posted[0] != "reply" || posted[1] != "reply" {
+		t.Fatalf("progress replies posted %v; nothing may be acknowledged", posted)
+	}
+	if bodies[0]["claim_id"] != "claim-work" || bodies[0]["delivery_class"] != "progress" ||
+		bodies[0]["client_message_id"] == bodies[1]["client_message_id"] || bodies[0]["client_message_id"] == work.replyClientID {
+		t.Fatalf("progress bodies = %v", bodies)
+	}
+
+	if _, err := callMCPTool(ctx, c, tracker, "agent_task_result", map[string]any{"message_id": "work-1", "task_result": map[string]any{"status": "succeeded", "summary": "deployed"}}); err != nil {
+		t.Fatalf("final result after progress: %v", err)
+	}
+	if posted[len(posted)-1] != "deliveries/work-1/ack" || tracker.get("work-1") != nil {
+		t.Fatalf("final result did not finish the work: %v", posted)
+	}
+}
+
+// A reply that is not progress stays the terminal answer to the work.
+func TestPlainReplyWithoutResultStillFinishesWork(t *testing.T) {
+	var posted []string
+	var bodies []map[string]any
+	c := heldWorkClient(t, &posted, &bodies)
+	tracker := newChannelTracker(c)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tracker.track(ctx, "work-1", "claim-work", map[string]any{"work_kind": "request"})
+	if _, err := callMCPTool(ctx, c, tracker, "agent_reply", map[string]any{"message_id": "work-1", "content": "answer"}); err != nil {
+		t.Fatal(err)
+	}
+	if tracker.get("work-1") != nil || posted[len(posted)-1] != "deliveries/work-1/ack" {
+		t.Fatalf("a non-progress reply remains the terminal answer: %v", posted)
+	}
+}

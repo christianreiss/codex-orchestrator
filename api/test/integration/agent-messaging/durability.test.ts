@@ -627,6 +627,37 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       .toMatchObject({ status: 'completed', taskResultStatus: 'unknown' });
   });
 
+  // Feedback bad0e24b / 19c4817d (2026-10-16): a progress-only reply finished
+  // accepted work as unknown and the real result was then rejected.
+  it.each(ENGINES)('keeps %s work held across progress replies until its result', async engine => {
+    const source = await register('codex', 'progress-source');
+    const target = await register(engine, 'progress-target');
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'deploy it', clientMessageId: randomUUID(), kind: 'request',
+    });
+    const messageId = String((sent.message as Record<string, unknown>).id);
+    const claimId = randomUUID();
+    await service.claimForSession(target.sessionId, target.bridgeToken, claimId);
+    await service.acknowledgeSessionDelivery(target.sessionId, target.bridgeToken, messageId, { claimId, outcome: 'accepted' });
+    for (const content of ['accepted, deploying', 'half done']) {
+      await expect(service.replyMessage(target.sessionId, target.bridgeToken, messageId, {
+        content, clientMessageId: randomUUID(), claimId, queue: { delivery_class: 'progress' },
+      })).resolves.toMatchObject({ created: true });
+    }
+    expect((await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId)))[0])
+      .toMatchObject({ status: 'accepted', taskResultStatus: null, completedAt: null });
+    await service.acknowledgeSessionDelivery(target.sessionId, target.bridgeToken, messageId, {
+      claimId, outcome: 'completed', taskResult: { status: 'succeeded', summary: 'deployed and verified' },
+    });
+    expect((await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId)))[0])
+      .toMatchObject({ status: 'completed', taskResultStatus: 'succeeded' });
+    const replies = await db.select().from(agentBusMessages).where(eq(agentBusMessages.replyToMessageId, messageId));
+    expect(replies.map(r => r.deliveryClass).sort()).toEqual(['coordination', 'progress', 'progress']);
+    await expect(service.replyMessage(target.sessionId, target.bridgeToken, messageId, {
+      content: 'late', clientMessageId: randomUUID(), claimId, queue: { delivery_class: 'progress' },
+    })).rejects.toMatchObject({ code: 'agent_task_result_not_accepted' });
+  });
+
   it.each(ENGINES)('fences expired and superseded informational reply claims for %s', async engine => {
     const source = await register('codex', 'info-source');
     const target = await register(engine, 'info-target');

@@ -601,7 +601,13 @@ export class AgentMessagingService {
       if (!parent.workKind && parent.attempts > 0 && !['completed', 'digested', 'superseded'].includes(parent.status) && !input.claimId) {
         throw new ConflictError('A delivered message requires its current claim; use send for a new follow-up', 'agent_messaging_lease_lost');
       }
-      if (parent.workKind && input.claimId) await this.finishTaskLocked(tx, parent, input.claimId, `session:${sessionId}`, input.taskResult);
+      // A progress reply without a result is a status update on still-running
+      // work: it keeps the claim held so the real outcome can follow later.
+      const progressOnly = !!parent.workKind && !input.taskResult && policy.deliveryClass === 'progress';
+      if (parent.workKind && input.claimId) {
+        if (progressOnly) await this.assertTaskProgressLocked(tx, parent, input.claimId, `session:${sessionId}`);
+        else await this.finishTaskLocked(tx, parent, input.claimId, `session:${sessionId}`, input.taskResult);
+      }
       if (input.claimId && !parent.workKind && (
         parent.claimId !== input.claimId || parent.leaseOwner !== `session:${sessionId}` ||
         parent.targetBindingGeneration !== sender.bindingGeneration
@@ -678,7 +684,7 @@ export class AgentMessagingService {
       if (!persisted) throw new Error('Inserted agent reply could not be read back');
       if (input.claimId && !parent.workKind) await this.finishInformationalReplyLocked(tx, parent, now);
       // An attached conference member reports by replying to its task.
-      await this.conference.settleConferenceDispatchLocked(tx, parent.id, now);
+      if (!progressOnly) await this.conference.settleConferenceDispatchLocked(tx, parent.id, now);
       await this.conference.chargeConferenceBudgetLocked(tx, parent.conversationId, now);
       await tx.update(agentBusConversations).set({ nextSequence: sequence + 1, lastActivityAt: now, updatedAt: now }).where(eq(agentBusConversations.id, conversation.id));
       return { message: persisted, sender, target, content, created: true };
@@ -1022,11 +1028,21 @@ export class AgentMessagingService {
     return rows.length > 0;
   }
 
-  private async finishTaskLocked(tx: Parameters<Parameters<Database['transaction']>[0]>[0], message: AgentBusMessage, claimId: string, leaseOwner: string, result?: TaskResult) {
+  private async assertTaskLeaseLocked(tx: Parameters<Parameters<Database['transaction']>[0]>[0], message: AgentBusMessage, claimId: string, leaseOwner: string) {
     if (message.claimId !== claimId || message.leaseOwner !== leaseOwner) throw new ConflictError('Message lease is no longer owned by this delivery', 'agent_messaging_lease_lost');
     const target = await this.requireAddressLocked(tx, message.targetAddressId);
     if (target.bindingGeneration !== message.targetBindingGeneration) throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
     if (message.status === 'accepted' && (!message.leaseUntil || message.leaseUntil <= nowIso())) throw new ConflictError('Delivery lease expired', 'agent_messaging_lease_lost');
+  }
+
+  /** A progress reply leaves accepted work held: no result, no completion. */
+  private async assertTaskProgressLocked(tx: Parameters<Parameters<Database['transaction']>[0]>[0], message: AgentBusMessage, claimId: string, leaseOwner: string) {
+    await this.assertTaskLeaseLocked(tx, message, claimId, leaseOwner);
+    if (message.status !== 'accepted') throw new ConflictError('Progress replies require accepted, unfinished work', 'agent_task_result_not_accepted');
+  }
+
+  private async finishTaskLocked(tx: Parameters<Parameters<Database['transaction']>[0]>[0], message: AgentBusMessage, claimId: string, leaseOwner: string, result?: TaskResult) {
+    await this.assertTaskLeaseLocked(tx, message, claimId, leaseOwner);
     const report = await storeTaskResult(tx, message, result ?? unknownTaskResult, this.keyring, nowIso());
     // Receipt replay verifies the immutable result without changing when work ended.
     if (message.status === 'completed') return;

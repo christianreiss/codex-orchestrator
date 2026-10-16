@@ -67,8 +67,9 @@ audited.
 With the capability active, `agent_listen` returns `automatic`, `held_work` and
 `coordination_reception: true` while accepted work remains held. Yield once to
 receive coordination at the next available native turn. Finish the work only
-with `agent_task_result` or `agent_reply` plus an explicit task result. Legacy
-receivers still return `work_held`.
+with `agent_task_result` or `agent_reply` plus an explicit task result. A
+`progress`-class `agent_reply` without a task result is a status update and keeps
+the work held. Legacy receivers still return `work_held`.
 
 ## Deployment and rollback
 

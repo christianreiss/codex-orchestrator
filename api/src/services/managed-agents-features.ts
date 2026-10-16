@@ -487,7 +487,9 @@ Explicit work results are still required; process exit zero is not task success.
 within existing operator authority; it is not proof of success. Requests, conference
 TASK dispatches and wakes are explicitly marked as work. Finish accepted work with
 \`agent_task_result\` (message ID and task result), or include a task result in
-\`agent_reply\` when a substantive peer answer is needed. Report succeeded, failed,
+\`agent_reply\` when a substantive peer answer is needed. While work runs, send status
+with \`agent_reply\` and \`delivery_class: progress\` without a task result: that keeps the
+work held. Any other reply without a task result finishes it as unknown. Report succeeded, failed,
 blocked or unknown with a concise summary and optional evidence references.
 A schedule needs a result and no peer reply. \`agent_listen\` never finishes held
 work. With negotiated \`queue_delivery_v1\`, it reports \`automatic\` plus \`held_work\`:
