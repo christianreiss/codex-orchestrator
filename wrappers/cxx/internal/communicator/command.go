@@ -320,12 +320,18 @@ func mcpFailure(id json.RawMessage, status int, body []byte) []byte {
 	// The dispatcher applies this limit after the route has returned. Its
 	// effects may already be committed even though no usable reply fits.
 	unknown := code == "communicator_outcome_unknown" || code == "communicator_response_too_large"
+	// The owner answers 503 communicator_unavailable only for a request that
+	// provably never reached the control channel (the connection was down or
+	// ended before the frame was written), so any tool may be called again.
+	retryable := !unknown && status == 503 && code == "communicator_unavailable"
 	if unknown {
 		message = "Request outcome unknown; it may already have completed. Verify its result before retrying and retain the original idempotency or claim identifiers."
+	} else if retryable {
+		message = "CoCo communicator is reconnecting to the orchestrator; the request was not sent and may be retried shortly."
 	}
 	raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{
 		"code": -32000, "message": message,
-		"data": map[string]any{"code": code, "http_status": status, "outcome_unknown": unknown},
+		"data": map[string]any{"code": code, "http_status": status, "outcome_unknown": unknown, "retryable": retryable},
 	}})
 	return raw
 }

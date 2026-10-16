@@ -408,7 +408,12 @@ From cxx 0.9.74, the MCP stdio adapter retains this distinction in JSON-RPC
 error data (`code`, `http_status`, `outcome_unknown`) and keeps the original request
 ID. Unknown outcomes instruct the caller to verify the result before retrying with
 the original idempotency or claim identifiers. Incomplete or miscorrelated replies
-also return a correlated unknown-outcome error. Error conversion never forwards
+also return a correlated unknown-outcome error. From cxx 0.9.91 the data also carries
+`retryable`: true only for a local `503 communicator_unavailable`, which the owner
+returns solely for a request that never reached the control channel (the connection
+was down or redialling), with a message saying it was not sent. Every tool, including
+`secret_*`, takes the same `POST /mcp` path, so a short redial window can fail one call
+while neighbouring calls succeed; the caller retries, the adapter still does not. Error conversion never forwards
 upstream bodies or credentials, and the adapter never replays a failed call.
 An oversized reply rejected after dispatch also carries `outcome_unknown: true`:
 the route may already have committed its effects before the frame limit was
