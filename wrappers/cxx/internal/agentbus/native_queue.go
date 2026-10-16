@@ -87,10 +87,11 @@ func (q *nativeQueue) call(method string, params any, result any) error {
 		}
 		if len(response.Error) > 0 && string(response.Error) != "null" {
 			var detail struct {
-				Code int `json:"code"`
+				Code    int    `json:"code"`
+				Message string `json:"message"`
 			}
 			_ = json.Unmarshal(response.Error, &detail)
-			return fmt.Errorf("native %s failed (code %d)", method, detail.Code)
+			return &nativeRPCError{method: method, code: detail.Code, message: detail.Message}
 		}
 		return json.Unmarshal(response.Result, result)
 	}
@@ -176,23 +177,72 @@ func (q *nativeQueue) status() (string, error) {
 	return read.Thread.Status.Type, err
 }
 
-func (q *nativeQueue) watchdogFailure() (string, string, error) {
-	var read struct {
-		Thread struct {
-			Turns []struct {
-				ID     string          `json:"id"`
-				Status string          `json:"status"`
-				Error  json.RawMessage `json:"error"`
-			} `json:"turns"`
-		} `json:"thread"`
+// nativeRPCError keeps the app-server error code and message so callers can
+// tell "nothing to read yet" from a real failure. Error() omits the message,
+// which can echo request content into receiver logs.
+type nativeRPCError struct {
+	method  string
+	code    int
+	message string
+}
+
+func (e *nativeRPCError) Error() string {
+	return fmt.Sprintf("native %s failed (code %d)", e.method, e.code)
+}
+
+type nativeTurn struct {
+	ID     string          `json:"id"`
+	Status string          `json:"status"`
+	Error  json.RawMessage `json:"error"`
+}
+
+// latestTurn reads only the newest turn's status and error.
+//
+// This used thread/read with includeTurns, which hydrates every turn and item
+// of the rollout. A long session crosses the 8 MiB frame limit (a 118-turn,
+// 23 MB rollout answers with 8.6 MB) and the read fails. It runs before every
+// queue admission, so such a session could no longer receive anything: each
+// claimed message ended native_submission_uncertain without reaching the
+// model, and the receiver reconnected. thread/turns/list with limit 1 and no
+// items stays a few hundred bytes. Codex answers -32601 for a thread with no
+// persisted turn yet (a fresh launch before its first prompt). That is an empty
+// history, not a failure, or a new idle session could never get its first
+// message.
+func (q *nativeQueue) latestTurn() (*nativeTurn, error) {
+	var page struct {
+		Data []nativeTurn `json:"data"`
 	}
-	if err := q.call("thread/read", map[string]any{"threadId": q.thread, "includeTurns": true}, &read); err != nil {
+	err := q.call("thread/turns/list", map[string]any{"threadId": q.thread, "limit": 1, "sortDirection": "desc", "itemsView": "notLoaded"}, &page)
+	var rpc *nativeRPCError
+	unknownMethod := errors.As(err, &rpc) && ((rpc.code == -32600 && strings.Contains(rpc.message, "unknown variant")) ||
+		(rpc.code == -32601 && !strings.Contains(rpc.message, "not supported yet")))
+	if unknownMethod {
+		// A Codex build without thread/turns/list keeps the full read.
+		var read struct {
+			Thread struct {
+				Turns []nativeTurn `json:"turns"`
+			} `json:"thread"`
+		}
+		err = q.call("thread/read", map[string]any{"threadId": q.thread, "includeTurns": true}, &read)
+		page.Data = nil
+		if n := len(read.Thread.Turns); err == nil && n > 0 {
+			page.Data = read.Thread.Turns[n-1:]
+		}
+	}
+	if errors.As(err, &rpc) && rpc.code == -32601 {
+		return nil, nil
+	}
+	if err != nil || len(page.Data) == 0 {
+		return nil, err
+	}
+	return &page.Data[0], nil
+}
+
+func (q *nativeQueue) watchdogFailure() (string, string, error) {
+	turn, err := q.latestTurn()
+	if err != nil || turn == nil {
 		return "", "", err
 	}
-	if len(read.Thread.Turns) == 0 {
-		return "", "", nil
-	}
-	turn := read.Thread.Turns[len(read.Thread.Turns)-1]
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if turn.ID == q.lastWatchdogTurn || (turn.Status != "failed" && turn.Status != "interrupted") {

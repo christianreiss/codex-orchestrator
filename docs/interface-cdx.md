@@ -1239,6 +1239,19 @@ not acquire this local adapter. The installed CLI must support the app-server Un
 listener, remote TUI and experimental thread queue API; unsupported clients remain
 not listening. These native APIs are experimental.
 
+Before each queue admission, and for failure observation, the adapter reads only the
+newest turn (`thread/turns/list`, `limit: 1`, `sortDirection: "desc"`,
+`itemsView: "notLoaded"`). Before the first cxx release after 0.9.90 it read the
+newest turn with `thread/read` and `includeTurns: true`, which returns the whole
+rollout. A long session went past the 8 MiB frame limit (a 118-turn session
+answered with 8.6 MB on Codex 0.163). A fresh thread with no persisted turn
+answered `-32601`. In both cases every claimed message ended
+`native_submission_uncertain`, was never submitted to the model, and the receiver
+reconnected (feedback df5c9be9). `-32601` "not supported yet" now counts as an
+empty history. A Codex build without `thread/turns/list` (`-32600` "unknown
+variant" or any other `-32601`) falls back to the full read. Any other read error
+still blocks admission.
+
 ## Multiple provider accounts (cxx 0.9.7)
 
 A launch reserves one verified account from this engine's pool before starting the native child. The wrapper persists identifiers only in `.cxx-account-<server-hash>.json` beside the native credential file (0600), and scopes subsequent auth/bootstrap requests to that account. Credentials stay in the normal native file and retain its CAS/logout/security protections. Account switching uses strict generation CAS and requires an idle native child lease; overlapping invocations with the same host/engine/auth-directory scope share their live account. Heartbeats run every 30 seconds and leases expire after five minutes if a wrapper disappears; normal exit releases the reservation. Content-only sync and maintenance never rebalance accounts. Older servers omit `account_pool` and retain the existing single-account path. Existing secure-host offline fallback and insecure purge/logout behavior remain in force.
