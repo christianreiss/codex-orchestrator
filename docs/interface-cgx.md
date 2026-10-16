@@ -120,6 +120,34 @@ baked one requests background maintenance immediately, so an engine an operator
 enabled or disabled is provisioned on this launch (cdx parity). Maintenance appends `alias grok='cgx'` to
 existing `~/.bashrc`/`~/.zshrc`, as cdx and clx do for their engines.
 
+### Native argument boundaries (Grok Build 1.0.60)
+
+Managed native dispatch recognizes global options before subcommands, including
+`--debug login` / `--debug-file FILE update`; authentication remains centrally
+owned and install/update/upgrade remain fleet-managed. Command-looking option
+values stay values. Dispatch, headless detection, identity rules, startup
+preferences and workspace capture share required/optional value boundaries,
+short/long aliases, attached/equal forms and `--`. In particular `-p`, `--single`
+and `--print` take a prompt, while `-r` / `--resume` and `-w` / `--worktree` have
+optional values. Comma-separated permission/tool lists take one argv value.
+An explicit resume UUID may follow global options; a title, picker or fork does
+not prove continuity with an existing native session. Native help and version
+requests bypass signed config, account leasing, sync and private-runtime starts.
+
+Before central auth routing removes root session options, native login/logout
+checks structural option names/value boundaries and the command's trailing
+arguments. Unknown leading flags and unsupported logout arguments are refused,
+so invalid native argv cannot clear a pending login. Supported global diagnostic
+options are retained; a native version request never routes into auth cleanup.
+The native CLI retains semantic config/provider validation.
+
+Public `cursor-worker`, `agent serve`, `agent leader`, `agent headless` commands
+and explicit external `--leader-socket` targets are refused before configuration/auth work. A persistent Cursor worker or an
+existing external leader/relay cannot inherit this launch's private leased-account
+broker, session identity and teardown. Native `--help` remains available;
+normal managed sessions retain their wrapper-owned private leader. No public
+worker registration or background service is enabled by this support boundary.
+
 ## Bare `cxx` launchpad (cxx 0.9.65)
 
 From cxx 0.9.70 the shared picker uses the Obsidian compass with dark cards,

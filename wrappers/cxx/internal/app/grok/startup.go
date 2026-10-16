@@ -11,6 +11,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/pelletier/go-toml"
@@ -304,44 +305,16 @@ func startupPreferences(in startupInput) (string, string, error) {
 
 // Inspect only native options; prompt bodies and tokens after -- are data.
 func nativeArgument(args []string, names ...string) string {
-	value := ""
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--" {
-			break
-		}
-		for _, name := range names {
-			if args[i] == name && i+1 < len(args) {
-				value = args[i+1]
-			} else if strings.HasPrefix(args[i], name+"=") {
-				value = strings.TrimPrefix(args[i], name+"=")
-			} else if len(name) == 2 && name[0] == '-' && strings.HasPrefix(args[i], name) && len(args[i]) > 2 {
-				value = strings.TrimPrefix(args[i], name)
-			}
-		}
-		if nativeTakesValue(args[i]) {
-			i++
-		}
-	}
-	return value
+	return nativeargs.Value("grok", args, names...)
 }
-
-func nativeTakesValue(arg string) bool {
-	return hasArg([]string{arg}, "--model", "-m", "--reasoning-effort", "--effort", "--single", "-p", "--prompt-file", "--prompt-json", "--system-prompt-override", "--system-prompt", "--rules", "--agent", "--agents", "--cwd", "--leader-socket", "--permission-mode", "--allow", "--deny", "--tools", "--disallowed-tools", "--session-id", "-s") && !strings.Contains(arg, "=")
+func nativeFlag(args []string, name string) bool { return nativeargs.Has("grok", args, name) }
+func nativeCommand(args []string) string {
+	command, _ := nativeargs.Command("grok", args)
+	return command
 }
-
-func nativeFlag(args []string, name string) bool {
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--" {
-			break
-		}
-		if args[i] == name || strings.HasPrefix(args[i], name+"=") {
-			return true
-		}
-		if nativeTakesValue(args[i]) {
-			i++
-		}
-	}
-	return false
+func nativeVersionCommand(args []string) bool {
+	command := nativeCommand(args)
+	return command == "version" || command == "v"
 }
 
 func interactiveArgs(args []string, headless, skipBoot bool) []string {

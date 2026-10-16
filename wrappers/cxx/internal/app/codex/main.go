@@ -29,6 +29,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/log"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	enginecron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/lifecycle"
@@ -113,25 +114,9 @@ func RunNativeWithChoice(args []string, stdout, stderr io.Writer, choice *quotaa
 	return runMode(args, stdout, stderr, true, choice)
 }
 
-// Native root options from codex-cli 0.162.1 (2026-10-12).
-var codexGlobalOptionsWithValue = map[string]bool{"-c": true, "--config": true, "-m": true, "--model": true, "-p": true, "--profile": true, "-C": true, "--cd": true, "-a": true, "--ask-for-approval": true, "-s": true, "--sandbox": true, "--enable": true, "--disable": true, "-i": true, "--image": true, "--local-provider": true, "--remote": true, "--remote-auth-token-env": true, "--add-dir": true}
-
 func nativeSubcommand(args []string) string {
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--" {
-			return ""
-		}
-		if codexGlobalOptionsWithValue[arg] {
-			i++
-			continue
-		}
-		if strings.HasPrefix(arg, "-") {
-			continue
-		}
-		return arg
-	}
-	return ""
+	command, _ := nativeargs.Command("codex", args)
+	return command
 }
 
 func nativeHeadless(args []string) bool {
@@ -141,7 +126,7 @@ func nativeHeadless(args []string) bool {
 
 func invocationFlags(args []string, native bool) (flags, []string, []string) {
 	if native {
-		f := flags{helpPassthrough: isHelpPassthrough(args) || len(args) == 1 && (args[0] == "--version" || args[0] == "-V")}
+		f := flags{helpPassthrough: nativeargs.Has("codex", args, "--help", "--version") || nativeSubcommand(args) == "help"}
 		command := nativeSubcommand(args)
 		if command == "login" || command == "logout" {
 			// Route auth through its existing journal/upload boundary; retain the
@@ -276,71 +261,29 @@ var reservedCodexSubcommands = map[string]bool{
 // The wrapper must not perform any side effects (lock, sync, boot screen) in
 // these cases — argv is execed straight into the real codex binary.
 func isHelpPassthrough(args []string) bool {
-	if len(args) == 0 {
-		return false
-	}
-	firstPositional := ""
-	helpBeforePositional := false
+	first := ""
 	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
+		arg := args[i]
+		if arg == "--" {
 			break
 		}
-		if a == "--help" || a == "-h" {
-			if firstPositional == "" {
-				helpBeforePositional = true
-			}
-			continue
+		if nativeargs.Has("codex", []string{arg}, "--help") {
+			return first == "" || reservedCodexSubcommands[first]
 		}
-		if codexGlobalOptionsWithValue[a] {
+		// Legacy wrapper-only value options are not part of native Codex grammar.
+		if arg == "--resume" || arg == "--execute" || arg == "--cron" {
 			i++
 			continue
 		}
-		// Flags that consume the following token as a value (mirrors
-		// parseFlags below) must not let that value be mistaken for the
-		// first positional argument.
-		switch a {
-		case "--resume", "--execute", "--config":
-			if i+1 < len(args) {
-				i++
-			}
-			continue
-		case "--cron":
-			if i+1 < len(args) {
-				next := args[i+1]
-				if next == "install" || next == "remove" || next == "run" {
-					i++
-				}
-			}
+		if strings.HasPrefix(arg, "-") {
+			i = nativeargs.ValueEnd("codex", args, i)
 			continue
 		}
-		if strings.HasPrefix(a, "-") {
-			continue
-		}
-		if firstPositional == "" {
-			firstPositional = a
+		if first == "" {
+			first = arg
 		}
 	}
-	// `cdx help` is itself a Codex-recognised help token.
-	if firstPositional == "help" {
-		return true
-	}
-	// Top-level `--help` / `-h` with no positional before it.
-	if helpBeforePositional {
-		return true
-	}
-	// Reserved-subcommand help (e.g. `cdx exec --help`).
-	if firstPositional != "" && reservedCodexSubcommands[firstPositional] {
-		for _, a := range args {
-			if a == "--" {
-				break
-			}
-			if a == "--help" || a == "-h" {
-				return true
-			}
-		}
-	}
-	return false
+	return first == "help"
 }
 
 // helpExecArgv removes wrapper-only presentation flags before handing a help
@@ -454,6 +397,36 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 			ui.Say(stderr, "cdx", ui.ToneFail, "help", fmt.Sprint(runErr))
 		}
 		return exit
+	}
+
+	serviceArgs := args
+	if !native {
+		serviceCommand, rest := resolveCommand(f, positional)
+		switch serviceCommand {
+		case "run":
+			serviceArgs = append(append([]string{}, rest...), passthrough...)
+		case "resume":
+			serviceArgs = resumeArgs(rest, passthrough)
+		case "profile":
+			serviceArgs = nil
+			if len(rest) > 0 {
+				serviceArgs = append([]string{"--profile", rest[0]}, append(rest[1:], passthrough...)...)
+			}
+		default:
+			if wrapperOwnedSubcommands[serviceCommand] {
+				serviceArgs = nil
+			} else {
+				serviceArgs = append(append([]string{}, positional...), passthrough...)
+			}
+		}
+	}
+	if err := nativeargs.ValidateAuth("codex", serviceArgs); err != nil {
+		fmt.Fprintln(stderr, "codex:", err)
+		return 2
+	}
+	if service := nativeargs.UnsupportedService("codex", serviceArgs); service != "" {
+		fmt.Fprintf(stderr, "cdx: %s requires a separate managed auth/session lifecycle and is not supported; native --help remains available\n", service)
+		return 2
 	}
 
 	if f.executeInvalid {
@@ -595,7 +568,7 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 			Config:              cfg,
 			ExtraArgs:           launchArgs,
 			Headless:            nativeHeadless(launchArgs),
-			Resumed:             native && nativeSubcommand(args) == "resume",
+			Resumed:             nativeargs.Resumed("codex", launchArgs),
 			SkipBoot:            f.skipBoot || f.silent,
 			Minimal:             f.minimal,
 			AllowConcurrentSync: f.allowConc,
@@ -1647,15 +1620,24 @@ func loginNeedsAuthUpload(exit int, beforeDigest, afterDigest string, logoutInte
 // to upload after a real successful login, but never after `codex login status`.
 func loginStatusInvocation(subArgs, passthrough []string) bool {
 	args := append(append([]string(nil), subArgs...), passthrough...)
-	for _, arg := range args {
+	if command, at := nativeargs.Command("codex", args); command == "login" {
+		args = args[at+1:]
+	}
+	for at := 0; at < len(args); at++ {
+		arg := args[at]
 		if arg == "--" {
-			continue
+			if at+1 < len(args) {
+				return args[at+1] == "status"
+			}
+			return false
 		}
 		if strings.HasPrefix(arg, "-") {
+			at = nativeargs.ValueEnd("codex", args, at)
 			continue
 		}
 		return arg == "status"
 	}
+
 	return false
 }
 

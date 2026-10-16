@@ -151,3 +151,62 @@ func TestCodexExecAliasKeepsIdentityAfterResumeVerb(t *testing.T) {
 		t.Fatalf("identity override inserted at wrong alias position: %v", got)
 	}
 }
+
+func TestNativeIdentityKeepsOptionBodiesOpaque(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	for _, args := range [][]string{{"--image", "first.png", "exec", "resume", "login"}, {"--image", "first.png", "resume", "-c", "model='fixture'"}, {"--image=first.png", "exec", "--", "Task"}} {
+		got, err := AppendIdentityArgs("codex", args, Identity{Name: "Ava"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		clean, values, err := removeStringFlag("codex", got, []string{"-c", "--config"}, "developer_instructions=")
+		if err != nil || len(values) != 1 || !reflect.DeepEqual(clean, args) {
+			t.Fatalf("%q => %q: %q %v", args, got, values, err)
+		}
+	}
+	for _, flag := range []string{"-p", "--single", "--print", "--prompt-json", "--system-prompt-override", "--agents", "--allow", "--deny", "--tools", "--json-schema", "--debug-file", "--sandbox", "--ref"} {
+		args := []string{flag, "--rules", "--rules=Keep caller rules"}
+		got, err := AppendIdentityArgs("grok", args, Identity{Name: "Ava"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got[1], "Keep caller rules") || !reflect.DeepEqual(got[2:], args[:2]) {
+			t.Fatalf("%s consumed a value: %q", flag, got)
+		}
+	}
+	got, err := AppendIdentityArgs("grok", []string{"--append-system-prompt", "Keep aliased rules", "--worktree=--rules", "--single=--rules"}, Identity{Name: "Ava"})
+	if err != nil || !strings.Contains(got[1], "Keep aliased rules") || got[2] != "--worktree=--rules" || got[3] != "--single=--rules" {
+		t.Fatalf("rules alias: %q %v", got, err)
+	}
+}
+
+func TestNativeResumeIdentityUsesOptionBoundaries(t *testing.T) {
+	id := "01234567-89ab-4cde-8fab-0123456789ab"
+	for _, tc := range []struct {
+		engine string
+		args   []string
+		want   string
+	}{
+		{"codex", []string{"--model", "resume", "resume", "-c", "model='x'", id}, id},
+		{"codex", []string{"--image", "resume", id}, ""},
+		{"codex", []string{"e", "resume", "--", id}, id},
+		{"codex", []string{"exec", "--model", "foo", "resume", id}, id},
+		{"grok", []string{"--debug", "--resume=" + id}, id},
+		{"grok", []string{"--print", "--resume=" + id}, ""},
+		{"grok", []string{"--load", id}, id},
+		{"grok", []string{"--resume", id, "--fork-session"}, ""},
+		{"grok", []string{"--", "--resume", id}, ""},
+	} {
+		if got := NativeResumeSessionID(tc.engine, tc.args); got != tc.want {
+			t.Errorf("%s %q => %q want %q", tc.engine, tc.args, got, tc.want)
+		}
+	}
+}
+
+func TestCodexIdentityFollowsNestedResumeOptions(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	got, err := AppendIdentityArgs("codex", []string{"exec", "--model", "foo", "resume", "native-id"}, Identity{Name: "Ava"})
+	if err != nil || len(got) < 6 || got[3] != "resume" || got[4] != "-c" {
+		t.Fatalf("nested identity misplaced: %q %v", got, err)
+	}
+}

@@ -30,6 +30,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/observability/tracing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/summary"
@@ -640,7 +641,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 
 	upstreamSessionID := ""
 	if opts.Resumed {
-		upstreamSessionID = agentportal.ExplicitResumeSessionID(opts.ExtraArgs)
+		upstreamSessionID = agentportal.NativeResumeSessionID("codex", opts.ExtraArgs)
 	}
 	connection, connectionErr := agentportal.StartConnection(ctx, cfg, agentportal.StartInput{
 		NativeArgs:        opts.ExtraArgs,
@@ -1383,13 +1384,14 @@ func insertCodexOverrides(args []string, overrides []string) []string {
 	if len(overrides) == 0 {
 		return args
 	}
-	at := len(args)
-	for i, arg := range args {
-		if !strings.HasPrefix(arg, "-") {
-			at = i + 1
-			break
-		}
+	at := 0
+	command, index := nativeargs.CodexSessionCommand(args)
+	if command == "exec" || command == "e" || command == "resume" || command == "review" || command == "fork" {
+		at = index + 1
+	} else if index < 0 && !nativeargs.Has("codex", args, "--image") {
+		at = len(args)
 	}
+
 	out := make([]string, 0, len(args)+len(overrides))
 	out = append(out, args[:at]...)
 	out = append(out, overrides...)

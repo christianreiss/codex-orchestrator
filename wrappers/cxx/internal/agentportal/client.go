@@ -27,6 +27,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipv4"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
 
@@ -68,6 +69,42 @@ func ExplicitResumeSessionID(args []string) string {
 	case strings.HasPrefix(args[0], "--resume="):
 		candidate = strings.TrimSpace(strings.TrimPrefix(args[0], "--resume="))
 	}
+	if !isCanonicalUUID(candidate) {
+		return ""
+	}
+	return candidate
+}
+
+// NativeResumeSessionID extracts only a canonical explicit native UUID using
+// dispatch boundaries. Picker titles and forks cannot prove prior identity.
+func NativeResumeSessionID(engine string, args []string) string {
+	candidate := ""
+	if engine == "grok" {
+		if nativeargs.Has(engine, args, "--fork-session") {
+			return ""
+		}
+		candidate = nativeargs.Value(engine, args, "--resume", "--load")
+	} else {
+		cmd, at := nativeargs.CodexSessionCommand(args)
+		if cmd != "resume" {
+			return ""
+		}
+		for i := at + 1; i < len(args); i++ {
+			if args[i] == "--" {
+				if i+1 < len(args) {
+					candidate = args[i+1]
+				}
+				break
+			}
+			if strings.HasPrefix(args[i], "-") {
+				i = nativeargs.ValueEnd(engine, args, i)
+				continue
+			}
+			candidate = args[i]
+			break
+		}
+	}
+	candidate = strings.TrimSpace(candidate)
 	if !isCanonicalUUID(candidate) {
 		return ""
 	}

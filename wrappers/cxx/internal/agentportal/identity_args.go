@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	"github.com/pelletier/go-toml"
 )
 
@@ -50,7 +51,11 @@ func AppendIdentityArgs(engine string, args []string, identity Identity) ([]stri
 		if engine == "grok" {
 			flag = "--rules"
 		}
-		clean, additions, err := removeStringFlag(engine, args, []string{flag}, "")
+		aliases := []string{flag}
+		if engine == "grok" {
+			aliases = append(aliases, "--append-system-prompt")
+		}
+		clean, additions, err := removeStringFlag(engine, args, aliases, "")
 		if err != nil {
 			return nil, err
 		}
@@ -101,20 +106,9 @@ func AppendIdentityArgs(engine string, args []string, identity Identity) ([]stri
 }
 
 func codexIdentityOverridePosition(args []string) int {
-	for at := 0; at < len(args); at++ {
-		arg := args[at]
-		if arg == "--" {
-			break
-		}
-		if arg == "exec" || arg == "e" || arg == "resume" || arg == "review" {
-			if (arg == "exec" || arg == "e") && at+1 < len(args) && args[at+1] == "resume" {
-				return at + 2
-			}
-			return at + 1
-		}
-		if identityValueFlag("codex", arg) && at+1 < len(args) {
-			at++
-		}
+	command, at := nativeargs.CodexSessionCommand(args)
+	if command == "exec" || command == "e" || command == "resume" || command == "review" || command == "fork" {
+		return at + 1
 	}
 	return 0
 }
@@ -182,29 +176,13 @@ func removeStringFlag(engine string, args, flags []string, valuePrefix string) (
 			at = end
 			continue
 		}
-		// Provider parsers accept options after positional values too. Consume
-		// option values so flag-like prompt text is never mistaken for an option.
-		if options && identityValueFlag(engine, arg) && at+1 < len(args) && !((arg == "--resume" || arg == "-r") && strings.HasPrefix(args[at+1], "-")) {
-			at++
-			out = append(out, args[at])
-			continue
+		if options {
+			end := nativeargs.ValueEnd(engine, args, at)
+			out = append(out, args[at+1:end+1]...)
+			at = end
 		}
 	}
 	return out, values, nil
-}
-
-func identityValueFlag(engine, arg string) bool {
-	if arg == "-c" {
-		return engine == "codex"
-	}
-	if arg == "-p" {
-		return engine == "codex"
-	}
-	switch arg {
-	case "-c", "--config", "-p", "--profile", "-m", "--model", "-C", "--cd", "--add-dir", "-i", "--image", "--output-schema", "-o", "--output-last-message", "--resume", "-r", "--session-id", "--prompt-file", "--output-format", "--system-prompt", "--append-system-prompt", "--rules", "--name", "-n", "--system-prompt-snapshot", "--mcp-config", "--plugin-dir", "--permission-mode", "--allowedTools", "--disallowedTools", "--settings", "--effort", "--agent":
-		return true
-	}
-	return false
 }
 
 func codexDeveloperInstructions(args []string) (string, error) {
@@ -222,35 +200,17 @@ func codexDeveloperInstructions(args []string) (string, error) {
 		return "", err
 	}
 	profile := ""
-	// The cwd/profile flags affect native config selection even for resumed sessions.
-	for at := 0; at < len(args); at++ {
-		arg := args[at]
-		if arg == "--" {
-			break
+	for at := 0; at < len(args) && args[at] != "--"; at++ {
+		name, value, end := nativeargs.Option("codex", args, at)
+		switch name {
+		case "--profile":
+			profile = value
+		case "--cd":
+			cwd = value
 		}
-		if (arg == "-C" || arg == "--cd" || arg == "-p" || arg == "--profile") && at+1 < len(args) {
-			at++
-			if arg == "-p" || arg == "--profile" {
-				profile = args[at]
-			} else {
-				cwd = args[at]
-			}
-			continue
-		}
-		if strings.HasPrefix(arg, "--profile=") {
-			profile = strings.TrimPrefix(arg, "--profile=")
-		}
-		if strings.HasPrefix(arg, "--cd=") {
-			cwd = strings.TrimPrefix(arg, "--cd=")
-		}
-		if identityValueFlag("codex", arg) && at+1 < len(args) {
-			at++
-			continue
-		}
-		if !strings.HasPrefix(arg, "-") && arg != "exec" && arg != "e" && arg != "resume" && arg != "review" {
-			break
-		}
+		at = end
 	}
+
 	cwd, err = filepath.Abs(cwd)
 	if err != nil {
 		return "", err

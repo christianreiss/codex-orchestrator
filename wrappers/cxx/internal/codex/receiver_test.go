@@ -34,6 +34,7 @@ child)
  while :; do sleep 0.02; done
  ;;
 *)
+ printf '%s\n' "$@" > "$CXX_TEST_RECEIVER_DIR/argv"
  "$0" child &
  child=$!
  trap 'wait "$child"; echo caught > "$CXX_TEST_RECEIVER_DIR/server-stopped"; exit 0' TERM
@@ -46,9 +47,14 @@ esac
 	if err := os.WriteFile(path, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
-	args, cleanup, err := startReceiverServer(context.Background(), path, nil, os.Environ(), session, lease)
+	args, cleanup, err := startReceiverServer(context.Background(), path, []string{"--model", "--remote", "--image", "a.png", "login", "-cfixture=1", "--config=next=2", "--", "-cliteral=3"}, os.Environ(), session, lease)
 	if err != nil {
 		t.Fatal(err)
+	}
+	captured, readErr := os.ReadFile(filepath.Join(dir, "argv"))
+	if readErr != nil || !strings.Contains(string(captured), "-c\nfixture=1\n-c\nnext=2\n") || strings.Contains(string(captured), "literal=3") || strings.Contains(string(captured), "login") {
+		cleanup()
+		t.Fatalf("receiver config extraction: %s %v", captured, readErr)
 	}
 	if len(args) < 2 || args[0] != "--remote" {
 		t.Fatalf("remote args: %v", args)

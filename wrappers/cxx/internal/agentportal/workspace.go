@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 )
 
 type Workspace struct {
@@ -46,15 +49,10 @@ func launchCwd(engine string, args []string) (string, error) {
 			cwd = arg[2:]
 			continue
 		}
-		consumes := identityValueFlag(engine, flag)
-		if engine == "grok" {
-			switch flag {
-			case "-p", "--single", "--prompt-json", "--system-prompt-override", "--agents", "--allow", "--deny", "--tools", "--disallowed-tools", "--reasoning-effort", "--leader-socket", "-s":
-				consumes = true
-			}
-		}
-		if !inline && consumes && at+1 < len(args) && !((flag == "--resume" || flag == "-r") && strings.HasPrefix(args[at+1], "-")) {
-			at++
+		if engine == "claude" {
+			at = claude.NativeOptionValueEnd(args, at)
+		} else {
+			at = nativeargs.ValueEnd(engine, args, at)
 		}
 	}
 	return filepath.Abs(cwd)
