@@ -93,6 +93,8 @@ func TestProfileWinsOverHostOverride(t *testing.T) {
 	cfg := fixture("codex", "old", "new")
 	host := "unknown"
 	cfg.EngineOptions.ModelOverride = &host
+	high := "high"
+	cfg.EngineOptions.ReasoningEffortOverride = &high
 	got, err := modelpolicy.Apply(cfg, []string{"--profile", "review", "exec", "prompt"}, home, nil, nil)
 	if err != nil || got[1] != "new" || got[3] != "model_reasoning_effort=low" {
 		t.Fatalf("%q %v", got, err)
@@ -124,5 +126,14 @@ func TestPolicyOffUnknownAndDisabled(t *testing.T) {
 	got, err = modelpolicy.Apply(cfg, []string{"login", "--device-code"}, t.TempDir(), nil, nil)
 	if err != nil || !reflect.DeepEqual(got, []string{"login", "--device-code"}) {
 		t.Fatal("login changed")
+	}
+}
+
+func TestLegacyCodexProfileArray(t *testing.T) {
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte("model='unknown'\n[[profiles]]\nname='review'\nmodel='old'\nmodel_reasoning_effort='low'\n"), 0600)
+	got, err := modelpolicy.Apply(fixture("codex", "old", "new"), []string{"-p", "review", "exec", "prompt"}, home, nil, nil)
+	if err != nil || got[1] != "new" || got[3] != "model_reasoning_effort=low" {
+		t.Fatalf("legacy profile: %q %v", got, err)
 	}
 }

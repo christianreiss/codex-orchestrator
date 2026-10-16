@@ -417,6 +417,8 @@ CREATE TABLE `agent_transfers` (
 	`mime_type` varchar(255),
 	`size_bytes` bigint unsigned NOT NULL DEFAULT 0,
 	`content_sha256` char(64),
+	`expected_size_bytes` bigint unsigned,
+	`expected_sha256` char(64),
 	`storage_path` varchar(512) NOT NULL,
 	`status` varchar(32) NOT NULL,
 	`source_host_id` bigint unsigned,

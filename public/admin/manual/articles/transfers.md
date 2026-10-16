@@ -7,7 +7,7 @@ verified: 2026-09-09
 sources: api/src/routes/admin/transfers/index.ts, api/src/services/agent-transfers.ts, api/src/services/agent-transfers-tool-names.ts, api/src/ops/agent-transfers-worker.ts, api/src/db/migrations/0028_add_agent_transfers.sql, api/src/services/mcp-tools.ts, api/src/services/managed-agents-features.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/routes/transfers/+page.svelte, frontend/src/lib/components/transfers/TransferLimitsSection.svelte, frontend/src/lib/components/transfers/TransferAuditSheet.svelte, frontend/src/lib/api/transfers.ts, frontend/src/lib/ws/events.ts
 ---
 
-**File Transfer** (`/transfers`, under *Coordinate*) is an expiring pool of files that agents hand each other. An agent on one host uploads a file over MCP, tells the peer its id, and the peer fetches it — across hosts, across engines, without a shared filesystem. Every file has a TTL, every byte counts against one fleet-wide quota, and every fetch is recorded, because the pool has **no addressing**: there is no recipient, and knowing an id is sufficient to fetch. What that owes an operator instead is a record of who actually took a copy, which is what this page is for.
+**File Transfer** (`/transfers`, under *Coordinate*) is an expiring pool of files that agents hand each other. An agent on one host uploads a file with `cxx transfer put`, tells the peer its id, and the peer fetches it — across hosts, across engines, without a shared filesystem. Every file has a TTL, optional byte limits default to unlimited and binary uploads reserve capacity against a configured fleet quota, and every fetch is recorded, because the pool has **no addressing**: there is no recipient, and knowing an id is sufficient to fetch. What that owes an operator instead is a record of who actually took a copy, which is what this page is for.
 
 ## The module switch
 
@@ -23,10 +23,10 @@ The **Limits** card (`POST /admin/transfers/limits`, `transfers.manage`) holds t
 |---|---|---|
 | Default TTL | 1 hour (`DEFAULT_TTL_SECONDS = 3600`) | 60 s (`MIN_TTL_SECONDS`) … maximum TTL |
 | Maximum TTL | 1 day (`DEFAULT_MAX_TTL_SECONDS = 86400`) | 60 s … 7 days (`HARD_MAX_TTL_SECONDS = 604800`) |
-| Maximum file size | 8 MiB (`DEFAULT_MAX_FILE_BYTES`) | 1 KiB … 64 MiB (`HARD_MAX_FILE_BYTES`) |
-| Pool quota | 2 GiB (`DEFAULT_QUOTA_BYTES`) | at least the maximum file size; no upper ceiling |
+| Maximum file size | Unlimited (`0`) | `0` = unlimited; positive exact byte limits have no 64 MiB ceiling |
+| Pool quota | Unlimited (`0`) | `0` = unlimited; when both limits are positive, at least the maximum file size |
 
-The request body is strict (`default_ttl_seconds`, `max_ttl_seconds`, `max_file_bytes`, `quota_bytes`, all positive integers); an incoherent set — a default TTL above the maximum, a quota below one file — is refused as a whole rather than partially applied. The inputs are shown in minutes and MiB; their `max` attributes mirror the 7-day and 64 MiB ceilings but the server is what enforces them. The usage meter under the inputs shows `used_bytes` against `quota_bytes` and turns amber at 80% and red at 90%.
+The limits body is strict. TTLs are positive integers; byte limits are nonnegative exact integers, with `0` meaning unlimited. Explicitly saved limits survive upgrades. Inputs use minutes and MiB. The usage meter includes reserved binary upload sizes and appears only for a finite quota; unlimited mode shows bytes used without a percentage. Changing TTL settings affects future uploads, not existing deadlines.
 
 An agent that asks for a TTL outside the bounds is not refused: the request is **clamped** to the floor or the maximum TTL and the row is flagged `ttl_clamped`, which the table shows as a *clamped* badge.
 
@@ -50,7 +50,9 @@ The sweeper (`api/src/ops/agent-transfers-worker.ts`) runs once at boot and then
 
 ## How agents use it
 
-All five tools ride the host-authenticated `POST /mcp` endpoint; there is no separate HTTP upload route and the wrappers have no dedicated `transfer` subcommand.
+Use `cxx transfer put FILE --ttl-seconds 3600 --json`, hand the ID to the peer, then `cxx transfer get ID --output FILE --json`. `cdx`, `clx` and `cgx` aliases select their engines. These commands stream binary bytes through `/host/transfers` with no fixed file-size cap. Add `--resume` after a disconnect and retain the adjacent journals/partial files. Downloads verify SHA-256 before publishing the target; existing files require `--overwrite`. API, wrapper and running communicator must all support cxx 0.9.93.
+
+The five legacy tools below remain on the host-authenticated `POST /mcp` endpoint. Use them for metadata or compatibility; use the wrapper for large files.
 
 | Tool | Parameters | Notes |
 |---|---|---|

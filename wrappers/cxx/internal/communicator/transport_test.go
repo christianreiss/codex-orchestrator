@@ -734,3 +734,31 @@ func TestDaemonCloseTimerRacesLateFrames(t *testing.T) {
 		t.Fatal("control connection unusable after close/frame race", result, err)
 	}
 }
+
+func TestBinaryTransferStreamsWithoutControlBuffer(t *testing.T) {
+	const size = 16 << 20
+	var received int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/host/transfers/test/content" || r.Header.Get("X-API-Key") != "bound-host" || r.ContentLength != size {
+			t.Errorf("transfer metadata: %s, length=%d", r.URL.Path, r.ContentLength)
+		}
+		received, _ = io.Copy(io.Discard, r.Body)
+		io.WriteString(w, "confirmed")
+	}))
+	defer upstream.Close()
+	s := &server{cfg: &config.Config{Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "bound-host"}}}
+	reader, writer := io.Pipe()
+	go func() { io.CopyN(writer, zeroReader{}, size); writer.Close() }()
+	req := httptest.NewRequest("PUT", "/host/transfers/test/content?offset=0&engine=codex", reader)
+	req.ContentLength = size
+	req.Header.Set("Content-Type", "application/octet-stream")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 200 || received != size || w.Body.String() != "confirmed" {
+		t.Fatalf("status=%d bytes=%d body=%s", w.Code, received, w.Body)
+	}
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }

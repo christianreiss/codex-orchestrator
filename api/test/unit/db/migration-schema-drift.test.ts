@@ -326,6 +326,8 @@ describe('migrations against the test baseline', () => {
       'grok_usage_snapshots.plan_fetched_at',
       'grok_usage_snapshots.plan_error_code',
       'git_worktrees.head_observed_at',
+      'agent_transfers.expected_size_bytes',
+      'agent_transfers.expected_sha256',
     ]);
   });
 

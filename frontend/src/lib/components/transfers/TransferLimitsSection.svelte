@@ -33,16 +33,16 @@
   // setting a one-day ceiling should not have to type 86400.
   let defaultTtlMinutes = $state(60);
   let maxTtlMinutes = $state(1440);
-  let maxFileMib = $state(8);
-  let quotaMib = $state(2048);
+  let maxFileMib = $state(0);
+  let quotaMib = $state(0);
   let initialized = false;
 
   $effect(() => {
     if (!moduleState || initialized) return;
     defaultTtlMinutes = Math.round(moduleState.default_ttl_seconds / 60);
     maxTtlMinutes = Math.round(moduleState.max_ttl_seconds / 60);
-    maxFileMib = Math.round(moduleState.max_file_bytes / 1024 / 1024);
-    quotaMib = Math.round(moduleState.quota_bytes / 1024 / 1024);
+    maxFileMib = moduleState.max_file_bytes / 1024 / 1024;
+    quotaMib = moduleState.quota_bytes / 1024 / 1024;
     initialized = true;
   });
 
@@ -64,7 +64,7 @@
 
   const usedBytes = $derived(moduleState?.used_bytes ?? 0);
   const quotaBytes = $derived(moduleState?.quota_bytes ?? 1);
-  const usedPercent = $derived(Math.min(100, Math.round((usedBytes / Math.max(quotaBytes, 1)) * 100)));
+  const usedPercent = $derived(quotaBytes > 0 ? Math.min(100, Math.round((usedBytes / quotaBytes) * 100)) : 0);
   const meterTone = $derived(
     usedPercent >= 90 ? "bg-destructive" : usedPercent >= 80 ? "bg-warning" : "bg-primary",
   );
@@ -81,20 +81,20 @@
   <div class="space-y-1.5">
     <div class="flex items-baseline justify-between text-xs">
       <span class="text-muted-foreground">
-        {formatBytes(usedBytes)} of {formatBytes(quotaBytes)} in use
+        {formatBytes(usedBytes)} {quotaBytes > 0 ? `of ${formatBytes(quotaBytes)} in use` : "in use · unlimited quota"}
         {#if moduleState}
           · {moduleState.live_count} file{moduleState.live_count === 1 ? "" : "s"} held
         {/if}
       </span>
-      <span class="tabular-nums text-muted-foreground">{usedPercent}%</span>
+      {#if quotaBytes > 0}<span class="tabular-nums text-muted-foreground">{usedPercent}%</span>{/if}
     </div>
-    <div class="h-2 w-full overflow-hidden rounded-full bg-muted">
+    {#if quotaBytes > 0}<div class="h-2 w-full overflow-hidden rounded-full bg-muted">
       <div class={`h-full rounded-full transition-all ${meterTone}`} style={`width: ${usedPercent}%`}></div>
     </div>
-    {#if usedPercent >= 80}
+    {/if}
+    {#if quotaBytes > 0 && usedPercent >= 80}
       <p class="text-xs text-warning-foreground">
-        Uploads are refused once the pool is full. Shortening the maximum TTL frees space on the next
-        sweep without anyone having to delete anything.
+        Uploads are refused once the pool is full. Delete unneeded transfers or raise the quota. Changing the maximum TTL affects new uploads only.
       </p>
     {/if}
   </div>
@@ -130,21 +130,24 @@
       <Input
         id="transfer-max-file"
         type="number"
-        min="1"
-        max="64"
+        min="0"
+        step="any"
         bind:value={maxFileMib}
         disabled={!canManage}
       />
+      <p class="text-xs text-muted-foreground">0 means unlimited; binary transfers have no fixed file-size cap.</p>
     </div>
     <div class="space-y-1">
       <Label for="transfer-quota" class="text-xs">Pool quota (MiB)</Label>
       <Input
         id="transfer-quota"
         type="number"
-        min="1"
+        min="0"
+        step="any"
         bind:value={quotaMib}
         disabled={!canManage}
       />
+      <p class="text-xs text-muted-foreground">0 means unlimited. Usage includes reserved upload sizes.</p>
     </div>
   </div>
 

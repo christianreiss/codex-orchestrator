@@ -534,10 +534,16 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "communicator route forbidden", http.StatusForbidden)
 		return
 	}
-	body, err := bufferedBody(r, 8*1024*1024)
-	if err != nil {
-		http.Error(w, err.Error(), 413)
-		return
+	// Binary transfer requests never enter the bounded control-frame buffer.
+	binary := requestPath(r) == "/host/transfers" || strings.HasPrefix(requestPath(r), "/host/transfers/")
+	var body []byte
+	var err error
+	if !binary {
+		body, err = bufferedBody(r, 8*1024*1024)
+		if err != nil {
+			http.Error(w, err.Error(), 413)
+			return
+		}
 	}
 	s.mu.Lock()
 	s.requests++
@@ -553,6 +559,10 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fallback := s.fallback
 	connected := s.conn != nil
 	s.mu.Unlock()
+	if binary {
+		s.forwardTransfer(w, r, r.Body, r.ContentLength)
+		return
+	}
 	if fallback || r.URL.Path == "/wrapper/v2/config" && !connected {
 		s.download(w, r, body)
 		return
@@ -683,6 +693,10 @@ func (s *server) coalesce(ctx context.Context, c *connection, f frame) (frame, b
 	}
 }
 func (s *server) download(w http.ResponseWriter, r *http.Request, body []byte) {
+	s.forwardTransfer(w, r, responseBody(body), int64(len(body)))
+}
+
+func (s *server) forwardTransfer(w http.ResponseWriter, r *http.Request, body io.Reader, length int64) {
 	if !managedRequestAllowed(r) {
 		http.Error(w, "communicator route forbidden", http.StatusForbidden)
 		return
@@ -694,12 +708,13 @@ func (s *server) download(w http.ResponseWriter, r *http.Request, body []byte) {
 		return
 	}
 	defer transport.CloseIdleConnections()
-	req, err := http.NewRequestWithContext(r.Context(), r.Method, strings.TrimRight(cfg.Orchestrator.BaseURL, "/")+r.URL.RequestURI(), responseBody(body))
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, strings.TrimRight(cfg.Orchestrator.BaseURL, "/")+r.URL.RequestURI(), body)
 	if err != nil {
 		s.writeUnavailable(w, false)
 		return
 	}
 	req.Header = transferHeaders(r, cfg.Orchestrator.APIKey)
+	req.ContentLength = length
 	res, err := (&http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
 	if err != nil {
 		s.writeUnavailable(w, r.Method != "GET" && r.Method != "HEAD")

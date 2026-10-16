@@ -30,6 +30,7 @@ export interface TransferRow {
   description: string | null;
   mime_type: string | null;
   size_bytes: number;
+  expected_size_bytes?: number | null;
   content_sha256: string | null;
   status: TransferStatus;
   source_host_id: number | null;

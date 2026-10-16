@@ -1211,3 +1211,10 @@ The signed `engine_options.model_policy` contains `engine`, `latest_only`,
 cxx 0.9.94 or newer and the next successful configuration sync. Offline starts
 use the last valid signed configuration. Running sessions, their native model
 changes and direct provider binaries outside managed entrypoints are unchanged.
+
+## Binary file transfer (cxx 0.9.93)
+
+The shared `cxx transfer put FILE` / `get ID --output FILE` commands use this
+engine via its alias or `--engine`. Bytes stream through the orchestrator with
+`--resume`, SHA-256 verification and optional limits defaulting to unlimited.
+See [file-transfers.md](file-transfers.md) for CLI, HTTP, journal and rollout contracts.

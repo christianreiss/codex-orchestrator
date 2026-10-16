@@ -59,7 +59,7 @@ func Apply(cfg *config.Config, args []string, home string, optionEnd OptionEnd, 
 	if engine == "grok" && opts.GrokModelOverride != nil {
 		model = *opts.GrokModelOverride
 	}
-	if opts.ReasoningEffortOverride != nil {
+	if opts.ReasoningEffortOverride != nil && !(engine == "codex" && prefs["profile"] == true) {
 		effort = *opts.ReasoningEffortOverride
 		explicitEffort = true
 	}
@@ -270,6 +270,17 @@ func loadPreferences(engine, home string, args []string, end OptionEnd) (map[str
 			for _, key := range []string{"model", "model_reasoning_effort"} {
 				if t.Has(key) {
 					tree.Set(key, t.Get(key))
+				}
+			}
+		} else if profiles, ok := tree.Get("profiles").([]*toml.Tree); ok {
+			for _, p := range profiles {
+				if text(p.Get("name")) == profile {
+					for _, key := range []string{"model", "model_reasoning_effort"} {
+						if p.Has(key) {
+							tree.Set(key, p.Get(key))
+						}
+					}
+					break
 				}
 			}
 		}

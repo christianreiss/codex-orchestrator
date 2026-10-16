@@ -841,7 +841,14 @@ All three engine config GET/store routes share the revision contract: `revision`
   `transfers.read`; the switch, the bounds and deleting take `transfers.manage`;
   the bytes themselves take `transfers.download`, which no role below admin
   holds.
-  Chunk appends serialize under a per-transfer database row lock. A retry at
+  Binary transfer routes are documented in [file-transfers.md](file-transfers.md):
+  `POST /host/transfers`, `GET /host/transfers/:id`,
+  `PUT /host/transfers/:id/content?offset=N`,
+  `POST /host/transfers/:id/complete`, `GET /host/transfers/:id/content`
+  (HTTP Range). All require host auth, engine assignment/master switch and the
+  managed transfer feature gates. Binary uploads reserve declared size/hash;
+  file/pool limits default to `0` (unlimited), retaining explicit settings.
+  Chunk commits and quota reservations serialize under a shared short transaction lock. A retry at
   the last committed `size_bytes` removes an interrupted write's uncommitted
   tail before writing and syncing the replacement bytes; the sealed SHA-256
   therefore covers the same bytes returned by downloads. Supply `offset` on

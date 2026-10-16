@@ -35,11 +35,18 @@ import { dirname, join } from 'node:path';
 import { asc, desc, eq, inArray } from 'drizzle-orm';
 
 import type { Database } from '../db/client.js';
-import { agentTransferEvents, agentTransfers, type AgentTransfer, type Host } from '../db/schema.js';
+import {
+  agentTransferEvents,
+  agentTransfers,
+  versions,
+  type AgentTransfer,
+  type Host,
+} from '../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js';
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { SettingsService } from './settings.js';
+import { BinaryTransfers, type BinaryTransferInput } from './agent-transfers/binary.js';
 
 export const TRANSFERS_ENABLED_FLAG = 'transfers_module_enabled';
 export const TRANSFERS_DEFAULT_TTL_KEY = 'transfers_default_ttl_seconds';
@@ -49,8 +56,8 @@ export const TRANSFERS_QUOTA_KEY = 'transfers_quota_bytes';
 
 export const DEFAULT_TTL_SECONDS = 3600;
 export const DEFAULT_MAX_TTL_SECONDS = 86_400;
-export const DEFAULT_MAX_FILE_BYTES = 8 * 1024 * 1024;
-export const DEFAULT_QUOTA_BYTES = 2 * 1024 * 1024 * 1024;
+export const DEFAULT_MAX_FILE_BYTES = 0;
+export const DEFAULT_QUOTA_BYTES = 0;
 
 /**
  * A TTL floor exists so `ttl_seconds: 0` cannot create a transfer that the very
@@ -60,12 +67,6 @@ export const DEFAULT_QUOTA_BYTES = 2 * 1024 * 1024 * 1024;
 export const MIN_TTL_SECONDS = 60;
 /** The ceiling an operator may raise the max TTL to. A week is not storage; a month is. */
 export const HARD_MAX_TTL_SECONDS = 7 * 24 * 3600;
-/**
- * The ceiling an operator may raise the per-file cap to. Bounded by Fastify's
- * 32 MiB `bodyLimit` once base64's third is added back, so a chunked upload of
- * a file this size still fits every hop.
- */
-export const HARD_MAX_FILE_BYTES = 64 * 1024 * 1024;
 /**
  * Decoded bytes per put or get call. Content crosses MCP base64-encoded inside
  * a JSON-RPC envelope, so this is really a cap on message size; anything larger
@@ -120,6 +121,7 @@ export interface TransferView {
   description: string | null;
   mime_type: string | null;
   size_bytes: number;
+  expected_size_bytes?: number | null;
   content_sha256: string | null;
   status: string;
   source_host_id: number | null;
@@ -189,10 +191,7 @@ export type TransferActor =
  * this one hands the verdict back rather than swallowing it: the agent needs to
  * know the deadline it actually got.
  */
-export function clampTtlSeconds(
-  requested: number,
-  maxTtl: number,
-): { effective: number; clamped: boolean } {
+export function clampTtlSeconds(requested: number, maxTtl: number): { effective: number; clamped: boolean } {
   const ceiling = Math.min(Math.max(Math.trunc(maxTtl), MIN_TTL_SECONDS), HARD_MAX_TTL_SECONDS);
   const asked = Math.trunc(requested);
   if (asked < MIN_TTL_SECONDS) return { effective: MIN_TTL_SECONDS, clamped: true };
@@ -296,6 +295,45 @@ export class AgentTransfersService {
     this.now = deps.now ?? nowIso;
   }
 
+  private async writeTransaction<T>(operation: (db: Database) => Promise<T>): Promise<T> {
+    return this.deps.db.transaction(async (tx) => {
+      await tx.select().from(versions).where(eq(versions.name, 'agent_transfers_write_lock')).for('update');
+      return operation(tx as unknown as Database);
+    });
+  }
+
+  private binary() {
+    return new BinaryTransfers({
+      ...this.deps,
+      now: this.now,
+      transaction: (operation) => this.writeTransaction(operation),
+      limits: () => this.getLimits(),
+      requireRow: (id, db) => this.requireRow(id, db),
+      view: (row) => this.view(row),
+      quota: (incoming, limits, db) => this.requireQuota(incoming, limits, db),
+      event: (id, action, actor, detail, db) => this.recordEvent(id, action, actor, detail, db),
+      hash: (path) => this.hashFile(path),
+    });
+  }
+
+  async createBinary(input: BinaryTransferInput, host: Host) {
+    await this.sweepExpired();
+    return this.binary().create(input, host);
+  }
+
+  async appendBinary(id: string, offset: number, length: number, source: AsyncIterable<Buffer>, host: Host) {
+    return this.binary().append(id, offset, length, source, host);
+  }
+
+  async sealBinary(id: string, host: Host) {
+    return this.binary().seal(id, host);
+  }
+
+  async openBinaryDownload(id: string, offset: number, actor: TransferActor) {
+    await this.sweepExpired();
+    return this.binary().download(id, offset, actor);
+  }
+
   // ── module switch and limits ──────────────────────────────────────────────
 
   async getEnabled(): Promise<boolean> {
@@ -330,18 +368,16 @@ export class AgentTransfersService {
         `max_ttl_seconds must be between ${MIN_TTL_SECONDS} and ${HARD_MAX_TTL_SECONDS}`,
       );
     }
-    if (
-      next.default_ttl_seconds < MIN_TTL_SECONDS ||
-      next.default_ttl_seconds > next.max_ttl_seconds
-    ) {
+    if (next.default_ttl_seconds < MIN_TTL_SECONDS || next.default_ttl_seconds > next.max_ttl_seconds) {
       throw new ValidationError(
         `default_ttl_seconds must be between ${MIN_TTL_SECONDS} and max_ttl_seconds (${next.max_ttl_seconds})`,
       );
     }
-    if (next.max_file_bytes < 1024 || next.max_file_bytes > HARD_MAX_FILE_BYTES) {
-      throw new ValidationError(`max_file_bytes must be between 1024 and ${HARD_MAX_FILE_BYTES}`);
+    for (const value of [next.max_file_bytes, next.quota_bytes]) {
+      if (!Number.isSafeInteger(value) || value < 0)
+        throw new ValidationError('Byte limits must be nonnegative safe integers; 0 means unlimited');
     }
-    if (next.quota_bytes < next.max_file_bytes) {
+    if (next.quota_bytes > 0 && next.max_file_bytes > 0 && next.quota_bytes < next.max_file_bytes) {
       throw new ValidationError('quota_bytes must be at least max_file_bytes');
     }
     await Promise.all([
@@ -366,7 +402,7 @@ export class AgentTransfersService {
       enabled: await this.getEnabled(),
       updated_at: meta.updatedAt,
       ...limits,
-      used_bytes: holding.reduce((sum, row) => sum + Number(row.sizeBytes ?? 0), 0),
+      used_bytes: holding.reduce((sum, row) => sum + Number(row.expectedSizeBytes ?? row.sizeBytes ?? 0), 0),
       live_count: holding.filter((row) => row.status === TRANSFER_STATUS_LIVE).length,
     };
   }
@@ -389,13 +425,8 @@ export class AgentTransfersService {
   async list(options: { limit?: number; includeRetired?: boolean } = {}): Promise<TransferView[]> {
     await this.sweepExpired();
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? 100), 1), 500);
-    const rows = await this.deps.db
-      .select()
-      .from(agentTransfers)
-      .orderBy(desc(agentTransfers.createdAt));
-    const keep = options.includeRetired
-      ? rows
-      : rows.filter((row) => HOLDING_STATUSES.includes(row.status));
+    const rows = await this.deps.db.select().from(agentTransfers).orderBy(desc(agentTransfers.createdAt));
+    const keep = options.includeRetired ? rows : rows.filter((row) => HOLDING_STATUSES.includes(row.status));
     return keep.slice(0, limit).map((row) => this.view(row));
   }
 
@@ -404,10 +435,7 @@ export class AgentTransfersService {
     return this.view(await this.requireRow(id));
   }
 
-  async get(
-    id: string,
-    options: { offset?: unknown; max_bytes?: unknown } = {},
-  ): Promise<GetTransferResult> {
+  async get(id: string, options: { offset?: unknown; max_bytes?: unknown } = {}): Promise<GetTransferResult> {
     await this.sweepExpired();
     const row = await this.requireRow(id);
     if (row.status !== TRANSFER_STATUS_LIVE) {
@@ -461,10 +489,7 @@ export class AgentTransfersService {
    * is the row worth keeping.
    */
   async events(id: string, limit = 200): Promise<TransferEventView[]> {
-    const rows = await this.deps.db
-      .select()
-      .from(agentTransferEvents)
-      .orderBy(asc(agentTransferEvents.seq));
+    const rows = await this.deps.db.select().from(agentTransferEvents).orderBy(asc(agentTransferEvents.seq));
     return rows
       .filter((row) => row.transferId === id)
       .slice(0, Math.min(Math.max(Math.trunc(limit), 1), 500))
@@ -536,63 +561,66 @@ export class AgentTransfersService {
     }
     const requested = requiredInt(input.ttl_seconds, 'ttl_seconds');
     const { effective, clamped } = clampTtlSeconds(requested, limits.max_ttl_seconds);
-    if (chunk.length > limits.max_file_bytes) {
+    if (limits.max_file_bytes > 0 && chunk.length > limits.max_file_bytes) {
       throw new ValidationError(
         `This file is ${formatBytes(chunk.length)}, over the fleet's ${formatBytes(limits.max_file_bytes)} per-file limit.`,
       );
     }
-    await this.requireQuota(chunk.length, limits);
+    return this.writeTransaction(async (tx) => {
+      await this.requireQuota(chunk.length, limits, tx);
 
-    const id = randomUUID();
-    const storagePath = join(STORAGE_DIR, id.slice(0, 2), id);
-    const absolute = join(this.deps.dataRoot, storagePath);
-    // Bytes first, row second: a crash here leaves an orphan file, which
-    // reconcileOrphans() collects. A row written first whose bytes never
-    // arrived would be a live transfer that fails every fetch.
-    try {
-      await mkdir(dirname(absolute), { recursive: true });
-      await writeFile(absolute, chunk, { flag: 'wx' });
-    } catch (error) {
-      rethrowStorageError(error, this.deps.dataRoot);
-    }
+      const id = randomUUID();
+      const storagePath = join(STORAGE_DIR, id.slice(0, 2), id);
+      const absolute = join(this.deps.dataRoot, storagePath);
+      // Bytes first, row second: a crash here leaves an orphan file, which
+      // reconcileOrphans() collects. A row written first whose bytes never
+      // arrived would be a live transfer that fails every fetch.
+      try {
+        await mkdir(dirname(absolute), { recursive: true });
+        await writeFile(absolute, chunk, { flag: 'wx' });
+      } catch (error) {
+        rethrowStorageError(error, this.deps.dataRoot);
+      }
 
-    const now = this.now();
-    const row = {
-      id,
-      name,
-      description: optionalText(input.description, 'description', 2000),
-      mimeType: optionalText(input.mime_type, 'mime_type', 255),
-      sizeBytes: chunk.length,
-      contentSha256: isFinal ? createHash('sha256').update(chunk).digest('hex') : null,
-      storagePath,
-      status: isFinal ? TRANSFER_STATUS_LIVE : TRANSFER_STATUS_UPLOADING,
-      sourceHostId: host?.id ?? null,
-      uploadedBy: optionalText(input.username, 'username', 255),
-      uploadedFrom: optionalText(input.worktree_path, 'worktree_path', 512),
-      requestedTtlSeconds: requested,
-      downloadCount: 0,
-      expiresAt: isoOffsetSeconds(effective),
-      sealedAt: isFinal ? now : null,
-      purgedAt: null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await this.deps.db.insert(agentTransfers).values(row);
-    await this.recordEvent(
-      id,
-      isFinal ? 'uploaded' : 'appended',
-      { kind: 'agent', label: row.uploadedBy, hostId: row.sourceHostId },
-      clamped
-        ? `${chunk.length} bytes; ttl clamped from ${requested}s to ${effective}s`
-        : `${chunk.length} bytes`,
-    );
-    wsPublisher.publish('transfers.changed', { kind: 'created', id });
-    return {
-      transfer: this.view(row as AgentTransfer),
-      ttl_clamped: clamped,
-      bytes_written: chunk.length,
-      complete: isFinal,
-    };
+      const now = this.now();
+      const row = {
+        id,
+        name,
+        description: optionalText(input.description, 'description', 2000),
+        mimeType: optionalText(input.mime_type, 'mime_type', 255),
+        sizeBytes: chunk.length,
+        contentSha256: isFinal ? createHash('sha256').update(chunk).digest('hex') : null,
+        storagePath,
+        status: isFinal ? TRANSFER_STATUS_LIVE : TRANSFER_STATUS_UPLOADING,
+        sourceHostId: host?.id ?? null,
+        uploadedBy: optionalText(input.username, 'username', 255),
+        uploadedFrom: optionalText(input.worktree_path, 'worktree_path', 512),
+        requestedTtlSeconds: requested,
+        downloadCount: 0,
+        expiresAt: isoOffsetSeconds(effective),
+        sealedAt: isFinal ? now : null,
+        purgedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await tx.insert(agentTransfers).values(row);
+      await this.recordEvent(
+        id,
+        isFinal ? 'uploaded' : 'appended',
+        { kind: 'agent', label: row.uploadedBy, hostId: row.sourceHostId },
+        clamped
+          ? `${chunk.length} bytes; ttl clamped from ${requested}s to ${effective}s`
+          : `${chunk.length} bytes`,
+        tx,
+      );
+      wsPublisher.publish('transfers.changed', { kind: 'created', id });
+      return {
+        transfer: this.view(row as AgentTransfer),
+        ttl_clamped: clamped,
+        bytes_written: chunk.length,
+        complete: isFinal,
+      };
+    });
   }
 
   private async appendChunk(
@@ -605,13 +633,17 @@ export class AgentTransfersService {
   ): Promise<PutTransferResult> {
     // The row is the committed byte boundary. Hold its lock across filesystem
     // work and the metadata commit so other API workers cannot use a stale size.
-    const result = await this.deps.db.transaction(async (tx) => {
+    const result = await this.writeTransaction(async (tx) => {
       const row = await this.requireRow(id, tx, true);
       if (row.status !== TRANSFER_STATUS_UPLOADING) {
         throw new ConflictError(
           `Transfer ${id} is ${row.status} and no longer accepts chunks. Start a new transfer instead of appending to a sealed one.`,
         );
       }
+      if (row.expectedSizeBytes != null)
+        throw new ConflictError('Use the binary upload endpoint to continue this transfer');
+      if (row.sourceHostId != null && row.sourceHostId !== host?.id)
+        throw new ConflictError('Only the uploading host may append');
       const size = Number(row.sizeBytes ?? 0);
       if (input.offset !== undefined && input.offset !== null) {
         const offset = requiredInt(input.offset, 'offset');
@@ -622,7 +654,7 @@ export class AgentTransfersService {
         }
       }
       const total = size + chunk.length;
-      if (total > limits.max_file_bytes) {
+      if (limits.max_file_bytes > 0 && total > limits.max_file_bytes) {
         throw new ValidationError(
           `This chunk would take the file to ${formatBytes(total)}, over the fleet's ${formatBytes(limits.max_file_bytes)} per-file limit.`,
         );
@@ -636,12 +668,19 @@ export class AgentTransfersService {
         const handle = await open(absolute, 'r+');
         try {
           if ((await handle.stat()).size < size) {
-            throw new ConflictError(`Transfer ${id} is shorter than its committed size. Start a new transfer.`);
+            throw new ConflictError(
+              `Transfer ${id} is shorter than its committed size. Start a new transfer.`,
+            );
           }
           await handle.truncate(size);
           let written = 0;
           while (written < chunk.length) {
-            const { bytesWritten } = await handle.write(chunk, written, chunk.length - written, size + written);
+            const { bytesWritten } = await handle.write(
+              chunk,
+              written,
+              chunk.length - written,
+              size + written,
+            );
             if (bytesWritten === 0) throw new Error(`Could not write transfer ${id}.`);
             written += bytesWritten;
           }
@@ -682,17 +721,19 @@ export class AgentTransfersService {
 
   /** Retire a transfer early. The bytes go, the row and its audit trail stay. */
   async remove(id: string, actor: TransferActor): Promise<TransferView> {
-    const row = await this.requireRow(id);
-    if (row.status === TRANSFER_STATUS_DELETED || row.status === TRANSFER_STATUS_EXPIRED) {
-      return this.view(row);
-    }
-    await this.unlink(row);
-    const now = this.now();
-    const update = { status: TRANSFER_STATUS_DELETED, purgedAt: now, updatedAt: now };
-    await this.deps.db.update(agentTransfers).set(update).where(eq(agentTransfers.id, id));
-    await this.recordEvent(id, 'deleted', actor, null);
-    wsPublisher.publish('transfers.changed', { kind: 'deleted', id });
-    return this.view({ ...row, ...update } as AgentTransfer);
+    return this.writeTransaction(async (tx) => {
+      const row = await this.requireRow(id, tx);
+      if (row.status === TRANSFER_STATUS_DELETED || row.status === TRANSFER_STATUS_EXPIRED) {
+        return this.view(row);
+      }
+      await this.unlink(row);
+      const now = this.now();
+      const update = { status: TRANSFER_STATUS_DELETED, purgedAt: now, updatedAt: now };
+      await tx.update(agentTransfers).set(update).where(eq(agentTransfers.id, id));
+      await this.recordEvent(id, 'deleted', actor, null, tx);
+      wsPublisher.publish('transfers.changed', { kind: 'deleted', id });
+      return this.view({ ...row, ...update } as AgentTransfer);
+    });
   }
 
   // ── expiry ────────────────────────────────────────────────────────────────
@@ -703,29 +744,32 @@ export class AgentTransfersService {
    * the status update is a no-op the second time.
    */
   async sweepExpired(now: string = this.now()): Promise<SweepCounts> {
-    const rows = await this.holdingRows();
-    const lapsed = rows.filter((row) => row.expiresAt <= now);
-    if (lapsed.length === 0) return { expired: 0, bytes_freed: 0 };
-    let freed = 0;
-    const ids: string[] = [];
-    for (const row of lapsed) {
-      // Bytes before status, always. See the module header.
-      await this.unlink(row);
-      freed += Number(row.sizeBytes ?? 0);
-      ids.push(row.id);
-      await this.recordEvent(
-        row.id,
-        'expired',
-        { kind: 'system', label: 'sweeper' },
-        `deadline ${row.expiresAt}`,
-      );
-    }
-    await this.deps.db
-      .update(agentTransfers)
-      .set({ status: TRANSFER_STATUS_EXPIRED, purgedAt: now, updatedAt: now })
-      .where(inArray(agentTransfers.id, ids));
-    wsPublisher.publish('transfers.changed', { kind: 'expired', count: ids.length });
-    return { expired: ids.length, bytes_freed: freed };
+    return this.writeTransaction(async (tx) => {
+      const rows = await this.holdingRows(tx);
+      const lapsed = rows.filter((row) => row.expiresAt <= now);
+      if (lapsed.length === 0) return { expired: 0, bytes_freed: 0 };
+      let freed = 0;
+      const ids: string[] = [];
+      for (const row of lapsed) {
+        // Bytes before status, always. See the module header.
+        await this.unlink(row);
+        freed += Number(row.sizeBytes ?? 0);
+        ids.push(row.id);
+        await this.recordEvent(
+          row.id,
+          'expired',
+          { kind: 'system', label: 'sweeper' },
+          `deadline ${row.expiresAt}`,
+          tx,
+        );
+      }
+      await tx
+        .update(agentTransfers)
+        .set({ status: TRANSFER_STATUS_EXPIRED, purgedAt: now, updatedAt: now })
+        .where(inArray(agentTransfers.id, ids));
+      wsPublisher.publish('transfers.changed', { kind: 'expired', count: ids.length });
+      return { expired: ids.length, bytes_freed: freed };
+    });
   }
 
   /**
@@ -776,22 +820,28 @@ export class AgentTransfersService {
     return rows.filter((row) => HOLDING_STATUSES.includes(row.status));
   }
 
-  private async requireRow(id: string, db: TransferDb = this.deps.db, forUpdate = false): Promise<AgentTransfer> {
+  private async requireRow(
+    id: string,
+    db: TransferDb = this.deps.db,
+    forUpdate = false,
+  ): Promise<AgentTransfer> {
     const trimmed = typeof id === 'string' ? id.trim() : '';
     if (!trimmed) throw new ValidationError('id is required');
-    const query = db
-      .select()
-      .from(agentTransfers)
-      .where(eq(agentTransfers.id, trimmed));
+    const query = db.select().from(agentTransfers).where(eq(agentTransfers.id, trimmed));
     const rows = forUpdate ? await query.for('update') : await query;
     const row = rows.find((candidate) => candidate.id === trimmed);
     if (!row) throw new NotFoundError(`No transfer with id ${trimmed}. It may have expired.`);
     return row;
   }
 
-  private async requireQuota(incoming: number, limits: TransferLimits, db: TransferDb = this.deps.db): Promise<void> {
+  private async requireQuota(
+    incoming: number,
+    limits: TransferLimits,
+    db: TransferDb = this.deps.db,
+  ): Promise<void> {
+    if (limits.quota_bytes === 0) return;
     const used = (await this.holdingRows(db)).reduce(
-      (sum, row) => sum + Number(row.sizeBytes ?? 0),
+      (sum, row) => sum + Number(row.expectedSizeBytes ?? row.sizeBytes ?? 0),
       0,
     );
     if (used + incoming <= limits.quota_bytes) return;
@@ -832,10 +882,7 @@ export class AgentTransfersService {
   }
 
   private async bumpDownloadCount(id: string): Promise<void> {
-    const rows = await this.deps.db
-      .select()
-      .from(agentTransfers)
-      .where(eq(agentTransfers.id, id));
+    const rows = await this.deps.db.select().from(agentTransfers).where(eq(agentTransfers.id, id));
     const row = rows.find((candidate) => candidate.id === id);
     if (!row) return;
     await this.deps.db
@@ -874,14 +921,14 @@ export class AgentTransfersService {
       description: row.description ?? null,
       mime_type: row.mimeType ?? null,
       size_bytes: Number(row.sizeBytes ?? 0),
+      expected_size_bytes: row.expectedSizeBytes == null ? null : Number(row.expectedSizeBytes),
       content_sha256: row.contentSha256 ?? null,
       status: row.status,
       source_host_id: row.sourceHostId ?? null,
       uploaded_by: row.uploadedBy ?? null,
       uploaded_from: row.uploadedFrom ?? null,
       requested_ttl_seconds: requested,
-      ttl_clamped:
-        requested !== null && Number.isFinite(granted) && Math.abs(requested - granted) > 1,
+      ttl_clamped: requested !== null && Number.isFinite(granted) && Math.abs(requested - granted) > 1,
       download_count: Number(row.downloadCount ?? 0),
       expires_at: row.expiresAt,
       sealed_at: row.sealedAt ?? null,

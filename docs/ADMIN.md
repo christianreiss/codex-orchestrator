@@ -388,10 +388,12 @@ Admin routes:
   disabled from empty.
 - Limits: `POST /admin/transfers/limits` with any of `default_ttl_seconds`
   (default 3600), `max_ttl_seconds` (default 86400, ceiling 604800),
-  `max_file_bytes` (default 8 MiB, ceiling 64 MiB), `quota_bytes` (default
-  2 GiB, must be ≥ `max_file_bytes`); an incoherent set is refused whole. All
+  `max_file_bytes` and `quota_bytes` (default `0` = unlimited; when both
+  are positive the quota must be ≥ the file limit; no 64 MiB ceiling); an incoherent set is refused whole. All
   four live in `versions`, not env. Out-of-range agent TTLs are clamped and
-  flagged `ttl_clamped`. Chunked put/get moves at most 4 MiB per call.
+  flagged `ttl_clamped`. The meter includes declared sizes reserved by binary uploads.
+  `cxx transfer put/get` streams bytes with resume and verification; MCP chunked
+  put/get remains limited to 4 MiB per call. See [binary transfers](file-transfers.md).
 - Listing: `GET /admin/transfers` (≤200 rows; `include_retired=1` adds expired
   and deleted), `GET /admin/transfers/{id}/events` (the trail: `uploaded`,
   `appended`, `sealed`, `downloaded`, `deleted`, `expired`; actor agent / admin /

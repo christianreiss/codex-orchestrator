@@ -1,3 +1,4 @@
+import { registerTransfersRoutes } from './transfers/index.js';
 import { registerCommunicatorRoutes } from './communicator.js';
 import { registerAgentChatRoutes } from './agent-chat.js';
 import { registerHostSpawnRoutes } from './host-spawn.js';
@@ -67,6 +68,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
 
   // Host-facing wrapper + auth surface
   await registerHostApiRoutes(app, ctx);
+  await registerTransfersRoutes(app, ctx);
   await registerProjectsMcpRoutes(app, ctx);
   await registerWrapperV2Routes(app, ctx);
   await registerAgentPortalRoutes(app, ctx);

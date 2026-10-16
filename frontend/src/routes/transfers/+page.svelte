@@ -110,7 +110,7 @@
   description={$stateQuery.isPending
     ? "Loading current state…"
     : moduleState?.enabled
-      ? `${moduleState.live_count} file${moduleState.live_count === 1 ? "" : "s"} held · ${formatBytes(moduleState.used_bytes)} of ${formatBytes(moduleState.quota_bytes)} used`
+      ? `${moduleState.live_count} file${moduleState.live_count === 1 ? "" : "s"} held · ${formatBytes(moduleState.used_bytes)} used${moduleState.quota_bytes > 0 ? ` of ${formatBytes(moduleState.quota_bytes)}` : " · unlimited quota"}`
       : "Agents cannot upload or fetch files. Anything already held keeps expiring on schedule."}
   checked={moduleState?.enabled ?? false}
   disabled={!canManage || $stateQuery.isPending || $stateMutation.isPending}
@@ -119,7 +119,7 @@
 
 <p class="mt-3 text-xs text-muted-foreground">
   Enabling adds a File Transfer section to every active host's AGENTS.md / CLAUDE.md, replacing the
-  whole file on their next wrapper launch. Disabling stops the <code>transfer_*</code> tools from
+  whole file on their next wrapper launch. Disabling stops the wrapper commands and <code>transfer_*</code> tools from
   serving; held files are retained and still expire on their own deadlines.
 </p>
 
@@ -182,7 +182,12 @@
                   {/if}
                 </span>
               </Table.Cell>
-              <Table.Cell class="tabular-nums">{formatBytes(row.size_bytes)}</Table.Cell>
+              <Table.Cell class="tabular-nums">
+                {formatBytes(row.size_bytes)}
+                {#if row.status === "uploading" && row.expected_size_bytes != null}
+                  <span class="text-muted-foreground">/ {formatBytes(row.expected_size_bytes)}</span>
+                {/if}
+              </Table.Cell>
               <Table.Cell class="max-w-[12rem] truncate">
                 {row.uploaded_by ?? "—"}
               </Table.Cell>
