@@ -1,5 +1,7 @@
 # 2026-10-16
 
+- **Fleet AGENTS.md / CLAUDE.md is a quarter shorter.** The fully enabled served document had grown to ~33 KB (~8k tokens read on every turn of every agent); it is now ~24 KB with the same rules. Agent Messaging (7.0 → 4.6 KB), Git Director, File Transfer, Feedback, System Spawn, Secrets, Skills, Model Class Check and the composer modules keep every trigger, invariant and tool name but drop repeated rationale. With the Git Director on, the "Git and Shared-Worktree Safety" module shrinks to the two rules the Director does not already state. The Unrestricted secret grant now reads "only into the reply, file, log, or commit the task explicitly requires" instead of "wherever … including logs and commits", matching the Secrets block. New installs no longer enable the non-normative Midnight Rule or the no-execution fallback module (both remain selectable under Policies; existing stored compositions keep their selection). A size-budget test guards against regrowth. Every host re-syncs its document once.
+
 - **Fleet AGENTS.md / CLAUDE.md without self-contradictions.** A zero-knowledge review (feedback 5656d38e) found rules that could not both be obeyed. Fixed without changing any posture level:
   - The all-granted Hard Stop Lines now say only a check a later section names (the Model Class Check) adds a stop.
   - The safety floor states that an explicit user restriction, such as read-only or no commits, outranks every grant and default procedure; the Git Director delivery contract yields to it.

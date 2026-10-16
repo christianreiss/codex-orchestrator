@@ -84,7 +84,9 @@ describe('Claude MCP Skill content guidance', () => {
     expect(out.sections.skills).toMatchObject({ present: true, transport: 'mcp' });
     for (const text of ['skill_list', 'resource_read', 'skill://{slug}', 'skill://{slug}/<path>',
       'allow_implicit_invocation', 'do not register native slash commands', 'frontmatter controls',
-      'native Skill tool reports a fleet\nSkill as unknown', 'fetch\nand inspect', 'fleet-reflect']) expect(out.body).toContain(text);
+      'fleet-reflect']) expect(out.body).toContain(text);
+    expect(out.body).toMatch(/native Skill tool reports them\s+as unknown/);
+    expect(out.body).toMatch(/inspect support scripts\s+before any task-authorized execution/);
     expect(out.body).not.toContain('synced as native Claude Code skills');
     expect(renderManagedAgentFeatures(out.body, ctx).body).toBe(out.body);
     const fallback = renderManagedAgentFeatures(out.body, { ...ctx, skillsTransport: 'native' });
@@ -165,6 +167,52 @@ describe('fleet commit guidance', () => {
   }
 });
 
+describe('served document size budget', () => {
+  /**
+   * Every byte here is paid on every turn of every agent. 2026-10-16 the fully
+   * enabled document had grown to ~33 KB; these budgets keep it from creeping
+   * back. Raise one only with a reason, and look for a cut elsewhere first.
+   */
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s stays within budget with every feature on', async (engine) => {
+    const { renderAgentPolicyBase, defaultAgentPolicyComposition } = await import(
+      '../../../src/services/agent-policy-composer.js'
+    );
+    const base = renderAgentPolicyBase(defaultAgentPolicyComposition());
+    const ctx = context(engine, {
+      skills: enabled(3),
+      skillsTransport: 'mcp',
+      memory: enabled(),
+      projects: enabled(),
+      browseros: enabled(),
+      secrets: enabled(2),
+      apiKeysInChat: enabled(),
+      agentMessaging: enabled(),
+      gitDirector: enabled(1),
+      fileTransfer: enabled(),
+      feedback: enabled(),
+      hostSpawn: enabled(),
+      modelTiers: {
+        ...enabled(),
+        table: [{ tier: 3, models: [{ engine: ENGINE_CLAUDE, model: 'claude-opus-5-5' }] }],
+        configured: { engine: ENGINE_CLAUDE, model: 'claude-opus-5-5' },
+      },
+    });
+    for (const levels of [presetLevels('standard'), presetLevels('unrestricted')]) {
+      const out = renderManagedAgentFeatures(base.content, ctx, levels, base.provenance);
+      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(25_000);
+      const section = (heading: string): string => {
+        const start = out.body.indexOf(`## ${heading}\n`);
+        expect(start).toBeGreaterThanOrEqual(0);
+        const next = out.body.indexOf('\n## ', start + 1);
+        return out.body.slice(start, next === -1 ? undefined : next);
+      };
+      expect(section('Agent Messaging').length).toBeLessThan(4_800);
+      expect(section('Git Director').length).toBeLessThan(3_100);
+      expect(section('File Transfer').length).toBeLessThan(1_400);
+    }
+  });
+});
+
 describe('served document byte invariance', () => {
   /**
    * Every host compares these digests on sync, so a single changed byte anywhere
@@ -204,14 +252,15 @@ describe('served document byte invariance', () => {
       base.provenance,
     );
 
-    expect(base.sha256).toBe('ee6dc3f8adca86b37e32878bcb98abce05078360c346d4f85c819c85914f3dc0');
-    expect(out.policy_sha256).toBe('f5043a546c90da06a731dba35a46f603a0f877dad175701c3fbb93b46822cf28');
+    expect(base.sha256).toBe('dd982675034d822d72268a9e7f18ce5ee990064e6f95a874eaab0a5a968c884f');
+    expect(out.policy_sha256).toBe('63a9a7c40faccd3da6fde10471a0076948be0fb1fdd1d38e2510f8c3aeffe512');
     // 2026-10-11: compact project discovery consistently starts with project_summary.
     // 2026-10-14: offline resume, persistent Wake/Cron and watchdog recovery only on persistent hosts (docs/host-runtime-policy.md).
     // 2026-10-15: negotiated coordination and digests preserve held work (smart-queue v1).
     // 2026-10-15: managed Skills guidance invokes fleet-reflect before final work results.
     // 2026-10-15: named direct messaging supersedes the call rendezvous.
     // 2026-10-16: progress-class agent_reply without a task result keeps work held.
+    // 2026-10-16: served document diet (~33 KB -> ~24 KB): tighter feature and module text, Git module dedupe.
     // 2026-10-16: creators may delete an empty messaging group with agent_group_delete.
     // 2026-10-16: agent_conf_list before opening a room; publish skips the sender visibly.
     // 2026-10-16: agent_self/agent_session_name run on the first turn, including question-only turns.
@@ -219,9 +268,9 @@ describe('served document byte invariance', () => {
     //             security module and dependency/verification grants no longer contradict each other.
     // 2026-10-16: self-contradictions resolved (stops, secrets in chat, check skipping, force-push scope,
     //             Director verdicts, trust boundary) and Codex/Grok Skills gain the support-script inspection rule.
-    expect(out.features_sha256).toBe('0395d7b3fc916adff830ab62b0a417bf86568a16f60a2b376ef08116062307e5');
-    expect(out.managed_sha256).toBe('4fbb5cd0236b4493ca597c06aebd937501c046a41d07feb988b3ea509e6f2a62');
-    expect(sha256(out.body)).toBe('cf880560792a6932c19b76c674bdae48701b3ad888c5d2448fa0f2654969dde8');
+    expect(out.features_sha256).toBe('caaaed08cf2df026a240673ebff5a09e1d8ad87509d6060339e0c1e662085c1d');
+    expect(out.managed_sha256).toBe('f110099860bb8606a0c2d4f0c167ac6457d326684f493c0d8d5373f9b66bc1f4');
+    expect(sha256(out.body)).toBe('a62e83246a9ba5a31edf3a443e0d24184b9aded4e9b315e0aa1106a00de25411');
   });
 });
 
@@ -799,7 +848,7 @@ describe('managed Agent Messaging guidance', () => {
       // 2026-10-16: a capability-only first turn skipped setup; the timing is the first turn, not "work".
       expect(body).toContain('**Session name.** On your first turn, before your first response, call `agent_session_name`');
       expect(body).toContain('Call `agent_self` on your first turn, before your first');
-      expect(body).toContain('including a question, capability check or request\nnot to act yet');
+      expect(body).toMatch(/including a question, capability check or request\s+not to act yet/);
       expect(body).not.toContain('Near the start of work');
     }
   });
@@ -822,7 +871,7 @@ describe('managed Agent Messaging guidance', () => {
     for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
       const body = rendered(engine).body;
       expect(body).toContain("peer's name or address");
-      expect(body).toContain('closing\nacknowledgement ends the exchange');
+      expect(body).toMatch(/closing\s+acknowledgement ends the exchange/);
       expect(body).toContain('idempotency UUID');
       expect(body).not.toMatch(/#call|agent_call_|CALL\/1|BYE-ACK/);
     }

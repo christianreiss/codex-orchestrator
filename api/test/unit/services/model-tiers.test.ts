@@ -76,7 +76,7 @@ describe('renderModelTierGuidance', () => {
     expect(text).not.toContain('| 2 | ');
     expect(text).toContain('**Underclassed**');
     // An explicit operator instruction outranks fleet policy; the stop must say so.
-    expect(text).toContain('unless the operator explicitly\n  asked this model to proceed anyway');
+    expect(text).toMatch(/Do not start unless\s+the operator explicitly asked this model to proceed/);
     expect(text).toContain('never abort on a guess');
   });
 

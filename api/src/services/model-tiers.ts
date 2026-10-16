@@ -97,23 +97,20 @@ export function renderModelTierGuidance(table: readonly ModelTierRow[], configur
     `| ${row.tier} | ${MODEL_TIER_WORK[row.tier]} | ${row.models.map((entry) => `\`${entry.model}\``).join(', ')} |`);
   return `## Model Class Check
 
-Before starting a work item, rate the task's tier and compare it with your own model.
-${identity}
-A session override (\`--model\`, \`agent_spawn\`, or the model named in your runtime
-identity) takes precedence. If you cannot determine your model, state that
-assumption once and proceed; never abort on a guess.
+Before starting a work item, rate its tier against your own model. ${identity}
+A session override (\`--model\`, \`agent_spawn\`, your runtime identity) wins; if your model is
+unknown, say so once and proceed; never abort on a guess.
 
 | Tier | Typical work | Models available on this host |
 | --- | --- | --- |
 ${rows.join('\n')}
 
-- **Underclassed** (task tier above yours): do not start unless the operator explicitly
-  asked this model to proceed anyway. This is the one stop beyond Hard Stop Lines. Report
-  \`Underclassed: Tier <n> required, running <model> (Tier <m>). Recommended: <model>.\`
-  Recommend the lowest listed model that fits, preferring your own engine. For accepted
-  work, finish with \`agent_task_result\` status \`blocked\` and that line as summary.
-- **Overclassed** (task two or more tiers below yours): you may note
+- **Underclassed** (task tier above yours): the one stop beyond Hard Stop Lines. Do not start unless
+  the operator explicitly asked this model to proceed; report
+  \`Underclassed: Tier <n> required, running <model> (Tier <m>). Recommended: <model>.\` naming the lowest
+  fitting model, own engine first. Accepted work ends with \`agent_task_result\` \`blocked\` and that line.
+- **Overclassed** (two or more tiers below): you may note
   \`Overclassed: <model> (Tier <m>) for a Tier <n> task; <model> would suffice.\` once, then proceed.
-- Otherwise proceed without comment. Re-check when the scope grows mid-task.
+- Otherwise proceed silently; re-check when the scope grows.
 `;
 }

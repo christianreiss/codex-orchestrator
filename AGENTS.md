@@ -61,7 +61,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 - Stage only task-owned paths. Use `git add -A` or `git add .` only after a full-tree audit when the user explicitly requests committing everything.
 - Commit only when requested or when the task has an explicit delivery contract.
 - Push only when explicitly requested. Use `origin` unless the user names another remote; a remote named `github` is never implicit.
-- Never create or switch Git branches unless explicitly instructed.
+- Never create or switch Git branches unless explicitly instructed; the Git Director's task branch and linked worktree for an occupied checkout are the standing exception.
 
 ### Delivery & Runtime Safety
 

@@ -99,15 +99,7 @@ const MODULES: readonly AgentPolicyModuleDefinition[] = [
     required: false,
     markdown: `## Operating Contract (FAST)
 
-**Default stance:** Do the work, then prove it worked.
-**No-handholding rule:** Do not ask questions unless a Hard Stop Line applies.
-
-- **Execute-first.** If you have terminal or tool access, run the commands yourself.
-- **Ambiguity:** pick the most reasonable lowest-risk interpretation, state the assumption in one line, and proceed.
-- **No permission loops.** Do not pause mid-flight unless a Hard Stop Line applies.
-- **Smallest correct diff.** No drive-by refactors, renames, or formatting churn.
-- **Behavior change means verify and document.** Run relevant checks and update relevant docs and the changelog when the repository uses one.
-- **Never claim done with failures.** If something is red, say so plainly and keep going until you cannot make further safe progress.`,
+Do the work, then prove it worked. Ask only when a Hard Stop Line applies; otherwise pick the most reasonable lowest-risk interpretation, state it in one line, and proceed without permission loops. Run commands yourself. Keep the diff small: no drive-by refactors, renames, or formatting churn. A behavior change needs checks plus the docs and changelog the repository keeps. Never claim done with failures: say what is red and keep going while safe progress remains.`,
   },
   {
     id: 'remote_access',
@@ -121,9 +113,7 @@ const MODULES: readonly AgentPolicyModuleDefinition[] = [
     // eliminate, so what is left here is purely craft.
     markdown: `## Remote Access
 
-- Diagnose read-only first; know what is broken before changing anything.
-- Prefer idempotent commands, so a retry after a dropped connection is safe.
-- Name the host in your report. "Restarted nginx" is not actionable; "restarted nginx on web01" is.`,
+Diagnose read-only before changing a host, prefer idempotent commands so a retry after a dropped connection is safe, and name the host in every report ("restarted nginx on web01").`,
   },
   {
     id: 'fast_loop',
@@ -133,19 +123,11 @@ const MODULES: readonly AgentPolicyModuleDefinition[] = [
     required: false,
     markdown: `## The Fast Loop
 
-1. **Recon (read-only)**
-   - Identify repository conventions and the relevant entry points.
-   - Derive build and test commands from the repository.
-2. **Plan (1–3 bullets)**
-   - State what will change, how it will be verified, and any assumption.
-3. **Implement**
-   - Match existing patterns, keep edits surgical, and prefer idempotent commands.
-4. **Verify**
-   - During implementation, run the narrowest useful checks for fast feedback.
-   - Before reporting success, run the relevant canonical repository checks, or state plainly which were not run.
-   - Distinguish task-caused failures from pre-existing failures.
-5. **Report**
-   - Lead with the result, then summarize the relevant diff, checks, and any risk-appropriate rollback.`,
+1. **Recon:** read-only; find conventions, entry points, and the repository's build and test commands.
+2. **Plan:** 1–3 bullets: what changes, how it is verified, which assumption.
+3. **Implement:** match existing patterns, keep edits surgical.
+4. **Verify:** narrow checks while working, the canonical checks before reporting (or say which were not run); separate task-caused from pre-existing failures.
+5. **Report:** result first, then the relevant diff, checks, and rollback.`,
   },
   {
     id: 'evidence_and_commands',
@@ -155,17 +137,7 @@ const MODULES: readonly AgentPolicyModuleDefinition[] = [
     required: false,
     markdown: `## Evidence and Command Discovery
 
-Truth is domain-specific:
-
-- Instructions and policy: higher-level runtime and user instructions, then the nearest applicable \`AGENTS.override.md\` or \`AGENTS.md\`.
-- Current behavior: implementation, schemas, migrations, and executable tests.
-- Canonical commands and supported environments: CI workflows, build and package scripts, lockfiles, Makefiles, and justfiles.
-- Intended contracts and conventions: maintained interface docs, ADRs, \`CONTRIBUTING*\`, and README sections.
-- Historical context: changelog, issues, project memory, and shared memory.
-
-When executable evidence and prose disagree, report the drift. Use current implementation for present behavior unless a higher-precedence instruction explicitly identifies the implementation as the bug.
-
-Prefer safe, read-only commands first. If a guess fails, report the sanitized relevant error and try the next repository-supported command without entering a question loop.`,
+Truth is domain-specific: behavior from implementation, schemas, migrations and tests; commands from CI, build scripts, lockfiles, Makefiles and justfiles; contracts from interface docs, ADRs, \`CONTRIBUTING*\` and READMEs; history from changelog, issues and memory. When code and prose disagree, report the drift and trust the code for present behavior unless a higher-precedence instruction names the code as the bug. If a command guess fails, report the sanitized error and try the next repository-supported one.`,
   },
   {
     id: 'security',
@@ -188,14 +160,10 @@ Prefer safe, read-only commands first. If a guess fails, report the sanitized re
     required: false,
     markdown: `## Git and Shared-Worktree Safety
 
-- Start with \`git status --short --branch\` and inspect the existing diff.
-- Assume every pre-existing change belongs to another worker or the user.
-- Never stash, reset, clean, restore, checkout, rebase, or overwrite unrelated changes.
-- Where history rewrites are granted, they cover task-owned branches only; never force-push over another worker's commits.
-- Use \`git fetch --prune\` for discovery. Do not pull in a dirty or diverged worktree.
-- Re-read target files immediately before editing when concurrent work is possible.
-- Stage only task-owned paths. Never use \`git add .\` or \`git add -A\`.
-- Before committing or pushing, inspect the staged diff, remote, upstream, divergence, and task scope.`,
+- Start with \`git status --short --branch\`; every pre-existing change belongs to someone else.
+- Never stash, reset, clean, restore, checkout, rebase, or overwrite unrelated changes; granted history rewrites cover task-owned branches only.
+- Discover with \`git fetch --prune\`; never pull into a dirty or diverged worktree.
+- Re-read files right before editing; stage only task-owned paths, never \`git add .\` or \`git add -A\`; inspect the staged diff, upstream and divergence before committing or pushing.`,
   },
   {
     id: 'failure_handling',
@@ -205,16 +173,13 @@ Prefer safe, read-only commands first. If a guess fails, report the sanitized re
     required: false,
     markdown: `## When Things Break
 
-- State the failed command, exit code, and sanitized relevant stderr plainly.
-- Provide minimal reproduction steps.
-- Give one to three likely causes and how to confirm them.
-- Provide mitigation or rollback appropriate to the blast radius.`,
+Give the failed command, exit code and sanitized stderr, a minimal reproduction, one to three likely causes with how to confirm them, and a mitigation or rollback sized to the blast radius.`,
   },
   {
     id: 'no_execution_access',
     label: 'No-execution fallback',
     description: 'Switch cleanly to paste-ready instructions when execution access is unavailable.',
-    default_enabled: true,
+    default_enabled: false,
     required: false,
     markdown: `## If You Do Not Have Execution Access
 
@@ -235,7 +200,7 @@ Say so once, then provide copy-pasteable commands, expected success output, and 
     id: 'midnight_rule',
     label: 'Midnight Rule',
     description: 'Keep the late-night scope small without lowering verification standards.',
-    default_enabled: true,
+    default_enabled: false,
     required: false,
     markdown: `## Midnight Rule 🧃🧯
 
@@ -283,6 +248,11 @@ export const AGENT_POLICY_REQUIRED: readonly AgentPolicyRequiredDefinition[] = [
 
 const MODULE_BY_ID = new Map(MODULES.map((module) => [module.id, module]));
 
+/** The exact markdown a module contributes to a composed body. */
+export function agentPolicyModuleMarkdown(id: AgentPolicyModuleId): string {
+  return MODULE_BY_ID.get(id)!.markdown;
+}
+
 export function agentPolicyCatalog(): {
   template_id: string;
   template_version: number;
@@ -309,7 +279,7 @@ export function defaultAgentPolicyComposition(): AgentPolicyComposition {
     schema_version: 1,
     template_id: AGENT_POLICY_TEMPLATE_ID,
     template_version: AGENT_POLICY_TEMPLATE_VERSION,
-    enabled_modules: [...AGENT_POLICY_MODULE_IDS],
+    enabled_modules: MODULES.filter((module) => module.default_enabled).map((module) => module.id),
     custom_instructions: '',
   };
 }

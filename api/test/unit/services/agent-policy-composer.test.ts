@@ -9,15 +9,23 @@ import {
 } from '../../../src/services/agent-policy-composer.js';
 
 describe('agent policy composer', () => {
-  it('ships the complete current policy as the fresh-install default', () => {
+  it('ships the default-enabled modules as the fresh-install default', () => {
     const composition = defaultAgentPolicyComposition();
     const rendered = renderAgentPolicyBase(composition);
 
-    expect(composition.enabled_modules).toEqual(AGENT_POLICY_MODULE_IDS);
-    expect(agentPolicyCatalog().required).toEqual(AGENT_POLICY_REQUIRED);
+    // 2026-10-16: the non-normative Midnight Rule and the no-execution fallback (every fleet agent
+    // executes) cost every turn and changed nothing, so they are opt-in. The catalog keeps all ten.
+    const catalog = agentPolicyCatalog();
+    expect(catalog.modules.map((module) => module.id)).toEqual(AGENT_POLICY_MODULE_IDS);
+    expect(composition.enabled_modules).toEqual(
+      catalog.modules.filter((module) => module.default_enabled).map((module) => module.id),
+    );
+    expect(composition.enabled_modules).not.toContain('midnight_rule');
+    expect(composition.enabled_modules).not.toContain('no_execution_access');
+    expect(catalog.required).toEqual(AGENT_POLICY_REQUIRED);
     expect(rendered.content).toContain('## Operating Contract (FAST)');
     expect(rendered.content).toContain('## Git and Shared-Worktree Safety');
-    expect(rendered.content).toContain('## Midnight Rule');
+    expect(rendered.content).not.toContain('## Midnight Rule');
     expect(rendered.content).not.toContain('Fleet Management');
     expect(rendered.sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(rendered.size_bytes).toBe(Buffer.byteLength(rendered.content, 'utf8'));

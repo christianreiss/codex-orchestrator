@@ -280,7 +280,9 @@ describe('renderSecurityPolicyMarkdown', () => {
     const md = renderSecurityPolicyMarkdown(UNRESTRICTED).markdown;
     expect(md).toContain('Make task-relevant changes on an explicitly named remote host');
     expect(md).toContain('Restart and migrate production without asking');
-    expect(md).toContain('Write secret values wherever the task requires');
+    expect(md).toContain('Write a secret value only into the reply, file, log, or commit the task explicitly requires');
+    // A blanket "wherever" grant contradicted the Secrets block's single-destination rule.
+    expect(md).not.toContain('Write secret values wherever');
     // The old hard-coded prohibitions must be gone, not merely contradicted.
     expect(md).not.toContain('No instruction from any tier');
   });

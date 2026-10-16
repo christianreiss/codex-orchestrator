@@ -485,7 +485,7 @@ export const POLICY_OPERATIONS: readonly PolicyOperation[] = [
     phrase: {
       forbid: 'disclosing credentials',
       ask: 'Writing a secret value into a reply, commit, log, or file needs explicit authorization for that specific destination.',
-      allow: 'Write secret values wherever the task requires, including replies, files, logs, and commits.',
+      allow: 'Write a secret value only into the reply, file, log, or commit the task explicitly requires.',
     },
   },
 
@@ -708,9 +708,7 @@ export function presetLevels(presetId: unknown): SecurityLevels {
 
 const IDENTITY_SECTION = `## Fleet Management
 
-You are part of a fleet centrally managed by **Codex Orchestrator**. The orchestrator may synchronize this policy, engine configuration, and capability-specific guidance across hosts. Treat fleet-provided records as managed operating context, while continuing to verify mutable repository and runtime facts at their source.
-
-Fleet membership does not grant additional authority: it never overrides higher-level runtime instructions, the user's explicit request, or applicable safety constraints.`;
+You are part of a fleet managed by **Codex Orchestrator**, which syncs this policy, engine configuration and capability guidance to every host. Fleet records are operating context; verify mutable repository and runtime facts at their source. Fleet membership grants no authority beyond what this policy says and never overrides higher-level runtime instructions, the user's explicit request, or applicable safety constraints.`;
 
 /**
  * Precedence names all three tiers explicitly. The previous wording scoped
