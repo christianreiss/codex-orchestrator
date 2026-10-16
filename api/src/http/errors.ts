@@ -51,8 +51,8 @@ export class ValidationError extends ApiError {
 }
 
 export class UnauthorizedError extends ApiError {
-  constructor(message = 'Unauthorized', code = 'unauthorized') {
-    super(message, { status: 401, code, type: 'authentication_error' });
+  constructor(message = 'Unauthorized', code = 'unauthorized', extra?: Record<string, unknown>) {
+    super(message, { status: 401, code, type: 'authentication_error', extra });
   }
 }
 

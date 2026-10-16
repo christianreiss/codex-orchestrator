@@ -123,13 +123,13 @@ async function enforceIpBinding(
   if (boundSame && boundSame !== ip) {
     if (host.allowRoamingIps === 1) return bindIp(deps.db, host, ip, family);
     if (canRebindInsecureHost(host)) return bindIp(deps.db, host, ip, family);
-    throw new UnauthorizedError('API key not allowed from this IP', 'ip_mismatch');
+    throw ipMismatch(family);
   }
   // Same family not yet bound, other family is.
   if (boundOther) {
     if (host.allowRoamingIps === 1) return bindIp(deps.db, host, ip, family);
     if (canRebindInsecureHost(host)) return bindIp(deps.db, host, ip, family);
-    throw new UnauthorizedError('API key not allowed from this IP', 'ip_mismatch');
+    throw ipMismatch(family);
   }
   return host;
 }
@@ -151,6 +151,15 @@ function logForceDeleteIpMismatch(req: FastifyRequest, host: Host, ip: string | 
     'force delete used from an IP that does not match the bound IP',
   );
   wsPublisher.publish('host.force_delete_ip_mismatch', { id: host.id, fqdn: host.fqdn, ip });
+}
+
+/**
+ * `ip_family` names the refused request's own address family -- something the
+ * caller already knows -- so a dual-stack client can tell which path was
+ * refused. It never reveals the bound addresses or which family is bound.
+ */
+function ipMismatch(family: 'ipv4' | 'ipv6'): UnauthorizedError {
+  return new UnauthorizedError('API key not allowed from this IP', 'ip_mismatch', { ip_family: family });
 }
 
 async function bindIp(db: Database, host: Host, ip: string, family: 'ipv4' | 'ipv6'): Promise<Host> {
