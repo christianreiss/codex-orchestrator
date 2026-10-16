@@ -1148,7 +1148,7 @@ func sameFile(a, b string) bool {
 }
 
 // shellTokens splits the POSIX-sh subset buildCronLine emits: whitespace
-// separated words with single-quoted segments, including the '\'' escape.
+// separated words with single-quoted segments, including the quote-backslash-quote escape.
 func shellTokens(s string) ([]string, bool) {
 	var tokens []string
 	var cur strings.Builder

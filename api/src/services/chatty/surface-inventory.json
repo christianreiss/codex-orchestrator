@@ -290,6 +290,7 @@
     "reason": "Authentication/bootstrap, transport/Chatty control, raw credential reveal, host execution, messaging, work dispatch or recovery activation; never available as a model tool.",
     "routes": [
       "DELETE /admin/agent-sessions/:id/attachments/:attachmentId",
+      "DELETE /admin/agent-messaging/groups/:slug",
       "DELETE /admin/chatty/session",
       "GET /admin/*",
       "GET /admin/agent-chat/limits",

@@ -1,5 +1,24 @@
 # 2026-10-16
 
+- **Feedback fixes (cxx 0.9.91).** Work on 22 orchestrator feedback reports:
+  - Agent messaging: an `agent_reply` with `delivery_class: progress` and no `task_result` now leaves accepted work held, so the final result can still be reported. Deploy the API before rolling out cxx.
+  - Agent messaging: conference dispatch keeps the chair's `eta_seconds` and returns the 900-second stuck-member floor separately as `grace_seconds`.
+  - Agent messaging: a repeat sent with the same progress/notice `coalesce_key` replaces the still-queued update for every recipient (latest text, summed `event_count`, `superseded_by_id`).
+  - Agent messaging: new tools. Creators can delete an empty group with `agent_group_delete`, which frees the slug; operators can delete any empty group with `DELETE /admin/agent-messaging/groups/:slug`. `agent_conf_list` lists the conferences you chair, are invited to or sit in.
+  - Agent messaging: invitations no longer use up the invitee's message budget. A group publish lists the sender in `skipped` (reason `sender`). `agent_listen` explains a non-open `claim_gate` with `claim_gate_note`.
+  - Codex receiver: an idle Codex session with a long history, or with no turn yet, receives peer and Portal messages again. The receiver reads only the newest turn instead of the full rollout, which went over the 8 MiB frame limit.
+  - Grok: on hosts that also run clx, the Claude Stop/UserPromptSubmit ring hook stays silent inside Grok, so `claim_gate` no longer sticks at `thread_working`.
+  - Sessions follow a communicator owner that moved runtime directory (for example from `/tmp/cxx-<uid>` to `/run/user/<uid>`) instead of failing with `broker_upstream_unavailable`. An on-demand owner whose binary `cxx update` replaced hands over to the new binary once the host is quiet.
+  - Managed MCP errors for a reconnecting local communicator say the request was not sent and set `retryable: true`.
+  - A background worker whose signed config stays unreadable or expired for 5 minutes exits. Root maintenance retires other accounts' legacy `cxx agent worker` processes and units where they may not run.
+  - A root cron reconcile keeps another account's nightly line for its own private cxx install.
+  - `cxx agent list` works from ops/root shells outside a managed lifecycle, using the new read-only host-scoped `POST /host/agent-messaging/list`.
+  - `401 ip_mismatch` names the refused address family (`ip_family`), and `cxx housekeeping` prints the server's verdict.
+  - Git Director `git_list` reports `head_observed_at` (migration 0073) and labels `head_sha` as agent-reported; passing `head_sha`/`branch` refreshes it.
+  - Fleet guidance: agents call `agent_self` and `agent_session_name` on their first turn, even for question-only turns. In MCP mode, Claude is told the native Skill tool reports fleet Skills as unknown.
+  - `bin/install.sh --tls selfsigned` issues a CA and leaf that pass Python 3.13+ strict X.509 verification, and repairs older material in place without replacing the CA key.
+  - The API test suite runs in a clean checkout and in CI without `svelte-kit sync`.
+
 - Claude reads fleet Skill manifests and support files through MCP when orchestrator MCP is usable. Bootstrap retires only previously fleet-owned native copies; unavailable MCP retains native bundle fallback, and Grok keeps native Skills. Central memory remains available through MCP with a small local routing reminder; Claude auto-memory still uses files. Interface docs and console help distinguish content retrieval from native Skill registration, hooks and slash commands.
 
 - cxx 0.9.90 follows native Claude argument grammar for memory-directory selectors, so option values and prompt text after `--` cannot redirect the reminder. Memory selectors follow native cwd/project and canonical local-settings precedence; tracked, symlinked or previously tracked local settings remain repository-supplied. Repository-selected directories respect restrictive `permissions.blockReadsOutsideWorkingDirectories` values across enabled sources; existing owned reminder blocks are removed without deleting notes. Native auto-memory preferences stay unchanged.

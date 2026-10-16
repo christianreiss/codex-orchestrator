@@ -1399,8 +1399,8 @@ func TestNonRootKeepsAnotherAccountsSystemSchedule(t *testing.T) {
 func TestSystemScheduleUser(t *testing.T) {
 	for body, want := range map[string]string{
 		buildSystemCronBody("/x/cxx", "/c", "/d", "/l", "chris", "/home/chris", "/home/chris/.codex", 1, 2): "chris",
-		"# c\nSHELL=/bin/sh\n@daily root /x/cxx cron run\n":                                          "root",
-		"# only comments\nHOME=/root\n":                                                              "",
+		"# c\nSHELL=/bin/sh\n@daily root /x/cxx cron run\n":                                                 "root",
+		"# only comments\nHOME=/root\n":                                                                     "",
 	} {
 		if got := systemScheduleUser(body); got != want {
 			t.Fatalf("systemScheduleUser(%q)=%q want %q", body, got, want)
@@ -1464,8 +1464,8 @@ func TestRootReconcileKeepsAnotherAccountsPrivateInstallLine(t *testing.T) {
 
 	cases := []struct {
 		name, user, body string
-		covered           string
-		keep              bool
+		covered          string
+		keep             bool
 	}{
 		{name: "private install keeps its line", user: "chris", body: "MAILTO=x\n" + private + "\n", keep: true},
 		{name: "only one line survives", user: "chris", body: private + "\n" + private + "\n", keep: true},
