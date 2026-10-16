@@ -126,6 +126,49 @@ export function engineStateMutation(
   });
 }
 
+/* ──────────────── 1d. Fleet engine destroy ──────────────── */
+// Removes an (already suspended) engine from every host; see
+// docs/interface-api.md → Engine destroy.
+
+export interface EngineDestroyProgress {
+  engine: string;
+  request: { request_id: string; requested_at: string; requested_by: string | null } | null;
+  counts: { pending: number; running: number; done: number; failed: number };
+  hosts: Array<{ host_id: number; fqdn: string; status: string; residue: string[]; reported_at: string | null }>;
+}
+
+export const engineDestroyQueryKey = (engine: string) => ["settings", "engine-destroy", engine] as const;
+
+export function engineDestroyQuery(engine: string) {
+  return createQuery<EngineDestroyProgress>({
+    queryKey: engineDestroyQueryKey(engine),
+    queryFn: () => api.get<EngineDestroyProgress>(`/admin/engines/${engine}/destroy`),
+    refetchInterval: 15_000,
+  });
+}
+
+export type EngineDestroyAction =
+  | { engine: string; action: "request" }
+  | { engine: string; action: "purge"; force: boolean }
+  | { engine: string; action: "cancel" };
+
+export function engineDestroyMutation(opts: MutationOpts<unknown, EngineDestroyAction> = {}) {
+  const qc = useQueryClient();
+  return createMutation<unknown, Error, EngineDestroyAction>({
+    mutationFn: (a) => {
+      const base = `/admin/engines/${a.engine}/destroy`;
+      if (a.action === "request") return api.post<unknown>(base, { confirm: a.engine });
+      if (a.action === "purge") return api.post<unknown>(`${base}/purge`, { force: a.force });
+      return api.delete<unknown>(base);
+    },
+    ...opts,
+    onSettled: (...args) => {
+      void qc.invalidateQueries({ queryKey: ["settings"] });
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
 /* ────────────────────────── 2. OpenAI state ──────────────────────── */
 
 export const openaiStateQueryKey = ["settings", "openai-state"] as const;

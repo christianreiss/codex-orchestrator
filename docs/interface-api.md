@@ -232,6 +232,18 @@ everything without a reinstall.
   switched-off engines from `default_engines` and from its `auth_<engine>`
   next actions.
 
+
+### Engine destroy
+
+Suspending an engine keeps everything; *destroy* removes it from every host.
+
+- `POST /admin/engines/{engine}/destroy` (`settings.manage`) `{confirm: "<engine>"}` requires the engine to be suspended. One transaction writes the `versions` row `<engine>_engine_destroy` (`{request_id, requested_at, requested_by}`), inserts one `engine_destroy_hosts` row (`pending`) per host carrying the engine, bumps every host's `config_version` and audits `admin.engine.destroy`. Idempotent: an open request is returned with `already_open`.
+- The signed wrapper config carries `host.destroy_engines: [{engine, request_id}]` for hosts that have a progress row. Wrappers older than this feature ignore the field and only suspend.
+- The cxx cron coordinator (`internal/cron/destroy.go`) runs `internal/enginedestroy` once per request id: native shim, alias, signed config, `~/.cxx/engines/<engine>`, npm-global install, the engine's home (`~/.grok` + `~/.cgx`; `~/.claude` + `~/.clx` + managed `mcpServers` in `~/.claude.json`; `$CODEX_HOME`/`~/.codex`), temp runtime dirs and shell alias lines. User-authored `mcpServers` and other engines are untouched. It reports `running`, then `done` or `failed` with the residue to `POST /host/engine-destroy/report`, and writes `~/.cxx/state/engine-destroy-<engine>.json` only after a fully clean run, so failures retry on the next tick. The destroyed engine's config is never re-persisted afterwards.
+- `GET …/destroy` returns progress; `DELETE …/destroy` cancels (hosts that already finished stay destroyed); `POST …/destroy/purge {force?}` deletes the engine's auth payloads/entries, canonical head, provider accounts and sessions, seed/install tokens, host auth state and unassigns the engine from hosts that have another engine.
+- `POST /admin/engines/{engine}/state {enabled:true}` is refused (`409 engine_destroy_open`) while a request is open.
+- Destroy is irreversible for native credentials and history on the hosts.
+
 ## Host-facing
 
 - `X-Request-Id` accepts `[A-Za-z0-9._-]{1,128}`; absent or malformed values
@@ -564,6 +576,7 @@ The Quick Settings page (`/admin/quick-settings`) reuses `GET/POST /admin/model-
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set persisted `api_disabled` flag (when true, all API routes return 503; `/admin/api/state` stays reachable so operators can re-enable).
 - `GET /admin/api/surfaces` / `POST /admin/api/surfaces/{surface}` — list exposed APIs with their backend engine, kill switch and active key count; switch a surface's backend and/or kill switch. See [Exposed API routing](#exposed-api-routing-any-to-any).
 - `GET /admin/engines/state` / `POST /admin/engines/{engine}/state` — fleet-wide engine master switches: list each engine's on/off state, or switch one with `{enabled}`. See [Engine master switches](#engine-master-switches).
+- `GET /admin/engines/{engine}/destroy`, `POST /admin/engines/{engine}/destroy`, `DELETE /admin/engines/{engine}/destroy`, `POST /admin/engines/{engine}/destroy/purge`, `POST /host/engine-destroy/report` — fleet-wide destroy engine. See [Engine destroy](#engine-destroy).
 - `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently). `settings.read` / `settings.manage`.
 - `GET /admin/openai/keys` — list all OpenAI API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
 - `POST /admin/openai/keys` — create a new OpenAI API key. Body: `{name: string, expires_at?: string, backend_engine?: "codex"|"claude"|"grok"}`. Returns the full key (shown once) and the record. Keys use the `sk-cdx-` prefix.

@@ -176,6 +176,13 @@ const QUERY_CASES: QueryCase[] = [
     path: "/admin/engines/state",
   },
   {
+    name: "engineDestroyQuery",
+    build: () => asQuery(settings.engineDestroyQuery("grok")),
+    queryKey: ["settings", "engine-destroy", "grok"],
+    method: "GET",
+    path: "/admin/engines/grok/destroy",
+  },
+  {
     name: "openaiStateQuery",
     build: () => asQuery(settings.openaiStateQuery()),
     queryKey: KEYS.openaiState,
@@ -347,6 +354,13 @@ const MUTATION_CASES: MutationCase[] = [
     variables: { engine: "grok", enabled: false },
     request: { method: "POST", path: "/admin/engines/grok/state", body: { enabled: false } },
     invalidates: [KEYS.engineState, ["settings"]],
+  },
+  {
+    name: "engineDestroyMutation",
+    build: (opts) => asMutation(settings.engineDestroyMutation(opts)),
+    variables: { engine: "grok", action: "request" },
+    request: { method: "POST", path: "/admin/engines/grok/destroy", body: { confirm: "grok" } },
+    invalidates: [["settings"]],
   },
   {
     name: "openaiStateMutation",
@@ -605,6 +619,9 @@ describe("module surface", () => {
     "codexVersionsCheckMutation",
     "codexVersionsQuery",
     "codexVersionsQueryKey",
+    "engineDestroyMutation",
+    "engineDestroyQuery",
+    "engineDestroyQueryKey",
     "engineStateMutation",
     "engineStateQuery",
     "engineStateQueryKey",

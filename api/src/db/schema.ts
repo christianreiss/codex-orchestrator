@@ -2536,3 +2536,18 @@ export const agentNativeControls = mysqlTable('agent_native_controls', {
   status: varchar('status', { length: 24 }).notNull(),
   updatedAt: varchar('updated_at', { length: 100 }).notNull(),
 });
+
+// Per-host progress of a fleet-wide "destroy engine" request. One row per
+// (request, host); the host reports status and any residue it could not remove.
+export const engineDestroyHosts = mysqlTable('engine_destroy_hosts', {
+  requestId: char('request_id', { length: 36 }).notNull(),
+  hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull().references(() => hosts.id, { onDelete: 'cascade' }),
+  engine: varchar('engine', { length: 16 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('pending'),
+  residueJson: text('residue_json'),
+  reportedAt: varchar('reported_at', { length: 100 }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, t => ({
+  pk: primaryKey({ columns: [t.requestId, t.hostId] }),
+  engineIdx: index('idx_engine_destroy_engine').on(t.engine, t.status),
+}));

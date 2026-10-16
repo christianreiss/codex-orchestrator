@@ -424,6 +424,9 @@ func refreshAssignments(ctx context.Context, seed *config.Config, executable str
 			probes = append(probes, config.EngineGrok)
 		}
 	}
+	// Fleet-wide "destroy engine": act before anything is persisted, and treat
+	// the destroyed engines like disabled ones for config/alias cleanup below.
+	disabled = append(disabled, applyDestroyRequests(ctx, seed, fetched, executable, warn)...)
 	configs := make([]*config.Config, 0, len(fetched))
 	engines := make([]string, 0, len(fetched))
 	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {

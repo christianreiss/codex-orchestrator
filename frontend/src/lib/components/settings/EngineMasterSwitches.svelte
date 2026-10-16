@@ -25,6 +25,7 @@
   import SectionCard from "./SectionCard.svelte";
   import SwitchRow from "./SwitchRow.svelte";
   import EngineSwitchConfirmDialog from "./EngineSwitchConfirmDialog.svelte";
+  import EngineDestroyPanel from "./EngineDestroyPanel.svelte";
   import { engineSwitchConfirmCopy } from "./engine-switch-consequences";
 
   type Props = { headingLevel?: 2 | 3 };
@@ -162,6 +163,12 @@
       disabled={!canMutate || !view.known || $mutation.isPending}
       onCheckedChange={(next) => request(engine, next)}
     />
+  {/each}
+
+  {#each ENGINES as engine (engine)}
+    {#if view.known && !view.isEnabled(engine)}
+      <EngineDestroyPanel {engine} suspended={true} {canMutate} />
+    {/if}
   {/each}
 
   <p class="text-xs text-muted-foreground">

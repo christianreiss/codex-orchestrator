@@ -78,6 +78,16 @@ type Host struct {
 	// and signed config stay on disk, and launches/maintenance pause until the
 	// switch is turned back on. Omitted when nothing is suspended.
 	FleetDisabledEngines []string `json:"fleet_disabled_engines,omitempty"`
+	// DestroyEngines are open fleet-wide "destroy engine" requests this host
+	// must carry out. Unlike suspension this deletes the engine from the host
+	// (internal/enginedestroy). Omitted when there are none.
+	DestroyEngines []DestroyDirective `json:"destroy_engines,omitempty"`
+}
+
+// DestroyDirective names one engine to remove and the request that asked.
+type DestroyDirective struct {
+	Engine    string `json:"engine"`
+	RequestID string `json:"request_id"`
 }
 
 // Engine-disabled refusal scopes carried by the orchestrator's 403

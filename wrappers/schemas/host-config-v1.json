@@ -39,7 +39,19 @@
         "agent_messaging_enabled": { "type": "boolean", "default": false },
         "engines": { "type": "string" },
         "engines_list": { "type": "array", "items": { "type": "string", "enum": ["codex", "claude", "grok"] } },
-        "fleet_disabled_engines": { "type": "array", "items": { "type": "string", "enum": ["codex", "claude", "grok"] } }
+        "fleet_disabled_engines": { "type": "array", "items": { "type": "string", "enum": ["codex", "claude", "grok"] } },
+        "destroy_engines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["engine", "request_id"],
+            "properties": {
+              "engine": { "type": "string", "enum": ["codex", "claude", "grok"] },
+              "request_id": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
       }
     },
     "engine_options": {

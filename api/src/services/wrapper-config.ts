@@ -25,6 +25,7 @@ import {
   type WrapperRolloutState,
 } from './wrapper-rollout.js';
 import type { WrapperSigningKeyService } from './wrapper-signing-key.js';
+import { destroyDirectivesForHost } from './engine-destroy.js';
 import { activeHostEngines, disabledEngines, hostEnginesList } from './host-engine-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
 import { effectiveSkillDigest } from './skill-provenance.js';
@@ -111,6 +112,8 @@ export interface WrapperConfigPayload {
     engines_list: Engine[];
     /** Engines switched off fleet-wide; omitted when none are. */
     fleet_disabled_engines?: Engine[];
+    /** Open "destroy engine" requests this host must carry out; omitted when none. */
+    destroy_engines?: Array<{ engine: Engine; request_id: string }>;
   };
   engine_options: Record<string, unknown>;
   session_housekeeping?: HousekeepingPolicy;
@@ -463,6 +466,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     // no bus, no receiver.
     const engineActive = host.status === 'active' && activeHostEngines(host.engines, fleet).includes(engine);
     const fleetDisabled = disabledEngines(fleet);
+    const destroyEngines = await destroyDirectivesForHost(deps.db, host.id);
 
     // Provisioning gate only. The fleet switch is the only switch, so the bus
     // is baked in for every active host running this engine — including
@@ -521,6 +525,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         engines: host.engines,
         engines_list: hostEnginesList(host.engines),
         ...(fleetDisabled.length > 0 ? { fleet_disabled_engines: fleetDisabled } : {}),
+        ...(destroyEngines.length > 0 ? { destroy_engines: destroyEngines } : {}),
       },
       engine_options: engineOptions(host, engine, { silent, adminTheme }, policy),
       session_housekeeping: (({ enabled, retention_days, max_bytes, min_age_days }) => ({ enabled, retention_days, max_bytes, min_age_days }))(await housekeepingPolicy(deps.db, engine, host.id)),

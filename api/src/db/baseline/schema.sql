@@ -1964,3 +1964,15 @@ CREATE TABLE `agent_native_controls` (
 );
 
 ALTER TABLE `agent_native_controls` ADD CONSTRAINT `fk_native_control_session` FOREIGN KEY (`session_id`) REFERENCES `agent_sessions`(`id`) ON DELETE CASCADE;
+
+CREATE TABLE `engine_destroy_hosts` (
+	`request_id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`engine` varchar(16) NOT NULL,
+	`status` varchar(16) NOT NULL DEFAULT 'pending',
+	`residue_json` text,
+	`reported_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `engine_destroy_hosts_request_id_host_id_pk` PRIMARY KEY(`request_id`,`host_id`),
+	KEY `idx_engine_destroy_engine` (`engine`, `status`)
+);
