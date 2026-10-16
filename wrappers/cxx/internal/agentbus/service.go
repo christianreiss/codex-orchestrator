@@ -106,6 +106,9 @@ func runServiceCommand(args []string, stdout, stderr io.Writer) error {
 		// The worker resumes dormant agents headless: remote execution, which
 		// exists only on a persistent host (docs/host-runtime-policy.md). On any
 		// other host the unit is retired; an unanswered question changes nothing.
+		if action == "install" {
+			retireForeignWorkers(stderr) // root only: other accounts' legacy workers
+		}
 		switch workerPolicy() {
 		case workerForbidden:
 			path, err := servicePath()
@@ -117,7 +120,7 @@ func runServiceCommand(args []string, stdout, stderr io.Writer) error {
 			}
 			fmt.Fprintln(stderr, "cxx agent: no background worker on a non-persistent host; retiring cxx-agent")
 			action = "remove"
-		case workerUnknown:
+		case workerUnknown, workerStaleConfig:
 			if action == "install" {
 				return nil
 			}
@@ -139,6 +142,9 @@ const (
 	workerAllowed workerDecision = iota
 	workerForbidden
 	workerUnknown
+	// workerStaleConfig: this user's signed config is unreadable or expired.
+	// Like unknown it changes no unit; a running worker exits after a grace.
+	workerStaleConfig
 )
 
 // workerPolicy asks the server whether this host is persistent for this OS
@@ -160,6 +166,9 @@ var workerPolicy = func() workerDecision {
 func workerDecisionForError(err error) workerDecision {
 	if strings.Contains(err.Error(), "no signed messaging-enabled engine config") || errors.Is(err, errRelayConfigRefused) {
 		return workerForbidden
+	}
+	if configPermanentlyUnusable(err) {
+		return workerStaleConfig
 	}
 	return workerUnknown
 }

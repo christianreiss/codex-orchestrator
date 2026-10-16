@@ -110,6 +110,9 @@ func RunWorker(parent context.Context, version string, stdout, stderr io.Writer)
 	case workerForbidden:
 		fmt.Fprintln(stdout, "cxx background worker: host is not persistent; exiting")
 		return nil
+	case workerStaleConfig:
+		fmt.Fprintln(stdout, "cxx background worker: signed config stays unusable (unreadable or expired); exiting")
+		return nil
 	case workerUnknown:
 		return nil // context ended while the answer was still unknown
 	}
@@ -127,17 +130,27 @@ func RunWorker(parent context.Context, version string, stdout, stderr io.Writer)
 		return err
 	}
 	fmt.Fprintln(stdout, "cxx background worker: starting")
+	var stale staleConfigClock
 	for ctx.Err() == nil {
-		configs, seed, err := loadMessagingConfigs()
+		configs, seed, err := workerLoadConfigs()
 		if err != nil || seed == nil {
 			if err != nil {
 				fmt.Fprintln(stderr, "agent messaging relay: signed config unavailable:", err)
 			}
-			if !waitContext(ctx, 30*time.Second) {
+			if stale.observe(configPermanentlyUnusable(err), time.Now()) {
+				// Feedback 845ba7f6: a config that stays unreadable (a root-owned
+				// layout) or expired never heals for this worker. Exit 0 so
+				// Restart=on-failure leaves it down; maintenance starts it again
+				// once a usable config is back on a persistent host.
+				fmt.Fprintln(stdout, "cxx background worker: signed config stays unusable (unreadable or expired); exiting")
+				break
+			}
+			if !waitContext(ctx, workerConfigRetry) {
 				break
 			}
 			continue
 		}
+		stale.observe(false, time.Now())
 		client, err := newRelayClient(seed)
 		if err != nil {
 			return err
@@ -928,27 +941,80 @@ var workerPolicyRecheck = 5 * time.Minute
 
 // awaitWorkerPolicy returns allowed or forbidden as soon as the server answers.
 // While the answer is unknown (API unreachable) it waits without relaying.
+// While the local signed config is unusable (unreadable or expired) it waits at
+// most workerStaleConfigGrace, then reports workerStaleConfig.
 func awaitWorkerPolicy(ctx context.Context, stderr io.Writer) workerDecision {
+	var stale staleConfigClock
 	for {
 		decision := workerPolicy()
-		if decision != workerUnknown {
+		if decision != workerUnknown && decision != workerStaleConfig {
 			return decision
 		}
-		fmt.Fprintln(stderr, "cxx background worker: cannot confirm that this host is persistent; waiting")
-		if !waitContext(ctx, 30*time.Second) {
+		if stale.observe(decision == workerStaleConfig, time.Now()) {
+			return workerStaleConfig
+		}
+		if decision == workerStaleConfig {
+			fmt.Fprintln(stderr, "cxx background worker: signed config is unreadable or expired; waiting")
+		} else {
+			fmt.Fprintln(stderr, "cxx background worker: cannot confirm that this host is persistent; waiting")
+		}
+		if !waitContext(ctx, workerConfigRetry) {
 			return workerUnknown
 		}
 	}
 }
 
 func watchWorkerPolicy(ctx context.Context, revoke context.CancelFunc, stderr io.Writer) {
+	var stale staleConfigClock
 	for waitContext(ctx, workerPolicyRecheck) {
-		if workerPolicy() == workerForbidden {
+		decision := workerPolicy()
+		if decision == workerForbidden {
 			fmt.Fprintln(stderr, "cxx background worker: host is no longer persistent; exiting")
 			revoke()
 			return
 		}
+		if stale.observe(decision == workerStaleConfig, time.Now()) {
+			fmt.Fprintln(stderr, "cxx background worker: signed config stays unusable (unreadable or expired); exiting")
+			revoke()
+			return
+		}
 	}
+}
+
+// workerConfigRetry is how often an idle worker retries an unavailable config
+// or an unanswered persistence check.
+var workerConfigRetry = 30 * time.Second
+
+// workerLoadConfigs is the worker loop's config loader (a seam for tests).
+var workerLoadConfigs = loadMessagingConfigs
+
+// workerStaleConfigGrace bounds how long a worker keeps running on a signed
+// config that is unreadable (EACCES after the move to a root-owned layout) or
+// expired. The grace lets a concurrent maintenance run refetch an expired
+// config; past it the worker exits instead of logging every 30 seconds for
+// weeks (feedback 845ba7f6).
+var workerStaleConfigGrace = 5 * time.Minute
+
+// staleConfigClock measures how long a config has been continuously unusable.
+type staleConfigClock struct{ since time.Time }
+
+// observe records one check and reports whether the grace is used up.
+func (c *staleConfigClock) observe(unusable bool, now time.Time) bool {
+	if !unusable {
+		c.since = time.Time{}
+		return false
+	}
+	if c.since.IsZero() {
+		c.since = now
+	}
+	return now.Sub(c.since) >= workerStaleConfigGrace
+}
+
+// configPermanentlyUnusable reports a local signed config this process can
+// never use as it stands: unreadable (permission) or expired. errors.Is walks
+// the errors.Join built by loadMessagingConfigs.
+func configPermanentlyUnusable(err error) bool {
+	return err != nil && (errors.Is(err, os.ErrPermission) || errors.Is(err, config.ErrExpired))
 }
 
 func relayNotPersistent(err error) bool {
