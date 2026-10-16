@@ -35,6 +35,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	hostmaintenance "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
@@ -776,7 +777,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	if err != nil {
 		return 1, err
 	}
-	if err := rt.Configure(exe, cfg, connection.Session() != nil); err != nil {
+	if err := rt.Configure(exe, cfg, connection.Session() != nil, args); err != nil {
 		return 1, err
 	}
 	path, err := native.FindCLI()
@@ -898,6 +899,10 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		args = append([]string{"--leader", "--leader-socket", socket}, args...)
 	} else if headless && !nativeAnyFlag(args, "--no-leader", "--leader-socket", "--leader") {
 		args = append([]string{"--no-leader"}, args...)
+	}
+	args, err = modelpolicy.Apply(cfg, args, rt.Home, nil, stderr)
+	if err != nil {
+		return 1, err
 	}
 	args = interactiveArgs(args, headless, o.skipBoot)
 	minimal = o.minimal || nativeFlag(args, "--minimal")

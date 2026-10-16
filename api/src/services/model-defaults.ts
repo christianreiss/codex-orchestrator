@@ -1,3 +1,4 @@
+import { readModelPolicy, applyModelPolicy, type ModelPolicy } from './model-policy.js';
 import type { Database } from '../db/client.js';
 import { ValidationError } from '../http/errors.js';
 import {
@@ -29,6 +30,7 @@ export interface ModelDefaultsResponse {
   reasoning_effort: string | null;
   context_window?: number;
   catalog: ModelDefaultsCatalogEntry[];
+  stored_model?: string;
 }
 
 export interface ModelDefaultsUpdate {
@@ -111,10 +113,10 @@ export interface LaunchCatalog {
  * defaults catalog; session-only choices are separate capabilities, including
  * Claude Opus 4.6 / Sonnet 4.6 `max` despite their persistent ceiling of `high`.
  */
-export function modelLaunchCatalog(engine: Engine): LaunchCatalog {
+export function modelLaunchCatalog(engine: Engine, policy?: ModelPolicy): LaunchCatalog {
   return {
-    default_model: defaultModel(engine),
-    models: modelDefaultsCatalog(engine).map((entry) => ({
+    default_model: policy?.latest_only ? policy.replacements[defaultModel(engine)]! : defaultModel(engine),
+    models: modelDefaultsCatalog(engine).filter(entry => !policy?.latest_only || (policy.latest_models.includes(entry.model) && !policy.disabled_models?.includes(entry.model))).map((entry) => ({
       model: entry.model,
       efforts: [...entry.persistent_efforts],
       session_efforts:
@@ -230,7 +232,17 @@ export class ModelDefaultsService {
 
   async get(engine: Engine): Promise<ModelDefaultsResponse> {
     const current = await this.clientConfig.adminFetch(engine);
-    return responseFromSettings(engine, asRecord(current.settings));
+    return this.effectiveResponse(engine, asRecord(current.settings));
+  }
+
+  private async effectiveResponse(engine: Engine, settings: Record<string, unknown>): Promise<ModelDefaultsResponse> {
+    const response = responseFromSettings(engine, settings);
+    const policy = await readModelPolicy(this.db, engine);
+    if (!policy.latest_only) return response;
+    const model = applyModelPolicy(policy, response.model);
+    const entry = response.catalog.find(entry => entry.model === model)!;
+    return { ...response, model, ...(model !== response.model ? { stored_model: response.model } : {}), reasoning_effort: response.reasoning_effort && entry.persistent_efforts.includes(response.reasoning_effort) ? response.reasoning_effort : entry.default_effort,
+      catalog: response.catalog.filter(entry => policy.latest_models.includes(entry.model)) };
   }
 
   async set(engine: Engine, input: unknown): Promise<ModelDefaultsResponse> {
@@ -269,6 +281,6 @@ export class ModelDefaultsService {
       null,
       engine,
     );
-    return responseFromSettings(engine, asRecord(stored.settings));
+    return this.effectiveResponse(engine, asRecord(stored.settings));
   }
 }

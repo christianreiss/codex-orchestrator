@@ -17,6 +17,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
@@ -252,6 +253,14 @@ func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, a
 	}
 
 	args = applyLaneAndProfile(cfg, args)
+	home, homeErr := CodexHome()
+	if homeErr != nil {
+		return 1, nil, homeErr
+	}
+	args, err = modelpolicy.Apply(cfg, args, home, nil, os.Stderr)
+	if err != nil {
+		return 1, nil, err
+	}
 	args = applyDangerousBypass(cfg, args)
 	args = disableStartupUpdateCheck(args)
 

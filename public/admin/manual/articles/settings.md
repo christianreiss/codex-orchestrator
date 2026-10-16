@@ -37,6 +37,19 @@ Each model-default form displays **Unsaved changes** while edited. Background up
 
 Old `/settings` bookmarks redirect to the corresponding destination. `/authoring/settings` redirects to `/engines#claude-client`.
 
+### Only current models
+
+Under **Engines → Current models**, enable **Only current models** separately
+for Codex, Claude or Grok. The default is off. Each model family keeps its newest
+version, so Sol, Astra, Luna and Terra remain available independently; the same
+applies to Claude families and Grok Standard/Fast variants.
+
+New managed starts and API inference requests upgrade older selections within
+their family. Saved preferences remain intact, and switching off restores the
+full list. Hosts need cxx 0.9.94 or newer and a configuration sync. Offline hosts
+use their last signed setting. Running sessions keep their model; direct
+provider binaries are outside this policy.
+
 ### General
 
 #### API state

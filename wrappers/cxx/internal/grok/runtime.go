@@ -22,6 +22,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 	"github.com/pelletier/go-toml"
@@ -557,7 +558,7 @@ func RunAuthAccessor(ctx context.Context, stdout, stderr io.Writer) int {
 }
 
 func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }
-func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool) error {
+func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool, launchArgs ...[]string) error {
 	raw, err := os.ReadFile(filepath.Join(r.Home, "config.toml"))
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -617,6 +618,31 @@ func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool) 
 	}
 	if cfg.EngineOptions.ReasoningEffortOverride != nil {
 		mergeMap(m, map[string]any{"models": map[string]any{"default_reasoning_effort": *cfg.EngineOptions.ReasoningEffortOverride}})
+	}
+	// Model-keyed context windows must follow the selected model's upgrade in
+	// this private runtime, without migrating the original user configuration.
+	if policy := cfg.EngineOptions.ModelPolicy; policy != nil && policy.LatestOnly {
+		models, _ := m["models"].(map[string]any)
+		selected, _ := models["default"].(string)
+		if len(launchArgs) > 0 {
+			if explicit := nativeargs.Value("grok", launchArgs[0], "--model"); explicit != "" {
+				selected = explicit
+			}
+		}
+		if next := policy.Replacements[selected]; next != "" && next != selected {
+			if entries, ok := m["model"].(map[string]any); ok {
+				if previous, ok := entries[selected].(map[string]any); ok {
+					if window, ok := previous["context_window"]; ok {
+						target, _ := entries[next].(map[string]any)
+						if target == nil {
+							target = map[string]any{}
+							entries[next] = target
+						}
+						target["context_window"] = window
+					}
+				}
+			}
+		}
 	}
 	effective, err := json.Marshal(m)
 	if err != nil {

@@ -1162,6 +1162,7 @@ export interface ModelDefaultsCatalogEntry {
 }
 
 export interface ModelDefaultsValue {
+  stored_model?: string;
   engine: ModelDefaultsEngine;
   model: string;
   reasoning_effort: string | null;

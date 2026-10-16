@@ -250,6 +250,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/grok/version': cap('settings.manage'),
   'GET /admin/grok/version/lock': cap('settings.read'),
   'POST /admin/codex-version': cap('settings.manage'),
+  'GET /admin/model-policy/:engine': cap('settings.read'),
+  'PUT /admin/model-policy/:engine': cap('settings.manage'),
   'GET /admin/model-defaults/:engine': cap('settings.read'),
   'POST /admin/model-defaults/:engine': cap('settings.manage'),
   'GET /admin/agents-generation-mode': cap('settings.read'),

@@ -2563,3 +2563,28 @@ hands polling back to the existing wrapper without restarting the native CLI.
 See [Communicator ownership and rollout](communicator.md#central-sync-ownership-cxx-0973).
 
 Host-authenticated `POST /host/daemon/migration` accepts `{request_id: UUID, command: "fence"|"status"|"release"}`. It preserves requested enablement and queued/accepted work, holds admission for that UUID, and returns `fenced`, `ready`, `running`, `accepted` and `peer_claims`. Readiness requires all three counts to be zero. Local work/receipt checks and actual process-exit proof are additionally required before service replacement. Another UUID cannot release the fence. While fenced, host daemon config/heartbeat project effective execution enablement false; config also reports `execution_requested` independently so the resident owner remains available for migration.
+
+
+## Fleet model policy
+
+- `GET /admin/model-policy/:engine` (`settings.read`) returns
+  `{engine, latest_only, latest_models, replacements, disabled_models?}` for
+  `codex|claude|grok`. `replacements` maps each supported model to the newest
+  version of its family, including identity entries.
+- `PUT /admin/model-policy/:engine` (`settings.manage`) accepts only
+  `{latest_only: boolean}`. Defaults off, stored under
+  `<engine>_models_latest_only` in `versions`; no migration is needed. Changes
+  emit `settings.changed` and audit `admin.model_policy` with engine and flag.
+  Invalid engines/bodies return 422.
+- Enabled policy filters model-defaults catalogs and returns effective model
+  and effort. Optional `stored_model` names an older saved selection when its
+  successor differs. Writes and toggles preserve stored preferences.
+- Gateway catalogs expose current enabled versions per family. Inference
+  resolves known old IDs to their successor before checking manual disables.
+  This follows the answering backend across surfaces and API-key assignments;
+  response model IDs name the model used. Unknown IDs remain errors, with no
+  older-generation fallback. Existing legacy aliases and cross-surface
+  native-family compatibility retain their normal canonical resolution.
+- Signed configs carry the same policy for cxx >= 0.9.94. It takes effect at
+  configuration sync for new managed starts; running sessions and direct
+  provider binaries remain unchanged. Offline starts use the last signed rule.

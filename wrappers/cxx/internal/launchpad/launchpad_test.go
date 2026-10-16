@@ -356,3 +356,20 @@ func TestReceipt(t *testing.T) {
 		t.Fatalf("ascii Receipt = %q", got)
 	}
 }
+
+func TestCurrentPolicyStartsInTheSameFamily(t *testing.T) {
+	cfg := signed([]string{"codex"}, &config.ModelCatalog{DefaultModel: "gpt-6-astra", Models: []config.ModelCatalogEntry{{Model: "gpt-6-astra"}, {Model: "gpt-6.1-sol"}}})
+	cfg.EngineOptions.ModelPolicy = &config.ModelPolicy{LatestOnly: true, Replacements: map[string]string{"gpt-6-sol": "gpt-6.1-sol"}}
+	model, _ := start("codex", cfg, menu("codex", cfg, Sources{}), Sources{Local: func(string) (string, string) { return "gpt-6-sol", "high" }})
+	if model != "gpt-6.1-sol" {
+		t.Fatalf("changed family: %s", model)
+	}
+	cfg.EngineOptions.ModelCatalog.Models = nil
+	if got := menu("codex", cfg, Sources{}); len(got) != 0 {
+		t.Fatalf("fell back to old menu: %#v", got)
+	}
+	model, _ = start("codex", cfg, nil, Sources{})
+	if model != "" {
+		t.Fatalf("empty catalog selected %s", model)
+	}
+}

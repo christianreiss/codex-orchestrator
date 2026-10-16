@@ -179,6 +179,9 @@
   <div class="mt-5 min-h-5 text-xs text-muted-foreground" role="status" aria-live="polite">
     {#if saving}Saving…{:else if needsRefresh && $query.isFetching}Refreshing saved settings…{:else if saved}Saved{:else}Selections save automatically.{/if}
   </div>
+  {#if confirmed?.stored_model}
+    <p class="text-xs text-muted-foreground">Saved model {confirmed.stored_model} → {confirmed.model} under the current models policy.</p>
+  {/if}
   {#if saveError}
     <p class="mt-2 text-sm text-destructive" role="alert">Could not save: {saveError}</p>
   {/if}

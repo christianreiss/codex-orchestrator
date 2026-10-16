@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { modelPolicyQuery } from '$lib/api/model-policy';
+  import { filterModelOptions } from '$lib/components/ui/model-select/policy';
   import { derived } from "svelte/store";
   import { untrack } from "svelte";
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
@@ -12,6 +14,8 @@
   import { mergeNativeSettings, nativeSettingsOf, parseNativeSettings, sameSettings, editableProfilesOf, parseNativeProfiles, mergeNativeProfiles } from "./config-edit";
 
   let { engine, profiles = false }: { engine: Engine; profiles?: boolean } = $props();
+  const policy = modelPolicyQuery(untrack(() => engine));
+  const currentModels = $derived(filterModelOptions(CODEX_MODELS, $policy.data));
   const sectionId = $derived(`${engine}-${profiles ? "profile" : "native"}-settings`);
   const settingsLabel = $derived(profiles ? "profiles" : "native settings");
   const readSettings = (settings: EngineConfig["settings"]) => profiles ? editableProfilesOf(settings) : nativeSettingsOf(settings);
@@ -112,7 +116,7 @@
     <details class="mt-2 text-xs text-muted-foreground">
       <summary class="cursor-pointer">Profile example and current choices</summary>
       <pre class="mt-2 overflow-auto">{JSON.stringify([{ name: "review", model: "gpt-6.1-sol", model_reasoning_effort: "high", native_settings: { service_tier: "priority" } }], null, 2)}</pre>
-      <p class="mt-2">Models: {CODEX_MODELS.map(m => m.value).join(", ")}</p>
+      <p class="mt-2">Models: {currentModels.map(m => m.value).join(", ")}</p>
       <p>Effort: {REASONING_EFFORT_OPTIONS.map(e => e.value).join(", ")}. Availability depends on the model.</p>
     </details>
   {/if}

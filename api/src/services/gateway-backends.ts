@@ -25,6 +25,10 @@ import { createClaudeModelsService, modelObject as claudeModelObject, type Claud
 import { buildModelObject, OPENAI_MODELS, resolveRequestedModel, UnsupportedModelError } from './openai-models.js';
 import { assertControlsSupported, capabilitiesFor } from './transport-capabilities.js';
 import { API_SURFACES, createSurfaceRouting, identityRouting, type ApiSurfaceId, type SurfaceRouting } from './api-surfaces.js';
+import { readModelPolicy, applyModelPolicy, buildModelPolicy } from './model-policy.js';
+import { CLAUDE_DEFAULT_MODEL } from './claude-models.js';
+import { GROK_DEFAULT_MODEL } from './grok-models.js';
+import { SettingsService } from './settings.js';
 import { readFleetEngineState } from './engine-switch.js';
 
 /** One model as every surface can render it. Field names follow the wire. */
@@ -180,9 +184,30 @@ export function createGatewayBackends(
 const GROK_CATALOG_CREATED = 1790812800;
 
 function modelsFor(engine: Engine, ctx: GatewayContext): GatewayBackendModels {
-  if (engine === ENGINE_CLAUDE) return claudeModels(ctx);
-  if (engine === ENGINE_GROK) return grokModels(ctx);
-  return codexModels();
+  // Standalone gateway adapters without a database have no fleet settings.
+  const policyNow = () => typeof ctx.db?.select === 'function' ? readModelPolicy(ctx.db, engine) : Promise.resolve(buildModelPolicy(engine));
+  const base = engine === ENGINE_CLAUDE ? claudeModels(ctx) : engine === ENGINE_GROK ? grokModels(ctx) : codexModels();
+  return {
+    ...base,
+    async resolve(value) {
+      const policy = await policyNow();
+      if (!policy.latest_only) return base.resolve(value);
+      // Upgrade known IDs before checking manual disables on the successor.
+      let requested = typeof value === 'string' ? value.trim() : '';
+      if (engine === ENGINE_CLAUDE) requested = requested.toLowerCase();
+      if (!requested) requested = engine === ENGINE_CLAUDE ? CLAUDE_DEFAULT_MODEL
+        : engine === ENGINE_GROK ? await new SettingsService(ctx.db).getString('grok_default_model', GROK_DEFAULT_MODEL) ?? GROK_DEFAULT_MODEL
+        : resolveRequestedModel(undefined);
+      if (Object.hasOwn(policy.replacements, requested)) return base.resolve(applyModelPolicy(policy, requested));
+      // Existing native/legacy aliases keep their normal canonicalization.
+      return base.resolve(applyModelPolicy(policy, await base.resolve(requested)));
+    },
+    async catalog() {
+      const policy = await policyNow();
+      const catalog = await base.catalog();
+      return policy.latest_only ? catalog.filter(model => policy.latest_models.includes(model.id)) : catalog;
+    },
+  };
 }
 
 function codexModels(): GatewayBackendModels {

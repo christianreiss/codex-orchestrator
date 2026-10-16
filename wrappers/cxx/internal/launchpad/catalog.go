@@ -82,6 +82,8 @@ func Discover(src Sources) []Engine {
 		}
 		e := Engine{Name: name, Models: menu(name, cfg, src)}
 		switch {
+		case len(e.Models) == 0:
+			e.Disabled = "no current models enabled"
 		case cfg.EngineSuspended(name):
 			e.Disabled = "suspended fleet-wide"
 		case src.Installed != nil && !src.Installed(name):
@@ -106,6 +108,9 @@ func assigned(cfg *config.Config, engine string) bool {
 }
 
 func menu(engine string, cfg *config.Config, src Sources) []Model {
+	if cfg.EngineOptions.ModelPolicy != nil && cfg.EngineOptions.ModelPolicy.LatestOnly && (cfg.EngineOptions.ModelCatalog == nil || len(cfg.EngineOptions.ModelCatalog.Models) == 0) {
+		return nil
+	}
 	if catalog := cfg.EngineOptions.ModelCatalog; catalog != nil && len(catalog.Models) > 0 {
 		models := make([]Model, 0, len(catalog.Models))
 		for _, entry := range catalog.Models {
@@ -141,6 +146,9 @@ func menu(engine string, cfg *config.Config, src Sources) []Model {
 // start picks the cursor: the last launchpad choice for this engine, then the
 // admin override, then the native settings, then the catalog default.
 func start(engine string, cfg *config.Config, models []Model, src Sources) (string, string) {
+	if len(models) == 0 {
+		return "", ""
+	}
 	var candidates [][2]string
 	if last := src.Last; last != nil && last.Engine == engine {
 		candidates = append(candidates, [2]string{last.Model, last.Effort})
@@ -154,6 +162,11 @@ func start(engine string, cfg *config.Config, models []Model, src Sources) (stri
 		candidates = append(candidates, [2]string{catalog.DefaultModel, ""})
 	}
 	for _, c := range candidates {
+		if policy := cfg.EngineOptions.ModelPolicy; policy != nil && policy.LatestOnly {
+			if next := policy.Replacements[c[0]]; next != "" {
+				c[0] = next
+			}
+		}
 		if m, ok := findModel(models, c[0]); ok {
 			return m.ID, snapEffort(m, c[1])
 		}

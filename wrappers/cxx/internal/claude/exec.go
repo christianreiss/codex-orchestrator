@@ -16,6 +16,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
@@ -193,6 +194,16 @@ func runCaptureWithHeldAuthLeaseUsing(
 	session *AuthSession,
 	acquireShared func() (*authChildLease, error),
 ) (int, []byte, error) {
+	if _, subcommand := NativeSubcommandIndex(args); !subcommand {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return 1, nil, err
+		}
+		args, err = modelpolicy.Apply(cfg, args, filepath.Join(home, ".claude"), NativeOptionValueEnd, os.Stderr)
+		if err != nil {
+			return 1, nil, err
+		}
+	}
 	guard, guardErr := sessionguard.Launch("claude")
 	if guardErr != nil {
 		return 1, nil, guardErr

@@ -28,6 +28,7 @@ import type { WrapperSigningKeyService } from './wrapper-signing-key.js';
 import { activeHostEngines, disabledEngines, hostEnginesList } from './host-engine-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
 import { effectiveSkillDigest } from './skill-provenance.js';
+import { readModelPolicy, type ModelPolicy } from './model-policy.js';
 import { modelLaunchCatalog } from './model-defaults.js';
 import { isTruthyFlagValue } from './settings.js';
 import { withSpan, type TraceSpan } from '../observability/tracing.js';
@@ -345,14 +346,15 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     host: Host,
     engine: Engine,
     opts: { silent: boolean; adminTheme: string | null },
+    policy: ModelPolicy,
   ): Record<string, unknown> {
-    if (engine === 'grok') return { silent: opts.silent, model_override: host.grokModelOverride ?? null, reasoning_effort_override: host.grokReasoningEffortOverride ?? null, grok_model_override: host.grokModelOverride ?? null, grok_reasoning_effort_override: host.grokReasoningEffortOverride ?? null, admin_theme_hint: opts.adminTheme, model_catalog: modelLaunchCatalog(engine) };
+    if (engine === 'grok') return { silent: opts.silent, model_override: host.grokModelOverride ?? null, reasoning_effort_override: host.grokReasoningEffortOverride ?? null, grok_model_override: host.grokModelOverride ?? null, grok_reasoning_effort_override: host.grokReasoningEffortOverride ?? null, admin_theme_hint: opts.adminTheme, model_catalog: modelLaunchCatalog(engine, policy), ...(policy.latest_only ? { model_policy: policy } : {}) };
     if (engine === 'claude') {
       return {
         silent: opts.silent,
         claude_model_override: host.claudeModelOverride ?? null,
         admin_theme_hint: opts.adminTheme,
-        model_catalog: modelLaunchCatalog(engine),
+        model_catalog: modelLaunchCatalog(engine, policy), ...(policy.latest_only ? { model_policy: policy } : {}),
       };
     }
     return {
@@ -360,7 +362,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       model_override: host.modelOverride ?? null,
       reasoning_effort_override: host.reasoningEffortOverride ?? null,
       admin_theme_hint: opts.adminTheme,
-      model_catalog: modelLaunchCatalog(engine),
+      model_catalog: modelLaunchCatalog(engine, policy), ...(policy.latest_only ? { model_policy: policy } : {}),
     };
   }
 
@@ -441,7 +443,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     // inside the array would serialize seven independent lookups. This is also
     // where `wrapperBlock` raises WrapperBinaryUnavailableError, so that exit
     // marks this span ERROR as well as the root.
-    const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled, portalEnabled, fleet] =
+    const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled, portalEnabled, fleet, policy] =
       await withSpan('wrapper.config.collect', { 'wrapper.engine': engine }, () =>
         Promise.all([
           activeAgentsDocSha(engine, host.agentsDocumentIdOverride ?? null),
@@ -453,6 +455,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
           agentMessagingGloballyEnabled(),
           portalGloballyEnabled(),
           readFleetEngineState(deps.db),
+          readModelPolicy(deps.db, engine),
         ]),
       );
     // Assigned *and* not switched off fleet-wide. A suspended engine still
@@ -519,7 +522,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         engines_list: hostEnginesList(host.engines),
         ...(fleetDisabled.length > 0 ? { fleet_disabled_engines: fleetDisabled } : {}),
       },
-      engine_options: engineOptions(host, engine, { silent, adminTheme }),
+      engine_options: engineOptions(host, engine, { silent, adminTheme }, policy),
       session_housekeeping: (({ enabled, retention_days, max_bytes, min_age_days }) => ({ enabled, retention_days, max_bytes, min_age_days }))(await housekeepingPolicy(deps.db, engine, host.id)),
       agent_messaging: {
         enabled: messagingBaked,

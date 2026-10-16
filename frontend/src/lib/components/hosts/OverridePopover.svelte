@@ -9,6 +9,9 @@
    * "effective value + source" interaction rule, and the inline-popover
    * replacement for what used to be a full modal per field.
    */
+  import { toStore } from 'svelte/store';
+  import { modelPolicyQuery } from '$lib/api/model-policy';
+  import { filterModelOptions, modelOptionsEngine } from '$lib/components/ui/model-select/policy';
   import * as Popover from "$lib/components/ui/popover";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -47,6 +50,10 @@
     onSave,
   }: Props = $props();
 
+  const policy = modelPolicyQuery(toStore(() => modelOptionsEngine(options ?? [])));
+  const visibleOptions = $derived(filterModelOptions(options ?? [], $policy.data));
+  const successor = $derived($policy.data?.latest_only && override ? $policy.data.replacements[override] : undefined);
+
   const fieldId = `override-popover-${++instances}`;
 
   let open = $state(false);
@@ -83,7 +90,7 @@
     <div class="text-sm">{label}</div>
     <div class="truncate font-mono text-xs text-muted-foreground">
       {#if override}
-        {override} <span class="font-sans">· host override</span>
+        {override}{#if successor && successor !== override} → {successor}{/if} <span class="font-sans">· host override</span>
       {:else if inheritedValue}
         {inheritedValue} <span class="font-sans">· {inheritedLabel}</span>
       {:else}
@@ -113,7 +120,7 @@
               {options.find((o) => o.value === draft)?.label ?? `Inherit (${inheritedLabel})`}
             </Select.Trigger>
             <Select.Content>
-              {#each options as o (o.value)}
+              {#each visibleOptions as o (o.value)}
                 <Select.Item value={o.value} label={o.label} />
               {/each}
             </Select.Content>

@@ -1227,3 +1227,13 @@ remain in their existing lifecycles. See [runtime, migration and acceptance](com
 Live Topology combines the live connection graph with a compact inspector, shared Clients chat panel and remote-session start form. Selection never retargets an open conversation; drafts stay with their session. Start on a communicator prefills its host, while the global button offers host selection. Runtime, host, engine and presence filters and the list/radial preference persist locally; conversation content does not. Branches can be collapsed, selections centered and the canvas expanded to fullscreen.
 
 Solid server links mean reported Persistent mode, dashed links On demand, and dotted links Unknown. Health uses color independently. Stale reports are labeled as last reported; daemon attachment does not prove persistence. Native stop uses the wrapper's bound process identity and a TERM/KILL sequence; disconnect, communicator stop and ending a server record remain distinct operations.
+
+
+### Only current models
+
+Each engine on the Engines page has an **Only current models** switch, off by
+default. It keeps the newest version per family across WebUI choices, gateways
+and new managed CLI starts, upgrading old choices without rewriting saved
+preferences. Existing sessions keep their model. Managed hosts need cxx >= 0.9.94
+and a configuration sync; direct provider binaries are outside this policy.
+See `interface-api.md` → Fleet model policy.

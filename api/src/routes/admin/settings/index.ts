@@ -22,6 +22,7 @@ import {
   normalizeVersion,
 } from '../../../services/client-versions.js';
 import { UsageScalingService } from '../../../services/usage-scaling.js';
+import { readModelPolicy, modelPolicyKey } from '../../../services/model-policy.js';
 import { ModelDefaultsService } from '../../../services/model-defaults.js';
 import { assertFleetEngineEnabledForAdmin } from '../../../services/engine-switch.js';
 import { ValidationError } from '../../../http/errors.js';
@@ -260,6 +261,18 @@ export async function registerAdminSettingsRoutes(
     await settings.setFlag('insecure_approval_enabled', enabled);
     await recordLog(ctx, 'admin.insecure_approval', { enabled });
     return ok({ enabled });
+  });
+
+  app.get<{ Params: { engine: string } }>('/admin/model-policy/:engine', { preHandler: app.requireAdmin }, async (req) =>
+    ok(await readModelPolicy(ctx.db, requireEngine(req.params.engine))));
+  app.put<{ Params: { engine: string }; Body: { latest_only?: unknown } }>('/admin/model-policy/:engine', { preHandler: app.requireAdmin }, async (req) => {
+    const engine = requireEngine(req.params.engine);
+    if (!req.body || typeof req.body.latest_only !== 'boolean' || Object.keys(req.body).some(key => key !== 'latest_only')) {
+      throw new ValidationError('latest_only must be boolean', { param: 'latest_only' });
+    }
+    await settings.setFlag(modelPolicyKey(engine), req.body.latest_only);
+    await recordLog(ctx, 'admin.model_policy', { engine, latest_only: req.body.latest_only });
+    return ok(await readModelPolicy(ctx.db, engine));
   });
 
   // ── model-defaults ────────────────────────────────────────────────────────

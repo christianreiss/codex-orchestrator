@@ -1186,3 +1186,28 @@ From cxx 0.9.88, two-agent exchanges use `agent_send`, `agent_request`, and
 `agent_reply` with a peer name or address. The call rendezvous tools and CLI
 commands are removed for all engines. Conferences retain their room PINs and
 chair-managed task lifecycle.
+
+
+## Current model policy
+
+Engines → **Current models → Only current models** is an independent switch for
+each engine, off by default. It keeps the highest numeric version of each family
+in the maintained fleet catalog. Codex Sol, Astra, Luna and Terra remain separate;
+Claude Fable, Opus, Sonnet and Haiku remain separate; Grok standard and Build Fast
+remain separate variants. A family stays available even when another family has
+a newer generation.
+
+WebUI model choices, gateway catalogs and signed launchpad menus use the same
+policy. New managed CLI starts and inference requests upgrade old known IDs to
+their family successor, including defaults, host overrides, profiles and explicit
+model arguments. Saved preferences are not migrated; disabling the switch exposes
+them again. Unsupported effort falls back to the successor's default; valid
+session-only effort remains available. Unknown model IDs are refused when enabled.
+Manual model disables apply to successors; no older-generation fallback is used.
+
+The signed `engine_options.model_policy` contains `engine`, `latest_only`,
+`latest_models`, `replacements` and optional `disabled_models`; the accompanying
+`model_catalog` lists current available launch choices. Enforcement requires
+cxx 0.9.94 or newer and the next successful configuration sync. Offline starts
+use the last valid signed configuration. Running sessions, their native model
+changes and direct provider binaries outside managed entrypoints are unchanged.

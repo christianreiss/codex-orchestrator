@@ -54,6 +54,18 @@
         "grok_model_override": { "type": ["string", "null"] },
         "grok_reasoning_effort_override": { "type": ["string", "null"], "enum": [null, "low", "medium", "high", "xhigh"] },
         "dangerously_bypass_approvals_and_sandbox": { "type": "boolean", "default": false },
+        "model_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["engine", "latest_only", "latest_models", "replacements"],
+          "properties": {
+            "engine": { "type": "string", "enum": ["codex", "claude", "grok"] },
+            "latest_only": { "type": "boolean" },
+            "latest_models": { "type": "array", "items": { "type": "string" } },
+            "replacements": { "type": "object", "additionalProperties": { "type": "string" } },
+            "disabled_models": { "type": "array", "items": { "type": "string" } }
+          }
+        },
         "model_catalog": {
           "type": "object",
           "additionalProperties": false,

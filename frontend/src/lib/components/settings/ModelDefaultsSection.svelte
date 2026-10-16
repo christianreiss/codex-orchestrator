@@ -118,6 +118,9 @@
       <Button variant="outline" size="sm" onclick={() => $query.refetch()} disabled={$query.isFetching}>Retry {engineLabel} defaults</Button>
     </div>
   {/if}
+  {#if $query.data?.stored_model}
+    <p class="mb-3 text-xs text-muted-foreground">Saved model {$query.data.stored_model} → {$query.data.model} under the current models policy.</p>
+  {/if}
   {#if remoteChanged}
     <div class="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm" role="status">
       Fleet defaults changed elsewhere. Your edits are preserved; saving will replace the current fleet defaults.

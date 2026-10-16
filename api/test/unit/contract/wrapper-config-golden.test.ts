@@ -148,6 +148,7 @@ interface FakeRows {
   skills: Array<{ slug: string; sha256: string; deletedAt: string | null; engine: string | null }>;
   /** Raw `versions.agent_messaging_enabled` value, or null for "row absent". */
   agentMessagingFlag: string | null;
+  latestOnly?: boolean;
 }
 
 /**
@@ -205,6 +206,8 @@ function fakeDb(rows: FakeRows): Database {
         const walk = (v: unknown) => { if (v && typeof v === 'object') { const x = v as { queryChunks?: unknown[]; value?: unknown }; if ('value' in x) values.push(x.value); x.queryChunks?.forEach(walk); } };
         walk(condition);
         if (values.some(v => typeof v === 'string' && v.startsWith('session_housekeeping_'))) selected = [];
+        if (values.some(v => typeof v === 'string' && v.endsWith('_models_latest_only'))) selected = rows.latestOnly ? [{ version: '1' }] : [];
+        if (values.some(v => typeof v === 'string' && v.endsWith('_models_disabled'))) selected = [];
         return self;
       },
       orderBy() {
@@ -486,6 +489,16 @@ describe('wrapper config golden fixtures', () => {
       );
     });
   }
+
+  it('bakes the policy and filtered launch menu for every engine when explicitly enabled', async () => {
+    for (const fixture of FIXTURES) {
+      const result = await bake({ ...fixture, rows: { ...fixture.rows, latestOnly: true } });
+      const options = result.payload.engine_options as { model_policy: { latest_only: boolean; latest_models: string[]; replacements: Record<string, string> }; model_catalog: { models: { model: string }[] } };
+      expect(options.model_policy.latest_only).toBe(true);
+      expect(options.model_catalog.models.map(entry => entry.model)).toEqual(options.model_policy.latest_models);
+      expect(Object.keys(options.model_policy.replacements).length).toBeGreaterThan(options.model_policy.latest_models.length);
+    }
+  });
 
   it('keeps the golden bytes and the primary signature intact under a second signer', async () => {
     // Multi-sign is a sibling of the signed payload, so a rotation adds no

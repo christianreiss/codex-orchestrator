@@ -1,5 +1,7 @@
 # 2026-10-16
 
+- **Current model policy (cxx 0.9.94).** Engines now has an independent “Only current models” switch for Codex, Claude and Grok. It keeps the newest version of every family in WebUI choices, gateway catalogs and managed CLI starts, upgrading older selections within their family without rewriting saved preferences. Existing sessions remain unchanged; hosts enforce the rule after syncing with cxx 0.9.94 or newer. Disabling the switch restores the full selection.
+
 - **Follow-up fixes (cxx 0.9.92).**
   - Codex async compaction is off by default again for every client version. Codex 0.163.0 still marks `features.async_compaction` as under development with `default_enabled: false`. The Engines → Codex toggle stays, labelled experimental. Values an operator saved explicitly are unchanged.
   - On macOS, the managed cxx-agent MCP, hook and grok-auth commands name the real cxx binary instead of the `cdx`/`clx`/`cgx` symlink, so the receiver starts for Codex, Claude and Grok.

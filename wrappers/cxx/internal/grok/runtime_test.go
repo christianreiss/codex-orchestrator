@@ -490,3 +490,20 @@ func TestCommunicatorUnknownOutcomeDoesNotEndGrokSession(t *testing.T) {
 		}
 	}
 }
+
+func TestCurrentModelsKeepsTheSelectedContextWindowInThePrivateRuntime(t *testing.T) {
+	r, _ := runtimeFixture(t)
+	t.Setenv("GROK_CONFIG", `{"models":{"default":"grok-4.5"},"model":{"grok-4.5":{"context_window":500000}}}`)
+	cfg := &config.Config{Engine: "grok", EngineOptions: config.EngineOptions{ModelPolicy: &config.ModelPolicy{LatestOnly: true, Replacements: map[string]string{"grok-4.5": "grok-4.7"}}}}
+	if err := r.Configure("/fixture/cxx", cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	var effective map[string]any
+	if err := json.Unmarshal([]byte(r.effective), &effective); err != nil {
+		t.Fatal(err)
+	}
+	models := effective["model"].(map[string]any)
+	if got := models["grok-4.7"].(map[string]any)["context_window"]; got != float64(500000) {
+		t.Fatalf("context window=%v", got)
+	}
+}

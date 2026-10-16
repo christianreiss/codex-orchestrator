@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ModelPolicySection from "$lib/components/settings/ModelPolicySection.svelte";
   import ChattySettings from "$lib/components/chatty/ChattySettings.svelte";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import ModelDefaultsSection from "$lib/components/settings/ModelDefaultsSection.svelte";
@@ -81,6 +82,7 @@
       {@render offBanner("codex")}
     </div>
     <div class:opacity-70={!$fleet.isEnabled("codex")}>
+      <ModelPolicySection engine="codex" />
       <ModelDefaultsSection engine="codex" headingLevel={3} />
       <CodexVersionSection headingLevel={3} />
       <CdxSilentSection bordered={false} />
@@ -97,6 +99,7 @@
       {@render offBanner("claude")}
     </div>
     <div class:opacity-70={!$fleet.isEnabled("claude")}>
+      <ModelPolicySection engine="claude" />
       <ModelDefaultsSection engine="claude" headingLevel={3} />
       <ClaudeVersionSection headingLevel={3} />
       <NativeSettingsEditor engine="claude" />
@@ -110,6 +113,7 @@
       {@render offBanner("grok")}
     </div>
     <div class:opacity-70={!$fleet.isEnabled("grok")}>
+      <ModelPolicySection engine="grok" />
       <ModelDefaultsSection engine="grok" headingLevel={3} />
       <GrokVersionSection headingLevel={3} />
       <NativeSettingsEditor engine="grok" />

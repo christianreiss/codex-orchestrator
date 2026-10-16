@@ -169,15 +169,24 @@ func normalizeEngines(in []string) map[string]bool {
 	return out
 }
 
+type ModelPolicy struct {
+	Engine         string            `json:"engine"`
+	LatestModels   []string          `json:"latest_models"`
+	LatestOnly     bool              `json:"latest_only"`
+	Replacements   map[string]string `json:"replacements"`
+	DisabledModels []string          `json:"disabled_models,omitempty"`
+}
+
 type EngineOptions struct {
-	Silent                               bool    `json:"silent"`
-	ModelOverride                        *string `json:"model_override,omitempty"`
-	ReasoningEffortOverride              *string `json:"reasoning_effort_override,omitempty"`
-	AdminThemeHint                       *string `json:"admin_theme_hint,omitempty"`
-	ClaudeModelOverride                  *string `json:"claude_model_override,omitempty"`
-	GrokModelOverride                    *string `json:"grok_model_override,omitempty"`
-	GrokReasoningEffortOverride          *string `json:"grok_reasoning_effort_override,omitempty"`
-	DangerouslyBypassApprovalsAndSandbox bool    `json:"dangerously_bypass_approvals_and_sandbox,omitempty"`
+	ModelPolicy                          *ModelPolicy `json:"model_policy,omitempty"`
+	Silent                               bool         `json:"silent"`
+	ModelOverride                        *string      `json:"model_override,omitempty"`
+	ReasoningEffortOverride              *string      `json:"reasoning_effort_override,omitempty"`
+	AdminThemeHint                       *string      `json:"admin_theme_hint,omitempty"`
+	ClaudeModelOverride                  *string      `json:"claude_model_override,omitempty"`
+	GrokModelOverride                    *string      `json:"grok_model_override,omitempty"`
+	GrokReasoningEffortOverride          *string      `json:"grok_reasoning_effort_override,omitempty"`
+	DangerouslyBypassApprovalsAndSandbox bool         `json:"dangerously_bypass_approvals_and_sandbox,omitempty"`
 	// ModelCatalog is the model/effort menu offered by the bare-cxx launchpad.
 	// Configs signed before it existed decode it as nil.
 	ModelCatalog *ModelCatalog `json:"model_catalog,omitempty"`

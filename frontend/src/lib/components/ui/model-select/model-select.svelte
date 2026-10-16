@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { toStore } from 'svelte/store';
+  import { modelPolicyQuery } from '$lib/api/model-policy';
+  import { filterModelOptions, modelOptionsEngine } from './policy';
   import * as Select from "$lib/components/ui/select";
   import { Input } from "$lib/components/ui/input";
   import type { ModelOption } from "$lib/constants/models";
@@ -37,9 +40,14 @@
     class: className = "w-full max-w-xs",
   }: Props = $props();
 
+  const policy = modelPolicyQuery(toStore(() => modelOptionsEngine(options)));
+  const visibleOptions = $derived(filterModelOptions(options, $policy.data));
+  const effectiveModel = $derived($policy.data?.latest_only ? $policy.data.replacements[value] : undefined);
+
   // Trigger shows the matching option's label; falls back to the raw value
   // (custom entries) or the placeholder.
   const display = $derived(options.find((o) => o.value === value)?.label ?? value);
+  const displayValue = $derived(effectiveModel && effectiveModel !== value ? `${display} → ${effectiveModel}` : display);
   const listId = $derived(`${id ?? "model-select"}-options`);
 </script>
 
@@ -55,17 +63,17 @@
     class={className}
   />
   <datalist id={listId}>
-    {#each options as o (o.value)}
+    {#each visibleOptions as o (o.value)}
       <option value={o.value}>{o.label}</option>
     {/each}
   </datalist>
 {:else}
   <Select.Root type="single" {value} onValueChange={(v) => (value = v ?? fallback)} {disabled}>
     <Select.Trigger {id} class={className} aria-label={label}>
-      <Select.Value {placeholder}>{display}</Select.Value>
+      <Select.Value {placeholder}>{displayValue}</Select.Value>
     </Select.Trigger>
     <Select.Content>
-      {#each options as o (o.value)}
+      {#each visibleOptions as o (o.value)}
         <Select.Item value={o.value} label={o.label}>{o.label}</Select.Item>
       {/each}
     </Select.Content>
