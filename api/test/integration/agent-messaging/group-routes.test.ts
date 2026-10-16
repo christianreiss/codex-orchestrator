@@ -104,6 +104,44 @@ describe('group and publication HTTP capabilities', () => {
     ]);
     expect(JSON.stringify(db.tables.get(adminEvents))).not.toContain('private publish body');
   });
+  it('refuses viewer group deletion and audits an operator deletion by slug', async () => {
+    const remove = vi.spyOn(AgentMessagingService.prototype, 'deleteAdminGroup').mockResolvedValue({
+      deleted: true,
+      slug: 'demo',
+      topic: 'group:demo',
+      unsubscribed: false,
+      group: { id: ID, slug: 'demo' },
+    } as never);
+    const viewer = await appFor('viewer');
+    const url = '/admin/agent-messaging/groups/demo';
+    expect((await viewer.app.inject({ method: 'DELETE', url })).statusCode).toBe(403);
+    expect(remove).not.toHaveBeenCalled();
+    const { app, db } = await appFor('owner');
+    const response = await app.inject({ method: 'DELETE', url });
+    expect(response.statusCode).toBe(200);
+    expect(remove).toHaveBeenCalledWith('demo');
+    expect(db.tables.get(adminEvents)).toEqual([
+      expect.objectContaining({
+        type: 'agent_messaging.group.deleted',
+        payload: { group_id: ID, slug: 'demo', admin_user_id: 7 },
+      }),
+    ]);
+  });
+  it('binds host group deletion to the bridge credential and accepts only a slug', async () => {
+    const remove = vi
+      .spyOn(AgentMessagingService.prototype, 'deleteGroup')
+      .mockResolvedValue({ deleted: true, slug: 'demo' } as never);
+    const { app } = await appFor(null);
+    const url = `/host/agent-sessions/${ID}/agent-messaging/groups/delete`;
+    const headers = { 'x-agent-bridge-token': 'bridge-token' };
+    expect((await app.inject({ method: 'POST', url, headers, payload: { slug: 'demo' } })).statusCode).toBe(200);
+    expect(remove).toHaveBeenCalledWith(ID, 'bridge-token', 'demo');
+    expect((await app.inject({ method: 'POST', url, payload: { slug: 'demo' } })).statusCode).not.toBe(200);
+    expect(
+      (await app.inject({ method: 'POST', url, headers, payload: { slug: 'demo', force: true } })).statusCode,
+    ).not.toBe(200);
+    expect(remove).toHaveBeenCalledOnce();
+  });
   it('binds host subscriptions to their bridge credential and refuses invented identity fields', async () => {
     const subscribe = vi
       .spyOn(AgentMessagingService.prototype, 'subscribe')

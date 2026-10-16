@@ -212,9 +212,10 @@ describe('served document byte invariance', () => {
     // 2026-10-15: managed Skills guidance invokes fleet-reflect before final work results.
     // 2026-10-15: named direct messaging supersedes the call rendezvous.
     // 2026-10-16: progress-class agent_reply without a task result keeps work held.
-    expect(out.features_sha256).toBe('fd00f349404aec96f42350b4e5a4cd380178caff5cfa6b0e355ef7a9bf51b8d8');
-    expect(out.managed_sha256).toBe('624f51d0020ff004041ff40ad9151af69cc0fe10009f7aa8b59d8856a658b04e');
-    expect(sha256(out.body)).toBe('cf6ff5e5a7c786fc748c53d47611d724b70e8be27f40e6eb665e3dda178933ea');
+    // 2026-10-16: creators may delete an empty messaging group with agent_group_delete.
+    expect(out.features_sha256).toBe('1efd7a0191808ae636b3fe4dc902eaa70e4fbcf8d30b86d72d63a09722e04189');
+    expect(out.managed_sha256).toBe('90116ca8cb479b53fac4273c459763ee8446a2e5b7cea3d4d2b3a6c8584b71a9');
+    expect(sha256(out.body)).toBe('c6fa84f1d03e46ca04a46d069a70ae1fae70fdfd12e825e52ddb905527e0999d');
   });
 });
 

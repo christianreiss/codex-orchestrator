@@ -438,6 +438,9 @@ func toolCatalogJSON() []byte {
 		tool("agent_group_members", "Inspect the members of one persistent messaging group.", map[string]any{
 			"slug": map[string]any{"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
 		}, []string{"slug"}),
+		tool("agent_group_delete", "Delete a messaging group you created and free its slug for reuse. Refused while any other member remains subscribed; your own subscription is removed with it.", map[string]any{
+			"slug": map[string]any{"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+		}, []string{"slug"}),
 		tool("agent_subscribe", "Opt in to group:<slug> or agent:<uuid> publications. Private messages are never forwarded.", map[string]any{
 			"topic": map[string]any{"type": "string"},
 		}, []string{"topic"}),
@@ -893,7 +896,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			return nil, err
 		}
 		return out, nil
-	case "agent_group_list", "agent_group_create", "agent_group_members", "agent_subscribe", "agent_unsubscribe", "agent_subscriptions", "agent_publish":
+	case "agent_group_list", "agent_group_create", "agent_group_members", "agent_group_delete", "agent_subscribe", "agent_unsubscribe", "agent_subscriptions", "agent_publish":
 		return callPublicationTool(ctx, client, name, args)
 	case "agent_send", "agent_request":
 		to, content := stringArg(args, "to"), stringArg(args, "content")

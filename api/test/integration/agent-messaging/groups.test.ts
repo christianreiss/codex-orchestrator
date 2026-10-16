@@ -333,6 +333,78 @@ describe.skipIf(!handle)('persistent opt-in publications against MySQL', { timeo
     });
   });
 
+  it('lets only the creator delete a group, fails closed while others remain, and frees the slug', async () => {
+    const [creator, member, stranger] = await Promise.all([
+      register('grok', 'delete-creator'),
+      register('claude', 'delete-member'),
+      register('codex', 'delete-stranger'),
+    ]);
+    const slug = `${PREFIX}-delete`;
+    const topic = `group:${slug}`;
+    await service.createGroup(creator.sessionId, creator.token, { slug, title: 'Smoke test' });
+    await expect(service.deleteGroup(stranger.sessionId, stranger.token, slug)).rejects.toMatchObject({
+      status: 403,
+      code: 'agent_messaging_group_forbidden',
+    });
+    await service.subscribe(creator.sessionId, creator.token, topic);
+    await service.subscribe(member.sessionId, member.token, topic);
+    await expect(service.deleteGroup(creator.sessionId, creator.token, slug)).rejects.toMatchObject({
+      status: 409,
+      code: 'agent_messaging_group_members_remain',
+    });
+    expect((await service.groupMembers(creator.sessionId, creator.token, slug)).members).toHaveLength(2);
+    await service.unsubscribe(member.sessionId, member.token, topic);
+    const deleted = await service.deleteGroup(creator.sessionId, creator.token, slug);
+    expect(deleted).toMatchObject({ deleted: true, slug, topic, unsubscribed: true });
+    expect(
+      await db.select().from(agentBusSubscriptions).where(eq(agentBusSubscriptions.topic, topic)),
+    ).toHaveLength(0);
+    expect((await service.listGroups(creator.sessionId, creator.token)).groups.map((g) => g.slug)).not.toContain(
+      slug,
+    );
+    await expect(service.deleteGroup(creator.sessionId, creator.token, slug)).rejects.toMatchObject({
+      code: 'agent_messaging_group_not_found',
+    });
+    await expect(service.subscribe(member.sessionId, member.token, topic)).rejects.toMatchObject({
+      code: 'agent_messaging_group_not_found',
+    });
+    // The freed slug is reusable by any agent, with a fresh identity.
+    const reused = await service.createGroup(stranger.sessionId, stranger.token, { slug, title: 'Reused' });
+    expect(reused.created).toBe(true);
+    expect(reused.group.id).not.toBe(deleted.group.id);
+    expect(reused.group.member_count).toBe(0);
+  });
+
+  it('reclaims retired members before deleting and lets the operator delete any empty group', async () => {
+    const [creator, retired] = await Promise.all([
+      register('codex', 'delete-retired-creator'),
+      register('claude', 'delete-retired-member'),
+    ]);
+    const slug = `${PREFIX}-delete-retired`;
+    await service.createGroup(creator.sessionId, creator.token, { slug, title: 'Retired member' });
+    await service.subscribe(retired.sessionId, retired.token, `group:${slug}`);
+    await db
+      .update(agentBusAddresses)
+      .set({ archivedAt: new Date().toISOString() })
+      .where(eq(agentBusAddresses.id, retired.addressId));
+    expect(await service.deleteGroup(creator.sessionId, creator.token, slug)).toMatchObject({
+      deleted: true,
+      unsubscribed: false,
+    });
+
+    const member = await register('grok', 'delete-admin-member');
+    const topic = await group([member], `${PREFIX}-delete-admin`);
+    await expect(service.deleteAdminGroup(topic.slice(6))).rejects.toMatchObject({
+      code: 'agent_messaging_group_members_remain',
+      extra: { member_count: 1 },
+    });
+    await service.unsubscribe(member.sessionId, member.token, topic);
+    expect(await service.deleteAdminGroup(topic.slice(6))).toMatchObject({ deleted: true });
+    await expect(service.getAdminGroup(topic.slice(6))).rejects.toMatchObject({
+      code: 'agent_messaging_group_not_found',
+    });
+  });
+
   it('supports the Server feed and refuses native binding, direct sends and private content listing', async () => {
     const follower = await register('grok', 'server-follower');
     await service.subscribe(follower.sessionId, follower.token, SERVER_PUBLICATION_TOPIC);

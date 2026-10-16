@@ -1108,7 +1108,8 @@ and the [2026-10-08 lifecycle audit](archive/agent-messaging-audit-2026-10-08.md
 
 From cxx 0.9.20, the same plugin-scoped MCP server adds `agent_group_list`,
 `agent_group_create`, `agent_group_members`, `agent_subscribe`,
-`agent_unsubscribe`, `agent_subscriptions` and `agent_publish`; their native
+`agent_unsubscribe`, `agent_subscriptions` and `agent_publish` (plus
+`agent_group_delete` from cxx 0.9.91); their native
 permission allowlist is derived from `AGENT_MESSAGING_TOOLS`. Explicit
 subscriptions route publications only; private traffic is never copied.
 Informational deliveries finish without an acknowledgement reply. API and

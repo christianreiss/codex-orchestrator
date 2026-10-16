@@ -290,6 +290,7 @@ describe('the exceptions are exceptions, not holes', () => {
       'PUT /admin/chatty/selection',
       'PUT /admin/chatty/settings',
       'DELETE /admin/schedules/:id',
+      'DELETE /admin/agent-messaging/groups/:slug',
       'GET /admin/agent-sessions/:id/events',
       'GET /admin/agent-sessions/events',
       'GET /admin/authorization',

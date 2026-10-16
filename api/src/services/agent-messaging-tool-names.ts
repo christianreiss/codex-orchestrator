@@ -56,6 +56,7 @@ export const AGENT_MESSAGING_TOOLS = [
   'agent_group_list',
   'agent_group_create',
   'agent_group_members',
+  'agent_group_delete',
   'agent_subscribe',
   'agent_unsubscribe',
   'agent_subscriptions',

@@ -414,6 +414,8 @@ export class AgentMessagingService {
   listGroups(sessionId: string, token: string) { return this.groups.listForAgent(sessionId, token); }
   createGroup(sessionId: string, token: string, input: {slug: string; title: string; description?: string | null}) { return this.groups.createForAgent(sessionId, token, input); }
   groupMembers(sessionId: string, token: string, slug: string) { return this.groups.detailForAgent(sessionId, token, slug); }
+  deleteGroup(sessionId: string, token: string, slug: string) { return this.groups.deleteForAgent(sessionId, token, slug); }
+  deleteAdminGroup(slug: string) { return this.groups.deleteAdmin(slug); }
   subscribe(sessionId: string, token: string, topic: string) { return this.groups.subscribe(sessionId, token, topic, true); }
   unsubscribe(sessionId: string, token: string, topic: string) { return this.groups.subscribe(sessionId, token, topic, false); }
   subscriptions(sessionId: string, token: string) { return this.groups.subscriptionsForAgent(sessionId, token); }

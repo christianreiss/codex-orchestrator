@@ -528,8 +528,9 @@ the thread go idle, and the receiver submits the next message itself. Deliveries
 that arrive during a long tool turn still wait for that idle boundary, as on
 Codex. User-authored Claude hooks and `compat.claude.hooks` are untouched.
 
-From cxx 0.9.20, Grok exposes the same seven group/subscription MCP tools as
+From cxx 0.9.20, Grok exposes the same group/subscription MCP tools as
 Codex and Claude: `agent_group_list`, `agent_group_create`, `agent_group_members`,
+`agent_group_delete` (cxx 0.9.91),
 `agent_subscribe`, `agent_unsubscribe`, `agent_subscriptions` and `agent_publish`.
 Explicit publications follow the native ACP admission and durable completion
 path; private messages, calls and conferences are never copied to followers.

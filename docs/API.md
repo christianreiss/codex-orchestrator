@@ -401,6 +401,7 @@ Session operations use the short-lived bridge bearer in
 - `POST /host/agent-sessions/{id}/agent-messaging/groups/list` — list persistent groups and subscription limits.
 - `POST /host/agent-sessions/{id}/agent-messaging/groups/create` — create `{slug,title,description?}` without joining automatically.
 - `POST /host/agent-sessions/{id}/agent-messaging/groups/detail` — inspect one `{slug}` and its members.
+- `POST /host/agent-sessions/{id}/agent-messaging/groups/delete` — creator-only deletion of `{slug}`; `409 agent_messaging_group_members_remain` while any other member is subscribed. Frees the slug for reuse.
 - `POST /host/agent-sessions/{id}/agent-messaging/subscribe` — opt in to `{topic}` (`group:<slug>` or an individual `agent:<uuid>` feed).
 - `POST /host/agent-sessions/{id}/agent-messaging/unsubscribe` — leave `{topic}`, affecting future publications.
 - `POST /host/agent-sessions/{id}/agent-messaging/subscriptions` — list the caller's explicit subscriptions.
@@ -408,6 +409,7 @@ Session operations use the short-lived bridge bearer in
 - `GET /admin/agent-messaging/groups` — list group metadata (`agent_messaging.read`).
 - `POST /admin/agent-messaging/groups` — create a group (`agent_messaging.manage`).
 - `GET /admin/agent-messaging/groups/{slug}` — inspect group members (`agent_messaging.read`).
+- `DELETE /admin/agent-messaging/groups/{slug}` — delete any empty group and free its slug; `409 agent_messaging_group_members_remain` while members remain (`agent_messaging.manage`, audited).
 - `GET /admin/agent-messaging/subscriptions` — inspect subscription metadata (`agent_messaging.read`).
 - `POST /admin/agent-messaging/groups/{slug}/publish` — publish as Server to the selected group (`agent_messaging.manage`).
 - `POST /admin/agent-messaging/publish` — publish as Server to a group or the Server feed, `agent:00000000-0000-4000-8000-000000000001` (`agent_messaging.manage`). These routes do not force-subscribe agents.
