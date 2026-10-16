@@ -14,6 +14,7 @@ import {
   agentScheduleRuns,
   agentSessions,
   agentEvents,
+  hostDaemons,
   hosts,
   versions,
 } from '../../../src/db/schema.js';
@@ -201,6 +202,24 @@ describe.skipIf(!handle)('bounded task watchdogs on MySQL', { timeout: 120000 },
     expect(await watchdogs.get(w.id)).toMatchObject({ status: failure === 'capacity' ? 'capacity_wait' : 'recovering', last_error: failure });
     await service.tick(new Date((await watchdogs.get(w.id)).next_wake_at!));
     expect((await runs(scheduleIds[0]!))[0]!.status).toBe('queued');
+  });
+  // docs/host-runtime-policy.md: watchdog recovery resumes an ended session, which is remote execution and exists
+  // only on a persistent host. Off it, the due recovery is blocked without queuing work for any relay.
+  it('blocks crash recovery once the host is no longer persistent, without queuing work', async () => {
+    const a = await agent('codex'), w = await enable(a);
+    await bus.finishSession(a.id, a.token, 'failed', 'crash');
+    expect(await watchdogs.get(w.id)).toMatchObject({ status: 'recovering' });
+    await db.delete(hostDaemons).where(eq(hostDaemons.hostId, host.id));
+    try {
+      await service.tick(new Date((await watchdogs.get(w.id)).next_wake_at!));
+      expect((await runs(scheduleIds[0]!))[0]).toMatchObject({ status: 'blocked', lastError: 'schedule_host_not_persistent', messageId: null });
+      const queued = await db.select().from(agentBusMessages).where(eq(agentBusMessages.targetAddressId, a.address.id));
+      expect(queued.filter((m) => m.kind === 'schedule')).toHaveLength(0);
+      await expect(bus.registerRelay(host, { username: 'ztest-watchdogs', instanceId: randomUUID(), wrapperVersion: 'test', capabilities: { execution_contract_version: 2 } }))
+        .rejects.toMatchObject({ code: 'agent_messaging_relay_not_persistent', status: 503 });
+    } finally {
+      await markPersistentHost(db, host.id, 'ztest-watchdogs');
+    }
   });
   it('honors an interrupt despite a failed process exit', async () => {
     const a = await agent('codex'), w = await enable(a);
