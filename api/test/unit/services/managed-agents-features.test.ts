@@ -950,3 +950,44 @@ describe('response verbosity dial', () => {
     expect(out.sections.response_style).toMatchObject({ present: false, reason: 'module_disabled' });
   });
 });
+
+describe('Model Class Check section', () => {
+  const tiers = {
+    enabled: true,
+    reason: 'ok',
+    count: 2,
+    table: [
+      { tier: 1 as const, models: [{ engine: ENGINE_CLAUDE, model: 'claude-haiku-5-5' }] },
+      { tier: 4 as const, models: [{ engine: ENGINE_CLAUDE, model: 'claude-fable-5-1' }] },
+    ],
+  };
+
+  it('is absent without a context and when switched off', () => {
+    expect(renderManagedAgentFeatures('Base\n', context(ENGINE_CODEX)).sections.model_tiers)
+      .toMatchObject({ present: false, reason: 'disabled' });
+    const off = renderManagedAgentFeatures('Base\n', context(ENGINE_CODEX, {
+      modelTiers: { ...tiers, enabled: false, reason: 'disabled', configured: { engine: ENGINE_CODEX, model: null } },
+    }));
+    expect(off.body).not.toContain('## Model Class Check');
+  });
+
+  it('is absent when no model is recommendable', () => {
+    const out = renderManagedAgentFeatures('Base\n', context(ENGINE_CODEX, {
+      modelTiers: { ...tiers, table: [], configured: { engine: ENGINE_CODEX, model: null } },
+    }));
+    expect(out.body).not.toContain('## Model Class Check');
+    expect(out.sections.model_tiers).toMatchObject({ present: false, reason: 'no_models' });
+  });
+
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('renders last for %s with the shared table', (engine) => {
+    const out = renderManagedAgentFeatures('Base\n', context(engine, {
+      modelTiers: { ...tiers, configured: { engine, model: null } },
+    }));
+    expect(out.sections.model_tiers).toMatchObject({ present: true, reason: 'ok', count: 2 });
+    const managed = out.body.slice(out.body.indexOf(MANAGED_FEATURES_START));
+    const headings = managed.match(/^## .+$/gm) ?? [];
+    expect(headings.at(-1)).toBe('## Model Class Check');
+    expect(out.body).toContain('| 4 | Architecture');
+    expect(out.body).toContain('`claude-haiku-5-5`');
+  });
+});

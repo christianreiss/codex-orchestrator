@@ -505,6 +505,9 @@ so there is nothing to branch on. It renders ahead of the Git Director and File
 Transfer sections, which follow it on the same terms (orchestrator MCP usable
 plus `git_director_enabled` / `transfers_module_enabled`) and close the block.
 
+
+**Model Class Check.** The fleet switch `model_tier_check_enabled` (default on; `GET`/`POST /admin/model-tier-check`, Policies → Agent behavior) appends a final `model_tiers` section to managed AGENTS.md/CLAUDE.md/Grok AGENTS.md for Codex, Claude and Grok. It names the host's configured model and tier (host override, then fleet config, then engine default; Claude reports none when unpinned) and a tier table of the latest, non-disabled models of the host's active engines (`activeHostEngines`, so fleet-suspended engines are never recommended). Tiers live in `api/src/services/model-tiers.ts`: 1 Haiku/Luna/Grok 4.6, 4.5, 4.7-build-fast; 2 Sonnet/Terra/Grok 4.7; 3 Opus/Sol; 4 Fable/Astra. Before starting work an underclassed agent stops, reports `Underclassed: …` with a recommended model and finishes accepted work as `blocked`; an agent two or more tiers above the task may note `Overclassed: …` and proceed. An unknown model never aborts. Changes apply on the next sync.
+
 ## Startup sequence
 
 Mirrors the cdx lifecycle (see `docs/interface-cdx.md`) — signed config load

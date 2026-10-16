@@ -429,6 +429,31 @@ export function cdxSilentMutation(opts: MutationOpts<CdxSilentValue, boolean> = 
   });
 }
 
+/* ─────────────────── 6b. Model Class Check guidance ─────────────────── */
+
+export const modelTierCheckQueryKey = ["settings", "model-tier-check"] as const;
+
+export function modelTierCheckQuery() {
+  return createQuery<ApiKeysInChatValue>({
+    queryKey: modelTierCheckQueryKey,
+    queryFn: () => api.get<ApiKeysInChatValue>("/admin/model-tier-check"),
+  });
+}
+
+export function modelTierCheckMutation(
+  opts: MutationOpts<ApiKeysInChatValue, boolean> = {},
+) {
+  const qc = useQueryClient();
+  return createMutation<ApiKeysInChatValue, Error, boolean>({
+    mutationFn: makeToggle<ApiKeysInChatValue>("/admin/model-tier-check", "enabled"),
+    ...opts,
+    onSettled: (...args) => {
+      void qc.invalidateQueries({ queryKey: modelTierCheckQueryKey });
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
 /* ─────────────────── 6a. API keys supplied in chat ─────────────────── */
 
 export const apiKeysInChatQueryKey = ["settings", "api-keys-in-chat"] as const;

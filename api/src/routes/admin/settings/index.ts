@@ -42,6 +42,7 @@ import {
   CLAUDE_SUPPORTED_MODELS,
 } from '../../../services/claude-models.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from '../../../services/api-keys-in-chat.js';
+import { MODEL_TIER_CHECK_ENABLED_KEY } from '../../../services/model-tiers.js';
 import {
   AUTHORIZATION_MODES,
   isAuthorizationMode,
@@ -167,6 +168,20 @@ export async function registerAdminSettingsRoutes(
     if (enabled === null) throw new ValidationError('enabled must be boolean', { param: 'enabled' });
     await settings.setFlag(API_KEYS_IN_CHAT_ALLOWED_KEY, enabled);
     await recordLog(ctx, 'admin.api_keys_in_chat', { enabled });
+    return ok({ enabled });
+  });
+
+  // ── model-tier-check ─────────────────────────────────────────────────────
+  // Default on: the Model Class Check ships to every host until switched off.
+  app.get('/admin/model-tier-check', { preHandler: app.requireAdmin }, async () => {
+    return ok({ enabled: await settings.getFlag(MODEL_TIER_CHECK_ENABLED_KEY, true) });
+  });
+  app.post('/admin/model-tier-check', { preHandler: app.requireAdmin }, async (req) => {
+    const body = (req.body ?? {}) as { enabled?: unknown };
+    const enabled = normalizeBool(body.enabled);
+    if (enabled === null) throw new ValidationError('enabled must be boolean', { param: 'enabled' });
+    await settings.setFlag(MODEL_TIER_CHECK_ENABLED_KEY, enabled);
+    await recordLog(ctx, 'admin.model_tier_check', { enabled });
     return ok({ enabled });
   });
 

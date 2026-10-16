@@ -5,7 +5,7 @@
   import { Button } from "$lib/components/ui/button";
   import PolicyCard from "./PolicyCard.svelte";
   import { autoUpdateQuery, autoUpdateMutation, reverseDnsQuery, reverseDnsMutation,
-    apiKeysInChatQuery, apiKeysInChatMutation,
+    apiKeysInChatQuery, apiKeysInChatMutation, modelTierCheckQuery, modelTierCheckMutation,
     insecureApprovalQuery, insecureApprovalMutation, hostSpawnQuery, hostSpawnMutation } from "$lib/api/settings";
 
   const policies = {
@@ -25,6 +25,10 @@
       label: "Include API-key handling guidance", scope: "Agent instructions · Codex, Claude and Grok",
       description: "Tell agents how to handle API keys intentionally supplied by an operator.",
       details: "The instruction asks agents to use supplied keys for the requested task without generic security lectures, and to avoid unnecessary echoing or persistence. Managed documents update on the next sync or launch; this does not change API permissions." },
+    "model-tier-check": { query: modelTierCheckQuery, mutation: modelTierCheckMutation, title: "Model Class Check",
+      label: "Include model tier self-check guidance", scope: "Agent instructions · Codex, Claude and Grok",
+      description: "Agents compare their own model tier with the task before starting work.",
+      details: "On by default. Underclassed agents stop and recommend a stronger model; overclassed agents may note a cheaper one and continue. The tier table lists only the latest enabled models of each host's active engines. Managed documents update on the next sync or launch." },
     "insecure-approval": { query: insecureApprovalQuery, mutation: insecureApprovalMutation, title: "Insecure-host approvals",
       label: "Enable approval requests", scope: "Fleet access workflow · insecure hosts",
       description: "Let insecure hosts request administrator approval when their access window is closed.",

@@ -8,7 +8,7 @@ import { agentsDocuments, agentsDocumentState, clientConfigDocuments, logs } fro
 import type { Host } from '../db/schema.js';
 import { nowIso } from '../util/timestamp.js';
 import { buildManagedMemoryRouting } from './managed-memory-routing.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE, type Engine } from '../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINES, type Engine } from '../util/engine.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
 import { McpSessionService } from './mcp-session.js';
@@ -24,6 +24,13 @@ import { AgentTransfersService, TRANSFERS_ENABLED_FLAG } from './agent-transfers
 import { FEEDBACK_ENABLED_KEY } from './feedback-contract.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from './api-keys-in-chat.js';
+import { buildModelTierTable, MODEL_TIER_CHECK_ENABLED_KEY, type ConfiguredModel } from './model-tiers.js';
+import { buildModelPolicy, readModelPolicy } from './model-policy.js';
+import { readFleetEngineState } from './engine-switch.js';
+import { activeHostEngines } from './host-engine-policy.js';
+import { DEFAULT_CODEX_MODEL } from './codex-model-upgrades.js';
+import { GROK_DEFAULT_MODEL } from './grok-models.js';
+import { normalizeClaudeModel, normalizeStoredModel } from './config-normalizer.js';
 import {
   AGENTS_GENERATION_MODE_KEY,
   baseBodyForMode,
@@ -396,6 +403,9 @@ export class HostAgentsService {
       transferCount,
       gitCommitSettings,
       feedbackEnabled,
+      modelTierCheckEnabled,
+      fleetEngines,
+      modelPolicies,
     ] = await Promise.all([
       this.db
         .select()
@@ -420,6 +430,11 @@ export class HostAgentsService {
       // like the neighbouring policy readers; defaults never add attribution.
       readGitCommitSettings(this.settings).catch(() => ({ ...DEFAULT_GIT_COMMIT_SETTINGS })),
       this.settings.getFlag(FEEDBACK_ENABLED_KEY, false).catch(() => null),
+      this.settings.getFlag(MODEL_TIER_CHECK_ENABLED_KEY, true).catch(() => null),
+      readFleetEngineState(this.db),
+      // A missing settings table must not hide the check: fall back to the
+      // unfiltered catalog, which is what an unconfigured policy serves anyway.
+      Promise.all(ENGINES.map((candidate) => readModelPolicy(this.db, candidate).catch(() => buildModelPolicy(candidate)))),
     ]);
     // db-fake ignores WHERE, so do not borrow another engine's row in tests.
     const configRow = configRows.find((candidate) => candidate.engine === engine) ?? null;
@@ -541,6 +556,21 @@ export class HostAgentsService {
             ? state(false, 'transfers_disabled')
             : state(true, 'ok', transferCount);
 
+    const tierEngines = activeHostEngines(host.engines, fleetEngines);
+    const tierTable = buildModelTierTable(tierEngines, Object.fromEntries(modelPolicies.map((policy) => [
+      policy.engine,
+      policy.latest_models.filter((model) => !(policy.disabled_models ?? []).includes(model)),
+    ])));
+    const modelTiers = {
+      ...(modelTierCheckEnabled === null
+        ? state(false, 'service_unavailable')
+        : !modelTierCheckEnabled
+          ? state(false, 'disabled')
+          : state(true, 'ok', tierTable.reduce((total, row) => total + row.models.length, 0))),
+      table: tierTable,
+      configured: configuredModel(host, engine, rawSettings as Record<string, unknown> | null),
+    };
+
     return {
       engine,
       skills,
@@ -560,6 +590,7 @@ export class HostAgentsService {
         : !feedbackEnabled ? state(false, 'feedback_disabled')
         : state(true, 'ok'),
       gitCommitSettings,
+      modelTiers,
     };
   }
 
@@ -623,4 +654,21 @@ function safeHashEquals(a: string, b: string): boolean {
   let mismatch = 0;
   for (let i = 0; i < a.length; i++) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return mismatch === 0;
+}
+
+/**
+ * The model this host launches by default: host override, then the fleet
+ * config, then the engine default. Claude has no fleet default — Claude Code
+ * picks its own — so an unpinned Claude host reports none rather than a guess.
+ */
+function configuredModel(host: Host, engine: Engine, settings: Record<string, unknown> | null): ConfiguredModel {
+  const fleet = settings?.['model'];
+  if (engine === ENGINE_CLAUDE) {
+    return { engine, model: normalizeClaudeModel(host.claudeModelOverride ?? null) ?? normalizeClaudeModel(fleet) };
+  }
+  if (engine === ENGINE_GROK) {
+    const pick = [host.grokModelOverride, fleet].find((value) => typeof value === 'string' && value.trim() !== '');
+    return { engine, model: typeof pick === 'string' ? pick.trim() : GROK_DEFAULT_MODEL };
+  }
+  return { engine, model: normalizeStoredModel(host.modelOverride ?? null) ?? normalizeStoredModel(fleet) ?? DEFAULT_CODEX_MODEL };
 }

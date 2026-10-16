@@ -420,6 +420,36 @@ describe('HostAgentsService API keys in chat policy', () => {
   });
 });
 
+describe('HostAgentsService Model Class Check', () => {
+  it('serves tiers for the active engines by default and names the configured model', async () => {
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, 'Canonical AGENTS body\n')]],
+      [versions, [{ name: 'grok_engine_disabled', version: '1' }]],
+    ]);
+    const host = makeHost({ engines: 'codex,claude,grok', modelOverride: 'gpt-6.1-sol' });
+
+    const out = await makeService(db).retrieve(null, host);
+
+    expect(out['content']).toContain('## Model Class Check');
+    expect(out['content']).toContain("configured codex model is `gpt-6.1-sol` (Tier 3)");
+    expect(out['content']).toContain('`claude-fable-5-1`');
+    // A fleet-suspended engine is never recommended.
+    expect(out['content']).not.toContain('`grok-4.7`');
+    expect(out['sections']).toMatchObject({ model_tiers: { present: true, reason: 'ok' } });
+  });
+
+  it('withholds the guidance when the fleet switch is off', async () => {
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, 'Canonical AGENTS body\n')]],
+      [versions, [{ name: 'model_tier_check_enabled', version: '0' }]],
+    ]);
+    const out = await makeService(db).retrieve(null, makeHost());
+
+    expect(out['content']).not.toContain('## Model Class Check');
+    expect(out['sections']).toMatchObject({ model_tiers: { present: false, reason: 'disabled' } });
+  });
+});
+
 describe('HostAgentsService Agent Messaging guidance', () => {
   const enabledFlag = { name: 'agent_messaging_enabled', version: '1' };
   // makeHost() omits `status`, so every case here has to set it: a forgotten

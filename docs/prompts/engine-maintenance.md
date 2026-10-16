@@ -112,6 +112,12 @@ Die folgenden Auditkriterien gelten vollständig für jeden Engine-Auftrag.
 - Prüfe pro Modell erlaubte Efforts, Default, Persistenz und native Schlüssel.
   Trenne persistierbare Einstellungen von Session-Flags und API-Parametern.
   Separate Produktmodi sind keine zusätzlichen Effort-Stufen.
+- Pflege das Modell-Tiering in `api/src/services/model-tiers.ts` (Tier 1–4,
+  engineübergreifend). Jedes neue Katalogmodell erhält ein Tier; prüfe bestehende
+  Zuordnungen gegen die aktuelle Positionierung des Anbieters (Benchmarks,
+  vorgesehener Einsatz, Preisklasse). Eine Umstufung braucht eine belegte
+  Begründung; entfernte Modelle verschwinden auch aus dem Tiering. Recherche-Subagents
+  liefern nur Tier-Vorschläge im Bericht.
 
 ### Neue Features und CLI-Kompatibilität
 
@@ -158,7 +164,8 @@ seinen Fix, commitet nur eigene Dateien und liefert SHA und Belege zurück.
 Subagents mergen oder pushen nicht eigenständig auf den gemeinsamen Zielbranch.
 
 Ordne engineübergreifende Befunde genau einem Implementierungs-Subagent mit
-Akzeptanzkriterien für alle betroffenen Engines zu. Serialisiere Änderungen an
+Akzeptanzkriterien für alle betroffenen Engines zu. Tier-Änderungen sind immer
+engineübergreifend: genau ein Subagent bearbeitet `model-tiers.ts` für alle Engines. Serialisiere Änderungen an
 gemeinsamen Dateien oder integriere eine gemeinsame Grundlage zuerst, bevor
 weitere Engine-Fixes darauf aufbauen. Die zuständigen Recherche-Subagents
 prüfen die Engine-Abdeckung anhand ihrer Befunde; der Parent prüft zusätzlich
@@ -176,6 +183,9 @@ erfüllte Delegation oder eingehaltene Isolation.
 - Prüfe gezielt reale Risiken: Render-/Store-Roundtrips, konkurrierende Saves,
   Migration veralteter Modelle, modellabhängige Efforts, lokale Fremdwerte,
   native Versionsgrenzen und Update-/Sync-Recovery.
+- Nach Katalog- oder Tier-Änderungen: `model-tiers.test.ts` (Vollständigkeit aller
+  Kataloge) und `managed-agents-features.test.ts` grün; prüfe den gerenderten
+  Abschnitt „Model Class Check“ in der Agents-Vorschau.
 - Führe die relevanten kanonischen API-, Datenbank-, Frontend-, Browser-,
   Runner- und Wrapper-Prüfungen des Repositories aus. Nutze bei UI-Änderungen
   den gebauten Stand; bei nativen Formaten zusätzlich deren tatsächlichen
@@ -191,7 +201,8 @@ erfüllte Delegation oder eingehaltene Isolation.
 - Speichere einen datierten Auditbericht, im Orchestrator unter
   `docs/engine-maintenance-YYYY-MM-DD.md`. Bei mehreren Runs am selben Tag
   ergänze eine eindeutige Run-ID. Er enthält je Engine Quellen/Versionen,
-  Konfigurationsabdeckung, Modell-/Effort-Änderungen, Feature-Entscheidungen,
+  Konfigurationsabdeckung, Modell-/Effort-Änderungen, Tier-Änderungen (Modell, alt → neu,
+  Beleg) oder „Tiering unverändert“, Feature-Entscheidungen,
   Recherche- und Implementierungszuordnung je Engine, Issue-Liste mit Fix-SHAs,
   Tests und offen gebliebene Grenzen. Keine Secrets.
 
