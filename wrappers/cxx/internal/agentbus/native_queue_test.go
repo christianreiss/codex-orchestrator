@@ -43,7 +43,12 @@ func TestNativeQueueUsesWebSocketAndExistingThread(t *testing.T) {
 			case "thread/loaded/list":
 				result["data"] = []string{"native-thread"}
 			case "thread/read":
+				if request.Params["includeTurns"] != false {
+					t.Error("native read hydrated the full rollout history")
+				}
 				result["thread"] = map[string]any{"id": "native-thread", "source": "cli", "status": map[string]any{"type": "idle"}}
+			case "thread/turns/list":
+				result["data"] = []any{}
 			case "thread/queue/add":
 				if request.Params["threadId"] != "native-thread" || request.Params["clientUserMessageId"] != "delivery" {
 					t.Error("delivery lost identity")
@@ -158,10 +163,10 @@ func TestNativeWatchdogClassifiesFreshTurnsAndPreservesResetHints(t *testing.T) 
 				continue
 			}
 			result := map[string]any{}
-			if req.Method == "thread/read" {
+			if req.Method == "thread/turns/list" {
 				reads++
-				if req.Params["includeTurns"] != true || req.Params["threadId"] != "native" {
-					t.Error("wrong native observation")
+				if req.Params["threadId"] != "native" || req.Params["limit"] != float64(1) || req.Params["sortDirection"] != "desc" || req.Params["itemsView"] != "notLoaded" {
+					t.Error("wrong native observation", req.Params)
 				}
 				turn := map[string]any{"id": "capacity", "status": "failed", "error": map[string]any{"message": "Model at capacity", "reset_at": reset}}
 				if reads == 3 {
@@ -170,7 +175,7 @@ func TestNativeWatchdogClassifiesFreshTurnsAndPreservesResetHints(t *testing.T) 
 				if reads == 4 {
 					turn = map[string]any{"id": "stop", "status": "interrupted"}
 				}
-				result["thread"] = map[string]any{"turns": []any{turn}}
+				result["data"] = []any{turn}
 			}
 			if websocket.JSON.Send(ws, map[string]any{"id": req.ID, "result": result}) != nil {
 				return
@@ -218,8 +223,8 @@ func TestNativeQueueDoesNotAbandonNewDeliveryForHistoricalFailure(t *testing.T) 
 				continue
 			}
 			result := map[string]any{}
-			if req.Method == "thread/read" {
-				result["thread"] = map[string]any{"turns": []any{map[string]any{"id": current.Load().(string), "status": "failed", "error": map[string]any{"message": "native crash"}}}}
+			if req.Method == "thread/turns/list" {
+				result["data"] = []any{map[string]any{"id": current.Load().(string), "status": "failed", "error": map[string]any{"message": "native crash"}}}
 			}
 			if req.Method == "thread/queue/add" {
 				result["queuedSubmission"] = map[string]any{"id": "queued", "clientUserMessageId": "delivery"}
