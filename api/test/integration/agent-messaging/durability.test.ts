@@ -200,6 +200,26 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     expect((repeated.message as Record<string, unknown>).status).toBe('completed');
   }
 
+  it('counts live work per address in the read-only host inventory', async () => {
+    const source = await register('codex', 'inventory-source');
+    const target = await register('claude', 'inventory-target');
+    for (let i = 0; i < 2; i++)
+      await service.sendMessage(source.sessionId, source.bridgeToken, {
+        to: target.address, content: `inventory ${i}`, clientMessageId: randomUUID(), kind: 'request',
+      });
+    const before = await service.listAddressesForHost(host);
+    const row = (before.addresses as Array<Record<string, unknown>>).find((a) => a.address === target.address);
+    expect(before).toMatchObject({ scope: 'host', read_only: true, host_id: host.id });
+    expect(row).toMatchObject({ queue_depth: 2, accepted_work: 0, queue: { queued: 2 } });
+    // Listing is read-only: nothing was claimed, so the target still receives both.
+    const claimed = await service.claimForSession(target.sessionId, target.bridgeToken, randomUUID());
+    expect(claimed).toMatchObject({ content: 'inventory 0' });
+    const after = await service.listAddressesForHost(host);
+    const changed = (after.addresses as Array<Record<string, unknown>>).find((a) => a.address === target.address);
+    expect(changed).toMatchObject({ queue_depth: 2 });
+    expect((changed!.queue as Record<string, number>).queued).toBe(1);
+  });
+
   it('refuses to accept expired queued work even before the maintenance sweep', async () => {
     const sender = await register('codex', 'expired-sender');
     const target = await register('grok', 'expired-target');

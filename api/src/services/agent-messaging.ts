@@ -7,6 +7,7 @@ import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from 
 import { idleSessionPoll } from './agent-messaging/idle-session.js';
 import { type AgentDiscoveryFilters } from './agent-messaging/discovery.js';
 import { translateAgent } from './agent-messaging/names.js';
+import { listHostInventory, type HostInventoryFilters } from './agent-messaging/host-inventory.js';
 import { jsonRecord } from './agent-messaging/normalize.js';
 import { agentFreshStartGrants, agentTaskResults } from '../db/schema.js';
 import { storeTaskResult, queueTaskResultReply, unknownTaskResult, approveFreshStart, freshStartAllowed, taskResultSchema, type TaskResult } from './agent-messaging/task-execution.js';
@@ -1273,6 +1274,16 @@ export class AgentMessagingService {
     if (!activeHostEngines(host.engines, await readFleetEngineState(this.db)).length)
       throw new ForbiddenError('Host engines are suspended', 'engine_disabled');
     return await this.translate(value);
+  }
+
+  /** Read-only host-scope inventory for an operator shell (host API key). */
+  async listAddressesForHost(host: Host, filters: HostInventoryFilters = {}): Promise<Record<string, unknown>> {
+    this.assertEligibleHost(host);
+    return await listHostInventory(
+      { db: this.db, presenceFreshSeconds: this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS, isEnabled: () => this.isEnabled() },
+      host,
+      filters,
+    );
   }
 
   async translate(value: string, sessionId?: string, bridgeToken?: string): Promise<Record<string, unknown>> {

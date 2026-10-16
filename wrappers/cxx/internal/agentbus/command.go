@@ -75,7 +75,7 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 func runList(args []string, stdout, stderr io.Writer) error {
 	flags := newFlagSet("cxx agent list", stderr)
 	engine := flags.String("engine", "", "codex, claude or grok")
-	scope := flags.String("scope", "fleet", "fleet, directory, checkout or project")
+	scope := flags.String("scope", "fleet", "fleet, directory, checkout, project or host")
 	limit := flags.Int("limit", 50, "page size (1–50)")
 	offset := flags.Int("offset", 0, "page offset")
 	host := flags.Int64("host", 0, "host id")
@@ -86,6 +86,9 @@ func runList(args []string, stdout, stderr io.Writer) error {
 	}
 	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
+	}
+	if *scope == "host" || !insideManagedLifecycle() {
+		return runHostList(flags, *engine, *online, stdout)
 	}
 	client, err := sessionClientFromEnv(30 * time.Second)
 	if err != nil {
@@ -100,6 +103,38 @@ func runList(args []string, stdout, stderr io.Writer) error {
 	}
 	var out map[string]any
 	if err := client.post(context.Background(), "list", body, &out); err != nil {
+		return err
+	}
+	return writeJSON(stdout, out)
+}
+
+// runHostList is the read-only operator inventory: outside a managed
+// lifecycle (or with --scope host) it lists only this host's registered agents
+// through the signed host config. Fleet routing flags cannot apply to it, so
+// they are refused instead of silently dropped.
+func runHostList(flags *flag.FlagSet, engine string, online bool, stdout io.Writer) error {
+	var refused []string
+	flags.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "host", "limit", "offset":
+			refused = append(refused, "--"+f.Name)
+		case "scope":
+			if f.Value.String() != "host" {
+				refused = append(refused, "--scope "+f.Value.String())
+			}
+		}
+	})
+	if len(refused) > 0 {
+		return errorsUsage("cxx agent list", strings.Join(refused, ", ")+" needs a managed cdx/clx/cgx lifecycle; outside one the listing is host scope only")
+	}
+	cfg, err := hostMessagingConfig()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := listHostWithConfig(ctx, cfg, engine, !online)
+	if err != nil {
 		return err
 	}
 	return writeJSON(stdout, out)
@@ -334,6 +369,11 @@ func runStatus(stdout io.Writer) error {
 	if client, err := sessionClientFromEnv(5 * time.Second); err == nil {
 		status["session_available"] = true
 		status["session_id"] = client.id
+	} else {
+		// Local only: status stays cheap and never calls the server.
+		_, err := hostMessagingConfig()
+		status["host_config_available"] = err == nil
+		status["hint"] = "not inside a managed cdx/clx/cgx lifecycle; " + hostInventoryHint
 	}
 	service, _ := serviceStatus()
 	status["service"] = service
@@ -388,6 +428,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx agent translate <name|uuid> [--json]  German launch name ↔ agent UUID")
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  cxx agent list [--scope fleet|directory|checkout|project] [--engine codex|claude|grok] [--online] [--limit 50] [--offset 0]")
+	fmt.Fprintln(w, "  cxx agent list --scope host [--engine codex|claude|grok] [--online]  (default outside a lifecycle; read-only, this host only)")
 	fmt.Fprintln(w, "  cxx agent send --to agent:<id> --stdin [--conversation <id>] [--client-message-id <uuid>]")
 	fmt.Fprintln(w, "  cxx agent request --to agent:<id> --stdin [--wait-seconds 25] [--client-message-id <uuid>]")
 	fmt.Fprintln(w, "  cxx agent wait --conversation <id> [--after <sequence>] [--seconds 25]")

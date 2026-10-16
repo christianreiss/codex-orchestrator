@@ -2,7 +2,6 @@ package agentbus
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,12 +14,9 @@ import (
 
 // Host-authenticated lookup is read-only and does not register a launch/relay.
 func translateFromHost(ctx context.Context, value string) (map[string]any, error) {
-	_, cfg, err := loadMessagingConfigs()
+	cfg, err := hostMessagingConfig()
 	if err != nil {
 		return nil, err
-	}
-	if cfg == nil {
-		return nil, errors.New("no enabled signed fleet configuration; run cdx/clx/cgx sync")
 	}
 	return translateWithConfig(ctx, cfg, value)
 }
