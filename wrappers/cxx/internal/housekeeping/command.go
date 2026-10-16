@@ -44,7 +44,7 @@ func (s remoteServer) call(ctx context.Context, action, token string, report *Re
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return Protection{}, fmt.Errorf("housekeeping %s: HTTP %d", action, resp.StatusCode)
+		return Protection{}, fmt.Errorf("housekeeping %s: %s", action, refusal(resp))
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
@@ -63,6 +63,35 @@ func (s remoteServer) call(ctx context.Context, action, token string, report *Re
 	err = json.Unmarshal(body, &p)
 	return p, err
 }
+
+// refusal names why the server refused a call: its status plus the error
+// code, message and (for ip_mismatch) the refused request's address family,
+// so a binding denial is not reported as a bare "HTTP 401".
+func refusal(resp *http.Response) string {
+	out := fmt.Sprintf("HTTP %d", resp.StatusCode)
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
+	var body struct {
+		Code     string `json:"code"`
+		Message  string `json:"message"`
+		IPFamily string `json:"ip_family"`
+	}
+	if json.Unmarshal(raw, &body) != nil || body.Code == "" {
+		return out
+	}
+	out += " " + body.Code
+	detail := []string{}
+	if body.Message != "" {
+		detail = append(detail, body.Message)
+	}
+	if body.IPFamily != "" {
+		detail = append(detail, "refused over "+body.IPFamily)
+	}
+	if len(detail) > 0 {
+		out += " (" + strings.Join(detail, "; ") + ")"
+	}
+	return out
+}
+
 func (s remoteServer) Inspect(ctx context.Context) (Protection, error) {
 	return s.call(ctx, "inspect", "", nil)
 }

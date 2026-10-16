@@ -281,6 +281,24 @@ describe('IP binding', () => {
     expect(err).toMatchObject({ code: 'ip_mismatch', status: 401 });
   });
 
+  it('names only the refused request family on a dual-stack mismatch, never the bindings', async () => {
+    // Stale IPv4 + valid IPv6 binding: the IPv4 path is refused, and the
+    // body says "ipv4" without revealing either bound address.
+    const h = harness({ rows: [hostRow({ ip4: '10.1.2.7', ip6: CLIENT_IP6, allowRoamingIps: 0 })] });
+
+    const err = (await h.svc.authenticate(makeReq({ key: KEY })).catch((e: unknown) => e)) as UnauthorizedError;
+
+    expect(err).toMatchObject({ code: 'ip_mismatch', status: 401, extra: { ip_family: 'ipv4' } });
+    const body = JSON.stringify(err.toJSON());
+    expect(body).not.toContain('10.1.2.7');
+    expect(body).not.toContain(CLIENT_IP6);
+
+    const v6 = await harness({ rows: [hostRow({ ip4: CLIENT_IP, allowRoamingIps: 0 })] })
+      .svc.authenticate(makeReq({ key: KEY, ip: CLIENT_IP6 }))
+      .catch((e: unknown) => e);
+    expect(v6).toMatchObject({ code: 'ip_mismatch', extra: { ip_family: 'ipv6' } });
+  });
+
   it('binds the missing family on a v6-only host when roaming is on', async () => {
     const h = harness({ rows: [hostRow({ ip6: CLIENT_IP6, allowRoamingIps: 1 })] });
 
