@@ -33,3 +33,21 @@ func TestAuthGrammarRejectsMalformedArgvBeforeManagedEffects(t *testing.T) {
 		}
 	}
 }
+
+func TestRetiredCodexAPIKeyAndConflictingSourcesFailBeforeLifecycle(t *testing.T) {
+	for _, args := range [][]string{{"login", "--api-key"}, {"login", "--api-key", "fixture"}, {"login", "--api-key=fixture"}, {"login", "--with-api-key", "--with-access-token"}} {
+		if err := ValidateAuth("codex", args); err == nil {
+			t.Fatalf("rejected native auth entered managed lifecycle: %q", args)
+		}
+	}
+	for _, args := range [][]string{{"login", "--with-api-key"}, {"login", "--with-access-token"}} {
+		if err := ValidateAuth("codex", args); err != nil {
+			t.Fatalf("supported source rejected: %q %v", args, err)
+		}
+	}
+	args := []string{"login", "--api-key", "fixture", "status"}
+	name, value, end := Option("codex", args, 1)
+	if name != "--api-key" || value != "fixture" || end != 2 {
+		t.Fatalf("retired optional grammar lost: %q %q %d", name, value, end)
+	}
+}
