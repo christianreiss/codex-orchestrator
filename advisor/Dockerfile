@@ -1,9 +1,10 @@
 # Fleet Advisor host: a registered fleet host whose only job is `cxx daemon run`.
+# curl and python3 are the cxx installer's preflight requirements.
 # Advisor sessions are ordinary daemon sessions; see docs/interface-api.md#fleet-advisor.
 FROM debian:bookworm-slim
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git tini procps \
+ && apt-get install -y --no-install-recommends ca-certificates curl git python3 tini procps \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --uid 10001 --shell /bin/sh advisor \
  && install -d -o advisor -g advisor /work

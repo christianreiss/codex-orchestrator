@@ -17,8 +17,13 @@ if [ ! -x "$cxx" ]; then
     exec sleep infinity
   fi
   setup=$(mktemp)
-  curl -fsSL "$ADVISOR_INSTALL_URL" -o "$setup"
-  sh "$setup"
+  # The installer URL is single-use: a failed attempt consumes it, so never
+  # restart-loop on it. Idle with the reason until an operator mints a new one.
+  if ! curl -fsSL "$ADVISOR_INSTALL_URL" -o "$setup" || ! sh "$setup"; then
+    rm -f "$setup"
+    echo "advisor: installation failed; fix the cause, mint a fresh installer URL and recreate the container." >&2
+    exec sleep infinity
+  fi
   rm -f "$setup"
 fi
 
