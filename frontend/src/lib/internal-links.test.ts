@@ -22,7 +22,7 @@ describe("internal links", () => {
     }
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        collectRoutes(join(dir, entry.name), [...segments, entry.name], out);
+        collectRoutes(join(dir, entry.name), [...segments, ...(/^\(.*\)$/.test(entry.name) ? [] : [entry.name])], out);
       }
     }
   }

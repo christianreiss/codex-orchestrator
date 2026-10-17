@@ -24,12 +24,11 @@ Use these canonical destinations from the sidebar or command palette:
 
 | Destination | URL | Contents |
 |---|---|---|
-| **Quick Settings** | `/quick-settings` | Codex, Claude, and Grok default model buttons and model-specific effort segments, saved immediately. |
-| **Engines** | `/engines` | Engine master switches (Codex, Claude, Grok on/off for the whole fleet), Codex, Claude, and Grok fleet models, effort, CLI versions, Codex silent mode, quota and scaling, and Claude client settings. |
+| **Engines** | `/engines` | Engine master switches (Codex, Claude, Grok on/off for the whole fleet), a **Model defaults** tab with immediate-save model and effort buttons, per-engine fleet models, effort, CLI versions, Codex silent mode, quota and scaling, and Claude client settings. |
 | **Policies** | `/policies` | Auto-update, reverse DNS, API keys in chat, access control (authorization mode), insecure approvals, host lifecycle, and log retention. |
 | **API Access** | `/api-keys` | Copyable endpoints and issued keys first; Configuration holds routing, backend defaults, and the global API control. |
 
-**Quick Settings** saves each selection immediately, with independent Codex, Claude, and Grok cards. Selecting a model also selects its catalog default effort; only supported effort levels appear, and models without effort support show **No effort setting**. A failed save restores the confirmed selection and refreshes the server state before another change. Clients receive defaults on their next sync; host overrides take precedence.
+The **Model defaults** tab of Engines (`/engines#defaults`; the former Quick Settings page redirects there) saves each selection immediately, with independent Codex, Claude, and Grok cards. Selecting a model also selects its catalog default effort; only supported effort levels appear, and models without effort support show **No effort setting**. A failed save restores the confirmed selection and refreshes the server state before another change. Clients receive defaults on their next sync; host overrides take precedence.
 
 The **Engines** page has jump links for **Codex**, **Claude**, **Grok**, **Quota and scaling**, and **Claude client**. These scroll within the page, preserving open forms. **Host overrides** opens Hosts, where individual model and version choices take precedence over fleet defaults.
 

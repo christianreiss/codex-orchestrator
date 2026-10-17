@@ -1,5 +1,5 @@
 /** Tab addressing for /engines: URL hash <-> (tab, sub-tab), including the pre-tab anchor ids. */
-export const ENGINE_PAGE_TABS = ["fleet", "codex", "claude", "grok"] as const;
+export const ENGINE_PAGE_TABS = ["fleet", "defaults", "codex", "claude", "grok"] as const;
 export type EnginePageTab = (typeof ENGINE_PAGE_TABS)[number];
 export const ENGINE_SUB_TABS = ["models", "versions", "native", "client", "danger"] as const;
 export type EngineSubTab = (typeof ENGINE_SUB_TABS)[number];

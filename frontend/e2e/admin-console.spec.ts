@@ -124,7 +124,6 @@ const CANONICAL_DESTINATIONS = [
   { path: "/clients", heading: "Active Clients", title: "Active Clients" },
   { path: "/logs/events", heading: "Logs", title: "Logs / Audit trail" },
   { path: "/hosts", heading: "Hosts", title: "Hosts" },
-  { path: "/quick-settings", heading: "Quick Settings", title: "Quick Settings" },
   { path: "/engines", heading: "Engines", title: "Engines" },
   { path: "/policies", heading: "Policies", title: "Policies" },
   { path: "/projects", heading: "Projects", title: "Projects" },
@@ -934,7 +933,7 @@ test("quick settings save model and catalog effort together for both engines and
     if (body) { writes.push({ engine, body }); Object.assign(defaults[engine], body); }
     return { ...defaults[engine] };
   });
-  await page.goto("/admin/quick-settings");
+  await page.goto("/admin/engines#defaults");
   const codex = page.getByRole("region", { name: "Codex", exact: true });
   const claude = page.getByRole("region", { name: "Claude", exact: true });
   await expect(codex.getByRole("radio", { name: "Ultra", exact: true })).toBeChecked({ timeout: 15_000 });
@@ -978,7 +977,7 @@ test("quick settings save Grok context windows, retain them across model and eff
     if (body) { writes.push(body); Object.assign(defaults.grok, body); }
     return { ...defaults.grok };
   });
-  await page.goto("/admin/quick-settings");
+  await page.goto("/admin/engines#defaults");
   const grok = page.getByRole("region", { name: "Grok", exact: true });
   const window256 = grok.getByRole("radio", { name: "256k tokens Default", exact: true });
   const window500 = grok.getByRole("radio", { name: "500k tokens", exact: true });
@@ -1025,7 +1024,7 @@ test("quick settings reconcile failed Grok window saves and follow live context 
     await new Promise<void>(resolve => { finishWrite = resolve; });
     return route.fulfill({ status: 409, json: { message: "Configuration changed elsewhere" } });
   });
-  await page.goto("/admin/quick-settings");
+  await page.goto("/admin/engines#defaults");
   const grok = page.getByRole("region", { name: "Grok", exact: true });
   const window500 = grok.getByRole("radio", { name: "500k tokens", exact: true });
   await window500.locator("..").click();
@@ -1060,7 +1059,7 @@ test("quick settings isolate saving, follow live updates, and ignore stale reads
     Object.assign(defaults.codex, route.request().postDataJSON());
     await route.fulfill({ json: defaults.codex });
   });
-  await page.goto("/admin/quick-settings");
+  await page.goto("/admin/engines#defaults");
   const codex = page.getByRole("region", { name: "Codex", exact: true });
   const claude = page.getByRole("region", { name: "Claude", exact: true });
   await expect.poll(() => Boolean(emit)).toBe(true);
@@ -1097,7 +1096,7 @@ test("quick settings recover failed saves and keep controls locked until authori
     if (failed && readsFail) return route.fulfill({ status: 503, json: { status: "error", message: "Temporarily unavailable" } });
     return route.fallback();
   });
-  await page.goto("/admin/quick-settings");
+  await page.goto("/admin/engines#defaults");
   const codex = page.getByRole("region", { name: "Codex", exact: true });
   await codex.getByRole("radio", { name: "GPT-6 Luna", exact: true }).locator("..").click();
   await expect(codex.getByRole("alert").filter({ hasText: "Could not save" })).toContainText("Configuration changed elsewhere");
@@ -1120,7 +1119,7 @@ test("quick settings support keyboard selection, mobile layout, themes, and pale
     return { ...defaults[engine] };
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/admin/quick-settings");
+  await page.goto("/admin/engines#defaults");
   const codex = page.getByRole("region", { name: "Codex", exact: true });
   await codex.getByRole("radio", { name: "GPT-6 Astra", exact: true }).focus();
   await page.keyboard.press("ArrowRight");
@@ -1137,13 +1136,13 @@ test("quick settings support keyboard selection, mobile layout, themes, and pale
       await page.setViewportSize({ width, height: 1000 });
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await expectNoSeriousAxeFindings(page);
-      if (width !== 320) await page.screenshot({ path: info.outputPath(`quick-settings-${theme}-${width}.png`), fullPage: true });
+      if (width !== 320) await page.screenshot({ path: info.outputPath(`engines-defaults-${theme}-${width}.png`), fullPage: true });
     }
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.keyboard.press("Control+K");
-  await page.getByRole("combobox", { name: "Search fleet and commands" }).fill("Quick Settings");
-  await expect(page.getByRole("option", { name: /Quick Settings/ })).toBeVisible();
+  await page.getByRole("combobox", { name: "Search fleet and commands" }).fill("Engines");
+  await expect(page.getByRole("option", { name: /Go to Engines/ })).toBeVisible();
 });
 
 test("every canonical destination deep-links into a bounded desktop workspace", async ({ page }) => {
@@ -1175,25 +1174,33 @@ test("desktop shell exposes direct task navigation and the command palette", asy
     await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByText("Overview", { exact: true })).toBeVisible();
   }
 
-  // Daily tasks start open; configuration and diagnostics stay collapsed. Every
-  // destination stays reachable after an operator changes those disclosures.
+  // The rail is nine flat hubs with no disclosure; every page is one tab away.
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
-  const destinations: Array<[string, string[]]> = [
-    ["Workspace", ["Overview", "Active Clients", "Hosts", "Projects"]],
-    ["Fleet", ["Accounts", "Quick Settings", "Engines", "Policies"]],
-    ["Coordinate", ["Agent Messaging", "Wake / Cron", "Git Director", "File Transfer"]],
-    ["Knowledge", ["Skills", "Fleet Instructions"]],
-    ["Access", ["Admin Users"]],
-    ["Diagnostics", ["Logs"]],
+  const hubs: Array<[string, string]> = [
+    ["Overview", "/admin/dashboard"], ["Agents", "/admin/clients"], ["Projects", "/admin/projects"],
+    ["Hosts", "/admin/hosts"], ["Coordination", "/admin/agent-messaging"], ["Activity", "/admin/logs/events"],
+    ["Providers", "/admin/accounts"], ["Library", "/admin/skills"], ["Access & Policy", "/admin/api-keys"],
   ];
-  for (const [group, links] of destinations) {
-    const trigger = primary.getByRole("button", { name: group, exact: true });
-    await expect(trigger).toBeVisible();
-    if ((await trigger.getAttribute("data-state")) !== "open") await trigger.click();
-    for (const link of links) {
-      await expect(primary.getByRole("link", { name: link, exact: true })).toBeVisible();
-    }
+  for (const [name, href] of hubs) {
+    await expect(primary.getByRole("link", { name, exact: true })).toHaveAttribute("href", href);
   }
+  await expect(primary.getByRole("button")).toHaveCount(0);
+  const hubPages: Array<[string, string, string[]]> = [
+    ["Agents", "/admin/clients", ["Active Clients", "Live Topology"]],
+    ["Coordination", "/admin/agent-messaging", ["Agent Messaging", "Wake / Cron", "Git Director", "File Transfer"]],
+    ["Activity", "/admin/logs/events", ["Logs", "Feedback"]],
+    ["Providers", "/admin/accounts", ["Accounts", "Engines"]],
+    ["Library", "/admin/skills", ["Skills", "Fleet Instructions", "Memories", "Subagents", "Commands", "Output Styles"]],
+    ["Access & Policy", "/admin/api-keys", ["API Access", "Secrets", "Admin Users", "Policies"]],
+  ];
+  for (const [hub, path, pages] of hubPages) {
+    await page.goto(path);
+    const tabs = page.getByRole("navigation", { name: `${hub} pages` });
+    for (const label of pages) await expect(tabs.getByRole("link", { name: label, exact: true })).toBeVisible();
+  }
+  await page.goto("/admin/quick-settings");
+  await expect(page).toHaveURL(/\/admin\/engines#defaults$/);
+  await expect(page.getByRole("tab", { name: "Model defaults" })).toHaveAttribute("data-state", "active");
 
   await page.keyboard.press("Control+K");
   await expect(page.getByRole("combobox", { name: "Search fleet and commands" })).toBeVisible();
@@ -1285,48 +1292,40 @@ test("failed initial auth status preserves the route instead of opening setup", 
   await expect(page.getByRole("heading", { name: "Set up Codex Orchestrator" })).toHaveCount(0);
 });
 
-test("daily navigation keeps logs in diagnostics and preserves access on desktop and mobile", async ({ page }, info) => {
+test("daily navigation keeps the rail flat and preserves access on desktop and mobile", async ({ page }, info) => {
   await page.goto("/admin/dashboard");
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
-  await expect(primary.getByRole("button", { name: "Workspace", exact: true })).toHaveAttribute("data-state", "open");
-  for (const group of ["Fleet", "Coordinate", "Knowledge", "Access", "Diagnostics"]) {
-    await expect(primary.getByRole("button", { name: group, exact: true })).toHaveAttribute("data-state", "closed");
-  }
-  for (const name of ["Overview", "Active Clients", "Hosts", "Projects"]) {
+  for (const name of ["Overview", "Agents", "Projects", "Hosts", "Coordination", "Activity", "Providers", "Library", "Access & Policy"]) {
     await expect(primary.getByRole("link", { name, exact: true })).toBeVisible();
   }
-  await expect(primary.getByRole("link", { name: "Logs", exact: true })).toBeHidden();
   await page.screenshot({ path: info.outputPath("workspace-desktop.png") });
-  const diagnostics = primary.getByRole("button", { name: "Diagnostics", exact: true });
-  await diagnostics.click();
-  await primary.getByRole("link", { name: "Logs", exact: true }).click();
+  await primary.getByRole("link", { name: "Activity", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Logs", level: 1 })).toBeVisible();
-  await expect(primary.getByRole("link", { name: "Logs", exact: true })).toHaveAttribute("aria-current", "page");
-  await page.goto("/admin/dashboard");
-  await expect(diagnostics).toHaveAttribute("data-state", "open");
-  await diagnostics.click();
+  await expect(primary.getByRole("link", { name: "Activity", exact: true })).toHaveAttribute("aria-current", "page");
   await page.goto("/admin/logs/mcp");
-  await expect(diagnostics).toHaveAttribute("data-state", "open");
+  await expect(primary.getByRole("link", { name: "Activity", exact: true })).toHaveAttribute("aria-current", "page");
+  await page.goto("/admin/topology");
+  await expect(primary.getByRole("link", { name: "Agents", exact: true })).toHaveAttribute("aria-current", "page");
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/admin/dashboard");
   const mobile = page.getByRole("navigation", { name: "Mobile primary navigation" });
-  await expect(mobile.getByRole("link", { name: "Active Clients", exact: true })).toBeVisible();
-  await expect(mobile.getByRole("link", { name: "Logs", exact: true })).toHaveCount(0);
+  await expect(mobile.getByRole("link", { name: "Agents", exact: true })).toBeVisible();
+  await expect(mobile.getByRole("link", { name: "Activity", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Open navigation menu" }).click();
   await page.screenshot({ path: info.outputPath("workspace-mobile-menu.png") });
-  await page.getByRole("dialog").getByRole("link", { name: "Logs", exact: false }).click();
+  await page.getByRole("dialog").getByRole("link", { name: /^Logs/ }).click();
   await expect(page.getByRole("heading", { name: "Logs", level: 1 })).toBeVisible();
 });
 
-test("desktop navigation switches from Skills to Fleet Instructions with a legacy host list", async ({ page }) => {
+test("desktop hub tabs switch from Skills to Fleet Instructions with a legacy host list", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/admin/skills");
   await expect(page.getByRole("heading", { name: "Skills", level: 1, exact: true })).toBeVisible();
 
   await page
-    .getByRole("navigation", { name: "Primary navigation" })
+    .getByRole("navigation", { name: "Library pages" })
     .getByRole("link", { name: "Fleet Instructions" })
     .click();
 
@@ -2124,13 +2123,8 @@ test("control defaults follow live updates while preserving an operator draft fo
   }
 });
 
-test("control navigation keeps collapsed groups stable and highlights mobile account destinations", async ({ page }) => {
+test("control navigation highlights mobile account destinations", async ({ page }) => {
   await page.goto("/admin/dashboard");
-  const primary = page.getByRole("navigation", { name: "Primary navigation" });
-  const workspace = primary.getByRole("button", { name: "Workspace", exact: true });
-  await expect(workspace).toHaveAttribute("data-state", "open");
-  await workspace.click();
-  await expect(workspace).toHaveAttribute("data-state", "closed");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/admin/account/theme");
   const menu = page.getByRole("button", { name: "Open navigation menu" });
@@ -2341,7 +2335,7 @@ for (const mode of ["triage", "manage"] as const) {
           return {};
         }
       });
-      await client.goto("/admin/quick-settings");
+      await client.goto("/admin/engines#defaults");
     }
     await expect.poll(() => emitters.length).toBe(2);
     await expect.poll(() => reads).toBeGreaterThanOrEqual(2);
@@ -2405,7 +2399,7 @@ test("Grok quick defaults honor model-specific effort and persist across reload"
     if (body) { writes.push(body); Object.assign(defaults.grok, body); }
     return { ...defaults.grok };
   });
-  await page.goto("/admin/quick-settings");
+  await page.goto("/admin/engines#defaults");
   const grok = page.getByRole("region", { name: "Grok", exact: true });
   await expect(grok.getByRole("radio", { name: "High Default", exact: true })).toBeChecked();
   await grok.getByRole("radio", { name: "Extra high", exact: true }).locator("..").click();

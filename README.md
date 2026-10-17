@@ -446,7 +446,7 @@ which becomes its only refresher. Copying a live native `~/.grok/auth.json`
 would give two processes the same rotating refresh-token chain and can break
 the fleet login. Metered xAI API keys and legacy web logins are not supported.
 
-Choose the model, effort, and context window in **Quick Settings**, with
+Choose the model, effort, and context window under **Providers → Engines → Model defaults**, with
 per-host model overrides available. The bundled defaults are `grok-4.7`,
 `high`, and 256,000 tokens; 500,000 tokens is also supported. Existing saved
 defaults are preserved. Grok receives native Skills, fleet-owned config keys,

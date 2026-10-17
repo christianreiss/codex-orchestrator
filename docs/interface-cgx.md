@@ -211,7 +211,7 @@ as the provider default (confirmed in the native subscription model cache dated
 supported IDs; subscription entitlement still depends on the provider. Codex
 lane/profile settings and Claude artifact settings do not apply.
 
-Quick Settings saves the context window immediately through
+The Engines page's Model defaults tab saves the context window immediately through
 `/admin/model-defaults/grok`. The canonical `context_window` setting renders
 only the effective model's native `context_window` field, after host model
 overrides. The existing model catalog and all other native model fields remain

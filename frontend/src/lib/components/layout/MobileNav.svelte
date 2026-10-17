@@ -3,6 +3,8 @@
   import { base } from "$app/paths";
   import { goto } from "$app/navigation";
   import { MOBILE_NAV_OVERFLOW, MOBILE_NAV_PRIMARY, NAV_FOOTER, NAV_SECTIONS, isActive } from "$lib/nav";
+  import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
+  import { engineLabel } from "$lib/constants/engines";
   import { cn } from "$lib/utils/cn";
   import { authActions, authStore } from "$lib/stores/auth";
   import * as Sheet from "$lib/components/ui/sheet";
@@ -11,8 +13,6 @@
   import Menu from "@lucide/svelte/icons/menu";
   import LogOut from "@lucide/svelte/icons/log-out";
   import Keyboard from "@lucide/svelte/icons/keyboard";
-  import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
-  import { engineLabel } from "$lib/constants/engines";
 
   const path = $derived(page.url.pathname.replace(base, "") || "/");
   const auth = $derived($authStore);
@@ -21,10 +21,18 @@
   const fleet = useFleetEngines();
   const pendingApprovals = insecureApprovalsPendingQuery();
   const approvalsAlert = $derived(($pendingApprovals.data?.requests?.length ?? 0) > 0 || $pendingApprovals.isError);
-  const menuActive = $derived(MOBILE_NAV_OVERFLOW.some((item) => isActive(item, path)));
+  const menuActive = $derived([...MOBILE_NAV_OVERFLOW, ...NAV_FOOTER].some((item) => isActive(item, path)));
+  // The bar links straight to each primary hub's first page; the sheet lists
+  // every other page, grouped under its hub, so no route is tab-only on a phone.
+  const barRoutes = new Set(MOBILE_NAV_PRIMARY.map((hub) => hub.route));
   const menuSections = $derived([
-    ...NAV_SECTIONS.map((section) => ({ ...section, items: section.items.filter((item) => MOBILE_NAV_OVERFLOW.includes(item)) })).filter((section) => section.items.length),
-    { id: "utilities", label: "Utilities" as const, items: NAV_FOOTER },
+    ...NAV_SECTIONS.map((section) => ({
+      ...section,
+      hubs: section.hubs
+        .map((hub) => ({ ...hub, menuItems: hub.items.filter((item) => !barRoutes.has(item.route)) }))
+        .filter((hub) => hub.menuItems.length),
+    })).filter((section) => section.hubs.length),
+    { id: "utilities", label: "Utilities" as const, hubs: [{ id: "utilities", label: "", menuItems: NAV_FOOTER }] },
   ]);
 
   async function signOut() {
@@ -61,13 +69,20 @@
       {#each menuSections as section (section.id)}
         <section>
           <h2 class="mb-1 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{section.label}</h2>
-          <ul class="grid gap-1 sm:grid-cols-2">
-            {#each section.items as item (item.id)}
-              {@const Icon = item.icon}
-              {@const active = isActive(item, path)}
-              <li><a href={`${base}${item.route}`} class={cn("flex min-h-14 items-center gap-3 rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active ? "border-primary/30 bg-primary/10 text-primary" : "bg-card hover:bg-muted")} onclick={() => (menuOpen = false)} aria-current={active ? "page" : undefined}><Icon class="h-4 w-4 shrink-0" /><span class="min-w-0"><span class="block font-medium">{item.label}</span><span class="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{item.description}{#if item.engine && !$fleet.isEnabled(item.engine)}<span class="block font-medium">{fleetDisabledTitle(engineLabel(item.engine))}</span>{/if}</span></span></a></li>
+          <div class="space-y-3">
+            {#each section.hubs as hub (hub.id)}
+              <div>
+                {#if hub.label}<h3 class="mb-1 px-1 text-xs font-medium text-foreground">{hub.label}</h3>{/if}
+                <ul class="grid gap-1 sm:grid-cols-2">
+                  {#each hub.menuItems as item (item.id)}
+                    {@const Icon = item.icon}
+                    {@const active = isActive(item, path)}
+                    <li><a href={`${base}${item.route}`} class={cn("flex min-h-14 items-center gap-3 rounded-md border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active ? "border-primary/30 bg-primary/10 text-primary" : "bg-card hover:bg-muted")} onclick={() => (menuOpen = false)} aria-current={active ? "page" : undefined}><Icon class="h-4 w-4 shrink-0" /><span class="min-w-0"><span class="block font-medium">{item.label}</span><span class="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{item.description}{#if item.engine && !$fleet.isEnabled(item.engine)}<span class="block font-medium">{fleetDisabledTitle(engineLabel(item.engine))}</span>{/if}</span></span></a></li>
+                  {/each}
+                </ul>
+              </div>
             {/each}
-          </ul>
+          </div>
         </section>
       {/each}
       <button type="button" class="flex min-h-11 w-full items-center gap-3 rounded-md border bg-card px-3 text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring" onclick={() => { menuOpen = false; window.dispatchEvent(new CustomEvent("codex:open-shortcuts")); }}>

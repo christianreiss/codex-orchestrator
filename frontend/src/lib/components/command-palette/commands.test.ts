@@ -56,6 +56,14 @@ const ICON_NAMES = [
   "Terminal",
   "UserCircle",
   "Users",
+  "CalendarClock",
+  "CircleUser",
+  "Cpu",
+  "Library",
+  "MessageSquareText",
+  "SlidersHorizontal",
+  "UserRoundCog",
+  "Waypoints",
   "Zap",
 ];
 
@@ -224,7 +232,7 @@ describe("deep-link navigation commands", () => {
     }
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        collectRoutes(join(dir, entry.name), [...segments, entry.name], out);
+        collectRoutes(join(dir, entry.name), [...segments, ...(/^\(.*\)$/.test(entry.name) ? [] : [entry.name])], out);
       }
     }
   }

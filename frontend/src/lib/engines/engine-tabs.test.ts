@@ -11,6 +11,10 @@ describe("engine page hashes", () => {
     assert.deepEqual(resolveEngineHash("#codex-defaults"), { tab: "codex", sub: "models" });
     assert.deepEqual(resolveEngineHash("#claude-client"), { tab: "claude", sub: "client" });
   });
+  it("addresses the model-defaults tab that replaced the Quick Settings page", () => {
+    assert.deepEqual(resolveEngineHash("#defaults"), { tab: "defaults", sub: null });
+    assert.equal(engineHash("defaults", null), "#defaults");
+  });
   it("round-trips tab and sub-tab, and rejects unknowns", () => {
     assert.deepEqual(resolveEngineHash(engineHash("grok", "versions")), { tab: "grok", sub: "versions" });
     assert.deepEqual(resolveEngineHash("#claude/bogus"), { tab: "claude", sub: null });

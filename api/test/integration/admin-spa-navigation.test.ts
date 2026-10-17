@@ -29,9 +29,13 @@ const HTML_NAVIGATION = 'text/html,application/xhtml+xml,application/xml;q=0.9,*
  */
 const PARAM_SAMPLE = 'spa-nav-sample';
 
-/** The `/admin` URL a SvelteKit route directory serves, `[param]`s filled in. */
+/**
+ * The `/admin` URL a SvelteKit route directory serves, `[param]`s filled in.
+ * `(group)` directories are layout-only and add no URL segment.
+ */
 function pageUrl(segments: string[]): string {
   const path = segments
+    .filter((segment) => !/^\(.*\)$/.test(segment))
     .map((segment) => (segment.startsWith('[') ? PARAM_SAMPLE : segment))
     .join('/');
   return path ? `/admin/${path}` : '/admin';

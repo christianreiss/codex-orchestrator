@@ -31,7 +31,7 @@ needs a fresh subscription login. Existing sessions stay pinned to their account
 
 ## Models and runtime
 
-Quick Settings and Engines expose Grok's model and effort independently. The
+The Engines page (its Model defaults tab and the Grok tab) exposes Grok's model and effort independently. The
 default is Grok 4.7/high; Grok 4.7, Grok 4.7 Fast, and Grok 4.6 support low,
 medium, high, and xhigh, while Grok 4.5 supports low through high. These are
 native supported IDs; subscription availability is provider-owned.

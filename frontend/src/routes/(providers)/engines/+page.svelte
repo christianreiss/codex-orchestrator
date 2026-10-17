@@ -13,6 +13,7 @@
   import ClaudeFleetSettings from "$lib/components/settings/ClaudeFleetSettings.svelte";
   import EngineMasterSwitches from "$lib/components/settings/EngineMasterSwitches.svelte";
   import WrapperRolloutSection from "$lib/components/settings/WrapperRolloutSection.svelte";
+  import QuickModelDefaults from "$lib/components/settings/QuickModelDefaults.svelte";
   import EngineTab from "$lib/components/engines/EngineTab.svelte";
   import * as Tabs from "$lib/components/ui/tabs";
   import { Badge } from "$lib/components/ui/badge";
@@ -61,6 +62,7 @@
 
   const labels: Record<EnginePageTab, string> = {
     fleet: "Fleet",
+    defaults: "Model defaults",
     codex: ENGINE_META.codex.label,
     claude: ENGINE_META.claude.label,
     grok: ENGINE_META.grok.label,
@@ -98,6 +100,17 @@
       <ScalingSection headingLevel={3} />
     </section>
     <ChattySettings />
+  </Tabs.Content>
+
+  <Tabs.Content value="defaults" class="mt-4">
+    <p class="mb-3 max-w-3xl text-sm text-muted-foreground">
+      Choose model, effort, and Grok context defaults. Changes save immediately and apply when managed clients next sync; host overrides take precedence.
+    </p>
+    <div class="grid items-start gap-5 xl:grid-cols-3">
+      <QuickModelDefaults engine="codex" />
+      <QuickModelDefaults engine="claude" />
+      <QuickModelDefaults engine="grok" />
+    </div>
   </Tabs.Content>
 
   <Tabs.Content value="codex" class="mt-4" id="codex-defaults">

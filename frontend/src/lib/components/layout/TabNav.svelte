@@ -13,6 +13,11 @@
     icon?: Component;
     badge?: string | number;
     group?: string;
+    /**
+     * Base-inclusive path prefix that lights this tab, when it differs from
+     * `href` (a tab linking to `/logs/events` that also owns `/logs/mcp`).
+     */
+    activePath?: string;
   };
 
   type Props = HTMLAttributes<HTMLElement> & {
@@ -39,7 +44,7 @@
   const activeHref = $derived.by(() => {
     let best: string | null = null;
     for (const item of items) {
-      const itemPath = stripBase(item.href);
+      const itemPath = stripBase(item.activePath ?? item.href);
       const matches = currentPath === itemPath || currentPath.startsWith(itemPath + "/");
       if (matches && (best === null || itemPath.length > best.length)) {
         best = itemPath;
@@ -64,7 +69,7 @@
 </script>
 
 {#snippet tab(item: TabNavItem)}
-  {@const active = activeHref !== null && stripBase(item.href) === activeHref}
+  {@const active = activeHref !== null && stripBase(item.activePath ?? item.href) === activeHref}
   <a
     href={item.href}
     class={cn(

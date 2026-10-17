@@ -288,7 +288,7 @@
     <EmptyState icon={BotIcon} title="No recorded clients" description="A session appears when cdx, clx, or cgx registers its session. Clients that cannot reach the server may appear after reconnecting." />
   {:else}
     <!-- One Messages-style card: conversation list on the left, thread on the right. -->
-    <div class="grid grid-cols-1 h-[75dvh] min-h-[28rem] overflow-hidden rounded-xl border bg-card lg:h-[calc(100dvh-15.5rem)] lg:grid-cols-[22rem_minmax(0,1fr)]">
+    <div class="grid grid-cols-1 h-[calc(75dvh-4rem)] min-h-[28rem] overflow-hidden rounded-xl border bg-card lg:h-[calc(100dvh-19.5rem)] lg:grid-cols-[22rem_minmax(0,1fr)]">
       <section class="min-h-0 min-w-0 flex-col border-r {selected ? 'hidden lg:flex' : 'flex'}" aria-label="Client directory">
         <div class="space-y-2 border-b px-3 pb-2.5 pt-3">
           <div class="flex items-center gap-2">
