@@ -480,37 +480,9 @@ if [ "\${CODEX_INSTALL_CURL_INSECURE:-0}" = "1" ]; then
   CURL_INSECURE_FLAG=-k
 fi
 
-ensure_bin_root() {
-  if mkdir -p "$BIN_ROOT" 2>/dev/null && [ -w "$BIN_ROOT" ]; then
-    return 0
-  fi
-  if [ -d "$BIN_ROOT" ] && [ -w "$BIN_ROOT" ]; then
-    return 0
-  fi
-  if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-    sudo mkdir -p "$BIN_ROOT" || return 1
-    INSTALL_WITH_SUDO=1
-    return 0
-  fi
-  return 1
-}
-
-# Everything the installer cannot work around, checked before the header card
-# so a doomed run stops on one line per problem instead of halfway through.
+${preflightFunctions()}
 preflight() {
-  PREFLIGHT_FAILED=0
-  if ! command -v python3 >/dev/null 2>&1; then
-    ui_fail "cxx" "preflight" "install it: apt-get install python3 | dnf install python3 | apk add python3 | brew install python3" "python3 is required"
-    PREFLIGHT_FAILED=1
-  fi
-  if ! command -v curl >/dev/null 2>&1; then
-    ui_fail "cxx" "preflight" "install it: apt-get install curl | dnf install curl | apk add curl | brew install curl" "curl is required"
-    PREFLIGHT_FAILED=1
-  fi
-  if ! ensure_bin_root; then
-    ui_fail "cxx" "preflight" "Cannot install $NAME into $BIN_ROOT: re-run the pipe into 'sudo sh', allow passwordless sudo, or set BIN_DIR=$HOME/.local/bin for a per-user install" "$BIN_ROOT is not writable and sudo -n is unavailable"
-    PREFLIGHT_FAILED=1
-  fi
+  preflight_checks
   if [ "$PREFLIGHT_FAILED" = "1" ]; then exit 1; fi
 }
 
@@ -1199,6 +1171,117 @@ fi
 # These are consumed by the installer suffix. Keep the shared transition body
 # independently ShellCheck-clean even though its successful path execs above.
 : "$BIN_ROOT_ON_PATH" "$INSTALL_FAILED"`;
+}
+
+/**
+ * The checks shared by the credential-free installer launcher and the full
+ * installer. Callers provide BIN_ROOT, NAME, INSTALL_WITH_SUDO and a
+ * `ui_fail ENGINE TOPIC DETAIL MESSAGE` function; `preflight_checks` reports
+ * every problem and leaves the verdict in PREFLIGHT_FAILED.
+ */
+function preflightFunctions(): string {
+  return `ensure_bin_root() {
+  if mkdir -p "$BIN_ROOT" 2>/dev/null && [ -w "$BIN_ROOT" ]; then
+    return 0
+  fi
+  if [ -d "$BIN_ROOT" ] && [ -w "$BIN_ROOT" ]; then
+    return 0
+  fi
+  if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    sudo mkdir -p "$BIN_ROOT" || return 1
+    INSTALL_WITH_SUDO=1
+    return 0
+  fi
+  return 1
+}
+
+# Everything the installer cannot work around, checked before the header card
+# so a doomed run stops on one line per problem instead of halfway through.
+preflight_checks() {
+  PREFLIGHT_FAILED=0
+  if ! command -v python3 >/dev/null 2>&1; then
+    ui_fail "cxx" "preflight" "install it: apt-get install python3 | dnf install python3 | apk add python3 | brew install python3" "python3 is required"
+    PREFLIGHT_FAILED=1
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    ui_fail "cxx" "preflight" "install it: apt-get install curl | dnf install curl | apk add curl | brew install curl" "curl is required"
+    PREFLIGHT_FAILED=1
+  fi
+  if ! ensure_bin_root; then
+    ui_fail "cxx" "preflight" "Cannot install $NAME into $BIN_ROOT: re-run the pipe into 'sudo sh', allow passwordless sudo, or set BIN_DIR=$HOME/.local/bin for a per-user install" "$BIN_ROOT is not writable and sudo -n is unavailable"
+    PREFLIGHT_FAILED=1
+  fi
+}`;
+}
+
+/**
+ * What `GET /install/:token` serves: a launcher that carries no credential
+ * and consumes nothing. It runs the installer preflight locally and only then
+ * claims the single-use installer with `POST <installUrl>`, which emits the
+ * full script (host API key included). A missing prerequisite therefore
+ * leaves the token usable for a plain re-run of the same command.
+ */
+export function buildInstallerLauncherScript(opts: {
+  fqdn: string;
+  engine: Engine;
+  installUrl: string;
+  allowInsecure?: boolean;
+}): string {
+  return `#!/bin/sh
+# Codex Orchestrator installer launcher for ${binaryName(opts.engine)}.
+# Generated for host ${commentValue(opts.fqdn)}.
+# Carries no credentials: it checks prerequisites, then claims the single-use
+# installer with a POST and runs it. A failed check leaves the installer unused.
+set -eu
+
+INSTALL_URL=${shellQuote(opts.installUrl)}
+NAME=${shellQuote(binaryName(opts.engine))}
+CODEX_INSTALL_CURL_INSECURE=\${CODEX_INSTALL_CURL_INSECURE:-${opts.allowInsecure ? '1' : '0'}}
+BIN_DIR=\${BIN_DIR:-/usr/local/bin}
+BIN_ROOT=$BIN_DIR
+INSTALL_WITH_SUDO=0
+STAGE_FILE=
+
+ui_fail() {
+  printf '%s %s: %s\\n' "$1" "$2" "$4" >&2
+  if [ -n "$3" ]; then printf '  %s\\n' "$3" >&2; fi
+}
+
+${preflightFunctions()}
+
+# Invoked indirectly by the EXIT trap below.
+# shellcheck disable=SC2329
+launcher_cleanup() {
+  if [ -n "$STAGE_FILE" ]; then rm -f "$STAGE_FILE"; fi
+}
+
+# Everything runs from main, so the whole launcher is read before any child
+# can touch stdin (usually the curl pipe).
+main() {
+  preflight_checks
+  if [ "$PREFLIGHT_FAILED" = "1" ]; then
+    printf '%s\\n' "The single-use installer was NOT consumed. Fix the above, then re-run the same command." >&2
+    exit 1
+  fi
+  : "$INSTALL_WITH_SUDO"
+  CURL_INSECURE_FLAG=
+  if [ "$CODEX_INSTALL_CURL_INSECURE" = "1" ]; then CURL_INSECURE_FLAG=-k; fi
+  trap launcher_cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  # mktemp creates the file 0600; it holds the host API key until exit.
+  STAGE_FILE=$(mktemp "\${TMPDIR:-/tmp}/cxx.installer.XXXXXX")
+  if ! curl $CURL_INSECURE_FLAG -fsSL -X POST "$INSTALL_URL" -o "$STAGE_FILE"; then
+    printf '%s\\n' "Could not claim the installer at $INSTALL_URL. If it now reports already used, mint a fresh installer." >&2
+    exit 1
+  fi
+  STAGE_STATUS=0
+  sh "$STAGE_FILE" || STAGE_STATUS=$?
+  exit "$STAGE_STATUS"
+}
+
+main "$@"
+`;
 }
 
 function binaryName(engine: Engine): string {
