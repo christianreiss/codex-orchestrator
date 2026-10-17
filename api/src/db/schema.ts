@@ -2366,6 +2366,28 @@ export const hostDaemonOperations = mysqlTable('host_daemon_operations', {
   updatedAt: varchar('updated_at', { length: 100 }).notNull(),
 }, t => [uniqueIndex('uq_daemon_operation_client').on(t.clientKey), index('idx_daemon_operations_host').on(t.hostId, t.status)]);
 
+// Fleet Advisor (migration 0076): binds an advisor daemon session to the agent that opened it.
+export const advisorSessions = mysqlTable('advisor_sessions', {
+  id: char('id', { length: 36 }).primaryKey(),
+  callerAddressId: char('caller_address_id', { length: 36 }).notNull(),
+  clientKey: varchar('client_key', { length: 150 }).notNull(),
+  daemonSessionId: char('daemon_session_id', { length: 36 }).notNull(),
+  hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull().references(() => hosts.id, { onDelete: 'cascade' }),
+  kind: varchar('kind', { length: 24 }).notNull(),
+  conversationId: char('conversation_id', { length: 36 }),
+  status: varchar('status', { length: 16 }).notNull(),
+  verdictEnc: longtext('verdict_enc'),
+  closeReason: varchar('close_reason', { length: 24 }),
+  turns: int('turns', { unsigned: true }).notNull().default(0),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  closedAt: varchar('closed_at', { length: 100 }),
+}, t => [
+  uniqueIndex('uq_advisor_client').on(t.clientKey),
+  uniqueIndex('uq_advisor_daemon_session').on(t.daemonSessionId),
+  index('idx_advisor_caller').on(t.callerAddressId, t.status),
+]);
+
 export const hostDaemonPortalBindings = mysqlTable('host_daemon_portal_bindings', {
   portalSessionId: char('portal_session_id', { length: 36 }).primaryKey().references(() => agentSessions.id, { onDelete: 'cascade' }),
   daemonSessionId: char('daemon_session_id', { length: 36 }).notNull().references(() => hostDaemonSessions.id, { onDelete: 'cascade' }),

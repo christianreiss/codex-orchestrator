@@ -28,6 +28,7 @@ import { wsPublisher } from '../../ws/publisher.js';
 import { daemonSettingsSchema, daemonHealth, daemonExpired, daemonAccepting, daemonExecutionEnabled, daemonResident, type DaemonRuntime, type DaemonSettings } from './policy.js';
 import { ENGINE_HOST_FIELDS, type Engine } from '../../util/engine.js';
 import { messagingHostEligible } from '../agent-messaging.js';
+import { advisorSessionStopped, advisorTurnCompleted } from '../advisor-delivery.js';
 
 import { daemonAccess, renewDaemonWindow, type DaemonDb } from './access.js';
 export interface PortalDaemonInput {
@@ -591,6 +592,7 @@ export class HostDaemonService {
         .update(sessions)
         .set({ status: ['running', 'stopping'].includes(current.status) ? 'stopping' : 'closed' })
         .where(eq(sessions.id, id));
+      await advisorSessionStopped(tx, this.ctx.keyring, current, actor);
       await tx.insert(adminEvents).values({
         type: 'host.daemon.stop_requested',
         hostId: row.hostId,
@@ -898,6 +900,8 @@ export class HostDaemonService {
               ? 'waiting'
               : 'idle'
             : result.status;
+      if (session)
+        await advisorTurnCompleted(tx, this.ctx.keyring, session, result, status, config?.settings.idle_minutes ?? 60);
       await tx.update(sessions).set({ status, lastActivityAt: now() }).where(eq(sessions.id, op.sessionId));
     });
     this.changed(hostId);

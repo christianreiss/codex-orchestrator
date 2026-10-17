@@ -1,6 +1,7 @@
 /**
  * Host-facing agents + client config retrieval.
  */
+import { advisorConfigured } from './advisor.js';
 import { eq, desc } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import type { Database } from '../db/client.js';
@@ -585,6 +586,9 @@ export class HostAgentsService {
         await this.settings.getFlag('host_spawn_enabled', false).catch(() => false), 'vip_and_fleet_switch'),
       gitDirector,
       fileTransfer,
+      advisor: !agentMessaging.enabled
+        ? state(false, agentMessaging.reason)
+        : await advisorConfigured(this.db).catch(() => state(false, 'service_unavailable')),
       feedback: feedbackEnabled === null ? state(false, 'service_unavailable')
         : !mcp.enabled ? state(false, mcp.reason)
         : !feedbackEnabled ? state(false, 'feedback_disabled')

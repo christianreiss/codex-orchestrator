@@ -6,6 +6,7 @@
   import { goto } from "$app/navigation";
   import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import TogglePolicy from "$lib/components/policies/TogglePolicy.svelte";
+  import AdvisorPolicy from "$lib/components/policies/AdvisorPolicy.svelte";
   import AuthorizationPolicy from "$lib/components/policies/AuthorizationPolicy.svelte";
   import SessionHousekeeping from "$lib/components/policies/SessionHousekeeping.svelte";
   import CleanupPolicy from "$lib/components/policies/CleanupPolicy.svelte";
@@ -21,7 +22,7 @@
   ];
   const anchors: Record<string, string> = {
     "auto-update": "fleet-behavior", "reverse-dns": "fleet-behavior",
-    "agent-sessions": "agent-behavior", "host-spawn": "agent-behavior", "api-keys-in-chat": "agent-behavior", "model-tier-check": "agent-behavior",
+    "agent-sessions": "agent-behavior", "host-spawn": "agent-behavior", "api-keys-in-chat": "agent-behavior", "model-tier-check": "agent-behavior", advisor: "agent-behavior",
     authorization: "access-control", "insecure-approval": "access-control",
     "session-housekeeping": "cleanup", "host-lifecycle": "cleanup", "prune-policy": "cleanup", "log-retention": "cleanup",
   };
@@ -55,7 +56,7 @@
       <section id={category.id} hidden={active !== category.id} aria-labelledby={`${category.id}-heading`} class="space-y-4">
         <div class="mb-5"><h2 id={`${category.id}-heading`} class="text-lg font-semibold">{category.title}</h2><p class="mt-1 text-sm text-muted-foreground">{category.description}</p></div>
         {#if category.id === "fleet-behavior"}<TogglePolicy id="auto-update" /><TogglePolicy id="reverse-dns" />
-        {:else if category.id === "agent-behavior"}{#if $authStore.can("agent_portal.manage")}<SessionControls />{/if}<TogglePolicy id="api-keys-in-chat" /><TogglePolicy id="model-tier-check" /><TogglePolicy id="host-spawn" />
+        {:else if category.id === "agent-behavior"}{#if $authStore.can("agent_portal.manage")}<SessionControls />{/if}<TogglePolicy id="api-keys-in-chat" /><TogglePolicy id="model-tier-check" /><TogglePolicy id="host-spawn" /><AdvisorPolicy />
         {:else if category.id === "access-control"}<AuthorizationPolicy /><TogglePolicy id="insecure-approval" />
         {:else}<div id="host-lifecycle" class="scroll-mt-24"><CleanupPolicy kind="prune-policy" /></div><CleanupPolicy kind="log-retention" /><SessionHousekeeping />{/if}
       </section>

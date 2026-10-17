@@ -322,6 +322,7 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/watchdogs',
       'POST /admin/watchdogs/:id/disable',
       'PUT /admin/hosts/:id/daemon',
+      'PUT /admin/advisor',
     ].sort());
   });
 });

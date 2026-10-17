@@ -1034,6 +1034,16 @@ See the optional host execution daemon contract in [interface-api.md](interface-
 - `POST /host/agent-sessions/:sessionId/agent-messaging/spawn-status`
 - `POST /host/agent-sessions/:sessionId/agent-messaging/stop`
 
+### Fleet Advisor
+
+A server-hosted second opinion served by the advisor host's daemon. See [interface-api.md](interface-api.md#fleet-advisor).
+
+- `GET /admin/advisor`
+- `PUT /admin/advisor`
+- `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/ask`
+- `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/close`
+- `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/status`
+
 ## Chatty personal product assistant
 
 Owner/Admin only through always-enforced `chatty.use`; settings require

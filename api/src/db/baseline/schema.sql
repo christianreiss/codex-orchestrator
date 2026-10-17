@@ -1976,3 +1976,26 @@ CREATE TABLE `engine_destroy_hosts` (
 	CONSTRAINT `engine_destroy_hosts_request_id_host_id_pk` PRIMARY KEY(`request_id`,`host_id`),
 	KEY `idx_engine_destroy_engine` (`engine`, `status`)
 );
+
+CREATE TABLE `advisor_sessions` (
+	`id` char(36) NOT NULL,
+	`caller_address_id` char(36) NOT NULL,
+	`client_key` varchar(150) NOT NULL,
+	`daemon_session_id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`kind` varchar(24) NOT NULL,
+	`conversation_id` char(36),
+	`status` varchar(16) NOT NULL,
+	`verdict_enc` longtext,
+	`close_reason` varchar(24),
+	`turns` int unsigned NOT NULL DEFAULT 0,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	`closed_at` varchar(100),
+	CONSTRAINT `advisor_sessions_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_advisor_client` UNIQUE(`client_key`),
+	CONSTRAINT `uq_advisor_daemon_session` UNIQUE(`daemon_session_id`),
+	KEY `idx_advisor_caller` (`caller_address_id`, `status`)
+);
+
+ALTER TABLE `advisor_sessions` ADD CONSTRAINT `fk_advisor_host` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE CASCADE;

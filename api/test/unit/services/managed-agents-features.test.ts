@@ -214,6 +214,7 @@ describe('served document size budget', () => {
       fileTransfer: enabled(),
       feedback: enabled(),
       hostSpawn: enabled(),
+      advisor: enabled(),
       modelTiers: {
         ...enabled(),
         table: [
@@ -227,7 +228,9 @@ describe('served document size budget', () => {
     });
     for (const levels of [presetLevels('standard'), presetLevels('unrestricted')]) {
       const out = renderManagedAgentFeatures(base.content, ctx, levels, base.provenance);
-      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(24_750);
+      // 2026-10-17: +650 for the opt-in Fleet Advisor block, which is served only
+      // while an operator has an advisor host enabled; the block itself is capped below.
+      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(25_450);
       const section = (heading: string): string => {
         const start = out.body.indexOf(`## ${heading}\n`);
         expect(start).toBeGreaterThanOrEqual(0);
@@ -237,6 +240,7 @@ describe('served document size budget', () => {
       expect(section('Agent Messaging').length).toBeLessThan(4_600);
       expect(section('Git Director').length).toBeLessThan(3_100);
       expect(section('File Transfer').length).toBeLessThan(1_400);
+      expect(section('Fleet Advisor').length).toBeLessThan(700);
       expect(section('Memory').length).toBeLessThan(2_700);
       // Whole-assignment scouting and model-identity safeguards need explicit wording.
       expect(section('Model Class Check').length).toBeLessThan(1_800);
@@ -891,10 +895,24 @@ describe('managed Agent Messaging guidance', () => {
     }
   });
 
+  it('renders the Fleet Advisor block only while the advisor and messaging are both on', () => {
+    const on = renderManagedAgentFeatures('# Base\n', context(ENGINE_CLAUDE, { agentMessaging: enabled(), advisor: enabled() }));
+    expect(on.body).toContain('## Fleet Advisor');
+    expect(on.body).toContain('advisor_close');
+    expect(on.sections.advisor?.present).toBe(true);
+    const off = renderManagedAgentFeatures('# Base\n', context(ENGINE_CLAUDE, { agentMessaging: enabled(), advisor: disabled('advisor_disabled') }));
+    expect(off.body).not.toContain('## Fleet Advisor');
+    expect(off.sections.advisor).toEqual({ present: false, reason: 'advisor_disabled' });
+    const noMessaging = renderManagedAgentFeatures('# Base\n', context(ENGINE_CLAUDE, { advisor: enabled() }));
+    expect(noMessaging.body).not.toContain('advisor_ask');
+    expect(noMessaging.sections.advisor?.reason).toBe('master_disabled');
+  });
+
   it('names every tool the fleet actually provisions', () => {
     // The permission allowlist and this prose read the same array, so a rename
     // cannot leave an agent approved for a tool the document never mentions.
-    const body = rendered(ENGINE_CODEX).body;
+    // The advisor_* tools are named by their own opt-in block.
+    const body = renderManagedAgentFeatures('# Base\n', context(ENGINE_CODEX, { agentMessaging: enabled(), advisor: enabled() })).body;
     for (const tool of AGENT_MESSAGING_TOOLS) {
       expect(body, tool).toContain(tool);
     }

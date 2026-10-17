@@ -318,6 +318,7 @@ func (b *Broker) allowedPath(path string) bool {
 		"reboot/prepare", "reboot/arm", "reboot/status", "reboot/restore", "reboot/disarm",
 		"watchdog/get", "watchdog/enable", "watchdog/disable", "watchdog/finish",
 		"spawn", "spawn-status", "stop", "insecure-enable",
+		"advisor/ask", "advisor/close", "advisor/status",
 		"list", "self", "translate", "send", "reply", "wait", "message", "cancel", "bind", "mailbox", "deliveries/claim",
 		"groups/list", "groups/create", "groups/detail", "groups/delete", "subscribe", "unsubscribe", "subscriptions", "publish",
 		"conf/open", "conf/invite", "conf/join", "conf/roster", "conf/say", "conf/dispatch", "conf/adjourn",

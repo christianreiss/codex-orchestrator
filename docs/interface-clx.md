@@ -1784,6 +1784,15 @@ SIGTERM and ten seconds later by SIGKILL to the owned process group. Offline
 stops stay pending until the host reports exit. Host disable rejects new work,
 drains accepted turns, closes idle sessions and stops the optional daemon.
 
+Fleet Advisor tools (cxx 0.9.98): `advisor_ask` (`question`, `kind`
+verify|tier_check|classify|general, optional `transfer_ids`, optional
+`advisor_session_id` for a follow-up, stable UUID `client_message_id`),
+`advisor_close` (`advisor_session_id`; the caller's done confirmation) and
+`advisor_status`. They post to `advisor/ask|close|status` under the session's
+agent-messaging routes. Each advisor is a daemon session on the admin-chosen
+advisor host; its answers arrive as ordinary peer messages headed `ADVISOR/1`.
+See [interface-api.md](interface-api.md#fleet-advisor).
+
 Hosts show the daemon indicator only when enabled. Green means connected and
 ready with capacity; yellow means pending installation, reconnect, partial
 engine readiness or full capacity; red means unavailable or blocked. Heartbeats

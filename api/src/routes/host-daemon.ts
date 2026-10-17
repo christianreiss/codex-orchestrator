@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { RouteContext } from './index.js';
 import { hosts, hostDaemons, versions } from '../db/schema.js';
 import { HostDaemonService } from '../services/host-daemon/service.js';
+import { AdvisorService } from '../services/advisor.js';
 import { daemonSettingsSchema, daemonStartSchema, daemonAccepting, daemonExecutionEnabled } from '../services/host-daemon/policy.js';
 import { createHostAuthService } from '../services/host-auth.js';
 import { createAgentMessagingService } from '../services/agent-messaging.js';
@@ -19,6 +20,7 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
     auth = createHostAuthService(ctx);
   const messaging = createAgentMessagingService(ctx.db, ctx.env, ctx.keyring);
   const events = createAdminEventsService(ctx.db);
+  const advisor = new AdvisorService(ctx);
   const hostId = (req: FastifyRequest) =>
     z.coerce
       .number()
@@ -121,6 +123,32 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
     const actor = await owner(req);
     const body = z.object({ session_id: z.string().uuid() }).strict().parse(req.body);
     return service.stop(body.session_id, actor);
+  });
+  // Fleet Advisor: the caller is the authenticated agent session, never a host.
+  const bridgeCaller = (req: FastifyRequest) =>
+    messaging.authenticateBridge(
+      (req.params as { sessionId: string }).sessionId,
+      String(req.headers['x-agent-bridge-token'] ?? ''),
+    );
+  app.post('/host/agent-sessions/:sessionId/agent-messaging/advisor/ask', async (req, reply) => {
+    const result = await advisor.ask(await bridgeCaller(req), req.body);
+    reply.code(202);
+    return result;
+  });
+  app.post('/host/agent-sessions/:sessionId/agent-messaging/advisor/close', async (req) =>
+    advisor.close(await bridgeCaller(req), req.body),
+  );
+  app.post('/host/agent-sessions/:sessionId/agent-messaging/advisor/status', async (req) =>
+    advisor.status(await bridgeCaller(req), req.body),
+  );
+  app.get('/admin/advisor', { preHandler: app.requireAdmin }, () => advisor.adminList());
+  app.put('/admin/advisor', { preHandler: app.requireAdmin }, async (req) => {
+    const result = await advisor.configure(req.body);
+    await events.record({
+      type: 'advisor.configured',
+      payload: { enabled: result.enabled, host_id: result.host_id, engine: result.engine, admin_user_id: req.admin!.user.id },
+    });
+    return result;
   });
   app.post('/host/daemon/peer-finished', async (req) => {
     const host = await auth.authenticate(req);

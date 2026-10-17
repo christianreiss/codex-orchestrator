@@ -3,13 +3,13 @@ package agentportal
 import "testing"
 
 // The cxx-agent MCP tools host_insecure_enable, agent_spawn,
-// agent_spawn_status and agent_stop post these suffixes through the broker
+// agent_spawn_status, agent_stop and advisor_* post these suffixes through the broker
 // (agentbus/mcp.go). A suffix missing here makes an advertised tool fail with
 // broker_operation_forbidden before the API, which owns the authorization,
 // ever sees the request.
 func TestDaemonBrokerRoutesRemainBoundToSession(t *testing.T) {
 	b := &Broker{session: &Session{ID: "session-one"}}
-	for _, operation := range []string{"insecure-enable", "spawn", "spawn-status", "stop"} {
+	for _, operation := range []string{"insecure-enable", "spawn", "spawn-status", "stop", "advisor/ask", "advisor/close", "advisor/status"} {
 		if !b.allowedPath("/host/agent-sessions/session-one/agent-messaging/" + operation) {
 			t.Fatalf("daemon operation blocked: %s", operation)
 		}

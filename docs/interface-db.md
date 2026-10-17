@@ -273,6 +273,15 @@ or logical session. A transport acknowledgement is not proof of task success.
 
 - **chatty_actions** — Chatty private durable state (`id` CHAR(36) NOT NULL, `run_id` CHAR(36) NOT NULL, `user_id` BIGINT UNSIGNED NOT NULL, `generation` INT NOT NULL, `tool` VARCHAR(100) NOT NULL, `status` VARCHAR(24) NOT NULL, `payload_enc` LONGTEXT NOT NULL, `result_enc` LONGTEXT, `expires_at` VARCHAR(100) NOT NULL, `created_at` VARCHAR(100) NOT NULL, `updated_at` VARCHAR(100) NOT NULL). Migration `0050_chatty.sql`; user ownership cascades on admin deletion. Content fields ending in enc use secretbox.
 
+
+## Fleet Advisor (migration 0076)
+
+`advisor_sessions` binds one host daemon session (the advisor) to the agent bus address that opened
+it. The daemon session owns the process, transcript, idle close and parallelism; this row adds the
+caller, the request kind, the conversation every answer is delivered in, the latest verdict and why it
+closed. The settings live in the `versions` row `advisor_settings` (JSON `{enabled, host_id, engine}`).
+
+- **advisor_sessions** — `id` CHAR(36) PRIMARY KEY, `caller_address_id` CHAR(36) NOT NULL (agent_bus_addresses.id of the opener; only it may follow up or close), `client_key` VARCHAR(150) NOT NULL UNIQUE (`<caller>:<client_message_id>`, makes opening idempotent), `daemon_session_id` CHAR(36) NOT NULL UNIQUE (host_daemon_sessions.id; no foreign key, queries never join across the two collations), `host_id` BIGINT UNSIGNED NOT NULL FK → hosts.id (CASCADE), `kind` VARCHAR(24) NOT NULL (`verify|tier_check|classify|general`), `conversation_id` CHAR(36) NULL (set by the first delivered answer), `status` VARCHAR(16) NOT NULL (`starting|open|closed|failed`), `verdict_enc` LONGTEXT NULL (secretbox JSON of the last valid verdict), `close_reason` VARCHAR(24) NULL (`done|idle|stopped|error`), `turns` INT UNSIGNED NOT NULL DEFAULT 0, `created_at` VARCHAR(100) NOT NULL, `updated_at` VARCHAR(100) NOT NULL, `closed_at` VARCHAR(100) NULL; index (`caller_address_id`, `status`).
 ## Android remote conversations (0.4.10)
 
 See [Android companion](android-companion.md#hosts-and-remote-conversations-0410) for the device-bearer host/start contract and logical Portal conversation projection. Migration 0052 adds `host_daemon_portal_bindings`, `companion_daemon_follows` and encrypted `host_daemon_operations.portal_content_enc`; it preserves existing sessions and permits safe retries. Remote conversations are owned by the paired administrator and retain real Portal events across native launches.

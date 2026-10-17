@@ -2179,6 +2179,33 @@ transcripts. No provider login is copied from another Unix account.
 - `POST /host/agent-sessions/:sessionId/agent-messaging/spawn-status`
 - `POST /host/agent-sessions/:sessionId/agent-messaging/stop`
 
+### Fleet Advisor
+
+Any agent can consult a server-hosted senior reviewer when in doubt: to verify a fix, rate a task's
+tier, classify a failure or ask a general question. The advisor is not a separate runtime. It is an
+ordinary host daemon session on one admin-chosen host (normally the stack's `advisor` container), so
+parallelism is that daemon's `max_parallel`, idle close is its `idle_minutes` (default 60) and each
+follow-up is a native resume of the same transcript. Model and effort are the advisor host's normal
+per-engine model override.
+
+- `GET /admin/advisor` (`admin.read`): `{settings, availability, advisors[]}`, the last 100 advisor sessions with caller address, state and verdict.
+- `PUT /admin/advisor` (`agent_messaging.manage`): body `{enabled, host_id|null, engine}` (strict). Stored as the `advisor_settings` versions row; audited as `advisor.configured`, which is also the WS event.
+- `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/ask` (bridge token, agent identity required): `{question (≤90000), kind verify|tier_check|classify|general (default general), transfer_ids? (≤10), advisor_session_id?, client_message_id UUID}`. Without `advisor_session_id` it opens an advisor (202, idempotent per caller and `client_message_id`); with it, it queues a follow-up turn. Errors: `advisor_unavailable` (403, with the availability reason), `advisor_recursion` (403, an advisor session asking), `advisor_busy` (409, no free slot, or the advisor is still answering), `advisor_closed` (409).
+- `POST .../advisor/close` `{advisor_session_id}`: the caller's done confirmation; stops the daemon session and records `close_reason: done`. Only the opening agent may close or follow up (403 otherwise).
+- `POST .../advisor/status` `{advisor_session_id?}`: one advisor, or the caller's last 20 plus current availability.
+
+Advisor view fields: `advisor_session_id`, `kind`, `status` (`starting|open|closed|failed`, derived from the daemon session when it ended without the advisor row hearing of it), `busy`, `turns`, `advisor_address`, `conversation_id`, `verdict`, `close_reason` (`done|idle|stopped|error`), `created_at`, `closed_at`.
+
+Delivery: when a turn completes, the server queues a `kind: message`, `delivery_class: coordination` peer message from the advisor's own bus address to the caller, headed `ADVISOR/1 advisor_session_id=… turn=… kind=…`, in one conversation per advisor. The native answer is expected to end in a fenced JSON verdict `{verdict: agree|disagree|needs_info|n/a, tier?, recommended_model?, summary, evidence[]}`; the last valid one is stored encrypted. An idle-sweep close sends a `delivery_class: notice` message (`closed reason=idle`). A failed turn still sends the caller a message saying so.
+
+Availability (`advisor_unavailable` reasons): `advisor_disabled`, `advisor_host_unset`, `agent_messaging_disabled`, `advisor_host_missing`, `advisor_daemon_disabled`, `advisor_daemon_unhealthy`, `advisor_engine_unavailable`. The managed AGENTS.md/CLAUDE.md `## Fleet Advisor` block (section key `advisor`) is served only while Agent Messaging is on and the advisor is configured: enabled, host chosen and active, its daemon accepting, the engine active there. It ignores daemon heartbeats, so a reconnecting container does not churn every host's document.
+
+- `GET /admin/advisor`
+- `PUT /admin/advisor`
+- `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/ask`
+- `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/close`
+- `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/status`
+
 ### Portal instruction read and processing receipts
 
 Authenticated `POST /host/agent-sessions/:id/events` also accepts `message_read` and
