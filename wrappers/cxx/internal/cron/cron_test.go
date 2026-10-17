@@ -203,6 +203,7 @@ func TestNormalHostScheduleReconcileRemovesTheManagedLine(t *testing.T) {
 	}
 	dir := t.TempDir()
 	store := filepath.Join(dir, "crontab.txt")
+	isolateSystemCronPaths(t)
 	// PATH holds only the fake crontab: no sudo, so the run stays on this
 	// user's own (fake) crontab and never reaches the real spool.
 	t.Setenv("PATH", dir)
@@ -965,7 +966,21 @@ func TestReconcileManagedUserCrontabsRestoresEarlierWritesOnPartialFailure(t *te
 	}
 }
 
+// isolateSystemCronPaths points the host-wide schedule paths at a temporary
+// directory, so a test neither reads nor removes the host's real /etc/cron.d
+// entries (feedback f60995e2: a real cxx-managed file whose cron user was the
+// test user made the normal-host reconcile try, and fail, to remove it).
+func isolateSystemCronPaths(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	oldSystem, oldLegacy := systemCronPath, legacySystemPaths
+	t.Cleanup(func() { systemCronPath, legacySystemPaths = oldSystem, oldLegacy })
+	systemCronPath = filepath.Join(dir, "cxx-managed")
+	legacySystemPaths = []string{filepath.Join(dir, "cdx-managed"), filepath.Join(dir, "clx-managed")}
+}
+
 func TestPrivilegedRemoveRestoresUsersWhenSystemCleanupFails(t *testing.T) {
+	isolateSystemCronPaths(t)
 	oldReconcile, oldRemove := reconcileUserSchedules, removeSystemSchedule
 	var calls []string
 	reconcileUserSchedules = func(string) (userCrontabRollback, error) {
