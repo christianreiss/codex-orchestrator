@@ -2191,8 +2191,11 @@ per-engine model override.
 Container: `docker compose --profile advisor` (or `COMPOSE_PROFILES=advisor` in `.env`) runs
 `advisor/` as uid 10001 with volumes `advisor_home` and `advisor_work`. Provision it once by
 registering a secure host with a permanent daemon (`username advisor`, `default_cwd /work`; System
-Spawn's `host_spawn_prepare` does this) and setting `ADVISOR_INSTALL_URL` to its installer URL; remove
-the variable after the first start. The host's CA bundle (`ADVISOR_CA_BUNDLE`, default
+Spawn's `host_spawn_prepare` does this), setting `ADVISOR_FQDN` to that host's FQDN (it becomes the
+container hostname, which cxx checks) and `ADVISOR_INSTALL_URL` to its installer URL; remove the URL
+after the first start. The installer reports INCOMPLETE in the container because there is no crontab or
+systemd; the daemon runs in the foreground instead, so the entrypoint checks for the binary and a
+signed config. The host's CA bundle (`ADVISOR_CA_BUNDLE`, default
 `/etc/ssl/certs/ca-certificates.crt`) is mounted read-only, so a public API behind a private CA verifies.
 
 - `GET /admin/advisor` (`admin.read`): `{settings, availability, advisors[]}`, the last 100 advisor sessions with caller address, state and verdict.

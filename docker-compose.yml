@@ -178,6 +178,8 @@ services:
     profiles: ["advisor"]
     build:
       context: ./advisor
+    # cxx refuses to sync when the hostname differs from the registered FQDN.
+    hostname: ${ADVISOR_FQDN:-advisor.localdomain}
     environment:
       ADVISOR_INSTALL_URL: ${ADVISOR_INSTALL_URL:-}
       # Trust what the host trusts: the public API may sit behind a private CA.

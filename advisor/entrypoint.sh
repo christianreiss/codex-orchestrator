@@ -17,14 +17,16 @@ if [ ! -x "$cxx" ]; then
     exec sleep infinity
   fi
   setup=$(mktemp)
-  # The installer URL is single-use: a failed attempt consumes it, so never
-  # restart-loop on it. Idle with the reason until an operator mints a new one.
-  if ! curl -fsSL "$ADVISOR_INSTALL_URL" -o "$setup" || ! sh "$setup"; then
-    rm -f "$setup"
+  # The installer always reports INCOMPLETE here: a container has no crontab
+  # or systemd, and needs neither because the daemon is the foreground
+  # process. Success is the binary plus a signed config, not its exit code.
+  curl -fsSL "$ADVISOR_INSTALL_URL" -o "$setup" && sh "$setup" || true
+  rm -f "$setup"
+  if [ ! -x "$cxx" ] || ! ls "$cfg"/*.json.sig >/dev/null 2>&1; then
+    # The installer URL is single-use: never restart-loop on a spent one.
     echo "advisor: installation failed; fix the cause, mint a fresh installer URL and recreate the container." >&2
     exec sleep infinity
   fi
-  rm -f "$setup"
 fi
 
 # Pinned private engine installs; a failure here leaves the engine unready,
