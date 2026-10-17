@@ -66,7 +66,7 @@ func formatQuotaLines(caps Caps, row QuotaRow, width int) []string {
 	pctCol := tonePalette(caps, tone)
 	resetTxt := ""
 	if row.ResetAfter > 0 {
-		resetTxt = "  reset " + DurationShort(row.ResetAfter)
+		resetTxt = "  reset " + ResetInText(row.ResetAfter)
 	}
 	barWidth := width - labelWidth - VisibleWidth(pct) - VisibleWidth(resetTxt) - 5
 	if barWidth > 42 {
@@ -357,7 +357,7 @@ func (r QuotaCompare) meta(caps Caps) []string {
 	}
 	reset := "reset unknown"
 	if r.ResetIn > 0 {
-		reset = "resets in " + DurationShort(r.ResetIn)
+		reset = "resets in " + ResetInText(r.ResetIn)
 	}
 	parts = append(parts, p.Dim+reset+p.Reset, p.Dim+DurationShort(r.Age)+" ago"+p.Reset)
 	return parts

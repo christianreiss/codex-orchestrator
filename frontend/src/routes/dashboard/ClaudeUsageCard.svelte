@@ -16,7 +16,7 @@
   import Sparkline from "$lib/components/dashboard/Sparkline.svelte";
   import TrendChart from "$lib/components/dashboard/TrendChart.svelte";
   import { claudeUsageQuery, claudeHistoryQuery } from "$lib/api/usage";
-  import { relativeTime } from "$lib/utils/format";
+  import { relativeTime, resetsIn } from "$lib/utils/format";
   import { Badge } from "$lib/components/ui/badge";
   import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
 
@@ -133,18 +133,30 @@
       {/if}
       <div class="space-y-3">
         {#if fiveHourPercent !== null}
+        {@const when = resetsIn(snapshot?.five_hour_resets_at)}
         <UsageMeter
           label="5-hour window"
           valueLabel={fiveHourPercent === null ? "—" : `${Math.round(fiveHourPercent)}%`}
           usedPercent={fiveHourPercent ?? 0}
         />
+        {#if when === "passed"}
+          <p class="text-xs text-muted-foreground">Reset passed</p>
+        {:else if when}
+          <p class="text-xs text-muted-foreground">Resets <time datetime={snapshot?.five_hour_resets_at ?? undefined} title={snapshot?.five_hour_resets_at ?? undefined}>{when}</time></p>
+        {/if}
         {/if}
         {#if sevenDayPercent !== null}
+        {@const when = resetsIn(snapshot?.seven_day_resets_at)}
         <UsageMeter
           label="Weekly window"
           valueLabel={sevenDayPercent === null ? "—" : `${Math.round(sevenDayPercent)}%`}
           usedPercent={sevenDayPercent ?? 0}
         />
+        {#if when === "passed"}
+          <p class="text-xs text-muted-foreground">Reset passed</p>
+        {:else if when}
+          <p class="text-xs text-muted-foreground">Resets <time datetime={snapshot?.seven_day_resets_at ?? undefined} title={snapshot?.seven_day_resets_at ?? undefined}>{when}</time></p>
+        {/if}
         {/if}
         {#if fiveHourPercent === null && sevenDayPercent === null}
           <p class="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">No quota windows reported in the latest snapshot.</p>

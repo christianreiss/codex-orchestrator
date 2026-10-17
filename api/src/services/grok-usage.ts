@@ -73,6 +73,24 @@ export function parseGrokUsage(body: unknown): GrokUsageWindow | null {
   };
 }
 
+/** Auth-retrieve view of one stored reading. Display only: no enforcement fields. */
+export function grokUsageAuthFields(reading: {
+  fetched_at: string | null;
+  stale: boolean;
+  current_window: { used_percent: number; period: 'weekly' | 'monthly' | null; resets_at: string | null } | null;
+} | null): Record<string, unknown> {
+  const window = reading?.current_window;
+  if (!reading || !window) return { status: 'unavailable' };
+  return {
+    status: 'ok',
+    used_percent: window.used_percent,
+    period: window.period,
+    resets_at: window.resets_at,
+    fetched_at: reading.fetched_at,
+    stale: reading.stale,
+  };
+}
+
 export async function readGrokUsage(reader: Pick<Database, 'select'>, accountId: number) {
   const [row] = await reader
     .select()

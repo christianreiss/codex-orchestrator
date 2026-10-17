@@ -765,7 +765,7 @@ describe('Grok metadata-only probes', () => {
     try {
       const response = await app.inject({ method: 'POST', url: '/auth', headers: { authorization: `Bearer ${apiKey}` }, payload: { engine: 'grok', command: 'retrieve', metadata_only: true } });
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toMatchObject({ account_pool: true, metadata_only: true, status: 'missing', verification_state: 'unknown', pool_verified_accounts: 0 });
+      expect(response.json()).toMatchObject({ account_pool: true, metadata_only: true, status: 'missing', verification_state: 'unknown', pool_verified_accounts: 0, grok_usage: { status: 'unavailable' } });
       expect(response.json()).not.toHaveProperty('auth');
       expect(fetch).not.toHaveBeenCalled();
       expect(db.updates.filter(entry => entry.table === authPayloads)).toEqual([]);

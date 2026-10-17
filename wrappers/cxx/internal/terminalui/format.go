@@ -2,6 +2,7 @@ package terminalui
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 )
@@ -73,4 +74,21 @@ func DurationShort(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%dm", mins)
 	}
+}
+
+// ResetInText is the quota-reset countdown. Under a day it matches
+// DurationShort ("3h 5m"). A day or more is whole days ("6 days"), dropping
+// leftover hours. Callers keep their own "reset unknown" copy for a zero duration.
+func ResetInText(d time.Duration) string {
+	if d < 24*time.Hour {
+		return DurationShort(d)
+	}
+	days := int(math.Round(float64(d) / float64(24*time.Hour)))
+	if days < 1 {
+		days = 1
+	}
+	if days == 1 {
+		return "1 day"
+	}
+	return fmt.Sprintf("%d days", days)
 }

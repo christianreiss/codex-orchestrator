@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 // import needs the ".ts" extension that TypeScript rejects on a static import;
 // hiding it behind a variable keeps both happy. Types come from the cast.
 const formatModule: string = "./format.ts";
-const { relativeTime, formatBytes } = (await import(formatModule)) as typeof import("./format");
+const { relativeTime, resetsIn, formatBytes } = (await import(formatModule)) as typeof import("./format");
 
 /** The clock every relativeTime expectation below is measured against. */
 const NOW = Date.UTC(2026, 6, 29, 12, 0, 0);
@@ -51,6 +51,28 @@ describe("relativeTime", () => {
     assert.equal(relativeTime("not-a-date"), "");
     assert.equal(relativeTime(new Date("not-a-date")), "");
     assert.equal(relativeTime(Number.NaN), "");
+  });
+});
+
+describe("resetsIn", () => {
+  it("uses whole days once the reset is at least a day away", () => {
+    assert.equal(resetsIn(new Date(NOW + DAY), NOW), "in 1 day");
+    assert.equal(resetsIn(new Date(NOW + 6 * DAY + 4 * HOUR), NOW), "in 6 days");
+    assert.equal(resetsIn(new Date(NOW + 36 * HOUR), NOW), "in 2 days");
+  });
+
+  it("keeps hours or minutes inside a day", () => {
+    assert.equal(resetsIn(new Date(NOW + 3 * HOUR), NOW), "in 3 hours");
+    assert.equal(resetsIn(new Date(NOW + 42 * MINUTE), NOW), "in 42 minutes");
+    assert.equal(resetsIn(new Date(NOW + 30 * SECOND), NOW), "in 1 minute");
+  });
+
+  it("does not invent a countdown for a missing, past, or unparseable reset", () => {
+    assert.equal(resetsIn(null, NOW), "");
+    assert.equal(resetsIn("", NOW), "");
+    assert.equal(resetsIn("not-a-date", NOW), "");
+    assert.equal(resetsIn(new Date(NOW), NOW), "passed");
+    assert.equal(resetsIn(new Date(NOW - HOUR).toISOString(), NOW), "passed");
   });
 });
 

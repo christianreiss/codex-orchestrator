@@ -1,14 +1,14 @@
 ---
 title: Dashboard
-summary: Reported engine coverage, Codex and Claude usage, runner verification, and refresh recovery.
+summary: Reported engine coverage, Codex, Claude and Grok usage, runner verification, and refresh recovery.
 section: Admin workspace
-verified: 2026-09-09
+verified: 2026-10-17
 sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/dashboard/OnboardingCard.svelte, frontend/src/lib/api/setup.ts, frontend/src/lib/components/dashboard/StatCard.svelte, frontend/src/routes/dashboard/ChatGptUsageCard.svelte, frontend/src/lib/components/dashboard/RunnerCard.svelte, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
 ---
 
 # Dashboard
 
-The **Overview** page combines reported host installations, upstream CLI versions, Codex and Claude quota usage, and runner verification. Grok subscription quota is not tracked; Grok accounts show *Subscription quota unavailable* rather than a zero reading (see [Grok Build](cgx)). Use **Refresh overview** to reload fleet counts and release information; each usage card has its own refresh control.
+The **Overview** page combines reported host installations, upstream CLI versions, Codex, Claude, and Grok quota usage, and runner verification. Grok accounts show the stored billing-period usage and a relative reset (`in 6 days`, or hours when the reset is under a day). An absent reading stays unavailable and is never shown as 0% (see [Grok Build](cgx)). Use **Refresh overview** to reload fleet counts and release information; each usage card has its own refresh control.
 
 ## Active Clients
 

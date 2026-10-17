@@ -65,6 +65,7 @@ test("three providers share card and meter geometry in light/dark desktop, table
     await expect(cards.nth(1).getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
     await expect(cards.nth(1)).toContainText("Last known reading");
     await expect(cards.nth(2).getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "87");
+    await expect(cards.nth(2)).toContainText("in 1 day");
     const geometry = await cards.evaluateAll(nodes => nodes.map(node => {
       const bounds = node.getBoundingClientRect();
       const style = getComputedStyle(node);
@@ -97,10 +98,36 @@ test("ChatGPT renders a supplied five-hour zero reading and retains account navi
   const card = page.getByRole("link", { name: "ChatGPT", exact: true });
   await expect(card.getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
   await expect(card.getByRole("meter")).toHaveCount(2);
-  await expect(card.locator(`time[datetime='${reset}']`)).toBeVisible();
+  await expect(card.locator(`time[datetime='${reset}']`)).toContainText("in 1 day");
   await card.focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/admin\/accounts$/);
+  const chatgpt = page.locator("section").filter({ has: page.getByRole("heading", { name: "ChatGPT", exact: true }) });
+  await expect(chatgpt.locator(`time[datetime='${reset}']`)).toContainText("in 1 day");
+  await expect(chatgpt.getByText("Reset time unavailable")).toBeVisible();
+  const grok = page.locator("section").filter({ has: page.getByRole("heading", { name: "Grok account", exact: true }) });
+  await expect(grok.locator(`time[datetime='${reset}']`)).toContainText("in 1 day");
+});
+
+test("a Grok window without a reset does not invent a day count", async ({ page }) => {
+  const accounts = providers();
+  accounts[2].usage.current_window = { used_percent: 10, period: "weekly", starts_at: null, resets_at: null, shared: false };
+  await fixtures(page, accounts);
+  await page.goto("/admin/dashboard");
+  const card = page.getByRole("link", { name: "Grok account", exact: true });
+  await expect(card.getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "10");
+  await expect(card).toContainText("Reset time unavailable");
+  await expect(card).not.toContainText("in 0 days");
+});
+
+test("a sub-day Grok reset stays in hours", async ({ page }) => {
+  const accounts = providers();
+  const soon = new Date(Date.now() + 3 * 3_600_000).toISOString();
+  accounts[2].usage.current_window = { used_percent: 10, period: "weekly", starts_at: null, resets_at: soon, shared: true };
+  await fixtures(page, accounts);
+  await page.goto("/admin/dashboard");
+  const card = page.getByRole("link", { name: "Grok account", exact: true });
+  await expect(card.locator(`time[datetime='${soon}']`)).toContainText("in 3 hours");
 });
 
 test("unknown, unavailable and login-required accounts never show zero quota", async ({ page }) => {

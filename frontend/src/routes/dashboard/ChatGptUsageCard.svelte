@@ -26,7 +26,7 @@
     type ChatGptUsageSummary,
   } from "$lib/api/usage";
   import { toast } from "svelte-sonner";
-  import { relativeTime } from "$lib/utils/format";
+  import { relativeTime, resetsIn } from "$lib/utils/format";
   import { Badge } from "$lib/components/ui/badge";
   import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
 
@@ -163,12 +163,18 @@
       {:else}
         <div class="space-y-3">
           {#each quotaRows as row (row.key)}
+            {@const when = resetsIn(row.resetsAt)}
             <UsageMeter
               label={row.label}
               valueLabel={`${Math.round(row.usedPercent)}%`}
               usedPercent={row.usedPercent}
               cachedPercent={cached ? row.usedPercent : 0}
             />
+            {#if when === "passed"}
+              <p class="text-xs text-muted-foreground">Reset passed</p>
+            {:else if when}
+              <p class="text-xs text-muted-foreground">Resets <time datetime={row.resetsAt ?? undefined} title={row.resetsAt ?? undefined}>{when}</time></p>
+            {/if}
           {/each}
         </div>
       {/if}

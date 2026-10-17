@@ -225,6 +225,7 @@ describe("chatgptQuotaRows", () => {
       ["Weekly window"],
     );
     assert.equal(rows[0]?.usedPercent, 24);
+    assert.equal(rows[0]?.resetsAt, null);
   });
 
   it("keeps a window sitting at exactly 0%", () => {
@@ -240,6 +241,13 @@ describe("chatgptQuotaRows", () => {
       rows.map((row) => row.usedPercent),
       [24, 0, 0],
     );
+  });
+
+  it("keeps the provider reset beside the window it belongs to", () => {
+    const rows = chatgptQuotaRows({
+      primary_window: { used_percent: 24, limit_seconds: 604800, resets_at: "2026-10-24T00:00:00Z" },
+    });
+    assert.equal(rows[0]?.resetsAt, "2026-10-24T00:00:00Z");
   });
 
   it("labels each window by its own duration, not its slot", () => {

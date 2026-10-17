@@ -248,6 +248,7 @@ export interface ChatGptQuotaRow {
   lane: "normal" | "spark";
   label: string;
   usedPercent: number;
+  resetsAt: string | null;
 }
 
 /**
@@ -306,11 +307,13 @@ export function chatgptQuotaRows(summary: ChatGptUsageSummary | null | undefined
     const used = slot.window?.used_percent;
     if (typeof used !== "number" || !Number.isFinite(used)) continue;
     const label = chatgptWindowLabel(slot.window?.limit_seconds, slot.fallback);
+    const resetsAt = slot.window?.resets_at;
     rows.push({
       key: slot.key,
       lane: slot.lane,
       label: slot.lane === "spark" ? `Spark · ${label}` : label,
       usedPercent: used,
+      resetsAt: typeof resetsAt === "string" && resetsAt ? resetsAt : null,
     });
   }
   return rows;

@@ -4,7 +4,7 @@
   import { base } from "$app/paths";
   import { Badge } from "$lib/components/ui/badge";
   import { cn } from "$lib/utils/cn";
-  import { relativeTime } from "$lib/utils/format";
+  import { relativeTime, resetsIn } from "$lib/utils/format";
   import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
   import GrokUsage from "$lib/components/dashboard/GrokUsage.svelte";
   import UsageMeter from "$lib/components/dashboard/UsageMeter.svelte";
@@ -69,10 +69,13 @@
         <GrokUsage usage={account.usage} label={account.label} showStatus={false} showUpdated={false} />
       {:else if rows.length}
         {#each rows as row (row.key)}
+          {@const when = resetsIn(row.reset)}
           <div class="space-y-2">
             <UsageMeter label={row.label} usedPercent={row.value} valueLabel={`${row.value}% used`} />
-            {#if relativeTime(row.reset)}
-              <p class="text-xs text-muted-foreground">Resets <time datetime={row.reset ?? undefined} title={row.reset ?? undefined}>{relativeTime(row.reset)}</time></p>
+            {#if when === "passed"}
+              <p class="text-xs text-muted-foreground">Reset passed</p>
+            {:else if when}
+              <p class="text-xs text-muted-foreground">Resets <time datetime={row.reset ?? undefined} title={row.reset ?? undefined}>{when}</time></p>
             {/if}
           </div>
         {/each}

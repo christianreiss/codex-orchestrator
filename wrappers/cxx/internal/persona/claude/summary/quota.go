@@ -82,7 +82,7 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse, now time.Time) ([]ui.Qu
 		if current && *used >= warnAt && warning == "" {
 			resetDetail := "; reset unknown"
 			if row.ResetAfter > 0 {
-				resetDetail = "; resets in " + ui.DurationShort(row.ResetAfter)
+				resetDetail = "; resets in " + ui.ResetInText(row.ResetAfter)
 			}
 			warning = fmt.Sprintf("Claude %s quota high (%d%% reported%s); advisory only.", label, *used, resetDetail)
 		}

@@ -745,7 +745,7 @@
             "slug": "dashboard",
             "title": "Dashboard",
             "section": "Admin workspace",
-            "summary": "Reported engine coverage, Codex and Claude usage, runner verification, and refresh recovery.",
+            "summary": "Reported engine coverage, Codex, Claude and Grok usage, runner verification, and refresh recovery.",
             "anchors": [
                 {
                     "id": "dashboard",

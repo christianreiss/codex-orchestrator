@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -56,6 +57,41 @@ func TestStartupScreenUsesActualLaunchAndServerEvidence(t *testing.T) {
 	wantActivity := []terminalui.SessionRow{{Label: "hosts 30m", Count: 2}, {Label: "syncs UTC day", Count: 43}, {Label: "syncs UTC month", Count: 87}}
 	if !reflect.DeepEqual(ui.SessionRows, wantActivity) {
 		t.Fatalf("historical sync activity changed meaning: %+v", ui.SessionRows)
+	}
+}
+
+func TestStartupScreenReportsFutureGrokResetInDays(t *testing.T) {
+	in := startupFixture(t)
+	used := 38.0
+	weekly := "weekly"
+	reset := time.Now().Add(20 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	in.Auth.GrokUsage = &grokUsageReading{
+		Status: "ok", UsedPercent: &used, Period: &weekly, ResetsAt: &reset,
+	}
+	if ui := startupScreen(in); ui.QuotaNote != "weekly 38% used; resets in 20 days" {
+		t.Fatalf("quota note: %q", ui.QuotaNote)
+	}
+	expired := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	in.Auth.GrokUsage.ResetsAt = &expired
+	if ui := startupScreen(in); ui.QuotaNote != "Subscription quota usage is unavailable." {
+		t.Fatalf("expired reset still counted: %q", ui.QuotaNote)
+	}
+	future := time.Now().Add(20 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	in.Auth.GrokUsage.ResetsAt = &future
+	in.Auth.GrokUsage.UsedPercent = nil
+	if ui := startupScreen(in); ui.QuotaNote != "weekly; resets in 20 days" {
+		t.Fatalf("missing percent became zero: %q", ui.QuotaNote)
+	}
+}
+
+func TestGrokUsageNullResetDoesNotRejectAuth(t *testing.T) {
+	raw := []byte(`{"status":"valid","grok_usage":{"status":"ok","used_percent":10,"period":null,"resets_at":null,"fetched_at":null,"stale":true}}`)
+	var auth startupAuth
+	if err := json.Unmarshal(raw, &auth); err != nil {
+		t.Fatal(err)
+	}
+	if note := grokQuotaNote(auth.GrokUsage, time.Now()); note != "Subscription quota usage is unavailable." {
+		t.Fatalf("null reset: %q", note)
 	}
 }
 

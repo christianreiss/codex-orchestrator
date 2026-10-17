@@ -265,6 +265,15 @@ Suspending an engine keeps everything; *destroy* removes it from every host.
   is distinct from freshness: reading auth does not refresh the timestamp or
   contact Anthropic. A real `0` is preserved and a missing value remains null.
   Codex responses continue to carry `chatgpt` and never carry `claude_usage`.
+- Grok `/auth` retrieve and store, and the optional `auth` object on
+  `/sync/bootstrap` and `/sync/status`, include `grok_usage` only when
+  `engine` is `grok`. It is the stored billing-period reading the dashboard
+  already shows. `status` is `ok` or `unavailable`. An `ok` reading also has
+  `used_percent` (a number, not an integer), `period` (`weekly`, `monthly`,
+  or null), `resets_at`, `fetched_at`, and `stale`. Codex and Claude
+  responses never carry `grok_usage`. The field is display-only: it does not
+  enable quota hard-fail, account balancing, or another provider call. A
+  missing account or an unreadable snapshot is `{status:"unavailable"}`.
 - `/auth` native credential normalization: Codex selection matches native
   `AuthDotJson`: explicit `auth_mode` wins; otherwise a present top-level
   `OPENAI_API_KEY` wins over `tokens.access_token`. Accepted input is persisted

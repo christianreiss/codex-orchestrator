@@ -206,6 +206,7 @@ describe('Claude usage in authentication and startup responses', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json()).not.toHaveProperty('claude_usage');
+      expect(response.json()).not.toHaveProperty('grok_usage');
       expect(response.json()).toHaveProperty('chatgpt');
     } finally {
       await app.close();

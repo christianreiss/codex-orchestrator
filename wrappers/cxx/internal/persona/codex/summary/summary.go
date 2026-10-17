@@ -675,7 +675,7 @@ func quotaResetDetail(resetAfter time.Duration) string {
 	if resetAfter <= 0 {
 		return "; reset unknown"
 	}
-	return "; resets in " + ui.DurationShort(resetAfter)
+	return "; resets in " + ui.ResetInText(resetAfter)
 }
 
 func quotaTelemetryWarning(q *orchestrator.ChatGPTQuota, now time.Time) string {

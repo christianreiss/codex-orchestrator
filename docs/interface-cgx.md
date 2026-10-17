@@ -336,9 +336,15 @@ owner. Migration 0040 persists the latest reading and attempt status. Paused,
 removed, merged, and fleet-disabled accounts are not polled.
 
 A failed request keeps the last reading and marks it stale; missing data stays
-unknown, never 0%. Monthly or untyped periods are not labelled weekly. This
-does not introduce wrapper quota reporting, account balancing by Grok quota, or
-automatic purchasing. The provider-owned billing endpoint may change; source
+unknown, never 0%. Monthly or untyped periods are not labelled weekly. cgx
+startup, status, and doctor print that stored reading when `grok_usage.resets_at`
+is still in the future, for example `weekly 38% used; resets in 20 days`. A
+day or more is whole days; under a day the note keeps hours and minutes. A
+missing percent omits the percentage instead of printing 0%. A missing,
+unparseable, or already passed reset keeps `Subscription quota usage is
+unavailable.` This does not enable quota hard-fail, account balancing by Grok
+quota, automatic purchasing, or an extra provider call from the wrapper. The
+provider-owned billing endpoint may change; source
 contract: [official CLI billing handler](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/extensions/billing.rs).
 
 ## Startup and checks
@@ -346,8 +352,9 @@ contract: [official CLI billing handler](https://github.com/xai-org/grok-build/b
 `cgx` prints the shared startup card before the native UI, with the effective
 model/effort, installed and target versions, API/auth/runner health, measured
 content-sync outcomes, and the server's fleet sync activity. Actual native
-model and effort options override the displayed settings. Grok quota usage is
-shown as unavailable, and MCP connectivity remains unknown until probed;
+model and effort options override the displayed settings. Grok quota usage
+shows the stored billing-period reset when that reset is still in the future,
+and stays unavailable otherwise. MCP connectivity remains unknown until probed;
 an MCP configuration does not prove a healthy connection. Concurrent content
 sync remains visibly paused rather than reporting success.
 

@@ -133,7 +133,7 @@ func (p Pressure) Description(now time.Time) string {
 	}
 	reset := "reset unknown"
 	if !p.ResetAt.IsZero() {
-		reset = "resets in " + p.ResetAt.Sub(now).Round(time.Minute).String()
+		reset = "resets in " + terminalui.ResetInText(p.ResetAt.Sub(now))
 	}
 	projection := ""
 	if p.Projected > 0 {

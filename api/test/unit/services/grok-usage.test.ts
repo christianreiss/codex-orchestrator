@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseGrokUsage } from '../../../src/services/grok-usage.js';
+import { grokUsageSnapshots } from '../../../src/db/schema.js';
+import { grokUsageAuthFields, parseGrokUsage, readGrokUsage } from '../../../src/services/grok-usage.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 
 describe('Grok provider billing normalization', () => {
   it('reads the live unified weekly contract, including fractional-second UTC offsets', () => {
@@ -71,5 +73,24 @@ describe('Grok provider billing normalization', () => {
   );
   it.each(['5', -1, 101, NaN, Infinity, false, {}])('rejects malformed percentages: %j', (value) => {
     expect(parseGrokUsage({ config: { creditUsagePercent: value } })).toBeNull();
+  });
+});
+
+describe('Grok usage on /auth', () => {
+  it('maps a stored window and does not invent a reading', async () => {
+    const now = new Date().toISOString();
+    const resetsAt = new Date(Date.now() + 20 * 86_400_000).toISOString();
+    const db = createDbFake();
+    db.tables.set(grokUsageSnapshots, [{
+      accountId: 7, planName: 'SuperGrok', planFetchedAt: now, planErrorCode: null,
+      usedPercent: 38, periodType: 'weekly', periodStartsAt: null, periodResetsAt: resetsAt,
+      shared: 1, fetchedAt: now, checkedAt: now, errorCode: null,
+    }]);
+    const reading = await readGrokUsage(db as never, 7);
+    expect(grokUsageAuthFields(reading)).toEqual({
+      status: 'ok', used_percent: 38, period: 'weekly', resets_at: resetsAt, fetched_at: now, stale: false,
+    });
+    expect(grokUsageAuthFields(await readGrokUsage(db as never, 8))).toEqual({ status: 'unavailable' });
+    expect(grokUsageAuthFields(null)).toEqual({ status: 'unavailable' });
   });
 });

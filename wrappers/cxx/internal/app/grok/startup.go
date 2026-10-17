@@ -3,9 +3,12 @@ package grok
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
@@ -27,6 +30,16 @@ type startupAuth struct {
 	APICalls             int64                        `json:"api_calls"`
 	Versions             *orchestrator.VersionSummary `json:"versions"`
 	Host                 *startupHost                 `json:"host"`
+	GrokUsage            *grokUsageReading            `json:"grok_usage,omitempty"`
+}
+
+type grokUsageReading struct {
+	Status      string   `json:"status"`
+	UsedPercent *float64 `json:"used_percent"`
+	// Pointers: the API sends JSON null for an untyped period or a missing reset.
+	// A plain string would reject the whole /auth body.
+	Period   *string `json:"period"`
+	ResetsAt *string `json:"resets_at"`
 }
 
 type startupHost struct {
@@ -67,12 +80,35 @@ type startupInput struct {
 	Minimal        bool
 }
 
+func grokQuotaNote(usage *grokUsageReading, now time.Time) string {
+	const unavailable = "Subscription quota usage is unavailable."
+	if usage == nil || usage.Status == "unavailable" || usage.ResetsAt == nil {
+		return unavailable
+	}
+	resetAt, err := time.Parse(time.RFC3339, strings.TrimSpace(*usage.ResetsAt))
+	if err != nil || !resetAt.After(now) {
+		return unavailable
+	}
+	period := ""
+	if usage.Period != nil {
+		period = *usage.Period
+	}
+	if period != "weekly" && period != "monthly" {
+		period = "current"
+	}
+	reset := "resets in " + terminalui.ResetInText(resetAt.Sub(now))
+	if usage.UsedPercent == nil || math.IsNaN(*usage.UsedPercent) || *usage.UsedPercent < 0 || *usage.UsedPercent > 100 {
+		return period + "; " + reset
+	}
+	return fmt.Sprintf("%s %d%% used; %s", period, int(math.Round(*usage.UsedPercent)), reset)
+}
+
 func startupScreen(in startupInput) terminalui.ScreenInput {
 	ui := terminalui.ScreenInput{
 		Prefix: "cgx", EngineName: "grok", SkipBanner: in.Minimal,
 		WrapperVersion: in.WrapperVersion, EngineVersion: in.EngineVersion,
 		WrapperTone: terminalui.ToneOK, EngineTone: terminalui.ToneOK,
-		QuotaNote:   "Subscription quota usage is unavailable.",
+		QuotaNote:   grokQuotaNote(nil, time.Now()),
 		Concurrent:  in.Sync.Concurrent,
 		ResultLabel: "Ready — subscription account leased.", ResultTone: terminalui.ToneOK,
 	}
@@ -86,6 +122,7 @@ func startupScreen(in startupInput) terminalui.ScreenInput {
 		}
 	}
 	if in.Auth != nil {
+		ui.QuotaNote = grokQuotaNote(in.Auth.GrokUsage, time.Now())
 		if in.Auth.Host != nil {
 			ui.APICalls = in.Auth.Host.APICalls
 			ui.Insecure = !in.Auth.Host.Secure

@@ -300,6 +300,27 @@
           }],
           "additionalProperties": true
         },
+        "grok_usage": {
+          "description": "Stored Grok billing-period reading. Present only when engine is grok. Display only; no enforcement.",
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["ok", "unavailable"] },
+            "used_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+            "period": { "type": ["string", "null"], "enum": ["weekly", "monthly", null] },
+            "resets_at": { "type": ["string", "null"] },
+            "fetched_at": { "type": ["string", "null"], "format": "date-time" },
+            "stale": { "type": "boolean" }
+          },
+          "allOf": [{
+            "if": { "properties": { "status": { "const": "ok" } }, "required": ["status"] },
+            "then": {
+              "properties": { "used_percent": {}, "period": {}, "resets_at": {}, "fetched_at": {}, "stale": {} },
+              "required": ["used_percent", "period", "resets_at", "fetched_at", "stale"]
+            }
+          }],
+          "additionalProperties": false
+        },
         "chatgpt": {
           "type": "object"
         },

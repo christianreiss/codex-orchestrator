@@ -360,7 +360,7 @@ func printMinimalScreen(w io.Writer, in ScreenInput, caps Caps) {
 	for _, row := range in.QuotaRows {
 		reset := ""
 		if row.ResetAfter > 0 {
-			reset = " | reset=" + DurationShort(row.ResetAfter)
+			reset = " | reset=" + ResetInText(row.ResetAfter)
 		}
 		forecast := ""
 		if row.Projection != "" {

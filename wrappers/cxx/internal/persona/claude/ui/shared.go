@@ -64,6 +64,7 @@ var (
 	CompactNumber      = terminalui.CompactNumber
 	GroupedInt         = terminalui.GroupedInt
 	DurationShort      = terminalui.DurationShort
+	ResetInText        = terminalui.ResetInText
 	PrintHealthRow     = terminalui.PrintHealthRow
 	PrintConcurrentRow = terminalui.PrintConcurrentRow
 	PrintResult        = terminalui.PrintResult

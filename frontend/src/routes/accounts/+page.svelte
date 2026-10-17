@@ -16,6 +16,7 @@
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
   import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
   import GrokUsage from "$lib/components/dashboard/GrokUsage.svelte";
+  import { resetsIn } from "$lib/utils/format";
 
   const query = accountsQuery();
   const qc = useQueryClient();
@@ -127,10 +128,13 @@
           {:else}
           <div class="grid grid-cols-2 gap-4">
             {#each [{ label: "Short window", used: account.usage.short_used_percent, reset: account.usage.short_resets_at }, { label: "Weekly window", used: account.usage.weekly_used_percent, reset: account.usage.weekly_resets_at }] as window}
+              {@const when = resetsIn(window.reset)}
               <div>
                 <div class="mb-1 flex justify-between text-sm"><span>{window.label}</span><strong>{window.used === null ? "Unknown" : `${window.used}%`}</strong></div>
                 {#if window.used !== null}<progress class="h-2 w-full accent-primary" max="100" value={window.used} aria-label={`${window.label} usage`} aria-valuetext={`${window.used}%`}></progress>{/if}
-                <p class="mt-1 text-xs text-muted-foreground">Resets: {date(window.reset)}</p>
+                <p class="mt-1 text-xs text-muted-foreground">
+                  {#if when === "passed"}Reset passed{:else if when}Resets <time datetime={window.reset ?? undefined} title={window.reset ?? undefined}>{when}</time>{:else}Reset time unavailable{/if}
+                </p>
               </div>
             {/each}
           </div>

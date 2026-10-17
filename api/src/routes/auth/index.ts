@@ -47,6 +47,7 @@ import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js
 import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-projection.js';
 import { ChatGptUsageService, normalizeChatGptUsageSnapshot } from '../../services/chatgpt-usage.js';
 import { ClaudeUsageService, normalizeClaudeUsageSnapshot } from '../../services/claude-usage.js';
+import { grokUsageAuthFields, readGrokUsage } from '../../services/grok-usage.js';
 import {
   activeHostEngines,
   assertHostEngineAssigned,
@@ -636,6 +637,7 @@ async function handleRetrieve(
       const row = await runnerValidation.resolveCanonicalPayload(engine, accountIdFrom(payload.account_id));
       const snapshot = row ? runnerValidation.validateCanonicalPayload(row) : null;
       const base = await buildRetrieveBaseResponse(ctx, host, payload, engine, projectVersions);
+      base.grok_usage = await readGrokUsageSnapshot(ctx, row?.accountId ?? accountIdFrom(payload.account_id));
       return {
         ...base, account_pool: true, metadata_only: true,
         status: snapshot ? 'available' : 'missing',
@@ -654,6 +656,7 @@ async function handleRetrieve(
     const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner: createRunnerClient({ env: ctx.env }) }).ensureFresh({ accountId: accountIdFrom(payload.account_id), sourceHostId: host.id, sessionId: typeof payload.session_id === 'string' ? payload.session_id : undefined, refreshIfGeneration: refresh === undefined ? undefined : Number(refresh) });
     projectVersions.invalidate();
     const base = await buildRetrieveBaseResponse(ctx, host, payload, engine, projectVersions);
+    base.grok_usage = await readGrokUsageSnapshot(ctx, snapshot.row.accountId ?? undefined);
     await touchHostAuthState(ctx.db, host.id, snapshot.row.id, snapshot.digest, engine);
     await touchHostAuthFields(ctx.db, host.id, snapshot.last_refresh, snapshot.digest, engine);
     return { ...base, account_pool: true, account_id: snapshot.row.accountId, canonical_digest: snapshot.digest, canonical_last_refresh: snapshot.last_refresh, canonical_generation: snapshot.canonical_generation, ...grokProjectionMetadata(snapshot.auth), verification_state: 'verified', refresh_state: snapshot.refresh_state, status: extractDigest(payload, false) === snapshot.digest ? 'valid' : 'outdated', auth: snapshot.auth, usage: { supported: false, short_used_percent: null, short_resets_at: null, weekly_used_percent: null, weekly_resets_at: null } };
@@ -813,6 +816,7 @@ async function buildRetrieveBaseResponse(
   ]);
   if (engine === ENGINE_CODEX) Object.assign(baseResponse, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
+  else if (engine === ENGINE_GROK) baseResponse.grok_usage = await readGrokUsageSnapshot(ctx, accountIdFrom(payload.account_id));
   baseResponse.quota_advice = quotaAdviceSnapshot(advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
   return baseResponse;
 }
@@ -1162,6 +1166,7 @@ async function handleStore(
   ]);
   if (engine === ENGINE_CODEX) Object.assign(response, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) response.claude_usage = claude;
+  else if (engine === ENGINE_GROK) response.grok_usage = await readGrokUsageSnapshot(ctx, stored.account_id);
   response.quota_advice = quotaAdviceSnapshot(advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
   return response;
 }
@@ -1400,6 +1405,15 @@ async function readChatgptSnapshot(ctx: RouteContext, accountId?: number): Promi
     };
   } catch {
     return unavailable;
+  }
+}
+
+async function readGrokUsageSnapshot(ctx: RouteContext, accountId?: number): Promise<Record<string, unknown>> {
+  if (!accountId) return { status: 'unavailable' };
+  try {
+    return grokUsageAuthFields(await readGrokUsage(ctx.db, accountId));
+  } catch {
+    return { status: 'unavailable' };
   }
 }
 
