@@ -1651,6 +1651,8 @@ export class AgentMessagingService {
     const delivery = deliveryView(result.message, this.decodeContent(result.message), result.sender, result.target);
     const [remote] = await this.db.select().from(hostDaemonSessions).where(eq(hostDaemonSessions.addressId, result.target.id));
     if (remote) delivery.target.daemon_session_id = remote.id;
+    // A pinned model (Fleet Advisor) must survive peer-delivered turns too.
+    if (remote?.model) delivery.target.daemon_model = remote.model;
     if (await freshStartAllowed(this.db, result.message, result.target)) delivery.target.fresh_start_approved = true;
     if (result.message.kind === 'schedule') {
       const [run] = await this.db.select().from(agentScheduleRuns).where(eq(agentScheduleRuns.messageId, result.message.id)).limit(1);

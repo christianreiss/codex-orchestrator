@@ -37,7 +37,7 @@ function hostRow(apiKey: string, engines: string): Record<string, unknown> {
     id: 1, fqdn: 'host.example', apiKey, apiKeyHash: hashApiKey(apiKey), apiKeyEnc: null,
     status: 'active', secure: 1, allowRoamingIps: 0, reverseDnsMode: null, apiCalls: 0,
     createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', engines, vip: 0,
-    scalingExempt: 0, curlInsecure: 0, browserosMcpEnabled: 0, configVersion: 0, wrapperTrack: 'v2', wrapperCanary: 0,
+    scalingExempt: 0, curlInsecure: 0, browserosMcpEnabled: 0, configVersion: 0, wrapperTrack: 'v2', wrapperCanary: 0, internalRole: null,
     lastRefresh: null, authDigest: null, ip4: null, ip6: null, insecureEnabledUntil: null,
     insecureGraceUntil: null, insecureWindowMinutes: null, insecureRequestedAt: null, lanePreference: null,
     modelOverride: null, reasoningEffortOverride: null, autoUpdateOverride: 0, lastCronCheck: null,

@@ -64,7 +64,6 @@ const IDENTIFIER = /[a-z][a-z0-9]*(?:_(?:[a-z0-9]+|\*))+/g;
  */
 const NON_TOOL_TOKENS: Record<string, string> = {
   tier_check: 'advisor_ask kind value, not a tool.',
-  advisor_busy: 'advisor_ask error code, not a tool.',
   delivery_class: 'Explicit queue routing argument.',
   allow_implicit_invocation: 'skill_list listing field gating implicit Skill use, not a tool.',
   coalesce_key: 'Explicit pending event stream key.',

@@ -1,3 +1,4 @@
+import { visibleHost } from '../internal-hosts.js';
 import { beginRebootBinding, completeRebootBinding, plannedRebootForSession } from '../reboot-handoffs.js';
 import { assertHousekeepingAvailable } from '../session-housekeeping.js';
 import { markWaitingForPresence, discardPresenceNotices } from './presence-feedback.js';
@@ -489,6 +490,8 @@ export class SessionRegistry {
       eq(agentBusAddresses.enabled, 1),
       isNull(agentBusAddresses.archivedAt),
       messagingHostEligibleSql(),
+      // Advisor sessions answer through their own conversation; nobody discovers them.
+      visibleHost,
       ne(agentBusAddresses.id, currentAddressId),
     ];
     if (filters.engine) predicates.push(eq(agentBusAddresses.engine, filters.engine));

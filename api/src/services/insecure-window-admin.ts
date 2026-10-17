@@ -10,6 +10,7 @@
  * Each mutation writes the audit row + publishes the matching WS event in
  * that order.
  */
+import { visibleHost } from './internal-hosts.js';
 import { and, asc, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import type { Env } from '../env.js';
@@ -339,7 +340,7 @@ export class InsecureWindowAdminService {
   }> {
     const now = Date.now();
     const [allHosts, domains, fleet] = await Promise.all([
-      this.db.select({ id: hosts.id, fqdn: hosts.fqdn, secure: hosts.secure, insecureEnabledUntil: hosts.insecureEnabledUntil }).from(hosts),
+      this.db.select({ id: hosts.id, fqdn: hosts.fqdn, secure: hosts.secure, insecureEnabledUntil: hosts.insecureEnabledUntil }).from(hosts).where(visibleHost),
       this.db.select().from(insecureDomainAllows),
       this.fleetWindowState(),
     ]);

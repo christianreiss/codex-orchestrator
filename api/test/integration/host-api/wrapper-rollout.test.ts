@@ -93,7 +93,7 @@ function hostRow(apiKey: string, id: number) {
     curlInsecure: 0,
     browserosMcpEnabled: 0,
     configVersion: 0,
-    wrapperTrack: 'v2', wrapperCanary: 0,
+    wrapperTrack: 'v2', wrapperCanary: 0, internalRole: null,
     lastRefresh: null,
     authDigest: null,
     ip4: null,

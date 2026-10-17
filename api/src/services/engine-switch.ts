@@ -16,7 +16,8 @@
  * "all enabled" if there is none — refusing every engine because the metadata
  * table glitched is worse than serving, which is how the other switches fail.
  */
-import { desc, eq, inArray, sql } from 'drizzle-orm';
+import { visibleHost } from './internal-hosts.js';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { hosts, logs, versions } from '../db/schema.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -131,7 +132,7 @@ export async function listEngineStates(db: Database): Promise<EngineStateRow[]> 
       .where(eq(logs.action, ENGINE_STATE_AUDIT_ACTION))
       .orderBy(desc(logs.id))
       .limit(50),
-    db.select({ engines: hosts.engines }).from(hosts).where(eq(hosts.status, 'active')),
+    db.select({ engines: hosts.engines }).from(hosts).where(and(eq(hosts.status, 'active'), visibleHost)),
   ]);
   const flags = new Map(flagRows.map((row) => [row.name, row]));
   const lastActor = new Map<Engine, string | null>();

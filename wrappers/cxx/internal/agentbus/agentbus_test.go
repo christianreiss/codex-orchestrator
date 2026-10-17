@@ -868,8 +868,25 @@ func TestNativeAdapterArgumentsKeepPeerContentOnStdin(t *testing.T) {
 	for _, tc := range []struct {
 		engine   string
 		upstream string
+		model    string
 		want     []string
 	}{
+		{
+			engine: config.EngineCodex, upstream: "codex-session", model: "gpt-6-astra",
+			want: []string{"codex", "--skip-boot", "run", "--model", "gpt-6-astra", "exec", "resume", "--json", "--skip-git-repo-check", "codex-session", "-"},
+		},
+		{
+			engine: config.EngineClaude, upstream: "claude-session", model: "claude-fable-5-1",
+			want: []string{"claude", "--skip-boot", "resume", "claude-session", "-p", "--output-format", "json", "--model", "claude-fable-5-1"},
+		},
+		{
+			engine: config.EngineClaude, model: "claude-fable-5-1",
+			want: []string{"claude", "--skip-boot", "run", "-p", "--output-format", "json", "--model", "claude-fable-5-1"},
+		},
+		{
+			engine: config.EngineGrok, upstream: "grok-session", model: "grok-4.7",
+			want: []string{"grok", "--skip-boot", "run", "--no-leader", "--output-format", "json", "--model", "grok-4.7", "--resume", "grok-session"},
+		},
 		{
 			engine: config.EngineCodex, upstream: "codex-session",
 			want: []string{"codex", "--skip-boot", "run", "exec", "resume", "--json", "--skip-git-repo-check", "codex-session", "-"},
@@ -887,9 +904,9 @@ func TestNativeAdapterArgumentsKeepPeerContentOnStdin(t *testing.T) {
 			want:   []string{"claude", "--skip-boot", "run", "-p", "--output-format", "json"},
 		},
 	} {
-		got := nativeArgs(tc.engine, tc.upstream)
+		got := nativeArgs(tc.engine, tc.upstream, tc.model)
 		if !reflect.DeepEqual(got, tc.want) {
-			t.Fatalf("nativeArgs(%q, %q) = %v, want %v", tc.engine, tc.upstream, got, tc.want)
+			t.Fatalf("nativeArgs(%q, %q, %q) = %v, want %v", tc.engine, tc.upstream, tc.model, got, tc.want)
 		}
 		joined := strings.Join(got, " ")
 		for _, forbidden := range []string{"peer secret", "--dangerously-bypass-approvals-and-sandbox", "--dangerously-skip-permissions", "bypassPermissions"} {

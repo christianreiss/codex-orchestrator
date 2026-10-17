@@ -139,7 +139,7 @@ function fakeHost(): Host {
     grokReasoningEffortOverride: null,
     grokLastRefresh: null,
     configVersion: 4,
-    wrapperTrack: 'v2', wrapperCanary: 0,
+    wrapperTrack: 'v2', wrapperCanary: 0, internalRole: null,
     createdAt: '2026-05-01T00:00:00Z',
     updatedAt: '2026-05-15T00:00:00Z',
   };

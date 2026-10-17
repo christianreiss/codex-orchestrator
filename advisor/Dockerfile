@@ -1,5 +1,5 @@
-# Fleet Advisor host: a registered fleet host whose only job is `cxx daemon run`.
-# curl and python3 are the cxx installer's preflight requirements.
+# Fleet Advisor: the stack's server-owned host whose only job is `cxx daemon run`.
+# python3 runs the bootstrap; git and curl serve the advisor's own tooling.
 # Advisor sessions are ordinary daemon sessions; see docs/interface-api.md#fleet-advisor.
 FROM debian:bookworm-slim
 
@@ -10,6 +10,7 @@ RUN apt-get update \
  && install -d -o advisor -g advisor /work
 
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/advisor-entrypoint
+COPY --chmod=0644 bootstrap.py /usr/local/lib/advisor/bootstrap.py
 
 USER advisor
 ENV HOME=/home/advisor

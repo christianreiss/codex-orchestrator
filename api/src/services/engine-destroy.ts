@@ -17,6 +17,7 @@
  * A request needs the engine to be suspended first, and re-enabling is refused
  * until the request is cancelled or the engine's data is gone.
  */
+import { visibleHost } from './internal-hosts.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
@@ -253,7 +254,7 @@ export async function listDestroyProgress(db: Database, engine: Engine): Promise
     })
     .from(engineDestroyHosts)
     .innerJoin(hosts, eq(hosts.id, engineDestroyHosts.hostId))
-    .where(eq(engineDestroyHosts.requestId, request.request_id));
+    .where(and(eq(engineDestroyHosts.requestId, request.request_id), visibleHost));
   const list = rows.map((r) => {
     let residue: string[] = [];
     try {

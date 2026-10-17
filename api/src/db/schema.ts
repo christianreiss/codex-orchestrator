@@ -90,6 +90,8 @@ export const hosts = mysqlTable(
     wrapperTrack: varchar('wrapper_track', { length: 16 }).notNull().default('v2'),
     /** Receives a staged cxx rollout before every wave (services/wrapper-rollout.ts). */
     wrapperCanary: tinyint('wrapper_canary').notNull().default(0),
+    /** Server-owned host that is never shown or counted ('advisor'; migration 0077). */
+    internalRole: varchar('internal_role', { length: 24 }),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
     updatedAt: varchar('updated_at', { length: 100 }).notNull(),
   },
@@ -2347,6 +2349,8 @@ export const hostDaemonSessions = mysqlTable('host_daemon_sessions', {
   addressId: char('address_id', { length: 36 }),
   sessionId: char('session_id', { length: 36 }),
   activeMessageId: char('active_message_id', { length: 36 }),
+  /** Native model pinned for every turn of this session (migration 0077). */
+  model: varchar('model', { length: 128 }),
   status: varchar('status', { length: 24 }).notNull(),
   lastActivityAt: varchar('last_activity_at', { length: 100 }).notNull(),
   createdAt: varchar('created_at', { length: 100 }).notNull(),

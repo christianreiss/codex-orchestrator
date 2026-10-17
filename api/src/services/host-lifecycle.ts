@@ -16,6 +16,8 @@ export function assertHostNotExpired(host: Host, now = new Date()): void {
 }
 
 function pruneReason(host: Host, days: number, now: Date): string | null {
+  // Server-owned hosts (the Fleet Advisor) belong to the stack, not the fleet.
+  if (host.internalRole) return null;
   if (host.expiresAt && Date.parse(host.expiresAt) <= now.getTime()) return 'expired';
   if (days > 0 && Date.parse(host.updatedAt) < now.getTime() - days * 86400_000) return 'inactive';
   // Pooled accounts may have no per-host digest. Any engine's installed

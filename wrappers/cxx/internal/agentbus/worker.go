@@ -520,7 +520,7 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 			return result
 		}
 	}
-	args := nativeArgs(engine, upstream)
+	args := nativeArgs(engine, upstream, stringArg(delivery.Target, "daemon_model"))
 	prompt := peerPrompt(delivery)
 	if delivery.WorkKind != "" {
 		prompt += "\n" + taskOutputInstruction
@@ -653,12 +653,21 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 	return result
 }
 
-func nativeArgs(engine, upstream string) []string {
+func nativeArgs(engine, upstream string, model ...string) []string {
 	// Keep wrapper lifecycle/auth/sync supervision while leaving stdout as the
 	// native machine-readable response. Boot/footer rendering would corrupt the
 	// single JSON document returned by Claude's print mode.
 	args := []string{engine, "--skip-boot", "run"}
+	// A session-pinned model (Fleet Advisor) is passed on every turn, first and
+	// resumed. An explicit flag also wins over the host's model override.
+	pinned := ""
+	if len(model) > 0 {
+		pinned = strings.TrimSpace(model[0])
+	}
 	if engine == config.EngineCodex {
+		if pinned != "" {
+			args = append(args, "--model", pinned)
+		}
 		args = append(args, "exec")
 		if upstream != "" {
 			return append(args, "resume", "--json", "--skip-git-repo-check", upstream, "-")
@@ -667,6 +676,9 @@ func nativeArgs(engine, upstream string) []string {
 	}
 	if engine == config.EngineGrok {
 		args = append(args, "--no-leader", "--output-format", "json")
+		if pinned != "" {
+			args = append(args, "--model", pinned)
+		}
 		if upstream != "" {
 			args = append(args, "--resume", upstream)
 		}
@@ -676,9 +688,14 @@ func nativeArgs(engine, upstream string) []string {
 		// Use the wrapper's resume subcommand. Passing --resume after `run`
 		// would be consumed as a wrapper-owned flag and turn the preceding `run`
 		// token into native prompt text.
-		return append(args[:2], "resume", upstream, "-p", "--output-format", "json")
+		args = append(args[:2], "resume", upstream, "-p", "--output-format", "json")
+	} else {
+		args = append(args, "-p", "--output-format", "json")
 	}
-	return append(args, "-p", "--output-format", "json")
+	if pinned != "" {
+		args = append(args, "--model", pinned)
+	}
+	return args
 }
 
 func (c *relayClient) relayPost(ctx context.Context, suffix string, body any, out any) error {
