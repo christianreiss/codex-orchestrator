@@ -118,13 +118,16 @@ func RunWorker(parent context.Context, version string, stdout, stderr io.Writer)
 	}
 	ctx, revoke := context.WithCancel(ctx)
 	defer revoke()
-	go watchWorkerPolicy(ctx, revoke, stderr)
-	var authWatchDone sync.WaitGroup
+	// The policy watcher and the auth watchers are awaited before RunWorker
+	// returns: none of them may outlive the worker (feedback eabea103).
+	var policyWatchDone, authWatchDone sync.WaitGroup
+	policyWatchDone.Add(1)
+	go func() { defer policyWatchDone.Done(); watchWorkerPolicy(ctx, revoke, stderr) }()
 	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
 		authWatchDone.Add(1)
 		go func() { defer authWatchDone.Done(); runPersistentAuthWatch(ctx, engine, slog.Default()) }()
 	}
-	defer func() { stop(); authWatchDone.Wait() }()
+	defer func() { stop(); authWatchDone.Wait(); policyWatchDone.Wait() }()
 	instanceID, err := loadOrCreateInstanceID()
 	if err != nil {
 		return err
