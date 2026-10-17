@@ -1,3 +1,7 @@
+# 2026-10-17
+
+- **cxx dialogs:** Each engine’s model menu lists the strongest capability tier first, preserving catalog order within a tier and the selected model and effort. Uses the central fleet model tiers in newly signed host configs.
+
 # 2026-10-16
 
 - **Served AGENTS.md / CLAUDE.md: Unrestricted collapses its grants, and four logic gaps are closed.** With every feature on, the Unrestricted document drops from ~25.4 KB to ~23.6 KB. Standard drops from ~25.3 KB to ~24.5 KB. Every host re-syncs once.

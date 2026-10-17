@@ -1,3 +1,4 @@
+import { modelTier } from '../../../src/services/model-tiers.js';
 import { describe, expect, it } from 'vitest';
 import { clientConfigDocuments } from '../../../src/db/schema.js';
 import { ModelDefaultsService, modelDefaultsCatalog, modelLaunchCatalog } from '../../../src/services/model-defaults.js';
@@ -299,14 +300,22 @@ describe('ModelDefaultsService', () => {
 });
 
 describe('modelLaunchCatalog', () => {
-  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK] as Engine[])('mirrors the %s defaults catalog', (engine) => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK] as Engine[])('preserves the %s catalog capabilities in descending tier order', (engine) => {
     const launch = modelLaunchCatalog(engine);
     const catalog = modelDefaultsCatalog(engine);
-    expect(launch.models.map((entry) => entry.model)).toEqual(catalog.map((entry) => entry.model));
+    expect(launch.models.map((entry) => entry.model).sort()).toEqual(catalog.map((entry) => entry.model).sort());
+    const tiers = launch.models.map(entry => modelTier(engine, entry.model) ?? 0);
+    expect(tiers).toEqual([...tiers].sort((a, b) => b - a));
+    for (const tier of new Set(tiers)) {
+      expect(launch.models.filter(entry => modelTier(engine, entry.model) === tier).map(entry => entry.model)).toEqual(
+        catalog.filter(entry => modelTier(engine, entry.model) === tier).map(entry => entry.model),
+      );
+    }
     expect(launch.models.map((entry) => entry.model)).toContain(launch.default_model);
-    for (const [index, entry] of launch.models.entries()) {
-      expect(entry.efforts).toEqual(catalog[index]!.persistent_efforts);
-      expect(entry.default_effort).toBe(catalog[index]!.default_effort);
+    for (const entry of launch.models) {
+      const original = catalog.find(candidate => candidate.model === entry.model)!;
+      expect(entry.efforts).toEqual(original.persistent_efforts);
+      expect(entry.default_effort).toBe(original.default_effort);
     }
   });
 

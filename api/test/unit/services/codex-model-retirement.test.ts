@@ -10,7 +10,7 @@ import { createDbFake } from '../../helpers/db-fake.js';
 describe('deprecated Codex model migration', () => {
   it('removes GPT-5.5 from current fleet and signed launchpad catalogs before retirement', () => {
     expect(SUPPORTED_MODELS).not.toContain('gpt-5.5');
-    expect(modelLaunchCatalog('codex').models.map(model => model.model)).toEqual(SUPPORTED_MODELS);
+    expect(modelLaunchCatalog('codex').models.map(model => model.model).sort()).toEqual([...SUPPORTED_MODELS].sort());
   });
 
   it.each(['low', 'medium', 'high', 'xhigh'])('preserves valid %s effort for fleet, profile and host selections', effort => {

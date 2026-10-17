@@ -937,7 +937,9 @@ behaviour: usage on stderr, exit 2.
   `config.toml`), then the catalog default. So `cxx` followed by `enter` relaunches
   the last combination.
 - **Menu source.** The menu comes from `engine_options.model_catalog` in the
-  signed config. It mirrors `GET /admin/model-defaults/:engine` `catalog`, plus
+  signed config. Models are ordered by capability tier (strongest first), keeping
+  catalog order within a tier and placing unranked models last. The selected model
+  and effort are unchanged. It mirrors `GET /admin/model-defaults/:engine` `catalog`, plus
   Claude's session-only `max` (`session_efforts`) on models that reach `xhigh`.
   A config signed before the field existed offers only the configured model
   with that engine's generic efforts. The launchpad makes no network call.
