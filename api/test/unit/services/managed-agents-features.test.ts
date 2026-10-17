@@ -97,6 +97,22 @@ describe('Claude MCP Skill content guidance', () => {
   });
 });
 
+describe('Skill support-script safety parity', () => {
+  // Safety rules must not depend on engine or transport: a Claude host with MCP
+  // off falls back to native Skills and must still be told to inspect scripts.
+  it.each([
+    [ENGINE_CODEX, 'mcp'],
+    [ENGINE_CLAUDE, 'mcp'],
+    [ENGINE_CLAUDE, 'native'],
+    [ENGINE_GROK, 'native'],
+  ] as const)('%s (%s) inspects bundled scripts before task-authorized execution', (engine, transport) => {
+    const out = renderManagedAgentFeatures('# Rules\n', context(engine, { skills: enabled(3), skillsTransport: transport }));
+    expect(out.sections.skills).toMatchObject({ present: true, transport });
+    const block = out.body.split('## Skills')[1]!.split('fleet-reflect')[0]!;
+    expect(block).toMatch(/inspect[\s\S]{0,60}before\s+any\s+task-authorized(?:\s+local)?\s+execution/i);
+  });
+});
+
 describe('dynamic orchestrator feedback guidance', () => {
   for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
     it(`${engine}: toggle adds/removes guidance and updates served digest without altering authored rules`, () => {

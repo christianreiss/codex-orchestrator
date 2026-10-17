@@ -469,7 +469,9 @@ With orchestrator MCP usable, the Claude block requires fleet Skill discovery
 through `skill_list`, then reads manifests through `resource_read` at
 `skill://<slug>` (or `skill_retrieve`) and support files at
 `skill://<slug>/<path>`. Without usable orchestrator MCP, it points at the
-managed native `~/.claude/skills/<slug>/SKILL.md` fallback. With MCP enabled,
+managed native `~/.claude/skills/<slug>/SKILL.md` fallback. Both variants, like
+the Codex and Grok blocks, require inspecting bundled support scripts before any
+task-authorized execution. With MCP enabled,
 durable fleet and workstream facts use `shared_memory_*` and
 `project_memory_*`; `memory_*` remains host-local scratch. Claude's local
 `~/.claude/projects/.../memory/` / `MEMORY.md` is not the shared store; enabled

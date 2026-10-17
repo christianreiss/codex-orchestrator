@@ -259,7 +259,8 @@ ${reflection}`,
 
 Fleet Skills are synced as native Claude Code skills under
 \`~/.claude/skills/<slug>/SKILL.md\`. Read the matching \`SKILL.md\` when a Skill's description or
-trigger applies, and follow its instructions.
+trigger applies, and follow its instructions. Bundled scripts are content too; inspect them before
+any task-authorized local execution.
 
 ${reflection}`,
       'native',
