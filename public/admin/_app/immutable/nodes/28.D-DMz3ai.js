@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/BsCinyWx2.js";export{e as component};

@@ -1,0 +1,1 @@
+import{t as e}from"../chunks/3BSPvtaX.js";export{e as component};

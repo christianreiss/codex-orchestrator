@@ -1,0 +1,1 @@
+import{nn as e}from"../chunks/CcbFKhJi.js";import{l as t}from"../chunks/BSm_dgEv.js";import{t as n}from"../chunks/DD1KKhrX2.js";var r=e({load:()=>i}),i=()=>{throw n(308,`${t}/engines#claude-client`)};export{r as universal};

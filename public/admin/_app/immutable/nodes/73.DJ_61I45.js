@@ -1,0 +1,1 @@
+import{nn as e}from"../chunks/CcbFKhJi.js";import{l as t}from"../chunks/BSm_dgEv.js";import"../chunks/xihTtKlq.js";import"../chunks/jenKwcZg.js";import{t as n}from"../chunks/DD1KKhrX2.js";import{t as r}from"../chunks/DvxVeRIy.js";var i=e({load:()=>a}),a=({url:e})=>{throw n(308,`${t}/users${e.search?e.search:``}`)};function o(e){r(e,{})}export{o as component,i as universal};
