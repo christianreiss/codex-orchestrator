@@ -14,7 +14,7 @@ until [ -r "$bootstrap" ]; do
   echo "advisor: waiting for $bootstrap (written by the API at boot)" >&2
   sleep 30
 done
-python3 -I /usr/local/lib/advisor/bootstrap.py "$bootstrap"
+python3 -I /usr/local/bin/advisor-bootstrap.py "$bootstrap"
 
 # Pinned private engine installs. Cron and systemd do not exist here and are
 # not needed: the daemon runs in the foreground. A failed engine install

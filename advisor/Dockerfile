@@ -10,7 +10,7 @@ RUN apt-get update \
  && install -d -o advisor -g advisor /work
 
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/advisor-entrypoint
-COPY --chmod=0644 bootstrap.py /usr/local/lib/advisor/bootstrap.py
+COPY --chmod=0755 bootstrap.py /usr/local/bin/advisor-bootstrap.py
 
 USER advisor
 ENV HOME=/home/advisor
