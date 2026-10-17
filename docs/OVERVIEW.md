@@ -547,7 +547,7 @@ status stays available. See [installation](INSTALL.md#instance-management).
 - For managed hosts: `New Host` → paste the auto-copied `curl …/install/{token} | bash` command on the host. For disposable VMs: `Quick VM` → choose any combination of Codex, Claude, and Grok → paste the auto-copied installer. Every host receives one `cxx`; Codex hosts receive `cdx -> cxx`, Claude hosts `clx -> cxx`, Grok hosts `cgx -> cxx`, and multi-engine hosts the selected aliases against the same host key. Treat only a final `READY` plus exit 0 as success; `INCOMPLETE` means the named retry must be run (or a fresh single-use installer minted for wrapper/config failures).
 - Host-side usage (how to run Codex via `cdx`, what files it manages, troubleshooting): see `docs/USAGE.md`.
 - `cdx` pre-launch helpers are intentionally no-op safe: if `config.toml` yields no OTel exports or the current directory is already trusted, the wrapper continues into Codex instead of treating that as a fatal shell step.
-- Use `/admin/quick-settings` for immediate model and effort changes through
+- Use the **Model defaults** tab of `/admin/engines` (`/admin/engines#defaults`; the old `/admin/quick-settings` redirects there) for immediate model and effort changes through
   button selections. Each engine saves independently; selecting a model also
   saves its catalog default effort. Grok also offers 256k/500k context-window
   buttons (256k by default), persisted for new sessions and retained across

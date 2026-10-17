@@ -158,7 +158,7 @@
   </div>
   <div class="relative min-h-0 flex-1 {chatOpen ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(22rem,40%)] lg:gap-3' : ''}">
   <div class="relative min-w-0">
-    <div class={fullscreen ? "h-[calc(100dvh-6rem)] min-w-0" : "h-[62vh] min-h-[24rem] min-w-0 lg:h-[calc(100vh-17rem)]"}>
+    <div class={fullscreen ? "h-[calc(100dvh-6rem)] min-w-0" : "h-[62vh] min-h-[24rem] min-w-0 lg:h-[calc(100vh-21rem)]"}>
       {#if view === "radial"}
         <TopologyGraph bind:this={graph} server={$topology.data?.server} model={visibleModel} {selectedId} {query} onselect={select} />
       {:else}

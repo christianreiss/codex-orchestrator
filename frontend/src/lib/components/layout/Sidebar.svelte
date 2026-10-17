@@ -1,56 +1,19 @@
 <script lang="ts">
-  import { untrack } from "svelte";
   import { page } from "$app/state";
   import { base } from "$app/paths";
   import { goto } from "$app/navigation";
   import { NAV_FOOTER, NAV_SECTIONS, isActive } from "$lib/nav";
   import { cn } from "$lib/utils/cn";
   import { authActions, authStore } from "$lib/stores/auth";
-  import { getStoredOpenGroups, setStoredOpenGroups } from "$lib/stores/sidebar-groups";
   import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import InsecureApprovalsNavAlert from "./InsecureApprovalsNavAlert.svelte";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
-  import * as Collapsible from "$lib/components/ui/collapsible";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Keyboard from "@lucide/svelte/icons/keyboard";
   import LogOut from "@lucide/svelte/icons/log-out";
-  import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
-  import { engineLabel } from "$lib/constants/engines";
 
   const path = $derived(page.url.pathname.replace(base, "") || "/");
   const auth = $derived($authStore);
-  // Engine-specific destinations stay reachable while their engine is off
-  // fleet-wide (the content is still editable); the rail only annotates them.
-  const fleet = useFleetEngines();
-  const engineOff = (item: { engine?: string }) => Boolean(item.engine && !$fleet.isEnabled(item.engine));
-
-  // Workspace starts open for daily tasks; configuration and diagnostics
-  // start collapsed to keep the rail short. A prior manual choice, persisted
-  // to localStorage, wins over these defaults. Navigating into a section
-  // always reveals it without fighting a manual collapse.
-  const DEFAULT_OPEN_GROUPS: Record<string, boolean> = {
-    workspace: true,
-    fleet: false,
-    coordinate: false,
-    knowledge: false,
-    access: false,
-    diagnostics: false,
-  };
-
-  let openGroups = $state<Record<string, boolean>>(
-    Object.fromEntries(
-      NAV_SECTIONS.map((s) => [s.id, getStoredOpenGroups()?.[s.id] ?? DEFAULT_OPEN_GROUPS[s.id] ?? true]),
-    ),
-  );
-
-  $effect(() => {
-    const activeSection = NAV_SECTIONS.find((s) => s.items.some((i) => isActive(i, path)));
-    if (activeSection) untrack(() => { openGroups[activeSection.id] = true; });
-  });
-
-  $effect(() => {
-    setStoredOpenGroups(openGroups);
-  });
 
   function openShortcuts(): void {
     window.dispatchEvent(new CustomEvent("codex:open-shortcuts"));
@@ -72,53 +35,33 @@
   </a>
 
   <nav class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4" aria-label="Primary navigation">
-    <div class="space-y-3">
+    <div class="space-y-4">
       <InsecureApprovalsNavAlert />
       {#each NAV_SECTIONS as section (section.id)}
         <section aria-labelledby={`nav-${section.id}`}>
-          <Collapsible.Root bind:open={openGroups[section.id]}>
-            <h2 id={`nav-${section.id}`}>
-              <Collapsible.Trigger class="w-full">
-                {#snippet child({ props })}
-                  <button
-                    {...props}
-                    type="button"
-                    class="group flex h-8 w-full items-center justify-between rounded-md px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground outline-none transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {section.label}
-                    <ChevronDown class="h-3 w-3 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
-                  </button>
-                {/snippet}
-              </Collapsible.Trigger>
-            </h2>
-            <Collapsible.Content>
-              <ul class="space-y-0.5 pt-1">
-                {#each section.items as item (item.id)}
-                  {@const Icon = item.icon}
-                  {@const active = isActive(item, path)}
-                  <li>
-                    <a
-                      href={`${base}${item.route}`}
-                      class={cn(
-                        "relative flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                        active ? "bg-primary/15 text-primary before:absolute before:-left-3 before:h-5 before:w-0.5 before:rounded-r before:bg-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                      )}
-                      aria-current={active ? "page" : undefined}
-                      title={engineOff(item) && item.engine ? `${item.description}. ${fleetDisabledTitle(engineLabel(item.engine))}` : item.description}
-                    >
-                      <Icon class="h-4 w-4 shrink-0" />
-                      <span class="truncate">{item.label}</span>
-                      {#if engineOff(item) && item.engine}
-                        <span class="ml-auto shrink-0 rounded border border-dashed px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                          off<span class="sr-only"> ({engineLabel(item.engine)} disabled fleet-wide)</span>
-                        </span>
-                      {/if}
-                    </a>
-                  </li>
-                {/each}
-              </ul>
-            </Collapsible.Content>
-          </Collapsible.Root>
+          <h2 id={`nav-${section.id}`} class="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {section.label}
+          </h2>
+          <ul class="space-y-0.5">
+            {#each section.hubs as hub (hub.id)}
+              {@const Icon = hub.icon}
+              {@const active = isActive(hub, path)}
+              <li>
+                <a
+                  href={`${base}${hub.route}`}
+                  class={cn(
+                    "relative flex h-9 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                    active ? "bg-primary/15 text-primary before:absolute before:-left-3 before:h-5 before:w-0.5 before:rounded-r before:bg-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                  aria-current={active ? "page" : undefined}
+                  title={hub.description}
+                >
+                  <Icon class="h-4 w-4 shrink-0" />
+                  <span class="truncate">{hub.label}</span>
+                </a>
+              </li>
+            {/each}
+          </ul>
         </section>
       {/each}
     </div>

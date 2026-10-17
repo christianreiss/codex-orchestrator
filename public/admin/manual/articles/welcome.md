@@ -25,18 +25,21 @@ Once at least one admin exists (`AdminAuthService.countAdmins`), a valid session
 
 The admin is a single-page SvelteKit app whose HTML shell is returned by the Fastify static handler (`adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`). On boot the SPA hydrates by calling `GET /admin/auth/status` to learn who (if anyone) is signed in. The root route waits for that answer before forwarding to `/dashboard`, and stands down entirely when the installation is unclaimed — then the layout gate owns the navigation and sends you to the setup wizard at `/setup` instead. Redirecting immediately used to race that gate, so a brand-new install opened on a dashboard full of 401s.
 
-The desktop sidebar groups destinations by task:
+The desktop sidebar is nine always-visible entries in two sections. Each entry opens a hub; hubs with several pages show them as a tab strip above the page, and every page keeps its own URL.
 
-| Group | Destinations |
-|---|---|
-| **Workspace** | Overview, Active Clients, Hosts, Projects |
-| **Fleet** | Accounts, Quick Settings, Engines, Policies |
-| **Coordinate** | Agent Messaging, Git Director, File Transfer |
-| **Knowledge** | Skills, Fleet Instructions, Memories, Subagents, Commands, Output Styles |
-| **Access** | API Access, Secrets, Admin Users |
-| **Diagnostics** | Logs (audit trail and MCP requests) |
+| Section | Hub | Pages (tabs) |
+|---|---|---|
+| **Operate** | Overview | Overview |
+| | Agents | Active Clients, Live Topology |
+| | Projects | Projects |
+| | Hosts | Hosts |
+| | Coordination | Agent Messaging, Wake / Cron, Git Director, File Transfer |
+| | Activity | Logs (audit trail and MCP requests), Feedback |
+| **Configure** | Providers | Accounts, Engines (including Model defaults) |
+| | Library | Skills, Fleet Instructions, Memories; Claude-native: Subagents, Commands, Output Styles |
+| | Access & Policy | API Access, Secrets, Admin Users, Policies |
 
-Workspace starts expanded for daily tasks; the other groups start collapsed. Manual choices survive reloads; navigating into a group opens it again. The active destination and breadcrumb identify your current location. **Overview** contains engine coverage, Codex and Claude usage, and runner verification. **Engines** holds fleet model and update controls; **Policies** holds fleet operational rules. **Git Director** arbitrates merges between agents sharing a clone, and **File Transfer** is the expiring pool of files agents hand each other. Subagents, Commands, and Output Styles are Claude-native collections.
+Manual, Account and Shortcuts sit at the foot of the sidebar. On a phone the bottom bar keeps Overview, Hosts, Projects and Agents; the other hubs are under Menu. The command palette (Ctrl/Cmd-K) still jumps straight to any individual page. The active destination and breadcrumb identify your current location. **Overview** contains engine coverage, Codex and Claude usage, and runner verification. **Engines** holds fleet model and update controls; **Policies** holds fleet operational rules. **Git Director** arbitrates merges between agents sharing a clone, and **File Transfer** is the expiring pool of files agents hand each other. Subagents, Commands, and Output Styles are Claude-native collections.
 
 The footer provides **Manual**, **Account**, **Shortcuts**, and an account menu for password, passkeys, appearance, and sign-out. On phones, Overview, Hosts, Projects, and Active Clients stay in the bottom bar; **Menu** opens the remaining destinations and account actions. Menu is highlighted when the current page belongs to that group.
 

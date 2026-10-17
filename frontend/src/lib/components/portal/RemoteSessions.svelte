@@ -109,7 +109,7 @@
 
 {#if active}
   {#if error}<div role="alert" class="mb-3 flex items-center justify-between rounded-lg border border-destructive/30 p-3 text-sm"><span>Remote sessions could not be refreshed. {error.message}</span><Button variant="outline" size="sm" onclick={refresh}>Retry remote sessions</Button></div>{/if}
-  <div class={compact ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "grid h-[75dvh] min-h-[28rem] grid-cols-1 overflow-hidden rounded-xl border bg-card lg:h-[calc(100dvh-15.5rem)] lg:grid-cols-[22rem_minmax(0,1fr)]"}>
+  <div class={compact ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "grid h-[calc(75dvh-4rem)] min-h-[28rem] grid-cols-1 overflow-hidden rounded-xl border bg-card lg:h-[calc(100dvh-19.5rem)] lg:grid-cols-[22rem_minmax(0,1fr)]"}>
     {#if !compact}<section aria-label="Remote session directory" class="min-h-0 min-w-0 flex-col border-r {selectedId ? 'hidden lg:flex' : 'flex'}">
       <div class="space-y-2 border-b p-3">
         <div class="flex gap-2">
