@@ -1,3 +1,4 @@
+import { modelTier } from './model-tiers.js';
 import { readModelPolicy, applyModelPolicy, type ModelPolicy } from './model-policy.js';
 import type { Database } from '../db/client.js';
 import { ValidationError } from '../http/errors.js';
@@ -116,13 +117,17 @@ export interface LaunchCatalog {
 export function modelLaunchCatalog(engine: Engine, policy?: ModelPolicy): LaunchCatalog {
   return {
     default_model: policy?.latest_only ? policy.replacements[defaultModel(engine)]! : defaultModel(engine),
-    models: modelDefaultsCatalog(engine).filter(entry => !policy?.latest_only || (policy.latest_models.includes(entry.model) && !policy.disabled_models?.includes(entry.model))).map((entry) => ({
-      model: entry.model,
-      efforts: [...entry.persistent_efforts],
-      session_efforts:
-        engine === ENGINE_CLAUDE ? claudeSessionEfforts(entry.model) : [],
-      default_effort: entry.default_effort,
-    })),
+    models: modelDefaultsCatalog(engine)
+      .filter(entry => !policy?.latest_only || (policy.latest_models.includes(entry.model) && !policy.disabled_models?.includes(entry.model)))
+      // Stable sorting preserves catalog precedence within each capability tier.
+      .sort((a, b) => (modelTier(engine, b.model) ?? 0) - (modelTier(engine, a.model) ?? 0))
+      .map((entry) => ({
+        model: entry.model,
+        efforts: [...entry.persistent_efforts],
+        session_efforts:
+          engine === ENGINE_CLAUDE ? claudeSessionEfforts(entry.model) : [],
+        default_effort: entry.default_effort,
+      })),
   };
 }
 

@@ -61,6 +61,9 @@ light transitions, segmented effort controls and cached weekly bars. Small
 terminals use a compact viewport. `CXX_REDUCED_MOTION=1` keeps the interface
 still; ASCII/minimal and `NO_COLOR` output remain available.
 
+Each engine’s model list is sorted by capability tier, strongest first, preserving
+catalog order within each tier and the previous selection.
+
 On an attended terminal, `cxx` with no arguments opens a keyboard picker:
 - **Engines** sit on a compass: Codex left, Claude right, Grok below. With one
   engine the compass is skipped. From wrapper 0.9.68, each selection expands

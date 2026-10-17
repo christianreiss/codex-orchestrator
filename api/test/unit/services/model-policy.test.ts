@@ -37,7 +37,7 @@ describe('current model policy', () => {
       db.tables.set(clientConfigDocuments, [{ id: 1, engine, sha256: 'a'.repeat(64), body: '', settings: { model: old }, updatedAt: '2026-10-16T00:00:00Z' }]);
       const policy = await readModelPolicy(db as never, engine);
       expect(applyModelPolicy(policy, old)).toBe(next);
-      expect(modelLaunchCatalog(engine, policy).models.map(entry => entry.model)).toEqual(policy.latest_models);
+      expect(modelLaunchCatalog(engine, policy).models.map(entry => entry.model).sort()).toEqual([...policy.latest_models].sort());
       const response = await new ModelDefaultsService(db as never).get(engine);
       expect(response.model).toBe(next);
       expect(response.catalog.map(entry => entry.model)).toEqual(policy.latest_models);
