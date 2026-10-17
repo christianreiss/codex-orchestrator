@@ -846,7 +846,12 @@ All three engine config GET/store routes share the revision contract: `revision`
 - File transfer (`transfers.*`). A fleet-wide, TTL'd pool of arbitrary files, so
   agents can hand each other a build artifact or a tarball rather than only
   text (`transfer_list`, `transfer_put`, `transfer_get`, `transfer_info`,
-  `transfer_delete`). Bytes live on the `DATA_ROOT` volume (`transfers/<shard>/<id>`)
+  `transfer_delete`). `transfer_list` carries a `limits` object while the pool is
+  available (`max_file_bytes`, `quota_bytes` with `null` = no cap, `used_bytes`,
+  `remaining_bytes`, `max_upload_bytes`, `mcp_chunk_bytes`, `binary_chunk_bytes`,
+  `default_ttl_seconds`, `max_ttl_seconds`); `transfer_put` accepts an optional
+  `expected_size_bytes` that preflights the file cap and free pool on the first
+  call of a chunked upload. Bytes live on the `DATA_ROOT` volume (`transfers/<shard>/<id>`)
   rather than in a column, which is why the download below can stream. Expiry
   is swept at the top of every listing and fetch and, because what it reclaims
   is disk, also by a worker every `TRANSFERS_PURGE_INTERVAL_SECONDS` (default

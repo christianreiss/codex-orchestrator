@@ -46,7 +46,11 @@ import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { SettingsService } from './settings.js';
-import { BinaryTransfers, type BinaryTransferInput } from './agent-transfers/binary.js';
+import {
+  BINARY_CHUNK_BYTES,
+  BinaryTransfers,
+  type BinaryTransferInput,
+} from './agent-transfers/binary.js';
 
 export const TRANSFERS_ENABLED_FLAG = 'transfers_module_enabled';
 export const TRANSFERS_DEFAULT_TTL_KEY = 'transfers_default_ttl_seconds';
@@ -108,6 +112,31 @@ export interface TransferLimits {
   quota_bytes: number;
 }
 
+/**
+ * What an agent needs to know BEFORE it streams anything: the byte caps in
+ * force, how much of the pool is free, and how big one call may be. `null`
+ * means unlimited (the operator-side `0`), so an agent never has to know that
+ * `0` is a sentinel. Served by `transfer_list`.
+ */
+export interface TransferDiscovery {
+  /** Largest single file the fleet accepts, or null for no cap. */
+  max_file_bytes: number | null;
+  /** Total pool capacity, or null for no cap. */
+  quota_bytes: number | null;
+  /** Bytes held now, including reservations of unfinished uploads. */
+  used_bytes: number;
+  /** Capacity left in the pool, or null when it has no cap. */
+  remaining_bytes: number | null;
+  /** The largest file that fits right now: the tighter of the file cap and the remaining pool. */
+  max_upload_bytes: number | null;
+  /** Decoded bytes one MCP `transfer_put` / `transfer_get` call carries. */
+  mcp_chunk_bytes: number;
+  /** Bytes per request for `cxx transfer put/get`. */
+  binary_chunk_bytes: number;
+  default_ttl_seconds: number;
+  max_ttl_seconds: number;
+}
+
 export interface TransferModuleState extends TransferLimits {
   enabled: boolean;
   updated_at: string | null;
@@ -155,6 +184,12 @@ export interface PutTransferInput {
   description?: unknown;
   offset?: unknown;
   final?: unknown;
+  /**
+   * Total size of the whole file, on the first call of a chunked upload. Optional;
+   * when given, the per-file cap and the pool are checked against it up front so a
+   * file that cannot fit is refused before any byte is streamed.
+   */
+  expected_size_bytes?: unknown;
   username?: unknown;
   worktree_path?: unknown;
 }
@@ -407,6 +442,29 @@ export class AgentTransfersService {
     };
   }
 
+  /** The limits an agent should consult before a large upload. See `TransferDiscovery`. */
+  async discovery(): Promise<TransferDiscovery> {
+    await this.sweepExpired().catch(() => undefined);
+    const limits = await this.getLimits();
+    const holding = await this.holdingRows();
+    const used = holding.reduce((sum, row) => sum + Number(row.expectedSizeBytes ?? row.sizeBytes ?? 0), 0);
+    const maxFile = limits.max_file_bytes > 0 ? limits.max_file_bytes : null;
+    const quota = limits.quota_bytes > 0 ? limits.quota_bytes : null;
+    const remaining = quota === null ? null : Math.max(0, quota - used);
+    const caps = [maxFile, remaining].filter((value): value is number => value !== null);
+    return {
+      max_file_bytes: maxFile,
+      quota_bytes: quota,
+      used_bytes: used,
+      remaining_bytes: remaining,
+      max_upload_bytes: caps.length > 0 ? Math.min(...caps) : null,
+      mcp_chunk_bytes: MAX_CHUNK_BYTES,
+      binary_chunk_bytes: BINARY_CHUNK_BYTES,
+      default_ttl_seconds: limits.default_ttl_seconds,
+      max_ttl_seconds: limits.max_ttl_seconds,
+    };
+  }
+
   async setEnabled(enabled: boolean): Promise<TransferModuleState> {
     await this.deps.settings.setFlag(TRANSFERS_ENABLED_FLAG, enabled, { publish: false });
     wsPublisher.publish('settings.changed', { kind: 'transfers', enabled });
@@ -561,13 +619,27 @@ export class AgentTransfersService {
     }
     const requested = requiredInt(input.ttl_seconds, 'ttl_seconds');
     const { effective, clamped } = clampTtlSeconds(requested, limits.max_ttl_seconds);
+    // A declared total size is checked before any byte is written, so a file the
+    // fleet will refuse part-way is refused at the first call instead.
+    let declared: number | null = null;
+    if (input.expected_size_bytes !== undefined && input.expected_size_bytes !== null) {
+      declared = requiredInt(input.expected_size_bytes, 'expected_size_bytes');
+      if (declared < chunk.length) {
+        throw new ValidationError('expected_size_bytes is smaller than the bytes in this call.');
+      }
+      if (limits.max_file_bytes > 0 && declared > limits.max_file_bytes) {
+        throw new ValidationError(
+          `This file is ${formatBytes(declared)}, over the fleet's ${formatBytes(limits.max_file_bytes)} per-file limit.`,
+        );
+      }
+    }
     if (limits.max_file_bytes > 0 && chunk.length > limits.max_file_bytes) {
       throw new ValidationError(
         `This file is ${formatBytes(chunk.length)}, over the fleet's ${formatBytes(limits.max_file_bytes)} per-file limit.`,
       );
     }
     return this.writeTransaction(async (tx) => {
-      await this.requireQuota(chunk.length, limits, tx);
+      await this.requireQuota(Math.max(chunk.length, declared ?? 0), limits, tx);
 
       const id = randomUUID();
       const storagePath = join(STORAGE_DIR, id.slice(0, 2), id);

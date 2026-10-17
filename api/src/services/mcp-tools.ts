@@ -1894,7 +1894,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'transfer_list',
         description:
-          'See what files are currently held in the fleet transfer pool: id, name, size, type, who uploaded it and when each one expires. Call this to find out whether the pool is available at all -- it answers with status "disabled" instead of failing when an operator has the module switched off. The pool is fleet-wide, so this lists uploads from every host, not just yours.',
+          'See what files are currently held in the fleet transfer pool: id, name, size, type, who uploaded it and when each one expires. The reply also carries `limits`: `max_file_bytes` and `quota_bytes` (null means no cap), `remaining_bytes`, `max_upload_bytes` (the largest file that fits right now) and the per-call chunk sizes -- read them before you stream a large file, because an upload over the cap is refused part-way. Call this to find out whether the pool is available at all -- it answers with status "disabled" instead of failing when an operator has the module switched off. The pool is fleet-wide, so this lists uploads from every host, not just yours.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1906,7 +1906,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
         const state = await transferStatus();
         if (state['status'] === 'disabled') return { ...state, transfers: [], count: 0 };
         const rows = await transfers.list({ limit: args['limit'] as number | undefined });
-        return { ...state, transfers: rows, count: rows.length };
+        const limits = await transfers.discovery();
+        return { ...state, limits, transfers: rows, count: rows.length };
       },
     });
 
@@ -1914,7 +1915,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'transfer_put',
         description:
-          'Upload a file for another agent to fetch. Pass the bytes base64-encoded in `content_b64`, a display `name`, and `ttl_seconds` -- which is REQUIRED, because every transfer expires. Ask for how long the peer plausibly needs it; the fleet clamps the value to an operator-set maximum and the reply tells you the `expires_at` you actually got, which is when the bytes go. Returns an id: nobody is notified that you uploaded anything, so hand that id to the peer yourself. For a file larger than one call carries, pass final=false, then call again with the returned `id` and `offset` set to the `size_bytes` you were given, and final=true on the last chunk. Pass `username` and `worktree_path` so the console can show who uploaded it.',
+          'Upload a file for another agent to fetch. Pass the bytes base64-encoded in `content_b64`, a display `name`, and `ttl_seconds` -- which is REQUIRED, because every transfer expires. Ask for how long the peer plausibly needs it; the fleet clamps the value to an operator-set maximum and the reply tells you the `expires_at` you actually got, which is when the bytes go. Returns an id: nobody is notified that you uploaded anything, so hand that id to the peer yourself. For a file larger than one call carries, pass final=false, then call again with the returned `id` and `offset` set to the `size_bytes` you were given, and final=true on the last chunk. For a chunked upload, pass `expected_size_bytes` (the whole file) on the first call and a file over the per-file cap or the free pool is refused before any byte is stored; `transfer_list` shows the limits. Pass `username` and `worktree_path` so the console can show who uploaded it.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1926,6 +1927,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             id: { type: 'string' },
             offset: { type: 'integer' },
             final: { type: 'boolean' },
+            expected_size_bytes: { type: 'integer' },
             username: { type: 'string' },
             worktree_path: { type: 'string' },
           },

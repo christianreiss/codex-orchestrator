@@ -178,6 +178,28 @@ describe('put', () => {
     await expect(put()).rejects.toThrow(/pool is full/);
   });
 
+  it('refuses a declared total over the per-file cap before storing a byte', async () => {
+    settings.store.set('transfers_max_file_bytes', '100');
+    await expect(put({ final: false, expected_size_bytes: 101 })).rejects.toThrow(/per-file limit/);
+    expect(transferRows()).toHaveLength(0);
+  });
+
+  it('refuses a declared total the free pool cannot hold', async () => {
+    settings.store.set('transfers_quota_bytes', '100');
+    await expect(put({ final: false, expected_size_bytes: 101 })).rejects.toThrow(/pool is full/);
+    expect(transferRows()).toHaveLength(0);
+  });
+
+  it('rejects a declared total smaller than the bytes sent', async () => {
+    await expect(put({ final: false, expected_size_bytes: 3 })).rejects.toThrow(/expected_size_bytes/);
+  });
+
+  it('accepts a declared total that fits', async () => {
+    settings.store.set('transfers_max_file_bytes', '100');
+    const result = await put({ final: false, expected_size_bytes: 100 });
+    expect(result.complete).toBe(false);
+  });
+
   it('rejects content that is not valid base64 instead of storing corrupt bytes', async () => {
     await expect(put({ content_b64: 'not base64!!!' })).rejects.toThrow(/not valid base64/);
   });
@@ -464,6 +486,31 @@ describe('module state', () => {
     expect(state.used_bytes).toBe(22);
     // An unsealed upload holds bytes but is not yet a file anyone can fetch.
     expect(state.live_count).toBe(1);
+  });
+
+  it('discovers unlimited limits as null, with the chunk sizes', async () => {
+    const d = await service.discovery();
+    expect(d.max_file_bytes).toBeNull();
+    expect(d.quota_bytes).toBeNull();
+    expect(d.remaining_bytes).toBeNull();
+    expect(d.max_upload_bytes).toBeNull();
+    expect(d.mcp_chunk_bytes).toBe(4 * 1024 * 1024);
+    expect(d.binary_chunk_bytes).toBe(16 * 1024 * 1024);
+  });
+
+  it('discovers the configured caps and the pool actually left', async () => {
+    settings.store.set('transfers_max_file_bytes', '50');
+    settings.store.set('transfers_quota_bytes', '100');
+    await put(); // 11 bytes
+    const d = await service.discovery();
+    expect(d.max_file_bytes).toBe(50);
+    expect(d.quota_bytes).toBe(100);
+    expect(d.used_bytes).toBe(11);
+    expect(d.remaining_bytes).toBe(89);
+    // The tighter of the two is what fits right now.
+    expect(d.max_upload_bytes).toBe(50);
+    settings.store.set('transfers_quota_bytes', '60');
+    expect((await service.discovery()).max_upload_bytes).toBe(49);
   });
 
   it('defaults to off, so enabling is always a deliberate act', async () => {

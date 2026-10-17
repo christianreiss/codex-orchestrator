@@ -849,6 +849,10 @@ describe('transfer_* tools', () => {
       transferCalls.push({ method: 'list', arg: options });
       return [{ id: 'f1', name: 'build.tar.gz' }];
     },
+    discovery: async () => {
+      transferCalls.push({ method: 'discovery', arg: null });
+      return { max_file_bytes: 8_388_608, remaining_bytes: null, max_upload_bytes: 8_388_608 };
+    },
     put: async (input: unknown) => {
       transferCalls.push({ method: 'put', arg: input });
       return { transfer: { id: 'f1' }, ttl_clamped: false, bytes_written: 4, complete: true };
@@ -929,6 +933,7 @@ describe('transfer_* tools', () => {
     expect((result['capabilities'] as Record<string, boolean>)['put']).toBe(false);
     // `list` stays true even while off, because that is the tool answering.
     expect((result['capabilities'] as Record<string, boolean>)['list']).toBe(true);
+    expect(result['limits']).toBeUndefined();
     expect(transferCalls).toEqual([]);
   });
 
@@ -950,10 +955,12 @@ describe('transfer_* tools', () => {
     const listed = payloadOf(await reg.dispatch('transfer_list', {}, host));
     expect(listed['status']).toBe('available');
     expect(listed['count']).toBe(1);
+    // Limits ride along so an agent can size a large upload before streaming it.
+    expect((listed['limits'] as Record<string, unknown>)['max_file_bytes']).toBe(8_388_608);
 
     await reg.dispatch('transfer_get', { id: 'f1' }, host);
     await reg.dispatch('transfer_info', { id: 'f1' }, host);
-    expect(transferCalls.map((call) => call.method)).toEqual(['list', 'get', 'info']);
+    expect(transferCalls.map((call) => call.method)).toEqual(['list', 'discovery', 'get', 'info']);
   });
 
   it('attributes a delete to the caller-asserted username, not to the fleet', async () => {
