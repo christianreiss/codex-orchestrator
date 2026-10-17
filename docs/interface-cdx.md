@@ -1926,3 +1926,10 @@ The signed `engine_options.model_policy` contains `engine`, `latest_only`,
 cxx 0.9.94 or newer and the next successful configuration sync. Offline starts
 use the last valid signed configuration. Running sessions, their native model
 changes and direct provider binaries outside managed entrypoints are unchanged.
+
+Managed portal shutdown closes the local broker, then sends the terminal report
+with one four-second remote budget shared by retries. The terminal report also
+closes the relay; there is no preceding close-heartbeat request. An explicit
+`agent_session_finished` response means the session already ended remotely and
+needs no warning. Other conflicts and transport failures remain errors. Error
+codes are read from both top-level and nested API envelopes.

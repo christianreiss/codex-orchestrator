@@ -66,7 +66,12 @@ func reportWatchdogEvent(stdin io.Reader) error {
 	if failure == "" {
 		return nil
 	}
-	client, e := sessionClientFromEnv(4 * time.Second)
+	sessionEnd := stringArg(input, "hook_event_name") == "SessionEnd" || stringArg(input, "hookEventName") == "SessionEnd"
+	hookTimeout := 4 * time.Second
+	if sessionEnd {
+		hookTimeout = time.Second
+	}
+	client, e := sessionClientFromEnv(hookTimeout)
 	if e != nil {
 		return nil
 	}
@@ -78,10 +83,15 @@ func reportWatchdogEvent(stdin io.Reader) error {
 		return nil
 	}
 	body := map[string]any{"last_progress_at": time.Now().UTC().Format(time.RFC3339Nano), "failure": failure, "native_session_id": nativeID}
+	// SessionEnd must not wait on the network while the native CLI is exiting.
+	// The supervisor retains the classification and sends it with Finish.
+	if sessionEnd {
+		body["session_end"] = true
+	}
 	if retry := scheduleRetryAt(string(raw), time.Now()); retry != "" {
 		body["retry_not_before"] = retry
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
 	defer cancel()
 	var ignored map[string]any
 	_ = client.sessionPost(ctx, "watchdog/activity", body, &ignored)

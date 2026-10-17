@@ -576,7 +576,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	if connectionErr != nil {
 		logger.Warn("agent connection unavailable; continuing local session", "err", connectionErr)
 	}
+	portalClosed := false
 	closePortal := func(status, summaryText string) {
+		if portalClosed {
+			return
+		}
+		portalClosed = true
 		if err := connection.Close(status, summaryText); err != nil {
 			logger.Warn("agent connection finalization failed", "err", err)
 		}
@@ -1820,7 +1825,12 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, be
 		}
 		// Share the overall budget: a healthy runner may need more than five
 		// seconds, and abandoning it just queues the same credential again.
-		status, tone = postRunAuthUploadAttempt(ctx, client, logger, before, session)
+		var attemptErr error
+		status, tone, attemptErr = postRunAuthUploadAttemptWithError(ctx, client, logger, before, session)
+		var httpErr *orchestrator.HTTPError
+		if errors.As(attemptErr, &httpErr) && httpErr.StatusCode >= 400 && httpErr.StatusCode < 500 && httpErr.StatusCode != 429 {
+			break // Permanent refusal or ambiguous write: never replay it.
+		}
 		if tone != ui.ToneFail && status != "newer local kept" {
 			return status, tone
 		}
@@ -1831,51 +1841,60 @@ func maybePostRunAuthUpload(client *orchestrator.Client, logger *slog.Logger, be
 	if status == "newer local kept" {
 		status = "newer local not uploaded"
 	}
-	logger.Warn("Claude credential propagation failed after bounded retry; final insecure-session cleanup still applies", "status", status)
+	logger.Warn("Claude credential sync incomplete; final insecure-session cleanup still applies", "status", status)
 	return status, ui.ToneFail
 }
 
 func postRunAuthUploadAttempt(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, before claude.AuthGeneration, session *claude.AuthSession) (string, ui.Tone) {
+	status, tone, _ := postRunAuthUploadAttemptWithError(ctx, client, logger, before, session)
+	return status, tone
+}
+
+func postRunAuthUploadAttemptWithError(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, before claude.AuthGeneration, session *claude.AuthSession) (string, ui.Tone, error) {
 	current, err := claude.ReadAuthSnapshotContext(ctx, false)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		logger.Warn("read post-run Claude credentials failed", "err", err)
-		return "credential read failed", ui.ToneFail
+		return "credential read failed", ui.ToneFail, nil
 	}
 	if err != nil || !current.Usable {
 		marked, markErr := claude.MarkLogoutIfCurrentContext(ctx, before)
 		if markErr != nil {
 			logger.Warn("record Claude logout failed", "err", markErr)
-			return "logout tracking failed", ui.ToneFail
+			return "logout tracking failed", ui.ToneFail, nil
 		}
 		if marked {
-			return "logged out", ui.ToneWarn
+			return "logged out", ui.ToneWarn, nil
 		}
-		return "not found", ui.ToneWarn
+		return "not found", ui.ToneWarn, nil
 	}
 	if current.Generation == before && current.ServerDigest != "" {
-		return "unchanged", ui.ToneOK
+		return "unchanged", ui.ToneOK, nil
 	}
 	// 15s budget: a login during the session is the one credential mint the
 	// fleet must not lose. storeChangedAuthCandidate holds the auth transaction
 	// through AuthStore, so explicit logout orders wholly before or after it.
 	resp, snap, err := storeChangedAuthCandidate(ctx, client)
 	if errors.Is(err, claude.ErrAuthUploadBlockedByLogout) {
-		return "logged out", ui.ToneWarn
+		return "logged out", ui.ToneWarn, nil
 	}
 	if err != nil || len(snap.Upload) == 0 {
 		if err != nil {
-			logger.Warn("post-run auth upload failed", "err", err)
+			logger.Debug("post-run auth upload failed", "err", err)
 		}
-		return "upload failed", ui.ToneFail
+		var httpErr *orchestrator.HTTPError
+		if errors.As(err, &httpErr) && httpErr.Code == "communicator_outcome_unknown" {
+			return "upload outcome unknown", ui.ToneFail, err
+		}
+		return "upload failed", ui.ToneFail, err
 	}
 	if err := updateAuthSessionSecurityContext(ctx, session, resp); err != nil {
 		logger.Warn("persist post-run API host security state failed", "err", err)
-		return "security state failed", ui.ToneFail
+		return "security state failed", ui.ToneFail, nil
 	}
 	if resp == nil || !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "verified") ||
 		(resp.Engine != "" && !strings.EqualFold(strings.TrimSpace(resp.Engine), "claude")) {
 		logger.Warn("post-run auth response failed live verification")
-		return "verification failed", ui.ToneFail
+		return "verification failed", ui.ToneFail, nil
 	}
 	converged := resp.AuthCandidateAccepted()
 	if resp != nil && len(resp.Auth) > 0 && claude.ServerAuthMayReplace(
@@ -1893,10 +1912,10 @@ func postRunAuthUploadAttempt(ctx context.Context, client *orchestrator.Client, 
 		)
 		if werr != nil {
 			logger.Warn("post-run auth write-back failed", "err", werr)
-			return "write-back failed", ui.ToneFail
+			return "write-back failed", ui.ToneFail, nil
 		}
 		if !applied {
-			return "newer local kept", ui.ToneWarn
+			return "newer local kept", ui.ToneWarn, nil
 		}
 		converged = true
 		if generation != snap.Generation {
@@ -1906,15 +1925,15 @@ func postRunAuthUploadAttempt(ctx context.Context, client *orchestrator.Client, 
 		}
 	} else if latest, latestErr := claude.ReadAuthSnapshotContext(ctx, false); latestErr != nil {
 		logger.Warn("post-run auth generation recheck failed", "err", latestErr)
-		return "generation check failed", ui.ToneFail
+		return "generation check failed", ui.ToneFail, nil
 	} else if latest.Generation != snap.Generation {
-		return "newer local kept", ui.ToneWarn
+		return "newer local kept", ui.ToneWarn, nil
 	}
 	if !converged {
-		return "arbitration incomplete", ui.ToneFail
+		return "arbitration incomplete", ui.ToneFail, nil
 	}
 	logger.Debug("post-run auth uploaded", "path", snap.Path, "generation", snap.Generation.Digest)
-	return "uploaded", ui.ToneOK
+	return "uploaded", ui.ToneOK, nil
 }
 
 func markOfflineHealth(dots []ui.HealthDot) {

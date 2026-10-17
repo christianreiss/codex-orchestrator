@@ -1237,3 +1237,9 @@ and new managed CLI starts, upgrading old choices without rewriting saved
 preferences. Existing sessions keep their model. Managed hosts need cxx >= 0.9.94
 and a configuration sync; direct provider binaries are outside this policy.
 See `interface-api.md` → Fleet model policy.
+
+Managed session exit uses one terminal portal request with a four-second shared
+remote budget for all engines. Exit hooks hand watchdog evidence to the local
+broker, and the supervisor includes it in the terminal report. Claude final
+credential sync retains its verification and insecure cleanup guarantees while
+stopping retries for permanent refusals and unknown communicator outcomes.

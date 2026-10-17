@@ -1224,3 +1224,13 @@ The shared `cxx transfer put FILE` / `get ID --output FILE` commands use this
 engine via its alias or `--engine`. Bytes stream through the orchestrator with
 `--resume`, SHA-256 verification and optional limits defaulting to unlimited.
 See [file-transfers.md](file-transfers.md) for CLI, HTTP, journal and rollout contracts.
+
+Managed portal shutdown closes the local broker, then sends the terminal report
+with one four-second remote budget shared by retries. The terminal report also
+closes the relay; there is no preceding close-heartbeat request. An explicit
+`agent_session_finished` response means the session already ended remotely and
+needs no warning. Other conflicts and transport failures remain errors. Error
+codes are read from both top-level and nested API envelopes.
+
+SessionEnd watchdog observations are collected locally and carried by the
+supervisor's terminal report rather than making an API call from the exit hook.
