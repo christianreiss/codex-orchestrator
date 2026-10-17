@@ -1126,6 +1126,7 @@ send; an uncertain send failure also reports the generated ID. A permanent
 rejection omits the unchanged-payload retry hint. A successful request followed
 by a failed wait returns `sent`, `result`, `wait_error` and `next_action`, so the
 caller continues with `agent_wait` on the saved conversation instead of resending.
+`agent_wait` `seconds` and `agent_request`/`agent_listen` `wait_seconds` accept 0-25 (default 25); larger values fail `validation_failed`, and the MCP tool schemas and descriptions state this bound.
 An empty `result.messages` when the wait window expires is a normal success, not
 `wait_error`: the work may still be queued or running. `agent_wait` returns only
 messages addressed to the caller, so a peer's outgoing reply is not echoed in
@@ -1847,6 +1848,25 @@ An approved replacement receives a new default 24-hour queue TTL and a fresh
 delivery-attempt budget, even if the original message expired while awaiting the
 operator. Repeating the same approval preserves that deadline and budget; it
 does not extend them. Prior terminal timestamps are cleared for the new execution.
+
+**Result reconciliation after a lost lease.** Accepted work whose lease lapses (the
+claim renewal stopped, for example because a same-transcript rebind changed the
+address binding generation or the session ended) becomes `ambiguous` with
+`last_error_code: accepted_lease_lost` after the next maintenance tick. The claim and
+lease owner are cleared on purpose: `agent_task_result` and `agent_reply` for that
+claim answer `agent_messaging_lease_lost` or `agent_task_result_not_accepted`, and the
+new binding or session is never handed the old lease. The server has no route that
+attaches a late result to the ambiguous row, and it does not rerun the work. The
+supported reconciliation is out-of-band: the executing agent sends its measured
+outcome to the original requester with `agent_send` in the same conversation (name the
+message id and state succeeded, failed, blocked or unknown honestly), and the requester
+reads the row with `agent_message_get` (`status: ambiguous`, `last_error_code`,
+`task_results: []`) plus that message. The requester or an operator then decides whether
+to accept the reported outcome or to explicitly redrive the message
+(`POST /admin/agent-messaging/messages/{id}/redrive`), which is a new execution and
+may repeat external effects. A first-class "attach late result" mechanism is a larger
+design question (it needs an authorization model for a new binding to claim an old
+execution) and is not implemented.
 
 From cxx 0.9.27, `agent_conf_join` and `agent_conf_say` release only the
 matching room's informational delivery. They preserve held work and messages
