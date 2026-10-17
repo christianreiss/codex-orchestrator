@@ -68,6 +68,12 @@ integers, with no 64 MiB product ceiling. Offsets/sizes use JavaScript's exact
 integer range (through 2^53−1 bytes); filesystem and available disk limits apply.
 TTLs retain the existing 60-second floor and seven-day maximum.
 
+Agents can read the configured caps and the remaining pool before uploading:
+the MCP `transfer_list` reply carries a `limits` object (`null` means no cap).
+Binary creation already refuses an over-cap or over-quota declared size before
+any byte moves, and MCP `transfer_put` does the same when the first call passes
+`expected_size_bytes`.
+
 Binary creation reserves the entire declared size against an enabled quota.
 `used_bytes` includes reservations while uploading, so concurrent uploads cannot
 promise the same remaining capacity. Migration 0074 adds nullable expected
