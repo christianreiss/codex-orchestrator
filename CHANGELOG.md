@@ -1,5 +1,7 @@
 # 2026-10-17
 
+- **Model Class Check:** Rate the whole assignment before scouting or planning; whole-stack cleanup assessment is Tier 4. All task tiers remain visible on hosts with lower-tier models. Overrides must acknowledge the identified mismatch. The existing one-tier warning and two-tier stop thresholds remain; dashboard copy clarifies that this is agent guidance.
+
 - **cxx dialogs:** Each engine’s model menu lists the strongest capability tier first, preserving catalog order within a tier and the selected model and effort. Uses the central fleet model tiers in newly signed host configs.
 
 # 2026-10-16

@@ -238,7 +238,8 @@ describe('served document size budget', () => {
       expect(section('Git Director').length).toBeLessThan(3_100);
       expect(section('File Transfer').length).toBeLessThan(1_400);
       expect(section('Memory').length).toBeLessThan(2_700);
-      expect(section('Model Class Check').length).toBeLessThan(1_500);
+      // Whole-assignment scouting and model-identity safeguards need explicit wording.
+      expect(section('Model Class Check').length).toBeLessThan(1_800);
     }
     // All granted: the list collapses to duties instead of restating every grant.
     const open = renderManagedAgentFeatures(base.content, ctx, presetLevels('unrestricted'), base.provenance).body;

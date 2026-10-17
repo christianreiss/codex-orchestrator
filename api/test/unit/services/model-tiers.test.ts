@@ -73,15 +73,30 @@ describe('renderModelTierGuidance', () => {
     expect(text).toContain("configured codex model is `gpt-6-astra` (Tier 4)");
     expect(text).toContain('| 1 | ');
     expect(text).toContain('`gpt-6-luna`');
-    expect(text).not.toContain('| 2 | ');
+    expect(text).toContain('| 2 | ');
+    expect(text).toContain('None available');
     expect(text).toContain('`Underclassed: Tier <n> required');
     // A one-tier gap is a self-rating too fuzzy to stop on; only two or more stop.
-    expect(text).toMatch(/\*\*Task one tier above yours:\*\* state that line once, then proceed/);
-    expect(text).toMatch(/\*\*Task two or more tiers above yours:\*\* the one stop beyond Hard Stop Lines/);
+    expect(text).toMatch(/\*\*Task one tier above yours:\*\* report and proceed/);
+    expect(text).toMatch(/\*\*Task two or more tiers above yours:\*\* stop before scouting or planning/);
     expect(text).not.toContain('Overclassed');
     // An explicit operator instruction outranks fleet policy; the stop must say so.
-    expect(text).toMatch(/Do not start unless the\s+operator explicitly asked this model to proceed/);
+    expect(text).toContain('explicit operator override acknowledging this mismatch');
+    expect(text).toContain('generic `GPT-6` does not');
+    expect(text).toContain('selecting a model or assigning the task is not an override');
     expect(text).toContain('never abort on a guess');
+  });
+
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('keeps all task definitions with only low-tier %s models', (engine) => {
+    const models = { codex: 'gpt-6-luna', claude: 'claude-haiku-5-5', grok: 'grok-4.7' };
+    const text = renderModelTierGuidance(
+      buildModelTierTable([engine], { [engine]: [models[engine]] }), { engine, model: models[engine] },
+    );
+    for (const tier of [1, 2, 3, 4]) expect(text).toContain(`| ${tier} |`);
+    expect(text).toContain('Whole-stack cleanup assessment is Tier 4');
+    expect(text).toContain('`scout and prepare`');
+    expect(text).toContain('stop before scouting or planning');
+    expect(text).toContain('if none fits, say so');
   });
 
   it('falls back to self-identification for unpinned or unknown models', () => {

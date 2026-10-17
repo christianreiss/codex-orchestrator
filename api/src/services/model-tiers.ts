@@ -93,25 +93,32 @@ export function renderModelTierGuidance(table: readonly ModelTierRow[], configur
     : configured.model !== null
       ? `This host's configured ${configured.engine} model is \`${configured.model}\`, which has no fleet tier.`
       : `No ${configured.engine} model is pinned for this host.`;
-  const rows = table.map((row) =>
-    `| ${row.tier} | ${MODEL_TIER_WORK[row.tier]} | ${row.models.map((entry) => `\`${entry.model}\``).join(', ')} |`);
+  // Task definitions survive even when this host has no model at that tier.
+  const rows = ([1, 2, 3, 4] as const).map((tier) => {
+    const models = table.find((row) => row.tier === tier)?.models ?? [];
+    return `| ${tier} | ${MODEL_TIER_WORK[tier]} | ${models.map((entry) => `\`${entry.model}\``).join(', ') || 'None available'} |`;
+  });
   return `## Model Class Check
 
-Before starting a work item, rate its tier against your own model. ${identity}
-A session override (\`--model\`, \`agent_spawn\`, your runtime identity) wins; if your model is
-unknown, say so once and proceed; never abort on a guess.
+Preflight before task-specific scouting, planning or execution. ${identity}
+A concrete session model overrides config; generic \`GPT-6\` does not. If genuinely unknown,
+state it and proceed; never abort on a guess.
 
 | Tier | Typical work | Models available on this host |
 | --- | --- | --- |
 ${rows.join('\n')}
 
-The line is \`Underclassed: Tier <n> required, running <model> (Tier <m>). Recommended: <model>.\`,
-naming the lowest fitting model, own engine first.
+Rate the whole assignment's highest judgment. Whole-stack cleanup assessment is Tier 4,
+including \`scout and prepare\`, even read-only. Operator-prescribed mechanical inventory can be Tier 1.
+For Tier 3/4, state task tier, model tier and reason before starting.
 
-- **Task one tier above yours:** state that line once, then proceed.
-- **Task two or more tiers above yours:** the one stop beyond Hard Stop Lines. Do not start unless the
-  operator explicitly asked this model to proceed; report the line. Accepted work ends with
-  \`agent_task_result\` \`blocked\` and that line.
-- Otherwise proceed silently; re-check when the scope grows.
+Report \`Underclassed: Tier <n> required, running <model> (Tier <m>). Recommended: <model>.\`
+with the lowest fitting available model, own engine first; if none fits, say so.
+
+- **Task one tier above yours:** report and proceed.
+- **Task two or more tiers above yours:** stop before scouting or planning; accepted work ends
+  \`agent_task_result\` \`blocked\`. Only an explicit operator override acknowledging this mismatch
+  permits proceeding; selecting a model or assigning the task is not an override.
+- Otherwise proceed; re-check when scope grows.
 `;
 }
