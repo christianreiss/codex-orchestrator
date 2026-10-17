@@ -103,6 +103,11 @@ export interface ProjectSummary {
   archived_at: string | null;
 }
 
+/** A `project_list` record: the full summary, or the compact form without `about`. */
+export type ListedProject = ProjectSummary | (Omit<ProjectSummary, 'about'> & { about_bytes: number; about_omitted: true });
+
+const LIST_DESCRIPTION_CHARS = 500;
+
 interface ProjectRow {
   id: number;
   slug: string;
@@ -213,15 +218,40 @@ interface EventRow {
 export class HostProjectsService {
   constructor(private readonly db: Database, private readonly options: { presenceFreshSeconds?: number } = {}) {}
 
-  async listProjects(host: Host, args: Record<string, unknown> = {}): Promise<{ projects: ProjectSummary[] }> {
+  /**
+   * `include_about` defaults to true so `GET /projects` keeps its documented
+   * shape; the MCP `project_list` tool passes false unless asked. One project's
+   * `about` can run to tens of kilobytes, and a discovery list that embeds it
+   * overflows the client's tool-result window and hides the other slugs. The
+   * compact record drops `about` for `about_bytes` and clips `description`.
+   */
+  async listProjects(host: Host, args: Record<string, unknown> = {}): Promise<{ projects: ListedProject[] }> {
     const includeArchived = this.normalizeBoolFlag(args['include_archived']);
+    const includeAbout = args['include_about'] === undefined ? true : this.normalizeBoolFlag(args['include_about']);
     const rows = await this.db
       .select()
       .from(coordProjects)
       .where(includeArchived ? undefined : isNull(coordProjects.archivedAt))
       .orderBy(desc(coordProjects.updatedAt), asc(coordProjects.slug));
-    const summaries = rows.map((r) => this.buildSummary(this.hydrateProject(r)));
-    await this.recordLog(host.id, 'project.list', { count: summaries.length, include_archived: includeArchived });
+    const summaries: ListedProject[] = rows.map((r) => {
+      const summary = this.buildSummary(this.hydrateProject(r));
+      if (includeAbout) return summary;
+      const { about, ...rest } = summary;
+      return {
+        ...rest,
+        description:
+          rest.description.length > LIST_DESCRIPTION_CHARS
+            ? `${rest.description.slice(0, LIST_DESCRIPTION_CHARS)}…`
+            : rest.description,
+        about_bytes: about ? Buffer.byteLength(JSON.stringify(about), 'utf8') : 0,
+        about_omitted: true,
+      };
+    });
+    await this.recordLog(host.id, 'project.list', {
+      count: summaries.length,
+      include_archived: includeArchived,
+      include_about: includeAbout,
+    });
     return { projects: summaries };
   }
 

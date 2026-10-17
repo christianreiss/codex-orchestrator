@@ -545,6 +545,31 @@ describe.skipIf(!handle)('git director against a real database', () => {
       expect(String(row['expires_at']) > past).toBe(true);
     });
 
+    it('pages a summary listing and keeps the caller\'s own clone first', async () => {
+      await register(MAIN_WT, { task: 'long '.repeat(100) });
+      await register('/srv/ztest-gd/other', { clone_dir: '/srv/ztest-gd/other/.git', repo_root: '/srv/ztest-gd/other' });
+      // The other clone is the more recently seen one, so only the own-first rule
+      // can put MAIN_WT on page one.
+      const mainClone = '/srv/ztest-gd/repo';
+      const page1 = (await svc.list({ scope: 'host', worktree_path: MAIN_WT, limit: 1 }, host)) as Record<string, unknown>;
+      expect(page1).toMatchObject({ detail: 'summary', count: 1, total: 2, truncated: true, next_offset: 1 });
+      const first = (page1['clones'] as Array<Record<string, unknown>>)[0]!;
+      expect(first['repo_root']).toBe(mainClone);
+      expect(first).toMatchObject({ worktree_count: 1, lease_count: 0, stale_count: 0 });
+      expect(first).not.toHaveProperty('stale');
+
+      const page2 = (await svc.list({ scope: 'host', worktree_path: MAIN_WT, limit: 1, offset: 1 }, host)) as Record<
+        string,
+        unknown
+      >;
+      expect(page2).toMatchObject({ count: 1, truncated: false, next_offset: null });
+      expect((page2['clones'] as Array<Record<string, unknown>>)[0]!['repo_root']).toBe('/srv/ztest-gd/other');
+
+      const full = (await svc.list({ scope: 'host', detail: 'full' }, host)) as Record<string, unknown>;
+      expect(full).toMatchObject({ detail: 'full', count: 2 });
+      expect((full['clones'] as Array<Record<string, unknown>>)[0]).toHaveProperty('stale');
+    });
+
     it('lets an unregistered path look around without erroring', async () => {
       // git_list is how an agent looks BEFORE it registers; refusing an unknown
       // worktree_path would invert the order the guidance tells it to work in.
@@ -632,7 +657,11 @@ describe.skipIf(!handle)('git director against a real database', () => {
       const past = new Date(Date.now() - 86_400_000).toISOString();
       await exec(`UPDATE git_worktrees SET expires_at = '${past}' WHERE worktree_path = '${MAIN_WT}'`);
 
-      const listed = (await svc.list({ scope: 'host' }, host)) as Record<string, unknown>;
+      // The default summary keeps only the count; detail "full" lists the rows.
+      const summary = (await svc.list({ scope: 'host' }, host)) as Record<string, unknown>;
+      expect((summary['clones'] as Array<Record<string, unknown>>)[0]).toMatchObject({ stale_count: 1, worktrees: [] });
+
+      const listed = (await svc.list({ scope: 'host', detail: 'full' }, host)) as Record<string, unknown>;
       const clone = (listed['clones'] as Array<Record<string, unknown>>)[0]!;
       expect(clone['worktrees']).toEqual([]);
       const stale = clone['stale'] as Array<Record<string, unknown>>;

@@ -41,6 +41,7 @@ interface MemoryCall {
   payload: Record<string, unknown>;
 }
 
+const projectListCalls: Record<string, unknown>[] = [];
 const upsertNoteCalls: UpsertNoteCall[] = [];
 const todoUpdateCalls: TodoUpdateCall[] = [];
 const todoDoneCalls: TodoDoneCall[] = [];
@@ -50,7 +51,10 @@ const skillStoreCalls: Array<{ payload: Record<string, unknown>; host: Host }> =
 const skillDeleteCalls: Array<{ slug: string; host: Host }> = [];
 
 const stubProjects = {
-  listProjects: async () => ({ projects: [] }),
+  listProjects: async (_host: Host, args: Record<string, unknown> = {}) => {
+    projectListCalls.push(args);
+    return { projects: [] };
+  },
   bootstrap: async (slug: string) => ({ project: slug }),
   projectDetail: async (slug: string) => ({ project: { slug } }),
   listChanges: async (slug: string) => ({ project: slug, changes: [] }),
@@ -165,6 +169,36 @@ const stubSharedMemories = {
 } as unknown as SharedMemoriesService;
 
 const host: Host = { id: 1, fqdn: 'example.com' } as unknown as Host;
+
+describe('oversized-result guards', () => {
+  const registry = new McpToolsRegistry({ memories: stubMemories, projects: stubProjects, skills: stubSkills });
+
+  it('project_list leaves the about documents out unless include_about is passed', async () => {
+    projectListCalls.length = 0;
+    await registry.dispatch('project_list', {}, host);
+    await registry.dispatch('project_list', { include_about: true }, host);
+    expect(projectListCalls).toEqual([{ include_about: false }, { include_about: true }]);
+  });
+
+  it('git_list advertises detail, limit and offset and forwards them', async () => {
+    const calls: Record<string, unknown>[] = [];
+    const withDirector = new McpToolsRegistry({
+      memories: stubMemories,
+      projects: stubProjects,
+      skills: stubSkills,
+      gitDirector: {
+        getEnabled: async () => true,
+        list: async (args: Record<string, unknown>) => { calls.push(args); return { clones: [], count: 0 }; },
+      } as unknown as GitDirectorService,
+    });
+    const tool = withDirector.list().find((t) => t.name === 'git_list');
+    expect(Object.keys(tool?.inputSchema['properties'] as object)).toEqual(
+      expect.arrayContaining(['detail', 'limit', 'offset']),
+    );
+    await withDirector.dispatch('git_list', { detail: 'full', limit: 5, offset: 10 }, host);
+    expect(calls.at(-1)).toMatchObject({ detail: 'full', limit: 5, offset: 10 });
+  });
+});
 
 describe('Git Director caller engine', () => {
   it.each(['codex', 'claude', 'grok'] as const)('binds %s from dispatch, including an omitted or conflicting model argument', async (engine) => {
