@@ -204,7 +204,7 @@ Every candidate is verified against the live provider before it is stored, and t
 
 ## Registering a host
 
-`POST /admin/hosts/register` creates a host row and returns a one-shot installer token. The token is stored in `install_tokens` and consumed by `GET /install/{token}` (aliased to `/install/v2/{token}`). The install endpoint emits the per-host POSIX shell installer. It installs one `cxx` plus relative `cdx -> cxx` and/or `clx -> cxx` aliases into `/usr/local/bin` by default (root/passwordless `sudo` required; `BIN_DIR` is the explicit custom-prefix override). The admin sees a `curl … | sh` command under *Hosts → New Host*.
+`POST /admin/hosts/register` creates a host row and returns a one-shot installer token. The token is stored in `install_tokens`. `GET /install/{token}` (aliased to `/install/v2/{token}`) returns a launcher without credentials that checks `python3`, `curl` and a writable bin directory; only when they pass does it consume the token with `POST /install/{token}`, which emits the per-host POSIX shell installer. A failed check leaves the token usable: fix the cause and re-run the same command. It installs one `cxx` plus relative `cdx -> cxx` and/or `clx -> cxx` aliases into `/usr/local/bin` by default (root/passwordless `sudo` required; `BIN_DIR` is the explicit custom-prefix override). The admin sees a `curl … | sh` command under *Hosts → New Host*.
 
 What the installer actually does on the target machine:
 

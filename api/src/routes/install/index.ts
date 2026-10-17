@@ -8,6 +8,7 @@ import { ApiError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
 import { decryptOrNull } from '../../security/secret-box.js';
 import {
+  buildInstallerLauncher,
   buildInstallerScript,
   buildSeedAuthScript,
   createInstallTokenService,
@@ -31,8 +32,12 @@ const SEED_TOKEN_RE = /^(?:[a-f0-9]{32}|[a-f0-9]{64}|[a-f0-9-]{36})$/;
 /**
  * Install / seed-auth flow.
  *
- *   GET  /install/:token        → emits the wrapper-installer bash script
- *   GET  /install/v2/:token     → alias of /install/:token
+ *   GET  /install/:token        → emits the credential-free preflight launcher;
+ *                                 consumes nothing
+ *   POST /install/:token        → claims the single-use token and emits the
+ *                                 full wrapper-installer bash script (the
+ *                                 launcher calls this once preflight passes)
+ *   GET|POST /install/v2/:token → aliases of /install/:token
  *   GET  /seed/auth/:token      → emits the auth-uploader bash script
  *   POST /seed/auth/:token      → host POSTs ~/.codex/auth.json here; the
  *                                 shared live-runner gate must verify it before
@@ -58,28 +63,38 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     runner: createRunnerClient({ env: ctx.env }),
   });
 
-  const installHandler = async (token: string, reply: FastifyReply): Promise<void> => {
-    if (!INSTALL_TOKEN_RE.test(token))
-      return shellishError(reply, 'Installer not found', 'installer_not_found');
+  type InstallError = { message: string; code: string; expiresAt?: string };
+  type ResolvedInstall = {
+    row: NonNullable<Awaited<ReturnType<typeof installSvc.findInstall>>>;
+    host: typeof hostsTable.$inferSelect;
+    baseUrl: string;
+    body: string;
+  };
+
+  // Every gate runs on both the non-consuming GET and the consuming POST, and
+  // the full script is built on both, so the launcher only ever starts for an
+  // installer that its POST would actually serve.
+  const resolveInstall = async (token: string): Promise<ResolvedInstall | InstallError> => {
+    if (!INSTALL_TOKEN_RE.test(token)) return { message: 'Installer not found', code: 'installer_not_found' };
     const row = await installSvc.findInstall(token);
-    if (!row) return shellishError(reply, 'Installer not found', 'installer_not_found');
-    if (row.usedAt) return shellishError(reply, 'Installer already used', 'installer_used', row.expiresAt);
+    if (!row) return { message: 'Installer not found', code: 'installer_not_found' };
+    if (row.usedAt) return { message: 'Installer already used', code: 'installer_used', expiresAt: row.expiresAt };
     if (tokenExpired(row.expiresAt))
-      return shellishError(reply, 'Installer expired', 'installer_expired', row.expiresAt);
+      return { message: 'Installer expired', code: 'installer_expired', expiresAt: row.expiresAt };
 
     const hostRows = await ctx.db.select().from(hostsTable).where(eq(hostsTable.id, row.hostId)).limit(1);
     const host = hostRows[0];
-    if (!host) return shellishError(reply, 'Installer host missing', 'installer_host_missing');
+    if (!host) return { message: 'Installer host missing', code: 'installer_host_missing' };
     if ((host.status && host.status !== 'active') || (host.expiresAt && tokenExpired(host.expiresAt))) {
-      return shellishError(reply, 'Installer host unavailable', 'installer_host_unavailable');
+      return { message: 'Installer host unavailable', code: 'installer_host_unavailable' };
     }
     if (!hostEnginesList(host.engines).includes(row.engine)) {
-      return shellishError(reply, 'Installer engine no longer assigned to host', 'engine_disabled', row.expiresAt);
+      return { message: 'Installer engine no longer assigned to host', code: 'engine_disabled', expiresAt: row.expiresAt };
     }
     // Checked before the token is consumed, so it still works once the engine
     // is switched back on.
     if (!(await isFleetEngineEnabled(ctx.db, row.engine))) {
-      return shellishError(reply, `${ENGINE_LABELS[row.engine]} is disabled fleet-wide by the administrator`, 'engine_disabled', row.expiresAt);
+      return { message: `${ENGINE_LABELS[row.engine]} is disabled fleet-wide by the administrator`, code: 'engine_disabled', expiresAt: row.expiresAt };
     }
 
     let apiKey = row.apiKey;
@@ -88,14 +103,13 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
       if (fallback) apiKey = fallback;
     }
     const baseUrl = resolveBaseUrl(row.baseUrl, ctx);
-    if (!baseUrl)
-      return shellishError(reply, 'Installer base URL invalid', 'installer_base_url_invalid', row.expiresAt);
+    if (!baseUrl) return { message: 'Installer base URL invalid', code: 'installer_base_url_invalid', expiresAt: row.expiresAt };
 
     const spawnRows = await ctx.db.select().from(hostSpawns).where(eq(hostSpawns.targetHostId, host.id)).limit(1);
     if (spawnRows.length) {
       const [source] = await ctx.db.select().from(hostsTable).where(eq(hostsTable.id, spawnRows[0]!.sourceHostId));
       if (!(await new HostSpawnService(ctx).enabled()) || !source || source.status !== 'active' || source.vip !== 1)
-        return shellishError(reply, 'System spawn is disabled or source VIP revoked', 'host_spawn_disabled');
+        return { message: 'System spawn is disabled or source VIP revoked', code: 'host_spawn_disabled' };
     }
 
     let body: string;
@@ -109,12 +123,11 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
         allowInsecure: host.curlInsecure === 1,
       });
     } catch (err) {
-      return shellishError(
-        reply,
-        err instanceof Error ? err.message : 'installer build failed',
-        'installer_build_failed',
-        row.expiresAt,
-      );
+      return {
+        message: err instanceof Error ? err.message : 'installer build failed',
+        code: 'installer_build_failed',
+        expiresAt: row.expiresAt,
+      };
     }
     if (spawnRows.length) {
       body = body.replace('  exit 0\nfi\n\nui_result_fail', `${hostSpawnCompletionScript()}
@@ -123,6 +136,31 @@ fi
 
 ui_result_fail`);
     }
+    return { row, host, baseUrl, body };
+  };
+
+  // GET serves the credential-free preflight launcher and consumes nothing:
+  // a missing prerequisite on the target, a link scanner or a second look at
+  // the URL cannot burn the single-use token.
+  const installLauncherHandler = async (token: string, path: string, reply: FastifyReply): Promise<void> => {
+    const resolved = await resolveInstall(token);
+    if ('code' in resolved) return shellishError(reply, resolved.message, resolved.code, resolved.expiresAt);
+    const { row, host, baseUrl } = resolved;
+    const body = buildInstallerLauncher({
+      fqdn: host.fqdn,
+      engine: row.engine,
+      installUrl: `${baseUrl}${path}${token}`,
+      allowInsecure: host.curlInsecure === 1,
+    });
+    emitInstaller(reply, body, 200, row.expiresAt);
+  };
+
+  // POST is the claim: it atomically consumes the token and emits the full
+  // installer, which embeds the host API key.
+  const installClaimHandler = async (token: string, reply: FastifyReply): Promise<void> => {
+    const resolved = await resolveInstall(token);
+    if ('code' in resolved) return shellishError(reply, resolved.message, resolved.code, resolved.expiresAt);
+    const { row, host, body } = resolved;
     const claimed = await installSvc.markInstallUsed(row.id);
     if (!claimed) return shellishError(reply, 'Installer already used', 'installer_used', row.expiresAt);
     await ctx.db.insert(logsTable).values({
@@ -138,10 +176,16 @@ ui_result_fail`);
   };
 
   app.get<{ Params: { token: string } }>('/install/:token', async (req, reply) =>
-    installHandler(req.params.token, reply),
+    installLauncherHandler(req.params.token, '/install/', reply),
   );
   app.get<{ Params: { token: string } }>('/install/v2/:token', async (req, reply) =>
-    installHandler(req.params.token, reply),
+    installLauncherHandler(req.params.token, '/install/v2/', reply),
+  );
+  app.post<{ Params: { token: string } }>('/install/:token', async (req, reply) =>
+    installClaimHandler(req.params.token, reply),
+  );
+  app.post<{ Params: { token: string } }>('/install/v2/:token', async (req, reply) =>
+    installClaimHandler(req.params.token, reply),
   );
 
   const seedScriptHandler = async (token: string, reply: FastifyReply): Promise<void> => {

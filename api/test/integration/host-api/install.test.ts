@@ -42,7 +42,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('GET /install/:token', () => {
+describe('GET + POST /install/:token', () => {
   it.each(['codex', 'claude', 'grok'])('keeps a %s token retryable after script generation fails', async engine => {
     const db = createDbFake();
     db.tables.set(hostsTable, [{ id: 9, fqdn: 'retry.test', engines: engine, status: 'active' }]);
@@ -55,7 +55,10 @@ describe('GET /install/:token', () => {
       expect(db.tables.get(installTokens)![0]!.usedAt).toBeNull();
       build.mockRestore();
       expect((await app.inject({ url: `/install/${installToken}` })).headers['x-installer-error']).toBeUndefined();
+      expect(db.tables.get(installTokens)![0]!.usedAt).toBeNull();
+      expect((await app.inject({ method: 'POST', url: `/install/${installToken}` })).headers['x-installer-error']).toBeUndefined();
       expect(db.tables.get(installTokens)![0]!.usedAt).toBeTruthy();
+      expect((await app.inject({ method: 'POST', url: `/install/${installToken}` })).headers['x-installer-error']).toBe('installer_used');
       expect((await app.inject({ url: `/install/${installToken}` })).headers['x-installer-error']).toBe('installer_used');
     } finally { await app.close(); }
   });
@@ -66,11 +69,12 @@ describe('GET /install/:token', () => {
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     try {
       expect((await app.inject({ url: `/install/${installToken}` })).headers['x-installer-error']).toBe('engine_disabled');
+      expect((await app.inject({ method: 'POST', url: `/install/${installToken}` })).headers['x-installer-error']).toBe('engine_disabled');
       expect(db.tables.get(installTokens)![0]!.usedAt).toBeNull();
     } finally { await app.close(); }
   });
 
-  it('emits a text/x-shellscript installer for a valid token', async () => {
+  it('serves a credential-free launcher on GET and the claimed installer on POST', async () => {
     const db = createDbFake();
     db.tables.set(hostsTable, [
       {
@@ -138,7 +142,23 @@ describe('GET /install/:token', () => {
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
     const events: Array<{ type: string; payload: unknown }> = [];
     const unsubscribe = wsPublisher.subscribe((e) => events.push({ type: e.type, payload: e.payload }));
-    const r = await app.inject({ method: 'GET', url: `/install/${installToken}` });
+    // GET is side-effect free: any number of fetches leave the token usable.
+    for (const path of ['/install/', '/install/v2/']) {
+      const launcher = await app.inject({ method: 'GET', url: `${path}${installToken}` });
+      expect(launcher.statusCode).toBe(200);
+      expect(launcher.headers['x-installer-error']).toBeUndefined();
+      expect(launcher.headers['content-type']).toContain('text/x-shellscript');
+      expect(launcher.payload).toContain('#!/bin/sh');
+      expect(launcher.payload).toContain(`INSTALL_URL='https://o.example${path}${installToken}'`);
+      expect(launcher.payload).toContain('-X POST "$INSTALL_URL"');
+      expect(launcher.payload).toContain('preflight_checks');
+      expect(launcher.payload).toContain('CODEX_INSTALL_CURL_INSECURE=${CODEX_INSTALL_CURL_INSECURE:-1}');
+      expect(launcher.payload).not.toContain('sk-install-foo');
+    }
+    expect(db.tables.get(installTokens)![0]!.usedAt).toBeNull();
+    expect(events).toEqual([]);
+
+    const r = await app.inject({ method: 'POST', url: `/install/${installToken}` });
     unsubscribe();
     expect(r.statusCode).toBe(200);
     expect(r.headers['x-installer-error']).toBeUndefined();
@@ -156,6 +176,20 @@ describe('GET /install/:token', () => {
     const updated = db.tables.get(installTokens)![0]!;
     expect(updated.usedAt).toBeTruthy();
     await app.close();
+  });
+
+  it('serves the installer to exactly one of two concurrent claims', async () => {
+    const db = createDbFake();
+    db.tables.set(hostsTable, [{ id: 9, fqdn: 'race.test', engines: 'codex', status: 'active' }]);
+    db.tables.set(installTokens, [{ id: 1, token: installToken, hostId: 9, apiKey: 'sk-race', baseUrl: 'https://o.example', engine: 'codex', expiresAt: futureExpiry, usedAt: null }]);
+    const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
+    try {
+      const claim = () => app.inject({ method: 'POST', url: `/install/${installToken}` });
+      const responses = await Promise.all([claim(), claim()]);
+      const served = responses.filter((r) => r.payload.includes('sk-race'));
+      expect(served).toHaveLength(1);
+      expect(responses.map((r) => r.headers['x-installer-error'] ?? null).sort()).toEqual(['installer_used', null]);
+    } finally { await app.close(); }
   });
 
   it('emits the complete fail-closed bootstrap for a dual-engine host', async () => {
@@ -186,7 +220,7 @@ describe('GET /install/:token', () => {
       },
     ]);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring: makeKeyring() });
-    const r = await app.inject({ method: 'GET', url: `/install/${installToken}` });
+    const r = await app.inject({ method: 'POST', url: `/install/${installToken}` });
     expect(r.statusCode).toBe(200);
     expect(r.payload).toContain("INSTALL_LABEL='Codex + Claude'");
     expect(r.payload).toContain('NEEDS_CLAUDE=1');
@@ -268,7 +302,10 @@ describe('GET /install/:token', () => {
       },
     ]);
     const app = await buildHostApiTestApp({ db: db as any, env, keyring });
-    const r = await app.inject({ method: 'GET', url: `/install/${token}` });
+    const launcher = await app.inject({ method: 'GET', url: `/install/${token}` });
+    expect(launcher.payload).not.toContain(apiKey);
+    expect(db.tables.get(installTokens)![0]!.usedAt).toBeNull();
+    const r = await app.inject({ method: 'POST', url: `/install/${token}` });
     expect(r.statusCode).toBe(200);
     expect(r.payload).toContain(apiKey);
     expect(db.tables.get(installTokens)![0]!.usedAt).toBeTruthy();

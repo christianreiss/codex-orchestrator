@@ -1,9 +1,10 @@
-import { execFileSync, spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  buildInstallerLauncher,
   buildInstallerScript,
   buildSeedAuthScript,
   shellErrorScript,
@@ -243,5 +244,84 @@ describe('install-token: shellErrorScript', () => {
     const s = shellErrorScript('boom "danger"');
     expect(s).toContain('echo "boom \\"danger\\"" >&2');
     expect(s).toContain('exit 1');
+  });
+});
+
+describe('install-token: credential-free installer launcher', () => {
+  const installUrl = 'https://o.example/install/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+  // A PATH holding only what the launcher needs, so python3 can be absent.
+  function runLauncher(opts: { python3: boolean; binWritable?: boolean; stageExit?: number }) {
+    const dir = mkdtempSync(join(tmpdir(), 'cxx-launcher-'));
+    try {
+      const bin = join(dir, 'bin');
+      mkdirSync(bin);
+      for (const tool of ['sh', 'mkdir', 'mktemp', 'rm', 'cat']) {
+        symlinkSync(execFileSync('sh', ['-c', `command -v ${tool}`], { encoding: 'utf8' }).trim(), join(bin, tool));
+      }
+      if (opts.python3) {
+        writeFileSync(join(bin, 'python3'), '#!/bin/sh\nexit 0\n');
+        chmodSync(join(bin, 'python3'), 0o755);
+      }
+      const log = join(dir, 'curl.log');
+      const stageExit = opts.stageExit ?? 0;
+      // Stub curl: records its argv and writes a stage-two script to -o.
+      writeFileSync(join(bin, 'curl'), `#!/bin/sh
+echo "$*" >> ${log}
+out=
+for a in "$@"; do if [ "\${prev:-}" = "-o" ]; then out=$a; fi; prev=$a; done
+printf 'echo stage-two-ran\\nexit ${stageExit}\\n' > "$out"
+`);
+      chmodSync(join(bin, 'curl'), 0o755);
+      const tmp = join(dir, 'tmp');
+      mkdirSync(tmp);
+      const script = join(dir, 'launcher.sh');
+      writeFileSync(script, buildInstallerLauncher({ fqdn: 'launch.example', engine: 'codex', installUrl, allowInsecure: true }));
+      const binDir = opts.binWritable === false ? '/proc/cxx-not-writable/bin' : join(dir, 'install-bin');
+      const result = spawnSync(join(bin, 'sh'), [script], {
+        encoding: 'utf8',
+        env: { PATH: bin, HOME: dir, TMPDIR: tmp, BIN_DIR: binDir },
+      });
+      return {
+        ...result,
+        curlCalls: existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : [],
+        leftovers: readdirSync(tmp),
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('carries no credential and claims the installer with a POST to the given URL', () => {
+    const out = buildInstallerLauncher({ fqdn: 'launch.example', engine: 'claude', installUrl });
+    expect(out).toContain(`INSTALL_URL='${installUrl}'`);
+    expect(out).toContain('-X POST "$INSTALL_URL"');
+    expect(out).toContain('CODEX_INSTALL_CURL_INSECURE=${CODEX_INSTALL_CURL_INSECURE:-0}');
+    expect(out).not.toContain('HOST_API_KEY');
+    expect(out).not.toContain('X-API-Key');
+  });
+
+  it('stops before claiming when python3 is missing and says the installer is still usable', () => {
+    const r = runLauncher({ python3: false });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('python3 is required');
+    expect(r.stderr).toContain('NOT consumed');
+    expect(r.curlCalls).toEqual([]);
+  });
+
+  it('stops before claiming when the bin directory cannot be created', () => {
+    const r = runLauncher({ python3: true, binWritable: false });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('is not writable and sudo -n is unavailable');
+    expect(r.curlCalls).toEqual([]);
+  });
+
+  it.each([0, 3])('claims once after preflight, runs stage two, removes it and passes on exit %i', stageExit => {
+    const r = runLauncher({ python3: true, stageExit });
+    expect(r.status).toBe(stageExit);
+    expect(r.stdout).toContain('stage-two-ran');
+    expect(r.curlCalls).toHaveLength(1);
+    expect(r.curlCalls[0]).toContain(`-k -fsSL -X POST ${installUrl} -o `);
+    expect(r.leftovers).toEqual([]);
   });
 });

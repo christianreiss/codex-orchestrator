@@ -7,7 +7,7 @@ import { sha256 } from '../security/hash.js';
 import { nowIso } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
 import { ENGINE_CLAUDE, ENGINE_GROK, parseEngine } from '../util/engine.js';
-import { buildWrapperV2InstallerScript } from './wrapper-transition.js';
+import { buildInstallerLauncherScript, buildWrapperV2InstallerScript } from './wrapper-transition.js';
 
 /**
  * Install + auth-seed token lookup, expiry checks, mark-used. Plus shell
@@ -149,6 +149,16 @@ export function buildInstallerScript(opts: {
     allowInsecure: opts.allowInsecure ?? false,
     peerEngines: (opts.enginesList ?? []).filter((e) => e !== opts.engine),
   });
+}
+
+/** Credential-free preflight launcher served by `GET /install/:token`. */
+export function buildInstallerLauncher(opts: {
+  fqdn: string;
+  engine: Engine;
+  installUrl: string;
+  allowInsecure?: boolean;
+}): string {
+  return buildInstallerLauncherScript(opts);
 }
 
 export function buildSeedAuthScript(opts: { baseUrl: string; token: string; engine: Engine }): string {

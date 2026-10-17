@@ -63,7 +63,7 @@ describe.skipIf(!handle)('durable system provisioning', () => {
     finally { await settings.setFlag('grok_engine_disabled', false); invalidateFleetEngineState(handle!.db); }
     expect(await handle!.db.select().from(hosts).where(eq(hosts.fqdn, input.fqdn))).toHaveLength(0);
   });
-  it('installer GET checks the global switch before consuming a token and embeds completion before success exit', async () => {
+  it('installer GET/POST check the global switch before consuming a token and embed completion before success exit', async () => {
     const result = await service.prepare(request(), source); created.push(result.host_id);
     const app = Fastify();
     const env = loadTestEnv(); env.PUBLIC_BASE_URL = 'https://spawn.example.test';
@@ -72,9 +72,15 @@ describe.skipIf(!handle)('durable system provisioning', () => {
       await settings.setFlag(HOST_SPAWN_ENABLED_KEY, false);
       const refused = await app.inject({ url: new URL(result.installer.url).pathname });
       expect(refused.headers['x-installer-error']).toBe('host_spawn_disabled');
+      const refusedClaim = await app.inject({ method: 'POST', url: new URL(result.installer.url).pathname });
+      expect(refusedClaim.headers['x-installer-error']).toBe('host_spawn_disabled');
       await settings.setFlag(HOST_SPAWN_ENABLED_KEY, true);
       expect((await service.status({ operation_id: result.operation_id }, source)).installer_used).toBe(false);
-      const installed = await app.inject({ url: new URL(result.installer.url).pathname });
+      const launcher = await app.inject({ url: new URL(result.installer.url).pathname });
+      expect(launcher.headers['x-installer-error']).toBeUndefined();
+      expect(launcher.body).not.toContain('$BASE_URL/host/spawn/setup-complete');
+      expect((await service.status({ operation_id: result.operation_id }, source)).installer_used).toBe(false);
+      const installed = await app.inject({ method: 'POST', url: new URL(result.installer.url).pathname });
       expect(installed.headers['x-installer-error']).toBeUndefined();
       expect(installed.body).toContain('$BASE_URL/host/spawn/setup-complete');
       expect(installed.body).toContain('curl $CURL_INSECURE_FLAG -4 -fsS');
