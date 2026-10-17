@@ -1,7 +1,7 @@
 ---
 title: Admin login and access
 section: Admin access and identity
-verified: 2026-09-09
+verified: 2026-10-17
 sources: api/src/http/plugins/auth-admin.ts, api/src/security/authorization-mode.ts, api/src/http/plugins/auth-mtls.ts, api/src/security/mtls.ts, api/src/http/plugins/client-ip.ts, api/src/services/admin-auth.ts, api/src/services/admin-passkey.ts, api/src/services/admin-password.ts, api/src/services/mailer.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/pages/static.ts, api/src/routes/cli-auth/index.ts, api/src/env.ts, caddy/Caddyfile, frontend/src/routes/login/+page.svelte
 ---
 
@@ -69,7 +69,7 @@ The API serves the SvelteKit SPA's HTML shell via `adminSpaHtmlPreHandler` (`api
 - `has_users` — whether any admin accounts exist yet (used to gate the first-run flow).
 - `admin_count` — number of active `owner`/`admin` accounts; `enforced` is `admin_count > 0`.
 - `capabilities` — the caller's row of the role → capability matrix, evaluated under the fleet's current enforcement mode (empty when unauthenticated). The console uses it to disable controls a `403` would meet; the server re-checks every request regardless. See [Roles and capabilities](/admin/manual/roles).
-- `authorization_mode` — `compatible` or `strict`; the console shows the posture under *Policies → Access control*.
+- `authorization_mode` — `compatible` or `strict`; the console shows the posture under *Settings → Agents → Role checks* (`/settings#agents`).
 - `passkeys_registered` — number of passkeys registered to the currently authenticated user.
 - `passkey_login_available` — true if any passkey is registered across all users.
 
@@ -103,7 +103,7 @@ Authenticated admins can change their own password via `POST /admin/auth/passwor
 
 ## Sign-out
 
-`POST /admin/auth/logout` (`AdminAuthService.logoutByToken`) requires a valid session (the route attaches `requireAdmin`). It deletes the session row by token hash and clears the cookie. The client-side handler is wired to the **Logout** button in the account menu.
+`POST /admin/auth/logout` (`AdminAuthService.logoutByToken`) requires a valid session (the route attaches `requireAdmin`). It deletes the session row by token hash and clears the cookie. The client-side handler is wired to the **Sign out** item in the account menu.
 
 ## Password reset
 
@@ -113,7 +113,7 @@ Authenticated admins can change their own password via `POST /admin/auth/passwor
 
 - **401 Admin session required** — session cookie missing or expired, and the route is gated by `requireAdmin`. Note that `/admin/auth/logout` is also gated; calling it without a valid session returns 401.
 - **403 `admin_role_required`** — the session is valid but its role lacks the capability the route names; the response carries `required_capability`. See [Roles and capabilities](/admin/manual/roles).
-- **403 Passkey login required for this user** — the user has at least one registered passkey and cannot fall back to password. Remove the passkey from *Account → Passkeys* if you need to restore password access.
+- **403 Passkey login required for this user** — the user has at least one registered passkey and cannot fall back to password. Remove the passkey from *Account → Security → Passkeys* (`/account#security`) if you need to restore password access.
 
 ## Source references
 

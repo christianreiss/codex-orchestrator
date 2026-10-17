@@ -51,7 +51,7 @@ async function fixture(page: Page, read = true, manage = true) {
 }
 const workspace = (page: Page) => page.getByRole("group", { name: "Client workspace" });
 async function openRemote(page: Page) {
-  await page.goto("/admin/clients?view=remote");
+  await page.goto("/admin/agents?view=remote");
   await expect(page.locator(`#remote-${REMOTE}`)).toBeVisible();
   await page.locator(`#remote-${REMOTE}`).click();
 }
@@ -59,7 +59,7 @@ async function openRemote(page: Page) {
 test("remote and ordinary agents stay separate and use the same real conversation", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const state = await fixture(page);
-  await page.goto("/admin/clients");
+  await page.goto("/admin/agents");
   await expect(page.locator(`#client-${OTHER}`)).toBeVisible();
   await expect(page.locator(`#client-${NATIVE}`)).toHaveCount(0);
   await workspace(page).getByRole("button", { name: "Remote sessions", exact: true }).click();
@@ -81,7 +81,7 @@ test("native and remote bookmarks select the right workspace without pinning lat
   const state = await fixture(page);
   state.host.sessions.push({ ...state.remote, id: OTHER, sessionId: null, title: "Second remote", status: "queued" });
   for (const query of [`session=${NATIVE}`, `remote=${REMOTE}`]) {
-    await page.goto(`/admin/clients?${query}`);
+    await page.goto(`/admin/agents?${query}`);
     await expect(workspace(page).getByRole("button", { name: "Remote sessions", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("region", { name: "Session timeline" })).toBeVisible();
     await page.locator(`#remote-${OTHER}`).click();
@@ -93,7 +93,7 @@ test("native and remote bookmarks select the right workspace without pinning lat
 
 test("start panel supports all engines and keeps one request ID after a lost response", async ({ page }) => {
   const state = await fixture(page); state.failStart = 1;
-  await page.goto("/admin/clients");
+  await page.goto("/admin/agents");
   await page.getByRole("button", { name: "Start remote session", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByLabel("Engine", { exact: true }).selectOption("grok");
@@ -143,7 +143,7 @@ test("running remote sessions send through the existing agent composer", async (
 
 test("remote sessions survive disabled hosts and empty native lists", async ({ page }) => {
   const state = await fixture(page); state.agents = []; state.host.enabled = false; state.remote.status = "closed";
-  await page.goto("/admin/clients?view=remote");
+  await page.goto("/admin/agents?view=remote");
   await page.getByRole("group", { name: "Show remote sessions" }).getByRole("button", { name: "Ended", exact: true }).click();
   await page.locator(`#remote-${REMOTE}`).click();
   await expect(page.getByText("Remote starts are disabled on this host.")).toBeVisible();
@@ -166,7 +166,7 @@ test("transcript permission gates remote details and conversation requests", asy
 
 test("non-managers cannot start or control remote work", async ({ page }) => {
   const state = await fixture(page, true, false);
-  await page.goto("/admin/clients?view=remote");
+  await page.goto("/admin/agents?view=remote");
   await expect(page.locator(`#client-${NATIVE}`)).toBeVisible();
   await expect(page.getByRole("button", { name: "Start remote session", exact: true })).toHaveCount(0);
   expect(state.calls).not.toContain("/admin/host-daemons");
@@ -189,7 +189,7 @@ test("mobile keeps a single pane, fits long titles and returns focus to the list
 test("search and engine filters handle a long retained list", async ({ page }) => {
   const state = await fixture(page);
   for (let i = 0; i < 50; i++) state.host.sessions.push({ ...state.remote, id: `history-${i}`, title: `Archived review ${i}`, engine: i % 2 ? "claude" : "grok", sessionId: null, status: "closed" });
-  await page.goto("/admin/clients?view=remote");
+  await page.goto("/admin/agents?view=remote");
   await page.getByRole("group", { name: "Show remote sessions" }).getByRole("button", { name: "Ended", exact: true }).click();
   await expect(page.locator('[id^="remote-history-"]')).toHaveCount(50);
   await page.getByLabel("Remote engine").selectOption("grok");

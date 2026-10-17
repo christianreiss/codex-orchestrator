@@ -85,12 +85,12 @@
   }
 </script>
 
-<div class="flex items-center justify-between gap-3 rounded-md border p-2.5">
+<div class="flex items-center justify-between gap-3 border-b py-2.5 last:border-b-0">
   <div class="min-w-0">
-    <div class="text-sm">{label}</div>
-    <div class="truncate font-mono text-xs text-muted-foreground">
+    <div class="text-body">{label}</div>
+    <div class="truncate font-mono text-caption text-muted-foreground">
       {#if override}
-        {override}{#if successor && successor !== override} → {successor}{/if} <span class="font-sans">· host override</span>
+        {override}{#if successor && successor !== override} → {successor}{/if} <span class="font-sans">· set for this host</span>
       {:else if inheritedValue}
         {inheritedValue} <span class="font-sans">· {inheritedLabel}</span>
       {:else}

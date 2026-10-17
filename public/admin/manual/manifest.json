@@ -122,7 +122,7 @@
       "slug": "dashboard",
       "title": "Dashboard",
       "section": "Admin workspace",
-      "summary": "Reported engine coverage, Codex and Claude usage, runner verification, and refresh recovery.",
+      "summary": "The Overview page, covering what needs attention, fleet numbers, provider usage, engine installs, runner verification, and refresh recovery.",
       "tags": [
         "dashboard",
         "usage",
@@ -132,9 +132,9 @@
     },
     {
       "slug": "agent-portal",
-      "title": "Active Clients and agent sessions",
+      "title": "Agents and agent sessions",
       "section": "Admin workspace",
-      "summary": "Session settings, remote work, presence and operator chat through Active Clients and Android.",
+      "summary": "Session settings, remote work, presence, Needs you, and instructing or closing an agent through the Agents page and Android.",
       "tags": [
         "clients",
         "sessions",
@@ -145,9 +145,9 @@
     },
     {
       "slug": "settings",
-      "title": "Engines, Policies, and API Access",
+      "title": "Engines, Settings, and API keys",
       "section": "Admin workspace",
-      "summary": "Every fleet configuration control under Engines, Policies, and API Access \u2014 what each one changes and which endpoint it touches.",
+      "summary": "Every fleet configuration control under Engines, Settings, and API keys \u2014 what each one changes and which endpoint it touches.",
       "tags": [
         "settings",
         "engines",
@@ -158,7 +158,7 @@
     },
     {
       "slug": "instructions",
-      "title": "Fleet Instructions",
+      "title": "Agent rules (fleet instructions)",
       "section": "Admin workspace",
       "summary": "The generated AGENTS.md / CLAUDE.md: generation switch, policy modules, versions, security posture profiles, and the response-verbosity dial.",
       "tags": [
@@ -258,7 +258,7 @@
     },
     {
       "slug": "logs",
-      "title": "Logs \u2014 MCP and Events",
+      "title": "Activity \u2014 admin changes and tool calls",
       "section": "Admin workspace",
       "summary": "Where each log stream originates, retention, filtering, and the admin-ws live feed.",
       "tags": [

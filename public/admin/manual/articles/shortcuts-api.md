@@ -1,8 +1,8 @@
 ---
 title: Keyboard shortcuts and API reference
 section: Integrations and reference
-verified: 2026-09-09
-sources: api/src/routes/index.ts, api/src/routes/host-api/index.ts, api/src/routes/projects-mcp/index.ts, api/src/routes/agent-portal/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/routes/agent-messaging/index.ts, api/src/routes/admin/memories/index.ts, api/src/routes/admin/secrets/index.ts, api/src/routes/admin/git-director/index.ts, api/src/routes/admin/transfers/index.ts, api/src/routes/admin/agent-sessions/index.ts, api/src/routes/admin/project-board/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/routes/admin-auth-users/index.ts, api/src/routes/admin-overview-settings/index.ts, api/src/routes/admin-content/index.ts, api/src/routes/openai-compat/index.ts, api/src/routes/anthropic-compat/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/setup/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/grok-v1/index.ts, api/src/services/api-surfaces.ts, api/src/services/gateway-backends.ts, api/src/routes/projects-client/index.ts, api/src/routes/health.ts, api/src/ws/server.ts, api/src/services/openai-keys.ts, api/src/services/claude-keys.ts, api/src/services/claude-frontmatter.ts, api/src/db/schema.ts, frontend/src/routes/api-keys/+page.svelte, frontend/src/lib/components/api-keys/ExposedApisTable.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts
+verified: 2026-10-17
+sources: api/src/routes/index.ts, api/src/routes/host-api/index.ts, api/src/routes/projects-mcp/index.ts, api/src/routes/agent-portal/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/routes/agent-messaging/index.ts, api/src/routes/admin/memories/index.ts, api/src/routes/admin/secrets/index.ts, api/src/routes/admin/git-director/index.ts, api/src/routes/admin/transfers/index.ts, api/src/routes/admin/agent-sessions/index.ts, api/src/routes/admin/project-board/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/routes/admin-auth-users/index.ts, api/src/routes/admin-overview-settings/index.ts, api/src/routes/admin-content/index.ts, api/src/routes/openai-compat/index.ts, api/src/routes/anthropic-compat/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/setup/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/grok-v1/index.ts, api/src/services/api-surfaces.ts, api/src/services/gateway-backends.ts, api/src/routes/projects-client/index.ts, api/src/routes/health.ts, api/src/ws/server.ts, api/src/services/openai-keys.ts, api/src/services/claude-keys.ts, api/src/services/claude-frontmatter.ts, api/src/db/schema.ts, frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/ExposedApisTable.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts
 ---
 
 Two reference tables, pulled from the code as of this manual's verified date.
@@ -21,7 +21,7 @@ Single-key shortcuts pause while typing in an editable target (`input`, `textare
 | `?` | Show the keyboard-shortcuts help modal |
 | `Esc` | Close the command palette (dialog-based overlays also close on `Esc` via their own handling) |
 
-The command palette groups results as Recent, Hosts, Navigation, Actions, Projects, Skills, Users, and Theme & session. It searches every sidebar destination, including Engines, Policies, Fleet Instructions, and the collaboration tools, plus Logs and Account deep links (searching Activity still finds Logs). Destination descriptions explain where each result leads; searching either **Codex** or **Claude** finds shared engine controls. Quick actions include New host, Quick VM, New project, New API key, Open shortcuts, Sign out, and theme switching.
+The command palette groups results as Recent, Hosts, Navigation, Actions, Projects, Library, People, and Theme & session. It searches every sidebar destination, including Engines, Settings, Agent rules, and the coordination tools, plus Activity and Account deep links (searching Logs still finds Activity). Destination descriptions explain where each result leads; searching either **Codex** or **Claude** finds shared engine controls. Quick actions include New host, Quick VM, New project, New API key, Open shortcuts, Sign out, and theme switching.
 
 Use the arrow keys to select a result, `Enter` to open it, and `Esc` to close. Fleet results load while navigation remains available. The footer reports when search is in progress or a source is unavailable; a query with no results offers suggestions for a new search.
 
@@ -43,15 +43,15 @@ Key prefixes differ by engine:
 
 > **Critical:** The plaintext key is returned **once only**, in the `{ key, record }` response body at creation time. It is never retrievable again. If you lose it, revoke the key and issue a new one.
 
-### /api-keys admin page
+### API keys (Access page)
 
-Navigate to **API Access** in the admin sidebar (or jump there via the `Ctrl`/`Cmd`+`K` command palette). The header has a **New key** button in the top-right corner. The default view shows compact endpoint rows with copy buttons and availability status, followed immediately by the API key tabs and search. Click an endpoint name to select its keys; **New key** uses that selection. Disabled APIs and disabled backends remain visible here.
+Open **Access** in the admin sidebar (or jump there via the `Ctrl`/`Cmd`+`K` command palette) and go to the **API keys** section (`/access#api-keys`; the old `/api-keys` URL redirects there). The keys toolbar has a search box, an API filter (**All**, **OpenAI**, **Anthropic**, **Grok**), compact endpoint rows with copy buttons and availability status, and a **New key** button. Choosing an API in the filter or an endpoint makes **New key** use that selection. Disabled APIs and disabled backends remain visible here.
 
-Open **Configuration** for routing, backend defaults and global API control; **Back to keys** preserves the selected API. Existing setting links open Configuration and expand the relevant backend automatically.
+Open **Configure** in the section header for *Service availability & routing*: routing, backend defaults and global API control. Existing setting links open Configure and expand the relevant backend automatically.
 
-**Global API control** — the master switch for all API traffic (`/admin/api/state`), at the bottom of Configuration.
+**All API traffic** (global API control) — the master switch for all API traffic (`/admin/api/state`), at the bottom of Configure.
 
-**Routing & availability** — one row per exposed API, backed by `GET/POST /admin/api/surfaces`:
+**Routing** — one row per exposed API, backed by `GET/POST /admin/api/surfaces`:
 
 | Column | Meaning |
 |--------|---------|
@@ -59,23 +59,23 @@ Open **Configuration** for routing, backend defaults and global API control; **B
 | Base URL | `{origin}` + the base path, with a **Copy** button; derived from the browser origin |
 | Default engine | Which engine answers keys without an assignment: **Codex**, **Claude** or **Grok**. A **rerouted** badge marks an API not on its own engine. Changes apply to the next request — no restart. An engine switched off under **Engines → Engine master switches** cannot be picked, and a row whose default engine is off shows **backend off**. Unassigned keys answer `503 api_disabled` until it is enabled or the default changes; keys assigned to another enabled engine keep working |
 | Enabled | The API's own kill switch (`openai_api_disabled`, `claude_api_disabled`, `grok_api_disabled`); off returns `503 api_disabled` on that API only |
-| Keys | Active keys for that API; the link opens its key tab |
+| Keys | Active keys for that API; the link opens its keys in the list |
 
 The backend decides whose subscription, model catalog and limits apply; the API keeps its URL, wire format, error shape and keys. Limits follow the backend: Grok refuses streaming, images and sampling controls on every API; on the Anthropic API, Codex receives `system` as a leading transcript line and Grok never receives `max_tokens`; Codex reports no token usage. `/models` lists the backend's models, and a request for a model id native to the API (e.g. `claude-*` on `/anthropic/v1`) that the backend does not serve runs on the backend's default model — the response's `model` field says which.
 
 **Backend defaults** — collapsed Claude and Grok sections containing the Claude proxy defaults and the **Grok API gateway** controls (gateway default model and per-model switches), which apply on every API routed to that engine.
 
-**Key tabs** — **OpenAI** (`/v1`), **Anthropic** (`/anthropic/v1`) and **Grok** (`/grok/v1`). Keys belong to the API, not the backend: rerouting an API never invalidates its keys, and a `sk-cdx-` key still only works on `/v1`. The active tab determines which API the **New key** button targets.
+**API filter** — **OpenAI** (`/v1`), **Anthropic** (`/anthropic/v1`) and **Grok** (`/grok/v1`), next to **All**. Keys belong to the API, not the backend: rerouting an API never invalidates its keys, and a `sk-cdx-` key still only works on `/v1`. The active filter determines which API the **New key** button targets.
 
 **Keys table**
 
-Lists all keys for the API with columns: Name, Key prefix (first 16 chars followed by `...`), Engine (assigned engine or Endpoint default), Active (toggle switch), Uses (request count), Last used (relative time), Expires (date, "Never", or an "Expired" badge), and Actions (enable/disable power icon and a trash/revoke icon). Clicking the revoke icon shows a confirmation dialog before permanently deleting the key.
+Lists the keys for the selected API (or all) with columns: Name, API, Engine (assigned engine or Endpoint default), Active (toggle switch), Last used (relative time), Expires (date, "Never", or an "Expired" badge), and an actions menu with **Revoke key**. Choosing it shows a *Revoke API key?* confirmation before permanently deleting the key.
 
 ### Creating a key
 
 Click **New key** (or run "New API key" from the command palette). The dialog form has:
 
-- **API format** — OpenAI-compatible, Anthropic-compatible, or Grok (OpenAI-compatible), preselected from the active tab
+- **API format** — OpenAI-compatible, Anthropic-compatible, or Grok (OpenAI-compatible), preselected from the active filter
 - **Engine** — explicitly select Codex, Claude, or Grok for this key; fleet-disabled engines cannot be selected. This assignment applies only to the new key and is independent of API format.
 - **Name** — required text field
 - **Expires** — toggle off for no expiry; toggle on to reveal a datetime picker
@@ -475,7 +475,7 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mir
 
 Authentication uses a bearer token: `sk-cdx-…` keys for the OpenAI-compat surface, `sk-ant-…` keys for the Anthropic-compat surface, and `sk-cgx-…` keys (`Authorization: Bearer` only) for `/grok/v1`. Requests proxy through the shared runner with quota accounting; Grok subscription quota is not tracked.
 
-Each of the three surfaces is served by a backend engine chosen in **API Access → Configuration → Routing & availability** (`versions` rows `api_surface_backend_openai|anthropic|grok`, read per request). `api/src/services/api-surfaces.ts` defines the surfaces and the routing; `api/src/services/gateway-backends.ts` builds each engine's backend (credential snapshot, verification bookkeeping, model catalog) once and shares it between surfaces. Keys and kill switches stay with the surface.
+Each of the three surfaces is served by a backend engine chosen in **Access → API keys → Configure → Routing** (`versions` rows `api_surface_backend_openai|anthropic|grok`, read per request). `api/src/services/api-surfaces.ts` defines the surfaces and the routing; `api/src/services/gateway-backends.ts` builds each engine's backend (credential snapshot, verification bookkeeping, model catalog) once and shares it between surfaces. Keys and kill switches stay with the surface.
 
 ## Source references
 
@@ -498,7 +498,7 @@ Each of the three surfaces is served by a backend engine chosen in **API Access 
 - api/src/services/openai-keys.ts, api/src/services/claude-keys.ts (key prefixes and auth)
 - api/src/services/claude-frontmatter.ts (`:kind` normalization for Claude artifacts)
 - api/src/db/schema.ts (openai_api_keys table schema)
-- frontend/src/routes/api-keys/+page.svelte (API Keys admin page)
+- frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/KeysList.svelte (API keys section of the Access page)
 - frontend/src/lib/utils/shortcuts.ts (global single-key shortcut handler)
 - frontend/src/routes/+layout.svelte (shortcut + Cmd-K wiring)
 - frontend/src/lib/components/shortcuts/ShortcutsModal.svelte (shortcuts help modal)

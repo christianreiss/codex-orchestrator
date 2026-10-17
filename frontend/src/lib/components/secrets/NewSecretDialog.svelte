@@ -149,7 +149,7 @@
             disabled={isEdit}
             autocomplete="off"
           />
-          <p class="text-xs text-muted-foreground">
+          <p class="text-caption text-muted-foreground">
             {isEdit
               ? "Immutable — it is the key agents already hold. Delete and recreate to rename."
               : "Lowercase; letters, digits, dots, hyphens, underscores and colons. Cannot be changed later."}
@@ -175,7 +175,7 @@
             rows={3}
             placeholder="Which system it opens, and when an agent should reach for it."
           />
-          <p class="text-xs text-muted-foreground">
+          <p class="text-caption text-muted-foreground">
             This is what an agent reads to decide whether this is the credential it needs — the
             only thing distinguishing it from every other entry. Worth a sentence.
           </p>

@@ -78,8 +78,8 @@
   </Popover.Trigger>
   <Popover.Content class="w-80 space-y-3" align="end">
     <header class="space-y-0.5">
-      <p class="text-sm font-semibold">Allow domain</p>
-      <p class="text-[11px] text-muted-foreground">
+      <p class="text-body font-semibold">Allow domain</p>
+      <p class="text-caption text-muted-foreground">
         {#if domain}
           Every host under <span class="font-mono">*.{domain}</span> is admitted without a prompt.
           {#if coveredCount > 1}
@@ -110,16 +110,16 @@
         step={STEP}
         disabled={permanent}
         bind:value
-        class="h-8 text-xs"
+        class="h-8 text-body-sm"
         aria-label="Duration in minutes"
       />
     </div>
 
-    <label class="flex items-start gap-2 text-xs">
+    <label class="flex items-start gap-2 text-body-sm">
       <input type="checkbox" bind:checked={permanent} class="mt-0.5 accent-primary" />
       <span>
         <span class="font-medium">Never expires</span>
-        <span class="block text-[11px] text-muted-foreground">
+        <span class="block text-caption text-muted-foreground">
           Survives a restart. Still cleared by “Disable all”.
         </span>
       </span>

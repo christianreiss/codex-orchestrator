@@ -145,9 +145,9 @@
               <div class="flex flex-wrap items-center gap-1.5">
                 <Label for={`axis-${axis.id}`} class="text-sm font-medium">{axis.label}</Label>
                 {#if axis.enforcement === "prose_only"}
-                  <Badge variant="secondary" class="text-[10px]">prose only</Badge>
+                  <Badge variant="secondary" class="text-caption">prose only</Badge>
                 {:else}
-                  <Badge variant="secondary" class="text-[10px]">
+                  <Badge variant="secondary" class="text-caption">
                     {enforcementLabel[axis.enforcement]}
                   </Badge>
                 {/if}

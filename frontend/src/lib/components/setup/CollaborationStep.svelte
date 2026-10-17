@@ -96,7 +96,7 @@
   {:else}
     <ModuleSwitchRow
       id="setup-portal"
-      class="rounded-lg border"
+      class="rounded-md border"
       label="Agent sessions"
       description="Record running agents and exchange messages through Active Clients and the Android app. Operator text remains ordinary user input with existing permission boundaries."
       checked={portalOn}
@@ -104,7 +104,7 @@
     />
     <ModuleSwitchRow
       id="setup-messaging"
-      class="rounded-lg border"
+      class="rounded-md border"
       label="Agent Messaging"
       description="Lets agents on different hosts message each other. One fleet-wide switch: turning it on enables the bus for every active host, insecure ones included, and adds an Agent Messaging section to every host's AGENTS.md / CLAUDE.md. Peer text is treated as ordinary model input, never as authorization."
       checked={messagingOn}

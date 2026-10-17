@@ -39,15 +39,13 @@ test('each engine limits choices and restores saved older preferences', async ({
     await expect(toggle).not.toBeChecked();
     await toggle.click();
     await expect(toggle).toBeChecked();
-    const picker = page.locator(`#${engine}-fleet-model`);
-    await expect(picker).toContainText(current!);
-    await picker.click();
-    await expect(page.getByRole('option', { name: old!, exact: true })).toHaveCount(0);
-    await expect(page.getByRole('option', { name: current!, exact: true })).toBeVisible();
-    await page.keyboard.press('Escape');
+    const region = page.getByRole('region', { name: engine[0]!.toUpperCase() + engine.slice(1), exact: true });
+    const choice = (model: string) => region.locator(`input[type="radio"][name="${engine}-quick-model"][value="${model}"]`);
+    await expect(choice(current!)).toBeChecked();
+    await expect(choice(old!)).toHaveCount(0);
     await toggle.click();
     await expect(toggle).not.toBeChecked();
-    await expect(picker).toContainText(old!);
+    await expect(choice(old!)).toBeChecked();
   }
   expect(writes).toEqual(['codex', 'codex', 'claude', 'claude', 'grok', 'grok']);
 });

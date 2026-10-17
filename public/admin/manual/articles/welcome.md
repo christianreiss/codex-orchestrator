@@ -2,8 +2,8 @@
 
 title: Welcome to Orchestrator
 section: Orientation
-verified: 2026-09-09
-sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/lib/nav.ts, frontend/src/routes/+page.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/logs/+layout.svelte, frontend/src/lib/components/layout/Sidebar.svelte, frontend/src/lib/components/layout/TopBar.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/routes/+layout.svelte, wrappers/cxx
+verified: 2026-10-17
+sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/lib/nav.ts, frontend/src/routes/+page.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/(activity)/activity/+page.svelte, frontend/src/lib/components/layout/Sidebar.svelte, frontend/src/lib/components/layout/TopBar.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/routes/+layout.svelte, wrappers/cxx
 ---
 
 Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
@@ -19,31 +19,31 @@ The admin surface is gated by `app.requireAdmin` (the Fastify decorator added by
 
 `ADMIN_ACCESS_MODE` (`cookie` default, or `open`) is declared in `env.ts` and consumed by `cli-auth/index.ts` for the CLI login guard; it does not affect the cookie check that `requireAdmin` performs.
 
-Once at least one admin exists (`AdminAuthService.countAdmins`), a valid session cookie is required for every gated route. Role labels are stored on `admin_users.access_level` — `owner`, `admin`, `viewer`, `fleet_operator` (`ROLE_FLEET`), `trusted_user` (`ROLE_TRUSTED`), and the legacy `user`. `requireAdmin` only authenticates; what each role may *do* is decided by the capability layer in `api/src/security/` — every admin route names one capability, and the role → capability matrix is the sole place a role string is compared against anything. The roster is managed under **Admin Users** (`/users`); see [Roles and capabilities](/admin/manual/roles).
+Once at least one admin exists (`AdminAuthService.countAdmins`), a valid session cookie is required for every gated route. Role labels are stored on `admin_users.access_level` — `owner`, `admin`, `viewer`, `fleet_operator` (`ROLE_FLEET`), `trusted_user` (`ROLE_TRUSTED`), and the legacy `user`. `requireAdmin` only authenticates; what each role may *do* is decided by the capability layer in `api/src/security/` — every admin route names one capability, and the role → capability matrix is the sole place a role string is compared against anything. The roster is managed in the **People** section of **Access** (`/access#people`; these are the admin users); see [Roles and capabilities](/admin/manual/roles).
 
 ## How the admin is laid out
 
-The admin is a single-page SvelteKit app whose HTML shell is returned by the Fastify static handler (`adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`). On boot the SPA hydrates by calling `GET /admin/auth/status` to learn who (if anyone) is signed in. The root route waits for that answer before forwarding to `/dashboard`, and stands down entirely when the installation is unclaimed — then the layout gate owns the navigation and sends you to the setup wizard at `/setup` instead. Redirecting immediately used to race that gate, so a brand-new install opened on a dashboard full of 401s.
+The admin is a single-page SvelteKit app whose HTML shell is returned by the Fastify static handler (`adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`). On boot the SPA hydrates by calling `GET /admin/auth/status` to learn who (if anyone) is signed in. The root route waits for that answer before forwarding to `/dashboard` (the **Overview** page), and stands down entirely when the installation is unclaimed — then the layout gate owns the navigation and sends you to the setup wizard at `/setup` instead. Redirecting immediately used to race that gate, so a brand-new install opened on a dashboard full of 401s.
 
 The desktop sidebar is nine always-visible entries in two sections. Each entry opens a hub; hubs with several pages show them as a tab strip above the page, and every page keeps its own URL.
 
 | Section | Hub | Pages (tabs) |
 |---|---|---|
 | **Operate** | Overview | Overview |
-| | Agents | Active Clients, Live Topology |
-| | Projects | Projects |
 | | Hosts | Hosts |
-| | Coordination | Agent Messaging, Wake / Cron, Git Director, File Transfer |
-| | Activity | Logs (audit trail and MCP requests), Feedback |
+| | Agents | Agents (Live and Graph views) |
+| | Projects | Projects |
+| | Coordination | Messages, Timed wake-ups, Git merges, Shared files |
+| | Activity | Activity (admin changes and tool calls), Reports |
 | **Configure** | Providers | Accounts, Engines (including Model defaults) |
-| | Library | Skills, Fleet Instructions, Memories; Claude-native: Subagents, Commands, Output Styles |
-| | Access & Policy | API Access, Secrets, Admin Users, Policies |
+| | Library | Skills, Agent rules, Memories; Claude-native: Subagents, Commands, Reply styles |
+| | Access & Settings | Access (People, API keys, Secrets), Settings |
 
-Manual, Account and Shortcuts sit at the foot of the sidebar. On a phone the bottom bar keeps Overview, Hosts, Projects and Agents; the other hubs are under Menu. The command palette (Ctrl/Cmd-K) still jumps straight to any individual page. The active destination and breadcrumb identify your current location. **Overview** contains engine coverage, Codex and Claude usage, and runner verification. **Engines** holds fleet model and update controls; **Policies** holds fleet operational rules. **Git Director** arbitrates merges between agents sharing a clone, and **File Transfer** is the expiring pool of files agents hand each other. Subagents, Commands, and Output Styles are Claude-native collections.
+Manual, Account and Shortcuts sit at the foot of the sidebar. On a phone the bottom bar keeps Overview, Hosts, Projects and Agents; the other hubs are under Menu. The command palette (Ctrl/Cmd-K) still jumps straight to any individual page. The active destination and breadcrumb identify your current location. **Overview** opens with a "Needs attention" list, then one line of fleet numbers, provider usage as a single table, an Engines table, and the verification runner. **Agents** is one page with a Live / Graph view toggle. **Engines** holds fleet model and update controls; **Settings** holds fleet-wide behaviour (hosts, agents, data retention). **Git merges** (the Git Director) arbitrates merges between agents sharing a clone, **Shared files** (file transfer) is the expiring pool of files agents hand each other, **Timed wake-ups** is wake/cron, and **Messages** is agent messaging. **Activity** holds the audit trail (Admin changes) and MCP requests (Tool calls) behind a type filter, and **Reports** is the inbox for bugs and requests about the orchestrator itself (feedback). The **Library** is one page with a type filter; Subagents, Commands, and Reply styles (output styles) are Claude-native collections, and **Agent rules** (fleet instructions) is the shared `AGENTS.md` / `CLAUDE.md` document.
 
-The footer provides **Manual**, **Account**, **Shortcuts**, and an account menu for password, passkeys, appearance, and sign-out. On phones, Overview, Hosts, Projects, and Active Clients stay in the bottom bar; **Menu** opens the remaining destinations and account actions. Menu is highlighted when the current page belongs to that group.
+The footer provides **Manual**, **Account**, **Shortcuts**, and an account menu whose links jump to the Security, Appearance, and Android devices sections of the single **Account** page (`/account#security`, `#appearance`, `#devices`), plus sign-out. On phones, Overview, Hosts, Projects, and Agents stay in the bottom bar; **Menu** opens the remaining destinations and account actions. Menu is highlighted when the current page belongs to that group.
 
-Theme selection (Light / Dark / System) lives in the icon menu at the right of the top bar, alongside fleet search and the desktop live-update indicator. Press `Ctrl`/`Cmd`+`K` or `/` to open the command palette, `?` for keyboard help, `n` to register a host, and `Esc` to close an overlay. Single-key shortcuts pause while you type in a form or editor. The palette includes destination descriptions and can find shared engine controls by either **Codex** or **Claude**.
+The icon menu at the right of the top bar, alongside fleet search and the desktop live-update indicator, is a quick Light / Dark / System toggle; the full theme options live only in the **Appearance** section of **Account** (`/account#appearance`). Press `Ctrl`/`Cmd`+`K` or `/` to open the command palette, `?` for keyboard help, `n` to add a host, and `Esc` to close an overlay. Single-key shortcuts pause while you type in a form or editor. The palette groups results as Recent, Hosts, Navigation, Actions, Projects, Library, People, and Theme & session, includes destination descriptions, and can find shared engine controls by either **Codex** or **Claude**.
 
 ## The reading path we suggest
 
@@ -79,8 +79,8 @@ Each article is stamped with a `verified:` date visible as the pill at the top. 
 - frontend/src/routes/+page.svelte (the `/admin` front door and its wait-for-auth behaviour)
 - frontend/src/routes/setup/+page.svelte (first-run wizard)
 - frontend/src/lib/nav.ts (left rail navigation items)
-- frontend/src/routes/dashboard/+page.svelte (dashboard layout and stat cards)
-- frontend/src/routes/logs/+layout.svelte (Logs tabs: MCP, Events)
+- frontend/src/routes/dashboard/+page.svelte (Overview layout)
+- frontend/src/routes/(activity)/activity/+page.svelte (Activity: Admin changes and Tool calls)
 - frontend/src/lib/components/layout/Sidebar.svelte (left rail, footer links, account dropdown)
 - frontend/src/lib/components/layout/TopBar.svelte (theme menu, command palette launcher)
 - frontend/src/lib/utils/shortcuts.ts (global shortcut key bindings)

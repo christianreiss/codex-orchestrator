@@ -78,7 +78,7 @@
           aria-invalid={error ? "true" : undefined}
         />
         {#if error}
-          <p class="text-xs text-destructive">{error}</p>
+          <p class="text-body-sm text-destructive">{error}</p>
         {/if}
       </div>
       <Dialog.Footer>

@@ -175,7 +175,7 @@
     <div class="grid min-h-[520px] place-items-center p-8 text-center">
       <div class="max-w-md rounded-md border border-warning/25 bg-background p-5">
         <p class="font-semibold text-foreground">This relationship layer is too dense to map safely</p>
-        <p class="mt-2 text-sm text-muted-foreground">
+        <p class="mt-2 text-body-sm text-muted-foreground">
           {layouted.visibleNodeCount.toLocaleString()} nodes and {layouted.visibleEdgeCount.toLocaleString()} edges would block the browser. Turn off Tags or Provenance, or narrow the filters. The list view still contains every loaded memory.
         </p>
       </div>
@@ -214,7 +214,7 @@
         />
       {/if}
       <Panel position="top-left" class="!m-3">
-        <div class="rounded-md border border-border/70 bg-background px-3 py-2 text-[10px] text-muted-foreground">
+        <div class="rounded-md border border-border/70 bg-background px-3 py-2 text-caption text-muted-foreground">
           <p class="font-semibold text-foreground">Memory topology</p>
           <p>Pan to explore · scroll to move · use controls to zoom</p>
         </div>

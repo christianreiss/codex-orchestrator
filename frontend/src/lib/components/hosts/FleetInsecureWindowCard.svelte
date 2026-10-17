@@ -73,17 +73,17 @@
 >
   <header class="flex items-start justify-between gap-3">
     <div class="min-w-0 space-y-0.5">
-      <h3 class="flex items-center gap-1.5 text-sm font-semibold">
+      <h3 class="flex items-center gap-1.5 text-body font-semibold">
         <Clock class="h-3.5 w-3.5" />
         Fleet window
       </h3>
       {#if isOpen}
-        <p class="text-[11px] text-warning-muted-foreground">
+        <p class="text-caption text-warning-muted-foreground">
           Every insecure host is auto-allowed. Closes
           {#if deadlineLabel}at {deadlineLabel}{/if}.
         </p>
       {:else}
-        <p class="text-[11px] text-muted-foreground">
+        <p class="text-caption text-muted-foreground">
           Auto-allow every insecure host for a stretch — a working day, rather than
           approving each request as it arrives.
         </p>
@@ -95,7 +95,7 @@
   </header>
 
   {#if isOpen}
-    <p class="text-[11px] text-warning-muted-foreground">
+    <p class="text-caption text-warning-muted-foreground">
       While this is open, insecure hosts also skip reverse-DNS enforcement, may
       rebind their IP, and are eligible for Agent Messaging.
     </p>
@@ -120,7 +120,7 @@
         <ShieldOff class="h-3.5 w-3.5" /> Close now
       </Button>
     </div>
-    <p class="text-[11px] text-muted-foreground">
+    <p class="text-caption text-muted-foreground">
       Closing disables
       {openHostCount}
       {openHostCount === 1 ? "open host window" : "open host windows"}{#if openDomainCount > 0}
@@ -144,7 +144,7 @@
   {/if}
 
   {#if !canMutate}
-    <p class="text-[11px] text-muted-foreground">
+    <p class="text-caption text-muted-foreground">
       You do not have the <code>hosts.activate_insecure</code> capability.
     </p>
   {/if}

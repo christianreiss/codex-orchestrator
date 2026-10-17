@@ -2,6 +2,14 @@ import { expect, test, type Page } from "@playwright/test";
 
 type Engine = "codex" | "claude" | "grok";
 type Config = { status: "ok" | "missing"; revision: string | null; sha256?: string; settings: Record<string, unknown>; content?: string };
+/** Native config, profiles and client settings sit in a collapsed Advanced block per engine. */
+async function openAdvanced(page: Page, engines: Engine[] = ["codex", "claude", "grok"]) {
+  for (const engine of engines) {
+    const trigger = page.locator(`#${engine}-advanced`);
+    await expect(trigger).toBeVisible();
+    if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+  }
+}
 function state() {
   const configs = Object.fromEntries((["codex", "claude", "grok"] as Engine[]).map(engine => [engine, {
     status: "ok", revision: "1", sha256: "a".repeat(64), settings: {
@@ -50,7 +58,7 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
 }
 
 test("Codex compaction defaults off and saves the toggle without losing concurrent tuning or profiles", async ({ page }) => {
-  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines");
+  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page);
   const toggle = page.getByRole("switch", { name: "Async compaction", exact: true });
   await expect(toggle).not.toBeChecked(); await expect(toggle).toBeEnabled();
   shared.configs.codex.settings.model = "newer-model";
@@ -64,13 +72,13 @@ test("Codex compaction defaults off and saves the toggle without losing concurre
   } });
   await expect(toggle).toBeChecked();
   await expect(page.locator("#codex-native-settings textarea")).toHaveValue(/"enabled": true/);
-  await page.reload(); await expect(toggle).toBeChecked();
+  await page.reload(); await openAdvanced(page); await expect(toggle).toBeChecked();
   await toggle.click(); await expect(toggle).not.toBeChecked();
   await expect.poll(() => shared.configs.codex.settings.native_settings).toMatchObject({ features: { async_compaction: { enabled: false, model_async_compact_threshold_percent: 73 } } });
 });
 
 test("Codex compaction retains its state after validation and revision failures", async ({ page }) => {
-  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines");
+  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page);
   const row = page.locator("#codex-async-compaction"), toggle = row.getByRole("switch");
   await expect(toggle).toBeEnabled();
   shared.fail = "codex"; await toggle.click();
@@ -82,13 +90,13 @@ test("Codex compaction retains its state after validation and revision failures"
 });
 
 test("Codex compaction is read-only without content.manage", async ({ page }) => {
-  const shared = state(); await fixture(page, shared, false); await page.goto("/admin/engines");
+  const shared = state(); await fixture(page, shared, false); await page.goto("/admin/engines"); await openAdvanced(page);
   const toggle = page.getByRole("switch", { name: "Async compaction", exact: true });
   await expect(toggle).not.toBeChecked(); await expect(toggle).toBeDisabled(); expect(shared.writes).toEqual([]);
 });
 
 test("native JSON validates, previews and saves each engine without losing separate settings", async ({ page }) => {
-  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines");
+  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page);
   for (const engine of ["codex", "claude", "grok"] as Engine[]) {
     const card = page.locator(`#${engine}-native-settings`), editor = card.getByRole("textbox");
     await expect(editor).toHaveValue(/"language": "en"/);
@@ -105,11 +113,11 @@ test("native JSON validates, previews and saves each engine without losing separ
     await editor.fill("{}"); await card.getByRole("button", { name: "Save native settings" }).click();
     await expect.poll(() => shared.configs[engine].settings.native_settings).toEqual({});
   }
-  await page.reload(); await expect(page.locator("#codex-native-settings textarea")).toHaveValue("{}");
+  await page.reload(); await openAdvanced(page); await expect(page.locator("#codex-native-settings textarea")).toHaveValue("{}");
 });
 
 test("dirty drafts survive remote changes, validation failure and a store revision race", async ({ page }) => {
-  const shared = state(); const refresh = await fixture(page, shared); await page.goto("/admin/engines");
+  const shared = state(); const refresh = await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page);
   const card = page.locator("#codex-native-settings"), editor = card.getByRole("textbox");
   await expect(editor).toHaveValue(/"en"/); await editor.fill('{"language":"de"}');
   shared.fail = "codex"; await card.getByRole("button", { name: "Save native settings" }).click();
@@ -124,7 +132,7 @@ test("dirty drafts survive remote changes, validation failure and a store revisi
 
 test("missing config creation sends an explicit null revision", async ({ page }) => {
   const shared = state(); shared.configs.grok = { status: "missing", revision: null, settings: {} };
-  await fixture(page, shared); await page.goto("/admin/engines");
+  await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page);
   const card = page.locator("#grok-native-settings");
   await expect(card).toContainText("No fleet configuration saved yet"); await card.getByRole("textbox").fill('{"ui":{"timestamps":true}}');
   await card.getByRole("button", { name: "Save native settings" }).click();
@@ -132,7 +140,7 @@ test("missing config creation sends an explicit null revision", async ({ page })
 });
 
 test("Claude form preserves richer hooks and native settings while saving a changed field", async ({ page }) => {
-  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines");
+  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page);
   const form = page.locator("#claude-client");
   await expect(form).toContainText("These hooks contain additional types or options");
   await form.getByLabel("Command", { exact: true }).fill("new-status");
@@ -146,7 +154,7 @@ test("Claude form preserves richer hooks and native settings while saving a chan
 });
 
 test("read-only operators can view native settings but cannot edit or save", async ({ page }) => {
-  const shared = state(); await fixture(page, shared, false); await page.goto("/admin/engines");
+  const shared = state(); await fixture(page, shared, false); await page.goto("/admin/engines"); await openAdvanced(page);
   for (const engine of ["codex", "claude", "grok"]) {
     const card = page.locator(`#${engine}-native-settings`);
     await expect(card.getByRole("textbox")).toHaveAttribute("readonly", "");
@@ -158,7 +166,7 @@ test("read-only operators can view native settings but cannot edit or save", asy
 
 
 test("Codex profiles create, preview and remove sidecars separately from root settings", async ({ page }) => {
-  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines");
+  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page);
   const card = page.locator("#codex-profile-settings"), editor = card.getByRole("textbox");
   await expect(editor).toHaveValue("[]");
   await editor.fill('[{"name":"review","model":"gpt-6.1-sol","model_reasoning_effort":"high","native_settings":{"service_tier":"priority"}}]');

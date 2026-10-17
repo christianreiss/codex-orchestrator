@@ -3,15 +3,15 @@ title: File Transfer
 section: Admin workspace
 summary: The expiring file pool agents hand each other: module switch, limits, held files, downloads, and the audit trail.
 tags: [transfers, files, mcp]
-verified: 2026-09-09
-sources: api/src/routes/admin/transfers/index.ts, api/src/services/agent-transfers.ts, api/src/services/agent-transfers-tool-names.ts, api/src/ops/agent-transfers-worker.ts, api/src/db/migrations/0028_add_agent_transfers.sql, api/src/services/mcp-tools.ts, api/src/services/managed-agents-features.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/routes/transfers/+page.svelte, frontend/src/lib/components/transfers/TransferLimitsSection.svelte, frontend/src/lib/components/transfers/TransferAuditSheet.svelte, frontend/src/lib/api/transfers.ts, frontend/src/lib/ws/events.ts
+verified: 2026-10-17
+sources: api/src/routes/admin/transfers/index.ts, api/src/services/agent-transfers.ts, api/src/services/agent-transfers-tool-names.ts, api/src/ops/agent-transfers-worker.ts, api/src/db/migrations/0028_add_agent_transfers.sql, api/src/services/mcp-tools.ts, api/src/services/managed-agents-features.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/routes/(coordination)/transfers/+page.svelte, frontend/src/lib/components/transfers/TransferLimitsSection.svelte, frontend/src/lib/components/transfers/TransferAuditSheet.svelte, frontend/src/lib/api/transfers.ts, frontend/src/lib/ws/events.ts
 ---
 
-**File Transfer** (`/transfers`, under *Coordinate*) is an expiring pool of files that agents hand each other. An agent on one host uploads a file with `cxx transfer put`, tells the peer its id, and the peer fetches it — across hosts, across engines, without a shared filesystem. Every file has a TTL, optional byte limits default to unlimited and binary uploads reserve capacity against a configured fleet quota, and every fetch is recorded, because the pool has **no addressing**: there is no recipient, and knowing an id is sufficient to fetch. What that owes an operator instead is a record of who actually took a copy, which is what this page is for.
+**File Transfer** (called **Shared files** in the console; `/transfers`, in the *Coordination* group) is an expiring pool of files that agents hand each other. An agent on one host uploads a file with `cxx transfer put`, tells the peer its id, and the peer fetches it — across hosts, across engines, without a shared filesystem. Every file has a TTL, optional byte limits default to unlimited and binary uploads reserve capacity against a configured fleet quota, and every fetch is recorded, because the pool has **no addressing**: there is no recipient, and knowing an id is sufficient to fetch. What that owes an operator instead is a record of who actually took a copy, which is what this page is for.
 
 ## The module switch
 
-The page opens with **Enable file transfer** (`POST /admin/transfers/state`, `transfers.manage`). The module is off until an owner, admin, or fleet operator turns it on. While it is on, every managed host receives a *File Transfer* section in its `AGENTS.md` / `CLAUDE.md` on the next wrapper launch — the section is rendered only when the host's MCP is enabled and the module flag is set, exactly like Git Director — and the five `transfer_*` MCP tools become callable.
+The page header carries the **Enable shared files** switch (file transfer; `POST /admin/transfers/state`, `transfers.manage`). The module is off until an owner, admin, or fleet operator turns it on. While it is on, every managed host receives a *File Transfer* section in its `AGENTS.md` / `CLAUDE.md` on the next wrapper launch — the section is rendered only when the host's MCP is enabled and the module flag is set, exactly like Git Director — and the five `transfer_*` MCP tools become callable.
 
 Turning the module **off** stops `transfer_put`, `transfer_get`, `transfer_info`, and `transfer_delete` (they throw), but deletes nothing: files already held keep expiring on their own deadlines and are swept as usual. `transfer_list` is the deliberate exception — it always answers, returning `status: 'disabled'` with an empty list, so an agent can tell "disabled" from "empty pool" without an error.
 
@@ -44,7 +44,7 @@ Clicking a row opens the **audit sheet** (`GET /admin/transfers/{id}/events`): i
 
 ## Lifecycle
 
-A transfer is `uploading` while a chunked put is open, `live` once sealed, and then `expired` (swept past its deadline) or `deleted` (retired early by an agent or an operator). Only `uploading` and `live` rows count against the quota and the `live_count` on the state card. Bytes live under `<DATA_ROOT>/transfers/<first two characters of the id>/<id>`.
+A transfer is `uploading` while a chunked put is open, `live` once sealed, and then `expired` (swept past its deadline) or `deleted` (retired early by an agent or an operator). Only `uploading` and `live` rows count against the quota and the `live_count` shown as **files held** at the top of the page. Bytes live under `<DATA_ROOT>/transfers/<first two characters of the id>/<id>`.
 
 The sweeper (`api/src/ops/agent-transfers-worker.ts`) runs once at boot and then every `TRANSFERS_PURGE_INTERVAL_SECONDS` (default 300); every twelfth tick it also reclaims orphaned files on disk that are older than one hour. The service additionally sweeps on every read — list, info, get, download, and put — so a file that expired between ticks is gone by the time anyone looks. During a sweep the bytes are unlinked **before** the row's status changes: a crash in between leaves a `live` row with missing bytes, which is a harmless retry, rather than an `expired` row silently guarding an undeleted file.
 
@@ -91,7 +91,7 @@ For resumable uploads, include the last confirmed byte count as `offset`. Append
 - api/src/services/managed-agents-features.ts (the *File Transfer* section rendered into managed AGENTS.md / CLAUDE.md)
 - api/src/security/capabilities.ts, api/src/security/route-capabilities.ts (`transfers.read` / `transfers.download` / `transfers.manage`)
 - api/src/env.ts (`TRANSFERS_PURGE_INTERVAL_SECONDS`)
-- frontend/src/routes/transfers/+page.svelte (the page: switch, table, row actions)
+- frontend/src/routes/(coordination)/transfers/+page.svelte (the page: switch, table, row actions)
 - frontend/src/lib/components/transfers/TransferLimitsSection.svelte (limits form and usage meter)
 - frontend/src/lib/components/transfers/TransferAuditSheet.svelte (per-file audit trail)
 - frontend/src/lib/api/transfers.ts (queries, mutations, 30-second refetch, status and action labels)

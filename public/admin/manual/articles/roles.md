@@ -1,8 +1,8 @@
 ---
 title: Roles and capabilities
 section: Admin access and identity
-verified: 2026-09-09
-sources: api/src/services/admin-auth.ts, api/src/services/admin-users.ts, api/src/http/plugins/auth-admin.ts, api/src/http/plugins/capabilities.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/security/authorization-mode.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/settings/index.ts, api/src/db/migrations/0022_set_authorization_mode.sql, frontend/src/lib/auth/capabilities.ts, frontend/src/lib/components/users/UsersPage.svelte, frontend/src/lib/components/users/userSchema.ts, frontend/src/lib/components/settings/AuthorizationSection.svelte, frontend/src/lib/api/types.ts
+verified: 2026-10-17
+sources: api/src/services/admin-auth.ts, api/src/services/admin-users.ts, api/src/http/plugins/auth-admin.ts, api/src/http/plugins/capabilities.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/security/authorization-mode.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/settings/index.ts, api/src/db/migrations/0022_set_authorization_mode.sql, frontend/src/lib/auth/capabilities.ts, frontend/src/lib/components/users/PeopleSection.svelte, frontend/src/lib/components/users/userSchema.ts, frontend/src/lib/components/policies/AuthorizationPolicy.svelte, frontend/src/lib/api/types.ts
 ---
 
 Authorization is a **default-deny capability layer**, not a session check. `app.requireAdmin` (`api/src/http/plugins/auth-admin.ts`) only *authenticates*: it resolves the session cookie and requires an active `admin_users` row. What decides whether the caller may proceed is `api/src/security/route-capabilities.ts`, which assigns exactly one capability to every route under `/admin/*` (and the session-guarded `/cli/auth/*` routes), and `api/src/http/plugins/capabilities.ts`, which attaches the matching guard as each route is registered. A route missing from that inventory is a **startup failure** — the plugin collects every governed route it cannot find and throws at `onReady`, so a new endpoint cannot ship session-only by omission.
@@ -55,7 +55,7 @@ Before this layer, every admin route not covered by one of six hand-written gate
 
 Migration `0022_set_authorization_mode.sql` writes `compatible` on an installation that already had users and `strict` on a fresh one (`DEFAULT_AUTHORIZATION_MODE` is `strict`), so an upgrade changes nobody's access and a new install is secure from first boot. Four capabilities are enforced under **both** modes (`ALWAYS_ENFORCED`): `auth.reveal_credential`, `security.manage_authorization`, `agent_portal.reveal_transcript`, and `agent_portal.manage`.
 
-While a fleet runs in `compatible`, every request the matrix *would* have refused is recorded. **Policies → Access control** (`AuthorizationSection`) reads `GET /admin/authorization` and lists those distinct role / capability / route triples with their last-seen time, so "what breaks if I switch" is answered by your own traffic. **Switch to strict** and **Revert to compatible** post `{ mode }` to `POST /admin/authorization`; both buttons need `security.manage_authorization` (owner and admin only). Instances cache the mode for up to 30 seconds, so a multi-instance deployment converges within that window without a restart.
+While a fleet runs in `compatible`, every request the matrix *would* have refused is recorded. **Settings → Agents → Role checks** (authorization mode; `AuthorizationPolicy`, at `/settings#agents`) reads `GET /admin/authorization` and, while the mode is compatible, lists those distinct role / capability / route triples under *Requests strict mode would refuse* with their last-seen time, so "what breaks if I switch" is answered by your own traffic. Picking **Strict: enforce capabilities** or **Compatible: legacy role rules** in the selector posts `{ mode }` to `POST /admin/authorization`; the selector needs `security.manage_authorization` (owner and admin only) and is read-only otherwise. Instances cache the mode for up to 30 seconds, so a multi-instance deployment converges within that window without a restart.
 
 ## First-run path
 
@@ -63,16 +63,16 @@ While a fleet runs in `compatible`, every request the matrix *would* have refuse
 
 ## Managing users in the UI
 
-The roster lives at **Admin Users** (`/users`). Any role may open it (`users.read`); the **Add user** button, the per-row edit and delete controls, and the **Wipe** button render only when the caller holds `users.manage`, so a viewer sees a read-only table rather than buttons that would `403`.
+The roster lives in the **People** section (admin users) of the **Access** page (`/access#people`). Any role may open it (`users.read`); the **Add person** button, the per-row **Edit** and **Delete** menu items, the active switch, and the **Wipe all users** button (collapsed under *Danger zone* at the bottom of the page) render only when the caller holds `users.manage`, so a viewer sees a read-only table rather than buttons that would `403`.
 
 The page provides:
 
 - A debounced search box matching name, username, email, and role.
-- A sortable table (username ascending by default). Sorting by role uses the API's own privilege order — `owner`, `admin`, `viewer`, `fleet_operator`, `trusted_user`, `user` (`USER_ROLES` in `frontend/src/lib/api/types.ts`) — with unknown values last.
-- **Add user** — opens `UserFormDialog` in create mode.
-- Per-row **edit** — opens `UserFormDialog` in edit mode.
-- Per-row **delete** — opens `ConfirmDeleteDialog`.
-- **Wipe** — opens `WipeUsersDialog` for bulk removal.
+- A sortable table (Person, Role, Status, Last login; Person ascending by default). Sorting by role uses the API's own privilege order — `owner`, `admin`, `viewer`, `fleet_operator`, `trusted_user`, `user` (`USER_ROLES` in `frontend/src/lib/api/types.ts`) — with unknown values last.
+- **Add person** — opens `UserFormDialog` in create mode.
+- Per-row **Edit** — opens `UserFormDialog` in edit mode.
+- Per-row **Delete** — opens a *Delete person* confirmation.
+- **Wipe all users** — opens `WipeUsersDialog` for bulk removal.
 
 ### Creating or editing a user
 
@@ -82,7 +82,7 @@ Submitting calls `POST /admin/users` (create) or `POST /admin/users/{id}` (updat
 
 ### Deleting a single user
 
-`ConfirmDeleteDialog` calls `DELETE /admin/users/{id}` (`users.manage`). `guardLastAdmin` prevents deleting the last active owner or admin.
+The *Delete person* confirmation calls `DELETE /admin/users/{id}` (`users.manage`). `guardLastAdmin` prevents deleting the last active owner or admin.
 
 ## The wipe path
 
@@ -102,7 +102,7 @@ Submitting calls `POST /admin/users` (create) or `POST /admin/users/{id}` (updat
 - api/src/routes/admin/users/index.ts (user CRUD, zero-user bootstrap)
 - api/src/routes/admin/settings/index.ts (`GET`/`POST /admin/authorization`)
 - frontend/src/lib/auth/capabilities.ts (mirrored capability names, `can()` predicate, tooltip reason)
-- frontend/src/lib/components/users/UsersPage.svelte (role sort order; controls hidden without `users.manage`)
+- frontend/src/lib/components/users/PeopleSection.svelte (role sort order; controls hidden without `users.manage`)
 - frontend/src/lib/components/users/userSchema.ts (`ROLE_OPTIONS`, password character-mix rule)
-- frontend/src/lib/components/settings/AuthorizationSection.svelte (Policies → Access control)
+- frontend/src/lib/components/policies/AuthorizationPolicy.svelte (Settings → Agents → Role checks)
 - frontend/src/lib/api/types.ts (`USER_ROLES`)

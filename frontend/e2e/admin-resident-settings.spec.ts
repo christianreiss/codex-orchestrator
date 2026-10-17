@@ -30,7 +30,9 @@ test('residence is saved independently of remote starts and survives reload', as
     if (path === '/admin/communicators') return json({enabled:false,connections:[]});
     return json({});
   });
-  await page.goto('/admin/hosts/1?tab=operations');
+  const openAdvanced = () => page.getByTestId('host-advanced').locator(':scope > summary').click();
+  await page.goto('/admin/hosts/1');
+  await openAdvanced();
   const residence = page.getByRole('switch',{name:'Keep communicator running'});
   const execution = page.getByRole('switch',{name:'Enable remote starts'});
   await expect(residence).not.toBeChecked();
@@ -42,6 +44,7 @@ test('residence is saved independently of remote starts and survives reload', as
   expect(saved?.enabled).toBe(false);
   await expect(page.getByText('Residence requested; waiting for resident service support.')).toBeVisible();
   await page.reload();
+  await openAdvanced();
   await expect(residence).toBeChecked();
   await expect(execution).not.toBeChecked();
 });

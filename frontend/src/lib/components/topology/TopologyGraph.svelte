@@ -271,7 +271,7 @@
   bind:this={surface}
   bind:clientWidth={width}
   bind:clientHeight={height}
-  class="topology-surface relative h-full min-h-[22rem] w-full touch-none select-none overflow-hidden rounded-lg border bg-card"
+  class="topology-surface relative h-full min-h-[22rem] w-full touch-none select-none overflow-hidden rounded-md border bg-card"
   role="presentation"
   onkeydown={surfaceKey}
   onpointerdown={pointerDown}
@@ -434,18 +434,18 @@
   </svg>
 
   {#if model.communicators.length === 0 && model.agents.length === 0}
-    <div class="pointer-events-none absolute inset-x-0 bottom-6 mx-auto w-fit max-w-[80%] rounded-md border bg-background/90 px-3 py-2 text-center text-sm text-muted-foreground">
+    <div class="pointer-events-none absolute inset-x-0 bottom-6 mx-auto w-fit max-w-[80%] rounded-md border bg-background/90 px-3 py-2 text-center text-body-sm text-muted-foreground">
       Nothing is connected to this server right now.
     </div>
   {/if}
 
   {#if preview && preview.node.id !== selectedId}
-    <div class="pointer-events-none absolute left-3 top-3 max-w-64 rounded-lg border bg-background/95 px-3 py-2 text-xs shadow-sm" role="status">
+    <div class="pointer-events-none absolute left-3 top-3 max-w-64 rounded-md border bg-background/95 px-3 py-2 text-caption shadow-sm" role="status">
       <p class="font-semibold">{preview.node.kind === "agent" ? preview.node.name : communicatorLabel(preview.node)}</p>
       <p class="text-muted-foreground">{preview.node.kind === "agent" ? `${preview.node.engine} · ${preview.node.presence} · ${preview.node.host}` : `${runtimeStyle(preview.node).label} · ${preview.node.health}`}</p>
     </div>
   {/if}
-  <div class="pointer-events-none absolute bottom-3 right-3 rounded-md border bg-background/90 px-3 py-2 text-[11px] text-muted-foreground" aria-label="Connection legend">
+  <div class="pointer-events-none absolute bottom-3 right-3 rounded-md border bg-background/90 px-3 py-2 text-caption text-muted-foreground" aria-label="Connection legend">
     <span>━━ Persistent</span> · <span>╍╍ On demand</span> · <span>··· Unknown</span>
   </div>
   <div class="absolute right-3 top-3 flex flex-col gap-1 rounded-md border bg-background/90 p-1 shadow-sm backdrop-blur" role="group" aria-label="Zoom">

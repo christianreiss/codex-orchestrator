@@ -1,8 +1,8 @@
 ---
 title: Installing and bootstrapping
 section: Orientation
-verified: 2026-09-09
-sources: README.md, bin/install.sh, docker-compose.yml, caddy/Caddyfile, api/src/env.ts, api/src/server.ts, api/src/db/schema.ts, api/src/db/baseline/schema.sql, api/src/routes/health.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/admin-users.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/security/keyring.ts, api/src/ops/setup-signing-key.ts, frontend/src/routes/setup/+page.svelte, frontend/src/lib/components/setup/SeedAuthPanel.svelte, frontend/src/routes/dashboard/OnboardingCard.svelte, wrappers/Makefile
+verified: 2026-10-17
+sources: README.md, bin/install.sh, docker-compose.yml, caddy/Caddyfile, api/src/env.ts, api/src/server.ts, api/src/db/schema.ts, api/src/db/baseline/schema.sql, api/src/routes/health.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/admin-users.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/security/keyring.ts, api/src/ops/setup-signing-key.ts, frontend/src/routes/setup/+page.svelte, frontend/src/lib/components/setup/SeedAuthPanel.svelte, frontend/src/lib/components/dashboard/OnboardingNotice.svelte, wrappers/Makefile
 ---
 
 Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
@@ -36,7 +36,7 @@ docker compose --profile caddy up -d
 1. **Clone and run the installer.** `bin/install.sh` prompts for `.env` values, generates all installation-owned secrets plus an installation-specific wrapper signing key, builds/publishes all four `cxx` platforms, provisions the schema, imports the private key encrypted, starts the critical stack with bounded waiting, and probes both local and public readiness. Continue only when it prints `READY` and the exact `/admin/setup` URL; `INCOMPLETE` is always non-zero.
 2. **Schema.** The Drizzle schema in `api/src/db/schema.ts` mirrors the database; the hand-written SQL in `api/src/db/migrations/` is what actually changes it. Those migrations *extend* a schema rather than create one, so an empty database is bootstrapped from `api/src/db/baseline/schema.sql` by `migrate.js --init-schema` — which applies the baseline only when `information_schema` reports no application tables, then migrates on top, and is therefore safe to re-run against a populated database. The API applies every pending migration on boot (`RUN_MIGRATIONS_ON_BOOT`, default on) and `scripts/deploy.sh` applies them explicitly before starting the stack, so a normal deploy needs no manual step. To drive it yourself: `docker compose run --rm -T api node migrate.js` (or `--list` / `--check` / `--dry-run`). Do **not** use `drizzle:push` against a real database — it reconciles the whole mirror and cannot express FULLTEXT indexes or foreign keys.
 3. **Claim the first owner.** `/admin/setup` is the only console surface for an empty install. The claim is serialized, always creates one active owner, and signs it in immediately. Do not expose an unclaimed installation.
-4. **Finish operational onboarding.** The setup wizard continues past the owner claim through engines, credentials, fleet defaults, agent policy, modules, collaboration and an optional first host. None of those block the console, and everything unanswered stays on the dashboard's resume card until verified canonical auth, host registration, and first sync are present.
+4. **Finish operational onboarding.** The setup wizard continues past the owner claim through engines, credentials, fleet defaults, agent policy, modules, collaboration and an optional first host. None of those block the console, and everything unanswered stays on the Overview page's resume notice until verified canonical auth, host registration, and first sync are present.
 5. **Wrapper signing lifecycle.** Setup injects the generated public key through Go linker data without modifying tracked `pubkey.pem`, imports the private PEM as a secretbox envelope, verifies DB read-back/signing, and only then removes plaintext. Existing installations are never auto-rotated; mismatches and mixed artifacts fail closed.
 
 ## The installer
@@ -75,7 +75,7 @@ Diagnosis: `bin/install.sh doctor` maps each failing check to the command that f
 
 Only the first two block: infrastructure is not fixable from a browser, and nothing else can be written without the session the owner claim issues. Everything after has **Skip**, because "no" is a complete answer to most of it.
 
-Position and completion persist in a `setup_wizard_state` blob behind `GET`/`POST /admin/setup/wizard`, so an interrupted run resumes from the dashboard card and a finished or dismissed one stops nagging. That blob exists because neither existing notion can carry it: `setup_complete` is `criticalComplete && ownerCreated` and goes true at step two of nine, and a `next_action` can only ever be complete-when-done, which would leave anyone who declined every optional module staring at a permanently unfinished list.
+Position and completion persist in a `setup_wizard_state` blob behind `GET`/`POST /admin/setup/wizard`, so an interrupted run resumes from the Overview page's resume notice and a finished or dismissed one stops nagging. That blob exists because neither existing notion can carry it: `setup_complete` is `criticalComplete && ownerCreated` and goes true at step two of nine, and a `next_action` can only ever be complete-when-done, which would leave anyone who declined every optional module staring at a permanently unfinished list.
 
 **Fleet defaults is not cosmetic.** A fresh install has no `client_config_documents` row. Without one the managed feature context reports `config_missing` and resolves skills, memory, projects and secrets to disabled *before their own switches are read* — so enabling Projects on a brand-new install does nothing at all. `POST /admin/model-defaults/:engine` (and the admin config store routes) create that row, while the matching `GET` returns a default that was never persisted, which is how a console can look configured while every managed feature is dark. The wizard therefore saves Codex defaults on that step even on **Skip** (catalog defaults), including on the "neither engine" path: it is MCP activation, not credentials.
 
@@ -104,7 +104,7 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 ### Agent portal, Active Clients, and file transfer
 
-- `AGENT_PORTAL_RETENTION_HOURS` — default `24`; how long an ended agent session stays readable in Active Clients and the portal.
+- `AGENT_PORTAL_RETENTION_HOURS` — default `24`; how long an ended agent session stays readable on the Agents page and the portal.
 - `AGENT_PORTAL_BRIDGE_TTL_SECONDS` — default `900`; lifetime of the per-session bridge token a wrapper uses to register and heartbeat.
 - `AGENT_PORTAL_PURGE_INTERVAL_SECONDS` — default `300`; cadence of the portal worker that purges expired sessions and bridges.
 - `AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS` (default `45`) and `AGENT_PORTAL_RELAY_FRESH_SECONDS` (default `60`) — the two windows that decide whether a client shows as online and whether its instruction relay counts as open.
@@ -175,7 +175,7 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 - `GPT51_INPUT_PER_1K`, `GPT51_OUTPUT_PER_1K` (and other `GPT51_*` variants)
 - `CHATGPT_PLUS_PLAN_COST`, `CHATGPT_PRO_PLAN_COST`
 - `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`, `CHATGPT_USAGE_HEALTH_PATH` (default `/tmp/chatgpt-usage-health.json`), `CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS`
-- `CLAUDE_OPUS_INPUT_PER_1K`, `CLAUDE_OPUS_OUTPUT_PER_1K`, `CLAUDE_SONNET_INPUT_PER_1K`, `CLAUDE_SONNET_OUTPUT_PER_1K`, `CLAUDE_HAIKU_INPUT_PER_1K`, `CLAUDE_HAIKU_OUTPUT_PER_1K` (plus `*_CACHED_PER_1K` variants), `ANTHROPIC_API_KEY` — parsed by `env.ts`, but unused elsewhere in `api/src`. Claude usage on the dashboard comes from host-pushed reports (`api/src/services/claude-usage.ts`), not from these prices.
+- `CLAUDE_OPUS_INPUT_PER_1K`, `CLAUDE_OPUS_OUTPUT_PER_1K`, `CLAUDE_SONNET_INPUT_PER_1K`, `CLAUDE_SONNET_OUTPUT_PER_1K`, `CLAUDE_HAIKU_INPUT_PER_1K`, `CLAUDE_HAIKU_OUTPUT_PER_1K` (plus `*_CACHED_PER_1K` variants), `ANTHROPIC_API_KEY` — parsed by `env.ts`, but unused elsewhere in `api/src`. Claude usage on the Overview comes from host-pushed reports (`api/src/services/claude-usage.ts`), not from these prices.
 - `PRICING_URL`, `PRICING_CURRENCY`
 
 Check `.env.example` in the repo for the full, current list.
@@ -204,7 +204,7 @@ Every candidate is verified against the live provider before it is stored, and t
 
 ## Registering a host
 
-`POST /admin/hosts/register` creates a host row and returns a one-shot installer token. The token is stored in `install_tokens`. `GET /install/{token}` (aliased to `/install/v2/{token}`) returns a launcher without credentials that checks `python3`, `curl` and a writable bin directory; only when they pass does it consume the token with `POST /install/{token}`, which emits the per-host POSIX shell installer. A failed check leaves the token usable: fix the cause and re-run the same command. It installs one `cxx` plus relative `cdx -> cxx` and/or `clx -> cxx` aliases into `/usr/local/bin` by default (root/passwordless `sudo` required; `BIN_DIR` is the explicit custom-prefix override). The admin sees a `curl … | sh` command under *Hosts → New Host*.
+`POST /admin/hosts/register` creates a host row and returns a one-shot installer token. The token is stored in `install_tokens`. `GET /install/{token}` (aliased to `/install/v2/{token}`) returns a launcher without credentials that checks `python3`, `curl` and a writable bin directory; only when they pass does it consume the token with `POST /install/{token}`, which emits the per-host POSIX shell installer. A failed check leaves the token usable: fix the cause and re-run the same command. It installs one `cxx` plus relative `cdx -> cxx` and/or `clx -> cxx` aliases into `/usr/local/bin` by default (root/passwordless `sudo` required; `BIN_DIR` is the explicit custom-prefix override). The admin sees a `curl … | sh` command after **Add host** on the Hosts page (or from **Get install command** on a host's page, formerly *Mint installer*).
 
 What the installer actually does on the target machine:
 
@@ -253,8 +253,8 @@ self-update between runs.
 
 ## Post-install smoke test
 
-- The dashboard shows a **Resume setup** / **Finish setting up** card while the wizard is unfinished and at least one next action is still open. It deep-links back to the step you stopped on; **Dismiss** hides it permanently.
-- From the admin UI, visit *Dashboard*. New hosts appear under *Hosts → Unprovisioned* until they complete a successful sync; after that they move to *Secure* (or *Insecure*, if you activated insecure mode on registration). Use the **Runner state** card's **Run verification** button (one per engine) to confirm the runner is reachable; it calls `POST /admin/runner/run` for Codex or `/admin/runner/run-claude` for Claude.
+- The Overview page shows a **Resume setup** / **Finish setting up** notice while the wizard is unfinished and at least one next action is still open. It deep-links back to the step you stopped on; **Dismiss** hides it permanently.
+- From the admin UI, visit *Overview*. New hosts appear under *Hosts → More filters → Not signed in yet* (unprovisioned) until they complete a successful sync; after that they count as *Trusted hosts* (or *Untrusted hosts*, if you activated insecure mode on registration). Use the **Verification runner** section's **Run verification** button (one per engine) to confirm the runner is reachable; it calls `POST /admin/runner/run` for Codex or `/admin/runner/run-claude` for Claude.
 - Click into any host to see its per-host baked config version, last auth digest, and IP binding state.
 
 ## Backups
@@ -277,7 +277,7 @@ Without the encryption keys you cannot decrypt `auth_payloads`. The app will sti
 - api/src/services/setup-wizard.ts (`SETUP_WIZARD_STEPS`, `setup_wizard_state`)
 - frontend/src/routes/setup/+page.svelte (wizard rail, blocking rules, `?step=`)
 - frontend/src/lib/components/setup/SeedAuthPanel.svelte (the shared credential form)
-- frontend/src/routes/dashboard/OnboardingCard.svelte (resume card)
+- frontend/src/lib/components/dashboard/OnboardingNotice.svelte (resume card)
 - docker-compose.yml (stack definition)
 - caddy/Caddyfile (TLS termination and reverse-proxy config)
 - api/src/env.ts (all env var definitions and validation)

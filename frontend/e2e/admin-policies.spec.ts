@@ -33,48 +33,50 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
   });
   return async () => { await expect.poll(() => Boolean(emit)).toBe(true); emit!(JSON.stringify({ type: 'settings.changed', payload: {}, ts: new Date().toISOString() })); };
 }
-async function category(page: Page, name: string) {
-  if ((page.viewportSize()?.width ?? 1280) < 1024) await page.getByLabel('Policy category').selectOption({ label: name });
-  else await page.getByRole('navigation', { name: 'Policy categories' }).getByRole('link', { name: new RegExp(name) }).click();
-  await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
-}
-test('categories preserve drafts and old anchors without duplicate IDs', async ({ page }) => {
-  const shared = state(); await fixture(page, shared); await page.goto('/admin/policies');
-  await expect(page.getByRole('heading', { name: 'Host behavior', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Log retention', exact: true })).not.toBeVisible();
-  await category(page, 'Cleanup'); const days = page.getByLabel('Inactivity window (days)');
+const ANCHORS = ['hosts', 'agents', 'retention', 'auto-update', 'reverse-dns', 'insecure-approval', 'host-spawn', 'api-keys-in-chat', 'model-tier-check', 'authorization', 'host-lifecycle', 'prune-policy', 'log-retention', 'session-housekeeping'];
+test('one flat page keeps drafts, resolves anchors and has no duplicate IDs', async ({ page }) => {
+  const shared = state(); await fixture(page, shared); await page.goto('/admin/settings');
+  for (const name of ['Hosts', 'Agents', 'Data retention']) await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Policy categories' })).toHaveCount(0);
+  const days = page.getByLabel('Inactivity window (days)');
   await expect(days).toHaveValue('30'); await days.fill('12');
-  await category(page, 'Agent behavior'); await category(page, 'Cleanup'); await expect(days).toHaveValue('12');
+  await page.getByRole('switch', { name: 'Look up host names', exact: true }).focus();
+  await expect(days).toHaveValue('12');
   await page.locator('#prune-policy').getByRole('button', { name: 'Reset', exact: true }).click(); await expect(days).toHaveValue('30');
-  for (const [anchor, name] of [['authorization', 'Access control'], ['insecure-approval', 'Access control'], ['host-lifecycle', 'Cleanup'], ['prune-policy', 'Cleanup'], ['log-retention', 'Cleanup'], ['api-keys-in-chat', 'Agent behavior'], ['auto-update', 'Host behavior']]) {
-    await page.goto(`/admin/policies#${anchor}`); await expect(page.getByRole('heading', { name, exact: true })).toBeVisible(); await expect(page.locator(`#${anchor}`)).toBeVisible();
-  }
+  for (const anchor of ANCHORS) { await page.goto(`/admin/settings#${anchor}`); await expect(page.locator(`#${anchor}`)).toBeVisible(); }
   expect(shared.writes).toEqual([]);
   expect(await page.locator('[id]').evaluateAll(nodes => { const ids = nodes.map(n => n.id); return ids.filter((id, i) => ids.indexOf(id) !== i); })).toEqual([]);
 });
+test('legacy settings bookmarks redirect to their new section', async ({ page }) => {
+  const shared = state(); await fixture(page, shared);
+  await page.goto('/admin/settings?tab=fleet-policy'); await expect(page).toHaveURL(/\/admin\/settings$/);
+  await page.goto('/admin/settings?tab=general'); await expect(page).toHaveURL(/\/admin\/access#api-keys$/);
+  await page.goto('/admin/settings#log-retention'); await expect(page).toHaveURL(/\/admin\/settings#retention$/);
+});
 test('immediate controls save, reload and recover after failure', async ({ page }) => {
-  const shared = state(); await fixture(page, shared); await page.goto('/admin/policies');
-  const toggle = page.getByRole('switch', { name: 'Enable automatic updates', exact: true });
+  const shared = state(); await fixture(page, shared); await page.goto('/admin/settings');
+  const toggle = page.getByRole('switch', { name: 'Update hosts automatically', exact: true });
   await expect(toggle).toBeEnabled(); shared.fail = 'auto-update'; await toggle.click();
   await expect(page.locator('#auto-update')).toContainText('Save failed'); await expect(toggle).not.toBeChecked(); await expect(toggle).toBeEnabled();
   shared.fail = ''; await toggle.click(); await expect(toggle).toBeChecked(); await expect(toggle).toBeEnabled();
-  await category(page, 'Agent behavior'); await page.getByRole('switch', { name: 'Include API-key handling guidance', exact: true }).click();
-  await expect(page.getByRole('switch', { name: 'Include API-key handling guidance', exact: true })).not.toBeChecked();
-  await category(page, 'Access control'); const mode = page.getByLabel('Authorization mode');
+  const chat = page.getByRole('switch', { name: 'Tell agents how to treat keys pasted in chat', exact: true });
+  await chat.click(); await expect(chat).not.toBeChecked();
+  const mode = page.getByLabel('Role checks');
   shared.fail = 'authorization'; await mode.selectOption('strict'); await expect(page.locator('#authorization')).toContainText('Save failed'); await expect(mode).toHaveValue('compatible'); await expect(mode).toBeEnabled();
   shared.fail = ''; await mode.selectOption('strict'); await expect(mode).toHaveValue('strict'); await expect(mode).toBeEnabled();
-  await page.getByRole('switch', { name: 'Enable approval requests', exact: true }).click(); await expect(page.getByRole('switch', { name: 'Enable approval requests', exact: true })).toBeChecked();
+  const approval = page.getByRole('switch', { name: 'Allow temporary-access requests', exact: true });
+  await approval.click(); await expect(approval).toBeChecked();
   await page.reload(); await expect(mode).toHaveValue('strict');
 });
 test('numeric validation and retention toggle never submit unsaved durations', async ({ page }) => {
-  const shared = state(); await fixture(page, shared); await page.goto('/admin/policies#cleanup');
+  const shared = state(); await fixture(page, shared); await page.goto('/admin/settings');
   const prune = page.locator('#prune-policy'), retention = page.locator('#log-retention');
   const days = prune.getByLabel('Inactivity window (days)'), save = prune.getByRole('button', { name: 'Save changes' });
   await expect(days).toHaveValue('30'); await expect(save).toBeDisabled();
   for (const value of ['1.5', '-1', '61', '']) { await days.fill(value); await expect(save).toBeDisabled(); await expect(days).toHaveAttribute('aria-invalid', 'true'); }
   await days.fill('0'); await save.click(); await expect(prune).toContainText('inactivity pruning disabled'); await expect(save).toBeDisabled();
   const logs = retention.getByLabel('API logs (days)'); await logs.fill('45');
-  const toggle = retention.getByRole('switch', { name: 'Enable automatic log removal' }); await toggle.click(); await expect(toggle).toBeChecked(); await expect(toggle).toBeEnabled(); await expect(logs).toHaveValue('45');
+  const toggle = retention.getByRole('switch', { name: 'Remove old logs automatically' }); await toggle.click(); await expect(toggle).toBeChecked(); await expect(toggle).toBeEnabled(); await expect(logs).toHaveValue('45');
   expect(shared.values['log-retention'].days_logs).toBe(90); expect(shared.writes.at(-1)?.body.days_logs).toBe(90);
   await logs.fill('366'); await expect(retention.getByRole('button', { name: 'Save changes' })).toBeDisabled();
   await logs.fill('45'); shared.fail = 'log-retention'; await retention.getByRole('button', { name: 'Save changes' }).click();
@@ -82,7 +84,7 @@ test('numeric validation and retention toggle never submit unsaved durations', a
   shared.fail = ''; await retention.getByRole('button', { name: 'Save changes' }).click(); await expect(retention.getByRole('button', { name: 'Save changes' })).toBeDisabled(); await expect.poll(() => shared.values['log-retention'].days_logs).toBe(45);
 });
 test('external updates refresh pristine values and protect dirty drafts', async ({ page }) => {
-  const shared = state(); const refresh = await fixture(page, shared); await page.goto('/admin/policies#cleanup');
+  const shared = state(); const refresh = await fixture(page, shared); await page.goto('/admin/settings');
   const prune = page.locator('#prune-policy'), days = prune.getByLabel('Inactivity window (days)');
   await expect(days).toHaveValue('30'); shared.values['prune-policy'].inactivity_window_days = 20; await refresh(); await expect(days).toHaveValue('20');
   await days.fill('12'); shared.values['prune-policy'].inactivity_window_days = 40; await refresh();
@@ -93,26 +95,21 @@ test('external updates refresh pristine values and protect dirty drafts', async 
   await retention.getByRole('button', { name: 'Reset', exact: true }).click(); await expect(logs).toHaveValue('60');
 });
 test('failed reads disable writes and offer retry', async ({ page }) => {
-  const shared = state(); shared.readFail = 'auto-update'; await fixture(page, shared); await page.goto('/admin/policies'); const card = page.locator('#auto-update');
+  const shared = state(); shared.readFail = 'auto-update'; await fixture(page, shared); await page.goto('/admin/settings'); const card = page.locator('#auto-update');
   await expect(card.getByRole('switch')).toBeDisabled(); await expect(card.getByRole('button', { name: 'Retry loading' })).toBeVisible({ timeout: 15000 });
   shared.readFail = ''; await card.getByRole('button', { name: 'Retry loading' }).click(); await expect(card.getByRole('switch')).toBeEnabled(); expect(shared.writes).toEqual([]);
 });
-for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`read-only, keyboard and accessibility (${width}, ${theme})`, async ({ page }) => {
+for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`read-only and accessibility (${width}, ${theme})`, async ({ page }) => {
   const shared = state(); await page.setViewportSize({ width, height: 900 }); await page.addInitScript(theme => localStorage.setItem('codex.theme', theme), theme);
-  await fixture(page, shared, false); await page.goto('/admin/policies');
-  await expect(page.getByRole('heading', { name: 'Host behavior', exact: true })).toBeVisible();
+  await fixture(page, shared, false); await page.goto('/admin/settings');
+  await expect(page.getByRole('heading', { name: 'Hosts', exact: true })).toBeVisible();
   await expect(page.locator('html')).toHaveClass(theme === 'dark' ? /dark/ : /^(?!.*dark).*$/);
-  for (const name of ['Host behavior', 'Agent behavior', 'Access control', 'Cleanup']) {
-    await category(page, name);
-    for (const control of await page.getByRole('switch').all()) if (await control.isVisible()) await expect(control).toBeDisabled();
-    if (name === 'Access control') await expect(page.getByLabel('Authorization mode')).toBeDisabled();
-    if (name === 'Cleanup') await expect(page.getByLabel('Inactivity window (days)')).toBeDisabled();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    expect((await new AxeBuilder({ page }).include('main').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
-    await page.screenshot({ path: `test-results/policies-${width}-${theme}-${name.toLowerCase().replaceAll(' ', '-')}.png`, fullPage: true });
-  }
-  if (width < 1024) { await page.getByLabel('Policy category').focus(); await page.keyboard.press('ArrowUp'); await page.keyboard.press('Enter'); }
-  else { await page.getByRole('navigation', { name: 'Policy categories' }).getByRole('link', { name: /Access control/ }).focus(); await page.keyboard.press('Enter'); }
-  await expect(page.getByRole('heading', { name: 'Access control', exact: true })).toBeVisible();
+  await expect(page.getByText('Read only. Changing these settings requires')).toBeVisible();
+  for (const control of await page.getByRole('switch').all()) await expect(control).toBeDisabled();
+  await expect(page.getByLabel('Role checks')).toBeDisabled();
+  await expect(page.getByLabel('Inactivity window (days)')).toBeDisabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).include('main').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+  await page.screenshot({ path: `test-results/settings-${width}-${theme}.png`, fullPage: true });
   expect(shared.writes).toEqual([]);
 });

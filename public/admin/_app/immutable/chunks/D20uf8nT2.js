@@ -1,0 +1,1 @@
+import{o as e,s as t}from"./DivH_lSe.js";import"./xihTtKlq.js";import{r as n}from"./Cwcm-fQi.js";function r(r,i){let a=e(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`circle`,{cx:`12`,cy:`12`,r:`10`}],[`path`,{d:`M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20`}],[`path`,{d:`M2 12h20`}]];n(r,t({name:`globe`},()=>a,{get iconNode(){return o}}))}export{r as t};

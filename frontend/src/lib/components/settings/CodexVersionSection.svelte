@@ -5,7 +5,7 @@
   import { Input } from "$lib/components/ui/input";
   import { Button } from "$lib/components/ui/button";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
-  import SectionCard from "./SectionCard.svelte";
+  import SectionCard from "$lib/components/engines/SettingGroup.svelte";
   import {
     codexVersionMutation,
     codexVersionsCheckMutation,
@@ -124,7 +124,7 @@
     {/if}
   </div>
 
-  <dl class="grid gap-2 rounded-md border bg-muted/20 px-4 py-3 text-xs sm:grid-cols-3">
+  <dl class="grid gap-2 border-y py-2 text-caption sm:grid-cols-3">
     <div>
       <dt class="text-muted-foreground">Resolved client</dt>
       <dd class="font-mono">{currentClient ?? "—"}</dd>

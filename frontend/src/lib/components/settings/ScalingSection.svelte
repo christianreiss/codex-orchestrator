@@ -5,7 +5,7 @@
   import * as Select from "$lib/components/ui/select";
   import { FormField } from "$lib/components/ui/form-field";
   import RepeatableRows from "$lib/components/authoring/RepeatableRows.svelte";
-  import SectionCard from "./SectionCard.svelte";
+  import SectionCard from "$lib/components/engines/SettingGroup.svelte";
   import SwitchRow from "./SwitchRow.svelte";
   import { scalingMutation, scalingQuery } from "$lib/api/settings";
   import { REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
@@ -92,7 +92,7 @@
     onCheckedChange={(v) => (enabled = v)}
   />
 
-  <div class="flex flex-wrap gap-x-5 gap-y-1 border-y py-2 text-xs text-muted-foreground" aria-live="polite">
+  <div class="flex flex-wrap gap-x-5 gap-y-1 border-y py-2 text-caption text-muted-foreground" aria-live="polite">
     <span><span class="font-medium text-foreground">Current state:</span> {$query.data?.enabled ? "active" : "inactive"}</span>
     {#if activeTier}
       <span><span class="font-medium text-foreground">Effective tier:</span> {activeTier.at_percent}%</span>

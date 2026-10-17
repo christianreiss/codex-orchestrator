@@ -136,6 +136,6 @@
   {#if body}
     {@html html}
   {:else}
-    <p class="text-xs text-muted-foreground">Nothing to preview yet.</p>
+    <p class="text-caption text-muted-foreground">Nothing to preview yet.</p>
   {/if}
 </div>

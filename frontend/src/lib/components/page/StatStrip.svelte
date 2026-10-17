@@ -22,7 +22,7 @@
   {#each items as stat (stat.label)}
     <div class="flex items-baseline gap-1.5" title={stat.hint}>
       {#if stat.href}
-        <a href={stat.href} class={cn("text-lg font-semibold tabular-nums hover:underline", tones[stat.tone ?? "default"])}>{stat.value}</a>
+        <dd class="order-1"><a href={stat.href} class={cn("text-lg font-semibold tabular-nums hover:underline", tones[stat.tone ?? "default"])}>{stat.value}</a></dd>
       {:else}
         <dd class={cn("order-1 text-lg font-semibold tabular-nums", tones[stat.tone ?? "default"])}>{stat.value}</dd>
       {/if}

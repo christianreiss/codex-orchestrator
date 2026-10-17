@@ -55,6 +55,6 @@
     style={`min-height: calc(${rows} * 1.25rem + 1.5rem)`}
   >{value}</pre>
   {#if expiresAt}
-    <p class="text-[11px] text-muted-foreground">Expires {expiresAt}.</p>
+    <p class="text-caption text-muted-foreground">Expires {expiresAt}.</p>
   {/if}
 </div>

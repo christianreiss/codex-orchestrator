@@ -3,6 +3,7 @@
   import { base } from "$app/paths";
   import { goto } from "$app/navigation";
   import { NAV_FOOTER, NAV_SECTIONS, isActive } from "$lib/nav";
+  import { ACCOUNT_LINKS } from "./account-links";
   import { cn } from "$lib/utils/cn";
   import { authActions, authStore } from "$lib/stores/auth";
   import BrandMark from "$lib/components/brand/BrandMark.svelte";
@@ -29,8 +30,8 @@
   <a href={`${base}/dashboard`} class="flex h-12 shrink-0 items-center gap-3 border-b px-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" aria-label="Codex Orchestrator overview">
     <BrandMark class="h-8 w-8 rounded-md" />
     <span class="min-w-0">
-      <span class="block truncate text-sm font-semibold tracking-tight text-foreground">Codex Orchestrator</span>
-      <span class="mt-0.5 block text-[11px] text-muted-foreground">Codex · Claude · Grok</span>
+      <span class="block truncate text-body font-semibold tracking-tight text-foreground">Codex Orchestrator</span>
+      <span class="block text-caption text-muted-foreground">Codex · Claude · Grok</span>
     </span>
   </a>
 
@@ -39,7 +40,7 @@
       <InsecureApprovalsNavAlert />
       {#each NAV_SECTIONS as section (section.id)}
         <section aria-labelledby={`nav-${section.id}`}>
-          <h2 id={`nav-${section.id}`} class="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <h2 id={`nav-${section.id}`} class="mb-1 px-2 text-caption uppercase tracking-wider text-muted-foreground">
             {section.label}
           </h2>
           <ul class="space-y-0.5">
@@ -50,8 +51,8 @@
                 <a
                   href={`${base}${hub.route}`}
                   class={cn(
-                    "relative flex h-9 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                    active ? "bg-primary/15 text-primary before:absolute before:-left-3 before:h-5 before:w-0.5 before:rounded-r before:bg-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    "relative flex h-9 items-center gap-2.5 rounded-md px-2.5 text-body-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                    active ? "bg-primary/15 text-primary before:absolute before:-left-3 before:h-5 before:w-0.5 before:rounded-md before:bg-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                   aria-current={active ? "page" : undefined}
                   title={hub.description}
@@ -70,15 +71,15 @@
   <div class="shrink-0 border-t p-3">
     {#if auth.authenticated && auth.user}
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger class="flex h-11 w-full items-center gap-2.5 rounded-md border bg-card px-2.5 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Account menu for ${auth.user.name ?? auth.user.username}`}>
-          <span class="grid h-7 w-7 shrink-0 place-items-center rounded bg-muted text-xs font-semibold">{(auth.user.name ?? auth.user.username ?? "?").slice(0, 1).toUpperCase()}</span>
+        <DropdownMenu.Trigger class="flex h-9 w-full items-center gap-2.5 rounded-md border bg-card px-2.5 text-left text-body hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Account menu for ${auth.user.name ?? auth.user.username}`}>
+          <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-muted text-caption">{(auth.user.name ?? auth.user.username ?? "?").slice(0, 1).toUpperCase()}</span>
           <span class="min-w-0 flex-1 truncate">{auth.user.name ?? auth.user.username}</span>
           <ChevronDown class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </DropdownMenu.Trigger>
         <DropdownMenu.Content side="top" align="start" class="w-52">
-          <DropdownMenu.Item onclick={() => goto(`${base}/account/password`)}>Password</DropdownMenu.Item>
-          <DropdownMenu.Item onclick={() => goto(`${base}/account/passkeys`)}>Passkeys</DropdownMenu.Item>
-          <DropdownMenu.Item onclick={() => goto(`${base}/account/theme`)}>Appearance</DropdownMenu.Item>
+          {#each ACCOUNT_LINKS as link (link.hash)}
+            <DropdownMenu.Item onclick={() => goto(`${base}/account${link.hash}`)}>{link.label}</DropdownMenu.Item>
+          {/each}
           <DropdownMenu.Separator />
           <DropdownMenu.Item onclick={signOut}><LogOut class="h-4 w-4" /> Sign out</DropdownMenu.Item>
         </DropdownMenu.Content>

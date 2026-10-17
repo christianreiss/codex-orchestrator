@@ -1,10 +1,8 @@
 <script lang="ts">
   /**
-   * A labeled switch row for ordinary (non-destructive, reversible) toggles.
-   * Per the toast-budget rule: no success toast — an inline "Saved" check
-   * flashes instead, and only errors surface a toast (the caller's
-   * `onchange` is expected to do that itself, e.g. via a shared `run`
-   * helper's catch block).
+   * A labeled switch row for ordinary, reversible settings. No success toast:
+   * a brief check flashes instead, and the caller's `onchange` surfaces errors.
+   * `note` is the muted line under the label (plain explanation, canonical term).
    */
   import { Switch } from "$lib/components/ui/switch";
   import Check from "@lucide/svelte/icons/check";
@@ -13,11 +11,12 @@
     label: string;
     checked: boolean;
     disabled?: boolean;
-    /** Short muted line under the label, e.g. why the switch is locked. */
     note?: string;
+    /** Accessible name when it should differ from the visible label. */
+    ariaLabel?: string;
     onchange: (value: boolean) => Promise<void>;
   };
-  let { label, checked, disabled = false, note, onchange }: Props = $props();
+  let { label, checked, disabled = false, note, ariaLabel, onchange }: Props = $props();
 
   let saved = $state(false);
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
@@ -27,33 +26,20 @@
       await onchange(value);
       saved = true;
       clearTimeout(flashTimer);
-      flashTimer = setTimeout(() => {
-        saved = false;
-      }, 1600);
+      flashTimer = setTimeout(() => (saved = false), 1600);
     } catch {
       // The caller's onchange is responsible for surfacing an error toast.
     }
   }
 </script>
 
-<div class="host-toggle flex items-center justify-between rounded-md border p-2.5">
-  {#if note}
-    <span class="min-w-0">
-      <span class="block text-sm">{label}</span>
-      <span class="block text-xs text-muted-foreground">{note}</span>
-    </span>
-  {:else}
-    <span class="text-sm">{label}</span>
-  {/if}
-  <div class="flex items-center gap-1.5">
-    {#if saved}
-      <Check class="h-3.5 w-3.5 text-success" aria-hidden="true" />
-    {/if}
-    <Switch
-      {checked}
-      {disabled}
-      onCheckedChange={(v) => void handleChange(Boolean(v))}
-      aria-label={label}
-    />
+<div class="flex items-center justify-between gap-4 border-b py-2.5 last:border-b-0">
+  <span class="min-w-0">
+    <span class="block text-body">{label}</span>
+    {#if note}<span class="block text-body-sm text-muted-foreground">{note}</span>{/if}
+  </span>
+  <div class="flex shrink-0 items-center gap-1.5">
+    {#if saved}<Check class="h-4 w-4 text-success" aria-hidden="true" />{/if}
+    <Switch {checked} {disabled} onCheckedChange={(v) => void handleChange(Boolean(v))} aria-label={ariaLabel ?? label} />
   </div>
 </div>

@@ -1,7 +1,7 @@
 ---
 title: The shared cxx wrapper
 section: Fleet operations
-verified: 2026-10-03
+verified: 2026-10-17
 sources: wrappers/cxx, wrappers/cxx/internal/agentportal/command.go, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json
 ---
 
@@ -430,7 +430,7 @@ client an agent calls from inside a session: `status`, `notify --summary`,
 `resolve --summary` (withdraw a mistaken or resolved *Needs you* notice while
 keeping the timeline, relay, and any open question), `say --text`,
 `ask --question [--options 'one|two']`, `wait [--seconds]`, `accept`, and
-`leave`. See [Active Clients and agent sessions](/admin/manual/agent-portal).
+`leave`. See [Agents and agent sessions](/admin/manual/agent-portal).
 
 ### Quick selection
 
@@ -560,7 +560,7 @@ callers.
 
 When one subscription is under pressure, an interactive cdx/clx start can suggest
 the other provider. Configure mode, thresholds, maximum measurement age and daily
-remembering in **Engines → Quota and scaling → Quotas**. The comparison shows
+remembering in **Engines → Usage limits**. The comparison shows
 reported usage, reset timing and estimated usage at reset; stale readings do not
 justify a recommendation.
 
@@ -591,7 +591,7 @@ with `agent_self` and inspect `agent_reboot_status` before continuing the checkp
 `cxx reboot disarm --id UUID` removes an unconsumed hook. Disarm cannot cancel a
 reboot already submitted to the OS. A missing transcript or startup failure requires
 manual inspection. Never rearm the resumed transcript under another request ID.
-Active Clients shows the handoff and links both launches.
+The Agents page shows the handoff and links both launches.
 
 ## Conversation activity
 

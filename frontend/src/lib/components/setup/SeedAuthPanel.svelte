@@ -262,7 +262,7 @@
     <AlertDescription>
       Every credential is verified against a live runner probe before it is stored, so
       uploads will fail with a 503 until it is healthy. Check
-      <code class="text-xs">docker compose logs auth-runner</code>.
+      <code class="text-body-sm">docker compose logs auth-runner</code>.
     </AlertDescription>
   </Alert>
 {/if}
@@ -317,11 +317,11 @@
           onValueChange={(v) => (uploadMode = v as UploadMode)}
           class="flex gap-4"
         >
-          <label class="flex items-center gap-2 text-sm">
+          <label class="flex items-center gap-2 text-body">
             <RadioGroupItem value="apikey" id="seed-upload-mode-apikey" />
             API key
           </label>
-          <label class="flex items-center gap-2 text-sm">
+          <label class="flex items-center gap-2 text-body">
             <RadioGroupItem value="chatgpt" id="seed-upload-mode-chatgpt" />
             ChatGPT session
           </label>
@@ -339,7 +339,7 @@
           autocomplete="new-password"
           placeholder="sk-…"
         />
-        <p class="text-xs text-muted-foreground">
+        <p class="text-body-sm text-muted-foreground">
           Stored as the host's canonical credential, the same key you'd put in
           <code class="font-mono">OPENAI_API_KEY</code>.
         </p>
@@ -351,23 +351,23 @@
         </Label>
         <Textarea
           id="seed-upload-payload"
-          class="h-40 font-mono text-xs"
+          class="h-40 font-mono text-body-sm"
           placeholder={engine === "codex"
             ? '{ "tokens": { "access_token": "…", "refresh_token": "…" }, … }'
             : engine === "grok" ? '{ "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": { "auth_mode": "oidc", "key": "<access-token>", "refresh_token": "<refresh-token>", "oidc_issuer": "https://auth.x.ai", "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828", "expires_at": "2026-10-01T11:00:00Z", "create_time": "2026-10-01T10:00:00Z", "user_id": "<user-id>" } }' : '{ "claudeAiOauth": { "accessToken": "sk-ant-oat…" } }'}
           bind:value={payload}
         />
         {#if engine === "codex"}
-          <p class="text-xs text-muted-foreground">
+          <p class="text-body-sm text-muted-foreground">
             Paste the contents of <code class="font-mono">~/.codex/auth.json</code> from a
             ChatGPT-authenticated session. These tokens are machine-generated, never hand-typed.
           </p>
         {:else if engine === "grok"}
-          <p class="text-xs text-muted-foreground">
+          <p class="text-body-sm text-muted-foreground">
             Prefer <code class="font-mono">cgx login</code> or the one-time command: both run a dedicated login whose refresh the orchestrator owns. xAI rotates the refresh token on every refresh, so pasting a <code class="font-mono">~/.grok/auth.json</code> that a native <code class="font-mono">grok</code> or any other tool still uses breaks whichever copy refreshes second. Paste only a login used nowhere else. Subscription login credentials include refresh material; an xAI API key or access token alone is not accepted.
           </p>
         {:else}
-          <p class="text-xs text-muted-foreground">
+          <p class="text-body-sm text-muted-foreground">
             Paste the native Claude credentials JSON. A genuine Anthropic API key is also accepted.
           </p>
         {/if}
@@ -376,7 +376,7 @@
       <div class="flex items-center gap-2">
         <Label
           for="seed-upload-file"
-          class="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-3 text-sm hover:bg-accent"
+          class="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-3 text-body hover:bg-accent"
         >
           <Upload class="h-4 w-4" />
           {fileBusy ? "Reading…" : "Pick file"}
@@ -388,7 +388,7 @@
           class="hidden"
           onchange={handleFile}
         />
-        <p class="text-xs text-muted-foreground">
+        <p class="text-body-sm text-muted-foreground">
           Reads the file into the textarea — does not auto-submit.
         </p>
       </div>
@@ -419,14 +419,14 @@
         expiresAt={commandExpiresAt ? new Date(commandExpiresAt).toLocaleString() : undefined}
       />
     {:else}
-      <p class="text-xs text-muted-foreground">
+      <p class="text-body-sm text-muted-foreground">
         Click <em>Generate</em> to mint a short-lived bash one-liner. The operator
         runs it on the host once; the curl will POST credentials back through
         the runner.
       </p>
     {/if}
     {#if engine === "grok"}
-      <p class="text-xs text-muted-foreground">
+      <p class="text-body-sm text-muted-foreground">
         For Grok it runs a dedicated <code class="font-mono">grok login --device-auth</code> in a throwaway
         home and uploads that login, never the existing <code class="font-mono">~/.grok/auth.json</code>.
         Set <code class="font-mono">GROK_SEED_AUTH_PATH=/path/auth.json</code> to upload an existing login

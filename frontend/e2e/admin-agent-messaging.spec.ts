@@ -83,7 +83,7 @@ test("groups expose opt-in audiences and individual follows on desktop and mobil
   const directory = page.getByRole("region", { name: "Subscription directory", exact: true });
   await expect(directory).toContainText("grok-review follows codex-review");
   await expect(directory).toContainText("Server updates");
-  await expect(page.getByRole("link", { name: "Message one agent in Active Clients" })).toHaveAttribute("href", "/admin/clients");
+  await expect(page.getByRole("link", { name: "Message one agent in Agents" })).toHaveAttribute("href", "/admin/agents");
   await page.getByLabel("Find subscriptions").fill("grok"); await expect(directory).not.toContainText("claude-review");
   const axe = await new AxeBuilder({ page }).analyze();
   expect(axe.violations.filter((violation) => ["serious", "critical"].includes(violation.impact ?? ""))).toEqual([]);
@@ -143,7 +143,7 @@ test("read grants gate writes while subscriptions remain visible", async ({ page
   const readState = await fixtures(page, false); await open(page);
   await expect(page.getByRole("button", { name: "New group", exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Message to subscribers")).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Message one agent in Active Clients" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Message one agent in Agents" })).toHaveCount(0);
   expect(readState.bodies).toEqual([]);
 });
 
@@ -165,7 +165,7 @@ test("direction receipts include every engine and Server while groups keep focus
   } }));
   await open(page);
   await expect(page.getByText("server → codex", { exact: true })).not.toBeVisible();
-  await page.locator("summary").filter({ hasText: "Direction matrix" }).click();
+  await page.locator("summary").filter({ hasText: "Traffic by engine" }).click();
   for (const engine of ["codex", "claude", "grok"]) {
     await expect(page.getByText(`server → ${engine}`, { exact: true })).toBeVisible();
     await expect(page.getByText(`${engine} → server`, { exact: true })).toBeVisible();
@@ -206,8 +206,9 @@ test('ordinary missing transcripts require one explicit approval, while wakes an
   state.messages=[message,{...message,id:GROK,kind:'schedule',work_kind:'schedule'}];
   await page.goto('/admin/agent-messaging?view=deliveries');
   await expect(page.getByRole('button',{name:'Approve one fresh start'})).toHaveCount(1);
-  page.once('dialog',dialog=>dialog.accept('Operator requests replacement for this work'));
   await page.getByRole('button',{name:'Approve one fresh start'}).click();
+  await page.getByLabel('Why is a fresh start authorized?').fill('Operator requests replacement for this work');
+  await page.getByRole('dialog').getByRole('button',{name:'Approve',exact:true}).click();
   await expect(page.getByRole('button',{name:'Approve one fresh start'})).toHaveCount(0);
   expect(state.bodies.at(-1)?.body).toEqual({version:1,reason:'Operator requests replacement for this work'});
   await page.setViewportSize({width:390,height:844});

@@ -30,10 +30,10 @@
     sources = buildDynamicSources(qc);
     sources.push(async (query) => {
       const auth = get(authStore);
-      if (!auth.can('chatty.use') || (query && !['chatty', 'assistant', 'hilfe'].some(word => word.includes(query.toLowerCase())))) return [];
+      if (!auth.can('chatty.use') || (query && !['chatty', 'assistant', 'help'].some(word => word.includes(query.toLowerCase())))) return [];
       const status = await qc.fetchQuery({ queryKey: [...chattyKeys.status, auth.user?.id], queryFn: fetchChattyStatus, staleTime: 30000 });
       if (!status.visible) return [];
-      return [{ id: 'action:chatty', label: 'Chatty öffnen', description: 'Produktfragen und Verwaltung', group: 'Actions', run() {
+      return [{ id: 'action:chatty', label: 'Open Chatty', description: 'Ask product questions or get help with administration', group: 'Actions', run() {
         commandPalette.close();
         window.dispatchEvent(new CustomEvent('codex:open-chatty'));
       } }];
@@ -155,7 +155,7 @@
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
   <Dialog.Content class="top-[max(1rem,12dvh)] max-h-[calc(100dvh-2rem)] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-[640px] sm:p-0">
     <Dialog.Title class="sr-only">Command palette</Dialog.Title>
-    <Dialog.Description class="sr-only">Search fleet destinations, hosts, projects, skills, and users. Use arrow keys to choose a result and Enter to open it.</Dialog.Description>
+    <Dialog.Description class="sr-only">Search pages, hosts, projects, skills and people. Use arrow keys to choose a result and Enter to open it.</Dialog.Description>
     <Command.Root shouldFilter={true} class="[&_[data-cmdk-input-wrapper]]:pl-4 [&_[data-cmdk-input-wrapper]]:pr-14">
       <Command.Input
         autofocus
@@ -171,7 +171,7 @@
             <span class="text-muted-foreground">Searching the fleet…</span>
           {:else}
             <span class="block font-medium">No results found</span>
-            <span class="mt-1 block text-xs text-muted-foreground">Try a host name, project, skill, or destination.</span>
+            <span class="mt-1 block text-body-sm text-muted-foreground">Try a host name, project, skill, or page.</span>
           {/if}
         </Command.Empty>
         {#each grouped as [group, items] (group)}
@@ -191,11 +191,11 @@
                   {/if}
                   <span class="min-w-0 flex-1">
                     <span class="block truncate font-medium">{cmd.label}</span>
-                    {#if cmd.description}<span class="mt-0.5 block truncate text-xs text-muted-foreground">{cmd.description}</span>{/if}
+                    {#if cmd.description}<span class="block truncate text-body-sm text-muted-foreground">{cmd.description}</span>{/if}
                   </span>
                   {#if cmd.hint}
                     <kbd
-                      class="ml-auto rounded border border-border bg-muted px-1.5 text-[10px] font-mono leading-5 text-muted-foreground"
+                      class="keyboard-key ml-auto"
                     >
                       {cmd.hint}
                     </kbd>
@@ -208,7 +208,7 @@
         {/each}
       </Command.List>
     </Command.Root>
-    <div class="flex min-h-10 items-center justify-between gap-3 border-t bg-muted/40 px-4 py-2 text-[11px] text-muted-foreground">
+    <div class="flex items-center justify-between gap-3 border-t bg-muted/40 px-4 py-2 text-caption text-muted-foreground">
       <span role="status" class="flex min-w-0 items-center gap-2">
         {#if dynamicLoading}<LoaderCircle class="h-3.5 w-3.5 shrink-0 animate-spin" />Searching fleet…
         {:else if dynamicError}Some fleet results are unavailable.

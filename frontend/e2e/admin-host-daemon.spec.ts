@@ -80,7 +80,7 @@ test("daemon indicators are separate, enabled-only, and update live", async ({
     page.locator('[data-daemon-state="red"]').first(),
   ).toHaveAttribute("aria-label", /nicht erreichbar/);
   const row = page
-    .getByRole("button")
+    .getByRole("row")
     .filter({ has: page.getByText("daemon-4.test", { exact: true }) });
   await expect(row.locator("[data-daemon-state]")).toHaveCount(0);
   daemons[0]!.health.state = "red";
@@ -126,7 +126,8 @@ test('closed-window daemon remains online and can be opened from host details', 
     if(path==='/admin/insecure-approvals/pending') return json({requests:[]});
     return json({});
   });
-  await page.goto('/admin/hosts/1?tab=operations');
+  await page.goto('/admin/hosts/1');
+  await page.getByTestId('host-advanced').locator(':scope > summary').click();
   await expect(page.getByText('Daemon · Online · Zugriff gesperrt')).toBeVisible();
   await expect(page.getByRole('link', {name:'Open remote sessions'})).toHaveAttribute('href', '/admin/clients?view=remote&host=1');
   await page.getByRole('button',{name:'Open access window',exact:true}).click();

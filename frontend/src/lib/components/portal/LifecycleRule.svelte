@@ -12,6 +12,6 @@
   );
 </script>
 
-<p class="my-3 text-center text-[11px] font-medium {tone}">
+<p class="my-3 text-center text-caption font-medium {tone}">
   {eventText(event)} · {clockTime(event.created_at)}
 </p>

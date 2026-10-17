@@ -53,10 +53,10 @@ async function fixture(page: Page, manage = true) {
 
 test('activation, triage, evidence, verified fix and separate deployment', async ({ page }) => {
   const { writes } = await fixture(page);
-  await page.goto('/admin/feedback');
-  await expect(page.getByRole('switch', { name: 'Agent feedback' })).not.toBeChecked();
-  await page.getByRole('switch', { name: 'Agent feedback' }).click();
-  await expect(page.getByRole('switch', { name: 'Agent feedback' })).toBeChecked();
+  await page.goto('/admin/reports');
+  await expect(page.getByRole('switch', { name: 'Agent reports' })).not.toBeChecked();
+  await page.getByRole('switch', { name: 'Agent reports' }).click();
+  await expect(page.getByRole('switch', { name: 'Agent reports' })).toBeChecked();
   expect(writes[0]).toEqual({ path: '/admin/feedback/state', body: { enabled: true } });
   await page.getByRole('button', { name: /Wrapper manifest parsing fails/ }).click();
   await expect(page.getByText('Original reproduction evidence', { exact: true })).toBeVisible();
@@ -79,16 +79,19 @@ test('activation, triage, evidence, verified fix and separate deployment', async
 
 test('new report, search and version conflict retain the draft', async ({ page }) => {
   const context = await fixture(page);
-  await page.goto('/admin/feedback');
+  await page.goto('/admin/reports');
   await page.getByRole('button', { name: 'New report', exact: true }).click();
   await page.getByLabel('Title', { exact: true }).fill('Missing MCP feature');
   await page.getByLabel('Description', { exact: true }).fill('Agents need a new function');
   await page.getByRole('button', { name: 'Submit report', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Missing MCP feature', exact: true })).toBeVisible();
   expect(context.writes[0].body.client_request_id).toMatch(/^[0-9a-f-]{36}$/);
-  await page.getByLabel('Search', { exact: true }).fill('no match');
+  // The new report opens in a side sheet; close it to use the list filters.
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Search reports', { exact: true }).fill('no match');
   await expect(page.getByText('No reports match these filters.')).toBeVisible();
-  await page.getByLabel('Search', { exact: true }).fill('');
+  await page.getByLabel('Search reports', { exact: true }).fill('');
+  await page.getByRole('button', { name: /Missing MCP feature/ }).click();
   await page.getByLabel('Add evidence or comment').fill('Keep this draft');
   context.bump();
   await page.getByRole('button', { name: 'Save update', exact: true }).click();
@@ -102,8 +105,8 @@ test('new report, search and version conflict retain the draft', async ({ page }
 test('mobile read-only details and retained disabled history', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await fixture(page, false);
-  await page.goto('/admin/feedback');
-  await expect(page.getByRole('switch', { name: 'Agent feedback' })).toBeDisabled();
+  await page.goto('/admin/reports');
+  await expect(page.getByRole('switch', { name: 'Agent reports' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'New report', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: /Wrapper manifest parsing fails/ }).click();
   await expect(page.getByRole('heading', { name: 'Original report', exact: true })).toBeVisible();
@@ -115,7 +118,7 @@ test('mobile read-only details and retained disabled history', async ({ page }) 
 test('administrator can release an active claim with a reason', async ({ page }) => {
   const context = await fixture(page);
   context.claim();
-  await page.goto('/admin/feedback');
+  await page.goto('/admin/reports');
   await page.getByLabel('Filter status', { exact: true }).selectOption('in_progress');
   await page.getByRole('button', { name: /Wrapper manifest parsing fails/ }).click();
   await page.getByLabel('Release reason').fill('Handing off to another agent');

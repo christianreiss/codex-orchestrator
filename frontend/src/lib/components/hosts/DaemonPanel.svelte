@@ -29,16 +29,16 @@
   }
 </script>
 
-<section class="space-y-3 rounded-lg border bg-card p-4" aria-labelledby="host-remote-heading">
+<section class="space-y-3" aria-labelledby="host-remote-heading">
   <div class="flex flex-wrap items-center justify-between gap-2">
-    <h2 id="host-remote-heading" class="text-sm font-semibold">Remote sessions</h2>
+    <h3 id="host-remote-heading" class="text-h3">Remote sessions</h3>
     <DaemonIndicator host={$query.data}/>
   </div>
-  <p class="text-xs text-muted-foreground">Keep communication and managed sync available through this host's Linux service. Remote agent starts have their own control.</p>
-  {#if $query.isPending}<p role="status" class="text-sm text-muted-foreground">Loading remote settings…</p>{/if}
-  {#if $query.error}<p role="alert" class="text-sm text-destructive">{$query.error.message}</p>{/if}
+  <p class="text-body-sm text-muted-foreground">Keep communication and managed sync available through this host's Linux service. Remote agent starts have their own control.</p>
+  {#if $query.isPending}<p role="status" class="text-body text-muted-foreground">Loading remote settings…</p>{/if}
+  {#if $query.error}<p role="alert" class="text-body text-destructive">{$query.error.message}</p>{/if}
   {#if $query.data?.access && !$query.data.access.secure}
-    <div class="flex flex-wrap items-center gap-3 rounded-md bg-muted/40 px-3 py-2 text-sm">
+    <div class="flex flex-wrap items-center gap-3 rounded-md bg-muted/40 px-3 py-2 text-body">
       <span>{$query.data.access.allowed ? `Access until ${new Date($query.data.access.enabled_until!).toLocaleString()}` : 'Access window closed'}</span>
       {#if !$query.data.access.allowed && $authStore.can('hosts.activate_insecure')}
         <Button variant="outline" size="sm" disabled={$enableAccess.isPending} onclick={openAccess}>Open access window</Button>
@@ -47,15 +47,15 @@
     </div>
   {/if}
   {#if $query.data?.lifetime_minutes}
-    <p class="text-sm">Time limited: {$query.data.lifetime_minutes} minutes · {$query.data.expires_at ? new Date($query.data.expires_at).toLocaleString() : 'Starts on first connection'}{$query.data.deadline_expired ? ' · Expired; running work is draining.' : ''}</p>
+    <p class="text-body">Time limited: {$query.data.lifetime_minutes} minutes · {$query.data.expires_at ? new Date($query.data.expires_at).toLocaleString() : 'Starts on first connection'}{$query.data.deadline_expired ? ' · Expired; running work is draining.' : ''}</p>
   {/if}
   <form oninput={() => dirty = true} onsubmit={submit} class="space-y-3">
     <fieldset disabled={!$authStore.can('agent_messaging.manage') || $query.isPending || !!$query.error || $save.isPending} class="space-y-3 disabled:opacity-60">
       <div class="flex items-center justify-between gap-3 border-b pb-3">
-        <div><Label for="host-communicator-resident">Keep communicator running</Label><p class="text-xs text-muted-foreground">Stay online for communication and sync without enabling remote starts.</p></div>
+        <div><Label for="host-communicator-resident">Keep communicator running</Label><p class="text-body-sm text-muted-foreground">Stay online for communication and sync without enabling remote starts.</p></div>
         <Switch id="host-communicator-resident" checked={settings.resident_enabled ?? false} onCheckedChange={(value) => { settings.resident_enabled = value; dirty = true; }}/>
       </div>
-      {#if $query.data?.resident_enabled && !$query.data.residence?.runtime_enabled}<p role="status" class="text-xs text-muted-foreground">Residence requested; waiting for resident service support.</p>{/if}
+      {#if $query.data?.resident_enabled && !$query.data.residence?.runtime_enabled}<p role="status" class="text-body-sm text-muted-foreground">Residence requested; waiting for resident service support.</p>{/if}
       <div class="flex items-center justify-between gap-3 border-b pb-3">
         <Label for="host-daemon-enabled">Enable remote starts</Label>
         <Switch id="host-daemon-enabled" checked={settings.enabled} onCheckedChange={(value) => { settings.enabled = value; dirty = true; }}/>
@@ -65,7 +65,7 @@
         <div class="space-y-1.5"><Label for="host-daemon-cwd">Working directory</Label><Input id="host-daemon-cwd" bind:value={settings.default_cwd} placeholder="Service account home directory" /></div>
       </div>
       <details class="border-t pt-3">
-        <summary class="cursor-pointer text-sm font-medium">Advanced</summary>
+        <summary class="cursor-pointer text-body font-medium">Limits and timeouts</summary>
         <div class="mt-3 grid gap-3 sm:grid-cols-3">
           <div class="space-y-1.5"><Label for="host-daemon-slots">Parallel slots</Label><Input id="host-daemon-slots" type="number" min="1" max="64" bind:value={settings.max_parallel}/></div>
           <div class="space-y-1.5"><Label for="host-daemon-idle">Idle timeout (minutes)</Label><Input id="host-daemon-idle" type="number" min="1" max="1440" bind:value={settings.idle_minutes}/></div>
@@ -76,11 +76,11 @@
     <div class="flex flex-wrap items-center gap-2">
       <Button type="submit" size="sm" disabled={!$authStore.can('agent_messaging.manage') || !dirty || $save.isPending || $query.isPending || !!$query.error}>{$save.isPending ? 'Saving…' : 'Save settings'}</Button>
       <Button variant="outline" size="sm" href={`${base}/clients?view=remote&host=${id}`}>Open remote sessions</Button>
-      {#if $save.isSuccess && !dirty}<span role="status" class="text-xs text-muted-foreground">Settings saved.</span>{/if}
+      {#if $save.isSuccess && !dirty}<span role="status" class="text-body-sm text-muted-foreground">Settings saved.</span>{/if}
     </div>
-    {#if $save.error}<p role="alert" class="text-sm text-destructive">{$save.error.message}</p>{/if}
+    {#if $save.error}<p role="alert" class="text-body text-destructive">{$save.error.message}</p>{/if}
   </form>
-  <details class="border-t pt-3 text-xs text-muted-foreground">
+  <details class="border-t pt-3 text-body-sm text-muted-foreground">
     <summary class="cursor-pointer">Installation & access</summary>
     <p class="mt-2 leading-relaxed">Remote starts require fleet Agent Messaging and host access. Keeping the communicator running alone permits communication and sync. Running and waiting sessions renew an open access window until their deadline. After rollout, a root-run cxx update, wrapper sync or engine start reconciles the service; unprivileged hosts show installation pending. The existing <code>sudo cxx daemon install</code> command remains supported.</p>
     {#if $query.data?.spawn}<p class="mt-2 break-all">Provisioned by VIP host {$query.data.spawn.sourceHostId} · {$query.data.spawn.operationId}</p>{/if}

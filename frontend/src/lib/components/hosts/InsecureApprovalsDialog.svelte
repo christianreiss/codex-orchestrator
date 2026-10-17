@@ -338,7 +338,7 @@
   {@const left = req.expiresMs === null ? null : req.expiresMs - now}
   {@const domain = parentDomain(req.fqdn)}
   <li
-    class="relative overflow-hidden rounded-lg border bg-card transition-[opacity,filter] duration-300"
+    class="relative overflow-hidden rounded-md border bg-card transition-[opacity,filter] duration-300"
     class:opacity-50={req.ghost}
     class:grayscale={req.ghost}
     class:pointer-events-none={req.ghost}
@@ -362,19 +362,19 @@
               {req.fqdn || `Host #${req.host_id}`}
             </span>
           </p>
-          <p class="text-xs text-muted-foreground">
+          <p class="text-body-sm text-muted-foreground">
             {req.live ? "Waiting in a terminal" : "Nobody is waiting on this one"}{req.request_ip
               ? `, from ${req.request_ip}`
               : ""}{askedAgo(req) ? `, ${askedAgo(req)}` : ""}
           </p>
         </div>
         {#if req.ghost}
-          <span class="shrink-0 rounded-md border px-2 py-1 text-xs font-medium text-muted-foreground">
+          <span class="shrink-0 rounded-md border px-2 py-1 text-body-sm font-medium text-muted-foreground">
             {OUTCOME_LABELS[req.ghost]}
           </span>
         {:else if left !== null}
           <span
-            class="shrink-0 text-sm font-medium tabular-nums"
+            class="shrink-0 text-body font-medium tabular-nums"
             class:text-destructive={left < 60_000}
             class:text-muted-foreground={left >= 60_000}
             title="Denied automatically when this runs out"
@@ -423,7 +423,7 @@
 
 {#snippet requestList()}
   {#if $approvals.isError}
-    <p class="text-sm text-destructive">
+    <p class="text-body text-destructive">
       Pending requests could not be loaded. Hosts may be waiting; reload to try again.
     </p>
   {:else if rows.length > 0}
@@ -433,7 +433,7 @@
       {/each}
     </ul>
   {:else}
-    <p class="py-6 text-center text-sm text-muted-foreground">No host is waiting for access.</p>
+    <p class="py-6 text-center text-body text-muted-foreground">No host is waiting for access.</p>
   {/if}
 {/snippet}
 
@@ -457,7 +457,7 @@
       </div>
 
       <footer class="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-        <div class="flex items-center gap-3 text-xs text-muted-foreground">
+        <div class="flex items-center gap-3 text-body-sm text-muted-foreground">
           {#if single}
             <span><kbd class="rounded border px-1">Enter</kbd> approve, <kbd class="rounded border px-1">D</kbd> deny</span>
           {/if}
@@ -503,7 +503,7 @@
             />
             <section class="space-y-2">
               <header class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold">Hosts with an open window</h3>
+                <h3 class="text-body font-semibold">Hosts with an open window</h3>
                 <div class="flex items-center gap-1">
                   <Button
                     size="sm"
@@ -524,18 +524,18 @@
                 </div>
               </header>
               {#if $summary.isLoading}
-                <p class="text-xs text-muted-foreground">Loading…</p>
+                <p class="text-body-sm text-muted-foreground">Loading…</p>
               {:else if $summary.isError}
-                <p class="text-xs text-destructive">Open windows could not be loaded.</p>
+                <p class="text-body-sm text-destructive">Open windows could not be loaded.</p>
               {:else if !$summary.data?.hosts.length}
-                <p class="text-xs text-muted-foreground">No host has an open window.</p>
+                <p class="text-body-sm text-muted-foreground">No host has an open window.</p>
               {:else}
                 <ul class="divide-y rounded-md border">
                   {#each $summary.data.hosts as h (h.id)}
                     <li class="flex items-center justify-between gap-3 px-3 py-2">
                       <div class="min-w-0">
-                        <div class="truncate text-sm font-medium">{h.fqdn}</div>
-                        <div class="text-[11px] text-muted-foreground">
+                        <div class="truncate text-body font-medium">{h.fqdn}</div>
+                        <div class="text-caption text-muted-foreground">
                           Closes in <InsecureCountdown until={h.insecure_enabled_until} />
                         </div>
                       </div>
@@ -573,9 +573,9 @@
 
           <Tabs.Content value="domains">
             {#if $summary.isError}
-              <p class="text-xs text-destructive">Allowed domains could not be loaded.</p>
+              <p class="text-body-sm text-destructive">Allowed domains could not be loaded.</p>
             {:else if !$summary.data?.domains.length}
-              <p class="py-6 text-center text-sm text-muted-foreground">
+              <p class="py-6 text-center text-body text-muted-foreground">
                 No domain is allowed. Use “Allow domain” on a request to let a whole domain in.
               </p>
             {:else}
@@ -583,8 +583,8 @@
                 {#each $summary.data.domains as d (d.id)}
                   <li class="flex items-center justify-between gap-3 px-3 py-2">
                     <div class="min-w-0">
-                      <div class="truncate text-sm font-medium">*.{d.domain}</div>
-                      <div class="text-[11px] text-muted-foreground">
+                      <div class="truncate text-body font-medium">*.{d.domain}</div>
+                      <div class="text-caption text-muted-foreground">
                         {#if d.enabled_until === null}
                           Never expires
                         {:else}
@@ -610,7 +610,7 @@
       {#if notifPermission === "default"}
         <button
           type="button"
-          class="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          class="inline-flex items-center gap-1 text-body-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
           onclick={enableNotifications}
         >
           <Bell class="h-3 w-3" /> Notify me about requests while this tab is in the background

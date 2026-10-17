@@ -1,7 +1,7 @@
 ---
 title: MCP server and tools
 section: Integrations and reference
-verified: 2026-09-09
+verified: 2026-10-17
 sources: api/src/services/mcp-server.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/mcp-fs.ts, api/src/services/mcp-session.ts, api/src/services/mcp-access-log.ts, api/src/services/mcp-memories.ts, api/src/services/shared-memories.ts, api/src/services/shared-memory-chunker.ts, api/src/services/memory-tags.ts, api/src/services/secrets.ts, api/src/services/git-director.ts, api/src/services/project-board.ts, api/src/services/agent-transfers.ts, api/src/ops/agent-transfers-worker.ts, api/src/services/host-skills.ts, api/src/services/host-projects.ts, api/src/services/managed-coco-skill.ts, api/src/services/managed-skill-manager.ts, api/src/services/skill-manifest.ts, api/src/routes/mcp/index.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0006_add_shared_memories.sql, wrappers/cxx/internal/persona/claude/lifecycle/userconfig_merge.go, wrappers/cxx/internal/persona/claude/lifecycle/settings_merge.go
 ---
 
@@ -119,7 +119,7 @@ user's request.
 
 ## Wake / Cron schedules
 
-The admin Wake / Cron page and the managed `wake-cron` Skill use the same fleet records. Choose a stored prompt and exact agent target, with one-time, cron, or interval timing. Persistent recovery is unchecked by default; enable it only on explicit request and supply a progress timeout. It resumes a known native session through the existing cxx-agent worker. Linux supervisors can stop only their owned stalled child after a fresh policy check; quiet active tools are protected. Missing transcripts block recovery. Pause/delete cancels pending attempts while accepted work continues. Ambiguous crash recovery may repeat side effects.
+The admin **Timed wake-ups** page (wake/cron; `/schedules`, in the Coordination group) and the managed `wake-cron` Skill use the same fleet records. Choose a stored prompt and exact agent target, with one-time, cron, or interval timing. Persistent recovery is unchecked by default; enable it only on explicit request and supply a progress timeout. It resumes a known native session through the existing cxx-agent worker. Linux supervisors can stop only their owned stalled child after a fresh policy check; quiet active tools are protected. Missing transcripts block recovery. Pause/delete cancels pending attempts while accepted work continues. Ambiguous crash recovery may repeat side effects.
 
 ## Resources
 
@@ -347,7 +347,7 @@ execution budget and keeps history. A failed domain result alone does not trigge
 
 ## Orchestrator feedback workflow
 
-Enable **Feedback → Agent feedback** in the WebUI, or POST `{"enabled":true}` to `/admin/feedback/state` as an administrator with `feedback.manage`. Default is off. The switch is checked on each MCP discovery/call. Host documents dynamically add/remove the workflow during the next normal sync, including digest, section metadata and provenance for Codex, Claude and Grok; the canonical authored document is untouched. Guidance also requires that the host has usable managed MCP configuration. Disabling preserves reports and history; administrative access remains available.
+Turn on the **Agent reports** switch on the **Reports** page (`/reports`, in the Activity group; feedback) in the WebUI, or POST `{"enabled":true}` to `/admin/feedback/state` as an administrator with `feedback.manage`. Default is off. The switch is checked on each MCP discovery/call. Host documents dynamically add/remove the workflow during the next normal sync, including digest, section metadata and provenance for Codex, Claude and Grok; the canonical authored document is untouched. Guidance also requires that the host has usable managed MCP configuration. Disabling preserves reports and history; administrative access remains available.
 
 Search `feedback_list` first. `feedback_submit` requires a UUID `client_request_id`, `type` (`bug|feature|feedback`), `title` and `description`. Optional fields: `component`, `priority` (`low|normal|high|critical`, default normal), `reproduction`, `expected`, `actual`, `versions`, `agent_uuid`. Host and engine attribution comes from authentication; supplied agent UUIDs are descriptive. Identical retries return the existing item, while reuse with a different payload fails.
 

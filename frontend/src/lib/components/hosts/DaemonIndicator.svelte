@@ -12,7 +12,7 @@
  const details=$derived(host?`Daemon: ${label} · ${host.health.used_slots}/${host.health.max_slots} Slots · ${stale?'Live-Status unbekannt':host.health.reasons.map(r=>reasons[r]??r).join(', ')} · Letzter Kontakt: ${host.health.heartbeat_at?new Date(host.health.heartbeat_at).toLocaleString():'noch keiner'}`:'');
 </script>
 {#if host?.enabled}
- <span class="inline-flex items-center gap-1.5 text-xs" role="img" aria-label={details} title={details} data-daemon-state={color}>
+ <span class="inline-flex items-center gap-1.5 text-body-sm" role="img" aria-label={details} title={details} data-daemon-state={color}>
   <span aria-hidden="true" class={`h-2.5 w-2.5 rounded-full ${color==='green'?'bg-green-500':color==='red'?'bg-red-500':'bg-yellow-500'}`}></span>
   <span>Daemon · {label}</span>
  </span>

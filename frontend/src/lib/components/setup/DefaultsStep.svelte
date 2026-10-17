@@ -192,14 +192,14 @@
           </Select.Content>
         </Select.Root>
       {:else}
-        <p id="setup-{engine}-effort" class="flex h-9 items-center text-sm text-muted-foreground">
+        <p id="setup-{engine}-effort" class="flex h-9 items-center text-body text-muted-foreground">
           Not supported by this model
         </p>
       {/if}
     </div>
   </div>
   {#if !$fleet.isEnabled(engine)}
-    <p class="mt-1.5 text-xs text-muted-foreground">
+    <p class="mt-1.5 text-body-sm text-muted-foreground">
       {label} is disabled fleet-wide. These defaults are saved now and apply when it is turned back on.
     </p>
   {/if}
@@ -239,7 +239,7 @@
     {/if}
   {/if}
 
-  <p class="text-xs text-muted-foreground">
+  <p class="text-body-sm text-muted-foreground">
     Per-host overrides and version pinning live on the Engines page afterwards.
   </p>
 </div>

@@ -1,14 +1,14 @@
 ---
 title: Provider accounts
 section: Fleet operations
-verified: 2026-09-30
-sources: api/src/routes/admin/accounts/index.ts, api/src/routes/auth/index.ts, api/src/services/provider-accounts.ts, api/src/services/account-selection.ts, api/src/services/pooled-auth-store.ts, wrappers/cxx/internal/accountpool/context.go, frontend/src/routes/accounts/+page.svelte
+verified: 2026-10-17
+sources: api/src/routes/admin/accounts/index.ts, api/src/routes/auth/index.ts, api/src/services/provider-accounts.ts, api/src/services/account-selection.ts, api/src/services/pooled-auth-store.ts, wrappers/cxx/internal/accountpool/context.go, frontend/src/routes/(providers)/accounts/+page.svelte
 ---
 
 Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
 subscription login, centralized renewal, native receiver, and gateway details.
 
-Open **Fleet → Accounts** to manage the ChatGPT and Claude credentials shared by your fleet. Each engine has its own pool: three Claude subscriptions work with clx even when there are no ChatGPT accounts. cdx requires its own ChatGPT or OpenAI credentials.
+Open **Providers → Accounts** (`/accounts`) to manage the ChatGPT and Claude credentials shared by your fleet. Each engine has its own pool: three Claude subscriptions work with clx even when there are no ChatGPT accounts. cdx requires its own ChatGPT or OpenAI credentials.
 
 ## Add and maintain accounts
 
@@ -20,7 +20,7 @@ An account is a subscription, not a login session. Client uploads with a known d
 
 ## Usage and assignments
 
-Every account shows separate short and weekly utilization, reset times, observation freshness, verification state, and active hosts. Unknown quota remains unknown; stale readings are labeled and retained conservatively until their reset. The dashboard also shows each account separately. Percentages from different subscriptions are never added together.
+Every account shows separate short and weekly utilization, reset times, observation freshness, verification state, and active hosts. Unknown quota remains unknown; stale readings are labeled and retained conservatively until their reset. The Overview's Provider usage table also shows each account separately. Percentages from different subscriptions are never added together.
 
 At a new native CLI launch, cxx chooses a verified enabled account with lower quota utilization. Accounts within five percentage points share work by active reservation count, then least recent assignment. An idle account without usable quota observations receives a bounded trial so native usage can become known. Existing hard-fail, warning and VIP controls still apply when all known accounts are exhausted.
 
@@ -41,4 +41,4 @@ Migration `0035_provider_accounts.sql` preserves each previous canonical head as
 - api/src/routes/admin/accounts/index.ts
 - api/src/routes/auth/index.ts
 - wrappers/cxx/internal/accountpool/context.go
-- frontend/src/routes/accounts/+page.svelte
+- frontend/src/routes/(providers)/accounts/+page.svelte

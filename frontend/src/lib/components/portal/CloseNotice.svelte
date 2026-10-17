@@ -11,7 +11,7 @@
   const forced = $derived(event.payload.delivery_status === "forced");
 </script>
 
-<div class="my-3 text-center text-[11px] text-warning-muted-foreground">
+<div class="my-3 text-center text-caption text-warning-muted-foreground">
   <p class="font-semibold">{forced ? "Force ended" : "Close requested"} · {clockTime(event.created_at)}</p>
   <p class="mx-auto mt-0.5 max-w-md whitespace-pre-wrap text-muted-foreground">{eventText(event)}</p>
   {#if forced}<p class="mt-0.5">The agent was not able to receive this note.</p>{/if}

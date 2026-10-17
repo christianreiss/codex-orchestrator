@@ -32,7 +32,7 @@
     <Dialog.Header>
       <div class="flex items-start gap-3">
         <div
-          class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive"
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-destructive"
           aria-hidden="true"
         >
           <AlertTriangle class="h-5 w-5" />

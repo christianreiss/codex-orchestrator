@@ -78,16 +78,16 @@
   </Alert>
 {:else}
   <div class="space-y-6">
-    <p class="text-sm text-muted-foreground">
+    <p class="text-body text-muted-foreground">
       One credential per engine serves the whole fleet. Each is checked with the provider
       before it is stored, so a bad value fails here instead of on a host later. Paste it
       below and press <strong>Save and continue</strong>.
     </p>
 
     {#each engines as engine (engine)}
-      <section class="rounded-lg border p-4">
+      <section class="rounded-md border p-4">
         <header class="mb-3 flex items-center justify-between gap-2">
-          <h3 class="text-sm font-medium">{label(engine)}</h3>
+          <h3 class="text-body font-medium">{label(engine)}</h3>
           {#if verified(engine)}
             <Badge variant="success">Verified</Badge>
           {:else}
@@ -96,12 +96,12 @@
         </header>
 
         {#if verified(engine)}
-          <p class="text-sm text-muted-foreground">
+          <p class="text-body text-muted-foreground">
             A verified canonical credential is already stored. Upload again only to replace
             it.
           </p>
           <details class="mt-3">
-            <summary class="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+            <summary class="cursor-pointer text-body-sm text-muted-foreground hover:text-foreground">
               Replace {label(engine)} credentials
             </summary>
             <div class="pt-3">

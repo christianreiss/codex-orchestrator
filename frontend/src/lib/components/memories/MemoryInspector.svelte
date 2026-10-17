@@ -163,12 +163,12 @@
 
     {#if $detailQuery.isLoading}
       <div class="space-y-4 p-5 sm:p-6">
-        <Skeleton class="h-10 w-full" />
+        <Skeleton class="h-9 w-full" />
         <Skeleton class="h-36 w-full" />
         <Skeleton class="h-24 w-full" />
       </div>
     {:else if $detailQuery.isError}
-      <div class="m-5 rounded-md border border-destructive/35 bg-destructive-muted p-4 text-sm text-destructive-muted-foreground" role="alert">
+      <div class="m-5 rounded-md border border-destructive/35 bg-destructive-muted p-4 text-body-sm text-destructive-muted-foreground" role="alert">
         <p class="font-semibold">Could not load this memory</p>
         <p class="mt-1">{$detailQuery.error instanceof Error ? $detailQuery.error.message : "Unknown error"}</p>
         <Button class="mt-3" size="sm" variant="outline" onclick={() => $detailQuery.refetch()}>Try again</Button>
@@ -201,62 +201,62 @@
         </Tabs.List>
 
         <Tabs.Content value="overview" class="space-y-5 pt-3">
-          <dl class="grid gap-x-4 gap-y-3 border-y border-border/70 bg-muted/25 px-4 py-3 text-sm sm:grid-cols-2">
+          <dl class="grid gap-x-4 gap-y-3 border-y border-border/70 bg-muted/25 px-4 py-3 text-body-sm sm:grid-cols-2">
             <div>
-              <dt class="text-xs text-muted-foreground">Immutable key</dt>
-              <dd class="mt-0.5 break-all font-mono text-xs">{memory.id}</dd>
+              <dt class="text-caption text-muted-foreground">Immutable key</dt>
+              <dd class="mt-0.5 break-all font-mono text-caption">{memory.id}</dd>
             </div>
             <div>
-              <dt class="text-xs text-muted-foreground">Record</dt>
-              <dd class="mt-0.5 font-mono text-xs">#{memory.record_id}</dd>
+              <dt class="text-caption text-muted-foreground">Record</dt>
+              <dd class="mt-0.5 font-mono text-caption">#{memory.record_id}</dd>
             </div>
             {#if memory.host}
               <div>
-                <dt class="text-xs text-muted-foreground">Host owner</dt>
+                <dt class="text-caption text-muted-foreground">Host owner</dt>
                 <dd class="mt-0.5">{memory.host}</dd>
               </div>
             {/if}
             {#if memory.project_slug}
               <div>
-                <dt class="text-xs text-muted-foreground">Project owner</dt>
-                <dd class="mt-0.5 font-mono text-xs">{memory.project_slug}</dd>
+                <dt class="text-caption text-muted-foreground">Project owner</dt>
+                <dd class="mt-0.5 font-mono text-caption">{memory.project_slug}</dd>
               </div>
             {/if}
             <div>
-              <dt class="text-xs text-muted-foreground">Length</dt>
+              <dt class="text-caption text-muted-foreground">Length</dt>
               <dd class="mt-0.5">{formatCharacters(memory.content_length)}</dd>
             </div>
             <div>
-              <dt class="text-xs text-muted-foreground">Revision</dt>
+              <dt class="text-caption text-muted-foreground">Revision</dt>
               <dd class="mt-0.5">{memory.revision ?? "—"}</dd>
             </div>
             <div>
-              <dt class="text-xs text-muted-foreground">Created</dt>
+              <dt class="text-caption text-muted-foreground">Created</dt>
               <dd class="mt-0.5" title={formatTimestamp(memory.created_at)}>{memory.created_at ? relativeTime(memory.created_at) : "—"}</dd>
             </div>
             <div>
-              <dt class="text-xs text-muted-foreground">Updated</dt>
+              <dt class="text-caption text-muted-foreground">Updated</dt>
               <dd class="mt-0.5" title={formatTimestamp(memory.updated_at)}>{memory.updated_at ? relativeTime(memory.updated_at) : "—"}</dd>
             </div>
             <div class="sm:col-span-2">
-              <dt class="text-xs text-muted-foreground">ETag</dt>
-              <dd class="mt-0.5 break-all font-mono text-[11px]" title={memory.etag}>{shortEtag(memory.etag)}</dd>
+              <dt class="text-caption text-muted-foreground">ETag</dt>
+              <dd class="mt-0.5 break-all font-mono text-caption" title={memory.etag}>{shortEtag(memory.etag)}</dd>
             </div>
           </dl>
 
           <div>
-            <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tags</h3>
+            <h3 class="text-caption font-semibold uppercase tracking-wide text-muted-foreground">Tags</h3>
             <div class="mt-2 flex flex-wrap gap-1.5">
               {#if memory.tags.length}
                 {#each memory.tags as tag (tag)}<Badge variant="outline">{tag}</Badge>{/each}
               {:else}
-                <span class="text-sm text-muted-foreground">No tags</span>
+                <span class="text-body-sm text-muted-foreground">No tags</span>
               {/if}
             </div>
           </div>
 
           <div>
-            <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Lifecycle capabilities</h3>
+            <h3 class="text-caption font-semibold uppercase tracking-wide text-muted-foreground">Lifecycle capabilities</h3>
             <div class="mt-2 flex flex-wrap gap-1.5">
               {#each Object.entries(memory.capabilities) as [action, allowed] (action)}
                 <Badge variant={allowed ? "secondary" : "outline"} class={!allowed ? "opacity-45" : ""}>{action}</Badge>
@@ -267,29 +267,29 @@
 
         <Tabs.Content value="content" class="space-y-3 pt-3">
           <div class="flex items-center justify-between gap-3">
-            <p class="text-xs text-muted-foreground">{formatCharacters(memory.content_length)} · full body</p>
+            <p class="text-caption text-muted-foreground">{formatCharacters(memory.content_length)} · full body</p>
             <Button size="sm" variant="outline" onclick={copyContent}><Copy class="h-3.5 w-3.5" />Copy</Button>
           </div>
-          <pre class="max-h-[calc(100vh-16rem)] whitespace-pre-wrap break-words border border-border/70 bg-muted/30 p-4 font-mono text-xs leading-5 text-foreground">{memory.content}</pre>
+          <pre class="max-h-[calc(100vh-16rem)] whitespace-pre-wrap break-words border border-border/70 bg-muted/30 p-4 font-mono text-caption leading-5 text-foreground">{memory.content}</pre>
         </Tabs.Content>
 
         <Tabs.Content value="metadata" class="space-y-3 pt-3">
-          <p class="text-xs text-muted-foreground">Structured labels only; full content is kept on the Content tab.</p>
+          <p class="text-caption text-muted-foreground">Structured labels only; full content is kept on the Content tab.</p>
           {#if metadataEntries && metadataEntries.length > 0}
             <dl class="divide-y divide-border/70 border-y border-border/70">
               {#each metadataEntries as [key, value] (key)}
-                <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-sm">
-                  <dt class="shrink-0 font-mono text-xs text-muted-foreground">{key}</dt>
+                <div class="flex items-start justify-between gap-4 px-4 py-2.5 text-body-sm">
+                  <dt class="shrink-0 font-mono text-caption text-muted-foreground">{key}</dt>
                   <dd class="break-words text-right text-foreground">{String(value)}</dd>
                 </div>
               {/each}
             </dl>
           {:else if metadataEntries}
-            <p class="border-y border-border/70 bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
+            <p class="border-y border-border/70 bg-muted/30 px-4 py-6 text-center text-body-sm text-muted-foreground">
               No metadata set.
             </p>
           {:else}
-            <pre class="max-h-[calc(100vh-16rem)] overflow-auto border border-border/70 bg-muted/30 p-4 font-mono text-xs leading-5">{JSON.stringify(memory.metadata ?? {}, null, 2)}</pre>
+            <pre class="max-h-[calc(100vh-16rem)] overflow-auto border border-border/70 bg-muted/30 p-4 font-mono text-caption leading-5">{JSON.stringify(memory.metadata ?? {}, null, 2)}</pre>
           {/if}
         </Tabs.Content>
 
@@ -298,31 +298,31 @@
             <Skeleton class="h-28 w-full" />
             <Skeleton class="h-20 w-full" />
           {:else if $auditQuery.isError}
-            <div class="border border-destructive/30 bg-destructive-muted p-4 text-sm text-destructive-muted-foreground" role="alert">
+            <div class="border border-destructive/30 bg-destructive-muted p-4 text-body-sm text-destructive-muted-foreground" role="alert">
               {$auditQuery.error instanceof Error ? $auditQuery.error.message : "Could not load activity"}
             </div>
           {:else if $auditQuery.data}
-            <div class="border border-warning/25 bg-warning-muted p-3 text-xs text-warning-muted-foreground">
+            <div class="border border-warning/25 bg-warning-muted p-3 text-caption text-warning-muted-foreground">
               <p class="font-semibold">Operational history</p>
               <p class="mt-1">{$auditQuery.data.retention.note}</p>
               <p class="mt-1 opacity-80">Retention-bound · not immutable · no historical bodies</p>
             </div>
 
             {#if $auditQuery.data.activities.length === 0}
-              <p class="border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No retained activity for this memory.</p>
+              <p class="border border-dashed border-border p-6 text-center text-body-sm text-muted-foreground">No retained activity for this memory.</p>
             {:else}
               <ol class="relative ml-2 border-l border-border/80 pl-5">
                 {#each $auditQuery.data.activities as item (item.id)}
                   <li class="relative pb-5 last:pb-0">
                     <span class="absolute -left-[1.53rem] top-1 h-2.5 w-2.5 rounded-full border-2 border-background bg-primary"></span>
                     <div class="flex flex-wrap items-baseline justify-between gap-2">
-                      <p class="text-sm font-medium">{item.action.replace(/[._]/g, " ")}</p>
-                      <time class="text-[10px] text-muted-foreground" title={formatTimestamp(item.created_at)}>{item.created_at ? relativeTime(item.created_at) : "—"}</time>
+                      <p class="text-body-sm font-medium">{item.action.replace(/[._]/g, " ")}</p>
+                      <time class="text-caption text-muted-foreground" title={formatTimestamp(item.created_at)}>{item.created_at ? relativeTime(item.created_at) : "—"}</time>
                     </div>
-                    <p class="mt-0.5 text-xs text-muted-foreground">
+                    <p class="mt-0.5 text-caption text-muted-foreground">
                       {item.source}{item.source_engine ? ` · ${item.source_engine}` : ""}{item.admin_id ? ` · admin #${item.admin_id}` : ""}
                     </p>
-                    <div class="mt-1.5 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
+                    <div class="mt-1.5 flex flex-wrap gap-1.5 text-caption text-muted-foreground">
                       {#if item.content_length != null}<span>{formatCharacters(item.content_length)}</span>{/if}
                       {#if item.delta_length != null}<span>{item.delta_length >= 0 ? "+" : ""}{item.delta_length.toLocaleString()} chars</span>{/if}
                       {#if item.tag_count != null}<span>{item.tag_count} tags</span>{/if}
@@ -335,7 +335,7 @@
 
             <div class="flex items-center justify-between gap-2 border-t border-border/70 pt-3">
               <Button size="sm" variant="outline" onclick={auditPrevious} disabled={!auditHistory.length}>Previous</Button>
-              <span class="text-[10px] text-muted-foreground">{auditHistory.length ? `Page ${auditHistory.length + 1}` : "Latest"}</span>
+              <span class="text-caption text-muted-foreground">{auditHistory.length ? `Page ${auditHistory.length + 1}` : "Latest"}</span>
               <Button size="sm" variant="outline" onclick={auditNext} disabled={!$auditQuery.data.next_cursor}>Next</Button>
             </div>
           {/if}

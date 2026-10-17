@@ -177,7 +177,7 @@
 {#snippet kbd(key: string)}
   {#if showShortcuts}
     <kbd
-      class="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-xs font-medium text-muted-foreground"
+      class="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-body-sm font-medium text-muted-foreground"
     >
       {key}
     </kbd>
@@ -202,7 +202,7 @@
       disabled={submitting}
       aria-invalid={errors.fqdn ? "true" : undefined}
     />
-    {#if errors.fqdn}<p class="text-xs text-destructive">{errors.fqdn}</p>{/if}
+    {#if errors.fqdn}<p class="text-body-sm text-destructive">{errors.fqdn}</p>{/if}
   </div>
 
   <div class="space-y-2">
@@ -223,7 +223,7 @@
       {/each}
     </div>
     {#if options.includes("daemon")}
-      <p class="text-xs text-muted-foreground">
+      <p class="text-body-sm text-muted-foreground">
         Requires root and enabled Agent Messaging. Without root, run
         <code>sudo cxx daemon install</code> after installing the host.
       </p>
@@ -253,7 +253,7 @@
         </ChoiceCard>
       {/each}
     </div>
-    {#if errors.engines}<p class="text-xs text-destructive">{errors.engines}</p>{/if}
+    {#if errors.engines}<p class="text-body-sm text-destructive">{errors.engines}</p>{/if}
   </div>
 
   {#if !hideSubmit}

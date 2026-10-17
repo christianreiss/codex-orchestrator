@@ -6,7 +6,10 @@ import type { PageLoad } from "./$types";
 /** Retired URLs redirect here; anything else is a real 404. */
 export const load: PageLoad = ({ url }) => {
   const path = base && url.pathname.startsWith(base) ? url.pathname.slice(base.length) : url.pathname;
-  const target = legacyTarget(path, url.searchParams, url.hash);
+  // `url.hash` throws while SvelteKit pre-resolves a load; fall back to the live location.
+  let hash = "";
+  try { hash = url.hash; } catch { hash = typeof location === "undefined" ? "" : location.hash; }
+  const target = legacyTarget(path, url.searchParams, hash);
   if (target) redirect(308, `${base}${target}`);
   error(404, "Page not found");
 };

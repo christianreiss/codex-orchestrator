@@ -87,7 +87,7 @@
 
   <div
     class={cn(
-      "grid shrink-0 place-items-center rounded border border-current/15 bg-background",
+      "grid shrink-0 place-items-center rounded-md border border-current/15 bg-background",
       isMemory ? "h-8 w-8" : "h-9 w-9",
     )}
     style={iconStyle}
@@ -102,24 +102,24 @@
 
   {#if isMemory}
     <div class="absolute left-12 right-3 top-3 flex min-w-0 items-center justify-between gap-2">
-      <p class="truncate font-mono text-[11px] font-semibold text-foreground" title={data.displayKey}>
+      <p class="truncate font-mono text-caption font-semibold text-foreground" title={data.displayKey}>
         {data.displayKey}
       </p>
-      <span class="shrink-0 rounded-full border border-current/15 bg-background/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <span class="shrink-0 rounded-md border border-current/15 bg-background/70 px-1.5 py-0.5 text-caption font-semibold uppercase tracking-wider text-muted-foreground">
         {node.scope}
       </span>
     </div>
-    <p class="mt-2 line-clamp-2 text-[11px] leading-4 text-muted-foreground" title={subtitle}>
+    <p class="mt-2 line-clamp-2 text-caption leading-4 text-muted-foreground" title={subtitle}>
       {subtitle}
     </p>
-    <div class="absolute inset-x-3 bottom-2.5 flex items-center justify-between gap-2 text-[9px] text-muted-foreground/85">
+    <div class="absolute inset-x-3 bottom-2.5 flex items-center justify-between gap-2 text-caption text-muted-foreground/85">
       <span>{formatCharacters(node.content_length ?? 0)}</span>
       <span>{node.updated_at ? relativeTime(node.updated_at) : "No timestamp"}</span>
     </div>
   {:else}
     <div class="min-w-0">
-      <p class="truncate text-xs font-semibold text-foreground" title={node.label}>{node.label}</p>
-      <p class="truncate text-[10px] text-muted-foreground">{subtitle}</p>
+      <p class="truncate text-caption font-semibold text-foreground" title={node.label}>{node.label}</p>
+      <p class="truncate text-caption text-muted-foreground">{subtitle}</p>
     </div>
   {/if}
 </div>

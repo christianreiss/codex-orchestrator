@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * Fleet-wide engine master switches: one row per engine, each confirmed in
+   * Fleet-wide engine master switches: one compact row, each switch confirmed in
    * both directions. Turning an engine off suspends it on every host and stops
    * every server task for it; nothing is uninstalled and no credential is
    * deleted. The admin console itself never depends on an engine, so all three
@@ -10,6 +10,7 @@
   import { useQueryClient } from "@tanstack/svelte-query";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
+  import { Badge } from "$lib/components/ui/badge";
   import { authStore } from "$lib/stores/auth";
   import {
     apiSurfacesQuery,
@@ -24,15 +25,8 @@
   import type { EngineStateRow, EngineStateValue } from "$lib/api/types";
   import { Switch } from "$lib/components/ui/switch";
   import { Label } from "$lib/components/ui/label";
-  import SectionCard from "./SectionCard.svelte";
-  import SwitchRow from "./SwitchRow.svelte";
   import EngineSwitchConfirmDialog from "./EngineSwitchConfirmDialog.svelte";
-  import EngineDestroyPanel from "./EngineDestroyPanel.svelte";
   import { engineSwitchConfirmCopy } from "./engine-switch-consequences";
-
-  /** `strip` renders compact per-engine cards for the top of /engines; the destroy panel then lives in each engine's tab. */
-  type Props = { headingLevel?: 2 | 3; variant?: "list" | "strip" };
-  let { headingLevel = 3, variant = "list" }: Props = $props();
 
   type Intent = { engine: Engine; enabled: boolean };
 
@@ -47,7 +41,6 @@
   const view = $derived(fleetEngineView($query.data));
   const canMutate = $derived($authStore.can("settings.manage"));
 
-  let lastSavedAt = $state<Date | null>(null);
   /**
    * The position the operator asked for but has not confirmed yet.
    *
@@ -64,7 +57,6 @@
 
   const mutation = engineStateMutation({
     onSuccess: (data) => {
-      lastSavedAt = new Date();
       // Write the confirmed row before clearing intent, so the switch does not
       // bounce back to the old position until the refetch lands.
       const { previous: _previous, hosts_suspended: _suspended, ...row } = data;
@@ -111,13 +103,6 @@
     });
   });
 
-  const status = $derived.by(() => {
-    if ($mutation.isPending) return "saving" as const;
-    if ($mutation.isError) return "error" as const;
-    if ($mutation.isSuccess) return "saved" as const;
-    return "idle" as const;
-  });
-
   function describe(engine: Engine): string {
     if ($query.isPending) return "Loading current state…";
     if ($query.isError) return `Could not load: ${$query.error?.message ?? "unknown error"}`;
@@ -131,60 +116,22 @@
     return parts.join(" · ");
   }
 
+  function short(engine: Engine): string {
+    const row = view.row(engine);
+    if (!row) return $query.isPending ? "Loading…" : "State unavailable";
+    const hostsText = `${row.assigned_hosts} ${row.assigned_hosts === 1 ? "host" : "hosts"}`;
+    return row.enabled ? `On · ${hostsText}` : `Off · ${hostsText} suspended`;
+  }
+
   function request(engine: Engine, enabled: boolean) {
     shown = { engine, enabled };
     pending = { engine, enabled };
   }
 </script>
 
-{#if variant === "strip"}
-  <section aria-label="Fleet engine switches" class="mb-5">
-    {#if view.known && view.enabled.length === 0}
-      <Alert variant="destructive" class="mb-3">
-        <AlertTriangle class="h-4 w-4" />
-        <AlertTitle>Every engine is off</AlertTitle>
-        <AlertDescription>
-          No host can launch an agent until an engine is turned back on. The admin console and
-          configuration keep working.
-        </AlertDescription>
-      </Alert>
-    {/if}
-    <div class="grid gap-3 md:grid-cols-3">
-      {#each ENGINES as engine (engine)}
-        {@const on = view.isEnabled(engine)}
-        <div class="flex items-start justify-between gap-3 rounded-lg border bg-card p-3 {on ? '' : 'border-warning/40'}">
-          <div class="min-w-0">
-            <div class="flex items-center gap-2">
-              <span class="h-2.5 w-2.5 rounded-full {ENGINE_META[engine].color}" aria-hidden="true"></span>
-              <Label for="engine-switch-{engine}" class="text-sm font-semibold">{label(engine)}</Label>
-              <code class="text-xs text-muted-foreground">{ENGINE_META[engine].command}</code>
-            </div>
-            <p class="mt-1 text-xs text-muted-foreground">{describe(engine)}</p>
-          </div>
-          <Switch
-            id="engine-switch-{engine}"
-            checked={pending?.engine === engine ? pending.enabled : on}
-            disabled={!canMutate || !view.known || $mutation.isPending}
-            onCheckedChange={(next) => request(engine, next)}
-            aria-label="{label(engine)} ({ENGINE_META[engine].command})"
-          />
-        </div>
-      {/each}
-    </div>
-    {#if $mutation.isError}<p class="mt-2 text-xs text-destructive" role="alert">{$mutation.error?.message}</p>{/if}
-  </section>
-{:else}
-<SectionCard
-  id="engine-master-switches"
-  title="Master switches"
-  description="Turn an engine off for the whole fleet. Hosts are suspended rather than uninstalled, credentials stay stored, and turning it back on restores everything without a reinstall. Configuration stays editable while an engine is off."
-  {headingLevel}
-  {status}
-  savedAt={lastSavedAt}
-  error={$mutation.error?.message}
->
+<div aria-label="Fleet engine switches" role="group">
   {#if view.known && view.enabled.length === 0}
-    <Alert variant="destructive">
+    <Alert variant="destructive" class="mb-2 rounded-md px-3 py-2">
       <AlertTriangle class="h-4 w-4" />
       <AlertTitle>Every engine is off</AlertTitle>
       <AlertDescription>
@@ -193,30 +140,34 @@
       </AlertDescription>
     </Alert>
   {/if}
-
-  {#each ENGINES as engine (engine)}
-    <SwitchRow
-      id="engine-switch-{engine}"
-      label="{label(engine)} ({ENGINE_META[engine].command})"
-      description={describe(engine)}
-      checked={pending?.engine === engine ? pending.enabled : view.isEnabled(engine)}
-      disabled={!canMutate || !view.known || $mutation.isPending}
-      onCheckedChange={(next) => request(engine, next)}
-    />
-  {/each}
-
-  {#each ENGINES as engine (engine)}
-    {#if view.known && !view.isEnabled(engine)}
-      <EngineDestroyPanel {engine} suspended={true} {canMutate} />
-    {/if}
-  {/each}
-
-  <p class="text-xs text-muted-foreground">
-    Running sessions are not killed. Exposed APIs stop only when their backend is the disabled engine.
-    Both directions confirm before applying.
+  <div class="grid divide-y rounded-md border md:grid-cols-3 md:divide-x md:divide-y-0">
+    {#each ENGINES as engine (engine)}
+      {@const on = view.isEnabled(engine)}
+      <div class="flex items-center justify-between gap-3 px-3 py-2">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="h-2 w-2 shrink-0 rounded-full {ENGINE_META[engine].color}" aria-hidden="true"></span>
+            <Label for="engine-switch-{engine}" class="text-body font-medium">{label(engine)}</Label>
+            <code class="text-caption text-muted-foreground">{ENGINE_META[engine].command}</code>
+            {#if !on}<Badge variant="warning">Off</Badge>{/if}
+          </div>
+          <p class="mt-0.5 truncate text-caption font-normal text-muted-foreground" title={describe(engine)}>{short(engine)}</p>
+        </div>
+        <Switch
+          id="engine-switch-{engine}"
+          checked={pending?.engine === engine ? pending.enabled : on}
+          disabled={!canMutate || !view.known || $mutation.isPending}
+          onCheckedChange={(next) => request(engine, next)}
+          aria-label="{label(engine)} ({ENGINE_META[engine].command})"
+        />
+      </div>
+    {/each}
+  </div>
+  {#if $mutation.isError}<p class="mt-2 text-caption text-destructive" role="alert">{$mutation.error?.message}</p>{/if}
+  <p class="mt-1.5 text-caption font-normal text-muted-foreground">
+    Off suspends an engine on every host: running sessions are not killed, and nothing is uninstalled or deleted. Both directions ask first.
   </p>
-</SectionCard>
-{/if}
+</div>
 
 <EngineSwitchConfirmDialog
   open={confirmOpen}

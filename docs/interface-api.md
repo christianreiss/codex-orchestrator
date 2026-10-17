@@ -1572,7 +1572,7 @@ capabilities, the saved switch and wrapper/Android contracts remain unchanged.
 Active Clients separates Agents and Remote sessions, with a shared native conversation view.
 Remote start/continue/stop reuse the existing daemon endpoints; `/admin/clients?remote=<id>`
 selects a daemon session and existing `?session=<id>` links resolve its native binding.
-The Agent sessions master switch lives at `/admin/policies#agent-sessions`; its API is unchanged.
+The Agent sessions master switch lives at `/admin/settings#agents`; its API is unchanged.
 
 ### Host registration and bridge
 
@@ -2418,7 +2418,7 @@ work result remains unknown. See [reboot-resume.md](reboot-resume.md).
 ## System Spawn (new-system provisioning)
 
 Off by default: `versions.host_spawn_enabled`. The operator enables it under
-**Policies → Agent behavior → System Spawn**. Only authenticated active VIP
+**Settings → Agents → System Spawn**. Only authenticated active VIP
 source hosts may use it. New targets are non-VIP; source privilege is never inherited.
 The server prepares installation material; the calling agent performs SSH itself.
 No SSH credentials are sent to the server and provisioning never starts an agent task.

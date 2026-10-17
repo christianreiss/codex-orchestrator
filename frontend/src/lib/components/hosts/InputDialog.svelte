@@ -95,7 +95,7 @@
           <Input id="inputdialog-field" bind:value {placeholder} autocomplete="off" />
         {/if}
         {#if allowEmpty}
-          <p class="text-[11px] text-muted-foreground">Leave blank to clear.</p>
+          <p class="text-caption text-muted-foreground">Leave blank to clear.</p>
         {/if}
       </div>
       <Dialog.Footer>

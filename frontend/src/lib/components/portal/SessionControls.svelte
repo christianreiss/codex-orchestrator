@@ -2,8 +2,9 @@
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import { api } from "$lib/api/client";
-  import PolicyCard from "$lib/components/policies/PolicyCard.svelte";
-  import SwitchRow from "$lib/components/settings/SwitchRow.svelte";
+  import { Switch } from "$lib/components/ui/switch";
+  import { Button } from "$lib/components/ui/button";
+  import PolicyRow from "$lib/components/policies/PolicyRow.svelte";
   import { agentSessionKeys } from "$lib/api/agentSessions";
 
   const client = useQueryClient();
@@ -27,17 +28,20 @@
   }
 </script>
 
-<PolicyCard id="agent-sessions" title="Agent sessions" scope="Fleet-wide" description="Session recording and operator conversations in Active Clients and Android.">
+<PolicyRow
+  id="agent-sessions"
+  controlId="agent-sessions-toggle"
+  label="Agent sessions"
+  term="agent portal"
+  help="Record sessions and let operators talk to agents from the console and Android. Turning this off cancels pending input."
+>
+  {#snippet control()}
+    <Switch id="agent-sessions-toggle" checked={$stateQuery.data?.enabled ?? false} disabled={saving || !$stateQuery.data} onCheckedChange={setEnabled} />
+  {/snippet}
   {#if $stateQuery.isError}
-    <p role="alert" class="mt-3 text-destructive">{$stateQuery.error.message}</p>
-    <button class="mt-2 underline" onclick={() => $stateQuery.refetch()}>Retry settings</button>
-  {:else}
-    <SwitchRow id="agent-sessions-toggle" label="Agent sessions"
-      description="Record sessions and exchange messages through Active Clients and Android. Turning this off cancels pending input."
-      checked={$stateQuery.data?.enabled ?? false} disabled={saving || !$stateQuery.data}
-      onCheckedChange={setEnabled} />
-    {#if $stateQuery.data}
-      <p class="mt-2 text-sm text-muted-foreground">{$stateQuery.data.active_sessions ?? 0} active · {$stateQuery.data.queued_messages ?? 0} queued · {$stateQuery.data.dead_messages ?? 0} failed deliveries</p>
-    {/if}
+    <p role="alert" class="text-body-sm text-destructive">{$stateQuery.error.message}</p>
+    <Button variant="outline" size="sm" class="mt-1" onclick={() => $stateQuery.refetch()}>Retry loading</Button>
+  {:else if $stateQuery.data}
+    <p class="text-body-sm text-muted-foreground">{$stateQuery.data.active_sessions ?? 0} active · {$stateQuery.data.queued_messages ?? 0} queued · {$stateQuery.data.dead_messages ?? 0} failed deliveries</p>
   {/if}
-</PolicyCard>
+</PolicyRow>

@@ -112,14 +112,14 @@ export function summarize(snapshot: Topology | undefined): TreeSummary {
   const empty = { communicators: 0, liveCommunicators: 0, agents: 0, attributed: 0, stale: 0, unattributed: 0, working: 0, listening: 0 };
   if (!snapshot) return empty;
   return {
-    communicators: snapshot.communicators.length,
-    liveCommunicators: snapshot.communicators.filter((c) => c.health === "live").length,
-    agents: snapshot.agents.length,
-    attributed: snapshot.counts.attributed,
-    stale: snapshot.counts.stale,
-    unattributed: snapshot.counts.unattributed,
-    working: snapshot.agents.filter((a) => a.presence === "working").length,
-    listening: snapshot.agents.filter((a) => a.presence === "listening").length,
+    communicators: (snapshot.communicators ?? []).length,
+    liveCommunicators: (snapshot.communicators ?? []).filter((c) => c.health === "live").length,
+    agents: (snapshot.agents ?? []).length,
+    attributed: snapshot.counts?.attributed ?? 0,
+    stale: snapshot.counts?.stale ?? 0,
+    unattributed: snapshot.counts?.unattributed ?? 0,
+    working: (snapshot.agents ?? []).filter((a) => a.presence === "working").length,
+    listening: (snapshot.agents ?? []).filter((a) => a.presence === "listening").length,
   };
 }
 

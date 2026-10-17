@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Skeleton } from "$lib/components/ui/skeleton";
+  import { StateBlock } from "$lib/components/page";
   import { fetchArticle } from "$lib/api/manual";
   import { renderMarkdown, type TocEntry } from "./markdown";
   import { copyCodeBlocks } from "./copyCodeBlocks";
@@ -21,7 +21,7 @@
 
   let contentRef: HTMLDivElement | null = $state(null);
 
-  // Re-fetch & re-render whenever slug changes.
+  // Re-fetch and re-render whenever slug changes.
   $effect(() => {
     const currentSlug = slug;
     loading = true;
@@ -91,7 +91,6 @@
     };
   });
 
-  const articleTitle = $derived(meta.title ?? summary?.title ?? slug);
   const sourcePath = $derived(`public/admin/manual/articles/${slug}.md`);
 
   function jumpTo(event: MouseEvent, id: string) {
@@ -105,82 +104,50 @@
   }
 </script>
 
-<div class="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_14rem]">
+<div class="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_14rem]">
   <article class="min-w-0">
     {#if loading}
-      <div class="space-y-4">
-        <Skeleton class="h-9 w-2/3" />
-        <Skeleton class="h-4 w-1/3" />
-        <Skeleton class="h-32 w-full" />
-        <Skeleton class="h-24 w-full" />
-      </div>
+      <StateBlock state="loading" rows={5} />
     {:else if error}
-      <div
-        class="rounded-md border border-destructive/25 bg-destructive-muted p-4 text-sm text-destructive-muted-foreground"
-      >
-        <p class="font-medium">Could not load article</p>
-        <p class="mt-1 opacity-80">{error}</p>
-      </div>
+      <StateBlock state="error" message={`Could not load article: ${error}`} />
     {:else}
-      <header class="mb-6">
-        <h1 class="text-3xl font-bold leading-tight tracking-tight text-foreground">
-          {articleTitle}
-        </h1>
-        {#if summary?.summary}
-          <p class="mt-2 text-base text-muted-foreground">{summary.summary}</p>
+      <div class="mb-4 flex flex-wrap items-center gap-2 text-body-sm text-muted-foreground">
+        {#if summary?.section}
+          <span class="rounded-full bg-secondary px-2 py-0.5 text-secondary-foreground">{summary.section}</span>
         {/if}
-        <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          {#if summary?.section}
-            <span class="rounded-full bg-secondary px-2 py-0.5 text-secondary-foreground">
-              {summary.section}
-            </span>
-          {/if}
-          {#if meta.verified ?? summary?.verified}
-            <span>Verified {meta.verified ?? summary?.verified}</span>
-          {/if}
-          {#each summary?.tags ?? [] as tag}
-            <span class="rounded-md border border-border px-1.5 py-0.5">#{tag}</span>
-          {/each}
-        </div>
-      </header>
+        {#if meta.verified ?? summary?.verified}
+          <span>Verified {meta.verified ?? summary?.verified}</span>
+        {/if}
+        {#each summary?.tags ?? [] as tag}
+          <span class="rounded-md border border-border px-1.5 py-0.5">#{tag}</span>
+        {/each}
+      </div>
 
-      <div
-        bind:this={contentRef}
-        class="md-prose"
-        use:copyCodeBlocks={html}
-      >
+      <div bind:this={contentRef} class="md-prose" use:copyCodeBlocks={html}>
         {@html html}
       </div>
 
-      <footer class="mt-12 border-t border-border pt-4 text-xs italic text-muted-foreground">
+      <footer class="mt-10 border-t border-border pt-3 text-body-sm text-muted-foreground">
         Edit on disk:
-        <code class="not-italic rounded bg-muted px-1.5 py-0.5 text-foreground/80">
-          {sourcePath}
-        </code>
+        <code class="rounded-md bg-muted px-1.5 py-0.5 text-foreground/80">{sourcePath}</code>
       </footer>
     {/if}
   </article>
 
   {#if !loading && !error && toc.length}
-    <aside aria-label="Article contents" class="hidden lg:block">
-      <div class="sticky top-6">
-        <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          On this page
-        </p>
+    <aside aria-label="Article contents" class="hidden xl:block">
+      <div class="sticky top-4">
+        <p class="mb-2 text-caption uppercase tracking-wider text-muted-foreground">On this page</p>
         <nav aria-label="Table of contents">
-          <ul class="space-y-1 border-l border-border">
+          <ul class="space-y-0.5 border-l border-border">
             {#each toc as entry}
               <li>
                 <a
                   href={`#${entry.id}`}
                   onclick={(e) => jumpTo(e, entry.id)}
-                  class={
-                    "block border-l-2 py-1 pl-3 text-sm transition-colors " +
-                    (activeId === entry.id
-                      ? "border-[hsl(var(--sidebar-active))] font-medium text-foreground"
-                      : "border-transparent text-muted-foreground hover:text-foreground") +
-                    (entry.level === 3 ? " pl-6 text-xs" : "")
-                  }
+                  class={"block border-l-2 py-1 pl-3 text-body-sm transition-colors " +
+                    (activeId === entry.id ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground") +
+                    (entry.level === 3 ? " pl-6" : "")}
                 >
                   {entry.text}
                 </a>

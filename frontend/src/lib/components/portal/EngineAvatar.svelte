@@ -23,7 +23,7 @@
 <span class="relative inline-grid shrink-0" aria-hidden={logo ? undefined : true}>
   <span
     class="grid place-items-center rounded-full font-semibold tracking-wide text-white transition-[filter]
-           {size === 'xs' ? 'h-7 w-7 text-[9px]' : size === 'sm' ? 'h-9 w-9 text-[10px]' : 'h-11 w-11 text-[11px]'}
+           {size === 'xs' ? 'h-7 w-7 text-overline' : size === 'sm' ? 'h-9 w-9 text-overline' : 'h-11 w-11 text-overline'}
            {ENGINE_META[engine].color}
            {dim ? 'grayscale' : ''}"
   >{#if logo}<img src={logos[engine]} alt={ENGINE_META[engine].label} class="h-[55%] w-[55%] brightness-0 invert" />{:else}{ENGINE_META[engine].avatar}{/if}</span>

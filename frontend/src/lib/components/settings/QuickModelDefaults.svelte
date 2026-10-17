@@ -110,24 +110,20 @@
   }
 </script>
 
-<section bind:this={card} aria-labelledby={`${stableEngine}-quick-title`} class="min-w-0 rounded-2xl border bg-card p-5 sm:p-6">
-  <header class="mb-6 flex items-center gap-3">
-    <span class={`h-3 w-3 rounded-full ${ENGINE_META[stableEngine].color}`} aria-hidden="true"></span>
-    <h2 id={`${stableEngine}-quick-title`} class="text-lg font-semibold">{label}</h2>
-    <span class="ml-auto text-xs text-muted-foreground">Fleet defaults</span>
-  </header>
-
+<!-- Named region (the engine's Section heading is the visible title); radios auto-save. -->
+<section bind:this={card} aria-label={label} class="min-w-0">
   {#if $query.isPending}
-    <p class="py-8 text-sm text-muted-foreground" role="status">Loading {label} defaults…</p>
+    <p class="py-4 text-body-sm text-muted-foreground" role="status">Loading {label} defaults…</p>
   {:else}
-    <fieldset {disabled} class="min-w-0">
-      <legend class="mb-2 text-sm font-medium">Model</legend>
-      <div class="grid grid-cols-2 gap-1.5 rounded-xl bg-muted p-1.5">
+   <div class="flex flex-wrap items-start gap-x-8 gap-y-4">
+    <fieldset {disabled} class="min-w-0 flex-1 basis-72">
+      <legend class="mb-1.5 text-body-sm font-medium">Default model</legend>
+      <div class="grid grid-cols-2 gap-1.5 rounded-md bg-muted p-1">
         {#each catalog as entry (entry.model)}
           <label class="relative min-w-0 cursor-pointer">
             <input type="radio" name={`${stableEngine}-quick-model`} value={entry.model} checked={model === entry.model}
               onchange={(event) => chooseModel(entry.model, event.currentTarget)} class="peer sr-only" />
-            <span class="flex min-h-12 items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors peer-checked:bg-background peer-checked:text-foreground peer-checked:shadow-sm peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring peer-disabled:cursor-wait peer-disabled:opacity-60">
+            <span class="flex min-h-9 items-center justify-between gap-2 rounded-md px-3 py-1.5 text-body-sm font-medium text-muted-foreground transition-colors peer-checked:bg-background peer-checked:text-foreground peer-checked:shadow-sm peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring peer-disabled:cursor-wait peer-disabled:opacity-60">
               <span class="min-w-0 break-words">{labels.find((item) => item.value === entry.model)?.label ?? entry.model}</span>
               <Check class={`h-4 w-4 shrink-0 ${model === entry.model ? "opacity-100" : "opacity-0"}`} aria-hidden="true" />
             </span>
@@ -136,57 +132,58 @@
       </div>
     </fieldset>
 
-    <fieldset {disabled} class="mt-6 min-w-0">
-      <legend class="mb-2 text-sm font-medium">{stableEngine === "claude" ? "Effort level" : "Reasoning effort"}</legend>
+    <fieldset {disabled} class="min-w-0 flex-1 basis-72">
+      <legend class="mb-1.5 text-body-sm font-medium">{stableEngine === "claude" ? "Effort level" : "Reasoning effort"}</legend>
       {#if selected && selected.persistent_efforts.length > 0}
-        <div class="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1.5">
+        <div class="grid grid-cols-3 gap-1 rounded-md bg-muted p-1">
           {#each selected.persistent_efforts as value (value)}
             <label class="relative min-w-0 cursor-pointer">
               <input type="radio" name={`${stableEngine}-quick-effort`} {value} checked={effort === value}
                 onchange={(event) => void save({ model, reasoning_effort: value }, event.currentTarget)} class="peer sr-only" />
-              <span class="flex min-h-14 flex-col items-center justify-center rounded-lg px-1 py-2 text-sm font-medium text-muted-foreground transition-colors peer-checked:bg-background peer-checked:text-foreground peer-checked:shadow-sm peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring peer-disabled:cursor-wait peer-disabled:opacity-60">
+              <span class="flex min-h-9 flex-col items-center justify-center rounded-md px-1 py-1 text-body-sm font-medium text-muted-foreground transition-colors peer-checked:bg-background peer-checked:text-foreground peer-checked:shadow-sm peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring peer-disabled:cursor-wait peer-disabled:opacity-60">
                 {REASONING_EFFORT_OPTIONS.find((item) => item.value === value)?.label ?? value}
-                {#if value === selected.default_effort}<span class="text-[11px] font-normal">Default</span>{/if}
+                {#if value === selected.default_effort}<span class="text-caption font-normal">Default</span>{/if}
               </span>
             </label>
           {/each}
         </div>
       {:else if selected}
-        <p class="rounded-xl bg-muted px-4 py-4 text-sm text-muted-foreground">No effort setting</p>
+        <p class="rounded-md bg-muted px-3 py-2 text-body-sm text-muted-foreground">No effort setting</p>
       {/if}
     </fieldset>
 
     {#if stableEngine === "grok" && selected?.context_windows?.length}
-      <fieldset {disabled} class="mt-6 min-w-0">
-        <legend class="mb-2 text-sm font-medium">Context window</legend>
-        <div class="grid grid-cols-2 gap-1.5 rounded-xl bg-muted p-1.5">
+      <fieldset {disabled} class="min-w-0 flex-1 basis-72">
+        <legend class="mb-1.5 text-body-sm font-medium">Context window</legend>
+        <div class="grid grid-cols-2 gap-1.5 rounded-md bg-muted p-1">
           {#each selected.context_windows as value (value)}
             <label class="relative min-w-0 cursor-pointer">
               <input type="radio" name={`${stableEngine}-quick-context`} {value} checked={contextWindow === value}
                 onchange={(event) => void save({ model, reasoning_effort: effort, context_window: value }, event.currentTarget)} class="peer sr-only" />
-              <span class="flex min-h-14 flex-col items-center justify-center rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors peer-checked:bg-background peer-checked:text-foreground peer-checked:shadow-sm peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring peer-disabled:cursor-wait peer-disabled:opacity-60">
+              <span class="flex min-h-9 flex-col items-center justify-center rounded-md px-3 py-1 text-body-sm font-medium text-muted-foreground transition-colors peer-checked:bg-background peer-checked:text-foreground peer-checked:shadow-sm peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring peer-disabled:cursor-wait peer-disabled:opacity-60">
                 {value / 1_000}k tokens
-                {#if value === selected.default_context_window}<span class="text-[11px] font-normal">Default</span>{/if}
+                {#if value === selected.default_context_window}<span class="text-caption font-normal">Default</span>{/if}
               </span>
             </label>
           {/each}
         </div>
-        <p class="mt-2 text-xs text-muted-foreground">Default for new Grok sessions.</p>
+        <p class="mt-1 text-caption text-muted-foreground">Default for new Grok sessions.</p>
       </fieldset>
     {/if}
+   </div>
   {/if}
 
-  <div class="mt-5 min-h-5 text-xs text-muted-foreground" role="status" aria-live="polite">
+  <div class="mt-3 min-h-5 text-caption text-muted-foreground" role="status" aria-live="polite">
     {#if saving}Saving…{:else if needsRefresh && $query.isFetching}Refreshing saved settings…{:else if saved}Saved{:else}Selections save automatically.{/if}
   </div>
   {#if confirmed?.stored_model}
-    <p class="text-xs text-muted-foreground">Saved model {confirmed.stored_model} → {confirmed.model} under the current models policy.</p>
+    <p class="text-caption text-muted-foreground">Saved model {confirmed.stored_model} → {confirmed.model} under the current models policy.</p>
   {/if}
   {#if saveError}
-    <p class="mt-2 text-sm text-destructive" role="alert">Could not save: {saveError}</p>
+    <p class="mt-2 text-body-sm text-destructive" role="alert">Could not save: {saveError}</p>
   {/if}
   {#if $query.isError}
-    <div class="mt-2 space-y-2 text-sm text-destructive" role="alert">
+    <div class="mt-2 space-y-2 text-body-sm text-destructive" role="alert">
       <p>Could not load the latest {label} defaults: {$query.error.message}</p>
       <Button variant="outline" size="sm" onclick={refresh} disabled={$query.isFetching || saving}>Retry {label} defaults</Button>
     </div>

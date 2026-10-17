@@ -205,9 +205,9 @@
   {#if !node}
     <!-- ── nothing selected: the server and the story so far ─────────────── -->
     <section class="space-y-3">
-      <h2 class="text-sm font-semibold">Server</h2>
+      <h2 class="text-body-sm font-semibold">Server</h2>
       {#if snapshot}
-        <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+        <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-body-sm">
           <dt class="text-muted-foreground">Endpoint</dt><dd class="break-words font-medium">{snapshot.server.label}</dd>
           <dt class="text-muted-foreground">Uptime</dt><dd>{ageLabel(snapshot.server.uptime_s).replace(" ago", "")}</dd>
           <dt class="text-muted-foreground">Communicators</dt><dd>{snapshot.counts.communicators}{snapshot.server.communicator_enabled ? "" : " (transport disabled)"}</dd>
@@ -216,7 +216,7 @@
           {#if snapshot.counts.stale > 0}<dt class="text-muted-foreground">Link gone quiet</dt><dd>{snapshot.counts.stale}</dd>{/if}
           <dt class="text-muted-foreground">Direct</dt><dd>{snapshot.counts.unattributed}</dd>
         </dl>
-        <p class="text-xs text-muted-foreground">
+        <p class="text-caption text-muted-foreground">
           This is the connection set held by one API process. An agent hangs off a communicator only when the server saw that
           session's own requests arrive over its socket; otherwise it is shown as direct. Select a node for details and controls.
         </p>
@@ -225,12 +225,12 @@
 
     {#if snapshot && snapshot.recent_disconnects.length > 0}
       <section class="space-y-2">
-        <h2 class="text-sm font-semibold">Recent disconnects</h2>
-        <ul class="space-y-2 text-sm">
+        <h2 class="text-body-sm font-semibold">Recent disconnects</h2>
+        <ul class="space-y-2 text-body-sm">
           {#each snapshot.recent_disconnects.slice(0, 6) as d (d.id)}
             <li class="rounded-md border p-2">
               <p class="font-medium">{communicatorLabel(d)} <span class="font-normal text-muted-foreground">· {ageLabel(Math.round((Date.now() - Date.parse(d.ended_at)) / 1000))}</span></p>
-              <p class="text-xs text-muted-foreground">
+              <p class="text-caption text-muted-foreground">
                 {d.reason === "admin_disconnect" ? `Closed by ${d.actor ?? "an administrator"}` : d.reason === "admin_terminate" ? `Process stopped by ${d.actor ?? "an administrator"}` : "Connection ended"}
                 · {@render successorNote(d, false)}
               </p>
@@ -241,8 +241,8 @@
     {/if}
 
     <section class="space-y-2">
-      <h2 class="text-sm font-semibold">Legend</h2>
-      <ul class="space-y-1 text-xs text-muted-foreground">
+      <h2 class="text-body-sm font-semibold">Legend</h2>
+      <ul class="space-y-1 text-caption text-muted-foreground">
         <li class="flex flex-wrap gap-x-3 gap-y-1">{#each Object.values(COMMUNICATOR_APPEARANCE) as appearance (appearance.kind)}<span><span class="legend-dot" style:border-color={appearance.color} style:background={appearance.fill}></span>{appearance.label}</span>{/each}</li>
         <li>Communicator fill is its reported owner mode; the ring and link are its health.</li>
         <li><span class="legend-dot" style="border-color: hsl(var(--success))"></span> Live link · solid, flowing</li>
@@ -257,7 +257,7 @@
     <section class="space-y-3">
       <header class="flex flex-wrap items-center gap-2">
         <h2 class="text-base font-semibold">{communicatorLabel(communicator)}</h2>
-        <span class="rounded-full border px-2 py-0.5 text-[11px] font-medium" style:color={appearance.color} style:background={appearance.fill} title={appearance.kind === "unknown" ? "Owner mode is missing or stale" : "Reported owner mode"}>{appearance.label}</span>
+        <span class="rounded-full border px-2 py-0.5 text-caption font-medium" style:color={appearance.color} style:background={appearance.fill} title={appearance.kind === "unknown" ? "Owner mode is missing or stale" : "Reported owner mode"}>{appearance.label}</span>
         {#if ghost}<Badge variant="secondary">Disconnected</Badge>
         {:else}<Badge variant={healthVariant(communicator.health)}>{communicator.health === "live" ? "Live" : communicator.health === "stale" ? "Gone quiet" : "Closing"}</Badge>{/if}
         <Badge variant="outline">cxx {communicator.version}</Badge>
@@ -268,9 +268,9 @@
       </header>
 
       {#if !ghost && onspawn}<Button size="sm" disabled={!canRemote} onclick={() => onspawn?.(communicator.host_id)}>Start agent</Button>{/if}
-      <details><summary class="cursor-pointer text-xs">Connection details</summary>
+      <details><summary class="cursor-pointer text-caption">Connection details</summary>
       {#if ghost}
-        <div class="rounded-md border bg-muted/40 p-3 text-sm">
+        <div class="rounded-md border bg-muted/40 p-3 text-body-sm">
           <p>
             {ghost.departure?.reason === "admin_disconnect"
               ? `Closed by ${ghost.departure.actor ?? "an administrator"}.`
@@ -282,34 +282,34 @@
         </div>
       {/if}
 
-      <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+      <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-body-sm">
         <dt class="text-muted-foreground">Host</dt><dd class="break-words">{communicator.host}</dd>
         <dt class="text-muted-foreground">OS user</dt><dd>{communicator.username}</dd>
         <dt class="text-muted-foreground">Connection</dt>
-        <dd class="flex items-center gap-1 font-mono text-xs"><span title={communicator.id}>{shortId(communicator.id)}</span><CopyButton value={communicator.id} variant="ghost" size="icon" class="h-6 w-6" aria-label="Copy connection id" /></dd>
+        <dd class="flex items-center gap-1 font-mono text-caption"><span title={communicator.id}>{shortId(communicator.id)}</span><CopyButton value={communicator.id} variant="ghost" size="icon" class="h-6 w-6" aria-label="Copy connection id" /></dd>
         <dt class="text-muted-foreground">Connected</dt><dd>{when(communicator.connected_at)}</dd>
         <dt class="text-muted-foreground">Last heartbeat</dt><dd>{communicator.last_heartbeat_at ? `${ageLabel(Math.round((Date.now() - Date.parse(communicator.last_heartbeat_at)) / 1000))}` : "none yet"}</dd>
         <dt class="text-muted-foreground">Process</dt>
         <dd>{communicator.process ? `pid ${communicator.process.pid}` : "not reported"}{#if communicator.process} <span class="text-muted-foreground">self-reported{communicator.process.started_at ? `, started ${new Date(communicator.process.started_at).toLocaleTimeString()}` : ""}</span>{/if}</dd>
         {#if communicator.process?.runtime_id}
           <dt class="text-muted-foreground">Runtime</dt>
-          <dd class="font-mono text-xs" title="Hash of the owner's local socket path: the same value means the same local clients are served">{communicator.process.runtime_id.slice(0, 8)}{#if communicator.process.instance_id} <span class="text-muted-foreground">· instance {communicator.process.instance_id.slice(0, 8)}</span>{/if}</dd>
+          <dd class="font-mono text-caption" title="Hash of the owner's local socket path: the same value means the same local clients are served">{communicator.process.runtime_id.slice(0, 8)}{#if communicator.process.instance_id} <span class="text-muted-foreground">· instance {communicator.process.instance_id.slice(0, 8)}</span>{/if}</dd>
         {/if}
         <dt class="text-muted-foreground">Local leases</dt><dd>{communicator.leases_reported} <span class="text-muted-foreground">reported by the communicator</span></dd>
         <dt class="text-muted-foreground">Requests</dt><dd>{communicator.requests}</dd>
         <dt class="text-muted-foreground">Last sync</dt><dd>{when(communicator.synced_at)}{#if communicator.sync_errors > 0} · <span class="text-destructive">{communicator.sync_errors} scope{communicator.sync_errors === 1 ? "" : "s"} failing</span>{/if}</dd>
-        {#if communicator.remote_address}<dt class="text-muted-foreground">Address</dt><dd class="font-mono text-xs">{communicator.remote_address}</dd>{/if}
+        {#if communicator.remote_address}<dt class="text-muted-foreground">Address</dt><dd class="font-mono text-caption">{communicator.remote_address}</dd>{/if}
         <dt class="text-muted-foreground">Host daemon</dt><dd>{communicator.daemon_attached ? "channel attached" : "not attached"}</dd>
       </dl></details>
     </section>
 
-    <details><summary class="cursor-pointer text-xs">Runtime and connected agents</summary>
+    <details><summary class="cursor-pointer text-caption">Runtime and connected agents</summary>
     {#if communicator.resident}
       {@const report = communicator.resident}
       <section class="space-y-2 rounded-md border p-3" aria-label="Resident owner report">
         <h3 class="section-label">Owner runtime <Badge variant="outline">{report.stale || ghost ? "Latest report · stale" : "Latest report"}</Badge></h3>
-        <p class="text-xs text-muted-foreground">Reported by the owner at {when(report.received_at)} (received by the server). This is not a confirmed exit.</p>
-        <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+        <p class="text-caption text-muted-foreground">Reported by the owner at {when(report.received_at)} (received by the server). This is not a confirmed exit.</p>
+        <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-body-sm">
           <dt class="text-muted-foreground">Mode</dt><dd>{report.mode === "resident" ? "Resident" : "On demand"}{report.draining ? " · draining" : ""}</dd>
           <dt class="text-muted-foreground">Keep running</dt><dd>{report.resident_enabled ? "requested" : "not requested"}</dd>
           <dt class="text-muted-foreground">Remote starts</dt><dd>{report.execution_enabled ? "enabled" : "disabled"}</dd>
@@ -318,7 +318,7 @@
             <dt class="text-muted-foreground">Work retained</dt><dd>{report.execution.workload.accepted} accepted · {report.execution.workload.children} children · {report.execution.workload.receipts} receipts · {report.execution.workload.peer_claims} claims</dd>
           {/if}
           <dt class="text-muted-foreground">Local callers</dt><dd>{report.local_requests} requests · {report.legacy_clients} legacy clients</dd>
-          <dt class="text-muted-foreground">Binary SHA-256</dt><dd class="break-all font-mono text-xs">{report.binary_sha256}</dd>
+          <dt class="text-muted-foreground">Binary SHA-256</dt><dd class="break-all font-mono text-caption">{report.binary_sha256}</dd>
         </dl>
       </section>
     {/if}
@@ -326,17 +326,17 @@
     <section class="space-y-2">
       <h3 class="section-label">Agents on this connection ({children.length})</h3>
       {#if children.length === 0}
-        <p class="text-sm text-muted-foreground">
+        <p class="text-body-sm text-muted-foreground">
           No session traffic has been seen on this connection.{communicator.leases_reported > 0 ? ` The communicator reports ${communicator.leases_reported} local lease${communicator.leases_reported === 1 ? "" : "s"}, which can be sessions that have not spoken to the server through it yet.` : ""}
         </p>
       {:else}
         <ul class="space-y-1">
           {#each children as child (child.id)}
             <li>
-              <button type="button" class="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onclick={() => onselect(child.id)}>
+              <button type="button" class="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-body-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onclick={() => onselect(child.id)}>
                 {#if isEngine(child.engine)}<EngineAvatar engine={child.engine} presence={child.presence as Presence} size="xs" />{/if}
                 <span class="min-w-0 flex-1 truncate font-medium">{child.name}</span>
-                <span class="text-xs text-muted-foreground">{child.association.state === "stale" ? `quiet ${ageLabel(child.association.age_s)}` : child.presence}</span>
+                <span class="text-caption text-muted-foreground">{child.association.state === "stale" ? `quiet ${ageLabel(child.association.age_s)}` : child.presence}</span>
               </button>
             </li>
           {/each}
@@ -351,7 +351,7 @@
         <Button variant="outline" size="sm" class="justify-start text-destructive" disabled={!canPortal || communicator.health === "closing"} onclick={() => begin("disconnect", communicator.id)}>
           Disconnect this communicator…
         </Button>
-        <p class="text-xs text-muted-foreground">
+        <p class="text-caption text-muted-foreground">
           {#if !canPortal}Requires the agent-sessions management permission.
           {:else}Reconnects automatically; agents keep running.{/if}
         </p>
@@ -359,9 +359,9 @@
           <Button variant="outline" size="sm" class="justify-start text-destructive" disabled={!canPortal || communicator.health === "closing"} onclick={() => begin("terminate", communicator.id)}>
             Stop the communicator process…
           </Button>
-          <p class="text-xs text-muted-foreground">A stop acknowledgement alone does not confirm exit.</p>
+          <p class="text-caption text-muted-foreground">A stop acknowledgement alone does not confirm exit.</p>
         {:else}
-          <p class="text-xs text-muted-foreground">This communicator did not announce that it can be stopped remotely, so only its connection can be closed from here.</p>
+          <p class="text-caption text-muted-foreground">This communicator did not announce that it can be stopped remotely, so only its connection can be closed from here.</p>
         {/if}
       </section>
     {/if}
@@ -374,11 +374,11 @@
         {#if ghost}<Badge variant="secondary">Ended</Badge>{:else}<Badge variant={presenceVariant(agent.presence)}>{agent.presence}</Badge>{/if}
       </header>
 
-      <p class="text-xs text-muted-foreground">{agent.username}@{agent.host}</p>
-      {#if agent.task_title}<p class="text-sm">{agent.task_title}</p>{/if}
+      <p class="text-caption text-muted-foreground">{agent.username}@{agent.host}</p>
+      {#if agent.task_title}<p class="text-body-sm">{agent.task_title}</p>{/if}
       {#if onchat}<Button size="sm" onclick={() => onchat?.(agent.id)}>Chat</Button>{/if}
-      <details><summary class="cursor-pointer text-xs">Session details</summary>
-      <div class="rounded-md border p-3 text-sm">
+      <details><summary class="cursor-pointer text-caption">Session details</summary>
+      <div class="rounded-md border p-3 text-body-sm">
         {#if agent.association.state === "unattributed"}
           <p class="font-medium">Direct</p>
           <p class="text-muted-foreground">No communicator has carried this session's requests recently, so it is shown on the server. It may talk to the server directly, or its communicator may have just reconnected — sessions reappear under it as they next speak, within about 15 s.</p>
@@ -394,16 +394,16 @@
         {/if}
       </div>
 
-      <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+      <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-body-sm">
         <dt class="text-muted-foreground">Engine</dt><dd>{isEngine(agent.engine) ? engineLabel(agent.engine) : agent.engine}</dd>
         <dt class="text-muted-foreground">Host</dt><dd class="break-words">{agent.host}</dd>
         <dt class="text-muted-foreground">OS user</dt><dd>{agent.username}</dd>
-        {#if agent.address}<dt class="text-muted-foreground">Address</dt><dd class="break-all font-mono text-xs">{agent.address}</dd>{/if}
+        {#if agent.address}<dt class="text-muted-foreground">Address</dt><dd class="break-all font-mono text-caption">{agent.address}</dd>{/if}
         <dt class="text-muted-foreground">Session</dt>
-        <dd class="flex items-center gap-1 font-mono text-xs"><span title={agent.id}>{shortId(agent.id)}</span><CopyButton value={agent.id} variant="ghost" size="icon" class="h-6 w-6" aria-label="Copy session id" /></dd>
+        <dd class="flex items-center gap-1 font-mono text-caption"><span title={agent.id}>{shortId(agent.id)}</span><CopyButton value={agent.id} variant="ghost" size="icon" class="h-6 w-6" aria-label="Copy session id" /></dd>
         {#if agent.binding_generation !== null}<dt class="text-muted-foreground">Binding</dt><dd>generation {agent.binding_generation}</dd>{/if}
         <dt class="text-muted-foreground">Kind</dt><dd>{agent.invocation_kind}{agent.daemon ? " · launched by host daemon" : ""}</dd>
-        <dt class="text-muted-foreground">Directory</dt><dd class="break-all font-mono text-xs">{agent.cwd}</dd>
+        <dt class="text-muted-foreground">Directory</dt><dd class="break-all font-mono text-caption">{agent.cwd}</dd>
         <dt class="text-muted-foreground">Started</dt><dd>{when(agent.started_at)}</dd>
         <dt class="text-muted-foreground">Heartbeat</dt><dd>{ageLabel(agent.heartbeat_age_s)}</dd>
         {#if agent.close}<dt class="text-muted-foreground">Close request</dt><dd>{agent.close.state === "acknowledged" ? "acknowledged by the agent" : agent.close.state === "undeliverable" ? "could not be delivered" : "waiting for the agent"}</dd>{/if}
@@ -414,12 +414,12 @@
       <section class="flex flex-wrap items-center gap-2 border-t bg-card pt-2">
         <h3 class="sr-only">Control</h3>
         <Button variant="outline" size="sm" class="justify-start" disabled={!canPortal || !agent.actions.request_close.allowed} onclick={() => begin("request_close", agent.id)}>Ask the agent to close…</Button>
-        {#if !agent.actions.request_close.allowed}<p class="text-xs text-muted-foreground">{actionReason(agent.actions.request_close.reason)}</p>{/if}
+        {#if !agent.actions.request_close.allowed}<p class="text-caption text-muted-foreground">{actionReason(agent.actions.request_close.reason)}</p>{/if}
         <Button variant="outline" size="sm" class="justify-start text-destructive" disabled={agent.native_control ? !canPortal || !agent.native_control.available : !canRemote || !agent.actions.stop_process.allowed} onclick={() => begin("stop_process", agent.id)}>Stop the process…</Button>
-        {#if agent.native_control}<p class="text-xs text-muted-foreground">Native process: {agent.native_control.status}</p>{:else if !agent.actions.stop_process.allowed}<p class="text-xs text-muted-foreground">{actionReason(agent.actions.stop_process.reason)}</p>{/if}
-        <details><summary class="cursor-pointer text-xs">More actions</summary>
+        {#if agent.native_control}<p class="text-caption text-muted-foreground">Native process: {agent.native_control.status}</p>{:else if !agent.actions.stop_process.allowed}<p class="text-caption text-muted-foreground">{actionReason(agent.actions.stop_process.reason)}</p>{/if}
+        <details><summary class="cursor-pointer text-caption">More actions</summary>
         <Button variant="outline" size="sm" class="justify-start text-destructive" disabled={!canPortal || !agent.actions.end_record.allowed} onclick={() => begin("end_record", agent.id)}>End the session record…</Button>
-        <p class="text-xs text-muted-foreground">
+        <p class="text-caption text-muted-foreground">
           {#if !canPortal}Requires the agent-sessions management permission.{:else}Ending the record changes what the server believes; it does not signal the agent's process.{/if}
         </p></details>
       </section>

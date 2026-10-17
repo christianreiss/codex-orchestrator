@@ -1,7 +1,7 @@
 ---
 title: The auth distribution pipeline
 section: Fleet operations
-verified: 2026-09-30
+verified: 2026-10-17
 sources: api/src/routes/auth/index.ts, api/src/services/host-auth.ts, api/src/services/insecure-window.ts, api/src/services/canonical-auth-store.ts, api/src/services/runner-validation.ts, api/src/services/runner-client.ts, api/src/ops/auth-verification-worker.ts, api/src/services/reverse-dns.ts, api/src/security/keyring.ts, api/src/security/secret-box.ts, api/src/db/schema.ts, wrappers/cxx/internal/codex/auth_writer.go, wrappers/cxx/internal/codex/auth_session.go, wrappers/cxx/internal/claude/auth_writer.go, wrappers/cxx/internal/claude/auth_session.go
 ---
 
@@ -256,4 +256,4 @@ the refresh token on every refresh, so whichever copy refreshes second fails wit
 
 ## Multiple provider accounts
 
-Each account has an independent canonical head, verification lineage and usage snapshots. Fleet → Accounts manages enrollment and lifecycle; cxx 0.9.7 reserves a balanced account at launch and scopes subsequent auth requests and usage reports to it. Overlapping native sessions keep their account. See [Provider accounts](accounts) for management, quota policy and rollout behavior.
+Each account has an independent canonical head, verification lineage and usage snapshots. Providers → Accounts manages enrollment and lifecycle; cxx 0.9.7 reserves a balanced account at launch and scopes subsequent auth requests and usage reports to it. Overlapping native sessions keep their account. See [Provider accounts](accounts) for management, quota policy and rollout behavior.

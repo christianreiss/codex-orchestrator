@@ -31,7 +31,7 @@
     <li>
       <button
         type="button"
-        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-body-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         class:bg-accent={selectedId === item.node.id}
         aria-pressed={selectedId === item.node.id}
         onclick={() => onselect(selectedId === item.node.id ? null : item.node.id)}
@@ -40,7 +40,7 @@
         <span class="min-w-0 flex-1 truncate font-medium">{item.node.name}</span>
         {#if item.ghost}<Badge variant="secondary">ended</Badge>
         {:else if item.node.association.state === "stale"}<Badge variant="warning">quiet {ageLabel(item.node.association.age_s)}</Badge>
-        {:else}<span class="text-xs text-muted-foreground">{item.node.presence}</span>{/if}
+        {:else}<span class="text-caption text-muted-foreground">{item.node.presence}</span>{/if}
       </button>
     </li>
   {/if}
@@ -51,7 +51,7 @@
     {@const children = agentsByParent.get(item.node.id) ?? []}
     {#if visible(item.node) || children.some((child) => visible(child.node))}
       {@const appearance = communicatorAppearance(item.node)}
-      <section class="rounded-lg border bg-card" aria-label="Communicator {communicatorLabel(item.node)}">
+      <section class="rounded-md border bg-card" aria-label="Communicator {communicatorLabel(item.node)}">
         <button
           type="button"
           class="flex w-full flex-wrap items-center gap-2 rounded-t-lg px-3 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -60,10 +60,10 @@
           onclick={() => onselect(selectedId === item.node.id ? null : item.node.id)}
         >
           <span class="font-semibold">{communicatorLabel(item.node)}</span>
-          <span class="inline-flex items-center gap-1.5 text-xs" style:color={appearance.color}><span class="h-2 w-2 rounded-full" style:background={appearance.color} aria-hidden="true"></span>{appearance.label}</span>
+          <span class="inline-flex items-center gap-1.5 text-caption" style:color={appearance.color}><span class="h-2 w-2 rounded-full" style:background={appearance.color} aria-hidden="true"></span>{appearance.label}</span>
           {#if item.ghost}<Badge variant="secondary">disconnected</Badge>
           {:else}<Badge variant={item.node.health === "live" ? "success" : item.node.health === "closing" ? "destructive" : "warning"}>{item.node.health}</Badge>{/if}
-          <span class="text-xs text-muted-foreground">{runtimeStyle(item.node).label} · cxx {item.node.version} · {children.length} agent{children.length === 1 ? "" : "s"}</span>
+          <span class="text-caption text-muted-foreground">{runtimeStyle(item.node).label} · cxx {item.node.version} · {children.length} agent{children.length === 1 ? "" : "s"}</span>
           {#if !item.ghost && isWrapperBehind(item.node.version, hostWrapperTarget($rollout.data, item.node.host_id))}<Badge variant="warning" title={`Behind cxx ${hostWrapperTarget($rollout.data, item.node.host_id)}; applies when its agents are idle`}>outdated</Badge>{/if}
         </button>
         {#if children.length > 0}<ul class="border-t p-1">{#each children as child (child.node.id)}{@render agentRow(child)}{/each}</ul>{/if}
@@ -72,13 +72,13 @@
   {/each}
 
   {#if direct.length + orphans.length > 0}
-    <section class="rounded-lg border border-dashed bg-card" aria-label="Agents with no communicator">
-      <h3 class="px-3 py-2 text-sm font-semibold">Direct <span class="font-normal text-muted-foreground">· no communicator carried their requests</span></h3>
+    <section class="rounded-md border border-dashed bg-card" aria-label="Agents with no communicator">
+      <h3 class="px-3 py-2 text-body-sm font-semibold">Direct <span class="font-normal text-muted-foreground">· no communicator carried their requests</span></h3>
       <ul class="border-t p-1">{#each [...direct, ...orphans] as child (child.node.id)}{@render agentRow(child)}{/each}</ul>
     </section>
   {/if}
 
   {#if model.communicators.length === 0 && model.agents.length === 0}
-    <p class="rounded-lg border bg-card p-4 text-sm text-muted-foreground">Nothing is connected to this server right now.</p>
+    <p class="rounded-md border bg-card p-4 text-body-sm text-muted-foreground">Nothing is connected to this server right now.</p>
   {/if}
 </div>

@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * Chrome for the first-run wizard: the step rail, the progress line, and the
+   * Chrome for the first-run wizard, framed by AuthShell: the step rail, the progress line, and the
    * back / skip / next controls. Steps supply only their own body, and the
    * footer's primary button is the only commit action in the wizard — steps
    * expose `submit()`/`persist()` instead of rendering their own.
@@ -12,8 +12,7 @@
    */
   import type { Snippet } from "svelte";
   import { Button } from "$lib/components/ui/button";
-  import { Separator } from "$lib/components/ui/separator";
-  import BrandMark from "$lib/components/brand/BrandMark.svelte";
+  import { AuthShell } from "$lib/components/page";
   import { Stepper } from "$lib/components/ui/stepper";
   import type { SetupStep } from "$lib/api/setup";
 
@@ -74,56 +73,33 @@
   }
 </script>
 
-<main class="min-h-screen bg-muted/20 px-4 py-8 sm:py-12">
-  <div class="mx-auto flex w-full max-w-4xl flex-col gap-6">
-    <div class="flex items-center gap-3">
-      <BrandMark />
-      <div>
-        <h1 class="text-xl font-semibold">Set up Codex Orchestrator</h1>
-        <p class="text-sm text-muted-foreground">
-          Step {index + 1} of {total}
-        </p>
-      </div>
+<AuthShell title="Set up Codex Orchestrator" description={`Step ${index + 1} of ${total}`} width="lg">
+  <div class="space-y-4">
+    <Stepper label="Setup steps" {steps} {current} onSelect={(id) => onNavigate(id as SetupStep)} />
+
+    <div class="border-t pt-4">
+      <h2 class="text-h3">{title}</h2>
+      {#if description}<p class="mt-0.5 text-body-sm text-muted-foreground">{description}</p>{/if}
     </div>
 
-    <Stepper
-      label="Setup steps"
-      {steps}
-      {current}
-      onSelect={(id) => onNavigate(id as SetupStep)}
-    />
+    <div>{@render children()}</div>
 
-    <div class="rounded-xl border bg-card shadow-sm">
-      <div class="space-y-1 p-6 pb-4">
-        <h2 class="text-lg font-semibold">{title}</h2>
-        {#if description}
-          <p class="text-sm text-muted-foreground">{description}</p>
+    <div class="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+      <div class="flex items-center gap-2">
+        {#if canBack}
+          <Button variant="ghost" size="sm" onclick={back} disabled={busy}>Back</Button>
         {/if}
+        {#if actions}{@render actions()}{/if}
       </div>
-      <Separator />
-      <div class="p-6">
-        {@render children()}
-      </div>
-      <Separator />
-      <div class="flex flex-wrap items-center justify-between gap-3 p-4">
-        <div class="flex items-center gap-2">
-          {#if canBack}
-            <Button variant="ghost" size="sm" onclick={back} disabled={busy}>Back</Button>
-          {/if}
-          {#if actions}{@render actions()}{/if}
-        </div>
-        <div class="flex items-center gap-2">
-          {#if blocked && blockedReason}
-            <p class="text-xs text-muted-foreground">{blockedReason}</p>
-          {/if}
-          {#if skippable && !isLast}
-            <Button variant="ghost" size="sm" onclick={onSkip} disabled={busy}>Skip</Button>
-          {/if}
-          <Button size="sm" onclick={onNext} disabled={blocked || busy}>
-            {busy ? "Working…" : nextLabel}
-          </Button>
-        </div>
+      <div class="flex items-center gap-2">
+        {#if blocked && blockedReason}
+          <p class="text-body-sm text-muted-foreground">{blockedReason}</p>
+        {/if}
+        {#if skippable && !isLast}
+          <Button variant="ghost" size="sm" onclick={onSkip} disabled={busy}>Skip</Button>
+        {/if}
+        <Button size="sm" onclick={onNext} disabled={blocked || busy}>{busy ? "Working…" : nextLabel}</Button>
       </div>
     </div>
   </div>
-</main>
+</AuthShell>

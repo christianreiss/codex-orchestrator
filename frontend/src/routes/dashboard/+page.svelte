@@ -1,231 +1,130 @@
 <script lang="ts">
-  import PageHeader from "$lib/components/layout/PageHeader.svelte";
-  import StatCard from "$lib/components/dashboard/StatCard.svelte";
-  import ChatGptUsageCard from "./ChatGptUsageCard.svelte";
-  import AccountUsageCards from "./AccountUsageCards.svelte";
-  import { accountsQuery } from "$lib/api/accounts";
-  import ClaudeUsageCard from "./ClaudeUsageCard.svelte";
-  import RunnerCard from "$lib/components/dashboard/RunnerCard.svelte";
-  import { Alert, AlertTitle, AlertDescription } from "$lib/components/ui/alert";
-  import { engineInstallCounts, overviewQuery } from "$lib/api/overview";
-  import Server from "@lucide/svelte/icons/server";
-  import Package from "@lucide/svelte/icons/package";
-  import Bot from "@lucide/svelte/icons/bot";
-  import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
-  import Activity from "@lucide/svelte/icons/activity";
-  import Plus from "@lucide/svelte/icons/plus";
-  import { Button } from "$lib/components/ui/button";
-  import { Skeleton } from "$lib/components/ui/skeleton";
+  /**
+   * Overview. Exceptions first: what needs attention and where to fix it, then
+   * one line of fleet numbers, provider usage, engines, and the runner.
+   */
   import { base } from "$app/paths";
-  import OnboardingCard from "./OnboardingCard.svelte";
-  import FleetCoverage from "./FleetCoverage.svelte";
-  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import { PageShell, Section, StatStrip, StateBlock, type Stat } from "$lib/components/page";
+  import { Button } from "$lib/components/ui/button";
+  import { accountsQuery } from "$lib/api/accounts";
+  import { hostsListQuery, hostStatusKind } from "$lib/api/hosts";
+  import { createRunnerStateQuery } from "$lib/api/runner";
+  import { insecureApprovalsPendingQuery, overviewQuery } from "$lib/api/overview";
   import { useFleetEngines } from "$lib/engines/fleet-engines";
-  import { ENGINE_META, type Engine } from "$lib/constants/engines";
+  import { ENGINE_META } from "$lib/constants/engines";
+  import { relativeTime } from "$lib/utils/format";
+  import AttentionList from "$lib/components/dashboard/AttentionList.svelte";
+  import OnboardingNotice from "$lib/components/dashboard/OnboardingNotice.svelte";
+  import UsageTable from "$lib/components/dashboard/UsageTable.svelte";
+  import EngineTable from "$lib/components/dashboard/EngineTable.svelte";
+  import RunnerStatus from "$lib/components/dashboard/RunnerStatus.svelte";
+  import { buildAttention } from "$lib/components/dashboard/attention";
+  import { hostFindings } from "$lib/components/dashboard/host-findings";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Plus from "@lucide/svelte/icons/plus";
 
   const overview = overviewQuery();
   const accounts = accountsQuery();
+  const hosts = hostsListQuery();
+  const approvals = insecureApprovalsPendingQuery();
+  const runner = createRunnerStateQuery();
   const fleet = useFleetEngines();
 
-  /** Per-engine stat card: dimmed and labelled while the engine is off fleet-wide. */
-  function engineCard(engine: Engine, hint: string | null): { class?: string; hint: string | null } {
-    if ($fleet.isEnabled(engine)) return { hint };
-    return { class: "opacity-70", hint: hint ? `disabled fleet-wide · ${hint}` : "disabled fleet-wide" };
+  const fetching = $derived($overview.isFetching || $accounts.isFetching || $hosts.isFetching || $approvals.isFetching);
+  function refresh() {
+    void Promise.all([$overview.refetch(), $accounts.refetch(), $hosts.refetch(), $approvals.refetch(), $runner.refetch()]);
   }
 
-  /** The endpoint exposes the fleet total and its latest refresh directly. */
-  const stats = $derived.by(() => {
-    const data = $overview.data;
-    if (!data) return null;
-    const hosts = data.totals?.hosts ?? null;
-    const lastRefresh = data.last_refresh ?? null;
-    return { hosts, lastRefresh };
-  });
+  const hostRows = $derived($hosts.data?.hosts ?? []);
+  const accountRows = $derived($accounts.data?.accounts);
+  const disabledLabels = $derived($fleet.disabled.map((engine) => ENGINE_META[engine].label));
 
-  const installs = $derived(engineInstallCounts($overview.data?.version_distribution));
-
-  // Live upstream latest versions (GitHub for Codex, npm for Claude and Grok), surfaced
-  // by /admin/overview from the 1h-cached availableClientVersion lookup.
-  const codexLatest = $derived($overview.data?.versions?.cdx_version_available ?? null);
-  const grokLatest = $derived($overview.data?.versions?.grok_version_available ?? null);
-  const grokChecked = $derived(checkedHint($overview.data?.versions?.grok_version_checked_at, $overview.data?.versions?.grok_version_stale));
-  const claudeLatest = $derived($overview.data?.versions?.claude_version_available ?? null);
-
-  // `stale` means the upstream fetch has been failing: the API keeps serving
-  // the expired cache rather than breaking updates, so an ageing check time is
-  // the only sign the whole fleet is being handed an old target.
-  function checkedHint(iso?: string | null, stale?: boolean): string | null {
-    if (!iso) return null;
-    const ts = new Date(iso).getTime();
-    if (Number.isNaN(ts)) return null;
-    const mins = (Date.now() - ts) / 60_000;
-    const prefix = stale ? "stale — checked" : "checked";
-    if (mins < 1) return `${prefix} just now`;
-    if (mins < 60) return `${prefix} ${Math.round(mins)}m ago`;
-    const hours = mins / 60;
-    if (hours < 24) return `${prefix} ${Math.round(hours)}h ago`;
-    return `${prefix} ${Math.round(hours / 24)}d ago`;
-  }
-  const codexChecked = $derived(
-    checkedHint(
-      $overview.data?.versions?.cdx_version_checked_at,
-      $overview.data?.versions?.cdx_version_stale,
-    ),
-  );
-  const claudeChecked = $derived(
-    checkedHint(
-      $overview.data?.versions?.claude_version_checked_at,
-      $overview.data?.versions?.claude_version_stale,
-    ),
+  const staleChecks = $derived(
+    (["codex", "claude", "grok"] as const)
+      .filter((engine) => $overview.data?.versions?.[`${engine === "codex" ? "cdx" : engine}_version_stale`] === true)
+      .map((engine) => ENGINE_META[engine].label),
   );
 
-  const refreshHint = $derived.by(() => {
-    if (!$overview.data) return null;
-    const lr = $overview.data.last_refresh;
-    if (!lr) return "no refreshes yet";
-    const ts = new Date(lr).getTime();
-    if (Number.isNaN(ts)) return null;
-    const age = Date.now() - ts;
-    const hours = age / 3_600_000;
-    if (hours < 1) return "<1h since last refresh";
-    if (hours < 24) return `${Math.round(hours)}h since last refresh`;
-    return `${Math.round(hours / 24)}d since last refresh`;
+  const attention = $derived(
+    buildAttention({
+      hosts: $hosts.data ? hostFindings(hostRows, $fleet.disabled) : null,
+      pendingApprovals: $approvals.isError ? null : ($approvals.data?.requests?.length ?? 0),
+      accounts: accountRows ?? null,
+      runner: $runner.data?.runner ?? null,
+      disabledEngines: disabledLabels,
+      allEnginesDisabled: $fleet.enabled.length === 0 && $fleet.disabled.length > 0,
+      staleReleaseChecks: staleChecks,
+    }),
+  );
+  const sourcesLoading = $derived($hosts.isPending || $accounts.isPending || $runner.isPending);
+
+  const stats = $derived.by<Stat[] | null>(() => {
+    const total = $hosts.data ? hostRows.length : $overview.data?.totals?.hosts;
+    if (total === undefined) return null;
+    const online = hostRows.filter((host) => hostStatusKind(host) === "online").length;
+    const sessions = (accountRows ?? []).reduce((sum, account) => sum + account.sessions.length, 0);
+    const alerts = attention.filter((item) => item.tone !== "info").length;
+    const refreshed = $overview.data?.last_refresh;
+    return [
+      { label: "hosts online", value: $hosts.data ? `${online} / ${total}` : total, href: `${base}/hosts`, tone: $hosts.data && online < total ? "warning" : "default" },
+      { label: "active agents", value: accountRows ? sessions : "—", hint: "Agent sessions currently running on a provider account" },
+      { label: "accounts", value: accountRows ? accountRows.length : "—", href: `${base}/accounts` },
+      { label: "need attention", value: alerts, tone: alerts ? "danger" : "success" },
+      ...(refreshed ? [{ label: "last refresh", value: relativeTime(refreshed), hint: "Most recent credential refresh across the fleet" } satisfies Stat] : []),
+    ];
   });
 </script>
 
-<PageHeader
-  title="Overview"
-  subtitle="Fleet health, upstream releases, provider usage, and runner readiness at a glance."
->
+<PageShell title="Overview" description="What needs attention across the fleet, then how it is doing.">
   {#snippet actions()}
-    <Button variant="outline" onclick={() => $overview.refetch()} disabled={$overview.isFetching}>
-      <RefreshCw class="h-4 w-4 {$overview.isFetching ? 'animate-spin' : ''}" /> Refresh overview
+    <Button variant="outline" onclick={refresh} disabled={fetching}>
+      <RefreshCw class="h-4 w-4 {fetching ? 'animate-spin' : ''}" /> Refresh
     </Button>
-    <Button variant="outline" href={`${base}/logs/events`}>
-      <Activity class="h-4 w-4" /> Logs
-    </Button>
-    <Button href={`${base}/hosts?dialog=new-host`}>
-      <Plus class="h-4 w-4" /> Register host
-    </Button>
+    <Button href={`${base}/hosts?dialog=new-host`}><Plus class="h-4 w-4" /> Add host</Button>
   {/snippet}
-</PageHeader>
 
-<div class="flex flex-col gap-6">
-  <OnboardingCard />
-  {#if $overview.isError}
-    <Alert variant={$overview.data ? "warning" : "destructive"}>
-      <AlertTriangle class="h-4 w-4" />
-      <AlertTitle>{$overview.data ? "Overview could not refresh" : "Could not load fleet overview"}</AlertTitle>
-      <AlertDescription>
-        {$overview.data ? "Showing the last received snapshot. " : "Fleet counts and releases are unavailable. "}
-        {$overview.error?.message}
-        <Button variant="outline" size="sm" class="ml-2 mt-2" onclick={() => $overview.refetch()} disabled={$overview.isFetching}>Retry overview</Button>
-      </AlertDescription>
-    </Alert>
-  {/if}
-  {#if $fleet.disabled.length > 0}
-    <Alert variant={$fleet.enabled.length === 0 ? "destructive" : "warning"}>
-      <AlertTriangle class="h-4 w-4" />
-      <AlertTitle>
-        {$fleet.enabled.length === 0
-          ? "Every engine is disabled fleet-wide"
-          : `${$fleet.disabled.map((engine) => ENGINE_META[engine].label).join(" and ")} ${$fleet.disabled.length === 1 ? "is" : "are"} disabled fleet-wide`}
-      </AlertTitle>
-      <AlertDescription>
-        Hosts refuse to launch {$fleet.disabled.map((engine) => ENGINE_META[engine].command).join(", ")} and the server
-        stops refreshing, verifying and polling {$fleet.disabled.length === 1 ? "its" : "their"} accounts.
-        <a class="font-medium underline underline-offset-2" href={`${base}/engines`}>Engine switches</a>
-      </AlertDescription>
-    </Alert>
-  {/if}
-  <!-- Fleet + latest-version stat cards -->
-  <div class="grid grid-cols-1 gap-3 lg:grid-cols-4">
-    <StatCard
-      label="Hosts"
-      value={stats?.hosts ?? "—"}
-      hint={refreshHint}
-      loading={$overview.isPending}
-    >
-      {#snippet icon()}
-        <Server class="h-4 w-4" />
-      {/snippet}
-      {#snippet breakdown()}
-        <dl
-          class="grid grid-cols-3 divide-x divide-border/70 text-right leading-none"
-          aria-label="Reported installations by engine"
-          title="Hosts that reported an installed CLI version"
-        >
-          <div class="min-w-14 pr-2">
-            <dt class="flex items-center justify-end gap-1 text-[10px] font-medium text-muted-foreground">
-              <span class="h-1.5 w-1.5 rounded-full bg-persona-codex" aria-hidden="true"></span>
-              Codex
-            </dt>
-            <dd class="mt-1 text-sm font-semibold tabular-nums">{installs?.codex ?? "—"}</dd>
-          </div>
-          <div class="min-w-14 pl-2">
-            <dt class="flex items-center justify-end gap-1 text-[10px] font-medium text-muted-foreground">
-              <span class="h-1.5 w-1.5 rounded-full bg-persona-claude" aria-hidden="true"></span>
-              Claude
-            </dt>
-            <dd class="mt-1 text-sm font-semibold tabular-nums">{installs?.claude ?? "—"}</dd>
-          </div>
-          <div class="min-w-14 pl-2"><dt class="flex items-center justify-end gap-1 text-[10px] font-medium text-muted-foreground"><span class="h-1.5 w-1.5 rounded-full bg-persona-grok" aria-hidden="true"></span>Grok</dt><dd class="mt-1 text-sm font-semibold tabular-nums">{installs?.grok ?? "—"}</dd></div>
-        </dl>
-      {/snippet}
-    </StatCard>
-    <StatCard
-      label="Codex latest"
-      value={codexLatest ?? "—"}
-      {...engineCard("codex", codexChecked)}
-      loading={$overview.isPending}
-    >
-      {#snippet icon()}
-        <Package class="h-4 w-4" />
-      {/snippet}
-    </StatCard>
-    <StatCard
-      label="Claude latest"
-      value={claudeLatest ?? "—"}
-      {...engineCard("claude", claudeChecked)}
-      loading={$overview.isPending}
-    >
-      {#snippet icon()}
-        <Bot class="h-4 w-4" />
-      {/snippet}
-    </StatCard>
-    <StatCard label="Grok latest" value={grokLatest ?? "—"} {...engineCard("grok", grokChecked)} loading={$overview.isPending}>{#snippet icon()}<Bot class="h-4 w-4" />{/snippet}</StatCard>
-  </div>
-
-  <FleetCoverage totalHosts={$overview.data?.totals.hosts} distribution={$overview.data?.version_distribution} loading={$overview.isPending} />
-
-  <!-- Usage + runner cards -->
-  {#if $accounts.isError}
-    <Alert variant={$accounts.data ? "warning" : "destructive"}>
-      <AlertTriangle class="h-4 w-4" />
-      <AlertTitle>Could not load provider accounts</AlertTitle>
-      <AlertDescription>
-        {$accounts.data ? "Showing the last received accounts. " : ""}{$accounts.error?.message}
-        <Button variant="outline" size="sm" class="ml-2 mt-2" onclick={() => $accounts.refetch()} disabled={$accounts.isFetching}>Retry accounts</Button>
-      </AlertDescription>
-    </Alert>
-  {/if}
-  <div class={($accounts.data?.accounts?.length || $accounts.isPending) ? "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" : "grid grid-cols-1 gap-4 xl:grid-cols-2"}>
-    {#if $accounts.isPending}
-      {#each ["ChatGPT", "Claude", "Grok"] as provider}
-        <div class="flex flex-col gap-4 rounded-xl border border-t-2 bg-card p-5" aria-label={`Loading ${provider} usage`} aria-busy="true">
-          <Skeleton class="h-4 w-20" />
-          <Skeleton class="h-5 w-1/2" />
-          <Skeleton class="h-3 w-2/3" />
-          <Skeleton class="h-2.5 w-full" />
-          <Skeleton class="h-8 w-full" />
-        </div>
-      {/each}
-    {:else if $accounts.data?.accounts?.length}
-      <AccountUsageCards accounts={$accounts.data.accounts} />
-    {:else if !$accounts.isError}
-      <ChatGptUsageCard />
-      <ClaudeUsageCard />
+  <div class="flex flex-col gap-6">
+    {#if $overview.isError}
+      <StateBlock
+        state="error"
+        message={`${$overview.data ? "Overview could not refresh; showing the last snapshot" : "Could not load fleet overview"}: ${$overview.error?.message ?? "unknown error"}`}
+        onRetry={() => $overview.refetch()}
+      />
     {/if}
+
+    <AttentionList items={attention} loading={sourcesLoading} />
+
+    <OnboardingNotice />
+
+    {#if stats}
+      <StatStrip items={stats} />
+    {:else if $overview.isPending}
+      <StateBlock state="loading" rows={1} />
+    {/if}
+
+    <Section id="usage" title="Provider usage" description="Quota windows reported by each connected account.">
+      {#snippet actions()}<Button size="sm" variant="outline" href={`${base}/accounts`}>Manage accounts</Button>{/snippet}
+      <UsageTable
+        accounts={accountRows}
+        loading={$accounts.isPending}
+        error={$accounts.isError && !accountRows ? `Could not load provider accounts: ${$accounts.error?.message ?? "unknown error"}` : null}
+        onRetry={() => $accounts.refetch()}
+      />
+      {#if $accounts.isError && accountRows}
+        <p class="mt-2 text-body-sm text-warning" role="alert">
+          Could not refresh accounts, showing the last result.
+          <Button size="sm" variant="outline" class="ml-1" onclick={() => $accounts.refetch()} disabled={$accounts.isFetching}>Retry accounts</Button>
+        </p>
+      {/if}
+    </Section>
+
+    <Section id="engines" title="Engines" description="Installed CLI versions reported by hosts, and the latest upstream release.">
+      {#snippet actions()}<Button size="sm" variant="outline" href={`${base}/engines`}>Configure engines</Button>{/snippet}
+      <EngineTable overview={$overview.data} loading={$overview.isPending} />
+    </Section>
+
+    <Section id="runner" title="Verification runner" description="Checks provider logins with the provider before they are stored.">
+      <RunnerStatus />
+    </Section>
   </div>
-  <RunnerCard />
-</div>
+</PageShell>

@@ -1,144 +1,67 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
+  import { base } from "$app/paths";
+  import { PageShell, Section } from "$lib/components/page";
+  import { Button } from "$lib/components/ui/button";
+  import ArrowUpRight from "@lucide/svelte/icons/arrow-up-right";
   import ChattySettings from "$lib/components/chatty/ChattySettings.svelte";
-  import PageHeader from "$lib/components/layout/PageHeader.svelte";
-  import CodexVersionSection from "$lib/components/settings/CodexVersionSection.svelte";
-  import GrokVersionSection from "$lib/components/settings/GrokVersionSection.svelte";
-  import ClaudeVersionSection from "$lib/components/settings/ClaudeVersionSection.svelte";
-  import CdxSilentSection from "$lib/components/settings/CdxSilentSection.svelte";
-  import CodexCompactionSection from "$lib/components/settings/CodexCompactionSection.svelte";
+  import EngineMasterSwitches from "$lib/components/settings/EngineMasterSwitches.svelte";
   import QuotasSection from "$lib/components/settings/QuotasSection.svelte";
   import ScalingSection from "$lib/components/settings/ScalingSection.svelte";
-  import NativeSettingsEditor from "$lib/components/settings/NativeSettingsEditor.svelte";
-  import ClaudeFleetSettings from "$lib/components/settings/ClaudeFleetSettings.svelte";
-  import EngineMasterSwitches from "$lib/components/settings/EngineMasterSwitches.svelte";
   import WrapperRolloutSection from "$lib/components/settings/WrapperRolloutSection.svelte";
-  import QuickModelDefaults from "$lib/components/settings/QuickModelDefaults.svelte";
-  import EngineTab from "$lib/components/engines/EngineTab.svelte";
-  import * as Tabs from "$lib/components/ui/tabs";
-  import { Badge } from "$lib/components/ui/badge";
-  import { Button } from "$lib/components/ui/button";
-  import { useFleetEngines } from "$lib/engines/fleet-engines";
-  import { ENGINE_META } from "$lib/constants/engines";
-  import {
-    ENGINE_PAGE_TABS,
-    engineHash,
-    resolveEngineHash,
-    type EnginePageTab,
-    type EngineSubTab,
-  } from "$lib/engines/engine-tabs";
-  import { base } from "$app/paths";
-  import ArrowUpRight from "@lucide/svelte/icons/arrow-up-right";
+  import EngineSection from "$lib/components/engines/EngineSection.svelte";
+  import EngineDangerZone from "$lib/components/engines/EngineDangerZone.svelte";
+  import { advancedEngineForHash } from "$lib/components/engines/engine-anchors";
+  import { ENGINES, type Engine } from "$lib/constants/engines";
 
-  const fleet = useFleetEngines();
-  const STORE_KEY = "engines.tab";
+  // Which engine's Advanced disclosure is open. Closed content is not rendered,
+  // so a hash that points inside one (`#claude-client`) must open it before
+  // the browser can scroll there.
+  let advanced = $state<Record<Engine, boolean>>({ codex: false, claude: false, grok: false });
 
-  let tab = $state<EnginePageTab>("fleet");
-  let subs = $state<Partial<Record<EnginePageTab, EngineSubTab | null>>>({});
-
-  function select(next: EnginePageTab, sub: EngineSubTab | null = subs[next] ?? null) {
-    tab = next;
-    subs[next] = sub;
-    history.replaceState(history.state, "", engineHash(next, sub));
-    try { localStorage.setItem(STORE_KEY, engineHash(next, sub)); } catch { /* storage may be blocked */ }
-  }
-
-  function apply(hash: string): boolean {
-    const target = resolveEngineHash(hash);
-    if (!target) return false;
-    tab = target.tab;
-    subs[target.tab] = target.sub;
-    return true;
+  async function follow(hash: string) {
+    const engine = advancedEngineForHash(hash);
+    if (engine) advanced[engine] = true;
+    const id = hash.replace(/^#/, "");
+    if (!id) return;
+    await tick();
+    requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: "start" }));
   }
 
   onMount(() => {
-    if (!apply(location.hash)) {
-      try { apply(localStorage.getItem(STORE_KEY) ?? ""); } catch { /* default tab */ }
-    }
-    const onHash = () => apply(location.hash);
+    void follow(location.hash);
+    const onHash = () => void follow(location.hash);
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   });
-
-  const labels: Record<EnginePageTab, string> = {
-    fleet: "Fleet",
-    defaults: "Model defaults",
-    codex: ENGINE_META.codex.label,
-    claude: ENGINE_META.claude.label,
-    grok: ENGINE_META.grok.label,
-  };
-  const dots: Partial<Record<EnginePageTab, string>> = {
-    codex: ENGINE_META.codex.color,
-    claude: ENGINE_META.claude.color,
-    grok: ENGINE_META.grok.color,
-  };
 </script>
 
-<PageHeader title="Engines" subtitle="One fleet. Three engines. Switch them, set defaults, control updates, tune each client.">
+<PageShell title="Engines" description="Turn engines on or off, set what new sessions use, and control updates. Per-host exceptions override these defaults.">
   {#snippet actions()}
-    <Button variant="outline" href={`${base}/hosts`}>Host overrides <ArrowUpRight class="h-4 w-4" /></Button>
+    <Button variant="outline" href={`${base}/hosts`} title="Host overrides">Per-host exceptions <ArrowUpRight class="h-4 w-4" /></Button>
   {/snippet}
-</PageHeader>
 
-<EngineMasterSwitches variant="strip" />
+  <div id="engine-state" class="scroll-mt-20"><EngineMasterSwitches /></div>
 
-<Tabs.Root value={tab} onValueChange={(v) => select(v as EnginePageTab)}>
-  <Tabs.List aria-label="Engine settings" class="max-w-full overflow-x-auto">
-    {#each ENGINE_PAGE_TABS as t (t)}
-      <Tabs.Trigger value={t} class="gap-2">
-        {#if dots[t]}<span class="h-2 w-2 rounded-full {dots[t]}" aria-hidden="true"></span>{/if}
-        {labels[t]}
-        {#if t !== "fleet" && !$fleet.isEnabled(t)}<Badge variant="warning">Off</Badge>{/if}
-      </Tabs.Trigger>
+  <div id="defaults" class="scroll-mt-20 space-y-8">
+    {#each ENGINES as engine (engine)}
+      <EngineSection {engine} bind:advancedOpen={advanced[engine]} />
     {/each}
-  </Tabs.List>
+  </div>
 
-  <Tabs.Content value="fleet" class="mt-4 space-y-4">
-    <section id="cxx-rollout" class="scroll-mt-16"><WrapperRolloutSection headingLevel={3} /></section>
-    <section id="quota-enforcement" class="scroll-mt-16">
-      <QuotasSection headingLevel={3} />
-      <ScalingSection headingLevel={3} />
-    </section>
-    <ChattySettings />
-  </Tabs.Content>
+  <Section id="quota-enforcement" title="Usage limits" description="What happens when an account nears its quota, and how clients are advised to switch provider.">
+    <QuotasSection />
+  </Section>
 
-  <Tabs.Content value="defaults" class="mt-4">
-    <p class="mb-3 max-w-3xl text-sm text-muted-foreground">
-      Choose model, effort, and Grok context defaults. Changes save immediately and apply when managed clients next sync; host overrides take precedence.
-    </p>
-    <div class="grid items-start gap-5 xl:grid-cols-3">
-      <QuickModelDefaults engine="codex" />
-      <QuickModelDefaults engine="claude" />
-      <QuickModelDefaults engine="grok" />
-    </div>
-  </Tabs.Content>
+  <Section id="scaling-rules" title="Usage-based scaling" description="Tiers that change lane, effort or model as fleet usage rises. Hosts marked Always allowed (they ignore usage limits) are exempt.">
+    <ScalingSection />
+  </Section>
 
-  <Tabs.Content value="codex" class="mt-4" id="codex-defaults">
-    <EngineTab engine="codex" sub={subs.codex ?? null} onSub={(s) => select("codex", s)}>
-      {#snippet versions()}
-        <CodexVersionSection headingLevel={3} />
-        <CdxSilentSection bordered={false} />
-        <CodexCompactionSection />
-      {/snippet}
-      {#snippet nativeExtra()}<NativeSettingsEditor engine="codex" profiles />{/snippet}
-    </EngineTab>
-  </Tabs.Content>
+  <Section id="cxx-rollout" title="Host agent rollout" description="Try new host-agent versions early: a few hosts get each new cxx release first, the rest follow in stages.">
+    <WrapperRolloutSection headingLevel={3} />
+  </Section>
 
-  <Tabs.Content value="claude" class="mt-4" id="claude-defaults">
-    <EngineTab engine="claude" sub={subs.claude ?? null} onSub={(s) => select("claude", s)}>
-      {#snippet versions()}<ClaudeVersionSection headingLevel={3} />{/snippet}
-      {#snippet client()}
-        <p id="claude-client" class="mb-3 max-w-3xl text-sm text-muted-foreground">
-          Owned Claude Code settings are deep-merged; user-authored settings remain intact.
-        </p>
-        <ClaudeFleetSettings />
-      {/snippet}
-    </EngineTab>
-  </Tabs.Content>
+  <ChattySettings />
 
-  <Tabs.Content value="grok" class="mt-4" id="grok-defaults">
-    <EngineTab engine="grok" sub={subs.grok ?? null} onSub={(s) => select("grok", s)}>
-      {#snippet versions()}<GrokVersionSection headingLevel={3} />{/snippet}
-    </EngineTab>
-  </Tabs.Content>
-</Tabs.Root>
+  <EngineDangerZone />
+</PageShell>

@@ -191,17 +191,17 @@
 
 <section
   id="claude-fleet-settings"
-  class="scroll-mt-24 border-y border-border py-3 text-sm"
+  class="scroll-mt-24 border-y border-border py-3 text-body-sm"
 >
   <div class="flex flex-wrap items-center gap-3">
     <div class="min-w-0">
-      <p class="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Fleet configuration</p>
-      <p class="text-sm">Claude Code <span class="font-mono text-xs">settings.json</span> sub-blocks</p>
+      <p class="text-caption font-semibold uppercase tracking-[0.08em] text-muted-foreground">Fleet configuration</p>
+      <p class="text-body-sm">Claude Code <span class="font-mono text-caption">settings.json</span> sub-blocks</p>
     </div>
     {#if serverSha}
       <div class="border-l pl-3">
-        <span class="block text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Revision</span>
-        <span class="font-mono text-xs" title={serverSha}>{serverSha.slice(0, 12)}…</span>
+        <span class="block text-caption font-semibold uppercase tracking-[0.08em] text-muted-foreground">Revision</span>
+        <span class="font-mono text-caption" title={serverSha}>{serverSha.slice(0, 12)}…</span>
       </div>
     {/if}
     <div class="ml-auto flex items-center gap-2">
@@ -230,22 +230,22 @@
 </section>
 
 {#if !$authStore.can("content.read")}
-  <p class="text-sm text-muted-foreground">Your role needs content.read to view Claude settings.</p>
+  <p class="text-body-sm text-muted-foreground">Your role needs content.read to view Claude settings.</p>
 {:else if $query.isLoading}
-  <p class="text-sm text-muted-foreground">Loading settings…</p>
+  <p class="text-body-sm text-muted-foreground">Loading settings…</p>
 {:else if $query.isError}
-  <p class="text-sm text-destructive">
+  <p class="text-body-sm text-destructive">
     {$query.error instanceof Error ? $query.error.message : "Failed to load settings"}
   </p>
 {:else}
   <fieldset disabled={!canManage || $saveMutation.isPending} class="min-w-0 divide-y border-b border-border">
     <section class="py-5" aria-labelledby="advisor-model-heading">
       <div class="mb-3 max-w-3xl">
-        <h3 id="advisor-model-heading" class="text-sm font-semibold">
+        <h3 id="advisor-model-heading" class="text-body-sm font-semibold">
           Advisor model
           <Badge variant="secondary" class="ml-1 align-middle">experimental</Badge>
         </h3>
-        <p class="mt-1 text-sm text-muted-foreground">
+        <p class="mt-1 text-body-sm text-muted-foreground">
           Sets <span class="font-mono">advisorModel</span> in settings.json. When set, the advisor tool
           routes the full transcript to a stronger reviewer model. Off omits the key.
         </p>
@@ -255,16 +255,16 @@
 
     <section class="py-5" aria-labelledby="environment-variables-heading">
       <div class="mb-3 max-w-3xl">
-        <h3 id="environment-variables-heading" class="text-sm font-semibold">Environment variables</h3>
-        <p class="mt-1 text-sm text-muted-foreground">Values are rendered only into fleet-owned Claude settings.</p>
+        <h3 id="environment-variables-heading" class="text-body-sm font-semibold">Environment variables</h3>
+        <p class="mt-1 text-body-sm text-muted-foreground">Values are rendered only into fleet-owned Claude settings.</p>
       </div>
       <KeyValueList bind:rows={env} keyPlaceholder="NAME" valuePlaceholder="value" addLabel="Add variable" />
     </section>
 
     <section class="py-5" aria-labelledby="permission-mode-heading">
       <div class="mb-3 max-w-3xl">
-        <h3 id="permission-mode-heading" class="text-sm font-semibold">Permission mode</h3>
-        <p class="mt-1 text-sm text-muted-foreground">
+        <h3 id="permission-mode-heading" class="text-body-sm font-semibold">Permission mode</h3>
+        <p class="mt-1 text-body-sm text-muted-foreground">
           Sets <span class="font-mono">permissions.defaultMode</span> in settings.json — the mode every
           managed Claude host starts in. <span class="font-mono">auto</span> auto-approves tool calls with
           background safety checks; <span class="font-mono">default</span> prompts each time.
@@ -280,20 +280,20 @@
 
     <section class="py-5" aria-labelledby="permissions-heading">
       <div class="mb-3 max-w-3xl">
-        <h3 id="permissions-heading" class="text-sm font-semibold">Permissions</h3>
-        <p class="mt-1 text-sm text-muted-foreground">Allow rules run directly, ask rules require confirmation, and deny rules are never offered.</p>
+        <h3 id="permissions-heading" class="text-body-sm font-semibold">Permissions</h3>
+        <p class="mt-1 text-body-sm text-muted-foreground">Allow rules run directly, ask rules require confirmation, and deny rules are never offered.</p>
       </div>
       <div class="divide-y border-y border-border">
         <div class="py-4">
-          <p class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Allow</p>
+          <p class="mb-2 text-caption font-semibold uppercase tracking-[0.08em] text-muted-foreground">Allow</p>
           <RepeatableList bind:items={allow} placeholder="e.g. Bash(npm run *)" addLabel="Add allow rule" />
         </div>
         <div class="py-4">
-          <p class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Ask</p>
+          <p class="mb-2 text-caption font-semibold uppercase tracking-[0.08em] text-muted-foreground">Ask</p>
           <RepeatableList bind:items={ask} placeholder="e.g. Bash(git push *)" addLabel="Add ask rule" />
         </div>
         <div class="py-4">
-          <p class="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Deny</p>
+          <p class="mb-2 text-caption font-semibold uppercase tracking-[0.08em] text-muted-foreground">Deny</p>
           <RepeatableList bind:items={deny} placeholder="e.g. Read(./secrets/**)" addLabel="Add deny rule" />
         </div>
       </div>
@@ -301,22 +301,22 @@
 
     <section class="py-5" aria-labelledby="status-line-heading">
       <div class="mb-3 max-w-3xl">
-        <h3 id="status-line-heading" class="text-sm font-semibold">Status line</h3>
-        <p class="mt-1 text-sm text-muted-foreground">Type is fixed to <span class="font-mono text-xs">command</span>.</p>
+        <h3 id="status-line-heading" class="text-body-sm font-semibold">Status line</h3>
+        <p class="mt-1 text-body-sm text-muted-foreground">Type is fixed to <span class="font-mono text-caption">command</span>.</p>
       </div>
       <div class="max-w-2xl space-y-1.5">
-        <label for="status-line-command" class="text-xs font-medium">Command</label>
+        <label for="status-line-command" class="text-caption font-medium">Command</label>
         <Input id="status-line-command" bind:value={statusLineCommand} placeholder="e.g. ~/.claude/statusline.sh" />
       </div>
     </section>
 
     <section class="py-5" aria-labelledby="hooks-heading">
       <div class="mb-3 max-w-3xl">
-        <h3 id="hooks-heading" class="text-sm font-semibold">Hooks</h3>
-        <p class="mt-1 text-sm text-muted-foreground">Run selected commands when matching Claude lifecycle events occur.</p>
+        <h3 id="hooks-heading" class="text-body-sm font-semibold">Hooks</h3>
+        <p class="mt-1 text-body-sm text-muted-foreground">Run selected commands when matching Claude lifecycle events occur.</p>
       </div>
       {#if advancedHooks}
-        <p class="text-sm text-muted-foreground">These hooks contain additional types or options. They are preserved when saving this form; edit them through the configuration API.</p>
+        <p class="text-body-sm text-muted-foreground">These hooks contain additional types or options. They are preserved when saving this form; edit them through the configuration API.</p>
         <MdPreview json={baseline.hooks} />
       {:else}
         <HooksEditor bind:hooks disabled={!canManage || $saveMutation.isPending} />
@@ -326,8 +326,8 @@
     <section class="py-5" aria-labelledby="settings-preview-heading">
       <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 id="settings-preview-heading" class="text-sm font-semibold">settings.json preview</h3>
-          <p class="mt-1 text-sm text-muted-foreground">Read-only effective fleet-owned settings before save.</p>
+          <h3 id="settings-preview-heading" class="text-body-sm font-semibold">settings.json preview</h3>
+          <p class="mt-1 text-body-sm text-muted-foreground">Read-only effective fleet-owned settings before save.</p>
         </div>
         <Badge variant="secondary">read-only</Badge>
       </div>

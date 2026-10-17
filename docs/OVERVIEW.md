@@ -777,7 +777,7 @@ Remote sessions use a searchable directory and a start side panel; the host page
 the same workspace with its host selected. Bound remote agents are not duplicated in Agents.
 Existing native-session links select the corresponding workspace.
 
-**Fleet → Policies → Agent behavior → Agent sessions** holds the shared master switch and queue health (`/admin/policies#agent-sessions`).
+**Settings → Agents → Agent sessions** holds the shared master switch and queue health (`/admin/settings#agents`).
 The setup wizard calls this feature **Agent sessions**. The Android companion
 keeps its existing pairing, chat, questions, host approvals and FCM notifications.
 The old `/go` webchat, permanent links and separate portal users have been removed.
@@ -1136,7 +1136,7 @@ kept alive merely because the daemon is online.
 
 ## Local session housekeeping
 
-Policies → Cleanup configures fleet defaults for Codex, Claude and Grok; the host detail page supports a complete override per engine. Enabled by default: 30 days retention, 5 GiB session files per engine/local user, and at least 7 days inactivity for budget-pressure deletion. cxx runs this through its existing daily-coalesced maintenance coordinator. Active, pinned and resumable fleet sessions remain protected; budget excess is reported honestly.
+Settings → Data retention configures fleet defaults for Codex, Claude and Grok; the host detail page supports a complete override per engine. Enabled by default: 30 days retention, 5 GiB session files per engine/local user, and at least 7 days inactivity for budget-pressure deletion. cxx runs this through its existing daily-coalesced maintenance coordinator. Active, pinned and resumable fleet sessions remain protected; budget excess is reported honestly.
 
 Use `cxx housekeeping status`, `cxx housekeeping run --dry-run`, or `cxx housekeeping run`, with `--engine codex|claude|grok` and optional `--json`. `cdx`, `clx`, `cgx` select their respective engine. `cxx housekeeping pin UUID --engine ENGINE` protects an important local session; `unpin` removes only the cxx pin, never a native pin. Deletion is permanent. A retained recovery journal fences native launches until `cxx housekeeping run --engine ENGINE` completes the interrupted operation.
 
@@ -1152,7 +1152,7 @@ interactive pane with one initial checkpoint. Local reboot status supplies the
 request-specific tmux attach command; without tmux the headless path remains.
 Explicit work receipts remain required, and tmux startup failure never retries the
 native launch. See [reboot/resume](reboot-resume.md).
-System Spawn is optional new-host provisioning through server MCP, restricted to active VIP source hosts. Agents receive setup material and install it over SSH; optional Linux/systemd daemons may be permanent or timed. Configure under Policies → Agent behavior; see [the API contract](interface-api.md#system-spawn-new-system-provisioning).
+System Spawn is optional new-host provisioning through server MCP, restricted to active VIP source hosts. Agents receive setup material and install it over SSH; optional Linux/systemd daemons may be permanent or timed. Configure under Settings → Agents; see [the API contract](interface-api.md#system-spawn-new-system-provisioning).
 
 Agent chat supports explicit Needs you severity, reply buttons/text, and files/media in both directions; see [Agent chat](agent-chat.md). The isolated local media worker is part of the Compose stack.
 

@@ -74,7 +74,7 @@
     <div class="mt-2 space-y-4">
       {#each GROUPS as group (group.title)}
         <div>
-          <p class="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <p class="mb-1.5 text-body-sm font-semibold uppercase tracking-wider text-muted-foreground">
             {group.title}
           </p>
           <div class="grid grid-cols-1 gap-1.5">
@@ -82,14 +82,14 @@
               <div
                 class="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/40 px-3 py-2"
               >
-                <span class="text-sm text-foreground">{entry.description}</span>
+                <span class="text-body text-foreground">{entry.description}</span>
                 <span class="flex items-center gap-1">
                   {#each entry.keys as key, i (i)}
                     {#if i > 0}
-                      <span class="text-xs text-muted-foreground">+</span>
+                      <span class="text-body-sm text-muted-foreground">+</span>
                     {/if}
                     <kbd
-                      class="inline-flex min-w-[1.75rem] items-center justify-center rounded border border-border bg-background px-1.5 py-0.5 text-xs font-mono font-medium text-foreground"
+                      class="inline-flex min-w-[1.75rem] items-center justify-center rounded-md border border-border bg-background px-1.5 py-0.5 text-body-sm font-mono font-medium text-foreground"
                     >
                       {key}
                     </kbd>
@@ -101,6 +101,6 @@
         </div>
       {/each}
     </div>
-    <p class="border-t pt-3 text-xs leading-relaxed text-muted-foreground">Single-key shortcuts are paused while you type in a form or editor.</p>
+    <p class="border-t pt-3 text-body-sm leading-relaxed text-muted-foreground">Single-key shortcuts are paused while you type in a form or editor.</p>
   </Dialog.Content>
 </Dialog.Root>

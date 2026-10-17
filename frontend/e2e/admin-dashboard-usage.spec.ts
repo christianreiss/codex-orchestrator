@@ -44,48 +44,37 @@ async function fixtures(page: Page, accounts: ProviderAccount[], options: { wait
   });
 }
 
-test("three providers share card and meter geometry in light/dark desktop, tablet and mobile layouts", async ({ page }, info) => {
+const USAGE = "Provider accounts and their quota usage";
+
+test("three providers share one usage table in light/dark desktop, tablet and mobile layouts", async ({ page }, info) => {
   test.setTimeout(90_000);
   await fixtures(page, providers());
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
-  for (const [width, columns, scheme] of [[1440, 3, "light"], [1440, 3, "dark"], [1000, 2, "light"], [390, 1, "light"], [390, 1, "dark"]] as const) {
+  for (const [width, scheme] of [[1440, "light"], [1440, "dark"], [1000, "light"], [390, "light"], [390, "dark"]] as const) {
     await page.setViewportSize({ width, height: 1000 });
     await page.emulateMedia({ colorScheme: scheme });
     await page.goto("/admin/dashboard");
-    const cards = page.locator("a[aria-labelledby^='usage-account-']");
-    await expect(cards).toHaveCount(3);
-    await expect(cards.nth(0).getByTestId('provider-plan')).toContainText('Pro');
-    await expect(cards.nth(1).getByTestId('provider-plan')).toContainText('Max 20×');
-    await expect(cards.nth(1).getByTestId('provider-plan')).toContainText('Login metadata');
-    await expect(cards.nth(1).getByTestId('provider-plan')).toContainText('Last known plan');
-    await expect(cards.nth(2).getByTestId('provider-plan')).toContainText('SuperGrok Heavy');
-    await expect(cards.nth(0).getByRole("meter")).toHaveCount(1);
-    await expect(cards.nth(0)).not.toContainText("Short window");
-    await expect(cards.nth(1).getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
-    await expect(cards.nth(1)).toContainText("Last known reading");
-    await expect(cards.nth(2).getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "87");
-    await expect(cards.nth(2)).toContainText("in 1 day");
-    const geometry = await cards.evaluateAll(nodes => nodes.map(node => {
-      const bounds = node.getBoundingClientRect();
-      const style = getComputedStyle(node);
-      const meter = node.querySelector('[role="meter"]')!;
-      return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
-        padding: style.padding, radius: style.borderRadius, meterHeight: meter.getBoundingClientRect().height,
-        footerTop: node.lastElementChild!.getBoundingClientRect().y };
-    }));
-    expect(new Set(geometry.map(g => g.padding)).size).toBe(1);
-    expect(new Set(geometry.map(g => g.radius)).size).toBe(1);
-    expect(new Set(geometry.map(g => g.meterHeight)).size).toBe(1);
-    expect(geometry.filter(g => Math.abs(g.y - geometry[0].y) < 1)).toHaveLength(columns);
-    if (columns === 3) {
-      expect(new Set(geometry.map(g => g.height)).size).toBe(1);
-      expect(new Set(geometry.map(g => g.footerTop)).size).toBe(1);
-    }
+    const table = page.getByRole("table", { name: USAGE });
+    const rows = table.locator("tbody tr");
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(0).getByTestId("provider-plan")).toContainText("Pro");
+    await expect(rows.nth(1).getByTestId("provider-plan")).toContainText("Max 20×");
+    await expect(rows.nth(1).getByTestId("provider-plan")).toContainText("(last known)");
+    await expect(rows.nth(2).getByTestId("provider-plan")).toContainText("SuperGrok Heavy");
+    await expect(rows.nth(0).getByRole("meter")).toHaveCount(1);
+    await expect(rows.nth(0)).not.toContainText("Short window");
+    await expect(rows.nth(1).getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
+    await expect(rows.nth(1)).toContainText("Last known reading");
+    await expect(rows.nth(2).getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "87");
+    await expect(rows.nth(2)).toContainText("in 1 day");
+    // One compact table: every meter has the same height and the page never scrolls sideways.
+    const heights = await table.getByRole("meter").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
+    expect(new Set(heights).size).toBe(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    const findings = await new AxeBuilder({ page }).include("a[aria-labelledby^='usage-account-']").analyze();
+    const findings = await new AxeBuilder({ page }).include("section#usage").analyze();
     expect(findings.violations.filter(v => ["serious", "critical"].includes(v.impact ?? ""))).toEqual([]);
-    await cards.first().locator("..").screenshot({ path: info.outputPath(`providers-${width}-${scheme}.png`) });
+    await page.locator("section#usage").screenshot({ path: info.outputPath(`providers-${width}-${scheme}.png`) });
   }
   expect(errors).toEqual([]);
 });
@@ -95,18 +84,13 @@ test("ChatGPT renders a supplied five-hour zero reading and retains account navi
   Object.assign(accounts[0].usage, { short_used_percent: 0, short_limit_seconds: 18000, short_resets_at: reset });
   await fixtures(page, accounts);
   await page.goto("/admin/dashboard");
-  const card = page.getByRole("link", { name: "ChatGPT", exact: true });
-  await expect(card.getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
-  await expect(card.getByRole("meter")).toHaveCount(2);
-  await expect(card.locator(`time[datetime='${reset}']`)).toContainText("in 1 day");
-  await card.focus();
+  const row = page.getByRole("row", { name: /ChatGPT/ });
+  await expect(row.getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
+  await expect(row.getByRole("meter")).toHaveCount(2);
+  await expect(row.locator(`p:has-text("Resets in 1 day")`)).toBeVisible();
+  await row.getByRole("link", { name: "ChatGPT" }).focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/admin\/accounts$/);
-  const chatgpt = page.locator("section").filter({ has: page.getByRole("heading", { name: "ChatGPT", exact: true }) });
-  await expect(chatgpt.locator(`time[datetime='${reset}']`)).toContainText("in 1 day");
-  await expect(chatgpt.getByText("Reset time unavailable")).toBeVisible();
-  const grok = page.locator("section").filter({ has: page.getByRole("heading", { name: "Grok account", exact: true }) });
-  await expect(grok.locator(`time[datetime='${reset}']`)).toContainText("in 1 day");
 });
 
 test("a Grok window without a reset does not invent a day count", async ({ page }) => {
@@ -114,10 +98,10 @@ test("a Grok window without a reset does not invent a day count", async ({ page 
   accounts[2].usage.current_window = { used_percent: 10, period: "weekly", starts_at: null, resets_at: null, shared: false };
   await fixtures(page, accounts);
   await page.goto("/admin/dashboard");
-  const card = page.getByRole("link", { name: "Grok account", exact: true });
-  await expect(card.getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "10");
-  await expect(card).toContainText("Reset time unavailable");
-  await expect(card).not.toContainText("in 0 days");
+  const row = page.getByRole("row", { name: /Grok account/ });
+  await expect(row.getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "10");
+  await expect(row).toContainText("Reset time unavailable");
+  await expect(row).not.toContainText("in 0 days");
 });
 
 test("a sub-day Grok reset stays in hours", async ({ page }) => {
@@ -126,8 +110,8 @@ test("a sub-day Grok reset stays in hours", async ({ page }) => {
   accounts[2].usage.current_window = { used_percent: 10, period: "weekly", starts_at: null, resets_at: soon, shared: true };
   await fixtures(page, accounts);
   await page.goto("/admin/dashboard");
-  const card = page.getByRole("link", { name: "Grok account", exact: true });
-  await expect(card.locator(`time[datetime='${soon}']`)).toContainText("in 3 hours");
+  const row = page.getByRole("row", { name: /Grok account/ });
+  await expect(row.locator(`time[datetime='${soon}']`)).toContainText("in 3 hours");
 });
 
 test("unknown, unavailable and login-required accounts never show zero quota", async ({ page }) => {
@@ -140,26 +124,30 @@ test("unknown, unavailable and login-required accounts never show zero quota", a
   accounts[1].plan = { name: null, source: 'claude_login', observed_at: null, stale: true };
   await fixtures(page, accounts, { off: true });
   await page.goto("/admin/dashboard");
-  const cards = page.locator("a[aria-labelledby^='usage-account-']");
-  await expect(cards).toHaveCount(3);
-  await expect(cards.getByRole("meter")).toHaveCount(0);
-  await expect(cards.nth(0)).toContainText("Waiting for usage data");
-  await expect(cards.nth(0).getByTestId('provider-plan')).toContainText('Plan unavailable');
-  await expect(cards.nth(1).getByTestId('provider-plan')).toContainText('Plan unavailable');
-  await expect(cards.nth(0)).toContainText("Disabled fleet-wide");
-  await expect(cards.nth(1)).toContainText("Subscription quota unavailable");
-  await expect(cards.nth(2)).toContainText("Usage unavailable");
-  await expect(cards.nth(2)).toContainText("Subscription login needs renewal");
+  const table = page.getByRole("table", { name: USAGE });
+  const rows = table.locator("tbody tr");
+  await expect(rows).toHaveCount(3);
+  await expect(table.getByRole("meter")).toHaveCount(0);
+  await expect(rows.nth(0)).toContainText("Waiting for usage data");
+  await expect(rows.nth(0).getByTestId("provider-plan")).toContainText("Plan unavailable");
+  await expect(rows.nth(1).getByTestId("provider-plan")).toContainText("Plan unavailable");
+  await expect(rows.nth(0)).toContainText("Disabled fleet-wide");
+  await expect(rows.nth(1)).toContainText("Subscription quota unavailable");
+  await expect(rows.nth(2)).toContainText("Usage unavailable");
+  await expect(rows.nth(2)).toContainText("Login needed");
+  // The login that needs renewal also leads the attention list.
+  await expect(page.getByRole("list", { name: "Items needing attention" })).toContainText("Grok account Grok account needs a new login");
 });
 
-test("loading uses three placeholders and an account error cannot silently switch to legacy cards", async ({ page }) => {
+test("loading shows a placeholder and an account error cannot silently switch to another source", async ({ page }) => {
   let release!: () => void;
   const wait = new Promise<void>(resolve => { release = resolve; });
   await fixtures(page, providers(), { wait, fail: true });
   await page.goto("/admin/dashboard");
-  await expect(page.locator("[aria-label^='Loading '][aria-busy='true']")).toHaveCount(3);
+  await expect(page.locator("section#usage").getByRole("status", { name: "Loading" })).toBeVisible();
   release();
-  await expect(page.getByText("Could not load provider accounts", { exact: true })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("button", { name: "Retry accounts" })).toBeVisible();
+  const usage = page.locator("section#usage");
+  await expect(usage.getByText("Could not load provider accounts", { exact: false })).toBeVisible({ timeout: 20_000 });
+  await expect(usage.getByRole("button", { name: "Retry" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "ChatGPT usage", exact: true })).toHaveCount(0);
 });

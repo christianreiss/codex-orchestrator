@@ -13,7 +13,6 @@
   import { toast } from "svelte-sonner";
   import { page } from "$app/state";
   import RemoteSessions from "$lib/components/portal/RemoteSessions.svelte";
-  import PageHeader from "$lib/components/layout/PageHeader.svelte";
   import ChatUploads from "$lib/components/portal/ChatUploads.svelte";
   import type { UploadItem } from "$lib/portal/chat-files";
   import Composer from "$lib/components/portal/Composer.svelte";
@@ -36,7 +35,36 @@
   import type { TimelineSource } from "$lib/portal/types";
   import { reconnectReceiverMutation, agentSessionKeys, agentSessionsQuery, forceCloseMutation, requestCloseMutation, sendMutation, sessionEventsQuery, type AgentSessionRow } from "$lib/api/agentSessions";
 
-  let { embedded = false, sessionId = null, spawnHost, spawnOpen = $bindable(false) }: { embedded?: boolean; sessionId?: string | null; spawnHost?: number; spawnOpen?: boolean } = $props();
+  type Props = {
+    embedded?: boolean;
+    sessionId?: string | null;
+    spawnHost?: number;
+    spawnOpen?: boolean;
+    /** Directory filters, owned by the Agents page toolbar. */
+    search?: string;
+    engine?: "all" | "codex" | "claude" | "grok";
+    filter?: ClientFilter;
+    /** "agents" or "remote" (daemon-launched sessions). */
+    workspace?: "agents" | "remote";
+    /** Open the "start remote session" dialog. */
+    startRemote?: boolean;
+    selectedId?: string | null;
+    /** Show this agent's connection in the shared inspector. */
+    oninspect?: (id: string) => void;
+  };
+  let {
+    embedded = false,
+    sessionId = null,
+    spawnHost,
+    spawnOpen = $bindable(false),
+    search = $bindable(""),
+    engine = $bindable("all"),
+    filter = $bindable("active"),
+    workspace = $bindable("agents"),
+    startRemote = $bindable(false),
+    selectedId = $bindable(null),
+    oninspect,
+  }: Props = $props();
   const sessions = agentSessionsQuery();
   const reconnectReceiver = reconnectReceiverMutation();
   const client = useQueryClient();
@@ -44,11 +72,8 @@
   const canReadTranscript = $derived($authStore.can("agent_portal.reveal_transcript"));
   const canRemoteManage = $derived($authStore.can("agent_messaging.manage"));
   const daemonHosts = hostDaemonsQuery(() => canRemoteManage);
-  let workspace = $state<"agents" | "remote">("agents");
   let remoteId = $state<string | null>(null);
-  let startRemote = $state(false);
   const remoteRows = $derived(($daemonHosts.data?.hosts ?? []).flatMap(host => host.sessions));
-  let selectedId = $state<string | null>(null);
   let handledLink = $state("");
   $effect(() => {
     if (embedded) return;
@@ -78,9 +103,6 @@
   });
   $effect(() => { if (embedded && spawnOpen) { workspace = "remote"; startRemote = true; } });
   $effect(() => { if (embedded && !startRemote) spawnOpen = false; });
-  let search = $state("");
-  let engine = $state<"all" | "codex" | "claude" | "grok">("all");
-  let filter = $state<ClientFilter>("active");
   let now = $state(Date.now());
   let detailHeading = $state<HTMLHeadingElement | null>(null);
   $effect(() => {
@@ -229,10 +251,6 @@
   function agentName(row: AgentSessionRow) { return row.launch_name || row.session_name || row.work.address_alias || `Session ${row.id.slice(0, 8)}`; }
   function age(value: string | null, clock = serverNow) { return value ? shortAge(value, clock) || "unknown" : "unknown"; }
   function exactTime(value: string | null) { const date = value ? new Date(value) : null; return date && Number.isFinite(date.getTime()) ? date.toLocaleString() : "Not reported"; }
-  const chips = [
-    { key: "active" as const, label: "Active" },
-    { key: "online" as const, label: "Online" },
-  ];
   let detailsOpen = $state(false);
   function preview(row: AgentSessionRow, ended: boolean) {
     const ask = row.pending_prompt?.question ?? row.attention?.summary;
@@ -241,17 +259,6 @@
   }
 </script>
 
-{#if !embedded}
-<PageHeader class={selected ? "hidden lg:flex" : ""} title="Active Clients" subtitle="Codex, Claude, and Grok sessions, reported work, and the latest evidence that each client is reachable." />
-
-<div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-  <div class="inline-flex rounded-lg bg-muted p-1" role="group" aria-label="Client workspace">
-    <Button size="sm" variant="ghost" class={workspace === "agents" ? "bg-background shadow-sm" : "text-muted-foreground"} aria-pressed={workspace === "agents"} onclick={() => { workspace = "agents"; selectedId = null; }}>Agents</Button>
-    {#if canRemoteManage}<Button size="sm" variant="ghost" class={workspace === "remote" ? "bg-background shadow-sm" : "text-muted-foreground"} aria-pressed={workspace === "remote"} onclick={() => { workspace = "remote"; selectedId = null; }}>Remote sessions</Button>{/if}
-  </div>
-  {#if canRemoteManage}<Button size="sm" onclick={() => { workspace = "remote"; startRemote = true; }}>Start remote session</Button>{/if}
-</div>
-{/if}
 {#if canRemoteManage}
   <RemoteSessions active={workspace === "remote"} hosts={$daemonHosts.data?.hosts ?? []} loading={$daemonHosts.isPending} error={$daemonHosts.error} stale={!$daemonHosts.dataUpdatedAt || now - $daemonHosts.dataUpdatedAt > 45_000} agents={allRows} bind:selectedId={remoteId} bind:startOpen={startRemote} {refresh}
     onselect={(id) => { selectedId = id; }} fixedHost={embedded ? spawnHost : Number(page.url.searchParams.get("host")) || undefined} compact={embedded}>
@@ -262,60 +269,41 @@
 {/if}
 
 {#if embedded && workspace === "agents"}
-  {#if selected}{@render nativeConversation()}{:else}<p class="p-4 text-sm text-muted-foreground">{$sessions.isPending ? "Loading conversation…" : "Session unavailable."}</p>{/if}
+  {#if selected}{@render nativeConversation()}{:else}<p class="p-4 text-body-sm text-muted-foreground">{$sessions.isPending ? "Loading conversation…" : "Session unavailable."}</p>{/if}
 {:else if workspace === "agents"}
 {#if $sessions.isPending && !$sessions.data}
   <div role="status" aria-label="Loading clients" class="space-y-2 lg:w-80">
-    {#each Array(5) as _, i (i)}<div class="flex items-center gap-3"><Skeleton class="h-11 w-11 rounded-full" /><Skeleton class="h-9 flex-1 rounded-lg" /></div>{/each}
+    {#each Array(5) as _, i (i)}<div class="flex items-center gap-3"><Skeleton class="h-9 w-9 rounded-full" /><Skeleton class="h-9 flex-1 rounded-md" /></div>{/each}
   </div>
 {:else if $sessions.isError && !$sessions.data}
-  <div role="alert" class="rounded-xl border border-destructive/30 bg-destructive/5 p-6">
+  <div role="alert" class="rounded-md border border-destructive/30 bg-destructive/5 p-6">
     <h2 class="font-semibold">Clients could not be loaded</h2>
-    <p class="mt-1 text-sm text-muted-foreground">{$sessions.error?.message ?? "The server is unreachable."}</p>
+    <p class="mt-1 text-body-sm text-muted-foreground">{$sessions.error?.message ?? "The server is unreachable."}</p>
     <Button class="mt-4" variant="outline" onclick={refresh} disabled={$sessions.isFetching}>Retry clients</Button>
   </div>
 {:else}
   {#if $sessions.isError || stale}
-    <div role="status" class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning-muted px-4 py-2.5 text-sm">
-      <div class="min-w-0"><p class="font-medium">{$sessions.isError ? "Client refresh failed" : "Client status is stale"}</p><p class="mt-0.5 text-xs text-muted-foreground">{$sessions.error?.message ?? "A recent status check has not completed."} Last known clients remain visible; refresh before sending instructions.</p></div>
+    <div role="status" class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/30 bg-warning-muted px-4 py-2.5 text-body-sm">
+      <div class="min-w-0"><p class="font-medium">{$sessions.isError ? "Client refresh failed" : "Client status is stale"}</p><p class="mt-0.5 text-caption text-muted-foreground">{$sessions.error?.message ?? "A recent status check has not completed."} Last known clients remain visible; refresh before sending instructions.</p></div>
       <Button variant="outline" size="sm" onclick={refresh} disabled={$sessions.isFetching}>Retry status</Button>
     </div>
   {/if}
   {#if !enabled}
     <EmptyState icon={PowerOffIcon} title="Agent sessions are off" description="Client registration is paused. Enable agent sessions in Fleet → Policies to record new sessions." />
-    {#if canManage}<a class="text-sm text-primary underline" href={`${base}/policies#agent-sessions`}>Agent session settings</a>{/if}
+    {#if canManage}<a class="text-body-sm text-primary underline" href={`${base}/settings#agents`}>Agent session settings</a>{/if}
   {:else if rows.length === 0}
     <EmptyState icon={BotIcon} title="No recorded clients" description="A session appears when cdx, clx, or cgx registers its session. Clients that cannot reach the server may appear after reconnecting." />
   {:else}
     <!-- One Messages-style card: conversation list on the left, thread on the right. -->
-    <div class="grid grid-cols-1 h-[calc(75dvh-4rem)] min-h-[28rem] overflow-hidden rounded-xl border bg-card lg:h-[calc(100dvh-19.5rem)] lg:grid-cols-[22rem_minmax(0,1fr)]">
+    <div class="grid h-[calc(75dvh-4rem)] min-h-[28rem] grid-cols-1 overflow-hidden rounded-md border bg-card lg:h-[calc(100dvh-14rem)] lg:grid-cols-[22rem_minmax(0,1fr)]">
       <section class="min-h-0 min-w-0 flex-col border-r {selected ? 'hidden lg:flex' : 'flex'}" aria-label="Client directory">
-        <div class="space-y-2 border-b px-3 pb-2.5 pt-3">
-          <div class="flex items-center gap-2">
-            <label class="relative block min-w-0 flex-1">
-              <span class="sr-only">Find a client</span>
-              <SearchIcon class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input type="search" bind:value={search} placeholder="Search" title="Agent name, summary, host, task, branch, directory…"
-                class="h-8 w-full rounded-lg border-0 bg-muted pl-8 pr-2 text-xs outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/30" />
-            </label>
-            <label for="client-engine" class="sr-only">Engine</label>
-            <select id="client-engine" bind:value={engine} class="client-select shrink-0"><option value="all">All engines</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option></select>
-          </div>
-          <div class="flex items-center gap-1" role="group" aria-label="Show sessions">
-            {#each chips as chip (chip.key)}
-              <button type="button" aria-pressed={filter === chip.key} onclick={() => (filter = chip.key)}
-                class="rounded-lg px-3 py-1 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
-                       {filter === chip.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}">
-                {chip.label}
-              </button>
-            {/each}
-            <span class="ml-auto text-[11px] tabular-nums text-muted-foreground" aria-label="Visible clients">{visible.length}</span>
-            {#if search || engine !== "all" || filter !== "active"}<button type="button" class="ml-1 shrink-0 text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onclick={resetFilters}>Clear filters</button>{/if}
-          </div>
+        <div class="flex items-center justify-between border-b px-3 py-2 text-caption text-muted-foreground">
+          <span>{filter === "active" ? "Active agents" : "Online agents"}</span>
+          <span class="tabular-nums" aria-label="Visible clients">{visible.length}</span>
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
           {#if !visible.length}
-            <div class="px-4 py-8 text-center"><SearchIcon class="mx-auto h-5 w-5 text-muted-foreground" /><h3 class="mt-2 text-sm font-medium">No clients match</h3><p class="mt-1 text-xs text-muted-foreground">Try another host, engine, or status.</p><Button variant="outline" size="sm" class="mt-3" onclick={resetFilters}>Clear filters</Button></div>
+            <div class="px-4 py-8 text-center"><SearchIcon class="mx-auto h-5 w-5 text-muted-foreground" /><h3 class="mt-2 text-body-sm font-medium">No clients match</h3><p class="mt-1 text-caption text-muted-foreground">Try another host, engine, or status.</p><Button variant="outline" size="sm" class="mt-3" onclick={resetFilters}>Clear filters</Button></div>
           {:else}
             {#each visible as row (row.id)}{@render sessionRow(row)}{/each}
           {/if}
@@ -324,7 +312,7 @@
 
       <section class="min-h-0 min-w-0 flex-col {selected ? 'flex' : 'hidden lg:flex'}" aria-label="Client details">
         {#if !selected || !selectedView}
-          <div class="grid flex-1 place-content-center p-8 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h2 class="mt-3 text-sm font-medium">Select a client</h2><p class="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">Online means a recent heartbeat. Receiver readiness determines whether a client accepts instructions; native activity is shown separately.</p></div>
+          <div class="grid flex-1 place-content-center p-8 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h2 class="mt-3 text-body-sm font-medium">Select a client</h2><p class="mx-auto mt-1 max-w-xs text-caption leading-relaxed text-muted-foreground">Online means a recent heartbeat. Receiver readiness determines whether a client accepts instructions; native activity is shown separately.</p></div>
         {:else}
           {@render nativeConversation()}
         {/if}
@@ -341,17 +329,17 @@
             {#if remoteControls}
               <div class="flex shrink-0 items-center gap-2 border-b px-4 py-2">
                 <EngineAvatar engine={selected.engine} presence={selectedView.presence} size="xs" logo />
-                <p class="min-w-0 flex-1 truncate text-xs text-muted-foreground"><span class="font-medium text-foreground">{agentName(selected)}</span> · {selected.cwd}{#if remoteLive} · {selectedView.label}{/if}</p>
+                <p class="min-w-0 flex-1 truncate text-caption text-muted-foreground"><span class="font-medium text-foreground">{agentName(selected)}</span> · {selected.cwd}{#if remoteLive} · {selectedView.label}{/if}</p>
                 <Button variant="ghost" size="icon" class="h-8 w-8 shrink-0" aria-expanded={detailsOpen} aria-controls="client-info" aria-label="Session details" onclick={() => detailsOpen = !detailsOpen}><InfoIcon class="h-4 w-4" /></Button>
               </div>
             {:else}
             <header class="grid shrink-0 grid-cols-[5.5rem_1fr_5.5rem] items-center border-b px-2 py-1.5">
-              <div><Button variant="ghost" size="sm" class="-ml-1 px-1.5 text-primary lg:hidden" onclick={closeDetail}><ChevronLeftIcon class="h-5 w-5" /> Clients</Button></div>
+              <div><Button variant="ghost" size="sm" class="-ml-1 px-1.5 text-primary lg:hidden" onclick={closeDetail}><ChevronLeftIcon class="h-5 w-5" /> Agents</Button></div>
               <div class="flex min-w-0 flex-col items-center text-center">
                 <EngineAvatar engine={selected.engine} presence={selectedView.presence} activity={liveActivity(selected, serverNow)} status={selectedView.label} size="xs" badge logo />
-                <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-xs font-semibold focus:outline-none">{agentName(selected)}</h2>
-                <p class="max-w-full truncate text-[11px] text-muted-foreground" title={selected.cwd}>{selected.cwd}</p>
-                <p class="max-w-full truncate text-[11px] text-muted-foreground">
+                <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-caption font-semibold focus:outline-none">{agentName(selected)}</h2>
+                <p class="max-w-full truncate text-caption text-muted-foreground" title={selected.cwd}>{selected.cwd}</p>
+                <p class="max-w-full truncate text-caption text-muted-foreground">
                   {engineLabel(selected.engine)} · {selectedView.label}{selected.read_only ? " · Read-only" : ""}{#if selected.activity || selectedView.presence !== "listening"}{" · "}<span title={selectedView.detail}>{selectedView.detail}</span>{/if}{#if canReadTranscript}{" · "}<span>{feedState === "live" ? "Live timeline updates" : feedState === "connecting" ? "Connecting to live updates…" : "Live updates reconnecting"}</span>{/if}
                 </p>
               </div>
@@ -361,7 +349,7 @@
             </header>
             {/if}
             {#if selected.reboot}
-              <div class="border-b bg-muted/20 px-4 py-2 text-xs" role="status">
+              <div class="border-b bg-muted/20 px-4 py-2 text-caption" role="status">
                 Planned reboot · {selected.reboot.state}
                 {#if selected.reboot.new_session_id && selected.reboot.new_session_id !== selected.id}
                   <button class="ml-2 underline" onclick={() => selectClient(selected!.reboot!.new_session_id!)}>Open resumed session</button>
@@ -371,7 +359,7 @@
               </div>
             {/if}
             {#if detailsOpen}
-              <div id="client-info" class="max-h-[50%] shrink-0 overflow-y-auto border-b bg-muted/20 px-4 py-3 text-xs">
+              <div id="client-info" class="max-h-[50%] shrink-0 overflow-y-auto border-b bg-muted/20 px-4 py-3 text-caption">
                 <p class="leading-relaxed text-muted-foreground">{selectedView.detail}</p>
                 <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
                   <dt class="text-muted-foreground">Heartbeat</dt><dd title={exactTime(selected.heartbeat_at)}>{age(selected.heartbeat_at)} ago</dd>
@@ -399,20 +387,21 @@
                     {#if canManage && !selected.ended_at}<Button class="mt-2" variant="outline" size="sm" disabled={$reconnectReceiver.isPending || actionsUnavailable} onclick={() => $reconnectReceiver.mutate(selected.id, { onError: (error) => toast.error(error.message) })}>Reconnect receiver</Button>{/if}
                   </div>
                 {/if}
+                {#if oninspect}<Button class="mt-3" variant="outline" size="sm" onclick={() => oninspect(selected!.id)}>Connection details</Button>{/if}
                 {#if !remoteControls && canManage && !selected.ended_at && !selected.read_only}
                   <div class="mt-3 flex flex-wrap gap-2 border-t pt-3">{#if selectedView.canSend && !selected.close}<Button variant="outline" size="sm" disabled={$cooperativeClose.isPending || actionsUnavailable} onclick={() => $cooperativeClose.mutate({ id: selected.id })}>Ask to close</Button>{/if}<Button variant="outline" size="sm" class="text-destructive" disabled={$force.isPending || !enabled} onclick={() => { forceTarget = selected; forceOpen = true; }}>Force close</Button></div>
                 {/if}
               </div>
             {/if}
             {#if !canReadTranscript}
-              <div class="grid flex-1 place-content-center px-6 text-center"><h3 class="text-sm font-medium">Timeline hidden</h3><p class="mt-1 max-w-prose text-xs text-muted-foreground">Your account can view client status. Reading messages requires transcript access.</p></div>
+              <div class="grid flex-1 place-content-center px-6 text-center"><h3 class="text-body-sm font-medium">Timeline hidden</h3><p class="mt-1 max-w-prose text-caption text-muted-foreground">Your account can view client status. Reading messages requires transcript access.</p></div>
             {:else}
-              {#if $events.isError}<div role="status" class="flex items-center justify-between gap-2 border-b border-warning/20 bg-warning-muted px-4 py-1.5 text-xs"><span>{$events.data ? "Timeline refresh failed. Showing saved messages." : "Timeline could not be loaded."}</span><Button variant="ghost" size="sm" onclick={() => $events.refetch()} disabled={$events.isFetching}>Retry timeline</Button></div>{/if}
-              {#if $events.isPending && !$events.data}<div class="flex-1 space-y-2 p-4" role="status" aria-label="Loading timeline">{#each Array(4) as _, i (i)}<Skeleton class="h-10 w-2/3 rounded-2xl {i % 2 ? 'ml-auto' : ''}" />{/each}</div>
+              {#if $events.isError}<div role="status" class="flex items-center justify-between gap-2 border-b border-warning/20 bg-warning-muted px-4 py-1.5 text-caption"><span>{$events.data ? "Timeline refresh failed. Showing saved messages." : "Timeline could not be loaded."}</span><Button variant="ghost" size="sm" onclick={() => $events.refetch()} disabled={$events.isFetching}>Retry timeline</Button></div>{/if}
+              {#if $events.isPending && !$events.data}<div class="flex-1 space-y-2 p-4" role="status" aria-label="Loading timeline">{#each Array(4) as _, i (i)}<Skeleton class="h-9 w-2/3 rounded-md {i % 2 ? 'ml-auto' : ''}" />{/each}</div>
               {:else if $events.data}{#key selected.id}<Timeline portal={timelineSource} agent={selected} onreply={remoteControls && !remoteLive ? undefined : cursor => { replyTargets = {...replyTargets,[selected.id]:cursor}; composerInput?.focus(); }} />{/key}
               {:else}<div class="flex-1"></div>{/if}
               <AttentionCard agent={selected} now={serverNow} {timings} {onreply} onresolved={refresh} busy={$send.isPending} readonly={!canManage || actionsUnavailable || (!!remoteControls && !remoteLive)} />
-              {#if !remoteControls || remoteLive}{#if canManage}{#if retryingDraft}<p class="border-t bg-warning-muted px-4 py-1.5 text-xs text-muted-foreground">A previous send was not confirmed. Sending this draft again retries the same request.</p>{/if}{#if replyTargets[selected.id]}<p class="px-4 py-1 text-xs">Reply to message #{replyTargets[selected.id]} <button type="button" onclick={() => replyTargets = {...replyTargets,[selected.id]:undefined}}>Cancel</button></p>{/if}
+              {#if !remoteControls || remoteLive}{#if canManage}{#if retryingDraft}<p class="border-t bg-warning-muted px-4 py-1.5 text-caption text-muted-foreground">A previous send was not confirmed. Sending this draft again retries the same request.</p>{/if}{#if replyTargets[selected.id]}<p class="px-4 py-1 text-caption">Reply to message #{replyTargets[selected.id]} <button type="button" onclick={() => replyTargets = {...replyTargets,[selected.id]:undefined}}>Cancel</button></p>{/if}
                 {#key selected.id}<ChatUploads session={selected.id} items={uploads[selected.id] ?? []} onitems={(id, items) => uploads = {...uploads,[id]:items}} disabled={$send.isPending} />{/key}
                 {#if selected.pending_prompt?.answer_mode !== 'buttons'}<Composer hasAttachments={Boolean(uploads[selected.id]?.length)} agent={selected} now={serverNow} {timings} sending={$send.isPending} {draft} {disabledReason} ondraft={(text) => (drafts = { ...drafts, [selected.id]: text })} onsend={submit} bind:input={composerInput} />{/if}{/if}{/if}
             {/if}
@@ -447,8 +436,3 @@
 <Dialog.Root bind:open={forceOpen}>
   <Dialog.Content class="sm:max-w-md"><Dialog.Header><Dialog.Title>Force close this session?</Dialog.Title><Dialog.Description>End the portal session for {forceTarget?.username} on {forceTarget?.host}. This works when the relay cannot accept a close request. The local client may take time to observe it.</Dialog.Description></Dialog.Header><Dialog.Footer><Button variant="ghost" onclick={() => (forceOpen = false)} disabled={$force.isPending}>Cancel</Button><Button variant="destructive" disabled={!canManage || !enabled || $force.isPending || !forceTarget} onclick={() => { if (forceTarget && canManage && enabled) $force.mutate({ id: forceTarget.id }); }}>{$force.isPending ? "Ending…" : "Force close session"}</Button></Dialog.Footer></Dialog.Content>
 </Dialog.Root>
-
-<style>
-  .client-select { height: 2rem; border: 0; border-radius: .5rem; background: hsl(var(--muted)); padding: 0 1.75rem 0 .625rem; font-size: .75rem; }
-  .client-select:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
-</style>

@@ -77,7 +77,7 @@
 
 <header class="sticky top-0 z-30 flex h-12 shrink-0 items-center justify-between gap-2 border-b bg-card px-4 sm:gap-4 sm:px-6 md:px-8">
   <nav class="min-w-0 overflow-hidden" aria-label="Breadcrumb">
-    <ol class="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-sm">
+    <ol class="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-body">
       {#each breadcrumbs as crumb, index (crumb.label + index)}
         {#if index > 0}
           <li aria-hidden="true" class="shrink-0 text-muted-foreground/55">/</li>
@@ -93,7 +93,7 @@
     </ol>
   </nav>
   <div class="flex shrink-0 items-center gap-1 sm:gap-2">
-    <button type="button" class="hidden h-9 w-64 items-center gap-2 rounded-md border bg-background px-3 text-xs text-muted-foreground outline-none transition-colors hover:border-input hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring xl:flex" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-3.5 w-3.5" /><span class="flex-1 text-left">Search fleet &amp; commands</span><kbd class="keyboard-key">{modifierKey} K</kbd></button>
+    <button type="button" class="hidden h-9 w-64 items-center gap-2 rounded-md border bg-background px-3 text-body-sm text-muted-foreground outline-none transition-colors hover:border-input hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring xl:flex" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-3.5 w-3.5" /><span class="flex-1 text-left">Search fleet &amp; commands</span><kbd class="keyboard-key">{modifierKey} K</kbd></button>
     <button type="button" class="shell-icon-button xl:hidden" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-4 w-4" /></button>
     {#if wsIndicator}
       <Tooltip.Provider>
@@ -106,11 +106,11 @@
       </Tooltip.Provider>
     {/if}
     {#if fleetWindowUntil}
-      <a href={`${base}/hosts?insecure=1`} class="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive-muted px-2 text-xs font-medium text-destructive-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-9" aria-label="Fleet insecure window open">
+      <a href={`${base}/hosts?insecure=1`} class="inline-flex h-9 items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive-muted px-2 text-body-sm font-medium text-destructive-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Fleet temporary access open">
         <AlertTriangle class="h-3.5 w-3.5 shrink-0" /><span class="hidden sm:inline">Fleet open</span><span class="sm:hidden">Open</span><InsecureCountdown until={fleetWindowUntil} class="hidden sm:inline" />
       </a>
     {:else if activeWindows > 0}
-      <a href={`${base}/hosts?insecure=1`} class="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-warning/30 bg-warning-muted px-2 text-xs font-medium text-warning-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-9" aria-label={`${activeWindows} insecure windows open`}><AlertTriangle class="h-3.5 w-3.5" />{activeWindows}</a>
+      <a href={`${base}/hosts?insecure=1`} class="inline-flex h-9 items-center gap-1.5 rounded-md border border-warning/30 bg-warning-muted px-2 text-body-sm font-medium text-warning-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`${activeWindows} temporary access windows open`}><AlertTriangle class="h-3.5 w-3.5" />{activeWindows}</a>
     {/if}
     <DropdownMenu.Root>
       <DropdownMenu.Trigger class="shell-icon-button" aria-label="Appearance"><Sun class="h-4 w-4 dark:hidden" /><Moon class="hidden h-4 w-4 dark:block" /></DropdownMenu.Trigger>
@@ -122,7 +122,7 @@
           <DropdownMenu.Item disabled={$themeMutation.isPending} onSelect={() => $themeMutation.mutate("system")}><Monitor class="h-4 w-4" />System</DropdownMenu.Item>
         </DropdownMenu.Group>
         <DropdownMenu.Separator />
-        <DropdownMenu.Item onSelect={() => goto(`${base}/account/theme`)}><Palette class="h-4 w-4" />Appearance settings</DropdownMenu.Item>
+        <DropdownMenu.Item onSelect={() => goto(`${base}/account#appearance`)}><Palette class="h-4 w-4" />Appearance settings</DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu.Root>
   </div>

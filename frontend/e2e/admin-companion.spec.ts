@@ -16,7 +16,7 @@ test('pairs and revokes an Android device from Account', async ({ page }) => {
     else if (path.startsWith('/admin/companion/devices/') && route.request().method() === 'DELETE') devices[0].revoked_at = new Date().toISOString();
     await route.fulfill({ json: { status: 'ok', data } });
   });
-  await page.goto('/admin/account/devices');
+  await page.goto('/admin/account#devices');
   await expect(page.getByRole('heading', { name: 'Android devices', exact: true })).toBeVisible();
   await expect(page.getByText('Push delivery is not configured.', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Pair Android device', exact: true }).click();

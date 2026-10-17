@@ -64,7 +64,7 @@
       <Dialog.Description>{description}</Dialog.Description>
     </Dialog.Header>
 
-    <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 rounded-md border bg-muted/40 p-3 text-sm">
+    <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 rounded-md border bg-muted/40 p-3 text-body-sm">
       {#each target as row (row.label)}
         <dt class="text-muted-foreground">{row.label}</dt>
         <dd class="min-w-0 break-words font-medium">{row.value}</dd>
@@ -75,9 +75,9 @@
       <div>
         <p class="section-label mb-1.5">{affected.heading}</p>
         {#if affected.items.length === 0}
-          <p class="text-sm text-muted-foreground">{affected.empty}</p>
+          <p class="text-body-sm text-muted-foreground">{affected.empty}</p>
         {:else}
-          <ul class="max-h-32 space-y-0.5 overflow-y-auto text-sm">
+          <ul class="max-h-32 space-y-0.5 overflow-y-auto text-body-sm">
             {#each affected.items as item (item)}<li class="truncate">• {item}</li>{/each}
           </ul>
         {/if}
@@ -85,11 +85,11 @@
     {/if}
 
     {#if phase === "confirm" || phase === "pending"}
-      <ul class="space-y-1 text-sm text-muted-foreground">
+      <ul class="space-y-1 text-body-sm text-muted-foreground">
         {#each effects as effect (effect)}<li>• {effect}</li>{/each}
       </ul>
       {#if withNote}
-        <label class="block text-sm">
+        <label class="block text-body-sm">
           <span class="mb-1 block text-muted-foreground">Note for the audit record (optional)</span>
           <Textarea bind:value={note} rows={2} maxlength={500} disabled={phase === "pending"} />
         </label>
@@ -98,14 +98,14 @@
 
     <div aria-live="polite" class="min-h-0">
       {#if phase === "pending"}
-        <p class="flex items-center gap-2 text-sm text-muted-foreground"><LoaderIcon class="h-4 w-4 animate-spin motion-reduce:animate-none" /> {pendingLabel}</p>
+        <p class="flex items-center gap-2 text-body-sm text-muted-foreground"><LoaderIcon class="h-4 w-4 animate-spin motion-reduce:animate-none" /> {pendingLabel}</p>
       {:else if phase === "done"}
-        <div class="rounded-md border p-3 text-sm {resultTone === 'warning' ? 'border-warning/30 bg-warning-muted text-warning-muted-foreground' : 'border-success/30 bg-success-muted text-success-muted-foreground'}">
+        <div class="rounded-md border p-3 text-body-sm {resultTone === 'warning' ? 'border-warning/30 bg-warning-muted text-warning-muted-foreground' : 'border-success/30 bg-success-muted text-success-muted-foreground'}">
           <p class="flex items-center gap-2 font-medium">{#if resultTone === "warning"}<AlertIcon class="h-4 w-4" />{:else}<CheckIcon class="h-4 w-4" />{/if} {resultTitle}</p>
           {@render result?.()}
         </div>
       {:else if phase === "error"}
-        <div role="alert" class="rounded-md border border-destructive/30 bg-destructive-muted p-3 text-sm text-destructive-muted-foreground">
+        <div role="alert" class="rounded-md border border-destructive/30 bg-destructive-muted p-3 text-body-sm text-destructive-muted-foreground">
           <p class="flex items-center gap-2 font-medium"><AlertIcon class="h-4 w-4" /> {errorMessage || "The action failed."}</p>
           <p class="mt-1">Nothing is assumed: check the live view before trying again.</p>
         </div>

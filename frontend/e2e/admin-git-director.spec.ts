@@ -20,27 +20,27 @@ async function fixture(page:Page, manage=true) {
  });
  return writes;
 }
-test('Settings first, linked tabs, search, details and operator decisions',async({page})=>{
+test('Merge requests first, linked views, search, details and operator decisions',async({page})=>{
  test.setTimeout(60_000);
  const writes=await fixture(page);
  await page.goto('/admin/git-director');
- await expect(page.getByRole('tab',{name:'Settings',exact:true})).toHaveAttribute('aria-selected','true');
+ await expect(page.getByRole('button',{name:'Merge requests',exact:true})).toHaveAttribute('aria-pressed','true');
  await expect(page.getByLabel('Message length')).toBeVisible();
  await expect(page.getByText('Improve settings',{exact:true})).not.toBeVisible();
  await page.screenshot({path:'/tmp/git-director-settings-desktop.png',animations:'disabled'});
- await page.getByRole('tab',{name:'Activity',exact:true}).click();
- await expect(page).toHaveURL(/tab=activity/);
- const search=page.getByLabel('Search Git Director');
- await search.fill('missing');await expect(page.getByText('No matching results.')).toBeVisible();
+ await page.getByRole('button',{name:'Worktrees',exact:true}).click();
+ await expect(page).toHaveURL(/view=worktrees/);
+ const search=page.getByLabel('Search repository, host, user, task or branch…');
+ await search.fill('missing');await expect(page.getByText('No matches')).toBeVisible();
  await search.fill('Beate');
  await page.getByRole('button',{name:/Beate · codex/}).click();
  await expect(page.getByRole('dialog')).toContainText('/work/repo/feature');
  await expect(page.getByRole('dialog')).toContainText('frontend/page.svelte');
  await page.keyboard.press('Escape');
  await search.fill('');
- await page.getByRole('tab',{name:'Merge requests',exact:true}).click();
+ await page.getByRole('button',{name:'Merge requests',exact:true}).click();
  await page.reload();
- await expect(page.getByRole('tab',{name:'Merge requests',exact:true})).toHaveAttribute('aria-selected','true');
+ await expect(page.getByRole('button',{name:'Merge requests',exact:true})).toHaveAttribute('aria-pressed','true');
  await expect(page.getByRole('button',{name:'Force allow',exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:/wait main Another worker/}).click();
  await expect(page.getByRole('dialog')).toContainText('frontend/page.svelte');
@@ -51,7 +51,7 @@ test('Settings first, linked tabs, search, details and operator decisions',async
  await page.getByRole('button',{name:'Deny',exact:true}).click();
  await expect(page.getByRole('dialog')).not.toBeVisible();
  expect(writes[1].body).toEqual({verdict:'deny'});
- await page.getByRole('tab',{name:'History',exact:true}).click();
+ await page.getByRole('button',{name:'History',exact:true}).click();
  await page.getByRole('button',{name:/deny main/}).click();
  await expect(page.getByRole('dialog')).toContainText('Paths overlap');
  await expect(page.getByRole('dialog')).toContainText('test-arbiter');
@@ -60,22 +60,22 @@ test('Settings first, linked tabs, search, details and operator decisions',async
  await page.getByRole('button',{name:/Session ended Former worker/}).click();
  await expect(page.getByRole('dialog')).toContainText('abandoned');
  await page.keyboard.press('Escape');
- await page.getByRole('tab',{name:'Activity',exact:true}).click();
+ await page.getByRole('button',{name:'Worktrees',exact:true}).click();
  await page.getByRole('button',{name:/Beate · codex/}).click();
  await page.getByRole('button',{name:'Release registration',exact:true}).click();
  await expect(page.getByRole('dialog')).not.toBeVisible();
- await expect(page.getByText('No active worktrees.')).toBeVisible();
+ await expect(page.getByText('No active worktrees')).toBeVisible();
  expect(writes[2].path).toBe('/admin/git-director/worktrees/work1/release');
 });
-test('mobile tabs, read-only details, fallback tab and empty states',async({page})=>{
+test('mobile views, read-only details, fallback view and empty states',async({page})=>{
  await page.setViewportSize({width:390,height:844});
  await fixture(page,false);
  await page.goto('/admin/git-director?tab=unknown');
- await expect(page.getByRole('tab',{name:'Settings',exact:true})).toHaveAttribute('aria-selected','true');
+ await expect(page.getByRole('button',{name:'Merge requests',exact:true})).toHaveAttribute('aria-pressed','true');
  await expect(page.getByLabel('Message length')).toBeDisabled();
  await page.screenshot({path:'/tmp/git-director-settings-mobile.png',animations:'disabled'});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
- await page.getByRole('tab',{name:'Activity',exact:true}).click();
+ await page.getByRole('button',{name:'Worktrees',exact:true}).click();
  await page.getByRole('button',{name:/Beate · codex/}).click();
  await expect(page.getByRole('dialog')).toBeVisible();
  await expect.poll(async()=>Math.round((await page.getByRole('dialog').boundingBox())?.width ?? 0)).toBe(390);
@@ -83,18 +83,18 @@ test('mobile tabs, read-only details, fallback tab and empty states',async({page
  await page.keyboard.press('Escape');
  await page.route('**/admin/git-director',route=>route.request().headers().accept?.includes('application/json')?route.fulfill({json:{clones:[]}}):route.fallback());
  await page.reload();
- await expect(page.getByText('No active worktrees.')).toBeVisible();
- await page.getByRole('tab',{name:'Merge requests',exact:true}).click();
- await expect(page.getByText('No current merge requests.')).toBeVisible();
- await page.getByRole('tab',{name:'History',exact:true}).click();
- await expect(page.getByText('No history yet.')).toBeVisible();
+ await expect(page.getByText('No active worktrees')).toBeVisible();
+ await page.getByRole('button',{name:'Merge requests',exact:true}).click();
+ await expect(page.getByText('No open merge requests')).toBeVisible();
+ await page.getByRole('button',{name:'History',exact:true}).click();
+ await expect(page.getByText('No history yet')).toBeVisible();
 });
 test('registry failures remain visible without blocking settings',async({page})=>{
  await fixture(page);
  await page.route('**/admin/git-director',route=>route.request().headers().accept?.includes('application/json')?route.fulfill({status:403,json:{status:'error',message:'Registry unavailable'}}):route.fallback());
  await page.goto('/admin/git-director');
  await expect(page.getByLabel('Message length')).toBeVisible();
- await page.getByRole('tab',{name:'Activity',exact:true}).click();
+ await page.getByRole('button',{name:'Worktrees',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('Registry unavailable');
- await expect(page.getByText('No active worktrees.')).toHaveCount(0);
+ await expect(page.getByText('No active worktrees')).toHaveCount(0);
 });

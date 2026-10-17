@@ -14,7 +14,7 @@
 </script>
 
 <main class="flex min-h-screen items-center justify-center bg-background px-4 py-8">
-  <div class={cn("w-full space-y-4", width === "sm" ? "max-w-sm" : "max-w-2xl")}>
+  <div class={cn("w-full space-y-4", width === "sm" ? "max-w-sm" : "max-w-4xl")}>
     <div>
       <h1 class="text-xl font-semibold tracking-tight">{title}</h1>
       {#if description}<p class="mt-1 text-body-sm text-muted-foreground">{description}</p>{/if}

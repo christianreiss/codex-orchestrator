@@ -46,7 +46,7 @@ test('saves all combinations and previews each engine with the Director disabled
   const attribution = card.getByRole('switch', { name: 'AI Attribution', exact: true });
   await expect(style).toHaveValue('short');
   await expect(attribution).not.toBeChecked();
-  await expect(page.getByRole('switch', { name: 'Enable the Git Director' })).not.toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Enable git merges' })).not.toBeChecked();
   for (const message_style of ['long', 'short'] as const) {
     await style.selectOption(message_style);
     await expect(style).toHaveValue(message_style);

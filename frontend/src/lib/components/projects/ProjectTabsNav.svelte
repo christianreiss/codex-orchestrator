@@ -1,58 +1,23 @@
 <script lang="ts">
+  /** The one tab level on a project page: Board, Documents, Reports, Activity. */
   import { base } from "$app/paths";
-  import { cn } from "$lib/utils/cn";
+  import TabNav from "$lib/components/layout/TabNav.svelte";
 
-  type Props = { slug: string; currentPath: string };
-  let { slug, currentPath }: Props = $props();
+  type Props = {
+    slug: string;
+    /** Open board cards, notes plus files, and open reports; a tab shows its count only when it is above zero. */
+    counts?: { board?: number; documents?: number; reports?: number };
+  };
+  let { slug, counts }: Props = $props();
 
   const root = $derived(`${base}/projects/${encodeURIComponent(slug)}`);
-
-  const tabs = $derived([
-    { label: "Identity", href: root, match: (p: string) => p === root || p === `${root}/` },
-    {
-      label: "Notes",
-      href: `${root}/notes`,
-      match: (p: string) => p.startsWith(`${root}/notes`),
-    },
-    {
-      label: "Board",
-      href: `${root}/board`,
-      match: (p: string) => p.startsWith(`${root}/board`),
-    },
-    {
-      label: "Files",
-      href: `${root}/files`,
-      match: (p: string) => p.startsWith(`${root}/files`),
-    },
-    {
-      label: "Feedback",
-      href: `${root}/feedback`,
-      match: (p: string) => p.startsWith(`${root}/feedback`),
-    },
-    {
-      label: "Activity",
-      href: `${root}/activity`,
-      match: (p: string) => p.startsWith(`${root}/activity`),
-    },
+  const badge = (n: number | undefined) => (n && n > 0 ? n : undefined);
+  const items = $derived([
+    { label: "Board", href: `${root}/board`, badge: badge(counts?.board) },
+    { label: "Documents", href: `${root}/documents`, badge: badge(counts?.documents) },
+    { label: "Reports", href: `${root}/reports`, badge: badge(counts?.reports) },
+    { label: "Activity", href: `${root}/activity` },
   ]);
 </script>
 
-<nav class="overflow-x-auto rounded-md border border-border/60 bg-card/70 p-1" aria-label="Project sections">
-  <div class="flex min-w-max gap-1">
-    {#each tabs as tab (tab.label)}
-      {@const active = tab.match(currentPath)}
-      <a
-        href={tab.href}
-        class={cn(
-          "rounded-md px-3 py-2 text-sm font-medium transition-colors",
-          active
-            ? "bg-accent text-accent-foreground"
-            : "text-muted-foreground hover:bg-muted hover:text-foreground",
-        )}
-        aria-current={active ? "page" : undefined}
-      >
-        {tab.label}
-      </a>
-    {/each}
-  </div>
-</nav>
+<TabNav {items} aria-label="Project sections" />

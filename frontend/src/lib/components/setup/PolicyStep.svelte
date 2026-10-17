@@ -90,7 +90,7 @@
 
     {#if modules.length > 0}
       <div class="space-y-2">
-        <p class="text-sm font-medium">Active modules</p>
+        <p class="text-body font-medium">Active modules</p>
         <div class="flex flex-wrap gap-1.5">
           {#each modules as id (id)}
             <Badge variant="secondary" class="font-normal">{id.replace(/_/g, " ")}</Badge>
@@ -103,11 +103,11 @@
       <Label for="setup-house-rules">House rules (optional)</Label>
       <Textarea
         id="setup-house-rules"
-        class="h-32 text-sm"
+        class="h-32 text-body"
         placeholder="Anything specific to your fleet — deploy conventions, naming, which environments are off limits."
         bind:value={houseRules}
       />
-      <p class="text-xs text-muted-foreground">
+      <p class="text-body-sm text-muted-foreground">
         Appended to the policy every host receives. Leave blank to keep the default as-is;
         the full builder lives on the Instructions page.
       </p>

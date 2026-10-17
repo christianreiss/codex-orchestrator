@@ -3,11 +3,11 @@ title: Memories and the Memory Atlas
 section: Admin workspace
 summary: Host, project, and shared memory in one graph or list, the inspector, and the ETag-guarded create, edit, append, and delete flows.
 tags: [memory, atlas, mcp]
-verified: 2026-10-16
-sources: api/src/services/managed-memory-routing.ts, wrappers/cxx/internal/memoryrouting/routing.go, api/src/routes/admin/memories/index.ts, api/src/services/admin-memory-catalog.ts, api/src/services/admin-memory-lifecycle.ts, api/src/services/shared-memories.ts, api/src/services/mcp-memories.ts, api/src/routes/admin/config/index.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, frontend/src/routes/memories/+page.svelte, frontend/src/routes/authoring/memories/+page.svelte, frontend/src/lib/ws/events.ts
+verified: 2026-10-17
+sources: api/src/services/managed-memory-routing.ts, wrappers/cxx/internal/memoryrouting/routing.go, api/src/routes/admin/memories/index.ts, api/src/services/admin-memory-catalog.ts, api/src/services/admin-memory-lifecycle.ts, api/src/services/shared-memories.ts, api/src/services/mcp-memories.ts, api/src/routes/admin/config/index.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, frontend/src/routes/(library)/library/+page.svelte, frontend/src/lib/components/library/memories/MemoriesPanel.svelte, frontend/src/lib/components/library/memories/memories-state.svelte.ts, frontend/src/lib/ws/events.ts
 ---
 
-**Memories** (`/memories`, under *Knowledge*) opens the **Memory Atlas**: one filterable workspace over the three memory scopes agents write through MCP — **host** memory (`mcp_memories`, per host and engine, the `memory_*` tools), **project** memory (`coord_project_memories`, per Projects workspace, the `project_memory_*` tools), and **shared** memory (`shared_memories`, fleet-wide, the `shared_memory_*` tools). The legacy `/authoring/memories` URL resolves to the same page.
+**Memories** (a type in the Library: `/library?type=memories`) opens the **Memory Atlas**: one filterable workspace over the three memory scopes agents write through MCP — **host** memory (`mcp_memories`, per host and engine, the `memory_*` tools), **project** memory (`coord_project_memories`, per Projects workspace, the `project_memory_*` tools), and **shared** memory (`shared_memories`, fleet-wide, the `shared_memory_*` tools).
 
 Claude Code can search and read these central stores through MCP tools. Its
 built-in auto-memory continues using `MEMORY.md` and topic files: there is no
@@ -40,9 +40,9 @@ AGENTS.md / CLAUDE.md guidance remains available independently of native memory.
 
 ## Graph and list
 
-The page reads `GET /admin/memories/graph` (`memory.read`) with the current scope, search, tag, host, project, and engine filters. The response omits full bodies and returns stable nodes, explicit relationship edges, facets, totals, and truncation metadata; the server pages with a filter-bound opaque cursor, 500 records by default and 2,000 at most. Two views share it, switched with the **Graph** / **List** buttons (`?view=list`):
+The page reads `GET /admin/memories/graph` (`memory.read`) with the current scope, search, tag, host, project, and engine filters. The response omits full bodies and returns stable nodes, explicit relationship edges, facets, totals, and truncation metadata; the server pages with a filter-bound opaque cursor, 500 records by default and 2,000 at most. Two views share it, switched with the **List** / **Map** buttons (the list is the default; `?view=map`, with the older `graph` value still accepted):
 
-- **Graph** draws the newest 150 memories from the loaded page and refuses optional relationship layers above its density guard, saying so rather than drawing an unreadable canvas.
+- **Map** (the relationship graph) draws the newest 150 memories from the loaded page and refuses optional relationship layers above its density guard, saying so rather than drawing an unreadable canvas.
 - **List** keeps the complete loaded page, 25 rows at a time.
 
 Host, project, and tag filter choices are capped to the top 200 values and disclose when that cap is active. Either view can load the next server page while the server reports more records.
@@ -76,5 +76,6 @@ Host, project, and shared memory mutations (`memory.*`, `project.memory.*`, `sha
 - api/src/services/shared-memories.ts, api/src/services/mcp-memories.ts (shared and host scopes)
 - api/src/routes/admin/config/index.ts (the deprecated `/admin/mcp/memories` and `/admin/shared-memories` reads and deletes)
 - api/src/security/capabilities.ts, api/src/security/route-capabilities.ts (`memory.read` / `memory.write`, `audit.read`)
-- frontend/src/routes/memories/+page.svelte, frontend/src/routes/authoring/memories/+page.svelte (Graph / List switch, 150-node canvas cap, 25-row pages, inspector)
+- frontend/src/routes/(library)/library/+page.svelte, frontend/src/lib/components/library/memories/MemoriesPanel.svelte, frontend/src/lib/components/library/memories/memories-state.svelte.ts (List / Map switch, 150-node canvas cap, 25-row pages)
+- frontend/src/lib/components/memories/MemoryInspector.svelte (inspector tabs)
 - frontend/src/lib/ws/events.ts (memory events → `memories` invalidation)

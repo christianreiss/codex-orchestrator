@@ -1,7 +1,7 @@
 ---
 title: Projects workspace
 section: Admin workspace
-verified: 2026-09-22
+verified: 2026-10-17
 sources: api/src/routes/admin/projects/index.ts, api/src/routes/admin/project-board/index.ts, api/src/routes/projects-client/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/project-board.ts, api/src/services/project-board-roles.ts, api/src/services/host-projects.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/managed-coco-skill.ts, api/src/services/host-skills.ts, api/src/db/schema.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0026_add_project_board.sql, api/src/db/migrations/0031_project_file_encoding.sql, api/src/db/migrations/0032_project_card_scheduling.sql, api/src/services/project-file-encoding.ts, api/src/services/shared-memories.ts, api/src/db/migrations/0006_add_shared_memories.sql
 ---
 
@@ -39,23 +39,18 @@ Host-facing surface (authenticated by per-host API key, `routes/projects-client/
 
 ## Project detail layout
 
-The `/projects/[slug]` page fetches full project detail. The page header shows the project `title` (from `about.title`) with the slug as a subtitle when it differs. Below the header, a 4-stat bar shows:
+The `/projects/[slug]` pages share a header fed by a lean project summary. The header shows the project `title` (from `about.title`) with the description (or the slug when it differs) as a subtitle, an **Archived** badge when applicable, and the actions **Projects** (back), **About**, and **More** (**Archive project** / **Reopen project**, **Delete project** with a confirm dialog).
 
-- **Notes** — total note count
-- **Open todos** — count of cards not sitting in a terminal lane (`counts.open_todos`)
-- **Bugs** — count of feedback items with `type = bug` specifically
-- **Files** — total file count
-
-A tab nav (`ProjectTabsNav`) routes to sub-pages: Identity, Notes, Board, Files, Feedback, Activity. The old `/projects/{slug}/todos` URL still resolves but redirects to the board. Header actions include a Back button and a Delete project button (destructive, with a confirm dialog).
+A tab nav (`ProjectTabsNav`) routes to **Board**, **Documents**, **Reports**, and **Activity**; badges carry the open-card count (`counts.open_todos`), the notes plus files count, and the open reports count. The project root URL opens the board. The older `/projects/{slug}/todos`, `/notes`, `/files`, and `/feedback` URLs redirect to the board, the Documents tab (`?kind=notes` or `?kind=files`), and the Reports tab.
 
 ## Identity: about and roster
 
-The Identity tab (the project root URL) shows two cards:
+The **About** sheet (opened by the header's **About** button; it replaces the former Identity tab) shows two sections:
 
 - **About** — three separate text inputs: *Title*, *Name*, and *Description*. These map to the `title`, `name`, and `description` sub-fields of the `about_json` JSON column. The `about_json` column always stores an object with these three canonical keys; the UI exposes them individually.
 - **Roster** — a monospace textarea for the roster markdown document.
 
-Each card has Save, Reset, and AI-Assist ("Sparkles") buttons. Unsaved changes are shown with a warning badge.
+Each section has Save, Reset, and AI-Assist buttons (the roster's is labelled **Draft Roster**). Unsaved changes are shown with a warning badge.
 
 Endpoints:
 
@@ -77,7 +72,7 @@ Header + body, versioned by `updated_at`. Admin endpoints:
 - `POST /admin/projects/{slug}/notes/{id}` — inline edit
 - `DELETE /admin/projects/{slug}/notes/{id}`
 
-The Notes tab shows a create form (Header and Body, both required). Existing notes are listed with inline edit (pencil icon) and delete. Updates are applied optimistically.
+Notes are listed in the **Documents** tab, together with files (filter by kind; `?kind=notes`). A note needs a Header and Body, both required. Existing notes can be edited and deleted from there.
 
 ## Project board
 
@@ -103,7 +98,7 @@ Admin surface (`api/src/routes/admin/project-board/index.ts`; `projects.read` to
 - `POST /admin/projects/{slug}/board/cards` — create; `POST .../cards/{id}` — edit title/detail/labels/priority/`blocked_reason`/`due_at`/`depends_on` (the console's card editor is a sheet with all of them); `POST .../cards/{id}/move` — `{ column, note? }`; `POST .../cards/{id}/release` — force-release a claim from the console with an optional reason, the escape hatch for a holder that is unreachable but not detectably dead (a wedged process, a sleeping laptop), which neither reclaim signal catches; `DELETE .../cards/{id}`.
 - `POST /admin/projects/{slug}/board/columns/{id}` — reshape a lane.
 
-The Board tab renders one column per lane with an **Add card** form, a release action on held cards, and the Recently reclaimed list. There is no host-facing REST mirror of the board: agents reach it over MCP only, through `project_board_list` (never fails — with the module off it answers `status: "disabled"`, distinguishable from an empty board) and `project_card_create` / `claim` / `move` / `release` / `update` / `get`; the todo REST mirror remains for the checkbox view. See [MCP server and tools](/admin/manual/mcp) for the tool contracts.
+The **Board** tab renders one column per lane with an **Add card** form, a release action on held cards, and the Recently reclaimed list. There is no host-facing REST mirror of the board: agents reach it over MCP only, through `project_board_list` (never fails — with the module off it answers `status: "disabled"`, distinguishable from an empty board) and `project_card_create` / `claim` / `move` / `release` / `update` / `get`; the todo REST mirror remains for the checkbox view. See [MCP server and tools](/admin/manual/mcp) for the tool contracts.
 
 ## Files
 
@@ -111,7 +106,7 @@ Small blob artifacts stored entirely in the database (`coord_project_files` tabl
 
 Upsert-style: `POST /admin/projects/{slug}/files` overwrites an existing `stored_name` or creates a new one.
 
-The Files tab shows an upsert form with fields: Stored name, MIME type, Description, and Content. Existing files are shown in a table with columns: Name, MIME, Description, Size (formatted bytes), Updated, and Actions (Load into form / Delete).
+Files are listed in the **Documents** tab, together with notes (filter by kind; `?kind=files`). A file carries Stored name, MIME type, Description, and Content, and existing files can be edited and deleted from there.
 
 ## Feedback
 
@@ -121,7 +116,7 @@ A low-friction queue where agents can drop observations or flagged issues. Valid
 - `POST /admin/projects/{slug}/feedback` — create. Body: `{ type, title, body }`.
 - `GET /admin/projects/feedback` — fleet-wide aggregate for triage.
 
-The Feedback tab shows a create form with a Type selector (Feature / Bug / Issue / Test / Note), Title, and Body. The feedback list is read-only in the UI (no edit or delete). Items are sorted newest-first. The `coord_project_feedback` table also has a `status` column (default `'open'`).
+The **Reports** tab (this project's feedback) lists items newest-first with search and status and type filters (Feature / Bug / Issue / Test / Note), and opens an item for its detail. The `coord_project_feedback` table also has a `status` column (default `'open'`).
 
 ## Memories
 
@@ -135,7 +130,7 @@ The contrast with host-scoped `mcp_memories` is the reason this exists: project 
 
 Every mutation above appends to `coord_project_events`. `GET /admin/projects/{slug}/changes` returns a paginated event log (querystring: `since` sequence number).
 
-The Activity tab shows the 10 most recent events sorted by sequence descending. Each event renders as an expandable card showing: a seq badge, an `event_type.action` label, a relative timestamp, and a collapsible JSON payload panel.
+The **Activity** tab shows the 10 most recent events sorted by sequence descending. Each event renders as an expandable card showing: a seq badge, an `event_type.action` label, a relative timestamp, and a collapsible JSON payload panel.
 
 `coord_project_events` columns: `seq`, `event_type`, `action`, `entity_type`, `entity_id`, `payload_json`, `source_host_id`.
 

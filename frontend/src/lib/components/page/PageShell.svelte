@@ -26,7 +26,7 @@
   const maxWidth = { narrow: "max-w-3xl", default: "max-w-6xl", wide: "max-w-none" } as const;
 </script>
 
-<div class={cn("mx-auto flex w-full flex-col gap-4", maxWidth[width], className)}>
+<div class={cn("flex w-full flex-col gap-4", maxWidth[width], className)}>
   <header class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
     <div class="min-w-0 flex-1">
       <h1 class="truncate text-xl font-semibold leading-tight tracking-tight">{title}</h1>

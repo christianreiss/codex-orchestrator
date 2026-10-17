@@ -16,7 +16,7 @@
 </script>
 
 <article class="my-3 flex flex-col items-start">
-  <p class="mb-0.5 pl-3 text-[11px] {active ? 'text-warning-muted-foreground' : 'text-muted-foreground'}">
+  <p class="mb-0.5 pl-3 text-caption {active ? 'text-warning-muted-foreground' : 'text-muted-foreground'}">
     Asked · {clockTime(event.created_at)}
   </p>
   <p

@@ -337,7 +337,7 @@
           <Alert.Description>
             <p>{conflict.message} Your draft is still here.</p>
             {#if conflict.currentEtag}
-              <p class="mt-1 font-mono text-[10px]">Current ETag: {conflict.currentEtag}</p>
+              <p class="mt-1 font-mono text-caption">Current ETag: {conflict.currentEtag}</p>
             {/if}
             <div class="mt-3 flex flex-wrap gap-2">
               <Button type="button" size="sm" variant="outline" onclick={reloadLatest} disabled={reloading}>
@@ -427,7 +427,7 @@
         <div class="grid gap-1.5">
           <Label for="memory-tags">Tags</Label>
           <Input id="memory-tags" bind:value={tagsInput} placeholder="runbook, auth, mysql" />
-          <p class="text-[11px] text-muted-foreground">Comma-separated; explicit tags create graph relationships.</p>
+          <p class="text-caption text-muted-foreground">Comma-separated; explicit tags create graph relationships.</p>
         </div>
 
         {#if scope !== "project"}
@@ -447,8 +447,8 @@
 
         <div class="grid gap-1.5 sm:col-span-2">
           <Label for="memory-content">Content</Label>
-          <Textarea id="memory-content" bind:value={content} rows={10} class="font-mono text-xs leading-5" placeholder="Memory content…" />
-          <p class="text-right text-[11px] text-muted-foreground">{content.length.toLocaleString()} characters</p>
+          <Textarea id="memory-content" bind:value={content} rows={10} class="font-mono text-caption leading-5" placeholder="Memory content…" />
+          <p class="text-right text-caption text-muted-foreground">{content.length.toLocaleString()} characters</p>
         </div>
 
         <div class="grid gap-1.5 sm:col-span-2">
@@ -468,7 +468,7 @@
               aria-label="Metadata (JSON)"
               bind:value={metadataInput}
               rows={5}
-              class="font-mono text-xs leading-5"
+              class="font-mono text-caption leading-5"
               spellcheck={false}
             />
           {/if}
@@ -476,7 +476,7 @@
       </div>
 
       {#if validationError}
-        <p class="text-sm text-destructive" role="alert">{validationError}</p>
+        <p class="text-body-sm text-destructive" role="alert">{validationError}</p>
       {/if}
 
       <Dialog.Footer>

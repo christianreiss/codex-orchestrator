@@ -116,9 +116,9 @@
             spellcheck={false}
           />
           {#if slugError}
-            <p class="text-xs text-destructive">{slugError}</p>
+            <p class="text-caption text-destructive">{slugError}</p>
           {:else}
-            <p class="text-xs text-muted-foreground">Lowercase letters, digits, hyphens.</p>
+            <p class="text-caption text-muted-foreground">Lowercase letters, digits, hyphens.</p>
           {/if}
         </div>
 

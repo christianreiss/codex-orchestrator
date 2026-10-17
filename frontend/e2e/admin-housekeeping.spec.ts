@@ -27,7 +27,7 @@ async function fixture(page: Page, manage = true) {
   return { policies, writes, update: async () => { await expect.poll(() => !!emit).toBe(true); emit!(JSON.stringify({ type: 'settings.changed', payload: {}, ts: new Date().toISOString() })); } };
 }
 test('saves independent engine rules and validates minimum age', async ({ page }) => {
-  const f = await fixture(page); await page.goto('/admin/policies#session-housekeeping');
+  const f = await fixture(page); await page.goto('/admin/settings#session-housekeeping');
   const card = page.locator('#session-housekeeping'); await expect(card.getByLabel('Retention (days)')).toHaveValue('30');
   await card.getByLabel('Engine', { exact: true }).selectOption('grok');
   await card.getByLabel('Retention (days)').fill('60');
@@ -40,7 +40,7 @@ test('saves independent engine rules and validates minimum age', async ({ page }
   await card.getByLabel('Minimum age under pressure (days)').fill('31'); await expect(card.getByRole('button', { name: 'Save rule', exact: true })).toBeDisabled();
 });
 test('preserves drafts and blocks overwriting a remotely changed rule', async ({ page }) => {
-  const f = await fixture(page); await page.goto('/admin/policies#session-housekeeping');
+  const f = await fixture(page); await page.goto('/admin/settings#session-housekeeping');
   const card = page.locator('#session-housekeeping'); await expect(card.getByLabel('Retention (days)')).toHaveValue('30');
   await card.getByLabel('Retention (days)').fill('45'); f.policies.codex = effective({ ...rule, retention_days: 60 }); await f.update();
   await expect(card.getByText('The saved rule changed. Reload it before saving.')).toBeVisible(); await expect(card.getByLabel('Retention (days)')).toHaveValue('45');
@@ -48,6 +48,6 @@ test('preserves drafts and blocks overwriting a remotely changed rule', async ({
   await card.getByRole('button', { name: 'Reload saved rule' }).click(); await expect(card.getByLabel('Retention (days)')).toHaveValue('60'); expect(f.writes).toHaveLength(0);
 });
 test('read-only operators cannot change housekeeping', async ({ page }) => {
-  await fixture(page, false); await page.goto('/admin/policies#session-housekeeping');
+  await fixture(page, false); await page.goto('/admin/settings#session-housekeeping');
   const card = page.locator('#session-housekeeping'); await expect(card.getByLabel('Retention (days)')).toHaveValue('30'); await expect(card.getByLabel('Enable automatic housekeeping')).toBeDisabled(); await expect(card.getByRole('button', { name: 'Save rule', exact: true })).toBeDisabled();
 });

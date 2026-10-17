@@ -42,5 +42,5 @@
     </Button>
     <Button variant="outline" size="sm" onclick={() => engines = []}>None yet</Button>
   </div>
-  <p class="text-xs text-muted-foreground">Choose any combination. Engines can still be chosen per host, and credentials can be seeded later from Accounts or Hosts.</p>
+  <p class="text-body-sm text-muted-foreground">Choose any combination. Engines can still be chosen per host, and credentials can be seeded later from Accounts or Hosts.</p>
 </div>

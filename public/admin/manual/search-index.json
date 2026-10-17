@@ -466,28 +466,18 @@
                     "level": 2
                 },
                 {
-                    "id": "status-pills",
-                    "text": "Status pills",
+                    "id": "header-and-status",
+                    "text": "Header and status",
                     "level": 3
                 },
                 {
-                    "id": "stats-card",
-                    "text": "Stats card",
+                    "id": "needs-attention-block",
+                    "text": "Needs attention block",
                     "level": 3
                 },
                 {
-                    "id": "action-items-card",
-                    "text": "Action items card",
-                    "level": 3
-                },
-                {
-                    "id": "technical-context-card",
-                    "text": "Technical context card",
-                    "level": 3
-                },
-                {
-                    "id": "controls-card",
-                    "text": "Controls card",
+                    "id": "engines-access-and-advanced-controls",
+                    "text": "Engines, access, and advanced controls",
                     "level": 3
                 },
                 {
@@ -745,7 +735,7 @@
             "slug": "dashboard",
             "title": "Dashboard",
             "section": "Admin workspace",
-            "summary": "Reported engine coverage, Codex, Claude and Grok usage, runner verification, and refresh recovery.",
+            "summary": "The Overview page, covering what needs attention, fleet numbers, provider usage, engine installs, runner verification, and refresh recovery.",
             "anchors": [
                 {
                     "id": "dashboard",
@@ -773,23 +763,18 @@
                     "level": 2
                 },
                 {
-                    "id": "stat-cards",
-                    "text": "Stat cards",
+                    "id": "fleet-numbers-and-engines",
+                    "text": "Fleet numbers and engines",
                     "level": 2
                 },
                 {
-                    "id": "alerts",
-                    "text": "Alerts",
+                    "id": "needs-attention",
+                    "text": "Needs attention",
                     "level": 2
                 },
                 {
-                    "id": "chatgpt-usage-card",
-                    "text": "ChatGPT usage card",
-                    "level": 2
-                },
-                {
-                    "id": "claude-usage-card",
-                    "text": "Claude usage card",
+                    "id": "provider-usage",
+                    "text": "Provider usage",
                     "level": 2
                 },
                 {
@@ -821,9 +806,9 @@
         },
         {
             "slug": "agent-portal",
-            "title": "Active Clients and agent sessions",
+            "title": "Agents and agent sessions",
             "section": "Admin workspace",
-            "summary": "Session settings, remote work, presence and operator chat through Active Clients and Android.",
+            "summary": "Session settings, remote work, presence, Needs you, and instructing or closing an agent through the Agents page and Android.",
             "anchors": [
                 {
                     "id": "agent-session-settings",
@@ -871,9 +856,9 @@
         },
         {
             "slug": "settings",
-            "title": "Engines, Policies, and API Access",
+            "title": "Engines, Settings, and API keys",
             "section": "Admin workspace",
-            "summary": "Every fleet configuration control under Engines, Policies, and API Access \u2014 what each one changes and which endpoint it touches.",
+            "summary": "Every fleet configuration control under Engines, Settings, and API keys \u2014 what each one changes and which endpoint it touches.",
             "anchors": [
                 {
                     "id": "finding-configuration-controls",
@@ -996,18 +981,18 @@
                     "level": 2
                 },
                 {
-                    "id": "users-admin-users",
-                    "text": "/users \u2014 Admin Users",
+                    "id": "people-admin-users",
+                    "text": "People (admin users)",
                     "level": 3
                 },
                 {
-                    "id": "instructions-fleet-instructions",
-                    "text": "/instructions \u2014 Fleet Instructions",
+                    "id": "agent-rules-fleet-instructions",
+                    "text": "Agent rules (fleet instructions)",
                     "level": 3
                 },
                 {
-                    "id": "skills-skills-library",
-                    "text": "/skills \u2014 Skills library",
+                    "id": "skills-library",
+                    "text": "Skills (Library)",
                     "level": 3
                 },
                 {
@@ -1017,12 +1002,12 @@
                 },
                 {
                     "id": "memories-memory-atlas",
-                    "text": "/memories \u2014 Memory Atlas",
+                    "text": "Memories (Memory Atlas)",
                     "level": 3
                 },
                 {
-                    "id": "secrets-git-director-transfers-agent-portal-agent-messaging",
-                    "text": "/secrets, /git-director, /transfers, /agent-portal, /agent-messaging",
+                    "id": "secrets-git-merges-shared-files-agents-and-messages",
+                    "text": "Secrets, Git merges, Shared files, Agents, and Messages",
                     "level": 3
                 },
                 {
@@ -1049,7 +1034,7 @@
         },
         {
             "slug": "instructions",
-            "title": "Fleet Instructions",
+            "title": "Agent rules (fleet instructions)",
             "section": "Admin workspace",
             "summary": "The generated AGENTS.md / CLAUDE.md: generation switch, policy modules, versions, security posture profiles, and the response-verbosity dial.",
             "anchors": [
@@ -1418,7 +1403,7 @@
         },
         {
             "slug": "logs",
-            "title": "Logs \u2014 MCP and Events",
+            "title": "Activity \u2014 admin changes and tool calls",
             "section": "Admin workspace",
             "summary": "Where each log stream originates, retention, filtering, and the admin-ws live feed.",
             "anchors": [
@@ -1428,13 +1413,13 @@
                     "level": 2
                 },
                 {
-                    "id": "mcp-tab",
-                    "text": "MCP tab",
+                    "id": "tool-calls-mcp",
+                    "text": "Tool calls (MCP)",
                     "level": 2
                 },
                 {
-                    "id": "events-tab",
-                    "text": "Events tab",
+                    "id": "admin-changes-events",
+                    "text": "Admin changes (Events)",
                     "level": 2
                 },
                 {
@@ -1524,8 +1509,8 @@
                     "level": 3
                 },
                 {
-                    "id": "api-keys-admin-page",
-                    "text": "/api-keys admin page",
+                    "id": "api-keys-access-page",
+                    "text": "API keys (Access page)",
                     "level": 3
                 },
                 {

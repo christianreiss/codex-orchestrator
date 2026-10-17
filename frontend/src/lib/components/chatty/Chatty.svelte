@@ -97,7 +97,7 @@
     <Dialog.Portal>
       <Dialog.Content class="chatty-panel" onOpenAutoFocus={(e) => { e.preventDefault(); void tick().then(() => input?.focus()); }} onInteractOutside={(e) => e.preventDefault()}>
         <div class="flex items-center justify-between border-b p-3">
-          <div><Dialog.Title class="font-semibold">Chatty</Dialog.Title><Dialog.Description class="text-xs text-muted-foreground">Dein Assistent für den Orchestrator</Dialog.Description></div>
+          <div><Dialog.Title class="font-semibold">Chatty</Dialog.Title><Dialog.Description class="text-body-sm text-muted-foreground">Dein Assistent für den Orchestrator</Dialog.Description></div>
           <div class="flex gap-1">
             <button class="icon-button" aria-label="Neues Gespräch" title="Neues Gespräch" disabled={busy} onclick={() => void newChat()}><Trash2 size={17}/></button>
             <Dialog.Close class="icon-button" aria-label="Chatty minimieren"><Minus size={19}/></Dialog.Close>
@@ -124,35 +124,35 @@
           {/if}
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto p-3" role="log" aria-label="Chatty Gespräch" aria-live="polite" aria-relevant="additions">
-          {#if $session.data?.has_older}<button class="mb-3 text-xs underline" onclick={() => void more()} disabled={busy}>Ältere Nachrichten laden</button>{/if}
-          {#if !$session.isPending && events.length === 0}<p class="py-8 text-sm text-muted-foreground">Was möchtest du wissen oder ändern? Ich kann das Produkt erklären, den aktuellen Zustand nachsehen und Verwaltungsaufgaben erledigen.</p>{/if}
+          {#if $session.data?.has_older}<button class="mb-3 text-body-sm underline" onclick={() => void more()} disabled={busy}>Ältere Nachrichten laden</button>{/if}
+          {#if !$session.isPending && events.length === 0}<p class="py-8 text-body text-muted-foreground">Was möchtest du wissen oder ändern? Ich kann das Produkt erklären, den aktuellen Zustand nachsehen und Verwaltungsaufgaben erledigen.</p>{/if}
           {#each events as event (event.id)}
-            <article class="mb-3 rounded-lg p-3 text-sm {event.kind === 'user' ? 'ml-6 bg-primary/10' : 'bg-muted/60'}">
-              {#if event.kind === 'user'}<p class="mb-1 text-xs font-semibold">Du</p><p class="whitespace-pre-wrap">{event.body.text}</p>
+            <article class="mb-3 rounded-md p-3 text-body {event.kind === 'user' ? 'ml-6 bg-primary/10' : 'bg-muted/60'}">
+              {#if event.kind === 'user'}<p class="mb-1 text-body-sm font-semibold">Du</p><p class="whitespace-pre-wrap">{event.body.text}</p>
               {:else if event.kind === 'answer' || event.kind === 'question'}
-                <p class="mb-1 text-xs font-semibold">Chatty{event.body.engine ? ` · ${event.body.engine}` : ''}{event.body.model ? ` · ${event.body.model}` : ''}</p>
+                <p class="mb-1 text-body-sm font-semibold">Chatty{event.body.engine ? ` · ${event.body.engine}` : ''}{event.body.model ? ` · ${event.body.model}` : ''}</p>
                 <MarkdownBody text={event.body.text ?? ''}/>
-                {#each event.body.sources ?? [] as source}<details class="mt-2 text-xs"><summary class="cursor-pointer underline">{source.heading || source.title}</summary><pre class="mt-2 whitespace-pre-wrap">{source.body}</pre></details>{/each}
-                {#if event.kind === 'question' && active?.id === event.runId && active.status === 'waiting_input'}<div class="mt-2 flex flex-wrap gap-2">{#each event.body.options ?? [] as option}<button class="rounded border p-2" disabled={!canSend} onclick={() => void send(option)}>{option}</button>{/each}</div>{/if}
+                {#each event.body.sources ?? [] as source}<details class="mt-2 text-body-sm"><summary class="cursor-pointer underline">{source.heading || source.title}</summary><pre class="mt-2 whitespace-pre-wrap">{source.body}</pre></details>{/each}
+                {#if event.kind === 'question' && active?.id === event.runId && active.status === 'waiting_input'}<div class="mt-2 flex flex-wrap gap-2">{#each event.body.options ?? [] as option}<button class="rounded-md border p-2" disabled={!canSend} onclick={() => void send(option)}>{option}</button>{/each}</div>{/if}
               {:else if event.kind === 'action'}
                 <p class="font-medium">{event.body.description}</p>
-                <details class="mt-2"><summary class="cursor-pointer">Änderung ansehen</summary><pre class="max-h-52 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(event.body.arguments, null, 2)}</pre><p class="mt-2 text-xs">Aktueller Zustand</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(event.body.before, null, 2)}</pre></details>
-                {#if pending(event)}<div class="mt-3 flex gap-3"><button class="rounded bg-primary px-3 py-2 text-primary-foreground" disabled={busy} onclick={() => void operation(() => api.post(`/admin/chatty/actions/${event.body.id}/decision`, { generation: $session.data!.generation, approve: true }))}>Bestätigen</button><button disabled={busy} onclick={() => void operation(() => api.post(`/admin/chatty/actions/${event.body.id}/decision`, { generation: $session.data!.generation, approve: false }))}>Ablehnen</button></div>{/if}
+                <details class="mt-2"><summary class="cursor-pointer">Änderung ansehen</summary><pre class="max-h-52 overflow-auto whitespace-pre-wrap text-body-sm">{JSON.stringify(event.body.arguments, null, 2)}</pre><p class="mt-2 text-body-sm">Aktueller Zustand</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap text-body-sm">{JSON.stringify(event.body.before, null, 2)}</pre></details>
+                {#if pending(event)}<div class="mt-3 flex gap-3"><button class="rounded-md bg-primary px-3 py-2 text-primary-foreground" disabled={busy} onclick={() => void operation(() => api.post(`/admin/chatty/actions/${event.body.id}/decision`, { generation: $session.data!.generation, approve: true }))}>Bestätigen</button><button disabled={busy} onclick={() => void operation(() => api.post(`/admin/chatty/actions/${event.body.id}/decision`, { generation: $session.data!.generation, approve: false }))}>Ablehnen</button></div>{/if}
               {:else if event.kind === 'result'}
                 <p>Änderung {event.body.status === 'succeeded' ? 'ausgeführt' : event.body.status === 'approved' ? 'bestätigt' : event.body.status === 'rejected' ? 'abgelehnt' : event.body.status === 'failed' ? 'fehlgeschlagen' : event.body.status}</p>
-                {#if event.body.result}<details><summary>Ergebnisbeleg</summary><pre class="max-h-52 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify({ action: event.body.tool, result: event.body.result }, null, 2)}</pre></details>{/if}
+                {#if event.body.result}<details><summary>Ergebnisbeleg</summary><pre class="max-h-52 overflow-auto whitespace-pre-wrap text-body-sm">{JSON.stringify({ action: event.body.tool, result: event.body.result }, null, 2)}</pre></details>{/if}
                 {#if event.body.href?.startsWith('/admin/')}<a class="underline" href={event.body.href}>Im Orchestrator öffnen</a>{/if}
-              {:else}<p class="text-xs text-muted-foreground">{event.body.text ?? event.body.status}</p>{/if}
+              {:else}<p class="text-body-sm text-muted-foreground">{event.body.text ?? event.body.status}</p>{/if}
             </article>
           {/each}
           <div bind:this={bottom}></div>
         </div>
         <div class="border-t p-3">
-          {#if !$status.data.ready}<p class="mb-2 text-xs text-muted-foreground">Chatty ist gerade nicht verfügbar. Prüfe aktivierte Engines, verifizierte Konten, Kontingent und Runner unter <a class="underline" href="/admin/settings">Einstellungen</a>.</p>{/if}
-          {#if error || $session.error}<p class="mb-2 text-sm text-destructive" role="alert">{error || $session.error?.message}</p>{/if}
-          {#if active}<div class="mb-2 flex items-center justify-between text-xs text-muted-foreground"><span>{active.status === 'waiting_confirmation' ? 'Wartet auf Bestätigung' : active.status === 'waiting_input' ? 'Rückfrage' : active.status === 'queued' ? 'In der Warteschlange' : 'Chatty arbeitet …'}</span><button class="flex items-center gap-1" aria-label="Anfrage stoppen" disabled={busy} onclick={() => void operation(() => api.post(`/admin/chatty/runs/${active.id}/cancel`))}><Square size={12}/> Stoppen</button></div>{/if}
+          {#if !$status.data.ready}<p class="mb-2 text-body-sm text-muted-foreground">Chatty ist gerade nicht verfügbar. Prüfe aktivierte Engines, verifizierte Konten, Kontingent und Runner unter <a class="underline" href="/admin/settings">Einstellungen</a>.</p>{/if}
+          {#if error || $session.error}<p class="mb-2 text-body text-destructive" role="alert">{error || $session.error?.message}</p>{/if}
+          {#if active}<div class="mb-2 flex items-center justify-between text-body-sm text-muted-foreground"><span>{active.status === 'waiting_confirmation' ? 'Wartet auf Bestätigung' : active.status === 'waiting_input' ? 'Rückfrage' : active.status === 'queued' ? 'In der Warteschlange' : 'Chatty arbeitet …'}</span><button class="flex items-center gap-1" aria-label="Anfrage stoppen" disabled={busy} onclick={() => void operation(() => api.post(`/admin/chatty/runs/${active.id}/cancel`))}><Square size={12}/> Stoppen</button></div>{/if}
           <form class="flex items-end gap-2" onsubmit={(e) => { e.preventDefault(); void send(); }}>
-            <textarea bind:this={input} bind:value={draft} aria-label="Nachricht an Chatty" placeholder="Frag Chatty …" rows="2" maxlength="16000" class="max-h-36 min-w-0 flex-1 resize-y rounded-md border bg-background p-2 text-sm" onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); } }}></textarea>
+            <textarea bind:this={input} bind:value={draft} aria-label="Nachricht an Chatty" placeholder="Frag Chatty …" rows="2" maxlength="16000" class="max-h-36 min-w-0 flex-1 resize-y rounded-md border bg-background p-2 text-body" onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); } }}></textarea>
             <button type="submit" class="icon-button bg-primary text-primary-foreground disabled:opacity-40" aria-label="Nachricht senden" disabled={!canSend || !draft.trim()}><Send size={18}/></button>
           </form>
         </div>

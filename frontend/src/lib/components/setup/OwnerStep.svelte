@@ -154,7 +154,7 @@
       did half of that left the owner created and the operator still staring at
       the form.
     -->
-    <p class="text-xs text-muted-foreground">
+    <p class="text-body-sm text-muted-foreground">
       Press Enter or use <strong>Create owner</strong> below.
     </p>
   </div>

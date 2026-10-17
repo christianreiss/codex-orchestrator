@@ -15,7 +15,7 @@
   <div class="my-1 text-center">
     <button
       type="button"
-      class="rounded px-2 py-0.5 text-[11px] text-muted-foreground transition hover:text-foreground
+      class="rounded-md px-2 py-0.5 text-caption text-muted-foreground transition hover:text-foreground
              focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       onclick={() => (open = false)}
     >Hide {events.length} status updates</button>
@@ -24,7 +24,7 @@
   <div class="my-1 text-center">
     <button
       type="button"
-      class="rounded px-2 py-0.5 text-[11px] text-muted-foreground transition hover:text-foreground
+      class="rounded-md px-2 py-0.5 text-caption text-muted-foreground transition hover:text-foreground
              focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       onclick={() => (open = true)}
       aria-expanded="false"

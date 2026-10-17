@@ -32,7 +32,7 @@
 
 <nav aria-label="Manual articles" class="space-y-5">
   {#if isEmpty}
-    <p class="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+    <p class="rounded-md border border-dashed border-border px-3 py-6 text-center text-body-sm text-muted-foreground">
       {#if trimmedQuery}
         No articles match "{trimmedQuery}"
       {:else}
@@ -43,7 +43,7 @@
     {#each grouped as group (group.section)}
       <div>
         <p
-          class="mb-2 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+          class="mb-1 px-2 text-caption uppercase tracking-wider text-muted-foreground"
         >
           {group.section}
         </p>
@@ -54,16 +54,16 @@
               <a
                 href={`${base}/manual/${article.slug}`}
                 class={cn(
-                  "block rounded-md px-2.5 py-1.5 text-sm transition-colors",
+                  "block rounded-md px-2.5 py-1.5 text-body transition-colors",
                   active
-                    ? "bg-[hsl(var(--sidebar-active))] text-white"
+                    ? "bg-primary/15 text-primary"
                     : "text-foreground/80 hover:bg-accent hover:text-foreground",
                 )}
                 aria-current={active ? "page" : undefined}
               >
                 <span class="block truncate font-medium">{article.title}</span>
                 {#if article.summary && !active}
-                  <span class="mt-0.5 block truncate text-xs text-muted-foreground">
+                  <span class="block truncate text-body-sm text-muted-foreground">
                     {article.summary}
                   </span>
                 {/if}

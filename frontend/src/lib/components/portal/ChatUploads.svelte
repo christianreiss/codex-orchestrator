@@ -41,16 +41,16 @@
   }
   onDestroy(() => { closed = true; previews.forEach(url => URL.revokeObjectURL(url)); if(recorder) recorder.onstop = null; stop(); requests.forEach(r => r.abort()); onitems(session, items.map(i => i.state === 'uploading' ? {...i,state:'failed',error:'Upload paused; retry to resume.'} : i)); });
 </script>
-<div class="border-t px-4 py-2 text-xs">
+<div class="border-t px-4 py-2 text-caption">
   <div class="flex flex-wrap items-center gap-3">
-    <label class="cursor-pointer rounded border px-2 py-1">Attach files<input type="file" multiple class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
-    <label class="cursor-pointer rounded border px-2 py-1">Photo<input type="file" accept="image/*" capture="environment" class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
+    <label class="cursor-pointer rounded-md border px-2 py-1">Attach files<input type="file" multiple class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
+    <label class="cursor-pointer rounded-md border px-2 py-1">Photo<input type="file" accept="image/*" capture="environment" class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
     {#if recording}<button type="button" class="text-destructive" onclick={stop}>Stop {recording} recording</button>
     {:else}<button type="button" disabled={disabled} onclick={() => record('audio')}>Record audio</button><button type="button" disabled={disabled} onclick={() => record('video')}>Record video</button>{/if}
   </div>
   {#if error}<p role="alert" class="mt-1 text-destructive">{error}</p>{/if}
   {#each items as item (item.id)}
-    {#if item.file.type.startsWith("image/")}<img src={preview(item.file)} alt={item.file.name} class="mt-2 max-h-20 rounded" />{/if}
+    {#if item.file.type.startsWith("image/")}<img src={preview(item.file)} alt={item.file.name} class="mt-2 max-h-20 rounded-md" />{/if}
     <div class="mt-2 flex items-center gap-2"><span class="min-w-0 flex-1 truncate">{item.file.name} · {item.state === 'uploading' ? `${Math.round(item.progress*100)}%` : item.state}</span>
       {#if item.state === 'failed'}<button type="button" onclick={() => upload(item)}>Retry upload</button>{/if}
       <button type="button" disabled={disabled} onclick={() => remove(item)}>Remove</button>

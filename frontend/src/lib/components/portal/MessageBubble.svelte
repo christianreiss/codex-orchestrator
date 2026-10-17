@@ -40,7 +40,7 @@
            {role === 'you' ? 'bubble-you' : 'bubble-agent'} {endsGroup ? 'bubble-tail' : ''}"
     title={time}
   >
-    {#if event.payload.reply_to}<p class="mb-1 border-l-2 pl-2 text-xs opacity-70">Reply to message #{String(event.payload.reply_to)}</p>{/if}
+    {#if event.payload.reply_to}<p class="mb-1 border-l-2 pl-2 text-caption opacity-70">Reply to message #{String(event.payload.reply_to)}</p>{/if}
     {#if role === "agent"}
       <MarkdownBody text={eventText(event)} />
     {:else}
@@ -48,18 +48,18 @@
       <p class="whitespace-pre-wrap break-words text-body">{eventText(event)}</p>
     {/if}
     {#if session && Array.isArray(event.payload.attachments)}<AttachmentList {session} ids={event.payload.attachments as string[]} />{/if}
-    <div class="mt-1 flex gap-2 text-xs opacity-60"><button type="button" onclick={() => navigator.clipboard.writeText(eventText(event))}>Copy</button>{#if onreply}<button type="button" onclick={() => onreply?.(event.cursor)}>Reply</button>{/if}</div>
+    <div class="mt-1 flex gap-2 text-caption opacity-60"><button type="button" onclick={() => navigator.clipboard.writeText(eventText(event))}>Copy</button>{#if onreply}<button type="button" onclick={() => onreply?.(event.cursor)}>Reply</button>{/if}</div>
     <time class="sr-only" datetime={event.created_at}>{time}</time>
   </div>
 
   {#if delivery}
-    <p role="status" class="mt-0.5 px-1 text-[10px] font-medium {delivery === 'failed' ? 'text-destructive' : 'text-muted-foreground'}">
+    <p role="status" class="mt-0.5 px-1 text-caption font-medium {delivery === 'failed' ? 'text-destructive' : 'text-muted-foreground'}">
       {DELIVERY_LABEL[delivery]}
     </p>
   {:else}
     <!-- Messages hides per-bubble times; hover or focus reveals this one. -->
     <p
-      class="h-0 overflow-hidden px-1 text-[10px] text-muted-foreground opacity-0 transition-opacity
+      class="h-0 overflow-hidden px-1 text-caption text-muted-foreground opacity-0 transition-opacity
              group-hover:h-auto group-hover:opacity-100 group-focus-within:h-auto group-focus-within:opacity-100"
       aria-hidden="true"
     >{time}</p>

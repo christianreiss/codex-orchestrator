@@ -1,30 +1,21 @@
 <script lang="ts">
   /**
-   * Chrome for one engine's block inside "Engines & versions": header badge
-   * + override rows (passed in as children, since they carry mutation
-   * wiring the panel itself doesn't need to know about) + a binary-digest
-   * footer line.
+   * One engine's block inside "Per-host exceptions": a badge, the override rows
+   * (children, since they carry mutation wiring) and the binary digest.
    */
   import { engineLabel } from "$lib/constants/engines";
   import EngineBadge from "./EngineBadge.svelte";
   import type { Snippet } from "svelte";
   import type { HostEngine } from "$lib/api/types";
 
-  type Props = {
-    engine: HostEngine;
-    digest: string;
-    children: Snippet;
-  };
+  type Props = { engine: HostEngine; digest: string; children: Snippet };
   let { engine, digest, children }: Props = $props();
 </script>
 
-<section aria-label={`${engineLabel(engine)} engine overrides`} class="flex min-w-0 flex-col gap-2 rounded-lg border bg-muted/20 p-4">
-  <EngineBadge {engine} />
+<section aria-label={`${engineLabel(engine)} engine overrides`} class="min-w-0">
+  <div class="mb-1 flex items-center justify-between gap-2">
+    <EngineBadge {engine} />
+    <span class="font-mono text-caption text-muted-foreground" title="Binary digest">{digest}</span>
+  </div>
   {@render children()}
-  <dl class="text-sm">
-    <div class="flex flex-col">
-      <dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Binary digest</dt>
-      <dd class="font-mono text-xs">{digest}</dd>
-    </div>
-  </dl>
 </section>

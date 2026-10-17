@@ -1,6 +1,6 @@
 <script lang="ts">
   import { toast } from "svelte-sonner";
-  import SectionCard from "./SectionCard.svelte";
+  import SectionCard from "$lib/components/engines/SettingGroup.svelte";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import {
@@ -50,22 +50,22 @@
 
   const description = $derived(
     $query.data?.enabled
-      ? `A new cxx release goes to canary hosts first, then ${$query.data.settings.stages.filter((s) => s !== "canary").join(" → ")}. Each stage soaks ${$query.data.settings.soak_minutes} min and needs one of its own hosts on the new build before the next begins. Busy hosts apply when their agents are idle; that delay never blocks a stage.`
-      : "Off: every host is offered the newest cxx release at once. Set CXX_WRAPPER_ROLLOUT_ENABLED=true on the API to stage releases.",
+      ? `A new host-agent (cxx) release goes to hosts that try new versions early first, then ${$query.data.settings.stages.filter((s) => s !== "canary").join(" → ")}. Each stage soaks ${$query.data.settings.soak_minutes} min and needs one of its own hosts on the new build before the next begins. Busy hosts apply when their agents are idle; that delay never blocks a stage.`
+      : "Off: every host is offered the newest host-agent (cxx) release at once. Set CXX_WRAPPER_ROLLOUT_ENABLED=true on the API to stage releases.",
   );
 </script>
 
-<SectionCard id="wrapper-rollout" title="cxx rollout" {description} {headingLevel}>
+<SectionCard id="wrapper-rollout" {description} {headingLevel}>
   {#if $query.isPending}
-    <p class="text-sm text-muted-foreground">Loading…</p>
+    <p class="text-body-sm text-muted-foreground">Loading…</p>
   {:else if $query.isError}
-    <p class="text-sm text-destructive">{$query.error.message}</p>
+    <p class="text-body-sm text-destructive">{$query.error.message}</p>
   {:else if $query.data}
-    <p class="text-xs text-muted-foreground">
-      {canaries} canary {canaries === 1 ? "host" : "hosts"} of {eligible} eligible. Mark canaries on a host's page.
+    <p class="text-caption text-muted-foreground">
+      {canaries} {canaries === 1 ? "host tries" : "hosts try"} new host-agent versions early, of {eligible} eligible. Choose them on a host's page (canary hosts).
     </p>
     {#if rollout}
-      <div class="mt-3 space-y-3 rounded-md border p-3 text-sm">
+      <div class="mt-3 space-y-3 border-y py-3 text-body-sm">
         <div class="flex flex-wrap items-center gap-2">
           <Badge variant={STATUS_VARIANT[rollout.status]}>{rollout.status}</Badge>
           <span class="font-mono">{rollout.from_version} → {rollout.target_version}</span>
@@ -74,14 +74,14 @@
           {/if}
         </div>
         {#if live}
-          <dl class="grid grid-cols-1 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
+          <dl class="grid grid-cols-1 gap-x-6 gap-y-1 text-caption sm:grid-cols-3">
             <div><dt class="text-muted-foreground">Admitted hosts</dt><dd>{rollout.admitted_host_ids.length} of {eligible}</dd></div>
             <div><dt class="text-muted-foreground">Running the new build</dt><dd>{rollout.confirmed_host_ids.length}</dd></div>
             <div><dt class="text-muted-foreground">Soak ends</dt><dd>{rollout.status === "active" ? time(rollout.soak_ends_at) : "paused"}</dd></div>
           </dl>
         {/if}
         {#if rollout.halted_reason}
-          <p class="text-xs text-warning-muted-foreground">{rollout.halted_reason}</p>
+          <p class="text-caption text-warning-muted-foreground">{rollout.halted_reason}</p>
         {/if}
         {#if live}
           <div class="flex flex-wrap gap-2">
@@ -95,11 +95,11 @@
             </Button>
             <Button size="sm" variant="outline" disabled={$action.isPending} onclick={() => run("complete")}>Release to all</Button>
           </div>
-          <p class="text-xs text-muted-foreground">Halting stops further waves. Hosts that already updated keep the new build; a rollback is a manifest revert.</p>
+          <p class="text-caption text-muted-foreground">Halting stops further waves. Hosts that already updated keep the new build; a rollback is a manifest revert.</p>
         {/if}
       </div>
     {:else}
-      <p class="mt-2 text-sm text-muted-foreground">No rollout recorded yet. The next deploy that publishes a newer cxx starts one.</p>
+      <p class="mt-2 text-body-sm text-muted-foreground">No rollout recorded yet. The next deploy that publishes a newer cxx starts one.</p>
     {/if}
   {/if}
 </SectionCard>

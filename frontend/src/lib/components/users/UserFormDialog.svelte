@@ -148,7 +148,7 @@
           disabled={submitting}
           aria-invalid={errors.name ? "true" : undefined}
         />
-        {#if errors.name}<p class="text-xs text-destructive">{errors.name}</p>{/if}
+        {#if errors.name}<p class="text-caption text-destructive">{errors.name}</p>{/if}
       </div>
 
       <div class="space-y-1.5">
@@ -161,7 +161,7 @@
           disabled={submitting}
           aria-invalid={errors.username ? "true" : undefined}
         />
-        {#if errors.username}<p class="text-xs text-destructive">{errors.username}</p>{/if}
+        {#if errors.username}<p class="text-caption text-destructive">{errors.username}</p>{/if}
       </div>
 
       <div class="space-y-1.5">
@@ -174,7 +174,7 @@
           disabled={submitting}
           aria-invalid={errors.email ? "true" : undefined}
         />
-        {#if errors.email}<p class="text-xs text-destructive">{errors.email}</p>{/if}
+        {#if errors.email}<p class="text-caption text-destructive">{errors.email}</p>{/if}
       </div>
 
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -190,19 +190,19 @@
               {/each}
             </Select.Content>
           </Select.Root>
-          {#if errors.access_level}<p class="text-xs text-destructive">{errors.access_level}</p>{/if}
+          {#if errors.access_level}<p class="text-caption text-destructive">{errors.access_level}</p>{/if}
         </div>
 
         <div class="space-y-1.5">
           <Label for="user-active">Active</Label>
-          <div class="flex h-10 items-center gap-3 rounded-md border border-input bg-background px-3">
+          <div class="flex h-9 items-center gap-3 rounded-md border border-input bg-background px-3">
             <Switch
               id="user-active"
               checked={active}
               onCheckedChange={(v) => (active = Boolean(v))}
               disabled={submitting}
             />
-            <span class="text-sm text-muted-foreground">
+            <span class="text-body text-muted-foreground">
               {active ? "Account can sign in" : "Disabled"}
             </span>
           </div>
@@ -238,9 +238,9 @@
           </button>
         </div>
         {#if errors.password}
-          <p class="text-xs text-destructive">{errors.password}</p>
+          <p class="text-caption text-destructive">{errors.password}</p>
         {:else}
-          <p class="text-xs text-muted-foreground">
+          <p class="text-caption text-muted-foreground">
             {PASSWORD_POLICY_TEXT}
           </p>
         {/if}
@@ -257,13 +257,13 @@
           aria-invalid={errors.password_confirm || passwordsMismatch ? "true" : undefined}
         />
         {#if errors.password_confirm}
-          <p class={cn("text-xs", "text-destructive")}>{errors.password_confirm}</p>
+          <p class={cn("text-caption", "text-destructive")}>{errors.password_confirm}</p>
         {:else if passwordsMatch}
-          <p class="inline-flex items-center gap-1 text-xs text-success">
+          <p class="inline-flex items-center gap-1 text-caption text-success">
             <Check class="h-3 w-3" /> Passwords match
           </p>
         {:else if passwordsMismatch}
-          <p class="inline-flex items-center gap-1 text-xs text-destructive">
+          <p class="inline-flex items-center gap-1 text-caption text-destructive">
             <AlertCircle class="h-3 w-3" /> Passwords do not match
           </p>
         {/if}

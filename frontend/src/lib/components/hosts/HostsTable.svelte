@@ -1,267 +1,105 @@
 <script lang="ts">
- import DaemonIndicator from "./DaemonIndicator.svelte";
- import { hostDaemonsQuery } from "$lib/api/hostDaemons";
- const daemons=hostDaemonsQuery();
-  import { onMount } from "svelte";
-  import { base } from "$app/paths";
   import { goto } from "$app/navigation";
-  import { createVirtualizer } from "@tanstack/svelte-virtual";
-  import EngineStatusDots from "./EngineStatusDots.svelte";
-  import InsecureCountdown from "./InsecureCountdown.svelte";
-  import { EmptyState } from "$lib/components/ui/empty-state";
-  import { Button } from "$lib/components/ui/button";
-  import { relativeTime } from "$lib/utils/format";
-  import {
-    hostLatestRefresh,
-    hostLatestRefreshMs,
-    type HostFilterId,
-  } from "$lib/api/hosts";
-  import type { HostListItem } from "$lib/api/types";
-  import ChevronsUpDown from "@lucide/svelte/icons/chevrons-up-down";
-  import ChevronUp from "@lucide/svelte/icons/chevron-up";
-  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import { base } from "$app/paths";
   import Server from "@lucide/svelte/icons/server";
-  import Search from "@lucide/svelte/icons/search";
   import Plus from "@lucide/svelte/icons/plus";
-  import { cn } from "$lib/utils/cn";
-
-  export type SortField =
-    | "fqdn"
-    | "last_refresh"
-    | "client_version"
-    | "insecure_enabled_until";
-  export type SortDir = "asc" | "desc";
-
-  const FILTER_LABELS: Record<HostFilterId, string> = {
-    all: "",
-    online: "Online",
-    offline: "Offline",
-    secure: "Secure",
-    insecure: "Insecure",
-    unprovisioned: "Unprovisioned",
-    vip: "VIP",
-    roaming: "Roaming",
-  };
+  import ShieldAlert from "@lucide/svelte/icons/shield-alert";
+  import { DataTable } from "$lib/components/page";
+  import * as Table from "$lib/components/ui/table";
+  import { Button } from "$lib/components/ui/button";
+  import SortableHead from "$lib/components/data-table/SortableHead.svelte";
+  import { hostDaemonsQuery } from "$lib/api/hostDaemons";
+  import { hostLatestRefresh, hostStatusKind, isInsecureWindowActive } from "$lib/api/hosts";
+  import { relativeTime } from "$lib/utils/format";
+  import DaemonIndicator from "./DaemonIndicator.svelte";
+  import EngineChips from "./EngineChips.svelte";
+  import InsecureCountdown from "./InsecureCountdown.svelte";
+  import StatusPill from "./StatusPill.svelte";
+  import type { HostRow, HostsListState } from "./hostsListState.svelte";
 
   type Props = {
-    rows: HostListItem[];
-    loading?: boolean;
-    /** True once there are zero hosts registered at all — the true zero-data state. */
-    isEmpty?: boolean;
-    /** The active search string, if any — distinguishes "no data" from "no matches". */
-    filterQuery?: string;
-    /** The active filter chip, if not "all". */
-    activeFilter?: HostFilterId;
-    sortField?: SortField;
-    sortDir?: SortDir;
-    onSortChange?: (field: SortField, dir: SortDir) => void;
-    onRegisterHost?: () => void;
-    onClearFilters?: () => void;
+    state: HostsListState;
+    loading: boolean;
+    error: string | null;
+    onRetry: () => void;
+    onAdd: () => void;
+    onReviewAccess: () => void;
   };
-  let {
-    rows,
-    loading = false,
-    isEmpty = false,
-    filterQuery = "",
-    activeFilter = "all",
-    sortField = "fqdn",
-    sortDir = "asc",
-    onSortChange,
-    onRegisterHost,
-    onClearFilters,
-  }: Props = $props();
+  let { state: list, loading, error, onRetry, onAdd, onReviewAccess }: Props = $props();
 
+  const daemons = hostDaemonsQuery();
+  const STATUS = {
+    online: { tone: "online", label: "Online" },
+    offline: { tone: "offline", label: "Offline" },
+    "auth-missing": { tone: "warning", label: "Auth missing" },
+    "auth-outdated": { tone: "warning", label: "Outdated auth" },
+  } as const;
 
-  // --- sorting ------------------------------------------------------------
-  function setSort(f: SortField): void {
-    if (sortField === f) {
-      onSortChange?.(f, sortDir === "asc" ? "desc" : "asc");
-    } else {
-      onSortChange?.(f, "asc");
-    }
-  }
-
-  const sorted = $derived.by(() => {
-    const copy = rows.slice();
-    const dir = sortDir === "asc" ? 1 : -1;
-    copy.sort((a, b) => {
-      const av = (a as unknown as Record<string, unknown>)[sortField];
-      const bv = (b as unknown as Record<string, unknown>)[sortField];
-      if (sortField === "last_refresh") {
-        return ((hostLatestRefreshMs(a) ?? 0) - (hostLatestRefreshMs(b) ?? 0)) * dir;
-      }
-      if (sortField === "client_version") {
-        const av2 = a.client_version_override ?? a.client_version;
-        const bv2 = b.client_version_override ?? b.client_version;
-        if (av2 === bv2) return 0;
-        if (av2 === null || av2 === undefined) return 1;
-        if (bv2 === null || bv2 === undefined) return -1;
-        return String(av2).localeCompare(String(bv2)) * dir;
-      }
-      if (av === bv) return 0;
-      if (av === null || av === undefined) return 1;
-      if (bv === null || bv === undefined) return -1;
-      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
-      if (typeof av === "boolean" && typeof bv === "boolean") return (Number(av) - Number(bv)) * dir;
-      return String(av).localeCompare(String(bv)) * dir;
-    });
-    return copy;
-  });
-
-  // --- virtualization -----------------------------------------------------
-  let scrollEl: HTMLDivElement | undefined = $state();
-  let desktopDensity = $state(false);
-  const rowHeight = $derived(desktopDensity ? 40 : 68);
-
-  onMount(() => {
-    const media = window.matchMedia("(min-width: 1024px)");
-    const syncDensity = () => (desktopDensity = media.matches);
-    syncDensity();
-    media.addEventListener("change", syncDensity);
-    return () => media.removeEventListener("change", syncDensity);
-  });
-
-  const virtualizer = $derived.by(() => {
-    if (!scrollEl) return null;
-    const estimateSize = rowHeight;
-    return createVirtualizer<HTMLDivElement, HTMLDivElement>({
-      count: sorted.length,
-      getScrollElement: () => scrollEl ?? null,
-      estimateSize: () => estimateSize,
-      overscan: 12,
-    });
-  });
-
-  const virtualItems = $derived($virtualizer?.getVirtualItems() ?? []);
-  const totalSize = $derived($virtualizer?.getTotalSize() ?? sorted.length * rowHeight);
-
-  function openHost(h: HostListItem): void {
-    void goto(`${base}/hosts/${h.id}`);
+  function open(event: MouseEvent, id: number): void {
+    // Real links and buttons inside the row keep their own behaviour.
+    if ((event.target as HTMLElement).closest("a,button")) return;
+    void goto(`${base}/hosts/${id}`);
   }
 </script>
 
-<div class="overflow-hidden rounded-md border border-border/75 bg-card text-card-foreground">
-  <div
-    class="grid grid-cols-[minmax(0,1fr)] items-center gap-3 border-b bg-muted/45 px-4 py-2.5 text-xs font-medium text-muted-foreground lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_140px_120px]"
-  >
-    {@render headerCell("Host", "fqdn")}
-    <div class="hidden lg:block">Engines<span class="mt-1 block text-[10px] font-normal" title="Codex · Claude · Grok">CX · CL · GX</span></div>
-    <div class="hidden lg:block">{@render headerCell("Last seen", "last_refresh")}</div>
-    <div class="hidden lg:block">{@render headerCell("Codex ver.", "client_version")}</div>
-    <div class="hidden lg:block">{@render headerCell("Insecure", "insecure_enabled_until")}</div>
-  </div>
-
-  <div
-    bind:this={scrollEl}
-    class="relative h-[60vh] min-h-[400px] overflow-auto"
-  >
-    {#if loading}
-      <div class="px-4 py-6 text-sm text-muted-foreground">Loading hosts…</div>
-    {:else if sorted.length === 0 && isEmpty}
-      <div class="flex h-full items-center justify-center">
-        <EmptyState
-          icon={Server}
-          title="No hosts registered"
-          description="Register your first host to start routing inference."
-        >
-          {#snippet action()}
-            <Button size="sm" onclick={() => onRegisterHost?.()}>
-              <Plus class="h-4 w-4" />
-              Register host
-            </Button>
-          {/snippet}
-        </EmptyState>
-      </div>
-    {:else if sorted.length === 0}
-      <div class="flex h-full items-center justify-center">
-        <EmptyState
-          icon={Search}
-          size="sm"
-          title={filterQuery
-            ? `No hosts match "${filterQuery}"${activeFilter !== "all" ? ` in ${FILTER_LABELS[activeFilter]}` : ""}`
-            : `No hosts in ${FILTER_LABELS[activeFilter]}`}
-          description="Try a different search or filter."
-        >
-          {#snippet action()}
-            <Button size="sm" variant="outline" onclick={() => onClearFilters?.()}>Clear filters</Button>
-          {/snippet}
-        </EmptyState>
-      </div>
-    {:else}
-      <div style="height: {totalSize}px; position: relative; width: 100%;">
-        {#each virtualItems as virtual (virtual.key)}
-          {@const row = sorted[virtual.index]}
-          {#if row}
-            <button
-              type="button"
-              class={cn(
-                "absolute left-0 top-0 grid w-full grid-cols-[minmax(0,1fr)] items-center gap-3 border-b border-border/60 px-4 text-left text-sm transition-colors hover:bg-accent/40 focus-visible:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_120px_140px_120px]",
-              )}
-              style="transform: translateY({virtual.start}px); height: {rowHeight}px;"
-              onclick={() => openHost(row)}
-            >
-              <div class="min-w-0">
-                <div class="flex min-w-0 items-center gap-2">
-                  <span class="truncate font-medium">{row.fqdn}</span>
-                  <span class="hidden shrink-0 font-mono text-[11px] text-muted-foreground xl:inline">
-                    {row.ip4 ?? row.ip6 ?? "—"} · #{row.id}
-                  </span>
-                </div>
-                <div class="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-muted-foreground lg:hidden">
-                  <span class="truncate">{row.ip4 ?? row.ip6 ?? "—"} · #{row.id}</span>
-                  <span>· {relativeTime(hostLatestRefresh(row)) || "never"}</span>
-                </div>
-                <div class="mt-1 flex flex-wrap items-center gap-1 lg:hidden">
-                  <EngineStatusDots host={row} />
- <DaemonIndicator host={$daemons.data?.hosts.find(h=>h.host_id===row.id)}/>
-                  {#if row.vip}
-                    <span class="rounded bg-warning-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning-muted-foreground">VIP</span>
-                  {/if}
-                </div>
-              </div>
-              <div class="hidden flex-wrap items-center gap-1 lg:flex">
-                <EngineStatusDots host={row} />
- <DaemonIndicator host={$daemons.data?.hosts.find(h=>h.host_id===row.id)}/>
-                {#if row.vip}
-                  <span class="rounded bg-warning-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-muted-foreground">VIP</span>
-                {/if}
-                {#if row.allow_roaming_ips}
-                  <span class="rounded bg-info-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-info-muted-foreground">Roam</span>
-                {/if}
-              </div>
-              <div class="hidden truncate text-xs text-muted-foreground lg:block">
-                {relativeTime(hostLatestRefresh(row)) || "—"}
-              </div>
-              <div class="hidden truncate font-mono text-[11px] text-muted-foreground lg:block">
-                {row.client_version_override ?? row.client_version ?? "—"}
-              </div>
-              <div class="hidden lg:block">
-                <InsecureCountdown until={row.insecure_enabled_until} />
-              </div>
-            </button>
-          {/if}
-        {/each}
-      </div>
-    {/if}
-  </div>
-</div>
-
-{#snippet headerCell(label: string, field: SortField)}
-  <button
-    type="button"
-    class={cn(
-      "inline-flex min-h-8 items-center gap-1 text-left transition-colors hover:text-foreground",
-      sortField === field ? "text-foreground" : "",
-    )}
-    onclick={() => setSort(field)}
-  >
-    {label}
-    {#if sortField !== field}
-      <ChevronsUpDown class="h-3 w-3 opacity-50" />
-    {:else if sortDir === "asc"}
-      <ChevronUp class="h-3 w-3" />
-    {:else}
-      <ChevronDown class="h-3 w-3" />
-    {/if}
-  </button>
-{/snippet}
+<DataTable
+  items={list.rows}
+  {loading}
+  {error}
+  {onRetry}
+  key={(row: HostRow) => row.host.id}
+  filtered={list.filtered && list.all.length > 0}
+  emptyTitle="No hosts yet"
+  emptyDescription="Add a host to start routing work through it."
+  emptyIcon={Server}
+  caption="Hosts"
+>
+  {#snippet emptyAction()}
+    <Button size="sm" onclick={onAdd}><Plus class="h-4 w-4" /> Add host</Button>
+  {/snippet}
+  {#snippet head()}
+    <SortableHead label="Name" active={list.sortField === "fqdn"} dir={list.sortDir} onclick={() => list.setSort("fqdn")} />
+    <Table.Head>Status</Table.Head>
+    <SortableHead label="Needs attention" active={list.sortField === "attention"} dir={list.sortDir} onclick={() => list.setSort("attention")} />
+    <Table.Head>Engines</Table.Head>
+    <SortableHead label="Last seen" active={list.sortField === "last_refresh"} dir={list.sortDir} onclick={() => list.setSort("last_refresh")} />
+  {/snippet}
+  {#snippet row({ host, items }: HostRow)}
+    {@const kind = hostStatusKind(host)}
+    {@const warnings = items.filter((item) => item.tone === "warning")}
+    <Table.Row class="cursor-pointer" onclick={(event: MouseEvent) => open(event, host.id)} data-host-id={host.id}>
+      <Table.Cell class="max-w-[16rem]">
+        <a href={`${base}/hosts/${host.id}`} class="block truncate font-medium hover:underline">{host.fqdn}</a>
+        <span class="block truncate font-mono text-caption text-muted-foreground">{host.ip4 ?? host.ip6 ?? "no address"} · #{host.id}</span>
+      </Table.Cell>
+      <Table.Cell>
+        <span class="inline-flex flex-wrap items-center gap-1.5">
+          <StatusPill tone={STATUS[kind].tone} label={STATUS[kind].label} />
+          {#if isInsecureWindowActive(host)}<span title="Temporary access is open"><InsecureCountdown until={host.insecure_enabled_until} /></span>{/if}
+        </span>
+      </Table.Cell>
+      <Table.Cell class="max-w-[22rem]">
+        {#if warnings.length === 0}
+          <span class="text-muted-foreground">Nothing</span>
+        {:else}
+          <span class="flex items-center gap-2">
+            <span class="truncate" title={warnings.map((w) => w.text).join("\n")}>{warnings[0].text}</span>
+            {#if warnings.length > 1}<span class="shrink-0 text-caption text-muted-foreground">+{warnings.length - 1} more</span>{/if}
+            {#if warnings.some((w) => w.fix === "review-access")}
+              <Button size="sm" variant="outline" onclick={onReviewAccess}><ShieldAlert class="h-4 w-4" /> Review</Button>
+            {/if}
+          </span>
+        {/if}
+      </Table.Cell>
+      <Table.Cell>
+        <span class="flex flex-wrap items-center gap-2">
+          <EngineChips {host} />
+          <DaemonIndicator host={$daemons.data?.hosts.find((d) => d.host_id === host.id)} />
+        </span>
+      </Table.Cell>
+      <Table.Cell class="whitespace-nowrap text-muted-foreground" title={hostLatestRefresh(host) ?? undefined}>
+        {relativeTime(hostLatestRefresh(host)) || "Never"}
+      </Table.Cell>
+    </Table.Row>
+  {/snippet}
+</DataTable>

@@ -69,9 +69,9 @@
       someone was typing destroyed what they had written.
     -->
     {#if disabledReason}
-      <p class="pb-1.5 text-center text-[11px] text-muted-foreground">{disabledReason}</p>
+      <p class="pb-1.5 text-center text-caption text-muted-foreground">{disabledReason}</p>
     {:else if !view.canSend}
-      <p class="truncate pb-1.5 text-center text-[11px] text-muted-foreground" title={view.detail}>
+      <p class="truncate pb-1.5 text-center text-caption text-muted-foreground" title={view.detail}>
         <strong class="font-semibold text-foreground">{view.label}.</strong> {view.detail}
       </p>
     {/if}
@@ -97,7 +97,7 @@
       ></textarea>
       <button
         type="submit"
-        class="absolute bottom-1 right-1 grid h-7 w-7 place-items-center rounded-full bg-primary text-primary-foreground
+        class="absolute bottom-1 right-1 grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground
                transition hover:bg-primary-hover disabled:bg-muted-foreground/30 disabled:text-background
                focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         disabled={sending || (!draft.trim() && !hasAttachments) || !view.canSend || Boolean(disabledReason)}

@@ -1,13 +1,13 @@
 <script lang="ts">
-  import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import { onMount } from "svelte";
+  import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
   import { page } from "$app/state";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
-  import { Label } from "$lib/components/ui/label";
-  import * as Card from "$lib/components/ui/card";
+  import { AuthShell } from "$lib/components/page";
+  import { FormField } from "$lib/components/ui/form-field";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import Fingerprint from "@lucide/svelte/icons/fingerprint";
   import { api, ApiError } from "$lib/api/client";
@@ -150,153 +150,98 @@
       submitting = false;
     }
   }
+
+
+  function back(to: "username" | "reset") {
+    phase = to;
+    password = "";
+    error = null;
+    resetRequested = false;
+  }
+
+  const title = $derived(phase === "reset" ? "Reset password" : "Sign in");
+  const description = $derived(
+    phase === "reset" ? "Request a one-time reset link for your admin account." : "Authenticate to access the admin console.",
+  );
+  const linkClass = "block w-full text-center text-body-sm text-muted-foreground underline-offset-2 hover:underline";
 </script>
 
-<main
-  class="standalone-surface flex min-h-full items-center justify-center px-4 py-12"
->
-  <div class="w-full max-w-md">
-    <div class="mb-6 flex items-center justify-center gap-3">
-      <BrandMark class="h-10 w-10" />
-      <span class="text-lg font-semibold tracking-tight">Codex Orchestrator</span>
-    </div>
+<AuthShell {title} {description}>
+  <div class="space-y-4">
+    {#if error}
+      <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
+    {/if}
 
-    <Card.Root>
-      <Card.Header>
-        <h1 class="text-lg font-semibold leading-tight tracking-[-0.02em]">
-          {phase === "reset" ? "Reset password" : "Sign in"}
-        </h1>
-        <Card.Description>
-          {phase === "reset"
-            ? "Request a one-time reset link for your admin account."
-            : "Authenticate to access the admin console."}
-        </Card.Description>
-      </Card.Header>
-      <Card.Content class="space-y-4">
-        {#if error}
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        {/if}
+    <form
+      class="space-y-4"
+      onsubmit={(e) => {
+        e.preventDefault();
+        if (phase === "username") void probeMethod();
+        else if (phase === "password") void submitPassword();
+        else if (phase === "passkey") void submitPasskey();
+        else void submitResetRequest();
+      }}
+    >
+      {#if phase !== "passkey" || username.trim()}
+        <FormField id="username" label={phase === "reset" ? "Username or email" : "Username"}>
+          <Input id="username" type="text" autocomplete="username" required bind:value={username} disabled={phase !== "username" && phase !== "reset"} />
+        </FormField>
+      {/if}
 
-        <form
-          class="space-y-4"
-          onsubmit={(e) => {
-            e.preventDefault();
-            if (phase === "username") void probeMethod();
-            else if (phase === "password") void submitPassword();
-            else if (phase === "passkey") void submitPasskey();
-            else void submitResetRequest();
-          }}
-        >
-          {#if phase !== "passkey" || username.trim()}
-            <div class="space-y-2">
-              <Label for="username">{phase === "reset" ? "Username or email" : "Username"}</Label>
-              <Input
-                id="username"
-                type="text"
-                autocomplete="username"
-                required
-                bind:value={username}
-                disabled={phase !== "username" && phase !== "reset"}
-              />
-            </div>
-          {/if}
+      {#if phase === "reset" && resetRequested}
+        <Alert>
+          <AlertDescription>If an active account matches that username or email, a reset link has been sent to its registered email address.</AlertDescription>
+        </Alert>
+      {/if}
 
-          {#if phase === "reset" && resetRequested}
-            <Alert>
-              <AlertDescription>
-                If an active account matches that username or email, a reset link has been sent to its
-                registered email address.
-              </AlertDescription>
-            </Alert>
-          {/if}
+      {#if phase === "password"}
+        <FormField id="password" label="Password">
+          <Input id="password" type="password" autocomplete="current-password" required bind:value={password} />
+        </FormField>
+      {/if}
 
-          {#if phase === "password"}
-            <div class="space-y-2">
-              <Label for="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                autocomplete="current-password"
-                required
-                bind:value={password}
-              />
-            </div>
-          {/if}
+      {#if phase === "passkey"}
+        <p class="text-body-sm text-muted-foreground">
+          Use your registered passkey to sign in{#if username.trim()} as <strong>{username}</strong>{/if}.
+        </p>
+      {/if}
 
-          {#if phase === "passkey"}
-            <p class="text-sm text-muted-foreground">
-              Use your registered passkey to sign in{username.trim() ? " as " : ""}{#if username.trim()}<strong>{username}</strong>{/if}.
-            </p>
-          {/if}
+      {#if autoPasskeyActive}
+        <div class="flex w-full items-center justify-center gap-2 rounded-md border border-input bg-muted px-4 py-2 text-body-sm text-muted-foreground">
+          <Fingerprint class="h-4 w-4" /> Waiting for passkey…
+        </div>
+      {:else}
+        <Button type="submit" class="w-full" disabled={submitting || probing}>
+          {#if phase === "username"}Continue
+          {:else if phase === "password"}Sign in
+          {:else if phase === "reset"}{resetRequested ? "Send another link" : "Send reset link"}
+          {:else}<Fingerprint class="h-4 w-4" /> Authenticate with passkey{/if}
+        </Button>
+      {/if}
 
-          {#if autoPasskeyActive}
-            <div class="flex w-full items-center justify-center gap-2 rounded-md border border-input bg-muted px-4 py-2 text-sm text-muted-foreground">
-              <Fingerprint class="h-4 w-4" /> Waiting for passkey…
-            </div>
-          {:else}
-            <Button type="submit" class="w-full" disabled={submitting || probing}>
-              {#if phase === "username"}
-                Continue
-              {:else if phase === "password"}
-                Sign in
-              {:else if phase === "reset"}
-                {resetRequested ? "Send another link" : "Send reset link"}
-              {:else}
-                <Fingerprint class="h-4 w-4" /> Authenticate with passkey
-              {/if}
-            </Button>
-          {/if}
+      {#if phase === "password" && passkeySupported}
+        <Button type="button" variant="outline" class="w-full" onclick={() => (phase = "passkey")}>
+          <Fingerprint class="h-4 w-4" /> Use a passkey instead
+        </Button>
+      {/if}
 
-          {#if phase === "password" || phase === "passkey"}
-            <button
-              type="button"
-              class="block w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
-              onclick={() => {
-                phase = "reset";
-                password = "";
-                error = null;
-                resetRequested = false;
-              }}
-            >
-              {phase === "passkey" ? "Lost your passkey?" : "Forgot password?"}
-            </button>
-          {/if}
-
-          {#if phase !== "username"}
-            <button
-              type="button"
-              class="block w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
-              onclick={() => {
-                phase = "username";
-                password = "";
-                error = null;
-                resetRequested = false;
-              }}
-            >
-              {phase === "reset" ? "Back to sign in" : "Use a different username"}
-            </button>
-          {/if}
-
-          {#if phase === "password" && passkeySupported}
-            <Button
-              type="button"
-              variant="outline"
-              class="w-full"
-              onclick={() => {
-                phase = "passkey";
-              }}
-            >
-              <Fingerprint class="h-4 w-4" /> Use a passkey instead
-            </Button>
-          {/if}
-        </form>
-      </Card.Content>
-    </Card.Root>
-
-    <p class="mt-6 text-center text-xs text-muted-foreground">
-      Need help? Contact your fleet administrator.
-    </p>
+      {#if phase === "password" || phase === "passkey"}
+        <button type="button" class={linkClass} onclick={() => back("reset")}>
+          {phase === "passkey" ? "Lost your passkey?" : "Forgot password?"}
+        </button>
+      {/if}
+      {#if phase !== "username"}
+        <button type="button" class={linkClass} onclick={() => back("username")}>
+          {phase === "reset" ? "Back to sign in" : "Use a different username"}
+        </button>
+      {/if}
+    </form>
   </div>
-</main>
+
+  {#snippet footer()}
+    <p class="text-center text-body-sm text-muted-foreground">Need help? Contact your fleet administrator.</p>
+    <p class="flex items-center justify-center gap-2 text-body-sm text-muted-foreground">
+      <BrandMark class="h-5 w-5" /> Codex Orchestrator
+    </p>
+  {/snippet}
+</AuthShell>

@@ -2,14 +2,16 @@
  * Cmd-K command registry.
  *
  * The palette renders commands organised into the following groups, in
- * order: Recent, Hosts, Navigation, Actions, Projects, Skills, Users,
+ * order: Recent, Hosts, Navigation, Actions, Projects, Library, People,
  * Theme & session.
  *
  * Static commands (navigation, deep links, actions, theme, sign out) are
- * declared inline below. Dynamic command sources (host/project/skill/user
- * jump-to results) are produced by `buildDynamicSources()` against a
- * svelte-query `QueryClient` so the palette stays interactive while the
- * sources resolve, and lists are cached between opens.
+ * declared inline below; page destinations come from `lib/nav.ts` and the
+ * sections inside those pages from `DEEP_NAV`. Dynamic command sources
+ * (host/project/skill/person jump-to results) are produced by
+ * `buildDynamicSources()` against a svelte-query `QueryClient` so the palette
+ * stays interactive while the sources resolve, and lists are cached between
+ * opens.
  */
 import type { Component } from "svelte";
 import type { QueryClient } from "@tanstack/svelte-query";
@@ -25,9 +27,18 @@ import {
   Plus,
   Zap,
   Lock,
-  Fingerprint,
-  Activity,
+  Palette,
+  Smartphone,
+  Library,
+  Network,
+  Wrench,
   UserCircle,
+  KeyRound,
+  Activity,
+  Brain,
+  Terminal,
+  FileText,
+  Users,
 } from "@lucide/svelte";
 import { NAV } from "$lib/nav";
 import { setTheme } from "$lib/stores/theme";
@@ -53,8 +64,8 @@ export const COMMAND_GROUPS = [
   "Navigation",
   "Actions",
   "Projects",
-  "Skills",
-  "Users",
+  "Library",
+  "People",
   "Theme & session",
 ] as const;
 export type CommandGroup = (typeof COMMAND_GROUPS)[number];
@@ -98,32 +109,41 @@ function navigateCommand(
   };
 }
 
+/** A section or filtered view inside a page, addressed by query or hash. */
+export interface DeepNavEntry {
+  /** Base-relative route, with the query and hash that select the view. */
+  href: string;
+  label: string;
+  icon: Component;
+  description?: string;
+  keywords?: string[];
+}
+
 /** Deep-link navigation entries (in addition to top-level NAV). */
-const DEEP_NAV: Array<{ href: string; label: string; icon: Component; keywords?: string[] }> = [
+export const DEEP_NAV: DeepNavEntry[] = [
+  { href: "/agents?view=graph", label: "Agents / Connection graph", icon: Network, description: "How hosts, agents and the orchestrator are connected", keywords: ["topology", "graph", "communicator", "connection"] },
+  { href: "/activity?type=changes", label: "Activity / Admin changes", icon: ScrollText, description: "Who changed what in the console", keywords: ["audit", "events", "logs", "trail"] },
+  { href: "/activity?type=tools", label: "Activity / Tool calls", icon: Wrench, description: "MCP requests agents made to the orchestrator", keywords: ["mcp", "logs", "requests"] },
+  { href: "/library?type=skills", label: "Library / Skills", icon: Library, description: "Reusable instructions agents can load", keywords: ["skill"] },
   {
-    href: "/logs/mcp",
-    label: "Logs / MCP requests",
-    icon: ScrollText,
-    keywords: ["logs", "mcp"],
+    href: "/library/agent-rules",
+    label: "Library / Agent rules",
+    icon: FileText,
+    description: "Instructions every Codex, Claude and Grok agent receives (AGENTS.md / CLAUDE.md)",
+    keywords: ["fleet instructions", "agents.md", "claude.md", "codex", "claude", "grok", "policy"],
   },
-  {
-    href: "/logs/events",
-    label: "Logs / Audit trail",
-    icon: ScrollText,
-    keywords: ["logs", "events", "audit", "trail"],
-  },
-  {
-    href: "/account/password",
-    label: "Account / Password",
-    icon: Lock,
-    keywords: ["password", "account", "security"],
-  },
-  {
-    href: "/account/passkeys",
-    label: "Account / Passkeys",
-    icon: Fingerprint,
-    keywords: ["passkeys", "webauthn", "account"],
-  },
+  { href: "/library?type=memories", label: "Library / Memories", icon: Brain, description: "Shared notes agents can search and add to", keywords: ["memory", "notes"] },
+  { href: "/library?type=subagents", label: "Library / Subagents", icon: Library, description: "Claude subagents", keywords: ["agents", "claude"] },
+  { href: "/library?type=commands", label: "Library / Commands", icon: Terminal, description: "Claude slash commands", keywords: ["slash", "claude"] },
+  { href: "/library?type=output-styles", label: "Library / Reply styles", icon: Library, description: "How Claude words its replies (output styles)", keywords: ["output styles", "claude"] },
+  { href: "/access#people", label: "Access / People", icon: Users, description: "Who can sign in to this console (admin users)", keywords: ["users", "admin users", "roles"] },
+  { href: "/access#api-keys", label: "Access / API keys", icon: KeyRound, description: "Keys for the OpenAI, Anthropic and Grok gateways", keywords: ["keys", "gateway", "openai", "anthropic"] },
+  { href: "/access#secrets", label: "Access / Secrets", icon: Lock, description: "Credentials agents can fetch", keywords: ["vault", "credentials"] },
+  { href: "/settings#hosts", label: "Settings / Hosts", icon: Server, description: "Fleet-wide host behavior: auto-update, DNS, temporary access", keywords: ["policies", "auto-update", "insecure", "dns"] },
+  { href: "/settings#retention", label: "Settings / Data retention", icon: Activity, description: "How long logs and idle hosts are kept", keywords: ["prune", "logs", "retention"] },
+  { href: "/account#security", label: "Account / Password & passkeys", icon: Lock, description: "Change your password or manage passkeys", keywords: ["password", "passkeys", "webauthn", "security"] },
+  { href: "/account#appearance", label: "Account / Appearance", icon: Palette, description: "Light, dark or system theme", keywords: ["theme", "dark", "light"] },
+  { href: "/account#devices", label: "Account / Android devices", icon: Smartphone, description: "Pair or revoke the Android companion app", keywords: ["phone", "companion", "pair"] },
 ];
 
 function buildNavigationCommands(): PaletteCommand[] {
@@ -133,8 +153,9 @@ function buildNavigationCommands(): PaletteCommand[] {
   }
   for (const d of DEEP_NAV) {
     cmds.push({
-      id: `nav:${d.href}#${d.label}`,
+      id: `deep:${d.href}`,
       label: `Go to ${d.label}`,
+      description: d.description,
       group: "Navigation",
       icon: d.icon,
       keywords: ["go", "navigate", "open", d.label.toLowerCase(), ...(d.keywords ?? [])],
@@ -151,8 +172,8 @@ function buildActionCommands(): PaletteCommand[] {
   return [
     {
       id: "action:new-host",
-      label: "New host",
-      description: "Register a machine and configure its engines",
+      label: "Add host",
+      description: "Register a machine and choose its engines",
       group: "Actions",
       icon: Plus,
       keywords: ["host", "add", "register", "create"],
@@ -183,7 +204,7 @@ function buildActionCommands(): PaletteCommand[] {
     {
       id: "action:new-project",
       label: "New project",
-      description: "Create a shared coordination workspace",
+      description: "Create a shared workspace with a board, documents and reports",
       group: "Actions",
       icon: Plus,
       keywords: ["project", "create", "new"],
@@ -200,13 +221,13 @@ function buildActionCommands(): PaletteCommand[] {
       icon: Plus,
       keywords: ["api", "key", "openai", "claude", "grok", "create"],
       run() {
-        void goto(`${base}/api-keys?dialog=new`);
+        void goto(`${base}/access?dialog=new#api-keys`);
         commandPalette.close();
       },
     },
     {
       id: "action:open-shortcuts",
-      label: "Open shortcuts",
+      label: "Keyboard shortcuts",
       hint: "?",
       group: "Actions",
       icon: Keyboard,
@@ -351,11 +372,12 @@ function skillCommand(s: QuickSkill): PaletteCommand {
   return {
     id: `skill:${s.slug}`,
     label,
-    group: "Skills",
-    icon: Activity,
+    description: "Skill",
+    group: "Library",
+    icon: Library,
     keywords: ["skill", s.slug.toLowerCase(), (s.name ?? "").toLowerCase()],
     run() {
-      void goto(`${base}/skills/${s.slug}`);
+      void goto(`${base}/library/skills/${encodeURIComponent(s.slug)}`);
       commandPalette.close();
     },
   };
@@ -366,11 +388,11 @@ function userCommand(u: QuickUser): PaletteCommand {
   return {
     id: `user:${u.id}`,
     label,
-    group: "Users",
+    group: "People",
     icon: UserCircle,
     keywords: ["user", u.username.toLowerCase(), (u.name ?? "").toLowerCase(), (u.email ?? "").toLowerCase()],
     run() {
-      void goto(`${base}/users?user=${encodeURIComponent(String(u.id))}`);
+      void goto(`${base}/access?user=${encodeURIComponent(String(u.id))}#people`);
       commandPalette.close();
     },
   };

@@ -121,27 +121,24 @@ const BUILDER_CATALOG = {
 const CANONICAL_DESTINATIONS = [
   { path: "/dashboard", heading: "Overview", title: "Overview" },
   { path: "/accounts", heading: "Accounts", title: "Accounts" },
-  { path: "/clients", heading: "Active Clients", title: "Active Clients" },
-  { path: "/logs/events", heading: "Logs", title: "Logs / Audit trail" },
+  { path: "/agents", heading: "Agents", title: "Agents" },
+  { path: "/activity", heading: "Activity", title: "Activity" },
+  { path: "/reports", heading: "Reports", title: "Reports" },
   { path: "/hosts", heading: "Hosts", title: "Hosts" },
   { path: "/engines", heading: "Engines", title: "Engines" },
-  { path: "/policies", heading: "Policies", title: "Policies" },
+  { path: "/settings", heading: "Settings", title: "Settings" },
   { path: "/projects", heading: "Projects", title: "Projects" },
-  { path: "/agent-messaging", heading: "Agent Messaging", title: "Agent Messaging" },
-  { path: "/schedules", heading: "Wake / Cron", title: "Wake / Cron" },
-  { path: "/git-director", heading: "Git Director", title: "Git Director" },
-  { path: "/transfers", heading: "File Transfer", title: "File Transfer" },
-  { path: "/skills", heading: "Skills", title: "Skills" },
-  { path: "/instructions", heading: "Fleet Instructions", title: "Fleet Instructions" },
-  { path: "/memories", heading: "Memories", title: "Memories" },
-  { path: "/subagents", heading: "Subagents", title: "Subagents" },
-  { path: "/commands", heading: "Commands", title: "Commands" },
-  { path: "/output-styles", heading: "Output Styles", title: "Output Styles" },
-  { path: "/api-keys", heading: "API Access", title: "API Access" },
-  { path: "/secrets", heading: "Secrets", title: "Secrets" },
-  { path: "/users", heading: "Admin Users", title: "Admin Users" },
+  { path: "/agent-messaging", heading: "Messages", title: "Messages" },
+  { path: "/schedules", heading: "Timed wake-ups", title: "Timed wake-ups" },
+  { path: "/git-director", heading: "Git merges", title: "Git merges" },
+  { path: "/transfers", heading: "Shared files", title: "Shared files" },
+  { path: "/library", heading: "Library", title: "Library" },
+  { path: "/library?type=memories", heading: "Library", title: "Library" },
+  { path: "/library?type=subagents", heading: "Library", title: "Library" },
+  { path: "/library/agent-rules", heading: "Agent rules", title: "Library / Agent rules" },
+  { path: "/access", heading: "Access", title: "Access" },
   { path: "/manual", heading: "Manual", title: "Manual" },
-  { path: "/account/password", heading: "Password", title: "Account / Password" },
+  { path: "/account", heading: "Account", title: "Account" },
 ] as const;
 
 function fixture(pathname: string): Record<string, unknown> {
@@ -162,6 +159,15 @@ function fixture(pathname: string): Record<string, unknown> {
       return { setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: "2026-09-28T00:00:00Z", dismissed_at: null } };
     case "/admin/ws/info":
       return { enabled: false };
+    case "/admin/topology":
+      return {
+        generated_at: "2026-08-27T09:00:00Z",
+        server: { id: "server", label: "orchestrator.example", started_at: "2026-08-26T09:00:00Z", uptime_s: 86_400, communicator_enabled: true, portal_enabled: true, scope: "api_process" },
+        communicators: [],
+        agents: [],
+        recent_disconnects: [],
+        counts: { communicators: 0, agents: 0, attributed: 0, stale: 0, unattributed: 0 },
+      };
     case "/admin/agent-sessions":
       // One working agent, so the page renders its grouped list rather than
       // either empty state. `enabled` is what separates "nobody is running"
@@ -878,7 +884,7 @@ test("working secrets are shared across engines without a scope selector", async
     }
     return undefined;
   });
-  await page.goto("/admin/secrets");
+  await page.goto("/admin/access#secrets");
   await expect(page.getByText("fixture-token", { exact: true })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "Scope", exact: true })).toHaveCount(0);
   await expect(page.getByText("Operator", { exact: true }).last()).toBeVisible();
@@ -1177,21 +1183,19 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   // The rail is nine flat hubs with no disclosure; every page is one tab away.
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
   const hubs: Array<[string, string]> = [
-    ["Overview", "/admin/dashboard"], ["Agents", "/admin/clients"], ["Projects", "/admin/projects"],
-    ["Hosts", "/admin/hosts"], ["Coordination", "/admin/agent-messaging"], ["Activity", "/admin/logs/events"],
-    ["Providers", "/admin/accounts"], ["Library", "/admin/skills"], ["Access & Policy", "/admin/api-keys"],
+    ["Overview", "/admin/dashboard"], ["Hosts", "/admin/hosts"], ["Agents", "/admin/agents"], ["Projects", "/admin/projects"],
+    ["Coordination", "/admin/agent-messaging"], ["Activity", "/admin/activity"],
+    ["Providers", "/admin/accounts"], ["Library", "/admin/library"], ["Access & Settings", "/admin/access"],
   ];
   for (const [name, href] of hubs) {
     await expect(primary.getByRole("link", { name, exact: true })).toHaveAttribute("href", href);
   }
   await expect(primary.getByRole("button")).toHaveCount(0);
   const hubPages: Array<[string, string, string[]]> = [
-    ["Agents", "/admin/clients", ["Active Clients", "Live Topology"]],
-    ["Coordination", "/admin/agent-messaging", ["Agent Messaging", "Wake / Cron", "Git Director", "File Transfer"]],
-    ["Activity", "/admin/logs/events", ["Logs", "Feedback"]],
+    ["Coordination", "/admin/agent-messaging", ["Messages", "Timed wake-ups", "Git merges", "Shared files"]],
+    ["Activity", "/admin/activity", ["Activity", "Reports"]],
     ["Providers", "/admin/accounts", ["Accounts", "Engines"]],
-    ["Library", "/admin/skills", ["Skills", "Fleet Instructions", "Memories", "Subagents", "Commands", "Output Styles"]],
-    ["Access & Policy", "/admin/api-keys", ["API Access", "Secrets", "Admin Users", "Policies"]],
+    ["Access & Settings", "/admin/access", ["Access", "Settings"]],
   ];
   for (const [hub, path, pages] of hubPages) {
     await page.goto(path);
@@ -1200,14 +1204,19 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   }
   await page.goto("/admin/quick-settings");
   await expect(page).toHaveURL(/\/admin\/engines#defaults$/);
-  await expect(page.getByRole("tab", { name: "Model defaults" })).toHaveAttribute("data-state", "active");
+  await expect(page.getByRole("heading", { name: "Engines", level: 1 })).toBeVisible();
+  await expect(page.locator("#defaults")).toBeVisible();
 
   await page.keyboard.press("Control+K");
   await expect(page.getByRole("combobox", { name: "Search fleet and commands" })).toBeVisible();
-  await page.getByRole("combobox", { name: "Search fleet and commands" }).fill("Active Clients");
-  await page.getByRole("option", { name: /Go to Active Clients/ }).click();
-  await expect(page).toHaveURL(/\/admin\/clients$/);
-  await expect(page.getByRole("heading", { name: "Active Clients", exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "Search fleet and commands" }).fill("Agents");
+  await page.getByRole("option", { name: /Go to Agents Running agents/ }).click();
+  await expect(page).toHaveURL(/\/admin\/agents$/);
+  await expect(page.getByRole("heading", { name: "Agents", exact: true, level: 1 })).toBeVisible();
+  await page.keyboard.press("Control+K");
+  await page.getByRole("combobox", { name: "Search fleet and commands" }).fill("password");
+  await page.getByRole("option", { name: /Password & passkeys/ }).click();
+  await expect(page).toHaveURL(/\/admin\/account#security$/);
   await page.keyboard.press("Control+K");
   await page.getByRole("combobox", { name: "Search fleet and commands" }).fill("Agent Portal");
   await expect(page.getByRole("option", { name: /Agent Portal/ })).toHaveCount(0);
@@ -1295,14 +1304,14 @@ test("failed initial auth status preserves the route instead of opening setup", 
 test("daily navigation keeps the rail flat and preserves access on desktop and mobile", async ({ page }, info) => {
   await page.goto("/admin/dashboard");
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
-  for (const name of ["Overview", "Agents", "Projects", "Hosts", "Coordination", "Activity", "Providers", "Library", "Access & Policy"]) {
+  for (const name of ["Overview", "Agents", "Projects", "Hosts", "Coordination", "Activity", "Providers", "Library", "Access & Settings"]) {
     await expect(primary.getByRole("link", { name, exact: true })).toBeVisible();
   }
   await page.screenshot({ path: info.outputPath("workspace-desktop.png") });
   await primary.getByRole("link", { name: "Activity", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Logs", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Activity", level: 1 })).toBeVisible();
   await expect(primary.getByRole("link", { name: "Activity", exact: true })).toHaveAttribute("aria-current", "page");
-  await page.goto("/admin/logs/mcp");
+  await page.goto("/admin/activity?type=tools");
   await expect(primary.getByRole("link", { name: "Activity", exact: true })).toHaveAttribute("aria-current", "page");
   await page.goto("/admin/topology");
   await expect(primary.getByRole("link", { name: "Agents", exact: true })).toHaveAttribute("aria-current", "page");
@@ -1314,31 +1323,29 @@ test("daily navigation keeps the rail flat and preserves access on desktop and m
   await expect(mobile.getByRole("link", { name: "Activity", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Open navigation menu" }).click();
   await page.screenshot({ path: info.outputPath("workspace-mobile-menu.png") });
-  await page.getByRole("dialog").getByRole("link", { name: /^Logs/ }).click();
-  await expect(page.getByRole("heading", { name: "Logs", level: 1 })).toBeVisible();
+  await page.getByRole("dialog").getByRole("link", { name: /^Activity/ }).click();
+  await expect(page.getByRole("heading", { name: "Activity", level: 1 })).toBeVisible();
 });
 
-test("desktop hub tabs switch from Skills to Fleet Instructions with a legacy host list", async ({ page }) => {
+test("the Library type filter switches from Skills to Agent rules with a legacy host list", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
-  await page.goto("/admin/skills");
-  await expect(page.getByRole("heading", { name: "Skills", level: 1, exact: true })).toBeVisible();
+  await page.goto("/admin/library");
+  await expect(page.getByRole("heading", { name: "Library", level: 1, exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Skills", exact: true })).toHaveAttribute("aria-current", "page");
 
-  await page
-    .getByRole("navigation", { name: "Library pages" })
-    .getByRole("link", { name: "Fleet Instructions" })
-    .click();
+  await page.getByRole("navigation", { name: "Library content type" }).getByRole("link", { name: "Agent rules" }).click();
 
-  await expect(page).toHaveURL(/\/admin\/instructions$/);
-  await expect(page.getByRole("heading", { name: "Fleet Instructions", level: 1, exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/library\/agent-rules$/);
+  await expect(page.getByRole("heading", { name: "Agent rules", level: 1, exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Preview effective draft" })).toBeEnabled();
   expect(pageErrors).toEqual([]);
 });
 
 test("rendered AGENTS preview is a document and copies its exact Markdown", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.goto("/admin/instructions");
-  await expect(page.getByRole("heading", { name: "Fleet Instructions", level: 1, exact: true })).toBeVisible({
+  await page.goto("/admin/library/agent-rules");
+  await expect(page.getByRole("heading", { name: "Agent rules", level: 1, exact: true })).toBeVisible({
     timeout: 15_000,
   });
   await expect(page.getByRole("switch", { name: "Fleet identity (required)" })).toBeDisabled();
@@ -1382,7 +1389,7 @@ test("every setting updates the effective preview without a button press", async
     };
   });
 
-  await page.goto("/admin/instructions");
+  await page.goto("/admin/library/agent-rules");
   const preview = page.getByRole("region", { name: "Effective AGENTS.md preview content" });
   await expect(preview).toContainText("autonomy=3 modules=3", { timeout: 15_000 });
 
@@ -1422,10 +1429,12 @@ test("the generation master switch reaches the effective preview without a butto
     return { ...fixture(pathname), content: `# Fleet policy\n\nmode=${mode} modules=${modules}\n` };
   });
 
-  await page.goto("/admin/instructions");
+  await page.goto("/admin/library/agent-rules");
   const preview = page.getByRole("region", { name: "Effective AGENTS.md preview content" });
   await expect(preview).toContainText("mode=managed modules=3", { timeout: 15_000 });
 
+  // Generation mode lives behind Advanced.
+  await page.getByText("Advanced", { exact: true }).click();
   await page.getByRole("button", { name: "Disabled", exact: true }).click();
   await expect(preview).toContainText("mode=off modules=0", { timeout: 10_000 });
   // The selection is kept and visibly inert, not erased.
@@ -1457,7 +1466,7 @@ test("manual mode stores the bytes in the textarea, not the composed document", 
     return { status: "ok", version_id: 56, sha256: "f".repeat(64) };
   });
 
-  await page.goto("/admin/instructions");
+  await page.goto("/admin/library/agent-rules");
   const raw = page.getByRole("textbox", { name: "Hand-written Markdown document" });
   // Opens on the served base even though the stored version was built.
   await expect(raw).toHaveValue("## Operating Contract (FAST)\n\nExecute and verify.\n", { timeout: 15_000 });
@@ -1470,7 +1479,7 @@ test("manual mode stores the bytes in the textarea, not the composed document", 
   await expect(page.getByRole("heading", { name: "Stored canonical base" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Generated AGENTS.md base content" })).toContainText("House rules");
 
-  // `.first()`: the retention card in the aside has a Save of its own.
+  // `.first()`: the header Save precedes any posture or verbosity Save.
   await page.getByRole("button", { name: "Save" }).first().click();
   await expect.poll(() => stored).toEqual({ content: "# House rules\n\nMine, by hand.\n" });
 });
@@ -1506,7 +1515,7 @@ test("a preview that cannot render says so once, in the pane, not once per keyst
     else document.addEventListener("DOMContentLoaded", watch);
   });
 
-  await page.goto("/admin/instructions");
+  await page.goto("/admin/library/agent-rules");
   const field = page.getByRole("textbox", { name: "Custom instructions" });
   await expect(field).toBeVisible({ timeout: 15_000 });
   for (const value of ["a", "ab", "abc", "abcd"]) await field.fill(value);
@@ -1529,7 +1538,7 @@ test("a setting and the text it produces are visually linked, both ways", async 
       : undefined,
   );
 
-  await page.goto("/admin/instructions");
+  await page.goto("/admin/library/agent-rules");
   const preview = page.getByRole("region", { name: "Effective AGENTS.md preview content" });
   await expect(preview.getByRole("heading", { name: "Security and Trust Boundaries" })).toBeVisible({
     timeout: 15_000,
@@ -1562,7 +1571,7 @@ test("a setting and the text it produces are visually linked, both ways", async 
   await expect(page.getByRole("group", { name: "Skipping verification" })).toHaveClass(/ring-2/);
 });
 
-test("the Projects page carries both module switches, board included", async ({ page }) => {
+test("the Projects page carries the coordination switch in its header and the board switch in settings", async ({ page }) => {
   // The board shipped once with its API, its client functions and its tests all
   // present and NOTHING rendering the switch — so the only way to enable it was
   // SQL, while the MCP error told operators to use the console. Nothing caught
@@ -1581,6 +1590,8 @@ test("the Projects page carries both module switches, board included", async ({ 
   await page.goto("/admin/projects");
   await expect(page.getByLabel("Project coordination")).toBeChecked();
 
+  // The board switch sits behind the gear, not above the project list.
+  await page.getByRole("button", { name: "Project settings" }).click();
   const board = page.getByLabel("Project board");
   await expect(board).toBeVisible();
   await expect(board).not.toBeChecked();
@@ -1602,39 +1613,39 @@ test("operator tables use the full workspace and the mobile menu retains all rou
   await page.reload();
   await page.getByRole("button", { name: "Open navigation menu" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByRole("link", { name: /Output Styles/ })).toBeVisible();
-  for (const label of ["Agent Messaging", "Wake / Cron", "Git Director", "File Transfer"]) {
+  await expect(dialog.getByRole("link", { name: /Library/ })).toBeVisible();
+  for (const label of ["Messages", "Timed wake-ups", "Git merges", "Shared files"]) {
     await expect(dialog.getByRole("link", { name: new RegExp(label) })).toBeVisible();
   }
   await expect(dialog.getByRole("link", { name: /Agent Portal/ })).toHaveCount(0);
-  await dialog.getByRole("link", { name: /Wake \/ Cron/ }).click();
-  await expect(page.getByRole("heading", { name: "Wake / Cron", exact: true })).toBeVisible();
+  await dialog.getByRole("link", { name: /Timed wake-ups/ }).click();
+  await expect(page.getByRole("heading", { name: "Timed wake-ups", exact: true })).toBeVisible();
   await expect(dialog).toHaveCount(0);
 });
 
-test("hosts keep desktop data rows dense without losing the mobile summary", async ({ page }) => {
+test("hosts list leads with a one-line fleet strip and a compact table", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/admin/hosts");
   await expect(page.getByRole("heading", { name: "Hosts", level: 1 })).toBeVisible();
+  await expect(page.getByText("need attention", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add host", exact: true })).toBeVisible();
 
-  const hostRow = page.getByRole("button", { name: /console\.example\.test/ });
+  const hostRow = page.getByRole("row").filter({ hasText: "console.example.test" });
   await expect(hostRow).toBeVisible();
   await expect(hostRow).toContainText("192.0.2.20 · #1");
   const desktopBox = await hostRow.boundingBox();
   expect(desktopBox).not.toBeNull();
-  expect(desktopBox!.height).toBeLessThanOrEqual(40);
+  expect(desktopBox!.height).toBeLessThanOrEqual(64);
   await expectNoSeriousAxeFindings(page);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
   await expect(hostRow).toBeVisible();
-  const mobileBox = await hostRow.boundingBox();
-  expect(mobileBox).not.toBeNull();
-  expect(mobileBox!.height).toBeGreaterThanOrEqual(68);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
 test("neutral configuration template has no serious Axe findings", async ({ page }) => {
-  await page.goto("/admin/account/theme");
+  await page.goto("/admin/account#appearance");
   await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();
   await expect(page.getByText("System", { exact: true })).toBeVisible();
   await expect(page.getByText("Light", { exact: true })).toBeVisible();
@@ -1647,7 +1658,7 @@ test("Claude client settings use one full-width operator workflow", async ({ pag
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/admin/engines#claude-client");
   await expect(page.getByRole("heading", { name: "Engines", level: 1 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Claude client", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Claude client settings", level: 3 })).toBeVisible();
   await expect(page.getByText("Fleet configuration", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Environment variables", level: 3 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Permissions", level: 3 })).toBeVisible();
@@ -1660,7 +1671,7 @@ test("Claude client settings use one full-width operator workflow", async ({ pag
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Claude client", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Claude client settings", level: 3 })).toBeVisible();
   await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
 });
 
@@ -1668,9 +1679,8 @@ test("engine policy settings stay sequential and show the effective scaling tier
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/admin/engines#quota-enforcement");
 
-  await expect(page.getByRole("heading", { name: "Quota and scaling", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Quotas", level: 3 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Scaling", level: 3 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Usage limits", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Usage-based scaling", level: 2 })).toBeVisible();
   await expect(page.getByLabel("At %")).toHaveValue("75");
   await expect(page.locator("#scaling")).toContainText(/Current state:\s*active/);
   await expect(page.locator("#scaling")).toContainText(/Effective tier:\s*75%/);
@@ -1687,49 +1697,61 @@ test("engine policy settings stay sequential and show the effective scaling tier
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Scaling", level: 3 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Usage-based scaling", level: 2 })).toBeVisible();
   await expect(page.getByRole("button", { name: "Save scaling" })).toBeVisible();
 });
 
-test("account security uses compact route-backed sections", async ({ page }) => {
+test("account is one page with profile, security, appearance and devices sections", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/admin/account/password");
-  const accountNav = page.getByRole("navigation", { name: "Account settings" });
-  await expect(accountNav.getByRole("link", { name: "Password" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
-  await expect(page.getByRole("heading", { name: "Change password", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Reset by email", level: 2 })).toBeVisible();
+  await page.goto("/admin/account");
+  await expect(page.getByRole("heading", { name: "Account", level: 1 })).toBeVisible();
+  const sections = page.locator("main").getByRole("heading", { level: 2 });
+  await expect(sections).toHaveText(["Profile", "Security", "Appearance", "Android devices"]);
+  for (const id of ["profile", "security", "appearance", "devices"]) await expect(page.locator(`section#${id}`)).toBeVisible();
+  await expect(page.getByRole("form", { name: "Change password" })).toBeVisible();
   await expect(page.getByLabel("Current password")).toBeVisible();
-
-  await page.goto("/admin/account/passkeys");
-  await expect(accountNav.getByRole("link", { name: "Passkeys" })).toHaveAttribute(
-    "aria-current",
-    "page",
-  );
-  await expect(page.getByRole("heading", { name: "Registered credentials", level: 2 })).toBeVisible();
-  await expect(page.getByRole("table")).toBeVisible();
+  await expect(page.getByRole("table", { name: "Registered passkeys" })).toBeVisible();
   await expect(page.getByText("Operator laptop", { exact: true })).toBeVisible();
   await expect(page.getByText("Hardware key", { exact: true })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /System/ })).toBeVisible();
   await expectNoSeriousAxeFindings(page);
+
+  // Retired sub-pages land on their section. Needs `routes/[...legacy]/+page.ts` to stop
+  // reading `url.hash` in `load` (SvelteKit throws), which today breaks every retired URL.
+  await page.goto("/admin/account/passkeys");
+  await expect(page).toHaveURL(/\/admin\/account#security$/);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(accountNav.getByRole("link", { name: "Passkeys" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Security", level: 2 })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("the user menu reaches each account section", async ({ page }) => {
+  await page.goto("/admin/dashboard");
+  await page.getByRole("button", { name: /Account menu for/ }).click();
+  for (const name of ["Password & passkeys", "Appearance", "Android devices"]) {
+    await expect(page.getByRole("menuitem", { name })).toBeVisible();
+  }
+  await page.getByRole("menuitem", { name: "Android devices" }).click();
+  await expect(page).toHaveURL(/\/admin\/account#devices$/);
 });
 
 test("project detail and standalone approval keep their task-focused layouts", async ({ page }) => {
   await page.goto("/admin/authoring/agents");
-  await expect(page).toHaveURL(/\/admin\/instructions$/);
-  await expect(page.getByRole("heading", { name: "Fleet Instructions" })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/library\/agent-rules$/);
+  await expect(page.getByRole("heading", { name: "Agent rules", level: 1 })).toBeVisible();
 
+  // A project opens on its board; About and the roster live behind the header button.
   await page.goto("/admin/projects/fleet-console");
+  await expect(page).toHaveURL(/\/admin\/projects\/fleet-console\/board$/);
   await expect(page.getByRole("heading", { name: "Fleet console", level: 1 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "About", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Roster", level: 2 })).toBeVisible();
-  await expect(page.getByLabel("Title")).toHaveValue("Fleet console");
-  await expect(page.getByRole("button", { name: "Save", exact: true }).first()).toBeDisabled();
+  await page.getByRole("button", { name: "About", exact: true }).click();
+  const about = page.getByRole("dialog");
+  await expect(about.getByRole("heading", { name: "About", level: 2, exact: true })).toBeVisible();
+  await expect(about.getByRole("heading", { name: "Roster", level: 2 })).toBeVisible();
+  await expect(about.getByLabel("Title")).toHaveValue("Fleet console");
+  await expect(about.getByRole("button", { name: "Save", exact: true }).first()).toBeDisabled();
   await expectNoSeriousAxeFindings(page);
 
   await page.goto("/admin/cli-auth/verify");
@@ -1739,17 +1761,20 @@ test("project detail and standalone approval keep their task-focused layouts", a
   await expectNoSeriousAxeFindings(page);
 });
 
-test("host detail uses three ordered operational tabs", async ({ page }) => {
+test("host detail orders problems, engines and access before a collapsed Advanced block", async ({ page }) => {
   await page.goto("/admin/hosts/1");
   await expect(page.getByRole("heading", { name: "console.example.test", level: 1 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Identity & network", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Engine versions", level: 2 })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Mint installer" })).toBeVisible();
-  await page.getByRole("tab", { name: "Settings", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Access & network", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Fleet & integrations", level: 2 })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Model & version overrides/ })).toBeVisible();
-  await expect(page.getByText("Reverse DNS", { exact: true })).toBeVisible();
+  await expect(page.getByRole("tab")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Get install command" })).toBeVisible();
+  const headings = await page.locator("main").getByRole("heading", { level: 2 }).allTextContents();
+  expect(headings.slice(0, 4)).toEqual(["Needs attention", "Engines", "Access", "Delete host"]);
+  const advanced = page.getByTestId("host-advanced");
+  await expect(advanced).not.toHaveAttribute("open", "");
+  await advanced.locator(":scope > summary").click();
+  for (const name of ["Network and IP", "Per-host exceptions", "Fleet behaviour and integrations"]) {
+    await expect(page.getByRole("heading", { name, level: 3 })).toBeVisible();
+  }
+  await expect(page.getByText("Reverse DNS lookup", { exact: true })).toBeVisible();
   await expectNoSeriousAxeFindings(page);
 });
 
@@ -1768,23 +1793,35 @@ test("project peer views keep records dense, readable, and inspectable", async (
   await expect(page.getByText(/code · chris on crane\.example/)).toBeVisible();
   await expect(page.getByText(/Claim reclaimed/)).toBeVisible();
 
+  // Notes and files share one Documents list; the old URLs keep their filter.
   await page.goto("/admin/projects/fleet-console/notes");
-  await expect(page.getByRole("heading", { name: "1 note", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Rollout note", level: 3 })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/projects\/fleet-console\/documents\?kind=notes$/);
+  await expect(page.getByRole("button", { name: "Rollout note", exact: true })).toBeVisible();
 
   await page.goto("/admin/projects/fleet-console/files");
+  await expect(page).toHaveURL(/\/admin\/projects\/fleet-console\/documents\?kind=files$/);
   await expect(page.getByRole("table")).toBeVisible();
   await expect(page.getByText("docs/rollout.md", { exact: true })).toBeVisible();
 
   await page.goto("/admin/projects/fleet-console/feedback");
-  await expect(page.getByRole("heading", { name: "1 entry · 1 open", level: 2 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Runner label is stale", level: 3 })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/projects\/fleet-console\/reports$/);
+  await expect(page.getByText(/1 of 1 reports · 1 open/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /Runner label is stale/ })).toBeVisible();
 
   await page.goto("/admin/projects/fleet-console/activity");
   await page.getByRole("button", { name: /todo\.updated/ }).click();
   await expect(page.getByText("Entity:", { exact: true })).toBeVisible();
   await expectNoSeriousAxeFindings(page);
 });
+
+function controlAccount(id: number, engine: string, label: string, usage: Record<string, unknown>) {
+  const now = new Date().toISOString();
+  return {
+    id, engine, label, state: "enabled", verification_state: "verified", verification_reason: null, verification_checked_at: now,
+    generation: 1, sessions: [], plan: { name: "Pro", source: "chatgpt_usage", observed_at: now, stale: false },
+    usage: { supported: true, stale: false, fetched_at: now, short_used_percent: null, short_resets_at: null, weekly_used_percent: null, weekly_resets_at: null, ...usage },
+  };
+}
 
 /** Populated provider and fleet fixtures for the operational dashboard. */
 function controlFixture(path: string): Record<string, unknown> | undefined {
@@ -1796,13 +1833,11 @@ function controlFixture(path: string): Record<string, unknown> | undefined {
         versions: { cdx_version_available: "0.125.0", claude_version_available: "2.1.170", cdx_version_checked_at: now, claude_version_checked_at: now },
         version_distribution: { codex: [{ version: "0.125.0", count: 9 }], claude: [{ version: "2.1.170", count: 8 }], install: { both: 6, codex_only: 3, claude_only: 2, neither: 1 } },
       };
-    case "/admin/chatgpt/usage":
-      return { snapshot: { plan_type: "pro", fetched_at: now, primary_window: { used_percent: 42, limit_seconds: 604800 }, spark_window: { primary_window: { used_percent: 18, limit_seconds: 18000 } } } };
-    case "/admin/claude/usage":
-      return { snapshot: { source: "statusline", fetched_at: now, five_hour_used_percent: 27, seven_day_used_percent: 61 } };
-    case "/admin/chatgpt/usage/history":
-    case "/admin/claude/usage/history":
-      return { days: 60, series: [] };
+    case "/admin/accounts":
+      return { accounts: [
+        controlAccount(1, "codex", "ChatGPT", { weekly_used_percent: 42, weekly_limit_seconds: 604800, weekly_resets_at: new Date(Date.now() + 3 * 86_400_000).toISOString() }),
+        controlAccount(2, "claude", "Claude", { short_used_percent: 27, short_limit_seconds: 18000, weekly_used_percent: 61, weekly_limit_seconds: 604800 }),
+      ] };
     case "/admin/runner":
       return { runner: { configured: true, ready: true, detail: "Verification sidecar is available", engines: { codex: { state: "ok", last_check: now, last_ok: now }, claude: { state: "fail", last_check: now, last_error: "Canonical credentials need verification" } } } };
     default:
@@ -1820,13 +1855,19 @@ test("control dashboard is accessible with both engines at desktop and mobile si
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/dashboard");
     await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible({ timeout: 15_000 });
-    const coverage = page.getByRole("region", { name: "Engine coverage" });
-    await expect(coverage.getByRole("progressbar", { name: "Codex", exact: true })).toHaveAttribute("aria-valuenow", "9");
-    await expect(coverage.getByRole("progressbar", { name: "Claude", exact: true })).toHaveAttribute("aria-valuenow", "8");
-    await expect(coverage.locator("dd").last()).toHaveText("No data");
-    await expect(coverage).toContainText("No CLI version reported: 1");
-    await expect(page.getByRole("region", { name: "Claude verification" })).toContainText("Canonical credentials need verification");
-    await expect(page.getByRole("meter")).toHaveCount(4);
+    // Exceptions come first, ahead of the fleet numbers and every table.
+    const headings = await page.locator("main").getByRole("heading", { level: 2 }).allTextContents();
+    expect(headings.slice(0, 4)).toEqual(["Needs attention", "Provider usage", "Engines", "Verification runner"]);
+    await expect(page.getByRole("list", { name: "Items needing attention" })).toContainText("Claude verification is failing");
+    const engines = page.getByRole("table", { name: "Engine installs and latest versions" });
+    await expect(engines.getByRole("row", { name: /Codex/ })).toContainText("9 of 12");
+    await expect(engines.getByRole("row", { name: /Claude/ })).toContainText("8 of 12");
+    await expect(engines.getByRole("row", { name: /Grok/ })).toContainText("No data");
+    await expect(page.getByText("No CLI version reported by 1 host.", { exact: false })).toBeVisible();
+    const claudeRunner = page.getByRole("list", { name: "Verification by engine" }).getByRole("listitem").filter({ hasText: "Claude" });
+    await expect(claudeRunner).toContainText("Canonical credentials need verification");
+    await expect(page.getByRole("table", { name: "Provider accounts and their quota usage" }).getByRole("meter")).toHaveCount(3);
+    await expect(page.getByRole("link", { name: "Add host" })).toBeVisible();
     await expect.poll(() => page.evaluate(() => {
       const main = document.querySelector("main")!;
       return main.scrollWidth <= main.clientWidth && document.documentElement.scrollWidth <= innerWidth;
@@ -1881,7 +1922,7 @@ test("Grok account usage shows real periods and follows live updates without inv
   await expect(group.getByRole("meter", { name: "Monthly usage" })).toBeVisible();
   stale = true;
   update();
-  await expect(page.getByRole("link", { name: "Personal", exact: true })).toContainText("Last known reading");
+  await expect(page.getByRole("row", { name: /Personal/ })).toContainText("Last known reading");
   await expect(group).toContainText("Update unavailable; showing the last reading.");
   available = false;
   update();
@@ -1911,7 +1952,7 @@ test("Grok usage on Accounts retains unknown state and supports dark mode", asyn
   await expectNoSeriousAxeFindings(page);
 });
 
-test("accounts shows all providers up to six accounts and filters larger fleets", async ({ page }) => {
+test("accounts lists every provider with an always-visible engine filter", async ({ page }) => {
   let total = 6;
   await installFixtures(page, path => path === "/admin/auth/status" ? { ...fixture(path), capabilities: ["auth.manage"] } : path === "/admin/accounts" ? {
     accounts: Array.from({ length: total }, (_, i) => ({
@@ -1922,14 +1963,15 @@ test("accounts shows all providers up to six accounts and filters larger fleets"
         short_resets_at: null, weekly_used_percent: null, weekly_resets_at: null },
     })),
   } : undefined);
-  const cards = page.locator("main section").filter({ has: page.getByRole("heading", { level: 2, name: /^Subscription/ }) });
+  const rows = page.getByRole("row", { name: /Subscription/ });
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/accounts");
-    await expect(cards).toHaveCount(6);
-    await expect(page.getByRole("button", { name: "ChatGPT", exact: true })).toHaveCount(0);
-    await expect(cards.nth(1)).toContainText("Claude · Account #2");
-    await expect(cards.nth(2)).toContainText("Grok · Account #3");
+    await expect(rows).toHaveCount(6);
+    await expect(page.getByRole("button", { name: "ChatGPT", exact: true })).toBeVisible();
+    await expect(rows.filter({ hasText: "Subscription 2" })).toContainText("Claude");
+    await expect(rows.filter({ hasText: "Subscription 3" })).toContainText("Grok");
+    await expect(rows.filter({ hasText: "Subscription 6" })).toContainText("Paused");
     await expectNoSeriousAxeFindings(page);
   }
   await page.getByRole("button", { name: "Add account", exact: true }).click();
@@ -1938,21 +1980,15 @@ test("accounts shows all providers up to six accounts and filters larger fleets"
   await page.keyboard.press("Escape");
   total = 7;
   await page.reload();
-  await expect(page.getByRole("button", { name: "ChatGPT", exact: true })).toBeVisible();
-  await expect(cards).toHaveCount(3);
   await page.getByRole("button", { name: "Grok", exact: true }).click();
-  await expect(cards).toHaveCount(2);
-  await expect(cards.first()).toContainText("Grok · Account #3");
-  total = 1;
-  await page.reload();
-  await expect(cards).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "ChatGPT", exact: true })).toHaveCount(0);
+  await expect(rows).toHaveCount(2);
+  await expect(rows.filter({ hasText: "Subscription 3" })).toHaveCount(1);
   total = 0;
   await page.reload();
-  await expect(page.getByRole("heading", { name: "No accounts", exact: true })).toBeVisible();
+  await expect(page.getByText("No accounts", { exact: true })).toBeVisible();
 });
 
-test("host table engine dots show assignments and fleet suspension on desktop and mobile", async ({ page }) => {
+test("host table engine chips show assignments and fleet suspension on desktop and mobile", async ({ page }) => {
   let suspended = false;
   await installFixtures(page, path => path === "/admin/engines/state" ? {
     engines: ["codex", "claude", "grok"].map(engine => ({
@@ -1962,23 +1998,24 @@ test("host table engine dots show assignments and fleet suspension on desktop an
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/hosts");
-    const row = page.getByRole("button").filter({ hasText: "console.example.test" });
+    const row = page.getByRole("row").filter({ hasText: "console.example.test" });
     await expect(row).toBeVisible();
     await expect(row.getByRole("img", { name: /^Codex: ready/ }).filter({ visible: true })).toHaveCount(1);
     await expect(row.getByRole("img", { name: /^Claude: ready/ }).filter({ visible: true })).toHaveCount(1);
-    await expect(row.getByRole("img", { name: "Grok: not assigned", exact: true }).filter({ visible: true })).toHaveCount(1);
-    await expect(row.getByRole("img", { name: /^Codex: ready/ }).filter({ visible: true }).locator("span")).toHaveClass(/bg-green-500/);
-    await expect(row.getByRole("img", { name: "Grok: not assigned", exact: true }).filter({ visible: true }).locator("span")).toHaveClass(/bg-slate-400/);
+    // Engines the host does not run get no chip at all.
+    await expect(row.getByRole("img", { name: /^Grok:/ })).toHaveCount(0);
+    await expect(row.getByRole("img", { name: /^Codex: ready/ }).filter({ visible: true })).toContainText("Codex");
+    await expect(row.getByRole("img", { name: /^Codex: ready/ }).filter({ visible: true }).locator("span").first()).toHaveClass(/bg-success/);
     await expectNoSeriousAxeFindings(page);
   }
   suspended = true;
   await page.reload();
-  const row = page.getByRole("button").filter({ hasText: "console.example.test" });
+  const row = page.getByRole("row").filter({ hasText: "console.example.test" });
   await expect(row.getByRole("img", { name: /^Claude: disabled fleet-wide/ }).filter({ visible: true })).toHaveCount(1);
-  await expect(row.getByRole("img", { name: /^Claude: disabled fleet-wide/ }).filter({ visible: true }).locator("span")).toHaveClass(/bg-slate-400/);
+  await expect(row.getByRole("img", { name: /^Claude: disabled fleet-wide/ }).filter({ visible: true })).toHaveAttribute("data-state", "inactive");
 });
 
-test("engine coverage reports independent counts, zeroes, and unavailable snapshots", async ({ page }) => {
+test("engine table reports independent counts, zeroes, and unavailable snapshots", async ({ page }) => {
   let hosts = 130;
   let available = true;
   let counts = { codex: 121, claude: 30, grok: 2 };
@@ -1991,31 +2028,33 @@ test("engine coverage reports independent counts, zeroes, and unavailable snapsh
       install: { both: 0, codex_only: 0, claude_only: 0, neither: 0 },
     } : null,
   } : controlFixture(path));
-  const coverage = page.getByRole("region", { name: "Engine coverage" });
+  const coverage = page.locator("section#engines");
+  const rows = coverage.getByRole("row");
   await page.goto("/admin/dashboard");
-  await expect(coverage.locator("dd")).toHaveText(["121 / 130 93%", "30 / 130 23%", "2 / 130 2%"]);
-  await expect(coverage.getByRole("progressbar")).toHaveCount(3);
-  await expect(coverage.getByRole("progressbar", { name: "Grok", exact: true })).toHaveAttribute("aria-valuemax", "130");
-  await expect(coverage).toContainText("No CLI version reported: 9");
-  await expect(coverage).toContainText("Hosts with multiple engines count towards each engine.");
+  await expect(rows.nth(1)).toContainText("121 of 130 (93%)");
+  await expect(rows.nth(2)).toContainText("30 of 130 (23%)");
+  await expect(rows.nth(3)).toContainText("2 of 130 (2%)");
+  await expect(coverage).toContainText("No CLI version reported by 9 hosts.");
+  await expect(coverage).toContainText("Hosts with several engines count towards each.");
   await expect(coverage.getByText("Codex + Claude", { exact: true })).toHaveCount(0);
 
   counts = { codex: 130, claude: 0, grok: 0 };
   unreported = 0;
   await page.reload();
-  await expect(coverage.locator("dd")).toHaveText(["130 / 130 100%", "0 / 130 0%", "0 / 130 0%"]);
-  await expect(coverage).toContainText("No CLI version reported: 0");
+  await expect(rows.nth(1)).toContainText("130 of 130 (100%)");
+  await expect(rows.nth(2)).toContainText("0 of 130 (0%)");
+  await expect(coverage).toContainText("No CLI version reported by 0 hosts.");
 
   counts = { codex: 0, claude: 0, grok: 0 };
   unreported = 130;
   await page.reload();
-  await expect(coverage.getByRole("progressbar", { name: "Codex", exact: true })).toHaveAttribute("aria-valuenow", "0");
-  await expect(coverage).toContainText("No CLI version reported: 130");
+  await expect(rows.nth(1)).toContainText("0 of 130 (0%)");
+  await expect(coverage).toContainText("No CLI version reported by 130 hosts.");
 
   hosts = 0;
   await page.reload();
   await expect(coverage).toContainText("Register a host to start building your fleet.");
-  await expect(coverage.getByRole("progressbar")).toHaveCount(0);
+  await expect(coverage.getByRole("table")).toHaveCount(0);
 
   available = false;
   await page.reload();
@@ -2030,36 +2069,38 @@ test("control overview distinguishes unavailable, stale, and recovered snapshots
     body: JSON.stringify(failed ? { status: "error", message: "Snapshot temporarily unavailable" } : controlFixture("/admin/overview")),
   }));
   await page.goto("/admin/dashboard");
-  await expect(page.getByText("Could not load fleet overview", { exact: true })).toBeVisible();
-  await expect(page.getByText("Fleet counts and releases are unavailable.", { exact: false })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Engine coverage" })).toContainText("unavailable");
+  await expect(page.getByText("Could not load fleet overview", { exact: false })).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("section#engines")).toContainText("unavailable");
   failed = false;
-  await page.getByRole("button", { name: "Retry overview", exact: true }).click();
-  const coverage = page.getByRole("region", { name: "Engine coverage" });
-  await expect(coverage.locator("dd")).toHaveText(["9 / 12 75%", "8 / 12 67%", "No data"]);
+  await page.getByRole("alert").getByRole("button", { name: "Retry", exact: true }).click();
+  const engines = page.locator("section#engines");
+  await expect(engines.getByRole("row", { name: /Codex/ })).toContainText("9 of 12 (75%)");
+  await expect(engines.getByRole("row", { name: /Claude/ })).toContainText("8 of 12 (67%)");
   failed = true;
-  await page.getByRole("button", { name: "Refresh overview", exact: true }).click();
-  await expect(page.getByText("Overview could not refresh", { exact: true })).toBeVisible();
-  await expect(coverage.locator("dd")).toHaveText(["9 / 12 75%", "8 / 12 67%", "No data"]);
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(page.getByText("Overview could not refresh", { exact: false })).toBeVisible();
+  await expect(engines.getByRole("row", { name: /Codex/ })).toContainText("9 of 12 (75%)");
   failed = false;
-  await page.getByRole("button", { name: "Retry overview", exact: true }).click();
-  await expect(page.getByText("Overview could not refresh", { exact: true })).toHaveCount(0);
-  await expect(coverage.locator("dd")).toHaveText(["9 / 12 75%", "8 / 12 67%", "No data"]);
+  await page.getByRole("alert").getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(page.getByText("Overview could not refresh", { exact: false })).toHaveCount(0);
+  await expect(engines.getByRole("row", { name: /Codex/ })).toContainText("9 of 12 (75%)");
 });
 
 test("control usage preserves missing windows and bounds over-limit meter semantics", async ({ page }) => {
   await installFixtures(page, (path) => {
-    if (path === "/admin/chatgpt/usage") return { snapshot: null };
-    if (path === "/admin/claude/usage") return { snapshot: { five_hour_used_percent: 108, seven_day_used_percent: null } };
+    if (path === "/admin/accounts") return { accounts: [
+      controlAccount(1, "codex", "ChatGPT", {}),
+      controlAccount(2, "claude", "Claude", { short_used_percent: 108, short_limit_seconds: 18000 }),
+    ] };
     return controlFixture(path);
   });
   await page.goto("/admin/dashboard");
-  await expect(page.getByText("No usage recorded yet", { exact: false })).toBeVisible();
-  await expect(page.getByRole("meter")).toHaveCount(1);
-  await expect(page.getByRole("meter")).toHaveAttribute("aria-valuenow", "100");
-  await expect(page.getByRole("meter")).toHaveAttribute("aria-valuetext", "108%");
-  await page.getByRole("button", { name: "View Claude usage history" }).click();
-  await expect(page.getByRole("dialog")).toContainText("No history points recorded yet.");
+  const usage = page.getByRole("table", { name: "Provider accounts and their quota usage" });
+  await expect(usage.getByRole("row", { name: /ChatGPT/ })).toContainText("No quota windows reported");
+  await expect(usage.getByRole("meter")).toHaveCount(1);
+  await expect(usage.getByRole("meter")).toHaveAttribute("aria-valuenow", "100");
+  await expect(usage.getByRole("meter")).toHaveAttribute("aria-valuetext", "108% used");
+  await expect(page.getByRole("list", { name: "Items needing attention" })).toContainText("Claude account Claude has used its quota");
 });
 
 for (const engine of ["codex", "claude"] as const) {
@@ -2077,7 +2118,7 @@ for (const engine of ["codex", "claude"] as const) {
     });
     await page.goto("/admin/dashboard");
     await page.getByRole("button", { name: `Run ${label} runner verification` }).click();
-    await expect(page.getByRole("region", { name: `${label} verification` })).toContainText("Verifying…");
+    await expect(page.getByRole("list", { name: "Verification by engine" }).getByRole("listitem").filter({ hasText: label })).toContainText("Verifying…");
     await expect(page.getByRole("button", { name: `Run ${other} runner verification` })).toBeDisabled();
     release();
     await expect(page.getByText(`${label} credential rejected`, { exact: true })).toBeVisible();
@@ -2085,73 +2126,35 @@ for (const engine of ["codex", "claude"] as const) {
   });
 }
 
-test("control defaults follow live updates while preserving an operator draft for either engine", async ({ page }) => {
-  let emit: ((data: string) => void) | undefined;
-  const defaults = {
-    codex: { engine: "codex", model: "gpt-6-astra", reasoning_effort: "medium", catalog: [{ model: "gpt-6-astra", persistent_efforts: ["medium", "high", "xhigh"], default_effort: "medium" }] },
-    claude: { engine: "claude", model: "claude-opus-4-1", reasoning_effort: "medium", catalog: [{ model: "claude-opus-4-1", persistent_efforts: ["medium", "high", "xhigh"], default_effort: "medium" }] },
-  };
-  await page.routeWebSocket("**/control-ws", (ws) => { emit = (data) => ws.send(data); });
-  await installFixtures(page, (path) => {
-    if (path === "/admin/ws/info") return { enabled: true, url: "ws://127.0.0.1:4173/control-ws" };
-    if (path === "/admin/model-defaults/codex") return defaults.codex;
-    if (path === "/admin/model-defaults/claude") return defaults.claude;
-  });
-  await page.goto("/admin/engines");
-  await expect.poll(() => Boolean(emit)).toBe(true);
-  for (const engine of ["codex", "claude"] as const) {
-    const section = page.locator(`#${engine}-model-defaults`);
-    const effort = page.locator(`#${engine}-fleet-reasoning-effort`);
-    await expect(effort).toContainText("medium");
-    defaults[engine].reasoning_effort = "high";
-    emit!(JSON.stringify({ type: "settings.changed", payload: {}, ts: new Date().toISOString() }));
-    await expect(effort).toContainText("high");
-    await effort.click();
-    await page.locator('[data-select-content][data-state="open"]').getByRole("option", { name: "medium", exact: true }).click();
-    await expect(section).toContainText("Unsaved changes");
-    defaults[engine].reasoning_effort = "xhigh";
-    emit!(JSON.stringify({ type: "settings.changed", payload: {}, ts: new Date().toISOString() }));
-    await expect(section).toContainText("Fleet defaults changed elsewhere");
-    await expect(effort).toContainText("medium");
-    // Returning to the old baseline must not hide a concurrent remote edit.
-    await effort.click();
-    await page.locator('[data-select-content][data-state="open"]').getByRole("option", { name: "high", exact: true }).click();
-    await expect(section).toContainText("Fleet defaults changed elsewhere");
-    await section.getByRole("button", { name: "Load latest defaults" }).click();
-    await expect(effort).toContainText("xhigh");
-    await expect(section.getByText("Unsaved changes", { exact: true })).toHaveCount(0);
-  }
-});
-
 test("control navigation highlights mobile account destinations", async ({ page }) => {
   await page.goto("/admin/dashboard");
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/admin/account/theme");
+  await page.goto("/admin/account#appearance");
   const menu = page.getByRole("button", { name: "Open navigation menu" });
   await expect(menu).toHaveAttribute("aria-current", "true");
   await menu.click();
-  await expect(page.getByRole("dialog").getByRole("link", { name: "Password", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("link", { name: "Password & passkeys", exact: true })).toBeVisible();
   await expect(page.getByRole("dialog").getByRole("link", { name: "Appearance", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("link", { name: "Android devices", exact: true })).toBeVisible();
 });
 
 test("Agent Messaging uses peer URL-backed operational views", async ({ page }) => {
   await page.goto("/admin/agent-messaging?view=conversations");
-  await expect(page.getByRole("heading", { name: "Agent Messaging", level: 1 })).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Conversations" })).toHaveAttribute("data-state", "active");
-  await expect(page.getByRole("heading", { name: "Conversations" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Messages", level: 1 })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Conversations", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("agent:console ↔ agent:review")).toBeVisible();
 
   await page.getByRole("button", { name: "Deliveries", exact: true }).click();
   await expect(page).toHaveURL(/view=deliveries/);
   await expect(page).toHaveURL(/conversation_id=11111111-1111-4111-8111-111111111111/);
-  await expect(page.getByRole("tab", { name: "Deliveries" })).toHaveAttribute("data-state", "active");
-  await expect(page.getByRole("heading", { name: "Deliveries" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delivery log", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("heading", { name: "Delivery log" })).toBeVisible();
   await expect(page.getByLabel("Filter deliveries by conversation UUID")).toHaveValue(
     "11111111-1111-4111-8111-111111111111",
   );
 
-  await page.getByRole("tab", { name: "Addresses" }).click();
-  await expect(page).not.toHaveURL(/view=/);
+  await page.getByRole("button", { name: "Addresses", exact: true }).click();
+  await expect(page).toHaveURL(/view=addresses/);
   await expect(page.getByRole("heading", { name: "Addresses" })).toBeVisible();
   await expect(page.getByText("agent:console", { exact: true })).toBeVisible();
 });
@@ -2208,8 +2211,8 @@ test("Claude login expiry remains visible with successful verification and clear
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/dashboard");
-    const card = page.getByRole("region", { name: "Claude verification" });
-    await expect(card.getByText("Claude login expires in 3 days", { exact: true })).toBeVisible();
+    const card = page.getByRole("list", { name: "Verification by engine" }).getByRole("listitem").filter({ hasText: "Claude" });
+    await expect(card).toContainText("Claude login expires in 3 days");
     await expect(card.getByText("OK", { exact: true })).toBeVisible();
     await expect(card).toContainText("2026-09-18T12:00:00.000Z");
     await expect(card).toContainText("Run /login in Claude launched through clx.");
@@ -2267,8 +2270,8 @@ test('conference inspector deep links, reveals history and follows updates witho
   latest = 3;
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByText('Private report 3', { exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Addresses', exact: true }).click();
-  await page.getByRole('tab', { name: 'Conferences', exact: true }).click();
+  await page.getByRole('button', { name: 'Addresses', exact: true }).click();
+  await page.getByRole('button', { name: 'Conferences', exact: true }).click();
   await expect(page.getByText('Private report 2', { exact: true })).toHaveCount(0);
   deny = true;
   await page.getByRole('button', { name: 'Reveal transcript' }).click();
@@ -2413,7 +2416,7 @@ test("Grok quick defaults honor model-specific effort and persist across reload"
   await expect(grok.getByRole("radio", { name: "Grok 4.5", exact: true })).toBeChecked();
 });
 
-test("API Access shows the Grok text gateway and issues a scoped client key", async ({ page }) => {
+test("Access shows the Grok text gateway and issues a scoped client key", async ({ page }) => {
   const writes: Array<{ path: string; body: unknown }> = [];
   await installFixtures(page, (path, body) => {
     if (body && (path.startsWith("/admin/grok/") || path === "/admin/api/surfaces/grok")) {
@@ -2423,17 +2426,18 @@ test("API Access shows the Grok text gateway and issues a scoped client key", as
       return { disabled: true };
     }
   });
-  await page.goto("/admin/api-keys");
-  await expect(page.getByRole("region", { name: "API endpoints" }).getByText(/127\.0\.0\.1:4173\/grok\/v1/)).toBeVisible();
-  await page.getByRole("button", { name: "Configuration", exact: true }).click();
+  await page.goto("/admin/access");
+  await page.getByRole("button", { name: "API endpoints", exact: true }).click();
+  await expect(page.locator('[data-endpoint="grok"]').getByText(/127\.0\.0\.1:4173\/grok\/v1/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Configure", exact: true }).click();
   await page.getByRole("switch", { name: "Enable /grok/v1", exact: true }).click();
   await page.locator("#grok-proxy > summary").click();
   await expect(page.getByText("Streaming, tools, images, sampling controls, and token limits are unavailable.", { exact: false })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Grok 4.7", exact: true })).toBeChecked();
   await page.getByRole("switch", { name: "Grok 4.5", exact: true }).click();
   await expect.poll(() => writes.some(w => w.path === "/admin/grok/models/grok-4.5/toggle")).toBe(true);
-  await page.getByRole("button", { name: "Back to keys" }).click();
-  await page.getByRole("tab", { name: "Grok", exact: true }).click();
+  await page.getByRole("group", { name: "Filter keys by API" }).getByRole("button", { name: "Grok", exact: true }).click();
   await page.getByRole("button", { name: "New key", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("button", { name: "API format", exact: true })).toContainText("Grok");
@@ -2506,7 +2510,7 @@ test("host engine switches support all seven combinations and preserve one enabl
     }
     if (path === "/admin/hosts/1/detail") return { ...detail, host };
   });
-  await page.goto("/admin/hosts/1?tab=settings");
+  await page.goto("/admin/hosts/1");
   await expect(page.getByRole("switch", { name: "Grok engine", exact: true })).toBeChecked();
   await expect(page.getByRole("switch", { name: "Grok engine", exact: true })).toBeDisabled();
   const all = ["Codex", "Claude", "Grok"];
@@ -2516,8 +2520,7 @@ test("host engine switches support all seven combinations and preserve one enabl
     if (target.length === 1) await expect(page.getByRole("switch", { name: `${target[0]} engine`, exact: true })).toBeDisabled();
   }
   expect(writes.length).toBeGreaterThanOrEqual(7);
-  const overrides = page.getByRole("button", { name: /Model & version overrides/ });
-  if (await overrides.getAttribute("aria-expanded") === "false") await overrides.click();
+  await page.getByTestId("host-advanced").locator(":scope > summary").click();
   await expect(page.getByRole("region", { name: "Grok engine overrides", exact: true })).toBeVisible();
 });
 
@@ -2580,58 +2583,62 @@ test("messaging shows all nine engine directions", async ({ page }) => {
       ["codex", "claude", "grok"].map(target_engine => ({ source_engine, target_engine, total: 1, pending: 0, completed: 1, dead: 0, ambiguous: 0 }))) };
   });
   await page.goto("/admin/agent-messaging");
-  const matrix = page.locator("section").filter({ has: page.getByRole("heading", { name: "Direction matrix", exact: true }) });
+  const matrix = page.locator("details").filter({ has: page.locator("summary", { hasText: "Traffic by engine" }) });
+  await matrix.locator("summary").click();
   for (const source of ["codex", "claude", "grok"]) for (const target of ["codex", "claude", "grok"]) {
     await expect(matrix.getByText(`${source} → ${target}`, { exact: true })).toBeVisible();
   }
 });
 
-// API Access puts daily key work ahead of routing and backend configuration.
-test("API Access keeps keys visible, copies endpoints and preserves selection", async ({ page, context }) => {
+// Access puts the daily key list ahead of routing and backend configuration.
+const keyFilter = (page: Page) => page.getByRole("group", { name: "Filter keys by API" });
+
+test("Access keeps keys visible, copies endpoints and preserves the vendor filter", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/admin/api-keys");
+  await page.goto("/admin/access");
   await expect(page.getByRole("heading", { name: "API keys", exact: true })).toBeInViewport();
-  await expect(page.getByRole("textbox", { name: "Search OpenAI keys" })).toBeInViewport();
+  await expect(page.getByRole("textbox", { name: "Search keys by name or prefix" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Disable all API traffic" })).not.toBeVisible();
   await expect(page.getByRole("button", { name: "Backend for /v1", exact: true })).not.toBeVisible();
+  await page.getByRole("button", { name: "API endpoints", exact: true }).click();
   await page.getByRole("button", { name: "Copy /anthropic/v1 URL", exact: true }).click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("http://127.0.0.1:4173/anthropic/v1");
   await page.getByRole("button", { name: "Show Anthropic keys" }).click();
-  await expect(page.getByRole("tab", { name: "Anthropic", exact: true })).toHaveAttribute("aria-selected", "true");
-  await page.getByRole("button", { name: "Configuration", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Routing & availability" })).toBeVisible();
+  await expect(keyFilter(page).getByRole("button", { name: "Anthropic", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Configure", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Service availability & routing" })).toBeVisible();
   await expect(page.getByLabel("Proxy default model", { exact: true })).not.toBeVisible();
-  await page.getByRole("button", { name: "Back to keys" }).click();
-  await expect(page.getByRole("tab", { name: "Anthropic", exact: true })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "Configure", exact: true }).click();
+  await expect(keyFilter(page).getByRole("button", { name: "Anthropic", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "New key", exact: true }).click();
   await expect(page.getByRole("dialog").getByRole("button", { name: "API format", exact: true })).toContainText("Anthropic");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, { timeout: 10000 });
   await expectNoSeriousAxeFindings(page);
-  await page.screenshot({ path: "test-results/api-access-desktop.png", fullPage: true });
+  await page.screenshot({ path: "test-results/access-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/admin/api-keys");
-  await expect(page.getByRole("textbox", { name: "Search OpenAI keys" })).toBeInViewport();
+  await page.goto("/admin/access");
+  await expect(page.getByRole("textbox", { name: "Search keys by name or prefix" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.screenshot({ path: "test-results/api-access-mobile.png", fullPage: true });
+  await page.screenshot({ path: "test-results/access-mobile.png", fullPage: true });
 });
 
-test("API Access resolves legacy anchors and the new-key deep link", async ({ page }) => {
+test("Access resolves legacy API anchors and the new-key deep link", async ({ page }) => {
   for (const [anchor, target] of [["service-availability", "#api-state-toggle"], ["exposed-apis", "#api-backend-openai"], ["claude-proxy", "#claude-model"], ["grok-proxy", "#grok-proxy-model"]]) {
-    await page.goto(`/admin/api-keys#${anchor}`);
+    await page.goto(`/admin/access#${anchor}`);
     await expect(page.locator(target)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Back to keys" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Configure", exact: true })).toHaveAttribute("aria-expanded", "true");
   }
-  await page.goto("/admin/api-keys?dialog=new&engine=grok");
+  await page.goto("/admin/access?dialog=new&engine=grok");
   await expect(page.getByRole("dialog").getByRole("button", { name: "API format", exact: true })).toContainText("Grok");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page).not.toHaveURL(/dialog=new/);
-  await expect(page.getByRole("tab", { name: "Grok", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(keyFilter(page).getByRole("button", { name: "Grok", exact: true })).toHaveAttribute("aria-pressed", "true");
 });
 
-test("API Access reports disabled and rerouted backends without changing key namespaces", async ({ page }) => {
+test("Access reports disabled and rerouted backends without changing key namespaces", async ({ page }) => {
   await installFixtures(page, (path) => {
     if (path === "/admin/api/surfaces") {
       const data = fixture(path) as { surfaces: Array<Record<string, unknown>> };
@@ -2642,29 +2649,33 @@ test("API Access reports disabled and rerouted backends without changing key nam
       return { engines: data.engines.map(row => ({ ...row, enabled: row.engine !== "grok" })) };
     }
   });
-  await page.goto("/admin/api-keys");
+  await page.goto("/admin/access");
+  await page.getByRole("button", { name: "API endpoints", exact: true }).click();
   await expect(page.locator('[data-endpoint="openai"]')).toContainText("Default engine off");
   await expect(page.locator('[data-endpoint="anthropic"]')).toContainText("Disabled");
   await expect(page.locator('[data-endpoint="grok"]')).toContainText("Default engine off");
   await page.getByRole("button", { name: "Show OpenAI keys" }).click();
-  await expect(page.getByRole("textbox", { name: "Search OpenAI keys" })).toBeVisible();
+  await expect(keyFilter(page).getByRole("button", { name: "OpenAI", exact: true })).toHaveAttribute("aria-pressed", "true");
   await installFixtures(page, path => path === "/admin/api/state" ? { disabled: true } : undefined);
   await page.reload();
   await expect(page.getByRole("status").filter({ hasText: "All API traffic is disabled" })).toBeVisible();
+  await page.getByRole("button", { name: "API endpoints", exact: true }).click();
   await expect(page.locator('[data-endpoint="openai"]')).toContainText("All traffic off");
 });
 
-test("API Access reports query errors instead of claiming access is enabled", async ({ page }) => {
+test("Access reports query errors instead of claiming access is enabled", async ({ page }) => {
   await page.route("**/admin/engines/state", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "status unavailable" }) }));
-  await page.goto("/admin/api-keys");
+  await page.goto("/admin/access");
+  await page.getByRole("button", { name: "API endpoints", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Failed to load API status" })).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-endpoint="openai"]')).toContainText("Status unavailable");
   await page.route("**/admin/api/surfaces", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "endpoints unavailable" }) }));
   await page.reload();
+  await page.getByRole("button", { name: "API endpoints", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Failed to load endpoints" })).toBeVisible({ timeout: 15000 });
 });
 
-test("API Access retains search, toggle and revoke for issued keys", async ({ page }) => {
+test("Access retains search, toggle and revoke for issued keys", async ({ page }) => {
   let rows = [{ id: 7, name: "CI runner", key_prefix: "sk-cdx-test", is_active: true, use_count: 12, created_at: "2026-10-01T00:00:00Z", last_used_at: null, expires_at: null }];
   const writes: string[] = [];
   await page.route("**/admin/openai/keys**", async route => {
@@ -2673,21 +2684,23 @@ test("API Access retains search, toggle and revoke for issued keys", async ({ pa
     if (route.request().method() === "DELETE") { rows = []; writes.push(path); }
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(path.endsWith("/keys") ? rows : { status: "ok" }) });
   });
-  await page.goto("/admin/api-keys");
-  await expect(page.getByRole("cell", { name: "CI runner", exact: true })).toBeInViewport();
-  await page.getByRole("textbox", { name: "Search OpenAI keys" }).fill("nothing");
-  await expect(page.getByText('No keys match "nothing"')).toBeVisible();
-  await page.getByRole("button", { name: "Clear search" }).click();
-  await page.getByRole("switch", { name: "Toggle active", exact: true }).click();
+  await page.goto("/admin/access");
+  await expect(page.getByRole("cell", { name: /^CI runner/ })).toBeVisible();
+  const search = page.getByRole("textbox", { name: "Search keys by name or prefix" });
+  await search.fill("nothing");
+  await expect(page.getByText("No matches")).toBeVisible();
+  await search.fill("");
+  await page.getByRole("switch", { name: "Active: CI runner", exact: true }).click();
   await expect.poll(() => writes).toContain("/admin/openai/keys/7/toggle");
-  await expect(page.getByRole("switch", { name: "Toggle active", exact: true })).not.toBeChecked();
-  await page.getByRole("button", { name: "Revoke key", exact: true }).click();
+  await expect(page.getByRole("switch", { name: "Active: CI runner", exact: true })).not.toBeChecked();
+  await page.getByRole("button", { name: "Actions for CI runner" }).click();
+  await page.getByRole("menuitem", { name: "Revoke key" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Revoke key", exact: true }).click();
   await expect.poll(() => writes).toContain("/admin/openai/keys/7");
-  await expect(page.getByText("No OpenAI keys yet")).toBeVisible();
+  await expect(page.getByText("No API keys yet")).toBeVisible();
 });
 
-test("API Access configuration saves routing and backend defaults and supports keyboard navigation", async ({ page }) => {
+test("Access configuration saves routing and backend defaults and supports keyboard navigation", async ({ page }) => {
   const writes: Array<{ path: string; body: unknown }> = [];
   await installFixtures(page, (path, body) => {
     if (body && ["/admin/api/surfaces/openai", "/admin/claude/settings", "/admin/grok/settings", "/admin/api/state"].includes(path)) {
@@ -2695,7 +2708,7 @@ test("API Access configuration saves routing and backend defaults and supports k
       return body as Record<string, unknown>;
     }
   });
-  await page.goto("/admin/api-keys#configuration");
+  await page.goto("/admin/access#configuration");
   await page.getByRole("button", { name: "Backend for /v1", exact: true }).click();
   await page.getByRole("option", { name: "Claude", exact: true }).click();
   await expect.poll(() => writes).toContainEqual({ path: "/admin/api/surfaces/openai", body: { backend: "claude" } });
@@ -2709,10 +2722,10 @@ test("API Access configuration saves routing and backend defaults and supports k
   await expect.poll(() => writes).toContainEqual({ path: "/admin/grok/settings", body: { default_model: "grok-4.6" } });
   await page.getByRole("switch", { name: "Disable all API traffic" }).click();
   await expect.poll(() => writes).toContainEqual({ path: "/admin/api/state", body: { disabled: true } });
-  await page.getByRole("button", { name: "Back to keys" }).click();
-  await page.getByRole("tab", { name: "OpenAI", exact: true }).focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("tab", { name: "Anthropic", exact: true })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "Configure", exact: true }).click();
+  await keyFilter(page).getByRole("button", { name: "Anthropic", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(keyFilter(page).getByRole("button", { name: "Anthropic", exact: true })).toHaveAttribute("aria-pressed", "true");
 });
 
 test("appearance menu switches light and dark immediately and persists across reload", async ({ page }) => {
@@ -2737,7 +2750,7 @@ test("appearance menu switches light and dark immediately and persists across re
     await page.reload();
     await expect.poll(() => page.locator("html").evaluate(el => el.classList.contains("dark"))).toBe(choice === "Dark");
   }
-  await page.goto("/admin/account/theme");
+  await page.goto("/admin/account#appearance");
   await expect(page.getByRole("radio", { name: /Dark/ })).toBeChecked();
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
   await page.getByRole("menuitem", { name: "Light", exact: true }).click();

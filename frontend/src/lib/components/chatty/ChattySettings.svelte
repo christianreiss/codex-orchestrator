@@ -21,12 +21,12 @@
     {#if $settings.data}
       <div class="flex flex-wrap items-end gap-4 p-4">
         <label class="flex items-center gap-2"><input type="checkbox" checked={$settings.data.enabled} disabled={busy} onchange={(e) => void update({ enabled: e.currentTarget.checked })}/> Chatty aktivieren</label>
-        <label class="text-sm">Automatische Priorität<select class="ml-2 rounded border bg-background p-2" value={$settings.data.engine_order.join(',')} disabled={busy} onchange={(e) => void update({ engine_order: e.currentTarget.value.split(',') })}>
+        <label class="text-body">Automatische Priorität<select class="ml-2 rounded-md border bg-background p-2" value={$settings.data.engine_order.join(',')} disabled={busy} onchange={(e) => void update({ engine_order: e.currentTarget.value.split(',') })}>
           {#each ['codex,claude,grok','codex,grok,claude','claude,codex,grok','claude,grok,codex','grok,codex,claude','grok,claude,codex'] as order}<option value={order}>{order.replaceAll(',', ' → ')}</option>{/each}
         </select></label>
-        <label class="text-sm">Parallele Anfragen<input aria-label="Parallele Chatty-Anfragen" class="ml-2 w-16 rounded border bg-background p-2" type="number" min="1" max="2" value={$settings.data.concurrency} disabled={busy} onchange={(e) => void update({ concurrency: Number(e.currentTarget.value) })}/></label>
+        <label class="text-body">Parallele Anfragen<input aria-label="Parallele Chatty-Anfragen" class="ml-2 w-16 rounded-md border bg-background p-2" type="number" min="1" max="2" value={$settings.data.concurrency} disabled={busy} onchange={(e) => void update({ concurrency: Number(e.currentTarget.value) })}/></label>
       </div>
-      <p class="px-4 pb-4 text-xs text-muted-foreground">Deaktivieren stoppt laufende Anfragen. Gespräche bleiben erhalten, ausgeführte Änderungen bleiben bestehen.</p>
+      <p class="px-4 pb-4 text-body-sm text-muted-foreground">Deaktivieren stoppt laufende Anfragen. Gespräche bleiben erhalten, ausgeführte Änderungen bleiben bestehen.</p>
     {/if}
     {#if error}<p role="alert" class="p-4 text-destructive">{error}</p>{/if}
   </section>

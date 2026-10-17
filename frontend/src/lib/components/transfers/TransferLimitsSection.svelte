@@ -1,36 +1,28 @@
 <script lang="ts">
   /**
-   * The four numbers that bound the pool. They are one card rather than four
-   * rows because they only make sense together: the max TTL is the ceiling an
-   * agent's request is clamped to, the default is what the guidance recommends,
-   * and the quota is what the per-file cap is spent against. The server refuses
-   * an incoherent set, so this saves them as one payload rather than letting a
-   * half-applied change through.
+   * The four numbers that bound the pool. They are saved as one payload because
+   * they only make sense together: the max TTL is the ceiling an agent's request
+   * is clamped to, the default is what the guidance recommends, and the quota is
+   * what the per-file cap is spent against. The server refuses an incoherent set.
    */
   import { toast } from "svelte-sonner";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { Button } from "$lib/components/ui/button";
-  import SectionCard from "$lib/components/settings/SectionCard.svelte";
+  import { Section } from "$lib/components/page";
   import { formatBytes } from "$lib/utils/format";
   import { formatDuration, transferLimitsMutation, type TransferState } from "$lib/api/transfers";
 
-  // Named `moduleState`, not `state`: a local called `state` shadows the `$state`
-  // rune and svelte-check reads every `$state(...)` below as a store subscription.
+  // Named `moduleState`, not `state`: a local called `state` shadows the `$state` rune.
   type Props = { moduleState: TransferState | undefined; canManage: boolean };
   let { moduleState, canManage }: Props = $props();
 
-  let lastSavedAt = $state<Date | null>(null);
   const mutation = transferLimitsMutation({
-    onSuccess: () => {
-      lastSavedAt = new Date();
-      toast.success("Transfer limits saved");
-    },
+    onSuccess: () => toast.success("Limits saved"),
     onError: (err) => toast.error(err.message),
   });
 
-  // Minutes and MiB in the inputs, seconds and bytes on the wire: an operator
-  // setting a one-day ceiling should not have to type 86400.
+  // Minutes and MiB in the inputs, seconds and bytes on the wire.
   let defaultTtlMinutes = $state(60);
   let maxTtlMinutes = $state(1440);
   let maxFileMib = $state(0);
@@ -55,105 +47,59 @@
     });
   }
 
-  const status = $derived.by(() => {
-    if ($mutation.isPending) return "saving" as const;
-    if ($mutation.isError) return "error" as const;
-    if ($mutation.isSuccess) return "saved" as const;
-    return "idle" as const;
-  });
-
   const usedBytes = $derived(moduleState?.used_bytes ?? 0);
-  const quotaBytes = $derived(moduleState?.quota_bytes ?? 1);
+  const quotaBytes = $derived(moduleState?.quota_bytes ?? 0);
   const usedPercent = $derived(quotaBytes > 0 ? Math.min(100, Math.round((usedBytes / quotaBytes) * 100)) : 0);
-  const meterTone = $derived(
-    usedPercent >= 90 ? "bg-destructive" : usedPercent >= 80 ? "bg-warning" : "bg-primary",
-  );
+  const meterTone = $derived(usedPercent >= 90 ? "bg-destructive" : usedPercent >= 80 ? "bg-warning" : "bg-primary");
 </script>
 
-<SectionCard
+<Section
   id="transfer-limits"
   title="Limits and usage"
-  description="An agent must pass a TTL on every upload; the fleet clamps it to the maximum below and reports the deadline it actually granted. The default is what the guidance recommends, not a fallback for a missing value."
-  {status}
-  savedAt={lastSavedAt}
-  error={$mutation.error?.message}
+  description="Every upload carries a TTL. The fleet clamps it to the maximum below and reports the deadline it actually granted. The default is what the guidance recommends, not a fallback."
 >
   <div class="space-y-1.5">
-    <div class="flex items-baseline justify-between text-xs">
+    <div class="flex items-baseline justify-between text-body-sm">
       <span class="text-muted-foreground">
         {formatBytes(usedBytes)} {quotaBytes > 0 ? `of ${formatBytes(quotaBytes)} in use` : "in use · unlimited quota"}
-        {#if moduleState}
-          · {moduleState.live_count} file{moduleState.live_count === 1 ? "" : "s"} held
-        {/if}
+        {#if moduleState}· {moduleState.live_count} file{moduleState.live_count === 1 ? "" : "s"} held{/if}
       </span>
       {#if quotaBytes > 0}<span class="tabular-nums text-muted-foreground">{usedPercent}%</span>{/if}
     </div>
-    {#if quotaBytes > 0}<div class="h-2 w-full overflow-hidden rounded-full bg-muted">
-      <div class={`h-full rounded-full transition-all ${meterTone}`} style={`width: ${usedPercent}%`}></div>
-    </div>
+    {#if quotaBytes > 0}
+      <div class="h-2 w-full overflow-hidden rounded-full bg-muted">
+        <div class={`h-full rounded-full transition-all ${meterTone}`} style={`width: ${usedPercent}%`}></div>
+      </div>
     {/if}
     {#if quotaBytes > 0 && usedPercent >= 80}
-      <p class="text-xs text-warning-foreground">
-        Uploads are refused once the pool is full. Delete unneeded transfers or raise the quota. Changing the maximum TTL affects new uploads only.
-      </p>
+      <p class="text-caption text-warning-foreground">Uploads are refused once the pool is full. Delete unneeded files or raise the quota. Changing the maximum TTL affects new uploads only.</p>
     {/if}
   </div>
 
-  <div class="grid gap-3 sm:grid-cols-2">
+  <div class="mt-4 grid gap-3 sm:grid-cols-2">
     <div class="space-y-1">
-      <Label for="transfer-default-ttl" class="text-xs">Default TTL (minutes)</Label>
-      <Input
-        id="transfer-default-ttl"
-        type="number"
-        min="1"
-        bind:value={defaultTtlMinutes}
-        disabled={!canManage}
-      />
-      <p class="text-xs text-muted-foreground">{formatDuration(Number(defaultTtlMinutes) * 60)}</p>
+      <Label for="transfer-default-ttl">Default TTL (minutes)</Label>
+      <Input id="transfer-default-ttl" type="number" min="1" bind:value={defaultTtlMinutes} disabled={!canManage} />
+      <p class="text-caption text-muted-foreground">{formatDuration(Number(defaultTtlMinutes) * 60)}</p>
     </div>
     <div class="space-y-1">
-      <Label for="transfer-max-ttl" class="text-xs">Maximum TTL (minutes)</Label>
-      <Input
-        id="transfer-max-ttl"
-        type="number"
-        min="1"
-        max="10080"
-        bind:value={maxTtlMinutes}
-        disabled={!canManage}
-      />
-      <p class="text-xs text-muted-foreground">
-        {formatDuration(Number(maxTtlMinutes) * 60)} · the ceiling every request is clamped to
-      </p>
+      <Label for="transfer-max-ttl">Maximum TTL (minutes)</Label>
+      <Input id="transfer-max-ttl" type="number" min="1" max="10080" bind:value={maxTtlMinutes} disabled={!canManage} />
+      <p class="text-caption text-muted-foreground">{formatDuration(Number(maxTtlMinutes) * 60)} · the ceiling every request is clamped to</p>
     </div>
     <div class="space-y-1">
-      <Label for="transfer-max-file" class="text-xs">Maximum file size (MiB)</Label>
-      <Input
-        id="transfer-max-file"
-        type="number"
-        min="0"
-        step="any"
-        bind:value={maxFileMib}
-        disabled={!canManage}
-      />
-      <p class="text-xs text-muted-foreground">0 means unlimited; binary transfers have no fixed file-size cap.</p>
+      <Label for="transfer-max-file">Maximum file size (MiB)</Label>
+      <Input id="transfer-max-file" type="number" min="0" step="any" bind:value={maxFileMib} disabled={!canManage} />
+      <p class="text-caption text-muted-foreground">0 means unlimited; binary transfers have no fixed file-size cap.</p>
     </div>
     <div class="space-y-1">
-      <Label for="transfer-quota" class="text-xs">Pool quota (MiB)</Label>
-      <Input
-        id="transfer-quota"
-        type="number"
-        min="0"
-        step="any"
-        bind:value={quotaMib}
-        disabled={!canManage}
-      />
-      <p class="text-xs text-muted-foreground">0 means unlimited. Usage includes reserved upload sizes.</p>
+      <Label for="transfer-quota">Pool quota (MiB)</Label>
+      <Input id="transfer-quota" type="number" min="0" step="any" bind:value={quotaMib} disabled={!canManage} />
+      <p class="text-caption text-muted-foreground">0 means unlimited. Usage includes reserved upload sizes.</p>
     </div>
   </div>
 
-  <div class="flex justify-end">
-    <Button size="sm" onclick={save} disabled={!canManage || $mutation.isPending}>
-      {$mutation.isPending ? "Saving…" : "Save limits"}
-    </Button>
+  <div class="mt-3 flex justify-end">
+    <Button size="sm" onclick={save} disabled={!canManage || $mutation.isPending}>{$mutation.isPending ? "Saving…" : "Save limits"}</Button>
   </div>
-</SectionCard>
+</Section>

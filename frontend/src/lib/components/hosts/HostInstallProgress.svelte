@@ -146,12 +146,12 @@
     rows={3}
     expiresAt={expiresAt ? new Date(expiresAt).toLocaleString() : undefined}
   />
-  <p class="text-xs text-muted-foreground">
+  <p class="text-body-sm text-muted-foreground">
     It installs the wrapper with this host's address and API key built in. The command works
     once and expires.
   </p>
 
-  <ol class="space-y-0 rounded-lg border p-3" aria-label="Install progress">
+  <ol class="space-y-0 rounded-md border p-3" aria-label="Install progress">
     {#each stages as stage, i (stage.id)}
       {@const done = Boolean(stage.at)}
       {@const waiting = i === waitingIndex}
@@ -174,11 +174,11 @@
           {/if}
         </span>
         <span class="min-w-0 flex-1">
-          <span class={cn("block text-sm", done ? "font-medium" : !waiting && "text-muted-foreground")}>
+          <span class={cn("block text-body", done ? "font-medium" : !waiting && "text-muted-foreground")}>
             {stage.label}
             <span class="sr-only">{done ? "(done)" : waiting ? "(in progress)" : "(pending)"}</span>
           </span>
-          <span class="block text-xs text-muted-foreground">
+          <span class="block text-body-sm text-muted-foreground">
             {#if done && stage.at}
               {relativeTime(stage.at)}
             {:else if waiting}
@@ -190,7 +190,7 @@
     {/each}
   </ol>
 
-  <p class="text-xs text-muted-foreground" aria-live="polite">
+  <p class="text-body-sm text-muted-foreground" aria-live="polite">
     {#if synced}
       {fqdn} is set up and syncing.
     {:else if $detail.isError}
@@ -201,7 +201,7 @@
   </p>
 
   {#if offEngines.length > 0}
-    <p class="text-xs text-muted-foreground">
+    <p class="text-body-sm text-muted-foreground">
       {offEngines.map(engineLabel).join(" and ")}
       {offEngines.length === 1 ? "is" : "are"} disabled fleet-wide, so this host will not run
       {offEngines.length === 1 ? "it" : "them"} until {offEngines.length === 1 ? "it is" : "they are"} turned back on under Engines.
@@ -224,7 +224,7 @@
       {/if}
     </div>
     {#if missingAuth.length > 0}
-      <p class="text-xs text-muted-foreground">
+      <p class="text-body-sm text-muted-foreground">
         The fleet has no {missingAuth.map(engineLabel).join(" or ")}
         credentials yet, so the host cannot sync until they are seeded.
       </p>

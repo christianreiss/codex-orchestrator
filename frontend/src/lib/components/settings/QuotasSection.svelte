@@ -6,7 +6,7 @@
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { Button } from "$lib/components/ui/button";
-  import SectionCard from "./SectionCard.svelte";
+  import SectionCard from "$lib/components/engines/SettingGroup.svelte";
   import { quotaModeMutation, quotaModeQuery } from "$lib/api/settings";
 
   type Props = { headingLevel?: 2 | 3 };
@@ -130,7 +130,7 @@
           <Select.Item value="off">Off</Select.Item>
         </Select.Content>
       </Select.Root>
-      <p class="text-sm text-muted-foreground">Compares OpenAI and Claude usage and time until reset; Grok subscription quota is unavailable and is not compared. Automated starts only show a hint. A switch opens a new session.</p>
+      <p class="text-body-sm text-muted-foreground">Compares OpenAI and Claude usage and time until reset; Grok subscription quota is unavailable and is not compared. Automated starts only show a hint. A switch opens a new session.</p>
     </div>
     <div class="grid gap-1.5">
       <Label for="advice-high">High usage (%)</Label>
@@ -143,7 +143,7 @@
     <div class="grid gap-1.5">
       <Label for="advice-gap">Minimum pressure difference (points)</Label>
       <Input id="advice-gap" type="number" min={1} max={100} step={1} bind:value={advice.min_pressure_gap} />
-      <p class="text-sm text-muted-foreground">100 pressure points means a threshold is reached. The alternative must stay below 100.</p>
+      <p class="text-body-sm text-muted-foreground">100 pressure points means a threshold is reached. The alternative must stay below 100.</p>
     </div>
     <div class="grid gap-1.5">
       <Label for="advice-age">Maximum measurement age (minutes)</Label>
@@ -153,7 +153,7 @@
       <Switch id="advice-remember" checked={advice.remember_day} onCheckedChange={(v) => (advice.remember_day = v)} />
       <Label for="advice-remember">Allow remembering the provider until local midnight</Label>
     </div>
-    <p class="text-sm text-muted-foreground sm:col-span-2">Remembered choices apply to this computer's user across cdx, clx, and cgx. Use --quota-choice-reset to choose again.</p>
+    <p class="text-body-sm text-muted-foreground sm:col-span-2">Remembered choices apply to this computer's user across cdx, clx, and cgx. Use --quota-choice-reset to choose again.</p>
   </div>
 
   <div class="pt-2">

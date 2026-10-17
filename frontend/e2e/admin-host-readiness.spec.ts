@@ -37,22 +37,23 @@ async function fixture(page: Page, shared: ReturnType<typeof state>) {
   });
   return async (type: string) => { await expect.poll(() => Boolean(emit)).toBe(true); emit!(JSON.stringify({ type, payload: {}, ts: new Date().toISOString() })); };
 }
-function row(page: Page, fqdn: string) { return page.getByRole('button').filter({ has: page.getByText(fqdn, { exact: true }) }); }
-for (const width of [390, 1440]) test(`engine readiness replaces Status (${width}px)`, async ({ page }) => {
+function row(page: Page, fqdn: string) { return page.getByRole('row').filter({ has: page.getByText(fqdn, { exact: true }) }); }
+for (const width of [390, 1440]) test(`engine chips carry readiness (${width}px)`, async ({ page }) => {
   const shared = state(); await page.setViewportSize({ width, height: 900 }); await fixture(page, shared); await page.goto('/admin/hosts?sort=status');
   await expect(row(page, 'secure.test')).toBeVisible({ timeout: 15000 });
   await expect(page.getByRole('button', { name: 'Status', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Host', exact: true })).toContainText('Host');
+  await expect(page.getByRole('button', { name: 'Name', exact: true })).toContainText('Name');
   await expect(row(page, 'secure.test').getByRole('img', { name: /^Codex: ready/ })).toHaveAttribute('data-state', 'ready');
   await expect(row(page, 'secure.test').getByRole('img', { name: /^Claude: auth missing/ })).toHaveAttribute('data-state', 'attention');
   await expect(row(page, 'secure.test').getByRole('img', { name: /^Grok: wrapper not at target/ })).toHaveAttribute('data-state', 'attention');
   await expect(row(page, 'insecure.test').getByRole('img', { name: /^Claude: ready/ })).toHaveAttribute('data-state', 'ready');
   await expect(row(page, 'insecure.test').getByRole('img', { name: /^Grok: CLI version or target unknown/ })).toHaveAttribute('data-state', 'attention');
-  await expect(row(page, 'unassigned.test').getByRole('img', { name: /^Claude: not assigned/ })).toHaveAttribute('data-state', 'inactive');
+  await expect(row(page, 'unassigned.test').getByRole('img', { name: /^Claude:/ })).toHaveCount(0);
+  await expect(row(page, 'unassigned.test').getByRole('img', { name: /^Codex: ready/ })).toContainText('Codex');
   await expect(row(page, 'legacy.test').getByRole('img', { name: /^Codex: status unknown/ })).toHaveAttribute('data-state', 'attention');
   const dot = row(page, 'secure.test').getByRole('img', { name: /^Codex: ready/ });
   await expect(dot).toHaveAttribute('title', /CLI 1.2.3 \/ target 1.2.3 · cxx 0.9.40 \/ target 0.9.40/);
-  await expect(dot.locator('span')).toHaveClass(/bg-green-500/);
+  await expect(dot.locator('span')).toHaveClass(/bg-success/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect((await new AxeBuilder({ page }).include('main').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
   await page.screenshot({ path: `test-results/host-readiness-${width}.png`, fullPage: true });

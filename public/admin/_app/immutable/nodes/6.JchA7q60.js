@@ -1,1 +1,0 @@
-import{$t as e,K as t,N as n,W as r,bt as i,xt as a}from"../chunks/CcbFKhJi.js";import"../chunks/xihTtKlq.js";import{t as o}from"../chunks/BAMwqnS72.js";var s=t(`<!> <!>`,1);function c(t,c){var l=s(),u=i(l);o(u,{hub:`coordination`}),n(a(u,2),()=>c.children??e),r(t,l)}export{c as component};

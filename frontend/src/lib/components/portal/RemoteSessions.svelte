@@ -108,24 +108,24 @@
 </script>
 
 {#if active}
-  {#if error}<div role="alert" class="mb-3 flex items-center justify-between rounded-lg border border-destructive/30 p-3 text-sm"><span>Remote sessions could not be refreshed. {error.message}</span><Button variant="outline" size="sm" onclick={refresh}>Retry remote sessions</Button></div>{/if}
-  <div class={compact ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "grid h-[calc(75dvh-4rem)] min-h-[28rem] grid-cols-1 overflow-hidden rounded-xl border bg-card lg:h-[calc(100dvh-19.5rem)] lg:grid-cols-[22rem_minmax(0,1fr)]"}>
+  {#if error}<div role="alert" class="mb-3 flex items-center justify-between rounded-md border border-destructive/30 p-3 text-body-sm"><span>Remote sessions could not be refreshed. {error.message}</span><Button variant="outline" size="sm" onclick={refresh}>Retry remote sessions</Button></div>{/if}
+  <div class={compact ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "grid h-[calc(75dvh-4rem)] min-h-[28rem] grid-cols-1 overflow-hidden rounded-md border bg-card lg:h-[calc(100dvh-19.5rem)] lg:grid-cols-[22rem_minmax(0,1fr)]"}>
     {#if !compact}<section aria-label="Remote session directory" class="min-h-0 min-w-0 flex-col border-r {selectedId ? 'hidden lg:flex' : 'flex'}">
       <div class="space-y-2 border-b p-3">
         <div class="flex gap-2">
-          <Input aria-label="Find a remote session" type="search" placeholder="Search sessions or hosts" bind:value={search} class="h-8 min-w-0 bg-muted text-xs" />
-          <select aria-label="Remote engine" bind:value={engineFilter} class="h-8 w-28 shrink-0 rounded-lg bg-muted px-2 text-xs"><option value="all">All engines</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option></select>
+          <Input aria-label="Find a remote session" type="search" placeholder="Search sessions or hosts" bind:value={search} class="h-8 min-w-0 bg-muted text-caption" />
+          <select aria-label="Remote engine" bind:value={engineFilter} class="h-8 w-28 shrink-0 rounded-md bg-muted px-2 text-caption"><option value="all">All engines</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option></select>
         </div>
         <div class="flex gap-1" role="group" aria-label="Show remote sessions">
           {#each [{ key: 'current', label: 'Current' }, { key: 'ended', label: 'Ended' }, { key: 'all', label: 'All' }] as item}
-            <button class="rounded-full px-2.5 py-1 text-xs {filter === item.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}" aria-pressed={filter === item.key} onclick={() => filter = item.key}>{item.label}</button>
+            <button class="rounded-full px-2.5 py-1 text-caption {filter === item.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}" aria-pressed={filter === item.key} onclick={() => filter = item.key}>{item.label}</button>
           {/each}
         </div>
-        {#if fixedHost}<p class="text-xs text-muted-foreground">{hosts.find(row => row.host_id === fixedHost)?.fqdn ?? `Host #${fixedHost}`} · <a class="text-primary underline" href={`${base}/clients?view=remote`}>All hosts</a></p>{/if}
+        {#if fixedHost}<p class="text-caption text-muted-foreground">{hosts.find(row => row.host_id === fixedHost)?.fqdn ?? `Host #${fixedHost}`} · <a class="text-primary underline" href={`${base}/clients?view=remote`}>All hosts</a></p>{/if}
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
-        {#if loading}<p role="status" class="p-5 text-sm text-muted-foreground">Loading remote sessions…</p>
-        {:else if !visible.length}<div class="px-4 py-8 text-center"><BotIcon class="mx-auto h-6 w-6 text-muted-foreground" /><h2 class="mt-3 text-sm font-medium">No remote sessions match</h2><p class="mt-1 text-xs text-muted-foreground">Start a session or change the search and status filter.</p></div>
+        {#if loading}<p role="status" class="p-5 text-body-sm text-muted-foreground">Loading remote sessions…</p>
+        {:else if !visible.length}<div class="px-4 py-8 text-center"><BotIcon class="mx-auto h-6 w-6 text-muted-foreground" /><h2 class="mt-3 text-body-sm font-medium">No remote sessions match</h2><p class="mt-1 text-caption text-muted-foreground">Start a session or change the search and status filter.</p></div>
         {:else}{#each visible as { session, host } (session.id)}
           {@const state = remoteState(session.status)}
           <ConversationRow id={`remote-${session.id}`} engine={session.engine} presence={state.presence} title={session.title} time={session.lastActivityAt ? listTime(session.lastActivityAt, new Date()) : ""} directory={host.fqdn ?? `Host #${host.host_id}`} preview={`${session.engine} · ${state.label}`} selected={selectedId === session.id} aria-pressed={selectedId === session.id} logo onclick={() => select(session.id)} />
@@ -136,20 +136,20 @@
       {#if selectedId}
         <header class="flex items-center gap-2 border-b px-3 py-2">
           <Button variant="ghost" size="icon" class="shrink-0 lg:hidden" aria-label="Back to remote sessions" onclick={back}><ChevronLeftIcon class="h-5 w-5" /></Button>
-          <div class="min-w-0 flex-1"><h2 bind:this={heading} tabindex="-1" class="truncate text-sm font-semibold outline-none">{selected?.title ?? 'Remote session'}</h2><p class="truncate text-xs text-muted-foreground">{selectedHost?.fqdn ?? 'Host'} · {remoteState(selected?.status ?? 'queued').label}</p></div>
+          <div class="min-w-0 flex-1"><h2 bind:this={heading} tabindex="-1" class="truncate text-body-sm font-semibold outline-none">{selected?.title ?? 'Remote session'}</h2><p class="truncate text-caption text-muted-foreground">{selectedHost?.fqdn ?? 'Host'} · {remoteState(selected?.status ?? 'queued').label}</p></div>
           <Button variant="ghost" size="sm" aria-expanded={detailsOpen} onclick={() => detailsOpen = !detailsOpen}>Details</Button>
         </header>
-        {#if detailsOpen && selected}<div class="max-h-[40%] shrink-0 space-y-2 overflow-y-auto border-b bg-muted/20 p-4 text-xs">
+        {#if detailsOpen && selected}<div class="max-h-[40%] shrink-0 space-y-2 overflow-y-auto border-b bg-muted/20 p-4 text-caption">
           <p class="break-all">{selected.engine} · {selected.cwd}</p>
           {#if selectedHost}<a class="text-primary underline" href={`${base}/hosts/${selectedHost.host_id}`}>Host settings</a>{/if}
           {#if canRead}{#each selected.operations ?? [] as operation}<div class="whitespace-pre-wrap break-words border-t pt-2"><p>{operation.status}</p>{#if operation.result?.error}<p class="text-destructive">{operation.result.error}</p>{/if}{#if operation.result?.reply}<p>{operation.result.reply}</p>{/if}</div>{/each}{/if}
           {#if canManage && !['closed', 'stopping'].includes(selected.status)}<Button variant="outline" size="sm" disabled={$stop.isPending || $turn.isPending || !!error || stale} onclick={() => $stop.mutate(selected!.id)}>End session</Button>{/if}
         </div>{/if}
-        {#if $detail.error}<p role="alert" class="px-4 py-2 text-sm text-destructive">{$detail.error.message} <button class="underline" onclick={() => $detail.refetch()}>Retry session</button></p>{/if}
-        {#if $stop.error && $stop.variables === selectedId}<p role="alert" class="px-4 py-2 text-sm text-destructive">{$stop.error.message}</p>{/if}
+        {#if $detail.error}<p role="alert" class="px-4 py-2 text-body-sm text-destructive">{$detail.error.message} <button class="underline" onclick={() => $detail.refetch()}>Retry session</button></p>{/if}
+        {#if $stop.error && $stop.variables === selectedId}<p role="alert" class="px-4 py-2 text-body-sm text-destructive">{$stop.error.message}</p>{/if}
         {#if native}{@render conversation(native.id, controls, live)}
-        {:else}<div class="grid flex-1 place-content-center p-6 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h3 class="mt-3 text-sm font-medium">{selected ? remoteState(selected.status).label : 'Loading session…'}</h3><p class="mt-1 max-w-sm text-sm text-muted-foreground">{selected ? remoteState(selected.status).detail : 'Waiting for session details.'}</p></div>{@render controls()}{/if}
-      {:else}<div class="grid flex-1 place-content-center p-8 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h2 class="mt-3 text-sm font-medium">Select a remote session</h2><p class="mt-1 max-w-xs text-xs text-muted-foreground">Start work on a host, follow its conversation and continue it here.</p></div>{/if}
+        {:else}<div class="grid flex-1 place-content-center p-6 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h3 class="mt-3 text-body-sm font-medium">{selected ? remoteState(selected.status).label : 'Loading session…'}</h3><p class="mt-1 max-w-sm text-body-sm text-muted-foreground">{selected ? remoteState(selected.status).detail : 'Waiting for session details.'}</p></div>{@render controls()}{/if}
+      {:else}<div class="grid flex-1 place-content-center p-8 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h2 class="mt-3 text-body-sm font-medium">Select a remote session</h2><p class="mt-1 max-w-xs text-caption text-muted-foreground">Start work on a host, follow its conversation and continue it here.</p></div>{/if}
     </section>
   </div>
 {/if}
@@ -157,10 +157,10 @@
 {#snippet controls()}
   {#if !live && selected}
     <footer class="shrink-0 space-y-2 border-t p-3 sm:p-4">
-      {#if resumeReason}<p class="text-xs text-muted-foreground">{resumeReason}</p>{/if}
-      {#if $turn.error && $turn.variables?.id === selected.id}<p role="alert" class="text-sm text-destructive">{$turn.error.message} Your draft is kept. Retry sends the same request.</p>{/if}
+      {#if resumeReason}<p class="text-caption text-muted-foreground">{resumeReason}</p>{/if}
+      {#if $turn.error && $turn.variables?.id === selected.id}<p role="alert" class="text-body-sm text-destructive">{$turn.error.message} Your draft is kept. Retry sends the same request.</p>{/if}
       {#if canRead && canManage}<form class="flex items-end gap-2" onsubmit={event => { event.preventDefault(); void resume(); }}>
-        <Textarea aria-label="Continue remote session" placeholder="Next instruction…" rows={1} maxlength={100000} value={drafts[selected.id] ?? ''} oninput={event => drafts = { ...drafts, [selected!.id]: event.currentTarget.value }} class="min-h-10 flex-1 resize-none" />
+        <Textarea aria-label="Continue remote session" placeholder="Next instruction…" rows={1} maxlength={100000} value={drafts[selected.id] ?? ''} oninput={event => drafts = { ...drafts, [selected!.id]: event.currentTarget.value }} class="min-h-9 flex-1 resize-none" />
         <Button type="submit" disabled={!!resumeReason || !(drafts[selected.id] ?? '').trim() || $turn.isPending || $stop.isPending}>{$turn.isPending ? 'Continuing…' : 'Continue'}</Button>
       </form>{/if}
     </footer>
@@ -171,13 +171,13 @@
   <Sheet.Content class="flex w-full flex-col overflow-y-auto sm:max-w-lg">
     <Sheet.Header><Sheet.Title>Start remote session</Sheet.Title><Sheet.Description>Choose a host and give the agent its first instruction.</Sheet.Description></Sheet.Header>
     <form class="mt-6 space-y-5" onsubmit={event => { event.preventDefault(); void submitStart(); }}>
-      <div class="space-y-1.5"><label class="text-sm font-medium" for="remote-host">Host</label><select id="remote-host" class="h-10 w-full rounded-md border bg-background px-3 text-sm" bind:value={hostId}><option value={0}>Choose a host</option>{#each hosts as row}<option value={row.host_id}>{row.fqdn ?? `Host #${row.host_id}`}{!row.enabled ? ' · Disabled' : ''}</option>{/each}</select></div>
-      <div class="space-y-1.5"><label class="text-sm font-medium" for="remote-engine">Engine</label><select id="remote-engine" class="h-10 w-full rounded-md border bg-background px-3 text-sm" bind:value={engine}>{#each ['codex', 'claude', 'grok'] as value}<option value={value} disabled={!host?.engines?.includes(value as Engine)}>{value === 'codex' ? 'Codex' : value === 'claude' ? 'Claude' : 'Grok'}</option>{/each}</select></div>
-      <div class="space-y-1.5"><label class="text-sm font-medium" for="remote-title">Title</label><Input id="remote-title" bind:value={title} maxlength={160} required placeholder="What should this session accomplish?" /></div>
-      <div class="space-y-1.5"><label class="text-sm font-medium" for="remote-prompt">Instruction</label><Textarea id="remote-prompt" bind:value={prompt} maxlength={100000} required rows={5} placeholder="Describe the task…" /></div>
-      <details class="rounded-lg border p-3"><summary class="cursor-pointer text-sm font-medium">Advanced options</summary><div class="mt-3 space-y-1.5"><label class="text-sm" for="remote-cwd">Working directory</label><Input id="remote-cwd" bind:value={cwd} maxlength={1024} placeholder={host?.default_cwd || 'Service account home directory'} /></div></details>
-      {#if startReason}<p role="status" class="text-sm text-muted-foreground">{startReason}</p>{/if}
-      {#if $start.error}<p role="alert" class="text-sm text-destructive">{$start.error.message} Your instruction is kept. Retry sends the same request.</p>{/if}
+      <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-host">Host</label><select id="remote-host" class="h-9 w-full rounded-md border bg-background px-3 text-body-sm" bind:value={hostId}><option value={0}>Choose a host</option>{#each hosts as row}<option value={row.host_id}>{row.fqdn ?? `Host #${row.host_id}`}{!row.enabled ? ' · Disabled' : ''}</option>{/each}</select></div>
+      <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-engine">Engine</label><select id="remote-engine" class="h-9 w-full rounded-md border bg-background px-3 text-body-sm" bind:value={engine}>{#each ['codex', 'claude', 'grok'] as value}<option value={value} disabled={!host?.engines?.includes(value as Engine)}>{value === 'codex' ? 'Codex' : value === 'claude' ? 'Claude' : 'Grok'}</option>{/each}</select></div>
+      <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-title">Title</label><Input id="remote-title" bind:value={title} maxlength={160} required placeholder="What should this session accomplish?" /></div>
+      <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-prompt">Instruction</label><Textarea id="remote-prompt" bind:value={prompt} maxlength={100000} required rows={5} placeholder="Describe the task…" /></div>
+      <details class="rounded-md border p-3"><summary class="cursor-pointer text-body-sm font-medium">Advanced options</summary><div class="mt-3 space-y-1.5"><label class="text-body-sm" for="remote-cwd">Working directory</label><Input id="remote-cwd" bind:value={cwd} maxlength={1024} placeholder={host?.default_cwd || 'Service account home directory'} /></div></details>
+      {#if startReason}<p role="status" class="text-body-sm text-muted-foreground">{startReason}</p>{/if}
+      {#if $start.error}<p role="alert" class="text-body-sm text-destructive">{$start.error.message} Your instruction is kept. Retry sends the same request.</p>{/if}
       <Button type="submit" class="w-full" disabled={!!startReason || !title.trim() || !prompt.trim() || $start.isPending}>{$start.isPending ? 'Starting…' : 'Start session'}</Button>
     </form>
   </Sheet.Content>

@@ -26,8 +26,9 @@ async function fixture(page:Page, manage=true) {
 test('create, inspect, pause, edit and delete an explicit persistent interval',async({page})=>{
  const calls=await fixture(page);
  await page.goto('/admin/schedules');
- await expect(page.getByRole('heading',{name:'Wake / Cron',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Timed wake-ups',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Create schedule'}).click();
+ await page.getByText('Advanced',{exact:true}).click();
  await expect(page.getByRole('checkbox',{name:/Persistent recovery/})).not.toBeChecked();
  await page.getByLabel('Name',{exact:true}).fill('Continue review');
  await page.getByRole('combobox',{name:'Target agent'}).click();
@@ -38,31 +39,36 @@ test('create, inspect, pause, edit and delete an explicit persistent interval',a
  await page.getByLabel('Progress timeout in seconds').fill('120');
  await page.getByLabel('Maximum recovery attempts (empty means unlimited)').fill('3');
  await page.getByRole('button',{name:'Save',exact:true}).click();
- await expect(page.getByRole('cell',{name:'Continue review'})).toBeVisible();
+ await expect(page.getByRole('cell',{name:/^Continue review/})).toBeVisible();
  expect(calls[0].body).toMatchObject({kind:'interval',interval_minutes:5,persistent:true,progress_timeout_seconds:120,max_recovery_attempts:3,timezone:'Europe/Berlin',target});
  await expect(page.getByRole('dialog')).not.toBeVisible();
  await page.screenshot({path:'/tmp/wake-cron-desktop-list.png',animations:'disabled'});
- await page.getByRole('button',{name:'View',exact:true}).click();
+ await page.getByRole('button',{name:'Actions for Continue review'}).click();
+ await page.getByRole('menuitem',{name:'View',exact:true}).click();
  await expect(page.getByText('capacity_wait · task: unknown · 1 recoveries')).toBeVisible();
- await expect.poll(async()=>Math.round((await page.getByRole('dialog').boundingBox())?.width ?? 0)).toBe(560);
+ await expect.poll(async()=>Math.round((await page.getByRole('dialog').boundingBox())?.width ?? 0)).toBe(576);
  await page.screenshot({path:'/tmp/wake-cron-desktop-panel.png',animations:'disabled'});
  await page.keyboard.press('Escape');
- await page.getByRole('button',{name:'Pause',exact:true}).click();
- await expect(page.getByRole('button',{name:'Enable',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Actions for Continue review'}).click();
+ await page.getByRole('menuitem',{name:'Pause',exact:true}).click();
+ await expect(page.getByText('Paused',{exact:true})).toBeVisible();
  expect(calls[1].body).toEqual({version:1,enabled:false});
- await page.getByRole('button',{name:'View',exact:true}).click();
+ await page.getByRole('button',{name:'Actions for Continue review'}).click();
+ await page.getByRole('menuitem',{name:'View',exact:true}).click();
  await page.getByRole('button',{name:'Edit',exact:true}).click();
  await page.getByLabel('Name',{exact:true}).fill('Updated review');
  await page.getByRole('button',{name:'Save',exact:true}).click();
- await expect(page.getByRole('cell',{name:/Updated review/})).toBeVisible();
+ await expect(page.getByRole('cell',{name:/^Updated review/})).toBeVisible();
  expect(calls[2].body.version).toBe(2);
- await page.getByRole('button',{name:'Delete',exact:true}).click();
- await expect(page.getByText('No schedules on this page.')).toBeVisible();
+ await page.getByRole('button',{name:'Actions for Updated review'}).click();
+ await page.getByRole('menuitem',{name:'Delete',exact:true}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Delete',exact:true}).click();
+ await expect(page.getByText('No timed wake-ups yet')).toBeVisible();
  expect(calls[3]).toEqual({method:'DELETE',body:{version:3}});
 });
 test('read-only users have no scheduling mutations on mobile',async({page})=>{
  await page.setViewportSize({width:390,height:844});await fixture(page,false);await page.goto('/admin/schedules');
- await expect(page.getByRole('heading',{name:'Wake / Cron',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Timed wake-ups',exact:true})).toBeVisible();
  await expect(page.getByRole('button',{name:'Create schedule'})).toHaveCount(0);
 });
 
@@ -76,6 +82,7 @@ test('name search, keyboard selection, mobile panel and failed save retain input
  const panel=page.getByRole('dialog');
  await expect(panel).toBeVisible();
  await expect.poll(async()=>Math.round((await panel.boundingBox())?.width ?? 0)).toBe(390);
+ await page.getByText('Advanced',{exact:true}).click();
  await expect(page.getByLabel('Progress timeout in seconds')).toHaveCount(0);
  await page.getByLabel('Name',{exact:true}).fill('Mobile review');
  await page.getByRole('combobox',{name:'Target agent'}).click();
@@ -107,7 +114,8 @@ test('unknown stored targets remain editable without changing their address',asy
  await page.route('**/admin/schedules/'+id,route=>route.request().method()==='GET' && route.request().headers().accept?.includes('application/json') ? route.fulfill({json:{schedule,runs:[]}}) : route.fallback());
  await page.goto('/admin/schedules');
  await expect(page.getByRole('cell',{name:unknown,exact:true})).toBeVisible();
- await page.getByRole('button',{name:'View',exact:true}).click();
+ await page.getByRole('button',{name:'Actions for Legacy target'}).click();
+ await page.getByRole('menuitem',{name:'View',exact:true}).click();
  await page.getByRole('button',{name:'Edit',exact:true}).click();
  await expect(page.getByRole('combobox',{name:'Target agent'})).toContainText(unknown);
  await page.getByRole('button',{name:'Save',exact:true}).click();

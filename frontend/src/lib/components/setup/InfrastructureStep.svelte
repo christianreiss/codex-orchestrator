@@ -41,9 +41,9 @@
     </Alert>
   {/each}
 
-  <ul class="divide-y rounded-lg border">
+  <ul class="divide-y rounded-md border">
     {#each checks as check (check.id)}
-      <li class="flex items-start justify-between gap-4 p-3 text-sm">
+      <li class="flex items-start justify-between gap-4 p-3 text-body">
         <span class="flex items-center gap-2">
           <span
             class={check.ok ? "text-success" : "text-destructive"}
@@ -51,7 +51,7 @@
           >
           <span class="font-medium">{check.label}</span>
         </span>
-        <span class="text-right text-xs text-muted-foreground">{check.detail}</span>
+        <span class="text-right text-body-sm text-muted-foreground">{check.detail}</span>
       </li>
     {/each}
   </ul>
@@ -68,7 +68,7 @@
         </p>
         <ul class="space-y-1">
           {#each failing as check (check.id)}
-            <li><span class="font-medium">{check.label}</span> — <code class="text-xs">{remedy(check.id)}</code></li>
+            <li><span class="font-medium">{check.label}</span> — <code class="text-body-sm">{remedy(check.id)}</code></li>
           {/each}
         </ul>
       </AlertDescription>

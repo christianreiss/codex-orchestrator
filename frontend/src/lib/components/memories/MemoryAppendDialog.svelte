@@ -66,8 +66,8 @@
       </Dialog.Header>
       <div class="space-y-1.5">
         <Label for="append-memory-content">Content to append</Label>
-        <Textarea id="append-memory-content" bind:value={content} rows={10} class="font-mono text-xs leading-5" placeholder="Additional durable context…" />
-        <p class="text-right text-[11px] text-muted-foreground">{content.length.toLocaleString()} characters</p>
+        <Textarea id="append-memory-content" bind:value={content} rows={10} class="font-mono text-caption leading-5" placeholder="Additional durable context…" />
+        <p class="text-right text-caption text-muted-foreground">{content.length.toLocaleString()} characters</p>
       </div>
       <Dialog.Footer>
         <Button type="button" variant="outline" onclick={() => setOpen(false)} disabled={$mutation.isPending}>Cancel</Button>

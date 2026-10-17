@@ -98,8 +98,8 @@
 </script>
 
 <section id={sectionId} class="border-t py-5" aria-labelledby={`${sectionId}-heading`}>
-  <h3 id={`${sectionId}-heading`} class="text-sm font-semibold">{ENGINE_META[engine].label} {settingsLabel}</h3>
-  <p class="mt-1 max-w-3xl text-sm text-muted-foreground">
+  <h3 id={`${sectionId}-heading`} class="text-body-sm font-semibold">{ENGINE_META[engine].label} {settingsLabel}</h3>
+  <p class="mt-1 max-w-3xl text-body-sm text-muted-foreground">
     {#if profiles}
       Create or remove named profiles with a JSON array. Each entry accepts name, model, model_reasoning_effort and native_settings.
       Omit model and effort (or use null) to inherit. Removing an entry removes its managed profile sidecar on the next sync.
@@ -109,11 +109,11 @@
     Model and effort use the controls above; existing fleet controls take precedence for settings they own.
     {/if}
   </p>
-  <p class="mt-1 text-xs text-muted-foreground">
+  <p class="mt-1 text-caption text-muted-foreground">
     Reference: <a class="underline underline-offset-2" href={references[engine].url} target="_blank" rel="noreferrer">{ENGINE_META[engine].label} {references[engine].version} settings</a>
   </p>
   {#if profiles}
-    <details class="mt-2 text-xs text-muted-foreground">
+    <details class="mt-2 text-caption text-muted-foreground">
       <summary class="cursor-pointer">Profile example and current choices</summary>
       <pre class="mt-2 overflow-auto">{JSON.stringify([{ name: "review", model: "gpt-6.1-sol", model_reasoning_effort: "high", native_settings: { service_tier: "priority" } }], null, 2)}</pre>
       <p class="mt-2">Models: {currentModels.map(m => m.value).join(", ")}</p>
@@ -121,21 +121,21 @@
     </details>
   {/if}
   {#if !canRead}
-    <p class="mt-3 text-sm text-muted-foreground">Your role needs content.read to view native settings.</p>
+    <p class="mt-3 text-body-sm text-muted-foreground">Your role needs content.read to view native settings.</p>
   {:else if $query.isPending}
-    <p class="mt-3 text-sm text-muted-foreground">Loading native settings…</p>
+    <p class="mt-3 text-body-sm text-muted-foreground">Loading native settings…</p>
   {:else}
     {#if $query.isError}
-      <p role="alert" class="mt-3 text-sm text-destructive">Could not load settings: {$query.error.message}</p>
+      <p role="alert" class="mt-3 text-body-sm text-destructive">Could not load settings: {$query.error.message}</p>
     {/if}
     {#if baseline}
       <div class="mt-3 space-y-2">
-        <label for={`${sectionId}-json`} class="block text-xs font-medium">{ENGINE_META[engine].label} {settingsLabel} JSON</label>
-        <textarea id={`${sectionId}-json`} class="min-h-48 w-full rounded-md border bg-background p-3 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
+        <label for={`${sectionId}-json`} class="block text-caption font-medium">{ENGINE_META[engine].label} {settingsLabel} JSON</label>
+        <textarea id={`${sectionId}-json`} class="min-h-48 w-full rounded-md border bg-background p-3 font-mono text-caption focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
           bind:value={draft} spellcheck={false} readonly={!canManage} disabled={$mutation.isPending}
           aria-invalid={Boolean(parsed.error)} aria-describedby={`${sectionId}-feedback`}
           oninput={() => { error = null; saved = false; }}></textarea>
-        <div id={`${sectionId}-feedback`} class="text-sm" aria-live="polite">
+        <div id={`${sectionId}-feedback`} class="text-body-sm" aria-live="polite">
           {#if parsed.error}<p class="text-destructive">{parsed.error}</p>{/if}
           {#if error}<p role="alert" class="text-destructive">{error}</p>{/if}
           {#if conflict}<p class="text-warning-muted-foreground">Native settings changed elsewhere. Your draft is kept; copy it before loading the saved settings.</p>{/if}
@@ -150,11 +150,11 @@
       <Button size="sm" onclick={() => $mutation.mutate(true)} disabled={!canManage || !dirty || Boolean(parsed.error) || conflict || $mutation.isPending || $query.isError}>Save {settingsLabel}</Button>
       <Button variant="outline" size="sm" onclick={() => void reload()} disabled={$query.isFetching || $mutation.isPending}>{dirty ? "Discard draft and reload" : `Reload ${settingsLabel}`}</Button>
     </div>
-    {#if !canManage}<p class="mt-2 text-xs text-muted-foreground">Read-only: saving requires content.manage.</p>{/if}
+    {#if !canManage}<p class="mt-2 text-caption text-muted-foreground">Read-only: saving requires content.manage.</p>{/if}
     {#if preview !== null && previewDraft === draft}
       <details open class="mt-4 min-w-0">
-        <summary class="cursor-pointer text-sm font-medium">Validated configuration preview</summary>
-        <pre class="mt-2 max-h-96 overflow-auto rounded-md border bg-muted p-3 text-xs">{preview}</pre>
+        <summary class="cursor-pointer text-body-sm font-medium">Validated configuration preview</summary>
+        <pre class="mt-2 max-h-96 overflow-auto rounded-md border bg-muted p-3 text-caption">{preview}</pre>
       </details>
     {/if}
   {/if}

@@ -12,6 +12,8 @@
   import AppShell from "$lib/components/layout/AppShell.svelte";
   import CommandPalette from "$lib/components/command-palette/CommandPalette.svelte";
   import SearchModal from "$lib/components/search-modal/SearchModal.svelte";
+  import { AuthShell } from "$lib/components/page";
+  import { Button } from "$lib/components/ui/button";
   import Toaster from "$lib/components/feedback/Toaster.svelte";
   import { commandPalette } from "$lib/stores/command-palette";
   import { searchModal } from "$lib/stores/search-modal";
@@ -162,22 +164,15 @@
 
 <QueryClientProvider client={queryClient}>
   {#if auth.unreachable || setupError}
-    <div class="flex min-h-screen items-center justify-center bg-background p-6">
-      <div class="w-full max-w-lg rounded-md border border-destructive/40 bg-card p-6">
-        <h1 class="text-xl font-semibold">API unreachable</h1>
-        <p class="mt-2 text-sm text-muted-foreground">{auth.unreachable ?? setupError}</p>
-        <button class="mt-5 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground" onclick={() => { setupError = null; void authActions.refresh(); }}>Retry</button>
-      </div>
-    </div>
+    <AuthShell title="API unreachable" description={auth.unreachable ?? setupError ?? undefined}>
+      <Button onclick={() => { setupError = null; void authActions.refresh(); }}>Retry</Button>
+    </AuthShell>
   {:else if standalone}
     {@render children?.()}
-  {:else if auth.loading}
-    <div class="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-      Loading…
-    </div>
-  {:else if auth.enforced && !auth.authenticated}
-    <div class="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-      Redirecting…
+  {:else if auth.loading || !auth.enforced || !auth.authenticated}
+    <!-- Settling the session, or the gate above is already sending us to /setup or /login. -->
+    <div class="flex h-full w-full items-center justify-center text-body-sm text-muted-foreground" role="status">
+      {auth.loading ? "Loading…" : "Redirecting…"}
     </div>
   {:else}
     <AppShell>

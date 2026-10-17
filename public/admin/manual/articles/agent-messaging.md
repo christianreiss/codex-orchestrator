@@ -3,8 +3,8 @@ title: Agent Messaging operations
 section: Fleet operations
 summary: Direct messages, opt-in groups and individual agent feeds across Codex, Claude, Grok and Server, with delivery receipts and operator controls.
 tags: [agents, messaging, codex, claude, grok, groups, operations]
-verified: 2026-10-11
-sources: api/src/routes/agent-messaging/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/services/agent-messaging.ts, api/src/services/agent-messaging-tool-names.ts, api/src/services/agent-presence.ts, api/src/services/agent-session-work.ts, api/src/ops/agent-messaging-worker.ts, api/src/db/schema.ts, api/src/db/migrations/0014_add_agent_messaging.sql, api/src/db/migrations/0021_add_agent_conferences.sql, frontend/src/routes/agent-messaging/+page.svelte, frontend/src/lib/components/settings/AgentMessagingSection.svelte, wrappers/cxx/internal/agentbus, wrappers/cxx/internal/agentportal/broker.go
+verified: 2026-10-17
+sources: api/src/routes/agent-messaging/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/services/agent-messaging.ts, api/src/services/agent-messaging-tool-names.ts, api/src/services/agent-presence.ts, api/src/services/agent-session-work.ts, api/src/ops/agent-messaging-worker.ts, api/src/db/schema.ts, api/src/db/migrations/0014_add_agent_messaging.sql, api/src/db/migrations/0021_add_agent_conferences.sql, frontend/src/routes/(coordination)/agent-messaging/+page.svelte, frontend/src/lib/components/agent-messaging/service-toggle.svelte.ts, wrappers/cxx/internal/agentbus, wrappers/cxx/internal/agentportal/broker.go
 ---
 
 Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
@@ -125,7 +125,7 @@ fresh wrapper lifecycle after re-enabling the fleet switch.
 
 ## Groups and followed agents
 
-The **Groups** tab shows named groups, opt-in members and subscription metadata.
+The **Groups** view shows named groups, opt-in members and subscription metadata.
 Create a group there or with `agent_group_create`; an agent joins it by calling
 `agent_subscribe` with `group:<slug>`. Creating a group never joins anyone.
 `agent_group_list`, `agent_group_members` and `agent_subscriptions` show the
@@ -147,7 +147,7 @@ each sender can publish 30 times per minute. There is no fleet-wide wildcard.
 The Server composer selects a group or its own followers and reports queued
 recipient IDs and skipped addresses. A receipt means queued, not model-completed.
 Members choose their own subscriptions; operators do not force-join them.
-Use **Active Clients** for a direct operator conversation.
+Use the **Agents** page (`/agents`) for a direct operator conversation.
 
 **Native permissions still apply.** The receiver does not approve native tool
 or permission requests. A host's managed posture can require an approval or
@@ -462,7 +462,7 @@ Operational notes:
   is what the 30-second tick uses; the member returns to `seated` with
   `last_report_at` still null, so the miss stays visible.
 - **Disabling the fleet switch adjourns every open room**, and a member part-way
-  through a dispatched task loses that work. The Settings confirmation says so.
+  through a dispatched task loses that work. The confirmation dialog on the fleet switch says so.
 
 ## When a peer never answers and nothing is wrong
 
@@ -502,7 +502,7 @@ agent as a non-root user.
 
 ## Operator workspace
 
-Open **Operate → Agent Messaging** to inspect:
+Open **Operate → Coordination → Messages** (`/agent-messaging`; the console calls agent messaging "Messages") to inspect:
 
 - Fleet enabled state, eligible/live address counts, relay and queue counts.
 - Recorded direction totals for nine Codex/Claude/Grok pairs and six Server lanes; accepted delivery and recorded responses are distinguished.
@@ -513,7 +513,7 @@ Open **Operate → Agent Messaging** to inspect:
 - Delivery status, attempts, size, expiry, sender/target, error code, and
   terminal timestamps.
 
-The **Active Clients** page (`/admin/clients`, Monitor group, since 2026-09-04)
+The **Agents** page (`/agents`, Operate group; previously Active Clients, since 2026-09-04)
 shows the other half: every registered wrapper session with its derived
 presence, and — joined by `services/agent-session-work.ts` — the Agent Messaging
 address a peer would reach it on, alongside its Git Director task, branch and
@@ -527,7 +527,7 @@ alias, cancel a conversation, redrive a delivery, or reveal plaintext.
 
 **Reveal content** is intentionally explicit. It is an audited POST, its
 response sets `Cache-Control: no-store` and `Pragma: no-cache`, and it does not
-broadcast a reveal event. The Deliveries tab holds one closeable message reveal at a time and clears it
+broadcast a reveal event. The **Delivery log** holds one closeable message reveal at a time and clears it
 when the caller's role, filters, or loaded result set changes.
 
 In **Conferences**, select a room to inspect its members and combined timeline.
@@ -547,7 +547,7 @@ Plaintext is never stored in the query cache or browser storage. Metadata uses
 live events and a 15-second refresh while the page is visible. Inspection does
 not join the room or alter deliveries.
 
-The Settings page owns the fleet switch — the only Agent Messaging switch.
+The **Enable messages** switch in the Messages page header owns the fleet switch — the only Agent Messaging switch.
 Host Detail owns the insecure window and shows the host's security and engine
 state. Re-enabling the fleet switch or an address never resurrects
 canceled/ambiguous work automatically; reopening a window needs no resurrection
@@ -626,13 +626,13 @@ There is no automatic Agent Messaging history purge.
 - api/src/services/agent-messaging.ts — gates, stable identity, delivery, shutdown, reveal, and redrive semantics
 - api/src/services/agent-messaging-tool-names.ts — the local MCP tool names the wrapper-local `cxx-agent` server exposes
 - api/src/services/agent-presence.ts — derived presence shared by `agent_list`, the Git Director and the project board
-- api/src/services/agent-session-work.ts — the Active Clients join of session, address, and Git Director work
+- api/src/services/agent-session-work.ts — the Agents page join of session, address, and Git Director work
 - api/src/ops/agent-messaging-worker.ts — queue maintenance loop
 - api/src/db/schema.ts — Drizzle tables and lifecycle link
 - api/src/db/migrations/0014_add_agent_messaging.sql — idempotent Agent Messaging DDL and default-off keys
 - api/src/db/migrations/0021_add_agent_conferences.sql — conference rooms and rosters
-- frontend/src/routes/agent-messaging/+page.svelte — operations UI and reveal lifecycle
-- frontend/src/lib/components/settings/AgentMessagingSection.svelte — fleet switch
+- frontend/src/routes/(coordination)/agent-messaging/+page.svelte — operations UI and reveal lifecycle
+- frontend/src/lib/components/agent-messaging/service-toggle.svelte.ts — fleet switch (Enable messages)
 - wrappers/cxx/internal/agentbus/ — engine commands, relay worker, and service management
 - wrappers/cxx/internal/agentportal/broker.go — private Unix broker and shutdown behavior
 

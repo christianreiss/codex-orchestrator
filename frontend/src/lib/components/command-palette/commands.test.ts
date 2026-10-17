@@ -65,6 +65,8 @@ const ICON_NAMES = [
   "UserRoundCog",
   "Waypoints",
   "Zap",
+  "Smartphone",
+  "Wrench",
 ];
 
 const STUB_SOURCES: Record<string, string> = {
@@ -132,7 +134,7 @@ const navModule: string = "$lib/nav";
 const { NAV } = (await import(navModule)) as typeof import("$lib/nav");
 
 const commandsModule: string = "./commands.ts";
-const { COMMAND_GROUPS, STATIC_COMMANDS, buildDynamicSources, buildRecentCommands, groupOrder } =
+const { COMMAND_GROUPS, DEEP_NAV, STATIC_COMMANDS, buildDynamicSources, buildRecentCommands, groupOrder } =
   (await import(commandsModule)) as typeof import("./commands");
 
 interface SeedRows {
@@ -196,28 +198,43 @@ describe("STATIC_COMMANDS", () => {
     }
   });
 
-  it("exposes Agent Messaging without the retired Agent Portal", () => {
+  it("uses the plain page labels and none of the retired ones", () => {
     const labels = STATIC_COMMANDS.map((command) => command.label);
-    assert.ok(labels.includes("Go to Agent Messaging"));
-    assert.ok(!labels.includes("Go to Agent Portal"));
+    for (const label of ["Go to Messages", "Go to Timed wake-ups", "Go to Git merges", "Go to Shared files", "Go to Reports", "Go to Access", "Go to Settings"]) {
+      assert.ok(labels.includes(label), `${label} is missing`);
+    }
+    for (const retired of ["Go to Agent Messaging", "Go to Agent Portal", "Go to Fleet Instructions", "Go to Admin Users"]) {
+      assert.ok(!labels.includes(retired), `${retired} should be gone`);
+    }
+  });
+
+  it("is English throughout", () => {
+    const text = STATIC_COMMANDS.map((command) => `${command.label} ${command.description ?? ""}`).join(" ");
+    assert.doesNotMatch(text, /öffnen|Priorität|Hilfe/);
   });
 
   it("explains destinations and makes shared controls searchable for either engine", () => {
     const engines = STATIC_COMMANDS.find((command) => command.id === "nav:/engines");
-    const instructions = STATIC_COMMANDS.find((command) => command.id === "nav:/instructions");
+    const rules = STATIC_COMMANDS.find((command) => command.id === "deep:/library/agent-rules");
     const accounts = STATIC_COMMANDS.find((command) => command.id === "nav:/accounts");
     assert.ok(engines);
-    assert.ok(instructions);
+    assert.ok(rules);
     assert.ok(accounts);
     for (const engine of ["codex", "claude", "grok"]) {
       assert.ok(engines.keywords?.includes(engine));
-      assert.ok(instructions.keywords?.includes(engine));
+      assert.ok(rules.keywords?.includes(engine));
       assert.ok(accounts.keywords?.includes(engine === "codex" ? "chatgpt" : engine));
     }
-    assert.match(instructions.description ?? "", /AGENTS\.md.*CLAUDE\.md/);
+    assert.match(rules.description ?? "", /AGENTS\.md.*CLAUDE\.md/);
     for (const destination of NAV) {
       assert.ok(STATIC_COMMANDS.find((command) => command.id === `nav:${destination.route}`)?.description);
     }
+  });
+
+  it("reaches every account section from its own page, never the retired sub-pages", () => {
+    const hrefs = DEEP_NAV.map((entry) => entry.href);
+    for (const hash of ["#security", "#appearance", "#devices"]) assert.ok(hrefs.includes(`/account${hash}`));
+    assert.ok(!hrefs.some((href) => /^\/account\/(password|passkeys|theme|devices)/.test(href)));
   });
 });
 
@@ -250,18 +267,16 @@ describe("deep-link navigation commands", () => {
     );
   }
 
-  // DEEP_NAV stays private to `commands.ts`; its entries are the Navigation
-  // commands whose id carries the `#label` suffix that tells them apart from
-  // the plain `nav:${href}` one NAV gets, so the hrefs come back off the ids.
-  const deepIds = STATIC_COMMANDS.filter(
-    (cmd) => cmd.group === "Navigation" && cmd.id.includes("#"),
-  ).map((cmd) => cmd.id);
-  const deepHrefs = deepIds.map((id) => id.slice("nav:".length).split("#")[0]);
+  // Deep links name a filtered view or a section of a page by query or hash;
+  // the route itself is what has to exist.
+  const deepIds = STATIC_COMMANDS.filter((cmd) => cmd.id.startsWith("deep:")).map((cmd) => cmd.id);
+  const deepHrefs = DEEP_NAV.map((entry) => entry.href.split("#")[0]);
   const navIds = NAV.map((item) => `nav:${item.href}`);
 
   it("found the route tree and the deep-link entries", () => {
     assert.ok(routes.length > 10, `only ${routes.length} routes discovered under ${routesDir}`);
-    assert.ok(deepHrefs.length >= 3, `only ${deepHrefs.length} deep-link commands in the registry`);
+    assert.ok(deepHrefs.length >= 10, `only ${deepHrefs.length} deep-link commands in the registry`);
+    assert.equal(deepIds.length, DEEP_NAV.length);
     assert.equal(resolves("/dashboard"), true);
     assert.equal(resolves("/engines"), true);
     assert.equal(resolves("/hosts/42"), true);

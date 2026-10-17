@@ -75,8 +75,8 @@ async function fixtures(page: Page, capabilities = ["hosts.read", "agent_portal.
 
 async function open(page: Page) {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto("/admin/topology");
-  await expect(page.getByRole("heading", { name: "Live topology", exact: true })).toBeVisible({ timeout: 15_000 });
+  await page.goto("/admin/agents?view=graph");
+  await expect(page.getByRole("heading", { name: "Agents", exact: true, level: 1 })).toBeVisible({ timeout: 15_000 });
   await expect(page.locator("[data-node]")).toHaveCount(5);
 }
 
@@ -84,9 +84,10 @@ test("draws the server, communicators and agents and says who carries whom", asy
   const state = await fixtures(page);
   state.topology.communicators[0].host = "web01.office.long-domain.example";
   await open(page);
-  await expect(page.getByText("2 communicators", { exact: true })).toBeVisible();
-  await expect(page.getByText("2 via a communicator")).toBeVisible();
-  await expect(page.getByText("1 direct", { exact: true })).toBeVisible();
+  const strip = page.locator("dl", { has: page.locator("dt", { hasText: "via a connection" }) });
+  await expect(strip).toContainText(/2\s*connections/);
+  await expect(strip).toContainText(/2\s*via a connection/);
+  await expect(strip).toContainText(/1\s*direct/);
 
   await page.locator(`[data-node="${C1}"] .hit`).click();
   await expect(page.locator(`[data-node="${C1}"] .node-label--strong`)).toHaveText("web01.office.long-domain.example");

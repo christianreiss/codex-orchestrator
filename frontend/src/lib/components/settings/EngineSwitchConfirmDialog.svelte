@@ -46,13 +46,13 @@
     {#if copy.warning}
       <p
         role="alert"
-        class="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive"
+        class="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-body-sm font-medium text-destructive"
       >
         {copy.warning}
       </p>
     {/if}
 
-    <ul class="list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
+    <ul class="list-disc space-y-1.5 pl-5 text-body-sm text-muted-foreground">
       {#each copy.consequences as consequence (consequence)}
         <li>{consequence}</li>
       {/each}

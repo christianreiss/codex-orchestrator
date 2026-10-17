@@ -98,7 +98,7 @@
 
 {#snippet projectNotice()}
   <div class="space-y-1.5">
-    <Label for="setup-project-slug" class="text-xs">First project (optional)</Label>
+    <Label for="setup-project-slug" class="text-body-sm">First project (optional)</Label>
     <Input
       id="setup-project-slug"
       bind:value={slug}
@@ -107,9 +107,9 @@
       aria-invalid={slugError ? "true" : undefined}
     />
     {#if slugError}
-      <p class="text-xs text-destructive">{slugError}</p>
+      <p class="text-body-sm text-destructive">{slugError}</p>
     {:else}
-      <p class="text-xs text-muted-foreground">A slug is all that is required.</p>
+      <p class="text-body-sm text-muted-foreground">A slug is all that is required.</p>
     {/if}
   </div>
 {/snippet}
@@ -137,7 +137,7 @@
     <div class="space-y-3">
       <ModuleSwitchRow
         id="setup-projects"
-        class="rounded-lg border"
+        class="rounded-md border"
         label="Projects"
         description="Shared workstream state agents read and write over MCP — notes, todos, files and per-project memory. Adds the coordination skill to every host."
         checked={projectsOn}
@@ -146,7 +146,7 @@
       />
       <ModuleSwitchRow
         id="setup-secrets"
-        class="rounded-lg border"
+        class="rounded-md border"
         label="Secrets"
         description="A fleet-wide credential store agents reach over MCP instead of hunting through env files. Values are encrypted at rest and never written to host disks."
         checked={secretsOn}

@@ -5,7 +5,7 @@
   import { Input } from "$lib/components/ui/input";
   import { Button } from "$lib/components/ui/button";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
-  import SectionCard from "./SectionCard.svelte";
+  import SectionCard from "$lib/components/engines/SettingGroup.svelte";
   import {
     grokVersionMutation,
     grokVersionsCheckMutation,
@@ -126,12 +126,12 @@
     {/if}
   </div>
 
-  <p class="text-xs text-muted-foreground">
+  <p class="text-caption text-muted-foreground">
     Minimum supported version: 1.0.50. Older saved pins resolve to this baseline;
     installed older CLIs must be updated before their next session.
   </p>
 
-  <dl class="grid gap-2 rounded-md border bg-muted/20 px-4 py-3 text-xs sm:grid-cols-3">
+  <dl class="grid gap-2 border-y py-2 text-caption sm:grid-cols-3">
     <div>
       <dt class="text-muted-foreground">Fleet target</dt>
       <dd class="font-mono">{currentClient ?? "—"}</dd>

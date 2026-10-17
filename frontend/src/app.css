@@ -66,9 +66,9 @@
     padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
   }
   .shell-icon-button { @apply grid h-11 w-11 shrink-0 place-items-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:w-9; }
-  .keyboard-key { @apply inline-flex min-w-5 items-center justify-center rounded border bg-background px-1 py-0.5 font-mono text-[10px] leading-none text-muted-foreground; }
+  .keyboard-key { @apply inline-flex min-w-5 items-center justify-center rounded border bg-background px-1 py-0.5 font-mono text-caption leading-none text-muted-foreground; }
   .standalone-surface { background: hsl(var(--background)); }
-  .eyebrow, .section-label { @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground; }
+  .eyebrow, .section-label { @apply text-caption font-semibold uppercase tracking-[0.08em] text-muted-foreground; }
   .section-rule { @apply my-6 border-t border-border; }
   .settings-workspace { @apply divide-y divide-border border-y border-border; }
   .setting-boundary { @apply scroll-mt-16 border-b border-border py-5 last:border-b-0; }

@@ -5,100 +5,53 @@
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import Plus from "@lucide/svelte/icons/plus";
-  import Search from "@lucide/svelte/icons/search";
+  import Settings from "@lucide/svelte/icons/settings";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import FolderKanban from "@lucide/svelte/icons/folder-kanban";
-  import PageHeader from "$lib/components/layout/PageHeader.svelte";
-  import ModuleSwitchRow from "$lib/components/layout/ModuleSwitchRow.svelte";
+  import { PageShell, Toolbar, DataTable } from "$lib/components/page";
   import { Button } from "$lib/components/ui/button";
-  import * as Alert from "$lib/components/ui/alert";
-  import { Skeleton } from "$lib/components/ui/skeleton";
-  import { EmptyState } from "$lib/components/ui/empty-state";
-  import { Input } from "$lib/components/ui/input";
   import { Checkbox } from "$lib/components/ui/checkbox";
   import { Badge } from "$lib/components/ui/badge";
-  import { relativeTime } from "$lib/utils/format";
   import * as Table from "$lib/components/ui/table";
-  import SortableHead from "$lib/components/data-table/SortableHead.svelte";
+  import RowActions from "$lib/components/data-table/RowActions.svelte";
   import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
   import NewProjectDialog from "$lib/components/projects/NewProjectDialog.svelte";
+  import ProjectSettingsSheet from "$lib/components/projects/ProjectSettingsSheet.svelte";
+  import { PROJECT_SORTS, visibleProjects, type ProjectSort } from "$lib/components/projects/project-list";
+  import { filterClass } from "$lib/components/feedback/report-model";
+  import { relativeTime } from "$lib/utils/format";
   import { ApiError } from "$lib/api/client";
-  import {
-    deleteProject,
-    fetchBoardState,
-    fetchProjects,
-    fetchProjectsState,
-    projectKeys,
-    setBoardEnabled,
-    updateProjectsState,
-  } from "$lib/api/projects";
+  import { deleteProject, fetchProjects, fetchProjectsState, projectKeys, updateProjectsState } from "$lib/api/projects";
   import type { ProjectSummary } from "$lib/api/types";
 
   const qc = useQueryClient();
   let dialogOpen = $state(false);
+  let settingsOpen = $state(false);
   let confirmOpen = $state(false);
   let projectToDelete = $state<ProjectSummary | null>(null);
+  let search = $state("");
+  let sort = $state<ProjectSort>("updated");
+  // The admin list returns archived projects too, because the console is where you find one again.
+  // Hidden by default so a finished project stops competing with live work.
+  let showArchived = $state(false);
 
-  const stateQuery = createQuery({
-    queryKey: projectKeys.state,
-    queryFn: fetchProjectsState,
-  });
-
-  const listQuery = createQuery({
-    queryKey: projectKeys.list,
-    queryFn: fetchProjects,
-  });
+  const stateQuery = createQuery({ queryKey: projectKeys.state, queryFn: fetchProjectsState });
+  const listQuery = createQuery({ queryKey: projectKeys.list, queryFn: fetchProjects });
 
   const stateMutation = createMutation({
     mutationFn: (enabled: boolean) => updateProjectsState(enabled),
     onMutate: async (enabled) => {
       await qc.cancelQueries({ queryKey: projectKeys.state });
       const previous = qc.getQueryData(projectKeys.state);
-      qc.setQueryData(projectKeys.state, (prev: unknown) =>
-        prev && typeof prev === "object" ? { ...(prev as object), enabled } : { enabled },
-      );
+      qc.setQueryData(projectKeys.state, (prev: unknown) => (prev && typeof prev === "object" ? { ...(prev as object), enabled } : { enabled }));
       return { previous };
     },
     onError: (err, _v, context) => {
-      if (context?.previous !== undefined) {
-        qc.setQueryData(projectKeys.state, context.previous);
-      }
+      if (context?.previous !== undefined) qc.setQueryData(projectKeys.state, context.previous);
       toast.error(err instanceof ApiError ? err.message : "Could not update module state");
     },
-    onSuccess: () => {
-      toast.success("Module state updated");
-      void qc.invalidateQueries({ queryKey: projectKeys.list });
-    },
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: projectKeys.state });
-    },
-  });
-
-  const boardStateQuery = createQuery({
-    queryKey: projectKeys.boardState,
-    queryFn: fetchBoardState,
-  });
-
-  const boardStateMutation = createMutation({
-    mutationFn: (enabled: boolean) => setBoardEnabled(enabled),
-    onMutate: async (enabled) => {
-      await qc.cancelQueries({ queryKey: projectKeys.boardState });
-      const previous = qc.getQueryData(projectKeys.boardState);
-      qc.setQueryData(projectKeys.boardState, (prev: unknown) =>
-        prev && typeof prev === "object" ? { ...(prev as object), enabled } : { enabled },
-      );
-      return { previous };
-    },
-    onError: (err, _v, context) => {
-      if (context?.previous !== undefined) {
-        qc.setQueryData(projectKeys.boardState, context.previous);
-      }
-      toast.error(err instanceof ApiError ? err.message : "Could not update the board module");
-    },
-    onSuccess: () => toast.success("Module state updated"),
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: projectKeys.boardState });
-    },
+    onSuccess: () => { toast.success("Module state updated"); void qc.invalidateQueries({ queryKey: projectKeys.list }); },
+    onSettled: () => void qc.invalidateQueries({ queryKey: projectKeys.state }),
   });
 
   const deleteMutation = createMutation({
@@ -110,48 +63,14 @@
       void qc.invalidateQueries({ queryKey: projectKeys.list });
       void qc.removeQueries({ queryKey: projectKeys.detail(project.slug) });
     },
-    onError: (err) => {
-      toast.error(err instanceof ApiError ? err.message : "Could not delete project");
-    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not delete project"),
   });
 
   const enabled = $derived(($stateQuery.data?.enabled ?? false) === true);
-  const boardEnabled = $derived(($boardStateQuery.data?.enabled ?? false) === true);
-  /** Counts only when there is something to count, so an empty fleet reads cleanly. */
-  const boardSummary = $derived.by(() => {
-    const cards = $boardStateQuery.data?.cards ?? 0;
-    const claimed = $boardStateQuery.data?.claimed ?? 0;
-    if (cards === 0) return "";
-    return ` — ${cards} card${cards === 1 ? "" : "s"}, ${claimed} currently held`;
-  });
   const projects = $derived($listQuery.data?.projects ?? []);
+  const archivedCount = $derived(projects.filter((p) => p.archived_at).length);
+  const rows = $derived(visibleProjects(projects, { query: search, showArchived, sort }));
   const deleteTitle = $derived(projectToDelete?.title || projectToDelete?.slug || "this project");
-  let search = $state("");
-  type SortKey = "title" | "updated" | "activity";
-  let sortKey = $state<SortKey>("updated");
-  let sortDir = $state<"asc" | "desc">("desc");
-  // The admin list endpoint returns archived projects too, because the console
-  // is where you go to find one again. Hidden by default so a finished project
-  // stops competing for attention with live work.
-  let showArchived = $state(false);
-  const archivedCount = $derived(projects.filter((project) => project.archived_at).length);
-  const visibleProjects = $derived.by(() => {
-    const query = search.trim().toLowerCase();
-    const scoped = showArchived ? projects : projects.filter((project) => !project.archived_at);
-    const rows = query
-      ? scoped.filter((project) => [project.title, project.slug, project.description].some((value) => value?.toLowerCase().includes(query)))
-      : scoped;
-    const direction = sortDir === "asc" ? 1 : -1;
-    return [...rows].sort((a, b) => {
-      const left = sortKey === "title" ? (a.title || a.slug) : sortKey === "updated" ? (a.updated_at ?? "") : String(a.latest_seq ?? 0).padStart(16, "0");
-      const right = sortKey === "title" ? (b.title || b.slug) : sortKey === "updated" ? (b.updated_at ?? "") : String(b.latest_seq ?? 0).padStart(16, "0");
-      return left.localeCompare(right) * direction;
-    });
-  });
-  function toggleSort(next: SortKey) {
-    if (sortKey === next) sortDir = sortDir === "asc" ? "desc" : "asc";
-    else { sortKey = next; sortDir = next === "title" ? "asc" : "desc"; }
-  }
 
   function clearDialogParam(): void {
     if (page.url.searchParams.get("dialog") !== "new") return;
@@ -160,19 +79,13 @@
     void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
   }
 
+  // `?dialog=new` (from the command palette) opens the dialog once the module state is known.
   let handledDisabledRequest = $state(false);
   $effect(() => {
     const requested = page.url.searchParams.get("dialog") === "new";
-    const loading = $stateQuery.isLoading;
-    if (!requested) {
-      handledDisabledRequest = false;
-      return;
-    }
-    if (loading) return;
-    if (enabled) {
-      dialogOpen = true;
-      return;
-    }
+    if (!requested) { handledDisabledRequest = false; return; }
+    if ($stateQuery.isLoading) return;
+    if (enabled) { dialogOpen = true; return; }
     if (!handledDisabledRequest) {
       handledDisabledRequest = true;
       toast.info("Enable Project coordination before creating a project.");
@@ -181,126 +94,90 @@
   });
 </script>
 
-<PageHeader title="Projects" subtitle="Coordination workspaces">
-  {#snippet actions()}
-    <Button onclick={() => (dialogOpen = true)} disabled={!enabled}>
-      <Plus class="h-4 w-4" />
-      New project
-    </Button>
-  {/snippet}
-</PageHeader>
-
-<ModuleSwitchRow
-  id="projects-enabled"
-  label="Project coordination"
-  description={enabled
-    ? "Module is enabled. Hosts can create and update workspaces."
-    : "Module is disabled. List is read-only."}
-  checked={enabled}
-  disabled={$stateQuery.isLoading || $stateMutation.isPending}
-  onCheckedChange={(next) => $stateMutation.mutate(next)}
-/>
-
-<!--
-  The board is switched separately from project coordination because it grants
-  agents something coordination alone does not: the ability to claim a card and
-  have every other agent see it held. The description says what turning it off
-  does NOT do, because that is the surprising part — todos have been a view of
-  the same cards since migration 0026, and no switch puts that back.
--->
-<ModuleSwitchRow
-  id="project-board-enabled"
-  label="Project board"
-  description={boardEnabled
-    ? `Enabled. Agents can claim, move and release cards${boardSummary}.`
-    : "Disabled. The board's MCP tools are unavailable and its page is read-only. Todos keep working either way — they are a view of the same cards."}
-  checked={boardEnabled}
-  disabled={$boardStateQuery.isLoading || $boardStateMutation.isPending}
-  onCheckedChange={(next) => $boardStateMutation.mutate(next)}
-  class="mb-6"
-/>
-
-{#if $listQuery.isLoading}
-  <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
-    {#each Array(3) as _, i (i)}
-      <Skeleton class="h-40 w-full" />
-    {/each}
-  </div>
-{:else if $listQuery.isError}
-  <Alert.Root variant="destructive">
-    <Alert.Title>Could not load projects</Alert.Title>
-    <Alert.Description>
-      {$listQuery.error instanceof ApiError ? $listQuery.error.message : "Unknown error"}
-    </Alert.Description>
-  </Alert.Root>
-{:else if projects.length === 0}
-  <div class="rounded-md border border-dashed bg-card/40">
-    <EmptyState
-      icon={FolderKanban}
-      title="No projects yet"
-      description="Projects are shared workspaces agents coordinate through."
-    >
-      {#snippet action()}
-        <Button disabled={!enabled} onclick={() => (dialogOpen = true)}>
-          <Plus class="h-4 w-4" />
-          Create project
-        </Button>
-      {/snippet}
-    </EmptyState>
-  </div>
-{:else}
-  <div class:opacity-60={!enabled} class="overflow-hidden rounded-md border bg-card">
-    <div class="flex min-h-11 flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
-      <label class="relative min-w-[14rem] flex-1 sm:max-w-sm"><Search class="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input bind:value={search} class="h-8 pl-8" placeholder="Search title, slug, or description" aria-label="Search projects" /></label>
-      <div class="flex items-center gap-3">
-        {#if archivedCount > 0}
-          <label class="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-            <Checkbox bind:checked={showArchived} aria-label="Show archived projects" />
-            Show archived ({archivedCount})
-          </label>
-        {/if}
-        <span class="text-xs text-muted-foreground">{visibleProjects.length} of {projects.length} projects</span>
-      </div>
-    </div>
-    <Table.Root>
-      <Table.Header><Table.Row><SortableHead label="Project" active={sortKey === "title"} dir={sortDir} onclick={() => toggleSort("title")} /><Table.Head>Description</Table.Head><Table.Head class="text-right">Open work</Table.Head><SortableHead label="Activity" active={sortKey === "activity"} dir={sortDir} onclick={() => toggleSort("activity")} /><SortableHead label="Updated" active={sortKey === "updated"} dir={sortDir} onclick={() => toggleSort("updated")} /><Table.Head class="w-10" /></Table.Row></Table.Header>
-      <Table.Body>
-        {#each visibleProjects as project (project.slug)}
-          <Table.Row>
-            <Table.Cell><a href={`${base}/projects/${encodeURIComponent(project.slug)}`} class="font-medium hover:text-primary hover:underline">{project.title || project.slug}</a><code class="ml-2 text-xs text-muted-foreground">{project.slug}</code>{#if project.archived_at}<Badge variant="outline" class="ml-2">Archived</Badge>{/if}</Table.Cell>
-            <Table.Cell class="max-w-xl truncate text-muted-foreground">{project.description || "—"}</Table.Cell>
-            <Table.Cell class="text-right tabular-nums">{project.counts?.open_todos ?? 0} todos</Table.Cell>
-            <Table.Cell class="text-right tabular-nums">{project.latest_seq}</Table.Cell>
-            <Table.Cell class="text-muted-foreground">{project.updated_at ? relativeTime(project.updated_at) : "—"}</Table.Cell>
-            <Table.Cell class="text-right"><Button variant="ghost" size="icon" class="h-8 w-8 text-muted-foreground hover:text-destructive" aria-label={`Delete ${project.title || project.slug}`} onclick={() => { projectToDelete = project; confirmOpen = true; }}><Trash2 class="h-4 w-4" /></Button></Table.Cell>
-          </Table.Row>
-        {:else}
-          <Table.Row><Table.Cell colspan={6} class="py-8 text-center text-sm text-muted-foreground">No projects match this filter.</Table.Cell></Table.Row>
-        {/each}
-      </Table.Body>
-    </Table.Root>
-  </div>
-{/if}
-
-<NewProjectDialog
-  bind:open={dialogOpen}
-  onOpenChange={(next) => {
-    dialogOpen = next;
-    if (!next) clearDialogParam();
+<PageShell
+  title="Projects"
+  description="Shared workspaces agents coordinate through."
+  toggle={{
+    label: "Project coordination",
+    checked: enabled,
+    disabled: $stateQuery.isLoading || $stateMutation.isPending,
+    onChange: (next) => $stateMutation.mutate(next),
   }}
-/>
+>
+  {#snippet actions()}
+    <Button variant="outline" size="icon" aria-label="Project settings" onclick={() => (settingsOpen = true)}><Settings class="h-4 w-4" /></Button>
+    <Button onclick={() => (dialogOpen = true)} disabled={!enabled}><Plus class="h-4 w-4" /> New project</Button>
+  {/snippet}
+
+  <Toolbar bind:search searchPlaceholder="Search projects" count={`${rows.length} of ${projects.length} projects`}>
+    {#snippet filters()}
+      {#if archivedCount > 0}
+        <label class="flex cursor-pointer items-center gap-2 text-body-sm text-muted-foreground">
+          <Checkbox bind:checked={showArchived} aria-label="Show archived projects" />
+          Show archived ({archivedCount})
+        </label>
+      {/if}
+      <select class="{filterClass} w-44" aria-label="Sort projects" bind:value={sort}>
+        {#each PROJECT_SORTS as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
+      </select>
+    {/snippet}
+  </Toolbar>
+
+  <div class:opacity-60={!enabled}>
+    <DataTable
+      items={$listQuery.data ? rows : undefined}
+      loading={$listQuery.isLoading}
+      error={$listQuery.isError ? ($listQuery.error instanceof ApiError ? $listQuery.error.message : "Could not load projects") : null}
+      onRetry={() => void $listQuery.refetch()}
+      key={(project) => project.slug}
+      filtered={projects.length > 0}
+      emptyIcon={FolderKanban}
+      emptyTitle="No projects yet"
+      emptyDescription="Projects are shared workspaces agents coordinate through."
+      caption="Projects"
+    >
+      {#snippet emptyAction()}
+        <Button disabled={!enabled} onclick={() => (dialogOpen = true)}><Plus class="h-4 w-4" /> Create project</Button>
+      {/snippet}
+      {#snippet head()}
+        <Table.Head>Project</Table.Head>
+        <Table.Head class="hidden md:table-cell">Description</Table.Head>
+        <Table.Head class="text-right">Open work</Table.Head>
+        <Table.Head class="hidden sm:table-cell">Updated</Table.Head>
+        <Table.Head class="w-10"><span class="sr-only">Actions</span></Table.Head>
+      {/snippet}
+      {#snippet row(project: ProjectSummary)}
+        <Table.Row>
+          <Table.Cell>
+            <a href={`${base}/projects/${encodeURIComponent(project.slug)}`} class="font-medium hover:text-primary hover:underline">{project.title || project.slug}</a>
+            {#if project.title && project.title !== project.slug}<code class="ml-2 text-caption text-muted-foreground">{project.slug}</code>{/if}
+            {#if project.archived_at}<Badge variant="outline" class="ml-2">Archived</Badge>{/if}
+          </Table.Cell>
+          <Table.Cell class="hidden max-w-md truncate text-muted-foreground md:table-cell">{project.description || "—"}</Table.Cell>
+          <Table.Cell class="text-right tabular-nums {(project.counts?.open_todos ?? 0) > 0 ? 'font-medium' : 'text-muted-foreground'}">{project.counts?.open_todos ?? 0}</Table.Cell>
+          <Table.Cell class="hidden text-muted-foreground sm:table-cell">{project.updated_at ? relativeTime(project.updated_at) : "—"}</Table.Cell>
+          <Table.Cell class="text-right">
+            <RowActions
+              label={`Actions for ${project.title || project.slug}`}
+              actions={[{ label: "Delete project", icon: Trash2, destructive: true, onClick: () => { projectToDelete = project; confirmOpen = true; } }]}
+            />
+          </Table.Cell>
+        </Table.Row>
+      {/snippet}
+    </DataTable>
+  </div>
+</PageShell>
+
+<NewProjectDialog bind:open={dialogOpen} onOpenChange={(next) => { dialogOpen = next; if (!next) clearDialogParam(); }} />
+<ProjectSettingsSheet bind:open={settingsOpen} />
 
 <ConfirmDialog
   bind:open={confirmOpen}
   title="Delete project?"
-  description={`This permanently removes ${deleteTitle} and all of its notes, todos, files, and feedback.`}
+  description={`This permanently removes ${deleteTitle} and all of its notes, board cards, files, and reports.`}
   confirmLabel="Delete project"
   destructive
   busy={$deleteMutation.isPending}
-  onClose={() => {
-    if (!$deleteMutation.isPending && !confirmOpen) projectToDelete = null;
-  }}
-  onConfirm={() => {
-    if (projectToDelete) $deleteMutation.mutate(projectToDelete);
-  }}
+  onClose={() => { if (!$deleteMutation.isPending && !confirmOpen) projectToDelete = null; }}
+  onConfirm={() => { if (projectToDelete) $deleteMutation.mutate(projectToDelete); }}
 />

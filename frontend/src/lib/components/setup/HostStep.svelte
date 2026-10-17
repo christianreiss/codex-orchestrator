@@ -51,7 +51,7 @@
   />
 {:else}
   <div class="space-y-4">
-    <p class="text-sm text-muted-foreground">
+    <p class="text-body text-muted-foreground">
       Optional. Registering a host creates its API key and a one-time install command.
       Everything configured so far applies to it automatically. Leave the hostname empty to
       finish without one.

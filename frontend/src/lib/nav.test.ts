@@ -27,18 +27,18 @@ describe("route registry", () => {
   it("groups the planned operator tasks into nine rail hubs", () => {
     assert.deepEqual(NAV_SECTIONS.map((section) => section.label), ["Operate", "Configure"]);
     assert.deepEqual(NAV_SECTIONS.flatMap((section) => section.hubs).map((hub) => hub.id), [
-      "overview", "agents", "projects", "hosts", "coordination", "activity", "providers", "library", "access",
+      "overview", "hosts", "agents", "projects", "coordination", "activity", "providers", "library", "access",
     ]);
     assert.deepEqual(HUBS.map((hub) => [hub.id, hub.items.map((entry) => entry.id)]), [
       ["overview", ["overview"]],
-      ["agents", ["clients", "topology"]],
-      ["projects", ["projects"]],
       ["hosts", ["hosts"]],
+      ["agents", ["agents"]],
+      ["projects", ["projects"]],
       ["coordination", ["agent-messaging", "schedules", "git-director", "transfers"]],
-      ["activity", ["activity", "feedback"]],
+      ["activity", ["activity", "reports"]],
       ["providers", ["provider-accounts", "engines"]],
-      ["library", ["skills", "instructions", "memories", "subagents", "commands", "output-styles"]],
-      ["access", ["api-access", "secrets", "admin-users", "policies"]],
+      ["library", ["library"]],
+      ["access", ["access", "settings"]],
     ]);
     assert.deepEqual(NAV_FOOTER.map((entry) => entry.id), ["manual", "account"]);
   });
@@ -71,27 +71,26 @@ describe("route registry", () => {
   it("keeps active states route-aware without prefix collisions", () => {
     assert.equal(isActive(item("hosts"), "/hosts/42"), true);
     assert.equal(isActive(item("hosts"), "/hostsx"), false);
-    assert.equal(isActive(item("activity"), "/logs/mcp"), true);
-    assert.equal(isActive(item("activity"), "/logsx"), false);
+    assert.equal(isActive(item("activity"), "/activity"), true);
+    assert.equal(isActive(item("activity"), "/activityx"), false);
+    assert.equal(isActive(item("library"), "/library/skills/deploy"), true);
+    assert.equal(isActive(item("library"), "/libraryx"), false);
     assert.equal(isActive(item("engines"), "/engines#claude-client"), false);
-    assert.equal(isActive(item("account"), "/account/password"), true);
-    assert.equal(isActive(item("account"), "/account/passkeys"), true);
-    assert.equal(isActive(item("account"), "/account/theme"), true);
+    assert.equal(isActive(item("account"), "/account"), true);
     assert.equal(isActive(item("account"), "/accounting"), false);
   });
 
   it("lights the rail hub for any page it owns, including detail routes", () => {
     const hubIdFor = (path: string) => hubFor(path)?.id;
-    assert.equal(hubIdFor("/topology"), "agents");
-    assert.equal(hubIdFor("/clients"), "agents");
-    assert.equal(hubIdFor("/secrets"), "access");
-    assert.equal(hubIdFor("/policies"), "access");
-    assert.equal(hubIdFor("/logs/mcp"), "activity");
-    assert.equal(hubIdFor("/feedback"), "activity");
-    assert.equal(hubIdFor("/skills/deploy-bot"), "library");
+    assert.equal(hubIdFor("/agents"), "agents");
+    assert.equal(hubIdFor("/access"), "access");
+    assert.equal(hubIdFor("/settings"), "access");
+    assert.equal(hubIdFor("/activity"), "activity");
+    assert.equal(hubIdFor("/reports"), "activity");
+    assert.equal(hubIdFor("/library/skills/deploy-bot"), "library");
     assert.equal(hubIdFor("/engines"), "providers");
     assert.equal(hubIdFor("/hosts/42"), "hosts");
-    assert.equal(hubIdFor("/account/theme"), undefined);
+    assert.equal(hubIdFor("/account"), undefined);
     assert.equal(isActive(HUBS.find((hub) => hub.id === "coordination")!, "/git-director"), true);
     assert.equal(isActive(HUBS.find((hub) => hub.id === "coordination")!, "/git-directorx"), false);
   });
@@ -108,18 +107,14 @@ describe("route registry", () => {
 describe("location text", () => {
   it("uses direct task labels and preserves useful detail breadcrumbs", () => {
     assert.equal(getPageContext("/engines"), "Engines");
-    assert.equal(getPageContext("/api-keys"), "API Access");
-    assert.equal(getPageContext("/skills/deploy-bot"), "Skills / Deploy bot");
-    assert.equal(getPageContext("/projects/fleet/todos"), "Projects / Fleet / Todos");
-    assert.equal(getPageContext("/logs/mcp"), "Logs / MCP requests");
-    assert.deepEqual(getBreadcrumbs("/projects/fleet/todos"), [
+    assert.equal(getPageContext("/access"), "Access");
+    assert.equal(getPageContext("/library/skills/deploy-bot"), "Library / Skills / Deploy bot");
+    assert.equal(getPageContext("/library/agent-rules"), "Library / Agent rules");
+    assert.equal(getPageContext("/projects/fleet/board"), "Projects / Fleet / Board");
+    assert.deepEqual(getBreadcrumbs("/projects/fleet/board"), [
       { label: "Projects", route: "/projects" },
       { label: "Fleet", route: "/projects/fleet" },
-      { label: "Todos" },
-    ]);
-    assert.deepEqual(getBreadcrumbs("/logs/mcp"), [
-      { label: "Logs", route: "/logs/events" },
-      { label: "MCP requests" },
+      { label: "Board" },
     ]);
   });
 });
@@ -130,7 +125,7 @@ describe("navigation targets", () => {
   function collect(dir: string, segments: string[]): void {
     const entries = readdirSync(dir, { withFileTypes: true });
     if (entries.some((entry) => entry.isFile() && entry.name === "+page.svelte")) routes.push(segments);
-    for (const entry of entries) if (entry.isDirectory()) collect(join(dir, entry.name), [...segments, ...(/^\(.*\)$/.test(entry.name) ? [] : [entry.name])]);
+    for (const entry of entries) if (entry.isDirectory() && !entry.name.startsWith("[...")) collect(join(dir, entry.name), [...segments, ...(/^\(.*\)$/.test(entry.name) ? [] : [entry.name])]);
   }
   collect(routesDir, []);
   function resolves(path: string): boolean {

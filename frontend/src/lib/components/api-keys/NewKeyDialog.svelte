@@ -126,38 +126,38 @@
           <section class="min-w-0 space-y-4" aria-label="Key details">
             <div class="rounded-md border bg-muted/40 p-4">
               <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h3 class="text-sm font-semibold">API key</h3>
+                <h3 class="text-body font-semibold">API key</h3>
                 <CopyButton value={issued.key} label="Copy key" copiedLabel="Copied" size="sm" />
               </div>
-              <code class="block break-all font-mono text-sm" data-testid="issued-key">{issued.key}</code>
-              <p class="mt-3 text-xs text-muted-foreground">Save this key before closing. If you lose it, create a replacement.</p>
+              <code class="block break-all font-mono text-body" data-testid="issued-key">{issued.key}</code>
+              <p class="mt-3 text-caption text-muted-foreground">Save this key before closing. If you lose it, create a replacement.</p>
             </div>
-            <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm">
+            <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 text-body">
               <dt class="text-muted-foreground">API format</dt><dd>{FORMAT_LABEL[connection.format]}</dd>
               <dt class="text-muted-foreground">Engine</dt><dd class="font-medium">{BACKEND_LABEL[connection.backend]}</dd>
               <dt class="text-muted-foreground">Expires</dt><dd>{issued.record.expires_at ? new Date(issued.record.expires_at).toLocaleString() : "Never"}</dd>
               <dt class="text-muted-foreground">Availability</dt><dd><span role="status">{availability}</span></dd>
             </dl>
-            <p class="text-xs text-muted-foreground">This key keeps its assigned engine when the endpoint default changes.</p>
+            <p class="text-caption text-muted-foreground">This key keeps its assigned engine when the endpoint default changes.</p>
           </section>
           <section class="min-w-0 space-y-3" aria-label="Connection URLs">
-            <h3 class="text-sm font-semibold">Connect your application</h3>
+            <h3 class="text-body font-semibold">Connect your application</h3>
             {#each urls as url (url.label)}
               <div class="min-w-0">
                 <div class="mb-1 flex items-center justify-between gap-2">
-                  <span class="text-xs font-medium">{url.label}{url.label === "Base URL" ? " · SDK setting" : ""}</span>
-                  <CopyButton value={url.value} label="Copy" aria-label={`Copy ${url.label}`} copiedLabel="Copied" variant="ghost" size="sm" class="h-7 shrink-0" />
+                  <span class="text-caption font-medium">{url.label}{url.label === "Base URL" ? " · SDK setting" : ""}</span>
+                  <CopyButton value={url.value} label="Copy" aria-label={`Copy ${url.label}`} copiedLabel="Copied" variant="ghost" size="sm" class="shrink-0" />
                 </div>
-                <code class="block break-all rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs">{url.value}</code>
+                <code class="block break-all rounded-md border bg-muted/40 px-3 py-2 font-mono text-caption">{url.value}</code>
               </div>
             {/each}
           </section>
         </div>
         <details class="mt-5 min-w-0 rounded-md border p-4">
-          <summary class="cursor-pointer text-sm font-medium">Try a request with curl</summary>
-          <p class="mt-3 text-xs text-muted-foreground">Replace MODEL_ID_FROM_MODELS_URL with an ID returned by the Models URL. The base URL above is for SDK configuration; this example uses a complete request URL.</p>
+          <summary class="cursor-pointer text-body font-medium">Try a request with curl</summary>
+          <p class="mt-3 text-caption text-muted-foreground">Replace MODEL_ID_FROM_MODELS_URL with an ID returned by the Models URL. The base URL above is for SDK configuration; this example uses a complete request URL.</p>
           <div class="my-2 flex justify-end"><CopyButton value={example} label="Copy curl example" size="sm" /></div>
-          <pre class="whitespace-pre-wrap break-all font-mono text-xs">{example}</pre>
+          <pre class="whitespace-pre-wrap break-all font-mono text-caption">{example}</pre>
         </details>
       {:else}
         <form id="new-api-key" onsubmit={handleSubmit}>
@@ -173,7 +173,7 @@
                     {/each}
                   </Select.Content>
                 </Select.Root>
-                <p class="text-xs text-muted-foreground">Matches your application’s SDK and request format.</p>
+                <p class="text-caption text-muted-foreground">Matches your application’s SDK and request format.</p>
               </div>
               <div class="grid gap-2">
                 <Label for="key-backend">Engine</Label>
@@ -185,8 +185,8 @@
                     {/each}
                   </Select.Content>
                 </Select.Root>
-                <p class="text-xs text-muted-foreground">Uses this engine for this key only. Other keys keep their routing.</p>
-                {#if backend && !engineEnabled && setupReady}<p role="alert" class="text-xs text-destructive">This engine is disabled. Choose another engine.</p>{/if}
+                <p class="text-caption text-muted-foreground">Uses this engine for this key only. Other keys keep their routing.</p>
+                {#if backend && !engineEnabled && setupReady}<p role="alert" class="text-caption text-destructive">This engine is disabled. Choose another engine.</p>{/if}
               </div>
               <div class="grid gap-2">
                 <Label for="key-name">Name</Label>
@@ -195,26 +195,26 @@
             </div>
             <div class="min-w-0 space-y-5">
               <div class="rounded-md border bg-muted/40 p-4">
-                <h3 class="text-sm font-semibold">Connection preview</h3>
-                <p class="mt-1 text-xs text-muted-foreground">Base URL for your SDK</p>
-                {#if baseUrl}<code class="mt-3 block break-all font-mono text-xs">{baseUrl}</code>{/if}
-                <p class="mt-3 text-sm">Engine: <span class="font-medium">{backend ? BACKEND_LABEL[backend] : "Choose an engine"}</span></p>
-                <p class="mt-2 text-xs text-muted-foreground">{!setupReady ? "Loading connection settings…" : !backend ? "Select an engine to finish setting up this connection." : available ? "API traffic is enabled." : $apiState.data?.disabled ? "All API traffic is disabled. You can create a key now and enable traffic in Configuration." : selected?.disabled ? "This endpoint is disabled. You can create a key now and enable it in Configuration." : "The selected engine is disabled."}</p>
+                <h3 class="text-body font-semibold">Connection preview</h3>
+                <p class="mt-1 text-caption text-muted-foreground">Base URL for your SDK</p>
+                {#if baseUrl}<code class="mt-3 block break-all font-mono text-caption">{baseUrl}</code>{/if}
+                <p class="mt-3 text-body">Engine: <span class="font-medium">{backend ? BACKEND_LABEL[backend] : "Choose an engine"}</span></p>
+                <p class="mt-2 text-caption text-muted-foreground">{!setupReady ? "Loading connection settings…" : !backend ? "Select an engine to finish setting up this connection." : available ? "API traffic is enabled." : $apiState.data?.disabled ? "All API traffic is disabled. You can create a key now and enable traffic under Configure." : selected?.disabled ? "This endpoint is disabled. You can create a key now and enable it under Configure." : "The selected engine is disabled."}</p>
               </div>
               <div class="flex items-center justify-between gap-3 rounded-md border p-3">
-                <div><Label for="key-expires-toggle">Expires</Label><p class="text-xs text-muted-foreground">Off = never expires.</p></div>
+                <div><Label for="key-expires-toggle">Expires</Label><p class="text-caption text-muted-foreground">Off = never expires.</p></div>
                 <Switch id="key-expires-toggle" aria-label="Set an expiration date" checked={expiresEnabled} onCheckedChange={(v) => (expiresEnabled = v)} disabled={creating} />
               </div>
               {#if expiresEnabled}
                 <div class="grid gap-2"><Label for="key-expires">Expiration date &amp; time</Label><Input id="key-expires" type="datetime-local" bind:value={expiresAt} required /></div>
               {/if}
-              <p class="text-xs text-muted-foreground">The full key and copyable connection URLs appear after creation.</p>
+              <p class="text-caption text-muted-foreground">The full key and copyable connection URLs appear after creation.</p>
             </div>
           </fieldset>
           {#if setupError}
-            <div role="alert" class="mt-4 text-sm text-destructive">Could not load connection settings. <Button type="button" variant="link" onclick={() => { void $surfaces.refetch(); void $engines.refetch(); void $apiState.refetch(); }}>Retry</Button></div>
+            <div role="alert" class="mt-4 text-body text-destructive">Could not load connection settings. <Button type="button" variant="link" onclick={() => { void $surfaces.refetch(); void $engines.refetch(); void $apiState.refetch(); }}>Retry</Button></div>
           {/if}
-          {#if $createMut.isError}<p role="alert" class="mt-4 text-sm text-destructive">Failed to create key: {$createMut.error.message}</p>{/if}
+          {#if $createMut.isError}<p role="alert" class="mt-4 text-body text-destructive">Failed to create key: {$createMut.error.message}</p>{/if}
         </form>
       {/if}
     </div>

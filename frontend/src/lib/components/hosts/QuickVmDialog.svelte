@@ -71,53 +71,53 @@
       <div class="grid grid-cols-1 gap-3 py-2 sm:grid-cols-2">
         <button
           type="button"
-          class="flex flex-col items-center justify-center gap-2 rounded-lg border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
+          class="flex flex-col items-center justify-center gap-2 rounded-md border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
           disabled={pending !== null || !$fleet.isEnabled("codex")}
           title={$fleet.isEnabled("codex") ? undefined : fleetDisabledTitle("Codex")}
           onclick={() => spin(["codex"], "codex")}
         >
           <Cpu class="h-7 w-7 text-persona-codex" />
-          <span class="text-sm font-semibold">Codex only</span>
-          <span class="text-xs text-muted-foreground">{$fleet.isEnabled("codex") ? "Default engine" : FLEET_DISABLED_TAG}</span>
-          {#if pending === "codex"}<span class="text-xs text-muted-foreground">Working…</span>{/if}
+          <span class="text-body font-semibold">Codex only</span>
+          <span class="text-body-sm text-muted-foreground">{$fleet.isEnabled("codex") ? "Default engine" : FLEET_DISABLED_TAG}</span>
+          {#if pending === "codex"}<span class="text-body-sm text-muted-foreground">Working…</span>{/if}
         </button>
         <button
           type="button"
-          class="flex flex-col items-center justify-center gap-2 rounded-lg border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
+          class="flex flex-col items-center justify-center gap-2 rounded-md border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
           disabled={pending !== null || !$fleet.isEnabled("claude")}
           title={$fleet.isEnabled("claude") ? undefined : fleetDisabledTitle("Claude")}
           onclick={() => spin(["claude"], "claude")}
         >
           <Sparkles class="h-7 w-7 text-persona-claude" />
-          <span class="text-sm font-semibold">Claude only</span>
-          <span class="text-xs text-muted-foreground">{$fleet.isEnabled("claude") ? "Claude Code" : FLEET_DISABLED_TAG}</span>
-          {#if pending === "claude"}<span class="text-xs text-muted-foreground">Working…</span>{/if}
+          <span class="text-body font-semibold">Claude only</span>
+          <span class="text-body-sm text-muted-foreground">{$fleet.isEnabled("claude") ? "Claude Code" : FLEET_DISABLED_TAG}</span>
+          {#if pending === "claude"}<span class="text-body-sm text-muted-foreground">Working…</span>{/if}
         </button>
         <button type="button"
-          class="flex flex-col items-center justify-center gap-2 rounded-lg border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
+          class="flex flex-col items-center justify-center gap-2 rounded-md border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
           disabled={pending !== null || !$fleet.isEnabled("grok")}
           title={$fleet.isEnabled("grok") ? undefined : fleetDisabledTitle("Grok")}
           onclick={() => spin(["grok"], "grok")}>
           <Zap class="h-7 w-7 text-persona-grok" />
-          <span class="text-sm font-semibold">Grok only</span>
-          <span class="text-xs text-muted-foreground">{$fleet.isEnabled("grok") ? "Grok Build · cgx" : FLEET_DISABLED_TAG}</span>
-          {#if pending === "grok"}<span class="text-xs text-muted-foreground">Working…</span>{/if}
+          <span class="text-body font-semibold">Grok only</span>
+          <span class="text-body-sm text-muted-foreground">{$fleet.isEnabled("grok") ? "Grok Build · cgx" : FLEET_DISABLED_TAG}</span>
+          {#if pending === "grok"}<span class="text-body-sm text-muted-foreground">Working…</span>{/if}
         </button>
         <button
           type="button"
-          class="flex flex-col items-center justify-center gap-2 rounded-lg border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
+          class="flex flex-col items-center justify-center gap-2 rounded-md border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
           disabled={pending !== null || $fleet.enabled.length === 0}
           onclick={() => spin([...$fleet.enabled], "all")}
         >
           <Layers class="h-7 w-7 text-violet-500" />
-          <span class="text-sm font-semibold">{allLabel}</span>
-          <span class="text-xs text-muted-foreground">{allHint}</span>
-          {#if pending === "all"}<span class="text-xs text-muted-foreground">Working…</span>{/if}
+          <span class="text-body font-semibold">{allLabel}</span>
+          <span class="text-body-sm text-muted-foreground">{allHint}</span>
+          {#if pending === "all"}<span class="text-body-sm text-muted-foreground">Working…</span>{/if}
         </button>
       </div>
     {:else}
       <div class="space-y-3 py-2">
-        <div class="rounded-md border border-success/25 bg-success-muted px-3 py-2 text-sm">
+        <div class="rounded-md border border-success/25 bg-success-muted px-3 py-2 text-body">
           Provisioned <span class="font-mono">{result.host.fqdn ?? "(unknown)"}</span>. The command expires {new Date(result.installer.expires_at).toLocaleString()}.
         </div>
         <ReadonlyCodeBlock

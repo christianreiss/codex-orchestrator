@@ -36,7 +36,7 @@
     <Dialog.Header>
       <div class="flex items-start gap-3">
         <div
-          class={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+          class={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
             copy.destructive
               ? "bg-destructive/10 text-destructive"
               : "bg-warning-muted text-warning"
@@ -52,7 +52,7 @@
       </div>
     </Dialog.Header>
 
-    <ul class="list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
+    <ul class="list-disc space-y-1.5 pl-5 text-body-sm text-muted-foreground">
       {#each copy.consequences as consequence (consequence)}
         <li>{consequence}</li>
       {/each}

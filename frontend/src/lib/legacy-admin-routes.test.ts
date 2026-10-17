@@ -27,6 +27,7 @@ describe("legacy admin destinations", () => {
     assert.equal(legacyTarget("/api-keys", q()), "/access#api-keys");
     assert.equal(legacyTarget("/secrets", q()), "/access#secrets");
     assert.equal(legacyTarget("/policies", q()), "/settings");
+    assert.equal(legacyTarget("/api-keys", q("dialog=new")), "/access?dialog=new#api-keys");
     assert.equal(legacyTarget("/quick-settings", q()), "/engines#defaults");
     assert.equal(legacyTarget("/settings/users", q()), "/access#people");
     assert.equal(legacyTarget("/hosts/new", q()), "/hosts?add=1");

@@ -51,8 +51,8 @@ async function fixtures(page: Page, manage = true) {
   return state;
 }
 async function open(page: Page) {
-  await page.goto("/admin/clients");
-  await expect(page.getByRole("heading", { name: "Active Clients", exact: true })).toBeVisible({ timeout: 15_000 });
+  await page.goto("/admin/agents");
+  await expect(page.getByRole("heading", { name: "Agents", exact: true, level: 1 })).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(`#client-${CODEX}`)).toBeVisible();
 }
 async function stream(page: Page, type: string, data?: string) {
@@ -77,7 +77,7 @@ test("retained chats stay visible through offline, end, reload and reconnect", a
     await page.reload();
     if (presence === "ended") {
       await expect(page.locator(`#client-${CODEX}`)).toHaveCount(0);
-      await page.goto(`/admin/clients?session=${CODEX}`);
+      await page.goto(`/admin/agents?session=${CODEX}`);
     } else {
       await expect(page.locator(`#client-${CODEX}`)).toBeVisible();
       await page.locator(`#client-${CODEX}`).click();
@@ -148,7 +148,7 @@ test("compact Active and Online filters retain attention and show native activit
   await expect(page.locator('#client-ended-notice')).toHaveClass(/ring-destructive/);
   await expect(page.getByRole("region", { name: "Client directory" }).locator('button[id^="client-"]').first()).toHaveAttribute("id", "client-ended-notice");
   const toolbar = filters.locator('..');
-  expect(await toolbar.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(100);
+  expect(await toolbar.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(260);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: "/tmp/active-clients-compact-mobile.png", fullPage: true });
   await page.getByRole("button", { name: "Online", exact: true }).click();
@@ -217,7 +217,7 @@ test("mobile client details and return navigation remain reachable without overf
   expect(composerBox!.y + composerBox!.height).toBeLessThan(780);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: "/tmp/active-clients-mobile.png", fullPage: true });
-  await page.getByRole("button", { name: "Clients", exact: true }).click();
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
   await expect(page.locator(`#client-${CLAUDE}`)).toBeFocused();
 });
 
@@ -444,13 +444,13 @@ test("session settings live in Policies and disabled clients link there", async 
   await page.route("**/admin/authorization", route => route.fulfill({ json: { mode: "compatible", would_deny: [], updated_at: null } }));
   await open(page);
   await expect(page.getByRole("switch", { name: "Agent sessions", exact: true })).toHaveCount(0);
-  await page.goto("/admin/policies#agent-sessions");
+  await page.goto("/admin/settings#agent-sessions");
   const toggle = page.getByRole("switch", { name: "Agent sessions", exact: true });
   await expect(toggle).toBeVisible();
   await toggle.click();
   await expect(toggle).not.toBeChecked();
   expect(state.enabled).toBe(false);
-  await page.goto("/admin/clients");
+  await page.goto("/admin/agents");
   await expect(page.getByRole("heading", { name: "Agent sessions are off", exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Agent session settings", exact: true }).click();
   await expect(toggle).toBeVisible();

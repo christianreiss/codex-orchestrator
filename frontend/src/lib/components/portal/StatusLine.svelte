@@ -8,6 +8,6 @@
 </script>
 
 <p
-  class="my-0.5 text-center text-[11px] leading-relaxed text-muted-foreground/70
+  class="my-0.5 text-center text-caption leading-relaxed text-muted-foreground/70
          {event.type === 'terminal_block' ? 'font-mono' : ''}"
 >{eventText(event)}</p>

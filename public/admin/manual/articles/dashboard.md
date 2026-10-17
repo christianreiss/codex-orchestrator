@@ -1,18 +1,18 @@
 ---
 title: Dashboard
-summary: Reported engine coverage, Codex, Claude and Grok usage, runner verification, and refresh recovery.
+summary: The Overview page, covering what needs attention, fleet numbers, provider usage, engine installs, runner verification, and refresh recovery.
 section: Admin workspace
 verified: 2026-10-17
-sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/dashboard/OnboardingCard.svelte, frontend/src/lib/api/setup.ts, frontend/src/lib/components/dashboard/StatCard.svelte, frontend/src/routes/dashboard/ChatGptUsageCard.svelte, frontend/src/lib/components/dashboard/RunnerCard.svelte, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
+sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/lib/components/dashboard/OnboardingNotice.svelte, frontend/src/lib/api/setup.ts, frontend/src/lib/components/dashboard/AttentionList.svelte, frontend/src/lib/components/dashboard/attention.ts, frontend/src/lib/components/dashboard/UsageTable.svelte, frontend/src/lib/components/dashboard/EngineTable.svelte, frontend/src/lib/components/dashboard/RunnerStatus.svelte, frontend/src/lib/nav.ts, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
 ---
 
 # Dashboard
 
-The **Overview** page combines reported host installations, upstream CLI versions, Codex, Claude, and Grok quota usage, and runner verification. Grok accounts show the stored billing-period usage and a relative reset (`in 6 days`, or hours when the reset is under a day). An absent reading stays unavailable and is never shown as 0% (see [Grok Build](cgx)). Use **Refresh overview** to reload fleet counts and release information; each usage card has its own refresh control.
+The **Overview** page (`/dashboard`, the first entry of the sidebar) puts exceptions first. From the top it shows a **Needs attention** list, one line of fleet numbers, **Provider usage** as a single table, an **Engines** table (installed counts and the latest upstream version), and the **Verification runner** (the sidecar that checks provider logins). Grok accounts show the stored billing-period usage and a relative reset (`in 6 days`, or hours when the reset is under a day). An absent reading stays unavailable and is never shown as 0% (see [Grok Build](cgx)). The header actions are **Refresh**, which reloads the overview, provider accounts, hosts, pending temporary-access requests and runner state together, and **Add host**.
 
 ## Active Clients
 
-**Active Clients** (`/clients`) is its own destination under *Monitor*; the full reference — presence states, its agent-session switch, roles, and the wrapper side — is in [Active Clients and agent sessions](/admin/manual/agent-portal). In short: open it for the session directory across Codex, Claude, and Grok. The
+The **Agents** page (`/agents`, previously Active Clients; its Live / Graph toggle also covers the old Topology page) is its own destination under *Operate*; the full reference — presence states, its agent-session switch, roles, and the wrapper side — is in [Agents and agent sessions](/admin/manual/agent-portal). In short: open its Live view for the session directory across Codex, Claude, and Grok. The
 summary counts distinguish online clients, outstanding attention, offline
 clients, and recently ended history. Search by host, user, task, branch, or
 working directory, then filter by engine and state. Selecting a client opens
@@ -49,9 +49,9 @@ remains readable until the configured retention period expires.
 ## Data sources
 
 - **Overview** — `GET /admin/overview` (registered in `api/src/routes/admin/overview/index.ts`, alongside `/admin/logs`, `/admin/chatgpt/usage*`, `/admin/runner/*`, and `/admin/toasts` — other admin route groups such as hosts, settings, config, auth, and users are registered from sibling files under `api/src/routes/admin/`) returns host totals, versions, quota settings, and the cached ChatGPT summary.
-- **ChatGPT quota** — `ChatGptUsageService` (`api/src/services/chatgpt-usage.ts`) reads canonical Codex auth and stores quota snapshots. The dashboard card surfaces `primary_window` and `secondary_window` from the unified summary.
-- **Claude usage** — `GET /admin/claude/usage` returns the latest host report; Claude Code's statusline supplies new usage while the client runs. `GET /admin/claude/usage/history` provides its history.
-- **Graph stats** — `dashboard_graph_quota_snapshots` is a compact quota-history table, kept separate from the verbose raw `logs` table. `ChatGptUsageService` writes a row to it on every quota fetch (`recordGraphSnapshot()`). `DashboardStatsService` (`api/src/services/dashboard-stats.ts`) exposes a `quotaSnapshots()` reader over the same table, but nothing in the current API or frontend calls it — the "View history" chart in the ChatGPT usage card reads `chatgpt_usage_snapshots` directly via `ChatGptUsageService.history()` instead.
+- **Provider usage** — the Provider usage table reads `GET /admin/accounts`, one row per provider account with its quota windows. `ChatGptUsageService` (`api/src/services/chatgpt-usage.ts`) reads canonical Codex auth and stores the ChatGPT quota snapshots behind those windows.
+- **Claude usage** — Claude Code's statusline supplies new usage while the client runs. `GET /admin/claude/usage` returns the latest host report and `GET /admin/claude/usage/history` its history; the Overview no longer renders a separate Claude usage card.
+- **Graph stats** — `dashboard_graph_quota_snapshots` is a compact quota-history table, kept separate from the verbose raw `logs` table. `ChatGptUsageService` writes a row to it on every quota fetch (`recordGraphSnapshot()`). `DashboardStatsService` (`api/src/services/dashboard-stats.ts`) exposes a `quotaSnapshots()` reader over the same table, but nothing in the current API or frontend calls it. The ChatGPT history endpoint (`GET /admin/chatgpt/usage/history`) reads `chatgpt_usage_snapshots` directly via `ChatGptUsageService.history()`; the Overview page no longer draws a history chart.
 
 ## Overview endpoint
 
@@ -59,70 +59,70 @@ remains readable until the configured retention period expires.
 
 ## Setup resume card
 
-`OnboardingCard` is the first thing on the dashboard while first-run setup is unfinished. It reads `GET /admin/setup/status` (via `setupStatusQuery()`, polled every 30 s) and renders only when **both** conditions hold:
+`OnboardingNotice` is the first thing on the Overview page, above **Needs attention**, while first-run setup is unfinished. It reads `GET /admin/setup/status` (via `setupStatusQuery()`, polled every 30 s) and renders when **both** of these hold:
 
 - the wizard is neither completed nor dismissed (`wizard.completed_at` and `wizard.dismissed_at` are both null), **and**
 - at least one `next_actions` entry is still incomplete.
 
-Each open action links to its `href`. The card titles itself *Resume setup* once `wizard.last_step` exists (*Finish setting up* before that), and **Resume** opens the first incomplete step. `next_actions` include `fleet_defaults` while no Codex `client_config_documents` row exists, so the card cannot disappear with MCP still off. Separately, the layout sends a signed-in admin to `/setup` once per browser session while the same two conditions hold. **Dismiss** posts `{dismissed: true}` to `POST /admin/setup/wizard` and hides the card for good — half the wizard is opt-ins, and declining every optional module is a finished answer, not an unfinished checklist.
+It also renders whenever the `fleet_defaults` action is open, even after the wizard was dismissed or completed. Each open action links to its `href`. The notice titles itself *Resume setup* once `wizard.last_step` exists (*Finish setting up* before that); its button (**Resume setup**, or **Open the setup wizard** before the wizard was started) opens the first incomplete step. `next_actions` include `fleet_defaults` while no Codex `client_config_documents` row exists, so the notice cannot disappear with MCP still off. Separately, the layout sends a signed-in admin to `/setup` once per browser session while the same two conditions hold. **Dismiss** (shown only while the wizard is unfinished) posts `{dismissed: true}` to `POST /admin/setup/wizard` and hides the notice for good, unless `fleet_defaults` is still open — half the wizard is opt-ins, and declining every optional module is a finished answer, not an unfinished checklist.
 
-Note that `setup_complete` on the same response is only `criticalComplete && ownerCreated`, so it is true from step two of nine; it is not what this card keys on.
+Note that `setup_complete` on the same response is only `criticalComplete && ownerCreated`, so it is true from step two of nine; it is not what this notice keys on.
 
-## Stat cards
+## Fleet numbers and engines
 
-The dashboard renders four stat cards sourced from a single `overviewQuery()` call against `GET /admin/overview`:
+Under the attention list, one line of fleet numbers is built from the hosts list, the provider accounts and the overview call (`GET /admin/overview`):
 
-| Card | Field | Notes |
+| Figure | Source | Notes |
 |---|---|---|
-| Hosts | `totals.hosts`, `version_distribution.engine_counts` | Shows total hosts plus a compact Codex/Claude/Grok split. Engine counts mean hosts that reported the corresponding installed CLI version; a multi-engine host counts once in each engine total. |
-| Codex latest | `versions.cdx_version_available` | Latest upstream Codex CLI version (GitHub releases) — **not** the installed version. |
-| Claude latest | `versions.claude_version_available` | Latest upstream Claude Code CLI version (npm) — **not** the installed version. |
-| Grok latest | `versions.grok_version_available` | Latest upstream Grok Build CLI version (npm package `@xai-official/grok`) — **not** the installed version. |
+| hosts online | hosts list, falling back to `totals.hosts` | `online / total`, linking to Hosts; shown as a warning when some hosts are not online. |
+| active agents | sum of active sessions across provider accounts | Agent sessions currently running on a provider account; `—` until accounts load. |
+| accounts | provider accounts | Count, linking to Accounts. |
+| need attention | the attention list | Number of items that are not informational; green at zero. |
+| last refresh | `last_refresh` | Relative time of the most recent credential refresh across the fleet; omitted when the server reports none. |
 
-The Hosts card displays a relative-time hint derived from `last_refresh` (e.g. "no refreshes yet", "<1h since last refresh"). Its per-engine counts come from `version_distribution.engine_counts`; a response without it falls back to `both + codex_only` for Codex and `both + claude_only` for Claude. If install telemetry is absent, the split shows `—` instead of inventing zero installs. The three "latest" cards show a "checked Xm/h/d ago" hint derived from `versions.cdx_version_checked_at` / `versions.claude_version_checked_at` / `versions.grok_version_checked_at` (all are 1-hour-cached upstream lookups refreshed as a side effect of loading `/admin/overview`). Concrete installed client versions come from the host-reported `version_distribution`; policy aliases such as `latest` are never presented as installed versions.
+The **Engines** table has one row per engine (Codex, Claude, Grok). **Hosts with it installed** is `N of M (pct%)` from `version_distribution.engine_counts` (a multi-engine host counts once in each engine); a response without it falls back to `both + codex_only` for Codex and `both + claude_only` for Claude, and a missing figure reads *No data* rather than an invented zero. **Latest version** is the latest upstream release (Codex from GitHub releases, Claude Code and Grok Build from npm; the Grok package is `@xai-official/grok`) with a "checked Xm/h/d ago" hint from `versions.cdx_version_checked_at` / `versions.claude_version_checked_at` / `versions.grok_version_checked_at` (1-hour-cached upstream lookups refreshed as a side effect of loading `/admin/overview`); a failing lookup reads "stale, checked …". It is **not** the installed version. **Status** is *On*, or *Disabled fleet-wide* (linking to Engines) when the engine's master switch is off. **Configure engines** opens the fleet defaults and version controls. Concrete installed client versions come from the host-reported `version_distribution`; policy aliases such as `latest` are never presented as installed versions.
 
-**Engine coverage** shows one exclusive group per reported install combination across Codex, Claude, and Grok (`version_distribution.install_combinations`), labelled by its engines — for example *Codex + Claude + Grok*, *Codex + Claude*, or *Grok* — plus No version reported. A response without combinations falls back to Both engines, Codex only, Claude only, and No version reported. Counts and percentages come from reported CLI versions. They describe installation coverage, not host health, successful authentication, or current connectivity. **Configure engines** opens the fleet defaults and version controls.
+The former separate *Engine coverage* card (exclusive groups per install combination, from `version_distribution.install_combinations`) is no longer rendered. The counts describe installation coverage, not host health, successful authentication, or current connectivity.
 
-## Alerts
+## Needs attention
 
-The dashboard no longer carries an insecure-approvals banner. Pending insecure-window approvals are surfaced in the left-hand navigation on every console page; see [Hosts](/admin/manual/hosts).
+The **Needs attention** list is the first thing on the page, below the setup notice. It is derived from data the page already loads, most urgent first, and every item names where it is fixed and links there. Items cover:
 
-Codex CLI updates do not produce a dashboard alert: managed hosts update automatically, so an older reported version is normally rollout telemetry rather than an operator action.
+- hosts with missing or outdated credentials, and hosts behind on versions, each linking to Hosts;
+- hosts waiting for temporary access (insecure-window requests), linking to Hosts (`/hosts?insecure=1`); a failed check of those requests is itself listed;
+- provider accounts that need a new login, failed verification, or are at 90% or more of a quota window, linking to Accounts;
+- runner problems: the runner is not configured or not ready, an engine's verification is failing, or the Claude login expired or expires within days, linking to the runner section below or to Accounts;
+- engines switched off fleet-wide, linking to Engines;
+- a stale latest-version lookup (informational), linking to the Engines table.
 
-## ChatGPT usage card
+Codex CLI updates do not produce an attention item: managed hosts update automatically, so an older reported version is normally rollout telemetry rather than an operator action. Pending temporary-access approvals are also surfaced in the left-hand navigation on every console page; see [Hosts](/admin/manual/hosts).
 
-`ChatGptUsageCard` calls `chatgptUsageQuery()` (`GET /admin/chatgpt/usage`) and `chatgptHistoryQuery(60)` (`GET /admin/chatgpt/usage/history?days=60&interval=day`) for the history series. It renders:
+## Provider usage
 
-- One `UsageMeter` progress bar per quota window the snapshot actually reports, built by `chatgptQuotaRows()` in `frontend/src/lib/api/usage.ts`. A window carrying no `used_percent` gets no bar — the card never renders a meter for a slot the provider left empty. A window at exactly `0` is reported and does get a bar.
-- Each bar is labeled from its own `limit_seconds` ("5-hour window", "Weekly window", or a generic "N-day"/"N-hour window"), never from its `primary`/`secondary` position; the positional name is only a fallback for a window that reports no duration. Spark-lane bars are prefixed `Spark · `.
-- An inline `Sparkline` of recent usage, drawn from the highest-ranked history series that has points: the normal lane outranks Spark, and within a lane the longer window wins.
-- "cached" appended to the card description (next to the plan type) when the response was served from cache — this is plain text, not a separate badge component.
-- A "Rate limit reached" warning alert when `rate_limit_reached` is true, showing the next-eligible time when known.
-- A "View history" button that opens a modal containing a full `TrendChart`. Series with no points are left out of the chart, and each remaining series is labeled from its own window length.
-- An explicit refresh button that posts to `POST /admin/chatgpt/usage/refresh`.
-- "No quota windows reported in the latest snapshot." when a snapshot exists but every window is empty — distinct from the "No usage recorded yet" state, which means no snapshot at all.
+**Provider usage** is one table with a row per provider account (**Manage accounts** opens `/accounts`). Columns: **Account** (label, provider and plan name, with "(last known)" when the plan is stale), **Status** (*Active*, *Login needed*, *Verification failed*, *Paused*, *Removing*, or *Not verified yet*, plus a *Disabled fleet-wide* tag when the engine is off, and the active session count), **Usage**, and **Updated**.
 
-Both lanes are rendered when the provider reports both. What chatgpt.com returns is not fixed: on 2026-07-11 it dropped the normal lane's 5-hour window and moved the weekly one into `primary_window`, leaving `secondary_window` null. That is why nothing here is keyed to a slot's usual meaning.
+- **Usage** shows one `UsageMeter` per quota window the account actually reports, built by `accountQuotaRows()` in `frontend/src/lib/components/dashboard/account-usage.ts`. A window carrying no used percentage gets no meter; a window at exactly `0` is reported and does get one. Each meter is labeled from its own `limit_seconds` ("5-hour window", "Weekly window", or a generic "N-day"/"N-hour window"), never from its `primary`/`secondary` position, with a "Resets in …" line underneath.
+- Grok accounts show a single *Monthly usage*, *Weekly usage* or *Current period* meter, noting when it is shared across Grok products. An account without subscription quota reads "Subscription quota unavailable", and one with no reading yet reads "Waiting for usage data".
+- *Last known reading* marks a stale reading; **Updated** is the relative time of the last fetch.
+- With no provider accounts, the table shows "No provider accounts yet".
 
-## Claude usage card
-
-The Claude card shows only reported 5-hour and weekly quota windows; an absent window is omitted, while a reported zero remains visible. **History** opens the usage chart, excluding series with no points. **Refresh** reloads the latest stored host report and history; run `clx` to produce new reports. The last-report time helps distinguish older data from a fresh report.
+What chatgpt.com returns is not fixed: on 2026-07-11 it dropped the normal lane's 5-hour window and moved the weekly one into `primary_window`, leaving `secondary_window` null. That is why nothing here is keyed to a slot's usual meaning. The former separate ChatGPT and Claude usage cards, their sparklines and their "View history" charts are gone from this page; Claude windows come from the latest host report (run `clx` to produce new reports).
 
 ## Runner
 
-The **Runner state** card polls `GET /admin/runner` every 15 seconds and shows separate Codex, Claude, and Grok panels; each engine's runner health is recorded independently. Each contains its verification status, last check, last successful verification, any reported failure detail, and a **Run verification** button. A missing success is shown as **No success recorded**; the latest attempt is not treated as proof of success. **Not checked** represents an idle engine. The overall badge describes the shared runner's configuration and readiness.
+The **Verification runner** section polls `GET /admin/runner` every 15 seconds and shows a row for each of Codex, Claude, and Grok; each engine's runner health is recorded independently. Each row contains its verification status, last check, last successful verification, any reported failure detail, and a **Run verification** button. A missing success is shown as **No success recorded**; the latest attempt is not treated as proof of success. **Not checked** represents an idle engine. The overall badge describes the shared runner's configuration and readiness.
 
-The Codex button calls `POST /admin/runner/run`; the Claude button calls `POST /admin/runner/run-claude`; the Grok button calls `POST /admin/runner/run-grok`. While any of these requests runs, its panel shows **Verifying…** and all three buttons are disabled to prevent overlapping manual checks from this page. Completion refreshes runner state. If status cannot refresh, the last result stays visible with a stale warning and **Retry runner state**; verification buttons remain disabled until state can be read successfully.
+The Codex button calls `POST /admin/runner/run`; the Claude button calls `POST /admin/runner/run-claude`; the Grok button calls `POST /admin/runner/run-grok`. While any of these requests runs, its row shows **Verifying…** and all three buttons are disabled to prevent overlapping manual checks from this page. Completion refreshes runner state. If status cannot refresh, the last result stays visible with a stale warning and **Retry runner state**; verification buttons remain disabled until state can be read successfully.
 
 ## Refresh
 
-**Refresh overview** reloads the fleet snapshot. ChatGPT's separate refresh button posts to `/admin/chatgpt/usage/refresh`; Claude's reloads the most recent host report. There is no global dashboard refresh shortcut.
+**Refresh** in the page header reloads the fleet snapshot, provider accounts, hosts, pending temporary-access requests and runner state together. There are no per-card refresh buttons any more, and no global dashboard refresh shortcut.
 
-Failed first loads show an error and a retry control rather than a successful zero reading. Failed background refreshes retain the last received overview, usage, or runner snapshot with a warning. Use the affected panel's **Retry** control to recover; **History** remains available after a history-load error and offers its own retry.
+Failed first loads show an error and a retry control rather than a successful zero reading. Failed background refreshes retain the last received overview, accounts, or runner snapshot with a warning. Use the affected section's retry control (for example **Retry accounts** or **Retry runner state**) to recover.
 
 ## Host management
 
-**Register host** opens the new-host dialog on the Hosts page (`/hosts`). **Logs** opens the audit trail under Diagnostics. **Quick VM** is available on Hosts and through the command palette; it creates an insecure temporary `tmp-*` host via `POST /admin/hosts/quick-register`.
+**Add host** in the Overview header opens the Add host form on the Hosts page (`/hosts`; the former *Register host* wording is gone and `/hosts/new` redirects to the form). The audit trail is under **Activity** (`/activity`). **Quick VM** is available on Hosts, beside Add host, and through the command palette; it creates an insecure (temporary-access) `tmp-*` host via `POST /admin/hosts/quick-register`.
 
 ## Source references
 
@@ -131,18 +131,19 @@ Failed first loads show an error and a retry control rather than a successful ze
 - api/src/services/dashboard-stats.ts (recent/latest `logs` rows; unused `dashboard_graph_quota_snapshots` reader)
 - api/src/services/usage-scaling.ts (`scaling` field on `/admin/overview`; not rendered on the dashboard today)
 - api/src/db/schema.ts (`dashboard_graph_quota_snapshots`, `chatgpt_usage_snapshots`, `logs`)
-- frontend/src/routes/dashboard/+page.svelte (stat cards, layout)
-- frontend/src/routes/dashboard/OnboardingCard.svelte (setup resume card)
+- frontend/src/routes/dashboard/+page.svelte (Overview layout, fleet numbers)
+- frontend/src/lib/components/dashboard/OnboardingNotice.svelte (setup resume notice)
+- frontend/src/lib/components/dashboard/AttentionList.svelte, frontend/src/lib/components/dashboard/attention.ts (Needs attention list)
 - frontend/src/lib/api/setup.ts (`setupStatusQuery`, wizard mutation, `invalidateSetup`)
 - api/src/services/setup-status.ts, api/src/services/setup-wizard.ts (checks, next actions, progress blob)
-- frontend/src/routes/dashboard/ChatGptUsageCard.svelte
-- frontend/src/routes/dashboard/ClaudeUsageCard.svelte
-- frontend/src/routes/dashboard/FleetCoverage.svelte
-- frontend/src/lib/components/dashboard/RunnerCard.svelte
+- frontend/src/lib/components/dashboard/UsageTable.svelte, frontend/src/lib/components/dashboard/account-usage.ts (Provider usage)
+- frontend/src/lib/components/dashboard/EngineTable.svelte (Engines table)
+- frontend/src/lib/components/dashboard/RunnerStatus.svelte (Verification runner)
+- frontend/src/lib/nav.ts (Overview entry in the sidebar)
 - frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts (query/mutation builders + response shapes)
 
 ## Claude login expiry
 
-The Claude section of **Runner state** warns when the fleet login expires within three days and shows its exact UTC expiry. A successful verification can appear alongside this warning: the credential can work now while approaching expiry. The countdown remains available when the runner is unconfigured; missing expiry metadata is shown as unknown. After expiry the card says **Claude login expired**.
+The Claude row of the **Verification runner** section warns when the fleet login expires within three days and shows its exact UTC expiry. A successful verification can appear alongside this warning: the credential can work now while approaching expiry. The countdown remains available when the runner is unconfigured; missing expiry metadata is shown as unknown. After expiry the row says **Claude login expired**, and the Needs attention list gains an item linking to Accounts.
 
-Run `/login` inside Claude launched through `clx`. Existing credential synchronization uploads and verifies the renewed login. The dashboard clears the warning on its next 15-second poll after renewal becomes canonical. The warning itself does not refresh credentials or block requests.
+Run `/login` inside Claude launched through `clx`. Existing credential synchronization uploads and verifies the renewed login. The Overview clears the warning on its next 15-second poll after renewal becomes canonical. The warning itself does not refresh credentials or block requests.

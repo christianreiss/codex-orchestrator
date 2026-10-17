@@ -1,11 +1,11 @@
 <script lang="ts">
-  import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import { page } from "$app/state";
+  import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import { base } from "$app/paths";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
-  import { Label } from "$lib/components/ui/label";
-  import * as Card from "$lib/components/ui/card";
+  import { AuthShell } from "$lib/components/page";
+  import { FormField } from "$lib/components/ui/form-field";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { ApiError } from "$lib/api/client";
   import { resetPassword } from "$lib/api/account";
@@ -43,69 +43,37 @@
       submitting = false;
     }
   }
+
 </script>
 
-<main class="standalone-surface flex min-h-full items-center justify-center px-4 py-12">
-  <div class="w-full max-w-md">
-    <div class="mb-6 flex items-center justify-center gap-3">
-      <BrandMark class="h-10 w-10" />
-      <span class="text-lg font-semibold tracking-tight">Codex Orchestrator</span>
-    </div>
+<AuthShell title="Choose a new password" description="Reset links are single-use and expire after 60 minutes.">
+  <div class="space-y-4">
+    {#if error}
+      <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
+    {/if}
 
-    <Card.Root>
-      <Card.Header>
-        <h1 class="text-lg font-semibold leading-tight tracking-[-0.02em]">Choose a new password</h1>
-        <Card.Description>Reset links are single-use and expire after 60 minutes.</Card.Description>
-      </Card.Header>
-      <Card.Content class="space-y-4">
-        {#if error}
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        {/if}
-
-        {#if complete}
-          <Alert>
-            <AlertDescription>Your password has been reset. You can now sign in.</AlertDescription>
-          </Alert>
-          <Button href={`${base}/login`} class="w-full">Return to sign in</Button>
-        {:else}
-          <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void submit(); }}>
-            <div class="space-y-2">
-              <Label for="new-password">New password</Label>
-              <Input
-                id="new-password"
-                type="password"
-                autocomplete="new-password"
-                minlength={12}
-                required
-                bind:value={newPassword}
-              />
-              <p class="text-xs text-muted-foreground">Use at least 12 characters.</p>
-            </div>
-            <div class="space-y-2">
-              <Label for="confirm-password">Confirm new password</Label>
-              <Input
-                id="confirm-password"
-                type="password"
-                autocomplete="new-password"
-                minlength={12}
-                required
-                bind:value={confirmPassword}
-              />
-            </div>
-            <Button type="submit" class="w-full" disabled={submitting || !token}>
-              {submitting ? "Resetting…" : "Reset password"}
-            </Button>
-          </form>
-          <a
-            class="block text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
-            href={`${base}/login`}
-          >
-            Back to sign in
-          </a>
-        {/if}
-      </Card.Content>
-    </Card.Root>
+    {#if complete}
+      <Alert><AlertDescription>Your password has been reset. You can now sign in.</AlertDescription></Alert>
+      <Button href={`${base}/login`} class="w-full">Return to sign in</Button>
+    {:else}
+      <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <FormField id="new-password" label="New password" hint="Use at least 12 characters.">
+          <Input id="new-password" type="password" autocomplete="new-password" minlength={12} required bind:value={newPassword} aria-describedby="new-password-hint" />
+        </FormField>
+        <FormField id="confirm-password" label="Confirm new password">
+          <Input id="confirm-password" type="password" autocomplete="new-password" minlength={12} required bind:value={confirmPassword} />
+        </FormField>
+        <Button type="submit" class="w-full" disabled={submitting || !token}>
+          {submitting ? "Resetting…" : "Reset password"}
+        </Button>
+      </form>
+      <a class="block text-center text-body-sm text-muted-foreground underline-offset-2 hover:underline" href={`${base}/login`}>Back to sign in</a>
+    {/if}
   </div>
-</main>
+
+  {#snippet footer()}
+    <p class="flex items-center justify-center gap-2 text-body-sm text-muted-foreground">
+      <BrandMark class="h-5 w-5" /> Codex Orchestrator
+    </p>
+  {/snippet}
+</AuthShell>

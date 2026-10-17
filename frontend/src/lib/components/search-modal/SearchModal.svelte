@@ -113,15 +113,15 @@
       />
       <Command.List class="max-h-[420px]">
         {#if !hasQuery}
-          <div role="option" aria-disabled="true" aria-selected="false" class="px-3 py-8 text-center text-sm text-muted-foreground">
+          <div role="option" aria-disabled="true" aria-selected="false" class="px-3 py-8 text-center text-body text-muted-foreground">
             Type to search…
           </div>
         {:else if loading && results.length === 0}
-          <div role="option" aria-disabled="true" aria-selected="false" class="px-3 py-8 text-center text-sm text-muted-foreground">
+          <div role="option" aria-disabled="true" aria-selected="false" class="px-3 py-8 text-center text-body text-muted-foreground">
             Searching…
           </div>
         {:else if !loading && results.length === 0}
-          <div role="option" aria-disabled="true" aria-selected="false" class="px-3 py-8 text-center text-sm text-muted-foreground">
+          <div role="option" aria-disabled="true" aria-selected="false" class="px-3 py-8 text-center text-body text-muted-foreground">
             No results for "{query}"
           </div>
         {/if}
@@ -147,7 +147,7 @@
           {/if}
         {/each}
         {#if loading && results.length > 0}
-          <div role="option" aria-disabled="true" aria-selected="false" class="px-3 py-2 text-xs text-muted-foreground">Searching…</div>
+          <div role="option" aria-disabled="true" aria-selected="false" class="px-3 py-2 text-body-sm text-muted-foreground">Searching…</div>
         {/if}
       </Command.List>
     </Command.Root>

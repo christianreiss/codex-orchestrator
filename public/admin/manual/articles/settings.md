@@ -1,14 +1,14 @@
 ---
-title: Engines, Policies, and API Access
+title: Engines, Settings, and API keys
 section: Admin workspace
-verified: 2026-10-11
-sources: frontend/src/routes/engines/+page.svelte, frontend/src/lib/components/settings/EngineMasterSwitches.svelte, api/src/routes/admin/engines/index.ts, api/src/services/engine-switch.ts, frontend/src/routes/policies/+page.svelte, frontend/src/routes/api-keys/+page.svelte, frontend/src/routes/settings/+page.svelte, frontend/src/routes/authoring/+page.svelte, frontend/src/routes/authoring/settings/+page.ts, frontend/src/lib/legacy-admin-routes.ts, frontend/src/lib/components/settings/AuthorizationSection.svelte, frontend/src/lib/components/settings/ApiKeysInChatSection.svelte, frontend/src/lib/components/settings/InsecureApprovalSection.svelte, frontend/src/lib/components/authoring/HooksEditor.svelte, frontend/src/lib/constants/models.ts, frontend/src/lib/components/authoring/MattPocockSkillsSource.svelte, frontend/src/lib/api/skillSources.ts, frontend/src/lib/components/settings/ModelDefaultsSection.svelte, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/services/mattpocock-skills.ts, api/src/ops/mattpocock-skills-worker.ts, api/src/services/model-defaults.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/skill-provenance.ts, api/src/services/mcp-resources.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts, api/src/db/migrations/0007_add_skill_provenance.sql, wrappers/cxx/internal/persona/claude/lifecycle/collections.go
+verified: 2026-10-17
+sources: frontend/src/routes/(providers)/engines/+page.svelte, frontend/src/lib/components/settings/EngineMasterSwitches.svelte, api/src/routes/admin/engines/index.ts, api/src/services/engine-switch.ts, frontend/src/routes/(access)/settings/+page.svelte, frontend/src/routes/(access)/access/+page.svelte, frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/ApiConfigure.svelte, frontend/src/lib/legacy-admin-routes.ts, frontend/src/lib/components/policies/AuthorizationPolicy.svelte, frontend/src/lib/components/policies/TogglePolicy.svelte, frontend/src/lib/components/policies/CleanupPolicy.svelte, frontend/src/lib/components/authoring/HooksEditor.svelte, frontend/src/lib/constants/models.ts, frontend/src/lib/components/library/SkillSourceSheet.svelte, frontend/src/lib/api/skillSources.ts, frontend/src/lib/components/settings/QuickModelDefaults.svelte, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/services/mattpocock-skills.ts, api/src/ops/mattpocock-skills-worker.ts, api/src/services/model-defaults.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/skill-provenance.ts, api/src/services/mcp-resources.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts, api/src/db/migrations/0007_add_skill_provenance.sql, wrappers/cxx/internal/persona/claude/lifecycle/collections.go
 ---
 
 Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
 subscription login, centralized renewal, native receiver, and gateway details.
 
-Configuration is organized under **Engines**, **Policies**, and **API Access**, with separate destinations for users, instructions, skills, memories, and projects. This article describes their controls and the environment variables that require deployment configuration.
+Configuration is organized under **Engines** (in the Providers hub), **Settings**, and the **API keys** section of **Access**, with separate destinations for people, agent rules, skills, memories, and projects. This article describes their controls and the environment variables that require deployment configuration.
 
 Every write here names a capability: the fleet settings are `settings.manage` (owner, admin, fleet operator), the Claude client editor and the proxy inference defaults are `content.manage` (owner/admin), issuing or revoking API keys is `keys.manage` (owner/admin), and the authorization posture is `security.manage_authorization` (owner/admin). Reads are open to every role. Settings-service mutations publish a `settings.changed` WebSocket event and log an `admin.*` audit row. Saving the Claude fleet editor goes through `ClientConfigService`, publishes the same event for actual config changes, and uses sha256 conflict detection.
 
@@ -16,7 +16,7 @@ Every write here names a capability: the fleet settings are `settings.manage` (o
 
 ## Appearance
 
-Use the sun/moon button in the header to choose **Light**, **Dark**, or **System**. Changes apply immediately and are saved through `/admin/theme`, so they survive reload and match Appearance settings. System follows changes to the operating system preference. If saving fails, the header restores the previous choice and displays the error.
+Use the sun/moon button in the header to choose **Light**, **Dark**, or **System**. Changes apply immediately and are saved through `/admin/theme`, so they survive reload and match the **Appearance** section of Account (`/account#appearance`), which is the only place with the full theme options. System follows changes to the operating system preference. If saving fails, the header restores the previous choice and displays the error.
 
 ## Finding configuration controls
 
@@ -24,17 +24,15 @@ Use these canonical destinations from the sidebar or command palette:
 
 | Destination | URL | Contents |
 |---|---|---|
-| **Engines** | `/engines` | Engine master switches (Codex, Claude, Grok on/off for the whole fleet), a **Model defaults** tab with immediate-save model and effort buttons, per-engine fleet models, effort, CLI versions, Codex silent mode, quota and scaling, and Claude client settings. |
-| **Policies** | `/policies` | Auto-update, reverse DNS, API keys in chat, access control (authorization mode), insecure approvals, host lifecycle, and log retention. |
-| **API Access** | `/api-keys` | Copyable endpoints and issued keys first; Configuration holds routing, backend defaults, and the global API control. |
+| **Engines** | `/engines` | Engine master switches (Codex, Claude, Grok on/off for the whole fleet), then one section per engine with its state and usage, default model and effort, the **Only current models** policy, the CLI version, and a collapsed **Advanced** block (native settings, Codex silent mode and compaction, Claude client settings); below those, **Usage limits**, **Usage-based scaling**, and **Host agent rollout**. |
+| **Settings** | `/settings` | Fleet-wide behaviour in three sections. **Hosts** (`#hosts`): update hosts automatically (auto-update), look up host names (reverse DNS), allow temporary-access requests (insecure approval), let agents set up new hosts, and remove inactive hosts. **Agents** (`#agents`): agent sessions, how agents treat API keys pasted in chat, the model-tier self-check, and role checks (authorization mode). **Data retention** (`#retention`): remove old logs automatically and session housekeeping. |
+| **API keys** (in Access) | `/access#api-keys` | Issued keys first; **Configure** opens *Service availability & routing*: the **Routing** table, **Backend defaults**, and the global **All API traffic** control. |
 
-The **Model defaults** tab of Engines (`/engines#defaults`; the former Quick Settings page redirects there) saves each selection immediately, with independent Codex, Claude, and Grok cards. Selecting a model also selects its catalog default effort; only supported effort levels appear, and models without effort support show **No effort setting**. A failed save restores the confirmed selection and refreshes the server state before another change. Clients receive defaults on their next sync; host overrides take precedence.
+Each engine's section on Engines (`/engines#codex-defaults`, `#claude-defaults`, `#grok-defaults`; the former Quick Settings page redirects to `/engines#defaults`) saves the default model and effort immediately ("Selections save automatically"). Selecting a model also selects its catalog default effort; only supported effort levels appear, and models without effort support show **No effort setting**. A failed save restores the confirmed selection and refreshes the server state before another change, and a failed read offers **Retry** (for example *Retry Codex defaults*). Clients receive defaults on their next sync; per-host exceptions (host overrides) take precedence.
 
-The **Engines** page has jump links for **Codex**, **Claude**, **Grok**, **Quota and scaling**, and **Claude client**. These scroll within the page, preserving open forms. **Host overrides** opens Hosts, where individual model and version choices take precedence over fleet defaults.
+Rarely changed settings sit in each engine's collapsed **Advanced** disclosure, which opens by itself when a link such as `/engines#claude-client` points inside it. **Usage limits** is `/engines#quota-enforcement`, **Usage-based scaling** is `#scaling-rules`, and **Host agent rollout** is `#cxx-rollout`. The **Per-host exceptions** button in the page header opens Hosts, where individual model and version choices take precedence over fleet defaults.
 
-Each model-default form displays **Unsaved changes** while edited. Background updates adopt new fleet settings when the form is unchanged; an active draft is preserved. If fleet defaults changed elsewhere, the form shows a notice and **Load latest defaults**. **Discard changes** also loads the latest received settings. Saving a preserved draft replaces current fleet defaults. A failed read offers **Retry** and disables saving until settings can be read again.
-
-Old `/settings` bookmarks redirect to the corresponding destination. `/authoring/settings` redirects to `/engines#claude-client`.
+Old `/settings?tab=…`, `/policies`, `/api-keys`, `/quick-settings`, and `/authoring/settings` bookmarks redirect to the corresponding destination (`/authoring/settings` goes to `/engines#claude-client`).
 
 ### Only current models
 
@@ -53,35 +51,35 @@ provider binaries are outside this policy.
 
 #### API state
 
-`GET /admin/api/state`, `POST /admin/api/state` — global API kill-switch. The GET is not gated by the kill-switch itself, so the current state is always readable.
+`GET /admin/api/state`, `POST /admin/api/state` — global API kill-switch (the **All API traffic** control under **Access → API keys → Configure**). The GET is not gated by the kill-switch itself, so the current state is always readable.
 
 #### Auto-update
 
-`GET /admin/auto-update`, `POST /admin/auto-update` — boolean flag. Fleet default for background wrapper and CLI upgrades. Individual host rows can override this. From cxx 0.8.2, maintenance checks every 15 minutes and launches can queue a missed check without waiting; starting or finishing a session never runs an installer inline. Turning auto-update off keeps content/auth sync and the shared schedule working.
+`GET /admin/auto-update`, `POST /admin/auto-update` — boolean flag, shown in Settings → Hosts as **Update hosts automatically**. Fleet default for background wrapper and CLI upgrades. Individual host rows can override this. From cxx 0.8.2, maintenance checks every 15 minutes and launches can queue a missed check without waiting; starting or finishing a session never runs an installer inline. Turning auto-update off keeps content/auth sync and the shared schedule working.
 
 #### Reverse DNS
 
-`GET /admin/reverse-dns`, `POST /admin/reverse-dns` — boolean flag. Controls global reverse-DNS strictness; individual hosts can override via `POST /admin/hosts/{id}/reverse-dns`.
+`GET /admin/reverse-dns`, `POST /admin/reverse-dns` — boolean flag, shown in Settings → Hosts as **Look up host names**. Controls global reverse-DNS strictness; individual hosts can override via `POST /admin/hosts/{id}/reverse-dns`.
 
 #### API keys in chat
 
-`GET /admin/api-keys-in-chat`, `POST /admin/api-keys-in-chat` — boolean flag under *Policies → Agent behavior*. A fleet instruction injected into the managed Codex, Claude, and Grok documents; see [Fleet Instructions](/admin/manual/instructions).
+`GET /admin/api-keys-in-chat`, `POST /admin/api-keys-in-chat` — boolean flag under *Settings → Agents*, shown as **Tell agents how to treat keys pasted in chat**. A fleet instruction injected into the managed Codex, Claude, and Grok documents; see [Agent rules](/admin/manual/instructions).
 
 #### Access control
 
-`GET /admin/authorization`, `POST /admin/authorization` — the enforcement posture for roles, `compatible` or `strict`, under *Policies → Access control*. The GET also lists every request the matrix *would* have refused while the fleet ran in `compatible`, so the switch is informed by your own traffic. Both directions need `security.manage_authorization`; see [Roles and capabilities](/admin/manual/roles).
+`GET /admin/authorization`, `POST /admin/authorization` — the enforcement posture for roles, `compatible` or `strict`, under *Settings → Agents → Role checks* (authorization mode). The GET also lists every request the matrix *would* have refused while the fleet ran in `compatible`, so the switch is informed by your own traffic. Both directions need `security.manage_authorization`; see [Roles and capabilities](/admin/manual/roles).
 
 #### Insecure approval
 
-`GET /admin/insecure-approval`, `POST /admin/insecure-approval` — boolean flag, presented as a **Manual approval** / **Reject all** choice. It is stored in `versions`, echoed as `insecure_approval_enabled` on `GET /admin/overview`, and written to the audit trail; nothing in `api/src/services` reads it back — the approval queue (`GET /admin/insecure-approvals/pending`) is listed and ruled on regardless of its value.
+`GET /admin/insecure-approval`, `POST /admin/insecure-approval` — boolean flag, presented in Settings → Hosts as the **Allow temporary-access requests** switch (insecure-host approvals; on is manual approval, off rejects the request workflow). It is stored in `versions`, echoed as `insecure_approval_enabled` on `GET /admin/overview`, and written to the audit trail; nothing in `api/src/services` reads it back — the approval queue (`GET /admin/insecure-approvals/pending`) is listed and ruled on regardless of its value.
 
 #### Prune policy
 
-`POST /admin/prune-policy` — sets `inactivity_days` (integer 0–60), stored as `inactivity_window_days`. There is no paired GET for this endpoint. The deletion logic for hosts inactive longer than this threshold lives in `HostAuthService.pruneInactiveHosts` (`api/src/services/host-auth.ts`), but as of this verification it is not invoked by any scheduled job or cron — the setting is stored and echoed back on the fleet overview, but nothing currently calls the pruning method automatically. Treat this as a stored policy value rather than an active enforcement mechanism until a caller is wired up.
+`POST /admin/prune-policy` — shown in Settings → Hosts as **Remove inactive hosts**; sets `inactivity_days` (integer 0–60), stored as `inactivity_window_days`. There is no paired GET for this endpoint. The deletion logic for hosts inactive longer than this threshold lives in `HostAuthService.pruneInactiveHosts` (`api/src/services/host-auth.ts`), but as of this verification it is not invoked by any scheduled job or cron — the setting is stored and echoed back on the fleet overview, but nothing currently calls the pruning method automatically. Treat this as a stored policy value rather than an active enforcement mechanism until a caller is wired up.
 
 #### Log retention
 
-`GET /admin/log-retention`, `POST /admin/log-retention` — one boolean and four day-window integers:
+`GET /admin/log-retention`, `POST /admin/log-retention` — Settings → Data retention, **Remove old logs automatically**: one boolean and four day-window integers (labelled *API logs*, *MCP logs*, *Events*, and *Graph statistics* in the form):
 
 | Field | Description |
 |---|---|
@@ -106,7 +104,7 @@ Switching it back on resumes hosts on their next launch or maintenance tick (wit
 
 #### Codex engine
 
-The Codex on/off switch is under **Engine master switches** above. `GET/POST /admin/openai/state` is the separate switch for the `/v1` exposed API only (the **Routing & availability** table under API Access → Configuration).
+The Codex on/off switch is under **Engine master switches** above. `GET/POST /admin/openai/state` is the separate switch for the `/v1` exposed API only (the **Routing** table under **Access → API keys → Configure**).
 
 #### Fleet model and effort
 
@@ -133,7 +131,7 @@ The Codex on/off switch is under **Engine master switches** above. `GET/POST /ad
 
 #### Quotas
 
-`GET /admin/quota-mode`, `POST /admin/quota-mode` — three fields. The server accepts `week_partition` only as one of the strings `off`, `5`, `7`; the console's Quotas card sends the number it holds (`0`, `5`, `7`), so saving the **Off** choice is refused with `week_partition must be one of: off, 5, 7` until that mismatch is fixed.
+`GET /admin/quota-mode`, `POST /admin/quota-mode` — three fields. The server accepts `week_partition` only as one of the strings `off`, `5`, `7`; the **Usage limits** section of Engines (`/engines#quota-enforcement`) sends exactly those strings (*Off*, *5-day*, *7-day*).
 
 | Field | Type | Description |
 |---|---|---|
@@ -189,7 +187,7 @@ This endpoint controls only API proxy behaviour. It is independent from the flee
 
 #### Fleet settings.json
 
-The **Claude client** editor at `/engines#claude-client` builds and publishes the `settings.json` partial delivered to Claude Code hosts. The wrapper deep-merges fleet-owned settings while preserving user-authored settings outside those paths. It is separate from the Claude API proxy defaults above.
+The **Claude client settings** editor at `/engines#claude-client` (inside the Claude section's **Advanced** disclosure) builds and publishes the `settings.json` partial delivered to Claude Code hosts. The wrapper deep-merges fleet-owned settings while preserving user-authored settings outside those paths. It is separate from the Claude API proxy defaults above.
 
 **Endpoints:** `GET /admin/claude/config` (read current config) and `POST /admin/claude/config/store` (write). Writes are tracked by sha256 for conflict detection.
 
@@ -231,21 +229,23 @@ These are native supported IDs; subscription availability is provider-owned. Cod
 
 #### Grok API gateway
 
-The **Grok API gateway** card under *API Access → Configuration → Backend defaults → Grok* configures the Grok backend — used by `/grok/v1` and by any other exposed API routed to Grok (see [Keyboard shortcuts and API reference](/admin/manual/shortcuts-api)):
+The **Grok API gateway** card under *Access → API keys → Configure → Backend defaults → Grok* configures the Grok backend — used by `/grok/v1` and by any other exposed API routed to Grok (see [Keyboard shortcuts and API reference](/admin/manual/shortcuts-api)):
 
-- `GET /admin/grok/state`, `POST /admin/grok/state` — `{ disabled }`, stored as `grok_api_disabled` and shown as the `/grok/v1` row's **Enabled** switch in **Routing & availability**. It gates only `/grok/v1`, independently of the other APIs and of which backend serves it.
+- `GET /admin/grok/state`, `POST /admin/grok/state` — `{ disabled }`, stored as `grok_api_disabled` and shown as the `/grok/v1` row's **Enabled** switch in the **Routing** table. It gates only `/grok/v1`, independently of the other APIs and of which backend serves it.
 - `GET /admin/grok/settings`, `POST /admin/grok/settings` — **Gateway default model** (`default_model`, a supported Grok model; default `grok-4.7`), used when a request names no model. Any field other than `default_model` and `disabled` is refused with 400 `unsupported_parameter`; there is no max-tokens setting.
 - `GET /admin/grok/models`, `POST /admin/grok/models/{model}/toggle` with `{ enabled }` — per-model switches. A disabled model is left out of the model list of every API routed to Grok (`/grok/v1/models` by default) and rejected at inference with 403 `model_disabled`; managed Grok Build hosts are unaffected.
 
-Gateway keys (`sk-cgx-`) are issued on the API Access **Grok** tab. They are orchestrator gateway keys, not xAI API keys; see [Grok Build](cgx).
+Gateway keys (`sk-cgx-`) are issued in the API keys list of the Access page (use the **Grok** filter, then **New key**). They are orchestrator gateway keys, not xAI API keys; see [Grok Build](cgx).
 
 ---
 
 ## Other configuration destinations
 
-The following areas each have their own sidebar destination.
+The following areas each have their own destination (a hub, page, or section).
 
-### /users — Admin Users
+### People (admin users)
+
+The **People** section of the Access page (`/access#people`).
 
 Full CRUD for admin accounts (`api/src/routes/admin/users/index.ts`), `users.read` to list and `users.manage` (owner/admin) to change:
 
@@ -257,7 +257,9 @@ Full CRUD for admin accounts (`api/src/routes/admin/users/index.ts`), `users.rea
 
 See [Roles and capabilities](/admin/manual/roles) for the roles on offer and what each may do.
 
-### /instructions — Fleet Instructions
+### Agent rules (fleet instructions)
+
+The **Agent rules** page in the Library (`/library/agent-rules`).
 
 Served to hosts via `POST /agents/retrieve`. Endpoints in `api/src/routes/admin/config/index.ts`:
 
@@ -273,9 +275,11 @@ Served to hosts via `POST /agents/retrieve`. Endpoints in `api/src/routes/admin/
 - `GET`/`POST /admin/agents-generation-mode` — the Generated / Manual / Disabled switch (in the settings routes).
 - `GET`/`POST /admin/response-verbosity` and `/admin/agent-policy-profiles*` — the verbosity dial and security posture profiles that live on the same page.
 
-`AgentsService` (`api/src/services/agents.ts`) reconciles serve mode, latest version, and canonical content hash. The page itself is described in [Fleet Instructions](/admin/manual/instructions).
+`AgentsService` (`api/src/services/agents.ts`) reconciles serve mode, latest version, and canonical content hash. The page itself is described in [Agent rules](/admin/manual/instructions).
 
-### /skills — Skills library
+### Skills (Library)
+
+The **Skills** type of the Library (`/library?type=skills`).
 
 Skills are the canonical command library, served over MCP as `skill://{slug}` resources. Endpoints in `api/src/routes/admin/config/index.ts`:
 
@@ -288,7 +292,7 @@ Skills are the canonical command library, served over MCP as `skill://{slug}` re
 
 #### Optional Matt Pocock source
 
-The source card above the Skills library can import
+The **Import from repository** button on the Skills list opens an *Import skills from a repository* panel that can import
 `https://github.com/mattpocock/skills` through the same canonical Skill system.
 It is **off by default** and performs no outbound request while off. This is an
 external instruction supply chain: review the linked repository before enabling
@@ -304,7 +308,7 @@ it, especially before allowing later upstream changes to reach the fleet.
   to pin the current last-known-good revision.
 - **Check now** forces a refresh for an enabled source even when auto-update is
   off.
-- The card reports `disabled`, `ok`, or `error`, the upstream plugin version,
+- The panel reports `disabled`, `ok`, or `error`, the upstream plugin version,
   immutable revision, Skill/file counts, check/sync times, and the last error.
 
 The admin API is exact and source-specific:
@@ -343,13 +347,15 @@ those fleet-owned directories at its next bootstrap. The cached server
 rows/files and last-known-good metadata remain for re-enable; unrelated Skills
 are untouched.
 
-### /memories — Memory Atlas
+### Memories (Memory Atlas)
+
+The **Memories** type of the Library (`/library?type=memories`).
 
 Host, project, and shared memory in one workspace over the unified `/admin/memories/*` routes (`api/src/routes/admin/memories/index.ts`); the older `GET /admin/mcp/memories` list and `DELETE /admin/mcp/memories/{id}` remain for compatibility. See [Memories and the Memory Atlas](/admin/manual/memories); the host-side surface is the MCP `memory_*`, `project_memory_*`, and `shared_memory_*` tools (see [mcp](/admin/manual/mcp)).
 
-### /secrets, /git-director, /transfers, /agent-portal, /agent-messaging
+### Secrets, Git merges, Shared files, Agents, and Messages
 
-Each module has its own destination and its own article: [Secrets](/admin/manual/secrets), [Git Director](/admin/manual/git-director), [File Transfer](/admin/manual/transfers), [Active Clients and agent sessions](/admin/manual/agent-portal), and [Agent Messaging](/admin/manual/agent-messaging).
+Each module has its own destination and its own article: [Secrets](/admin/manual/secrets) (a section of Access), [Git Director](/admin/manual/git-director) (Git merges), [File Transfer](/admin/manual/transfers) (Shared files), [Agents and agent sessions](/admin/manual/agent-portal), and [Agent Messaging](/admin/manual/agent-messaging) (Messages).
 
 ### /projects — Projects module
 
@@ -394,16 +400,14 @@ The following variables are read from the process environment at startup. They c
 
 ## Source references
 
-- frontend/src/routes/engines/+page.svelte (engine jump links and grouped controls)
-- frontend/src/routes/policies/+page.svelte (fleet operational policies, including Agent behavior and Access control)
-- frontend/src/routes/api-keys/+page.svelte (service availability, proxy toggles, issued keys)
-- frontend/src/lib/components/settings/AuthorizationSection.svelte, frontend/src/lib/components/settings/ApiKeysInChatSection.svelte, frontend/src/lib/components/settings/InsecureApprovalSection.svelte (the Policies cards)
-- frontend/src/lib/components/settings/QuotasSection.svelte (sends a numeric `week_partition` the server refuses for Off)
+- frontend/src/routes/(providers)/engines/+page.svelte (engine sections, anchors, grouped controls)
+- frontend/src/routes/(access)/settings/+page.svelte (fleet-wide behaviour: Hosts, Agents, Data retention)
+- frontend/src/routes/(access)/access/+page.svelte, frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/ApiConfigure.svelte (service availability, routing, proxy toggles, issued keys)
+- frontend/src/lib/components/policies/AuthorizationPolicy.svelte, frontend/src/lib/components/policies/TogglePolicy.svelte, frontend/src/lib/components/policies/CleanupPolicy.svelte (the Settings rows)
+- frontend/src/lib/components/settings/QuotasSection.svelte (Usage limits; sends `off`/`5`/`7`)
 - frontend/src/lib/components/authoring/HooksEditor.svelte, frontend/src/lib/constants/models.ts (hook shape, `HOOK_EVENTS`, `ADVISOR_MODELS`)
 - frontend/src/lib/legacy-admin-routes.ts (compatibility redirects)
 
-- `frontend/src/routes/settings/+page.ts` — redirects legacy Settings bookmarks
-- `frontend/src/routes/authoring/settings/+page.ts` — legacy redirect to the Claude fleet editor
 - `frontend/src/lib/components/settings/ClaudeFleetSettings.svelte` — fleet `settings.json` editor
 - `frontend/src/lib/components/command-palette/commands.ts` — configuration destinations and actions
 - `api/src/routes/admin/settings/index.ts` — settings API endpoints
@@ -424,6 +428,6 @@ The following variables are read from the process environment at startup. They c
 
 ### Session housekeeping
 
-**Policies → Cleanup → Session housekeeping** sets retention and disk budgets separately for Codex, Claude and Grok. Defaults are automatic removal enabled, 30 days retention, 5 GiB per engine/local user and a minimum of 7 days inactivity when under budget pressure. A host's detail page can inherit the fleet rule or save a full override. Disabling removal preserves configured values.
+**Settings → Data retention → Session housekeeping** (`/settings#retention`) sets retention and disk budgets separately for Codex, Claude and Grok. Defaults are automatic removal enabled, 30 days retention, 5 GiB per engine/local user and a minimum of 7 days inactivity when under budget pressure. A host's detail page can inherit the fleet rule or save a full override. Disabling removal preserves configured values.
 
 cxx performs deletion locally during idle maintenance, including associated session history and search indexes. Active sessions, pins, open goals, queued work and fleet resume/wake bindings remain protected. Protected or young sessions can exceed the budget. Removed sessions cannot be resumed. Preview with `cxx housekeeping run --dry-run`; use `cxx housekeeping pin UUID --engine ENGINE` for sessions you want to retain.

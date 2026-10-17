@@ -1,31 +1,32 @@
 ---
 title: Passkeys and passwords
 section: Admin access and identity
-verified: 2026-09-09
-sources: api/src/services/admin-passkey.ts, api/src/services/admin-auth.ts, api/src/services/admin-password.ts, api/src/services/mailer.ts, api/src/routes/admin/auth/index.ts, api/src/db/schema.ts, api/src/security/password.ts, frontend/src/routes/account/password/+page.svelte, frontend/src/lib/components/users/userSchema.ts
+verified: 2026-10-17
+sources: api/src/services/admin-passkey.ts, api/src/services/admin-auth.ts, api/src/services/admin-password.ts, api/src/services/mailer.ts, api/src/routes/admin/auth/index.ts, api/src/db/schema.ts, api/src/security/password.ts, frontend/src/routes/account/+page.svelte, frontend/src/lib/components/account/PasswordForm.svelte, frontend/src/lib/components/account/PasskeyList.svelte, frontend/src/lib/constants/password.ts, frontend/src/lib/components/users/userSchema.ts
 ---
 
 Passkeys (WebAuthn) are the preferred way to sign in. Password auth exists but is second-class: there is no self-service reset by default, passwords enforce minimum requirements, and any user with a registered passkey is locked out of password login.
 
 ## The account section
 
-Signed-in admins manage their credentials under `/account/*`. A side-navigation bar (AccountSideNav) links to three pages:
+Signed-in admins manage their credentials on one **Account** page (`/account`, in the sidebar footer; the old `/account/password`, `/account/passkeys`, `/account/theme` and `/account/devices` pages are now sections of it). It has four sections:
 
-- `/account/password` — change password and request a password reset email
-- `/account/passkeys` — register and manage WebAuthn credentials
-- `/account/theme` — appearance settings
+- **Profile**
+- **Security** (`/account#security`) — **Password** (change password and request a password reset email) and **Passkeys** (register and manage WebAuthn credentials)
+- **Appearance** (`/account#appearance`) — theme settings
+- **Android devices** (`/account#devices`)
 
-Both credential pages are served by the SvelteKit SPA; the back end is the `/admin/auth/*` and `/admin/passkeys/*` routes registered in `api/src/routes/admin/auth/index.ts`.
+The user menu links straight to `#security`, `#appearance`, and `#devices`. The page is served by the SvelteKit SPA; the back end is the `/admin/auth/*` and `/admin/passkeys/*` routes registered in `api/src/routes/admin/auth/index.ts`.
 
 ## Registering a passkey
 
-1. The `/account/passkeys` page calls `POST /admin/auth/passkey/register/options`.
+1. The **Add passkey** button in the Passkeys block of the Account page's Security section calls `POST /admin/auth/passkey/register/options`.
 2. The server delegates to `AdminPasskeyService.beginRegistration` (`api/src/services/admin-passkey.ts`), which stores a challenge in `admin_webauthn_challenges` and returns `PublicKeyCredentialCreationOptions`.
 3. The browser runs the WebAuthn ceremony and POSTs the attestation to `POST /admin/auth/passkey/register`.
 4. `AdminPasskeyService.completeRegistration` verifies the attestation, stores the credential in `admin_passkeys`, and returns the new row.
 5. The browser immediately prompts the user to name the new passkey via a PasskeyNameDialog; if the dialog is cancelled the passkey persists unnamed.
 
-If WebAuthn is not supported by the browser, the page shows a warning alert and the "Register passkey" button is unavailable.
+If WebAuthn is not supported by the browser, the page shows a warning alert and the **Add passkey** button is unavailable.
 
 The relying-party metadata comes from `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN`, and `ADMIN_WEBAUTHN_RP_NAME` (env-validated in `api/src/env.ts` — `RP_ID` set without `ORIGIN` fails fast). If you are seeing "invalid origin" errors, set these explicitly.
 
@@ -40,12 +41,12 @@ If the user has *any* registered passkey, password login is refused with HTTP 40
 
 ## Managing passkeys
 
-The `/account/passkeys` page renders a "Registered credentials" card with a table showing four columns: **Name**, **Created**, **Last used**, and **Actions**. Created and Last used display relative time with an absolute timestamp tooltip.
+The Passkeys block of the Account page's Security section (`/account#security`) renders a table of registered passkeys with the columns **Name**, **Created**, and **Last used**, plus a per-row actions menu. Created and Last used display relative time with an absolute timestamp tooltip (Last used reads *Never* for an unused passkey).
 
-- The Name cell has an inline edit control: clicking the pencil icon opens an inline input with save and cancel buttons.
-- The Actions column has a delete (trash) icon button that opens a confirmation dialog before calling `DELETE /admin/passkeys/{id}`.
+- **Rename** in the row menu opens an inline input in the Name cell with save and cancel buttons.
+- **Remove** in the row menu opens a confirmation dialog before calling `DELETE /admin/passkeys/{id}`.
 
-When no passkeys are registered, an empty-state card with a Fingerprint icon and a **Register your first passkey** button is shown in place of the table.
+When no passkeys are registered, an empty state reading *No passkeys registered* is shown in place of the table; **Add passkey** stays available above it.
 
 Three endpoints are wired into this UI:
 
@@ -57,17 +58,16 @@ All three require an active session and operate on the session user implicitly; 
 
 ## Passwords
 
-Password requirements differ between the backend and the two frontend forms that create/change one:
+Password requirements differ between the backend and the frontend forms that create/change one:
 
 - The backend (`AdminAuthService.validatePasswordOrThrow`) enforces only a minimum length, `PASSWORD_MIN_LENGTH = 12` — no digit, symbol, or character-class check. This is the only rule applied to `POST /admin/auth/password/change`, `POST /admin/auth/password/reset`, and `POST /admin/users` (create/update).
-- The `/account/password` page's zod schema is stricter: 12+ characters, and must contain a digit, and must contain a symbol (non-alphanumeric character) — both are mandatory, not "at least one of."
-- The **Admin Users** (`/users`) create/edit form uses a third rule (`passwordCharacterMix` in `frontend/src/lib/components/users/userSchema.ts`): 12+ characters plus at least two of {lowercase, uppercase, digit, symbol} — see [Roles and capabilities](/admin/manual/roles).
+- The frontend applies one shared client-side rule (`frontend/src/lib/constants/password.ts`) to both the Password form on the Account page and the **People** (admin users) create/edit form (`frontend/src/lib/components/users/userSchema.ts`): 12+ characters plus at least two of {lowercase, uppercase, digit, symbol} — see [Roles and capabilities](/admin/manual/roles). The earlier, stricter digit-and-symbol rule on the self-service page is gone.
 
-The `/account/password` page displays a live rule checklist that updates as the user types. Hashes are argon2 (via `api/src/security/password.ts`); legacy bcrypt and phpass hashes verify transparently and are rehashed to argon2 on the next successful login.
+The Password form on the Account page displays a live rule checklist that updates as the user types. Hashes are argon2 (via `api/src/security/password.ts`); legacy bcrypt and phpass hashes verify transparently and are rehashed to argon2 on the next successful login.
 
 ### Changing your password
 
-The **Change password** card at `/account/password` has a form with three fields:
+The **Change password** form in the Password block of the Account page's Security section has three fields:
 
 - Current password
 - New password
@@ -77,13 +77,13 @@ Submit calls `POST /admin/auth/password/change` with body `{ current_password, n
 
 ### Resetting a password by email
 
-The **Reset by email** card has a **Send reset email** button. Clicking it opens a confirmation dialog; on confirm the page calls `POST /admin/auth/password/request` using the current signed-in username automatically — no email input is shown. The endpoint's schema accepts either `{ username }` or `{ email }` as identifier, but `AdminPasswordService.requestReset` only ever looks the user up by username internally — passing `email` never resolves a real account (it falls through to the equivalent-cost "unknown user" path) unless it happens to also be that user's username. The shipped UI is unaffected since it always sends `{ username }`.
+Under the form, **Lost access? Reset by email** opens a *Send password reset?* confirmation dialog with a **Send reset email** button; on confirm the page calls `POST /admin/auth/password/request` using the current signed-in username automatically — no email input is shown. The endpoint's schema accepts either `{ username }` or `{ email }` as identifier, but `AdminPasswordService.requestReset` only ever looks the user up by username internally — passing `email` never resolves a real account (it falls through to the equivalent-cost "unknown user" path) unless it happens to also be that user's username. The shipped UI is unaffected since it always sends `{ username }`.
 
 Delivering the email needs `SMTP_HOST` set (`api/src/services/mailer.ts`); the other `SMTP_*` vars are optional with fallbacks. Without `SMTP_HOST`, no email goes out, but a 1-hour reset token is still created in `admin_password_resets` and the endpoint always reports success.
 
 `POST /admin/auth/password/reset` consumes the reset token. Tokens live in `admin_password_resets`.
 
-If SMTP isn't configured, the recovery path is: another owner or admin opens *Admin Users* (`/users`), sets a temporary password, the target admin logs in with it, and then changes it immediately.
+If SMTP isn't configured, the recovery path is: another owner or admin opens the **People** section of **Access** (`/access#people`), sets a temporary password, the target admin logs in with it, and then changes it immediately.
 
 ## Locked out of every passkey?
 
@@ -102,5 +102,6 @@ WebAuthn credentials carry a monotonically increasing signature counter. `@simpl
 - api/src/security/password.ts (argon2 hashing + bcrypt/phpass legacy verify)
 - api/src/routes/admin/auth/index.ts (every /admin/auth/* and /admin/passkeys/* route)
 - api/src/db/schema.ts (admin_passkeys, admin_webauthn_challenges, admin_password_resets)
-- frontend/src/routes/account/password/+page.svelte (self-service password-change zod schema: length + digit + symbol)
-- frontend/src/lib/components/users/userSchema.ts (Admin Users form password schema: length + 2-of-4 classes)
+- frontend/src/lib/components/account/PasswordForm.svelte, frontend/src/lib/components/account/PasskeyList.svelte (Account page Security section: password form, passkey table)
+- frontend/src/lib/constants/password.ts (shared client password rule: length + 2-of-4 classes)
+- frontend/src/lib/components/users/userSchema.ts (People form password schema)

@@ -37,7 +37,7 @@
       </Sheet.Header>
 
       <div class="mt-4 space-y-4">
-        <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+        <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-caption">
           <dt class="text-muted-foreground">Id</dt>
           <dd class="break-all font-mono">{row.id}</dd>
 
@@ -72,7 +72,7 @@
         </dl>
 
         <div>
-          <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <h3 class="mb-2 text-caption font-semibold uppercase tracking-wide text-muted-foreground">
             Trail
           </h3>
           {#if $query.isPending}
@@ -81,11 +81,11 @@
               <Skeleton class="h-8 w-full" />
             </div>
           {:else if events.length === 0}
-            <p class="text-xs text-muted-foreground">Nothing recorded yet.</p>
+            <p class="text-caption text-muted-foreground">Nothing recorded yet.</p>
           {:else}
             <ol class="space-y-2">
               {#each events as event (event.id)}
-                <li class="flex items-baseline justify-between gap-3 border-b border-border pb-2 text-xs">
+                <li class="flex items-baseline justify-between gap-3 border-b border-border pb-2 text-caption">
                   <span>
                     {transferActionLabel(event)}
                     {#if event.detail}

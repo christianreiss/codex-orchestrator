@@ -23,7 +23,7 @@
 <span
   title={label + (fleetDisabled ? " — disabled fleet-wide" : dim ? " — not authed" : "")}
   class={cn(
-    "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
+    "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-caption",
     fleetDisabled
       ? "border-dashed border-border bg-muted text-muted-foreground line-through decoration-muted-foreground/60"
       : dim

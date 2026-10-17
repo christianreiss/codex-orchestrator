@@ -3,15 +3,15 @@ title: Subagents, Commands, and Output Styles
 section: Admin workspace
 summary: Claude-native collections: editing each kind, its frontmatter, and how clx writes and prunes them on hosts.
 tags: [claude, subagents, commands, output-styles]
-verified: 2026-09-09
-sources: api/src/routes/admin/config/index.ts, api/src/services/claude-artifacts.ts, api/src/services/claude-frontmatter.ts, api/src/services/host-claude-artifacts.ts, api/src/routes/auth/index.ts, api/src/security/route-capabilities.ts, frontend/src/routes/subagents/+page.svelte, frontend/src/routes/commands/+page.svelte, frontend/src/routes/output-styles/+page.svelte, frontend/src/routes/authoring/subagents/[name]/+page.svelte, frontend/src/routes/authoring/commands/[name]/+page.svelte, frontend/src/routes/authoring/output-styles/[name]/+page.svelte, frontend/src/lib/api/claudeArtifacts.ts, frontend/src/lib/constants/models.ts, wrappers/cxx/internal/persona/claude/lifecycle/collections.go
+verified: 2026-10-17
+sources: api/src/routes/admin/config/index.ts, api/src/services/claude-artifacts.ts, api/src/services/claude-frontmatter.ts, api/src/services/host-claude-artifacts.ts, api/src/routes/auth/index.ts, api/src/security/route-capabilities.ts, frontend/src/routes/(library)/library/+page.svelte, frontend/src/routes/(library)/library/[type]/[name]/+page.svelte, frontend/src/lib/components/library/ArtifactEditor.svelte, frontend/src/lib/components/library/LibraryList.svelte, frontend/src/lib/api/claudeArtifacts.ts, frontend/src/lib/constants/models.ts, wrappers/cxx/internal/persona/claude/lifecycle/collections.go
 ---
 
-Claude Code reads three artifact *collections* off disk that Codex has no analogue for: subagents (`~/.claude/agents/`), slash commands (`~/.claude/commands/`), and output styles (`~/.claude/output-styles/`). The orchestrator manages them as fleet artifacts — one `claude_artifacts` row per item, discriminated by `kind` — and three sidebar destinations under *Knowledge* edit them: **Subagents** (`/subagents`), **Commands** (`/commands`), and **Output Styles** (`/output-styles`). The three pages are the same list-and-detail template with a different `kind`; the legacy `/authoring/<kind>` URLs resolve to the same components.
+Claude Code reads three artifact *collections* off disk that Codex has no analogue for: subagents (`~/.claude/agents/`), slash commands (`~/.claude/commands/`), and output styles (`~/.claude/output-styles/`). The orchestrator manages them as fleet artifacts — one `claude_artifacts` row per item, discriminated by `kind` — and the **Library** edits them as three of its content types (chosen with the type filter): **Subagents** (`/library?type=subagents`), **Commands** (`?type=commands`), and **Reply styles** (`?type=output-styles`; output styles in Claude Code terms). They share one list-and-detail template with a different `kind`; the old `/subagents`, `/commands`, `/output-styles` and `/authoring/<kind>` URLs redirect to the Library. The Library marks these types as Claude-only: they sync to Claude Code hosts and are ignored by Codex and Grok.
 
 ## Listing and editing
 
-Each list page calls `GET /admin/claude/{kind}` (`content.read`) and links to `/<kind>/<name>`, which loads `GET /admin/claude/{kind}/{slug}`. The detail editor writes the Markdown body plus the frontmatter Claude Code expects for that kind:
+Each Library list calls `GET /admin/claude/{kind}` (`content.read`) and links to `/library/<type>/<name>` (for example `/library/output-styles/<name>`), which loads `GET /admin/claude/{kind}/{slug}`. The detail editor writes the Markdown body plus the frontmatter Claude Code expects for that kind:
 
 | Kind | Frontmatter fields the editor exposes |
 |---|---|
@@ -21,7 +21,7 @@ Each list page calls `GET /admin/claude/{kind}` (`content.read`) and links to `/
 
 **Save** posts to `POST /admin/claude/{kind}/store` and **Delete** calls `DELETE /admin/claude/{kind}/{slug}` (a soft delete); both need `content.manage` (owner/admin). `:kind` is normalized by `api/src/services/claude-frontmatter.ts`, so singular and plural forms are both accepted in the URL. There is no import or export control on these pages — an artifact enters the fleet through the editor or the API.
 
-Output-style rows matter beyond the page: the fleet's response-verbosity dial (see [Fleet Instructions](/admin/manual/instructions)) applies a *named* output style, and Claude Code keys its registry by each artifact's frontmatter `name`, not its slug — `api/test/unit/contract/output-style-name-parity.test.ts` pins the emitted names to the seeded rows.
+Output-style rows matter beyond the page: the fleet's response-verbosity dial (see [Agent rules](/admin/manual/instructions)) applies a *named* output style, and Claude Code keys its registry by each artifact's frontmatter `name`, not its slug — `api/test/unit/contract/output-style-name-parity.test.ts` pins the emitted names to the seeded rows.
 
 ## How they reach hosts
 
@@ -36,8 +36,8 @@ Artifacts are not fetched by a dedicated host route. `HostClaudeArtifactsService
 - api/src/services/claude-frontmatter.ts (`:kind` normalization, frontmatter parsing)
 - api/src/services/host-claude-artifacts.ts, api/src/routes/auth/index.ts (the bootstrap bundle that carries artifacts to Claude hosts)
 - api/src/security/route-capabilities.ts (`content.read` / `content.manage`)
-- frontend/src/routes/subagents/+page.svelte, frontend/src/routes/commands/+page.svelte, frontend/src/routes/output-styles/+page.svelte (list pages)
-- frontend/src/routes/authoring/subagents/[name]/+page.svelte, frontend/src/routes/authoring/commands/[name]/+page.svelte, frontend/src/routes/authoring/output-styles/[name]/+page.svelte (detail editors and their frontmatter fields)
+- frontend/src/routes/(library)/library/+page.svelte, frontend/src/lib/components/library/LibraryList.svelte (type filter and list)
+- frontend/src/routes/(library)/library/[type]/[name]/+page.svelte, frontend/src/lib/components/library/ArtifactEditor.svelte (detail editors and their frontmatter fields)
 - frontend/src/lib/api/claudeArtifacts.ts (shared query/mutation factory)
 - frontend/src/lib/constants/models.ts (subagent colour palette, model options)
 - wrappers/cxx/internal/persona/claude/lifecycle/collections.go (on-disk write and manifest-bound prune)

@@ -38,19 +38,19 @@
 
 <article
   class={cn(
-    "rounded-md border bg-card p-3 text-sm shadow-sm transition-colors",
-    held ? "border-primary/50" : "border-border/60",
+    "rounded-md border bg-card p-3 text-body transition-colors",
+    held ? "border-primary/50" : "border-border",
   )}
 >
   <div class="flex items-start justify-between gap-2">
     <div class="min-w-0">
-      <span class="font-mono text-xs text-muted-foreground">#{card.number}</span>
+      <span class="font-mono text-caption text-muted-foreground">#{card.number}</span>
       <h4 class="font-medium leading-snug break-words">{card.title}</h4>
     </div>
     <DropdownMenu.Root>
       <DropdownMenu.Trigger>
         {#snippet child({ props })}
-          <Button {...props} variant="ghost" size="icon" class="size-7 shrink-0" aria-label="Card actions">
+          <Button {...props} variant="ghost" size="icon" class="h-8 w-8 shrink-0" aria-label="Card actions">
             <MoreHorizontal class="size-4" />
           </Button>
         {/snippet}
@@ -71,38 +71,35 @@
   </div>
 
   {#if card.blocked_reason}
-    <p class="mt-2 text-xs text-destructive">{card.blocked_reason}</p>
+    <p class="mt-2 text-body-sm text-destructive">{card.blocked_reason}</p>
   {/if}
 
   {#if waiting.length > 0}
-    <p class="mt-2 text-xs text-muted-foreground">
+    <p class="mt-2 text-body-sm text-muted-foreground">
       Waiting on {waiting.map((dep) => `#${dep.number}`).join(", ")}
     </p>
   {/if}
 
   <div class="mt-2 flex flex-wrap items-center gap-1">
     {#each card.labels as label (label)}
-      <Badge variant="outline" class="text-[10px]">{label}</Badge>
+      <Badge variant="outline">{label}</Badge>
     {/each}
     {#if card.due_at}
-      <Badge
-        variant={dueState === "overdue" ? "destructive" : dueState === "soon" ? "default" : "outline"}
-        class="text-[10px]"
-      >
+      <Badge variant={dueState === "overdue" ? "destructive" : dueState === "soon" ? "default" : "outline"}>
         due {relativeTime(card.due_at)}
       </Badge>
     {/if}
     {#if held}
       <!-- The expiry is the useful part, not the fact of a claim: it is what
            tells an operator whether to wait or to force a release. -->
-      <Badge variant="secondary" class="text-[10px]">
+      <Badge variant="secondary">
         {card.claim?.role ?? "held"} · {holder}
         {#if card.claim?.expires_at}
           · expires {relativeTime(card.claim.expires_at)}
         {/if}
       </Badge>
     {:else if card.claim?.release_reason}
-      <span class="text-[10px] text-muted-foreground">{card.claim.release_reason}</span>
+      <span class="text-caption text-muted-foreground">{card.claim.release_reason}</span>
     {/if}
   </div>
 </article>

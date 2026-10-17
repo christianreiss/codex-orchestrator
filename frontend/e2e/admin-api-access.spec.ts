@@ -12,6 +12,7 @@ async function fixture(page: Page, options: { disabledEngine?: string; failSetti
   const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
   let release: (() => void) | undefined;
   let record: Record<string, unknown> | undefined;
+  let recordPath = '';
   await page.route('**/admin/**', async route => {
     const req = route.request();
     if (req.resourceType() === 'document' || !req.headers().accept?.includes('application/json')) return route.continue();
@@ -28,10 +29,12 @@ async function fixture(page: Page, options: { disabledEngine?: string; failSetti
     if (path === '/admin/engines/state') return json({ engines: ['codex', 'claude', 'grok'].map(engine => ({ engine, label: engine === 'codex' ? 'Codex' : engine === 'claude' ? 'Claude' : 'Grok', enabled: options.disabledEngine !== engine })) });
     if (path === '/admin/api/state') return json({ disabled: false });
     if (/\/admin\/(openai|claude|grok)\/keys$/.test(path)) {
-      if (req.method() === 'GET') return json(record ? [record] : []);
+      // The key list merges the three endpoints, so each one answers only for its own keys.
+      if (req.method() === 'GET') return json(record && recordPath === path ? [record] : []);
       const body = req.postDataJSON(); writes.push({ path, body });
       if (options.hold) await new Promise<void>(resolve => { release = resolve; });
       if (options.failCreate) return json({ message: 'Engine is disabled fleet-wide', code: 'engine_disabled' }, 409);
+      recordPath = path;
       record = { id: 42, ...body, is_active: true, key_prefix: key.slice(0, 16), use_count: 0, created_at: '2026-10-15T00:00:00Z' };
       return json({ key, record });
     }
@@ -54,7 +57,7 @@ for (const format of ['openai', 'claude', 'grok']) {
     const { writes } = await fixture(page, { delayedSurfaces: true });
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.goto(`/admin/api-keys?dialog=new&engine=${format}`);
+    await page.goto(`/admin/access?dialog=new&engine=${format}`);
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel('Name', { exact: true }).fill('CI runner');
     await expect(dialog.getByRole('button', { name: 'Create key', exact: true })).toBeDisabled();
@@ -94,7 +97,7 @@ for (const format of ['openai', 'claude', 'grok']) {
 test('mobile wraps long keys and URLs and keeps actions available', async ({ page }) => {
   await fixture(page, { longUrl: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/admin/api-keys?dialog=new');
+  await page.goto('/admin/access?dialog=new');
   const dialog = page.getByRole('dialog');
   await assertNoOverflow(page);
   await chooseEngine(page, 'Codex');
@@ -111,7 +114,7 @@ test('mobile wraps long keys and URLs and keeps actions available', async ({ pag
 
 test('creation failures preserve the draft and disabled engines cannot be selected', async ({ page }) => {
   const { writes } = await fixture(page, { disabledEngine: 'grok', failCreate: true });
-  await page.goto('/admin/api-keys?dialog=new');
+  await page.goto('/admin/access?dialog=new');
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Engine', exact: true }).click();
   await expect(page.getByRole('option', { name: 'Grok (disabled)', exact: true })).toBeDisabled();
@@ -125,7 +128,7 @@ test('creation failures preserve the draft and disabled engines cannot be select
 
 test('in-flight creation blocks dismissal and duplicate submission', async ({ page }) => {
   const state = await fixture(page, { hold: true });
-  await page.goto('/admin/api-keys?dialog=new');
+  await page.goto('/admin/access?dialog=new');
   const dialog = page.getByRole('dialog');
   await chooseEngine(page);
   await dialog.getByLabel('Name', { exact: true }).fill('Pending');
@@ -146,7 +149,7 @@ test('in-flight creation blocks dismissal and duplicate submission', async ({ pa
 
 test('settings failures block creation and offer retry', async ({ page }) => {
   await fixture(page, { failSettings: true });
-  await page.goto('/admin/api-keys?dialog=new');
+  await page.goto('/admin/access?dialog=new');
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('alert')).toContainText('Could not load connection settings');
   await expect(dialog.getByRole('button', { name: 'Create key', exact: true })).toBeDisabled();
@@ -156,7 +159,7 @@ test('settings failures block creation and offer retry', async ({ page }) => {
 test('clipboard rejection never reports success', async ({ page }) => {
   await fixture(page);
   await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { value: { writeText: async () => { throw new Error('Clipboard denied'); } } }));
-  await page.goto('/admin/api-keys?dialog=new');
+  await page.goto('/admin/access?dialog=new');
   const dialog = page.getByRole('dialog');
   await chooseEngine(page);
   await dialog.getByLabel('Name', { exact: true }).fill('Copy failure');
@@ -169,7 +172,7 @@ test('clipboard rejection never reports success', async ({ page }) => {
 
 test('API format and expiration can change without changing the assigned engine', async ({ page }) => {
   const { writes } = await fixture(page);
-  await page.goto('/admin/api-keys?dialog=new');
+  await page.goto('/admin/access?dialog=new');
   const dialog = page.getByRole('dialog');
   await chooseEngine(page, 'Codex');
   await dialog.getByRole('button', { name: 'API format', exact: true }).click();

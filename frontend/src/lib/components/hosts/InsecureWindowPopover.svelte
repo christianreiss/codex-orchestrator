@@ -98,8 +98,8 @@
   </Popover.Trigger>
   <Popover.Content class="w-72 space-y-3" align="start">
     <header class="space-y-0.5">
-      <p class="text-sm font-semibold">{heading}</p>
-      <p class="text-[11px] text-muted-foreground">
+      <p class="text-body font-semibold">{heading}</p>
+      <p class="text-caption text-muted-foreground">
         Pick a duration between {MIN} and {MAX} minutes. Default 10 min.
       </p>
     </header>
@@ -121,7 +121,7 @@
         max={MAX}
         step={STEP}
         bind:value
-        class="h-8 text-xs"
+        class="h-8 text-body-sm"
         aria-label="Duration in minutes"
       />
     </div>

@@ -22,6 +22,8 @@
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
   import { Button } from "$lib/components/ui/button";
   import { ApiError } from "$lib/api/client";
+  import { AuthShell } from "$lib/components/page";
+  import { STEP_LABELS, stepMeta } from "$lib/components/setup/step-meta";
   import WizardShell from "$lib/components/setup/WizardShell.svelte";
   import type { WizardStepMeta } from "$lib/components/setup/WizardShell.svelte";
   import InfrastructureStep from "$lib/components/setup/InfrastructureStep.svelte";
@@ -82,18 +84,6 @@
   const order = (step: SetupStep): number => SETUP_STEPS.indexOf(step);
   const later = (a: SetupStep, b: SetupStep): SetupStep => (order(a) >= order(b) ? a : b);
 
-  const LABELS: Record<SetupStep, string> = {
-    infrastructure: "Infrastructure",
-    owner: "Owner",
-    engines: "Engines",
-    auth: "Credentials",
-    defaults: "Fleet defaults",
-    policy: "Agent policy",
-    modules: "Modules",
-    collaboration: "Collaboration",
-    host: "First host",
-  };
-
   // `auth` disappears from the rail entirely when no engine is selected — an
   // empty step reading "nothing to do here" is worse than no step.
   const visible = $derived(
@@ -102,7 +92,7 @@
   const steps = $derived<WizardStepMeta[]>(
     visible.map((id) => ({
       id,
-      label: LABELS[id],
+      label: STEP_LABELS[id],
       done: order(id) < order(furthest),
       reachable: order(id) <= order(furthest),
     })),
@@ -267,105 +257,45 @@
       (current === "host" && (hostStep?.isBusy() ?? false)),
   );
 
-  const meta = $derived.by(() => {
-    switch (current) {
-      case "infrastructure":
-        return {
-          title: "Infrastructure",
-          description: "Everything the console needs before it can be configured.",
-          skippable: false,
-          nextLabel: "Continue",
-        };
-      case "owner":
-        return {
-          title: "Create the first owner",
-          description: "Your admin account. Creating it also signs you in.",
-          skippable: false,
-          nextLabel: data?.owner_created ? "Continue" : "Create owner",
-        };
-      case "engines":
-        return {
-          title: "Which engines will this fleet run?",
-          description: "Decides which credentials to ask for next.",
-          skippable: true,
-          nextLabel: "Save and continue",
-        };
-      case "auth":
-        return {
-          title: "Provider credentials",
-          description: "One credential per engine, checked with the provider before it is stored.",
-          skippable: true,
-          nextLabel: authStep?.hasPendingInput() ? "Save and continue" : "Continue",
-        };
-      case "defaults":
-        return {
-          title: "Fleet defaults",
-          description:
-            "Model and effort for every managed host — and the write that turns MCP on.",
-          skippable: true,
-          nextLabel: "Save and continue",
-        };
-      case "policy":
-        return {
-          title: "Agent policy",
-          description: "What every agent in this fleet is told before it starts work.",
-          skippable: true,
-          nextLabel: "Save and continue",
-        };
-      case "modules":
-        return {
-          title: "Optional modules",
-          description: "Shared capabilities agents reach over MCP.",
-          skippable: true,
-          nextLabel: "Save and continue",
-        };
-      case "collaboration":
-        return {
-          title: "Collaboration",
-          description: "How humans and agents reach each other. Both are off by default.",
-          skippable: true,
-          nextLabel: collabStep?.primaryLabel() ?? "Save and continue",
-        };
-      case "host":
-        return {
-          title: "Register your first host",
-          description: "Optional — the console works without one.",
-          skippable: false,
-          nextLabel: hostStep?.hasPendingInput() ? "Register host" : "Finish",
-        };
-    }
-  });
+  const meta = $derived(
+    stepMeta(current, {
+      ownerCreated: Boolean(data?.owner_created),
+      authHasInput: authStep?.hasPendingInput() ?? false,
+      collabLabel: collabStep?.primaryLabel(),
+      hostHasInput: hostStep?.hasPendingInput() ?? false,
+    }),
+  );
 
   onMount(() => {
     void $status.refetch();
   });
+
+  /** One placeholder for every "nothing to show yet" state. */
+  const gate = $derived.by<{ kind: "error" | "wait"; message: string } | null>(() => {
+    if (unauthorized) return { kind: "wait", message: "Your session has ended. Redirecting to sign in…" };
+    if ($status.isError && !data) return { kind: "error", message: $status.error?.message ?? "Could not reach the API." };
+    if (data?.owner_created && data.hosts?.total > 0 && !isSetupStep(page.url.searchParams.get("step"))) {
+      return { kind: "wait", message: "Returning to the overview…" };
+    }
+    return data ? null : { kind: "wait", message: "Checking installation…" };
+  });
 </script>
 
-<svelte:head><title>Setup · Codex Orchestrator</title></svelte:head>
-
-{#if unauthorized}
-  <main class="flex min-h-screen items-center justify-center p-6">
-    <p class="text-sm text-muted-foreground">Your session has ended. Redirecting to sign in…</p>
-  </main>
-{:else if $status.isError && !data}
-  <main class="flex min-h-screen items-center justify-center p-6">
-    <div class="w-full max-w-md space-y-4">
-      <Alert variant="destructive">
-        <AlertTitle>API unreachable</AlertTitle>
-        <AlertDescription>{$status.error?.message}</AlertDescription>
-      </Alert>
-      <Button variant="outline" onclick={() => $status.refetch()}>Retry</Button>
-    </div>
-  </main>
-{:else if data?.owner_created && data.hosts?.total > 0 && !isSetupStep(page.url.searchParams.get("step"))}
-  <main class="flex min-h-screen items-center justify-center p-6">
-    <p class="text-sm text-muted-foreground">Returning to dashboard…</p>
-  </main>
-{:else if !data}
-  <main class="flex min-h-screen items-center justify-center p-6">
-    <p class="text-sm text-muted-foreground">Checking installation…</p>
-  </main>
-{:else}
+{#if gate}
+  <AuthShell title="Set up Codex Orchestrator">
+    {#if gate.kind === "error"}
+      <div class="space-y-3">
+        <Alert variant="destructive">
+          <AlertTitle>API unreachable</AlertTitle>
+          <AlertDescription>{gate.message}</AlertDescription>
+        </Alert>
+        <Button variant="outline" onclick={() => $status.refetch()}>Retry</Button>
+      </div>
+    {:else}
+      <p class="text-body-sm text-muted-foreground" role="status">{gate.message}</p>
+    {/if}
+  </AuthShell>
+{:else if data}
   <WizardShell
     {steps}
     {current}

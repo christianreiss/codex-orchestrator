@@ -33,75 +33,92 @@ async function fixtures(page: Page, canManage = true, extra: ReturnType<typeof a
   return writes;
 }
 
+const rowOf = (page: Page, name: string | RegExp) => page.getByRole("row", { name });
+async function choose(page: Page, row: ReturnType<typeof rowOf>, label: string, item: string) {
+  await row.getByRole("button", { name: `Actions for ${label}` }).click();
+  await page.getByRole("menuitem", { name: item, exact: true }).click();
+}
+
 test("manages a Claude-only pool and shows each quota separately", async ({ page }) => {
   const writes = await fixtures(page);
   await page.goto("/admin/accounts");
-  await expect(page.getByRole("heading", { name: "Claude Alpha" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Claude Beta" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Claude Gamma" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Claude", exact: true })).toHaveCount(0);
+  await expect(rowOf(page, /Claude Alpha/)).toBeVisible();
+  await expect(rowOf(page, /Claude Beta/)).toBeVisible();
+  await expect(rowOf(page, /Claude Gamma/)).toBeVisible();
   await expect(page.getByText("80%", { exact: true })).toHaveCount(2);
-  const first = page.locator("section").filter({ hasText: "Account #1" });
-  await first.getByRole("button", { name: "Pause", exact: true }).click();
-  await expect(first.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
-  await first.getByRole("button", { name: "Resume", exact: true }).click();
-  await first.getByRole("button", { name: "Rename" }).click();
-  await first.getByRole("textbox", { name: "Account name" }).fill("Claude Primary");
-  await first.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Claude Primary" })).toBeVisible();
-  await page.locator("section").filter({ has: page.getByRole("heading", { name: "Claude Primary" }) }).getByRole("button", { name: "Verify", exact: true }).click();
+  await choose(page, rowOf(page, /Claude Alpha/), "Claude Alpha", "Pause");
+  await expect(rowOf(page, /Claude Alpha/)).toContainText("Paused");
+  await choose(page, rowOf(page, /Claude Alpha/), "Claude Alpha", "Resume");
+  await choose(page, rowOf(page, /Claude Alpha/), "Claude Alpha", "Rename");
+  await page.getByRole("dialog").getByRole("textbox", { name: "Account name" }).fill("Claude Primary");
+  await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
+  await expect(rowOf(page, /Claude Primary/)).toBeVisible();
+  await choose(page, rowOf(page, /Claude Primary/), "Claude Primary", "Verify");
   await page.getByRole("button", { name: "Add account", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("textbox", { name: "Account name" }).fill("Claude Fourth");
   await dialog.getByRole("radio", { name: "Claude", exact: true }).click();
   await dialog.locator("textarea").fill('{"claudeAiOauth":{"accessToken":"test"}}');
   await dialog.getByRole("button", { name: "Upload credentials" }).click();
-  await expect(page.getByRole("heading", { name: "Claude Fourth" })).toBeVisible();
-  const fourth = page.locator("section").filter({ has: page.getByRole("heading", { name: "Claude Fourth" }) });
-  await fourth.getByRole("button", { name: "Replace credentials" }).click();
+  await expect(rowOf(page, /Claude Fourth/)).toBeVisible();
+  await choose(page, rowOf(page, /Claude Fourth/), "Claude Fourth", "Replace credentials");
   await page.getByRole("dialog").locator("textarea").fill('{"claudeAiOauth":{"accessToken":"replacement"}}');
   await page.getByRole("dialog").getByRole("button", { name: "Upload credentials" }).click();
-  page.once("dialog", (dialog) => dialog.accept());
-  await fourth.getByRole("button", { name: "Remove", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Claude Fourth" })).toHaveCount(0);
+  await choose(page, rowOf(page, /Claude Fourth/), "Claude Fourth", "Remove");
+  await page.getByRole("dialog").getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(rowOf(page, /Claude Fourth/)).toHaveCount(0);
   expect(writes.map((w) => `${w.method} ${w.path}`)).toEqual(["PATCH /admin/accounts/1", "PATCH /admin/accounts/1", "PATCH /admin/accounts/1", "POST /admin/accounts/1/verify", "POST /admin/accounts", "POST /admin/accounts/4/credentials", "DELETE /admin/accounts/4"]);
 });
 
 test("read-only operators can inspect quotas without management actions", async ({ page }) => {
   const writes = await fixtures(page, false);
   await page.goto("/admin/accounts");
-  await expect(page.getByRole("heading", { name: "Claude Alpha" })).toBeVisible();
+  await expect(rowOf(page, /Claude Alpha/)).toBeVisible();
   await expect(page.getByText("80%", { exact: true })).toHaveCount(2);
   await expect(page.getByRole("button", { name: "Add account" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Replace credentials" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Actions for/ })).toHaveCount(0);
   expect(writes).toEqual([]);
 });
 
-test("larger account pools retain engine tabs and engine-specific empty states", async ({ page }) => {
-  await fixtures(page, false, [
-    account(4, "claude", "Claude Delta", 40), account(5, "claude", "Claude Epsilon", 50),
-    account(6, "claude", "Claude Zeta", 60), account(7, "grok", "Grok Primary", null),
-  ]);
+test("the engine filter is always visible, scopes the list and keeps engine-specific empty states", async ({ page }) => {
+  await fixtures(page, false, [account(7, "grok", "Grok Primary", null)]);
   await page.goto("/admin/accounts");
-  await expect(page.getByRole("heading", { name: "No ChatGPT accounts" })).toBeVisible();
+  await expect(rowOf(page, /Claude Alpha/)).toBeVisible();
+  await expect(rowOf(page, /Grok Primary/)).toBeVisible();
+  await page.getByRole("button", { name: "ChatGPT", exact: true }).click();
+  await expect(page.getByText("No ChatGPT accounts", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Claude", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Claude Alpha" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Grok Primary" })).toHaveCount(0);
+  await expect(rowOf(page, /Claude Alpha/)).toBeVisible();
+  await expect(rowOf(page, /Grok Primary/)).toHaveCount(0);
   await page.getByRole("button", { name: "Grok", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Grok Primary" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Claude Alpha" })).toHaveCount(0);
+  await expect(rowOf(page, /Grok Primary/)).toBeVisible();
+  await expect(rowOf(page, /Claude Alpha/)).toHaveCount(0);
+  await page.getByRole("button", { name: "All", exact: true }).click();
+  await page.getByRole("textbox", { name: "Search accounts" }).fill("beta");
+  await expect(rowOf(page, /Claude Beta/)).toBeVisible();
+  await expect(rowOf(page, /Claude Alpha/)).toHaveCount(0);
+  await page.getByRole("textbox", { name: "Search accounts" }).fill("zzz");
+  await expect(page.getByText("No matches", { exact: true })).toBeVisible();
 });
 
+test("accounts that need attention are listed first and counted", async ({ page }) => {
+  const broken = { ...account(9, "codex", "ChatGPT Team", 10), refresh_state: "login_required" };
+  await fixtures(page, true, [broken]);
+  await page.goto("/admin/accounts");
+  await expect(page.getByRole("row").nth(1)).toContainText("ChatGPT Team");
+  await expect(page.getByRole("row").nth(1)).toContainText("Login needs renewal");
+  await expect(page.getByText("need attention")).toBeVisible();
+});
 
 test("Grok subscription accounts show unavailable quota and upload full OIDC credentials", async ({ page }) => {
   const grok = { ...account(5, "grok", "Grok Primary", null), refresh_state: "login_required" };
   const writes = await fixtures(page, true, [grok]);
   await page.goto("/admin/accounts");
-  const card = page.locator("section").filter({ has: page.getByRole("heading", { name: "Grok Primary" }) });
-  await expect(card).toContainText("Usage unavailable");
-  await expect(card).toContainText("cgx login");
-  await expect(card.getByRole("progressbar")).toHaveCount(0);
-  await card.getByRole("button", { name: "Replace credentials" }).click();
+  const row = rowOf(page, /Grok Primary/);
+  await expect(row).toContainText("Usage unavailable");
+  await expect(row).toContainText("cgx login");
+  await expect(row.getByRole("meter")).toHaveCount(0);
+  await choose(page, row, "Grok Primary", "Replace credentials");
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Subscription login credentials include refresh material");
   await expect(dialog.getByText("OpenAI API key", { exact: true })).toHaveCount(0);

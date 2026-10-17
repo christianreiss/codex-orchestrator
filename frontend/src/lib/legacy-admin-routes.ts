@@ -25,7 +25,7 @@ const SETTINGS_SECTION_DESTINATIONS: Record<string, string> = {
   "auto-update": "/settings#hosts",
   "reverse-dns": "/settings#hosts",
   "insecure-approval": "/settings#hosts",
-  "prune-policy": "/settings#retention",
+  "prune-policy": "/settings#hosts",
   "log-retention": "/settings#retention",
 };
 
@@ -70,10 +70,10 @@ export function legacyTarget(pathname: string, search = new URLSearchParams(), h
     case "topology": return withQuery("/agents", search, { view: "graph" });
     case "feedback": return withQuery("/reports", search);
     case "logs": return withQuery("/activity", search, { type: second === "mcp" ? "tools" : "changes" });
-    case "users": return "/access#people";
-    case "api-keys": return "/access#api-keys";
+    case "users": return withQuery("/access", search) + "#people";
+    case "api-keys": return withQuery("/access", search) + "#api-keys";
     case "secrets": return "/access#secrets";
-    case "policies": return "/settings";
+    case "policies": return hash ? `/settings${hash}` : "/settings";
     case "quick-settings": return "/engines#defaults";
     case "instructions": return "/library/agent-rules";
     case "memories": return withQuery("/library", search, { type: "memories" });
