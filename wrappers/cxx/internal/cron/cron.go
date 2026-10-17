@@ -37,7 +37,6 @@ const (
 	Marker            = "# cxx-managed-cron"
 	EngineOnlyEnv     = "CXX_CRON_ENGINE_ONLY"
 	CoordinatedEnv    = "CXX_CRON_COORDINATED"
-	systemCronPath    = "/etc/cron.d/cxx-managed"
 	cronPATHEnv       = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	coordinatorTimout = 12 * time.Minute
 )
@@ -47,6 +46,10 @@ const (
 func IsCoordinated() bool { return os.Getenv(CoordinatedEnv) == "1" }
 
 var legacyMarkers = []string{"# cdx-managed-cron", "# clx-managed-cron"}
+
+// systemCronPath and legacySystemPaths are vars so tests can point them at a
+// temporary directory instead of the host's real /etc/cron.d.
+var systemCronPath = "/etc/cron.d/cxx-managed"
 var legacySystemPaths = []string{"/etc/cron.d/cdx-managed", "/etc/cron.d/clx-managed"}
 var userCrontabSpoolDirs = []string{
 	"/var/spool/cron",
