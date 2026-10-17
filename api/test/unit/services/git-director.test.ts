@@ -18,6 +18,7 @@ import {
   normalizeRemote,
   overlappingPaths,
   resolveVerdict,
+  summarizeCloneEntry,
 } from '../../../src/services/git-director.js';
 import { parseJudgeReply } from '../../../src/services/git-director-judge.js';
 
@@ -169,5 +170,68 @@ describe('parseJudgeReply', () => {
     expect(parseJudgeReply('I cannot decide this one.')).toBeNull();
     expect(parseJudgeReply('')).toBeNull();
     expect(parseJudgeReply('{ not json')).toBeNull();
+  });
+});
+
+describe('summarizeCloneEntry', () => {
+  const entry = {
+    clone_id: 'c1',
+    repo_root: '/srv/repo',
+    fqdn: 'h.example',
+    worktrees: Array.from({ length: 30 }, (_, i) => ({
+      worktree_id: `w${i}`,
+      worktree_path: `/srv/repo/wt-${i}`,
+      username: 'chris',
+      engine: 'claude',
+      branch: 'main',
+      head_sha: 'abc',
+      head_observed_at: 't',
+      task: 'x'.repeat(500),
+      declared_paths: Array.from({ length: 200 }, (_, j) => `api/src/file-${j}.ts`),
+      target_branch: 'main',
+      agent_address_bound: true,
+      heartbeat_at: 't',
+      expires_at: 't',
+    })),
+    leases: [
+      {
+        request_id: 'r1',
+        worktree_id: 'w0',
+        target_branch: 'main',
+        verdict: 'allow',
+        decided_by: 'policy',
+        reason: 'y'.repeat(2000),
+        overlap: ['a', 'b'],
+        lease_expires_at: 't',
+        requested_at: 't',
+      },
+    ],
+    stale: [{ worktree_id: 's1' }, { worktree_id: 's2' }],
+  };
+
+  it('keeps the clone identity and swaps the heavy lists for counts', () => {
+    const out = summarizeCloneEntry(entry);
+    expect(out).toMatchObject({
+      clone_id: 'c1',
+      repo_root: '/srv/repo',
+      fqdn: 'h.example',
+      worktree_count: 30,
+      worktrees_truncated: true,
+      lease_count: 1,
+      stale_count: 2,
+    });
+    expect(out).not.toHaveProperty('stale');
+    expect(out['leases']).toEqual([
+      { request_id: 'r1', worktree_id: 'w0', target_branch: 'main', verdict: 'allow', lease_expires_at: 't' },
+    ]);
+  });
+
+  it('caps worktrees, clips tasks and drops declared paths', () => {
+    const out = summarizeCloneEntry(entry);
+    const worktrees = out['worktrees'] as Array<Record<string, unknown>>;
+    expect(worktrees).toHaveLength(25);
+    expect(worktrees[0]).not.toHaveProperty('declared_paths');
+    expect(String(worktrees[0]!['task']).length).toBeLessThanOrEqual(121);
+    expect(JSON.stringify(out).length).toBeLessThan(JSON.stringify(entry).length / 10);
   });
 });

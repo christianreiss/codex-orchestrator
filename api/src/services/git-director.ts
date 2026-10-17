@@ -226,6 +226,71 @@ function optionalString(args: Record<string, unknown>, key: string, max = 1024):
   return value.length > max ? value.slice(0, max) : value;
 }
 
+/** Default and ceiling page sizes for `git_list`; see {@link summarizeCloneEntry}. */
+const LIST_SUMMARY_DEFAULT_LIMIT = 20;
+const LIST_MAX_LIMIT = 100;
+const LIST_SUMMARY_WORKTREE_CAP = 25;
+const LIST_SUMMARY_TASK_CHARS = 120;
+
+function listInt(raw: unknown, min: number, max: number, fallback: number): number {
+  if (raw === undefined || raw === null || raw === '') return fallback;
+  const n = Math.trunc(Number(raw));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+/**
+ * The compact shape `git_list` returns by default.
+ *
+ * The full listing carries every worktree's declared paths and task, every
+ * lease's reason and overlap, and up to 25 stale registrations per clone, which
+ * is what pushed one busy host past 68k characters and past the tool-result
+ * window of the clients that call it (the agent then never saw the registry at
+ * all). The summary keeps what the pre-work "who is in my checkout" question
+ * needs: where each clone is, who is registered in it, on which branch, and
+ * whether a lease is live. Counts replace the lists that were dropped, and
+ * `detail: "full"` or `scope: "clone"` brings the whole entry back.
+ */
+export function summarizeCloneEntry(entry: Record<string, unknown>): Record<string, unknown> {
+  const worktrees = Array.isArray(entry['worktrees']) ? (entry['worktrees'] as Array<Record<string, unknown>>) : [];
+  const leases = Array.isArray(entry['leases']) ? (entry['leases'] as Array<Record<string, unknown>>) : [];
+  const stale = Array.isArray(entry['stale']) ? (entry['stale'] as unknown[]) : [];
+  const { worktrees: _w, leases: _l, stale: _s, ...clone } = entry;
+  void _w;
+  void _l;
+  void _s;
+  const clip = (value: unknown): unknown =>
+    typeof value === 'string' && value.length > LIST_SUMMARY_TASK_CHARS
+      ? `${value.slice(0, LIST_SUMMARY_TASK_CHARS)}…`
+      : value;
+  return {
+    ...clone,
+    worktree_count: worktrees.length,
+    worktrees: worktrees.slice(0, LIST_SUMMARY_WORKTREE_CAP).map((w) => ({
+      worktree_id: w['worktree_id'],
+      worktree_path: w['worktree_path'],
+      username: w['username'],
+      engine: w['engine'],
+      branch: w['branch'],
+      head_sha: w['head_sha'],
+      task: clip(w['task']),
+      target_branch: w['target_branch'],
+      heartbeat_at: w['heartbeat_at'],
+    })),
+    worktrees_truncated: worktrees.length > LIST_SUMMARY_WORKTREE_CAP,
+    lease_count: leases.length,
+    leases: leases.map((l) => ({
+      request_id: l['request_id'],
+      worktree_id: l['worktree_id'],
+      target_branch: l['target_branch'],
+      verdict: l['verdict'],
+      lease_expires_at: l['lease_expires_at'],
+    })),
+    // Capped at 25 per clone, like the full listing; only the count is kept.
+    stale_count: stale.length,
+  };
+}
+
 function secondsBetween(from: string | null, to: string): number | null {
   const start = parseIso(from);
   const end = parseIso(to);
@@ -719,7 +784,9 @@ export class GitDirectorService {
   /**
    * What is going on. Host-scoped by default because that is the question an
    * agent actually has ("who else is in my checkout"); `fleet` widens it to every
-   * host, and `clone` narrows to one.
+   * host, and `clone` narrows to one. The reply is a compact summary page by
+   * default (`detail: "full"` restores every worktree, lease and stale row;
+   * `limit`/`offset` page through clones, with `truncated` and `next_offset`).
    */
   async list(args: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {
     const now = this.now();
@@ -783,17 +850,45 @@ export class GitDirectorService {
     }
     clones.sort((a, b) => a.lastSeenAt < b.lastSeenAt ? 1 : -1);
 
+    // Summary by default, full on request. A narrowed `clone` scope is one
+    // checkout the caller named, so it keeps the full entry unless told otherwise.
+    const detailRaw = String(args.detail ?? '').trim().toLowerCase();
+    const detail = detailRaw === 'full' || detailRaw === 'summary' ? detailRaw : scope === 'clone' ? 'full' : 'summary';
+    const limit = listInt(args.limit, 1, LIST_MAX_LIMIT, detail === 'full' ? LIST_MAX_LIMIT : LIST_SUMMARY_DEFAULT_LIMIT);
+    const offset = listInt(args.offset, 0, Number.MAX_SAFE_INTEGER, 0);
+
+    // The caller's own checkout leads the page, so the pre-work question is
+    // answered on page one however many clones the host has.
+    if (worktreePath && scope !== 'clone') {
+      const own = await this.cloneForWorktree(this.deps.db, host, normalizePath(worktreePath));
+      const at = own ? clones.findIndex((row) => row.id === own.id) : -1;
+      if (at > 0) clones.unshift(...clones.splice(at, 1));
+    }
+
+    const total = clones.length;
     const out: Array<Record<string, unknown>> = [];
-    for (const clone of clones.slice(0, 100)) {
-      out.push({
+    for (const clone of clones.slice(offset, offset + limit)) {
+      const entry = {
         ...this.cloneWire(clone, null),
         fqdn: fqdnById.get(clone.hostId) ?? null,
         worktrees: await this.worktreeWire(this.deps.db, clone.id, now),
         leases: await this.leaseWire(this.deps.db, clone.id, now),
         stale: await this.staleWire(this.deps.db, clone.id, now),
-      });
+      };
+      out.push(detail === 'full' ? entry : summarizeCloneEntry(entry));
     }
-    return { scope, clones: out, count: out.length };
+    const truncated = offset + out.length < total;
+    return {
+      scope,
+      detail,
+      clones: out,
+      count: out.length,
+      total,
+      offset,
+      limit,
+      truncated,
+      next_offset: truncated ? offset + out.length : null,
+    };
   }
 
   // ── the arbiter ───────────────────────────────────────────────────────────

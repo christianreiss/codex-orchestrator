@@ -254,3 +254,32 @@ describe('project_summary', () => {
     expect(out['board']).toMatchObject({ status: 'disabled' });
   });
 });
+
+describe('project_list', () => {
+  const bigAbout = { purpose: 'test', brief: 'z'.repeat(40_000) };
+
+  function seedBig() {
+    const db = seed();
+    const rows = db.tables.get(coordProjects) as Record<string, unknown>[];
+    rows[0]!['aboutJson'] = bigAbout;
+    return db;
+  }
+
+  it('drops the about document and reports its size when include_about is false', async () => {
+    const service = new HostProjectsService(seedBig() as never);
+    const out = await service.listProjects(host, { include_about: false });
+    const project = out.projects[0] as unknown as Record<string, unknown>;
+    expect(project).not.toHaveProperty('about');
+    expect(project).toMatchObject({ slug: 'demo', about_omitted: true });
+    expect(project['about_bytes']).toBeGreaterThan(40_000);
+    expect(JSON.stringify(out).length).toBeLessThan(1000);
+  });
+
+  it('keeps the embedded about by default, so GET /projects is unchanged', async () => {
+    const service = new HostProjectsService(seedBig() as never);
+    const out = await service.listProjects(host);
+    expect((out.projects[0] as unknown as Record<string, unknown>)['about']).toEqual(bigAbout);
+    const viaQuery = await service.listProjects(host, { include_about: 'true' });
+    expect(viaQuery.projects[0]).toHaveProperty('about');
+  });
+});

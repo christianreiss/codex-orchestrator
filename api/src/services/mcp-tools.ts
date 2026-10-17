@@ -803,14 +803,15 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     definition: {
       name: 'project_list',
       description:
-        'List shared projects available to this host. Archived projects are left out unless include_archived is set.',
+        'List shared projects available to this host. Archived projects are left out unless include_archived is set. Each record is compact (slug, title, name, description, seq and timestamps, plus about_bytes); the full `about` document is left out because one project can hold tens of kilobytes. Read it with project_summary, or pass include_about to embed it here.',
       inputSchema: {
         type: 'object',
-        properties: { include_archived: { type: 'boolean' } },
+        properties: { include_archived: { type: 'boolean' }, include_about: { type: 'boolean' } },
         additionalProperties: false,
       },
     },
-    handler: async (args, host) => deps.projects.listProjects(host, args),
+    handler: async (args, host) =>
+      deps.projects.listProjects(host, { ...args, include_about: args['include_about'] ?? false }),
   });
   inputs.push({
     definition: {
@@ -1766,7 +1767,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'git_list',
         description:
-          'See registered worktrees and merge coordination, not an agent count: one path has one registration. Before edits, also call agent_list(scope="checkout", online=true); isolate in a task worktree when another session occupies that checkout or coverage is unknown, then commit and merge back under a lease. Host-scoped by default — the clones on this machine, the worktrees registered in each, what each agent said it is doing, and any live merge lease or queue. Pass scope "clone" with a worktree_path to narrow to one checkout, or scope "fleet" to see every host. Always pass your own worktree_path once you have registered, at any scope: it tells the Director you are still here, so polling this while you work keeps your registration alive instead of letting it expire out from under you. Call this before creating a worktree or picking up work, so you find out about a peer in the same clone before you collide with them rather than after. The `stale` list on each clone is agents that were reclaimed — a session the fleet saw end, or one that went quiet — so a worktree missing from `worktrees` but present there was abandoned rather than never used. Each worktree\'s `branch` and `head_sha` are what its agent last reported, never a live read (the Director has no access to any worktree), and `head_observed_at` says when that HEAD was reported; a heartbeat alone advances `heartbeat_at` but not the HEAD. Check live state with `git rev-parse HEAD`, and pass your current `head_sha` (and `branch`) together with your registered worktree_path to update the recorded snapshot.',
+          'See registered worktrees and merge coordination, not an agent count: one path has one registration. Before edits, also call agent_list(scope="checkout", online=true); isolate in a task worktree when another session occupies that checkout or coverage is unknown, then commit and merge back under a lease. Host-scoped by default — the clones on this machine, the worktrees registered in each, what each agent said it is doing, and any live merge lease or queue. Pass scope "clone" with a worktree_path to narrow to one checkout, or scope "fleet" to see every host. Always pass your own worktree_path once you have registered, at any scope: it tells the Director you are still here, so polling this while you work keeps your registration alive instead of letting it expire out from under you. Call this before creating a worktree or picking up work, so you find out about a peer in the same clone before you collide with them rather than after. The `stale` list on each clone is agents that were reclaimed — a session the fleet saw end, or one that went quiet — so a worktree missing from `worktrees` but present there was abandoned rather than never used. Each worktree\'s `branch` and `head_sha` are what its agent last reported, never a live read (the Director has no access to any worktree), and `head_observed_at` says when that HEAD was reported; a heartbeat alone advances `heartbeat_at` but not the HEAD. Check live state with `git rev-parse HEAD`, and pass your current `head_sha` (and `branch`) together with your registered worktree_path to update the recorded snapshot. The default reply is a compact summary page (default 20 clones, your own checkout first when worktree_path is registered): per clone the registered worktrees with task clipped, live leases without reason/overlap, and `worktree_count`/`lease_count`/`stale_count`. When `truncated` is true, call again with `offset` = `next_offset`. Pass detail "full" for the complete entries (declared paths, lease reasons and overlap, stale rows); scope "clone" returns full entries by default.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1774,6 +1775,9 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             worktree_path: { type: 'string' },
             head_sha: { type: 'string' },
             branch: { type: 'string' },
+            detail: { type: 'string', enum: ['summary', 'full'] },
+            limit: { type: 'integer', minimum: 1, maximum: 100 },
+            offset: { type: 'integer', minimum: 0 },
           },
         },
       },

@@ -422,7 +422,7 @@ Host resource sync (`/skills`, `/agents/retrieve`, `/config/retrieve`) and cron 
   Secure hosts receive the managed MCP `Authorization` header backed by the host API key. Insecure hosts instead receive a short-lived MCP bearer token so the effective `${CODEX_HOME:-~/.codex}/config.toml` does not persist a reusable host credential between runs. A successfully injected Codex MCP entry also adds `[[skills.config]]` with `name = "skill-creator"` and `enabled = false`; this exact-name selector removes the competing local/system workflow without assuming a `CODEX_HOME` path. MCP-disabled/unavailable renders and Claude settings do not contain it. When `hosts.browseros_mcp_enabled=true` on a Codex host, the baked TOML also includes `[mcp_servers.browseros]` with `url = "http://127.0.0.1:9000/mcp"` and `startup_timeout_sec = 30`; this is never fleet-wide and is not injected for Claude. Fleet model defaults selected through `/admin/model-defaults/codex` are stored as the canonical `model` / `model_reasoning_effort` keys. When `hosts.model_override` / `hosts.reasoning_effort_override` are set, the baked config overrides those keys so the effective file matches the host’s defaults.
   Optional body `sha256` (64-hex) lets the server return `status:unchanged` without echoing the file. Response includes `status` (`updated` | `unchanged` | `missing`), baked `sha256`, `base_sha256` (template sha), `updated_at`, `size_bytes`, and `content` when updated. When `status=missing`, cdx should delete the effective `${CODEX_HOME:-~/.codex}/config.toml`.
 - Projects module routes (host-authenticated, normal IP-binding rules, 404 when disabled):
-  - `GET /projects` — returns `{ projects: [...] }` where each summary includes `slug`, `title`, `name`, `description`, `about`, `latest_seq`, `created_at`, and `updated_at`.
+  - `GET /projects` — returns `{ projects: [...] }` where each summary includes `slug`, `title`, `name`, `description`, `about`, `latest_seq`, `created_at`, and `updated_at`. `include_about=false` returns the compact record instead: `about` is dropped for `about_bytes` and `about_omitted:true`, and `description` is clipped to 500 characters. The MCP `project_list` tool applies that compact form by default (`include_about: true` embeds the document again) because one project's `about` can be tens of kilobytes; the HTTP route keeps `about` unless asked.
   - `POST /projects` — body: `slug` (required), optional `about` object, optional `roster_markdown` or `agents_markdown`. Returns full project detail payload.
   - `GET /projects/{slug}` — full shared state: `project` (summary/counts/seq), `notes`, `todos`, `files`, `feedback`, `memories`, and `recent_changes`.
   - `GET /projects/{slug}/summary` — lean orientation payload: `project`, `about`, `roster_markdown`, `latest_seq`, `counts` (adds `files_bytes`, `feedback_by_type`, `feedback_by_status`), `board` (compact column/open-card/your-claims block, `status: "disabled"` when the board module is off, and read-only — it never renews a claim), `files` as metadata only (no `content`), `recent_notes` and `recent_changes` as previews, `recent_memories`, managed `skill`/`instructions`/`quickstart`, and `routes`. This is the documented first call; `/bootstrap` inlines whole file bodies and is kept for compatibility.
@@ -821,6 +821,19 @@ All three engine config GET/store routes share the revision contract: `revision`
   `head_observed_at`). For an unregistered path they are ignored and nothing is
   created. Rows registered before 0073 carry `registered_at` as their
   conservative `head_observed_at`.
+  `git_list` returns a compact **summary page** by default so a busy host does
+  not overflow a client's tool-result window (one host measured 68k characters).
+  Optional arguments: `detail` (`summary` | `full`), `limit` (1-100, default 20
+  for `summary`, 100 for `full`) and `offset`. The reply gains `detail`,
+  `total`, `offset`, `limit`, `truncated` and `next_offset` (null on the last
+  page); clones are ordered by `last_seen_at`, except that the clone owning a
+  registered `worktree_path` leads. A summary clone carries `worktree_count`,
+  `worktrees` (at most 25: id, path, username, engine, branch, `head_sha`, task
+  clipped to 120 characters, `target_branch`, `heartbeat_at`; flagged by
+  `worktrees_truncated`), `lease_count`, `leases` (id, worktree, branch,
+  verdict, expiry; no reason or overlap) and `stale_count` (capped at 25).
+  `detail: "full"` restores the complete entries (declared paths, lease reasons
+  and overlap, `stale` rows). `scope: "clone"` defaults to `full`.
   - `GET /admin/git-director/state` — `{enabled, model, clones, worktrees,
     updated_at}` for the `git_director_enabled` switch.
   - `POST /admin/git-director/state` — `{enabled}` (boolean, `0`/`1`, or
