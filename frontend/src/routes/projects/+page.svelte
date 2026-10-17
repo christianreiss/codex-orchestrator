@@ -20,7 +20,7 @@
   import { relativeTime } from "$lib/utils/format";
   import * as Table from "$lib/components/ui/table";
   import SortableHead from "$lib/components/data-table/SortableHead.svelte";
-  import ConfirmDialog from "$lib/components/projects/ConfirmDialog.svelte";
+  import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
   import NewProjectDialog from "$lib/components/projects/NewProjectDialog.svelte";
   import { ApiError } from "$lib/api/client";
   import {

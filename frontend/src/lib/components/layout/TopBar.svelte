@@ -75,7 +75,7 @@
   });
 </script>
 
-<header class="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-2 border-b bg-card px-4 sm:gap-4 sm:px-6 md:px-8">
+<header class="sticky top-0 z-30 flex h-12 shrink-0 items-center justify-between gap-2 border-b bg-card px-4 sm:gap-4 sm:px-6 md:px-8">
   <nav class="min-w-0 overflow-hidden" aria-label="Breadcrumb">
     <ol class="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-sm">
       {#each breadcrumbs as crumb, index (crumb.label + index)}

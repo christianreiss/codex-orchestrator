@@ -17,8 +17,8 @@ const config: Config = {
         sm: "var(--radius-sm)",
         md: "calc(var(--radius) - 2px)",
         lg: "var(--radius)",
-        xl: "var(--radius-lg)",
-        "2xl": "var(--radius-xl)",
+        xl: "var(--radius)",
+        "2xl": "var(--radius)",
       },
       colors: {
         background: "hsl(var(--background))",

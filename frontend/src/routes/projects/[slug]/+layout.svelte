@@ -16,7 +16,7 @@
   import * as Alert from "$lib/components/ui/alert";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import ProjectTabsNav from "$lib/components/projects/ProjectTabsNav.svelte";
-  import ConfirmDialog from "$lib/components/projects/ConfirmDialog.svelte";
+  import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte.js";
   import { ApiError } from "$lib/api/client";
   import {

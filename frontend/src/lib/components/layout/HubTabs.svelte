@@ -5,7 +5,7 @@
   import TabNav from "$lib/components/layout/TabNav.svelte";
   import { useFleetEngines } from "$lib/engines/fleet-engines";
 
-  let { hub, class: className = "mb-5" }: { hub: HubId; class?: string } = $props();
+  let { hub, class: className = "mb-4" }: { hub: HubId; class?: string } = $props();
 
   // Engine-specific pages stay reachable while their engine is off fleet-wide;
   // the tab only says so (same rule as the rail and the mobile sheet).

@@ -26,7 +26,7 @@
 </script>
 
 <aside aria-label="Fleet workspace" class="sidebar-surface hidden h-full w-64 shrink-0 flex-col border-r md:flex">
-  <a href={`${base}/dashboard`} class="flex h-16 shrink-0 items-center gap-3 border-b px-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" aria-label="Codex Orchestrator overview">
+  <a href={`${base}/dashboard`} class="flex h-12 shrink-0 items-center gap-3 border-b px-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" aria-label="Codex Orchestrator overview">
     <BrandMark class="h-8 w-8 rounded-md" />
     <span class="min-w-0">
       <span class="block truncate text-sm font-semibold tracking-tight text-foreground">Codex Orchestrator</span>

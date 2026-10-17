@@ -73,10 +73,10 @@
   <a
     href={item.href}
     class={cn(
-      "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:min-h-9 sm:py-1.5",
+      "-mb-px inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-body font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
       active
-        ? "border-border bg-card text-foreground shadow-sm"
-        : "border-transparent text-muted-foreground hover:bg-card/50 hover:text-foreground",
+        ? "border-primary text-foreground"
+        : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
     )}
     aria-current={active ? "page" : undefined}
   >
@@ -90,21 +90,10 @@
   </a>
 {/snippet}
 
-<nav class={cn(className)} {...rest}>
-  <div class="flex flex-col gap-4">
-    {#each groups as g (g.group ?? "_ungrouped")}
-      <div class="min-w-0">
-        {#if g.group}
-          <p class="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            {g.group}
-          </p>
-        {/if}
-        <div class="flex min-w-0 gap-1 overflow-x-auto rounded-md border border-border/70 bg-muted/60 p-0.5">
-          {#each g.items as item (item.href)}
-            {@render tab(item)}
-          {/each}
-        </div>
-      </div>
+<nav class={cn("border-b", className)} {...rest}>
+  <div class="flex min-w-0 gap-1 overflow-x-auto">
+    {#each items as item (item.href)}
+      {@render tab(item)}
     {/each}
   </div>
 </nav>

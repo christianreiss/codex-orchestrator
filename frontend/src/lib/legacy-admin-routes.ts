@@ -1,10 +1,19 @@
-/** Stable mappings for bookmarks from the retired Settings/Authoring hubs. */
+/**
+ * Every retired admin URL and where it lives now.
+ *
+ * One pure function answers for all of them, and the catch-all route
+ * (`routes/[...legacy]/+page.ts`) applies it. A retired URL therefore needs no
+ * stub page of its own: SvelteKit only matches a route that has a component,
+ * so per-URL redirect stubs used to rot as 2-line files across the tree.
+ */
+
+/** Section hashes and `?tab=` values from the retired Settings hub. */
 const SETTINGS_SECTION_DESTINATIONS: Record<string, string> = {
-  "api-state": "/api-keys#service-availability",
-  "openai-engine": "/api-keys#exposed-apis",
+  "api-state": "/access#api-keys",
+  "openai-engine": "/access#api-keys",
   "engine-state": "/engines#engine-state",
-  "claude-engine": "/api-keys#claude-proxy",
-  "agent-messaging": "/agent-messaging#service-state",
+  "claude-engine": "/access#api-keys",
+  "agent-messaging": "/agent-messaging",
   "codex-model-defaults": "/engines#codex-defaults",
   "claude-model-defaults": "/engines#claude-defaults",
   "codex-version": "/engines#codex-defaults",
@@ -13,33 +22,94 @@ const SETTINGS_SECTION_DESTINATIONS: Record<string, string> = {
   quotas: "/engines#quota-enforcement",
   scaling: "/engines#quota-enforcement",
   "claude-fleet-settings": "/engines#claude-client",
-  "auto-update": "/policies#fleet-behavior",
-  "reverse-dns": "/policies#fleet-behavior",
-  "insecure-approval": "/policies#insecure-approval",
-  "prune-policy": "/policies#host-lifecycle",
-  "log-retention": "/policies#log-retention",
+  "auto-update": "/settings#hosts",
+  "reverse-dns": "/settings#hosts",
+  "insecure-approval": "/settings#hosts",
+  "prune-policy": "/settings#retention",
+  "log-retention": "/settings#retention",
 };
 
-export function settingsLegacyTarget(search: URLSearchParams, hash = ""): string {
+/** Maps a retired `/settings?tab=…#section` bookmark; null when the URL is a current Settings URL. */
+export function settingsLegacyTarget(search: URLSearchParams, hash = ""): string | null {
   const section = decodeURIComponent(hash.replace(/^#/, ""));
   if (SETTINGS_SECTION_DESTINATIONS[section]) return SETTINGS_SECTION_DESTINATIONS[section]!;
   switch (search.get("tab")) {
     case "engines":
     case "codex":
     case "claude": return "/engines";
-    case "fleet-policy": return "/policies";
+    case "fleet-policy": return "/settings";
     case "claude-config": return "/engines#claude-client";
     case "availability":
-    case "general":
-    default: return "/api-keys#service-availability";
+    case "general": return "/access#api-keys";
+    default: return null;
   }
 }
 
-export function legacyAuthoringTarget(pathSuffix: string): string {
-  if (pathSuffix.startsWith("/skills/")) return `/skills/${pathSuffix.slice("/skills/".length)}`;
-  if (pathSuffix === "/agents") return "/instructions";
-  if (pathSuffix === "/memories") return "/memories";
-  if (pathSuffix.startsWith("/subagents") || pathSuffix.startsWith("/commands") || pathSuffix.startsWith("/output-styles")) return pathSuffix;
-  if (pathSuffix.startsWith("/settings")) return "/engines#claude-client";
-  return "/skills";
+const LIBRARY_TYPES = new Set(["skills", "subagents", "commands", "output-styles"]);
+
+function withQuery(path: string, search: URLSearchParams, extra?: Record<string, string>): string {
+  const merged = new URLSearchParams(search);
+  for (const [key, value] of Object.entries(extra ?? {})) merged.set(key, value);
+  const query = merged.toString();
+  if (!query) return path;
+  const [route, hash] = path.split("#");
+  return `${route}${route!.includes("?") ? "&" : "?"}${query}${hash ? `#${hash}` : ""}`;
+}
+
+/**
+ * The current location of a retired URL, or null when the path was never a
+ * route. `pathname` is base-relative (no `/admin`).
+ */
+export function legacyTarget(pathname: string, search = new URLSearchParams(), hash = ""): string | null {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  const segments = path.split("/").filter(Boolean);
+  const [head = "", second, third] = segments;
+
+  switch (head) {
+    case "clients": return withQuery("/agents", search);
+    case "topology": return withQuery("/agents", search, { view: "graph" });
+    case "feedback": return withQuery("/reports", search);
+    case "logs": return withQuery("/activity", search, { type: second === "mcp" ? "tools" : "changes" });
+    case "users": return "/access#people";
+    case "api-keys": return "/access#api-keys";
+    case "secrets": return "/access#secrets";
+    case "policies": return "/settings";
+    case "quick-settings": return "/engines#defaults";
+    case "instructions": return "/library/agent-rules";
+    case "memories": return withQuery("/library", search, { type: "memories" });
+    case "hosts": return second === "new" ? "/hosts?add=1" : null;
+    case "settings":
+      if (second === "users") return "/access#people";
+      return segments.length === 1 ? settingsLegacyTarget(search, hash) : null;
+    case "account":
+      if (second === "theme") return "/account#appearance";
+      if (second === "devices") return "/account#devices";
+      if (second === "password" || second === "passkeys") return "/account#security";
+      return null;
+    case "authoring": {
+      if (second === "agents") return "/library/agent-rules";
+      if (second === "memories") return withQuery("/library", search, { type: "memories" });
+      if (second === "settings") return "/engines#claude-client";
+      if (second && LIBRARY_TYPES.has(second)) return legacyTarget(`/${second}${third ? `/${third}` : ""}`, search, hash);
+      return withQuery("/library", search, { type: "skills" });
+    }
+    case "projects": {
+      if (!second) return null;
+      const slug = encodeURIComponent(decodeURIComponent(second));
+      switch (third) {
+        case "todos": return `/projects/${slug}/board`;
+        case "notes": return `/projects/${slug}/documents?kind=notes`;
+        case "files": return `/projects/${slug}/documents?kind=files`;
+        case "feedback": return `/projects/${slug}/reports`;
+        default: return null;
+      }
+    }
+    default:
+      if (LIBRARY_TYPES.has(head)) {
+        return second
+          ? `/library/${head}/${second}`
+          : withQuery("/library", search, { type: head });
+      }
+      return null;
+  }
 }
