@@ -944,3 +944,57 @@ func TestPrimedOwnerLaunchSkipsContentExchange(t *testing.T) {
 		t.Fatalf("primed launch: bootstraps=%d contentless=%d\n%s", warm.count("/sync/bootstrap"), contentless, warm.timeline())
 	}
 }
+
+// A primed scope is current only until the next server invalidation, and an
+// explicit sync never trusts it. Invalidations re-run content only for scopes
+// with a live lease, so after a reconnect (an API deploy) with no session
+// attached, the next launch must perform the full exchange again.
+func TestPrimedScopeYieldsToExplicitSyncAndReconnect(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a signed real binary")
+	}
+	rig := newProfRig(t, true, func(cfg *config.Config) { cfg.Orchestrator.CommunicatorCacheProtocol = CacheProtocol })
+	contentless := func() int {
+		rig.api.mu.Lock()
+		defer rig.api.mu.Unlock()
+		return rig.api.contentless
+	}
+	if cold := rig.run("fresh owner launch", "claude", "run", "--minimal"); cold.ExitCode != 0 {
+		t.Fatalf("cold launch failed: %s", cold.Stdout)
+	}
+	if warm := rig.run("primed launch", "claude", "run", "--minimal"); warm.ExitCode != 0 || contentless() != 1 {
+		t.Fatalf("primed launch: exit=%d contentless=%d\n%s", warm.ExitCode, contentless(), warm.timeline())
+	}
+	explicit := rig.run("explicit sync", "claude", "sync")
+	if explicit.ExitCode != 0 {
+		t.Fatalf("explicit sync failed: %s", explicit.Stdout)
+	}
+	if explicit.count("/sync/bootstrap") < 1 || contentless() != 1 {
+		t.Fatalf("an explicit sync must perform a full content exchange: bootstraps=%d contentless=%d\n%s", explicit.count("/sync/bootstrap"), contentless(), explicit.timeline())
+	}
+	// A server deploy drops the control connection; nothing is attached to the
+	// scope, so no scheduled pass refreshes it.
+	rig.api.dropConnections()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		rig.api.mu.Lock()
+		reconnected := len(rig.api.conns) > 0
+		rig.api.mu.Unlock()
+		if reconnected {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the owner never reconnected")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	time.Sleep(time.Second) // the reconnect invalidation is stamped after the handshake
+	after := rig.run("launch after reconnect", "claude", "run", "--minimal")
+	if after.ExitCode != 0 || after.count("/sync/bootstrap") != 1 || contentless() != 1 {
+		t.Fatalf("a launch after an unserved invalidation must not trust the primed scope: exit=%d bootstraps=%d contentless=%d\n%s", after.ExitCode, after.count("/sync/bootstrap"), contentless(), after.timeline())
+	}
+	// That full exchange primes the scope again.
+	if again := rig.run("re-primed launch", "claude", "run", "--minimal"); again.ExitCode != 0 || contentless() != 2 {
+		t.Fatalf("re-primed launch: exit=%d contentless=%d\n%s", again.ExitCode, contentless(), again.timeline())
+	}
+}

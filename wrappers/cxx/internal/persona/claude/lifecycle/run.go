@@ -141,6 +141,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 
 	cfg := opts.Config
 	ctx = communicator.WithSyncConfig(ctx, cfg)
+	if opts.SyncOnly {
+		// An explicit sync converges content now; it never trusts a primed scope.
+		ctx = communicator.WithExplicitContent(ctx)
+	}
 	if opts.QuotaChoiceReset && !opts.SyncOnly {
 		if err := quotaadvice.Reset(cfg.Orchestrator.BaseURL); err != nil {
 			return 1, fmt.Errorf("reset daily quota choice: %w", err)

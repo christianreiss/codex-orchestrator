@@ -70,10 +70,12 @@ type server struct {
 	// missed nothing, from a reconnect.
 	invalidatedAt time.Time
 	everConnected bool
-	// primed records, per engine and native home, that this owner process has
-	// completed a content pass. Pushed invalidations keep primed scopes current,
-	// so a warm-cache launch takes content from disk without an exchange.
-	primed map[string]bool
+	// primed records, per engine and native home, when the newest complete
+	// content pass this owner ran for it STARTED. A scope is primed only while
+	// that pass started after invalidatedAt (see primedLocked): an invalidation,
+	// including the reconnect after a server deploy, reaches only scopes with a
+	// live lease, so a scope without one must fall back to a full exchange.
+	primed map[string]time.Time
 	// updateTrigger wakes the injected updater; updateStatus is its report.
 	updateTrigger chan struct{}
 	updateStatus  *UpdateStatus
