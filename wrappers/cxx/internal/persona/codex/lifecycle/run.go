@@ -658,7 +658,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	if connectionErr != nil {
 		logger.Warn("agent connection unavailable; continuing local session", "err", connectionErr)
 	}
+	portalClosed := false
 	closePortal := func(status, summaryText string) {
+		if portalClosed {
+			return
+		}
+		portalClosed = true
 		if err := connection.Close(status, summaryText); err != nil {
 			logger.Warn("agent connection finalization failed", "err", err)
 		}

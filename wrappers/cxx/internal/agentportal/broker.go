@@ -180,8 +180,9 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasSuffix(r.URL.Path, "/watchdog/activity") {
 		var note struct {
-			Failure  string `json:"failure"`
-			NativeID string `json:"native_session_id"`
+			Failure    string `json:"failure"`
+			SessionEnd bool   `json:"session_end"`
+			NativeID   string `json:"native_session_id"`
 		}
 		_ = json.Unmarshal(raw, &note)
 		b.nativeMu.Lock()
@@ -191,6 +192,12 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			b.session.watchdog.mu.Lock()
 			b.session.watchdog.failure = note.Failure
 			b.session.watchdog.mu.Unlock()
+		}
+		if note.SessionEnd {
+			// Local observation only. Finish carries the retained cause; hooks
+			// cannot hold native shutdown hostage to an API request.
+			_ = json.NewEncoder(w).Encode(map[string]bool{"recorded": true})
+			return
 		}
 	}
 	if strings.HasSuffix(r.URL.Path, "/receiver/native") {

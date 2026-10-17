@@ -76,18 +76,21 @@ func (r *ConnectionRuntime) Close(status, summary string) error {
 			r.stopWatchdog()
 		}
 		r.stopHeartbeat()
-		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-		var heartbeatErr error
-		if r.session != nil {
-			heartbeatErr = r.session.Heartbeat(ctx, "", "close")
-		}
-		cancel()
 		var brokerErr error
 		if r.broker != nil {
 			brokerErr = r.broker.Close()
 		}
 		r.restore()
-		r.closeErr = errors.Join(heartbeatErr, brokerErr, r.session.Finish(status, summary))
+		// Finish also disables the relay server-side. A separate close heartbeat
+		// adds a network round trip and can poison Finish with a terminal error.
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		finishErr := r.session.FinishContext(ctx, status, summary)
+		var portalErr *PortalError
+		if errors.As(finishErr, &portalErr) && portalErr.Code == "agent_session_finished" {
+			finishErr = nil // Already ended remotely; no resurrection or replay.
+		}
+		r.closeErr = errors.Join(brokerErr, finishErr)
 	})
 	return r.closeErr
 }

@@ -83,3 +83,44 @@ func TestPostRunUnchangedUnsentOfflineCandidateStillRequiresUpload(t *testing.T)
 		})
 	}
 }
+
+func TestPostRunDoesNotReplayPermanentOrUnknownStoreOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, status string
+		code               int
+	}{
+		{"unknown", `{"error":{"code":"communicator_outcome_unknown"}}`, "upload outcome unknown", 409},
+		{"expired lease", `{"code":"not_found","message":"Account session not found"}`, "upload failed", 404},
+		{"refused", `{"code":"forbidden"}`, "upload failed", 403},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, _ := sessionFixture(t)
+			before, _ := claude.ReadAuthSnapshot(false)
+			native := sessionPayload("rotated", time.Now())
+			if err := os.WriteFile(path, native, 0600); err != nil {
+				t.Fatal(err)
+			}
+			session, err := claude.StartAuthSession(true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer session.Close()
+			var calls atomic.Int32
+			client := sessionClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				w.WriteHeader(tc.code)
+				fmt.Fprint(w, tc.body)
+			})
+			status, tone := maybePostRunAuthUpload(client, slog.New(slog.DiscardHandler), before.Generation, session)
+			if status != tc.status || tone != ui.ToneFail || calls.Load() != 1 {
+				t.Fatalf("status=%s tone=%v requests=%d", status, tone, calls.Load())
+			}
+			if raw, _ := os.ReadFile(path); string(raw) != string(native) {
+				t.Fatal("pending credentials discarded")
+			}
+			if purged, err := session.CloseAndPurgeIfLast(); err != nil || !purged {
+				t.Fatalf("insecure cleanup: %v %v", purged, err)
+			}
+		})
+	}
+}

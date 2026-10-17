@@ -2,6 +2,8 @@
 
 - **Model Class Check:** Rate the whole assignment before scouting or planning; whole-stack cleanup assessment is Tier 4. All task tiers remain visible on hosts with lower-tier models. Overrides must acknowledge the identified mismatch. The existing one-tier warning and two-tier stop thresholds remain; dashboard copy clarifies that this is agent guidance.
 
+
+- **Faster, quieter managed session exit (cxx 0.9.97).** Codex, Claude and Grok portal shutdown sends one terminal request, with a shared four-second remote budget, instead of a separate close heartbeat followed by up to two eight-second finish attempts. Already-ended sessions are quiet; other failures remain visible, including nested API error codes. Claude and Grok SessionEnd watchdog hooks record exit evidence locally for the terminal request instead of waiting for the API. Claude final credential sync stops on permanent refusals and unknown communicator outcomes, reports one concise upload failure, and retains transient retries, slow runner verification and mandatory last-session insecure credential cleanup.
 - **cxx dialogs:** Each engine’s model menu lists the strongest capability tier first, preserving catalog order within a tier and the selected model and effort. Uses the central fleet model tiers in newly signed host configs.
 
 # 2026-10-16

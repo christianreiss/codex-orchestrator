@@ -1242,3 +1242,9 @@ and a configuration sync; direct provider binaries are outside this policy.
 See `interface-api.md` → Fleet model policy.
 
 Model Class Check guidance rates the whole assignment before scouting or planning. Whole-stack cleanup assessment is Tier 4 even when read-only; all four task definitions remain visible on hosts with only lower-tier models. Two-tier gaps stop unless the operator explicitly overrides the identified mismatch. This is agent guidance, not runtime enforcement.
+
+Managed session exit uses one terminal portal request with a four-second shared
+remote budget for all engines. Exit hooks hand watchdog evidence to the local
+broker, and the supervisor includes it in the terminal report. Claude final
+credential sync retains its verification and insecure cleanup guarantees while
+stopping retries for permanent refusals and unknown communicator outcomes.

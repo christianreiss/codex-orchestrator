@@ -2064,3 +2064,19 @@ The shared `cxx transfer put FILE` / `get ID --output FILE` commands use this
 engine via its alias or `--engine`. Bytes stream through the orchestrator with
 `--resume`, SHA-256 verification and optional limits defaulting to unlimited.
 See [file-transfers.md](file-transfers.md) for CLI, HTTP, journal and rollout contracts.
+
+Managed portal shutdown closes the local broker, then sends the terminal report
+with one four-second remote budget shared by retries. The terminal report also
+closes the relay; there is no preceding close-heartbeat request. An explicit
+`agent_session_finished` response means the session already ended remotely and
+needs no warning. Other conflicts and transport failures remain errors. Error
+codes are read from both top-level and nested API envelopes.
+
+SessionEnd watchdog observations are collected by the private local broker and
+included in the supervisor's terminal report, without a hook-time API call.
+Final credential upload retains its 15-second overall verification budget and
+transient retry policy, but never replays a permanent 4xx refusal (except 429) or
+`communicator_outcome_unknown`. An unknown outcome remains a failed sync, not a
+successful upload. Individual upload failures are debug diagnostics; normal
+output reports one concise final status. Last-session insecure cleanup still
+runs on every outcome.

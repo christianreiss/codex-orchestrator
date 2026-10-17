@@ -470,6 +470,11 @@ func (s *Session) Acknowledge(ctx context.Context, message *ClaimedMessage, outc
 }
 
 func (s *Session) Finish(status, summary string) error {
+	return s.FinishContext(context.Background(), status, summary)
+}
+
+// FinishContext shares a caller-owned shutdown budget across terminal retries.
+func (s *Session) FinishContext(ctx context.Context, status, summary string) error {
 	if s == nil {
 		return nil
 	}
@@ -490,7 +495,7 @@ func (s *Session) Finish(status, summary string) error {
 		body["watchdog_failure"] = failure
 	}
 	path := "/host/agent-sessions/" + url.PathEscape(s.ID) + "/finish"
-	err := retryAmbiguous(context.Background(), s.attemptTimeout(8*time.Second), func(attemptCtx context.Context) error {
+	err := retryAmbiguous(ctx, s.attemptTimeout(8*time.Second), func(attemptCtx context.Context) error {
 		return s.bridgeJSON(attemptCtx, http.MethodPost, path, body, nil)
 	})
 	if err != nil {
@@ -710,8 +715,20 @@ func doJSON(ctx context.Context, client *http.Client, baseURL, method, path stri
 		var failure struct {
 			Message string `json:"message"`
 			Code    string `json:"code"`
+			Error   *struct {
+				Message string `json:"message"`
+				Code    string `json:"code"`
+			} `json:"error"`
 		}
 		_ = json.Unmarshal(raw, &failure)
+		if failure.Error != nil {
+			if failure.Code == "" {
+				failure.Code = failure.Error.Code
+			}
+			if failure.Message == "" {
+				failure.Message = failure.Error.Message
+			}
+		}
 		if failure.Message == "" {
 			failure.Message = http.StatusText(resp.StatusCode)
 		}
