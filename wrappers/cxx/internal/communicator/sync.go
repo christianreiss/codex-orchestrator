@@ -292,7 +292,7 @@ func (s *server) runSync(ctx context.Context, in SyncRequest) SyncResult {
 	if in.Operation == "primed" {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		return SyncResult{Primed: s.primed[scopeID(in.Job)]}
+		return SyncResult{Primed: s.primedLocked(scopeID(in.Job))}
 	}
 	if in.Operation == "auth" || in.IncludeAuth {
 		return s.executeSync(ctx, in)
@@ -480,12 +480,13 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 			s.lastSync = time.Now().UTC().Format(time.RFC3339)
 			if (in.Operation == "bootstrap" || in.Operation == "content") && !in.SkipContent && !in.ReconcileOnly && len(out.Resources) > 0 && !out.Deferred {
 				state.contentFresh = workerStart
-				// From here on pushed invalidations keep this scope current for
-				// the life of the owner process.
+				// The scope stays primed until the next server invalidation.
 				if s.primed == nil {
-					s.primed = map[string]bool{}
+					s.primed = map[string]time.Time{}
 				}
-				s.primed[scopeID(in.Job)] = true
+				if id := scopeID(in.Job); workerStart.After(s.primed[id]) {
+					s.primed[id] = workerStart
+				}
 			}
 		}
 	}
@@ -692,9 +693,20 @@ func (s *server) scopeViewsLocked() []map[string]any {
 	views := []map[string]any{}
 	for id, state := range s.scopes {
 		home, _, _ := strings.Cut(id, "/")
-		views = append(views, map[string]any{"scope": id, "auth": state.auth, "running": state.running || len(state.gate) > 0 || len(state.authGate) > 0, "content_error": state.contentError, "primed": s.primed[home]})
+		views = append(views, map[string]any{"scope": id, "auth": state.auth, "running": state.running || len(state.gate) > 0 || len(state.authGate) > 0, "content_error": state.contentError, "primed": s.primedLocked(home)})
 	}
 	return views
+}
+
+// primedLocked reports whether a home scope's content is current without an
+// exchange: its newest complete content pass started after the newest server
+// invalidation (a pushed frame or a reconnect, e.g. after a server deploy).
+// Invalidations re-run content only for scopes with a live lease, so a scope
+// nobody is attached to is left unprimed until a launch or explicit sync
+// performs a full exchange again. s.mu must be held.
+func (s *server) primedLocked(home string) bool {
+	at, ok := s.primed[home]
+	return ok && at.After(s.invalidatedAt)
 }
 
 func stateID(job syncJob) string {

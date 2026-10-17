@@ -12,7 +12,7 @@ func TestPrimedScopeIsPerEngineAndHomeAndOnlyAfterContent(t *testing.T) {
 	if s.runSync(context.Background(), SyncRequest{Job: job, Operation: "primed"}).Primed {
 		t.Fatal("a fresh owner must not report a primed scope")
 	}
-	s.primed = map[string]bool{scopeID(job): true}
+	s.primed = map[string]time.Time{scopeID(job): time.Now()}
 	// A different session or account on the same native home shares the content.
 	other := job
 	other.SessionID, other.AccountID = "another-session", 42
@@ -21,7 +21,7 @@ func TestPrimedScopeIsPerEngineAndHomeAndOnlyAfterContent(t *testing.T) {
 	}
 	// Grok runtime brokers share one content scope too.
 	grok := fixtureJob(t, "grok")
-	s.primed[scopeID(grok)] = true
+	s.primed[scopeID(grok)] = time.Now()
 	brokered := grok
 	brokered.Auth, brokered.Broker = true, "/run/broker-a"
 	if !s.runSync(context.Background(), SyncRequest{Job: brokered, Operation: "primed"}).Primed {
@@ -29,6 +29,70 @@ func TestPrimedScopeIsPerEngineAndHomeAndOnlyAfterContent(t *testing.T) {
 	}
 	if s.runSync(context.Background(), SyncRequest{Job: fixtureJob(t, "claude"), Operation: "primed"}).Primed {
 		t.Fatal("another home must not inherit primed state")
+	}
+}
+
+// A server invalidation (a pushed frame or the reconnect after a deploy) only
+// re-runs content for scopes with a live lease. Every primed scope must
+// therefore stop answering primed until a content pass that started after it.
+func TestInvalidationUnprimesScopeUntilNextContentPass(t *testing.T) {
+	s := &server{dirty: make(chan struct{}, 1)}
+	job := fixtureJob(t, "codex")
+	primed := func() bool {
+		return s.runSync(context.Background(), SyncRequest{Job: job, Operation: "primed"}).Primed
+	}
+	s.mu.Lock()
+	s.stateLocked(job)
+	s.mu.Unlock()
+	s.primed = map[string]time.Time{scopeID(job): time.Now()}
+	if !primed() {
+		t.Fatal("a scope whose content pass followed every invalidation must be primed")
+	}
+	s.mu.Lock()
+	views := s.scopeViewsLocked()
+	s.mu.Unlock()
+	if len(views) != 1 || views[0]["primed"] != true {
+		t.Fatalf("status must report the current scope as primed: %+v", views)
+	}
+	time.Sleep(time.Millisecond)
+	s.invalidate()
+	if primed() {
+		t.Fatal("an invalidation must unprime a scope until its next content pass")
+	}
+	s.mu.Lock()
+	views = s.scopeViewsLocked()
+	s.mu.Unlock()
+	if len(views) != 1 || views[0]["primed"] != false {
+		t.Fatalf("status must not report a stale scope as primed: %+v", views)
+	}
+	// A pass that started before the invalidation read state older than it.
+	s.mu.Lock()
+	raced := s.invalidatedAt.Add(-time.Millisecond)
+	s.primed[scopeID(job)] = raced
+	s.mu.Unlock()
+	if primed() {
+		t.Fatal("a pass that started before the invalidation must not prime the scope")
+	}
+	s.mu.Lock()
+	s.primed[scopeID(job)] = s.invalidatedAt.Add(time.Millisecond)
+	s.mu.Unlock()
+	if !primed() {
+		t.Fatal("a pass that started after the invalidation must prime the scope again")
+	}
+}
+
+// An explicit sync never asks the owner: it always runs a content exchange.
+func TestExplicitContentIsNeverPrimed(t *testing.T) {
+	ctx := context.Background()
+	if ExplicitContent(ctx) {
+		t.Fatal("a plain context must not be an explicit sync")
+	}
+	ctx = WithExplicitContent(ctx)
+	if !ExplicitContent(ctx) {
+		t.Fatal("WithExplicitContent must mark the context")
+	}
+	if Primed(ctx, "https://example.invalid", "codex", "") {
+		t.Fatal("an explicit sync must never take the warm-cache path")
 	}
 }
 

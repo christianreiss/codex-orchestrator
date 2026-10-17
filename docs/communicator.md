@@ -20,6 +20,17 @@ The owner marks a scope (engine + canonical native home, shared by every
 session, account and Grok runtime broker on that home) as **primed** once it
 completes a content pass. A launch asks with the local `primed` sync
 operation, which answers from memory without a worker or gate.
+
+Primed is relative to the newest server invalidation (a pushed `invalidate`
+frame or a reconnect, which includes the reconnect after every API deploy):
+a scope answers primed only while its newest complete content pass started
+after that invalidation. Invalidations re-run content only for scopes with a
+live lease, so a scope nobody is attached to stays unprimed until the next
+launch or explicit sync performs a full exchange. Explicit `cdx sync` /
+`clx sync` (and the post-update pass) never ask: like `cgx sync`, they always
+run a content exchange. (Fixed 2026-10-17; earlier owners kept a scope primed
+for their whole lifetime, so a host without a live session of an engine kept
+pre-deploy content until `CXX_COMMUNICATOR_SYNC=1 cdx sync`.)
 - **Primed:** cdx/clx run an auth-only bootstrap (`skip_content`, sent as
   `include_content:false`) and apply no content; cgx sends no content exchange
   at all.

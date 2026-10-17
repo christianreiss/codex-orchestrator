@@ -229,7 +229,7 @@ func CacheEnabled(ctx context.Context, base string) bool {
 // synchronized, answers false. Any failure, including an older owner that does
 // not know the operation, is "not primed": the launch then bootstraps as before.
 func Primed(ctx context.Context, base, engine, authPath string) bool {
-	if !CacheEnabled(ctx, base) {
+	if ExplicitContent(ctx) || !CacheEnabled(ctx, base) {
 		return false
 	}
 	job, err := newSyncJob(ctx, base, engine, authPath)
@@ -252,6 +252,22 @@ func SyncAuthOnly(ctx context.Context, base, engine, authPath string, args []str
 	}
 	job.AccountID, job.SessionID = account, session
 	return submitSync(ctx, base, SyncRequest{Job: job, Operation: "bootstrap", IncludeAuth: true, SkipContent: true, Args: args})
+}
+
+type explicitContentKey struct{}
+
+// WithExplicitContent marks an explicit sync (`cdx sync`, `clx sync`, the
+// post-update pass): it always performs a full content exchange, so Primed
+// answers false without asking the owner. cgx sync already sends a content
+// operation and never consults Primed.
+func WithExplicitContent(ctx context.Context) context.Context {
+	return context.WithValue(ctx, explicitContentKey{}, true)
+}
+
+// ExplicitContent reports whether WithExplicitContent marked ctx.
+func ExplicitContent(ctx context.Context) bool {
+	v, _ := ctx.Value(explicitContentKey{}).(bool)
+	return v
 }
 
 type cachedContentKey struct{}
