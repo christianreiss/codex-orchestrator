@@ -2188,6 +2188,13 @@ parallelism is that daemon's `max_parallel`, idle close is its `idle_minutes` (d
 follow-up is a native resume of the same transcript. Model and effort are the advisor host's normal
 per-engine model override.
 
+Container: `docker compose --profile advisor` (or `COMPOSE_PROFILES=advisor` in `.env`) runs
+`advisor/` as uid 10001 with volumes `advisor_home` and `advisor_work`. Provision it once by
+registering a secure host with a permanent daemon (`username advisor`, `default_cwd /work`; System
+Spawn's `host_spawn_prepare` does this) and setting `ADVISOR_INSTALL_URL` to its installer URL; remove
+the variable after the first start. The host's CA bundle (`ADVISOR_CA_BUNDLE`, default
+`/etc/ssl/certs/ca-certificates.crt`) is mounted read-only, so a public API behind a private CA verifies.
+
 - `GET /admin/advisor` (`admin.read`): `{settings, availability, advisors[]}`, the last 100 advisor sessions with caller address, state and verdict.
 - `PUT /admin/advisor` (`agent_messaging.manage`): body `{enabled, host_id|null, engine}` (strict). Stored as the `advisor_settings` versions row; audited as `advisor.configured`, which is also the WS event.
 - `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/ask` (bridge token, agent identity required): `{question (≤90000), kind verify|tier_check|classify|general (default general), transfer_ids? (≤10), advisor_session_id?, client_message_id UUID}`. Without `advisor_session_id` it opens an advisor (202, idempotent per caller and `client_message_id`); with it, it queues a follow-up turn. Errors: `advisor_unavailable` (403, with the availability reason), `advisor_recursion` (403, an advisor session asking), `advisor_busy` (409, no free slot, or the advisor is still answering), `advisor_closed` (409).
