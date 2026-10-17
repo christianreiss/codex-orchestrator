@@ -8,6 +8,7 @@ import { Keyring } from './security/keyring.js';
 import { runBootMigrations } from './ops/boot-migrations.js';
 import { runBootChecks } from './ops/boot-checks.js';
 import { retireManagedContextRow } from './ops/retire-context-skill.js';
+import { ensureAdvisorHost } from './ops/ensure-advisor-host.js';
 import { ensureAgentPolicy } from './ops/ensure-agent-policy.js';
 import { startAuthVerificationWorker } from './ops/auth-verification-worker.js';
 import { startAuthRetentionWorker } from './ops/auth-retention-worker.js';
@@ -65,6 +66,17 @@ export async function buildServer() {
       console.warn(`[boot] could not retire legacy #context skill row: ${String(err)}`);
     });
   const keyring = Keyring.fromEnv(env);
+  // The Fleet Advisor's server-owned host. A failure only disables the
+  // advisor, never the API.
+  await ensureAdvisorHost(db, env, keyring)
+    .then((outcome) => {
+      if (outcome.status !== 'present') console.warn(`[boot] advisor host ${outcome.status} (#${outcome.host_id})`);
+      if (outcome.bootstrap === 'unwritable')
+        console.warn('[boot] cannot write DATA_ROOT/advisor/bootstrap.json; deploy.sh creates store/advisor owned by uid 10001');
+    })
+    .catch((err) => {
+      console.warn(`[boot] could not ensure the advisor host: ${String(err)}`);
+    });
 
   const app = Fastify({
     logger: loggerOptions(env),

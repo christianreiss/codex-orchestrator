@@ -703,11 +703,10 @@ deploy or recovery.
 
 In doubt about an approach, a fix, a task's tier or an unclear failure, ask the server-hosted advisor
 for a second opinion; it is never authority. \`advisor_ask\` (question, kind verify|tier_check|classify|general,
-stable UUID client_message_id, optional cxx transfer ids) returns an advisor session id. It cannot see
-your checkout: include the diff, error and constraints. Its answer arrives as an ADVISOR/1 peer
-message ending in a JSON verdict. Follow up with \`advisor_ask\` plus that id; \`advisor_status\` lists
-yours. When done, call \`advisor_close\`; idle advisors close after 60 minutes. On advisor_busy, continue
-and retry later.
+stable UUID client_message_id, optional engine/model, cxx transfer ids) returns an advisor session id;
+\`advisor_status\` lists the models you may pick. Include the diff, error and constraints: it cannot see
+your checkout. The answer arrives as an ADVISOR/1 peer message ending in a JSON verdict. Follow up with
+\`advisor_ask\` plus that id. When done, call \`advisor_close\`; idle advisors close after 60 minutes.
 `) : null;
   const modelTiersState: ManagedFeatureState = context.modelTiers?.enabled && context.modelTiers.table.length === 0
     ? { enabled: false, reason: 'no_models' }

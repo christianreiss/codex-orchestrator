@@ -330,6 +330,8 @@ describe('migrations against the test baseline', () => {
       'git_worktrees.head_observed_at',
       'agent_transfers.expected_size_bytes',
       'agent_transfers.expected_sha256',
+      'hosts.internal_role',
+      'host_daemon_sessions.model',
     ]);
   });
 

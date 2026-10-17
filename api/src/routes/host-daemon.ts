@@ -6,13 +6,14 @@ import type { RouteContext } from './index.js';
 import { hosts, hostDaemons, versions } from '../db/schema.js';
 import { HostDaemonService } from '../services/host-daemon/service.js';
 import { AdvisorService } from '../services/advisor.js';
+import { internalHostIds, isInternalHost } from '../services/internal-hosts.js';
 import { daemonSettingsSchema, daemonStartSchema, daemonAccepting, daemonExecutionEnabled } from '../services/host-daemon/policy.js';
 import { createHostAuthService } from '../services/host-auth.js';
 import { createAgentMessagingService } from '../services/agent-messaging.js';
 import { createAdminEventsService } from '../services/admin-events.js';
 import { InsecureWindowAdminService } from '../services/insecure-window-admin.js';
 import { makeAdminEventsWriter } from '../services/admin-events-writer.js';
-import { ForbiddenError } from '../http/errors.js';
+import { ForbiddenError, NotFoundError } from '../http/errors.js';
 
 export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteContext) {
   await registerWebsocketTransport(app);
@@ -41,11 +42,19 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
     return `agent:${session.agentBusAddressId}`;
   };
   app.get('/admin/host-daemons', { preHandler: app.requireAdmin }, async () => {
-    const rows = await ctx.db.select().from(hostDaemons);
+    const hidden = await internalHostIds(ctx.db);
+    const rows = (await ctx.db.select().from(hostDaemons)).filter((row) => !hidden.includes(row.hostId));
     return { hosts: await Promise.all(rows.map((row) => service.view(row.hostId))) };
   });
-  app.get('/admin/hosts/:id/daemon', { preHandler: app.requireAdmin }, (req) => service.view(hostId(req)));
+  // The advisor's server-owned host is managed by the stack, never by an admin.
+  const fleetHostId = async (req: FastifyRequest) => {
+    const id = hostId(req);
+    if (isInternalHost(await service.host(id))) throw new NotFoundError('Host not found');
+    return id;
+  };
+  app.get('/admin/hosts/:id/daemon', { preHandler: app.requireAdmin }, async (req) => service.view(await fleetHostId(req)));
   app.put('/admin/hosts/:id/daemon', { preHandler: app.requireAdmin }, async (req) => {
+    await fleetHostId(req);
     const settings = daemonSettingsSchema.parse(req.body);
     const result = await service.configure(hostId(req), settings);
     await events.record({
@@ -107,11 +116,12 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
     const actor = await owner(req);
     const body = z.object({ session_id: z.string().uuid().optional() }).strict().parse(req.body);
     if (body.session_id) return service.session(body.session_id, actor);
+    const hidden = await internalHostIds(ctx.db);
     const rows = await ctx.db.select().from(hostDaemons);
     return {
       hosts: await Promise.all(
         rows
-          .filter((r) => r.settings.enabled)
+          .filter((r) => r.settings.enabled && !hidden.includes(r.hostId))
           .map(async (r) => {
             const { sessions: _sessions, ...view } = await service.view(r.hostId);
             return view;
@@ -141,15 +151,6 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
   app.post('/host/agent-sessions/:sessionId/agent-messaging/advisor/status', async (req) =>
     advisor.status(await bridgeCaller(req), req.body),
   );
-  app.get('/admin/advisor', { preHandler: app.requireAdmin }, () => advisor.adminList());
-  app.put('/admin/advisor', { preHandler: app.requireAdmin }, async (req) => {
-    const result = await advisor.configure(req.body);
-    await events.record({
-      type: 'advisor.configured',
-      payload: { enabled: result.enabled, host_id: result.host_id, engine: result.engine, admin_user_id: req.admin!.user.id },
-    });
-    return result;
-  });
   app.post('/host/daemon/peer-finished', async (req) => {
     const host = await auth.authenticate(req);
     const body = z

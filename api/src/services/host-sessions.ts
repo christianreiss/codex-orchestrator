@@ -37,14 +37,16 @@ export class HostSessionsService {
     // conditional aggregate would feed the whole month's rows into DISTINCT;
     // this keeps that work bounded to recent hosts and preserves the previous
     // month's part of the recent window just after UTC midnight on the 1st.
+    // Server-owned hosts (the Fleet Advisor) are not fleet sessions.
+    const fleetHost = sql`${logs.hostId} NOT IN (SELECT id FROM hosts WHERE internal_role IS NOT NULL)`;
     const [result] = await this.db.execute(sql`
       SELECT
         (SELECT count(distinct ${logs.hostId}) FROM ${logs}
-          WHERE ${logs.action} = ${SESSION_ACTION} AND ${logs.createdAt} >= ${nowCutoff}) AS recent,
+          WHERE ${logs.action} = ${SESSION_ACTION} AND ${logs.createdAt} >= ${nowCutoff} AND ${fleetHost}) AS recent,
         (SELECT count(*) FROM ${logs}
-          WHERE ${logs.action} = ${SESSION_ACTION} AND ${logs.createdAt} >= ${todayCutoff}) AS today,
+          WHERE ${logs.action} = ${SESSION_ACTION} AND ${logs.createdAt} >= ${todayCutoff} AND ${fleetHost}) AS today,
         (SELECT count(*) FROM ${logs}
-          WHERE ${logs.action} = ${SESSION_ACTION} AND ${logs.createdAt} >= ${monthCutoff}) AS month
+          WHERE ${logs.action} = ${SESSION_ACTION} AND ${logs.createdAt} >= ${monthCutoff} AND ${fleetHost}) AS month
     `);
     // Drizzle's mysql2 raw executor types every result as a write header.
     const rows = result as unknown as Array<{

@@ -17,7 +17,6 @@ export const WS_EVENT_TYPES = [
   'chatty.settings',
   'host.daemon.changed',
   'host.daemon.configured',
-  'advisor.configured',
   'host.daemon.start_requested',
   'host.daemon.stop_requested',
   'accounts.updated',

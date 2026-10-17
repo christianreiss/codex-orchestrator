@@ -1,3 +1,4 @@
+import { visibleHost } from '../../../services/internal-hosts.js';
 import { pruneHosts } from '../../../services/host-lifecycle.js';
 import { ProviderAccountsService } from '../../../services/provider-accounts.js';
 import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../../services/pooled-auth-store.js';
@@ -12,7 +13,7 @@ import { createPooledAuthStoreService as createCanonicalAuthStoreService } from 
  */
 
 import type { FastifyInstance } from 'fastify';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type { RouteContext } from '../../index.js';
 import { ok } from '../../../http/reply.js';
 import { ValidationError, NotFoundError } from '../../../http/errors.js';
@@ -218,7 +219,7 @@ export async function registerAdminOverviewRoutes(
 
   // ── /admin/overview ───────────────────────────────────────────────────────
   app.get('/admin/overview', { preHandler: app.requireAdmin }, async () => {
-    const hostRows = await ctx.db.select().from(hosts);
+    const hostRows = await ctx.db.select().from(hosts).where(visibleHost);
     const latestLog = await dashboard.latestLog();
 
     const [versionSummary, claudeVersionSummary, codexAvailable, claudeAvailable, grokVersionSummary, grokAvailable] = await Promise.all([
@@ -412,7 +413,7 @@ export async function registerAdminOverviewRoutes(
     ]);
     const targets = { codex: codexTarget, claude: claudeTarget, grok: grokTarget };
     const [rows, codexCanonical, claudeCanonical, tokenRows, grokCanonical] = await Promise.all([
-      ctx.db.select().from(hosts).orderBy(hosts.fqdn),
+      ctx.db.select().from(hosts).where(visibleHost).orderBy(hosts.fqdn),
       runnerValidation.resolveCanonicalPayload(ENGINE_CODEX),
       runnerValidation.resolveCanonicalPayload(ENGINE_CLAUDE),
       // One read for every host, not one per row. Minting deletes a host's
@@ -507,7 +508,7 @@ export async function registerAdminOverviewRoutes(
     if (!Number.isFinite(id) || id <= 0) {
       throw new ValidationError('id must be a positive integer', { param: 'id' });
     }
-    const rows = await ctx.db.select().from(hosts).where(eq(hosts.id, id)).limit(1);
+    const rows = await ctx.db.select().from(hosts).where(and(eq(hosts.id, id), visibleHost)).limit(1);
     const h = rows[0];
     if (!h) throw new NotFoundError('Host not found', 'host_not_found');
     const [
@@ -632,7 +633,7 @@ export async function registerAdminOverviewRoutes(
     // this endpoint gives is true even if the worker is wedged.
     await insecureAdmin.sweepIfLapsed();
     const fleetWindow = await insecureAdmin.fleetWindowState();
-    const allHosts = await ctx.db.select().from(hosts);
+    const allHosts = await ctx.db.select().from(hosts).where(visibleHost);
     const nowMs = Date.now();
     const items: Array<{
       id: number;
@@ -704,7 +705,7 @@ export async function registerAdminOverviewRoutes(
   });
 
   app.post('/admin/hosts/insecure/extend', { preHandler: app.requireAdmin }, async () => {
-    const allHosts = await ctx.db.select().from(hosts);
+    const allHosts = await ctx.db.select().from(hosts).where(visibleHost);
     const nowMs = Date.now();
     // An open fleet window is a floor here. Without it, extending a fleet that
     // is open until this evening would pull every host back to its own stored

@@ -29,6 +29,7 @@ import { daemonSettingsSchema, daemonHealth, daemonExpired, daemonAccepting, dae
 import { ENGINE_HOST_FIELDS, type Engine } from '../../util/engine.js';
 import { messagingHostEligible } from '../agent-messaging.js';
 import { advisorSessionStopped, advisorTurnCompleted } from '../advisor-delivery.js';
+import { isInternalHost } from '../internal-hosts.js';
 
 import { daemonAccess, renewDaemonWindow, type DaemonDb } from './access.js';
 export interface PortalDaemonInput {
@@ -400,7 +401,11 @@ export class HostDaemonService {
     },
     owner: string,
     portalInput?: PortalDaemonInput,
+    options: { internal?: boolean; model?: string } = {},
   ) {
+    // Server-owned hosts (the Fleet Advisor) take work only from their facade.
+    if (isInternalHost(await this.host(input.host_id)) !== Boolean(options.internal))
+      throw new NotFoundError('Host not found');
     const config = await this.eligible(input.host_id, input.engine);
     const cwd = input.cwd || config.settings.default_cwd;
     if (cwd && (!cwd.startsWith('/') || cwd.includes('\0')))
@@ -437,6 +442,7 @@ export class HostDaemonService {
         username: locked.settings.username,
         cwd,
         title: input.title,
+        model: options.model ?? null,
         status: 'queued',
         lastActivityAt: now(),
         createdAt: now(),
@@ -650,6 +656,7 @@ export class HostDaemonService {
         engine: session.engine,
         cwd: session.cwd,
         title: session.title,
+        model: session.model ?? '',
         prompt: decrypt(op.promptEnc, this.ctx.keyring),
         address: address ? `agent:${address.id}` : '',
         binding_generation: address?.bindingGeneration ?? 0,

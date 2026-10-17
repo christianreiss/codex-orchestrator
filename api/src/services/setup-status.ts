@@ -1,3 +1,4 @@
+import { visibleHost } from './internal-hosts.js';
 import { and, eq, sql } from 'drizzle-orm';
 import { join, resolve } from 'node:path';
 import type { Database } from '../db/client.js';
@@ -95,7 +96,8 @@ export class SetupStatusService {
         whenDb(
           () => this.db
             .select({ id: hosts.id, codex: hosts.lastRefresh, claude: hosts.claudeLastRefresh, grok: hosts.grokLastRefresh })
-            .from(hosts),
+            .from(hosts)
+            .where(visibleHost),
           [],
         ),
         // Carried here so the dashboard resume card and the wizard itself can

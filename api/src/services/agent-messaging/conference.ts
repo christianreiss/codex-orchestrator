@@ -6,6 +6,7 @@
  * remains the interface every caller uses.
  */
 
+import { isInternalHost } from '../internal-hosts.js';
 import { randomInt, randomUUID } from 'node:crypto';
 
 import {
@@ -591,6 +592,9 @@ export class ConferenceCoordinator {
           if (invitee.id === chair.id) {
             throw new ValidationError('The chair is already in the conference', { param: 'to' });
           }
+          // Advisors answer only the agent that opened them.
+          const [inviteeHost] = await tx.select({ internalRole: hosts.internalRole }).from(hosts).where(eq(hosts.id, invitee.hostId)).limit(1);
+          if (isInternalHost(inviteeHost)) throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
           await this.core.assertAddressEligibleLocked(tx, invitee);
           const seated = await tx
             .select({ value: count() })

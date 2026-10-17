@@ -2221,36 +2221,49 @@ transcripts. No provider login is copied from another Unix account.
 ### Fleet Advisor
 
 Any agent can consult a server-hosted senior reviewer when in doubt: to verify a fix, rate a task's
-tier, classify a failure or ask a general question. The advisor is not a separate runtime. It is an
-ordinary host daemon session on one admin-chosen host (normally the stack's `advisor` container), so
-parallelism is that daemon's `max_parallel`, idle close is its `idle_minutes` (default 60) and each
-follow-up is a native resume of the same transcript. Model and effort are the advisor host's normal
-per-engine model override.
+tier, classify a failure or ask a general question. Each advisor is a host daemon session in the
+stack's own `advisor` container, so parallelism is that daemon's `max_parallel`, idle close is its
+`idle_minutes` (60) and each follow-up is a native resume of the same transcript.
 
-Container: `docker compose --profile advisor` (or `COMPOSE_PROFILES=advisor` in `.env`) runs
-`advisor/` as uid 10001 with volumes `advisor_home` and `advisor_work`. Provision it once by
-registering a secure host with a permanent daemon (`username advisor`, `default_cwd /work`; System
-Spawn's `host_spawn_prepare` does this), setting `ADVISOR_FQDN` to that host's FQDN (it becomes the
-container hostname, which cxx checks) and `ADVISOR_INSTALL_URL` to its installer URL; remove the URL
-after the first start. The installer reports INCOMPLETE in the container because there is no crontab or
-systemd; the daemon runs in the foreground instead, so the entrypoint checks for the binary and a
-signed config. The host's CA bundle (`ADVISOR_CA_BUNDLE`, default
+**Not part of the fleet.** The container's host is server-owned: `hosts.internal_role = 'advisor'`,
+FQDN `advisor.internal`. On every boot the API ensures it exists (`ops/ensure-advisor-host.ts`):
+secure, roaming IPs allowed, no reverse DNS, all engines, never pruned, and a permanent daemon
+`{username: advisor, default_cwd: /work, max_parallel: ADVISOR_MAX_PARALLEL (default 8), idle_minutes: 60}`.
+It never rotates the key. A v1 install's operator-picked advisor host (`advisor_settings` versions row)
+is adopted once and that row deleted. The host is filtered from every admin listing and count
+(hosts, overview, topology, agent sessions, host daemons, insecure windows, setup status, engine
+counts and destroy progress, messaging admin, Chatty), from fleet session counts, from `agent_list`
+and from `agent_spawn_status`. `agent_spawn`, `POST /admin/daemon-sessions` and
+`GET|PUT /admin/hosts/:id/daemon` answer 404 for it, and conference invites refuse its addresses.
+There is no operator setting: the advisor is available whenever its container's daemon is connected
+and Agent Messaging is on.
+
+**Container.** `docker compose --profile advisor` (keep it on every deploy by enabling the `advisor` compose profile in `.env`) runs
+`advisor/` as uid 10001, hostname `advisor.internal`, with volumes `advisor_home` and `advisor_work`.
+The API writes `{fqdn, api_key, base_url}` to `DATA_ROOT/advisor/bootstrap.json` (0600; `deploy.sh`
+and `install.sh` create the directory owned by 10001), which the container mounts read-only at
+`/bootstrap`. On each start the entrypoint fetches its signed configs from `/wrapper/v2/config`,
+installs cxx from `/wrapper/v2/download` if missing, runs `cxx update` and then `cxx daemon run`
+in the foreground. The host's CA bundle (`ADVISOR_CA_BUNDLE`, default
 `/etc/ssl/certs/ca-certificates.crt`) is mounted read-only, so a public API behind a private CA verifies.
 
-- `GET /admin/advisor` (`admin.read`): `{settings, availability, advisors[]}`, the last 100 advisor sessions with caller address, state and verdict.
-- `PUT /admin/advisor` (`agent_messaging.manage`): body `{enabled, host_id|null, engine}` (strict). Stored as the `advisor_settings` versions row; audited as `advisor.configured`, which is also the WS event.
-- `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/ask` (bridge token, agent identity required): `{question (≤90000), kind verify|tier_check|classify|general (default general), transfer_ids? (≤10), advisor_session_id?, client_message_id UUID}`. Without `advisor_session_id` it opens an advisor (202, idempotent per caller and `client_message_id`); with it, it queues a follow-up turn. Errors: `advisor_unavailable` (403, with the availability reason), `advisor_recursion` (403, an advisor session asking), `advisor_busy` (409, no free slot, or the advisor is still answering), `advisor_closed` (409).
+**Engine and model.** The caller may pass `engine` and/or `model`. Allowed are engines enabled
+fleet-wide, assigned to the advisor host and reported ready by its daemon, and for each the
+policy-allowed latest models (the managed Model Class Check list). The default is the strongest
+available model (highest tier, canonical engine order). The model is pinned on the daemon session
+(`host_daemon_sessions.model`), sent in the `operation` payload and in relay deliveries
+(`target.daemon_model`), and passed as the native `--model` on every turn (cxx ≥ 0.9.99).
+
+- `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/ask` (bridge token, agent identity required): `{question (≤90000), kind verify|tier_check|classify|general (default general), transfer_ids? (≤10), engine?, model?, advisor_session_id?, client_message_id UUID}`. Without `advisor_session_id` it opens an advisor (202, idempotent per caller and `client_message_id`); with it, it queues a follow-up turn. Errors: `advisor_unavailable` (403, with the availability reason), `advisor_model_unavailable` (409, names the allowed engine/model pairs), `advisor_recursion` (403, an advisor session asking), `advisor_busy` (409, no free slot, or the advisor is still answering), `advisor_closed` (409).
 - `POST .../advisor/close` `{advisor_session_id}`: the caller's done confirmation; stops the daemon session and records `close_reason: done`. Only the opening agent may close or follow up (403 otherwise).
-- `POST .../advisor/status` `{advisor_session_id?}`: one advisor, or the caller's last 20 plus current availability.
+- `POST .../advisor/status` `{advisor_session_id?}`: one advisor, or the caller's last 20 plus `availability` (`enabled`, `reason`, `engines`, `models[{engine, model, tier}]`, `default`).
 
 Advisor view fields: `advisor_session_id`, `kind`, `status` (`starting|open|closed|failed`, derived from the daemon session when it ended without the advisor row hearing of it), `busy`, `turns`, `advisor_address`, `conversation_id`, `verdict`, `close_reason` (`done|idle|stopped|error`), `created_at`, `closed_at`.
 
 Delivery: when a turn completes, the server queues a `kind: message`, `delivery_class: coordination` peer message from the advisor's own bus address to the caller, headed `ADVISOR/1 advisor_session_id=… turn=… kind=…`, in one conversation per advisor. The native answer is expected to end in a fenced JSON verdict `{verdict: agree|disagree|needs_info|n/a, tier?, recommended_model?, summary, evidence[]}`; the last valid one is stored encrypted. An idle-sweep close sends a `delivery_class: notice` message (`closed reason=idle`). A failed turn still sends the caller a message saying so.
 
-Availability (`advisor_unavailable` reasons): `advisor_disabled`, `advisor_host_unset`, `agent_messaging_disabled`, `advisor_host_missing`, `advisor_daemon_disabled`, `advisor_daemon_unhealthy`, `advisor_engine_unavailable`. The managed AGENTS.md/CLAUDE.md `## Fleet Advisor` block (section key `advisor`) is served only while Agent Messaging is on and the advisor is configured: enabled, host chosen and active, its daemon accepting, the engine active there. It ignores daemon heartbeats, so a reconnecting container does not churn every host's document.
+Availability reasons: `advisor_host_missing`, `agent_messaging_disabled`, `advisor_daemon_disabled`, `advisor_daemon_unhealthy`, `advisor_engine_unavailable`. The managed AGENTS.md/CLAUDE.md `## Fleet Advisor` block (section key `advisor`) is served only while Agent Messaging is on, the advisor host exists, its daemon accepts work and at least one engine is active there. It ignores daemon heartbeats, so a restarting container does not churn every host's document.
 
-- `GET /admin/advisor`
-- `PUT /admin/advisor`
 - `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/ask`
 - `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/close`
 - `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/status`

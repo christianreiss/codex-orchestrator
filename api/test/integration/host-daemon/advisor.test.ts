@@ -9,10 +9,13 @@ import {
   agentSessions,
   hostDaemonSessions,
   hosts,
+  versions,
 } from '../../../src/db/schema.js';
 import { HostDaemonService } from '../../../src/services/host-daemon/service.js';
-import { daemonSettingsSchema } from '../../../src/services/host-daemon/policy.js';
 import { AdvisorService, advisorConfigured } from '../../../src/services/advisor.js';
+import { ensureAdvisorHost } from '../../../src/ops/ensure-advisor-host.js';
+import { ADVISOR_FQDN, visibleHost } from '../../../src/services/internal-hosts.js';
+import { pruneHosts } from '../../../src/services/host-lifecycle.js';
 import { parseAdvisorVerdict } from '../../../src/services/advisor-delivery.js';
 import { decrypt } from '../../../src/security/secret-box.js';
 import { getTestDb } from '../../helpers/test-db.js';
@@ -31,19 +34,19 @@ describe('parseAdvisorVerdict', () => {
 
 describe.skipIf(!handle)('Fleet Advisor over the host daemon', () => {
   // describe.skipIf still evaluates this body; build the context only with a database.
-  const ctx = handle ? { db: handle.db, env: loadTestEnv(), keyring: testKeyring() } : (null as never);
-  let hostId: number, generation: string, daemon: HostDaemonService, advisor: AdvisorService;
+  const ctx = handle ? { db: handle.db, env: { ...loadTestEnv(), ADVISOR_MAX_PARALLEL: 2 }, keyring: testKeyring() } : (null as never);
+  let hostId: number, callerHostId: number, generation: string, daemon: HostDaemonService, advisor: AdvisorService;
   let callerAddress: string, caller: { session: typeof agentSessions.$inferSelect; host: typeof hosts.$inferSelect };
 
   const created: string[] = [];
-  const insertAddress = async (launchName: string) => {
+  const insertAddress = async (launchName: string, onHost = hostId) => {
     const id = randomUUID();
     created.push(id);
     await handle!.db.insert(agentBusAddresses).values({
       id,
       address: `agent:${id}`,
       launchName,
-      hostId,
+      hostId: onHost,
       engine: 'codex',
       username: 'root',
       cwd: '/tmp',
@@ -55,11 +58,11 @@ describe.skipIf(!handle)('Fleet Advisor over the host daemon', () => {
     });
     return id;
   };
-  const insertNative = async (addressId: string | null) => {
+  const insertNative = async (addressId: string | null, onHost = hostId) => {
     const id = randomUUID();
     await handle!.db.insert(agentSessions).values({
       id,
-      hostId,
+      hostId: onHost,
       engine: 'codex',
       username: 'root',
       cwd: '/tmp',
@@ -99,18 +102,14 @@ describe.skipIf(!handle)('Fleet Advisor over the host daemon', () => {
       createdAt: stamp(),
       updatedAt: stamp(),
     });
-    hostId = (await handle!.db.select().from(hosts).where(eq(hosts.fqdn, fqdn)))[0]!.id;
+    callerHostId = (await handle!.db.select().from(hosts).where(eq(hosts.fqdn, fqdn)))[0]!.id;
     await handle!.db.execute(
       sql`INSERT INTO versions (name,version,updated_at) VALUES ('agent_messaging_enabled','1',${stamp()}) ON DUPLICATE KEY UPDATE version='1'`,
     );
     daemon = new HostDaemonService(ctx);
     advisor = new AdvisorService(ctx);
-    await daemon.configure(hostId, daemonSettingsSchema.parse({ enabled: true, max_parallel: 2, default_cwd: '/work' }));
-    generation = (
-      await daemon.connect(hostId, { instance_id: randomUUID(), username: 'root', version: 'test', engines: ['codex'], error: null })
-    ).generation;
-    callerAddress = await insertAddress('Caller');
-    caller = { session: await insertNative(callerAddress), host: await daemon.host(hostId) };
+    callerAddress = await insertAddress('Caller', callerHostId);
+    caller = { session: await insertNative(callerAddress, callerHostId), host: await daemon.host(callerHostId) };
   });
   afterAll(async () => {
     // Other suites count bus rows globally (master-off cancel totals); leave none behind.
@@ -119,7 +118,8 @@ describe.skipIf(!handle)('Fleet Advisor over the host daemon', () => {
     await handle!.db.delete(agentBusConversations).where(or(inArray(agentBusConversations.addressAId, created), inArray(agentBusConversations.addressBId, created)));
     await handle!.db.delete(agentSessions).where(eq(agentSessions.hostId, hostId));
     await handle!.db.delete(agentBusAddresses).where(inArray(agentBusAddresses.id, created));
-    await handle!.db.delete(hosts).where(eq(hosts.id, hostId));
+    await handle!.db.delete(agentSessions).where(eq(agentSessions.hostId, callerHostId));
+    await handle!.db.delete(hosts).where(inArray(hosts.id, [hostId, callerHostId]));
     await handle!.db.execute(sql`DELETE FROM versions WHERE name = 'advisor_settings'`);
     await handle!.pool.end();
   });
@@ -143,16 +143,62 @@ describe.skipIf(!handle)('Fleet Advisor over the host daemon', () => {
     return address;
   };
 
-  it('stays hidden from guidance and refuses asks until an operator enables it', async () => {
-    expect(await advisorConfigured(handle!.db)).toEqual({ enabled: false, reason: 'advisor_disabled' });
+  it('provisions exactly one hidden advisor host at boot, idempotently and without key rotation', async () => {
+    expect(await advisorConfigured(handle!.db)).toEqual({ enabled: false, reason: 'advisor_host_missing' });
     await expect(
       advisor.ask(caller, { question: 'Is this safe?', client_message_id: randomUUID() }),
     ).rejects.toMatchObject({ code: 'advisor_unavailable' });
-    await advisor.configure({ enabled: true, host_id: hostId, engine: 'codex' });
+    const first = await ensureAdvisorHost(handle!.db, ctx.env, ctx.keyring);
+    expect(first.status).toBe('created');
+    hostId = first.host_id;
+    const [row] = await handle!.db.select().from(hosts).where(eq(hosts.id, hostId));
+    expect(row).toMatchObject({ fqdn: ADVISOR_FQDN, internalRole: 'advisor', secure: 1, allowRoamingIps: 1, reverseDnsMode: 0 });
+    const second = await ensureAdvisorHost(handle!.db, ctx.env, ctx.keyring);
+    expect(second).toMatchObject({ status: 'present', host_id: hostId });
+    expect((await handle!.db.select().from(hosts).where(eq(hosts.id, hostId)))[0]!.apiKeyHash).toBe(row!.apiKeyHash);
+    expect((await daemon.settings(hostId)).settings).toMatchObject({ enabled: true, username: 'advisor', default_cwd: '/work', max_parallel: 2 });
     expect(await advisorConfigured(handle!.db)).toEqual({ enabled: true, reason: 'ok' });
+
+    // Not part of the fleet: never listed, never pruned, never a spawn target.
+    expect((await handle!.db.select({ id: hosts.id }).from(hosts).where(visibleHost)).map((h) => h.id)).not.toContain(hostId);
+    await handle!.db.update(hosts).set({ updatedAt: '2000-01-01T00:00:00.000Z', createdAt: '2000-01-01T00:00:00.000Z' }).where(eq(hosts.id, hostId));
+    await pruneHosts(handle!.db);
+    expect(await handle!.db.select().from(hosts).where(eq(hosts.id, hostId))).toHaveLength(1);
+    await handle!.db.update(hosts).set({ updatedAt: stamp() }).where(eq(hosts.id, hostId));
+
+    // Production gets these from the account pool on first auth.
+    await handle!.db.update(hosts).set({ authDigest: 'test', claudeAuthDigest: 'test', grokAuthDigest: 'test' }).where(eq(hosts.id, hostId));
+    generation = (
+      await daemon.connect(hostId, { instance_id: randomUUID(), username: 'advisor', version: 'test', engines: ['codex'], error: null })
+    ).generation;
+    await expect(
+      daemon.start({ host_id: hostId, engine: 'codex', title: 'x', prompt: 'x', client_message_id: randomUUID() }, `agent:${callerAddress}`),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('offers only enabled models of ready engines and pins the chosen one on the session', async () => {
+    const status = (await advisor.status(caller, {})) as { availability: { engines: string[]; default: { engine: string; model: string } } };
+    expect(status.availability.engines).toEqual(['codex']);
+    expect(status.availability.default.engine).toBe('codex');
+    await expect(
+      advisor.ask(caller, { question: 'q', engine: 'claude', client_message_id: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'advisor_model_unavailable', status: 409 });
+    await expect(
+      advisor.ask(caller, { question: 'q', model: 'gpt-0-nope', client_message_id: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'advisor_model_unavailable' });
+    const opened = await advisor.ask(caller, { question: 'Tier?', kind: 'tier_check', client_message_id: randomUUID() });
+    const op = (await daemon.offer(hostId, generation))!;
+    expect(op.model).toBe(status.availability.default.model);
+    await daemon.accept(hostId, op.operation_id, op.claim_id);
+    const address = await insertAddress('Advisor');
+    await daemon.bind(hostId, op.operation_id, op.claim_id, (await insertNative(address)).id, address);
+    await daemon.complete(hostId, op.operation_id, op.claim_id, { status: 'completed', reply: 'Tier 2.', upstream_session_id: `upstream-${address}` });
+    await advisor.close(caller, { advisor_session_id: opened.advisor_session_id });
   });
 
   it('answers, follows up, records the verdict and closes on done', async () => {
+    const earlier = (await inbox()).length;
+    const fresh = async () => (await inbox()).slice(earlier);
     const clientId = randomUUID();
     const opened = await advisor.ask(caller, { question: 'Verify this fix', kind: 'verify', client_message_id: clientId });
     expect(opened).toMatchObject({ status: 'starting', kind: 'verify', turns: 0 });
@@ -161,7 +207,7 @@ describe.skipIf(!handle)('Fleet Advisor over the host daemon', () => {
       .toBe(opened.advisor_session_id);
 
     const advisorAddress = await runTurn('Looks right.\n```json\n{"verdict":"agree","summary":"Correct."}\n```');
-    let messages = await inbox();
+    let messages = await fresh();
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatchObject({ senderAddressId: advisorAddress, deliveryClass: 'coordination', status: 'queued' });
     const first = decrypt(messages[0]!.contentEnc, ctx.keyring);
@@ -180,7 +226,7 @@ describe.skipIf(!handle)('Fleet Advisor over the host daemon', () => {
       advisor.ask(caller, { question: 'Again?', advisor_session_id: opened.advisor_session_id, client_message_id: randomUUID() }),
     ).rejects.toMatchObject({ code: 'advisor_busy' });
     await runTurn('Edge case missed.\n```json\n{"verdict":"disagree","summary":"Null input."}\n```', advisorAddress);
-    messages = await inbox();
+    messages = await fresh();
     expect(messages).toHaveLength(2);
     // Every turn speaks in the one conversation the first answer opened.
     expect(messages[1]!.conversationId).toBe(messages[0]!.conversationId);
@@ -199,8 +245,8 @@ describe.skipIf(!handle)('Fleet Advisor over the host daemon', () => {
   it('refuses strangers and advisors calling advisors', async () => {
     const opened = await advisor.ask(caller, { question: 'Classify', kind: 'classify', client_message_id: randomUUID() });
     const advisorAddress = await runTurn('Config drift.');
-    const strangerAddress = await insertAddress('Stranger');
-    const stranger = { session: await insertNative(strangerAddress), host: caller.host };
+    const strangerAddress = await insertAddress('Stranger', callerHostId);
+    const stranger = { session: await insertNative(strangerAddress, callerHostId), host: caller.host };
     await expect(advisor.close(stranger, { advisor_session_id: opened.advisor_session_id })).rejects.toMatchObject({ status: 403 });
     const self = { session: await insertNative(advisorAddress), host: caller.host };
     await expect(
@@ -243,5 +289,19 @@ describe.skipIf(!handle)('Fleet Advisor over the host daemon', () => {
       .from(advisorSessions)
       .where(and(eq(advisorSessions.callerAddressId, callerAddress), eq(advisorSessions.status, 'starting')));
     for (const row of rows) await advisor.close(caller, { advisor_session_id: row.id });
+  });
+
+  it('adopts the v1 operator-picked advisor host instead of creating a second one', async () => {
+    await handle!.db.delete(advisorSessions).where(eq(advisorSessions.hostId, hostId));
+    await handle!.db.delete(hosts).where(eq(hosts.id, hostId));
+    const fqdn = `legacy-advisor-${randomUUID()}.test`;
+    await handle!.db.insert(hosts).values({ fqdn, apiKey: 'f'.repeat(64), apiKeyHash: createHash('sha256').update(fqdn).digest('hex'), engines: 'claude', status: 'active', createdAt: stamp(), updatedAt: stamp() });
+    const legacyId = (await handle!.db.select().from(hosts).where(eq(hosts.fqdn, fqdn)))[0]!.id;
+    await handle!.db.insert(versions).values({ name: 'advisor_settings', version: JSON.stringify({ enabled: true, host_id: legacyId, engine: 'claude' }), updatedAt: stamp() });
+    const adopted = await ensureAdvisorHost(handle!.db, ctx.env, ctx.keyring);
+    expect(adopted).toMatchObject({ status: 'adopted', host_id: legacyId });
+    hostId = legacyId;
+    expect((await handle!.db.select().from(hosts).where(eq(hosts.id, legacyId)))[0]).toMatchObject({ fqdn: ADVISOR_FQDN, internalRole: 'advisor' });
+    expect(await handle!.db.select().from(versions).where(eq(versions.name, 'advisor_settings'))).toHaveLength(0);
   });
 });

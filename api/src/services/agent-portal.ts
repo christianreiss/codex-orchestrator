@@ -1,3 +1,4 @@
+import { visibleHost } from './internal-hosts.js';
 import { acceptActivity, activityView, type ActivityInput } from './agent-activity.js';
 import { ChatAttachments } from './agent-chat/attachments.js';
 import { normalizeWorkspace, type WorkspaceInput } from './agent-messaging/workspace.js';
@@ -532,7 +533,7 @@ export class AgentPortalService {
       .select({ session: agentSessions, host: hosts })
       .from(agentSessions)
       .innerJoin(hosts, eq(hosts.id, agentSessions.hostId))
-      .where(or(isNull(agentSessions.endedAt), gt(agentSessions.expiresAt, now), sql`EXISTS (SELECT 1 FROM agent_chat_notices n WHERE n.session_id = ${agentSessions.id} AND n.resolved_at IS NULL)`))
+      .where(and(visibleHost, or(isNull(agentSessions.endedAt), gt(agentSessions.expiresAt, now), sql`EXISTS (SELECT 1 FROM agent_chat_notices n WHERE n.session_id = ${agentSessions.id} AND n.resolved_at IS NULL)`)))
       .orderBy(desc(agentSessions.startedAt));
     const sessionIds = rows.map((row) => row.session.id);
     const reboots = sessionIds.length ? await this.db.select().from(agentRebootHandoffs).where(or(inArray(agentRebootHandoffs.oldSessionId, sessionIds), inArray(agentRebootHandoffs.newSessionId, sessionIds))) : [];

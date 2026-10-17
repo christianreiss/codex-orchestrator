@@ -1,12 +1,13 @@
 /**
  * Fleet Advisor: a server-hosted second opinion any agent can consult.
  *
- * The advisor is not a new runtime. It is an ordinary host daemon session on
- * one admin-chosen host (normally the stack's `advisor` container), so
- * concurrency (`max_parallel`), idle close (`idle_minutes`) and native resume
+ * The advisor is not a new runtime. Each advisor is a host daemon session on
+ * the stack's own `advisor` container, a server-owned host that no listing
+ * shows (`internal-hosts.ts`, provisioned by `ops/ensure-advisor-host.ts`).
+ * Concurrency (`max_parallel`), idle close (`idle_minutes`) and native resume
  * come from `HostDaemonService`. This facade adds the binding to the caller,
- * the role prompt, follow-up turns and an explicit close; the delivery of each
- * answer into the caller's mailbox lives in `advisor-delivery.ts`.
+ * the caller's engine/model choice, the role prompt, follow-up turns and an
+ * explicit close; delivery of each answer lives in `advisor-delivery.ts`.
  */
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray } from 'drizzle-orm';
@@ -17,11 +18,10 @@ import {
   agentBusAddresses,
   hostDaemons,
   hostDaemonSessions,
-  hosts,
   type Host,
   type AgentSession,
 } from '../db/schema.js';
-import { ConflictError, ForbiddenError, NotFoundError } from '../http/errors.js';
+import { ApiError, ConflictError, ForbiddenError, NotFoundError } from '../http/errors.js';
 import { decrypt } from '../security/secret-box.js';
 import { ENGINES, type Engine } from '../util/engine.js';
 import { SettingsService } from './settings.js';
@@ -31,18 +31,10 @@ import { daemonAccepting } from './host-daemon/policy.js';
 import { activeHostEngines } from './host-engine-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
 import type { Database } from '../db/client.js';
+import { advisorHost } from './internal-hosts.js';
+import { readModelPolicy } from './model-policy.js';
+import { buildModelTierTable, modelTier } from './model-tiers.js';
 import { ADVISOR_KINDS, type AdvisorKind } from './advisor-delivery.js';
-
-export const ADVISOR_SETTINGS_KEY = 'advisor_settings';
-
-export const advisorSettingsSchema = z
-  .object({
-    enabled: z.boolean().default(false),
-    host_id: z.number().int().positive().nullable().default(null),
-    engine: z.enum(ENGINES as unknown as [Engine, ...Engine[]]).default('claude'),
-  })
-  .strict();
-export type AdvisorSettings = z.infer<typeof advisorSettingsSchema>;
 
 export const advisorAskSchema = z
   .object({
@@ -50,6 +42,8 @@ export const advisorAskSchema = z
     kind: z.enum(ADVISOR_KINDS).default('general'),
     transfer_ids: z.array(z.string().trim().min(1).max(64)).max(10).optional(),
     advisor_session_id: z.string().uuid().optional(),
+    engine: z.enum(ENGINES as unknown as [Engine, ...Engine[]]).optional(),
+    model: z.string().trim().min(1).max(128).optional(),
     client_message_id: z.string().uuid(),
   })
   .strict();
@@ -58,34 +52,27 @@ export type AdvisorAsk = z.infer<typeof advisorAskSchema>;
 export interface AdvisorAvailability {
   enabled: boolean;
   reason: string;
-  host_id: number | null;
-  engine: Engine;
+  /** Engines an advisor can run on right now, with the models a caller may pick. */
+  engines: Engine[];
+  models: Array<{ engine: Engine; model: string; tier: number | null }>;
+  /** What an ask without engine/model gets: the highest-tier model available. */
+  default: { engine: Engine; model: string } | null;
 }
 
 /**
- * Static readiness for guidance: advisor enabled, host chosen, its daemon
- * enabled and the engine active there. Deliberately ignores daemon heartbeats,
- * so a reconnecting container does not churn every host's served AGENTS.md;
- * live health is checked by `AdvisorService.availability` on each ask.
+ * Static readiness for guidance: the advisor host exists, its daemon accepts
+ * work and at least one engine is active there. Deliberately ignores daemon
+ * heartbeats, so a restarting container does not churn every host's served
+ * AGENTS.md; live readiness is checked by `AdvisorService.availability`.
  */
 export async function advisorConfigured(db: Database): Promise<{ enabled: boolean; reason: string }> {
-  const store = new SettingsService(db);
-  const raw = await store.getRaw(ADVISOR_SETTINGS_KEY);
-  let settings: AdvisorSettings;
-  try {
-    settings = advisorSettingsSchema.parse(raw ? JSON.parse(raw) : {});
-  } catch {
-    settings = advisorSettingsSchema.parse({});
-  }
-  if (!settings.enabled) return { enabled: false, reason: 'advisor_disabled' };
-  if (settings.host_id === null) return { enabled: false, reason: 'advisor_host_unset' };
-  const [[host], [daemon]] = await Promise.all([
-    db.select().from(hosts).where(eq(hosts.id, settings.host_id)).limit(1),
-    db.select().from(hostDaemons).where(eq(hostDaemons.hostId, settings.host_id)).limit(1),
-  ]);
-  if (!host || host.status !== 'active') return { enabled: false, reason: 'advisor_host_inactive' };
+  const host = await advisorHost(db);
+  if (!host) return { enabled: false, reason: 'advisor_host_missing' };
+  if (!(await new SettingsService(db).getFlag(AGENT_MESSAGING_ENABLED_KEY, false)))
+    return { enabled: false, reason: 'agent_messaging_disabled' };
+  const [daemon] = await db.select().from(hostDaemons).where(eq(hostDaemons.hostId, host.id)).limit(1);
   if (!daemon || !daemonAccepting(daemon.settings)) return { enabled: false, reason: 'advisor_daemon_disabled' };
-  if (!activeHostEngines(host.engines, await readFleetEngineState(db)).includes(settings.engine))
+  if (!activeHostEngines(host.engines, await readFleetEngineState(db)).length)
     return { enabled: false, reason: 'advisor_engine_unavailable' };
   return { enabled: true, reason: 'ok' };
 }
@@ -150,46 +137,59 @@ export class AdvisorService {
     this.daemon = new HostDaemonService(ctx);
   }
 
-  async settings(): Promise<AdvisorSettings> {
-    const raw = await this.settingsStore.getRaw(ADVISOR_SETTINGS_KEY);
-    if (!raw) return advisorSettingsSchema.parse({});
-    try {
-      return advisorSettingsSchema.parse(JSON.parse(raw));
-    } catch {
-      return advisorSettingsSchema.parse({});
-    }
-  }
-
-  async configure(input: unknown): Promise<AdvisorSettings & { availability: AdvisorAvailability }> {
-    const settings = advisorSettingsSchema.parse(input);
-    if (settings.host_id !== null) await this.daemon.host(settings.host_id);
-    await this.settingsStore.set(ADVISOR_SETTINGS_KEY, JSON.stringify(settings));
-    return { ...settings, availability: await this.availability() };
-  }
-
-  /** Whether an agent may open an advisor right now; drives the managed AGENTS.md section too. */
-  async availability(): Promise<AdvisorAvailability> {
-    const settings = await this.settings();
-    const result = (enabled: boolean, reason: string): AdvisorAvailability => ({
+  /**
+   * Whether an agent may open an advisor right now, and on what. Engines are
+   * those enabled fleet-wide, assigned to the advisor host and reported ready
+   * by its daemon; models are each engine's policy-allowed latest models, the
+   * same list the managed Model Class Check offers.
+   */
+  async availability(): Promise<AdvisorAvailability & { host_id: number | null }> {
+    const result = (enabled: boolean, reason: string, extra: Partial<AdvisorAvailability> = {}, hostId: number | null = null) => ({
       enabled,
       reason,
-      host_id: settings.host_id,
-      engine: settings.engine,
+      engines: [],
+      models: [],
+      default: null,
+      host_id: hostId,
+      ...extra,
     });
-    if (!settings.enabled) return result(false, 'advisor_disabled');
-    if (settings.host_id === null) return result(false, 'advisor_host_unset');
+    const host = await advisorHost(this.ctx.db);
+    if (!host) return result(false, 'advisor_host_missing');
     if (!(await this.settingsStore.getFlag(AGENT_MESSAGING_ENABLED_KEY, false)))
-      return result(false, 'agent_messaging_disabled');
-    try {
-      const view = await this.daemon.view(settings.host_id);
-      if (!view.enabled) return result(false, 'advisor_daemon_disabled');
-      if (view.health.state === 'red') return result(false, 'advisor_daemon_unhealthy');
-      if (!view.engines.includes(settings.engine)) return result(false, 'advisor_engine_unavailable');
-    } catch (error) {
-      if (error instanceof NotFoundError) return result(false, 'advisor_host_missing');
-      throw error;
+      return result(false, 'agent_messaging_disabled', {}, host.id);
+    const view = await this.daemon.view(host.id);
+    if (!view.enabled) return result(false, 'advisor_daemon_disabled', {}, host.id);
+    if (view.health.state === 'red') return result(false, 'advisor_daemon_unhealthy', {}, host.id);
+    const active = activeHostEngines(host.engines, await readFleetEngineState(this.ctx.db));
+    const engines = ENGINES.filter((engine) => active.includes(engine) && view.engines.includes(engine));
+    if (!engines.length) return result(false, 'advisor_engine_unavailable', {}, host.id);
+    const models: AdvisorAvailability['models'] = [];
+    const byEngine: Partial<Record<Engine, string[]>> = {};
+    for (const engine of engines) {
+      const policy = await readModelPolicy(this.ctx.db, engine);
+      byEngine[engine] = policy.latest_models.filter((model) => !(policy.disabled_models ?? []).includes(model));
+      for (const model of byEngine[engine]!) models.push({ engine, model, tier: modelTier(engine, model) });
     }
-    return result(true, 'ok');
+    const strongest = buildModelTierTable(engines, byEngine).at(-1)?.models[0] ?? null;
+    return result(true, 'ok', { engines, models, default: strongest }, host.id);
+  }
+
+  /** The caller's engine/model, or the strongest available; refuses anything outside the allowed set. */
+  private choose(availability: AdvisorAvailability, input: AdvisorAsk): { engine: Engine; model: string } {
+    const unavailable = (what: string) =>
+      new ApiError(`${what} is not available to the Fleet Advisor; allowed: ${availability.models.map((m) => `${m.engine}/${m.model}`).join(', ')}`, {
+        status: 409,
+        code: 'advisor_model_unavailable',
+      });
+    if (!input.engine && !input.model) return availability.default!;
+    const engine = input.engine ?? availability.models.find((m) => m.model === input.model)?.engine;
+    if (!engine || !availability.engines.includes(engine)) throw unavailable(`Engine ${input.engine ?? 'for that model'}`);
+    if (!input.model) {
+      const table = buildModelTierTable([engine], { [engine]: availability.models.filter((m) => m.engine === engine).map((m) => m.model) });
+      return table.at(-1)!.models[0]!;
+    }
+    if (!availability.models.some((m) => m.engine === engine && m.model === input.model)) throw unavailable(`Model ${engine}/${input.model}`);
+    return { engine, model: input.model };
   }
 
   private callerAddress(caller: AdvisorCaller) {
@@ -210,6 +210,7 @@ export class AdvisorService {
     const availability = await this.availability();
     if (!availability.enabled) throw new ForbiddenError(`Fleet Advisor is unavailable (${availability.reason})`, 'advisor_unavailable');
     const hostId = availability.host_id!;
+    const choice = this.choose(availability, input);
     const [self] = await this.ctx.db
       .select({ id: hostDaemonSessions.id })
       .from(hostDaemonSessions)
@@ -228,7 +229,7 @@ export class AdvisorService {
     const started = await this.daemon.start(
       {
         host_id: hostId,
-        engine: availability.engine,
+        engine: choice.engine,
         title: `Advisor (${input.kind}) for ${callerName}`.slice(0, 160),
         prompt: rolePrompt({
           callerName,
@@ -242,6 +243,8 @@ export class AdvisorService {
         client_message_id: input.client_message_id,
       },
       `agent:${callerId}`,
+      undefined,
+      { internal: true, model: choice.model },
     );
     await this.ctx.db
       .insert(advisorSessions)
@@ -319,15 +322,6 @@ export class AdvisorService {
       .orderBy(desc(advisorSessions.createdAt))
       .limit(20);
     return { availability: await this.availability(), advisors: await Promise.all(rows.map((row) => this.view(row))) };
-  }
-
-  async adminList() {
-    const rows = await this.ctx.db.select().from(advisorSessions).orderBy(desc(advisorSessions.createdAt)).limit(100);
-    return {
-      settings: await this.settings(),
-      availability: await this.availability(),
-      advisors: await Promise.all(rows.map(async (row) => ({ ...(await this.view(row)), caller: `agent:${row.callerAddressId}` }))),
-    };
   }
 
   private async view(row: typeof advisorSessions.$inferSelect) {

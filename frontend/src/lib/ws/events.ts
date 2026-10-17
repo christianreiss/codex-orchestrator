@@ -27,7 +27,6 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "chatty.settings": [["chatty"]],
  "host.daemon.changed": [["host-daemons"], ["daemon-sessions"], ["topology"]],
  "host.daemon.configured": [["host-daemons"]],
- "advisor.configured": [["advisor"]],
  "host.daemon.start_requested": [["host-daemons"], ["daemon-sessions"]],
  "host.daemon.stop_requested": [["host-daemons"], ["daemon-sessions"], ["topology"]],
   // A reconnect has no durable WS replay; resample retained client snapshots.

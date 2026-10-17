@@ -1037,10 +1037,8 @@ See the optional host execution daemon contract in [interface-api.md](interface-
 
 ### Fleet Advisor
 
-A server-hosted second opinion served by the advisor host's daemon. See [interface-api.md](interface-api.md#fleet-advisor).
+A server-hosted second opinion served by the stack's hidden `advisor` container. See [interface-api.md](interface-api.md#fleet-advisor).
 
-- `GET /admin/advisor`
-- `PUT /admin/advisor`
 - `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/ask`
 - `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/close`
 - `POST /host/agent-sessions/:sessionId/agent-messaging/advisor/status`

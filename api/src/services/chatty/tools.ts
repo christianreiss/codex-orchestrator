@@ -1,3 +1,4 @@
+import { visibleHost } from '../internal-hosts.js';
 import { z } from 'zod';
 import { eq, like, desc, and } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
@@ -211,7 +212,7 @@ export function administrationTools(): ChattyTool[] {
           await c.db
             .select()
             .from(hosts)
-            .where(like(hosts.fqdn, `%${a.query}%`))
+            .where(and(like(hosts.fqdn, `%${a.query}%`), visibleHost))
             .limit(50),
         ),
     ),

@@ -1,3 +1,4 @@
+import { visibleHost } from '../internal-hosts.js';
 import { assertAliasOutsideNamePool } from './names.js';
 import { deriveAddressPresence } from '../agent-presence.js';
 import { receiverView } from '../agent-receiver-state.js';
@@ -99,7 +100,7 @@ export class AgentMessagingAdmin {
           .from(agentBusAddresses)
           .innerJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
           .leftJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
-          .where(and(eq(agentBusAddresses.enabled, 1), isNull(agentBusAddresses.archivedAt))),
+          .where(and(eq(agentBusAddresses.enabled, 1), isNull(agentBusAddresses.archivedAt), visibleHost)),
         this.core.db
           .select({
             tokenExpiresAt: agentBusRelays.tokenExpiresAt,
@@ -109,7 +110,7 @@ export class AgentMessagingAdmin {
           })
           .from(agentBusRelays)
           .innerJoin(hosts, eq(hosts.id, agentBusRelays.hostId))
-          .where(eq(agentBusRelays.status, 'active')),
+          .where(and(eq(agentBusRelays.status, 'active'), visibleHost)),
         this.core.db.select({ value: count() }).from(agentBusMessages).where(eq(agentBusMessages.status, 'queued')),
         this.core.db.select({ value: count() }).from(agentBusMessages).where(eq(agentBusMessages.status, 'leased')),
         this.core.db.select({ value: count() }).from(agentBusMessages).where(eq(agentBusMessages.status, 'accepted')),
@@ -331,7 +332,7 @@ export class AgentMessagingAdmin {
       .from(agentBusAddresses)
       .innerJoin(hosts, eq(hosts.id, agentBusAddresses.hostId))
       .leftJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
-      .where(isNull(agentBusAddresses.archivedAt))
+      .where(and(isNull(agentBusAddresses.archivedAt), visibleHost))
       .orderBy(desc(agentBusAddresses.lastSeenAt));
     const queueRows = await this.core.db
       .select({ targetAddressId: agentBusMessages.targetAddressId, value: count() })

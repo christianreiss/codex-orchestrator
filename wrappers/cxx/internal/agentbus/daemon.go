@@ -62,6 +62,8 @@ type daemonOperation struct {
 	Address    string `json:"address"`
 	Generation int    `json:"binding_generation"`
 	Upstream   string `json:"upstream_session_id"`
+	// Model is pinned per daemon session (Fleet Advisor); empty uses the host's.
+	Model string `json:"model,omitempty"`
 }
 type daemonResult struct {
 	Status   string `json:"status"`
@@ -759,7 +761,7 @@ func runDaemonOperation(ctx context.Context, op daemonOperation) daemonResult {
 	if err != nil {
 		return daemonResult{Status: "failed", Reply: err.Error()}
 	}
-	args := nativeArgs(op.Engine, op.Upstream)
+	args := nativeArgs(op.Engine, op.Upstream, op.Model)
 	prompt := op.Prompt + "\n\nSession title: " + op.Title
 	if op.Engine == config.EngineGrok {
 		file, err := os.CreateTemp("", "cxx-daemon-prompt-*")

@@ -144,6 +144,8 @@ const schema = z
     // The existing switch and bounded bridge/retention timers retain their
     // contract names; the /go magic-link browser surface has been removed.
     AGENT_PORTAL_RETENTION_HOURS: intish(24).pipe(z.number().int().positive()),
+    // Fleet Advisor: parallel advisor sessions in the `advisor` container.
+    ADVISOR_MAX_PARALLEL: intish(8).pipe(z.number().int().min(1).max(64)),
     AGENT_PORTAL_BRIDGE_TTL_SECONDS: intish(900).pipe(z.number().int().positive()),
     AGENT_PORTAL_PURGE_INTERVAL_SECONDS: intish(300).pipe(z.number().int().positive()),
 

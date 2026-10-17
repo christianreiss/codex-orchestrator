@@ -322,7 +322,6 @@
       "GET /admin/chatty/status",
       "GET /admin/daemon-sessions/:id",
       "GET /admin/communicators",
-      "GET /admin/advisor",
       "GET /admin/host-daemons",
       "GET /admin/setup/status",
       "GET /admin/setup/wizard",
@@ -376,7 +375,6 @@
       "POST /admin/watchdogs",
       "PUT /admin/chatty/selection",
       "PUT /admin/chatty/settings",
-      "PUT /admin/advisor",
       "PUT /admin/hosts/:id/daemon"
     ]
   }

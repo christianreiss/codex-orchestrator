@@ -170,24 +170,24 @@ services:
       start_period: 60s
     restart: unless-stopped
 
-  # Fleet Advisor host (opt-in: --profile advisor or COMPOSE_PROFILES=advisor).
-  # A registered fleet host running `cxx daemon run`; each advisor is one daemon
-  # session. First start needs ADVISOR_INSTALL_URL (see docs/interface-api.md#fleet-advisor);
-  # afterwards everything it provisioned lives in the advisor_home volume.
+  # Fleet Advisor (opt-in: --profile advisor or COMPOSE_PROFILES=advisor).
+  # Runs `cxx daemon run` for a server-owned host the API provisions itself and
+  # never lists; each advisor is one daemon session. Its credential arrives via
+  # the read-only bootstrap mount (see docs/interface-api.md#fleet-advisor).
   advisor:
     profiles: ["advisor"]
     build:
       context: ./advisor
-    # cxx refuses to sync when the hostname differs from the registered FQDN.
-    hostname: ${ADVISOR_FQDN:-advisor.localdomain}
+    # cxx refuses to sync when the hostname differs from the host's FQDN.
+    hostname: advisor.internal
     environment:
-      ADVISOR_INSTALL_URL: ${ADVISOR_INSTALL_URL:-}
       # Trust what the host trusts: the public API may sit behind a private CA.
       SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
       NODE_EXTRA_CA_CERTS: /etc/ssl/certs/ca-certificates.crt
     volumes:
       - advisor_home:/home/advisor
       - advisor_work:/work
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store/advisor:/bootstrap:ro
       - ${ADVISOR_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}:/etc/ssl/certs/ca-certificates.crt:ro
     cpus: ${ADVISOR_CPUS:-4}
     mem_limit: ${ADVISOR_MEMORY:-8g}

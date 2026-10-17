@@ -368,19 +368,22 @@ else
   publish_wrappers "${wrapper_version}" "${wrapper_root}"
 fi
 
-# Existing stores deliberately stay root-owned. Only private runtime chat files
-# need the API/worker uid, including upgrades that never rerun the installer.
+# Existing stores deliberately stay root-owned. Only private runtime files
+# need the API/worker uid, including upgrades that never rerun the installer:
+# chat attachments, and the advisor container's bootstrap credential.
 if [[ "${deploys_api}" -eq 1 || " ${services[*]} " == *" media-worker "* ]]; then
   chat_publish_root="$(wrapper_publish_root)"
   [[ "${chat_publish_root}" == */wrapper/v2/bin ]] || fail "could not resolve the chat store mount"
-  chat_directory="${chat_publish_root%/wrapper/v2/bin}/agent-chat"
-  mkdir -p "${chat_directory}" || fail "cannot create ${chat_directory}; run deploy with permission to prepare the store"
-  if [[ "$(stat -c '%u:%g' "${chat_directory}")" != "10001:10001" ]]; then
-    chown 10001:10001 "${chat_directory}" || fail "cannot set chat file ownership; run deploy with permission to chown the chat directory"
-  fi
-  if [[ "$(stat -c '%a' "${chat_directory}")" != "700" ]]; then
-    chmod 700 "${chat_directory}" || fail "cannot make the chat directory private"
-  fi
+  for private_directory in agent-chat advisor; do
+    chat_directory="${chat_publish_root%/wrapper/v2/bin}/${private_directory}"
+    mkdir -p "${chat_directory}" || fail "cannot create ${chat_directory}; run deploy with permission to prepare the store"
+    if [[ "$(stat -c '%u:%g' "${chat_directory}")" != "10001:10001" ]]; then
+      chown 10001:10001 "${chat_directory}" || fail "cannot set ownership of ${chat_directory}; run deploy with permission to chown it"
+    fi
+    if [[ "$(stat -c '%a' "${chat_directory}")" != "700" ]]; then
+      chmod 700 "${chat_directory}" || fail "cannot make ${chat_directory} private"
+    fi
+  done
 fi
 
 build_args=(build)

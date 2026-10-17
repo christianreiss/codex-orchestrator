@@ -1,3 +1,4 @@
+import { visibleHost } from '../internal-hosts.js';
 import { controlView } from '../native-stop.js';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
@@ -88,7 +89,7 @@ export class TopologyService {
 
     const [hostRows, addressRows, daemonRows] = await Promise.all([
       hostIds.length
-        ? db.select({ id: hosts.id, fqdn: hosts.fqdn }).from(hosts).where(inArray(hosts.id, hostIds))
+        ? db.select({ id: hosts.id, fqdn: hosts.fqdn }).from(hosts).where(and(inArray(hosts.id, hostIds), visibleHost))
         : Promise.resolve([]),
       sessionIds.length
         ? db
