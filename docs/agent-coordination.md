@@ -105,8 +105,10 @@ Session bridge routes under `/host/agent-sessions/:id/agent-messaging/` are
 `claims/acquire`, `claims/status`, `claims/release`. No host-wide credential can
 impersonate a session through these routes. Broker tools remain session-scoped.
 
-Agents → Graph defaults to Project grouping, with Host and the original Connection
-view selectable. Each agent appears once; unassigned/legacy sessions are visible.
+Agents → Graph defaults to the original Connection topology. Project/Host grouping
+adds translucent cloud outlines and room buttons while preserving the radial graph,
+connections, zoom and selection. Project + Host displays overlapping clouds for
+shared membership, like a Venn diagram. Missing assignments remain ordinary graph nodes. Each agent appears once; legacy sessions remain visible.
 Group chat includes membership, resources and conflict resolution. Rooms with unresolved claims remain accessible even after their last member leaves. Search, shared
 filters and list layout apply. `agent_coordination.changed` centrally invalidates
 scope and topology queries; periodic refresh also catches missed socket events.

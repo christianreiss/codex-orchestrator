@@ -1,5 +1,7 @@
 # 2026-10-18
 
+- Restored the radial Agents graph with all server/communicator edges, zoom, selection and list behavior. Optional overlapping project/host clouds and room buttons augment the graph; missing scope assignments remain ordinary nodes.
+
 - Fixed Agents page deep links and refresh returning legacy agent-policy JSON instead of the admin application; JSON API authentication remains unchanged.
 
 - **macOS persistent service (cxx 0.9.102):** new background workers use the per-user launchd domain with the Background session type, so update/install works over SSH without a GUI login. Existing GUI jobs remain addressable for update, status and removal. Updates also wait for asynchronous launchd removal before bootstrap to avoid transient I/O errors. Applies to Codex, Claude and Grok.
