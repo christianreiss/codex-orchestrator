@@ -43,6 +43,21 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class CompanionUiTest {
+    @Test fun closedConferencesMoveFromActiveToReadableHistory() {
+        waitForAgentRows(session)
+        roomCreated.set(JSONObject().put("kind", "conference").put("title", "Finished review"))
+        roomClosed.set(true); sharedRooms.set(true); changed("rooms")
+        compose.onNodeWithTag("chat-filter:conference").assertDoesNotExist()
+        compose.onNodeWithTag("conference-history-toggle").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("room:$roomId").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Conference history").assertIsDisplayed()
+        compose.onNodeWithText("Finished review").assertIsDisplayed()
+        compose.onNodeWithTag("agent:$session").assertDoesNotExist()
+        screenshot("conference-history")
+        compose.onNodeWithTag("conference-history-toggle").performClick()
+        waitForAgentRows(session)
+        compose.onNodeWithTag("room:$roomId").assertDoesNotExist()
+    }
     @Test fun conversationSegmentsHideEmptyCategoriesAndRecoverSelection() {
         waitForAgentRows(session)
         compose.onNodeWithTag("chat-filter:chats").assertIsSelected()
@@ -441,7 +456,7 @@ class CompanionUiTest {
                     path == "/rooms/create" -> { roomCreated.set(JSONObject(request.body.readUtf8())); sharedRooms.set(true); JSONObject().put("room_id", roomId).toString() }
                     path == "/rooms/manage" -> { roomClosed.set(true); "{}" }
                     path == "/rooms/candidates" -> """{"addresses":[]}"""
-                    path == "/rooms" -> JSONObject().put("rooms", org.json.JSONArray(if (sharedRooms.get()) listOf(roomFixture()) else emptyList<JSONObject>())).put("next_offset", JSONObject.NULL).toString()
+                    path == "/rooms" -> JSONObject().put("rooms", org.json.JSONArray(if (sharedRooms.get() && (request.requestUrl?.queryParameter("view") == "history") == roomClosed.get()) listOf(roomFixture()) else emptyList<JSONObject>())).put("next_offset", JSONObject.NULL).toString()
                     path == "/rooms/read" -> {
                         if (roomEvents.isEmpty()) roomEvents.add(JSONObject().put("id", "55555555-5555-4555-8555-555555555555").put("name", "Liliana").put("content", "Release review is ready").put("created_at", "2026-10-18T08:00:00Z"))
                         JSONObject().put("room", roomFixture()).put("events", org.json.JSONArray(roomEvents)).put("next_before", JSONObject.NULL).toString()

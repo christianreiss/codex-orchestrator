@@ -1,4 +1,9 @@
 import { z } from 'zod';
+export const roomListSchema = z.object({
+  offset: z.coerce.number().int().nonnegative().default(0),
+  view: z.enum(['active', 'history', 'all']).default('active'),
+});
+export type RoomListView = z.infer<typeof roomListSchema>['view'];
 export const roomSendSchema = z
   .object({
     room_id: z.string().uuid(),

@@ -22,18 +22,14 @@ import {
   type AgentSession,
 } from '../../db/schema.js';
 import type { Env } from '../../env.js';
-import {
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-  ValidationError,
-} from '../../http/errors.js';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { sha256 } from '../../security/hash.js';
 import { decrypt, encrypt } from '../../security/secret-box.js';
 import type { Keyring } from '../../security/keyring.js';
 import { nowIso } from '../../util/timestamp.js';
 import { wsPublisher } from '../../ws/publisher.js';
 import { ChatAttachments } from '../agent-chat/attachments.js';
+import { deriveAddressPresence, isPresent } from '../agent-presence.js';
 import type { AgentMessagingService } from '../agent-messaging.js';
 import { AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP } from '../agent-messaging/constants.js';
 import {
@@ -50,6 +46,7 @@ import {
   type Room,
   type RoomEvent,
   type RoomMember,
+  type RoomListView,
 } from './contracts.js';
 
 export interface RoomActor {
@@ -184,23 +181,57 @@ export class AgentRoomChat {
       return { room, owner: `room:${actorKey(actor, session)}` };
     });
   }
-  async list(actor: RoomActor, offset = 0) {
+  async list(actor: RoomActor, offset = 0, view: RoomListView = 'active') {
     if (!(await this.bus.isEnabled()))
       return { enabled: false, rooms: [], has_more: false, next_offset: null };
     return this.run(actor, async (tx, session) => {
+      const conferences = await tx.select().from(agentBusConferences);
+      const nowMs = Date.now();
+      const ended = conferences.filter(
+        (c) => c.status === 'adjourned' || (c.status === 'open' && Date.parse(c.deadlineAt) <= nowMs),
+      );
+      // Include the retained roster: adjournment may already have marked a
+      // still-online member as left. Read-only cleanup preserves room history.
+      const roster = ended.length
+        ? await tx
+            .select({
+              conferenceId: agentBusConferenceMembers.conferenceId,
+              address: agentBusAddresses,
+              session: agentSessions,
+            })
+            .from(agentBusConferenceMembers)
+            .innerJoin(agentBusAddresses, eq(agentBusAddresses.id, agentBusConferenceMembers.addressId))
+            .leftJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
+            .where(
+              inArray(
+                agentBusConferenceMembers.conferenceId,
+                ended.map((c) => c.id),
+              ),
+            )
+        : [];
+      const freshAfter = new Date(nowMs - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000).toISOString();
+      const online = new Set(
+        roster
+          .filter((r) => isPresent(deriveAddressPresence(r.address, r.session, freshAfter, nowMs)))
+          .map((r) => r.conferenceId),
+      );
+      const closed = new Set(ended.filter((c) => !online.has(c.id)).map((c) => c.id));
       const ids = [
-        ...(await tx
-          .select({ id: agentBusGroups.id, createdAt: agentBusGroups.createdAt })
-          .from(agentBusGroups)
-          .orderBy(desc(agentBusGroups.updatedAt))),
-        ...(await tx
-          .select({ id: agentBusConferences.id, createdAt: agentBusConferences.createdAt })
-          .from(agentBusConferences)
-          .orderBy(desc(agentBusConferences.createdAt))),
-        ...(await tx
-          .select({ id: agentScopes.id, createdAt: agentScopes.createdAt })
-          .from(agentScopes)
-          .orderBy(desc(agentScopes.createdAt))),
+        ...(view === 'history'
+          ? []
+          : await tx
+              .select({ id: agentBusGroups.id, createdAt: agentBusGroups.createdAt })
+              .from(agentBusGroups)
+              .orderBy(desc(agentBusGroups.updatedAt))),
+        ...conferences.filter(
+          (c) => view === 'all' || (view === 'history' ? closed.has(c.id) : !closed.has(c.id)),
+        ),
+        ...(view === 'history'
+          ? []
+          : await tx
+              .select({ id: agentScopes.id, createdAt: agentScopes.createdAt })
+              .from(agentScopes)
+              .orderBy(desc(agentScopes.createdAt))),
       ];
       const rooms: Room[] = [];
       ids.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));

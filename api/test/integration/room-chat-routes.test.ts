@@ -23,6 +23,18 @@ afterEach(async () => {
   await Promise.all(apps.splice(0).map((a) => a.close()));
 });
 describe('shared room HTTP access', () => {
+  it('forwards History pagination to the shared directory', async () => {
+    const list = vi
+      .spyOn(AgentRoomChat.prototype, 'list')
+      .mockResolvedValue({ enabled: true, rooms: [], has_more: false, next_offset: null });
+    const app = await appFor('owner', 'strict');
+    expect((await app.inject('/admin/agent-messaging/chats?view=history&offset=50')).statusCode).toBe(200);
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ adminId: expect.any(Number) }),
+      50,
+      'history',
+    );
+  });
   it.each(['strict', 'compatible'] as const)(
     'refuses private content and mutations to viewers in %s mode',
     async (mode) => {

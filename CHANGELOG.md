@@ -1,5 +1,7 @@
 # 2026-10-18
 
+- Shared conversation directories on web and Android now move adjourned conferences to History once all members are offline. History / Active switches directories and retains messages; closed rooms no longer consume active directory pages. Android 0.5.2 adds the History button.
+
 - Android 0.5.1 replaces chat/status filter chips with a compact Chats / Groups / Conferences segmented control; empty categories are hidden and selection falls back when a category disappears.
 
 - **Android 0.5.0:** the companion brings direct messages, groups, conferences and scope rooms into one conversation directory, with room history, explicit answer requests, attachments, participant management and graceful conference closing. Shared drafts and retry IDs survive conversation switches. Chats, Hosts and Authorizations share a restrained light/dark palette, readable type and consistent controls. Adds device-authorized room endpoints and metadata-only live invalidations; existing direct-chat and push behavior is retained.

@@ -31,6 +31,21 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 describe('Companion shared rooms', () => {
+  it('keeps History pagination on the paired room directory', async () => {
+    const app = await fixture('owner');
+    const list = vi
+      .spyOn(AgentRoomChat.prototype, 'list')
+      .mockResolvedValue({ enabled: true, rooms: [], has_more: false, next_offset: null });
+    expect(
+      (
+        await app.inject({
+          url: '/companion/v1/rooms?view=history&offset=50',
+          headers: { authorization: 'Bearer device' },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(list).toHaveBeenCalledWith({ adminId: 7, name: 'Operator' }, 50, 'history');
+  });
   it('does not accept admin cookies in place of a device credential', async () => {
     const app = await fixture('owner');
     expect((await app.inject('/companion/v1/rooms')).statusCode).toBe(401);

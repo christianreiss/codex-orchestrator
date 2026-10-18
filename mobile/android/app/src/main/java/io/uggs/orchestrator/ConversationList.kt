@@ -43,7 +43,7 @@ import java.time.Instant
     fun attention(agent: JSONObject) = fresh && model.can("agent_portal.manage") && needsReply(agent) && (hasUrgentNotice(agent) || isReachable(agent))
     // Filter only the already-authorized overview. Searching never fetches a
     // transcript or changes a read marker.
-    val activeAgents = agents.filter { isOnlineActiveAgent(it) || hasUrgentNotice(it) }
+    val activeAgents = if (model.roomChats.history) emptyList() else agents.filter { isOnlineActiveAgent(it) || hasUrgentNotice(it) }
     val rooms = model.roomChats.rooms
     val categories = buildList {
         if (activeAgents.isNotEmpty()) add("chats" to "Chats")
@@ -65,7 +65,9 @@ import java.time.Instant
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 4.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Conversations", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                Text(if (model.roomChats.history) "Conference history" else "Conversations", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                if (model.can("agent_messaging.read") && model.roomChats.supported && model.roomChats.enabled)
+                    TextButton(onClick = { model.roomChats.showHistory(!model.roomChats.history); model.refreshNow() }, enabled = fresh, modifier = Modifier.testTag("conference-history-toggle")) { Text(if (model.roomChats.history) "Active" else "History") }
                 if (model.can("agent_messaging.manage") && model.can("agent_messaging.reveal_content") && model.roomChats.supported && model.roomChats.enabled)
                     TextButton(onClick = { createRoom = true; model.roomChats.loadCandidates() }, enabled = fresh) { Text("New") }
             }
@@ -132,13 +134,14 @@ import java.time.Instant
                     val empty = when {
                         model.connecting -> "Loading your chats…"
                         search.isNotEmpty() -> "No chats found"
+                        fresh && model.roomChats.history -> "No closed conferences"
                         fresh -> "All caught up"
                         else -> "Waiting for chats"
                     }
                     if (model.connecting) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                     Text(empty, style = MaterialTheme.typography.titleMedium)
                     if (!model.connecting && search.isNotEmpty()) TextButton(onClick = { query = "" }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear search") }
-                    else if (fresh) Text("No active agents online.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    else if (fresh && !model.roomChats.history) Text("No active agents online.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

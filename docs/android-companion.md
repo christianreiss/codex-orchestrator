@@ -1,5 +1,13 @@
 # Android companion
 
+## Conference history (0.5.2)
+
+Adjourned conferences move out of Active once every retained member is offline.
+History in the conversation header opens the retained conference directory;
+Active returns to current chats. Both views paginate independently and preserve
+room messages and drafts. The server change also cleans existing conferences
+for older APKs; the History button requires 0.5.2.
+
 ## Conversation categories (0.5.1)
 
 The conversation list uses one compact segmented control: Chats, Groups and

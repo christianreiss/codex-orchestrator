@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  agentBusAddresses,
+  agentBusConferenceMembers,
   agentBusConferences,
   agentBusMessages,
   agentRoomDeliveries,
@@ -242,6 +244,151 @@ describe.skipIf(!handle)('shared room chats with MySQL', { timeout: 120000 }, ()
       );
     await service.tick();
     expect((await service.read(admin, { room_id: id })).room.status).toBe('adjourned');
+  });
+  it('closes adjourned rooms from the directory only after every retained member is offline', async () => {
+    const id = await create('conference');
+    await service.manage(admin, {
+      room_id: id,
+      client_request_id: randomUUID(),
+      action: 'invite',
+      address_id: members[2]!.addressId,
+    });
+    await db.update(agentBusConferences).set({ status: 'adjourned' }).where(eq(agentBusConferences.id, id));
+    await db
+      .update(agentBusConferenceMembers)
+      .set({ state: 'left', leftAt: new Date().toISOString() })
+      .where(eq(agentBusConferenceMembers.conferenceId, id));
+    const sessionIds = members.map((m) => m.sessionId);
+    const original = await db.select().from(agentSessions).where(inArray(agentSessions.id, sessionIds));
+    const addresses = await db
+      .select()
+      .from(agentBusAddresses)
+      .where(
+        inArray(
+          agentBusAddresses.id,
+          members.map((m) => m.addressId),
+        ),
+      );
+    const listed = async () => (await service.list(admin)).rooms.some((r) => r.id === id);
+    try {
+      await db
+        .update(agentSessions)
+        .set({ heartbeatAt: '2000-01-01T00:00:00.000Z' })
+        .where(inArray(agentSessions.id, sessionIds));
+      await db
+        .update(agentBusAddresses)
+        .set({ lastUpstreamSessionId: 'retained-native-session' })
+        .where(
+          inArray(
+            agentBusAddresses.id,
+            members.map((m) => m.addressId),
+          ),
+        );
+      expect(await listed()).toBe(false); // Resumable is offline, too.
+      for (const member of members) {
+        // Codex, Claude and Grok use the same rule.
+        await db
+          .update(agentSessions)
+          .set({ heartbeatAt: new Date().toISOString(), endedAt: null })
+          .where(eq(agentSessions.id, member.sessionId));
+        expect(await listed()).toBe(true); // Even a member already marked left counts.
+        await db
+          .update(agentSessions)
+          .set({ endedAt: new Date().toISOString() })
+          .where(eq(agentSessions.id, member.sessionId));
+        expect(await listed()).toBe(false); // A fresh heartbeat cannot revive an ended session.
+      }
+      for (const status of ['open', 'adjourning']) {
+        await db.update(agentBusConferences).set({ status }).where(eq(agentBusConferences.id, id));
+        expect(await listed()).toBe(true);
+      }
+      await db
+        .update(agentBusConferences)
+        .set({ status: 'open', deadlineAt: '2000-01-01T00:00:00.000Z' })
+        .where(eq(agentBusConferences.id, id));
+      expect(await listed()).toBe(false); // Effective deadline adjournment agrees with room reads.
+      expect((await service.read(admin, { room_id: id })).room.status).toBe('adjourned');
+      expect(
+        (await db.select().from(agentBusConferences).where(eq(agentBusConferences.id, id)))[0]!.status,
+      ).toBe('open'); // Listing is read-only.
+    } finally {
+      for (const row of original)
+        await db
+          .update(agentSessions)
+          .set({ heartbeatAt: row.heartbeatAt, endedAt: row.endedAt })
+          .where(eq(agentSessions.id, row.id));
+      for (const row of addresses)
+        await db
+          .update(agentBusAddresses)
+          .set({ lastUpstreamSessionId: row.lastUpstreamSessionId })
+          .where(eq(agentBusAddresses.id, row.id));
+    }
+  });
+  it('filters closed conferences before pagination and retains their history', async () => {
+    const group = await create();
+    const id = await create('conference');
+    const event = await service.send(admin, {
+      room_id: id,
+      client_request_id: randomUUID(),
+      content: 'Retained conference history',
+    });
+    const now = new Date().toISOString();
+    const closedIds: string[] = Array.from({ length: 51 }, () => randomUUID());
+    rooms.push(...closedIds);
+    await db.insert(agentBusConferences).values(
+      closedIds.map((roomId) => ({
+        id: roomId,
+        ownerAddressId: members[0]!.addressId,
+        ownerAdminId: admin.adminId,
+        status: 'adjourned',
+        topic: 'Empty closed conference',
+        deadlineAt: now,
+        createdAt: '2099-01-01T00:00:00.000Z',
+        updatedAt: now,
+      })),
+    );
+    // Leave an event in a room whose actual members have gone offline.
+    await db.update(agentBusConferences).set({ status: 'adjourned' }).where(eq(agentBusConferences.id, id));
+    const original = await db
+      .select()
+      .from(agentSessions)
+      .where(
+        inArray(
+          agentSessions.id,
+          members.slice(0, 2).map((m) => m.sessionId),
+        ),
+      );
+    try {
+      await db
+        .update(agentSessions)
+        .set({ heartbeatAt: '2000-01-01T00:00:00.000Z' })
+        .where(
+          inArray(
+            agentSessions.id,
+            original.map((s) => s.id),
+          ),
+        );
+      const page = await service.list(admin);
+      expect(page.rooms.some((r) => r.id === group)).toBe(true);
+      expect(page.rooms.some((r) => r.id === id || closedIds.includes(r.id))).toBe(false);
+      expect(page.has_more).toBe(false);
+      expect(page.next_offset).toBeNull();
+      const history = await service.list(admin, 0, 'history');
+      expect(history.rooms).toHaveLength(50);
+      expect(history.rooms.every((r) => r.kind === 'conference' && r.status === 'adjourned')).toBe(true);
+      expect(history.next_offset).toBe(50);
+      const older = await service.list(admin, history.next_offset!, 'history');
+      expect(older.rooms.some((r) => r.id === id)).toBe(true);
+      expect(older.has_more).toBe(false);
+      expect((await service.list(admin, 0, 'all')).has_more).toBe(true);
+      expect((await service.read(admin, { room_id: id })).events.map((e) => e.id)).toContain(event.id);
+    } finally {
+      for (const row of original)
+        await db
+          .update(agentSessions)
+          .set({ heartbeatAt: row.heartbeatAt })
+          .where(eq(agentSessions.id, row.id));
+    }
   });
   it('shows native conference fanout as one shared contribution', async () => {
     const chair = members[0]!;

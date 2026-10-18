@@ -69,8 +69,8 @@ export interface RoomPage {
   has_more: boolean;
   next_offset: number | null;
 }
-export const roomOptions = (enabled = true) => ({
-  queryKey: roomKeys,
+export const roomOptions = (enabled = true, view: 'active' | 'history' | 'all' = 'active') => ({
+  queryKey: [...roomKeys, view],
   initialPageParam: 0,
   queryFn: ({
     signal,
@@ -78,7 +78,7 @@ export const roomOptions = (enabled = true) => ({
   }: {
     signal: AbortSignal;
     pageParam: number;
-  }) => api.get<RoomPage>(`${roomRoot}?offset=${pageParam}`, { signal }),
+  }) => api.get<RoomPage>(`${roomRoot}?offset=${pageParam}&view=${view}`, { signal }),
   getNextPageParam: (last: RoomPage) => last.next_offset ?? undefined,
   enabled,
   refetchInterval: 15000,

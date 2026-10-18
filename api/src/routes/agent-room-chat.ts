@@ -5,6 +5,7 @@ import { UnauthorizedError } from '../http/errors.js';
 import { createAgentMessagingService } from '../services/agent-messaging.js';
 import { AgentRoomChat, type RoomActor } from '../services/agent-room-chat/index.js';
 import { createAdminEventsService } from '../services/admin-events.js';
+import { roomListSchema } from '../services/agent-room-chat/contracts.js';
 
 export function registerAgentRoomChatRoutes(app: FastifyInstance, ctx: RouteContext) {
   const service = new AgentRoomChat(
@@ -18,17 +19,10 @@ export function registerAgentRoomChatRoutes(app: FastifyInstance, ctx: RouteCont
     adminId: req.admin!.user.id,
     name: req.admin!.user.name,
   });
-  app.get('/admin/agent-messaging/chats', { preHandler: app.requireAdmin }, (req) =>
-    service.list(
-      actor(req),
-      z.coerce
-        .number()
-        .int()
-        .nonnegative()
-        .default(0)
-        .parse((req.query as { offset?: string }).offset),
-    ),
-  );
+  app.get('/admin/agent-messaging/chats', { preHandler: app.requireAdmin }, (req) => {
+    const { offset, view } = roomListSchema.parse(req.query);
+    return service.list(actor(req), offset, view);
+  });
   app.post(
     '/admin/agent-messaging/chats/read',
     { preHandler: [app.requireAdmin, app.requireCapability('agent_messaging.reveal_content')] },
@@ -84,12 +78,11 @@ export function registerAgentRoomChatRoutes(app: FastifyInstance, ctx: RouteCont
         .parse((req.params as { id: string }).id),
       token,
     };
-    return operation === 'list'
-      ? service.list(
-          a,
-          z.object({ offset: z.number().int().nonnegative().default(0) }).parse(req.body ?? {}).offset,
-        )
-      : service[operation](a, req.body);
+    if (operation === 'list') {
+      const { offset, view } = roomListSchema.parse(req.body ?? {});
+      return service.list(a, offset, view);
+    }
+    return service[operation](a, req.body);
   };
   app.post('/host/agent-sessions/:id/agent-messaging/chats/list', bridge('list'));
   app.post('/host/agent-sessions/:id/agent-messaging/chats/read', bridge('read'));

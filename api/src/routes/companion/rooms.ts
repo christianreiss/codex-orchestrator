@@ -6,6 +6,7 @@ import { CompanionDevices } from '../../services/companion/devices.js';
 import { AgentRoomChat } from '../../services/agent-room-chat/index.js';
 import { createAgentMessagingService } from '../../services/agent-messaging.js';
 import { createAdminEventsService } from '../../services/admin-events.js';
+import { roomListSchema } from '../../services/agent-room-chat/contracts.js';
 
 /** Native device credentials retain the operator's existing room permissions. */
 export function registerCompanionRooms(app: FastifyInstance, ctx: RouteContext) {
@@ -17,12 +18,11 @@ export function registerCompanionRooms(app: FastifyInstance, ctx: RouteContext) 
     const { user } = await devices.authenticate(req.headers.authorization, capability);
     return { adminId: user.id, name: user.name };
   };
-  app.get('/companion/v1/rooms', async (req) =>
-    rooms.list(
-      await actor(req, 'agent_messaging.read'),
-      z.object({ offset: z.coerce.number().int().nonnegative().default(0) }).parse(req.query).offset,
-    ),
-  );
+  app.get('/companion/v1/rooms', async (req) => {
+    const author = await actor(req, 'agent_messaging.read');
+    const { offset, view } = roomListSchema.parse(req.query);
+    return rooms.list(author, offset, view);
+  });
   app.get('/companion/v1/rooms/candidates', async (req) => {
     await actor(req, 'agent_messaging.manage');
     return bus.listAdminAddresses();

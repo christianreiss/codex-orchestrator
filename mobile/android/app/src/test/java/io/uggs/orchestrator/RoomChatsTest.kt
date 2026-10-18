@@ -14,6 +14,32 @@ import org.junit.Test
 import java.util.concurrent.TimeUnit
 
 class RoomChatsTest {
+    @Test fun switchingToHistoryUsesItsOwnDirectoryAndPagination() = runBlocking {
+        val server = MockWebServer()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            server.start()
+            val client = Api(server.url("/").toString().trimEnd('/'), "test")
+            val rooms = RoomChats(scope, { client }, { true })
+            server.enqueue(MockResponse().setBody("""{"rooms":[{"id":"active"}],"has_more":false,"next_offset":null}"""))
+            rooms.refresh(client, setOf("agent_messaging.read")) { true }
+            assertTrue(server.takeRequest(2, TimeUnit.SECONDS)!!.path!!.contains("view=active"))
+            rooms.showHistory(true)
+            assertTrue(rooms.rooms.isEmpty())
+            server.enqueue(MockResponse().setBody("""{"rooms":[{"id":"closed"}],"has_more":true,"next_offset":50}"""))
+            rooms.refresh(client, setOf("agent_messaging.read")) { true }
+            assertTrue(server.takeRequest(2, TimeUnit.SECONDS)!!.path!!.contains("view=history"))
+            assertEquals("closed", rooms.rooms.single().getString("id"))
+            server.enqueue(MockResponse().setBody("""{"rooms":[{"id":"older"}],"has_more":false,"next_offset":null}"""))
+            rooms.more()
+            val more = server.takeRequest(2, TimeUnit.SECONDS)!!.requestUrl!!
+            assertEquals("history", more.queryParameter("view"))
+            assertEquals("50", more.queryParameter("offset"))
+            rooms.showHistory(false)
+            assertNull(rooms.nextOffset)
+            assertTrue(rooms.rooms.isEmpty())
+        } finally { scope.cancel(); server.close() }
+    }
     @Test fun paginationReconcilesByIdentityAndKeepsEqualTimeEvents() {
         fun event(id: String, text: String) = JSONObject().put("id", id).put("content", text).put("created_at", "2026-10-18T09:00:00Z")
         val result = mergeRoomEvents(listOf(event("b", "old")), listOf(event("a", "earlier"), event("b", "updated")))

@@ -38,6 +38,12 @@ internal class RoomChats(
     var error by mutableStateOf<String?>(null); private set
     var supported by mutableStateOf(true); private set
     var enabled by mutableStateOf(true); private set
+    var history by mutableStateOf(false); private set
+    private fun directoryPath(offset: Int = 0) = "/rooms?view=${if (history) "history" else "active"}&offset=$offset"
+    fun showHistory(value: Boolean) {
+        if (history == value) return
+        generation++; history = value; rooms = emptyList(); nextOffset = null; loading = false; error = null
+    }
     var candidates by mutableStateOf<List<JSONObject>>(emptyList()); private set
     private var drafts by mutableStateOf<Map<String, String>>(emptyMap())
     private var targets by mutableStateOf<Map<String, String>>(emptyMap())
@@ -57,7 +63,7 @@ internal class RoomChats(
         generation++; selection++; rooms = emptyList(); selected = null; current = null
         events = emptyList(); drafts = emptyMap(); targets = emptyMap(); pending = emptyMap()
         candidates = emptyList(); nextBefore = null; nextOffset = null; error = null
-        loading = false; busy = false; operation = null; supported = true; enabled = true
+        loading = false; busy = false; operation = null; supported = true; enabled = true; history = false
     }
     fun close() { selection++; selected = null; current = null; events = emptyList(); nextBefore = null; error = null; loading = false }
     suspend fun refresh(client: Api, caps: Set<String>, valid: () -> Boolean) {
@@ -66,7 +72,7 @@ internal class RoomChats(
             close(); drafts = emptyMap(); pending = emptyMap()
         }
         val epoch = generation
-        val page = try { client.request("/rooms") } catch (e: ApiException) {
+        val page = try { client.request(directoryPath()) } catch (e: ApiException) {
             if (e.status == 404) { if (valid() && epoch == generation) { clear(); supported = false }; return }
             throw e
         }
@@ -116,7 +122,7 @@ internal class RoomChats(
         scope.launch {
             loading = true
             try {
-                val page = api().request("/rooms?offset=$offset")
+                val page = api().request(directoryPath(offset))
                 if (epoch != generation) return@launch
                 rooms = (rooms + page.getJSONArray("rooms").objects()).distinctBy { it.getString("id") }
                 nextOffset = if (page.isNull("next_offset")) null else page.optInt("next_offset")
