@@ -2164,21 +2164,22 @@ export class AgentMessagingService {
     });
   }
 
-  async coordinationNotice(tx: AgentMessagingDb, session: AgentSession, content: string): Promise<void> {
+  async coordinationNotice(tx: AgentMessagingDb, session: AgentSession, content: string, roomQuestion = false): Promise<string | undefined> {
     if (!session.agentBusAddressId || session.endedAt) return;
     const target = await this.requireAddressLocked(tx, session.agentBusAddressId);
     if (target.currentSessionId !== session.id) return;
     try { await this.assertAddressEligibleLocked(tx, target); }
     catch (error) { if (error instanceof ApiError && [403, 404, 423].includes(error.status)) return; throw error; }
     const sender = await this.groups.server(tx);
-    const now = nowIso(), conversationId = randomUUID();
+    const now = nowIso(), conversationId = randomUUID(), messageId = randomUUID();
     await tx.insert(agentBusConversations).values({ id: conversationId, addressAId: sender.id, addressBId: target.id, createdByAddressId: sender.id, nextSequence: 2, status: 'open', lastActivityAt: now, createdAt: now, updatedAt: now });
     await tx.insert(agentBusMessages).values({
-      ...newQueuedMessage({ id: randomUUID(), conversationId, sequence: 1, sender, senderSessionId: null, target,
-        kind: 'presence_notice', deliveryClass: 'notice', content, contentEnc: encrypt(content, this.keyring),
+      ...newQueuedMessage({ id: messageId, conversationId, sequence: 1, sender, senderSessionId: null, target,
+        kind: roomQuestion ? 'message' : 'presence_notice', deliveryClass: roomQuestion ? 'coordination' : 'notice', content, contentEnc: encrypt(content, this.keyring),
         clientMessageId: randomUUID(), expiresAt: new Date(Date.now() + 86400000).toISOString(), now }),
       targetSessionId: session.id,
     });
+    return messageId;
   }
 
   private async requireEnabled(): Promise<void> {

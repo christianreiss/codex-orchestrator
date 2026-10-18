@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { and, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import {
-  agentChatAttachments,
+  agentChatAttachments, agentBusGroups, agentBusConferences, agentScopes,
   agentSessions,
   hostDaemonPortalBindings,
   hostDaemonSessions,
@@ -59,7 +59,14 @@ export class ChatAttachments {
         .from(hostDaemonSessions)
         .where(eq(hostDaemonSessions.id, id))
         .limit(1);
-      if (!remote) throw new NotFoundError('Conversation not found');
+      if (!remote) {
+        const rooms = await Promise.all([
+          this.db.select({id: agentBusGroups.id}).from(agentBusGroups).where(eq(agentBusGroups.id, id)),
+          this.db.select({id: agentBusConferences.id}).from(agentBusConferences).where(eq(agentBusConferences.id, id)),
+          this.db.select({id: agentScopes.id}).from(agentScopes).where(eq(agentScopes.id, id)),
+        ]);
+        if (!rooms.some(rows => rows.length)) throw new NotFoundError('Conversation not found');
+      }
     }
     return session;
   }
@@ -74,6 +81,9 @@ export class ChatAttachments {
     await this.db.transaction(async (tx) => {
       await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).for('update');
       await tx.select().from(hostDaemonSessions).where(eq(hostDaemonSessions.id, sessionId)).for('update');
+      await tx.select().from(agentBusGroups).where(eq(agentBusGroups.id, sessionId)).for('update');
+      await tx.select().from(agentBusConferences).where(eq(agentBusConferences.id, sessionId)).for('update');
+      await tx.select().from(agentScopes).where(eq(agentScopes.id, sessionId)).for('update');
       const [old] = await tx
         .select()
         .from(agentChatAttachments)
@@ -214,6 +224,10 @@ export class ChatAttachments {
     wsPublisher.publish('agent_portal.sessions.changed', { session_id: sessionId });
     return this.info(sessionId, id);
   }
+  async assertReadableDraft(sessionId: string, id: string, owner: string) {
+    const [row] = await this.db.select().from(agentChatAttachments).where(and(eq(agentChatAttachments.id,id),eq(agentChatAttachments.sessionId,sessionId)));
+    if (!row || (row.status !== 'linked' && row.owner !== owner)) throw new NotFoundError('Attachment not found');
+  }
   async info(sessionId: string, id: string) {
     sessionId = await this.conversationKey(sessionId);
     await this.session(sessionId);
@@ -331,6 +345,10 @@ export class ChatAttachments {
         or(
           and(
             isNull(agentSessions.id),
+            isNull(hostDaemonSessions.id),
+            sql`NOT EXISTS (SELECT 1 FROM agent_bus_groups g WHERE BINARY g.id = BINARY ${agentChatAttachments.sessionId})`,
+            sql`NOT EXISTS (SELECT 1 FROM agent_bus_conferences c WHERE BINARY c.id = BINARY ${agentChatAttachments.sessionId})`,
+            sql`NOT EXISTS (SELECT 1 FROM agent_scopes s WHERE BINARY s.id = BINARY ${agentChatAttachments.sessionId})`,
             sql`NOT EXISTS (SELECT 1 FROM host_daemon_portal_bindings b INNER JOIN agent_sessions s ON s.id = b.portal_session_id WHERE b.daemon_session_id = ${agentChatAttachments.sessionId})`,
           ),
           and(

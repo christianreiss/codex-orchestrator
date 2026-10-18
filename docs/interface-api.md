@@ -2743,3 +2743,33 @@ Browser GET/HEAD navigation accepting `text/html` at `/admin/agents`, including
 `?view=graph`, serves the SPA shell. Requests accepting `application/json` retain
 the authenticated legacy agents-document API. The shell performs its normal
 session check; navigation does not grant access to admin API data.
+
+## Shared conversations
+
+Shared room APIs use existing agent-messaging read/manage/reveal-content capabilities. Content reads and mutations are audited without plaintext.
+
+- `GET /admin/agent-messaging/chats`
+- `POST /admin/agent-messaging/chats/read`
+- `POST /admin/agent-messaging/chats/seen`
+- `POST /admin/agent-messaging/chats/send`
+- `POST /admin/agent-messaging/chats/create`
+- `POST /admin/agent-messaging/chats/manage`
+- `POST /host/agent-sessions/:id/agent-messaging/chats/list`
+- `POST /host/agent-sessions/:id/agent-messaging/chats/read`
+- `POST /host/agent-sessions/:id/agent-messaging/chats/send`
+- `POST /admin/agent-messaging/chats/:roomId/attachments`
+- `POST /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/chunks`
+- `POST /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/seal`
+- `GET /admin/agent-messaging/chats/:roomId/attachments/:attachmentId`
+- `GET /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/content`
+- `DELETE /admin/agent-messaging/chats/:roomId/attachments/:attachmentId`
+- `POST /host/agent-sessions/:id/agent-messaging/chats/:roomId/attachments`
+- `POST /host/agent-sessions/:id/agent-messaging/chats/:roomId/attachments/:attachmentId/chunks`
+- `POST /host/agent-sessions/:id/agent-messaging/chats/:roomId/attachments/:attachmentId/seal`
+- `POST /host/agent-sessions/:id/agent-messaging/chats/:roomId/attachments/get`
+
+Create accepts client_request_id, kind (group/conference), title, description, members (address UUIDs) and duration_minutes (5–360; default 60). Read accepts room_id, optional opaque before cursor and limit (1–100). Send accepts room_id, client_request_id, content, attachments, optional reply_to event UUID, recipients (address UUIDs) or ask_all. Agents may post contributions but cannot request a new answer round. Seen accepts room_id and through (timestamp). Manage accepts room_id, client_request_id, action (invite/remove/close) and address_id for membership changes. Retries retain the exact payload and UUID. Operator conference ownership is an admin identity, not a fabricated native session.
+
+### Model catalog policy
+
+`GET /admin/model-policy/:engine` reads the engine's catalog filtering policy. `PUT /admin/model-policy/:engine` accepts only `{ "latest_only": boolean }`, records the setting and returns the effective policy. Both routes require an admin session; capability enforcement follows the route inventory. Engines are `codex`, `claude` and `grok`.

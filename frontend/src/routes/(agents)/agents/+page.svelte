@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { page } from "$app/state";
   import { PageShell, StatStrip } from "$lib/components/page";
   import ClientsWorkspace from "$lib/components/portal/ClientsWorkspace.svelte";
   import AgentInspector from "$lib/components/topology/AgentInspector.svelte";
@@ -16,12 +17,13 @@
     { label: "direct", value: summary.unattributed },
   ]);
   // On a phone an open conversation takes the whole screen.
-  const conversationOpen = $derived(agents.view === "live" && agents.liveSelectedId !== null);
+  const conversationOpen = $derived(agents.view === "live" && (agents.liveSelectedId !== null || page.url.searchParams.has("room")));
 </script>
 
 <PageShell
   title="Agents"
-  description="Who is running, what they are working on, and how each one connects to the server."
+  description={agents.view === "live" ? "Conversations with agents and the people coordinating them." : "Who is running, what they are working on, and how each one connects to the server."}
+  class={conversationOpen ? "max-lg:[&>header_p]:hidden" : ""}
   width="wide"
 >
   <div class={conversationOpen ? "max-lg:hidden" : ""}>

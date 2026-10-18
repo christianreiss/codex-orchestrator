@@ -1,1 +1,0 @@
-import{o as e,s as t}from"./DivH_lSe.js";import"./xihTtKlq.js";import{r as n}from"./Cwcm-fQi.js";function r(r,i){let a=e(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`rect`,{x:`14`,y:`3`,width:`5`,height:`18`,rx:`1`}],[`rect`,{x:`5`,y:`3`,width:`5`,height:`18`,rx:`1`}]];n(r,t({name:`pause`},()=>a,{get iconNode(){return o}}))}export{r as t};

@@ -1,0 +1,1 @@
+import{ht as e,lt as t}from"./DNm2sqcE.js";function n(n){e(()=>t(()=>n()))}export{n as t};

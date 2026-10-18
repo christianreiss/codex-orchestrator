@@ -38,7 +38,7 @@
     value={agents.view}
     onChange={(next) => agents.setView(next === "graph" ? "graph" : "live")}
     options={[
-      { value: "live", label: "Live", hint: "Who is running and what they are working on" },
+      { value: "live", label: "Chats", hint: "Direct messages, shared rooms and conferences" },
       { value: "graph", label: "Graph", hint: "How agents connect to the server (topology)" },
     ]}
   />
@@ -97,13 +97,13 @@
     <Button size="sm" variant="ghost" disabled={!agents.selectedId} onclick={() => agents.graph?.centerSelection()}>Center selection</Button>
     {#if !agents.fullscreen}<Button size="sm" variant="ghost" onclick={() => (agents.fullscreen = true)}>Fullscreen</Button>{/if}
   {/if}
-  <Button size="sm" variant="outline" aria-label="Refresh agents" disabled={agents.topology.current.isFetching} onclick={refresh}>
+  {#if agents.view === "graph" || remote}<Button size="sm" variant="outline" aria-label="Refresh agents" disabled={agents.topology.current.isFetching} onclick={refresh}>
     <RefreshCw class="h-4 w-4 {agents.topology.current.isFetching ? 'animate-spin motion-reduce:animate-none' : ''}" /> Refresh
-  </Button>
+  </Button>{/if}
   {#if agents.view === "graph"}
     <Button disabled={!canManage} onclick={() => agents.startAgent()}><Plus class="h-4 w-4" /> Start agent</Button>
   {:else if canManage}
-    <Button onclick={() => { agents.workspace = "remote"; agents.startRemote = true; }}><Plus class="h-4 w-4" /> Start remote session</Button>
+    <Button variant={remote ? "default" : "outline"} size="sm" onclick={() => { agents.workspace = "remote"; agents.startRemote = true; }}><Plus class="h-4 w-4" /> Start remote session</Button>
   {/if}
 {/snippet}
 

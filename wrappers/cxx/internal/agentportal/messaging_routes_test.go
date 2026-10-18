@@ -43,6 +43,8 @@ func TestBrokerAllowsEveryAgentbusMessagingOperation(t *testing.T) {
 		}
 	}
 	for _, runtime := range []string{
+		"chats/list", "chats/read", "chats/send",
+		"chats/room-one/attachments", "chats/room-one/attachments/get", "chats/room-one/attachments/file-one/chunks", "chats/room-one/attachments/file-one/seal",
 		"watchdog/get", "watchdog/enable", "watchdog/disable", "watchdog/finish",
 		"advisor/ask", "advisor/close", "advisor/status",
 		"insecure-enable", "spawn", "spawn-status", "stop",

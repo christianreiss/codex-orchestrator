@@ -276,7 +276,7 @@ func (b *Broker) requiresReceivePlanePolicy(path string, body json.RawMessage) b
 	// The mailbox peek reports only who is waiting, never a body -- but on a
 	// host configured not to receive, an agent that cannot answer has no use
 	// for a ring, and the existence of a caller is itself inbound signal.
-	if path == messagingBase+"mailbox" || path == messagingBase+"rooms/read" {
+	if path == messagingBase+"mailbox" || path == messagingBase+"rooms/read" || path == messagingBase+"chats/read" {
 		return true
 	}
 	if path == messagingBase+"bind" {
@@ -315,12 +315,27 @@ func (b *Broker) allowedPath(path string) bool {
 		}
 	}
 	messagingBase := sessionBase + "/agent-messaging/"
+	if rest := strings.TrimPrefix(path, messagingBase+"chats/"); rest != path {
+		roomID, tail, ok := strings.Cut(rest, "/")
+		if ok && safeID(roomID) {
+			if tail == "attachments" || tail == "attachments/get" {
+				return true
+			}
+			if files := strings.TrimPrefix(tail, "attachments/"); files != tail {
+				id, op, found := strings.Cut(files, "/")
+				if found && safeID(id) && (op == "chunks" || op == "seal") {
+					return true
+				}
+			}
+		}
+	}
 	for _, operation := range []string{
 		"reboot/prepare", "reboot/arm", "reboot/status", "reboot/restore", "reboot/disarm",
 		"watchdog/get", "watchdog/enable", "watchdog/disable", "watchdog/finish",
 		"spawn", "spawn-status", "stop", "insecure-enable",
 		"advisor/ask", "advisor/close", "advisor/status",
 		"list", "self", "translate", "send", "reply", "wait", "message", "digest", "cancel", "bind", "mailbox", "deliveries/claim",
+		"chats/list", "chats/read", "chats/send",
 		"context/get", "context/update", "rooms/list", "rooms/read", "rooms/send", "claims/acquire", "claims/status", "claims/release",
 		"groups/list", "groups/create", "groups/detail", "groups/delete", "subscribe", "unsubscribe", "subscriptions", "publish",
 		"conf/open", "conf/list", "conf/invite", "conf/join", "conf/roster", "conf/say", "conf/dispatch", "conf/adjourn",

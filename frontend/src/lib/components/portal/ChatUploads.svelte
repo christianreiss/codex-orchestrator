@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
-  import { uploadChatFile, type UploadItem } from '$lib/portal/chat-files';
+  import { attachmentBase, uploadChatFile, type UploadItem } from '$lib/portal/chat-files';
   let { session, items, onitems, disabled = false }: {session: string; items: UploadItem[]; onitems: (session: string, items: UploadItem[]) => void; disabled?: boolean} = $props();
   let error = $state('');
   let closed = false;
@@ -27,7 +27,7 @@
     // Serial uploads keep memory and base64 request size bounded.
     for (const item of next) { if (closed) break; await upload(item); }
   }
-  async function remove(item: UploadItem) { requests.get(item.id)?.abort(); onitems(session, items.filter(i => i.id !== item.id)); await api.delete(`/admin/agent-sessions/${session}/attachments/${item.id}`).catch(() => {}); }
+  async function remove(item: UploadItem) { requests.get(item.id)?.abort(); onitems(session, items.filter(i => i.id !== item.id)); await api.delete(`${attachmentBase(session)}/${item.id}`).catch(() => {}); }
   function stop() { if (recorder?.state === 'recording') recorder.stop(); stream?.getTracks().forEach(t => t.stop()); clearTimeout(captureTimer); recording = null; }
   async function record(kind:'audio'|'video') {
     try {

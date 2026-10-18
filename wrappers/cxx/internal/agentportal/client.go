@@ -215,7 +215,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	}
 	body := map[string]any{
 		"engine":               input.Engine,
-		"adapter_capabilities": map[string]any{"scope_protocol_version": 1, "execution_contract_version": 2, "watchdog_protocol_version": 1, "launch_identity_version": 1, "reboot_protocol_version": 1},
+		"adapter_capabilities": map[string]any{"scope_protocol_version": 1, "shared_room_chat_version": 1, "execution_contract_version": 2, "watchdog_protocol_version": 1, "launch_identity_version": 1, "reboot_protocol_version": 1},
 		"username":             username,
 		"cwd":                  cwd,
 		"workspace":            captureWorkspace(parent, cwd),

@@ -329,9 +329,10 @@ describe('served document byte invariance', () => {
     //             authenticated fleet peers (base digest).
     // 2026-10-16: Memory defers the complete-read procedure to the write tool descriptions; Agent
     //             Messaging session-name/reception condensed; Git Director honours repository restrictions.
-    expect(out.features_sha256).toBe('870e0b8f3db4ce5b1e42ff38bbc21583b7b72e797e8c5b36ad2e647e9d41c8f9');
-    expect(out.managed_sha256).toBe('15fe119c452b8749c8fcf570ef934dc283f0fbbdea1bfd814101eacb462cf5a2');
-    expect(sha256(out.body)).toBe('1d5cbc4381a4c172d4292aaa127e3add5a04696cc07d056805e7ba89af1d8351');
+    // 2026-10-18: shared chat tools, one-answer rounds, room file context.
+    expect(out.features_sha256).toBe('6ecacfe7dac1d63192b5062a9a348e5af7cc7d69297b99a309cef8556102739e');
+    expect(out.managed_sha256).toBe('9b4d82291bc77923134eccc0d9178100613338c659c72c093be7df7c068e3966');
+    expect(sha256(out.body)).toBe('d694bcfb397401db5d9753a62c2c7d15c476d3f075cb6ff58c6945be55bf49e6');
   });
 });
 

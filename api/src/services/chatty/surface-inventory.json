@@ -382,7 +382,21 @@
       "GET /admin/agent-messaging/scopes/:scopeId/members",
       "POST /admin/agent-messaging/scopes/read",
       "POST /admin/agent-messaging/scopes/send",
-      "POST /admin/agent-messaging/scopes/resolve"
+      "POST /admin/agent-messaging/scopes/resolve",
+      "GET /admin/agent-messaging/chats",
+      "POST /admin/agent-messaging/chats/read",
+      "POST /admin/agent-messaging/chats/seen",
+      "POST /admin/agent-messaging/chats/send",
+      "POST /admin/agent-messaging/chats/create",
+      "POST /admin/agent-messaging/chats/manage",
+      "POST /admin/agent-messaging/chats/:roomId/attachments",
+      "POST /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/chunks",
+      "POST /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/seal",
+      "DELETE /admin/agent-messaging/chats/:roomId/attachments/:attachmentId",
+      "GET /admin/agent-messaging/chats/:roomId/attachments/:attachmentId",
+      "GET /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/content",
+      "GET /admin/model-policy/:engine",
+      "PUT /admin/model-policy/:engine"
     ]
   }
 }

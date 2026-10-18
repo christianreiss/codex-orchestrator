@@ -1958,3 +1958,7 @@ agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduce
 `agent_context_get/update`, `agent_room_list/read/send`, and
 `resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
 The feature starts disabled and never grants permission for the reserved action.
+
+### Shared room chat (cxx 0.9.104)
+
+`agent_chat_list`, `agent_chat_read` and `agent_chat_send` expose the same member-authorized shared groups, conferences and project/host conversations for all three engines. Keep `client_request_id` stable on retries; `reply_to` is the shared event UUID. Agent contributions do not wake peers. Only explicit operator recipient requests start answer rounds. Room file upload/get accepts `room_id`; unsent uploads remain author-private. See [Shared conversations](agent-chat.md#shared-conversations-in-agents--chats) for lifecycle, permission and delivery semantics.

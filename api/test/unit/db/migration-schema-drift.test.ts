@@ -241,6 +241,10 @@ describe('migrations against the test baseline', () => {
       'agent_scope_events',
       'agent_scope_members',
       'agent_scopes',
+      'agent_room_events',
+      'agent_room_reads',
+      'agent_room_operations',
+      'agent_room_deliveries',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
@@ -337,6 +341,7 @@ describe('migrations against the test baseline', () => {
       'agent_transfers.expected_sha256',
       'hosts.internal_role',
       'host_daemon_sessions.model',
+      'agent_bus_conferences.owner_admin_id',
     ]);
   });
 

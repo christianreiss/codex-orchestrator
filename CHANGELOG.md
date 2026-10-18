@@ -1,5 +1,7 @@
 # 2026-10-18
 
+- **Shared conversations in Agents → Chats (cxx 0.9.104):** direct chats, project/host rooms, groups and conferences share one directory. Operators can create rooms, manage participants, share files and request a single answer from selected agents or the room. Shared replies stay passive, drafts survive switching, uncertain sends retry with the same ID, and conferences drain outstanding answers before closing. Existing private-content permissions and room retention apply. Adds the same room tools for Codex, Claude and Grok.
+
 - Restored the radial Agents graph with all server/communicator edges, zoom, selection and list behavior. Optional overlapping project/host clouds and room buttons augment the graph; missing scope assignments remain ordinary nodes.
 
 - Fixed Agents page deep links and refresh returning legacy agent-policy JSON instead of the admin application; JSON API authentication remains unchanged.

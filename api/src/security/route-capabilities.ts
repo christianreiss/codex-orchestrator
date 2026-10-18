@@ -478,6 +478,18 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
 
   // ── Agent messaging ──────────────────────────────────────────────────────
   'GET /admin/agent-messaging': cap('agent_messaging.read'),
+  'GET /admin/agent-messaging/chats': cap('agent_messaging.read'),
+  'POST /admin/agent-messaging/chats/read': cap('agent_messaging.reveal_content'),
+  'POST /admin/agent-messaging/chats/seen': cap('agent_messaging.reveal_content'),
+  'POST /admin/agent-messaging/chats/send': cap('agent_messaging.manage'),
+  'POST /admin/agent-messaging/chats/create': cap('agent_messaging.manage'),
+  'POST /admin/agent-messaging/chats/manage': cap('agent_messaging.manage'),
+  'POST /admin/agent-messaging/chats/:roomId/attachments': cap('agent_messaging.manage'),
+  'POST /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/chunks': cap('agent_messaging.manage'),
+  'POST /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/seal': cap('agent_messaging.manage'),
+  'DELETE /admin/agent-messaging/chats/:roomId/attachments/:attachmentId': cap('agent_messaging.manage'),
+  'GET /admin/agent-messaging/chats/:roomId/attachments/:attachmentId': cap('agent_messaging.reveal_content'),
+  'GET /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/content': cap('agent_messaging.reveal_content'),
   'GET /admin/agent-messaging/state': cap('agent_messaging.read'),
   'GET /admin/agent-messaging/translate': cap('agent_messaging.read'),
   'GET /admin/agent-messaging/addresses': cap('agent_messaging.read'),

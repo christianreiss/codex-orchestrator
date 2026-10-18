@@ -16,7 +16,7 @@ const ACCOUNT_FILE = 'frontend/src/lib/api/account.ts';
 const STORE_FILE = 'frontend/src/lib/stores/theme.ts';
 const HTML_FILE = 'frontend/src/app.html';
 const CSS_FILE = 'frontend/src/app.css';
-const PAGE_FILE = 'frontend/src/routes/account/theme/+page.svelte';
+const PAGE_FILE = 'frontend/src/lib/components/account/ThemePicker.svelte';
 
 const read = (file: string): string => readFileSync(resolve(REPO_ROOT, file), 'utf8');
 const STRING_LITERAL = /(?:'([^']*)'|"([^"]*)")/g;

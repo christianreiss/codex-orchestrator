@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -21,13 +22,22 @@ func chatTools() []map[string]any {
 		tool("agent_portal_ask", "Ask the operator in the existing agent chat. Choose buttons, text or both. Normal questions do not imply Needs you. Retain client_event_id and prompt_id on retries. severity and notice_id explicitly mark important/critical/blocker.", map[string]any{"client_event_id": uuid(), "prompt_id": uuid(), "question": text(), "summary": text(), "answer_mode": map[string]any{"type": "string", "enum": []string{"buttons", "text", "both"}}, "choices": map[string]any{"type": "array", "maxItems": 20, "items": map[string]any{"type": "object", "properties": map[string]any{"label": text(), "value": text()}, "required": []string{"label", "value"}}}, "severity": map[string]any{"type": "string", "enum": []string{"important", "critical", "blocker"}}, "notice_id": uuid(), "attachments": ids}, []string{"client_event_id", "prompt_id", "question", "answer_mode"}),
 		tool("agent_portal_notify", "Mark important, critical or blocker in the operator agent chat. Requires a reason in summary. It remains until explicitly resolved, including offline. Retain notice_id and client_event_id on retries; reuse notice_id to escalate.", map[string]any{"client_event_id": uuid(), "notice_id": uuid(), "severity": map[string]any{"type": "string", "enum": []string{"important", "critical", "blocker"}}, "summary": text()}, []string{"client_event_id", "notice_id", "severity", "summary"}),
 		tool("agent_portal_resolve", "Resolve only the identified Needs you notice in this operator conversation. Does not answer a question. Retain client_event_id on retries.", map[string]any{"client_event_id": uuid(), "notice_id": uuid(), "summary": text()}, []string{"client_event_id", "notice_id"}),
-		tool("agent_attachment_upload", "Upload a local file to this operator agent chat, then use its ID in agent_receiver_reply or agent_portal_ask attachments. Retain upload_id on retry. Original local files are preserved.", map[string]any{"upload_id": uuid(), "path": text(), "mime_type": text()}, []string{"upload_id", "path", "mime_type"}),
-		tool("agent_attachment_get", "Fetch an operator chat attachment or a prepared transcript/video frame to a local file. Returns metadata, processing state and local_path. Use the local file with your image/file tools. No automatic execution. Originals remain available if processing failed. variant is original, transcript.json or frame-NN.jpg.", map[string]any{"attachment_id": uuid(), "variant": text()}, []string{"attachment_id"}),
+		tool("agent_attachment_upload", "Upload a local file to this operator agent chat, then use its ID in agent_receiver_reply or agent_portal_ask attachments. Retain upload_id on retry. Original local files are preserved.", map[string]any{"room_id": uuid(), "upload_id": uuid(), "path": text(), "mime_type": text()}, []string{"upload_id", "path", "mime_type"}),
+		tool("agent_attachment_get", "Fetch an operator chat attachment or a prepared transcript/video frame to a local file. Returns metadata, processing state and local_path. Use the local file with your image/file tools. No automatic execution. Originals remain available if processing failed. variant is original, transcript.json or frame-NN.jpg.", map[string]any{"room_id": uuid(), "attachment_id": uuid(), "variant": text()}, []string{"attachment_id"}),
 	}
 }
 
 func callChatTool(ctx context.Context, client *sessionClient, name string, args map[string]any) (map[string]any, error) {
 	var out map[string]any
+	attachmentPost := client.sessionPost
+	if room := stringArg(args, "room_id"); room != "" {
+		if !regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`).MatchString(room) {
+			return nil, errors.New("room_id must be a UUID")
+		}
+		attachmentPost = func(ctx context.Context, suffix string, body any, out any) error {
+			return client.post(ctx, "chats/"+room+"/"+suffix, body, out)
+		}
+	}
 	if name == "agent_attachment_upload" {
 		id, path := stringArg(args, "upload_id"), stringArg(args, "path")
 		if id == "" || path == "" {
@@ -51,7 +61,7 @@ func callChatTool(ctx context.Context, client *sessionClient, name string, args 
 		}
 		digest := hex.EncodeToString(h.Sum(nil))
 		_, _ = file.Seek(0, 0)
-		if err = client.sessionPost(ctx, "attachments", map[string]any{"id": id, "name": filepath.Base(path), "mime_type": stringArg(args, "mime_type"), "size_bytes": info.Size(), "sha256": digest}, &out); err != nil {
+		if err = attachmentPost(ctx, "attachments", map[string]any{"id": id, "name": filepath.Base(path), "mime_type": stringArg(args, "mime_type"), "size_bytes": info.Size(), "sha256": digest}, &out); err != nil {
 			return nil, fmt.Errorf("upload %s: %w", id, err)
 		}
 		buf := make([]byte, 4*1024*1024)
@@ -65,7 +75,7 @@ func callChatTool(ctx context.Context, client *sessionClient, name string, args 
 		for {
 			n, e := file.Read(buf)
 			if n > 0 {
-				err = client.sessionPost(ctx, "attachments/"+id+"/chunks", map[string]any{"offset": offset, "content_b64": base64.StdEncoding.EncodeToString(buf[:n])}, &out)
+				err = attachmentPost(ctx, "attachments/"+id+"/chunks", map[string]any{"offset": offset, "content_b64": base64.StdEncoding.EncodeToString(buf[:n])}, &out)
 				if err != nil {
 					return nil, fmt.Errorf("retry upload_id %s: %w", id, err)
 				}
@@ -78,7 +88,7 @@ func callChatTool(ctx context.Context, client *sessionClient, name string, args 
 				return nil, e
 			}
 		}
-		err = client.sessionPost(ctx, "attachments/"+id+"/seal", map[string]any{}, &out)
+		err = attachmentPost(ctx, "attachments/"+id+"/seal", map[string]any{}, &out)
 		return out, err
 	}
 	if name == "agent_attachment_get" {
@@ -109,7 +119,7 @@ func callChatTool(ctx context.Context, client *sessionClient, name string, args 
 		h := sha256.New()
 		var offset int64
 		for {
-			if err = client.sessionPost(ctx, "attachments/get", map[string]any{"attachment_id": id, "variant": variant, "offset": offset}, &out); err != nil {
+			if err = attachmentPost(ctx, "attachments/get", map[string]any{"attachment_id": id, "variant": variant, "offset": offset}, &out); err != nil {
 				return nil, err
 			}
 			bytes, e := base64.StdEncoding.DecodeString(stringArg(out, "content_b64"))

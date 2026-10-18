@@ -63,6 +63,8 @@ const IDENTIFIER = /[a-z][a-z0-9]*(?:_(?:[a-z0-9]+|\*))+/g;
  * reason each one is there. Anything not listed here has to be a live tool.
  */
 const NON_TOOL_TOKENS: Record<string, string> = {
+  reply_to: 'Shared room message field identifying the parent event UUID, not a tool.',
+  room_id: 'Shared room and attachment context field, not a tool.',
   tier_check: 'advisor_ask kind value, not a tool.',
   delivery_class: 'Explicit queue routing argument.',
   allow_implicit_invocation: 'skill_list listing field gating implicit Skill use, not a tool.',

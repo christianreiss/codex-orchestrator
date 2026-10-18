@@ -18,6 +18,7 @@ import {
   isNotNull,
   lte,
   ne,
+  sql,
 } from 'drizzle-orm';
 
 import type { Database } from '../../db/client.js';
@@ -26,7 +27,7 @@ import {
   agentBusConferenceMembers,
   agentBusConferences,
   agentBusConversations,
-  agentBusMessages,
+  agentBusMessages, agentRoomEvents, agentRoomDeliveries,
   agentSessions,
   hosts,
   type AgentBusAddress,
@@ -44,6 +45,8 @@ import {
   ValidationError,
 } from '../../http/errors.js';
 import type { Keyring } from '../../security/keyring.js';
+import { sha256 } from '../../security/hash.js';
+import { SERVER_ADDRESS_ID } from './groups.js';
 import { encrypt } from '../../security/secret-box.js';
 import { isoOffsetSeconds, nowIso } from '../../util/timestamp.js';
 import { wsPublisher } from '../../ws/publisher.js';
@@ -939,7 +942,9 @@ export class ConferenceCoordinator {
       if (me.state === 'invited') {
         throw new ConflictError('Join the conference before speaking', 'agent_messaging_conference_not_joined');
       }
-      if (me.role !== 'owner') return { chairOnly: true, conference };
+      const eventId = randomUUID();
+      await tx.insert(agentRoomEvents).values({ id:eventId,roomId:conferenceId,actor:`agent:${selfId}`,requestId:eventId,payloadHash:sha256(body),bodyEnc:encrypt(JSON.stringify({name:authenticated.session.launchName??'Conference participant',content:body,attachments:[],kind:'chat'}),this.core.keyring),createdAt:now });
+      if (me.role !== 'owner') return { chairOnly: true, conference, eventId };
       const roster = await this.rosterRowsLocked(tx, conferenceId);
       const targets = roster
         .filter((row) => row.member.role !== 'owner')
@@ -947,7 +952,7 @@ export class ConferenceCoordinator {
         // broadcast behind it would queue behind work it has not finished.
         .filter((row) => row.member.state === 'seated')
         .filter((row) => !to || row.address.address === to || row.address.displayAlias === to);
-      return { chairOnly: false, conference, targets: targets.map((row) => row.address.id) };
+      return { chairOnly: false, conference, eventId, targets: targets.map((row) => row.address.id) };
     });
     const results: Record<string, unknown>[] = [];
     if (recipients.chairOnly) {
@@ -958,6 +963,12 @@ export class ConferenceCoordinator {
         results.push(await this.deliverConferenceMessage(authenticated, conferenceId, selfId, addressId, 'SAY', {}, body));
       }
     }
+    for (const result of results) {
+      if (typeof result.message_id !== 'string') continue;
+      const [message]=await this.core.db.select().from(agentBusMessages).where(eq(agentBusMessages.id,result.message_id));
+      if(message) await this.core.db.insert(agentRoomDeliveries).values({eventId:recipients.eventId,addressId:message.targetAddressId,messageId:message.id});
+    }
+    wsPublisher.publish('agent_room_chat.changed',{room_id:conferenceId});
     return { enabled: true, conference_id: conferenceId, results };
   }
 
@@ -1078,8 +1089,13 @@ export class ConferenceCoordinator {
       const roster = await this.rosterRowsLocked(tx, conferenceId);
       const participants = roster.filter((row) => row.member.role !== 'owner');
       const working = participants.filter((row) => row.member.state === 'dispatched');
-      const releasable = force ? participants : participants.filter((row) => row.member.state !== 'dispatched');
-      const settled = force || working.length === 0;
+      const answerDeliveries = await tx.select({ addressId: agentRoomDeliveries.addressId, status: agentBusMessages.status }).from(agentRoomDeliveries)
+        .innerJoin(agentRoomEvents, eq(agentRoomEvents.id, agentRoomDeliveries.eventId))
+        .innerJoin(agentBusMessages, eq(agentBusMessages.id, agentRoomDeliveries.messageId))
+        .where(and(eq(agentRoomEvents.roomId, conferenceId), eq(agentBusMessages.senderAddressId, SERVER_ADDRESS_ID)));
+      const answering = new Set(answerDeliveries.filter(item => !['completed', 'dead', 'expired', 'canceled', 'ambiguous'].includes(item.status)).map(item => item.addressId));
+      const releasable = force ? participants : participants.filter((row) => row.member.state !== 'dispatched' && !answering.has(row.address.id));
+      const settled = force || (working.length === 0 && answering.size === 0);
       await tx
         .update(agentBusConferences)
         .set({
@@ -1240,7 +1256,7 @@ export class ConferenceCoordinator {
     const draining = await db
       .select({ id: agentBusConferences.id })
       .from(agentBusConferences)
-      .where(eq(agentBusConferences.status, 'adjourning'))
+      .where(and(eq(agentBusConferences.status, 'adjourning'), sql`${agentBusConferences.ownerAdminId} IS NULL`))
       .for('update');
     let settled = 0;
     for (const row of draining) {
@@ -1249,6 +1265,11 @@ export class ConferenceCoordinator {
         .from(agentBusConferenceMembers)
         .where(and(eq(agentBusConferenceMembers.conferenceId, row.id), eq(agentBusConferenceMembers.state, 'dispatched')));
       if (Number(busy[0]?.value ?? 0) > 0) continue;
+      const roomDeliveries = await db.select({ status: agentBusMessages.status }).from(agentRoomDeliveries)
+        .innerJoin(agentRoomEvents, eq(agentRoomEvents.id, agentRoomDeliveries.eventId))
+        .innerJoin(agentBusMessages, eq(agentBusMessages.id, agentRoomDeliveries.messageId))
+        .where(and(eq(agentRoomEvents.roomId, row.id), eq(agentBusMessages.senderAddressId, SERVER_ADDRESS_ID)));
+      if (roomDeliveries.some(item => !['completed', 'dead', 'expired', 'canceled', 'ambiguous'].includes(item.status))) continue;
       await db
         .update(agentBusConferences)
         .set({ status: 'adjourned', adjournedAt: now, pin: null, pinExpiresAt: null, updatedAt: now })

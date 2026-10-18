@@ -1,4 +1,14 @@
 <script lang="ts">
+  import { reactiveOptions } from '$lib/components/projects/reactive-options.svelte';
+  import { createInfiniteQuery } from '@tanstack/svelte-query';
+  import { goto } from '$app/navigation';
+  import UsersIcon from '@lucide/svelte/icons/users';
+  import MessagesSquareIcon from '@lucide/svelte/icons/messages-square';
+  import HashIcon from '@lucide/svelte/icons/hash';
+  import PlusIcon from '@lucide/svelte/icons/plus';
+  import RoomConversation from './RoomConversation.svelte';
+  import NewRoom from './NewRoom.svelte';
+  import { roomOptions, emptyRoomDraft, matchingRooms, roomKindLabel, type RoomDraft, type ChatRoom } from '$lib/api/roomChats';
   import { engineLabel } from "$lib/constants/engines";
   import { tick, untrack, type Snippet } from "svelte";
   import { base } from "$app/paths";
@@ -71,6 +81,20 @@
   const canManage = $derived($authStore.can("agent_portal.manage"));
   const canReadTranscript = $derived($authStore.can("agent_portal.reveal_transcript"));
   const canRemoteManage = $derived($authStore.can("agent_messaging.manage"));
+  const sharedRooms = createInfiniteQuery(reactiveOptions(()=>roomOptions(!embedded && $authStore.can('agent_messaging.read'))));
+  const roomData = $derived($sharedRooms.data ? {enabled:$sharedRooms.data.pages[0]?.enabled, rooms:$sharedRooms.data.pages.flatMap(p=>p.rooms ?? []), has_more:$sharedRooms.hasNextPage} : undefined);
+  const selectedRoom = $derived(embedded ? null : page.url.searchParams.get('room'));
+  const roomRows = $derived(matchingRooms(roomData?.rooms ?? [], search, engine));
+  $effect(()=>{if(selectedRoom&&!roomDrafts[selectedRoom])roomDrafts[selectedRoom]=emptyRoomDraft();});
+  let newRoomOpen = $state(false);
+  let roomDrafts = $state<Record<string,RoomDraft>>({});
+  async function selectRoom(id: string | null) {
+    selectedId = null;
+    const url = new URL(page.url); url.searchParams.delete('session');
+    if(id) url.searchParams.set('room',id); else url.searchParams.delete('room');
+    await goto(url,{keepFocus:true,noScroll:true});
+    if(!id) await tick().then(()=>document.getElementById('shared-room-heading')?.focus());
+  }
   const daemonHosts = hostDaemonsQuery(() => canRemoteManage);
   let remoteId = $state<string | null>(null);
   const remoteRows = $derived(($daemonHosts.data?.hosts ?? []).flatMap(host => host.sessions));
@@ -126,6 +150,7 @@
   });
 
   async function selectClient(id: string) {
+    if(selectedRoom) { const url=new URL(page.url);url.searchParams.delete('room');url.searchParams.set('session',id);await goto(url,{keepFocus:true,noScroll:true}); }
     selectedId = id;
     atBottom = true;
     missed = 0;
@@ -271,11 +296,11 @@
 {#if embedded && workspace === "agents"}
   {#if selected}{@render nativeConversation()}{:else}<p class="p-4 text-body-sm text-muted-foreground">{$sessions.isPending ? "Loading conversation…" : "Session unavailable."}</p>{/if}
 {:else if workspace === "agents"}
-{#if $sessions.isPending && !$sessions.data}
+{#if $sessions.isPending && !$sessions.data && !roomData?.enabled}
   <div role="status" aria-label="Loading clients" class="space-y-2 lg:w-80">
     {#each Array(5) as _, i (i)}<div class="flex items-center gap-3"><Skeleton class="h-9 w-9 rounded-full" /><Skeleton class="h-9 flex-1 rounded-md" /></div>{/each}
   </div>
-{:else if $sessions.isError && !$sessions.data}
+{:else if $sessions.isError && !$sessions.data && !roomData?.enabled}
   <div role="alert" class="rounded-md border border-destructive/30 bg-destructive/5 p-6">
     <h2 class="font-semibold">Clients could not be loaded</h2>
     <p class="mt-1 text-body-sm text-muted-foreground">{$sessions.error?.message ?? "The server is unreachable."}</p>
@@ -288,31 +313,52 @@
       <Button variant="outline" size="sm" onclick={refresh} disabled={$sessions.isFetching}>Retry status</Button>
     </div>
   {/if}
-  {#if !enabled}
+  {#if !enabled && !roomData?.enabled}
     <EmptyState icon={PowerOffIcon} title="Agent sessions are off" description="Client registration is paused. Enable agent sessions in Fleet → Policies to record new sessions." />
     {#if canManage}<a class="text-body-sm text-primary underline" href={`${base}/settings#agents`}>Agent session settings</a>{/if}
-  {:else if rows.length === 0}
+  {:else if rows.length === 0 && !$authStore.can("agent_messaging.read")}
     <EmptyState icon={BotIcon} title="No recorded clients" description="A session appears when cdx, clx, or cgx registers its session. Clients that cannot reach the server may appear after reconnecting." />
   {:else}
     <!-- One Messages-style card: conversation list on the left, thread on the right. -->
-    <div class="grid h-[calc(75dvh-4rem)] min-h-[28rem] grid-cols-1 overflow-hidden rounded-md border bg-card lg:h-[calc(100dvh-14rem)] lg:grid-cols-[22rem_minmax(0,1fr)]">
-      <section class="min-h-0 min-w-0 flex-col border-r {selected ? 'hidden lg:flex' : 'flex'}" aria-label="Client directory">
+    <div class="grid h-[calc(75dvh-4rem)] min-h-[28rem] grid-cols-1 overflow-hidden rounded-md border bg-card lg:h-[calc(100dvh-14rem)] lg:grid-cols-[20rem_minmax(0,1fr)]">
+      <section class="min-h-0 min-w-0 flex-col border-r {selected || selectedRoom ? 'hidden lg:flex' : 'flex'}" aria-label="Client directory">
         <div class="flex items-center justify-between border-b px-3 py-2 text-caption text-muted-foreground">
-          <span>{filter === "active" ? "Active agents" : "Online agents"}</span>
-          <span class="tabular-nums" aria-label="Visible clients">{visible.length}</span>
+          <h2 id="shared-room-heading" tabindex="-1" class="font-medium text-foreground">Conversations</h2>
+          {#if canRemoteManage}<Button variant="ghost" size="icon" class="h-8 w-8" aria-label="New conversation" onclick={()=>newRoomOpen=true}><PlusIcon class="h-4 w-4"/></Button>{/if}
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
+          <h3 class="px-3 pb-1 pt-3 text-caption font-medium text-muted-foreground">Direct messages <span class="ml-1 tabular-nums">{visible.length}</span></h3>
           {#if !visible.length}
-            <div class="px-4 py-8 text-center"><SearchIcon class="mx-auto h-5 w-5 text-muted-foreground" /><h3 class="mt-2 text-body-sm font-medium">No clients match</h3><p class="mt-1 text-caption text-muted-foreground">Try another host, engine, or status.</p><Button variant="outline" size="sm" class="mt-3" onclick={resetFilters}>Clear filters</Button></div>
+            <div class="px-3 py-3 text-caption text-muted-foreground">{#if rows.length}<h3 class="font-medium">No clients match</h3>{:else}<p>No direct conversations yet.</p>{/if}{#if rows.length}<button type="button" class="mt-1 min-h-8 text-primary underline" onclick={resetFilters}>Clear filters</button>{/if}</div>
           {:else}
             {#each visible as row (row.id)}{@render sessionRow(row)}{/each}
+          {/if}
+          {#if $authStore.can('agent_messaging.read')}
+            {#if $sharedRooms.isPending}<p role="status" class="p-3 text-caption text-muted-foreground">Loading shared conversations…</p>
+            {:else if $sharedRooms.isError}<div role="alert" class="p-3 text-caption"><p>Shared conversations could not refresh.</p><Button variant="ghost" size="sm" onclick={()=> $sharedRooms.refetch()}>Retry rooms</Button></div>
+            {:else if !roomData?.enabled}<p class="p-3 text-caption text-muted-foreground">Agent messaging is disabled.</p>{/if}
+            {#each ['project','host','group','conference'] as kind}
+              {@const rooms=roomRows.filter(r=>r.kind===kind)}
+              {#if rooms.length}<h3 class="px-3 pb-1 pt-5 text-caption font-medium text-muted-foreground">{roomKindLabel(kind as ChatRoom['kind'])} <span class="ml-1 tabular-nums">{rooms.length}</span></h3>
+                {#each rooms as room (room.id)}
+                  <button id={`room-${room.id}`} type="button" class="flex w-full items-start gap-3 rounded-md px-3 py-3 text-left transition-colors hover:bg-muted/60 {selectedRoom===room.id?'bg-muted':''}" aria-pressed={selectedRoom===room.id} onclick={()=>selectRoom(room.id)}>
+                    <span class="mt-0.5 grid h-9 w-9 shrink-0 place-content-center rounded-md border bg-background">{#if room.kind==='conference'}<MessagesSquareIcon class="h-4 w-4"/>{:else if room.kind==='group'}<UsersIcon class="h-4 w-4"/>{:else}<HashIcon class="h-4 w-4"/>{/if}</span>
+                    <span class="min-w-0 flex-1"><span class="flex items-baseline justify-between gap-2"><span class="break-words text-body-sm font-medium">{room.title}</span>{#if room.unread}<span class="shrink-0 rounded bg-primary px-1.5 text-caption text-primary-foreground" aria-label={`${room.unread} unread messages`}>{room.unread}</span>{/if}</span><span class="mt-0.5 block truncate text-caption text-muted-foreground">{room.members.slice(0,3).map(m=>m.name).join(', ')||'No participants'}{room.members.length>3?` +${room.members.length-3}`:''}</span><span class="mt-1 block text-caption text-muted-foreground">{room.status==='open'?`${room.members.length} participants`:room.status}{#if room.last_activity_at} · {listTime(room.last_activity_at,new Date(serverNow))}{/if}</span></span>
+                  </button>
+                {/each}
+              {/if}
+            {/each}
+            {#if roomData?.enabled&&!roomRows.length}<p class="p-3 text-caption text-muted-foreground">{search?'No shared conversations match.':'No shared conversations yet.'}</p>{/if}
+            {#if roomData?.has_more}<Button variant="ghost" size="sm" class="m-2" disabled={$sharedRooms.isFetchingNextPage} onclick={()=> $sharedRooms.fetchNextPage()}>More conversations</Button>{/if}
           {/if}
         </div>
       </section>
 
-      <section class="min-h-0 min-w-0 flex-col {selected ? 'flex' : 'hidden lg:flex'}" aria-label="Client details">
-        {#if !selected || !selectedView}
-          <div class="grid flex-1 place-content-center p-8 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h2 class="mt-3 text-body-sm font-medium">Select a client</h2><p class="mx-auto mt-1 max-w-xs text-caption leading-relaxed text-muted-foreground">Online means a recent heartbeat. Receiver readiness determines whether a client accepts instructions; native activity is shown separately.</p></div>
+      <section class="min-h-0 min-w-0 flex-col {selected || selectedRoom ? 'flex' : 'hidden lg:flex'}" aria-label="Client details">
+        {#if selectedRoom && roomDrafts[selectedRoom]}
+          {#key selectedRoom}<RoomConversation id={selectedRoom} bind:draft={roomDrafts[selectedRoom]} onclose={()=>selectRoom(null)}/>{/key}
+        {:else if !selected || !selectedView}
+          <div class="grid flex-1 place-content-center p-8 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h2 class="mt-3 text-body-sm font-medium">Choose a conversation</h2><p class="mx-auto mt-1 max-w-xs text-caption leading-relaxed text-muted-foreground">Direct messages, shared rooms and conferences, together in one place.</p></div>
         {:else}
           {@render nativeConversation()}
         {/if}
@@ -436,3 +482,5 @@
 <Dialog.Root bind:open={forceOpen}>
   <Dialog.Content class="sm:max-w-md"><Dialog.Header><Dialog.Title>Force close this session?</Dialog.Title><Dialog.Description>End the portal session for {forceTarget?.username} on {forceTarget?.host}. This works when the relay cannot accept a close request. The local client may take time to observe it.</Dialog.Description></Dialog.Header><Dialog.Footer><Button variant="ghost" onclick={() => (forceOpen = false)} disabled={$force.isPending}>Cancel</Button><Button variant="destructive" disabled={!canManage || !enabled || $force.isPending || !forceTarget} onclick={() => { if (forceTarget && canManage && enabled) $force.mutate({ id: forceTarget.id }); }}>{$force.isPending ? "Ending…" : "Force close session"}</Button></Dialog.Footer></Dialog.Content>
 </Dialog.Root>
+
+{#if !embedded&&canRemoteManage}<NewRoom bind:open={newRoomOpen} oncreated={id=>selectRoom(id)}/>{/if}

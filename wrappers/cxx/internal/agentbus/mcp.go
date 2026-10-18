@@ -344,7 +344,7 @@ func (t *channelTracker) ensureListenBind(ctx context.Context) error {
 		// The server preserves the stored adapter_protocol when the field is
 		// omitted, so the pump's identity survives a listen bind untouched.
 		body["adapter_protocol"] = "cxx-agent-listen-v1"
-		body["adapter_capabilities"] = map[string]any{"listen": true, "scope_protocol_version": 1, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1}
+		body["adapter_capabilities"] = map[string]any{"listen": true, "scope_protocol_version": 1, "shared_room_chat_version": 1, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1}
 	}
 	var ignored map[string]any
 	if err := t.client.post(ctx, "bind", body, &ignored); err != nil {
@@ -667,7 +667,7 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 			if !automatic && channel && initialized && !channelActive && req.Method == "notifications/initialized" {
 				var bound map[string]any
 				if err := client.post(ctx, "bind", map[string]any{
-					"adapter_protocol": "claude-channel-preview-v1", "adapter_capabilities": map[string]any{"channel": true, "scope_protocol_version": 1, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1}, "receive_capable": true,
+					"adapter_protocol": "claude-channel-preview-v1", "adapter_capabilities": map[string]any{"channel": true, "scope_protocol_version": 1, "shared_room_chat_version": 1, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1}, "receive_capable": true,
 				}, &bound); err != nil {
 					return fmt.Errorf("activate Claude channel adapter: %w", err)
 				}
@@ -908,7 +908,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		return out, err
 	case "agent_portal_ask", "agent_portal_notify", "agent_portal_resolve", "agent_attachment_upload", "agent_attachment_get":
 		return callChatTool(ctx, client, name, args)
-	case "agent_context_get", "agent_context_update", "agent_room_list", "agent_room_read", "agent_room_send", "resource_claim_acquire", "resource_claim_status", "resource_claim_release":
+	case "agent_chat_list", "agent_chat_read", "agent_chat_send", "agent_context_get", "agent_context_update", "agent_room_list", "agent_room_read", "agent_room_send", "resource_claim_acquire", "resource_claim_status", "resource_claim_release":
 		return callCoordinationTool(ctx, client, name, args)
 	case "agent_self":
 		err := client.post(ctx, "self", map[string]any{}, &out)

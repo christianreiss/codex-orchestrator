@@ -52,6 +52,14 @@ const NON_ROUTE_ENDPOINTS: Record<string, string> = {};
 
 /** Files that call a path built at runtime, and what feeds that path. */
 const RUNTIME_PATH_CALLERS: Record<string, string> = {
+  'frontend/src/lib/components/library/ArtifactEditor.svelte': 'cfg.api is a typed ClaudeArtifactApi selected from ARTIFACT_APIS; its get/delete methods and literal routes live in lib/api/claudeArtifacts.ts.',
+  'frontend/src/lib/components/library/library-types.ts': 'api is a ClaudeArtifactApi, not the raw HTTP client; create/remove call its typed artifact store/delete methods.',
+  'frontend/src/lib/components/portal/AttachmentList.svelte': 'attachmentBase selects session or shared-room URLs; room and direct-chat browser tests exercise both access paths.',
+  'frontend/src/lib/components/portal/ChatUploads.svelte': 'attachmentBase selects session or shared-room upload/delete paths; server tests verify room and author binding.',
+  'frontend/src/lib/components/portal/NewRoom.svelte': 'roomRoot targets the registered shared-chat create endpoint, exercised by admin-room-chats browser tests.',
+  'frontend/src/lib/components/portal/RoomConversation.svelte': 'roomRoot builds shared-chat read/seen/send/manage operations; browser and MySQL tests cover these paths.',
+  'frontend/src/lib/portal/chat-files.ts': 'attachmentBase selects session or room uploads, chunks and sealing; room API and existing attachment tests exercise the contracts.',
+
   'frontend/src/lib/api/nativeSettings.ts': 'Engine selects /admin/config, /admin/claude/config or /admin/grok/config; the table below executes GET plus POST /render and /store for every engine and checks registered routes.',
   'frontend/src/lib/components/policies/SessionHousekeeping.svelte': 'endpoint chooses fleet or host session-housekeeping routes; engine completes the POST path',
   'frontend/src/lib/api/watchdogs.ts': 'Reactive target queries and versioned disable IDs use Watchdog routes; API and browser tests cover activation and disable.',

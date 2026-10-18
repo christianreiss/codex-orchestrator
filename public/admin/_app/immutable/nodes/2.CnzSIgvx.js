@@ -1,0 +1,1 @@
+import{$t as e,G as t,P as n,bt as r,q as i,xt as a}from"../chunks/DNm2sqcE.js";import"../chunks/xihTtKlq.js";import{t as o}from"../chunks/R3xoZSSO2.js";var s=i(`<!> <!>`,1);function c(i,c){var l=s(),u=r(l);o(u,{hub:`access`}),n(a(u,2),()=>c.children??e),t(i,l)}export{c as component};

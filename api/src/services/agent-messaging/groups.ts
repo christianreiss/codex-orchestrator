@@ -6,7 +6,7 @@ import {
   agentBusConversations,
   agentBusGroups,
   agentBusMessages,
-  agentBusPublications,
+  agentBusPublications, agentRoomEvents,
   agentBusSubscriptions,
   type AgentBusAddress,
   type AgentSession,
@@ -571,6 +571,10 @@ export class AgentMessagingGroups {
         }),
       );
       receipts.deliveries.push({ address_id: target.id, message_id: messageId });
+    }
+    if (topic.startsWith('group:')) {
+      const [group] = await tx.select().from(agentBusGroups).where(eq(agentBusGroups.slug,topic.slice(6)));
+      if(group) await tx.insert(agentRoomEvents).values({id:publicationId,roomId:group.id,actor:`agent:${sender.id}`,requestId:clientId,payloadHash:digest,bodyEnc:encrypt(JSON.stringify({name:sender.launchName??sender.displayAlias??sender.username,content,attachments:[],kind:'publication'}),this.core.keyring),createdAt:now});
     }
     await tx.insert(agentBusPublications).values({
       id: publicationId,

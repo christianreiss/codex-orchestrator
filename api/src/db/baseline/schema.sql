@@ -164,6 +164,7 @@ CREATE TABLE `agent_bus_conference_members` (
 CREATE TABLE `agent_bus_conferences` (
 	`id` char(36) NOT NULL,
 	`owner_address_id` char(36) NOT NULL,
+	`owner_admin_id` int unsigned,
 	`topic` varchar(255),
 	`purpose` varchar(1024),
 	`pin` char(4),
@@ -2064,4 +2065,36 @@ CREATE TABLE `agent_scopes` (
 	`created_at` varchar(100) NOT NULL,
 	CONSTRAINT `agent_scopes_id` PRIMARY KEY(`id`),
 	CONSTRAINT `uq_agent_scopes_key` UNIQUE(`scope_key`)
+);
+
+CREATE TABLE `agent_room_events` (
+ `id` char(36) PRIMARY KEY,
+ `room_id` char(36) NOT NULL,
+ `actor` varchar(80) NOT NULL,
+ `request_id` char(36) NOT NULL,
+ `payload_hash` char(64) NOT NULL,
+ `body_enc` longtext NOT NULL,
+ `created_at` varchar(100) NOT NULL,
+ UNIQUE KEY uq_room_event_request (room_id, actor, request_id),
+ KEY idx_room_event_time (room_id, created_at, id)
+);
+CREATE TABLE `agent_room_reads` (
+ `room_id` char(36) NOT NULL,
+ `admin_id` int unsigned NOT NULL,
+ `read_at` varchar(100) NOT NULL,
+ UNIQUE KEY uq_room_read (room_id, admin_id)
+);
+CREATE TABLE `agent_room_operations` (
+ `id` char(36) PRIMARY KEY,
+ `actor` varchar(80) NOT NULL,
+ `payload_hash` char(64) NOT NULL,
+ `result` json NOT NULL,
+ `created_at` varchar(100) NOT NULL
+);
+CREATE TABLE `agent_room_deliveries` (
+ `event_id` char(36) NOT NULL,
+ `address_id` char(36) NOT NULL,
+ `message_id` char(36),
+ `reason` varchar(80),
+ UNIQUE KEY uq_room_delivery (event_id, address_id)
 );

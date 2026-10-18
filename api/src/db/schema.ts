@@ -1754,6 +1754,7 @@ export const agentBusConferences = mysqlTable(
   {
     id: char('id', { length: 36 }).primaryKey(),
     ownerAddressId: char('owner_address_id', { length: 36 }).notNull(),
+    ownerAdminId: int('owner_admin_id', { unsigned: true }),
     topic: varchar('topic', { length: 255 }),
     purpose: varchar('purpose', { length: 1024 }),
     pin: char('pin', { length: 4 }),
@@ -2632,3 +2633,32 @@ export const agentResourceClaims = mysqlTable('agent_resource_claims', {
   createdAt: varchar('created_at', { length: 100 }).notNull(),
   updatedAt: varchar('updated_at', { length: 100 }).notNull(),
 }, t => ({ requestUnique: uniqueIndex('uq_resource_claim_request').on(t.sessionId, t.requestId), stateIdx: index('idx_resource_claim_state').on(t.state, t.expiresAt) }));
+
+/** Canonical shared chat events; fan-out deliveries reference, never duplicate, these rows. */
+export const agentRoomEvents = mysqlTable('agent_room_events', {
+  id: char('id', { length: 36 }).primaryKey(),
+  roomId: char('room_id', { length: 36 }).notNull(),
+  actor: varchar('actor', { length: 80 }).notNull(),
+  requestId: char('request_id', { length: 36 }).notNull(),
+  payloadHash: char('payload_hash', { length: 64 }).notNull(),
+  bodyEnc: longtext('body_enc').notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, t => ({ requestUnique: uniqueIndex('uq_room_event_request').on(t.roomId, t.actor, t.requestId), roomIdx: index('idx_room_event_time').on(t.roomId, t.createdAt, t.id) }));
+export const agentRoomReads = mysqlTable('agent_room_reads', {
+  roomId: char('room_id', { length: 36 }).notNull(),
+  adminId: int('admin_id', { unsigned: true }).notNull(),
+  readAt: varchar('read_at', { length: 100 }).notNull(),
+}, t => ({ readerUnique: uniqueIndex('uq_room_read').on(t.roomId, t.adminId) }));
+export const agentRoomOperations = mysqlTable('agent_room_operations', {
+  id: char('id', { length: 36 }).primaryKey(),
+  actor: varchar('actor', { length: 80 }).notNull(),
+  payloadHash: char('payload_hash', { length: 64 }).notNull(),
+  result: json('result').$type<Record<string, unknown>>().notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+});
+export const agentRoomDeliveries = mysqlTable('agent_room_deliveries', {
+  eventId: char('event_id', { length: 36 }).notNull(),
+  addressId: char('address_id', { length: 36 }).notNull(),
+  messageId: char('message_id', { length: 36 }),
+  reason: varchar('reason', { length: 80 }),
+}, t => ({ deliveryUnique: uniqueIndex('uq_room_delivery').on(t.eventId, t.addressId) }));

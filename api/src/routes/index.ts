@@ -1,3 +1,4 @@
+import { registerAgentRoomChatRoutes } from './agent-room-chat.js';
 import { registerTransfersRoutes } from './transfers/index.js';
 import { registerCommunicatorRoutes } from './communicator.js';
 import { registerAgentChatRoutes } from './agent-chat.js';
@@ -75,6 +76,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerWrapperV2Routes(app, ctx);
   await registerAgentPortalRoutes(app, ctx);
   await registerAgentMessagingRoutes(app, ctx);
+  registerAgentRoomChatRoutes(app, ctx);
   await registerScheduleRoutes(app, ctx);
   await registerWatchdogRoutes(app, ctx);
   await registerAgentReceiverRoutes(app, ctx);

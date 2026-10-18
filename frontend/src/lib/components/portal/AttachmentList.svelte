@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
-  import { attachmentUrl, type ChatFile } from '$lib/portal/chat-files';
+  import { attachmentBase, attachmentUrl, type ChatFile } from '$lib/portal/chat-files';
   let { session, ids }: { session: string; ids: string[] } = $props();
   let files = $state<ChatFile[]>([]);
   let error = $state('');
@@ -9,7 +9,7 @@
   onMount(() => {
     let stopped = false;
     async function refresh() {
-      try { const rows = await Promise.all(ids.map(id => api.get<ChatFile>(`/admin/agent-sessions/${session}/attachments/${id}`))); if (!stopped) { files = rows; error = ''; } }
+      try { const rows = await Promise.all(ids.map(id => api.get<ChatFile>(`${attachmentBase(session)}/${id}`))); if (!stopped) { files = rows; error = ''; } }
       catch(e) { if (!stopped) error = e instanceof Error ? e.message : 'Attachment unavailable'; }
     }
     void refresh(); const timer = setInterval(() => { if (!files.length || files.some(f => f.processing && ['queued','processing'].includes(f.processing.state))) void refresh(); }, 5000);

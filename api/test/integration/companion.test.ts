@@ -84,6 +84,8 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
     hostId = h.insertId;
     chatRoot = await mkdtemp(join(tmpdir(),'companion-chat-')); ctx.env.DATA_ROOT = chatRoot;
     app.decorate('requireAdmin', async () => {});
+    // This fixture exercises companion bearer auth; admin-only routes are registered but not called.
+    app.decorate('requireCapability', () => async () => {});
     await app.register(envelopePlugin);
     await registerCompanionRoutes(app, {
       ...ctx,

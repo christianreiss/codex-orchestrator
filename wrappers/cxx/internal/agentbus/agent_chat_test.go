@@ -79,3 +79,28 @@ func TestChatUploadResumesAtPersistedOffset(t *testing.T) {
 		t.Fatalf("got %d chunks", chunks)
 	}
 }
+
+func TestRoomAttachmentUploadUsesAuthenticatedRoomRoute(t *testing.T) {
+	file := t.TempDir() + "/note.txt"
+	if err := os.WriteFile(file, []byte("room"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	room := "22222222-2222-4222-8222-222222222222"
+	paths := []string{}
+	client := &sessionClient{id: "fixture", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		paths = append(paths, req.URL.Path)
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"uploaded_bytes":0}`))}, nil
+	})}}
+	_, err := callChatTool(context.Background(), client, "agent_attachment_upload", map[string]any{"room_id": room, "upload_id": "11111111-1111-4111-8111-111111111111", "path": file, "mime_type": "text/plain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 3 {
+		t.Fatalf("expected create/chunk/seal, got %v", paths)
+	}
+	for _, path := range paths {
+		if !strings.Contains(path, "/agent-messaging/chats/"+room+"/attachments") {
+			t.Fatalf("room context lost: %s", path)
+		}
+	}
+}

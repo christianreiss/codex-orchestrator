@@ -1,3 +1,5 @@
+import { AgentRoomChat } from '../services/agent-room-chat/index.js';
+import { createAgentMessagingService } from '../services/agent-messaging.js';
 import { createReadStream } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -15,11 +17,21 @@ export async function registerAgentChatRoutes(app: FastifyInstance, ctx: RouteCo
   const portal = createAgentPortalService(ctx.db, ctx.env, ctx.keyring);
   const devices = new CompanionDevices(ctx);
   const remote = new CompanionRemote(ctx);
-  const params = z.object({ id: z.string().uuid(), attachmentId: z.string().uuid().optional() });
+  const rooms = new AgentRoomChat(ctx.db, ctx.env, ctx.keyring, createAgentMessagingService(ctx.db, ctx.env, ctx.keyring));
+  const params = z.object({ id: z.string().uuid().optional(), roomId: z.string().uuid().optional(), attachmentId: z.string().uuid().optional() });
   async function identity(req: FastifyRequest, write: boolean) {
+    const roomId = params.parse(req.params).roomId;
+    if (roomId) {
+      const host = req.url.startsWith('/host/');
+      const token = req.headers['x-agent-bridge-token'];
+      if (host && typeof token !== 'string') throw new ForbiddenError('Bridge token required');
+      if (!host && write) await app.assertCapability(req, 'agent_messaging.manage');
+      const access = await rooms.access(host ? { sessionId: params.parse(req.params).id, token: token as string } : { adminId: req.admin!.user.id, name: req.admin!.user.name }, roomId, write);
+      return { sessionId: roomId, owner: access.owner };
+    }
     if (!(await portal.isEnabled()))
       throw new ServiceUnavailableError('Agent chat is disabled', 'agent_portal_disabled');
-    const { id } = params.parse(req.params);
+    const id = z.string().uuid().parse(params.parse(req.params).id);
     if (req.url.startsWith('/host/')) {
       const token = req.headers['x-agent-bridge-token'];
       if (typeof token !== 'string') throw new ForbiddenError('Bridge token required');
@@ -66,6 +78,7 @@ export async function registerAgentChatRoutes(app: FastifyInstance, ctx: RouteCo
           offset: z.number().int().nonnegative().default(0),
         })
         .parse(req.body);
+      if (p.roomId) await attachments.assertReadableDraft(auth.sessionId,body.attachment_id,auth.owner);
       const item = await attachments.download(auth.sessionId, body.attachment_id, body.variant);
       const size = (await stat(item.path)).size;
       if (body.offset > size) throw new ForbiddenError('Invalid download offset');
@@ -93,6 +106,7 @@ export async function registerAgentChatRoutes(app: FastifyInstance, ctx: RouteCo
     }
     if (op === 'seal') return attachments.seal(auth.sessionId, auth.owner, attachmentId);
     if (op === 'delete') return attachments.discard(auth.sessionId, auth.owner, attachmentId);
+    if (p.roomId) await attachments.assertReadableDraft(auth.sessionId, attachmentId, auth.owner);
     if (op === 'info') return attachments.info(auth.sessionId, attachmentId);
     const query = z
       .object({ variant: z.string().optional(), inline: z.enum(['1', '0']).optional() })
@@ -134,6 +148,16 @@ export async function registerAgentChatRoutes(app: FastifyInstance, ctx: RouteCo
     reply.header('Content-Length', size);
     return reply.send(createReadStream(item.path));
   };
+  app.post('/admin/agent-messaging/chats/:roomId/attachments', { preHandler: app.requireAdmin }, handler('create'));
+  app.post('/admin/agent-messaging/chats/:roomId/attachments/:attachmentId/chunks', { preHandler: app.requireAdmin }, handler('put'));
+  app.post('/admin/agent-messaging/chats/:roomId/attachments/:attachmentId/seal', { preHandler: app.requireAdmin }, handler('seal'));
+  app.get('/admin/agent-messaging/chats/:roomId/attachments/:attachmentId', { preHandler: [app.requireAdmin, app.requireCapability('agent_messaging.reveal_content')] }, handler('info'));
+  app.get('/admin/agent-messaging/chats/:roomId/attachments/:attachmentId/content', { preHandler: [app.requireAdmin, app.requireCapability('agent_messaging.reveal_content')] }, handler('download'));
+  app.delete('/admin/agent-messaging/chats/:roomId/attachments/:attachmentId', { preHandler: app.requireAdmin }, handler('delete'));
+  app.post('/host/agent-sessions/:id/agent-messaging/chats/:roomId/attachments', handler('create'));
+  app.post('/host/agent-sessions/:id/agent-messaging/chats/:roomId/attachments/:attachmentId/chunks', handler('put'));
+  app.post('/host/agent-sessions/:id/agent-messaging/chats/:roomId/attachments/:attachmentId/seal', handler('seal'));
+  app.post('/host/agent-sessions/:id/agent-messaging/chats/:roomId/attachments/get', handler('get'));
   app.get('/admin/agent-chat/limits', { preHandler: app.requireAdmin }, async () => attachments.limits());
   app.get('/companion/v1/agent-chat/limits', async (req) => {
     await devices.authenticate(req.headers.authorization, 'agent_portal.read');
