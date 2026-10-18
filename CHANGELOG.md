@@ -1,5 +1,7 @@
 # 2026-10-18
 
+- Fixed Agents page deep links and refresh returning legacy agent-policy JSON instead of the admin application; JSON API authentication remains unchanged.
+
 - **macOS persistent service (cxx 0.9.102):** new background workers use the per-user launchd domain with the Background session type, so update/install works over SSH without a GUI login. Existing GUI jobs remain addressable for update, status and removal. Updates also wait for asynchronous launchd removal before bootstrap to avoid transient I/O errors. Applies to Codex, Claude and Grok.
 - Added opt-in session scope coordination: automatic host/project rooms, durable member and chat pushes, resource claims with uncertain-owner retention, Git Director checks, and Project/Host grouping plus operator scope chat in Agents → Graph. Shared across Codex, Claude and Grok in cxx 0.9.103; production activation remains explicit.
 
