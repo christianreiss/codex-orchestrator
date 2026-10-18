@@ -36,6 +36,7 @@ import java.time.Instant
 @Composable internal fun NowScreen(model: CompanionModel, agents: List<JSONObject>, fresh: Boolean, now: Long = System.currentTimeMillis()) {
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("all") }
+    var createRoom by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(filter) { if (filter == "needs-you") filter = "all" }
     val keyboard = LocalSoftwareKeyboardController.current
     val search = query.trim()
@@ -52,8 +53,17 @@ import java.time.Instant
             agentHost(agent).orEmpty(), agentSummary(agent).orEmpty(), agent.optString("engine"))
             .any { it.contains(search, ignoreCase = true) })
     }
+    val shared = model.roomChats.rooms.filter { room ->
+        (filter == "all" || filter == "unread" && room.optInt("unread") > 0 || filter == room.optString("kind")) &&
+            (search.isBlank() || room.optString("title").contains(search, true) || room.optString("description").contains(search, true))
+    }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 4.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Conversations", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                if (model.can("agent_messaging.manage") && model.can("agent_messaging.reveal_content") && model.roomChats.supported && model.roomChats.enabled)
+                    TextButton(onClick = { createRoom = true; model.roomChats.loadCandidates() }, enabled = fresh) { Text("New") }
+            }
             OutlinedTextField(
                 value = query, onValueChange = { query = it }, singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("chat-search").semantics { contentDescription = "Search chats" },
@@ -62,21 +72,21 @@ import java.time.Instant
                 trailingIcon = if (query.isNotEmpty()) { {
                     IconButton(onClick = { query = "" }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.Close, "Clear search") }
                 } } else null,
-                shape = RoundedCornerShape(28.dp),
+                shape = MaterialTheme.shapes.medium,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary, unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                 ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
             )
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("all" to "All", "unread" to "Unread", "working" to "Working", "idle" to "Idle", "waiting" to "Waiting", "unknown" to "Unknown").forEach { (id, label) ->
+                listOf("all" to "All", "unread" to "Unread", "group" to "Groups", "conference" to "Conferences", "working" to "Working", "idle" to "Idle", "waiting" to "Waiting", "unknown" to "Unknown").forEach { (id, label) ->
                     FilterChip(
                         selected = filter == id, onClick = { filter = id },
                         modifier = Modifier.heightIn(min = 48.dp).testTag("chat-filter:$id"),
-                        label = { Text(label) }, shape = CircleShape, border = null,
+                        label = { Text(label) }, shape = MaterialTheme.shapes.small, border = null,
                         colors = FilterChipDefaults.filterChipColors(
                             containerColor = MaterialTheme.colorScheme.surfaceContainer,
                             labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -88,16 +98,25 @@ import java.time.Instant
             }
         }
         LazyColumn(Modifier.fillMaxSize().testTag("chat-list"), contentPadding = PaddingValues(bottom = 96.dp)) {
+            if (!model.roomChats.supported || !model.roomChats.enabled) item(key = "rooms-unavailable") {
+                Text(if (!model.roomChats.supported) "Shared conversations require a server update." else "Shared conversations are disabled on this server.", Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (!fresh && !model.connecting) item(key = "reconnect") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text("Checking what needs you…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = model::refreshNow, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry connection") }
                 }
             }
-            itemsIndexed(visible, key = { _, agent -> "agent:" + agent.getString("id") }) { index, agent ->
+            if (filter !in setOf("group", "conference") && visible.isNotEmpty()) item { Text("Direct messages", Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            itemsIndexed(if (filter in setOf("group", "conference")) emptyList() else visible, key = { _, agent -> "agent:" + agent.getString("id") }) { index, agent ->
                 AgentRow(agent, now, attention(agent), model.unreadReplyCount(agent.getString("id")), index < visible.lastIndex) { model.openSession(agent.getString("id")) }
             }
-            if (visible.isEmpty()) item(key = "empty") {
+            if (shared.isNotEmpty()) item { Text("Shared conversations", Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            itemsIndexed(shared, key = { _, room -> "room:" + room.getString("id") }) { _, room ->
+                RoomRow(room, model.can("agent_messaging.reveal_content")) { model.openRoom(room) }
+            }
+            if (model.roomChats.nextOffset != null) item { TextButton(onClick = model.roomChats::more, enabled = fresh && !model.roomChats.loading) { Text("More conversations") } }
+            if ((visible.isEmpty() || filter in setOf("group", "conference")) && shared.isEmpty()) item(key = "empty") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val empty = when {
                         model.connecting -> "Loading your chats…"
@@ -114,6 +133,7 @@ import java.time.Instant
             }
         }
     }
+    if (createRoom) NewRoomSheet(model) { createRoom = false }
 }
 
 @Composable private fun AgentRow(agent: JSONObject, now: Long, attention: Boolean, unreadCount: Int, divider: Boolean, onClick: () -> Unit) {

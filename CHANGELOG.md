@@ -1,5 +1,7 @@
 # 2026-10-18
 
+- **Android 0.5.0:** the companion brings direct messages, groups, conferences and scope rooms into one conversation directory, with room history, explicit answer requests, attachments, participant management and graceful conference closing. Shared drafts and retry IDs survive conversation switches. Chats, Hosts and Authorizations share a restrained light/dark palette, readable type and consistent controls. Adds device-authorized room endpoints and metadata-only live invalidations; existing direct-chat and push behavior is retained.
+
 - Combined the design-conformance update with shared chats: direct and shared drafts (including uploads) now warn before leaving Agents, while switching conversations retains them without a discard prompt.
 
 - **Shared conversations in Agents → Chats (cxx 0.9.104):** direct chats, project/host rooms, groups and conferences share one directory. Operators can create rooms, manage participants, share files and request a single answer from selected agents or the room. Shared replies stay passive, drafts survive switching, uncertain sends retry with the same ID, and conferences drain outstanding answers before closing. Existing private-content permissions and room retention apply. Adds the same room tools for Codex, Claude and Grok.

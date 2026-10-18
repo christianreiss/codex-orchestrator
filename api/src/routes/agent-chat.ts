@@ -22,6 +22,13 @@ export async function registerAgentChatRoutes(app: FastifyInstance, ctx: RouteCo
   async function identity(req: FastifyRequest, write: boolean) {
     const roomId = params.parse(req.params).roomId;
     if (roomId) {
+      if (req.url.startsWith('/companion/')) {
+        if (req.headers.origin || req.headers['sec-fetch-site']) throw new ForbiddenError('Native companion API only', 'native_only');
+        const { user } = await devices.authenticate(req.headers.authorization, 'agent_messaging.reveal_content');
+        if (write) await devices.authenticate(req.headers.authorization, 'agent_messaging.manage');
+        const access = await rooms.access({ adminId: user.id, name: user.name }, roomId, write);
+        return { sessionId: roomId, owner: access.owner };
+      }
       const host = req.url.startsWith('/host/');
       const token = req.headers['x-agent-bridge-token'];
       if (host && typeof token !== 'string') throw new ForbiddenError('Bridge token required');
@@ -191,6 +198,12 @@ export async function registerAgentChatRoutes(app: FastifyInstance, ctx: RouteCo
   );
   app.post('/admin/agent-sessions/:id/notices/resolve', { preHandler: app.requireAdmin }, handler('resolve'));
   app.post('/companion/v1/agents/:id/attachments', handler('create'));
+  app.post('/companion/v1/rooms/:roomId/attachments', handler('create'));
+  app.post('/companion/v1/rooms/:roomId/attachments/:attachmentId/chunks', handler('put'));
+  app.post('/companion/v1/rooms/:roomId/attachments/:attachmentId/seal', handler('seal'));
+  app.get('/companion/v1/rooms/:roomId/attachments/:attachmentId', handler('info'));
+  app.get('/companion/v1/rooms/:roomId/attachments/:attachmentId/content', handler('download'));
+  app.delete('/companion/v1/rooms/:roomId/attachments/:attachmentId', handler('delete'));
   app.post('/companion/v1/agents/:id/attachments/:attachmentId/chunks', handler('put'));
   app.post('/companion/v1/agents/:id/attachments/:attachmentId/seal', handler('seal'));
   app.get('/companion/v1/agents/:id/attachments/:attachmentId', handler('info'));

@@ -30,6 +30,7 @@ fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
 fun JSONArray.strings() = (0 until length()).map { getString(it) }.toSet()
 
 class CompanionModel(app: Application) : AndroidViewModel(app) {
+    internal val roomChats = RoomChats(viewModelScope, { api() }, { fresh() && can("agent_messaging.manage") && can("agent_messaging.reveal_content") })
     private val store = ConnectionStore(app)
     private val unreadStore = UnreadStore(app)
     var connection by mutableStateOf(store.load()); private set
@@ -250,9 +251,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         reconnectAttempt++
         reconnect = viewModelScope.launch { delay(wait); startLive() }
     }
-    private fun invalidate(scopes: Set<String> = setOf("me", "agents", "approvals", "hosts")) {
+    private fun invalidate(scopes: Set<String> = setOf("me", "agents", "approvals", "hosts", "rooms")) {
         if (!foreground || connection == null || !socketReady) return
-        val known = scopes.intersect(setOf("me", "agents", "approvals", "hosts"))
+        val known = scopes.intersect(setOf("me", "agents", "approvals", "hosts", "rooms"))
         if (known.isEmpty()) return
         // Metadata changes queue another read; they must not starve the read
         // already in flight. Permission changes still fence its result.
@@ -275,6 +276,10 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         val me = if ("me" in scopes) client.request("/me") else null
         val caps = me?.optJSONArray("capabilities")?.strings() ?: capabilities
         if (current != generation || epoch != revision || !foreground) return false
+        if ("rooms" in scopes || me != null) {
+            roomChats.refresh(client, caps) { current == generation && epoch == revision && foreground }
+            if (current != generation || epoch != revision || !foreground) return false
+        }
         if (me != null && !("agent_portal.read" in caps && "agent_portal.reveal_transcript" in caps)) {
             capabilities = caps; permissionsKnown = true; agents = emptyList()
             discardChatCache(); clearTranscript()
@@ -385,6 +390,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun refreshNow() { if (socketReady) invalidate() else startLive() }
     fun openSession(id: String) {
         if (!canReadSession(id)) { notice = "Conversation is no longer available"; return }
+        roomChats.close()
         revision++
         selected = id; events = historyCache.events(id); eventCursor = historyCache.cursor(id); eventsLoaded = events.isNotEmpty(); showingCachedTranscript = eventsLoaded
         invalidate(setOf("agents"))
@@ -393,6 +399,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun closeSession() {
+        roomChats.close()
         revision++
         selected = null; events = emptyList(); eventCursor = 0; eventsLoaded = false; showingCachedTranscript = false; VisibleConversation.session = null
         invalidate(setOf("agents"))
@@ -401,6 +408,14 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun follow(id: String, value: Boolean) { mutate { api().request("/agents/$id/follow", "PUT", JSONObject().put("followed", value)); follows = if (value) follows + id else follows - id } }
     fun replyTo(cursor: Long?) { val id=selected ?: return; replyTargets = if(cursor == null) replyTargets - id else replyTargets + (id to cursor) }
     fun chatError(message:String) { error=message }
+    internal fun openRoom(room: JSONObject) { closeSession(); roomChats.open(room) }
+    internal fun roomSent(id: String, attachments: List<String>) {
+        val key = "room:$id"
+        chatUploads[key]?.filter { it.id in attachments }?.forEach { it.file.delete() }
+        chatUploads = chatUploads + (key to (chatUploads[key] ?: emptyList()).filter { it.id !in attachments })
+        refreshNow()
+    }
+    private fun attachmentBase(session: String) = if (session.startsWith("room:")) "/rooms/${session.removePrefix("room:")}/attachments" else "/agents/$session/attachments"
     fun addChatFile(session:String, uri:android.net.Uri) {
         viewModelScope.launch { try { val (file,name,mime) = copyChatFile(getApplication(),uri); addCapturedFile(session,file,name,mime) } catch(e:Exception) { chatError(e.message ?: "Cannot read file") } }
     }
@@ -417,7 +432,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         uploadJobs[item.id]=viewModelScope.launch {
             update(item.progress,"uploading")
             try {
-                val base="/agents/$session/attachments"
+                val base=attachmentBase(session)
                 val digest=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { val hash=java.security.MessageDigest.getInstance("SHA-256"); item.file.inputStream().use { input -> val buffer=ByteArray(65536); while(true) { val count=input.read(buffer); if(count<0) break; hash.update(buffer,0,count) } }; hash.digest().joinToString("") { "%02x".format(it) } }
                 val created=client.request(base,"POST",JSONObject().put("id",item.id).put("name",item.name).put("mime_type",item.mime).put("size_bytes",item.file.length()).put("sha256",digest))
                 var offset=created.optLong("uploaded_bytes")
@@ -435,15 +450,15 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         uploadJobs.remove(id)?.cancel()
         val item=chatUploads[session]?.find { it.id == id }
         chatUploads=chatUploads + (session to (chatUploads[session] ?: emptyList()).filter { it.id != id })
-        viewModelScope.launch { runCatching { api().request("/agents/$session/attachments/$id","DELETE") }; item?.file?.delete() }
+        viewModelScope.launch { runCatching { api().request("${attachmentBase(session)}/$id","DELETE") }; item?.file?.delete() }
     }
-    suspend fun chatAttachmentInfo(session:String,id:String) = api().request("/agents/$session/attachments/$id")
+    suspend fun chatAttachmentInfo(session:String,id:String) = api().request("${attachmentBase(session)}/$id")
     suspend fun downloadChatAttachment(session:String,id:String):java.io.File {
         val dir=java.io.File(getApplication<Application>().cacheDir,"chat-downloads").apply { mkdirs() }
         val file=java.io.File(dir,"${connection!!.deviceId}-$id")
         if(file.exists()) return file
         val info=chatAttachmentInfo(session,id)
-        api().download("/agents/$session/attachments/$id/content",file)
+        api().download("${attachmentBase(session)}/$id/content",file)
         val actual=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { val hash=java.security.MessageDigest.getInstance("SHA-256"); file.inputStream().use { input -> val buf=ByteArray(65536);while(true){val n=input.read(buf);if(n<0)break;hash.update(buf,0,n)} }; hash.digest().joinToString("") { "%02x".format(it) } }
         if(actual != info.optString("sha256")) { file.delete(); error("Attachment checksum mismatch") }
         return file
@@ -580,6 +595,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     } }
     fun logout() { mutate { api().request("/device", "DELETE"); clearConnection() } }
     private fun clearConnection() {
+        roomChats.clear()
         discardChatCache()
         showingCachedTranscript = false; eventCursor = 0; eventsLoaded = false
         uploadJobs.values.forEach { it.cancel() }; uploadJobs.clear()

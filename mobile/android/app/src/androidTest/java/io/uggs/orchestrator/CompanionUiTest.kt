@@ -43,6 +43,51 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class CompanionUiTest {
+    @Test fun createsAConferenceAndConfirmsItsClosing() {
+        waitForAgentRows(session)
+        compose.onNodeWithText("New", substring = false).performClick()
+        compose.onNodeWithText("Conference", substring = false).performClick()
+        compose.onNodeWithText("Title", substring = false).performTextInput("Architecture review")
+        compose.onNodeWithText("Create conversation", substring = false).performScrollTo().performClick()
+        compose.waitUntil(10000) { roomCreated.get() != null }
+        Assert.assertEquals("conference", roomCreated.get()!!.getString("kind"))
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Details").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Details").performClick()
+        compose.onNodeWithText("End conference", substring = false).performClick()
+        compose.onNodeWithText("End this conference?").assertIsDisplayed()
+        compose.onNodeWithTag("confirm-close-room").performClick()
+        compose.waitUntil(10000) { roomClosed.get() }
+        compose.waitUntil(10000) { compose.onAllNodesWithText("This conversation is read-only.").fetchSemanticsNodes().isNotEmpty() }
+        screenshot("closed-conference")
+    }
+    @Test fun sharedRoomsKeepDraftsAndRetryTheSameMessage() {
+        waitForAgentRows(session)
+        sharedRooms.set(true); changed("rooms")
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("room:$roomId").fetchSemanticsNodes().isNotEmpty() }
+        screenshot("shared-conversation-directory")
+        compose.onNodeWithTag("chat-filter:group").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("room:$roomId").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("room:$roomId").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Release review is ready").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("room-composer").performTextInput("Review the room")
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.onNodeWithTag("room:$roomId").performClick()
+        compose.onNodeWithTag("room-composer").assertTextContains("Review the room")
+        failRoomSend.set(true)
+        compose.onNodeWithTag("room-send").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Retry send").fetchSemanticsNodes().isNotEmpty() }
+        failRoomSend.set(false)
+        compose.onNodeWithTag("room-send").performClick()
+        compose.waitUntil(10000) { roomSendIds.size == 2 }
+        Assert.assertEquals(roomSendIds[0], roomSendIds[1])
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("room-send").filter(hasText("Send")).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Review the room").fetchSemanticsNodes().isNotEmpty() }
+        screenshot("shared-room-conversation")
+        roomPermission.set(false); changed("me")
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("room-composer").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("Release review is ready").assertDoesNotExist()
+    }
+
     @Test fun importantMessagesShareTheTimelineAndResolveWithoutDeletingHistory() {
         waitForAgentRows(session)
         val id = "16ecfa28-ece0-4928-b9d0-05dffb88bac4"
@@ -272,6 +317,15 @@ class CompanionUiTest {
 
     @get:Rule val compose = createEmptyComposeRule()
     private val server = MockWebServer()
+    private val sharedRooms = AtomicBoolean(false)
+    private val roomPermission = AtomicBoolean(true)
+    private val failRoomSend = AtomicBoolean(false)
+    private val roomSendIds = CopyOnWriteArrayList<String>()
+    private val roomId = "44444444-4444-4444-8444-444444444444"
+    private val roomEvents = CopyOnWriteArrayList<JSONObject>()
+    private val roomCreated = AtomicReference<JSONObject?>(null)
+    private val roomClosed = AtomicBoolean(false)
+    private fun roomFixture() = JSONObject().put("id", roomId).put("title", roomCreated.get()?.optString("title") ?: "Release workshop").put("kind", roomCreated.get()?.optString("kind") ?: "group").put("status", if (roomClosed.get()) "adjourned" else "open").put("members", org.json.JSONArray())
     private lateinit var scenario: ActivityScenario<MainActivity>
     private lateinit var originalClient: OkHttpClient
     private var firebase: JSONObject? = null
@@ -363,6 +417,21 @@ class CompanionUiTest {
                 })
                 if (path == "/agents/$session/attachments/test-photo/content") return MockResponse().setHeader("Content-Type", "image/png").setBody(okio.Buffer().write(photoBytes))
                 val body = when {
+                    path == "/rooms/create" -> { roomCreated.set(JSONObject(request.body.readUtf8())); sharedRooms.set(true); JSONObject().put("room_id", roomId).toString() }
+                    path == "/rooms/manage" -> { roomClosed.set(true); "{}" }
+                    path == "/rooms/candidates" -> """{"addresses":[]}"""
+                    path == "/rooms" -> JSONObject().put("rooms", org.json.JSONArray(if (sharedRooms.get()) listOf(roomFixture()) else emptyList<JSONObject>())).put("next_offset", JSONObject.NULL).toString()
+                    path == "/rooms/read" -> {
+                        if (roomEvents.isEmpty()) roomEvents.add(JSONObject().put("id", "55555555-5555-4555-8555-555555555555").put("name", "Liliana").put("content", "Release review is ready").put("created_at", "2026-10-18T08:00:00Z"))
+                        JSONObject().put("room", roomFixture()).put("events", org.json.JSONArray(roomEvents)).put("next_before", JSONObject.NULL).toString()
+                    }
+                    path == "/rooms/send" -> {
+                        val body = JSONObject(request.body.readUtf8())
+                        roomSendIds.add(body.getString("client_request_id"))
+                        if (failRoomSend.get()) return MockResponse().setResponseCode(503).setHeader("Content-Type", "application/json").setBody("""{"message":"Response lost"}""")
+                        roomEvents.add(JSONObject().put("id", body.getString("client_request_id")).put("name", "Operator").put("content", body.getString("content")).put("created_at", Instant.now().toString()))
+                        "{}"
+                    }
                     path == "/agents/$session/attachments/test-photo" -> JSONObject().put("name", "Landscape.png").put("mime_type", "image/png")
                         .put("sha256", java.security.MessageDigest.getInstance("SHA-256").digest(photoBytes).joinToString("") { "%02x".format(it) }).toString()
 
@@ -374,7 +443,8 @@ class CompanionUiTest {
                     path == "/me" -> {
                         meRequested.set(true)
                         while (holdMe.get()) Thread.sleep(20)
-                        val capabilities = mutableListOf("agent_portal.read", "agent_portal.manage", "hosts.activate_insecure", "admin.read", "agent_messaging.manage")
+                        val capabilities = mutableListOf("agent_portal.read", "agent_portal.manage", "hosts.activate_insecure", "admin.read", "agent_messaging.manage", "agent_messaging.read")
+                        if (roomPermission.get()) capabilities.add("agent_messaging.reveal_content")
                         if (!authorizationAllowed.get()) capabilities.remove("hosts.activate_insecure")
                         if (transcriptAllowed.get()) capabilities.add("agent_portal.reveal_transcript")
                         """{"device_id":"test-device","name":"Operator","capabilities":${org.json.JSONArray(capabilities)},"notifications":true,"follows":[],"firebase":${firebase ?: "null"}}"""

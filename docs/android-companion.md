@@ -1,5 +1,50 @@
 # Android companion
 
+## Shared conversations and mobile design (0.5.0)
+
+Chats combines direct messages with groups, conferences and project/host rooms.
+Search works across their titles and descriptions. Groups and Conferences filters
+do not mix private conversations into their results; More conversations loads older
+directory pages. Existing direct-chat attention, unread and activity filters remain.
+
+Room messages show their author, local time, Markdown and attachments. Earlier
+messages use the server's opaque cursor. Each room keeps its draft, upload intent
+and selected answer recipient while switching. Sharing is passive by default;
+Ask an agent or Ask the room explicitly requests answers. Delivery receipts expose
+unreachable/old-wrapper reasons instead of claiming a reply. Uncertain sends reuse
+the original UUID and payload; definitive validation/permission failures let the
+operator correct the draft. Reading marks only a rendered latest message as seen.
+
+New creates a group or a one-hour conference. The participant picker supports
+search. Details lists participants and their readiness; authorized operators can
+invite/remove members or end a conference with confirmation. Pending operations
+retain their original UUID after a lost response. The server remains authoritative
+for membership, permissions and conference draining.
+
+The design uses one neutral light/dark surface system, blue interaction accents,
+16 sp conversation text and minimum 48 dp interactive targets. Direct outgoing
+messages use the shared primary-container color. Navigation remains Chats, Hosts,
+Authorizations; this is a native task-oriented companion, not a copy of all admin
+configuration screens.
+
+The additive Companion room routes must be deployed before use. Older servers
+return an unavailable shared-room state while direct chats continue working. Room
+content requires `agent_messaging.reveal_content`; mutation additionally requires
+`agent_messaging.manage`. Device revocation and capability changes clear private
+room state. Room uploads use the existing encrypted attachment service and draft
+ownership checks. Live `rooms` frames contain no message text and are permission
+filtered. Room history/drafts are currently retained in memory for the foreground
+app lifetime; background room FCM subscriptions are not added in this release.
+Existing direct-chat FCM behavior remains unchanged.
+
+Verification on 2026-10-18: 55 JVM tests and 48 emulator UI tests passed; two
+Firebase delivery tests were skipped because their external configuration was
+absent. The two room flows also passed in dark mode at 1.3 font scale. Android
+lint/build and API typecheck/build passed; the API suite passed 5,165 tests with
+785 skipped. No new database-backed suite or physical-device installation was
+run for this release. The locally produced APK is debug-signed; production
+signing and on-device update compatibility have not been verified.
+
 ## Authorizations tab (0.4.17)
 
 Navigation is **Chats · Hosts · Authorizations**. The third tab requires

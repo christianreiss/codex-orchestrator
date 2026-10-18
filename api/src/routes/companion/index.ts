@@ -1,4 +1,5 @@
 import { chatMetadataSchema } from '../../services/agent-chat/contracts.js';
+import { registerCompanionRooms } from './rooms.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -158,6 +159,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         throw new ForbiddenError('Native companion API only', 'native_only');
       await checkEnabled();
     });
+    registerCompanionRooms(app, ctx);
     app.get(
       '/companion/v1/ws',
       {

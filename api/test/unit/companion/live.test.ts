@@ -110,6 +110,17 @@ describe('companion live invalidations', () => {
       expect(socket.frames.find((frame) => frame.type === 'changed')).toMatchObject({ type: 'changed', scopes: ['approvals'] });
     }
   });
+  it('invalidates rooms only for authorized devices and never sends message bodies', async () => {
+    vi.mocked(sources.authorize).mockImplementation(async token => token === 'rooms' ? ['agent_messaging.read'] : ['agent_portal.read']);
+    const reader = await connect('rooms');
+    const other = await connect('direct');
+    reader.frames = []; other.frames = [];
+    wsPublisher.publish('agent_room_chat.changed', { room_id: 'private-room', content: 'private text' });
+    await vi.advanceTimersByTimeAsync(60);
+    expect(reader.frames).toEqual([expect.objectContaining({ type: 'changed', scopes: ['rooms'] })]);
+    expect(other.frames).toEqual([]);
+    expect(JSON.stringify(reader.frames)).not.toMatch(/private-room|private text/);
+  });
   it('keeps an unchanged connection alive without reloading data', async () => {
     const socket = await connect();
     const changes = socket.frames.filter((f) => f.type === 'changed').length;

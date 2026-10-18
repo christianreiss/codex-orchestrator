@@ -110,7 +110,7 @@ import org.json.JSONObject
             }
         }
     }
-    Column(Modifier.fillMaxSize().background(if (isSystemInDarkTheme()) Color(0xFF0B141A) else Color(0xFFEFEAE2))) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (model.showingCachedTranscript) Text(
             if (fresh) "Saved messages · Updating from server…" else "Saved messages · Waiting for server…",
             Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(10.dp).testTag("cached-history"),
@@ -231,10 +231,10 @@ import org.json.JSONObject
                             if (text.isNotBlank()) add(CustomAccessibilityAction("Copy") { copy(); true })
                         } },
                     shape = shape,
-                    color = if (severity != null) MaterialTheme.colorScheme.errorContainer else if (own) (if (dark) Color(0xFF144D37) else Color(0xFFD9FDD3)) else MaterialTheme.colorScheme.surfaceContainerLow,
+                    color = if (severity != null) MaterialTheme.colorScheme.errorContainer else if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
                     contentColor = if (severity != null) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface,
                     border = if (severity != null) BorderStroke(1.dp, MaterialTheme.colorScheme.error) else null,
-                    shadowElevation = 1.dp,
+                    shadowElevation = 0.dp,
                 ) {
                     Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         if (severity != null) Text(
@@ -304,7 +304,7 @@ import org.json.JSONObject
 
 @Composable private fun MessageComposer(draft: String, change: (String) -> Unit, answering: Boolean, writable: Boolean, sending: Boolean, hasAttachments: Boolean, mediaActions: @Composable RowScope.() -> Unit, send: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, shadowElevation = 1.dp) {
+        Surface(modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow, shadowElevation = 0.dp) {
             Row(verticalAlignment = Alignment.Bottom) {
                 BasicTextField(
                     value = draft, onValueChange = change, enabled = !sending, maxLines = 4,

@@ -1,6 +1,6 @@
 import { wsPublisher } from '../../ws/publisher.js';
 
-export type CompanionScope = 'me' | 'agents' | 'approvals' | 'hosts';
+export type CompanionScope = 'me' | 'agents' | 'approvals' | 'hosts' | 'rooms';
 export interface CompanionSocket {
   readyState: number;
   bufferedAmount: number;
@@ -51,10 +51,11 @@ export class CompanionLive {
     this.interval.unref();
     this.unsubscribe = wsPublisher.subscribe(({ type }) => {
       if (/^(host\.|engine\.)/.test(type)) this.schedule('agents', 'hosts', 'approvals');
-      else if (/^(agent_portal\.|agent_messaging\.)/.test(type)) this.schedule('agents');
+      else if (/^agent_room_chat\./.test(type)) this.schedule('rooms');
+      else if (/^(agent_portal\.|agent_messaging\.)/.test(type)) this.schedule('agents', 'rooms');
       else if (/^insecure\./.test(type)) this.schedule('approvals');
       else if (/^(companion\.|user\.|admin\.user\.|settings\.)/.test(type))
-        this.schedule('me', 'agents', 'approvals', 'hosts');
+        this.schedule('me', 'agents', 'approvals', 'hosts', 'rooms');
     });
   }
 
@@ -65,7 +66,7 @@ export class CompanionLive {
     socket.on('close', cleanup);
     socket.on('error', cleanup);
     this.send(client, { type: 'hello' });
-    this.schedule('me', 'agents', 'approvals', 'hosts');
+    this.schedule('me', 'agents', 'approvals', 'hosts', 'rooms');
   }
 
   private send(client: Client, frame: Record<string, unknown>): void {
@@ -139,7 +140,7 @@ export class CompanionLive {
           (scope) =>
             scope === 'me' ||
             client.capabilities.includes(
-              scope === 'agents'
+              scope === 'rooms' ? 'agent_messaging.read' : scope === 'agents'
                 ? 'agent_portal.read'
                 : scope === 'hosts'
                   ? 'admin.read'

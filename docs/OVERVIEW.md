@@ -833,6 +833,10 @@ Fleet → Accounts manages any number of ChatGPT and Claude subscriptions indepe
 
 ## Android companion
 
+Android 0.5.0 extends Chats to shared groups, conferences and scope rooms, with
+participant management, attachments, explicit answer requests and a unified native
+light/dark design. See [the Companion contract](android-companion.md#shared-conversations-and-mobile-design-050).
+
 Android 0.4.18 places important, critical and blocker notices in the regular chat
 timeline with a red highlight, severity label and inline Resolve action. The separate
 Needs you filter is removed. Unread reply counters are red for unresolved classified

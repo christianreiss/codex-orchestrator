@@ -63,6 +63,8 @@ class MainActivity : ComponentActivity() {
     val needsYou = if (fresh && model.can("agent_portal.manage")) agents.filter { needsReply(it) && (hasUrgentNotice(it) || isReachable(it)) } else emptyList()
     val total = requests.size + needsYou.size
     val current = model.agents.firstOrNull { it.optString("id") == model.selected }
+    val shared = model.roomChats.current
+    val inConversation = model.selected != null || model.roomChats.selected != null
     val snackbar = remember { SnackbarHostState() }
     val overviewState = rememberSaveableStateHolder()
     LaunchedEffect(model.notice) { model.notice?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Short); model.clearNotice() } }
@@ -74,17 +76,17 @@ class MainActivity : ComponentActivity() {
             if (fresh && requests.none { it.optString("id") == id }) model.clearApprovalHighlight()
         }
     }
-    BackHandler(model.selected != null && review == null && !more) { model.closeSession() }
+    BackHandler(inConversation && review == null && !more) { model.closeSession() }
     Scaffold(topBar = {
         Surface(color = MaterialTheme.colorScheme.background) {
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (model.selected != null) FilledTonalIconButton(onClick = model::closeSession, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.Back, "Back") }
+                if (inConversation) IconButton(onClick = model::closeSession, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.Back, "Back") }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (model.selected != null) EngineIcon(current, Modifier.size(24.dp))
-                        Text(if (model.selected != null) current?.let(::agentTitle) ?: "Agent" else "Orchestrator",
+                        Text(if (model.roomChats.selected != null) shared?.optString("title") ?: "Conversation" else if (model.selected != null) current?.let(::agentTitle) ?: "Agent" else "Orchestrator",
                             modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
-                            color = if (model.selected == null && model.connection != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+                            color = if (!inConversation && model.connection != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
                             style = MaterialTheme.typography.titleLarge)
                     }
                     if (model.selected != null) {
@@ -100,7 +102,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }, bottomBar = {
-        if (model.connection != null && model.selected == null) NavigationBar {
+        if (model.connection != null && !inConversation) NavigationBar {
             NavigationBarItem(selected = homeTab == "chats", onClick = { homeTab = "chats" }, icon = { CompanionIcon(CompanionSymbol.Chat) }, label = { Text("Chats") }, modifier = Modifier.testTag("tab-chats"))
             if (model.can("admin.read")) NavigationBarItem(selected = homeTab == "hosts", onClick = { homeTab = "hosts" }, icon = { CompanionIcon(CompanionSymbol.Computer) }, label = { Text("Hosts") }, modifier = Modifier.testTag("tab-hosts"))
             if (model.can("hosts.activate_insecure")) NavigationBarItem(selected = homeTab == "authorizations", onClick = { homeTab = "authorizations" },
@@ -108,7 +110,7 @@ class MainActivity : ComponentActivity() {
                 label = { Text("Authorizations") }, modifier = Modifier.testTag("tab-authorizations"))
         }
     }, snackbarHost = { SnackbarHost(snackbar) }, floatingActionButton = {
-        if (model.connection != null && model.selected == null && homeTab != "authorizations" && total > 0) {
+        if (model.connection != null && !inConversation && homeTab != "authorizations" && total > 0) {
             Button(onClick = { if (requests.isNotEmpty()) { homeTab = "authorizations"; review = requests.first() } else model.openSession(needsYou.first().getString("id")) },
                 modifier = Modifier.heightIn(min = 56.dp).testTag("review-next"), shape = RoundedCornerShape(18.dp), enabled = !model.busy,
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp)) {
@@ -123,6 +125,7 @@ class MainActivity : ComponentActivity() {
             model.error?.let { ErrorStrip(it, model::refreshNow, model::clearError) }
             when {
                 model.connection == null -> PairScreen(model)
+                model.roomChats.selected != null -> overviewState.SaveableStateProvider("room:${model.roomChats.selected}") { RoomScreen(model, fresh) }
                 model.selected != null -> ChatScreen(model, current, fresh)
                 else -> overviewState.SaveableStateProvider(model.connection!!.deviceId) {
                     when {

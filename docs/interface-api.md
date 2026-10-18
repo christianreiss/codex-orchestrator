@@ -2773,3 +2773,29 @@ Create accepts client_request_id, kind (group/conference), title, description, m
 ### Model catalog policy
 
 `GET /admin/model-policy/:engine` reads the engine's catalog filtering policy. `PUT /admin/model-policy/:engine` accepts only `{ "latest_only": boolean }`, records the setting and returns the effective policy. Both routes require an admin session; capability enforcement follows the route inventory. Engines are `codex`, `claude` and `grok`.
+
+### Companion shared rooms (Android 0.5.0)
+
+Native device bearer authentication only; cookie credentials and browser-origin
+requests are rejected. Existing API-disable and device-revocation gates apply.
+All results use the standard envelope and `Cache-Control: no-store`.
+
+- `GET /companion/v1/rooms` — `agent_messaging.read`; `offset` pagination, returning `rooms`, `has_more`, `next_offset` and `enabled`.
+- `GET /companion/v1/rooms/candidates` — `agent_messaging.manage`; existing safe address inventory for participant selection.
+- `POST /companion/v1/rooms/read` — `agent_messaging.reveal_content`; `{room_id,before?,limit?}` returns `{room,events,next_before}`. Reads are audited without message bodies.
+- `POST /companion/v1/rooms/seen` — `agent_messaging.reveal_content`; `{room_id,through}` advances the existing monotonic operator read timestamp, clamped to server time.
+- `POST /companion/v1/rooms/send` — `agent_messaging.manage` and `agent_messaging.reveal_content`; the shared room send contract (`room_id`, `client_request_id`, `content`, optional attachment IDs, `reply_to`, `recipients` or `ask_all`). Uses the paired operator identity and existing idempotency/delivery semantics.
+- `POST /companion/v1/rooms/create` — the same two capabilities; shared group/conference creation contract and stable `client_request_id`.
+- `POST /companion/v1/rooms/manage` — the same two capabilities; shared invite/remove/close contract. The server rechecks conference ownership/state and membership.
+- `POST /companion/v1/rooms/:roomId/attachments` — both room capabilities; create an upload with `{id,name,mime_type,size_bytes,sha256}`.
+- `POST /companion/v1/rooms/:roomId/attachments/:attachmentId/chunks` — both room capabilities; append `{offset,content_b64}` using the existing upload bounds.
+- `POST /companion/v1/rooms/:roomId/attachments/:attachmentId/seal` — both room capabilities; finalize the verified upload.
+- `GET /companion/v1/rooms/:roomId/attachments/:attachmentId` — reveal-content capability; room-access and unpublished-draft ownership checks precede metadata access.
+- `GET /companion/v1/rooms/:roomId/attachments/:attachmentId/content` — same read gates; download with the existing variant and digest contract.
+- `DELETE /companion/v1/rooms/:roomId/attachments/:attachmentId` — both room capabilities; discard only the author's eligible draft upload.
+
+The foreground Companion socket adds the `rooms` invalidation scope, delivered
+only with `agent_messaging.read`. It never sends room IDs, message bodies or
+attachments. Existing clients ignore the additional scope. Android reads the
+canonical room history after invalidation; no new database migration or room
+push subscription is introduced.

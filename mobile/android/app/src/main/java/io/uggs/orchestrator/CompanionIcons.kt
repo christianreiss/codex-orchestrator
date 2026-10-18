@@ -16,7 +16,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
-internal enum class CompanionSymbol { Back, Forward, Up, Down, More, MoreVertical, Search, Chat, Shield, Close, Check, Scan, Computer, Terminal, Attach, Camera, Send, Reply, Photo, Video, Audio, File }
+internal enum class CompanionSymbol { Back, Forward, Up, Down, More, MoreVertical, Search, Chat, Group, Conference, Shield, Close, Check, Scan, Computer, Terminal, Attach, Camera, Send, Reply, Photo, Video, Audio, File }
 
 /** Small local vector icons; no font, image downloads, or icon library required. */
 @Composable internal fun CompanionIcon(symbol: CompanionSymbol, description: String? = null, tint: Color = LocalContentColor.current, modifier: Modifier = Modifier) {
@@ -31,6 +31,18 @@ internal enum class CompanionSymbol { Back, Forward, Up, Down, More, MoreVertica
                 drawPath(path, tint, style = stroke)
             }
             when (symbol) {
+                CompanionSymbol.Group -> {
+                    drawCircle(tint, 3f, Offset(9f, 7f), style = stroke)
+                    drawCircle(tint, 2.5f, Offset(18f, 9f), style = stroke)
+                    drawPath(Path().apply { moveTo(2f, 21f); lineTo(2f, 18f); cubicTo(2f, 11f, 16f, 11f, 16f, 18f); lineTo(16f, 21f) }, tint, style = stroke)
+                    drawPath(Path().apply { moveTo(19f, 15f); quadraticTo(23f, 16f, 22f, 21f) }, tint, style = stroke)
+                }
+                CompanionSymbol.Conference -> {
+                    drawCircle(tint, 5f, Offset(12f, 13f), style = stroke)
+                    drawCircle(tint, 2f, Offset(12f, 3f), style = stroke)
+                    drawCircle(tint, 2f, Offset(3f, 18f), style = stroke)
+                    drawCircle(tint, 2f, Offset(21f, 18f), style = stroke)
+                }
                 CompanionSymbol.Attach -> drawPath(Path().apply {
                     moveTo(8f, 12f); lineTo(14f, 6f); quadraticTo(18f, 2f, 21f, 6f)
                     quadraticTo(23f, 9f, 19f, 13f); lineTo(11f, 21f)
