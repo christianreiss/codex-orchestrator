@@ -1,3 +1,4 @@
+import { registerCoordinationRoutes } from './coordination.js';
 import { queuePolicySchema } from '../../services/agent-messaging/smart-queue.js';
 import { RebootHandoffs } from '../../services/reboot-handoffs.js';
 import { taskResultSchema, type TaskResult } from '../../services/agent-messaging/task-execution.js';
@@ -35,6 +36,7 @@ export async function registerAgentMessagingRoutes(
 ): Promise<void> {
   const messaging = createAgentMessagingService(ctx.db, ctx.env, ctx.keyring);
   registerAgentGroupRoutes(app, ctx, messaging);
+  registerCoordinationRoutes(app, ctx, messaging);
   const reboot = new RebootHandoffs(ctx.db, ctx.keyring);
   const rebootHandler = (operation: 'prepare' | 'arm' | 'status' | 'restore' | 'disarm') => async (req: FastifyRequest) => {
       const id = stringParam(req.params, 'id');

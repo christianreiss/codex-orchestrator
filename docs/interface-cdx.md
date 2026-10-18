@@ -1945,3 +1945,13 @@ closes the relay; there is no preceding close-heartbeat request. An explicit
 `agent_session_finished` response means the session already ended remotely and
 needs no warning. Other conflicts and transport failures remain errors. Error
 codes are read from both top-level and nested API envelopes.
+
+
+## Session scope coordination (protocol 1)
+
+See [Session scopes, rooms and resource claims](agent-coordination.md) for the
+automatic host/project check-in, room APIs, claim lifecycle, engine parity, grouped
+agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduces
+`agent_context_get/update`, `agent_room_list/read/send`, and
+`resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
+The feature starts disabled and never grants permission for the reserved action.

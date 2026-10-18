@@ -1,3 +1,7 @@
+# 2026-10-18
+
+- Added opt-in session scope coordination: automatic host/project rooms, durable member and chat pushes, resource claims with uncertain-owner retention, Git Director checks, and Project/Host grouping plus operator scope chat in Agents → Graph. Shared across Codex, Claude and Grok in cxx 0.9.103; production activation remains explicit.
+
 # 2026-10-17
 
 - **Admin console rebuilt on one design system, with fewer, plainer pages.** Every page now sits on the same frame (title, one-line purpose, actions, then content) and follows one ordering rule: data first, actions second, settings behind a gear or "Advanced", destructive actions last. Controls, text sizes and corner radius are uniform, tables and toolbars are shared, cards inside cards are gone, and tab bars are a slim underline. Pages that described the same thing were merged; every old URL redirects (`/clients`, `/topology` → **Agents**; `/logs/*` → **Activity**; `/feedback` → **Reports**; `/skills`, `/instructions`, `/memories`, `/subagents`, `/commands`, `/output-styles`, `/authoring/*` → **Library**; `/users`, `/api-keys`, `/secrets` → **Access**; `/policies` → **Settings**; `/account/*` → **Account**; project `notes`/`files`/`feedback`/`todos` → **Documents**/**Reports**/**Board**; `/hosts/new` → `/hosts?add=1`).

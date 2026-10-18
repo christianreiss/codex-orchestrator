@@ -178,3 +178,13 @@ Search `feedback_list` first. `feedback_submit` requires a UUID `client_request_
 Deployment is `unknown|not_deployed|deployed`, tracked separately. Resolved defaults to not_deployed; deployed requires a deployment reference. Evidence is an agent/operator report, not independent verification. Reporting or claiming never launches an agent, authorizes additional execution, merges or deploys.
 
 Admin endpoints: GET/POST `/admin/feedback/state`; GET/POST `/admin/feedback`; GET/POST `/admin/feedback/{id}`; POST `/admin/feedback/{id}/claim`; DELETE `/admin/feedback/{id}` and POST `/admin/feedback/purge` (audited hard delete of closed items only, cascading their duplicates; see `docs/interface-api.md` → Feedback admin endpoints — there is deliberately no MCP delete tool). Read needs `feedback.read`, writes need `feedback.manage`. Admins may release a claim with `{action:"force_release",reason}` and reopen reports. WebSocket `feedback.changed` refreshes inbox/detail/state and the agent-document preview.
+
+
+## Session scope coordination (protocol 1)
+
+See [Session scopes, rooms and resource claims](agent-coordination.md) for the
+automatic host/project check-in, room APIs, claim lifecycle, engine parity, grouped
+agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduces
+`agent_context_get/update`, `agent_room_list/read/send`, and
+`resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
+The feature starts disabled and never grants permission for the reserved action.

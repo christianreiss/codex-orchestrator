@@ -375,7 +375,14 @@
       "POST /admin/watchdogs",
       "PUT /admin/chatty/selection",
       "PUT /admin/chatty/settings",
-      "PUT /admin/hosts/:id/daemon"
+      "PUT /admin/hosts/:id/daemon",
+      "GET /admin/agent-messaging/scopes/state",
+      "POST /admin/agent-messaging/scopes/state",
+      "GET /admin/agent-messaging/scopes",
+      "GET /admin/agent-messaging/scopes/:scopeId/members",
+      "POST /admin/agent-messaging/scopes/read",
+      "POST /admin/agent-messaging/scopes/send",
+      "POST /admin/agent-messaging/scopes/resolve"
     ]
   }
 }

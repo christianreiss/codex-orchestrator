@@ -2707,3 +2707,32 @@ Host-authenticated `POST /host/daemon/migration` accepts `{request_id: UUID, com
 - Signed configs carry the same policy for cxx >= 0.9.94. It takes effect at
   configuration sync for new managed starts; running sessions and direct
   provider binaries remain unchanged. Offline starts use the last signed rule.
+
+
+## Session scope coordination (protocol 1)
+
+See [Session scopes, rooms and resource claims](agent-coordination.md) for the
+automatic host/project check-in, room APIs, claim lifecycle, engine parity, grouped
+agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduces
+`agent_context_get/update`, `agent_room_list/read/send`, and
+`resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
+The feature starts disabled and never grants permission for the reserved action.
+
+
+### Scope coordination endpoints
+
+- `POST /host/agent-sessions/:id/agent-messaging/context/get` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/context/update` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/rooms/list` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/rooms/read` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/rooms/send` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/claims/acquire` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/claims/status` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/claims/release` — see [coordination contract](agent-coordination.md).
+- `GET /admin/agent-messaging/scopes/state` — see [coordination contract](agent-coordination.md).
+- `POST /admin/agent-messaging/scopes/state` — see [coordination contract](agent-coordination.md).
+- `GET /admin/agent-messaging/scopes` — see [coordination contract](agent-coordination.md).
+- `GET /admin/agent-messaging/scopes/:scopeId/members` — see [coordination contract](agent-coordination.md).
+- `POST /admin/agent-messaging/scopes/read` — see [coordination contract](agent-coordination.md).
+- `POST /admin/agent-messaging/scopes/send` — see [coordination contract](agent-coordination.md).
+- `POST /admin/agent-messaging/scopes/resolve` — see [coordination contract](agent-coordination.md).

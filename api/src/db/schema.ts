@@ -2577,3 +2577,58 @@ export const engineDestroyHosts = mysqlTable('engine_destroy_hosts', {
   pk: primaryKey({ columns: [t.requestId, t.hostId] }),
   engineIdx: index('idx_engine_destroy_engine').on(t.engine, t.status),
 }));
+
+/** Scope membership is session presence, never an exclusive worktree registration. */
+export const agentScopes = mysqlTable('agent_scopes', {
+  id: char('id', { length: 36 }).primaryKey(),
+  scopeKey: varchar('scope_key', { length: 191 }).notNull(),
+  kind: varchar('kind', { length: 16 }).notNull(),
+  title: varchar('title', { length: 255 }).notNull(),
+  sequence: bigint('sequence', { mode: 'number', unsigned: true }).notNull().default(0),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, t => ({ keyUnique: uniqueIndex('uq_agent_scopes_key').on(t.scopeKey) }));
+
+export const agentScopeBindings = mysqlTable('agent_scope_bindings', {
+  repositoryKey: varchar('repository_key', { length: 191 }).primaryKey(),
+  projectSlug: varchar('project_slug', { length: 191 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+});
+
+export const agentScopeMembers = mysqlTable('agent_scope_members', {
+  id: char('id', { length: 36 }).primaryKey(),
+  scopeId: char('scope_id', { length: 36 }).notNull(),
+  sessionId: char('session_id', { length: 36 }).notNull(),
+  generation: int('generation', { unsigned: true }).notNull(),
+  protocol: int('protocol', { unsigned: true }).notNull().default(0),
+  contextHash: char('context_hash', { length: 64 }).notNull().default(''),
+  state: varchar('state', { length: 16 }).notNull(),
+  joinedAt: varchar('joined_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, t => ({ memberUnique: uniqueIndex('uq_agent_scope_member').on(t.scopeId, t.sessionId), sessionIdx: index('idx_scope_member_session').on(t.sessionId) }));
+
+export const agentScopeEvents = mysqlTable('agent_scope_events', {
+  id: char('id', { length: 36 }).primaryKey(),
+  scopeId: char('scope_id', { length: 36 }).notNull(),
+  sequence: bigint('sequence', { mode: 'number', unsigned: true }).notNull(),
+  kind: varchar('kind', { length: 32 }).notNull(),
+  actor: varchar('actor', { length: 191 }).notNull(),
+  requestId: char('request_id', { length: 36 }).notNull(),
+  bodyEnc: longtext('body_enc').notNull(),
+  dispatched: tinyint('dispatched').notNull().default(0),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, t => ({ sequenceUnique: uniqueIndex('uq_scope_event_seq').on(t.scopeId, t.sequence), requestUnique: uniqueIndex('uq_scope_event_request').on(t.scopeId, t.actor, t.requestId), pendingIdx: index('idx_scope_event_pending').on(t.dispatched, t.createdAt) }));
+
+export const agentResourceClaims = mysqlTable('agent_resource_claims', {
+  id: char('id', { length: 36 }).primaryKey(),
+  sessionId: char('session_id', { length: 36 }).notNull(),
+  generation: int('generation', { unsigned: true }).notNull(),
+  requestId: char('request_id', { length: 36 }).notNull(),
+  purpose: varchar('purpose', { length: 1000 }).notNull(),
+  resources: json('resources').notNull(),
+  state: varchar('state', { length: 24 }).notNull(),
+  blockers: json('blockers').notNull(),
+  repliedAt: varchar('replied_at', { length: 100 }),
+  expiresAt: varchar('expires_at', { length: 100 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, t => ({ requestUnique: uniqueIndex('uq_resource_claim_request').on(t.sessionId, t.requestId), stateIdx: index('idx_resource_claim_state').on(t.state, t.expiresAt) }));

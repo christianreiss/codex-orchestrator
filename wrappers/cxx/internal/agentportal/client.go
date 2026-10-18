@@ -112,6 +112,8 @@ func NativeResumeSessionID(engine string, args []string) string {
 }
 
 type Session struct {
+	activeClaims           map[string]bool
+	scopeContext           json.RawMessage
 	watchdog               *watchdogFeed
 	peerDelivery           bool
 	LaunchName             string
@@ -169,10 +171,11 @@ type ClaimedMessage struct {
 }
 
 type registerResponse struct {
-	Enabled      bool   `json:"enabled"`
-	SessionID    string `json:"session_id"`
-	BridgeToken  string `json:"bridge_token"`
-	ExpiresAt    string `json:"expires_at"`
+	ScopeContext json.RawMessage `json:"scope_context"`
+	Enabled      bool            `json:"enabled"`
+	SessionID    string          `json:"session_id"`
+	BridgeToken  string          `json:"bridge_token"`
+	ExpiresAt    string          `json:"expires_at"`
 	AgentAddress *struct {
 		Name              string `json:"name"`
 		Address           string `json:"address"`
@@ -212,7 +215,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	}
 	body := map[string]any{
 		"engine":               input.Engine,
-		"adapter_capabilities": map[string]any{"execution_contract_version": 2, "watchdog_protocol_version": 1, "launch_identity_version": 1, "reboot_protocol_version": 1},
+		"adapter_capabilities": map[string]any{"scope_protocol_version": 1, "execution_contract_version": 2, "watchdog_protocol_version": 1, "launch_identity_version": 1, "reboot_protocol_version": 1},
 		"username":             username,
 		"cwd":                  cwd,
 		"workspace":            captureWorkspace(parent, cwd),
@@ -312,6 +315,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 		body["agent_address"] = response.AgentAddress.Address
 		body["binding_generation"] = response.AgentAddress.BindingGeneration
 	}
+	session.scopeContext = response.ScopeContext
 	return session, nil
 }
 
@@ -354,6 +358,9 @@ func (s *Session) startHeartbeat(parent context.Context, interval time.Duration)
 			}
 			heartbeatCtx, heartbeatCancel := context.WithTimeout(ctx, 6*time.Second)
 			err := s.Heartbeat(heartbeatCtx, "", "")
+			if err == nil {
+				s.renewActiveClaims(heartbeatCtx)
+			}
 			heartbeatCancel()
 			if ctx.Err() != nil || s.isInactive() || isTerminalBridgeError(err) {
 				return

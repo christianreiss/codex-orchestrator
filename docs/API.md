@@ -1190,3 +1190,22 @@ for the full metadata, offset, quota, retry and SHA-256 contracts.
 - `PUT /host/transfers/{id}/content` — append raw binary bytes at the explicit `offset` query value with `Content-Length`.
 - `POST /host/transfers/{id}/complete` — verify size/hash and make the file available; repeatable after a lost response.
 - `GET /host/transfers/{id}/content` — stream a live file, with optional open-ended HTTP byte range.
+
+
+### Scope coordination endpoints
+
+- `POST /host/agent-sessions/:id/agent-messaging/context/get` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/context/update` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/rooms/list` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/rooms/read` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/rooms/send` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/claims/acquire` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/claims/status` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/claims/release` — see [coordination contract](agent-coordination.md).
+- `GET /admin/agent-messaging/scopes/state` — see [coordination contract](agent-coordination.md).
+- `POST /admin/agent-messaging/scopes/state` — see [coordination contract](agent-coordination.md).
+- `GET /admin/agent-messaging/scopes` — see [coordination contract](agent-coordination.md).
+- `GET /admin/agent-messaging/scopes/:scopeId/members` — see [coordination contract](agent-coordination.md).
+- `POST /admin/agent-messaging/scopes/read` — see [coordination contract](agent-coordination.md).
+- `POST /admin/agent-messaging/scopes/send` — see [coordination contract](agent-coordination.md).
+- `POST /admin/agent-messaging/scopes/resolve` — see [coordination contract](agent-coordination.md).

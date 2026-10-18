@@ -1,3 +1,4 @@
+import { AgentCoordination } from '../../services/agent-coordination/index.js';
 import { NativeStopService } from '../../services/native-stop.js';
 import { activityInputSchema } from '../../services/agent-activity.js';
 import { taskResultSchema } from '../../services/agent-messaging/task-execution.js';
@@ -177,7 +178,11 @@ export async function registerAgentPortalAdminHostRoutes(
         capabilities: { portal: false, agent_messaging: false },
       };
     }
+    const coordination = new AgentCoordination(ctx.db, ctx.env, ctx.keyring, messaging);
+    const scopeContext = messagingResult.enabled === true && await coordination.enabled()
+      ? await coordination.context(sessionId, bridgeToken) : null;
     return {
+      ...(scopeContext ? { scope_context: scopeContext } : {}),
       enabled: true,
       session_id: sessionId,
       bridge_token: bridgeToken,
@@ -283,6 +288,10 @@ export async function registerAgentPortalAdminHostRoutes(
     const [portalEnabled, messagingEnabled] = await Promise.all([portal.isEnabled(), messaging.isEnabled()]);
     const portalResult = portalEnabled ? await portal.finishAgent(id, token, body) : null;
     const messagingResult = messagingEnabled ? await messaging.finishSession(id, token, body.status, body.watchdog_failure) : null;
+    if (messagingEnabled) {
+      const coordination = new AgentCoordination(ctx.db, ctx.env, ctx.keyring, messaging);
+      if (await coordination.enabled()) await coordination.tick();
+    }
     return {
       enabled: Boolean(portalResult || messagingResult),
       capabilities: { portal: Boolean(portalResult), agent_messaging: Boolean(messagingResult) },

@@ -246,13 +246,15 @@ describe('served document size budget', () => {
       const out = renderManagedAgentFeatures(base.content, ctx, levels, base.provenance);
       // 2026-10-17: +650 for the opt-in Fleet Advisor block, which is served only
       // while an operator has an advisor host enabled; the block itself is capped below.
-      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(25_450);
+      // 2026-10-18: +2000 for the new mandatory scope/claim protocol (bounded below).
+      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(27_450);
       const section = (heading: string): string => {
         const start = out.body.indexOf(`## ${heading}\n`);
         expect(start).toBeGreaterThanOrEqual(0);
         const next = out.body.indexOf('\n## ', start + 1);
         return out.body.slice(start, next === -1 ? undefined : next);
       };
+      expect(section('Scope Coordination').length).toBeLessThan(1_800);
       expect(section('Agent Messaging').length).toBeLessThan(4_600);
       expect(section('Git Director').length).toBeLessThan(3_100);
       expect(section('File Transfer').length).toBeLessThan(1_400);
@@ -327,9 +329,9 @@ describe('served document byte invariance', () => {
     //             authenticated fleet peers (base digest).
     // 2026-10-16: Memory defers the complete-read procedure to the write tool descriptions; Agent
     //             Messaging session-name/reception condensed; Git Director honours repository restrictions.
-    expect(out.features_sha256).toBe('0b5638ae0febf4ec5e05ae44aa4c86d35ee695614a2180564185b5059d6b33ca');
-    expect(out.managed_sha256).toBe('59c50590dac6d4812c5451aa483ab81ade4f4fa448b774a4687a42f71cdbc33f');
-    expect(sha256(out.body)).toBe('312dc9f6fefb40418a54d277be77de460b76bd0437a5bb274de3444ca298a62b');
+    expect(out.features_sha256).toBe('870e0b8f3db4ce5b1e42ff38bbc21583b7b72e797e8c5b36ad2e647e9d41c8f9');
+    expect(out.managed_sha256).toBe('15fe119c452b8749c8fcf570ef934dc283f0fbbdea1bfd814101eacb462cf5a2');
+    expect(sha256(out.body)).toBe('1d5cbc4381a4c172d4292aaa127e3add5a04696cc07d056805e7ba89af1d8351');
   });
 });
 

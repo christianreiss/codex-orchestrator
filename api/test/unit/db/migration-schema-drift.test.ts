@@ -236,6 +236,11 @@ describe('migrations against the test baseline', () => {
       'feedback_events',
       'engine_destroy_hosts',
       'advisor_sessions',
+      'agent_resource_claims',
+      'agent_scope_bindings',
+      'agent_scope_events',
+      'agent_scope_members',
+      'agent_scopes',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
