@@ -78,7 +78,6 @@ async function open(page: Page) {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/admin/agents?view=graph");
   await expect(page.getByRole("heading", { name: "Agents", exact: true, level: 1 })).toBeVisible({ timeout: 15_000 });
-  await page.getByLabel("Group by", { exact: true }).selectOption("connection");
   await expect(page.locator("[data-node]")).toHaveCount(5);
 }
 
@@ -422,7 +421,7 @@ test('groups agents by project and host and posts an operator message to the sco
   await fixtures(page, ['hosts.read', 'agent_portal.read', 'agent_portal.manage', 'agent_messaging.manage', 'agent_messaging.read', 'agent_messaging.reveal_content']);
   const project = '11111111-2222-4333-8444-555555555555';
   const members = tree().agents.map(a => ({ session_id: a.id, agent_id: a.address, name: a.name, engine: a.engine, host_id: a.host_id, host: a.host, cwd: a.cwd, workspace: { git_root: '/srv/work', git_common_dir: '/srv/work/.git', branch: 'main' }, coordinated: true }));
-  const rooms = [{ id: project, key: 'repo:test', kind: 'project', title: 'Shared project', cursor: 1, member_count: 3, members, next_member_offset: null }, { id: '22222222-2222-4333-8444-555555555555', key: 'host:4', kind: 'host', title: 'web01.example', cursor: 1, member_count: 3, members, next_member_offset: null }];
+  const rooms = [{ id: project, key: 'repo:test', kind: 'project', title: 'Shared project', cursor: 1, member_count: 3, members, next_member_offset: null }, { id: '22222222-2222-4333-8444-555555555555', key: 'host:4', kind: 'host', title: 'web01.example', cursor: 1, member_count: 2, members: members.slice(0,2), next_member_offset: null }];
   const messages: Array<Record<string, unknown>> = [];
   await page.route('**/admin/agent-messaging/scopes**', async route => {
     const path = new URL(route.request().url()).pathname;
@@ -437,15 +436,33 @@ test('groups agents by project and host and posts an operator message to the sco
     return route.fulfill({ json: { enabled: true, rooms, claims: [] } });
   });
   await open(page);
-  await page.getByLabel('Group by', { exact: true }).selectOption('project');
-  await expect(page.getByRole('img', { name: 'Agent graph grouped by project' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Raffaela, claude, web01.example, listening', exact: true })).toHaveCount(1);
+  await page.getByLabel('Group clouds', { exact: true }).selectOption('project');
+  await expect(page.locator('[data-node]')).toHaveCount(5);
+  await expect(page.locator('[data-scope]')).toHaveCount(1);
+  await expect(page.locator(`[data-node="${A1}"]`)).toHaveCount(1);
   await page.getByRole('button', { name: 'Open Shared project chat' }).click();
   await page.getByLabel('Message all active members').fill('Coordinate this deployment first.');
   await page.getByRole('button', { name: 'Send as operator' }).click();
   await expect(page.getByText('Coordinate this deployment first.', { exact: true })).toBeVisible();
   expect(messages).toHaveLength(1);
-  await page.getByLabel('Group by', { exact: true }).selectOption('host');
-  await expect(page.getByRole('img', { name: 'Agent graph grouped by host' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Raffaela, claude, web01.example, listening', exact: true })).toHaveCount(1);
+  await page.getByLabel('Group clouds', { exact: true }).selectOption('host');
+  await expect(page.locator('[data-node]')).toHaveCount(5);
+  await expect(page.locator('[data-scope]')).toHaveCount(1);
+  await expect(page.locator(`[data-node="${A1}"]`)).toHaveCount(1);
+  await page.getByLabel('Group clouds', { exact: true }).selectOption('scopes');
+  await expect(page.locator('[data-scope]')).toHaveCount(2);
+  await expect(page.locator('[data-node]')).toHaveCount(5);
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.screenshot({ path: '/tmp/sofia-agent-clouds.png' });
+});
+
+ test('preserves the complete graph with a saved project preference and no scope assignments', async ({ page }) => {
+  await fixtures(page);
+  await page.addInitScript(() => localStorage.setItem('topology-view-v1', JSON.stringify({ view: 'radial', grouping: 'project' })));
+  await open(page);
+  await expect(page.locator('[data-node]')).toHaveCount(5);
+  await expect(page.getByText(/Unassigned/)).toHaveCount(0);
+  await expect(page.getByText('Scope coordination is disabled.')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Zoom in' })).toBeVisible();
+  await page.screenshot({ path: '/tmp/sofia-restored-agent-graph.png' });
 });

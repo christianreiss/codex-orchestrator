@@ -2736,3 +2736,10 @@ The feature starts disabled and never grants permission for the reserved action.
 - `POST /admin/agent-messaging/scopes/read` — see [coordination contract](agent-coordination.md).
 - `POST /admin/agent-messaging/scopes/send` — see [coordination contract](agent-coordination.md).
 - `POST /admin/agent-messaging/scopes/resolve` — see [coordination contract](agent-coordination.md).
+
+### Agents page navigation
+
+Browser GET/HEAD navigation accepting `text/html` at `/admin/agents`, including
+`?view=graph`, serves the SPA shell. Requests accepting `application/json` retain
+the authenticated legacy agents-document API. The shell performs its normal
+session check; navigation does not grant access to admin API data.

@@ -30,7 +30,7 @@ class AgentsView {
   startRemote = $state(false);
   liveSelectedId = $state<string | null>(null);
   // Graph view.
-  grouping = $state<'project' | 'host' | 'connection'>('project');
+  grouping = $state<'project' | 'host' | 'connection' | 'scopes'>('connection');
   layout = $state<"radial" | "list">("radial");
   status = $state("all");
   host = $state("all");
@@ -91,7 +91,7 @@ class AgentsView {
       try {
         const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "null");
         if (saved?.view === "list" || saved?.view === "radial") this.layout = saved.view;
-        if (['project', 'host', 'connection'].includes(saved?.grouping)) this.grouping = saved.grouping;
+        if (['project', 'host', 'connection', 'scopes'].includes(saved?.grouping)) this.grouping = saved.grouping;
         const f = saved?.filters;
         if (f) {
           if (typeof f.engine === "string") this.engine = f.engine;

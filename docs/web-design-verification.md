@@ -65,7 +65,7 @@ navigation, plus unchanged JSON session enforcement for the collision routes.
 
 | Requirement | Implementation | Verification |
 | --- | --- | --- |
-| NAV-1 | HTML prehandler on `/admin/agents`; JSON still session-gated | 37 API integration cases |
+| NAV-1 | HTML prehandler on `/admin/agents`; JSON still session-gated | 40 API integration cases |
 | NAV-2 | Page/Auth shells own resolved titles; wrapping headings; named project subheadings; embedded Markdown cannot add another h1 | Complete route gate |
 | NAV-3/4 | Descriptive disclosure names; project/report/account/coordination history snapshots; existing URL-driven filters retained | List Back/clear-filter regression; existing navigation suite |
 | VIS-1/2, ACC-2 | Custom type-size classes registered in both class mergers; semantic text colors retained; 12px compact metadata and 16px reading/composer text | Merge unit regression and Axe in both themes |
@@ -110,19 +110,23 @@ system dependencies on Ubuntu. Playwright traces and screenshots remain in ignor
 
 ## Evidence and remaining acceptance
 
-- API route integration: **37 passed**; API typecheck passed.
-- Frontend check: **981 tests passed**, no Svelte errors or warnings after the scope-room
-  initialization was made explicit.
-- Initial complete design run: all ten responsive/theme matrices and all 26 actual manual
-  articles passed. Touch regression identified a cascade issue, corrected before the full run.
-- Firefox design suite: **18 passed**, including all ten viewport/theme matrices and all 26 manual articles.
-- WebKit launch was attempted and failed before opening a page because this host lacks
-  `libicu74` and `libjpeg-turbo8`. It is **not verified locally**; the CI command installs
-  browser system dependencies before running the cross-browser gate.
-- Representative 320px and 1440px screenshots were inspected in addition to automated
-  checks. The complete Chromium suite passed **238 tests**.
-- Final integration with concurrent Agents navigation/graph fixes is verified separately
-  below before delivery.
+- API route integration: **40 passed**; API typecheck passed.
+- Frontend check: **983 tests passed**, zero Svelte errors or warnings.
+- Complete Chromium suite on the integrated source: **239 passed**.
+- Complete design suite on the same source: **20 Firefox + 20 WebKit passed**.
+  Each browser covers every route/variant at all ten viewport/theme combinations,
+  all 26 actual manual articles, and the draft, keyboard, loading/error, touch and
+  enlarged-text regressions. Axe A/AA scans retained all violation impacts.
+- The host initially lacked WebKit's ICU 74/JPEG 8 runtime. Official Ubuntu
+  `libicu74_74.2-1ubuntu3.1_amd64.deb` and `libjpeg-turbo8_2.1.5-2ubuntu2_amd64.deb`
+  were extracted to a temporary directory; a temporary launch wrapper supplied them
+  only to Playwright's bundled Linux WebKit. No system packages, production services
+  or browser security settings were changed. CI uses the normal dependency installer.
+- Representative 320px and 1440px light/dark screenshots were inspected. A repeated
+  build produced no unstaged differences in `public/admin`.
+- The verified source incorporates concurrent Agents navigation/radial-graph work
+  through `325e670e`, preserving scope clouds and the removal of the separate
+  ScopeGraph. Later concurrent work in the shared checkout is outside this result.
 
 The following require separate evidence and must not be presented as passed:
 
@@ -139,5 +143,6 @@ The following require separate evidence and must not be presented as passed:
    conditions. No analytics was installed.
 
 No database migration, production deployment, service restart or push is part of this change.
-Rollback is a Git revert of the implementation commit followed by the normal reviewed frontend
-build/deployment procedure; no data restoration is required.
+After integration, rollback is a revert of the delivery merge relative to its second parent
+(`git revert -m 2 <delivery-merge>`), retaining the concurrent graph work, followed by
+the normal reviewed frontend build/deployment procedure; no data restoration is required.

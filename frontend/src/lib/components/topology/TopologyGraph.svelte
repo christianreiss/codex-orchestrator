@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { cloudPath } from "$lib/topology/clouds";
   import { untrack } from "svelte";
   import ServerIcon from "@lucide/svelte/icons/server";
   import RadioTowerIcon from "@lucide/svelte/icons/radio-tower";
@@ -11,13 +12,14 @@
   import type { TopologyAgent, TopologyCommunicator, TopologyServer } from "$lib/api/topology";
 
   type Props = {
+    clouds?: Array<{ id: string; title: string; color: string; members: string[] }>;
     server: TopologyServer | undefined;
     model: GraphModel;
     selectedId: string | null;
     query?: string;
     onselect: (id: string | null) => void;
   };
-  let { server, model, selectedId, query = "", onselect }: Props = $props();
+  let { server, model, selectedId, query = "", onselect, clouds = [] }: Props = $props();
 
   // ── geometry ────────────────────────────────────────────────────────────────
   // The model is rebuilt every second (ghosts fade on the clock); the layout only
@@ -299,6 +301,14 @@
         {/each}
       </g>
 
+      <g pointer-events="none" aria-hidden="true">
+        {#each clouds as cloud (cloud.id)}
+          {@const members = cloud.members.filter(id => layout.nodes.has(id)).map(id => at(id))}
+          {#if members.length}
+            <path data-scope={cloud.id} d={cloudPath(members)} fill={cloud.color} fill-opacity="0.07" stroke={cloud.color} stroke-opacity="0.55" stroke-width="1.5" vector-effect="non-scaling-stroke"><title>{cloud.title}</title></path>
+          {/if}
+        {/each}
+      </g>
       <g aria-hidden="true" fill="none">
         {#each model.communicators as item (item.node.id)}
           {@const placed = layout.nodes.get(item.node.id)}

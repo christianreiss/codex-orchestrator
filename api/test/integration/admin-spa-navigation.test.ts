@@ -116,7 +116,7 @@ describe('admin SPA navigation collisions', () => {
     expect(urls.length).toBeGreaterThan(20);
     expect(urls).toContain('/admin');
     expect(urls).toContain('/admin/hosts');
-    // Agents shares its path with the authenticated fleet-policy JSON API.
+    // The agents page shares its path with the legacy agents-document API.
     expect(urls).toContain('/admin/agents');
   });
 
@@ -141,7 +141,13 @@ describe('admin SPA navigation collisions', () => {
     expect(res.headers['content-type']).toContain('application/json');
   });
 
-  it.each(['/admin/hosts', '/admin/agents'])('keeps the JSON API contract for %s', async (url) => {
+  it.each(['GET', 'HEAD'] as const)('serves the graph deep link on %s navigation', async method => {
+    const res = await app.inject({ method, url: '/admin/agents?view=graph', headers: { accept: HTML_NAVIGATION } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+  });
+
+  it.each(['/admin/hosts', '/admin/agents', '/admin/agents?view=graph'])('keeps JSON authentication for %s', async (url) => {
     const res = await app.inject({
       method: 'GET',
       url,
