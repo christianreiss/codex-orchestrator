@@ -43,6 +43,27 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class CompanionUiTest {
+    @Test fun conversationSegmentsHideEmptyCategoriesAndRecoverSelection() {
+        waitForAgentRows(session)
+        compose.onNodeWithTag("chat-filter:chats").assertIsSelected()
+        listOf("group", "conference", "all", "unread", "working", "idle", "waiting", "unknown").forEach {
+            compose.onNodeWithTag("chat-filter:$it").assertDoesNotExist()
+        }
+        sharedRooms.set(true); changed("rooms")
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:group").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("chat-filter:group").performClick()
+        compose.onNodeWithTag("room:$roomId").assertIsDisplayed()
+        compose.onNodeWithTag("agent:$session").assertDoesNotExist()
+        compose.onNodeWithTag("chat-search").performTextReplacement("no matching room")
+        compose.onNodeWithTag("chat-filter:group").assertIsSelected()
+        compose.onNodeWithText("No chats found").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Clear search").performClick()
+        screenshot("conversation-segments")
+        sharedRooms.set(false); changed("rooms")
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:group").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("chat-filter:chats").assertIsSelected()
+        compose.onNodeWithTag("agent:$session").assertIsDisplayed()
+    }
     @Test fun createsAConferenceAndConfirmsItsClosing() {
         waitForAgentRows(session)
         compose.onNodeWithText("New", substring = false).performClick()
@@ -63,7 +84,7 @@ class CompanionUiTest {
     @Test fun sharedRoomsKeepDraftsAndRetryTheSameMessage() {
         waitForAgentRows(session)
         sharedRooms.set(true); changed("rooms")
-        compose.waitUntil(10000) { compose.onAllNodesWithTag("room:$roomId").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:group").fetchSemanticsNodes().isNotEmpty() }
         screenshot("shared-conversation-directory")
         compose.onNodeWithTag("chat-filter:group").performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithTag("room:$roomId").fetchSemanticsNodes().isNotEmpty() }
@@ -133,7 +154,7 @@ class CompanionUiTest {
             .put("attention", JSONObject().put("severity", "blocker").put("summary", "Review needed")))
         changed("agents")
         waitForAgentRows("important-offline", "important-ended")
-        compose.onNodeWithTag("chat-filter:all").assertIsSelected()
+        compose.onNodeWithTag("chat-filter:chats").assertIsSelected()
         compose.onNodeWithTag("chat-filter:needs-you").assertDoesNotExist()
         compose.onNodeWithTag("agent:offline").assertDoesNotExist()
     }
@@ -580,7 +601,7 @@ class CompanionUiTest {
             compose.onNodeWithTag("approval:42").assertDoesNotExist()
             compose.onNodeWithText("Review next", substring = true).assertDoesNotExist()
             Assert.assertEquals("Chats wait for the current permission snapshot", requestsBefore, agentsRequested.get())
-            compose.onNodeWithTag("chat-filter:unread").performClick()
+            compose.onNodeWithTag("chat-filter:unread").assertDoesNotExist()
             compose.onNodeWithText("Loading your chats…").assertIsDisplayed()
             compose.onNodeWithText("No unread chats").assertDoesNotExist()
             screenshot("startup-connecting")
@@ -748,15 +769,14 @@ class CompanionUiTest {
     @Test fun chatHomeRestoresSearchAndFilterAfterReadingAConversation() {
         waitForAgentRows(session)
         compose.onNodeWithTag("chat-search").performTextReplacement(" $fixtureProject ")
-        compose.onNodeWithTag("chat-filter:unread").performClick()
+        compose.onNodeWithTag("chat-filter:chats").performClick()
         compose.onNodeWithTag("agent:$session").performClick()
         waitForUnread(emptySet())
         compose.onNodeWithContentDescription("Back").performClick()
         compose.onNodeWithTag("chat-search").assertTextContains(" $fixtureProject ")
-        compose.onNodeWithTag("chat-filter:unread").assertIsSelected()
-        compose.onNodeWithText("No chats found").assertIsDisplayed()
-        compose.onNodeWithTag("agent:$session").assertDoesNotExist()
-        compose.onNodeWithText("Clear filters").performClick()
+        compose.onNodeWithTag("chat-filter:chats").assertIsSelected()
+        compose.onNodeWithTag("agent:$session").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Clear search").performClick()
         compose.onNodeWithTag("agent:$session").assertIsDisplayed()
     }
     @Test fun chatFiltersIntersectSearchWithoutAcknowledgingRepliesAndKeepDecisionChoices() {
@@ -769,17 +789,17 @@ class CompanionUiTest {
         val ledger = unreadLedger()
         val requests = agentsRequested.get()
 
-        compose.onNodeWithTag("chat-filter:unread").performClick()
+        compose.onNodeWithTag("chat-filter:chats").performClick()
         compose.onNodeWithTag("agent:$session").assertIsDisplayed()
         compose.onNodeWithTag("agent:filter-unread").assertIsDisplayed()
         compose.onNodeWithTag("agent:filter-unread").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "3 unread replies"))
-        compose.onNodeWithTag("agent:filter-read").assertDoesNotExist()
+        compose.onNodeWithTag("agent:filter-read").assertIsDisplayed()
         compose.onNodeWithText("waiting.uggs.io").assertDoesNotExist()
         compose.onNodeWithTag("chat-search").performTextReplacement("release.uggs.io")
         compose.onNodeWithTag("agent:filter-unread").assertIsDisplayed()
         compose.onNodeWithTag("agent:$session").assertDoesNotExist()
         compose.onNodeWithTag("chat-search").performTextReplacement("")
-        compose.onNodeWithTag("chat-filter:all").performClick()
+        compose.onNodeWithTag("chat-filter:chats").performClick()
         compose.onNodeWithTag("chat-filter:needs-you").assertDoesNotExist()
         waitForAgentRows(session, "filter-unread", "filter-read")
         compose.onNodeWithText("waiting.uggs.io").assertDoesNotExist()
@@ -794,7 +814,7 @@ class CompanionUiTest {
         compose.onNodeWithTag("agent:filter-unread").assertIsDisplayed()
         compose.onNodeWithText("waiting.uggs.io").assertDoesNotExist()
         Assert.assertEquals("An incoming decision does not acknowledge its reply", ledger, unreadLedger())
-        compose.onNodeWithTag("chat-filter:all").performClick()
+        compose.onNodeWithTag("chat-filter:chats").performClick()
         waitForAgentRows(session, "filter-unread", "filter-read")
         compose.onNodeWithTag("chat-filter:needs-you").assertDoesNotExist()
         compose.onNodeWithText("Choose a target.").assertIsDisplayed()
@@ -816,7 +836,7 @@ class CompanionUiTest {
         waitForAgentRows(session, "dense-0")
         compose.onNodeWithText("Orchestrator").assertIsDisplayed()
         compose.onNodeWithTag("chat-search").assertIsDisplayed()
-        compose.onNodeWithTag("chat-filter:all").assertIsSelected()
+        compose.onNodeWithTag("chat-filter:chats").assertIsSelected()
         compose.onNodeWithText("waiting.uggs.io").assertDoesNotExist()
         compose.onNodeWithTag("agent:$session").assertIsDisplayed()
         assertCompleteTitle(fixtureProject)
@@ -982,9 +1002,6 @@ class CompanionUiTest {
             if (state == "offline") {
                 Assert.assertEquals("Temporary network loss preserves unread replies", setOf(session), unreadIds())
                 Assert.assertEquals(ledger, preferences.getString("state", null))
-                compose.onNodeWithTag("chat-filter:unread").performClick()
-                compose.onNodeWithTag("agent:$session").assertExists()
-                compose.onNodeWithTag("chat-filter:all").performClick()
                 compose.onNodeWithTag("agent:$session").assertDoesNotExist()
             } else {
                 waitForUnread(emptySet())

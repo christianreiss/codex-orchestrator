@@ -1,11 +1,19 @@
 # Android companion
 
+## Conversation categories (0.5.1)
+
+The conversation list uses one compact segmented control: Chats, Groups and
+Conferences. Only categories with loaded entries appear; search does not hide
+tabs. Selection falls back to the first available category when its entries
+disappear. Groups also contains project and host rooms. Status/unread filter
+buttons and redundant list headings are removed; unread badges remain.
+
 ## Shared conversations and mobile design (0.5.0)
 
 Chats combines direct messages with groups, conferences and project/host rooms.
 Search works across their titles and descriptions. Groups and Conferences filters
 do not mix private conversations into their results; More conversations loads older
-directory pages. Existing direct-chat attention, unread and activity filters remain.
+directory pages. Version 0.5.1 replaces these filters with the categories above.
 
 Room messages show their author, local time, Markdown and attachments. Earlier
 messages use the server's opaque cursor. Each room keeps its draft, upload intent

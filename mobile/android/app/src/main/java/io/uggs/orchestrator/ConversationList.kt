@@ -2,11 +2,12 @@ package io.uggs.orchestrator
 
 import android.text.format.DateFormat
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -35,26 +36,30 @@ import java.time.Instant
 
 @Composable internal fun NowScreen(model: CompanionModel, agents: List<JSONObject>, fresh: Boolean, now: Long = System.currentTimeMillis()) {
     var query by rememberSaveable { mutableStateOf("") }
-    var filter by rememberSaveable { mutableStateOf("all") }
+    var filter by rememberSaveable { mutableStateOf("chats") }
     var createRoom by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(filter) { if (filter == "needs-you") filter = "all" }
     val keyboard = LocalSoftwareKeyboardController.current
     val search = query.trim()
     fun attention(agent: JSONObject) = fresh && model.can("agent_portal.manage") && needsReply(agent) && (hasUrgentNotice(agent) || isReachable(agent))
     // Filter only the already-authorized overview. Searching never fetches a
     // transcript or changes a read marker.
-    val visible = agents.filter { agent ->
-        val matchesFilter = when (filter) {
-            "unread" -> model.unreadReplyCount(agent.getString("id")) > 0
-            "working", "idle", "waiting", "unknown" -> isOnlineActiveAgent(agent) && nativeActivity(agent, now) == filter
-            else -> isOnlineActiveAgent(agent) || hasUrgentNotice(agent)
-        }
-        matchesFilter && (search.isEmpty() || listOf(agentTitle(agent), agent.optString("cwd"),
-            agentHost(agent).orEmpty(), agentSummary(agent).orEmpty(), agent.optString("engine"))
-            .any { it.contains(search, ignoreCase = true) })
+    val activeAgents = agents.filter { isOnlineActiveAgent(it) || hasUrgentNotice(it) }
+    val rooms = model.roomChats.rooms
+    val categories = buildList {
+        if (activeAgents.isNotEmpty()) add("chats" to "Chats")
+        if (rooms.any { it.optString("kind") != "conference" }) add("group" to "Groups")
+        if (rooms.any { it.optString("kind") == "conference" }) add("conference" to "Conferences")
     }
-    val shared = model.roomChats.rooms.filter { room ->
-        (filter == "all" || filter == "unread" && room.optInt("unread") > 0 || filter == room.optString("kind")) &&
+    val selected = filter.takeIf { id -> categories.any { it.first == id } } ?: categories.firstOrNull()?.first
+    LaunchedEffect(selected) { selected?.let { filter = it } }
+    val visible = if (selected != "chats") emptyList() else activeAgents.filter { agent ->
+        search.isEmpty() || listOf(agentTitle(agent), agent.optString("cwd"),
+            agentHost(agent).orEmpty(), agentSummary(agent).orEmpty(), agent.optString("engine"))
+            .any { it.contains(search, ignoreCase = true) }
+    }
+    val shared = rooms.filter { room ->
+        (selected == "conference" && room.optString("kind") == "conference" ||
+            selected == "group" && room.optString("kind") != "conference") &&
             (search.isBlank() || room.optString("title").contains(search, true) || room.optString("description").contains(search, true))
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -81,19 +86,27 @@ import java.time.Instant
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
             )
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("all" to "All", "unread" to "Unread", "group" to "Groups", "conference" to "Conferences", "working" to "Working", "idle" to "Idle", "waiting" to "Waiting", "unknown" to "Unknown").forEach { (id, label) ->
-                    FilterChip(
-                        selected = filter == id, onClick = { filter = id },
-                        modifier = Modifier.heightIn(min = 48.dp).testTag("chat-filter:$id"),
-                        label = { Text(label) }, shape = MaterialTheme.shapes.small, border = null,
-                        colors = FilterChipDefaults.filterChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        ),
-                    )
+            if (categories.isNotEmpty()) Row(
+                Modifier.fillMaxWidth().padding(top = 10.dp).selectableGroup()
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(10.dp)).padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                categories.forEach { (id, label) ->
+                    val active = selected == id
+                    Surface(
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            .testTag("chat-filter:$id")
+                            .selectable(selected = active, role = Role.Tab, onClick = { filter = id }),
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (active) MaterialTheme.colorScheme.surface else Color.Transparent,
+                        shadowElevation = if (active) 1.dp else 0.dp,
+                    ) {
+                        Box(Modifier.padding(horizontal = 4.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
+                            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                                color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        }
+                    }
                 }
             }
         }
@@ -107,27 +120,24 @@ import java.time.Instant
                     TextButton(onClick = model::refreshNow, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry connection") }
                 }
             }
-            if (filter !in setOf("group", "conference") && visible.isNotEmpty()) item { Text("Direct messages", Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            itemsIndexed(if (filter in setOf("group", "conference")) emptyList() else visible, key = { _, agent -> "agent:" + agent.getString("id") }) { index, agent ->
+            itemsIndexed(visible, key = { _, agent -> "agent:" + agent.getString("id") }) { index, agent ->
                 AgentRow(agent, now, attention(agent), model.unreadReplyCount(agent.getString("id")), index < visible.lastIndex) { model.openSession(agent.getString("id")) }
             }
-            if (shared.isNotEmpty()) item { Text("Shared conversations", Modifier.padding(16.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             itemsIndexed(shared, key = { _, room -> "room:" + room.getString("id") }) { _, room ->
                 RoomRow(room, model.can("agent_messaging.reveal_content")) { model.openRoom(room) }
             }
             if (model.roomChats.nextOffset != null) item { TextButton(onClick = model.roomChats::more, enabled = fresh && !model.roomChats.loading) { Text("More conversations") } }
-            if ((visible.isEmpty() || filter in setOf("group", "conference")) && shared.isEmpty()) item(key = "empty") {
+            if (visible.isEmpty() && shared.isEmpty()) item(key = "empty") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val empty = when {
                         model.connecting -> "Loading your chats…"
                         search.isNotEmpty() -> "No chats found"
-                        filter == "unread" -> "No unread chats"
                         fresh -> "All caught up"
                         else -> "Waiting for chats"
                     }
                     if (model.connecting) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                     Text(empty, style = MaterialTheme.typography.titleMedium)
-                    if (!model.connecting && (search.isNotEmpty() || filter != "all")) TextButton(onClick = { query = ""; filter = "all" }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear filters") }
+                    if (!model.connecting && search.isNotEmpty()) TextButton(onClick = { query = "" }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear search") }
                     else if (fresh) Text("No active agents online.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
