@@ -82,7 +82,7 @@
   const canManage = $derived($authStore.can("agent_portal.manage"));
   const canReadTranscript = $derived($authStore.can("agent_portal.reveal_transcript"));
   const canRemoteManage = $derived($authStore.can("agent_messaging.manage"));
-  const roomView = $derived(filter === 'ended' ? 'history' : filter === 'all' ? 'all' : 'active');
+  let roomView = $state<'active' | 'history'>('active');
   const sharedRooms = createInfiniteQuery(reactiveOptions(()=>roomOptions(!embedded && $authStore.can('agent_messaging.read'), roomView)));
   const roomData = $derived($sharedRooms.data ? {enabled:$sharedRooms.data.pages[0]?.enabled, rooms:$sharedRooms.data.pages.flatMap(p=>p.rooms ?? []), has_more:$sharedRooms.hasNextPage} : undefined);
   const selectedRoom = $derived(embedded ? null : page.url.searchParams.get('room'));
@@ -141,7 +141,7 @@
   const timings = $derived($sessions.data?.timings ?? {});
   const serverNow = $derived(clientClock($sessions.data, $sessions.dataUpdatedAt, now));
   const stale = $derived(Boolean($sessions.data) && snapshotIsStale($sessions.dataUpdatedAt, now, timings));
-  const visible = $derived(visibleClients(rows, { search, engine, filter, sort: "status" }, serverNow, timings));
+  const visible = $derived(visibleClients(rows, { search, engine, filter: roomView === 'history' ? 'ended' : filter, sort: "status" }, serverNow, timings));
   const selected = $derived(allRows.find((row) => row.id === selectedId) ?? null);
   const selectedView = $derived(selected ? presenceView(selected, serverNow, timings) : null);
   const actionsUnavailable = $derived(!enabled || stale || $sessions.isError);
@@ -327,7 +327,7 @@
       <section class="min-h-0 min-w-0 flex-col border-r {selected || selectedRoom ? 'hidden lg:flex' : 'flex'}" aria-label="Client directory">
         <div class="flex items-center justify-between border-b px-3 py-2 text-caption text-muted-foreground">
           <h2 id="shared-room-heading" tabindex="-1" class="font-medium text-foreground">{roomView === 'history' ? 'History' : 'Conversations'}</h2>
-          <Button variant="ghost" size="sm" aria-pressed={roomView === 'history'} onclick={()=>filter=roomView === 'history' ? 'active' : 'ended'}>{roomView === 'history' ? 'Active' : 'History'}</Button>
+          <Button variant="ghost" size="sm" aria-pressed={roomView === 'history'} onclick={()=>roomView=roomView === 'history' ? 'active' : 'history'}>{roomView === 'history' ? 'Active' : 'History'}</Button>
           {#if canRemoteManage}<Button variant="ghost" size="icon" class="h-8 w-8" aria-label="New conversation" onclick={()=>newRoomOpen=true}><PlusIcon class="h-4 w-4"/></Button>{/if}
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto p-1.5">

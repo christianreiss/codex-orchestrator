@@ -99,8 +99,20 @@ async function fixture(page: Page) {
       });
     if (path === "/admin/agent-sessions")
       return json({ enabled: true, generated_at: now, sessions: [] });
-    if (path === "/admin/agent-messaging/chats")
-      return json({ enabled: true, rooms, has_more: false });
+    if (path === "/admin/agent-messaging/chats") {
+      const closed = rooms.filter(
+        (r) =>
+          r.kind === "conference" &&
+          r.status === "adjourned" &&
+          r.members.every((m) => !m.reachable),
+      );
+      const history = new URL(req.url()).searchParams.get("view") === "history";
+      return json({
+        enabled: true,
+        rooms: history ? closed : rooms.filter((r) => !closed.includes(r)),
+        has_more: false,
+      });
+    }
     if (path === "/admin/agent-messaging/addresses")
       return json({
         addresses: [
@@ -157,6 +169,38 @@ async function fixture(page: Page) {
     },
   };
 }
+test("History keeps closed conferences readable independently of the session toolbar", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const state = await fixture(page);
+  state.rooms[1].status = "adjourned";
+  state.rooms[1].members[0].reachable = false;
+  await page.goto("/admin/agents");
+  await expect(page.locator(`#room-${GROUP}`)).toBeVisible();
+  await expect(page.locator(`#room-${CONF}`)).toHaveCount(0);
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "History", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(`#room-${CONF}`)).toBeVisible();
+  await expect(page.locator(`#room-${GROUP}`)).toHaveCount(0);
+  await page
+    .getByRole("group", { name: "Show sessions" })
+    .getByRole("button", { name: "Online", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "History", exact: true }),
+  ).toBeVisible();
+  await page.locator(`#room-${CONF}`).click();
+  await expect(page.getByText("This conference has ended.")).toBeVisible();
+  await page
+    .getByRole("region", { name: "Client directory" })
+    .getByRole("button", { name: "Active", exact: true })
+    .click();
+  await expect(page.locator(`#room-${GROUP}`)).toBeVisible();
+  await expect(page.locator(`#room-${CONF}`)).toHaveCount(0);
+});
 test("shared rooms sit beside direct chats; switching preserves drafts and targeted retry IDs", async ({
   page,
 }) => {
@@ -195,7 +239,9 @@ test("shared rooms sit beside direct chats; switching preserves drafts and targe
   await page.getByRole("button", { name: "Open conference" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
 });
-test("room drafts survive chat switches and protect leaving the workspace", async ({ page }) => {
+test("room drafts survive chat switches and protect leaving the workspace", async ({
+  page,
+}) => {
   await fixture(page);
   await page.goto(`/admin/agents?room=${GROUP}`);
   await page.getByLabel("Message this conversation").fill("Keep this draft");
@@ -205,13 +251,19 @@ test("room drafts survive chat switches and protect leaving the workspace", asyn
     await dialog.dismiss();
   });
   await page.locator(`#room-${CONF}`).click();
-  await expect(page.getByRole("heading", { name: "Architecture review" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Architecture review" }),
+  ).toBeVisible();
   await page.locator(`#room-${GROUP}`).click();
-  await expect(page.getByLabel("Message this conversation")).toHaveValue("Keep this draft");
+  await expect(page.getByLabel("Message this conversation")).toHaveValue(
+    "Keep this draft",
+  );
   expect(dialogs).toEqual([]);
   await page.locator('a[href="/admin/dashboard"]').first().click();
   await expect.poll(() => dialogs.length).toBe(1);
-  await expect(page.getByLabel("Message this conversation")).toHaveValue("Keep this draft");
+  await expect(page.getByLabel("Message this conversation")).toHaveValue(
+    "Keep this draft",
+  );
   await expect(page).toHaveURL(new RegExp(`room=${GROUP}`));
 });
 test("operator conference closes gracefully", async ({ page }) => {
@@ -236,7 +288,17 @@ for (const width of [1920, 1440, 768, 390, 320])
     test(`room conversation ${width}px ${theme}: reflow and accessibility`, async ({
       page,
     }, info) => {
-      await page.setViewportSize({ width, height: width === 1920 ? 1080 : width === 1440 ? 900 : width === 768 ? 1024 : 844 });
+      await page.setViewportSize({
+        width,
+        height:
+          width === 1920
+            ? 1080
+            : width === 1440
+              ? 900
+              : width === 768
+                ? 1024
+                : 844,
+      });
       await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
       await fixture(page);
       await page.goto(`/admin/agents?room=${GROUP}`);
