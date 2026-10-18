@@ -90,7 +90,7 @@
   </a>
 {/snippet}
 
-<nav class={cn("border-b", className)} {...rest}>
+<nav class={cn("min-w-0 max-w-full border-b", className)} {...rest}>
   <div class="flex min-w-0 gap-1 overflow-x-auto">
     {#each items as item (item.href)}
       {@render tab(item)}

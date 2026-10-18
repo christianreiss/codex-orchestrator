@@ -15,16 +15,18 @@
   let confirmPassword = $state("");
   let submitting = $state(false);
   let complete = $state(false);
+  let confirmError = $state<string | null>(null);
   let error = $state<string | null>(null);
 
   async function submit() {
     error = null;
+    confirmError = null;
     if (!token) {
       error = "This reset link is missing its token.";
       return;
     }
     if (newPassword !== confirmPassword) {
-      error = "Password confirmation does not match.";
+      confirmError = "Password confirmation does not match.";
       return;
     }
     submitting = true;
@@ -60,8 +62,8 @@
         <FormField id="new-password" label="New password" hint="Use at least 12 characters.">
           <Input id="new-password" type="password" autocomplete="new-password" minlength={12} required bind:value={newPassword} aria-describedby="new-password-hint" />
         </FormField>
-        <FormField id="confirm-password" label="Confirm new password">
-          <Input id="confirm-password" type="password" autocomplete="new-password" minlength={12} required bind:value={confirmPassword} />
+        <FormField id="confirm-password" label="Confirm new password" error={confirmError ?? undefined}>
+          <Input id="confirm-password" aria-invalid={!!confirmError} aria-describedby={confirmError ? "confirm-password-error" : undefined} type="password" autocomplete="new-password" minlength={12} required bind:value={confirmPassword} />
         </FormField>
         <Button type="submit" class="w-full" disabled={submitting || !token}>
           {submitting ? "Resetting…" : "Reset password"}

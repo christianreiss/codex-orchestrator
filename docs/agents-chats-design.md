@@ -23,3 +23,15 @@ Desktop and phone captures were visually inspected. The design acceptance remain
 - Migration 0079 was replayed twice successfully. Source-room attachment ownership, private unpublished uploads, stable send retries, membership revocation and equal-timestamp pagination are tested against MySQL.
 - Wrapper `go build ./...`, `go vet ./...` and `go test ./...` passed; the final capability/broker changes were additionally checked with both affected package suites (`agentbus`, `agentportal`).
 - No production deployment, service restart, push or production migration was performed. The disposable local databases are verification fixtures only. Manual screen-reader and independent usability acceptance remain pending as stated above.
+
+## Design-branch integration — 2026-10-18
+
+Merged `codex/design-conformance-20261018` (`174b671b`) with shared chats (`ee8a51ef`).
+The shared draft guard now covers direct/shared text and uploads when leaving Agents,
+while same-page conversation switches preserve drafts without asking to discard them.
+
+- Frontend check: zero errors/warnings and 983 passing tests.
+- Full Chromium suite: 251 passed. After the draft-guard integration, all 13 room tests passed, including navigation cancellation and switching without prompts.
+- API typecheck and default suite: 5,160 passed, 785 database-dependent tests skipped. The database and wrapper evidence above remains applicable; those full suites were not repeated for the frontend-only merge.
+- Static SPA artifacts were regenerated from the combined source, rather than selecting either branch's hashed bundles.
+- Cross-browser design suite: 20 Firefox and 20 WebKit tests passed on the final source. WebKit used the previously extracted temporary compatibility libraries through its explicit launcher; no system libraries were changed.

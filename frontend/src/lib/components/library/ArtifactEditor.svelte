@@ -48,6 +48,10 @@
   let argumentHint = $state("");
   let serverSha = $state<string | null>(null);
   let hydrated = $state(false);
+  let baseline = $state("");
+  let submitted = "";
+  const draft = $derived(JSON.stringify([markdown, description, model, color, tools, argumentHint]));
+  const dirty = $derived(hydrated && draft !== baseline);
 
   $effect(() => {
     const data = $query.data;
@@ -59,6 +63,7 @@
     tools = asStringArray(type === "commands" ? data.frontmatter?.allowed_tools : data.frontmatter?.tools);
     argumentHint = asString(data.frontmatter?.argument_hint);
     serverSha = data.sha256 ?? null;
+    baseline = JSON.stringify([markdown, description, model, color, tools, argumentHint]);
     hydrated = true;
   });
 
@@ -67,6 +72,7 @@
 
   const save = createMutation({
     mutationFn: () => {
+      submitted = draft;
       const payload: ArtifactStorePayload = { slug, description };
       if (hasModel) payload.model = model === INHERIT_MODEL ? undefined : model;
       if (type === "subagents") {
@@ -81,6 +87,7 @@
       return cfg.api.store(payload);
     },
     onSuccess: (result) => {
+      baseline = submitted;
       serverSha = result.sha256 ?? null;
       toast.success(result.status === "unchanged" ? "No changes to save" : `${singular[0]!.toUpperCase()}${singular.slice(1)} ${result.status}`);
       void qc.invalidateQueries({ queryKey: [...cfg.keys.all] });
@@ -95,6 +102,7 @@
     onSuccess: () => {
       toast.success(`${singular[0]!.toUpperCase()}${singular.slice(1)} "${slug}" deleted`);
       void qc.invalidateQueries({ queryKey: [...cfg.keys.all] });
+      baseline = draft;
       void goto(listHref);
     },
     onError: (err: unknown) => toast.error(err instanceof ApiError ? err.message : "Failed to delete"),
@@ -115,7 +123,7 @@
     <StateBlock state="error" message={$query.error instanceof Error ? $query.error.message : `Failed to load ${singular}`} onRetry={() => void $query.refetch()} />
   </PageShell>
 {:else}
-  <DocumentEditor title={$query.data?.display_name || slug} description={`${singular} · ${slug}`}>
+  <DocumentEditor {dirty} pending={$save.isPending} error={$save.error ?? $remove.error} saved={$save.isSuccess} title={$query.data?.display_name || slug} description={`${singular} · ${slug}`}>
     {#snippet actions()}
       <Button variant="outline" href={listHref}><ArrowLeft class="h-4 w-4" />Back</Button>
       <Button onclick={() => $save.mutate()} disabled={$save.isPending}>
@@ -124,11 +132,14 @@
       </Button>
     {/snippet}
     {#snippet body()}
+        <FormField id="fm-description" label="Description" required={type !== "output-styles"}>
+          <Textarea id="fm-description" rows={3} bind:value={description} />
+        </FormField>
       <div class="space-y-2">
-        <span class="text-body font-medium">Body (Markdown)</span>
+        <label for="artifact-body" class="text-body font-medium">Body (Markdown)</label>
         <Textarea
-          aria-label={`${singular[0]!.toUpperCase()}${singular.slice(1)} body`}
-          class="min-h-[60vh] resize-y font-mono text-body-sm leading-relaxed"
+          id="artifact-body" aria-label={`${singular[0]!.toUpperCase()}${singular.slice(1)} body`}
+          class="min-h-[60vh] resize-y font-mono text-base leading-relaxed"
           spellcheck="false"
           autocomplete="off"
           bind:value={markdown}
@@ -144,9 +155,7 @@
     {#snippet settings()}
       <div role="group" aria-label={`${singular[0]!.toUpperCase()}${singular.slice(1)} controls`} class="space-y-3">
         <Badge variant={$query.data?.deleted_at ? "destructive" : "success"}>{$query.data?.deleted_at ? "deleted" : "active"}</Badge>
-        <FormField id="fm-description" label="Description" required={type !== "output-styles"}>
-          <Textarea id="fm-description" rows={3} bind:value={description} />
-        </FormField>
+
         {#if type === "commands"}
           <FormField id="fm-argument-hint" label="Argument hint">
             <Input id="fm-argument-hint" bind:value={argumentHint} placeholder="e.g. [pr-number]" />

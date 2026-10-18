@@ -1,6 +1,6 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { cn } from "$lib/utils/cn";
-  import { relativeTime } from "$lib/utils/format";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
@@ -86,7 +86,7 @@
     {/each}
     {#if card.due_at}
       <Badge variant={dueState === "overdue" ? "destructive" : dueState === "soon" ? "default" : "outline"}>
-        due {relativeTime(card.due_at)}
+        due <Timestamp value={card.due_at} />
       </Badge>
     {/if}
     {#if held}
@@ -95,7 +95,7 @@
       <Badge variant="secondary">
         {card.claim?.role ?? "held"} · {holder}
         {#if card.claim?.expires_at}
-          · expires {relativeTime(card.claim.expires_at)}
+          · expires <Timestamp value={card.claim.expires_at} />
         {/if}
       </Badge>
     {:else if card.claim?.release_reason}

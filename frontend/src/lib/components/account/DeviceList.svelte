@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   /** Paired Android companion devices: pair with a one-time QR code, revoke when lost. */
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import QRCode from "qrcode";
@@ -7,7 +8,6 @@
   import { Button } from "$lib/components/ui/button";
   import * as Dialog from "$lib/components/ui/dialog";
   import { StateBlock } from "$lib/components/page";
-  import { relativeTime } from "$lib/utils/format";
 
   type Device = { id: string; name: string; created_at: string; last_seen_at: string; revoked_at: string | null };
   const qc = useQueryClient();
@@ -97,7 +97,7 @@
           <div class="min-w-0">
             <p class="text-body font-medium">{device.name}</p>
             <p class="text-body-sm text-muted-foreground">
-              {#if device.revoked_at}Revoked{:else}Last connected <time datetime={device.last_seen_at} title={new Date(device.last_seen_at).toLocaleString()}>{relativeTime(device.last_seen_at)}</time>{/if}
+              {#if device.revoked_at}Revoked{:else}Last connected <time datetime={device.last_seen_at} title={new Date(device.last_seen_at).toLocaleString()}><Timestamp value={device.last_seen_at} /></time>{/if}
             </p>
           </div>
           {#if !device.revoked_at}

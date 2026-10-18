@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   /**
    * One list of every API key, with a vendor filter in place of three tabs.
    * Keys stay namespaced per endpoint on the server (`/admin/{openai|claude|grok}/keys`),
@@ -19,7 +20,6 @@
   import RowActions from "$lib/components/data-table/RowActions.svelte";
   import { keysApi, keyQueryKeys, engineLabel, isActive } from "$lib/api/keys";
   import type { AdminApiKey, ApiKeyEngine } from "$lib/api/types";
-  import { relativeTime } from "$lib/utils/format";
   import { cn } from "$lib/utils/cn";
   import { BACKEND_LABEL } from "./connection";
   import EndpointSummary from "./EndpointSummary.svelte";
@@ -204,7 +204,7 @@
         </Table.Cell>
         <Table.Cell class="hidden text-body-sm md:table-cell">
           {#if record.last_used_at}
-            <span title={record.last_used_at}>{relativeTime(record.last_used_at)}</span>
+            <span title={record.last_used_at}><Timestamp value={record.last_used_at} /></span>
           {:else}
             <span class="text-muted-foreground">Never</span>
           {/if}

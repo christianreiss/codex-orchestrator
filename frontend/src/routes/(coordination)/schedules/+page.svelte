@@ -30,6 +30,7 @@
   const detailQuery = scheduleQuery(selected);
   const canManage = $derived($authStore.can("agent_messaging.manage"));
 
+  let formDirty = $state(false);
   let panelOpen = $state(false);
   let editing = $state(false);
   let formKey = $state(0);
@@ -38,6 +39,7 @@
 
   const mutation = scheduleMutation(
     () => {
+      formDirty = false;
       editing = false;
       panelOpen = false;
       toast.success("Saved");
@@ -89,7 +91,7 @@
     {#if canManage}<Button onclick={() => openForm(null)}><Plus class="h-4 w-4" /> Create schedule</Button>{/if}
   {/snippet}
 
-  <ListDetail bind:open={panelOpen} {title} description={editing ? "Choose an agent, prompt and wake time." : "Prompt and latest execution results."} onClose={() => (editing = false)}>
+  <ListDetail dirty={editing && formDirty} bind:open={panelOpen} {title} description={editing ? "Choose an agent, prompt and wake time." : "Prompt and latest execution results."} onClose={() => (editing = false)}>
     {#snippet list()}
       <DataTable
         items={rows}
@@ -113,7 +115,7 @@
         {#snippet row(item)}
           <Table.Row class="cursor-pointer" onclick={() => view(item)}>
             <Table.Cell class="font-medium">
-              {item.name}
+              <button type="button" class="text-left underline-offset-4 hover:underline" onclick={(event) => { event.stopPropagation(); view(item); }}>{item.name}</button>
               <span class="block"><Badge variant={item.enabled ? "success" : "secondary"}>{item.enabled ? "Enabled" : "Paused"}</Badge></span>
             </Table.Cell>
             <Table.Cell class="max-w-48 break-words" title={item.target}>{agentLabel(item.target)}</Table.Cell>
@@ -139,7 +141,7 @@
     {#snippet detail()}
       {#if editing && canManage}
         {#key formKey}
-          <ScheduleForm
+          <ScheduleForm bind:dirty={formDirty}
             schedule={editTarget}
             {agents}
             agentsError={$addresses.error?.message}

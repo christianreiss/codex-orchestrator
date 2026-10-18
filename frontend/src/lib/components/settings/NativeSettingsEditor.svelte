@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import { modelPolicyQuery } from '$lib/api/model-policy';
   import { filterModelOptions } from '$lib/components/ui/model-select/policy';
   import { derived } from "svelte/store";
@@ -96,6 +97,7 @@
     if (result.data && !result.error) load(result.data);
   }
 </script>
+<DraftGuard {dirty} />
 
 <section id={sectionId} class="border-t py-5" aria-labelledby={`${sectionId}-heading`}>
   <h3 id={`${sectionId}-heading`} class="text-body-sm font-semibold">{ENGINE_META[engine].label} {settingsLabel}</h3>

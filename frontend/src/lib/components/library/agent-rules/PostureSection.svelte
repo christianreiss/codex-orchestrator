@@ -1,5 +1,6 @@
 <script lang="ts">
   /** Security level and response verbosity: each saved on its own, apart from the document. */
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import { Button } from "$lib/components/ui/button";
   import ResponseVerbosityPanel from "$lib/components/settings/ResponseVerbosityPanel.svelte";
   import SecurityLevelsPanel from "$lib/components/settings/SecurityLevelsPanel.svelte";
@@ -10,6 +11,7 @@
   let { posture, preview }: { posture: RulesPostureState; preview: RulesPreviewState } = $props();
 </script>
 
+<DraftGuard dirty={posture.levelsDirty || posture.verbosityDirty} />
 <section aria-labelledby="rules-posture-title" class="space-y-3">
   <div>
     <h2 id="rules-posture-title" class="text-h3">How cautious agents are</h2>

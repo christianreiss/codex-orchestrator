@@ -1,3 +1,4 @@
+import { typographyMergeConfig } from "$lib/utils/cn";
 import Root from "./EmptyState.svelte";
 import { tv, type VariantProps } from "tailwind-variants";
 
@@ -10,7 +11,7 @@ export const emptyStateVariants = tv({
     },
   },
   defaultVariants: { size: "default" },
-});
+}, { twMergeConfig: typographyMergeConfig });
 
 export type EmptyStateSize = VariantProps<typeof emptyStateVariants>["size"];
 export { Root, Root as EmptyState };

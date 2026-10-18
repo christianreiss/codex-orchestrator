@@ -1,0 +1,130 @@
+[
+  {
+    "source": "src/routes/(access)/access/+page.svelte",
+    "path": "/admin/access"
+  },
+  {
+    "source": "src/routes/(access)/settings/+page.svelte",
+    "path": "/admin/settings"
+  },
+  {
+    "source": "src/routes/(activity)/activity/+page.svelte",
+    "path": "/admin/activity"
+  },
+  {
+    "source": "src/routes/(activity)/reports/+page.svelte",
+    "path": "/admin/reports"
+  },
+  {
+    "source": "src/routes/(agents)/agents/+page.svelte",
+    "path": "/admin/agents"
+  },
+  {
+    "source": "src/routes/(coordination)/agent-messaging/+page.svelte",
+    "path": "/admin/agent-messaging"
+  },
+  {
+    "source": "src/routes/(coordination)/git-director/+page.svelte",
+    "path": "/admin/git-director"
+  },
+  {
+    "source": "src/routes/(coordination)/schedules/+page.svelte",
+    "path": "/admin/schedules"
+  },
+  {
+    "source": "src/routes/(coordination)/transfers/+page.svelte",
+    "path": "/admin/transfers"
+  },
+  {
+    "source": "src/routes/(library)/library/+page.svelte",
+    "path": "/admin/library"
+  },
+  {
+    "source": "src/routes/(library)/library/[type]/[name]/+page.svelte",
+    "path": "/admin/library/skills/design-fixture"
+  },
+  {
+    "source": "src/routes/(library)/library/agent-rules/+page.svelte",
+    "path": "/admin/library/agent-rules"
+  },
+  {
+    "source": "src/routes/(providers)/accounts/+page.svelte",
+    "path": "/admin/accounts"
+  },
+  {
+    "source": "src/routes/(providers)/engines/+page.svelte",
+    "path": "/admin/engines"
+  },
+  {
+    "source": "src/routes/+page.svelte",
+    "path": "/admin"
+  },
+  {
+    "source": "src/routes/[...legacy]/+page.svelte",
+    "path": "/admin/logs"
+  },
+  {
+    "source": "src/routes/account/+page.svelte",
+    "path": "/admin/account"
+  },
+  {
+    "source": "src/routes/cli-auth/verify/+page.svelte",
+    "path": "/admin/cli-auth/verify"
+  },
+  {
+    "source": "src/routes/dashboard/+page.svelte",
+    "path": "/admin/dashboard"
+  },
+  {
+    "source": "src/routes/hosts/+page.svelte",
+    "path": "/admin/hosts"
+  },
+  {
+    "source": "src/routes/hosts/[id]/+page.svelte",
+    "path": "/admin/hosts/1"
+  },
+  {
+    "source": "src/routes/login/+page.svelte",
+    "path": "/admin/login"
+  },
+  {
+    "source": "src/routes/manual/+page.svelte",
+    "path": "/admin/manual"
+  },
+  {
+    "source": "src/routes/manual/[slug]/+page.svelte",
+    "path": "/admin/manual/accounts"
+  },
+  {
+    "source": "src/routes/password/reset/+page.svelte",
+    "path": "/admin/password/reset"
+  },
+  {
+    "source": "src/routes/projects/+page.svelte",
+    "path": "/admin/projects"
+  },
+  {
+    "source": "src/routes/projects/[slug]/+page.svelte",
+    "path": "/admin/projects/fleet-console"
+  },
+  {
+    "source": "src/routes/projects/[slug]/activity/+page.svelte",
+    "path": "/admin/projects/fleet-console/activity"
+  },
+  {
+    "source": "src/routes/projects/[slug]/board/+page.svelte",
+    "path": "/admin/projects/fleet-console/board"
+  },
+  {
+    "source": "src/routes/projects/[slug]/documents/+page.svelte",
+    "path": "/admin/projects/fleet-console/documents"
+  },
+  {
+    "source": "src/routes/projects/[slug]/reports/+page.svelte",
+    "path": "/admin/projects/fleet-console/reports"
+  },
+  {
+    "source": "src/routes/setup/+page.svelte",
+    "path": "/admin/setup"
+  }
+]

@@ -59,5 +59,6 @@ jobs:
       # assertion written against the older flat sidebar had been failing
       # unnoticed. Browsers are installed explicitly because the runner image
       # ships none.
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:e2e
+      - run: npm run test:e2e:cross-browser

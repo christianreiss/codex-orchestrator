@@ -96,16 +96,22 @@
       </Alert>
     {/if}
 
+    {#if Object.keys(errors).length}
+      <div role="alert" class="rounded-md border border-destructive p-3 text-body-sm">
+        <p class="font-medium">Correct the following fields:</p>
+        <ul class="list-disc pl-5">{#each Object.entries(errors) as [field, message]}<li><a class="underline" href={`#owner-${field}`} onclick={(e) => { e.preventDefault(); document.getElementById(`owner-${field}`)?.focus(); }}>{field}: {message}</a></li>{/each}</ul>
+      </div>
+    {/if}
     <div class="grid gap-4 sm:grid-cols-2">
       <FormField id="owner-name" label="Full name" error={errors.name} required>
-        <Input id="owner-name" bind:value={name} aria-invalid={errors.name ? "true" : undefined} />
+        <Input id="owner-name" bind:value={name} aria-describedby={errors.name ? "owner-name-error" : undefined} aria-invalid={errors.name ? "true" : undefined} />
       </FormField>
       <FormField id="owner-username" label="Username" error={errors.username} required>
         <Input
           id="owner-username"
           bind:value={username}
           autocomplete="username"
-          aria-invalid={errors.username ? "true" : undefined}
+          aria-describedby={errors.username ? "owner-username-error" : undefined} aria-invalid={errors.username ? "true" : undefined}
         />
       </FormField>
       <FormField id="owner-email" label="Email" error={errors.email} required>
@@ -114,7 +120,7 @@
           type="email"
           bind:value={email}
           autocomplete="email"
-          aria-invalid={errors.email ? "true" : undefined}
+          aria-describedby={errors.email ? "owner-email-error" : undefined} aria-invalid={errors.email ? "true" : undefined}
         />
       </FormField>
       <div class="hidden sm:block"></div>
@@ -140,7 +146,7 @@
           type="password"
           bind:value={confirm}
           autocomplete="new-password"
-          aria-invalid={errors.confirm ? "true" : undefined}
+          aria-describedby={errors.confirm ? "owner-confirm-error" : undefined} aria-invalid={errors.confirm ? "true" : undefined}
           onkeydown={(event: KeyboardEvent) => {
             if (event.key === "Enter") void onSubmitRequested();
           }}

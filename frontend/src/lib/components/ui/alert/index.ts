@@ -1,3 +1,4 @@
+import { typographyMergeConfig } from "$lib/utils/cn";
 import Root from "./alert.svelte";
 import Title from "./alert-title.svelte";
 import Description from "./alert-description.svelte";
@@ -15,7 +16,7 @@ export const alertVariants = tv({
     },
   },
   defaultVariants: { variant: "default" },
-});
+}, { twMergeConfig: typographyMergeConfig });
 
 export type AlertVariant = VariantProps<typeof alertVariants>["variant"];
 export {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   /**
    * The audit trail for one transfer.
    *
@@ -10,7 +11,7 @@
   import * as Sheet from "$lib/components/ui/sheet";
   import { Badge } from "$lib/components/ui/badge";
   import { Skeleton } from "$lib/components/ui/skeleton";
-  import { relativeTime, formatBytes } from "$lib/utils/format";
+  import { formatBytes } from "$lib/utils/format";
   import {
     transferActionLabel,
     transferEventsQuery,
@@ -32,7 +33,7 @@
         <Sheet.Description>
           {formatBytes(row.size_bytes)}
           {#if row.mime_type}· {row.mime_type}{/if}
-          · expires {relativeTime(row.expires_at)}
+          · expires <Timestamp value={row.expires_at} />
         </Sheet.Description>
       </Sheet.Header>
 
@@ -92,7 +93,7 @@
                       <span class="text-muted-foreground">— {event.detail}</span>
                     {/if}
                   </span>
-                  <span class="shrink-0 text-muted-foreground">{relativeTime(event.created_at)}</span>
+                  <span class="shrink-0 text-muted-foreground"><Timestamp value={event.created_at} /></span>
                 </li>
               {/each}
             </ol>

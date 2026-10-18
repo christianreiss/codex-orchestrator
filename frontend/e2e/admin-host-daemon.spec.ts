@@ -137,7 +137,7 @@ test('closed-window daemon remains online and can be opened from host details', 
   await page.getByRole('link', {name:'Open remote sessions'}).click();
   await page.getByRole('button', {name:'Start remote session',exact:true}).click();
   await expect(page.getByLabel('Host',{exact:true})).toHaveValue('1');
-  await page.getByText('Advanced options',{exact:true}).click();
+  await page.locator('summary').filter({hasText: /^Working directory$/}).click();
   await expect(page.getByLabel('Working directory',{exact:true})).toHaveAttribute('placeholder','Service account home directory');
   await page.getByLabel('Title',{exact:true}).fill('Home default');
   await page.getByLabel('Instruction',{exact:true}).fill('Use the service home');

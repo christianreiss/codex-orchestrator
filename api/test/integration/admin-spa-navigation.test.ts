@@ -128,6 +128,19 @@ describe('admin SPA navigation collisions', () => {
     expect(res.payload).toContain('Codex Admin');
   });
 
+  it('serves HEAD navigation without leaking the policy JSON', async () => {
+    const res = await app.inject({ method: 'HEAD', url: '/admin/agents', headers: { accept: HTML_NAVIGATION } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.payload).toBe('');
+  });
+
+  it('keeps JSON authentication when JSON precedes HTML in Accept', async () => {
+    const res = await app.inject({ method: 'GET', url: '/admin/agents', headers: { accept: 'application/json, text/html' } });
+    expect(res.statusCode).toBe(401);
+    expect(res.headers['content-type']).toContain('application/json');
+  });
+
   it.each(['GET', 'HEAD'] as const)('serves the graph deep link on %s navigation', async method => {
     const res = await app.inject({ method, url: '/admin/agents?view=graph', headers: { accept: HTML_NAVIGATION } });
     expect(res.statusCode).toBe(200);

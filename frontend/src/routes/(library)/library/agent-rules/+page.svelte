@@ -1,4 +1,6 @@
 <script lang="ts">
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
+  import SaveState from "$lib/components/page/SaveState.svelte";
   import Eye from "@lucide/svelte/icons/eye";
   import History from "@lucide/svelte/icons/history";
   import Save from "@lucide/svelte/icons/save";
@@ -30,6 +32,7 @@
   const data = $derived(doc.data);
 </script>
 
+<DraftGuard dirty={doc.dirty} />
 <PageShell
   title="Agent rules"
   description="The instructions every agent in the fleet starts from (fleet instructions, served as AGENTS.md or CLAUDE.md). Per-host guidance is added when it is served."
@@ -70,6 +73,7 @@
     {/if}
   {/snippet}
 
+  <SaveState dirty={doc.dirty} pending={doc.saving} error={doc.saveError} saved={doc.saved} />
   {#if doc.query.isError}
     <StateBlock
       state="error"

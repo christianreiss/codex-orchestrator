@@ -195,6 +195,25 @@ test("shared rooms sit beside direct chats; switching preserves drafts and targe
   await page.getByRole("button", { name: "Open conference" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
 });
+test("room drafts survive chat switches and protect leaving the workspace", async ({ page }) => {
+  await fixture(page);
+  await page.goto(`/admin/agents?room=${GROUP}`);
+  await page.getByLabel("Message this conversation").fill("Keep this draft");
+  const dialogs: string[] = [];
+  page.on("dialog", async (dialog) => {
+    dialogs.push(dialog.message());
+    await dialog.dismiss();
+  });
+  await page.locator(`#room-${CONF}`).click();
+  await expect(page.getByRole("heading", { name: "Architecture review" })).toBeVisible();
+  await page.locator(`#room-${GROUP}`).click();
+  await expect(page.getByLabel("Message this conversation")).toHaveValue("Keep this draft");
+  expect(dialogs).toEqual([]);
+  await page.locator('a[href="/admin/dashboard"]').first().click();
+  await expect.poll(() => dialogs.length).toBe(1);
+  await expect(page.getByLabel("Message this conversation")).toHaveValue("Keep this draft");
+  await expect(page).toHaveURL(new RegExp(`room=${GROUP}`));
+});
 test("operator conference closes gracefully", async ({ page }) => {
   await fixture(page);
   await page.goto(`/admin/agents?room=${CONF}`);

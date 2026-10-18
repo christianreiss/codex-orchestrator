@@ -9,6 +9,7 @@
   import RoomConversation from './RoomConversation.svelte';
   import NewRoom from './NewRoom.svelte';
   import { roomOptions, emptyRoomDraft, matchingRooms, roomKindLabel, type RoomDraft, type ChatRoom } from '$lib/api/roomChats';
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import { engineLabel } from "$lib/constants/engines";
   import { tick, untrack, type Snippet } from "svelte";
   import { base } from "$app/paths";
@@ -283,6 +284,7 @@
     return row.preview?.summary || row.task_title || row.work.task?.split("\n")[0] || "No summary reported";
   }
 </script>
+<DraftGuard preserveOnSamePath dirty={Object.values(drafts).some((draft) => draft.trim().length > 0) || Object.values(uploads).some((items) => items.length > 0) || Object.values(roomDrafts).some((draft) => draft.text.trim().length > 0 || draft.uploads.length > 0)} />
 
 {#if canRemoteManage}
   <RemoteSessions active={workspace === "remote"} hosts={$daemonHosts.data?.hosts ?? []} loading={$daemonHosts.isPending} error={$daemonHosts.error} stale={!$daemonHosts.dataUpdatedAt || now - $daemonHosts.dataUpdatedAt > 45_000} agents={allRows} bind:selectedId={remoteId} bind:startOpen={startRemote} {refresh}

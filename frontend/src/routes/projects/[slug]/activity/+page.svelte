@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Snapshot } from "./$types";
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { page } from "$app/state";
   import { createQuery } from "@tanstack/svelte-query";
   import History from "@lucide/svelte/icons/history";
@@ -11,7 +13,6 @@
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte.js";
   import { ApiError } from "$lib/api/client";
   import { fetchChanges, projectKeys } from "$lib/api/projects";
-  import { relativeTime } from "$lib/utils/format";
   import type { ProjectChange } from "$lib/api/types";
 
   const PAGE_SIZE = 25;
@@ -31,6 +32,10 @@
 
   const actionLabel = (change: ProjectChange): string =>
     change.eventType && change.action ? `${change.eventType}.${change.action}` : (change.action ?? "event");
+  export const snapshot: Snapshot<{ pageNo: typeof pageNo }> = {
+    capture: () => ({ pageNo }),
+    restore: (value) => { pageNo = value.pageNo; },
+  };
 </script>
 
 <EventFeed page={Math.min(pageNo, pageCount)} {pageCount} onPage={(next) => (pageNo = next)}>
@@ -61,7 +66,7 @@
         {#snippet cells()}
           <Table.Cell><Badge variant="outline" class="font-mono">#{change.seq}</Badge></Table.Cell>
           <Table.Cell><code class="font-mono text-body-sm">{actionLabel(change)}</code></Table.Cell>
-          <Table.Cell class="whitespace-nowrap text-right text-body-sm text-muted-foreground">{relativeTime(change.createdAt)}</Table.Cell>
+          <Table.Cell class="whitespace-nowrap text-right text-body-sm text-muted-foreground"><Timestamp value={change.createdAt} /></Table.Cell>
         {/snippet}
         {#snippet detail()}
           <div class="space-y-2">

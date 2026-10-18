@@ -1,1 +1,0 @@
-import{Lt as e,ht as t}from"./DNm2sqcE.js";import"./DmkTDU88.js";function n(n){let r=e(n());return t(()=>{r.set(n())}),{subscribe:r.subscribe}}export{n as t};

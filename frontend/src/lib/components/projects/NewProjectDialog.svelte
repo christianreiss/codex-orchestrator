@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import { z } from "zod";
   import { toast } from "svelte-sonner";
   import { goto } from "$app/navigation";
@@ -30,10 +31,12 @@
   let name = $state("");
   let description = $state("");
   let roster = $state("");
+  const dirty = $derived(Boolean(slug || title || name || description || roster));
   let slugError = $state<string | null>(null);
+  let slugTouched = $state(false);
 
   $effect(() => {
-    if (slug === "") {
+    if (!slugTouched) {
       slugError = null;
       return;
     }
@@ -48,9 +51,11 @@
     description = "";
     roster = "";
     slugError = null;
+    slugTouched = false;
   }
 
   function setOpen(next: boolean): void {
+    if (!next && ($mutation.isPending || dirty && !window.confirm("Discard the new project draft?"))) { open = true; return; }
     open = next;
     onOpenChange?.(next);
   }
@@ -72,8 +77,9 @@
       const createdSlug = data.project?.slug ?? slug;
       toast.success(`Project ${createdSlug} created`);
       void qc.invalidateQueries({ queryKey: projectKeys.list });
-      setOpen(false);
       reset();
+      open = false;
+      onOpenChange?.(false);
       void goto(`${base}/projects/${encodeURIComponent(createdSlug)}`);
     },
     onError: (err) => {
@@ -84,11 +90,10 @@
 
   function submit(event: Event) {
     event.preventDefault();
-    if (!slug) {
-      slugError = "Slug is required";
-      return;
-    }
-    if (slugError) return;
+    slugTouched = true;
+    const parsed = slugSchema.safeParse(slug);
+    slugError = parsed.success ? null : parsed.error.issues[0]?.message ?? "Invalid slug";
+    if (!parsed.success) return;
     $mutation.mutate();
   }
 
@@ -97,7 +102,8 @@
   });
 </script>
 
-<Dialog.Root bind:open onOpenChange={setOpen}>
+<DraftGuard dirty={open && dirty} />
+<Dialog.Root bind:open={() => open, setOpen}>
   <Dialog.Content class="sm:max-w-lg">
     <form onsubmit={submit} class="flex flex-col gap-4">
       <Dialog.Header>
@@ -109,16 +115,17 @@
         <div class="grid gap-1.5">
           <Label for="np-slug">Slug <span class="text-destructive">*</span></Label>
           <Input
-            id="np-slug"
+            id="np-slug" aria-invalid={!!slugError} aria-describedby={slugError ? "np-slug-error" : "np-slug-hint"}
             bind:value={slug}
+            onblur={() => { slugTouched = true; }}
             placeholder="my-workspace"
             autocomplete="off"
             spellcheck={false}
           />
           {#if slugError}
-            <p class="text-caption text-destructive">{slugError}</p>
+            <p id="np-slug-error" role="alert" class="text-caption text-destructive">{slugError}</p>
           {:else}
-            <p class="text-caption text-muted-foreground">Lowercase letters, digits, hyphens.</p>
+            <p id="np-slug-hint" class="text-caption text-muted-foreground">Lowercase letters, digits, hyphens.</p>
           {/if}
         </div>
 

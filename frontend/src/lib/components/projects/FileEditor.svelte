@@ -6,6 +6,8 @@
   import { onMount } from "svelte";
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
+  import SaveState from "$lib/components/page/SaveState.svelte";
   import Save from "@lucide/svelte/icons/save";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -15,8 +17,8 @@
   import { fetchFile, projectKeys, upsertFile } from "$lib/api/projects";
   import type { ProjectFile } from "$lib/api/types";
 
-  type Props = { slug: string; file: ProjectFile | null; onDone: () => void };
-  let { slug, file, onDone }: Props = $props();
+  type Props = { slug: string; file: ProjectFile | null; onDone: () => void; dirty?: boolean };
+  let { slug, file, onDone, dirty = $bindable(false) }: Props = $props();
 
   const qc = useQueryClient();
   // svelte-ignore state_referenced_locally
@@ -30,20 +32,28 @@
   let loadingBody = $state(file !== null);
   const isEditing = $derived(file !== null);
 
+  let loadError = $state<string | null>(null);
   onMount(() => {
     if (!file) return;
     const id = file.id;
     let live = true;
     fetchFile(slug, id)
-      .then(({ file: full }) => { if (live) content = full.content ?? ""; })
-      .catch((err) => { toast.error(err instanceof ApiError ? err.message : "Could not load file contents"); onDone(); })
+      .then(({ file: full }) => { if (live) { content = full.content ?? ""; baseline = JSON.stringify([file?.stored_name ?? "", file?.mime_type ?? "", file?.description ?? "", content]); } })
+      .catch((err) => { if (live) loadError = err instanceof ApiError ? err.message : "Could not load file contents"; })
       .finally(() => { if (live) loadingBody = false; });
     return () => { live = false; };
   });
 
+  // The parent mounts one editor for each selected document.
+  // svelte-ignore state_referenced_locally
+  let baseline = $state(JSON.stringify([storedName, mimeType, description, content]));
+  $effect(() => { dirty = JSON.stringify([storedName, mimeType, description, content]) !== baseline; });
+  function cancel() { if (!dirty || window.confirm("Discard unsaved changes?")) onDone(); }
+
   const mutation = createMutation({
     mutationFn: () => upsertFile(slug, { stored_name: storedName.trim(), mime_type: mimeType.trim() || null, description: description.trim() || null, content }),
     onSuccess: () => {
+      baseline = JSON.stringify([storedName, mimeType, description, content]); dirty = false;
       toast.success("File saved");
       void qc.invalidateQueries({ queryKey: projectKeys.files(slug) });
       void qc.invalidateQueries({ queryKey: projectKeys.detail(slug) });
@@ -51,10 +61,14 @@
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not save file"),
   });
-  const canSubmit = $derived(storedName.trim().length > 0 && content.length > 0);
+  const canSubmit = $derived(!loadError && storedName.trim().length > 0 && content.length > 0);
 </script>
 
+<DraftGuard {dirty} />
 <form class="flex flex-col gap-3" onsubmit={(e) => { e.preventDefault(); $mutation.mutate(); }}>
+  {#if loadError}<p role="alert" class="text-destructive">{loadError}. Close and reopen this file to retry; saving is disabled to protect its contents.</p>{/if}
+  <SaveState pending={$mutation.isPending} error={$mutation.error} {dirty} />
+  <fieldset disabled={$mutation.isPending} class="contents">
   <div class="grid gap-3 sm:grid-cols-2">
     <div class="grid gap-1.5">
       <Label for="file-name">Stored name</Label>
@@ -68,7 +82,8 @@
     <Textarea id="file-content" bind:value={content} rows={14} class="font-mono" disabled={loadingBody} placeholder={loadingBody ? "Loading contents…" : "File contents…"} />
   </div>
   <div class="flex justify-end gap-2 pt-2">
-    <Button variant="ghost" type="button" onclick={onDone}>Cancel</Button>
+    <Button variant="ghost" type="button" onclick={cancel}>Cancel</Button>
     <Button type="submit" disabled={!canSubmit || loadingBody || $mutation.isPending}><Save class="h-4 w-4" />{$mutation.isPending ? "Saving…" : "Save"}</Button>
   </div>
+  </fieldset>
 </form>

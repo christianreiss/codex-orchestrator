@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   /** The default Messages view: who is talking to whom, newest first. */
   import { createQuery } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
@@ -10,7 +11,6 @@
   import { DataTable, ListDetail } from "$lib/components/page";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { authStore } from "$lib/stores/auth";
-  import { relativeTime } from "$lib/utils/format";
   import { agentConversationCancelMutation, agentMessagingConversationsQuery } from "$lib/api/agentMessaging";
   import type { AgentConversation } from "$lib/api/agentMessaging";
   import { routeLabel } from "./messaging-labels";
@@ -77,10 +77,10 @@
       {/snippet}
       {#snippet row(item)}
         <Table.Row class="cursor-pointer" onclick={() => inspect(item)}>
-          <Table.Cell class="max-w-[22rem] truncate font-medium">{title(item)}</Table.Cell>
+          <Table.Cell class="max-w-[22rem] font-medium"><button type="button" class="max-w-full truncate text-left underline-offset-4 hover:underline" onclick={(event) => { event.stopPropagation(); inspect(item); }}>{title(item)}</button></Table.Cell>
           <Table.Cell><Badge variant={item.status === "open" ? "success" : "secondary"} class="uppercase">{item.status}</Badge></Table.Cell>
           <Table.Cell class="text-right tabular-nums">{item.next_sequence - 1}</Table.Cell>
-          <Table.Cell class="text-muted-foreground">{relativeTime(item.last_activity_at)}</Table.Cell>
+          <Table.Cell class="text-muted-foreground"><Timestamp value={item.last_activity_at} /></Table.Cell>
           <Table.Cell onclick={(event: MouseEvent) => event.stopPropagation()}>
             <Button size="sm" variant="outline" onclick={() => filters.openDeliveries(item.id)}>Deliveries</Button>
           </Table.Cell>
@@ -93,10 +93,10 @@
       <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-body-sm">
         <dt class="text-muted-foreground">Status</dt><dd>{selected.status}</dd>
         <dt class="text-muted-foreground">Messages</dt><dd>{selected.next_sequence - 1}</dd>
-        <dt class="text-muted-foreground">Started</dt><dd>{relativeTime(selected.created_at)}</dd>
-        <dt class="text-muted-foreground">Last activity</dt><dd>{relativeTime(selected.last_activity_at)}</dd>
+        <dt class="text-muted-foreground">Started</dt><dd><Timestamp value={selected.created_at} /></dd>
+        <dt class="text-muted-foreground">Last activity</dt><dd><Timestamp value={selected.last_activity_at} /></dd>
         {#if selected.canceled_at}
-          <dt class="text-muted-foreground">Canceled</dt><dd>{relativeTime(selected.canceled_at)}{selected.canceled_by ? ` by ${selected.canceled_by}` : ""}{selected.cancel_reason ? ` · ${selected.cancel_reason}` : ""}</dd>
+          <dt class="text-muted-foreground">Canceled</dt><dd><Timestamp value={selected.canceled_at} />{selected.canceled_by ? ` by ${selected.canceled_by}` : ""}{selected.cancel_reason ? ` · ${selected.cancel_reason}` : ""}</dd>
         {/if}
         <dt class="text-muted-foreground">ID</dt><dd class="break-all font-mono text-caption">{selected.id}</dd>
       </dl>

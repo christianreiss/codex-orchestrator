@@ -106,7 +106,8 @@
     error={$query.isError ? ($query.error instanceof Error ? $query.error.message : `Failed to load ${plural}`) : null}
     onRetry={() => void $query.refetch()}
     key={(row) => row.slug}
-    filtered={search.trim() !== "" && items.length > 0}
+    filtered={search.trim() !== ""}
+    onClearFilters={() => search = ""}
     emptyTitle={`No ${plural} yet`}
     emptyDescription={config.emptyDescription}
     caption={`${plural} list`}

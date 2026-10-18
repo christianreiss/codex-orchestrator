@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   /**
    * The delivery log: raw per-message plumbing (status, attempts, errors) with
    * audited content reveal, redrive and one-time fresh-start approval. A
@@ -15,7 +16,7 @@
   import { StateBlock } from "$lib/components/page";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { authStore } from "$lib/stores/auth";
-  import { formatBytes, relativeTime } from "$lib/utils/format";
+  import { formatBytes } from "$lib/utils/format";
   import {
     agentMessageRedriveMutation,
     agentMessagingKeys,
@@ -146,8 +147,8 @@
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="truncate text-body font-medium">{routeLabel(message.sender)} → {routeLabel(message.target)}</p>
-              <p class="text-caption text-muted-foreground">#{message.sequence} · {message.kind} · {message.delivery_class ?? "information"} · {formatBytes(message.content_bytes)} · attempt {message.attempts} · {relativeTime(message.created_at)}</p>
-              {#if (message.event_count ?? 1) > 1}<p class="text-caption text-muted-foreground">{message.event_count} grouped events · first {relativeTime(message.event_first_at ?? message.created_at)} · last {relativeTime(message.event_last_at ?? message.created_at)}</p>{/if}
+              <p class="text-caption text-muted-foreground">#{message.sequence} · {message.kind} · {message.delivery_class ?? "information"} · {formatBytes(message.content_bytes)} · attempt {message.attempts} · <Timestamp value={message.created_at} /></p>
+              {#if (message.event_count ?? 1) > 1}<p class="text-caption text-muted-foreground">{message.event_count} grouped events · first <Timestamp value={message.event_first_at ?? message.created_at} /> · last <Timestamp value={message.event_last_at ?? message.created_at} /></p>{/if}
               {#if message.kind === "digest"}<a data-sveltekit-reload class="text-caption underline" href={retained(message.id)}>View retained originals</a>{/if}
               {#if message.digest_id}<p class="text-caption text-muted-foreground">Retained original · <a data-sveltekit-reload class="underline" href={retained(message.digest_id)}>digest and originals</a> · presentation is not a read receipt</p>{/if}
               {#if message.superseded_by_id}<p class="text-caption text-muted-foreground">Superseded by <a data-sveltekit-reload class="underline" href={retained(message.superseded_by_id)}>{message.superseded_by_id}</a> · original retained</p>{/if}

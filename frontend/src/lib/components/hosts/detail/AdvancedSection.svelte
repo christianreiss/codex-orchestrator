@@ -36,9 +36,9 @@
 </script>
 
 <details bind:open class="group border-t pt-3" data-testid="host-advanced">
-  <summary class="flex cursor-pointer list-none items-center gap-2 text-h3 [&::-webkit-details-marker]:hidden">
+  <summary class="flex cursor-pointer list-none flex-wrap items-center gap-2 text-h3 [&::-webkit-details-marker]:hidden">
     <ChevronRight class="h-4 w-4 transition-transform group-open:rotate-90" aria-hidden="true" />
-    Advanced
+    Network, overrides and remote sessions
     <span class="text-body-sm font-normal text-muted-foreground">
       Network, per-host exceptions{exceptions ? ` (${exceptions} set)` : ""}, integrations, remote sessions
     </span>

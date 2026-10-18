@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { toast } from "svelte-sonner";
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { format } from "date-fns";
@@ -15,7 +16,6 @@
   import type { Passkey } from "$lib/api/types";
   import { registerPasskey } from "$lib/components/account/webauthn";
   import PasskeyNameDialog from "$lib/components/account/PasskeyNameDialog.svelte";
-  import { relativeTime } from "$lib/utils/format";
   import Fingerprint from "@lucide/svelte/icons/fingerprint";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -195,7 +195,7 @@
         <Table.Cell>
           {#if p.created_at}
             <Tooltip.Provider><Tooltip.Root>
-              <Tooltip.Trigger class="text-body-sm text-muted-foreground">{relativeTime(p.created_at)}</Tooltip.Trigger>
+              <Tooltip.Trigger class="text-body-sm text-muted-foreground"><Timestamp value={p.created_at} /></Tooltip.Trigger>
               <Tooltip.Content>{absoluteDate(p.created_at)}</Tooltip.Content>
             </Tooltip.Root></Tooltip.Provider>
           {:else}<span class="text-body-sm text-muted-foreground">—</span>{/if}
@@ -203,7 +203,7 @@
         <Table.Cell>
           {#if p.last_used_at}
             <Tooltip.Provider><Tooltip.Root>
-              <Tooltip.Trigger class="text-body-sm text-muted-foreground">{relativeTime(p.last_used_at)}</Tooltip.Trigger>
+              <Tooltip.Trigger class="text-body-sm text-muted-foreground"><Timestamp value={p.last_used_at} /></Tooltip.Trigger>
               <Tooltip.Content>{absoluteDate(p.last_used_at)}</Tooltip.Content>
             </Tooltip.Root></Tooltip.Provider>
           {:else}<span class="text-body-sm text-muted-foreground">Never</span>{/if}

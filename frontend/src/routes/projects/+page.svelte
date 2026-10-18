@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snapshot } from "./$types";
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
@@ -92,6 +93,10 @@
       clearDialogParam();
     }
   });
+  export const snapshot: Snapshot<{ search: typeof search, sort: typeof sort, showArchived: boolean }> = {
+    capture: () => ({ search, sort, showArchived }),
+    restore: (value) => { search = value.search; sort = value.sort; showArchived = value.showArchived; },
+  };
 </script>
 
 <PageShell
@@ -130,7 +135,8 @@
       error={$listQuery.isError ? ($listQuery.error instanceof ApiError ? $listQuery.error.message : "Could not load projects") : null}
       onRetry={() => void $listQuery.refetch()}
       key={(project) => project.slug}
-      filtered={projects.length > 0}
+      filtered={search.trim() !== "" || !showArchived && archivedCount > 0}
+      onClearFilters={() => { search = ""; showArchived = true; }}
       emptyIcon={FolderKanban}
       emptyTitle="No projects yet"
       emptyDescription="Projects are shared workspaces agents coordinate through."
@@ -154,7 +160,7 @@
             {#if project.archived_at}<Badge variant="outline" class="ml-2">Archived</Badge>{/if}
           </Table.Cell>
           <Table.Cell class="hidden max-w-md truncate text-muted-foreground md:table-cell">{project.description || "—"}</Table.Cell>
-          <Table.Cell class="text-right tabular-nums {(project.counts?.open_todos ?? 0) > 0 ? 'font-medium' : 'text-muted-foreground'}">{project.counts?.open_todos ?? 0}</Table.Cell>
+          <Table.Cell class="text-right tabular-nums {(project.counts?.open_todos ?? 0) > 0 ? 'font-medium' : 'text-muted-foreground'}">{project.counts?.open_todos ?? "Unknown"}</Table.Cell>
           <Table.Cell class="hidden text-muted-foreground sm:table-cell">{project.updated_at ? relativeTime(project.updated_at) : "—"}</Table.Cell>
           <Table.Cell class="text-right">
             <RowActions

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   /**
    * Fleet-wide engine master switches: one compact row, each switch confirmed in
    * both directions. Turning an engine off suspends it on every host and stops
@@ -21,7 +22,6 @@
   import { hostEngines, hostsListQuery } from "$lib/api/hosts";
   import { ENGINES, ENGINE_META, type Engine } from "$lib/constants/engines";
   import { fleetEngineView } from "$lib/engines/fleet-state";
-  import { relativeTime } from "$lib/utils/format";
   import type { EngineStateRow, EngineStateValue } from "$lib/api/types";
   import { Switch } from "$lib/components/ui/switch";
   import { Label } from "$lib/components/ui/label";
@@ -111,7 +111,7 @@
     const hostsText = `${row.assigned_hosts} ${row.assigned_hosts === 1 ? "host" : "hosts"} assigned`;
     const parts = [row.enabled ? `On · ${hostsText}` : `Off fleet-wide · ${hostsText}, suspended`];
     if (row.updated_at) {
-      parts.push(`changed ${relativeTime(row.updated_at)}${row.updated_by ? ` by ${row.updated_by}` : ""}`);
+      parts.push(`changed $<Timestamp value={row.updated_at} />${row.updated_by ? ` by ${row.updated_by}` : ""}`);
     }
     return parts.join(" · ");
   }

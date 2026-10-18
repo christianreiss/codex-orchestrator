@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Snapshot } from "./$types";
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import Plus from "@lucide/svelte/icons/plus";
@@ -13,7 +15,6 @@
   import ReportDetail from "$lib/components/feedback/ReportDetail.svelte";
   import ReportInbox from "$lib/components/feedback/ReportInbox.svelte";
   import { actorLabel, humanize, type ReportRow } from "$lib/components/feedback/report-model";
-  import { relativeTime } from "$lib/utils/format";
   import {
     feedbackApi, feedbackKeys, feedbackPriorities, feedbackStatuses, feedbackTypes,
     type FeedbackFilters, type FeedbackItem,
@@ -63,12 +64,16 @@
         { label: r.type },
         { label: humanize(r.status), variant: r.status === "resolved" ? "success" : "secondary" },
       ],
-      meta: `${r.component} · ${relativeTime(r.updated_at)}`,
+      meta: `${r.component} · $<Timestamp value={r.updated_at} />`,
       note: r.claim_owner ? actorLabel(r.claim_owner) : undefined,
     })),
   );
 
   function select(id: string) { selected = id; detailOpen = true; }
+  export const snapshot: Snapshot<{ search: typeof search, status: typeof status, type: typeof type, priority: typeof priority, component: typeof component, offset: typeof offset, selected: typeof selected }> = {
+    capture: () => ({ search, status, type, priority, component, offset, selected }),
+    restore: (value) => { search = value.search; status = value.status; type = value.type; priority = value.priority; component = value.component; offset = value.offset; selected = value.selected; },
+  };
 </script>
 
 <PageShell
@@ -107,6 +112,7 @@
         selectedId={selected}
         onSelect={select}
         {filtered}
+        onClearFilters={() => { search = ""; status = ""; type = ""; priority = ""; component = ""; offset = 0; }}
         emptyTitle="No reports yet"
         emptyDescription={enabled ? "Agents and administrators can file reports here." : "Agent reporting is off. Existing reports stay available."}
       >

@@ -13,6 +13,7 @@
   let { slug, summary }: Props = $props();
 
   let loading = $state(true);
+  let retry = $state(0);
   let error = $state<string | null>(null);
   let html = $state("");
   let toc = $state<TocEntry[]>([]);
@@ -24,6 +25,7 @@
   // Re-fetch and re-render whenever slug changes.
   $effect(() => {
     const currentSlug = slug;
+    void retry;
     loading = true;
     error = null;
     html = "";
@@ -105,11 +107,11 @@
 </script>
 
 <div class="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_14rem]">
-  <article class="min-w-0">
+  <article class="min-w-0 max-w-[65ch] [overflow-wrap:anywhere]">
     {#if loading}
       <StateBlock state="loading" rows={5} />
     {:else if error}
-      <StateBlock state="error" message={`Could not load article: ${error}`} />
+      <StateBlock state="error" message={`Could not load article: ${error}`} onRetry={() => retry++} />
     {:else}
       <div class="mb-4 flex flex-wrap items-center gap-2 text-body-sm text-muted-foreground">
         {#if summary?.section}

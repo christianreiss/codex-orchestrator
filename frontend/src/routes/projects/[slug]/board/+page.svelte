@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { page } from "$app/state";
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
@@ -12,7 +13,6 @@
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte.js";
   import { ApiError } from "$lib/api/client";
   import { createCard, deleteCard, fetchBoard, moveCard, projectKeys, releaseCard } from "$lib/api/projects";
-  import { relativeTime } from "$lib/utils/format";
   import type { BoardCard } from "$lib/api/types";
 
   const qc = useQueryClient();
@@ -63,12 +63,13 @@
 
 <div class="flex flex-col gap-4">
   {#if $boardQuery.isPending}
-    <div class="flex gap-4">{#each [0, 1, 2, 3] as index (index)}<Skeleton class="h-64 w-72 shrink-0" />{/each}</div>
+    <div class="flex gap-4 overflow-hidden" aria-label="Loading board">{#each [0, 1, 2, 3] as index (index)}<Skeleton class="h-64 w-72 shrink-0" />{/each}</div>
   {:else if $boardQuery.isError}
     <StateBlock state="error" message={$boardQuery.error instanceof ApiError ? $boardQuery.error.message : "Could not load the board"} onRetry={() => void $boardQuery.refetch()} />
   {:else}
     <!-- The lanes scroll inside this container; the page itself never scrolls sideways, however many columns are added. -->
-    <div class="flex gap-4 overflow-x-auto pb-2">
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div class="flex min-w-0 max-w-full gap-4 overflow-x-auto pb-2" role="region" aria-label="Project board columns" tabindex="0">
       {#each columns as column (column.id)}
         <BoardColumnPane
           {column}
@@ -82,7 +83,8 @@
     </div>
 
     <form class="flex flex-wrap items-center gap-2" onsubmit={(event) => { event.preventDefault(); if (formTitle.trim()) $createMut.mutate(); }}>
-      <Input bind:value={formTitle} placeholder="New card title" class="max-w-sm" aria-label="New card title" />
+      <label for="new-card-title" class="w-full text-body font-medium">New card title</label>
+      <Input id="new-card-title" bind:value={formTitle} placeholder="New card title" class="max-w-sm" aria-label="New card title" />
       <Button type="submit" disabled={!formTitle.trim() || $createMut.isPending}><Plus class="h-4 w-4" /> Add card</Button>
     </form>
 
@@ -93,7 +95,7 @@
             <li>
               <span class="font-mono">#{card.number}</span>
               {card.title} — {card.reason}
-              {#if card.released_at}<span class="text-muted-foreground"> ({relativeTime(card.released_at)})</span>{/if}
+              {#if card.released_at}<span class="text-muted-foreground"> (<Timestamp value={card.released_at} />)</span>{/if}
             </li>
           {/each}
         </ul>

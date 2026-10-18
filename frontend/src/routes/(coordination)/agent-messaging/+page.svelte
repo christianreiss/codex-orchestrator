@@ -61,7 +61,7 @@
 
   {#if settingsOpen}<ServiceNotes {enabled} />{/if}
 
-  <StatStrip items={stats} />
+  {#if snapshot}<StatStrip items={stats} />{:else}<p role="status" class="text-body-sm text-muted-foreground">Message counts unavailable until the service status loads.</p>{/if}
 
   <MessagingToolbar model={filters} />
 

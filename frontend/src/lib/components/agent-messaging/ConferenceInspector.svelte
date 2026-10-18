@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { createInfiniteQuery, createQuery } from '@tanstack/svelte-query';
   import { onDestroy, tick, untrack } from 'svelte';
   import { conferenceOptions, conferenceMessagesOptions, revealConference } from '$lib/api/agentConferences';
@@ -83,7 +84,7 @@
       <p class="whitespace-pre-wrap break-words">{room.purpose || 'No purpose recorded.'}</p>
       <p><span class="font-medium capitalize">{room.status}</span> · Deadline <time datetime={room.deadline_at}>{new Date(room.deadline_at).toLocaleString()}</time></p>
       {#if room.adjourn_reason}<p>Closure: {room.adjourn_reason}</p>{/if}
-      {#if room.adjourned_at}<p class="text-muted-foreground">Adjourned {relativeTime(room.adjourned_at)}</p>{/if}
+      {#if room.adjourned_at}<p class="text-muted-foreground">Adjourned <Timestamp value={room.adjourned_at} /></p>{/if}
     </div>
     <div class="p-4">
       <h3 class="mb-3 font-semibold">Members ({$detail.data.members.length})</h3>
@@ -94,10 +95,10 @@
             <p class="mt-1 break-words text-caption text-muted-foreground">{member.peer?.fqdn ?? 'Unknown host'} · {member.peer?.engine ?? 'Unknown engine'} · {member.peer?.presence ?? 'Unknown presence'}</p>
             <p class="mt-2 capitalize">{member.state === 'invited' ? 'Invited — awaiting join' : member.state} · {member.mode}</p>
             {#if member.purpose}<p class="mt-1 whitespace-pre-wrap break-words text-caption">{member.purpose}</p>{/if}
-            {#if member.dispatch_deadline_at}<p class:text-destructive={new Date(member.dispatch_deadline_at).getTime() < Date.now()}>Task deadline {relativeTime(member.dispatch_deadline_at)}{new Date(member.dispatch_deadline_at).getTime() < Date.now() ? ' — overdue' : ''}</p>{/if}
+            {#if member.dispatch_deadline_at}<p class:text-destructive={new Date(member.dispatch_deadline_at).getTime() < Date.now()}>Task deadline <Timestamp value={member.dispatch_deadline_at} />{new Date(member.dispatch_deadline_at).getTime() < Date.now() ? ' — overdue' : ''}</p>{/if}
             {#if member.dispatch_status}<p class:text-destructive={failed(member.dispatch_status)}>Dispatch delivery: {member.dispatch_status}{member.dispatch_error ? ` (${member.dispatch_error})` : ''}</p>{/if}
             <p class="mt-1 text-caption text-muted-foreground">Last report: {member.last_report_at ? relativeTime(member.last_report_at) : 'None recorded'} · Messages: {member.messages_used ?? 0}/{member.messages_budget ?? '—'}</p>
-            {#if member.left_at}<p class="text-caption text-muted-foreground">Left {relativeTime(member.left_at)}</p>{/if}
+            {#if member.left_at}<p class="text-caption text-muted-foreground">Left <Timestamp value={member.left_at} /></p>{/if}
             {#if member.conversation_id}<a class="mt-2 inline-block text-caption text-primary underline" href={`/admin/agent-messaging?view=deliveries&conversation_id=${member.conversation_id}`}>Inspect deliveries ({member.conversation_status})</a>{/if}
           </article>
         {/each}

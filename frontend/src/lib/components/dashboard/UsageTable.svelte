@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   /** Provider usage as one table: a row per account, its quota windows inline. */
   import { base } from "$app/paths";
   import * as Table from "$lib/components/ui/table";
@@ -6,7 +7,7 @@
   import { DataTable } from "$lib/components/page";
   import { ENGINE_META } from "$lib/constants/engines";
   import type { ProviderAccount } from "$lib/api/accounts";
-  import { relativeTime, resetsIn } from "$lib/utils/format";
+  import { resetsIn } from "$lib/utils/format";
   import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
   import { cn } from "$lib/utils/cn";
   import GrokUsage from "./GrokUsage.svelte";
@@ -98,7 +99,7 @@
       </Table.Cell>
       <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground">
         {#if account.usage.fetched_at}
-          <time datetime={account.usage.fetched_at} title={account.usage.fetched_at}>{relativeTime(account.usage.fetched_at)}</time>
+          <time datetime={account.usage.fetched_at} title={account.usage.fetched_at}><Timestamp value={account.usage.fetched_at} /></time>
         {:else}No reading yet{/if}
       </Table.Cell>
     </Table.Row>

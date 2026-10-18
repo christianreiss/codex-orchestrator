@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import { untrack } from "svelte";
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { api } from "$lib/api/client";
@@ -72,6 +73,7 @@
   }
 
 </script>
+<DraftGuard {dirty} />
 {#if hostId}
 <section id="host-session-housekeeping" class="space-y-3 rounded-md border bg-card p-4" aria-labelledby="host-housekeeping-heading">
   <h2 id="host-housekeeping-heading" class="text-body font-semibold">Session housekeeping</h2>

@@ -1,7 +1,10 @@
 # 2026-10-18
 
+- Combined the design-conformance update with shared chats: direct and shared drafts (including uploads) now warn before leaving Agents, while switching conversations retains them without a discard prompt.
+
 - **Shared conversations in Agents → Chats (cxx 0.9.104):** direct chats, project/host rooms, groups and conferences share one directory. Operators can create rooms, manage participants, share files and request a single answer from selected agents or the room. Shared replies stay passive, drafts survive switching, uncertain sends retry with the same ID, and conferences drain outstanding answers before closing. Existing private-content permissions and room retention apply. Adds the same room tools for Codex, Claude and Grok.
 
+- **Web design conformance:** direct Agents navigation now serves the console while JSON remains authenticated. Shared layouts wrap long headings, standalone screens scroll, compact controls support coarse pointers, and custom typography no longer drops semantic text colors. Editors retain drafts across rejected saves and warn before discard; failed actions have persistent inline feedback. Project sections, list history, exact accessible times and Markdown reading layouts are consistent. Added an exhaustive route/variant/handbook browser gate and documented remaining manual acceptance checks in `docs/web-design-verification.md`.
 - Restored the radial Agents graph with all server/communicator edges, zoom, selection and list behavior. Optional overlapping project/host clouds and room buttons augment the graph; missing scope assignments remain ordinary nodes.
 
 - Fixed Agents page deep links and refresh returning legacy agent-policy JSON instead of the admin application; JSON API authentication remains unchanged.

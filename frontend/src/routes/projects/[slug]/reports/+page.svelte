@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Snapshot } from "./$types";
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { page } from "$app/state";
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
@@ -78,6 +80,10 @@
       void qc.invalidateQueries({ queryKey: projectKeys.detail(slug) });
     },
   });
+  export const snapshot: Snapshot<{ search: typeof search, statusFilter: typeof statusFilter, typeFilter: typeof typeFilter, selected: typeof selected }> = {
+    capture: () => ({ search, statusFilter, typeFilter, selected }),
+    restore: (value) => { search = value.search; statusFilter = value.statusFilter; typeFilter = value.typeFilter; selected = value.selected; },
+  };
 </script>
 
 <div class="space-y-3">
@@ -100,7 +106,8 @@
         onRetry={() => void $feedbackQuery.refetch()}
         selectedId={selected}
         onSelect={(id) => { selected = id; detailOpen = true; }}
-        filtered={all.length > 0}
+        filtered={Boolean(search.trim() || statusFilter || typeFilter)}
+        onClearFilters={() => { search = ""; statusFilter = ""; typeFilter = ""; }}
         emptyTitle="No reports yet"
         emptyDescription="Feature requests, issues and test results for this project appear here."
       />
@@ -111,7 +118,7 @@
           <div class="flex flex-wrap items-center gap-2">
             <Badge variant={TYPE_BADGE[entry.type] ?? "default"}>{entry.type}</Badge>
             <Badge variant={STATUS_BADGE[statusOf(entry)]}>{statusOf(entry)}</Badge>
-            <span class="text-caption text-muted-foreground">{relativeTime(entry.created_at)}</span>
+            <span class="text-caption text-muted-foreground"><Timestamp value={entry.created_at} /></span>
           </div>
           <p class="whitespace-pre-wrap break-words text-body">{entry.body}</p>
           {#if entry.id > 0}

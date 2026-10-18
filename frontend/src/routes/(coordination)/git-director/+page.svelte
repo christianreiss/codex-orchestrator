@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Snapshot } from "./$types";
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
   import { useQueryClient } from "@tanstack/svelte-query";
@@ -14,7 +16,6 @@
   import { Button } from "$lib/components/ui/button";
   import * as Table from "$lib/components/ui/table";
   import { authStore } from "$lib/stores/auth";
-  import { relativeTime } from "$lib/utils/format";
   import {
     gitDirectorClonesQuery,
     gitDirectorDecideMutation,
@@ -66,6 +67,10 @@
   }
   const emptyTitle = $derived(view === "worktrees" ? "No active worktrees" : view === "merges" ? "No open merge requests" : "No history yet");
   const status = $derived($stateQuery.data);
+  export const snapshot: Snapshot<{ search: typeof search }> = {
+    capture: () => ({ search }),
+    restore: (value) => { search = value.search; },
+  };
 </script>
 
 <PageShell
@@ -116,6 +121,7 @@
         {emptyTitle}
         emptyIcon={GitMerge}
         filtered={search.trim() !== ""}
+      onClearFilters={() => { search = ""; }}
         caption="Git merges"
       >
         {#snippet head()}
@@ -153,10 +159,10 @@
               <span class="block truncate text-caption text-muted-foreground" title={item.clone.repo_root}>{item.clone.fqdn ?? `Host ${item.clone.host_id}`}</span>
             </Table.Cell>
             <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground">
-              {#if item.kind === "worktree"}{relativeTime(item.worktree.heartbeat_at)}
-              {:else if item.kind === "stale"}{relativeTime(item.stale.last_seen_at)}
-              {:else if item.kind === "lease"}{relativeTime(item.lease.requested_at)}
-              {:else}{relativeTime(item.request.requested_at)}{/if}
+              {#if item.kind === "worktree"}<Timestamp value={item.worktree.heartbeat_at} />
+              {:else if item.kind === "stale"}<Timestamp value={item.stale.last_seen_at} />
+              {:else if item.kind === "lease"}<Timestamp value={item.lease.requested_at} />
+              {:else}<Timestamp value={item.request.requested_at} />{/if}
             </Table.Cell>
           </Table.Row>
         {/snippet}

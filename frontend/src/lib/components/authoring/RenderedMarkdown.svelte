@@ -44,7 +44,8 @@
 
   const html = $derived.by(() => {
     const raw = marked.parse(body, { async: false, gfm: true, breaks: false }) as string;
-    return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+    const sanitized = DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+    return sanitized.replace(/<h1(\s[^>]*)?>/gi, '<h2 data-source-heading="1"$1>').replace(/<\/h1>/gi, "</h2>");
   });
 
   let container = $state<HTMLDivElement | null>(null);
@@ -70,7 +71,7 @@
     if (!el || entries === undefined || rendered === "") return;
 
     const blocks = [...el.children] as HTMLElement[];
-    const headings = blocks.filter((node) => node.tagName === "H2");
+    const headings = blocks.filter((node) => node.tagName === "H2" && node.dataset.sourceHeading !== "1");
     const owners = assignProvenance(
       entries,
       headings.map((node) => node.textContent ?? ""),
@@ -80,7 +81,7 @@
     let current: string | null = null;
     let seen = 0;
     for (const node of blocks) {
-      if (node.tagName === "H2") {
+      if (node.tagName === "H2" && node.dataset.sourceHeading !== "1") {
         current = owners[seen] ?? null;
         seen += 1;
       }

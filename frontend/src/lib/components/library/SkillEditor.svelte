@@ -42,6 +42,10 @@
   let description = $state("");
   let serverSha = $state<string | null>(null);
   let hydrated = $state(false);
+  let baseline = $state("");
+  let submitted = "";
+  const draft = $derived(JSON.stringify([manifest, displayName, description]));
+  const dirty = $derived(hydrated && draft !== baseline);
 
   $effect(() => {
     const data = $query.data;
@@ -50,6 +54,7 @@
     displayName = data.display_name ?? "";
     description = data.description ?? "";
     serverSha = data.sha256 ?? null;
+    baseline = JSON.stringify([manifest, displayName, description]);
     hydrated = true;
   });
 
@@ -59,8 +64,9 @@
   const isManaged = $derived($query.data?.managed === true || sourceType !== null);
 
   const save = createMutation({
-    mutationFn: () => skillsApi.store({ slug, manifest, display_name: displayName, description }),
+    mutationFn: () => { submitted = draft; return skillsApi.store({ slug, manifest, display_name: displayName, description }); },
     onSuccess: (result) => {
+      baseline = submitted;
       serverSha = result.sha256 ?? null;
       toast.success(result.status === "unchanged" ? "No changes to save" : `Skill ${result.status}`);
       void qc.invalidateQueries({ queryKey: ["skills"] });
@@ -75,6 +81,7 @@
     onSuccess: () => {
       toast.success(`Skill "${slug}" deleted`);
       void qc.invalidateQueries({ queryKey: ["skills"] });
+      baseline = draft;
       void goto(listHref);
     },
     onError: (err: unknown) => toast.error(err instanceof ApiError ? err.message : "Failed to delete"),
@@ -105,7 +112,7 @@
     <StateBlock state="error" message={$query.error instanceof Error ? $query.error.message : "Failed to load skill"} onRetry={() => void $query.refetch()} />
   </PageShell>
 {:else}
-  <DocumentEditor title={displayName || slug} description={`skill · ${slug}`}>
+  <DocumentEditor {dirty} pending={$save.isPending} error={$save.error ?? $remove.error} saved={$save.isSuccess} title={displayName || slug} description={`skill · ${slug}`}>
     {#snippet actions()}
       <Button variant="outline" href={listHref}><ArrowLeft class="h-4 w-4" />Back</Button>
       <Button variant="outline" onclick={() => (assistOpen = true)} disabled={isManaged}>
@@ -137,10 +144,10 @@
             {/if}
           </p>
         {/if}
-        <span class="text-body font-medium">Manifest (Markdown)</span>
+        <label for="skill-manifest" class="text-body font-medium">Manifest (Markdown)</label>
         <Textarea
-          aria-label="Skill manifest"
-          class="min-h-[60vh] resize-y font-mono text-body-sm leading-relaxed"
+          id="skill-manifest" aria-label="Skill manifest"
+          class="min-h-[60vh] resize-y font-mono text-base leading-relaxed"
           spellcheck="false"
           autocomplete="off"
           bind:value={manifest}

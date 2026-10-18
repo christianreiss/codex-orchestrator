@@ -24,6 +24,7 @@
   let { children } = $props();
 
   const qc = useQueryClient();
+  const section = $derived(({ board: "Board", documents: "Documents", reports: "Reports", activity: "Activity" } as Record<string, string>)[page.url.pathname.split("/").at(-1) ?? ""] ?? "Board");
   const slug = $derived(page.params.slug ?? "");
 
   // The lean summary, not `fetchProject`: this query runs on every tab, and the
@@ -69,7 +70,7 @@
   });
 </script>
 
-<PageShell {title} description={blurb || (slug !== title ? slug : undefined)}>
+<PageShell {title} width="wide" description={blurb || (slug !== title ? slug : undefined)}>
   {#snippet actions()}
     {#if archivedAt}<Badge variant="outline">Archived</Badge>{/if}
     <Button variant="ghost" size="sm" href="{base}/projects"><ArrowLeft class="h-4 w-4" /> Projects</Button>
@@ -99,7 +100,10 @@
 
   <ProjectTabsNav {slug} {counts} />
 
-  {@render children?.()}
+  <section aria-labelledby="project-section-heading" class="min-w-0 space-y-4">
+    <h2 id="project-section-heading" class="text-base font-semibold">{section}</h2>
+    {@render children?.()}
+  </section>
 </PageShell>
 
 <ProjectAboutSheet {slug} bind:open={aboutOpen} />

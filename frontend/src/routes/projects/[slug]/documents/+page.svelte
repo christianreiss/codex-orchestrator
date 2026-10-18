@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snapshot } from "./$types";
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
@@ -61,6 +62,7 @@
   const editorKind = $derived(editing?.mode === "row" ? editing.row.kind : editing?.kind);
   const editorTitle = $derived(`${editing?.mode === "new" ? "New" : "Edit"} ${editorKind === "file" ? "file" : "note"}`);
 
+  let editorDirty = $state(false);
   let toDelete = $state<DocRow | null>(null);
   let confirmOpen = $state(false);
   const deleteMutation = createMutation({
@@ -73,6 +75,10 @@
       void qc.invalidateQueries({ queryKey: projectKeys.detail(slug) });
     },
   });
+  export const snapshot: Snapshot<{ search: typeof search, kind: typeof kind }> = {
+    capture: () => ({ search, kind }),
+    restore: (value) => { search = value.search; kind = value.kind; },
+  };
 </script>
 
 <div class="space-y-3">
@@ -93,11 +99,12 @@
     {/snippet}
   </Toolbar>
 
-  <ListDetail bind:open={editorOpen} title={editorTitle} description={editorKind === "file" ? "Saved by stored name: an existing name is overwritten." : "Header and body are both required."}>
+  <ListDetail dirty={editorDirty} bind:open={editorOpen} title={editorTitle} description={editorKind === "file" ? "Saved by stored name: an existing name is overwritten." : "Header and body are both required."}>
     {#snippet list()}
       <DataTable
         items={rows}
         {loading}
+        onClearFilters={() => search = ""}
         error={failure}
         key={(row) => row.key}
         filtered={search.trim() !== ""}
@@ -140,9 +147,9 @@
       {#key editing?.mode === "row" ? editing.row.key : `new:${editing?.mode === "new" ? editing.kind : ""}`}
         {#if editing}
           {#if editorKind === "file"}
-            <FileEditor {slug} file={editing.mode === "row" && editing.row.kind === "file" ? editing.row.file : null} onDone={close} />
+            <FileEditor bind:dirty={editorDirty} {slug} file={editing.mode === "row" && editing.row.kind === "file" ? editing.row.file : null} onDone={close} />
           {:else}
-            <NoteEditor {slug} note={editing.mode === "row" && editing.row.kind === "note" ? editing.row.note : null} onDone={close} />
+            <NoteEditor bind:dirty={editorDirty} {slug} note={editing.mode === "row" && editing.row.kind === "note" ? editing.row.note : null} onDone={close} />
           {/if}
         {/if}
       {/key}

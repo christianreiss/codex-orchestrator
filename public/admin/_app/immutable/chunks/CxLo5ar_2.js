@@ -1,0 +1,1 @@
+import{c as e,s as t}from"./CzH8FBiu.js";import"./xihTtKlq.js";import{i as n}from"./P5YF4R3p.js";function r(r,i){let a=t(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`circle`,{cx:`12`,cy:`12`,r:`10`}],[`path`,{d:`M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20`}],[`path`,{d:`M2 12h20`}]];n(r,e({name:`globe`},()=>a,{get iconNode(){return o}}))}export{r as t};

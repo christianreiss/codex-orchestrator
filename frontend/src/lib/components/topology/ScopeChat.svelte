@@ -1,6 +1,12 @@
+<script module lang="ts">
+  const drafts = new Map<string, { content: string; pending: { content: string; id: string } | null }>();
+</script>
 <script lang="ts">
   import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
   import { get } from 'svelte/store';
+  import { untrack } from 'svelte';
+  import DraftGuard from '$lib/components/page/DraftGuard.svelte';
+  import Timestamp from '$lib/components/page/Timestamp.svelte';
   import { api } from '$lib/api/client';
   import { authStore } from '$lib/stores/auth';
   import { type ScopeRoom, type ResourceClaim, type RoomHistory, type RoomEvent } from '$lib/api/coordination';
@@ -9,10 +15,12 @@
   const client = useQueryClient();
   const canRead = $derived($authStore.can('agent_messaging.reveal_content'));
   const canWrite = $derived($authStore.can('agent_messaging.manage'));
-  // Parent keys this component by room ID, so a selection owns its query and draft.
-  const history = createQuery<RoomHistory>({ queryKey: ['agent-scopes', 'history', room.id], queryFn: () => api.post('/admin/agent-messaging/scopes/read', { scope_id: room.id }), enabled: get(authStore).can('agent_messaging.reveal_content') });
-  let draft = $state('');
-  let pending = $state<{ content: string; id: string } | null>(null);
+  // Parent keys by room ID; drafts and retry IDs survive room switches in memory.
+  const roomId = untrack(() => room.id);
+  const history = createQuery<RoomHistory>({ queryKey: ['agent-scopes', 'history', roomId], queryFn: () => api.post('/admin/agent-messaging/scopes/read', { scope_id: room.id }), enabled: get(authStore).can('agent_messaging.reveal_content') });
+  let draft = $state(drafts.get(roomId)?.content ?? '');
+  let pending = $state<{ content: string; id: string } | null>(drafts.get(roomId)?.pending ?? null);
+  $effect(() => { if (draft || pending) drafts.set(roomId, { content: draft, pending }); else drafts.delete(roomId); });
   let older = $state<RoomEvent[]>([]);
   let before = $state<number | null | undefined>(undefined);
   let reason = $state('');
@@ -30,6 +38,7 @@
   } });
   const resolve = createMutation({ mutationFn: (claimId: string) => api.post('/admin/agent-messaging/scopes/resolve', { claim_id: claimId, outcome: 'completed', reason }), onSuccess: async () => { reason = ''; await client.invalidateQueries({ queryKey: ['agent-scopes'] }); } });
 </script>
+<DraftGuard dirty={Boolean(draft.trim())} />
 <section class="flex h-full min-h-0 flex-col rounded-md border bg-card" aria-label={`${room.title} scope chat`}>
   <div class="flex items-center justify-between border-b p-3"><div><h3 class="font-medium">{room.title}</h3><p class="text-caption text-muted-foreground">{room.kind} · {room.member_count} members</p></div><Button variant="ghost" size="sm" onclick={onclose}>Close</Button></div>
   <details class="border-b p-3"><summary>Members and claims</summary>
@@ -39,14 +48,15 @@
       {#if claim.state === 'uncertain' && canWrite}<label class="block">Evidence that the operation ended<input class="my-1 w-full rounded border bg-background p-2" bind:value={reason} /></label><Button size="sm" disabled={!reason.trim() || $resolve.isPending} onclick={() => $resolve.mutate(claim.id)}>Resolve resource</Button>{/if}</div>{/each}
     {#if $resolve.error}<p role="alert" class="text-destructive">{$resolve.error.message}</p>{/if}
   </details>
-  <div class="min-h-0 flex-1 space-y-3 overflow-auto p-3" aria-live="polite">
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div class="min-h-0 flex-1 space-y-3 overflow-auto p-3" role="region" aria-label="Room messages" tabindex="0">
     {#if !canRead}<p>Content reveal permission is required to read this room.</p>
     {:else if $history.isPending}<p>Loading conversation…</p>
     {:else if $history.error}<p role="alert" class="text-destructive">{$history.error.message}</p><Button onclick={() => $history.refetch()}>Retry</Button>
     {:else}
       {#if (before === undefined ? $history.data?.next_before : before)}<Button variant="outline" size="sm" disabled={$more.isPending} onclick={() => $more.mutate()}>Earlier messages</Button>{/if}
       {#if $more.error}<p role="alert">{$more.error.message}</p>{/if}
-      {#each events as event (event.id)}<article class={event.kind === 'chat' ? 'rounded-md bg-muted p-3' : 'text-caption text-muted-foreground'}><div class="text-caption">{event.body.name ?? event.actor} · {new Date(event.created_at).toLocaleTimeString()}</div><p class="whitespace-pre-wrap break-words">{event.body.content ?? [event.body.action, event.body.purpose, event.body.reason].filter(Boolean).join(' · ')}</p></article>{/each}
+      {#each events as event (event.id)}<article class={event.kind === 'chat' ? 'rounded-md bg-muted p-3' : 'text-caption text-muted-foreground'}><div class="text-caption">{event.body.name ?? event.actor} · <Timestamp value={event.created_at} /></div><p class="whitespace-pre-wrap break-words">{event.body.content ?? [event.body.action, event.body.purpose, event.body.reason].filter(Boolean).join(' · ')}</p></article>{/each}
       {#if !events.length}<p class="text-muted-foreground">No messages yet.</p>{/if}
     {/if}
   </div>

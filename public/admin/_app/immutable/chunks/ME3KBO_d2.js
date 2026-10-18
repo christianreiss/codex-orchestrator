@@ -1,1 +1,0 @@
-import{t as e}from"./CWfS_vYP.js";import{a as t}from"./T6skahj9.js";var n={all:()=>[`accounts`]},r={list:()=>t.get(`/admin/accounts`),update:(e,n)=>t.patch(`/admin/accounts/${e}`,n),remove:e=>t.delete(`/admin/accounts/${e}`),verify:e=>t.post(`/admin/accounts/${e}/verify`,{})};function i(){return e({queryKey:n.all(),queryFn:r.list,refetchInterval:3e4})}export{n,i as r,r as t};

@@ -1270,3 +1270,7 @@ agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduce
 The feature starts disabled and never grants permission for the reserved action.
 
 Shared group, project/host and conference conversations are available in Agents → Chats. Operators can participate, share files and request bounded answers; see [the chat contract](agent-chat.md#shared-conversations-in-agents--chats).
+
+### Web design verification
+
+The complete route inventory and repeatable responsive, accessibility, state and draft checks are documented in [Web design verification](web-design-verification.md). `frontend/e2e/design-routes.json` is checked against every Svelte page entry; `npm run test:e2e:cross-browser` additionally exercises Firefox and WebKit. No frontend test changes production settings.
