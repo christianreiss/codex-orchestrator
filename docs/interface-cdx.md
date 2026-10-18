@@ -1945,3 +1945,7 @@ closes the relay; there is no preceding close-heartbeat request. An explicit
 `agent_session_finished` response means the session already ended remotely and
 needs no warning. Other conflicts and transport failures remain errors. Error
 codes are read from both top-level and nested API envelopes.
+
+### macOS background worker domain (cxx 0.9.102)
+
+The shared cxx worker installs new LaunchAgents in `user/<uid>` with `LimitLoadToSessionType` including `Background` and `Aqua`. This permits SSH-only operation without a GUI login. An existing loaded GUI job is retained for upgrades, status and removal; an existing user-domain job takes precedence. Routine ensures do not kill an unchanged running job. Changed deployments wait up to 15 seconds for bootout to deregister the previous job before bootstrap.

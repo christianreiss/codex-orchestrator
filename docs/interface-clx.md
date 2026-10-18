@@ -2092,3 +2092,7 @@ transient retry policy, but never replays a permanent 4xx refusal (except 429) o
 successful upload. Individual upload failures are debug diagnostics; normal
 output reports one concise final status. Last-session insecure cleanup still
 runs on every outcome.
+
+### macOS background worker domain (cxx 0.9.102)
+
+The shared cxx worker installs new LaunchAgents in `user/<uid>` with `LimitLoadToSessionType` including `Background` and `Aqua`. This permits SSH-only operation without a GUI login. An existing loaded GUI job is retained for upgrades, status and removal; an existing user-domain job takes precedence. Routine ensures do not kill an unchanged running job. Changed deployments wait up to 15 seconds for bootout to deregister the previous job before bootstrap.

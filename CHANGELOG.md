@@ -1,3 +1,7 @@
+# 2026-10-18
+
+- **macOS persistent service (cxx 0.9.102):** new background workers use the per-user launchd domain with the Background session type, so update/install works over SSH without a GUI login. Existing GUI jobs remain addressable for update, status and removal. Updates also wait for asynchronous launchd removal before bootstrap to avoid transient I/O errors. Applies to Codex, Claude and Grok.
+
 # 2026-10-17
 
 - **Admin console rebuilt on one design system, with fewer, plainer pages.** Every page now sits on the same frame (title, one-line purpose, actions, then content) and follows one ordering rule: data first, actions second, settings behind a gear or "Advanced", destructive actions last. Controls, text sizes and corner radius are uniform, tables and toolbars are shared, cards inside cards are gone, and tab bars are a slim underline. Pages that described the same thing were merged; every old URL redirects (`/clients`, `/topology` → **Agents**; `/logs/*` → **Activity**; `/feedback` → **Reports**; `/skills`, `/instructions`, `/memories`, `/subagents`, `/commands`, `/output-styles`, `/authoring/*` → **Library**; `/users`, `/api-keys`, `/secrets` → **Access**; `/policies` → **Settings**; `/account/*` → **Account**; project `notes`/`files`/`feedback`/`todos` → **Documents**/**Reports**/**Board**; `/hosts/new` → `/hosts?add=1`).

@@ -32,6 +32,9 @@ var (
 	launchdUnitMissing    = detectLaunchdUnitMissing
 	serviceLookPath       = exec.LookPath
 	serviceUserName       = currentUserName
+	launchdServiceLoaded  = func(target string) bool {
+		return exec.Command("launchctl", "print", target).Run() == nil
+	}
 )
 
 func renderSystemdUserUnit(executable, binaryDigest string, environment map[string]string) string {
@@ -83,6 +86,7 @@ func renderLaunchAgent(executable, binaryDigest string, environment map[string]s
 ` + environmentBlock + `  <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>ProcessType</key><string>Background</string>
+  <key>LimitLoadToSessionType</key><array><string>Background</string><string>Aqua</string></array>
 </dict></plist>
 `
 }
@@ -222,7 +226,7 @@ func serviceStatus() (map[string]any, error) {
 	if runtime.GOOS == "linux" {
 		cmd = systemdUserCommand("--user", "is-active", "--quiet", serviceName+".service")
 	} else if runtime.GOOS == "darwin" {
-		cmd = exec.Command("launchctl", "print", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchLabel))
+		cmd = exec.Command("launchctl", "print", launchdServiceDomain(os.Getuid())+"/"+launchLabel)
 	} else {
 		status["supported"] = false
 		return status, nil
@@ -306,12 +310,45 @@ func runSystemdAction(action string, stdout, stderr io.Writer) error {
 	}
 }
 
+// New jobs use the per-user Background domain, which exists without a GUI
+// login. Keep an already-loaded GUI job addressable during upgrades/removal.
+func launchdServiceDomain(uid int) string {
+	userDomain := fmt.Sprintf("user/%d", uid)
+	if launchdServiceLoaded(userDomain + "/" + launchLabel) {
+		return userDomain
+	}
+	guiDomain := fmt.Sprintf("gui/%d", uid)
+	if launchdServiceLoaded(guiDomain + "/" + launchLabel) {
+		return guiDomain
+	}
+	return userDomain
+}
+
+// bootout may return while launchd still holds a SIGTERMed job. Bootstrap
+// during that interval fails with EIO, so wait for actual deregistration.
+func waitLaunchdUnitRemoved(target string, timeout, interval time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		missing, err := launchdUnitMissing(target)
+		if err != nil {
+			return err
+		}
+		if missing {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("timed out waiting for launchd unit %s to unload", target)
+		}
+		time.Sleep(interval)
+	}
+}
+
 func runLaunchdAction(action string, stdout, stderr io.Writer) error {
 	path, err := servicePath()
 	if err != nil {
 		return err
 	}
-	domain := fmt.Sprintf("gui/%d", os.Getuid())
+	domain := launchdServiceDomain(os.Getuid())
 	target := domain + "/" + launchLabel
 	switch action {
 	case "install":
@@ -340,6 +377,9 @@ func runLaunchdAction(action string, stdout, stderr io.Writer) error {
 				if probeErr != nil || !missing {
 					return errors.Join(stopErr, probeErr)
 				}
+			}
+			if err := waitLaunchdUnitRemoved(target, 15*time.Second, 100*time.Millisecond); err != nil {
+				return err
 			}
 			if err := managedServiceProcess(stdout, stderr, "launchctl", "bootstrap", domain, path); err != nil {
 				return err
