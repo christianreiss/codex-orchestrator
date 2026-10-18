@@ -1,3 +1,7 @@
+# 2026-10-18
+
+- **Binding web design standard.** Root `DESIGN.md` defines researched rules for every browser surface, including integrated agent chat, authentication, setup and failures. It records the current route/component inventory, concrete visual and interaction defaults, accessibility requirements, anti-slop examples and step-2 acceptance gaps. Project `AGENTS.md` now requires reading and checking the standard for UI work; the former admin design specification points to it. Documentation only: no UI migration, SPA rebuild or deployment.
+
 # 2026-10-17
 
 - **Admin console rebuilt on one design system, with fewer, plainer pages.** Every page now sits on the same frame (title, one-line purpose, actions, then content) and follows one ordering rule: data first, actions second, settings behind a gear or "Advanced", destructive actions last. Controls, text sizes and corner radius are uniform, tables and toolbars are shared, cards inside cards are gone, and tab bars are a slim underline. Pages that described the same thing were merged; every old URL redirects (`/clients`, `/topology` → **Agents**; `/logs/*` → **Activity**; `/feedback` → **Reports**; `/skills`, `/instructions`, `/memories`, `/subagents`, `/commands`, `/output-styles`, `/authoring/*` → **Library**; `/users`, `/api-keys`, `/secrets` → **Access**; `/policies` → **Settings**; `/account/*` → **Account**; project `notes`/`files`/`feedback`/`todos` → **Documents**/**Reports**/**Board**; `/hosts/new` → `/hosts?add=1`).

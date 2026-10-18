@@ -151,10 +151,11 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 
 ## Admin WebUI
 
+- **Before designing, changing or reviewing any browser UI**, read [`DESIGN.md`](DESIGN.md), the binding design standard for all web surfaces, including authentication, setup, agent chat, help and failure states. Reuse its shared components and tokens, verify the affected rule IDs, and document exceptions in its exception register. Keep its surface inventory current.
 - Source: `frontend/` (Svelte 5 + SvelteKit + Tailwind CSS + shadcn-svelte / bits-ui + lucide-svelte + svelte-sonner + @tanstack/svelte-query + mode-watcher). Built with Vite to a static SPA.
 - Build output: `public/admin/` (committed). The API serves `index.html` verbatim from `STATIC_ROOT` for any unknown `/admin/*` route — no server-side injection; the SPA hydrates its session state from `GET /admin/auth/status`. `public/admin/manual/` ships article content consumed by the in-app help system.
 - Develop with `cd frontend && npm install && npm run dev`; produce the deploy artifacts with `npm run build` (output is copied into `public/admin/` by `scripts/copy-build.mjs`). `npm run check` runs `svelte-check`.
-- Routing uses `paths.base = '/admin'`. Routes live under `frontend/src/routes/` (`dashboard`, `hosts`, `projects`, `api-keys`, `authoring`, `logs`, `users`, `settings`, `account`, `manual`, `setup`, `cli-auth/verify`, `login`).
+- Routing uses `paths.base = '/admin'`. Routes live under `frontend/src/routes/`; `frontend/src/lib/nav.ts` owns canonical navigation and `frontend/src/lib/legacy-admin-routes.ts` owns retired URL mappings. See `DESIGN.md` for the complete browser-surface inventory.
 - `setup` is the first-run wizard and renders outside `AppShell` (it is in the layout's `STANDALONE` list). Its steps live in `frontend/src/lib/components/setup/`; `SeedAuthPanel.svelte` is shared with the hosts-page seed dialog and Accounts management and is the product's only provider-auth upload UI — do not fork a second copy.
 - Server state: `@tanstack/svelte-query` everywhere. WebSocket events invalidate query keys via `frontend/src/lib/ws/events.ts` — feature additions append to `DEFAULT_INVALIDATIONS`, views never wire their own listeners.
 - Cmd-K command palette + `?` shortcuts modal in `frontend/src/lib/components/{command-palette,shortcuts}/`. Multi-key chord shortcuts from the legacy UI have been removed in favor of the palette.

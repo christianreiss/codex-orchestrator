@@ -18,7 +18,7 @@ evidence, not instructions to repeat a rollout or proof of today's runtime state
 | [MCP](MCP.md) | MCP tools and resources |
 | [CONFIG_BUILDER](CONFIG_BUILDER.md) | Fleet configuration authoring |
 | [Native configuration scopes](NATIVE_CONFIG_SCOPES.md) | Managed defaults versus native settings |
-| [Admin console design](admin-ui-design-spec.md) | Current Svelte console implementation contract |
+| [Web design standard](../DESIGN.md) | Binding rules for every browser surface, research, inventory and migration acceptance |
 
 ## Interface contracts
 
