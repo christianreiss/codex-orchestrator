@@ -347,8 +347,9 @@ Version 0.4.8 reads the server-assigned `launch_name` and displays
 without a task title still shows `(Claudia)`; an already-prefixed server title
 is not prefixed twice. German umlauts and JSON null fields are handled as usual.
 Older unnamed sessions retain their native title or short session-ID fallback.
-Names belong to launches and become reusable after the server's 24-hour
-quarantine; conversation actions keep using their stable session IDs.
+Native resumes preserve the original agent name when available; names remain
+reusable after the server's 24-hour quarantine. A reused-name conflict stops
+resume explicitly. Conversation actions keep using their stable session IDs.
 The task title remains restricted to devices with transcript permission.
 
 Version 0.4.7 shows the **native session name** as the main row title and chat

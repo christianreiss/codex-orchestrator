@@ -124,9 +124,18 @@ export class AgentReceiverService {
     });
     if (state.probes.peer) await this.messaging.notifyPresenceReturn(id);
     this.changed(id);
-    const [bound] = await this.db.select({ bindingGeneration: agentSessions.bindingGeneration }).from(agentSessions).where(eq(agentSessions.id, id));
+    const [bound] = await this.db.select({
+      bindingGeneration: agentSessions.bindingGeneration, name: agentSessions.launchName,
+      addressName: agentBusAddresses.launchName, addressId: agentBusAddresses.id,
+      currentSessionId: agentBusAddresses.currentSessionId, engine: agentSessions.engine,
+    }).from(agentSessions).leftJoin(agentBusAddresses, eq(agentBusAddresses.id, agentSessions.agentBusAddressId)).where(eq(agentSessions.id, id));
+    const identity = bound?.name && bound.name === bound.addressName && bound.currentSessionId === id ? {
+      identity_version: 1, name: bound.name, uuid: bound.addressId, address: `agent:${bound.addressId}`,
+      session_id: id, native_session_id: input.native_session_id, engine: bound.engine,
+      binding_generation: bound.bindingGeneration,
+    } : null;
     return { receiver: receiverView(state), sources: Object.keys(state.probes) as ReceiverSource[],
-      capabilities: { activity_v1: state.activity_v1 === true, queue_policy_v1: true, queue_delivery_v1: state.queue_delivery_v1 === true }, binding_generation: bound?.bindingGeneration ?? 0 };
+      capabilities: { activity_v1: state.activity_v1 === true, queue_policy_v1: true, queue_delivery_v1: state.queue_delivery_v1 === true }, binding_generation: bound?.bindingGeneration ?? 0, identity };
   }
 
   async update(

@@ -8,6 +8,7 @@ import {
 describe('launch name policy', () => {
   it('keeps the exact 24h quarantine boundary and derives expiry when reaping is delayed', () => {
     const lease = {
+      id: 1,
       sessionId: 'launch',
       addressId: 'uuid',
       name: 'Claudia',

@@ -221,3 +221,65 @@ func TestIdentityContextRequiresSetupOnEveryFirstTurn(t *testing.T) {
 		t.Fatalf("identity context keeps work-gated timing: %s", text)
 	}
 }
+
+func TestLateResumeIdentityConvergesRecovery(t *testing.T) {
+	const uuid = "12345678-1234-4123-8123-123456789abc"
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				var body map[string]any
+				_ = json.NewDecoder(req.Body).Decode(&body)
+				if body["agent_address"] != "agent:"+uuid || body["upstream_session_id"] != "native" || body["binding_generation"] != float64(3) {
+					t.Errorf("recovery used stale picker identity: %v", body)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"enabled": true, "session_id": "launch", "bridge_token": "token", "agent_address": map[string]any{"name": "Claudia", "address": "agent:" + uuid, "binding_generation": 3}})
+			}))
+			defer server.Close()
+			s := &Session{ID: "launch", Engine: engine, LaunchName: "Tanja", BridgeToken: "token", BaseURL: server.URL, hostAPIKey: "host-key", http: server.Client(), registrationGeneration: 1, registrationBody: map[string]any{}}
+			identity := Identity{Version: 1, Name: "Claudia", UUID: uuid, Address: "agent:" + uuid, SessionID: "foreign", NativeID: "native", Engine: engine, Generation: 3}
+			raw, _ := json.Marshal(identity)
+			s.observeIdentity(raw)
+			if s.LaunchName != "Tanja" {
+				t.Fatal("accepted another launch's identity")
+			}
+			identity.SessionID = s.ID
+			raw, _ = json.Marshal(identity)
+			s.observeIdentity(raw)
+			generation := s.registrationGeneration
+			s.observeIdentity(raw)
+			if s.registrationGeneration != generation {
+				t.Fatal("same identity was not idempotent")
+			}
+			if s.LaunchName != "Claudia" {
+				t.Fatal("did not restore transcript name")
+			}
+			if err := s.recoverRegistration(context.Background(), generation, false); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestRecoveryDoesNotOverwriteLateNativeBinding(t *testing.T) {
+	const uuid = "12345678-1234-4123-8123-123456789abc"
+	started, release := make(chan struct{}), make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		close(started)
+		<-release
+		_ = json.NewEncoder(w).Encode(map[string]any{"enabled": true, "session_id": "launch", "bridge_token": "token", "agent_address": map[string]any{"name": "Tanja", "address": "agent:" + uuid, "binding_generation": 1}})
+	}))
+	defer server.Close()
+	s := &Session{ID: "launch", Engine: "codex", LaunchName: "Tanja", BridgeToken: "token", BaseURL: server.URL, hostAPIKey: "host-key", http: server.Client(), registrationGeneration: 1, registrationBody: map[string]any{"session_id": "launch"}}
+	done := make(chan error, 1)
+	go func() { done <- s.recoverRegistration(context.Background(), 1, false) }()
+	<-started
+	raw, _ := json.Marshal(Identity{Version: 1, Name: "Claudia", UUID: uuid, Address: "agent:" + uuid, SessionID: s.ID, NativeID: "native", Engine: s.Engine, Generation: 3})
+	s.observeIdentity(raw)
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if s.LaunchName != "Claudia" || s.registrationBody["binding_generation"] != 3 {
+		t.Fatal("stale recovery overwrote native binding")
+	}
+}

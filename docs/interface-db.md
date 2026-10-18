@@ -203,12 +203,12 @@ commit `expired` and clear the lease before returning the conflict. Receiver
 JSON generation retries preserve their original native identity and source set.
 One-shot informational claims leave work rows and attempt counters untouched.
 
-## Agent launch names (migration 0045)
+## Agent launch names (migrations 0045, 0080)
 
 `agent_name_pool` holds 664 pre-filled German names, an ASCII normalized
 `name_key` and the most recent assigned launch ID. Writers lock the pool in
 key order inside the existing session/address transactions.
-`agent_name_leases` preserves each launch's name, agent address UUID, start,
+`agent_name_leases` preserves each name assignment, agent address UUID, start,
 end and 24-hour quarantine deadline independently of session retention.
 `agent_sessions.launch_name` keeps historical titles stable;
 `agent_bus_addresses.launch_name` projects the latest launch name.
@@ -218,7 +218,7 @@ Conference members similarly retain `launch_name`/`requested_target`.
 The idempotent seed never resets existing pool ownership.
 
 - **agent_name_pool** — pre-filled German female names (`name_key` VARCHAR(96) PRIMARY KEY, `name` VARCHAR(96) NOT NULL, `current_session_id` CHAR(36) NULL). The current launch pointer persists through quarantine and is replaced only by allocation under the pool lock.
-- **agent_name_leases** — launch naming history (`session_id` CHAR(36) PRIMARY KEY, `name_key` VARCHAR(96) NOT NULL, `name` VARCHAR(96) NOT NULL, `address_id` CHAR(36) NOT NULL, `started_at` VARCHAR(100) NOT NULL, `ended_at` VARCHAR(100) NULL, `cooldown_until` VARCHAR(100) NULL). Indexed by name/start and address/start. No cascade from retained sessions.
+- **agent_name_leases** — launch naming history (`id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, `session_id` CHAR(36) NOT NULL, `name_key` VARCHAR(96) NOT NULL, `name` VARCHAR(96) NOT NULL, `address_id` CHAR(36) NOT NULL, `started_at` VARCHAR(100) NOT NULL, `ended_at` VARCHAR(100) NULL, `cooldown_until` VARCHAR(100) NULL). Indexed by session/id, name/start and address/start. Multiple assignments per launch retain provisional picker-name history; the pool name plus launch ID selects its current lease. Resumes restore the earliest surviving assignment for the native identity under the pool lock. No cascade from retained sessions.
 
 ## `agent_watchdogs` (migration 0046)
 

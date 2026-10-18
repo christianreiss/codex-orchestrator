@@ -1504,7 +1504,8 @@ export const agentNamePool = mysqlTable('agent_name_pool', {
 
 // History survives session retention and name reuse. No cascade from live rows.
 export const agentNameLeases = mysqlTable('agent_name_leases', {
-  sessionId: char('session_id', { length: 36 }).primaryKey(),
+  id: bigint('id', { mode: 'number', unsigned: true }).autoincrement().primaryKey(),
+  sessionId: char('session_id', { length: 36 }).notNull(),
   nameKey: varchar('name_key', { length: 96 }).notNull(),
   name: varchar('name', { length: 96 }).notNull(),
   addressId: char('address_id', { length: 36 }).notNull(),
@@ -1512,6 +1513,7 @@ export const agentNameLeases = mysqlTable('agent_name_leases', {
   endedAt: varchar('ended_at', { length: 100 }),
   cooldownUntil: varchar('cooldown_until', { length: 100 }),
 }, (t) => ({
+  sessionIdx: index('idx_agent_name_leases_session').on(t.sessionId, t.id),
   nameIdx: index('idx_agent_name_leases_name').on(t.nameKey, t.startedAt),
   addressIdx: index('idx_agent_name_leases_address').on(t.addressId, t.startedAt),
 }));

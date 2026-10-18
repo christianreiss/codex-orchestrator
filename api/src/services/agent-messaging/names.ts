@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { agentBusAddresses, agentNameLeases, agentNamePool, agentSessions } from '../../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { isoOffsetSeconds, nowIso } from '../../util/timestamp.js';
@@ -54,26 +54,29 @@ export async function assignLaunchNameLocked(
   now: string,
 ): Promise<string | null> {
   const pool = await lockPool(db);
+  const [session] = await db.select().from(agentSessions).where(eq(agentSessions.id, sessionId));
+  if (session?.endedAt)
+    throw new ConflictError('Launch name lease has ended; start a new lifecycle', 'agent_session_finished');
   const [existing] = await db
     .select()
     .from(agentNameLeases)
-    .where(eq(agentNameLeases.sessionId, sessionId))
-    .for('update');
-  if (existing) {
-    const slot = pool.find((row) => row.nameKey === existing.nameKey);
-    const [session] = await db.select().from(agentSessions).where(eq(agentSessions.id, sessionId));
-    if (
-      session?.endedAt ||
-      (existing.cooldownUntil && existing.cooldownUntil <= now) ||
-      slot?.currentSessionId !== sessionId
+    .where(
+      and(
+        eq(agentNameLeases.sessionId, sessionId),
+        ...(session?.launchName ? [eq(agentNameLeases.name, session.launchName)] : []),
+      ),
     )
-      throw new ConflictError('Launch name lease has ended; start a new lifecycle', 'agent_session_finished');
-    await db
-      .update(agentNameLeases)
-      .set({ addressId, endedAt: null, cooldownUntil: null })
-      .where(eq(agentNameLeases.sessionId, sessionId));
-    return existing.name;
-  }
+    .orderBy(desc(agentNameLeases.id))
+    .limit(1);
+  // The address is resolved from a proven native transcript, never cwd/recency.
+  // Prefer its first name even when older releases renamed it on every resume.
+  const [original] = await db
+    .select()
+    .from(agentNameLeases)
+    .where(and(eq(agentNameLeases.addressId, addressId), ne(agentNameLeases.sessionId, sessionId)))
+    .orderBy(asc(agentNameLeases.startedAt), asc(agentNameLeases.id))
+    .limit(1);
+  const preferred = existing?.addressId === addressId ? existing : (original ?? existing);
   const currentIds = pool.flatMap((row) => (row.currentSessionId ? [row.currentSessionId] : []));
   const rows = currentIds.length
     ? await db
@@ -81,44 +84,88 @@ export async function assignLaunchNameLocked(
         .from(agentNameLeases)
         .leftJoin(agentSessions, eq(agentSessions.id, agentNameLeases.sessionId))
         .where(inArray(agentNameLeases.sessionId, currentIds))
+        .orderBy(desc(agentNameLeases.id))
     : [];
-  const current = new Map(rows.map((row) => [row.lease.sessionId, row]));
+  const current = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) {
+    const key = `${row.lease.nameKey}:${row.lease.sessionId}`;
+    if (!current.has(key)) current.set(key, row);
+  }
+  const ownerOf = (slot: (typeof pool)[number]) =>
+    slot.currentSessionId ? current.get(`${slot.nameKey}:${slot.currentSessionId}`) : undefined;
   const aliases = await db.select({ alias: agentBusAddresses.displayAlias }).from(agentBusAddresses);
   const blocked = new Set(
     aliases.flatMap((row) => (row.alias ? [agentNameKey(row.alias.replace(/^agent:/, ''))] : [])),
   );
-  const free = pool.filter((slot) => {
-    if (blocked.has(slot.nameKey)) return false;
-    if (!slot.currentSessionId) return true;
-    const previous = current.get(slot.currentSessionId);
-    return previous && !nameLeaseState(previous.lease, previous.session, now).reserved;
-  });
-  if (!free.length) return null;
-  const slot = free[randomInt(free.length)]!;
-  const previous = slot.currentSessionId ? current.get(slot.currentSessionId) : undefined;
+  let slot = preferred ? pool.find((row) => row.nameKey === preferred.nameKey) : undefined;
+  if (preferred) {
+    const owner = slot && ownerOf(slot);
+    const state = owner && nameLeaseState(owner.lease, owner.session, now);
+    const ownedHere = slot?.currentSessionId === sessionId && owner?.lease.id === existing?.id;
+    const reclaimOwn = owner?.lease.addressId === addressId && !!state?.endedAt;
+    if (
+      !slot ||
+      blocked.has(preferred.nameKey) ||
+      (!ownedHere && !reclaimOwn && slot.currentSessionId && (!state || state.reserved))
+    ) {
+      throw new ConflictError(
+        `Cannot resume ${preferred.name}: the name is assigned to another agent. Retry when it is free; identity remains agent:${addressId}`,
+        'agent_resume_name_conflict',
+        { name: preferred.name, address: `agent:${addressId}`, uuid: addressId },
+      );
+    }
+    if (ownedHere && existing) {
+      if (existing.cooldownUntil && existing.cooldownUntil <= now)
+        throw new ConflictError(
+          'Launch name lease has ended; start a new lifecycle',
+          'agent_session_finished',
+        );
+      await db
+        .update(agentNameLeases)
+        .set({ addressId, endedAt: null, cooldownUntil: null })
+        .where(eq(agentNameLeases.id, existing.id));
+      return existing.name;
+    }
+  } else {
+    const free = pool.filter((candidate) => {
+      if (blocked.has(candidate.nameKey)) return false;
+      if (!candidate.currentSessionId) return true;
+      const owner = ownerOf(candidate);
+      return owner && !nameLeaseState(owner.lease, owner.session, now).reserved;
+    });
+    if (!free.length) return null;
+    slot = free[randomInt(free.length)]!;
+  }
+  const previous = ownerOf(slot!);
   if (previous) {
     const state = nameLeaseState(previous.lease, previous.session, now);
     await db
       .update(agentNameLeases)
       .set({ endedAt: state.endedAt, cooldownUntil: state.cooldownUntil })
-      .where(eq(agentNameLeases.sessionId, previous.lease.sessionId));
+      .where(eq(agentNameLeases.id, previous.lease.id));
   }
-  await db
-    .insert(agentNameLeases)
-    .values({
-      sessionId,
-      nameKey: slot.nameKey,
-      name: slot.name,
-      addressId,
-      startedAt: now,
-      endedAt: null,
-      cooldownUntil: null,
-    });
+  // Picker/continue can replace a provisional name. Retain its assignment and
+  // quarantine independently of the restored name, even in this same launch.
+  if (existing && existing.nameKey !== slot!.nameKey) {
+    await db
+      .update(agentNameLeases)
+      .set({ endedAt: now, cooldownUntil: isoOffsetSeconds(AGENT_NAME_COOLDOWN_SECONDS, new Date(now)) })
+      .where(eq(agentNameLeases.id, existing.id));
+  }
+  await db.insert(agentNameLeases).values({
+    sessionId,
+    nameKey: slot!.nameKey,
+    name: slot!.name,
+    addressId,
+    startedAt: now,
+    endedAt: null,
+    cooldownUntil: null,
+  });
   await db
     .update(agentNamePool)
     .set({ currentSessionId: sessionId })
-    .where(eq(agentNamePool.nameKey, slot.nameKey));
-  return slot.name;
+    .where(eq(agentNamePool.nameKey, slot!.nameKey));
+  return slot!.name;
 }
 
 export async function endLaunchNamesLocked(db: AgentMessagingDb, sessionIds: string[], now: string) {
@@ -137,7 +184,7 @@ export async function endLaunchNamesLocked(db: AgentMessagingDb, sessionIds: str
     await db
       .update(agentNameLeases)
       .set({ endedAt, cooldownUntil: isoOffsetSeconds(AGENT_NAME_COOLDOWN_SECONDS, new Date(endedAt)) })
-      .where(and(eq(agentNameLeases.sessionId, lease.sessionId), isNull(agentNameLeases.endedAt)));
+      .where(and(eq(agentNameLeases.id, lease.id), isNull(agentNameLeases.endedAt)));
   }
 }
 
@@ -147,10 +194,15 @@ export async function moveLaunchNameLocked(
   addressId: string,
   now: string,
 ) {
-  const [lease] = await db.select().from(agentNameLeases).where(eq(agentNameLeases.sessionId, sessionId));
+  const [lease] = await db
+    .select()
+    .from(agentNameLeases)
+    .where(eq(agentNameLeases.sessionId, sessionId))
+    .limit(1);
   if (!lease) return null;
   const name = await assignLaunchNameLocked(db, sessionId, addressId, now);
   await db.update(agentBusAddresses).set({ launchName: name }).where(eq(agentBusAddresses.id, addressId));
+  await db.update(agentSessions).set({ launchName: name }).where(eq(agentSessions.id, sessionId));
   return name;
 }
 
@@ -181,13 +233,16 @@ export async function translateAgent(
         and(
           eq(agentNameLeases.addressId, uuid),
           ...(address?.currentSessionId
-            ? [eq(agentNameLeases.sessionId, address.currentSessionId)]
+            ? [
+                eq(agentNameLeases.sessionId, address.currentSessionId),
+                ...(address.launchName ? [eq(agentNameLeases.name, address.launchName)] : []),
+              ]
             : address?.launchName
               ? [eq(agentNameLeases.name, address.launchName)]
               : []),
         ),
       )
-      .orderBy(desc(agentNameLeases.startedAt), desc(agentNameLeases.sessionId))
+      .orderBy(desc(agentNameLeases.startedAt), desc(agentNameLeases.id))
       .limit(1);
     lease = row;
   } else {
@@ -200,7 +255,14 @@ export async function translateAgent(
       const [row] = await db
         .select()
         .from(agentNameLeases)
-        .where(eq(agentNameLeases.sessionId, slot.currentSessionId));
+        .where(
+          and(
+            eq(agentNameLeases.sessionId, slot.currentSessionId),
+            eq(agentNameLeases.nameKey, slot.nameKey),
+          ),
+        )
+        .orderBy(desc(agentNameLeases.id))
+        .limit(1);
       lease = row;
     }
   }

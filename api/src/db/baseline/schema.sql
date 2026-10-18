@@ -1624,6 +1624,7 @@ SET @ddl := CONCAT('ALTER TABLE agent_fresh_start_grants CONVERT TO CHARACTER SE
 PREPARE align_contract FROM @ddl; EXECUTE align_contract; DEALLOCATE PREPARE align_contract;
 
 CREATE TABLE `agent_name_leases` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`session_id` char(36) NOT NULL,
 	`name_key` varchar(96) NOT NULL,
 	`name` varchar(96) NOT NULL,
@@ -1631,7 +1632,7 @@ CREATE TABLE `agent_name_leases` (
 	`started_at` varchar(100) NOT NULL,
 	`ended_at` varchar(100),
 	`cooldown_until` varchar(100),
-	CONSTRAINT `agent_name_leases_session_id` PRIMARY KEY(`session_id`)
+	CONSTRAINT `agent_name_leases_id` PRIMARY KEY(`id`)
 );
 
 CREATE TABLE `agent_name_pool` (
@@ -1640,6 +1641,8 @@ CREATE TABLE `agent_name_pool` (
 	`current_session_id` char(36),
 	CONSTRAINT `agent_name_pool_name_key` PRIMARY KEY(`name_key`)
 );
+
+CREATE INDEX `idx_agent_name_leases_session` ON `agent_name_leases` (`session_id`,`id`);
 
 CREATE INDEX `idx_agent_name_leases_name` ON `agent_name_leases` (`name_key`,`started_at`);
 

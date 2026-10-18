@@ -914,11 +914,17 @@ of 664 names (including Claudia, Tanja, Jessica and Paula). Allocation is
 transactional and idempotent for a launch ID. The session title is
 `(Claudia) Task title`; the task title is preserved separately.
 
-Names belong to launches, not permanent identities. Exit or bridge expiry
-starts a 24-hour quarantine. Presence going offline does not release a name.
-A new launch, including a native resume, gets a new name; recovery of the same
-non-terminal launch during quarantine keeps its name. Once quarantine has
-expired a name can refer to a different UUID. Keep UUIDs for durable references.
+New conversations receive a name; resuming the same native transcript restores
+its original recorded name and UUID, including picker/continue resumes discovered
+by the receiver. Same-launch bridge recovery preserves its confirmed name. Exit
+or bridge expiry starts a 24-hour quarantine; offline presence alone does not.
+A resume can reclaim its own name during quarantine or after expiry while free.
+If another identity owns the name or its quarantine, registration returns HTTP 409
+`agent_resume_name_conflict` with `name`, `uuid` and `address`; no replacement name
+is allocated. Direct resumes stop before provider startup; late receiver binding
+is refused without activating delivery. Retry once the name is free. Names remain
+reusable after 24 hours, so keep UUIDs for durable references. Existing renamed
+identities restore their earliest surviving name on their next native resume.
 From cxx 0.9.37, messaging-enabled launches require a confirmed name before
 starting the native provider. Registration advertises `launch_identity_version: 1`;
 an exhausted pool returns `agent_name_pool_exhausted` and rolls back allocation.

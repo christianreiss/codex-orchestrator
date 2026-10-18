@@ -807,6 +807,10 @@ func (s *Session) recoverRegistration(ctx context.Context, observedGeneration ui
 		s.mu.Unlock()
 		return sessionFinishedError()
 	}
+	if s.registrationGeneration != observedGeneration {
+		s.mu.Unlock()
+		return nil
+	}
 	if response.AgentAddress != nil && response.AgentAddress.Address != "" {
 		registrationBody["agent_address"] = response.AgentAddress.Address
 		registrationBody["binding_generation"] = response.AgentAddress.BindingGeneration

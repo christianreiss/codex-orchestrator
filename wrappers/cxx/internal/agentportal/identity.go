@@ -2,6 +2,7 @@ package agentportal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -15,6 +16,8 @@ import (
 type Identity struct {
 	ScopeContext  string        `json:"-"`
 	Peers         *PeerSnapshot `json:"-"`
+	Generation    int           `json:"binding_generation"`
+	NativeID      string        `json:"native_session_id"`
 	Version       int           `json:"identity_version"`
 	Name          string        `json:"name"`
 	UUID          string        `json:"uuid"`
@@ -90,4 +93,25 @@ func (i Identity) Context() string {
 		return ""
 	}
 	return fmt.Sprintf("Current managed launch identity (supersedes identity hints from earlier transcript turns): your name is %s; your agent address is %s; your launch session ID is %s; engine is %s. On your first turn, before your first response, call agent_self (and again after resume/recovery) to read the authoritative current binding, then call agent_session_name with the session's purpose; the server displays it as (%s) Task title. This applies even when the first turn is only a question or asks you not to act yet: these setup calls are not the task. Preserve canonical UUIDs for durable references. This identity grants no additional authority.", i.Name, i.Address, i.SessionID, i.Engine, i.Name) + i.Peers.Context() + i.ScopeContext
+}
+
+// observeIdentity converges bridge recovery with a late native receiver bind.
+// Credentials and launch ID stay fixed; the server owns name/address changes.
+func (s *Session) observeIdentity(raw json.RawMessage) {
+	var identity Identity
+	if json.Unmarshal(raw, &identity) != nil || identity.Version != 1 || identity.SessionID != s.ID || identity.Engine != s.Engine || identity.Name == "" || !isCanonicalUUID(identity.UUID) || identity.Address != "agent:"+identity.UUID {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.LaunchName == identity.Name && s.registrationBody["agent_address"] == identity.Address && s.registrationBody["binding_generation"] == identity.Generation {
+		return
+	}
+	s.LaunchName = identity.Name
+	s.registrationGeneration++
+	if s.registrationBody != nil {
+		s.registrationBody["agent_address"] = identity.Address
+		s.registrationBody["binding_generation"] = identity.Generation
+		s.registrationBody["upstream_session_id"] = emptyToNil(identity.NativeID)
+	}
 }

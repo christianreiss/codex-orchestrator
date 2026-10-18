@@ -1338,7 +1338,7 @@ export class AgentMessagingService {
       const identity = await translateAgent(tx, session.launchName, true);
       if (identity.uuid !== address.id || identity.session_id !== session.id || identity.status !== 'active')
         throw new ConflictError('Launch name lease changed', 'agent_identity_unavailable');
-      const leases = await tx.selectDistinct({ name: agentNameLeases.name }).from(agentNameLeases).where(eq(agentNameLeases.addressId, address.id));
+      const leases = await tx.selectDistinct({ name: agentNameLeases.name }).from(agentNameLeases).where(or(eq(agentNameLeases.addressId, address.id), eq(agentNameLeases.sessionId, session.id)));
       const [named] = await tx.select().from(agentEvents).where(and(eq(agentEvents.sessionId, session.id), eq(agentEvents.eventType, 'session_named'))).orderBy(desc(agentEvents.id)).limit(1);
       const naming = named ? JSON.parse(decrypt(named.payloadEnc, this.keyring)) as Record<string, unknown> : null;
       const taskTitle = naming?.native_session_id === session.upstreamSessionId && typeof naming?.name === 'string' ? naming.name : null;

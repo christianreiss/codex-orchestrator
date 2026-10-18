@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { registerAgentMessagingRoutes } from '../../../src/routes/agent-messaging/index.js';
 import type { RouteContext } from '../../../src/routes/index.js';
+import { AgentReceiverService } from '../../../src/services/agent-receiver.js';
 import { AgentPortalService } from '../../../src/services/agent-portal.js';
 import { encrypt } from '../../../src/security/secret-box.js';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -67,17 +68,15 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
   }
   beforeAll(async () => {
     await runMigrations(handle!.pool);
-    await db!
-      .insert(hosts)
-      .values({
-        fqdn: `ztest-names-${randomUUID()}.example`,
-        apiKey: 'a'.repeat(64),
-        secure: 1,
-        status: 'active',
-        engines: 'codex,claude,grok',
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      });
+    await db!.insert(hosts).values({
+      fqdn: `ztest-names-${randomUUID()}.example`,
+      apiKey: 'a'.repeat(64),
+      secure: 1,
+      status: 'active',
+      engines: 'codex,claude,grok',
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    });
     [host] = (await db!
       .select()
       .from(hosts)
@@ -99,7 +98,7 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
 
   async function launch(
     engine: Engine = 'codex',
-    resume?: { address: string; native: string; username: string },
+    resume?: { address?: string; native: string | null; username: string },
   ) {
     const sessionId = randomUUID(),
       token = randomBytes(32).toString('base64url');
@@ -111,7 +110,7 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
       username: resume?.username ?? randomUUID(),
       cwd: '/tmp/cxx-names',
       invocationKind: 'interactive' as const,
-      upstreamSessionId: resume?.native ?? randomUUID(),
+      upstreamSessionId: resume ? resume.native : randomUUID(),
       requestedAddress: resume?.address,
     };
     const result = await service.registerSession(host, input);
@@ -160,33 +159,59 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
     for (const engine of ['codex', 'claude', 'grok'] as const) {
       const agent = await launch(engine);
       expect(await service.self(agent.sessionId, agent.token)).toMatchObject({
-        identity_version: 1, name: agent.address.name, uuid: agent.address.id,
-        address: agent.address.address, session_id: agent.sessionId, engine,
+        identity_version: 1,
+        name: agent.address.name,
+        uuid: agent.address.id,
+        address: agent.address.address,
+        session_id: agent.sessionId,
+        engine,
         native_session_id: agent.input.upstreamSessionId,
       });
-      await expect(service.self(agent.sessionId, 'wrong-token')).rejects.toMatchObject({ code: 'agent_bridge_unauthorized' });
+      await expect(service.self(agent.sessionId, 'wrong-token')).rejects.toMatchObject({
+        code: 'agent_bridge_unauthorized',
+      });
       await service.finishSession(agent.sessionId, agent.token, 'completed');
-      await expect(service.self(agent.sessionId, agent.token)).rejects.toMatchObject({ code: 'agent_session_finished' });
+      await expect(service.self(agent.sessionId, agent.token)).rejects.toMatchObject({
+        code: 'agent_session_finished',
+      });
     }
   });
   it('rolls back strict launches when every name is reserved', async () => {
     await db!.update(agentNamePool).set({ currentSessionId: sentinel });
     const sessionId = randomUUID();
-    await expect(service.registerSession(host, {
-      sessionId, bridgeToken: randomBytes(32).toString('base64url'), engine: 'grok',
-      username: randomUUID(), cwd: '/tmp/cxx-names', invocationKind: 'interactive',
-      adapterCapabilities: { launch_identity_version: 1 },
-    })).rejects.toMatchObject({ code: 'agent_name_pool_exhausted' });
+    await expect(
+      service.registerSession(host, {
+        sessionId,
+        bridgeToken: randomBytes(32).toString('base64url'),
+        engine: 'grok',
+        username: randomUUID(),
+        cwd: '/tmp/cxx-names',
+        invocationKind: 'interactive',
+        adapterCapabilities: { launch_identity_version: 1 },
+      }),
+    ).rejects.toMatchObject({ code: 'agent_name_pool_exhausted' });
     expect(await db!.select().from(agentSessions).where(eq(agentSessions.id, sessionId))).toHaveLength(0);
-    expect(await db!.select().from(agentBusAddresses).where(eq(agentBusAddresses.currentSessionId, sessionId))).toHaveLength(0);
+    expect(
+      await db!.select().from(agentBusAddresses).where(eq(agentBusAddresses.currentSessionId, sessionId)),
+    ).toHaveLength(0);
   });
   it('rejects a stale or unnamed self binding', async () => {
     const agent = await launch();
-    await db!.update(agentBusAddresses).set({ bindingGeneration: 99 }).where(eq(agentBusAddresses.id, agent.address.id));
-    await expect(service.self(agent.sessionId, agent.token)).rejects.toMatchObject({ code: 'agent_identity_unavailable' });
-    await db!.update(agentBusAddresses).set({ bindingGeneration: 0 }).where(eq(agentBusAddresses.id, agent.address.id));
+    await db!
+      .update(agentBusAddresses)
+      .set({ bindingGeneration: 99 })
+      .where(eq(agentBusAddresses.id, agent.address.id));
+    await expect(service.self(agent.sessionId, agent.token)).rejects.toMatchObject({
+      code: 'agent_identity_unavailable',
+    });
+    await db!
+      .update(agentBusAddresses)
+      .set({ bindingGeneration: 0 })
+      .where(eq(agentBusAddresses.id, agent.address.id));
     await db!.update(agentSessions).set({ launchName: null }).where(eq(agentSessions.id, agent.sessionId));
-    await expect(service.self(agent.sessionId, agent.token)).rejects.toMatchObject({ code: 'agent_identity_unavailable' });
+    await expect(service.self(agent.sessionId, agent.token)).rejects.toMatchObject({
+      code: 'agent_identity_unavailable',
+    });
   });
   it('holds a name for 24h after exit, reports pool exhaustion and reuses exactly at the boundary', async () => {
     await onlyClaudia();
@@ -285,21 +310,218 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
     const recovered = await service.registerSession(host, agent.input);
     expect((recovered.address as { name: string }).name).toBe(agent.address.name);
   });
-  it('resumed native sessions keep the UUID but receive a new launch name', async () => {
+  it.each(['codex', 'claude', 'grok'] as const)(
+    'preserves the original name and UUID across repeated %s resumes',
+    async (engine) => {
+      const first = await launch(engine);
+      let active = first;
+      for (let i = 0; i < 3; i++) {
+        await service.finishSession(active.sessionId, active.token, 'completed');
+        active = await launch(engine, {
+          address: first.address.address,
+          native: first.input.upstreamSessionId!,
+          username: first.input.username,
+        });
+        expect(active.address).toMatchObject({ id: first.address.id, name: first.address.name });
+        expect(await service.self(active.sessionId, active.token)).toMatchObject({
+          name: first.address.name,
+          uuid: first.address.id,
+        });
+        expect(await service.translate(first.address.name!)).toMatchObject({
+          uuid: first.address.id,
+          session_id: active.sessionId,
+          status: 'active',
+        });
+        const sender = await launch(engine);
+        const sent = await service.sendMessage(sender.sessionId, sender.token, {
+          to: first.address.name!,
+          content: 'Resume fixture',
+          clientMessageId: randomUUID(),
+        });
+        expect((sent.message as { target: { id: string } }).target.id).toBe(first.address.id);
+      }
+      const [historical] = await db!
+        .select()
+        .from(agentSessions)
+        .where(eq(agentSessions.id, first.sessionId));
+      expect(historical?.launchName).toBe(first.address.name);
+    },
+  );
+  it('restores an expired but unreassigned name and prefers original history over a legacy renamed address', async () => {
     const first = await launch();
     await service.finishSession(first.sessionId, first.token, 'completed');
+    await expireCooldown(first.sessionId);
+    await db!
+      .update(agentBusAddresses)
+      .set({ launchName: 'Legacy renamed label' })
+      .where(eq(agentBusAddresses.id, first.address.id));
     const resumed = await launch('codex', {
-      address: first.address.address,
-      native: first.input.upstreamSessionId,
+      native: first.input.upstreamSessionId!,
       username: first.input.username,
     });
-    expect(resumed.address.id).toBe(first.address.id);
-    expect(resumed.address.name).not.toBe(first.address.name);
-    expect((await service.translate(first.address.id)).name).toBe(resumed.address.name);
-    expect(await service.self(resumed.sessionId, resumed.token)).toMatchObject({ name: resumed.address.name, uuid: first.address.id, previous_names: expect.arrayContaining([first.address.name, resumed.address.name]) });
+    expect(resumed.address).toMatchObject({ id: first.address.id, name: first.address.name });
+  });
+  it('rejects a reused name, including its new cooldown, without rebinding either identity', async () => {
+    await onlyClaudia();
+    const first = await launch();
+    await service.finishSession(first.sessionId, first.token, 'completed');
+    await expireCooldown(first.sessionId);
+    const other = await launch('grok');
+    const resume = () =>
+      launch('codex', {
+        address: first.address.address,
+        native: first.input.upstreamSessionId!,
+        username: first.input.username,
+      });
+    await expect(resume()).rejects.toMatchObject({
+      code: 'agent_resume_name_conflict',
+      extra: { name: 'Claudia', uuid: first.address.id },
+    });
+    expect(await service.self(other.sessionId, other.token)).toMatchObject({
+      name: 'Claudia',
+      uuid: other.address.id,
+    });
     expect(
-      (await db!.select().from(agentSessions).where(eq(agentSessions.id, first.sessionId)))[0]?.launchName,
-    ).toBe(first.address.name);
+      (await db!.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, first.address.id)))[0]
+        ?.currentSessionId,
+    ).toBeNull();
+    await service.finishSession(other.sessionId, other.token, 'completed');
+    await expect(resume()).rejects.toMatchObject({ code: 'agent_resume_name_conflict' });
+    await expireCooldown(other.sessionId);
+    expect((await resume()).address).toMatchObject({ id: first.address.id, name: 'Claudia' });
+  });
+  it.each(['codex', 'claude', 'grok'] as const)(
+    'restores the name after late %s picker binding and retains provisional history',
+    async (engine) => {
+      const first = await launch(engine);
+      await service.finishSession(first.sessionId, first.token, 'completed');
+      const picker = await launch(engine, { native: null, username: first.input.username });
+      expect(picker.address.name).not.toBe(first.address.name);
+      const receiver = new AgentReceiverService(db!, loadTestEnv(), testKeyring());
+      const protocol =
+        engine === 'codex' ? 'codex-queue-v1' : engine === 'claude' ? 'claude-channel-v1' : 'grok-acp-v1';
+      await receiver.register(picker.sessionId, picker.token, {
+        generation: randomUUID(),
+        protocol,
+        native_session_id: first.input.upstreamSessionId!,
+      });
+      expect(await service.self(picker.sessionId, picker.token)).toMatchObject({
+        name: first.address.name,
+        uuid: first.address.id,
+        previous_names: expect.arrayContaining([picker.address.name]),
+      });
+      expect(await service.translate(picker.address.name!)).toMatchObject({
+        uuid: picker.address.id,
+        status: 'ended',
+      });
+      const leases = await db!
+        .select()
+        .from(agentNameLeases)
+        .where(eq(agentNameLeases.sessionId, picker.sessionId));
+      expect(leases).toHaveLength(2);
+      expect(leases.filter((row) => !row.endedAt)).toHaveLength(1);
+      const retry = await service.registerSession(host, {
+        ...picker.input,
+        requestedAddress: first.address.address,
+        upstreamSessionId: first.input.upstreamSessionId,
+      });
+      expect(retry.address).toMatchObject({ id: first.address.id, name: first.address.name });
+      await service.finishSession(picker.sessionId, picker.token, 'completed');
+      expect((await service.translate(first.address.name!)).status).toBe('ended');
+      expect((await service.translate(picker.address.name!)).status).toBe('ended');
+    },
+  );
+  it('rolls back late binding when the original name is reused', async () => {
+    await onlyClaudia();
+    const first = await launch();
+    await service.finishSession(first.sessionId, first.token, 'completed');
+    await expireCooldown(first.sessionId);
+    const other = await launch();
+    // Free the remainder of the pool for the provisional launch.
+    await db!
+      .update(agentNamePool)
+      .set({ currentSessionId: null })
+      .where(eq(agentNamePool.currentSessionId, sentinel));
+    const picker = await launch('codex', { native: null, username: first.input.username });
+    const receiver = new AgentReceiverService(db!, loadTestEnv(), testKeyring());
+    await expect(
+      receiver.register(picker.sessionId, picker.token, {
+        generation: randomUUID(),
+        protocol: 'codex-queue-v1',
+        native_session_id: first.input.upstreamSessionId!,
+      }),
+    ).rejects.toMatchObject({ code: 'agent_resume_name_conflict' });
+    expect(
+      (await db!.select().from(agentSessions).where(eq(agentSessions.id, picker.sessionId)))[0]?.receiver,
+    ).toBeNull();
+    expect(await service.self(picker.sessionId, picker.token)).toMatchObject({
+      uuid: picker.address.id,
+      name: picker.address.name,
+      native_session_id: null,
+    });
+    expect(await service.self(other.sessionId, other.token)).toMatchObject({
+      uuid: other.address.id,
+      name: first.address.name,
+    });
+  });
+  it('serializes a resume racing name reuse without allocating a replacement name', async () => {
+    await onlyClaudia();
+    const first = await launch();
+    await service.finishSession(first.sessionId, first.token, 'completed');
+    await expireCooldown(first.sessionId);
+    const results = await Promise.allSettled([
+      launch('codex', { native: first.input.upstreamSessionId!, username: first.input.username }),
+      launch('grok'),
+    ]);
+    const named = results.flatMap((result) =>
+      result.status === 'fulfilled' && result.value.address.name ? [result.value] : [],
+    );
+    expect(named).toHaveLength(1);
+    expect(named[0]!.address.name).toBe('Claudia');
+    if (results[0].status === 'rejected')
+      expect(results[0].reason).toMatchObject({ code: 'agent_resume_name_conflict' });
+  });
+  it('migrates legacy leases without losing history and can reapply the migration', async () => {
+    const table = 'ztest_resume_name_leases';
+    try {
+      await exec(
+        `CREATE TABLE ${table} (session_id CHAR(36) PRIMARY KEY, name_key VARCHAR(96) NOT NULL, name VARCHAR(96) NOT NULL, address_id CHAR(36) NOT NULL, started_at VARCHAR(100) NOT NULL, ended_at VARCHAR(100), cooldown_until VARCHAR(100))`,
+      );
+      await exec(
+        `INSERT INTO ${table} VALUES ('launch', 'claudia', 'Claudia', 'address', '2026-10-01T00:00:00Z', NULL, NULL)`,
+      );
+      const migration = (await loadMigrations()).find((m) => m.filename === '0080_agent_resume_names.sql')!;
+      for (let i = 0; i < 2; i++)
+        for (const statement of migration.statements)
+          await exec(statement.replaceAll('agent_name_leases', table));
+      await exec(
+        `INSERT INTO ${table} (session_id, name_key, name, address_id, started_at) VALUES ('launch', 'paula', 'Paula', 'address', '2026-10-02T00:00:00Z')`,
+      );
+      const [rows] = await handle!.pool.query(`SELECT name FROM ${table} ORDER BY id`);
+      expect(rows).toEqual([{ name: 'Claudia' }, { name: 'Paula' }]);
+    } finally {
+      await exec(`DROP TABLE IF EXISTS ${table}`);
+    }
+  });
+  it('assigns a first name when resuming a legacy unnamed identity', async () => {
+    await db!.update(agentNamePool).set({ currentSessionId: sentinel });
+    const legacy = await launch();
+    expect(legacy.address.name).toBeNull();
+    await service.finishSession(legacy.sessionId, legacy.token, 'completed');
+    await db!
+      .update(agentNamePool)
+      .set({ currentSessionId: null })
+      .where(eq(agentNamePool.currentSessionId, sentinel));
+    const resumed = await launch('codex', {
+      native: legacy.input.upstreamSessionId!,
+      username: legacy.input.username,
+    });
+    expect(resumed.address.id).toBe(legacy.address.id);
+    expect(resumed.address.name).toBeTruthy();
+    expect(await service.self(resumed.sessionId, resumed.token)).toMatchObject({
+      name: resumed.address.name,
+      uuid: legacy.address.id,
+    });
   });
   it('moves the name when native identity changes inside a launch', async () => {
     const agent = await launch();
@@ -314,7 +536,10 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
     expect(moved.id).not.toBe(agent.address.id);
     expect(moved.launchName).toBe(agent.address.name);
     expect((await service.translate(agent.address.name!)).uuid).toBe(moved.id);
-    expect(await service.self(agent.sessionId, agent.token)).toMatchObject({ name: agent.address.name, uuid: moved.id });
+    expect(await service.self(agent.sessionId, agent.token)).toMatchObject({
+      name: agent.address.name,
+      uuid: moved.id,
+    });
   });
   it('reserves pool names from manual aliases and blocks existing conflicting aliases', async () => {
     const agent = await launch();
@@ -344,10 +569,29 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
       const before = identities.length;
       const selfUrl = `/host/agent-sessions/${agent.sessionId}/agent-messaging/self`;
       expect((await app.inject({ method: 'POST', url: selfUrl, payload: {} })).statusCode).toBe(403);
-      expect((await app.inject({ method: 'POST', url: selfUrl, headers: { 'x-agent-bridge-token': 'wrong-token' }, payload: {} })).statusCode).toBe(401);
-      const self = await app.inject({ method: 'POST', url: selfUrl, headers: { 'x-agent-bridge-token': agent.token }, payload: {} });
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: selfUrl,
+            headers: { 'x-agent-bridge-token': 'wrong-token' },
+            payload: {},
+          })
+        ).statusCode,
+      ).toBe(401);
+      const self = await app.inject({
+        method: 'POST',
+        url: selfUrl,
+        headers: { 'x-agent-bridge-token': agent.token },
+        payload: {},
+      });
       expect(self.statusCode).toBe(200);
-      expect(self.json()).toMatchObject({ name: agent.address.name, uuid: agent.address.id, session_id: agent.sessionId, identity_version: 1 });
+      expect(self.json()).toMatchObject({
+        name: agent.address.name,
+        uuid: agent.address.id,
+        session_id: agent.sessionId,
+        identity_version: 1,
+      });
       const sessionUrl = `/host/agent-sessions/${agent.sessionId}/agent-messaging/translate`;
       const denied = await app.inject({
         method: 'POST',
@@ -387,26 +631,24 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
     const agent = await launch();
     const portal = new AgentPortalService(db!, loadTestEnv(), testKeyring());
     const insertName = async (name: string, nativeId: string) =>
-      await db!
-        .insert(agentEvents)
-        .values({
-          sessionId: agent.sessionId,
-          clientEventId: randomUUID(),
-          eventType: 'session_named',
-          source: 'engine',
-          payloadEnc: encrypt(JSON.stringify({ name, native_session_id: nativeId }), testKeyring()),
-          createdAt: nowIso(),
-        });
+      await db!.insert(agentEvents).values({
+        sessionId: agent.sessionId,
+        clientEventId: randomUUID(),
+        eventType: 'session_named',
+        source: 'engine',
+        payloadEnc: encrypt(JSON.stringify({ name, native_session_id: nativeId }), testKeyring()),
+        createdAt: nowIso(),
+      });
     expect((await portal.listAgentsSnapshot()).sessions.find((s) => s.id === agent.sessionId)).toMatchObject({
       session_name: `(${agent.address.name})`,
       task_title: null,
     });
-    await insertName('API review', agent.input.upstreamSessionId);
+    await insertName('API review', agent.input.upstreamSessionId!);
     expect((await portal.listAgentsSnapshot()).sessions.find((s) => s.id === agent.sessionId)).toMatchObject({
       session_name: `(${agent.address.name}) API review`,
       task_title: 'API review',
     });
-    await insertName('Fix tests', agent.input.upstreamSessionId);
+    await insertName('Fix tests', agent.input.upstreamSessionId!);
     expect((await portal.listAgentsSnapshot()).sessions.find((s) => s.id === agent.sessionId)).toMatchObject({
       session_name: `(${agent.address.name}) Fix tests`,
     });

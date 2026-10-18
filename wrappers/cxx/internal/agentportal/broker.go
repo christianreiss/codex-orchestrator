@@ -250,6 +250,19 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.session.observeClaim(r.URL.Path, output)
+	// Receiver binding may restore a transcript's original name after a picker
+	// launch. Cache only an authenticated self response, never caller hints.
+	if strings.HasSuffix(r.URL.Path, "/agent-messaging/self") {
+		b.session.observeIdentity(output)
+	}
+	if strings.HasSuffix(r.URL.Path, "/receiver/register") {
+		var registration struct {
+			Identity json.RawMessage `json:"identity"`
+		}
+		if json.Unmarshal(output, &registration) == nil {
+			b.session.observeIdentity(registration.Identity)
+		}
+	}
 	if len(output) == 0 {
 		output = json.RawMessage(`{}`)
 	}

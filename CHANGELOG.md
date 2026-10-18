@@ -1,5 +1,7 @@
 # 2026-10-18
 
+- **Stable agent names on resume (cxx 0.9.105):** Codex, Claude and Grok resumes restore the transcript’s original name and UUID, including picker/continue launches. The 24-hour reuse policy remains; if the name has been reassigned, resume stops with an explicit conflict instead of silently renaming the agent. Provisional name history is retained and wrapper recovery follows the restored identity.
+
 - Android 0.5.3 shows active conversations and shared rooms only while at least one agent is online. Offline/ended chats no longer stay active because of urgent notices; empty room categories disappear. Closed conference History remains available.
 
 - Shared conversation directories on web and Android now move adjourned conferences to History once all members are offline. History / Active switches directories and retains messages; closed rooms no longer consume active directory pages. Android 0.5.2 adds the History button.
