@@ -118,14 +118,14 @@ const config: Config = {
         mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "monospace"],
       },
       fontSize: {
-        overline: ["0.6875rem", { lineHeight: "1", letterSpacing: "0.08em", fontWeight: "600" }],
+        overline: ["0.75rem", { lineHeight: "1", letterSpacing: "0.08em", fontWeight: "600" }],
         caption: ["0.75rem", { lineHeight: "1.4", fontWeight: "500" }],
         "body-sm": ["0.8125rem", { lineHeight: "1.5" }],
         body: ["0.875rem", { lineHeight: "1.5" }],
-        "body-lg": ["0.9375rem", { lineHeight: "1.55" }],
+        "body-lg": ["1rem", { lineHeight: "1.6" }],
         h3: ["1rem", { lineHeight: "1.3", fontWeight: "600" }],
-        h2: ["1.375rem", { lineHeight: "1.25", letterSpacing: "-0.01em", fontWeight: "500" }],
-        h1: ["1.875rem", { lineHeight: "1.2", letterSpacing: "-0.01em", fontWeight: "500" }],
+        h2: ["1rem", { lineHeight: "1.3", fontWeight: "600" }],
+        h1: ["1.25rem", { lineHeight: "1.3", fontWeight: "600" }],
       },
       boxShadow: {
         hairline: "var(--shadow)",

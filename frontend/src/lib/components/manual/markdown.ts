@@ -55,6 +55,7 @@ export function renderMarkdown(source: string): RenderedArticle {
     if (depth >= 2 && depth <= 3) {
       toc.push({ id, text: plain, level: depth });
     }
+    depth = Math.max(2, depth); // The article shell owns the only page h1.
     const safePlain = plain.replace(/"/g, "&quot;");
     return `<h${depth} id="${id}"><a class="anchor" href="#${id}" aria-label="Link to ${safePlain}"></a>${text}</h${depth}>\n`;
   };

@@ -1,10 +1,10 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   /** One report: status, original evidence, outcome, triage (if allowed) and history. */
   import { createQuery } from "@tanstack/svelte-query";
   import { StateBlock } from "$lib/components/page";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { feedbackApi, feedbackKeys } from "$lib/api/feedback";
-  import { relativeTime } from "$lib/utils/format";
   import ReportTriageForm from "./ReportTriageForm.svelte";
   import { actorLabel, humanize } from "./report-model";
 
@@ -66,7 +66,7 @@
         <details class="mb-2 rounded-md border px-3 py-2">
           <summary class="cursor-pointer text-body-sm">
             v{event.version} · {humanize(event.action)} · {actorLabel(event.actor)}
-            <span class="ml-2 text-caption text-muted-foreground">{relativeTime(event.created_at)}</span>
+            <span class="ml-2 text-caption text-muted-foreground"><Timestamp value={event.created_at} /></span>
           </summary>
           <pre class="mt-2 whitespace-pre-wrap break-all font-mono text-caption">{JSON.stringify(event.detail, null, 2)}</pre>
         </details>

@@ -15,12 +15,13 @@
     detail: Snippet;
     footer?: Snippet;
     onClose?: () => void;
+    dirty?: boolean;
   };
-  let { open = $bindable(), title, description, list, detail, footer, onClose }: Props = $props();
+  let { open = $bindable(), title, description, list, detail, footer, onClose, dirty = false }: Props = $props();
 </script>
 
 {@render list()}
-<Sheet.Root bind:open onOpenChange={(next) => { if (!next) onClose?.(); }}>
+<Sheet.Root bind:open={() => open, (next) => { if (!next && dirty && !window.confirm("Discard unsaved changes?")) return; open = next; if (!next) onClose?.(); }}>
   <Sheet.Content side="right" class="flex w-full flex-col gap-4 sm:max-w-xl">
     <Sheet.Header>
       <Sheet.Title>{title}</Sheet.Title>

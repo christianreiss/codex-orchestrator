@@ -1,3 +1,4 @@
+import { typographyMergeConfig } from "$lib/utils/cn";
 import { Dialog as SheetPrimitive } from "bits-ui";
 import { tv, type VariantProps } from "tailwind-variants";
 import Overlay from "./sheet-overlay.svelte";
@@ -13,7 +14,7 @@ const Close = SheetPrimitive.Close;
 const Portal = SheetPrimitive.Portal;
 
 export const sheetVariants = tv({
-  base: "fixed z-50 gap-4 bg-background p-6 shadow-pop transition ease-out data-[state=closed]:duration-200 data-[state=open]:duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out",
+  base: "fixed z-50 min-w-0 max-w-full max-h-dvh overflow-y-auto gap-4 bg-background p-6 shadow-pop transition ease-out data-[state=closed]:duration-200 data-[state=open]:duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out",
   variants: {
     side: {
       top: "inset-x-0 top-0 border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",
@@ -25,7 +26,7 @@ export const sheetVariants = tv({
     },
   },
   defaultVariants: { side: "right" },
-});
+}, { twMergeConfig: typographyMergeConfig });
 
 export type SheetSide = VariantProps<typeof sheetVariants>["side"];
 

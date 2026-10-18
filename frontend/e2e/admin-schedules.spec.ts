@@ -28,7 +28,7 @@ test('create, inspect, pause, edit and delete an explicit persistent interval',a
  await page.goto('/admin/schedules');
  await expect(page.getByRole('heading',{name:'Timed wake-ups',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Create schedule'}).click();
- await page.getByText('Advanced',{exact:true}).click();
+ await page.getByText('Recovery and resume limits',{exact:true}).click();
  await expect(page.getByRole('checkbox',{name:/Persistent recovery/})).not.toBeChecked();
  await page.getByLabel('Name',{exact:true}).fill('Continue review');
  await page.getByRole('combobox',{name:'Target agent'}).click();
@@ -82,7 +82,7 @@ test('name search, keyboard selection, mobile panel and failed save retain input
  const panel=page.getByRole('dialog');
  await expect(panel).toBeVisible();
  await expect.poll(async()=>Math.round((await panel.boundingBox())?.width ?? 0)).toBe(390);
- await page.getByText('Advanced',{exact:true}).click();
+ await page.getByText('Recovery and resume limits',{exact:true}).click();
  await expect(page.getByLabel('Progress timeout in seconds')).toHaveCount(0);
  await page.getByLabel('Name',{exact:true}).fill('Mobile review');
  await page.getByRole('combobox',{name:'Target agent'}).click();
@@ -97,10 +97,14 @@ test('name search, keyboard selection, mobile panel and failed save retain input
  await expect(page.getByRole('combobox',{name:'Target agent'})).toContainText('Beate');
  await page.getByLabel('Prompt',{exact:true}).fill('Continue review');
  await page.getByRole('button',{name:'Save',exact:true}).click();
- await expect(page.getByText('Version conflict')).toBeVisible();
+ await expect(page.getByRole('dialog').getByRole('alert')).toBeVisible();
  await expect(panel).toBeVisible();
  await expect(page.getByLabel('Name',{exact:true})).toHaveValue('Mobile review');
  await page.screenshot({path:'/tmp/wake-cron-mobile.png'});
+ page.once('dialog', prompt => prompt.dismiss());
+ await page.keyboard.press('Escape');
+ await expect(page.getByLabel('Name',{exact:true})).toHaveValue('Mobile review');
+ page.once('dialog', prompt => prompt.accept());
  await page.keyboard.press('Escape');
  await expect(panel).not.toBeVisible();
  await expect(create).toBeFocused();

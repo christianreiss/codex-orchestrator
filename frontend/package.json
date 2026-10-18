@@ -11,7 +11,8 @@
     "test:e2e": "playwright test",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && npm run test",
     "shots:readme": "node scripts/readme-shots/capture.ts",
-    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "test:e2e:cross-browser": "playwright test --config playwright.cross.config.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",

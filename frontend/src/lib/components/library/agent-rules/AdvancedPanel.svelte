@@ -14,7 +14,7 @@
 </script>
 
 <details class="rounded-md border" bind:open>
-  <summary class="cursor-pointer select-none px-3 py-2 text-body font-medium">Advanced</summary>
+  <summary class="cursor-pointer select-none px-3 py-2 text-body font-medium">Document generation mode</summary>
   <div class="space-y-2 border-t p-3">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="min-w-0">
@@ -23,7 +23,7 @@
           {doc.generationModeHint} Applies to the whole fleet as soon as you pick it, and no version is saved.
         </p>
       </div>
-      <div class="inline-flex rounded-md border p-0.5" role="group" aria-label="AGENTS.md generation">
+      <div class="inline-flex max-w-full flex-wrap rounded-md border p-0.5" role="group" aria-label="AGENTS.md generation">
         {#each GENERATION_MODES as option (option.id)}
           <button
             type="button"

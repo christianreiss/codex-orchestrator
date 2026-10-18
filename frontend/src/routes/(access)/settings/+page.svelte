@@ -10,7 +10,7 @@
   const canManage = $derived($authStore.can("settings.manage"));
 </script>
 
-<PageShell title="Settings" description="Fleet-wide behaviour. Changes save immediately; individual hosts can override most of them." width="narrow">
+<PageShell title="Settings" description="Fleet-wide behaviour. Switches save immediately. Retention and cleanup forms use Save changes. Individual hosts can override most settings." width="narrow">
   {#if !canManage}
     <p class="text-body-sm text-muted-foreground">Read only. Changing these settings requires <code class="font-mono">settings.manage</code>.</p>
   {/if}

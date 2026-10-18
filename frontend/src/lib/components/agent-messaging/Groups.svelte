@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { createQuery } from "@tanstack/svelte-query";
   import { writable } from "svelte/store";
   import { page } from "$app/state";
@@ -10,7 +11,6 @@
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { authStore } from "$lib/stores/auth";
-  import { relativeTime } from "$lib/utils/format";
   import {
     agentGroupCreateMutation, agentGroupOptions, agentGroupsOptions,
     agentPublishMutation, agentSubscriptionsOptions, SERVER_TOPIC, MAX_PUBLICATION_CONTENT_BYTES,
@@ -153,7 +153,7 @@
           {#each $detail.data?.members ?? [] as member (member.address_id)}
             <li class="py-2">
               <p class="flex flex-wrap items-center gap-2"><span class="break-all text-body font-medium">{member.alias ?? member.address}</span><Badge variant="outline" class="uppercase">{member.engine}</Badge></p>
-              <p class="text-caption text-muted-foreground">Subscribed {relativeTime(member.joined_at)}</p>
+              <p class="text-caption text-muted-foreground">Subscribed <Timestamp value={member.joined_at} /></p>
             </li>
           {:else}
             <li class="py-2 text-body-sm text-muted-foreground">{selectedSlug ? "No subscribers yet. Publications go only to agents who opt in." : "Select a group to inspect its audience."}</li>

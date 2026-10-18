@@ -1,8 +1,8 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   /** Sheet body for one worktree, merge request or released registration. */
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
-  import { relativeTime } from "$lib/utils/format";
   import type { GitCloneRow } from "$lib/api/gitDirector";
   import { repoName, verdictVariant, type GitSelection } from "./git-rows";
 
@@ -34,7 +34,7 @@
       <h3 class="font-medium">Declared paths</h3>
       {#each worktree.declared_paths as path (path)}<p class="break-all font-mono text-caption">{path}</p>{:else}<p class="text-muted-foreground">None declared.</p>{/each}
     </div>
-    <p class="text-caption text-muted-foreground">Heartbeat {relativeTime(worktree.heartbeat_at)} · expires {relativeTime(worktree.expires_at)} · {worktree.agent_address_bound ? "Addressable" : "No agent address bound"}</p>
+    <p class="text-caption text-muted-foreground">Heartbeat <Timestamp value={worktree.heartbeat_at} /> · expires <Timestamp value={worktree.expires_at} /> · {worktree.agent_address_bound ? "Addressable" : "No agent address bound"}</p>
     {#if canMutate}
       <Button variant="outline" disabled={busy} onclick={() => onRelease(worktree.worktree_id)}>Release registration</Button>
       <p class="text-caption text-muted-foreground">Also frees its held leases.</p>
@@ -48,8 +48,8 @@
       <h3 class="font-medium">Overlapping paths</h3>
       {#each request.overlap as path (path)}<p class="break-all font-mono text-caption">{path}</p>{:else}<p class="text-muted-foreground">No overlap recorded.</p>{/each}
     </div>
-    <p class="text-caption text-muted-foreground">Decided by {request.decided_by === "llm" ? "arbiter" : request.decided_by} · requested {relativeTime(request.requested_at)}{recent?.model ? ` · ${recent.model}` : ""}</p>
-    {#if request.lease_expires_at}<p class="text-caption text-muted-foreground">Lease expires {relativeTime(request.lease_expires_at)}</p>{/if}
+    <p class="text-caption text-muted-foreground">Decided by {request.decided_by === "llm" ? "arbiter" : request.decided_by} · requested <Timestamp value={request.requested_at} />{recent?.model ? ` · ${recent.model}` : ""}</p>
+    {#if request.lease_expires_at}<p class="text-caption text-muted-foreground">Lease expires <Timestamp value={request.lease_expires_at} /></p>{/if}
     {#if lease && canMutate}
       <div class="flex gap-2">
         <Button variant="outline" disabled={busy} onclick={() => onDecide(lease.request_id, "allow")}>Force allow</Button>
@@ -61,6 +61,6 @@
     <p>{stale.task ?? "No task declared"}</p>
     <p class="break-all font-mono text-caption">{stale.worktree_path}</p>
     <p>{stale.branch ?? "Detached"}</p>
-    <p class="text-caption text-muted-foreground">Last seen {relativeTime(stale.last_seen_at)}{stale.released_at ? ` · released ${relativeTime(stale.released_at)}` : ""}</p>
+    <p class="text-caption text-muted-foreground">Last seen <Timestamp value={stale.last_seen_at} />{stale.released_at ? ` · released $<Timestamp value={stale.released_at} />` : ""}</p>
   {/if}
 </div>

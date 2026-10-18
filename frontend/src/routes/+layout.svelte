@@ -24,7 +24,6 @@
   import { wireWsToQueryClient } from "$lib/ws/events";
   import { setWsStatus } from "$lib/stores/ws-status";
   import InsecureApprovalsAutoPopup from "$lib/components/hosts/InsecureApprovalsAutoPopup.svelte";
-  import { getDocumentTitle } from "$lib/nav";
   import { getSetupStatus } from "$lib/api/setup";
 
   let { children } = $props();
@@ -36,9 +35,7 @@
   const STANDALONE = ["/setup", "/login", "/password/reset", "/cli-auth/verify"];
   const standalone = $derived(STANDALONE.some((p) => path === p || path.startsWith(p + "/")));
 
-  $effect(() => {
-    if (browser) document.title = getDocumentTitle(path);
-  });
+  // PageShell/AuthShell own titles, including resolved object names.
 
   const queryClient = new QueryClient({
     defaultOptions: {

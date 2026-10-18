@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snapshot } from "./$types";
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import { PageShell, StatStrip, Toolbar, DataTable } from "$lib/components/page";
@@ -56,6 +57,10 @@
     onSettled: () => { void qc.invalidateQueries({ queryKey: accountsKeys.all() }); },
   });
   const run = (account: ProviderAccount, action: "state" | "verify") => $change.mutate({ account, action });
+  export const snapshot: Snapshot<{ scope: typeof scope, search: typeof search }> = {
+    capture: () => ({ scope, search }),
+    restore: (value) => { scope = value.scope; search = value.search; },
+  };
 </script>
 
 <PageShell title="Accounts" description="Subscription accounts shared by the fleet. New sessions use verified accounts that still have quota." width="wide">
@@ -84,6 +89,7 @@
     onRetry={() => $query.refetch()}
     key={(account) => account.id}
     filtered={search.trim() !== "" && scoped.length > 0}
+      onClearFilters={() => { search = ""; }}
     emptyTitle={scope === "all" ? "No accounts" : `No ${ENGINE_META[scope].account} accounts`}
     emptyDescription={`Add credentials here, or log in through ${scope === "all" ? "cdx, clx or cgx" : ENGINE_META[scope].command} on a registered host.`}
     caption="Provider accounts"

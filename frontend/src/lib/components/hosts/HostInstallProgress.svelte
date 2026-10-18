@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   /**
    * What happens after a host is registered: the installer command, and a
    * live three-step timeline of the install actually landing.
@@ -26,7 +27,6 @@
   import { createMintInstallerMutation, hostDetailQuery, hostEngines } from "$lib/api/hosts";
   import { setupStatusQuery } from "$lib/api/setup";
   import { autoCopyText } from "$lib/utils/clipboard";
-  import { relativeTime } from "$lib/utils/format";
   import { cn } from "$lib/utils/cn";
   import { engineLabel } from "$lib/constants/engines";
   import { useFleetEngines } from "$lib/engines/fleet-engines";
@@ -180,7 +180,7 @@
           </span>
           <span class="block text-body-sm text-muted-foreground">
             {#if done && stage.at}
-              {relativeTime(stage.at)}
+              <Timestamp value={stage.at} />
             {:else if waiting}
               {stage.hint}
             {/if}

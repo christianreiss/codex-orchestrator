@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   /** Read-only conference rooms: pick one to inspect its members and every delivery. */
   import { createQuery } from "@tanstack/svelte-query";
   import { page } from "$app/state";
@@ -7,7 +8,6 @@
   import { StateBlock } from "$lib/components/page";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { conferencesOptions } from "$lib/api/agentConferences";
-  import { relativeTime } from "$lib/utils/format";
   import ConferenceInspector from "./ConferenceInspector.svelte";
 
   let { limit = 100 }: { limit?: number } = $props();
@@ -59,7 +59,7 @@
             <Badge variant="outline" class="capitalize">{room.status}</Badge>
             <span class="text-caption text-muted-foreground">
               Chair {room.chair?.alias ?? room.chair?.address ?? "unavailable"} · {room.member_count} active / {room.total_members} members · {room.max_members} seats ·
-              <span title={room.deadline_at}>deadline {relativeTime(room.deadline_at)}</span> · activity {relativeTime(room.last_activity_at ?? room.created_at)}
+              <span title={room.deadline_at}>deadline <Timestamp value={room.deadline_at} /></span> · activity <Timestamp value={room.last_activity_at ?? room.created_at} />
             </span>
           </button>
         </li>

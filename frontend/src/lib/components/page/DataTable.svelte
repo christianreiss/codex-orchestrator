@@ -6,6 +6,7 @@
    */
   import type { Component, Snippet } from "svelte";
   import * as Table from "$lib/components/ui/table";
+  import { Button } from "$lib/components/ui/button";
   import StateBlock from "./StateBlock.svelte";
 
   type Props = {
@@ -25,26 +26,29 @@
     emptyAction?: Snippet;
     /** True when a filter is active and removed every row. */
     filtered?: boolean;
+    onClearFilters?: () => void;
     caption?: string;
   };
-  let { items, loading = false, error = null, onRetry, head, row, key, emptyTitle = "Nothing here yet", emptyDescription, emptyIcon, emptyAction, filtered = false, caption }: Props = $props();
+  let { items, loading = false, error = null, onRetry, head, row, key, emptyTitle = "Nothing here yet", emptyDescription, emptyIcon, emptyAction, filtered = false, onClearFilters, caption }: Props = $props();
 </script>
 
-{#if loading && !items}
+{#if error}
+  <StateBlock state="error" message={items?.length ? `Refresh failed. Showing previously loaded data. ${error}` : error} {onRetry} />
+{/if}
+{#if loading && !items?.length}
   <StateBlock state="loading" />
-{:else if error}
-  <StateBlock state="error" message={error} {onRetry} />
-{:else if !items || items.length === 0}
+{:else if !error && (!items || items.length === 0)}
   <StateBlock
     state="empty"
     message={filtered ? "No matches" : emptyTitle}
     description={filtered ? "Try a different search or clear the filters." : emptyDescription}
     icon={emptyIcon}
-    action={filtered ? undefined : emptyAction}
+    action={filtered ? clearFilters : emptyAction}
   />
-{:else}
-  <div class="overflow-x-auto rounded-md border">
-    <Table.Root>
+{:else if items?.length}
+  {#if loading}<p role="status" class="text-body-sm text-muted-foreground">Refreshing… Previously loaded data remains visible.</p>{/if}
+  <div class="min-w-0 max-w-full rounded-md border" aria-busy={loading}>
+    <Table.Root regionLabel={caption ?? emptyTitle}>
       {#if caption}<Table.Caption class="sr-only">{caption}</Table.Caption>{/if}
       <Table.Header><Table.Row>{@render head()}</Table.Row></Table.Header>
       <Table.Body>
@@ -55,3 +59,5 @@
     </Table.Root>
   </div>
 {/if}
+
+{#snippet clearFilters()}{#if onClearFilters}<Button variant="outline" onclick={onClearFilters}>Clear filters</Button>{/if}{/snippet}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import { untrack } from "svelte";
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { api } from "$lib/api/client";
@@ -65,6 +66,7 @@
     $saveMutation.mutate({ ...$query.data, ...draft });
   }
 </script>
+<DraftGuard {dirty} />
 <PolicyRow
   id={kind}
   label={retention ? "Remove old logs automatically" : "Remove inactive hosts"}
@@ -83,7 +85,7 @@
   {#if retention}
     <p role="status" class="text-body-sm text-muted-foreground">
       {#if $toggleMutation.isPending}Saving…
-      {:else if $toggleMutation.isError}<span class="text-destructive">Save failed: {$toggleMutation.error.message}. The saved value is unchanged.</span>
+      {:else if $toggleMutation.isError}<span class="text-destructive">Save failed: {$toggleMutation.error.message}. Check the refreshed server value before retrying.</span>
       {:else if $query.isSuccess}{$query.data.enabled ? "Automatic removal enabled" : "Automatic removal disabled · logs kept indefinitely"}{#if $toggleMutation.isSuccess} · Saved{/if}{/if}
     </p>
   {/if}

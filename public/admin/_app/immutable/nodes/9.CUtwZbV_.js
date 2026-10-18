@@ -1,0 +1,1 @@
+import{in as e}from"../chunks/rqxxqezo.js";import{u as t}from"../chunks/DUYjFf-H.js";import"../chunks/xihTtKlq.js";import"../chunks/BALkrGsL.js";import{n}from"../chunks/hr-gEUua2.js";var r=e({load:()=>i}),i=()=>{n(307,`${t}/dashboard`)};function a(e){}export{a as component,r as universal};

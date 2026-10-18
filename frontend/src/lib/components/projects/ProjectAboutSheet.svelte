@@ -1,4 +1,6 @@
 <script lang="ts">
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
+  import SaveState from "$lib/components/page/SaveState.svelte";
   /**
    * "About" for a project: title, name, description and the roster, edited in
    * place. AI-Assist drafts both from the project's content. The full project
@@ -70,14 +72,19 @@
     void qc.invalidateQueries({ queryKey: projectKeys.list });
   };
 
+  let submittedAbout = { title: "", name: "", description: "" };
+  let submittedRoster = "";
   const aboutMutation = createMutation({
-    mutationFn: () => updateAbout(slug, { title: aboutTitle.trim() || null, name: aboutName.trim() || null, description: aboutDesc.trim() || null }),
-    onSuccess: () => { toast.success("About saved"); initialTitle = aboutTitle; initialName = aboutName; initialDesc = aboutDesc; saved(); },
+    mutationFn: () => {
+      submittedAbout = { title: aboutTitle, name: aboutName, description: aboutDesc };
+      return updateAbout(slug, { title: aboutTitle.trim() || null, name: aboutName.trim() || null, description: aboutDesc.trim() || null });
+    },
+    onSuccess: () => { toast.success("About saved"); initialTitle = submittedAbout.title; initialName = submittedAbout.name; initialDesc = submittedAbout.description; saved(); },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not save about"),
   });
   const rosterMutation = createMutation({
-    mutationFn: () => updateRoster(slug, roster),
-    onSuccess: () => { toast.success("Roster saved"); initialRoster = roster; saved(); },
+    mutationFn: () => { submittedRoster = roster; return updateRoster(slug, roster); },
+    onSuccess: () => { toast.success("Roster saved"); initialRoster = submittedRoster; saved(); },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not save roster"),
   });
   const assistMutation = createMutation({
@@ -94,6 +101,7 @@
   });
 </script>
 
+<DraftGuard dirty={aboutChanged || rosterChanged} />
 <Sheet.Root bind:open>
   <Sheet.Content side="right" class="w-full overflow-y-auto sm:max-w-xl">
     <Sheet.Header>
@@ -108,11 +116,12 @@
         <StateBlock state="loading" rows={5} />
       {:else}
         <Section title="About">
+          <SaveState dirty={aboutChanged} pending={$aboutMutation.isPending} saved={$aboutMutation.isSuccess} error={$aboutMutation.error} />
           {#snippet actions()}{#if aboutChanged}<Badge variant="warning">Unsaved changes</Badge>{/if}{/snippet}
           <div class="grid gap-3">
-            <div class="grid gap-1.5"><Label for="about-title">Title</Label><Input id="about-title" bind:value={aboutTitle} placeholder={slug} /></div>
-            <div class="grid gap-1.5"><Label for="about-name">Name</Label><Input id="about-name" bind:value={aboutName} placeholder="Short name" /></div>
-            <div class="grid gap-1.5"><Label for="about-desc">Description</Label><Textarea id="about-desc" bind:value={aboutDesc} rows={4} placeholder="What is this workspace for?" /></div>
+            <div class="grid gap-1.5"><Label for="about-title">Title</Label><Input id="about-title" disabled={$aboutMutation.isPending} bind:value={aboutTitle} placeholder={slug} /></div>
+            <div class="grid gap-1.5"><Label for="about-name">Name</Label><Input id="about-name" disabled={$aboutMutation.isPending} bind:value={aboutName} placeholder="Short name" /></div>
+            <div class="grid gap-1.5"><Label for="about-desc">Description</Label><Textarea id="about-desc" disabled={$aboutMutation.isPending} bind:value={aboutDesc} rows={4} placeholder="What is this workspace for?" /></div>
           </div>
           <div class="mt-3 flex flex-wrap justify-end gap-2">
             <Button variant="outline" onclick={() => $assistMutation.mutate()} disabled={$assistMutation.isPending}><Sparkles class="h-4 w-4" />{$assistMutation.isPending ? "Drafting…" : "AI-Assist"}</Button>
@@ -123,7 +132,8 @@
 
         <Section title="Roster" description="Markdown describing who is on this project." class="border-t pt-4">
           {#snippet actions()}{#if rosterChanged}<Badge variant="warning">Unsaved changes</Badge>{/if}{/snippet}
-          <Textarea bind:value={roster} rows={10} class="font-mono" aria-label="Roster" placeholder={"# Roster\n- @alice — owner\n- @bob — reviewer"} />
+          <SaveState dirty={rosterChanged} pending={$rosterMutation.isPending} saved={$rosterMutation.isSuccess} error={$rosterMutation.error} />
+          <Textarea disabled={$rosterMutation.isPending} bind:value={roster} rows={10} class="font-mono" aria-label="Roster" placeholder={"# Roster\n- @alice — owner\n- @bob — reviewer"} />
           <div class="mt-3 flex flex-wrap justify-end gap-2">
             <Button variant="outline" onclick={() => $assistMutation.mutate()} disabled={$assistMutation.isPending}><Sparkles class="h-4 w-4" /> Draft Roster</Button>
             <Button variant="ghost" onclick={resetRoster} disabled={!rosterChanged}><RotateCcw class="h-4 w-4" /> Reset</Button>

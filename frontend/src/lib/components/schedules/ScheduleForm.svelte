@@ -1,5 +1,6 @@
 <script lang="ts">
-  /** Create or edit one timed wake-up. Persistent recovery lives under Advanced. */
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
+  /** Create or edit one timed wake-up. Persistent recovery lives under Recovery and resume limits. */
   import { toast } from "svelte-sonner";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -12,13 +13,14 @@
   type Props = {
     /** The wake-up being edited, or null for a new one. */
     schedule: Schedule | null;
+    dirty?: boolean;
     agents: AgentAddress[];
     agentsError?: string;
     pending: boolean;
     onSubmit: (method: "POST" | "PATCH", id: string | undefined, body: Record<string, unknown>) => void;
     onCancel: () => void;
   };
-  let { schedule, agents, agentsError, pending, onSubmit, onCancel }: Props = $props();
+  let { schedule, agents, agentsError, pending, onSubmit, onCancel, dirty = $bindable(false) }: Props = $props();
 
   // The form is remounted per open (keyed by the caller), so seeding once is correct.
   /* svelte-ignore state_referenced_locally */
@@ -36,8 +38,15 @@
   let timeout = $state<number | undefined>(seed?.progress_timeout_seconds ?? undefined);
   let recoveryLimit = $state<number | undefined>(seed?.max_recovery_attempts ?? undefined);
 
+  // svelte-ignore state_referenced_locally
+  const baseline = JSON.stringify([name, target, prompt, kind, at, cron, interval, timezone, enabled, persistent, timeout, recoveryLimit]);
+  $effect(() => { dirty = JSON.stringify([name, target, prompt, kind, at, cron, interval, timezone, enabled, persistent, timeout, recoveryLimit]) !== baseline; });
+  let targetError = $state(false);
+  function cancel() { if (!dirty || window.confirm("Discard the wake-up draft?")) { dirty = false; onCancel(); } }
+
   function save(event: SubmitEvent) {
     event.preventDefault();
+    targetError = !target;
     if (!target) {
       toast.error("Choose a target agent");
       return;
@@ -60,7 +69,9 @@
   }
 </script>
 
+<DraftGuard {dirty} />
 <form onsubmit={save} class="grid gap-4 sm:grid-cols-2">
+  <fieldset disabled={pending} class="contents">
   <div class="space-y-1.5">
     <Label for="schedule-name">Name</Label>
     <Input id="schedule-name" bind:value={name} required maxlength={120} />
@@ -68,6 +79,7 @@
   <div class="space-y-1.5">
     <span class="text-body-sm font-medium">Target agent</span>
     <AgentSelect bind:value={target} {agents} />
+    {#if targetError}<p role="alert" class="text-body-sm text-destructive">Choose a target agent.</p>{/if}
     {#if agentsError}<p role="alert" class="text-caption text-destructive">{agentsError}</p>{/if}
   </div>
   <div class="space-y-1.5 sm:col-span-2">
@@ -102,7 +114,7 @@
   <label class="flex items-center gap-2 self-end pb-2 text-body-sm"><input type="checkbox" bind:checked={enabled} /> Enabled</label>
 
   <details class="rounded-md border px-3 py-2 sm:col-span-2" open={persistent}>
-    <summary class="cursor-pointer select-none text-body font-medium">Advanced</summary>
+    <summary class="cursor-pointer select-none text-body font-medium">Recovery and resume limits</summary>
     <div class="mt-3 space-y-3">
       <label class="flex items-start gap-2 text-body-sm">
         <input type="checkbox" class="mt-1" bind:checked={persistent} />
@@ -126,6 +138,7 @@
 
   <div class="flex gap-2 sm:col-span-2">
     <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save"}</Button>
-    <Button type="button" variant="outline" onclick={onCancel}>Cancel</Button>
+    <Button type="button" variant="outline" onclick={cancel}>Cancel</Button>
   </div>
+  </fieldset>
 </form>

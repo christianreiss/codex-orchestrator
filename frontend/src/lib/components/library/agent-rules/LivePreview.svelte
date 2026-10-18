@@ -30,8 +30,8 @@
         {/if}
       </p>
     </div>
-    <div class="flex items-center gap-2">
-      <div class="inline-flex rounded-md border p-0.5" role="group" aria-label="Preview scope">
+    <div class="flex max-w-full flex-wrap items-center gap-2">
+      <div class="inline-flex max-w-full flex-wrap rounded-md border p-0.5" role="group" aria-label="Preview scope">
         <button type="button" disabled={!preview.canRenderEffective} onclick={() => (preview.previewMode = "effective")} class={cn(tab, effective ? "bg-secondary font-medium text-foreground" : "text-muted-foreground hover:text-foreground")}>
           Effective document
         </button>
@@ -53,7 +53,7 @@
       posture does not appear in it.
     </p>
   {:else if effective && preview.renderError}
-    <p class="rounded-md border border-destructive/40 bg-destructive-muted px-3 py-2 text-body-sm text-destructive-muted-foreground">
+    <p role="alert" class="rounded-md border border-destructive/40 bg-destructive-muted px-3 py-2 text-body-sm text-destructive-muted-foreground">
       {preview.renderError} — showing the last document that rendered. Your edits are not lost; they are just not previewed.
     </p>
   {/if}

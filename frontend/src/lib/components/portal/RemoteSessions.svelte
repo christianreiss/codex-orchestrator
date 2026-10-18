@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import { tick, type Snippet } from "svelte";
   import { toStore } from "svelte/store";
   import { createQuery, createMutation } from "@tanstack/svelte-query";
@@ -106,6 +107,7 @@
   async function select(id: string) { selectedId = id; detailsOpen = false; if (!$turn.isPending) $turn.reset(); if (!$stop.isPending) $stop.reset(); await tick(); heading?.focus(); }
   async function back() { const id = selectedId; selectedId = null; await tick(); document.getElementById(`remote-${id}`)?.focus(); }
 </script>
+<DraftGuard dirty={Object.values(drafts).some((draft) => draft.trim().length > 0)} />
 
 {#if active}
   {#if error}<div role="alert" class="mb-3 flex items-center justify-between rounded-md border border-destructive/30 p-3 text-body-sm"><span>Remote sessions could not be refreshed. {error.message}</span><Button variant="outline" size="sm" onclick={refresh}>Retry remote sessions</Button></div>{/if}
@@ -175,7 +177,7 @@
       <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-engine">Engine</label><select id="remote-engine" class="h-9 w-full rounded-md border bg-background px-3 text-body-sm" bind:value={engine}>{#each ['codex', 'claude', 'grok'] as value}<option value={value} disabled={!host?.engines?.includes(value as Engine)}>{value === 'codex' ? 'Codex' : value === 'claude' ? 'Claude' : 'Grok'}</option>{/each}</select></div>
       <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-title">Title</label><Input id="remote-title" bind:value={title} maxlength={160} required placeholder="What should this session accomplish?" /></div>
       <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-prompt">Instruction</label><Textarea id="remote-prompt" bind:value={prompt} maxlength={100000} required rows={5} placeholder="Describe the task…" /></div>
-      <details class="rounded-md border p-3"><summary class="cursor-pointer text-body-sm font-medium">Advanced options</summary><div class="mt-3 space-y-1.5"><label class="text-body-sm" for="remote-cwd">Working directory</label><Input id="remote-cwd" bind:value={cwd} maxlength={1024} placeholder={host?.default_cwd || 'Service account home directory'} /></div></details>
+      <details class="rounded-md border p-3"><summary class="cursor-pointer text-body-sm font-medium">Working directory</summary><div class="mt-3 space-y-1.5"><label class="text-body-sm" for="remote-cwd">Working directory</label><Input id="remote-cwd" bind:value={cwd} maxlength={1024} placeholder={host?.default_cwd || 'Service account home directory'} /></div></details>
       {#if startReason}<p role="status" class="text-body-sm text-muted-foreground">{startReason}</p>{/if}
       {#if $start.error}<p role="alert" class="text-body-sm text-destructive">{$start.error.message} Your instruction is kept. Retry sends the same request.</p>{/if}
       <Button type="submit" class="w-full" disabled={!!startReason || !title.trim() || !prompt.trim() || $start.isPending}>{$start.isPending ? 'Starting…' : 'Start session'}</Button>

@@ -1,6 +1,7 @@
 <script lang="ts">
   /** The report list: one compact button per report, with loading, error and empty states. */
   import type { Snippet } from "svelte";
+  import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
   import { StateBlock } from "$lib/components/page";
   import { cn } from "$lib/utils/cn";
@@ -15,25 +16,26 @@
     onSelect: (id: string) => void;
     /** True when a filter is active, so an empty list reads as "no matches". */
     filtered?: boolean;
+    onClearFilters?: () => void;
     emptyTitle?: string;
     emptyDescription?: string;
     footer?: Snippet;
   };
-  let { items, loading = false, error = null, onRetry, selectedId, onSelect, filtered = false, emptyTitle = "No reports yet", emptyDescription, footer }: Props = $props();
+  let { items, loading = false, error = null, onRetry, selectedId, onSelect, filtered = false, onClearFilters, emptyTitle = "No reports yet", emptyDescription, footer }: Props = $props();
 </script>
 
-<section aria-label="Report inbox" class="min-w-0">
-  {#if loading && !items}
+<section aria-label="Report inbox" class="min-w-0" aria-busy={loading}>
+  {#if error}<StateBlock state="error" message={error} {onRetry} />{/if}
+  {#if loading && !items?.length}
     <StateBlock state="loading" />
-  {:else if error}
-    <StateBlock state="error" message={error} {onRetry} />
-  {:else if !items || items.length === 0}
+  {:else if (!items || items.length === 0) && !error}
     <StateBlock
       state="empty"
       message={filtered ? "No reports match these filters." : emptyTitle}
       description={filtered ? "Try a different search or clear the filters." : emptyDescription}
     />
-  {:else}
+    {#if filtered && onClearFilters}<Button variant="outline" onclick={onClearFilters}>Clear filters</Button>{/if}
+  {:else if items?.length}
     <ul class="divide-y rounded-md border">
       {#each items as row (row.id)}
         <li>
@@ -43,9 +45,9 @@
             aria-pressed={selectedId === row.id}
             onclick={() => onSelect(row.id)}
           >
-            <span class="flex items-start gap-2">
+            <span class="flex flex-wrap items-start gap-2">
               <span class="min-w-0 flex-1 break-words text-body font-medium">{row.title}</span>
-              <span class="flex shrink-0 flex-wrap justify-end gap-1">
+              <span class="flex max-w-full flex-wrap gap-1 sm:justify-end">
                 {#each row.badges as badge (badge.label)}<Badge variant={badge.variant ?? "outline"}>{badge.label}</Badge>{/each}
               </span>
             </span>

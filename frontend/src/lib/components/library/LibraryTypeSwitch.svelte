@@ -10,7 +10,7 @@
   let { active }: { active: LibraryTypeId } = $props();
 </script>
 
-<nav aria-label="Library content type" class="-mx-1 overflow-x-auto px-1">
+<nav aria-label="Library content type" class="min-w-0 max-w-full overflow-x-auto">
   <ul class="inline-flex min-w-max gap-0.5 rounded-md border bg-muted/40 p-0.5">
     {#each LIBRARY_TYPES as type (type.id)}
       <li>

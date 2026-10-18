@@ -174,7 +174,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
 
   // ── /admin/agents ────────────────────────────────────────────────────────
 
-  app.get('/admin/agents', { preHandler: app.requireAdmin }, async () => {
+  app.get('/admin/agents', { preHandler: [adminSpa, app.requireAdmin] }, async () => {
     // The generation mode rides along rather than living behind its own query:
     // the console needs it to decide which editor to open before it can hydrate
     // anything, so a second round-trip would mean rendering the wrong one first.

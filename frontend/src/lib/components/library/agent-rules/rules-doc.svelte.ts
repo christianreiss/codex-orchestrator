@@ -38,6 +38,10 @@ export class RulesDocState {
     return this.store.current.data;
   }
 
+  baseline = $state("");
+  private submitted = "";
+  get saveError() { return this.saveStore.current.error ?? this.composeStore.current.error ?? this.modeStore.current.error; }
+  get saved() { return this.saveStore.current.isSuccess; }
   content = $state("");
   serverSha = $state<string | null>(null);
   hydrated = $state(false);
@@ -62,6 +66,8 @@ export class RulesDocState {
     enabled_modules: this.enabledModules,
     custom_instructions: this.customInstructions,
   });
+  draftKey = $derived(JSON.stringify(this.builderMode ? this.draftComposition : this.content));
+  dirty = $derived(this.hydrated && this.draftKey !== this.baseline);
   /** What the "canonical base" pane shows: in manual mode, the textarea itself. */
   canonicalDraft = $derived(this.builderMode ? this.composedDraft : this.content);
   generationModeHint = $derived(GENERATION_MODES.find((entry) => entry.id === this.generationMode)?.hint ?? "");
@@ -84,9 +90,12 @@ export class RulesDocState {
   // sent, not an optimistic-concurrency token. Never pass the previous hash.
   private saveStore = fromStore(
     createMutation({
-      mutationFn: () =>
-        this.builderMode ? agentsApi.store({ composition: this.draftComposition }) : agentsApi.store({ content: this.content }),
+      mutationFn: () => {
+        this.submitted = this.draftKey;
+        return this.builderMode ? agentsApi.store({ composition: this.draftComposition }) : agentsApi.store({ content: this.content });
+      },
       onSuccess: (result) => {
+        this.baseline = this.submitted;
         this.serverSha = result.sha256 ?? null;
         if (this.builderMode) this.content = this.composedDraft;
         toast.success(result.status === "unchanged" ? "No changes to save" : `Stored version #${result.version_id ?? "?"}`);
@@ -129,6 +138,7 @@ export class RulesDocState {
     return this.modeStore.current.isPending;
   }
   setGenerationMode(mode: AgentsGenerationMode) {
+    if (this.dirty && !window.confirm("Changing generation mode can replace the current draft. Continue?")) return;
     this.modeStore.current.mutate(mode);
   }
 
@@ -171,6 +181,7 @@ export class RulesDocState {
     this.serverSha = data.sha256 ?? null;
     this.generationMode = data.generation_mode ?? "managed";
     this.hydrateBuilder(data);
+    this.baseline = this.draftKey;
     this.hydrated = true;
   }
 

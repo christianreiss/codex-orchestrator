@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Snapshot } from "./$types";
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { toast } from "svelte-sonner";
   import Download from "@lucide/svelte/icons/download";
   import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -12,7 +14,7 @@
   import RowActions, { type RowAction } from "$lib/components/data-table/RowActions.svelte";
   import * as Table from "$lib/components/ui/table";
   import { Badge } from "$lib/components/ui/badge";
-  import { formatBytes, relativeTime } from "$lib/utils/format";
+  import { formatBytes } from "$lib/utils/format";
   import {
     transferDeleteMutation,
     transferDownloadMutation,
@@ -87,6 +89,10 @@
     { label: "files held", value: moduleState?.live_count ?? 0 },
     { label: moduleState && moduleState.quota_bytes > 0 ? `used of ${formatBytes(moduleState.quota_bytes)}` : "used (unlimited quota)", value: formatBytes(moduleState?.used_bytes ?? 0) },
   ]);
+  export const snapshot: Snapshot<{ search: typeof search }> = {
+    capture: () => ({ search }),
+    restore: (value) => { search = value.search; },
+  };
 </script>
 
 <PageShell
@@ -114,6 +120,7 @@
       emptyDescription={moduleState?.enabled ? "No agent has uploaded a file yet. Uploads appear here until their TTL runs out." : "Shared files are switched off, so agents cannot upload anything."}
       emptyIcon={FileUp}
       filtered={search.trim() !== ""}
+      onClearFilters={() => { search = ""; }}
       caption="Held files"
     >
       {#snippet head()}
@@ -127,7 +134,7 @@
       {#snippet row(item)}
         <Table.Row class="cursor-pointer" onclick={() => (auditRow = item)}>
           <Table.Cell class="max-w-[22rem]">
-            <span class="block truncate font-medium">{item.name}</span>
+            <button type="button" class="block max-w-full truncate text-left font-medium underline-offset-4 hover:underline" onclick={(event) => { event.stopPropagation(); auditRow = item; }}>{item.name}</button>
             <span class="block truncate text-caption text-muted-foreground">{item.mime_type ?? "unknown type"}{item.status !== "live" ? ` · ${transferStatusLabel(item.status)}` : ""}</span>
           </Table.Cell>
           <Table.Cell class="tabular-nums">
@@ -137,7 +144,7 @@
           <Table.Cell class="max-w-[12rem] truncate">{item.uploaded_by ?? "—"}</Table.Cell>
           <Table.Cell class="text-right tabular-nums">{item.download_count}</Table.Cell>
           <Table.Cell title={new Date(item.expires_at).toLocaleString()}>
-            {relativeTime(item.expires_at)}
+            <Timestamp value={item.expires_at} />
             {#if item.ttl_clamped}<Badge variant="warning" class="ml-1">clamped</Badge>{/if}
           </Table.Cell>
           <Table.Cell onclick={(event: MouseEvent) => event.stopPropagation()}>

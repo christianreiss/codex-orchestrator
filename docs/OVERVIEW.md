@@ -1268,3 +1268,7 @@ agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduce
 `agent_context_get/update`, `agent_room_list/read/send`, and
 `resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
 The feature starts disabled and never grants permission for the reserved action.
+
+### Web design verification
+
+The complete route inventory and repeatable responsive, accessibility, state and draft checks are documented in [Web design verification](web-design-verification.md). `frontend/e2e/design-routes.json` is checked against every Svelte page entry; `npm run test:e2e:cross-browser` additionally exercises Firefox and WebKit. No frontend test changes production settings.

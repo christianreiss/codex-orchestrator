@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   /**
    * People (admin users): one compact table, email under the name, a quick
    * active switch and a row menu. The destructive "wipe all" lives in
@@ -20,7 +21,6 @@
   import RoleBadge from "./RoleBadge.svelte";
   import UserFormDialog from "./UserFormDialog.svelte";
   import { cn } from "$lib/utils/cn";
-  import { relativeTime } from "$lib/utils/format";
   import {
     createUsersQuery,
     createUserCreateMutation,
@@ -208,7 +208,7 @@
           </Table.Cell>
           <Table.Cell class="hidden text-body-sm md:table-cell">
             {#if user.last_login_at}
-              <span title={new Date(user.last_login_at).toLocaleString()}>{relativeTime(user.last_login_at)}</span>
+              <span title={new Date(user.last_login_at).toLocaleString()}><Timestamp value={user.last_login_at} /></span>
             {:else}
               <span class="text-muted-foreground">Never</span>
             {/if}

@@ -116,8 +116,8 @@ describe('admin SPA navigation collisions', () => {
     expect(urls.length).toBeGreaterThan(20);
     expect(urls).toContain('/admin');
     expect(urls).toContain('/admin/hosts');
-    // The topology page shares its path with `GET /admin/topology`.
-    expect(urls).toContain('/admin/topology');
+    // Agents shares its path with the authenticated fleet-policy JSON API.
+    expect(urls).toContain('/admin/agents');
   });
 
   it.each(urls)('serves the SPA shell for browser navigation to %s', async (url) => {
@@ -128,10 +128,23 @@ describe('admin SPA navigation collisions', () => {
     expect(res.payload).toContain('Codex Admin');
   });
 
-  it('keeps the JSON API contract when the client asks for JSON', async () => {
+  it('serves HEAD navigation without leaking the policy JSON', async () => {
+    const res = await app.inject({ method: 'HEAD', url: '/admin/agents', headers: { accept: HTML_NAVIGATION } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.payload).toBe('');
+  });
+
+  it('keeps JSON authentication when JSON precedes HTML in Accept', async () => {
+    const res = await app.inject({ method: 'GET', url: '/admin/agents', headers: { accept: 'application/json, text/html' } });
+    expect(res.statusCode).toBe(401);
+    expect(res.headers['content-type']).toContain('application/json');
+  });
+
+  it.each(['/admin/hosts', '/admin/agents'])('keeps the JSON API contract for %s', async (url) => {
     const res = await app.inject({
       method: 'GET',
-      url: '/admin/hosts',
+      url,
       headers: { accept: 'application/json' },
     });
 

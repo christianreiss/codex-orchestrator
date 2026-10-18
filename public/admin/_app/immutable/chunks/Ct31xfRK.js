@@ -1,0 +1,1 @@
+import{gt as e,lt as t}from"./rqxxqezo.js";function n(n){e(()=>t(()=>n()))}export{n as t};

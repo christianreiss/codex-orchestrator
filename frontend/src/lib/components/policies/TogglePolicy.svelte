@@ -53,7 +53,7 @@
     {#if $query.isPending}Loading current setting…
     {:else if $query.isError}<span class="text-destructive">Could not load setting: {$query.error.message}</span>
     {:else if $mutation.isPending}Saving…
-    {:else if $mutation.isError}<span class="text-destructive">Save failed: {$mutation.error.message}. The saved value is unchanged.</span>
+    {:else if $mutation.isError}<span class="text-destructive">Save failed: {$mutation.error.message}. Check the refreshed server value before retrying.</span>
     {:else if $mutation.isSuccess}Saved{/if}
   </div>
   {#if $query.isError}<Button variant="outline" size="sm" class="mt-1" onclick={() => void $query.refetch()}>Retry loading</Button>{/if}

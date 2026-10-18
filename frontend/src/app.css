@@ -88,3 +88,17 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 }
+
+/* DESIGN.md: reflow must preserve content, and coarse pointers are independent of width. */
+@layer base {
+  :focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+  textarea { font-size: 1rem; line-height: 1.6; }
+  summary { overflow-wrap: anywhere; }
+}
+.auth-scroll { scroll-padding-block: 2rem; padding-bottom: max(2rem, env(safe-area-inset-bottom)); }
+@media (any-pointer: coarse) {
+  button, [role="button"], [role="tab"], [role="combobox"], summary,
+  a.inline-flex, .shell-icon-button { min-height: 44px !important; min-width: 44px !important; }
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea { min-height: 44px !important; font-size: 16px !important; }
+  th, td { height: 48px; }
+}

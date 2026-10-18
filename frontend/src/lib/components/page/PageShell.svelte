@@ -1,4 +1,5 @@
 <script lang="ts">
+  import MutationNotice from "$lib/components/feedback/MutationNotice.svelte";
   /**
    * The one page frame. Title row (name, one-line purpose, actions), optional
    * module switch, then content. Order rule for everything below it:
@@ -26,13 +27,15 @@
   const maxWidth = { narrow: "max-w-3xl", default: "max-w-6xl", wide: "max-w-none" } as const;
 </script>
 
-<div class={cn("flex w-full flex-col gap-4", maxWidth[width], className)}>
-  <header class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+<svelte:head><title>{title} · Codex Orchestrator</title></svelte:head>
+
+<div class={cn("flex min-w-0 w-full flex-col gap-4", maxWidth[width], className)}>
+  <header class="flex flex-col items-stretch justify-between gap-3 md:flex-row md:items-start">
     <div class="min-w-0 flex-1">
-      <h1 class="truncate text-xl font-semibold leading-tight tracking-tight">{title}</h1>
+      <h1 class="break-words text-xl font-semibold leading-[1.3] tracking-tight [overflow-wrap:anywhere]">{title}</h1>
       {#if description}<p class="mt-0.5 max-w-2xl text-body-sm text-muted-foreground">{description}</p>{/if}
     </div>
-    <div class="flex shrink-0 flex-wrap items-center gap-2">
+    <div class="flex min-w-0 flex-wrap items-center gap-2 md:max-w-[60%] md:justify-end">
       {#if toggle}
         <label class="flex items-center gap-2 text-body-sm text-muted-foreground">
           {toggle.label}
@@ -42,6 +45,7 @@
       {@render actions?.()}
     </div>
   </header>
+  <MutationNotice />
   {@render subheader?.()}
   {@render children?.()}
 </div>

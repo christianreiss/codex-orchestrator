@@ -10,7 +10,8 @@
   const height = $derived(placed.length ? placed.at(-1)!.y + placed.at(-1)!.height + 12 : 100);
   function toggle(id: string) { const next = new Set(collapsed); if (next.has(id)) next.delete(id); else next.add(id); collapsed = next; }
 </script>
-<div class="h-full overflow-auto" aria-label={`Agents grouped by ${grouping}`}>
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<div role="region" tabindex="0" class="h-full overflow-auto" aria-label={`Agents grouped by ${grouping}`}>
   {#if agents.layout === 'list'}
     {#each groups as group (group.id)}
       <section class="mb-3 rounded-md border p-3">
