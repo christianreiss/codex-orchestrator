@@ -14,6 +14,20 @@ import org.junit.Test
 import java.util.concurrent.TimeUnit
 
 class RoomChatsTest {
+    @Test fun roomsNeedAtLeastOneRemainingActiveMember() {
+        fun member(engine: String, reachable: Boolean) = JSONObject().put("engine", engine).put("reachable", reachable)
+        fun room(vararg members: JSONObject) = JSONObject().put("members", org.json.JSONArray(members.toList()))
+        assertFalse(roomHasActiveAgent(JSONObject()))
+        assertFalse(roomHasActiveAgent(room()))
+        assertFalse(roomHasActiveAgent(room(JSONObject(), member("claude", false))))
+        for (engine in listOf("codex", "claude", "grok")) {
+            val online = member(engine, true)
+            val mixed = room(member("codex", false), online, member("grok", false))
+            assertTrue(roomHasActiveAgent(mixed))
+            online.put("reachable", false)
+            assertFalse(roomHasActiveAgent(mixed))
+        }
+    }
     @Test fun switchingToHistoryUsesItsOwnDirectoryAndPagination() = runBlocking {
         val server = MockWebServer()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

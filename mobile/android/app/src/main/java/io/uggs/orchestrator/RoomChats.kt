@@ -18,6 +18,8 @@ internal fun roomLabel(room: JSONObject): String = when (room.optString("kind"))
 }
 internal fun roomPersonLabel(person: JSONObject): String = listOf("name", "alias", "address").asSequence()
     .map { person.optString(it) }.firstOrNull { it.isNotBlank() && it != "null" } ?: "Unnamed agent"
+internal fun roomHasActiveAgent(room: JSONObject): Boolean =
+    room.optJSONArray("members")?.objects()?.any { it.optBoolean("reachable", false) } == true
 internal fun mergeRoomEvents(old: List<JSONObject>, fresh: List<JSONObject>): List<JSONObject> =
     (old + fresh).associateBy { it.getString("id") }.values.sortedWith(compareBy({ it.optString("created_at") }, { it.optString("id") }))
 

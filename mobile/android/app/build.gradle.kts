@@ -9,8 +9,8 @@ android {
         applicationId = "io.uggs.orchestrator"
         minSdk = 26
         targetSdk = 36
-        versionCode = 28
-        versionName = "0.5.2"
+        versionCode = 29
+        versionName = "0.5.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     val signingPath = providers.environmentVariable("COMPANION_SIGNING_STORE").orNull

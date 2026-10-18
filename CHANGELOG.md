@@ -1,5 +1,7 @@
 # 2026-10-18
 
+- Android 0.5.3 shows active conversations and shared rooms only while at least one agent is online. Offline/ended chats no longer stay active because of urgent notices; empty room categories disappear. Closed conference History remains available.
+
 - Shared conversation directories on web and Android now move adjourned conferences to History once all members are offline. History / Active switches directories and retains messages; closed rooms no longer consume active directory pages. Android 0.5.2 adds the History button.
 
 - Android 0.5.1 replaces chat/status filter chips with a compact Chats / Groups / Conferences segmented control; empty categories are hidden and selection falls back when a category disappears.

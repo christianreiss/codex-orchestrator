@@ -43,6 +43,25 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class CompanionUiTest {
+    @Test fun roomsDisappearWhenTheirLastActiveMemberLeaves() {
+        waitForAgentRows(session)
+        sharedRooms.set(true); changed("rooms")
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:group").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("chat-filter:group").performClick()
+        compose.onNodeWithTag("room:$roomId").assertIsDisplayed()
+        roomMemberActive.set(false); changed("rooms")
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:group").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("room:$roomId").assertDoesNotExist()
+        compose.onNodeWithTag("chat-filter:chats").assertIsSelected()
+        roomCreated.set(JSONObject().put("kind", "conference")); roomMemberActive.set(true); changed("rooms")
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:conference").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("chat-filter:conference").performClick()
+        compose.onNodeWithTag("room:$roomId").assertIsDisplayed()
+        roomMemberActive.set(false); changed("rooms")
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:conference").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("room:$roomId").assertDoesNotExist()
+        compose.onNodeWithTag("chat-filter:chats").assertIsSelected()
+    }
     @Test fun closedConferencesMoveFromActiveToReadableHistory() {
         waitForAgentRows(session)
         roomCreated.set(JSONObject().put("kind", "conference").put("title", "Finished review"))
@@ -162,13 +181,16 @@ class CompanionUiTest {
         assertBadgeColor(important = false)
     }
 
-    @Test fun unresolvedNoticesKeepOfflineAndEndedChatsInTheNormalList() {
+    @Test fun unresolvedNoticesDoNotKeepOfflineAndEndedChatsInTheActiveList() {
         waitForAgentRows(session)
-        for (state in listOf("offline", "ended")) extraAgents.add(agentFixture("important-$state", "$state review", "worker.uggs.io", "Review needed", "grok")
+        for (state in listOf("offline", "ended", "working")) extraAgents.add(agentFixture("important-$state", "$state review", "worker.uggs.io", "Review needed", "grok")
             .put("presence", state).put("relay_ready", false).put("read_only", true)
             .put("attention", JSONObject().put("severity", "blocker").put("summary", "Review needed")))
+        extraAgents.last().put("read_only", false)
         changed("agents")
-        waitForAgentRows("important-offline", "important-ended")
+        waitForAgentRows("important-working")
+        compose.onNodeWithTag("agent:important-offline").assertDoesNotExist()
+        compose.onNodeWithTag("agent:important-ended").assertDoesNotExist()
         compose.onNodeWithTag("chat-filter:chats").assertIsSelected()
         compose.onNodeWithTag("chat-filter:needs-you").assertDoesNotExist()
         compose.onNodeWithTag("agent:offline").assertDoesNotExist()
@@ -361,7 +383,8 @@ class CompanionUiTest {
     private val roomEvents = CopyOnWriteArrayList<JSONObject>()
     private val roomCreated = AtomicReference<JSONObject?>(null)
     private val roomClosed = AtomicBoolean(false)
-    private fun roomFixture() = JSONObject().put("id", roomId).put("title", roomCreated.get()?.optString("title") ?: "Release workshop").put("kind", roomCreated.get()?.optString("kind") ?: "group").put("status", if (roomClosed.get()) "adjourned" else "open").put("members", org.json.JSONArray())
+    private val roomMemberActive = AtomicBoolean(true)
+    private fun roomFixture() = JSONObject().put("id", roomId).put("title", roomCreated.get()?.optString("title") ?: "Release workshop").put("kind", roomCreated.get()?.optString("kind") ?: "group").put("status", if (roomClosed.get()) "adjourned" else "open").put("members", org.json.JSONArray(listOf(JSONObject().put("id", session).put("name", "Liliana").put("engine", "codex").put("reachable", roomMemberActive.get() && !roomClosed.get()))))
     private lateinit var scenario: ActivityScenario<MainActivity>
     private lateinit var originalClient: OkHttpClient
     private var firebase: JSONObject? = null

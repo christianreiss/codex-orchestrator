@@ -43,8 +43,8 @@ import java.time.Instant
     fun attention(agent: JSONObject) = fresh && model.can("agent_portal.manage") && needsReply(agent) && (hasUrgentNotice(agent) || isReachable(agent))
     // Filter only the already-authorized overview. Searching never fetches a
     // transcript or changes a read marker.
-    val activeAgents = if (model.roomChats.history) emptyList() else agents.filter { isOnlineActiveAgent(it) || hasUrgentNotice(it) }
-    val rooms = model.roomChats.rooms
+    val activeAgents = if (model.roomChats.history) emptyList() else agents.filter(::isOnlineActiveAgent)
+    val rooms = model.roomChats.rooms.filter { model.roomChats.history || roomHasActiveAgent(it) }
     val categories = buildList {
         if (activeAgents.isNotEmpty()) add("chats" to "Chats")
         if (rooms.any { it.optString("kind") != "conference" }) add("group" to "Groups")

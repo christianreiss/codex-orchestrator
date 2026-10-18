@@ -1,5 +1,15 @@
 # Android companion
 
+## Active conversations (0.5.3)
+
+The Active directory requires at least one online agent. Direct chats use live
+session presence; groups, conferences and scope rooms require a remaining member
+with `reachable: true` in the server roster. Empty and entirely offline rooms,
+and offline/ended direct chats with urgent notices, are hidden from Active.
+Category tabs use the same filtered list and fall back when the last visible room
+disappears. History continues to show retained closed conferences without an
+online-member requirement. This APK-only change needs no server rollout.
+
 ## Conference history (0.5.2)
 
 Adjourned conferences move out of Active once every retained member is offline.
