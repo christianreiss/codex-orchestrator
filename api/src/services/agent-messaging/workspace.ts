@@ -14,6 +14,8 @@ export const workspaceInputSchema = z
     git_status: z.enum(['repository', 'none', 'unavailable']),
     git_root: path.nullable(),
     git_common_dir: path.nullable(),
+    branch: z.string().max(255).nullable().optional(),
+    head_sha: z.string().regex(/^[a-f0-9]{40,64}$/).nullable().optional(),
     origin_url: z.string().max(4096).nullable().optional(),
   })
   .strict()
@@ -44,6 +46,8 @@ export function normalizeWorkspace(input: WorkspaceInput | undefined): AgentWork
     git_status: value.git_status,
     git_root: value.git_root ? cleanPath(value.git_root) : null,
     git_common_dir: value.git_common_dir ? cleanPath(value.git_common_dir) : null,
+    branch: value.branch ?? null,
+    head_sha: value.head_sha ?? null,
     repository_key: remote ? sha256(remote) : null,
   };
 }

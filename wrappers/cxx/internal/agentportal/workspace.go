@@ -14,6 +14,8 @@ import (
 )
 
 type Workspace struct {
+	Branch       *string `json:"branch,omitempty"`
+	HeadSHA      *string `json:"head_sha,omitempty"`
 	Cwd          string  `json:"cwd"`
 	GitStatus    string  `json:"git_status"`
 	GitRoot      *string `json:"git_root"`
@@ -91,6 +93,16 @@ func captureWorkspace(parent context.Context, cwd string) Workspace {
 		if origin := discoveryOrigin(strings.TrimSpace(string(raw))); origin != "" && len(origin) <= 4096 {
 			w.OriginURL = &origin
 		}
+	}
+	branchCmd := exec.CommandContext(ctx, "git", "-C", cwd, "branch", "--show-current")
+	if raw, err := branchCmd.Output(); err == nil {
+		value := strings.TrimSpace(string(raw))
+		w.Branch = &value
+	}
+	headCmd := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "HEAD")
+	if raw, err := headCmd.Output(); err == nil {
+		value := strings.TrimSpace(string(raw))
+		w.HeadSHA = &value
 	}
 	return w
 }

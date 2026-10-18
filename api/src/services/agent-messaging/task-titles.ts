@@ -6,7 +6,7 @@ import type { Keyring } from '../../security/keyring.js';
 
 /** Fetch only the latest naming event for each peer on the returned page. */
 export async function sessionTaskTitles(
-  db: Database,
+  db: Pick<Database, 'select'>,
   keyring: Keyring,
   sessions: { id: string; upstreamSessionId: string | null }[],
 ) {

@@ -249,6 +249,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeBrokerError(w, http.StatusBadGateway, "broker_upstream_unavailable", "Portal relay is unavailable")
 		return
 	}
+	b.session.observeClaim(r.URL.Path, output)
 	if len(output) == 0 {
 		output = json.RawMessage(`{}`)
 	}
@@ -275,7 +276,7 @@ func (b *Broker) requiresReceivePlanePolicy(path string, body json.RawMessage) b
 	// The mailbox peek reports only who is waiting, never a body -- but on a
 	// host configured not to receive, an agent that cannot answer has no use
 	// for a ring, and the existence of a caller is itself inbound signal.
-	if path == messagingBase+"mailbox" {
+	if path == messagingBase+"mailbox" || path == messagingBase+"rooms/read" {
 		return true
 	}
 	if path == messagingBase+"bind" {
@@ -320,6 +321,7 @@ func (b *Broker) allowedPath(path string) bool {
 		"spawn", "spawn-status", "stop", "insecure-enable",
 		"advisor/ask", "advisor/close", "advisor/status",
 		"list", "self", "translate", "send", "reply", "wait", "message", "digest", "cancel", "bind", "mailbox", "deliveries/claim",
+		"context/get", "context/update", "rooms/list", "rooms/read", "rooms/send", "claims/acquire", "claims/status", "claims/release",
 		"groups/list", "groups/create", "groups/detail", "groups/delete", "subscribe", "unsubscribe", "subscriptions", "publish",
 		"conf/open", "conf/list", "conf/invite", "conf/join", "conf/roster", "conf/say", "conf/dispatch", "conf/adjourn",
 	} {

@@ -1,3 +1,4 @@
+import { agentScopeMembers, agentScopes, versions } from '../../db/schema.js';
 import { visibleHost } from '../internal-hosts.js';
 import { beginRebootBinding, completeRebootBinding, plannedRebootForSession } from '../reboot-handoffs.js';
 import { assertHousekeepingAvailable } from '../session-housekeeping.js';
@@ -525,8 +526,17 @@ export class SessionRegistry {
       // latch, so the old blocklist reported a peer as reachable for as long as
       // its row survived — a month, in the worst case observed live.
       .filter((row) => filters.includeOffline !== false || isPresent(row.presence));
+    const projectPeers = new Set<string>();
+    if (scope === 'project') {
+      const [flag] = await this.core.db.select().from(versions).where(eq(versions.name, 'agent_coordination_enabled'));
+      if (flag?.version === '1') {
+        const memberships = await this.core.db.select({ member: agentScopeMembers, scope: agentScopes }).from(agentScopeMembers).innerJoin(agentScopes, eq(agentScopeMembers.scopeId, agentScopes.id)).where(and(eq(agentScopeMembers.state, 'active'), eq(agentScopes.kind, 'project')));
+        const own = memberships.find(m => m.member.sessionId === sessionId);
+        if (own) for (const m of memberships) if (m.scope.id === own.scope.id) projectPeers.add(m.member.sessionId);
+      }
+    }
     const ranked = eligible
-      .map((row) => ({ ...row, match: workspaceMatch(authenticated.session, {
+      .map((row) => ({ ...row, match: scope === 'project' && projectPeers.has(row.session?.id ?? '') ? 'same_project' : workspaceMatch(authenticated.session, {
         hostId: row.address.hostId, cwd: row.session?.cwd ?? row.address.cwd, workspace: row.session?.workspace,
       }, scope) }))
       .filter((row) => row.match !== null)

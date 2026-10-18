@@ -30,6 +30,7 @@ class AgentsView {
   startRemote = $state(false);
   liveSelectedId = $state<string | null>(null);
   // Graph view.
+  grouping = $state<'project' | 'host' | 'connection'>('project');
   layout = $state<"radial" | "list">("radial");
   status = $state("all");
   host = $state("all");
@@ -90,6 +91,7 @@ class AgentsView {
       try {
         const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "null");
         if (saved?.view === "list" || saved?.view === "radial") this.layout = saved.view;
+        if (['project', 'host', 'connection'].includes(saved?.grouping)) this.grouping = saved.grouping;
         const f = saved?.filters;
         if (f) {
           if (typeof f.engine === "string") this.engine = f.engine;
@@ -102,7 +104,7 @@ class AgentsView {
     });
     $effect(() => {
       if (!this.#prefsLoaded) return;
-      const payload = JSON.stringify({ view: this.layout, filters: { engine: this.engine, status: this.status, host: this.host, mode: this.mode } });
+      const payload = JSON.stringify({ view: this.layout, grouping: this.grouping, filters: { engine: this.engine, status: this.status, host: this.host, mode: this.mode } });
       try { localStorage.setItem(PREFS_KEY, payload); } catch { /* Storage is optional. */ }
     });
   }

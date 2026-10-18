@@ -2096,3 +2096,12 @@ runs on every outcome.
 ### macOS background worker domain (cxx 0.9.102)
 
 The shared cxx worker installs new LaunchAgents in `user/<uid>` with `LimitLoadToSessionType` including `Background` and `Aqua`. This permits SSH-only operation without a GUI login. An existing loaded GUI job is retained for upgrades, status and removal; an existing user-domain job takes precedence. Routine ensures do not kill an unchanged running job. Changed deployments wait up to 15 seconds for bootout to deregister the previous job before bootstrap.
+
+## Session scope coordination (protocol 1)
+
+See [Session scopes, rooms and resource claims](agent-coordination.md) for the
+automatic host/project check-in, room APIs, claim lifecycle, engine parity, grouped
+agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduces
+`agent_context_get/update`, `agent_room_list/read/send`, and
+`resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
+The feature starts disabled and never grants permission for the reserved action.

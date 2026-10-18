@@ -185,6 +185,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "schedules.recovery.warning": [["schedules"]],
   "schedules.changed": [["schedules"], ["watchdogs"]],
   "watchdogs.changed": [["watchdogs"], ["agent-messaging"], ["agent-portal"]],
+  "agent_coordination.changed": [["agent-scopes"], ["topology"]],
   "agent_messaging.state.changed": [["agent-messaging"]],
   "agent_messaging.host.changed": [["agent-messaging"], ["hosts"]],
   "agent_messaging.address.changed": [["agent-messaging"]],

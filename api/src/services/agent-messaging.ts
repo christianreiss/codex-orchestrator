@@ -1,3 +1,5 @@
+import { ApiError } from '../http/errors.js';
+import { newQueuedMessage } from './agent-messaging/views.js';
 import { queuePolicy, assertQueuePolicyReplay, validateRelatedWork, smartQueueAllowed, prepareSmartDigest, restoreUnpresentedDigests, presentDigest, coalescePendingRepeats, type QueuePolicy } from './agent-messaging/smart-queue.js';
 import { expireRebootHandoffs } from './reboot-handoffs.js';
 import { daemonAccepting, daemonResidentFor } from './host-daemon/policy.js';
@@ -2140,6 +2142,43 @@ export class AgentMessagingService {
     if (unique.length === 0) return new Map();
     const rows = await this.db.select().from(agentBusAddresses).where(inArray(agentBusAddresses.id, unique));
     return new Map(rows.map((row) => [row.id, row]));
+  }
+
+  /** Shared bus lock orders room membership, recipient snapshots and claim transitions. */
+  async coordinationTransaction<T>(sessionId: string | null, token: string | null,
+    action: (tx: AgentMessagingDb, session: AgentSession | null) => Promise<T>): Promise<T> {
+    if (sessionId) await this.authenticateBridge(sessionId, token!);
+    return this.db.transaction(async tx => {
+      await this.requireEnabledLocked(tx);
+      let session: AgentSession | null = null;
+      if (sessionId) {
+        const rows = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1);
+        session = rows[0] ?? null;
+        if (!session?.agentBusAddressId) throw new ConflictError('Session is not bound', 'agent_messaging_binding_stale');
+        const address = await this.requireAddressLocked(tx, session.agentBusAddressId);
+        const currentHost = await this.requireEligibleHostLocked(tx, session.hostId);
+        if (!safeHashEqual(sha256(token!), session.bridgeTokenHash) || !safeHashEqual(hostAuthFingerprint(currentHost), session.hostAuthFingerprint) || session.bridgeExpiresAt <= nowIso()) throw new UnauthorizedError('Agent credential changed', 'agent_bridge_unauthorized');
+        await this.assertSessionAddressLocked(tx, sessionId, address);
+      }
+      return action(tx, session);
+    });
+  }
+
+  async coordinationNotice(tx: AgentMessagingDb, session: AgentSession, content: string): Promise<void> {
+    if (!session.agentBusAddressId || session.endedAt) return;
+    const target = await this.requireAddressLocked(tx, session.agentBusAddressId);
+    if (target.currentSessionId !== session.id) return;
+    try { await this.assertAddressEligibleLocked(tx, target); }
+    catch (error) { if (error instanceof ApiError && [403, 404, 423].includes(error.status)) return; throw error; }
+    const sender = await this.groups.server(tx);
+    const now = nowIso(), conversationId = randomUUID();
+    await tx.insert(agentBusConversations).values({ id: conversationId, addressAId: sender.id, addressBId: target.id, createdByAddressId: sender.id, nextSequence: 2, status: 'open', lastActivityAt: now, createdAt: now, updatedAt: now });
+    await tx.insert(agentBusMessages).values({
+      ...newQueuedMessage({ id: randomUUID(), conversationId, sequence: 1, sender, senderSessionId: null, target,
+        kind: 'presence_notice', deliveryClass: 'notice', content, contentEnc: encrypt(content, this.keyring),
+        clientMessageId: randomUUID(), expiresAt: new Date(Date.now() + 86400000).toISOString(), now }),
+      targetSessionId: session.id,
+    });
   }
 
   private async requireEnabled(): Promise<void> {

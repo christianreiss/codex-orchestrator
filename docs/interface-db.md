@@ -334,3 +334,24 @@ native conversation activity contract in `interface-api.md`.
 ## Native process control receipts
 
 - **agent_native_controls** — one row per portal session: `session_id` CHAR(36) NOT NULL PRIMARY KEY FK → agent_sessions.id (CASCADE), `instance_id` CHAR(36) NOT NULL, `binding_generation` INT UNSIGNED NOT NULL, `request_id` CHAR(36) NULL, `client_message_id` CHAR(36) NULL, `actor_id` BIGINT UNSIGNED NULL, `status` VARCHAR(24) NOT NULL, `updated_at` VARCHAR(100) NOT NULL. Migration `0067_agent_native_controls.sql` makes the session ID inherit the parent column charset/collation so both legacy and fresh installations support the FK. Requests serialize under the session row lock. `unknown` is derived from a missing recent receipt, never persisted over an observed exit. No credentials or transcript content are stored here.
+
+
+## Session scope coordination (protocol 1)
+
+See [Session scopes, rooms and resource claims](agent-coordination.md) for the
+automatic host/project check-in, room APIs, claim lifecycle, engine parity, grouped
+agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduces
+`agent_context_get/update`, `agent_room_list/read/send`, and
+`resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
+The feature starts disabled and never grants permission for the reserved action.
+
+
+- **agent_resource_claims** — scope coordination protocol 1 (`id` CHAR(36) NOT NULL, `session_id` CHAR(36) NOT NULL, `generation` INT UNSIGNED NOT NULL, `request_id` CHAR(36) NOT NULL, `purpose` VARCHAR(1000) NOT NULL, `resources` JSON NOT NULL, `state` VARCHAR(24) NOT NULL, `blockers` JSON NOT NULL, `replied_at` VARCHAR(100), `expires_at` VARCHAR(100) NOT NULL, `created_at` VARCHAR(100) NOT NULL, `updated_at` VARCHAR(100) NOT NULL). See [lifecycle and access contracts](agent-coordination.md).
+
+- **agent_scope_bindings** — scope coordination protocol 1 (`repository_key` VARCHAR(191) NOT NULL, `project_slug` VARCHAR(191) NOT NULL, `updated_at` VARCHAR(100) NOT NULL). See [lifecycle and access contracts](agent-coordination.md).
+
+- **agent_scope_events** — scope coordination protocol 1 (`id` CHAR(36) NOT NULL, `scope_id` CHAR(36) NOT NULL, `sequence` BIGINT UNSIGNED NOT NULL, `kind` VARCHAR(32) NOT NULL, `actor` VARCHAR(191) NOT NULL, `request_id` CHAR(36) NOT NULL, `body_enc` LONGTEXT NOT NULL, `dispatched` TINYINT NOT NULL DEFAULT 0, `created_at` VARCHAR(100) NOT NULL). See [lifecycle and access contracts](agent-coordination.md).
+
+- **agent_scope_members** — scope coordination protocol 1 (`id` CHAR(36) NOT NULL, `scope_id` CHAR(36) NOT NULL, `session_id` CHAR(36) NOT NULL, `generation` INT UNSIGNED NOT NULL, `protocol` INT UNSIGNED NOT NULL DEFAULT 0, `context_hash` CHAR(64) NOT NULL DEFAULT '', `state` VARCHAR(16) NOT NULL, `joined_at` VARCHAR(100) NOT NULL, `updated_at` VARCHAR(100) NOT NULL). See [lifecycle and access contracts](agent-coordination.md).
+
+- **agent_scopes** — scope coordination protocol 1 (`id` CHAR(36) NOT NULL, `scope_key` VARCHAR(191) NOT NULL, `kind` VARCHAR(16) NOT NULL, `title` VARCHAR(255) NOT NULL, `sequence` BIGINT UNSIGNED NOT NULL DEFAULT 0, `created_at` VARCHAR(100) NOT NULL). See [lifecycle and access contracts](agent-coordination.md).

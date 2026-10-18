@@ -4,11 +4,23 @@
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { StateBlock } from "$lib/components/page";
   import ClientsWorkspace from "$lib/components/portal/ClientsWorkspace.svelte";
+  import { createMutation, useQueryClient } from '@tanstack/svelte-query';
+  import { coordinationQuery } from '$lib/api/coordination';
+  import { api } from '$lib/api/client';
+  import { authStore } from '$lib/stores/auth';
+  import ScopeGraph from './ScopeGraph.svelte';
+  import ScopeChat from './ScopeChat.svelte';
   import TopologyGraph from "./TopologyGraph.svelte";
   import TopologyList from "./TopologyList.svelte";
   import type { AgentsView } from "./agents-view.svelte";
 
   let { agents }: { agents: AgentsView } = $props();
+  const scopes = coordinationQuery();
+  const queryClient = useQueryClient();
+  let roomId = $state<string | null>(null);
+  $effect(() => { if (agents.chatOpen) roomId = null; });
+  const room = $derived($scopes.data?.rooms.find(r => r.id === roomId));
+  const enableScopes = createMutation({ mutationFn: () => api.post('/admin/agent-messaging/scopes/state', { enabled: true }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agent-scopes'] }) });
   const topology = $derived(agents.topology.current);
   const stale = $derived(topology.isError && Boolean(topology.data));
   const updated = $derived(topology.data ? new Date(topology.data.generated_at).toLocaleTimeString() : "—");
@@ -26,14 +38,25 @@
     {/if}
   </p>
 
+  <div class="my-2 flex flex-wrap items-center gap-2">
+    <label for="scope-grouping" class="text-caption">Group by</label>
+    <select id="scope-grouping" class="rounded border bg-background px-2 py-1" bind:value={agents.grouping}>
+      <option value="project">Project</option><option value="host">Host</option><option value="connection">Connection</option>
+    </select>
+    {#if $scopes.data && !$scopes.data.enabled}<span class="text-caption text-muted-foreground">Scope coordination is disabled.</span>{#if $authStore.can('agent_messaging.manage')}<Button size="sm" variant="outline" disabled={$enableScopes.isPending} onclick={() => $enableScopes.mutate()}>Enable coordination</Button>{/if}{/if}
+    {#if $scopes.error}<span role="alert" class="text-destructive">{$scopes.error.message}</span>{/if}
+    {#if $enableScopes.error}<span role="alert" class="text-destructive">{$enableScopes.error.message}</span>{/if}
+  </div>
   <div class={agents.fullscreen ? "fixed inset-0 z-40 flex flex-col gap-2 bg-background p-4" : "flex min-h-0 flex-col"}>
     {#if agents.fullscreen}
       <div class="flex justify-end"><Button size="sm" variant="outline" onclick={() => (agents.fullscreen = false)}>Exit fullscreen</Button></div>
     {/if}
-    <div class="relative min-h-0 flex-1 {agents.chatOpen ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(22rem,40%)] lg:gap-3' : ''}">
+    <div class="relative min-h-0 flex-1 {(agents.chatOpen || room) ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(22rem,40%)] lg:gap-3' : ''}">
       <div class="relative min-w-0">
         <div class={agents.fullscreen ? "h-[calc(100dvh-6rem)] min-w-0" : "h-[62vh] min-h-[24rem] min-w-0 lg:h-[calc(100dvh-22rem)]"}>
-          {#if agents.layout === "radial"}
+          {#if agents.grouping !== 'connection'}
+            <ScopeGraph {agents} grouping={agents.grouping} snapshot={$scopes.data ?? { enabled: false, rooms: [], claims: [] }} onroom={selected => { roomId = selected.id; agents.chatOpen = false; }} />
+          {:else if agents.layout === "radial"}
             <TopologyGraph bind:this={agents.graph} server={topology.data?.server} model={agents.visibleModel} selectedId={agents.selectedId} query={agents.search} onselect={(id) => agents.select(id)} />
           {:else}
             <div class="h-full overflow-y-auto pr-1">
@@ -42,6 +65,7 @@
           {/if}
         </div>
       </div>
+      {#if room}<aside class="absolute inset-0 z-10 min-h-0 bg-card lg:static" aria-label="Scope conversation">{#key room.id}<ScopeChat {room} claims={$scopes.data?.claims ?? []} onclose={() => { roomId = null; }} />{/key}</aside>{/if}
       <aside class={agents.chatOpen ? "absolute inset-0 z-10 flex min-h-0 flex-col rounded-md border bg-card lg:static" : "hidden"} aria-label="Topology conversation">
         <div class="flex items-center justify-between border-b p-2">
           <span class="text-body font-medium">Conversation</span>

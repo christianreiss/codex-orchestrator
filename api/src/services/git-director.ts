@@ -1,3 +1,5 @@
+import { readWorkspace } from './agent-messaging/workspace.js';
+import { lockClaimGate, guardGitMutation } from './agent-coordination/git-guard.js';
 /**
  * Git Director: a registry of who is working in which clone, plus an advisory
  * arbiter over merges into shared branches.
@@ -521,7 +523,7 @@ export class GitDirectorService {
           readiness: agentBusAddresses.readiness,
           // Left, not inner: a reaped binding has no session row, and that
           // absence is the answer rather than a reason to drop the address.
-          session: { heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt },
+          session: { heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt, workspace: agentSessions.workspace },
         })
         .from(agentBusAddresses)
         .leftJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
@@ -595,6 +597,7 @@ export class GitDirectorService {
     const remoteKey = normalizeRemote(remoteUrl);
 
     return await this.deps.db.transaction(async (tx) => {
+      await lockClaimGate(tx);
       await this.sweepExpired(tx, now);
       // Serialize path reassignment across different clones on the same host.
       await tx.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, host.id)).for('update');
@@ -750,6 +753,7 @@ export class GitDirectorService {
     const paths = cleanPaths(args.paths);
 
     return await this.deps.db.transaction(async (tx) => {
+      await lockClaimGate(tx);
       await this.sweepExpired(tx, now);
       const { clone, worktree } = await this.requireWorktree(tx, host, worktreePath, now);
       const expiresAt = isoOffsetSeconds(REGISTRATION_TTL_SECONDS, new Date(now));
@@ -811,6 +815,7 @@ export class GitDirectorService {
       const normalized = normalizePath(worktreePath);
       try {
         await this.deps.db.transaction(async (tx) => {
+      await lockClaimGate(tx);
           const { worktree } = await this.requireWorktree(tx, host, normalized, now);
           if (reportedHead || reportedBranch) {
             await tx
@@ -949,8 +954,10 @@ export class GitDirectorService {
     const updateRequestId = input.updateRequestId ?? null;
 
     const decision = await this.deps.db.transaction(async (tx) => {
+      await lockClaimGate(tx);
       await this.sweepExpired(tx, now);
       const { clone, worktree } = await this.requireWorktree(tx, host, worktreePath, now);
+      await guardGitMutation(tx, clone, worktree, targetBranch, changedPaths);
 
       // Skipped when re-deciding: the row we are about to update carries this
       // very `client_request_id`, so the retry guard would find itself and
@@ -1044,8 +1051,10 @@ export class GitDirectorService {
     }
 
     return await this.deps.db.transaction(async (tx) => {
+      await lockClaimGate(tx);
       const now2 = this.now();
       const { clone, worktree } = decision;
+      await guardGitMutation(tx, clone, worktree, targetBranch, changedPaths);
       await tx.select().from(gitClones).where(eq(gitClones.id, clone.id)).limit(1).for('update');
 
       // Re-read under the lock: the holder may have released while the judge ran.
@@ -1180,6 +1189,7 @@ export class GitDirectorService {
     const now = this.now();
 
     const current = await this.deps.db.transaction(async (tx) => {
+      await lockClaimGate(tx);
       const polling = await this.requireRequest(tx, requestId, host);
       if (!polling.completedAt && (polling.verdict === 'allow' || polling.verdict === 'wait')) {
         // A status poll proves this holder is still working, just as git_list
@@ -1201,6 +1211,9 @@ export class GitDirectorService {
       await this.sweepExpired(tx, now);
       const request = await this.requireRequest(tx, requestId, host);
       if (request.verdict === 'allow' && !request.completedAt) {
+        const [wt] = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId));
+        const [clone] = await tx.select().from(gitClones).where(eq(gitClones.id, request.cloneId));
+        if (wt && clone) await guardGitMutation(tx, clone, wt, request.targetBranch, readPaths(request.changedPaths));
         const leaseExpiresAt = isoOffsetSeconds(LEASE_TTL_SECONDS, new Date(now));
         await tx
           .update(gitMergeRequests)
@@ -1249,6 +1262,7 @@ export class GitDirectorService {
     }
 
     return await this.deps.db.transaction(async (tx) => {
+      await lockClaimGate(tx);
       await this.sweepExpired(tx, now);
       let released = 0;
       let cloneId: string | null = null;
@@ -1323,6 +1337,7 @@ export class GitDirectorService {
       throw new ValidationError('verdict must be "allow" or "deny"', { param: 'verdict' });
     }
     return await this.deps.db.transaction(async (tx) => {
+      await lockClaimGate(tx);
       const rows = await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.id, requestId)).limit(1).for('update');
       const request = rows.find((row) => row.id === requestId);
       if (!request) throw new NotFoundError('Merge request not found', 'git_director_request_not_found');
@@ -1363,6 +1378,7 @@ export class GitDirectorService {
   async adminEvictWorktree(worktreeId: string): Promise<Record<string, unknown>> {
     const now = this.now();
     return await this.deps.db.transaction(async (tx) => {
+      await lockClaimGate(tx);
       const rows = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, worktreeId)).limit(1).for('update');
       const worktree = rows.find((row) => row.id === worktreeId);
       if (!worktree) throw new NotFoundError('Worktree not found', 'git_director_worktree_not_found');
@@ -1481,13 +1497,12 @@ export class GitDirectorService {
           receiveHeartbeatAt: agentBusAddresses.receiveHeartbeatAt,
           enabled: agentBusAddresses.enabled,
           readiness: agentBusAddresses.readiness,
-          session: { heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt },
+          session: { heartbeatAt: agentSessions.heartbeatAt, endedAt: agentSessions.endedAt, workspace: agentSessions.workspace },
         })
         .from(agentBusAddresses)
         .leftJoin(agentSessions, eq(agentSessions.id, agentBusAddresses.currentSessionId))
         .where(and(
           eq(agentBusAddresses.hostId, host.id),
-          eq(agentBusAddresses.cwdHash, cwdHash),
           eq(agentBusAddresses.engine, engine),
           username === null ? undefined : eq(agentBusAddresses.username, username),
           isNull(agentBusAddresses.archivedAt),
@@ -1499,7 +1514,7 @@ export class GitDirectorService {
       const live = rows.filter(
         (row) =>
           row.hostId === host.id &&
-          row.cwdHash === cwdHash &&
+          (readWorkspace(row.session?.workspace)?.git_root ?? readWorkspace(row.session?.workspace)?.cwd ?? (row.cwdHash === cwdHash ? worktreePath : null)) === worktreePath &&
           row.engine === engine &&
           (username === null || row.username === username) &&
           isPresent(deriveAddressPresence(row, row.session, freshAfter)),
