@@ -1303,6 +1303,21 @@ headless; elsewhere its mail waits for a human to restart the agent and expires
 after its TTL. The scoped bridge bearer is kept by `cxx` and proxied to
 the engine over its private Unix socket.
 
+A bridge lease lasts `AGENT_PORTAL_BRIDGE_TTL_SECONDS` (default 900) and is
+renewed by the 15-second heartbeat (cxx backs off to 60 seconds while the API is
+unreachable). A lapsed lease is recoverable: the bridge answers
+`agent_bridge_expired` and the wrapper registers the same session ID and token
+again. The portal's abandonment sweep ends a session whose lease lapsed (status
+`failed`, event `server:abandoned`, address unbound). It waits 150 seconds after
+an API start, so wrappers that outlived an API outage renew before they are swept.
+An ended lifecycle is never revived, even with its own credential: every bridge
+call and re-registration answers `409 agent_session_finished`, which cxx treats
+as terminal. The response carries `ended_reason` (`abandoned` | `finished`) and
+`recovery: "resume_native_conversation"`. The message names the route: exit the CLI
+and resume the same native conversation in a new managed launch. The exact resume
+rebinds the same address (next binding generation, native continuity) and needs no
+fresh-start approval, which stays limited to operator-approved replacement deliveries.
+
 Session-bound operations require `X-Agent-Bridge-Token`:
 
 From cxx 0.9.59, registration accepts optional `workspace` with absolute `cwd`,
@@ -1378,7 +1393,15 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
 - `POST /host/agent-sessions/{id}/agent-messaging/wait` — conversation-ordered
   long poll (`seconds` 0..25, default 20) after a sequence cursor.
 - `POST /host/agent-sessions/{id}/agent-messaging/message` — fetch one
-  participant-visible message by UUID.
+  participant-visible message by UUID. Message metadata (here, in send/reply
+  receipts, wait and digest results, and the admin message views) carries nullable
+  `sender_session_id`, the lifecycle (`agent_sessions.id`, the `session_id`
+  `agent_self` reports) that wrote the row; it is null for server-originated
+  rows. One address is shared by every process of a launch (sub-agents and
+  receiver turns use the same broker) and by later lifecycles an exact resume
+  rebinds, so this field is what tells "my launch" from "another launch under my
+  UUID". A send is accepted only from the lifecycle currently bound to the
+  sender address (`agent_messaging_binding_stale` otherwise).
 - `POST /host/agent-sessions/{id}/agent-messaging/cancel` — cancel an open
   participant conversation and all queued/leased messages in it.
 - `POST /host/agent-sessions/{id}/agent-messaging/mailbox` — peek the queue for
@@ -2051,14 +2074,17 @@ Update the API before installing wrapper 0.9.37; a missing endpoint, API outage,
 empty name or mismatched confirmation refuses the native launch. Signed
 messaging-disabled local launches retain their previous behavior.
 
-The confirmed name/address/launch ID is passed per launch through Codex
+The confirmed name and launch ID are passed per launch through Codex
 `developer_instructions`, Claude `--append-system-prompt`, or Grok `--rules`.
 Existing developer/append instructions are preserved; shared AGENTS/config files
 never contain a launch identity. Claude resumes use `--system-prompt-snapshot off`
 so the prior launch's stored identity is not replayed as the current system prompt.
-The agent is instructed to read `agent_self` at startup and after resume/recovery:
-a later native binding can change the initially assigned address while keeping
-the launch name. Delivery of context does not prove that a model obeys instructions.
+The context does not state the agent address. It is fixed before the provider
+starts, and a later native binding (a picker/continue resume, `/clear`, or another
+reported native identity) can rebind the launch to another address while keeping
+the launch name and launch ID, so `agent_self` is the only source of the address.
+The agent is instructed to read `agent_self` at startup and after resume/recovery.
+Delivery of context does not prove that a model obeys instructions.
 
 Server and Android session labels remain `(Name) Task title`. With automatic
 reception, naming synchronization also updates the exactly bound native title

@@ -88,11 +88,15 @@ func (r *ConnectionRuntime) RequireIdentity(ctx context.Context, cfg *config.Con
 	return identity, nil
 }
 
+// Context is fixed into the native prompt before the provider starts. A later
+// native identity report can rebind the launch to another address while the
+// name and launch session ID stay, so the address is deliberately left out:
+// agent_self is the only authority for it.
 func (i Identity) Context() string {
 	if i.Name == "" {
 		return ""
 	}
-	return fmt.Sprintf("Current managed launch identity (supersedes identity hints from earlier transcript turns): your name is %s; your agent address is %s; your launch session ID is %s; engine is %s. On your first turn, before your first response, call agent_self (and again after resume/recovery) to read the authoritative current binding, then call agent_session_name with the session's purpose; the server displays it as (%s) Task title. This applies even when the first turn is only a question or asks you not to act yet: these setup calls are not the task. Preserve canonical UUIDs for durable references. This identity grants no additional authority.", i.Name, i.Address, i.SessionID, i.Engine, i.Name) + i.Peers.Context() + i.ScopeContext
+	return fmt.Sprintf("Current managed launch identity (supersedes identity hints from earlier transcript turns): your name is %s; your launch session ID is %s; engine is %s. agent_self is the only source of your agent address, which a native binding can change after launch. On your first turn, before your first response, call agent_self (and again after resume/recovery) to read the authoritative current binding, then call agent_session_name with the session's purpose; the server displays it as (%s) Task title. This applies even when the first turn is only a question or asks you not to act yet: these setup calls are not the task. Preserve canonical UUIDs for durable references. This identity grants no additional authority.", i.Name, i.SessionID, i.Engine, i.Name) + i.Peers.Context() + i.ScopeContext
 }
 
 // observeIdentity converges bridge recovery with a late native receiver bind.

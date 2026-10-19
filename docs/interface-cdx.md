@@ -1374,14 +1374,17 @@ Update the API before installing wrapper 0.9.37; a missing endpoint, API outage,
 empty name or mismatched confirmation refuses the native launch. Signed
 messaging-disabled local launches retain their previous behavior.
 
-The confirmed name/address/launch ID is passed per launch through Codex
+The confirmed name and launch ID are passed per launch through Codex
 `developer_instructions`, Claude `--append-system-prompt`, or Grok `--rules`.
 Existing developer/append instructions are preserved; shared AGENTS/config files
 never contain a launch identity. Claude resumes use `--system-prompt-snapshot off`
 so the prior launch's stored identity is not replayed as the current system prompt.
-The agent is instructed to read `agent_self` at startup and after resume/recovery:
-a later native binding can change the initially assigned address while keeping
-the launch name. Delivery of context does not prove that a model obeys instructions.
+The context does not state the agent address. It is fixed before the provider
+starts, and a later native binding (a picker/continue resume, `/clear`, or another
+reported native identity) can rebind the launch to another address while keeping
+the launch name and launch ID, so `agent_self` is the only source of the address.
+The agent is instructed to read `agent_self` at startup and after resume/recovery.
+Delivery of context does not prove that a model obeys instructions.
 
 Server and Android session labels remain `(Name) Task title`. With automatic
 reception, naming synchronization also updates the exactly bound native title

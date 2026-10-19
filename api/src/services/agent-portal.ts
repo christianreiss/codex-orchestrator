@@ -61,6 +61,7 @@ import { wsPublisher } from '../ws/publisher.js';
 import { activeHostEngines, assertHostEngineEnabled, type FleetEngineState } from './host-engine-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
 import { releaseAgentMessagingBindingsLocked } from './agent-messaging.js';
+import { ABANDONED_SESSION_EVENT_ID, agentSessionFinishedError } from './agent-session-finished.js';
 import { finishSessionWatchdogsLocked, WATCHDOG_FAILURES, type WatchdogFailure } from './watchdog-lifecycle.js';
 
 export const AGENT_PORTAL_ENABLED_KEY = 'agent_portal_enabled';
@@ -377,7 +378,7 @@ export class AgentPortalService {
         ) {
           throw new ConflictError('Agent session registration conflicts with an existing session', 'agent_session_conflict');
         }
-        if (session.endedAt) throw new ConflictError('Agent session is finished', 'agent_session_finished');
+        if (session.endedAt) throw await agentSessionFinishedError(tx, session);
         await tx
           .update(agentSessions)
           .set({
@@ -1279,7 +1280,15 @@ export class AgentPortalService {
     return messageView(updated);
   }
 
-  async purgeExpired(): Promise<{
+  /**
+   * `abandonedGraceUntil` holds the abandonment sweep back after an API start.
+   * A bridge lapses after AGENT_PORTAL_BRIDGE_TTL_SECONDS without a heartbeat,
+   * and while the API was down nobody could heartbeat. Sweeping on the first
+   * tick ended every live lifecycle the outage had outlasted before its wrapper
+   * could reconnect and renew through the recoverable `agent_bridge_expired`
+   * path; the ended session then answered `agent_session_finished` for good.
+   */
+  async purgeExpired(options: { abandonedGraceUntil?: string } = {}): Promise<{
     sessions: number;
     browser_sessions: number;
     abandoned_sessions: number;
@@ -1288,7 +1297,9 @@ export class AgentPortalService {
     const now = nowIso();
     const staleTurns = await this.clearStaleTurns(now);
     await this.expireDisconnectedReceiverPrompts(now);
-    const abandonedSessions = await this.expireAbandonedSessions(now);
+    const abandonedSessions = options.abandonedGraceUntil && now < options.abandonedGraceUntil
+      ? 0
+      : await this.expireAbandonedSessions(now);
     const expired = await this.db
       .select({ id: agentSessions.id })
       .from(agentSessions)
@@ -1566,14 +1577,14 @@ export class AgentPortalService {
         const existing = await tx
           .select()
           .from(agentEvents)
-          .where(and(eq(agentEvents.sessionId, session.id), eq(agentEvents.clientEventId, 'server:abandoned')))
+          .where(and(eq(agentEvents.sessionId, session.id), eq(agentEvents.clientEventId, ABANDONED_SESSION_EVENT_ID)))
           .limit(1)
           .for('update');
         let eventId = existing[0]?.id;
         if (!eventId) {
           await tx.insert(agentEvents).values({
             sessionId: session.id,
-            clientEventId: 'server:abandoned',
+            clientEventId: ABANDONED_SESSION_EVENT_ID,
             eventType: 'failed',
             source: 'bridge',
             payloadEnc: this.encodeJson(payload),
@@ -1582,7 +1593,7 @@ export class AgentPortalService {
           const inserted = await tx
             .select({ id: agentEvents.id })
             .from(agentEvents)
-            .where(and(eq(agentEvents.sessionId, session.id), eq(agentEvents.clientEventId, 'server:abandoned')))
+            .where(and(eq(agentEvents.sessionId, session.id), eq(agentEvents.clientEventId, ABANDONED_SESSION_EVENT_ID)))
             .limit(1);
           eventId = inserted[0]?.id;
         }
@@ -1629,7 +1640,7 @@ export class AgentPortalService {
     if (!safeHashEqual(hostAuthFingerprint(row.host), session.hostAuthFingerprint)) {
       throw new UnauthorizedError('Agent bridge host credential changed', 'agent_bridge_host_auth_changed');
     }
-    if (session.endedAt && !allowEnded) throw new ConflictError('Agent session is finished', 'agent_session_finished');
+    if (session.endedAt && !allowEnded) throw await agentSessionFinishedError(this.db, session);
     if (!session.endedAt && session.bridgeExpiresAt <= nowIso()) {
       throw new UnauthorizedError('Agent bridge credential expired', 'agent_bridge_expired');
     }
@@ -1812,7 +1823,7 @@ export class AgentPortalService {
       throw new UnauthorizedError('Agent bridge host credential changed', 'agent_bridge_host_auth_changed');
     }
     if (session.endedAt && !allowEnded) {
-      throw new ConflictError('Agent session is finished', 'agent_session_finished');
+      throw await agentSessionFinishedError(db, session);
     }
     if (!session.endedAt && session.bridgeExpiresAt <= nowIso()) {
       throw new UnauthorizedError('Agent bridge credential expired', 'agent_bridge_expired');
