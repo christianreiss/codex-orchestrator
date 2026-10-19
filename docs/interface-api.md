@@ -1924,6 +1924,15 @@ Explicit re-enabling starts a new run and counter; history remains. Domain failu
 never starts recovery. Pause/delete prevents pending attempts while accepted work continues.
 The canonical fleet AGENTS guidance and shared Wake / Cron Skill describe these rules.
 
+Stale wake-ups retire themselves. Every 10 minutes the schedules worker sweeps schedules
+(not watchdogs) whose target agent has been gone for 24 hours — the same grace an agent
+name stays reserved: its session ended or its bridge expired, or the address is archived
+or missing. A finished one-shot (`once`, no further wake) is deleted 24 hours after its
+last run; a recurring one is paused with `pause_reason: agent_gone` and its waiting work
+canceled (Enable restores it). Persistent schedules are left alone while their address
+exists, since resuming a dormant agent is their purpose. Actions are recorded as
+`schedule.expired` / `schedule.paused_agent_gone` admin events by `system:sweep`.
+
 - `POST /admin/agent-messaging/messages/:id/fresh-start` — requires agent_messaging.manage; closed body `{version, reason}`, authorizes one ordinary replacement session after native_transcript_missing. Wakes are rejected; version conflicts return 409; repeated identical approval is idempotent.
 - Delivery ACK bodies additionally accept `task_result` only with `outcome: completed`. Session replies accept `claim_id` and `task_result`; relay replies accept `task_result`. Atomic result/reply/transport updates reject stale claims and binding generations. Reveal includes encrypted report history through the existing reveal-content capability.
 

@@ -33,6 +33,7 @@ import { receiverReady } from './agent-receiver-state.js';
 import { createAdminEventsService } from './admin-events.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { nextOccurrence, scheduleInput, type ScheduleInput } from './schedules/timing.js';
+import { SCHEDULE_TARGET_GRACE_SECONDS, targetIsGone } from './schedules/staleness.js';
 export { scheduleInput } from './schedules/timing.js';
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -371,6 +372,65 @@ export class SchedulesService {
           return runs.length > 0;
         })) || changed;
     if (changed) wsPublisher.publish('schedules.changed', {});
+  }
+  /**
+   * Retires wake-ups nobody can answer any more, 24 h after their agent is gone
+   * (the same grace an agent name stays reserved). A finished one-shot is
+   * deleted; a recurring one is paused with `pause_reason = agent_gone`, which
+   * the operator can undo with Enable. Persistent schedules are left alone while
+   * their agent's address exists: resuming dormant agents is their purpose.
+   * Watchdog schedules keep their own lifecycle.
+   */
+  async sweepStale(now = new Date(), actor = 'system:sweep') {
+    const ids = await this.db
+      .select({ id: agentSchedules.id })
+      .from(agentSchedules)
+      .where(and(isNull(agentSchedules.deletedAt), sql`NOT EXISTS (SELECT 1 FROM agent_watchdogs w WHERE w.schedule_id = ${agentSchedules.id})`))
+      .orderBy(asc(agentSchedules.id));
+    const swept: { id: string; action: 'expired' | 'paused_agent_gone' }[] = [];
+    for (const { id } of ids) {
+      const action = await this.db.transaction(async (tx) => {
+        // Global bus gate precedes the schedule and delivery locks, as in tick().
+        if (!(await this.enabled(tx, true))) return null;
+        const [schedule] = await tx.select().from(agentSchedules).where(eq(agentSchedules.id, id)).limit(1).for('update');
+        if (!schedule || schedule.deletedAt) return null;
+        const timestamp = now.toISOString();
+        const [target] = await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, schedule.targetAddressId)).limit(1);
+        const [session] = target?.currentSessionId
+          ? await tx.select({ endedAt: agentSessions.endedAt, bridgeExpiresAt: agentSessions.bridgeExpiresAt }).from(agentSessions).where(eq(agentSessions.id, target.currentSessionId)).limit(1)
+          : [];
+        const gone = targetIsGone(target, session, now);
+        const active = await tx
+          .select({ id: agentScheduleRuns.id })
+          .from(agentScheduleRuns)
+          .where(and(eq(agentScheduleRuns.scheduleId, id), inArray(agentScheduleRuns.status, activeStatuses)))
+          .limit(1);
+        const retire = (patch: Partial<Schedule>) =>
+          tx
+            .update(agentSchedules)
+            .set({ enabled: 0, ...patch, version: sql`${agentSchedules.version} + 1`, updatedBy: actor, updatedAt: timestamp })
+            .where(eq(agentSchedules.id, id));
+        if (schedule.kind === 'once' && schedule.nextDueAt === null) {
+          // Already fired. Delete once the last run is old enough, or its agent is gone.
+          const [last] = await tx.select({ updatedAt: agentScheduleRuns.updatedAt }).from(agentScheduleRuns)
+            .where(eq(agentScheduleRuns.scheduleId, id)).orderBy(desc(agentScheduleRuns.updatedAt)).limit(1);
+          const finishedAt = active.length ? null : (last?.updatedAt ?? schedule.updatedAt);
+          const old = finishedAt !== null && Date.parse(finishedAt) <= now.getTime() - SCHEDULE_TARGET_GRACE_SECONDS * 1000;
+          if (!old && !(gone && active.length)) return null;
+          await retire({ deletedAt: timestamp });
+          await this.cancelWaiting(tx, id, timestamp);
+          return 'expired' as const;
+        }
+        if (!schedule.enabled || !gone) return null;
+        if (schedule.persistent && target && !target.archivedAt) return null;
+        await retire({ pauseReason: 'agent_gone' });
+        await this.cancelWaiting(tx, id, timestamp);
+        return 'paused_agent_gone' as const;
+      });
+      if (action) swept.push({ id, action });
+    }
+    for (const { id, action } of swept) await this.changed(id, action, actor);
+    return swept;
   }
   private async advance(tx: Tx, run: Run, now: Date, enabled: boolean) {
     const timestamp = now.toISOString();

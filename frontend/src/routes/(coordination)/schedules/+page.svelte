@@ -15,6 +15,7 @@
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
   import * as Table from "$lib/components/ui/table";
+  import SegmentedControl from "$lib/components/page/SegmentedControl.svelte";
   import ScheduleDetailView from "$lib/components/schedules/ScheduleDetail.svelte";
   import ScheduleForm from "$lib/components/schedules/ScheduleForm.svelte";
   import { authStore } from "$lib/stores/auth";
@@ -47,7 +48,15 @@
     (error) => toast.error(error.message),
   );
   const agents = $derived($addresses.data?.addresses ?? []);
-  const rows = $derived($listQuery.data?.schedules);
+  // Wake-ups retired because their agent is gone stay one click away, not in the way.
+  let show = $state<"active" | "all">("active");
+  const all = $derived($listQuery.data?.schedules);
+  const retired = $derived(all?.filter((row) => row.pause_reason === "agent_gone").length ?? 0);
+  const rows = $derived(show === "all" ? all : all?.filter((row) => row.pause_reason !== "agent_gone"));
+  const PAUSE_REASONS: Record<string, string> = {
+    agent_gone: "Agent gone for 24 h or more. Enable to restore.",
+    recovery_limit_reached: "Recovery limit reached",
+  };
 
   function agentLabel(address: string) {
     const agent = agents.find((item) => item.address === address);
@@ -93,6 +102,16 @@
 
   <ListDetail dirty={editing && formDirty} bind:open={panelOpen} {title} description={editing ? "Choose an agent, prompt and wake time." : "Prompt and latest execution results."} onClose={() => (editing = false)}>
     {#snippet list()}
+      {#if retired > 0}
+        <div class="mb-3 flex flex-wrap items-center gap-3">
+          <SegmentedControl
+            label="Show wake-ups"
+            value={show}
+            options={[{ value: "active", label: "Active" }, { value: "all", label: `All (${retired} retired)`, hint: "Includes wake-ups paused because their agent is gone" }]}
+            onChange={(value) => (show = value === "all" ? "all" : "active")}
+          />
+        </div>
+      {/if}
       <DataTable
         items={rows}
         loading={$listQuery.isPending}
@@ -123,7 +142,7 @@
             <Table.Cell title={item.next_due_at ?? ""}>{item.next_due_at ? relativeTime(item.next_due_at) : "No further wake"}</Table.Cell>
             <Table.Cell>
               {item.persistent ? `On · ${item.progress_timeout_seconds}s timeout` : "Off"}
-              {#if item.pause_reason}<p class="text-caption text-destructive">Paused: {item.pause_reason}</p>{/if}
+              {#if item.pause_reason}<p class="text-caption text-destructive">Paused: {PAUSE_REASONS[item.pause_reason] ?? item.pause_reason}</p>{/if}
             </Table.Cell>
             <Table.Cell onclick={(event: MouseEvent) => event.stopPropagation()}>
               <RowActions actions={actionsFor(item)} label={`Actions for ${item.name}`} />

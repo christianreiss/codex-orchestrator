@@ -1,5 +1,7 @@
 # 2026-10-19
 
+- **Timed wake-ups clean themselves up.** A wake-up whose agent has been gone for 24 hours (session ended or expired, or address archived) is paused with `agent_gone` and its waiting work canceled; a one-shot that already fired is deleted after 24 hours. Persistent (resume) wake-ups are left alone while their agent's address exists. The list hides retired wake-ups behind an Active / All switch and explains the pause reason. Takes effect after the API is redeployed; the first sweep clears the existing backlog.
+
 - Messages no longer has a Conferences tab: conferences (members, combined timeline, ending one, History) already live in Agents → Chats, which now applies the Android display rules. Conversations, Addresses, Groups and the Delivery log stay for diagnosis. The agent-side conference tools and API are unchanged.
 
 - Projects list is one tidy row per project: title, slug and a one-line description beneath, and the update time. The always-"Unknown" Open work column and the mostly empty Description column are gone, and long titles no longer push the slug and age onto extra lines.

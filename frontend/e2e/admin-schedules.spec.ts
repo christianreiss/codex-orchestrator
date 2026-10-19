@@ -126,3 +126,16 @@ test('unknown stored targets remain editable without changing their address',asy
  await expect(page.getByRole('dialog')).not.toBeVisible();
  expect(calls[0].body).toMatchObject({target:unknown,version:4,persistent:false});
 });
+
+test('wake-ups paused because their agent is gone are hidden until All is chosen',async({page})=>{
+ await fixture(page);
+ await page.route(url=>url.pathname==='/admin/schedules',route=>route.request().method()==='GET'&&route.request().headers().accept?.includes('application/json')?route.fulfill({json:{next_cursor:null,schedules:[
+  {id:'a',name:'Live review',target,kind:'interval',at:null,cron:null,interval_minutes:5,timezone:'Europe/Berlin',enabled:true,persistent:false,progress_timeout_seconds:null,pause_reason:null,version:1,next_due_at:'2026-10-20T12:05:00Z',created_by:'admin:1',updated_by:'admin:1'},
+  {id:'b',name:'Dead review',target,kind:'interval',at:null,cron:null,interval_minutes:5,timezone:'Europe/Berlin',enabled:false,persistent:false,progress_timeout_seconds:null,pause_reason:'agent_gone',version:2,next_due_at:null,created_by:'admin:1',updated_by:'system:sweep'}]}}):route.fallback());
+ await page.goto('/admin/schedules');
+ await expect(page.getByRole('cell',{name:/^Live review/})).toBeVisible();
+ await expect(page.getByRole('cell',{name:/^Dead review/})).toHaveCount(0);
+ await page.getByRole('button',{name:/All \(1 retired\)/}).click();
+ await expect(page.getByRole('cell',{name:/^Dead review/})).toBeVisible();
+ await expect(page.getByText('Paused: Agent gone for 24 h or more. Enable to restore.')).toBeVisible();
+});

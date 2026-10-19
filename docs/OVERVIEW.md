@@ -903,6 +903,15 @@ Explicit re-enabling starts a new run and counter; history remains. Domain failu
 never starts recovery. Pause/delete prevents pending attempts while accepted work continues.
 The canonical fleet AGENTS guidance and shared Wake / Cron Skill describe these rules.
 
+Stale wake-ups retire themselves. Every 10 minutes the schedules worker sweeps schedules
+(not watchdogs) whose target agent has been gone for 24 hours — the same grace an agent
+name stays reserved: its session ended or its bridge expired, or the address is archived
+or missing. A finished one-shot (`once`, no further wake) is deleted 24 hours after its
+last run; a recurring one is paused with `pause_reason: agent_gone` and its waiting work
+canceled (Enable restores it). Persistent schedules are left alone while their address
+exists, since resuming a dormant agent is their purpose. Actions are recorded as
+`schedule.expired` / `schedule.paused_agent_gone` admin events by `system:sweep`.
+
 A result-only peer completion also queues one correlated reply containing its summary in the same transaction; wakes produce no peer reply. Retrying the same result never queues a second summary.
 
 Git Director registrations require absolute worktree, repository and common-directory paths (`git rev-parse --path-format=absolute --show-toplevel --git-common-dir`). A correct re-registration supersedes earlier mappings for that host/path and withdraws their queued requests while retaining history. A live lease on an earlier mapping blocks reassignment. Join/list/merge/release never select an arbitrary legacy duplicate: `git_director_worktree_ambiguous` requires explicit re-registration with the correct clone facts. Superseded rows cannot be revived by path lookups.

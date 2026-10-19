@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { scheduleInput, nextOccurrence } from '../../../src/services/schedules/timing.js';
+import { targetGoneSince, targetIsGone } from '../../../src/services/schedules/staleness.js';
 import { buildManagedWakeCronSkill } from '../../../src/services/managed-wake-cron-skill.js';
 const base = {
   name: 'Keep working',
@@ -64,5 +65,32 @@ describe('Wake/Cron timing and opt-in contract', () => {
     ])
       expect(skill.manifest).toContain(tool);
     expect(skill.manifest).toContain('Persistent recovery is OFF by default');
+  });
+});
+
+describe('Wake/Cron target staleness (24 h rule)', () => {
+  const now = new Date('2026-10-19T12:00:00Z');
+  const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString();
+  const live = { archivedAt: null, lastSeenAt: hoursAgo(0) };
+  it('treats a live session as alive however stale its last-seen is', () => {
+    const session = { endedAt: null, bridgeExpiresAt: new Date(now.getTime() + 3_600_000).toISOString() };
+    expect(targetGoneSince({ ...live, lastSeenAt: hoursAgo(72) }, session, now.toISOString())).toBeNull();
+    expect(targetIsGone({ ...live, lastSeenAt: hoursAgo(72) }, session, now)).toBe(false);
+  });
+  it('counts an ended or bridge-expired session gone only after 24 h', () => {
+    const ended = (h: number) => ({ endedAt: hoursAgo(h), bridgeExpiresAt: hoursAgo(h) });
+    expect(targetIsGone({ ...live, lastSeenAt: hoursAgo(25) }, ended(25), now)).toBe(true);
+    expect(targetIsGone({ ...live, lastSeenAt: hoursAgo(23) }, ended(23), now)).toBe(false);
+    expect(targetIsGone({ ...live, lastSeenAt: hoursAgo(25) }, { endedAt: null, bridgeExpiresAt: hoursAgo(30) }, now)).toBe(true);
+  });
+  it('never counts the agent gone before it was last seen', () => {
+    expect(targetIsGone({ ...live, lastSeenAt: hoursAgo(2) }, { endedAt: hoursAgo(48), bridgeExpiresAt: hoursAgo(48) }, now)).toBe(false);
+  });
+  it('treats missing and archived addresses as gone and a session-less one by last-seen', () => {
+    expect(targetIsGone(null, null, now)).toBe(true);
+    expect(targetIsGone({ archivedAt: hoursAgo(1), lastSeenAt: hoursAgo(0) }, null, now)).toBe(false);
+    expect(targetGoneSince({ archivedAt: hoursAgo(30), lastSeenAt: hoursAgo(0) }, null, now.toISOString())).toBe(hoursAgo(30));
+    expect(targetIsGone({ archivedAt: null, lastSeenAt: hoursAgo(30) }, null, now)).toBe(true);
+    expect(targetIsGone({ archivedAt: null, lastSeenAt: hoursAgo(3) }, null, now)).toBe(false);
   });
 });

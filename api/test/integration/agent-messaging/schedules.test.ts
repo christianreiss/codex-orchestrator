@@ -472,4 +472,49 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
   await service.tick(due());expect((await runs(schedule.id))[0]).toMatchObject({status:'completed',recoveryCount:0});
  });
 
+
+ describe('stale wake-up sweep (24 h rule)', () => {
+  const ago = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+  async function gone(target: { id: string; address: { id: string } }, hours: number) {
+    await db.update(agentSessions).set({ endedAt: ago(hours), bridgeExpiresAt: ago(hours) }).where(eq(agentSessions.id, target.id));
+    await db.update(agentBusAddresses).set({ lastSeenAt: ago(hours) }).where(eq(agentBusAddresses.id, target.address.id));
+  }
+  const row = async (id: string) => (await db.select().from(agentSchedules).where(eq(agentSchedules.id, id)))[0]!;
+  async function once(target: string) {
+    const value = await service.create({ name: 'Once', target, prompt: 'go', kind: 'once', at: new Date(Date.now() + 120_000).toISOString() }, 'host:fixture');
+    scheduleIds.push(value.schedule.id);
+    return value.schedule;
+  }
+  it('pauses a recurring wake-up 24 h after its agent ended, cancels waiting work, and is idempotent', async () => {
+    const target = await agent('codex'), schedule = await create(target.address.address, false);
+    await service.tick(due());
+    expect((await runs(schedule.id)).length).toBe(1);
+    await gone(target, 23);
+    expect(await service.sweepStale()).toEqual([]);
+    expect((await row(schedule.id)).enabled).toBe(1);
+    await gone(target, 25);
+    expect(await service.sweepStale()).toEqual([{ id: schedule.id, action: 'paused_agent_gone' }]);
+    expect(await row(schedule.id)).toMatchObject({ enabled: 0, pauseReason: 'agent_gone', version: 2 });
+    expect((await runs(schedule.id)).every((run) => run.status === 'canceled')).toBe(true);
+    expect(await service.sweepStale()).toEqual([]);
+  });
+  it('leaves a persistent wake-up alone while its address exists, but pauses it once archived', async () => {
+    const target = await agent('claude'), schedule = await create(target.address.address, true);
+    await gone(target, 30);
+    expect(await service.sweepStale()).toEqual([]);
+    await db.update(agentBusAddresses).set({ archivedAt: ago(30) }).where(eq(agentBusAddresses.id, target.address.id));
+    expect(await service.sweepStale()).toEqual([{ id: schedule.id, action: 'paused_agent_gone' }]);
+    expect((await row(schedule.id)).pauseReason).toBe('agent_gone');
+  });
+  it('deletes a fired one-shot after 24 h, keeps a fresh one, and never touches an unfired one with a live agent', async () => {
+    const target = await agent('grok'), fired = await once(target.address.address), fresh = await once(target.address.address), waiting = await once(target.address.address);
+    await db.update(agentSchedules).set({ nextDueAt: null, updatedAt: ago(26) }).where(eq(agentSchedules.id, fired.id));
+    await db.update(agentSchedules).set({ nextDueAt: null, updatedAt: ago(1) }).where(eq(agentSchedules.id, fresh.id));
+    expect(await service.sweepStale()).toEqual([{ id: fired.id, action: 'expired' }]);
+    await expect(service.get(fired.id)).rejects.toMatchObject({ code: 'schedule_not_found' });
+    expect((await row(fresh.id)).deletedAt).toBeNull();
+    expect((await row(waiting.id)).enabled).toBe(1);
+  });
+ });
+
 });
