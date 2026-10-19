@@ -15,7 +15,6 @@
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte.js";
   import { ApiError } from "$lib/api/client";
   import { fetchFeedback, projectKeys, updateFeedback } from "$lib/api/projects";
-  import { relativeTime } from "$lib/utils/format";
   import type { ProjectFeedback, ProjectFeedbackStatus, ProjectFeedbackType } from "$lib/api/types";
 
   const qc = useQueryClient();
@@ -55,7 +54,7 @@
       id: String(entry.id),
       title: entry.title,
       badges: [{ label: entry.type, variant: TYPE_BADGE[entry.type] ?? "default" }, { label: statusOf(entry), variant: STATUS_BADGE[statusOf(entry)] }],
-      meta: relativeTime(entry.created_at),
+      created: entry.created_at,
     })),
   );
   const entry = $derived(all.find((candidate) => String(candidate.id) === selected));
