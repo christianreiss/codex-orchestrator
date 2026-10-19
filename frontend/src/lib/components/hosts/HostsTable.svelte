@@ -61,10 +61,10 @@
     <Table.Head>Status</Table.Head>
     <SortableHead label="Needs attention" active={list.sortField === "attention"} dir={list.sortDir} onclick={() => list.setSort("attention")} />
     <Table.Head>Engines</Table.Head>
-    <SortableHead label="Last seen" active={list.sortField === "last_refresh"} dir={list.sortDir} onclick={() => list.setSort("last_refresh")} />
+    <SortableHead label="Last contact" active={list.sortField === "last_refresh"} dir={list.sortDir} onclick={() => list.setSort("last_refresh")} />
   {/snippet}
   {#snippet row({ host, items }: HostRow)}
-    {@const kind = hostStatusKind(host)}
+    {@const kind = hostStatusKind(host, list.now)}
     {@const warnings = items.filter((item) => item.tone === "warning")}
     <Table.Row class="cursor-pointer" onclick={(event: MouseEvent) => open(event, host.id)} data-host-id={host.id}>
       <Table.Cell class="max-w-[16rem]">

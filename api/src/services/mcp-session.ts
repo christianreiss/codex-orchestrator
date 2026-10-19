@@ -42,7 +42,7 @@ export class McpSessionService {
     const row = rows[0];
     if (!row) return null;
     const exp = parseIso(row.expiresAt);
-    if (!exp || exp.getTime() < Date.now()) return null;
+    if (!exp || exp.getTime() <= Date.now()) return null;
     const hostRows = await this.db.select().from(hosts).where(eq(hosts.id, Number(row.hostId))).limit(1);
     if (!hostRows[0]) return null;
     await this.db

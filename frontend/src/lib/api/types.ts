@@ -794,6 +794,13 @@ export interface HostEngineReadiness {
 
 /** Row shape returned by GET /admin/hosts. */
 export interface HostListItem {
+  presence?: "online" | "offline";
+  presence_heartbeat_at?: string | null;
+  presence_observed_at?: string;
+  presence_fresh_seconds?: number;
+  last_contact_at?: string | null;
+  /** Browser receipt time, used only to age server evidence despite clock skew. */
+  presence_received_at?: number;
   /** Optional for compatibility with cached/older host-list responses. */
   engine_readiness?: Record<HostEngine, HostEngineReadiness>;
   id: number;

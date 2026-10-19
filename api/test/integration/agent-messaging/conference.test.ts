@@ -148,11 +148,12 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
   }
 
   /** Open a room with a chair and two joined participants. */
-  async function room() {
+  async function room(ttlSeconds?: number) {
     const chair = await register('claude', 'chair');
     const one = await register('claude', 'one');
     const two = await register('codex', 'two');
     const opened = await service.openConference(chair.sessionId, chair.bridgeToken, {
+      ttlSeconds,
       topic: 'migration 0021',
       purpose: 'land it on crane',
     });
@@ -238,7 +239,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
   // floor in the TASK header and the echo. The floor belongs to the sweep only.
   it('advertises the chair estimate unchanged while flooring only the sweep grace', async () => {
     for (const [eta, header, grace] of [[30, 30, 900], [180, 180, 900], [3600, 3600, 3600], [undefined, 900, 900]] as const) {
-      const { chair, one, conferenceId } = await room();
+      const { chair, one, conferenceId } = await room(7200);
       const before = Date.now();
       const dispatched = await service.conferenceDispatch(chair.sessionId, chair.bridgeToken, {
         conferenceId, to: one.address, task: 'estimate check', etaSeconds: eta,

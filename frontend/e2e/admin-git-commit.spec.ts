@@ -40,7 +40,7 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
 test('saves all combinations and previews each engine with the Director disabled', async ({ page }) => {
   const shared = state();
   await fixture(page, shared);
-  await page.goto('/admin/git-director');
+  await page.goto('/admin/git-director?view=settings');
   const card = page.locator('#git-commit-messages');
   const style = card.getByLabel('Message length');
   const attribution = card.getByRole('switch', { name: 'AI Attribution', exact: true });
@@ -56,7 +56,7 @@ test('saves all combinations and previews each engine with the Director disabled
       await expect(attribution).toBeChecked({ checked: ai_attribution });
       await expect(attribution).toBeEnabled();
       for (const engine of ['Codex', 'Claude', 'Grok']) {
-        await card.getByLabel('Preview engine').selectOption(engine);
+        await card.getByLabel('Engine', { exact: true }).selectOption(engine);
         const preview = card.getByLabel('Commit preview');
         await expect(preview).toHaveText('Fix stale host status'
           + (message_style === 'long' ? '\n\nRefresh host status after configuration changes so the dashboard shows the current state.' : '')
@@ -76,10 +76,10 @@ test('failed saves restore controls; another tab receives settings updates', asy
   await fixture(page, shared);
   const other = await context.newPage();
   const refreshOther = await fixture(other, shared);
-  await page.goto('/admin/git-director');
+  await page.goto('/admin/git-director?view=settings');
   const style = page.getByLabel('Message length');
   await expect(style).toBeEnabled();
-  await other.goto('/admin/git-director');
+  await other.goto('/admin/git-director?view=settings');
   await expect(other.getByLabel('Message length')).toBeEnabled();
   shared.fail = true;
   await style.selectOption('long');
@@ -101,10 +101,10 @@ test('read-only users see disabled settings and previews on mobile', async ({ pa
   const shared = state();
   await page.setViewportSize({ width: 390, height: 844 });
   await fixture(page, shared, false);
-  await page.goto('/admin/git-director');
+  await page.goto('/admin/git-director?view=settings');
   await expect(page.getByLabel('Message length')).toBeDisabled();
   await expect(page.getByRole('switch', { name: 'AI Attribution', exact: true })).toBeDisabled();
-  await page.getByLabel('Preview engine').selectOption('Grok');
+  await page.getByLabel('Engine', { exact: true }).selectOption('Grok');
   await expect(page.getByLabel('Commit preview')).toBeVisible();
   expect(shared.writes).toEqual([]);
 });

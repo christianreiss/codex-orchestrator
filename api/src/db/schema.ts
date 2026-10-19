@@ -44,6 +44,7 @@ export const hosts = mysqlTable(
     secure: tinyint('secure').notNull().default(1),
     allowRoamingIps: tinyint('allow_roaming_ips').notNull().default(0),
     reverseDnsMode: tinyint('reverse_dns_mode'),
+    lastContactAt: varchar('last_contact_at', { length: 100 }),
     lastRefresh: varchar('last_refresh', { length: 100 }),
     authDigest: varchar('auth_digest', { length: 128 }),
     ip4: varchar('ip4', { length: 64 }),
@@ -100,6 +101,7 @@ export const hosts = mysqlTable(
     apiKeyUnique: uniqueIndex('api_key').on(t.apiKey),
     apiKeyHashUnique: uniqueIndex('api_key_hash').on(t.apiKeyHash),
     updatedAtIdx: index('idx_hosts_updated_at').on(t.updatedAt),
+    lastContactIdx: index('idx_hosts_last_contact').on(t.lastContactAt),
     expiresAtIdx: index('idx_hosts_expires_at').on(t.expiresAt),
     wrapperTrackIdx: index('idx_hosts_wrapper_track').on(t.wrapperTrack),
   }),
@@ -1671,6 +1673,7 @@ export const agentBusAddresses = mysqlTable(
     updatedAt: varchar('updated_at', { length: 100 }).notNull(),
   },
   (t) => ({
+    retentionIdx: index('idx_agent_addresses_retention').on(t.lastSeenAt),
     addressUnique: uniqueIndex('uq_agent_bus_addresses_address').on(t.address),
     aliasUnique: uniqueIndex('uq_agent_bus_addresses_alias').on(t.displayAlias),
     sessionUnique: uniqueIndex('uq_agent_bus_addresses_session').on(t.currentSessionId),
@@ -1737,6 +1740,7 @@ export const agentBusConversations = mysqlTable(
     updatedAt: varchar('updated_at', { length: 100 }).notNull(),
   },
   (t) => ({
+    retentionIdx: index('idx_agent_conversations_retention').on(t.lastActivityAt),
     addressAIdx: index('idx_agent_bus_conversations_a').on(t.addressAId, t.status, t.lastActivityAt),
     addressBIdx: index('idx_agent_bus_conversations_b').on(t.addressBId, t.status, t.lastActivityAt),
     statusIdx: index('idx_agent_bus_conversations_status').on(t.status, t.lastActivityAt),
@@ -1770,6 +1774,7 @@ export const agentBusConferences = mysqlTable(
     updatedAt: varchar('updated_at', { length: 100 }).notNull(),
   },
   (t) => ({
+    retentionIdx: index('idx_agent_conferences_retention').on(t.adjournedAt),
     pinUnique: uniqueIndex('uq_agent_bus_conferences_pin').on(t.pin),
     ownerIdx: index('idx_agent_bus_conferences_owner').on(t.ownerAddressId, t.status),
     statusIdx: index('idx_agent_bus_conferences_status').on(t.status, t.deadlineAt),
@@ -2357,7 +2362,7 @@ export const hostDaemonSessions = mysqlTable('host_daemon_sessions', {
   status: varchar('status', { length: 24 }).notNull(),
   lastActivityAt: varchar('last_activity_at', { length: 100 }).notNull(),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
-}, t => [index('idx_daemon_sessions_host').on(t.hostId), uniqueIndex('uq_daemon_session_address').on(t.addressId)]);
+}, t => [index('idx_daemon_sessions_retention').on(t.lastActivityAt), index('idx_daemon_sessions_host').on(t.hostId), uniqueIndex('uq_daemon_session_address').on(t.addressId)]);
 export const hostDaemonOperations = mysqlTable('host_daemon_operations', {
   id: char('id', { length: 36 }).primaryKey(),
   sessionId: char('session_id', { length: 36 }).notNull().references(() => hostDaemonSessions.id, { onDelete: 'cascade' }),
@@ -2413,7 +2418,7 @@ export const chattySessions = mysqlTable('chatty_sessions', {
   seenAvailable: tinyint('seen_available').notNull().default(0),
   summaryEnc: longtext('summary_enc'),
   updatedAt: varchar('updated_at', { length: 100 }).notNull(),
-});
+}, t => [index('idx_chatty_sessions_retention').on(t.updatedAt)]);
 export const chattyRuns = mysqlTable('chatty_runs', {
   id: char('id', { length: 36 }).primaryKey(),
   userId: bigint('user_id', { mode: 'number', unsigned: true }).notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
@@ -2430,7 +2435,7 @@ export const chattyRuns = mysqlTable('chatty_runs', {
   activeMs: int('active_ms').notNull().default(0),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
   updatedAt: varchar('updated_at', { length: 100 }).notNull(),
-}, t => [uniqueIndex('uq_chatty_client').on(t.userId,t.clientMessageId), index('idx_chatty_queue').on(t.status,t.createdAt)]);
+}, t => [index('idx_chatty_runs_user').on(t.userId), uniqueIndex('uq_chatty_client').on(t.userId,t.clientMessageId), index('idx_chatty_queue').on(t.status,t.createdAt)]);
 export const chattyEvents = mysqlTable('chatty_events', {
   id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
   userId: bigint('user_id', { mode: 'number', unsigned: true }).notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
@@ -2657,7 +2662,7 @@ export const agentRoomOperations = mysqlTable('agent_room_operations', {
   payloadHash: char('payload_hash', { length: 64 }).notNull(),
   result: json('result').$type<Record<string, unknown>>().notNull(),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
-});
+}, t => [index('idx_room_operations_retention').on(t.createdAt)]);
 export const agentRoomDeliveries = mysqlTable('agent_room_deliveries', {
   eventId: char('event_id', { length: 36 }).notNull(),
   addressId: char('address_id', { length: 36 }).notNull(),

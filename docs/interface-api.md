@@ -2894,3 +2894,26 @@ only with `agent_messaging.read`. It never sends room IDs, message bodies or
 attachments. Existing clients ignore the additional scope. Android reads the
 canonical room history after invalidation; no new database migration or room
 push subscription is introduced.
+
+### Host connection evidence and server history retention
+
+`GET /admin/hosts` and `GET /admin/hosts/{id}/detail` add `presence` (`online|offline`),
+`presence_heartbeat_at`, `presence_observed_at`, `presence_fresh_seconds` (45), and
+`last_contact_at`. Online requires a fresh bound agent heartbeat or connected communicator.
+It is independent of provider authentication readiness. Administrative edits and provider
+refreshes never update `last_contact_at`; legacy timestamps remain for compatibility.
+Host inactivity pruning uses genuine contact, falling back to creation when unknown. An
+explicit key rotation grants 30 minutes for provisioning; ordinary edits grant no extension.
+
+The portal retention worker runs every `AGENT_PORTAL_PURGE_INTERVAL_SECONDS` (300 by default),
+including when messaging is disabled or the source host never reconnects. It purges expired
+MCP/admin credentials and provider-account session leases at their existing expiry and inactive server conversation history after
+24 hours: peer threads/messages/results, ended portal sessions (including rebooted sessions),
+remote/daemon/Advisor history, Chatty, shared room history, unused agent addresses and expired dormant relays.
+Persistent group/project/scope definitions remain. Native transcript housekeeping is separate.
+Explicit schedules (including paused), active watchdogs/reboot handoffs and unfinished work
+protect their required targets. Stale delivery leases become unknown/ambiguous, never success
+or replay. Historical data and reads alone do not protect identities. Old unresolved notices
+cannot retain an expired session indefinitely. Cleanup is bounded and transactional; large
+threads drain over multiple ticks. Attachment files are retired transactionally and removed
+with retry-safe filesystem cleanup. Chatty purging advances the private conversation generation.

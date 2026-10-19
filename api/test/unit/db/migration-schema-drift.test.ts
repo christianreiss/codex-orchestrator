@@ -349,6 +349,7 @@ describe('migrations against the test baseline', () => {
       'hosts.internal_role',
       'host_daemon_sessions.model',
       'agent_bus_conferences.owner_admin_id',
+      'hosts.last_contact_at',
     ]);
   });
 

@@ -2,7 +2,7 @@
   import { page } from "$app/state";
   import { base } from "$app/paths";
   import { PageShell, StateBlock } from "$lib/components/page";
-  import { hostDetailQuery, hostLatestRefresh, hostStatusKind } from "$lib/api/hosts";
+  import { hostDetailQuery, hostLastSeen, hostStatusKind } from "$lib/api/hosts";
   import { relativeTime } from "$lib/utils/format";
   import StatusPill from "$lib/components/hosts/StatusPill.svelte";
   import AccessSection from "$lib/components/hosts/detail/AccessSection.svelte";
@@ -16,6 +16,11 @@
   const detail = $derived(hostDetailQuery(id));
   const host = $derived($detail.data?.host);
 
+  let now = $state(Date.now());
+  $effect(() => {
+    const timer = setInterval(() => { now = Date.now(); }, 1000);
+    return () => clearInterval(timer);
+  });
   let installer = $state<InstallCommand>();
   const STATUS = {
     online: { tone: "online", label: "Online" },
@@ -32,7 +37,7 @@
     <a href={`${base}/hosts`} class="text-body-sm underline">Back to all hosts</a>
   </PageShell>
 {:else}
-  {@const status = STATUS[hostStatusKind(host)]}
+  {@const status = STATUS[hostStatusKind(host, now)]}
   <PageShell title={host.fqdn} description={`Host #${host.id}`} width="narrow">
     {#snippet actions()}
       <InstallCommand bind:this={installer} {id} fqdn={host.fqdn} curlInsecure={host.curl_insecure} />
@@ -40,7 +45,7 @@
     {#snippet subheader()}
       <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-body-sm text-muted-foreground">
         <StatusPill tone={status.tone} label={status.label} />
-        <span title={hostLatestRefresh(host) ?? undefined}>Last seen {relativeTime(hostLatestRefresh(host)) || "never"}</span>
+        <span title={hostLastSeen(host) ?? undefined}>Last contact {relativeTime(hostLastSeen(host)) || "never"}</span>
       </div>
     {/snippet}
 

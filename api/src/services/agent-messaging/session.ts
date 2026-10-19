@@ -413,6 +413,7 @@ export class SessionRegistry {
           throw new ConflictError('Automatic receiver owns the native identity', 'receiver_owned');
         address = await bindNativeMessagingIdentityLocked(tx, session, upstream, now);
       }
+      await tx.update(hosts).set({ lastContactAt: now }).where(eq(hosts.id, session.hostId));
       const status = normalizeSessionStatus(input.status) ?? session.status;
       await tx
         .update(agentSessions)

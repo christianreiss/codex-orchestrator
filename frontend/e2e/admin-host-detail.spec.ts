@@ -4,6 +4,7 @@ import AxeBuilder from '@axe-core/playwright';
 async function fixture(page: Page, overrides = false, manage = true, singleEngine = false, authed = true) {
   const stamp = new Date().toISOString();
   const host = {
+    presence: 'online', presence_heartbeat_at: stamp, presence_observed_at: stamp, presence_fresh_seconds: 45, last_contact_at: stamp,
     id: 1, fqdn: 'workstation.example.test', secure: true, status: 'active', authed,
     engines: singleEngine ? 'codex' : 'codex,claude,grok', engines_list: singleEngine ? ['codex'] : ['codex', 'claude', 'grok'],
     ip4: '192.0.2.10', ip6: '2001:db8::10', last_refresh: stamp, last_cron_check: stamp,
@@ -124,3 +125,14 @@ for (const width of [390, 1024, 1440]) for (const theme of ['light', 'dark']) {
     }
   });
 }
+
+test('online evidence ages out even when cached replies repeat and admin timestamps are fresh', async ({ page }) => {
+  await page.clock.install();
+  await fixture(page);
+  await page.goto('/admin/hosts/1');
+  await expect(page.locator('main').getByText('Online', { exact: true })).toBeVisible();
+  await expect(page.locator('main').getByText(/Last contact/)).toBeVisible();
+  await page.clock.fastForward(46_000);
+  await expect(page.locator('main').getByText('Offline', { exact: true })).toBeVisible();
+  await expect(page.locator('main').getByText('Online', { exact: true })).toHaveCount(0);
+});

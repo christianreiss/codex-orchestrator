@@ -1,3 +1,5 @@
+import { ServerRetentionService } from '../services/server-retention/index.js';
+import { pruneHosts } from '../services/host-lifecycle.js';
 import { ChatAttachments } from '../services/agent-chat/attachments.js';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db/client.js';
@@ -27,22 +29,31 @@ export function startAgentPortalWorker(
   // start before treating a lapsed bridge as an abandoned session.
   const abandonedGraceUntil = isoOffsetSeconds(ABANDONED_SESSION_START_GRACE_SECONDS);
   let stopped = false;
-  let running = false;
+  let running: Promise<void> | null = null;
 
-  const tick = async (): Promise<void> => {
-    if (stopped || running) return;
-    running = true;
-    try {
+  const phase = async (name: string, run: () => Promise<unknown>) => {
+    if (stopped) return;
+    try { await run(); }
+    catch (error) { app.log.error({ err: error, phase: name }, 'server retention phase failed'); }
+  };
+  const run = async () => {
+    await phase('portal', async () => {
       const purged = await portal.purgeExpired({ abandonedGraceUntil });
-      await new ChatAttachments(db, keyring, env.DATA_ROOT ?? 'storage').purge();
       if (purged.sessions || purged.browser_sessions || purged.abandoned_sessions) {
         app.log.info({ purged }, 'agent portal retention purge');
       }
-    } catch (error) {
-      app.log.error({ err: error }, 'agent portal worker tick failed');
-    } finally {
-      running = false;
-    }
+    });
+    await phase('history', async () => {
+      const purged = await new ServerRetentionService(db).purge();
+      if (Object.values(purged).some(Boolean)) app.log.info({ purged }, 'server history retention purge');
+    });
+    await phase('hosts', () => pruneHosts(db));
+    await phase('attachments', () => new ChatAttachments(db, keyring, env.DATA_ROOT ?? 'storage').purge());
+  };
+  const tick = (): Promise<void> | undefined => {
+    if (stopped || running) return;
+    running = run().finally(() => { running = null; });
+    return running;
   };
 
   const interval = setInterval(() => void tick(), env.AGENT_PORTAL_PURGE_INTERVAL_SECONDS * 1000);
@@ -51,5 +62,6 @@ export function startAgentPortalWorker(
   app.addHook('onClose', async () => {
     stopped = true;
     clearInterval(interval);
+    await running;
   });
 }

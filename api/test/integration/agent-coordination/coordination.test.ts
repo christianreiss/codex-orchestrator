@@ -4,7 +4,7 @@ import { guardGitMutation } from '../../../src/services/agent-coordination/git-g
 import { runMigrations } from '../../../src/db/migrator.js';
 import type { GitClone, GitWorktree } from '../../../src/db/schema.js';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   agentScopes,
@@ -103,6 +103,18 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       .set({ endedAt: new Date().toISOString() })
       .where(inArray(agentSessions.id, sessions));
     await service.setEnabled(false);
+    // Historical addresses are intentionally retained by the service. A test
+    // must remove its own fleet records rather than polluting later discovery.
+    await db.execute(sql`UPDATE agent_name_pool SET current_session_id = NULL WHERE current_session_id IN (SELECT id FROM agent_sessions WHERE host_id = ${host.id})`);
+    await db.execute(sql`DELETE FROM agent_name_leases WHERE address_id IN (SELECT id FROM agent_bus_addresses WHERE host_id = ${host.id})`);
+    await db.execute(sql`DELETE FROM agent_bus_messages WHERE sender_address_id IN (SELECT id FROM agent_bus_addresses WHERE host_id = ${host.id}) OR target_address_id IN (SELECT id FROM agent_bus_addresses WHERE host_id = ${host.id})`);
+    await db.execute(sql`DELETE FROM agent_bus_conversations WHERE address_a_id IN (SELECT id FROM agent_bus_addresses WHERE host_id = ${host.id}) OR address_b_id IN (SELECT id FROM agent_bus_addresses WHERE host_id = ${host.id})`);
+    await db.execute(sql`DELETE FROM agent_events WHERE session_id IN (SELECT id FROM agent_sessions WHERE host_id = ${host.id})`);
+    await db.execute(sql`DELETE FROM agent_messages WHERE session_id IN (SELECT id FROM agent_sessions WHERE host_id = ${host.id})`);
+    await db.execute(sql`DELETE FROM agent_prompts WHERE session_id IN (SELECT id FROM agent_sessions WHERE host_id = ${host.id})`);
+    await db.delete(agentSessions).where(eq(agentSessions.hostId, host.id));
+    await db.execute(sql`DELETE FROM agent_bus_addresses WHERE host_id = ${host.id}`);
+    await db.delete(hosts).where(eq(hosts.id, host.id));
     await handle!.pool.end();
   });
   it('joins all three engines once, separates host/project, and reads a durable idempotent chat', async () => {

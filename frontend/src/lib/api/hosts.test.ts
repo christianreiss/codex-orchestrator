@@ -57,6 +57,7 @@ registerHooks({
 const hostsModule: string = "./hosts.ts";
 const {
   HOST_ONLINE_WINDOW_MS,
+  withPresenceReceipt,
   hostCxxWrapperState,
   hostEngines,
   hostHasRequiredAuth,
@@ -89,6 +90,9 @@ function makeHost(overrides: Partial<HostListItem> = {}): HostListItem {
     id: 1,
     fqdn: "host.example.com",
     status: "ok",
+    presence: "online",
+    presence_heartbeat_at: new Date().toISOString(),
+    last_contact_at: new Date().toISOString(),
     last_refresh: null,
     claude_last_refresh: null,
     updated_at: new Date().toISOString(),
@@ -321,29 +325,10 @@ describe("hostLatestRefresh", () => {
 });
 
 describe("hostLastSeenMs", () => {
-  const older = "2026-07-20T08:00:00.000Z";
-  const newer = "2026-07-25T08:00:00.000Z";
-
-  it("takes the newest of the three timestamps", () => {
-    assert.equal(
-      hostLastSeenMs({ updated_at: newer, last_refresh: older, claude_last_refresh: older }),
-      Date.parse(newer),
-    );
-    assert.equal(
-      hostLastSeenMs({ updated_at: older, last_refresh: newer, claude_last_refresh: older }),
-      Date.parse(newer),
-    );
-    assert.equal(
-      hostLastSeenMs({ updated_at: older, last_refresh: older, claude_last_refresh: newer }),
-      Date.parse(newer),
-    );
-  });
-
-  it("is null when none of them parse", () => {
-    assert.equal(
-      hostLastSeenMs({ updated_at: null, last_refresh: "never", claude_last_refresh: null }),
-      null,
-    );
+  it("uses genuine contact rather than row edits or token mint times", () => {
+    assert.equal(hostLastSeenMs(makeHost({ last_contact_at: iso(NOW), updated_at: iso(NOW + 86400000), last_refresh: iso(NOW + 86400000) })), NOW);
+    assert.equal(hostLastSeenMs({ updated_at: iso(NOW), last_refresh: iso(NOW) }), null);
+    assert.equal(hostLastSeenMs({ last_contact_at: "never" }), null);
   });
 });
 
@@ -462,59 +447,44 @@ describe("hostHasRequiredAuth", () => {
 });
 
 describe("hostStatusKind", () => {
-  it("short-circuits on a textual status before anything else is consulted", () => {
-    for (const status of ["offline", "stale", "disabled", "OFFLINE"]) {
-      assert.equal(hostStatusKind(makeHost({ status })), "offline", status);
-    }
+  it("honors disabled/offline state regardless of heartbeat", () => {
+    for (const status of ["offline", "stale", "disabled", "OFFLINE"]) assert.equal(hostStatusKind(makeHost({ status })), "offline");
   });
-
-  it("reports auth-missing ahead of online", () => {
-    const host = makeHost({ canonical_digest: null, auth_outdated: true });
-    assert.equal(hostStatusKind(host), "auth-missing");
+  it("keeps connection state independent of auth readiness", () => {
+    assert.equal(hostStatusKind(makeHost({ canonical_digest: null })), "online");
   });
-
-  it("does not demote a live host for stale auth, which heals on its next run", () => {
-    const host = makeHost({ auth_outdated: true });
-    assert.equal(hostStatusKind(host), "online");
+  it("expires exactly at 45 seconds", () => {
+    const host = makeHost({ presence_heartbeat_at: iso(NOW - HOST_ONLINE_WINDOW_MS) });
+    assert.equal(hostStatusKind(host, NOW - 1), "online");
+    assert.equal(hostStatusKind(host, NOW), "offline");
   });
-
-  it("is online exactly at the edge of the window and offline one ms past it", () => {
-    const host = makeHost({ updated_at: iso(NOW - HOST_ONLINE_WINDOW_MS) });
-    assert.equal(hostStatusKind(host, NOW), "online");
-    assert.equal(hostStatusKind(host, NOW + 1), "offline");
+  it("rejects missing, malformed, future or server-offline evidence", () => {
+    for (const value of [null, "never", iso(NOW + 1)]) assert.equal(hostStatusKind(makeHost({ presence_heartbeat_at: value }), NOW), "offline");
+    assert.equal(hostStatusKind(makeHost({ presence: "offline", presence_heartbeat_at: iso(NOW) }), NOW), "offline");
+    assert.equal(hostStatusKind(makeHost({ presence: undefined, updated_at: iso(NOW), last_refresh: iso(NOW) }), NOW), "offline");
   });
-
-  it("is offline when the host was never seen", () => {
-    assert.equal(hostStatusKind(makeHost({ updated_at: null })), "offline");
+  it("ages a server snapshot despite browser clock skew", () => {
+    const host = makeHost({ presence_observed_at: iso(NOW), presence_heartbeat_at: iso(NOW), presence_received_at: NOW + 86400000 });
+    assert.equal(hostStatusKind(host, NOW + 86400000 + 44000), "online");
+    assert.equal(hostStatusKind(host, NOW + 86400000 + 45000), "offline");
   });
+});
 
-  it("keeps a host with a stale mint time online while it still checks in", () => {
-    const host = makeHost({
-      updated_at: iso(NOW - 60_000),
-      last_refresh: iso(NOW - 10 * HOST_ONLINE_WINDOW_MS),
-    });
-    assert.equal(hostStatusKind(host, NOW), "online");
+describe("presence snapshot receipts", () => {
+  it("does not renew evidence when a cached response is fetched again", () => {
+    const original = withPresenceReceipt(makeHost({ presence_observed_at: iso(NOW), presence_heartbeat_at: iso(NOW) }), undefined, NOW + 1000000);
+    const repeated = withPresenceReceipt(original, original, NOW + 1000000 + 60000);
+    assert.equal(repeated.presence_received_at, original.presence_received_at);
+    assert.equal(hostStatusKind(repeated, NOW + 1000000 + 60000), "offline");
   });
 });
 
 describe("hostLastSeen", () => {
-  it("shows the newest check-in, not an older auth mint time, so it agrees with the Online pill", () => {
-    const host = makeHost({ updated_at: iso(NOW - 60_000), last_refresh: iso(NOW - 90 * 24 * 60 * 60 * 1000) });
-    assert.equal(hostLastSeen(host), iso(NOW - 60_000));
-    assert.equal(hostStatusKind(host, NOW), "online");
-  });
-
-  it("is null when nothing was ever reported", () => {
-    assert.equal(hostLastSeen({ updated_at: null, last_refresh: null, claude_last_refresh: null, grok_last_refresh: null }), null);
-  });
-});
-
-describe("hostStatusLabel", () => {
-  it("renders each of the three kinds", () => {
-    assert.equal(hostStatusLabel(makeHost()), "Online");
-    assert.equal(hostStatusLabel(makeHost({ status: "offline" })), "Offline");
-    assert.equal(hostStatusLabel(makeHost({ canonical_digest: null })), "Auth missing");
-    assert.equal(hostStatusLabel(makeHost({ auth_outdated: true })), "Online");
+  it("shows exact authenticated contact even when no agent is connected", () => {
+    const host = makeHost({ last_contact_at: iso(NOW - 60000), presence: "offline" });
+    assert.equal(hostLastSeen(host), iso(NOW - 60000));
+    assert.equal(hostStatusKind(host, NOW), "offline");
+    assert.equal(hostLastSeen({}), null);
   });
 });
 
@@ -535,9 +505,9 @@ describe("hostMatchesFilter", () => {
     assert.equal(hostMatchesFilter(offline, "online"), false);
   });
 
-  it("leaves an auth-missing host out of both the online and the offline chip", () => {
+  it("keeps auth readiness separate from online/offline filtering", () => {
     const host = makeHost({ canonical_digest: null });
-    assert.equal(hostMatchesFilter(host, "online"), false);
+    assert.equal(hostMatchesFilter(host, "online"), true);
     assert.equal(hostMatchesFilter(host, "offline"), false);
     assert.equal(hostMatchesFilter(host, "unprovisioned"), true);
   });
@@ -584,7 +554,7 @@ describe("Grok host integration", () => {
     assert.equal(hostHasRequiredAuth(grok()), true);
     assert.equal(hostHasRequiredAuth({ ...grok(), grok_canonical_digest: null }), false);
     assert.equal(hostLatestRefresh(grok()), iso(NOW));
-    assert.equal(hostLastSeenMs(grok()), NOW);
+    assert.equal(hostLastSeenMs({ ...grok(), last_contact_at: iso(NOW - 86400000) }), NOW - 86400000);
     assert.deepEqual(hostCxxWrapperState(grok()), { display: "0.8.0", drift: false });
   });
   it("requires every enabled engine auth and names Grok wrapper drift", () => {

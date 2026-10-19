@@ -26,7 +26,7 @@ The **More filters** menu holds attribute filters that can be combined with each
 - **Untrusted hosts** (`insecure`) — hosts where `secure = false`.
 - **Not signed in yet** (`unprovisioned`) — hosts missing the required canonical auth digest for their configured engine(s) (`hostHasRequiredAuth()` returns false). Usually a host that registered but never completed its first sync — but a host whose auth was cleared also lands here until it re-syncs.
 
-A debounced search box (**Search hosts**; it matches hostname, host id, IP address, Codex/Claude/Grok version including overrides, and status) sits above the table. The table columns are **Name**, **Status**, **Needs attention**, **Engines**, and **Last seen**; Name, Needs attention, and Last seen sort. Filtering is entirely client-side, and the status, attribute, search, and sort choices are kept in the URL.
+A debounced search box (**Search hosts**; it matches hostname, host id, IP address, Codex/Claude/Grok version including overrides, and status) sits above the table. The table columns are **Name**, **Status**, **Needs attention**, **Engines**, and **Last contact**; Name, Needs attention, and Last contact sort. Filtering is entirely client-side, and the status, attribute, search, and sort choices are kept in the URL.
 
 > Note: `GET /admin/hosts/insecure` is a separate endpoint used exclusively by the temporary-access (insecure access) approvals panel — it is not the backing query for the Untrusted hosts filter.
 
@@ -63,12 +63,9 @@ Both responses contain an install URL. Until the host completes its first sync i
 
 ## Online status
 
-Online status is computed entirely in the frontend by `hostStatusKind()` — there is no backend field that drives it. The logic:
+Online means connected now: the API requires a communicator connection or an agent heartbeat less than **45 seconds** old. The browser ages that evidence between refreshes, including when it loses its connection to the API. A daily cron run, an administrative setting change or a provider token refresh does not make a host online.
 
-1. If `host.status` is `'offline'`, `'stale'`, or `'disabled'` → **Offline**.
-2. If required engine digests are absent or `authed === false` → **Auth missing**.
-3. If `max(updated_at, last_refresh, claude_last_refresh, grok_last_refresh)` is within the last 24 hours (`HOST_ONLINE_WINDOW_MS = 24 h`) → **Online**.
-4. Otherwise → **Offline**.
+**Last contact** is the last successful authenticated request from the host. It can be recent even when no communicator or agent is currently connected. Missing provider credentials are shown separately under **Needs attention** and **Not signed in yet**.
 
 ## Host detail page
 
@@ -76,7 +73,7 @@ Visiting `/hosts/[id]` (click a row) loads the detail view. Page data is fetched
 
 ### Header and status
 
-The page title is the hostname with `Host #id` below it. The header's primary action is **Get install command** (previously *Mint installer*): it generates a one-time installer via `POST /admin/hosts/{id}/installer` and shows the URL and command with copy buttons; **Create a new one** replaces it. The current **Skip TLS check** (`curl_insecure`) value is included so the copied command reflects the visible setting. Under the title a status pill shows the liveness (Online / Auth missing / Offline, see *Online status*) next to **Last seen**, derived from the newest of `last_refresh`, `claude_last_refresh`, and `grok_last_refresh`.
+The page title is the hostname with `Host #id` below it. The header's primary action is **Get install command** (previously *Mint installer*): it generates a one-time installer via `POST /admin/hosts/{id}/installer` and shows the URL and command with copy buttons; **Create a new one** replaces it. The current **Skip TLS check** (`curl_insecure`) value is included so the copied command reflects the visible setting. Under the title a status pill shows the connection state (Online / Offline, see *Online status*) next to **Last contact**, from `last_contact_at`, the latest successful authenticated host request.
 
 ### Needs attention block
 

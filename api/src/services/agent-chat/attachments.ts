@@ -343,6 +343,7 @@ export class ChatAttachments {
       .leftJoin(hostDaemonSessions, eq(hostDaemonSessions.id, agentChatAttachments.sessionId))
       .where(
         or(
+          eq(agentChatAttachments.status, 'retired'),
           and(
             isNull(agentSessions.id),
             isNull(hostDaemonSessions.id),

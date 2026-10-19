@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, gt, inArray } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { hosts, hostAuthDigests, hostAuthStates, hostUsers, installTokens, logs, type Host } from '../db/schema.js';
 import { UnauthorizedError } from '../http/errors.js';
@@ -19,7 +19,7 @@ function pruneReason(host: Host, days: number, now: Date): string | null {
   // Server-owned hosts (the Fleet Advisor) belong to the stack, not the fleet.
   if (host.internalRole) return null;
   if (host.expiresAt && Date.parse(host.expiresAt) <= now.getTime()) return 'expired';
-  if (days > 0 && Date.parse(host.updatedAt) < now.getTime() - days * 86400_000) return 'inactive';
+  if (days > 0 && Date.parse(host.lastContactAt ?? host.createdAt) < now.getTime() - days * 86400_000) return 'inactive';
   // Pooled accounts may have no per-host digest. Any engine's installed
   // version/auth metadata or successful auth calls prove provisioning.
   const provisioned = Number(host.apiCalls ?? 0) > 0 || [
@@ -27,7 +27,7 @@ function pruneReason(host: Host, days: number, now: Date): string | null {
     host.claudeClientVersion, host.claudeWrapperVersion, host.claudeAuthDigest, host.claudeLastRefresh,
     host.grokClientVersion, host.grokWrapperVersion, host.grokAuthDigest, host.grokLastRefresh,
   ].some(Boolean);
-  if (!provisioned && Date.parse(host.createdAt) < now.getTime() - 1800_000 && Date.parse(host.updatedAt) < now.getTime() - 1800_000) return 'never_provisioned';
+  if (!provisioned && Date.parse(host.createdAt) < now.getTime() - 1800_000 && Date.parse(host.lastContactAt ?? host.createdAt) < now.getTime() - 1800_000) return 'never_provisioned';
   return null;
 }
 
@@ -43,6 +43,15 @@ export async function pruneHosts(db: Database, settings = new SettingsService(db
       if (!host) return null;
       const reason = pruneReason(host, days, now);
       if (!reason) return null;
+      // An explicit key rotation starts a new provisioning attempt. Other admin
+      // edits cannot reset inactivity, and an absolute host expiry still wins.
+      if (reason !== 'expired') {
+        const [registration] = await tx.select({ id: logs.id }).from(logs).where(and(
+          eq(logs.hostId, host.id), inArray(logs.action, ['host.created','host.rotated']),
+          gt(logs.createdAt, isoOffsetSeconds(-1800, now)),
+        )).limit(1);
+        if (registration) return null;
+      }
       await suspendAgentMessagingRuntimeLocked(tx, host.id, 'host_inactive');
       await tx.delete(installTokens).where(eq(installTokens.hostId, host.id));
       await tx.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, host.id));
@@ -71,6 +80,7 @@ export async function recordHostContact(db: Database, host: Host, now = new Date
     assertHostNotExpired(current, now);
     const patch = {
       updatedAt: isoOffsetSeconds(0, now),
+      lastContactAt: isoOffsetSeconds(0, now),
       ...(current.expiresAt ? { expiresAt: isoOffsetSeconds(TEMPORARY_HOST_IDLE_SECONDS, now) } : {}),
     };
     await tx.update(hosts).set(patch).where(eq(hosts.id, host.id));

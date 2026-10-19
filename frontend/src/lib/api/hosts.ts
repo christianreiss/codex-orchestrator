@@ -39,10 +39,23 @@ export const hostsKeys = {
 
 // --- queries --------------------------------------------------------------
 
+export function withPresenceReceipt<T extends HostListItem>(host: T, previous?: HostListItem, received = Date.now()): T {
+  const observed = Date.parse(host.presence_observed_at ?? "");
+  const prior = Date.parse(previous?.presence_observed_at ?? "");
+  const repeated = Number.isFinite(observed) && Number.isFinite(prior) && observed <= prior;
+  return { ...host, presence_received_at: repeated ? previous?.presence_received_at ?? received : received };
+}
+
 export function hostsListQuery() {
   return createQuery<HostsListResponse>({
     queryKey: hostsKeys.list(),
-    queryFn: () => api.get<HostsListResponse>("/admin/hosts"),
+    queryFn: async ({ client, queryKey }) => {
+      const previous = client.getQueryData<HostsListResponse>(queryKey);
+      const response = await api.get<HostsListResponse>("/admin/hosts");
+      const received = Date.now();
+      return { ...response, hosts: response.hosts.map(host => withPresenceReceipt(host, previous?.hosts.find(h => h.id === host.id), received)) };
+    },
+    refetchInterval: 15_000,
   });
 }
 
@@ -56,7 +69,12 @@ export function hostDetailQuery(
   const { refetchInterval } = opts;
   return createQuery<HostDetailResponse>({
     queryKey: hostsKeys.detail(id),
-    queryFn: () => api.get<HostDetailResponse>(`/admin/hosts/${id}/detail`),
+    queryFn: async ({ client, queryKey }) => {
+      const previous = client.getQueryData<HostDetailResponse>(queryKey);
+      const response = await api.get<HostDetailResponse>(`/admin/hosts/${id}/detail`);
+      return { ...response, host: withPresenceReceipt(response.host, previous?.host) };
+    },
+    refetchInterval: 15_000,
     enabled: id !== undefined && id !== null && String(id) !== "",
     ...(refetchInterval
       ? { refetchInterval: (query: { state: { data: HostDetailResponse | undefined } }) => refetchInterval(query.state.data) }
@@ -502,7 +520,7 @@ export function hostCxxWrapperState(
   return { display: reported.find(Boolean) ?? "—", drift: false };
 }
 
-export const HOST_ONLINE_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const HOST_ONLINE_WINDOW_MS = 45_000;
 
 export type HostStatusKind = "online" | "offline" | "auth-missing";
 
@@ -527,18 +545,12 @@ export function hostLatestRefresh(
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
 }
 
-/** Liveness follows the newest orchestrator check-in or engine refresh. */
-export function hostLastSeenMs(
-  host: Pick<HostListItem, "updated_at" | "last_refresh" | "claude_last_refresh" | "grok_last_refresh">,
-): number | null {
-  const times = [parseHostTime(host.updated_at), hostLatestRefreshMs(host)].filter((time): time is number => time !== null);
-  return times.length ? Math.max(...times) : null;
+/** Last genuine authenticated contact, distinct from connection state. */
+export function hostLastSeenMs(host: Partial<HostListItem>): number | null {
+  return parseHostTime(host.last_contact_at);
 }
 
-/** `hostLastSeenMs` as a timestamp; what the "Last seen" column shows, so it can never contradict the Online pill. */
-export function hostLastSeen(
-  host: Pick<HostListItem, "updated_at" | "last_refresh" | "claude_last_refresh" | "grok_last_refresh">,
-): string | null {
+export function hostLastSeen(host: Partial<HostListItem>): string | null {
   const ms = hostLastSeenMs(host);
   return ms === null ? null : new Date(ms).toISOString();
 }
@@ -559,9 +571,13 @@ export function hostHasRequiredAuth(
 export function hostStatusKind(host: HostListItem, nowMs = Date.now()): HostStatusKind {
   const raw = (host.status ?? "").toLowerCase();
   if (raw === "offline" || raw === "stale" || raw === "disabled") return "offline";
-  if (!hostHasRequiredAuth(host)) return "auth-missing";
-  const lastSeen = hostLastSeenMs(host);
-  if (lastSeen !== null && nowMs - lastSeen <= HOST_ONLINE_WINDOW_MS) return "online";
+  if (host.presence !== "online") return "offline";
+  const observed = parseHostTime(host.presence_observed_at);
+  const now = observed !== null && host.presence_received_at !== undefined
+    ? observed + Math.max(0, nowMs - host.presence_received_at) : nowMs;
+  const heartbeat = parseHostTime(host.presence_heartbeat_at);
+  const seconds = host.presence_fresh_seconds ?? 45;
+  if (heartbeat !== null && heartbeat <= now && Number.isFinite(seconds) && seconds > 0 && now - heartbeat < seconds * 1000) return "online";
   return "offline";
 }
 
@@ -586,14 +602,15 @@ export type HostFilterId =
 export function hostMatchesFilter(
   host: HostListItem,
   filter: HostFilterId,
+  nowMs = Date.now(),
 ): boolean {
   switch (filter) {
     case "all":
       return true;
     case "online":
-      return hostStatusKind(host) === "online";
+      return hostStatusKind(host, nowMs) === "online";
     case "offline":
-      return hostStatusKind(host) === "offline";
+      return hostStatusKind(host, nowMs) === "offline";
     case "secure":
       return host.secure === true;
     case "insecure":

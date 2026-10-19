@@ -488,7 +488,7 @@ describe('pruneInactiveHosts', () => {
       rows: [
         hostRow({ id: 7, fqdn: 'stale-a.example.com', updatedAt: cutoff(30) }),
         hostRow({ id: 8, fqdn: 'stale-b.example.com', updatedAt: cutoff(30) }),
-        hostRow({ id: 9, fqdn: 'fresh.example.com', updatedAt: '2026-07-28T11:00:00Z' }),
+        hostRow({ id: 9, fqdn: 'fresh.example.com', lastContactAt: '2026-07-28T11:00:00Z', updatedAt: '2026-07-28T11:00:00Z' }),
       ],
     });
 

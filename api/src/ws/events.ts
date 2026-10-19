@@ -19,6 +19,7 @@ export const WS_EVENT_TYPES = [
   'agent_roles.proposal.changed',
   'host.spawn.state_changed',
   'chatty.settings',
+  'chatty.changed',
   'host.daemon.changed',
   'host.daemon.configured',
   'host.daemon.start_requested',

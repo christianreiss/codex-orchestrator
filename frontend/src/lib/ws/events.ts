@@ -30,13 +30,14 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   'agent_roles.assignment.changed': [['roles'], ['agent-messaging']],
   'agent_roles.proposal.changed': [['roles']],
   "chatty.settings": [["chatty"]],
+  "chatty.changed": [["chatty"]],
  "host.daemon.changed": [["host-daemons"], ["daemon-sessions"], ["topology"]],
  "host.daemon.configured": [["host-daemons"]],
  "host.daemon.start_requested": [["host-daemons"], ["daemon-sessions"]],
  "host.daemon.stop_requested": [["host-daemons"], ["daemon-sessions"], ["topology"]],
   // A reconnect has no durable WS replay; resample retained client snapshots.
   "transport.connected": [["agent-sessions"], ["agent-messaging"], ["host-daemons"], ["daemon-sessions"], ["topology"]],
-  "agent_portal.sessions.changed": [["agent-sessions"], ["topology"]],
+  "agent_portal.sessions.changed": [["agent-sessions"], ["topology"], ["hosts"]],
   "agent_session.native_stop": [["agent-sessions"], ["topology"], ["native-stop"]],
   // Logs
   "log.created": [["logs"], ["logs", "api"], ["logs", "events"]],

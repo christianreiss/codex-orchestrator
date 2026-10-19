@@ -1304,3 +1304,12 @@ Shared group, project/host and conference conversations are available in Agents 
 ### Web design verification
 
 The complete route inventory and repeatable responsive, accessibility, state and draft checks are documented in [Web design verification](web-design-verification.md). `frontend/e2e/design-routes.json` is checked against every Svelte page entry; `npm run test:e2e:cross-browser` additionally exercises Firefox and WebKit. No frontend test changes production settings.
+
+### Connection status and conversation retention
+
+Hosts are Online only with communicator/agent evidence younger than 45 seconds. Last contact
+is successful host authentication, separate from admin edits and provider auth refreshes.
+Server-side inactive conversations and unused addresses expire after 24 hours; paused/future
+jobs and recovery targets remain protected. Cleanup also retires expired credentials and
+rebooted sessions, and runs without traffic from offline hosts. Native transcript files retain
+their independent housekeeping policy. See `interface-api.md` for the wire and retention contract.

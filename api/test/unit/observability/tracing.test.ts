@@ -66,6 +66,7 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     secure: 1,
     allowRoamingIps: 0,
     reverseDnsMode: null,
+    lastContactAt: null,
     lastRefresh: null,
     authDigest: null,
     ip4: null,

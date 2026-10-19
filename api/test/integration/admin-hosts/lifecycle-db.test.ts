@@ -50,7 +50,7 @@ describe.skipIf(!handle)('host lifecycle and installer transactions on MySQL', (
       vi.spyOn(db, 'transaction').mockImplementationOnce(async (...args) => { signal(); return transaction(...args); });
       sweep = pruneHosts(db, settings, now);
       await started;
-      await tx.update(hosts).set({ updatedAt: '2026-10-11T16:00:00Z' }).where(eq(hosts.id, host.id));
+      await tx.update(hosts).set({ lastContactAt: '2026-10-11T16:00:00Z', updatedAt: '2026-10-11T16:00:00Z' }).where(eq(hosts.id, host.id));
     });
     await sweep;
     expect(await db.select().from(hosts).where(eq(hosts.id, host.id))).toHaveLength(1);

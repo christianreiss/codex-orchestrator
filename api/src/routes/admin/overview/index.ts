@@ -1,3 +1,4 @@
+import { hostPresenceViews } from '../../../services/host-presence.js';
 import { visibleHost } from '../../../services/internal-hosts.js';
 import { pruneHosts } from '../../../services/host-lifecycle.js';
 import { ProviderAccountsService } from '../../../services/provider-accounts.js';
@@ -428,6 +429,7 @@ export async function registerAdminOverviewRoutes(
         .from(installTokens),
       runnerValidation.resolveCanonicalPayload(ENGINE_GROK),
     ]);
+    const presence = await hostPresenceViews(ctx.db, rows);
     const latestInstaller = new Map<number, InstallerTokenRow>();
     for (const token of tokenRows) {
       const current = latestInstaller.get(Number(token.hostId));
@@ -449,6 +451,7 @@ export async function registerAdminOverviewRoutes(
           last_refresh: h.lastRefresh,
           claude_last_refresh: h.claudeLastRefresh,
           updated_at: h.updatedAt,
+          ...presence.get(h.id),
           created_at: h.createdAt,
           client_version: h.clientVersion,
           claude_client_version: h.claudeClientVersion,
@@ -511,6 +514,7 @@ export async function registerAdminOverviewRoutes(
     const rows = await ctx.db.select().from(hosts).where(and(eq(hosts.id, id), visibleHost)).limit(1);
     const h = rows[0];
     if (!h) throw new NotFoundError('Host not found', 'host_not_found');
+    const presence = await hostPresenceViews(ctx.db, [h]);
     const [
       codexVersions,
       claudeVersions,
@@ -564,6 +568,7 @@ export async function registerAdminOverviewRoutes(
         last_refresh: h.lastRefresh,
         claude_last_refresh: h.claudeLastRefresh,
         updated_at: h.updatedAt,
+        ...presence.get(h.id),
         created_at: h.createdAt,
         client_version: h.clientVersion,
         claude_client_version: h.claudeClientVersion,

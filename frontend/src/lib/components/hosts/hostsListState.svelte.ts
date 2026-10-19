@@ -61,6 +61,7 @@ function matchesQuery(h: HostListItem, q: string): boolean {
 }
 
 export class HostsListState {
+  now = $state(Date.now());
   readonly #hosts: () => HostListItem[];
   readonly #pending: () => ReadonlySet<number>;
   readonly #disabled: () => readonly string[];
@@ -69,6 +70,10 @@ export class HostsListState {
   #query = $state((page.url.searchParams.get("q") ?? "").trim().toLowerCase());
 
   constructor(hosts: () => HostListItem[], pending: () => ReadonlySet<number>, disabled: () => readonly string[]) {
+    $effect(() => {
+      const timer = setInterval(() => { this.now = Date.now(); }, 1000);
+      return () => clearInterval(timer);
+    });
     this.#hosts = hosts;
     this.#pending = pending;
     this.#disabled = disabled;
@@ -115,8 +120,8 @@ export class HostsListState {
 
   counts = $derived({
     total: this.all.length,
-    online: this.all.filter((r) => hostStatusKind(r.host) === "online").length,
-    offline: this.all.filter((r) => hostStatusKind(r.host) === "offline").length,
+    online: this.all.filter((r) => hostStatusKind(r.host, this.now) === "online").length,
+    offline: this.all.filter((r) => hostStatusKind(r.host, this.now) === "offline").length,
     attention: this.all.filter((r) => r.attention > 0).length,
   });
 
@@ -128,10 +133,10 @@ export class HostsListState {
     const list = this.all.filter((r) => {
       if (this.status === "attention") {
         if (r.attention === 0) return false;
-      } else if (this.status !== "all" && !hostMatchesFilter(r.host, this.status as HostFilterId)) {
+      } else if (this.status !== "all" && !hostMatchesFilter(r.host, this.status as HostFilterId, this.now)) {
         return false;
       }
-      if (!this.flags.every((flag) => hostMatchesFilter(r.host, flag))) return false;
+      if (!this.flags.every((flag) => hostMatchesFilter(r.host, flag, this.now))) return false;
       return !q || matchesQuery(r.host, q);
     });
     const dir = this.sortDir === "asc" ? 1 : -1;

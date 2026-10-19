@@ -1,3 +1,4 @@
+import { protectedSession } from './server-retention/guards.js';
 import { visibleHost } from './internal-hosts.js';
 import { acceptActivity, activityView, type ActivityInput } from './agent-activity.js';
 import { ChatAttachments } from './agent-chat/attachments.js';
@@ -440,6 +441,7 @@ export class AgentPortalService {
         bridgeToken,
         session.hostId,
       );
+      await tx.update(hosts).set({ lastContactAt: now }).where(eq(hosts.id, locked.hostId));
       const status = requested && LIVE_SESSION_STATE_SET.has(requested) ? requested : locked.status;
       const patch: Partial<typeof agentSessions.$inferInsert> = {
         heartbeatAt: now,
@@ -1300,22 +1302,31 @@ export class AgentPortalService {
     const abandonedSessions = options.abandonedGraceUntil && now < options.abandonedGraceUntil
       ? 0
       : await this.expireAbandonedSessions(now);
-    const expired = await this.db
-      .select({ id: agentSessions.id })
-      .from(agentSessions)
-      .where(and(lte(agentSessions.expiresAt, now), or(eq(agentSessions.status, 'completed'), eq(agentSessions.status, 'failed'))));
-    const outstanding = expired.length ? await this.db.select({ sessionId: agentChatNotices.sessionId }).from(agentChatNotices).where(and(inArray(agentChatNotices.sessionId, expired.map(r => r.id)), isNull(agentChatNotices.resolvedAt))) : [];
-    const ids = expired.map((row) => row.id).filter(id => !outstanding.some(n => n.sessionId === id));
-    if (ids.length > 0) {
-      await this.db.transaction(async (tx) => {
-        await releaseAgentMessagingBindingsLocked(tx, ids, now);
-        await tx.delete(agentMessages).where(inArray(agentMessages.sessionId, ids));
-        await tx.delete(agentPrompts).where(inArray(agentPrompts.sessionId, ids));
-        await tx.delete(agentEvents).where(inArray(agentEvents.sessionId, ids));
-        await tx.delete(agentChatNotices).where(inArray(agentChatNotices.sessionId, ids));
-        await tx.delete(agentSessions).where(inArray(agentSessions.id, ids));
-      });
-    }
+    const ids = await this.db.transaction(async tx => {
+      const cutoff = isoOffsetSeconds(-86400);
+      const expired = await tx.select({ id: agentSessions.id }).from(agentSessions)
+        .where(and(lte(agentSessions.expiresAt, now), isNotNull(agentSessions.endedAt),
+          sql`NOT ${protectedSession(sql`${agentSessions.id}`, sql`${agentSessions.agentBusAddressId}`)}`,
+          sql`NOT EXISTS (SELECT 1 FROM agent_chat_notices n WHERE n.session_id = ${agentSessions.id} AND n.resolved_at IS NULL AND n.created_at > ${cutoff})`))
+        .orderBy(asc(agentSessions.expiresAt)).limit(100).for('update');
+      const ids = expired.map(row => row.id);
+      if (!ids.length) return ids;
+      await releaseAgentMessagingBindingsLocked(tx, ids, now);
+      const list = sql.join(ids.map(id => sql`${id}`), sql`,`);
+      await tx.execute(sql`UPDATE agent_chat_attachments SET status = 'retired' WHERE session_id IN (${list})`);
+      await tx.execute(sql`DELETE FROM companion_follows WHERE session_id IN (${list})`);
+      await tx.execute(sql`DELETE FROM host_daemon_portal_bindings WHERE portal_session_id IN (${list})`);
+      await tx.execute(sql`DELETE FROM agent_native_controls WHERE session_id IN (${list})`);
+      await tx.execute(sql`DELETE FROM agent_scope_members WHERE session_id IN (${list})`);
+      await tx.execute(sql`DELETE FROM agent_resource_claims WHERE session_id IN (${list})`);
+      await tx.delete(agentMessages).where(inArray(agentMessages.sessionId, ids));
+      await tx.delete(agentPrompts).where(inArray(agentPrompts.sessionId, ids));
+      await tx.delete(agentEvents).where(inArray(agentEvents.sessionId, ids));
+      await tx.delete(agentChatNotices).where(inArray(agentChatNotices.sessionId, ids));
+      await tx.delete(agentSessions).where(inArray(agentSessions.id, ids));
+      return ids;
+    });
+    if (ids.length) wsPublisher.publish('agent_portal.sessions.changed', { purged: ids.length });
     return {
       sessions: ids.length,
       browser_sessions: 0,
@@ -1602,7 +1613,7 @@ export class AgentPortalService {
           tx,
           session.id,
           'failed',
-          isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600),
+          isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600, new Date(session.heartbeatAt)),
           now,
         );
         return true;

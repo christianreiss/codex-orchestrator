@@ -1017,6 +1017,7 @@ CREATE TABLE `hosts` (
 	`secure` tinyint NOT NULL DEFAULT 1,
 	`allow_roaming_ips` tinyint NOT NULL DEFAULT 0,
 	`reverse_dns_mode` tinyint,
+	`last_contact_at` varchar(100),
 	`last_refresh` varchar(100),
 	`auth_digest` varchar(128),
 	`ip4` varchar(64),
@@ -1468,6 +1469,7 @@ CREATE INDEX `idx_auth_digest_host` ON `host_auth_digests` (`host_id`);
 CREATE INDEX `idx_auth_digest_host_engine` ON `host_auth_digests` (`host_id`,`engine`);
 CREATE INDEX `idx_host_users_host` ON `host_users` (`host_id`);
 CREATE INDEX `idx_hosts_updated_at` ON `hosts` (`updated_at`);
+CREATE INDEX `idx_hosts_last_contact` ON `hosts` (`last_contact_at`);
 CREATE INDEX `idx_hosts_expires_at` ON `hosts` (`expires_at`);
 CREATE INDEX `idx_hosts_wrapper_track` ON `hosts` (`wrapper_track`);
 CREATE INDEX `idx_insecure_auth_requests_host` ON `insecure_auth_requests` (`host_id`);
@@ -2223,3 +2225,12 @@ CREATE TABLE `agent_room_deliveries` (
  `reason` varchar(80),
  UNIQUE KEY uq_room_delivery (event_id, address_id)
 );
+
+-- Server retention range indexes (0082).
+CREATE INDEX `idx_agent_addresses_retention` ON `agent_bus_addresses` (`last_seen_at`);
+CREATE INDEX `idx_agent_conversations_retention` ON `agent_bus_conversations` (`last_activity_at`);
+CREATE INDEX `idx_agent_conferences_retention` ON `agent_bus_conferences` (`adjourned_at`);
+CREATE INDEX `idx_daemon_sessions_retention` ON `host_daemon_sessions` (`last_activity_at`);
+CREATE INDEX `idx_chatty_sessions_retention` ON `chatty_sessions` (`updated_at`);
+CREATE INDEX `idx_chatty_runs_user` ON `chatty_runs` (`user_id`);
+CREATE INDEX `idx_room_operations_retention` ON `agent_room_operations` (`created_at`);

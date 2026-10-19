@@ -42,11 +42,15 @@ describe('host lifecycle', () => {
   it('rechecks a stale candidate after a contact wins the row lock', async () => {
     const db = setup([row()]); const transaction = db.transaction.bind(db);
     vi.spyOn(db, 'transaction').mockImplementationOnce(async cb => {
-      db.tables.set(hosts, [row({ updatedAt: '2026-10-11T16:00:00Z' }) as any]);
+      db.tables.set(hosts, [row({ lastContactAt: '2026-10-11T16:00:00Z', updatedAt: '2026-10-11T16:00:00Z' }) as any]);
       return transaction(cb);
     });
     expect(await pruneHosts(db as any, settings, now)).toBe(0);
     expect(db.tables.get(hosts)).toHaveLength(1);
+  });
+  it('administrative edits and provider refreshes cannot postpone inactivity pruning', async () => {
+    const db = setup([row({ apiCalls: 5, createdAt: '2026-08-01T00:00:00Z', lastContactAt: '2026-08-01T00:00:00Z', updatedAt: now.toISOString(), lastRefresh: now.toISOString() })]);
+    expect(await pruneHosts(db as never, { getInt: async () => 30 } as unknown as SettingsService, now)).toBe(1);
   });
   it('wires successful authenticated responses into pruning and rejects expired credentials', async () => {
     const db = setup([row({ createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), apiCalls: 1, apiKeyHash: hashApiKey('good'), expiresAt: new Date(Date.now()+60_000).toISOString() }), row({ id: 2, apiKeyHash: hashApiKey('expired'), expiresAt: '2020-01-01T00:00:00Z' }), row({ id: 3 })]);

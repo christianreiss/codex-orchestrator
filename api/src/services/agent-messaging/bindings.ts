@@ -174,7 +174,7 @@ export async function releaseAgentMessagingBindingsLocked(
         readiness: upstream ? 'resumable' : 'offline',
         receiveHeartbeatAt: null,
         bindingGeneration: row.address.bindingGeneration + 1,
-        lastSeenAt: now,
+        lastSeenAt: Date.parse(row.session.heartbeatAt) > Date.parse(row.address.lastSeenAt) ? row.session.heartbeatAt : row.address.lastSeenAt,
         updatedAt: now,
       })
       .where(and(eq(agentBusAddresses.id, row.address.id), eq(agentBusAddresses.currentSessionId, row.session.id)));
