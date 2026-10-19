@@ -25,6 +25,9 @@ test('Merge requests first, linked views, search, details and operator decisions
  const writes=await fixture(page);
  await page.goto('/admin/git-director');
  await expect(page.getByRole('button',{name:'Merge requests',exact:true})).toHaveAttribute('aria-pressed','true');
+ await expect(page.getByLabel('Message length')).toHaveCount(0);
+ await page.getByRole('button',{name:'Settings',exact:true}).click();
+ await expect(page).toHaveURL(/view=settings/);
  await expect(page.getByLabel('Message length')).toBeVisible();
  await expect(page.getByText('Improve settings',{exact:true})).not.toBeVisible();
  await page.screenshot({path:'/tmp/git-director-settings-desktop.png',animations:'disabled'});
@@ -72,7 +75,9 @@ test('mobile views, read-only details, fallback view and empty states',async({pa
  await fixture(page,false);
  await page.goto('/admin/git-director?tab=unknown');
  await expect(page.getByRole('button',{name:'Merge requests',exact:true})).toHaveAttribute('aria-pressed','true');
+ await page.getByRole('button',{name:'Settings',exact:true}).click();
  await expect(page.getByLabel('Message length')).toBeDisabled();
+ await page.getByRole('button',{name:'Merge requests',exact:true}).click();
  await page.screenshot({path:'/tmp/git-director-settings-mobile.png',animations:'disabled'});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
  await page.getByRole('button',{name:'Worktrees',exact:true}).click();
@@ -93,6 +98,7 @@ test('registry failures remain visible without blocking settings',async({page})=
  await fixture(page);
  await page.route('**/admin/git-director',route=>route.request().headers().accept?.includes('application/json')?route.fulfill({status:403,json:{status:'error',message:'Registry unavailable'}}):route.fallback());
  await page.goto('/admin/git-director');
+ await page.getByRole('button',{name:'Settings',exact:true}).click();
  await expect(page.getByLabel('Message length')).toBeVisible();
  await page.getByRole('button',{name:'Worktrees',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('Registry unavailable');

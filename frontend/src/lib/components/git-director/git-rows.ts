@@ -7,8 +7,8 @@ import type {
   GitWorktreeRow,
 } from "$lib/api/gitDirector";
 
-export type GitView = "merges" | "worktrees" | "history";
-export const GIT_VIEWS: readonly GitView[] = ["merges", "worktrees", "history"];
+export type GitView = "merges" | "worktrees" | "history" | "settings";
+export const GIT_VIEWS: readonly GitView[] = ["merges", "worktrees", "history", "settings"];
 
 /** Old `?tab=` links used these names. */
 const LEGACY_VIEW: Record<string, GitView> = { activity: "worktrees", merges: "merges", history: "history" };
@@ -58,7 +58,7 @@ export function buildGitRows(clones: GitCloneRow[], view: GitView, query: string
         const w = wt(l.worktree_id);
         if (matches(...base, l.target_branch, l.reason, w?.username, w?.task, w?.branch, w?.worktree_path)) rows.push({ kind: "lease", id: l.request_id, clone, lease: l });
       }
-    } else {
+    } else if (view === "history") {
       for (const r of clone.recent) {
         const w = wt(r.worktree_id);
         if (matches(...base, r.target_branch, r.reason, w?.username, w?.task, w?.branch, w?.worktree_path)) rows.push({ kind: "recent", id: r.request_id, clone, request: r });

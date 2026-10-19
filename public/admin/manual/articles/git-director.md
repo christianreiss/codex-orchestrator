@@ -11,11 +11,11 @@ Several agents work this fleet's repositories at once, often in separate worktre
 
 ## Page layout
 
-The page header carries the **Enable git merges** switch (Director activation) and **Refresh**. A strip of counts shows open merge requests, active worktrees and clones. A view switch selects **Merge requests**, **Worktrees** or **History**; search by repository, host, user, task or branch; select a row for full details in the side panel. Release and verdict overrides live in the relevant detail panel. Views support direct links through `?view=merges|worktrees|history` (older `?tab=` links still resolve). The panel fills the screen on mobile. The **Settings** section at the bottom of the page holds the commit preferences, with a single preview selectable by engine. Changes save immediately; extended explanations are under **Details**.
+The page header carries the **Enable git merges** switch (Director activation) and **Refresh**. A strip of counts (shown once the registry has loaded) shows open merge requests, active worktrees and clones. A view switch selects **Merge requests**, **Worktrees**, **History** or **Settings**; the first three share the counts and the search by repository, host, user, task or branch; select a row for full details in the side panel. Release and verdict overrides live in the relevant detail panel. Views support direct links through `?view=merges|worktrees|history|settings` (older `?tab=` links still resolve). The panel fills the screen on mobile. The **Settings** tab holds the commit preferences, with a single preview selectable by engine. Changes save immediately; extended explanations are under **Details**.
 
 ## Commit messages
 
-The **Commit messages** card applies one shared preference to Codex, Claude and Grok, even when the Git Director or Skills are disabled:
+The **Commit messages** section of the Settings tab applies one shared preference to Codex, Claude and Grok, even when the Git Director or Skills are disabled:
 
 - **Short** (default): one precise subject line, without an explanatory body.
 - **Long**: a subject, blank line, then what changed and why, with relevant verification results. Unperformed checks must never be presented as passed.

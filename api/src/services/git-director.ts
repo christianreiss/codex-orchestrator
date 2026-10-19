@@ -27,7 +27,7 @@ import { lockClaimGate, guardGitMutation } from './agent-coordination/git-guard.
  * Messaging off.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   agentBusAddresses,
@@ -1305,25 +1305,54 @@ export class GitDirectorService {
 
   // ── admin surface ─────────────────────────────────────────────────────────
 
+  /**
+   * The console's registry listing: every live clone with its worktrees, open
+   * leases, retired registrations and recent decisions.
+   *
+   * Four set-based reads however many clones there are. This used to run four
+   * queries per clone in sequence, and a fleet that has registered several
+   * hundred clones (most of them dormant) spent seconds on round trips before
+   * the page could show anything.
+   */
   async adminClones(): Promise<Array<Record<string, unknown>>> {
+    const db = this.deps.db;
     const now = this.now();
-    await this.sweepExpired(this.deps.db, now);
-    const clones = (await this.deps.db.select().from(gitClones)).filter((row) => !row.archivedAt);
-    const hostRows = await this.deps.db.select({ id: hosts.id, fqdn: hosts.fqdn }).from(hosts);
-    const fqdnById = new Map(hostRows.map((row) => [row.id, row.fqdn]));
+    await this.sweepExpired(db, now);
+    const clones = await db.select().from(gitClones).where(isNull(gitClones.archivedAt));
+    if (clones.length === 0) return [];
     clones.sort((a, b) => (a.lastSeenAt < b.lastSeenAt ? 1 : -1));
-    const out: Array<Record<string, unknown>> = [];
-    for (const clone of clones) {
-      out.push({
-        ...this.cloneWire(clone, null),
-        fqdn: fqdnById.get(clone.hostId) ?? null,
-        worktrees: await this.worktreeWire(this.deps.db, clone.id, now),
-        leases: await this.leaseWire(this.deps.db, clone.id, now),
-        stale: await this.staleWire(this.deps.db, clone.id, now),
-        recent: await this.recentWire(this.deps.db, clone.id),
-      });
-    }
-    return out;
+
+    const [hostRows, worktrees, openRequests, recentIds] = await Promise.all([
+      db.select({ id: hosts.id, fqdn: hosts.fqdn }).from(hosts),
+      // Released registrations are the bulk of the table and are never listed.
+      db.select().from(gitWorktrees).where(inArray(gitWorktrees.status, ['active', 'expired', 'abandoned', 'superseded'])),
+      db.select().from(gitMergeRequests).where(and(inArray(gitMergeRequests.verdict, ['allow', 'wait']), isNull(gitMergeRequests.completedAt))),
+      // The newest 25 decisions per clone, picked in one pass.
+      db.execute(sql`SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (PARTITION BY clone_id ORDER BY requested_at DESC) AS rn FROM git_merge_requests
+      ) ranked WHERE rn <= 25`),
+    ]);
+    const ids = ((Array.isArray(recentIds) ? recentIds[0] : recentIds) as unknown as Array<{ id: string }>).map((row) => row.id);
+    const recentRows = ids.length ? await db.select().from(gitMergeRequests).where(inArray(gitMergeRequests.id, ids)) : [];
+
+    const byClone = <T extends { cloneId: string }>(rows: T[]) => {
+      const out = new Map<string, T[]>();
+      for (const row of rows) (out.get(row.cloneId) ?? out.set(row.cloneId, []).get(row.cloneId)!).push(row);
+      return out;
+    };
+    const worktreesBy = byClone(worktrees);
+    const leasesBy = byClone(openRequests);
+    const recentBy = byClone(recentRows);
+    const fqdnById = new Map(hostRows.map((row) => [row.id, row.fqdn]));
+
+    return clones.map((clone) => ({
+      ...this.cloneWire(clone, null),
+      fqdn: fqdnById.get(clone.hostId) ?? null,
+      worktrees: this.worktreeWireRows(worktreesBy.get(clone.id) ?? [], now),
+      leases: this.leaseWireRows(leasesBy.get(clone.id) ?? [], now),
+      stale: this.staleWireRows(worktreesBy.get(clone.id) ?? []),
+      recent: this.recentWireRows(recentBy.get(clone.id) ?? []),
+    }));
   }
 
   /**
@@ -1726,9 +1755,11 @@ export class GitDirectorService {
   }
 
   private async worktreeWire(tx: GitDirectorDb, cloneId: string, now: string): Promise<Array<Record<string, unknown>>> {
-    const rows = (await tx.select().from(gitWorktrees).where(eq(gitWorktrees.cloneId, cloneId)).limit(200)).filter(
-      (row) => row.cloneId === cloneId && row.status === 'active' && !isExpired(row.expiresAt, now),
-    );
+    return this.worktreeWireRows(await tx.select().from(gitWorktrees).where(eq(gitWorktrees.cloneId, cloneId)).limit(200), now);
+  }
+
+  private worktreeWireRows(all: GitWorktree[], now: string): Array<Record<string, unknown>> {
+    const rows = all.filter((row) => row.status === 'active' && !isExpired(row.expiresAt, now));
     rows.sort((a, b) => (a.worktreePath < b.worktreePath ? -1 : 1));
     return rows.map((row) => ({
       worktree_id: row.id,
@@ -1759,9 +1790,11 @@ export class GitDirectorService {
    */
   private async staleWire(tx: GitDirectorDb, cloneId: string, now: string): Promise<Array<Record<string, unknown>>> {
     void now;
-    const rows = (await tx.select().from(gitWorktrees).where(eq(gitWorktrees.cloneId, cloneId)).limit(200)).filter(
-      (row) => row.cloneId === cloneId && (row.status === 'expired' || row.status === 'abandoned' || row.status === 'superseded'),
-    );
+    return this.staleWireRows(await tx.select().from(gitWorktrees).where(eq(gitWorktrees.cloneId, cloneId)).limit(200));
+  }
+
+  private staleWireRows(all: GitWorktree[]): Array<Record<string, unknown>> {
+    const rows = all.filter((row) => row.status === 'expired' || row.status === 'abandoned' || row.status === 'superseded');
     rows.sort((a, b) => ((a.releasedAt ?? '') < (b.releasedAt ?? '') ? 1 : -1));
     return rows.slice(0, 25).map((row) => ({
       worktree_id: row.id,
@@ -1789,9 +1822,11 @@ export class GitDirectorService {
   }
 
   private async leaseWire(tx: GitDirectorDb, cloneId: string, now: string): Promise<Array<Record<string, unknown>>> {
-    const rows = (
-      await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.cloneId, cloneId)).limit(200)
-    ).filter((row) => row.cloneId === cloneId && !row.completedAt && (row.verdict === 'allow' || row.verdict === 'wait'));
+    return this.leaseWireRows(await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.cloneId, cloneId)).limit(200), now);
+  }
+
+  private leaseWireRows(all: GitMergeRequest[], now: string): Array<Record<string, unknown>> {
+    const rows = all.filter((row) => !row.completedAt && (row.verdict === 'allow' || row.verdict === 'wait'));
     const live = rows.filter((row) => row.verdict !== 'allow' || !isExpired(row.leaseExpiresAt, now));
     live.sort((a, b) => (a.requestedAt < b.requestedAt ? -1 : 1));
     return live.map((row) => ({
@@ -1808,14 +1843,13 @@ export class GitDirectorService {
   }
 
   private async recentWire(tx: GitDirectorDb, cloneId: string): Promise<Array<Record<string, unknown>>> {
-    const rows = (
-      await tx
-        .select()
-        .from(gitMergeRequests)
-        .where(eq(gitMergeRequests.cloneId, cloneId))
-        .orderBy(desc(gitMergeRequests.requestedAt))
-        .limit(25)
-    ).filter((row) => row.cloneId === cloneId);
+    return this.recentWireRows(
+      await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.cloneId, cloneId)).orderBy(desc(gitMergeRequests.requestedAt)).limit(25),
+    );
+  }
+
+  private recentWireRows(all: GitMergeRequest[]): Array<Record<string, unknown>> {
+    const rows = [...all].sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : a.requestedAt > b.requestedAt ? -1 : 0));
     return rows.slice(0, 25).map((row) => ({
       request_id: row.id,
       worktree_id: row.worktreeId,

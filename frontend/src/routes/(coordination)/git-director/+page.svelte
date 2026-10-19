@@ -7,7 +7,7 @@
   import { toast } from "svelte-sonner";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import GitMerge from "@lucide/svelte/icons/git-merge";
-  import { DataTable, ListDetail, PageShell, Section, StatStrip, Toolbar } from "$lib/components/page";
+  import { DataTable, ListDetail, PageShell, StatStrip, Toolbar } from "$lib/components/page";
   import SegmentedControl from "$lib/components/page/SegmentedControl.svelte";
   import GitCommitSettingsSection from "$lib/components/settings/GitCommitSettingsSection.svelte";
   import GitDetail from "$lib/components/git-director/GitDetail.svelte";
@@ -73,6 +73,20 @@
   };
 </script>
 
+{#snippet tabs()}
+  <SegmentedControl
+    label="Git merges view"
+    value={view}
+    onChange={setView}
+    options={[
+      { value: "merges", label: "Merge requests", hint: "Current leases and waiting requests" },
+      { value: "worktrees", label: "Worktrees", hint: "Active worktrees" },
+      { value: "history", label: "History", hint: "Past decisions and released registrations" },
+      { value: "settings", label: "Settings", hint: "How agents write commit messages" },
+    ]}
+  />
+{/snippet}
+
 <PageShell
   title="Git merges"
   description="Merge requests from agents sharing a repository, and the worktrees they work in (git director)."
@@ -93,21 +107,15 @@
     <p role="status" class="rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-body-sm text-warning-muted-foreground">Git merges are off: registration, discovery and merge arbitration are disabled. Existing registrations are kept.</p>
   {/if}
 
-  <StatStrip items={stats} />
+
+  {#if view === "settings"}
+    {@render tabs()}
+    <GitCommitSettingsSection />
+  {:else}
+  {#if $clones.data}<StatStrip items={stats} />{/if}
 
   <Toolbar bind:search searchPlaceholder="Search repository, host, user, task or branch…">
-    {#snippet filters()}
-      <SegmentedControl
-        label="Git merges view"
-        value={view}
-        onChange={setView}
-        options={[
-          { value: "merges", label: "Merge requests", hint: "Current leases and waiting requests" },
-          { value: "worktrees", label: "Worktrees", hint: "Active worktrees" },
-          { value: "history", label: "History", hint: "Past decisions and released registrations" },
-        ]}
-      />
-    {/snippet}
+    {#snippet filters()}{@render tabs()}{/snippet}
   </Toolbar>
 
   <ListDetail bind:open title={heading.title} description={heading.subtitle}>
@@ -180,7 +188,5 @@
     {/snippet}
   </ListDetail>
 
-  <Section id="git-settings" title="Settings" description="Commit messages: how agents write commit messages. Applies to Codex, Claude and Grok, independent of the switch above.">
-    <GitCommitSettingsSection />
-  </Section>
+  {/if}
 </PageShell>

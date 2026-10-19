@@ -730,6 +730,38 @@ describe.skipIf(!handle)('git director against a real database', () => {
     });
   });
 
+  it('lists clones with set-based reads that match the per-clone wire helpers', async () => {
+    await register(MAIN_WT);
+    await register(LINKED_WT);
+    await register('/srv/ztest-gd/wt-quiet', { branch: 'feat/quiet' });
+    await requestMerge(MAIN_WT, ['api/a.ts']);
+    await requestMerge(LINKED_WT, ['api/a.ts']);
+    // More decisions than one page of history, plus retired and released registrations.
+    const clone = rowsOf(await exec(`SELECT id FROM git_clones WHERE host_id = ${host.id}`))[0]!['id'] as string;
+    const worktree = rowsOf(await exec(`SELECT id FROM git_worktrees WHERE clone_id = '${clone}' LIMIT 1`))[0]!['id'] as string;
+    for (let i = 0; i < 30; i++) {
+      const at = isoSeconds(new Date(Date.now() - (i + 1) * 60_000));
+      await exec(
+        `INSERT INTO git_merge_requests (id, clone_id, worktree_id, client_request_id, target_branch, verdict, decided_by, requested_at, decided_at, completed_at, created_at, updated_at)
+         VALUES ('${randomUUID()}', '${clone}', '${worktree}', '${randomUUID()}', 'main', 'allow', 'policy', '${at}', '${at}', '${at}', '${at}', '${at}')`,
+      );
+    }
+    await exec(`UPDATE git_worktrees SET status = 'abandoned', released_at = '${isoSeconds(new Date())}' WHERE worktree_path = '/srv/ztest-gd/wt-quiet'`);
+
+    const listed = (await svc.adminClones()).filter((row) => row['fqdn'] === FQDN);
+    expect(listed).toHaveLength(1);
+    const now = new Date().toISOString();
+    const helpers = svc as unknown as Record<string, (db: TestDb, id: string, now: string) => Promise<unknown>>;
+    expect(listed[0]!['worktrees']).toEqual(await helpers['worktreeWire']!(db, clone, now));
+    expect(listed[0]!['leases']).toEqual(await helpers['leaseWire']!(db, clone, now));
+    expect(listed[0]!['stale']).toEqual(await helpers['staleWire']!(db, clone, now));
+    expect((listed[0]!['recent'] as unknown[]).length).toBe(25);
+    // Decisions in the same second have no defined order; compare them as sets.
+    const byId = (rows: unknown) => [...(rows as Array<Record<string, unknown>>)].sort((x, y) => String(x['request_id']).localeCompare(String(y['request_id'])));
+    expect(byId(listed[0]!['recent'])).toEqual(byId(await helpers['recentWire']!(db, clone, now)));
+    expect((listed[0]!['stale'] as Array<Record<string, unknown>>).map((w) => w['status'])).toEqual(['abandoned']);
+  });
+
   it('applies its migration twice without error', async () => {
     for (const file of MIGRATIONS) {
       for (const stmt of splitSqlStatements(readFileSync(file, 'utf8'))) await exec(stmt);

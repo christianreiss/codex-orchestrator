@@ -1,5 +1,7 @@
 # 2026-10-19
 
+- **Git merges loads fast again and Settings is its own tab.** The registry listing used to run four queries per clone one after another; with several hundred (mostly dormant) clones the page sat on loading rows. It now reads the same data in four set-based queries (about 6x faster on a local 400-clone benchmark, more over a real network). The commit-message preferences moved from below the table to a fourth tab, **Settings**, in the layout of Shared files, and the counts strip appears only once data has loaded instead of showing zeros.
+
 - **Timed wake-ups clean themselves up.** A wake-up whose agent has been gone for 24 hours (session ended or expired, or address archived) is paused with `agent_gone` and its waiting work canceled; a one-shot that already fired is deleted after 24 hours. Persistent (resume) wake-ups are left alone while their agent's address exists. The list hides retired wake-ups behind an Active / All switch and explains the pause reason. Takes effect after the API is redeployed; the first sweep clears the existing backlog.
 
 - Messages no longer has a Conferences tab: conferences (members, combined timeline, ending one, History) already live in Agents → Chats, which now applies the Android display rules. Conversations, Addresses, Groups and the Delivery log stay for diagnosis. The agent-side conference tools and API are unchanged.
