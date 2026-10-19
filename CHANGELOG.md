@@ -17,6 +17,8 @@
 
 # 2026-10-18
 
+- **Binding web design standard.** Root `DESIGN.md` defines researched rules for every browser surface, including integrated agent chat, authentication, setup and failures. It records the current route/component inventory, concrete visual and interaction defaults, accessibility requirements, anti-slop examples and step-2 acceptance gaps. Project `AGENTS.md` now requires reading and checking the standard for UI work; the former admin design specification points to it. Documentation only: no UI migration, SPA rebuild or deployment.
+
 - **Stable agent names on resume (cxx 0.9.105):** Codex, Claude and Grok resumes restore the transcript’s original name and UUID, including picker/continue launches. The 24-hour reuse policy remains; if the name has been reassigned, resume stops with an explicit conflict instead of silently renaming the agent. Provisional name history is retained and wrapper recovery follows the restored identity.
 
 - Android 0.5.3 shows active conversations and shared rooms only while at least one agent is online. Offline/ended chats no longer stay active because of urgent notices; empty room categories disappear. Closed conference History remains available.
