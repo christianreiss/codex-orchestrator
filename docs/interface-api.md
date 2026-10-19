@@ -822,6 +822,21 @@ All three engine config GET/store routes share the revision contract: `revision`
   survive registration TTL, while ended or stale sessions are reclaimed on
   sweep. `git_merge_status` also refreshes an active registration before sweeping;
   an expired merge lease still requires a new request.
+  A merge decision compares the request's `changed_paths` with two sets, using
+  segment-aware directory prefixes (a declared `docs` covers `docs/x.md`; a
+  declared `doc` does not): the live lease holder's changed plus `git_join`
+  paths, and the `git_join` paths of every other active, unexpired registration
+  in the clone whose `target_branch` is the requested branch or unset. Only a
+  live lease, or overlap with the holder's paths, is contention: it goes to the
+  arbiter, or without one to a deterministic `wait`. Overlap with a non-holding
+  peer's declarations never makes a request wait — a declaration is a plan, not
+  a hold on the branch, and waiting on one would only end when that peer
+  deregisters (two peers declaring `CHANGELOG.md` would wait on each other
+  forever). It is reported instead: `overlap` is the union of both sets, a fresh
+  verdict (not a replay) carries `peer_overlap`
+  (`[{worktree_id, worktree_path, username, branch, paths}]`), and the reason
+  names each peer worktree and its overlapping paths; an otherwise uncontended
+  request stays `allow` by `policy`.
   Each listed worktree's `branch` and `head_sha` are the snapshot its agent last
   reported, never a live read; `head_observed_at` (additive, nullable) is when
   that `head_sha` was reported. `git_register` sets both (an omitted `head_sha`

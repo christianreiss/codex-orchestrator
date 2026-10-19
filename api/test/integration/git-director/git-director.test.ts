@@ -238,6 +238,47 @@ describe.skipIf(!handle)('git director against a real database', () => {
     expect(String(blocked['reason'])).toContain('api/b.ts');
   });
 
+  it('reports a non-holding peer\'s declared directories instead of claiming no overlap', async () => {
+    // Feedback 8c7f0b16: the peer joined with directory declarations and held no
+    // lease, so the verdict said "no declared paths overlap" with overlap [].
+    await register(MAIN_WT);
+    await register(LINKED_WT);
+    await svc.join(
+      { worktree_path: MAIN_WT, task: 'room chats', target_branch: 'main', paths: ['frontend/e2e', 'docs', 'CHANGELOG.md'] },
+      host,
+    );
+    const out = (await requestMerge(LINKED_WT, [
+      'frontend/e2e/admin-design.spec.ts',
+      'docs/web-design-verification.md',
+      'CHANGELOG.md',
+      'api/src/x.ts',
+    ])) as Record<string, unknown>;
+    // A declaration does not hold the branch: still allowed, never a wait on it.
+    expect(out['verdict']).toBe('allow');
+    expect(out['decided_by']).toBe('policy');
+    expect(out['overlap']).toEqual([
+      'CHANGELOG.md',
+      'docs/web-design-verification.md',
+      'frontend/e2e/admin-design.spec.ts',
+    ]);
+    expect(out['peer_overlap']).toEqual([
+      expect.objectContaining({ worktree_path: MAIN_WT, paths: out['overlap'] }),
+    ]);
+    expect(String(out['reason'])).not.toContain('no declared paths overlap');
+    expect(String(out['reason'])).toContain(MAIN_WT);
+    expect(String(out['reason'])).toContain('CHANGELOG.md');
+  });
+
+  it('ignores peer declarations aimed at a different target branch', async () => {
+    await register(MAIN_WT);
+    await register(LINKED_WT);
+    await svc.join({ worktree_path: MAIN_WT, target_branch: 'release', paths: ['docs'] }, host);
+    const out = (await requestMerge(LINKED_WT, ['docs/a.md'])) as Record<string, unknown>;
+    expect(out['verdict']).toBe('allow');
+    expect(out['overlap']).toEqual([]);
+    expect(out['peer_overlap']).toEqual([]);
+  });
+
   it('returns the original verdict for a retried request instead of queueing twice', async () => {
     await register(MAIN_WT);
     await register(LINKED_WT);
