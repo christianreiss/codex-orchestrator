@@ -52,6 +52,40 @@ atomically refuses an existing target; `--overwrite` permits atomic replacement.
 Keep journals and partial files to resume; delete both to abandon a download.
 A hash mismatch leaves the partial file unpublished: discard it and restart.
 
+## Troubleshooting: HTTP 413 from an old communicator owner
+
+Transfer requests go through the running local communicator owner, which may be
+older than the `cxx` that issues them: a resident service runs its own root-owned
+copy (`/usr/local/lib/cxx-daemon/cxx`) that `cxx update` does not replace until
+the update handoff is installed, and an on-demand owner keeps running its old
+image while leases or native agents keep it busy. An owner older than 0.9.93
+(commit cdc9e6b9) buffers every request body and refuses anything over 8 MiB
+with a plain-text HTTP 413, so every 16 MiB upload chunk fails. Before the fix
+the CLI printed only `transfer HTTP 413: ` and left an `uploading` record at
+zero bytes; non-JSON error bodies are now shown, bounded to one 200-character
+line (`transfer HTTP 413: communicator request too large`).
+
+`cxx transfer put` now reads the owner's local `/_comm/status` (no server
+request, never starting an owner) before hashing the file. When the owner
+reports a release older than 0.9.93 and the file exceeds 8 MiB, it exits 1
+before any journal or server record exists, naming the owner's version and PID.
+With `--json`, stdout gets `{error, outcome: "not_started", owner_version,
+owner_pid, owner_mode, required_version, remedy}`. The remedy depends on the
+owner's `mode`:
+
+- `resident`: refresh the service copy from the installed `cxx` and restart it
+  with `sudo cxx daemon install`. (`cxx communicator stop` only runs
+  `systemctl stop cxx-daemon.service` and does not refresh the copy.)
+- `on_demand`: `kill <pid>` (SIGTERM closes the owner and cuts its in-flight
+  requests); the next managed call starts a new owner from the installed `cxx`.
+
+Smaller files, unversioned (`dev`) owners and owners whose status cannot be read
+(none running, direct HTTPS) proceed unchanged. Downloads are not checked: they
+carry no request body, so the 8 MiB refusal cannot occur, and an old owner
+retries oversized relayed reads as a streamed HTTPS request (not verified
+end-to-end against a 0.9.83 owner). `cxx communicator doctor` reports the same
+stale owner as `stale_owner`.
+
 ## HTTP interface
 
 All routes require host authentication, host/IP and insecure-window policy,
