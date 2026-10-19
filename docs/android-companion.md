@@ -61,6 +61,11 @@ messages use the shared primary-container color. Navigation remains Chats, Hosts
 Authorizations; this is a native task-oriented companion, not a copy of all admin
 configuration screens.
 
+Hosts, Authorizations and all bottom sheets reuse the Chats building blocks in
+`CompanionTheme.kt` (`searchFieldColors`, bordered cards, `SectionHeader`,
+`EmptyState`, `StatusDot`, `SheetShape`), so the three tabs share field, card,
+empty-state and sheet styling. Presentation only; behaviour and test tags are unchanged.
+
 The additive Companion room routes must be deployed before use. Older servers
 return an unavailable shared-room state while direct chats continue working. Room
 content requires `agent_messaging.reveal_content`; mutation additionally requires

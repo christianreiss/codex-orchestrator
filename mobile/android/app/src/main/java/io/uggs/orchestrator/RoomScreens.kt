@@ -146,7 +146,7 @@ import org.json.JSONObject
     var validation by remember { mutableStateOf(false) }
     var search by rememberSaveable { mutableStateOf("") }
     var discard by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = { if (!state.busy) { if (pending == null && (title.isNotBlank() || description.isNotBlank() || members.isNotEmpty())) discard = true else dismiss() } }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ModalBottomSheet(onDismissRequest = { if (!state.busy) { if (pending == null && (title.isNotBlank() || description.isNotBlank() || members.isNotEmpty())) discard = true else dismiss() } }, shape = SheetShape, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("New conversation", style = MaterialTheme.typography.titleLarge)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -185,7 +185,7 @@ import org.json.JSONObject
     var confirm by remember { mutableStateOf(false) }
     var remove by remember { mutableStateOf<JSONObject?>(null) }
     var invite by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = dismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ModalBottomSheet(onDismissRequest = dismiss, shape = SheetShape, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(room.optString("title"), style = MaterialTheme.typography.titleLarge)
             if (room.optString("description").isNotBlank()) Text(room.optString("description"))

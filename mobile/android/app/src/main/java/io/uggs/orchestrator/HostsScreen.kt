@@ -53,27 +53,39 @@ internal fun hostReason(host: JSONObject): String {
     val hosts = model.hosts.filter { it.optString("fqdn").contains(query.trim(), ignoreCase = true) }
         .sortedWith(compareByDescending<JSONObject> { it.optBoolean("startable") }.thenBy { it.optString("fqdn") })
     Column(Modifier.fillMaxSize()) {
-        OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("host-search"), singleLine = true, placeholder = { Text("Search hosts") }, leadingIcon = { CompanionIcon(CompanionSymbol.Search) })
+        OutlinedTextField(
+            query, { query = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("host-search"), singleLine = true,
+            placeholder = { Text("Search hosts") }, leadingIcon = { CompanionIcon(CompanionSymbol.Search, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+            shape = MaterialTheme.shapes.medium, colors = searchFieldColors(),
+        )
         model.pendingStart?.let {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text("Start outcome pending. Retry checks the same start; it does not create a second agent.", style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = { model.retryStart() }, enabled = model.canSpawn() && !model.busy, modifier = Modifier.testTag("retry-start")) { Text("Retry start") }
             }
         }
-        if (!fresh) Text("Reconnect to start an agent", Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
-        else if (!model.canSpawn()) Text("Remote starts need messaging and portal permissions", Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
-        LazyColumn(Modifier.fillMaxSize().testTag("host-list"), contentPadding = PaddingValues(bottom = 24.dp)) {
-            if (hosts.isEmpty()) item { Text(if (query.isBlank()) "No hosts with remote starts enabled" else "No matching hosts", Modifier.padding(16.dp)) }
+        if (!fresh) Text("Reconnect to start an agent", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        else if (!model.canSpawn()) Text("Remote starts need messaging and portal permissions", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LazyColumn(Modifier.fillMaxSize().testTag("host-list"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (hosts.isEmpty()) item { EmptyState(if (query.isBlank()) "No hosts with remote starts enabled" else "No matching hosts") }
             items(hosts, key = { it.optLong("host_id") }) { host ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    CompanionIcon(CompanionSymbol.Computer)
-                    Column(Modifier.weight(1f)) {
-                        Text(host.optString("fqdn"), style = MaterialTheme.typography.titleMedium)
-                        Text(hostReason(host), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val startable = host.optBoolean("startable")
+                Card(Modifier.fillMaxWidth(), colors = companionCardColors(), border = companionCardBorder()) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(contentAlignment = Alignment.BottomEnd) {
+                            CompanionIcon(CompanionSymbol.Computer, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            StatusDot(startable, Modifier.size(9.dp).offset(x = 3.dp, y = 3.dp))
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(host.optString("fqdn"), style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(hostReason(host), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        val canStart = fresh && model.canSpawn() && startable && !model.busy && model.pendingStart == null
+                        val startModifier = Modifier.heightIn(min = 48.dp).testTag("spawn:${host.optLong("host_id")}")
+                        if (canStart) FilledTonalButton(onClick = { start = host.optLong("host_id") }, modifier = startModifier) { Text("Start") }
+                        else OutlinedButton(onClick = { start = host.optLong("host_id") }, enabled = false, modifier = startModifier) { Text("Start") }
                     }
-                    OutlinedButton(onClick = { start = host.optLong("host_id") }, enabled = fresh && model.canSpawn() && host.optBoolean("startable") && !model.busy && model.pendingStart == null, modifier = Modifier.testTag("spawn:${host.optLong("host_id")}")) { Text("Start") }
                 }
-                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
             }
         }
     }
@@ -89,7 +101,7 @@ internal fun hostReason(host: JSONObject): String {
     var advanced by rememberSaveable { mutableStateOf(false) }
     val engines = host.optJSONArray("engines")?.strings() ?: emptySet()
     val ready = model.canSpawn() && host.optBoolean("startable") && engine in engines && (cwd.isBlank() || cwd.startsWith('/'))
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ModalBottomSheet(onDismissRequest = onDismiss, shape = SheetShape, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Start an agent", style = MaterialTheme.typography.titleLarge)
             Text(host.optString("fqdn"), style = MaterialTheme.typography.bodyMedium)

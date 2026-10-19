@@ -23,21 +23,21 @@ import java.time.Instant
             Text("Reconnect to manage authorizations. Displayed windows may have changed.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = model::refreshNow) { Text("Retry connection") }
         }
-        item { Text("Waiting authorizations", style = MaterialTheme.typography.titleMedium) }
-        if (requests.isEmpty()) item { Text(if (fresh) "No waiting authorizations" else "Waiting for current authorizations", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { SectionHeader("Waiting authorizations", requests.size) }
+        if (requests.isEmpty()) item { EmptyState(if (fresh) "No waiting authorizations" else "Waiting for current authorizations", modifier = Modifier.padding(vertical = 0.dp)) }
         items(requests, key = { "approval:${it.optLong("id")}" }) { request ->
-            OutlinedCard(Modifier.fillMaxWidth().testTag("approval:${request.optLong("id")}")) {
+            Card(colors = companionCardColors(), border = companionCardBorder(), modifier = Modifier.fillMaxWidth().testTag("approval:${request.optLong("id")}")) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(request.optString("fqdn"), style = MaterialTheme.typography.titleMedium)
                     Text("Requesting IP: ${request.optString("request_ip")}")
                     Text("Expires in ${remainingWindowTime(request.optString("expires_at"), now)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedButton(onClick = { onReview(request) }, enabled = actionable, modifier = Modifier.heightIn(min = 48.dp)) { Text("Review") }
+                    Button(onClick = { onReview(request) }, enabled = actionable, modifier = Modifier.heightIn(min = 48.dp)) { Text("Review") }
                 }
             }
         }
-        item { Text("Active windows", style = MaterialTheme.typography.titleMedium) }
+        item { SectionHeader("Active windows", windows.size + if (fleetOpen) 1 else 0, Modifier.padding(top = 8.dp)) }
         if (fleetOpen) item(key = "fleet-window") {
-            OutlinedCard(Modifier.fillMaxWidth().testTag("fleet-window")) {
+            Card(colors = companionCardColors(), border = companionCardBorder(), modifier = Modifier.fillMaxWidth().testTag("fleet-window")) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Fleet window", style = MaterialTheme.typography.titleMedium)
                     WindowDeadline(model.fleetWindow!!, now)
@@ -47,7 +47,7 @@ import java.time.Instant
             }
         }
         items(windows, key = { "window:${it.optLong("host_id")}" }) { window ->
-            OutlinedCard(Modifier.fillMaxWidth().testTag("window:${window.optLong("host_id")}")) {
+            Card(colors = companionCardColors(), border = companionCardBorder(), modifier = Modifier.fillMaxWidth().testTag("window:${window.optLong("host_id")}")) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(window.optString("fqdn"), style = MaterialTheme.typography.titleMedium)
                     WindowDeadline(window, now)
@@ -58,7 +58,7 @@ import java.time.Instant
                 }
             }
         }
-        if (windows.isEmpty() && !fleetOpen) item { Text(if (fresh) "No active windows" else "Waiting for current windows", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (windows.isEmpty() && !fleetOpen) item { EmptyState(if (fresh) "No active windows" else "Waiting for current windows") }
     }
     if (confirmFleetClose) AlertDialog(
         modifier = Modifier.testTag("fleet-close-dialog"),

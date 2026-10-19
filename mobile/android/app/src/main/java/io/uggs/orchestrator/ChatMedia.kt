@@ -104,7 +104,7 @@ suspend fun copyChatFile(context: Context, uri: Uri): Triple<File, String, Strin
         else model.chatError("Camera permission is required for capture")
     }
     DisposableEffect(Unit) { onDispose { runCatching { recorder?.stop() }; recorder?.release() } }
-    if (menu) ModalBottomSheet(onDismissRequest = { menu = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    if (menu) ModalBottomSheet(onDismissRequest = { menu = false }, shape = SheetShape, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
             Text("Add to message", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 12.dp))
             AttachmentOption("Photos", CompanionSymbol.Photo, enabled) { menu = false; gallery.launch(arrayOf("image/*")) }
