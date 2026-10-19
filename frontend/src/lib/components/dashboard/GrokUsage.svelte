@@ -25,7 +25,6 @@
     <p class="text-body-sm text-muted-foreground">
       {#if when === "passed"}Reset passed{:else if when}Resets <time datetime={window.resets_at ?? undefined} title={window.resets_at ?? undefined}>{when}</time>{:else}Reset time unavailable{/if}
     </p>
-    {#if window.shared}<p class="text-body-sm text-muted-foreground">Shared across Grok products</p>{/if}
     {#if usage.error_code}<p class="text-body-sm text-muted-foreground">Update unavailable; showing the last reading.</p>{/if}
   {:else}
     <p class="rounded-md border bg-muted/30 p-3 text-body-sm text-muted-foreground">{usage.checked_at ? "Usage unavailable" : "Waiting for usage data"}</p>

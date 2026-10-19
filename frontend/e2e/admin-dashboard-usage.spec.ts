@@ -135,8 +135,6 @@ test("unknown, unavailable and login-required accounts never show zero quota", a
   await expect(rows.nth(1)).toContainText("Subscription quota unavailable");
   await expect(rows.nth(2)).toContainText("Usage unavailable");
   await expect(rows.nth(2)).toContainText("Login needed");
-  // The login that needs renewal also leads the attention list.
-  await expect(page.getByRole("list", { name: "Items needing attention" })).toContainText("Grok account Grok account needs a new login");
 });
 
 test("loading shows a placeholder and an account error cannot silently switch to another source", async ({ page }) => {

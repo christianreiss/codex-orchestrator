@@ -1,78 +1,34 @@
 <script lang="ts">
   /**
-   * Overview. Exceptions first: what needs attention and where to fix it, then
-   * one line of fleet numbers, provider usage, engines, and the runner.
+   * Overview. Three tabs, one question each: how much quota is left (Provider),
+   * what is installed (Engines), and whether logins still verify (Runner).
    */
   import { base } from "$app/paths";
-  import { PageShell, Section, StatStrip, StateBlock, type Stat } from "$lib/components/page";
+  import { PageShell, Section, StateBlock } from "$lib/components/page";
   import { Button } from "$lib/components/ui/button";
+  import * as Tabs from "$lib/components/ui/tabs";
   import { accountsQuery } from "$lib/api/accounts";
-  import { hostsListQuery, hostStatusKind } from "$lib/api/hosts";
   import { createRunnerStateQuery } from "$lib/api/runner";
-  import { insecureApprovalsPendingQuery, overviewQuery } from "$lib/api/overview";
-  import { useFleetEngines } from "$lib/engines/fleet-engines";
-  import { ENGINE_META } from "$lib/constants/engines";
-  import { relativeTime } from "$lib/utils/format";
-  import AttentionList from "$lib/components/dashboard/AttentionList.svelte";
+  import { overviewQuery } from "$lib/api/overview";
   import OnboardingNotice from "$lib/components/dashboard/OnboardingNotice.svelte";
   import UsageTable from "$lib/components/dashboard/UsageTable.svelte";
   import EngineTable from "$lib/components/dashboard/EngineTable.svelte";
   import RunnerStatus from "$lib/components/dashboard/RunnerStatus.svelte";
-  import { buildAttention } from "$lib/components/dashboard/attention";
-  import { hostFindings } from "$lib/components/dashboard/host-findings";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Plus from "@lucide/svelte/icons/plus";
 
   const overview = overviewQuery();
   const accounts = accountsQuery();
-  const hosts = hostsListQuery();
-  const approvals = insecureApprovalsPendingQuery();
   const runner = createRunnerStateQuery();
-  const fleet = useFleetEngines();
 
-  const fetching = $derived($overview.isFetching || $accounts.isFetching || $hosts.isFetching || $approvals.isFetching);
+  let tab = $state("provider");
+
+  const fetching = $derived($overview.isFetching || $accounts.isFetching);
   function refresh() {
-    void Promise.all([$overview.refetch(), $accounts.refetch(), $hosts.refetch(), $approvals.refetch(), $runner.refetch()]);
+    void Promise.all([$overview.refetch(), $accounts.refetch(), $runner.refetch()]);
   }
 
-  const hostRows = $derived($hosts.data?.hosts ?? []);
   const accountRows = $derived($accounts.data?.accounts);
-  const disabledLabels = $derived($fleet.disabled.map((engine) => ENGINE_META[engine].label));
-
-  const staleChecks = $derived(
-    (["codex", "claude", "grok"] as const)
-      .filter((engine) => $overview.data?.versions?.[`${engine === "codex" ? "cdx" : engine}_version_stale`] === true)
-      .map((engine) => ENGINE_META[engine].label),
-  );
-
-  const attention = $derived(
-    buildAttention({
-      hosts: $hosts.data ? hostFindings(hostRows, $fleet.disabled) : null,
-      pendingApprovals: $approvals.isError ? null : ($approvals.data?.requests?.length ?? 0),
-      accounts: accountRows ?? null,
-      runner: $runner.data?.runner ?? null,
-      disabledEngines: disabledLabels,
-      allEnginesDisabled: $fleet.enabled.length === 0 && $fleet.disabled.length > 0,
-      staleReleaseChecks: staleChecks,
-    }),
-  );
-  const sourcesLoading = $derived($hosts.isPending || $accounts.isPending || $runner.isPending);
-
-  const stats = $derived.by<Stat[] | null>(() => {
-    const total = $hosts.data ? hostRows.length : $overview.data?.totals?.hosts;
-    if (total === undefined) return null;
-    const online = hostRows.filter((host) => hostStatusKind(host) === "online").length;
-    const sessions = (accountRows ?? []).reduce((sum, account) => sum + account.sessions.length, 0);
-    const alerts = attention.filter((item) => item.tone !== "info").length;
-    const refreshed = $overview.data?.last_refresh;
-    return [
-      { label: "hosts online", value: $hosts.data ? `${online} / ${total}` : total, href: `${base}/hosts`, tone: $hosts.data && online < total ? "warning" : "default" },
-      { label: "active agents", value: accountRows ? sessions : "—", hint: "Agent sessions currently running on a provider account" },
-      { label: "accounts", value: accountRows ? accountRows.length : "—", href: `${base}/accounts` },
-      { label: "need attention", value: alerts, tone: alerts ? "danger" : "success" },
-      ...(refreshed ? [{ label: "last refresh", value: relativeTime(refreshed), hint: "Most recent credential refresh across the fleet" } satisfies Stat] : []),
-    ];
-  });
 </script>
 
 <PageShell title="Overview" description="What needs attention across the fleet, then how it is doing.">
@@ -92,16 +48,16 @@
       />
     {/if}
 
-    <AttentionList items={attention} loading={sourcesLoading} />
-
     <OnboardingNotice />
 
-    {#if stats}
-      <StatStrip items={stats} />
-    {:else if $overview.isPending}
-      <StateBlock state="loading" rows={1} />
-    {/if}
+    <Tabs.Root bind:value={tab} class="flex flex-col gap-4">
+      <Tabs.List class="w-fit">
+        <Tabs.Trigger value="provider">Provider</Tabs.Trigger>
+        <Tabs.Trigger value="engines">Engines</Tabs.Trigger>
+        <Tabs.Trigger value="runner">Runner</Tabs.Trigger>
+      </Tabs.List>
 
+      <Tabs.Content value="provider">
     <Section id="usage" title="Provider usage" description="Quota windows reported by each connected account.">
       {#snippet actions()}<Button size="sm" variant="outline" href={`${base}/accounts`}>Manage accounts</Button>{/snippet}
       <UsageTable
@@ -117,14 +73,20 @@
         </p>
       {/if}
     </Section>
+      </Tabs.Content>
 
+      <Tabs.Content value="engines">
     <Section id="engines" title="Engines" description="Installed CLI versions reported by hosts, and the latest upstream release.">
       {#snippet actions()}<Button size="sm" variant="outline" href={`${base}/engines`}>Configure engines</Button>{/snippet}
       <EngineTable overview={$overview.data} loading={$overview.isPending} />
     </Section>
+      </Tabs.Content>
 
+      <Tabs.Content value="runner">
     <Section id="runner" title="Verification runner" description="Checks provider logins with the provider before they are stored.">
       <RunnerStatus />
     </Section>
+      </Tabs.Content>
+    </Tabs.Root>
   </div>
 </PageShell>

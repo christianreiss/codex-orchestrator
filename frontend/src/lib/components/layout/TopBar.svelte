@@ -93,7 +93,7 @@
     </ol>
   </nav>
   <div class="flex shrink-0 items-center gap-1 sm:gap-2">
-    <button type="button" class="hidden h-9 w-64 items-center gap-2 rounded-md border bg-background px-3 text-body-sm text-muted-foreground outline-none transition-colors hover:border-input hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring xl:flex" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-3.5 w-3.5" /><span class="flex-1 text-left">Search fleet &amp; commands</span><kbd class="keyboard-key">{modifierKey} K</kbd></button>
+    <button type="button" class="hidden h-9 w-64 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border bg-background px-3 text-body-sm text-muted-foreground outline-none transition-colors hover:border-input hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring xl:flex" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-3.5 w-3.5 shrink-0" /><span class="min-w-0 flex-1 truncate text-left">Search fleet &amp; commands</span><kbd class="keyboard-key shrink-0">{modifierKey} K</kbd></button>
     <button type="button" class="shell-icon-button xl:hidden" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-4 w-4" /></button>
     {#if wsIndicator}
       <Tooltip.Provider>
