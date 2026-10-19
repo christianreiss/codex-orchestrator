@@ -179,7 +179,7 @@ export class RolesService {
   }
 
   /** `resource_read` for `role://`: the manifest and index, or one file as text or blob. */
-  async readResource(uri: string) {
+  async readResource(uri: string): Promise<{ contents: Array<{ uri: string; name: string; mimeType: string; text?: string; blob?: string }> }> {
     await this.requireEnabled();
     const parsed = parseRoleUri(uri);
     const role = await this.roleBySlug(parsed.slug);

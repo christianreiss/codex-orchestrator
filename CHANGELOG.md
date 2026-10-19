@@ -1,5 +1,12 @@
 # 2026-10-19
 
+- **Agent roles (cxx 0.9.108).** Agents can now take a fleet role — design review is the first — on an explicit assignment such as "Du bist der Design-Agent", keep it across resume and compaction, and be found and asked by other agents. Off by default: turn on **Agent roles** in Library → Roles.
+  - A role is a versioned package (a `ROLE.md` role prompt plus reference files). The agent activates it with `agent_role_activate` after reading the new `roles` Skill; its session pins that version, so a newer publish never changes it silently. A role grants no permission and changes no tool, sandbox or approval setting.
+  - `agent_self` and `agent_list` show the role, `agent_list {role}` finds holders, and the session title reads "(Name) (Designer) …" on every engine. Reviews use `agent_request` with a `REVIEW/1` header; acceptance authority comes from the request's `mandate`, never from the role.
+  - Claude sessions get a ROLE/1 reminder after a resume or compaction and reload the role with `agent_role_current`; Codex and Grok rely on the managed guidance to do the same.
+  - Roles improve themselves: holders propose changes with `agent_role_propose`; the server checks them, a judge reviews them, another holder reviews changes to existing material, and the server publishes the new version. Holders hear about it (`ROLE-UPDATE/1`) and move up between tasks. In Library → Roles the operator steers per role (self-improving, supervised or frozen; protected paths; daily budget), sees every version and proposal with its diff, and can revert, withdraw, publish or reject held proposals, or veto a published one.
+  - Needs the API redeployed (migration 0081) and hosts on cxx 0.9.108; older hosts get no role guidance.
+
 - **Feedback sweep (cxx 0.9.106, 0.9.107).**
   - `cxx transfer put` failures after the upload is journaled (for example "communicator disconnected, request outcome unknown") now name the transfer ID, the exact `--resume` command and the `transfer_delete` abandon step; `--json` also writes this recovery object to stdout.
   - The launch identity hint no longer states the agent address; `agent_self` is its only source (the address can move when a native session rebinds after launch).
