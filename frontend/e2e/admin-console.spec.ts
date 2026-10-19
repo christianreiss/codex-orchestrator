@@ -393,6 +393,22 @@ test("dashboard renders while setup infrastructure checks are pending", async ({
   await expect(page).toHaveURL(/\/admin\/hosts$/);
 });
 
+test("Overview counts hosts and stored accounts", async ({ page }) => {
+  const account = (id: number, engine: string, state: string) => ({
+    id, engine, label: `${engine}-${id}`, state, verification_state: "verified", verification_reason: null,
+    verification_checked_at: null, generation: 1, usage: { fetched_at: null, stale: false, short_used_percent: null, short_resets_at: null, weekly_used_percent: null, weekly_resets_at: null }, sessions: [],
+  });
+  await installFixtures(page, path => path === "/admin/accounts"
+    ? { accounts: [account(1, "codex", "enabled"), account(2, "claude", "enabled"), account(3, "claude", "paused")] }
+    : undefined);
+  await page.goto("/admin/dashboard");
+  await expect(page.getByRole("link", { name: "2", exact: true })).toHaveAttribute("href", "/admin/hosts");
+  await expect(page.getByText("hosts", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "3", exact: true }).first()).toHaveAttribute("href", "/admin/accounts");
+  await expect(page.getByText("stored accounts", { exact: true })).toBeVisible();
+  await expect(page.getByText("paused or being removed", { exact: true })).toBeVisible();
+});
+
 test("a first-run fleet still enters setup after the background check", async ({ page }) => {
   await installFixtures(page, path => path === "/admin/setup/status" ? {
     ...fixture(path), owner_created: true, hosts: { total: 0, synced: 0 },

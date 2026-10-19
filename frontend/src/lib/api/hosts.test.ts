@@ -60,6 +60,7 @@ const {
   hostCxxWrapperState,
   hostEngines,
   hostHasRequiredAuth,
+  hostLastSeen,
   hostLastSeenMs,
   hostLatestRefresh,
   hostLatestRefreshMs,
@@ -493,6 +494,18 @@ describe("hostStatusKind", () => {
       last_refresh: iso(NOW - 10 * HOST_ONLINE_WINDOW_MS),
     });
     assert.equal(hostStatusKind(host, NOW), "online");
+  });
+});
+
+describe("hostLastSeen", () => {
+  it("shows the newest check-in, not an older auth mint time, so it agrees with the Online pill", () => {
+    const host = makeHost({ updated_at: iso(NOW - 60_000), last_refresh: iso(NOW - 90 * 24 * 60 * 60 * 1000) });
+    assert.equal(hostLastSeen(host), iso(NOW - 60_000));
+    assert.equal(hostStatusKind(host, NOW), "online");
+  });
+
+  it("is null when nothing was ever reported", () => {
+    assert.equal(hostLastSeen({ updated_at: null, last_refresh: null, claude_last_refresh: null, grok_last_refresh: null }), null);
   });
 });
 

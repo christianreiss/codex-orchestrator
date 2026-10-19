@@ -6,7 +6,8 @@
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
   import { page } from "$app/state";
-  import { PageShell, Section, StateBlock } from "$lib/components/page";
+  import { PageShell, Section, StateBlock, StatStrip, type Stat } from "$lib/components/page";
+  import { ENGINES, ENGINE_META } from "$lib/constants/engines";
   import { Button } from "$lib/components/ui/button";
   import * as Tabs from "$lib/components/ui/tabs";
   import { accountsQuery } from "$lib/api/accounts";
@@ -36,6 +37,30 @@
   }
 
   const accountRows = $derived($accounts.data?.accounts);
+
+  // Unavailable is not zero: a number appears only once its query has answered.
+  const stats = $derived.by<Stat[]>(() => {
+    const hostCount = $overview.data?.totals?.hosts;
+    const rows = accountRows;
+    const paused = rows?.filter((account) => account.state !== "enabled").length ?? 0;
+    const perEngine = rows
+      ? ENGINES.map((engine) => ({ engine, count: rows.filter((account) => account.engine === engine).length }))
+          .filter((entry) => entry.count > 0)
+          .map((entry) => `${ENGINE_META[entry.engine].label} ${entry.count}`)
+          .join(" · ")
+      : "";
+    const items: Stat[] = [
+      { label: hostCount === 1 ? "host" : "hosts", value: hostCount ?? "–", href: `${base}/hosts` },
+      {
+        label: rows?.length === 1 ? "stored account" : "stored accounts",
+        value: rows?.length ?? "–",
+        href: `${base}/accounts`,
+        hint: perEngine || undefined,
+      },
+    ];
+    if (paused > 0) items.push({ label: "paused or being removed", value: paused, tone: "warning", href: `${base}/accounts` });
+    return items;
+  });
 </script>
 
 <PageShell title="Overview" description="Provider quota, installed engines and login verification.">
@@ -44,6 +69,9 @@
       <RefreshCw class="h-4 w-4 {fetching ? 'animate-spin' : ''}" /> Refresh
     </Button>
     <Button href={`${base}/hosts?dialog=new-host`}><Plus class="h-4 w-4" /> Add host</Button>
+  {/snippet}
+  {#snippet subheader()}
+    <StatStrip items={stats} />
   {/snippet}
 
   <div class="flex flex-col gap-6">

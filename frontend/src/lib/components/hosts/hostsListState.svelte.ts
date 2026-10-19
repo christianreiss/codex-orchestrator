@@ -6,7 +6,7 @@
 import { page } from "$app/state";
 import { goto } from "$app/navigation";
 import {
-  hostLatestRefreshMs,
+  hostLastSeenMs,
   hostMatchesFilter,
   hostStatusKind,
   hostStatusLabel,
@@ -137,8 +137,8 @@ export class HostsListState {
     const dir = this.sortDir === "asc" ? 1 : -1;
     return list.sort((a, b) => {
       if (this.sortField === "last_refresh") {
-        const av = hostLatestRefreshMs(a.host);
-        const bv = hostLatestRefreshMs(b.host);
+        const av = hostLastSeenMs(a.host);
+        const bv = hostLastSeenMs(b.host);
         if (av === bv) return 0;
         if (av === null) return 1;
         if (bv === null) return -1;

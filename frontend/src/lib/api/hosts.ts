@@ -535,6 +535,14 @@ export function hostLastSeenMs(
   return times.length ? Math.max(...times) : null;
 }
 
+/** `hostLastSeenMs` as a timestamp; what the "Last seen" column shows, so it can never contradict the Online pill. */
+export function hostLastSeen(
+  host: Pick<HostListItem, "updated_at" | "last_refresh" | "claude_last_refresh" | "grok_last_refresh">,
+): string | null {
+  const ms = hostLastSeenMs(host);
+  return ms === null ? null : new Date(ms).toISOString();
+}
+
 export function hostHasRequiredAuth(
   host: Pick<HostListItem, "engines_list" | "engines" | "canonical_digest" | "claude_canonical_digest" | "grok_canonical_digest" | "authed">,
 ): boolean {
