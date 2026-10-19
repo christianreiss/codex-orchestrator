@@ -140,7 +140,8 @@
           <Table.Head>When</Table.Head>
         {/snippet}
         {#snippet row(item)}
-          <Table.Row>
+          <!-- The first-cell button stays the keyboard path; a click anywhere else on the row opens the same detail. -->
+          <Table.Row class="cursor-pointer" onclick={(event: MouseEvent) => { if (!(event.target as HTMLElement).closest("a,button")) show(item); }}>
             <Table.Cell class="max-w-[28rem]">
               <button type="button" class="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onclick={() => show(item)}>
                 {#if item.kind === "worktree"}
