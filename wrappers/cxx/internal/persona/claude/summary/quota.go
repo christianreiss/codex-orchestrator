@@ -40,7 +40,7 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse, now time.Time) ([]ui.Qu
 		resetAt, resetErr := time.Parse(time.RFC3339, strings.TrimSpace(resetAtText))
 		switch {
 		case resetErr != nil:
-			row.Note = "reset unknown"
+			row.ResetUnknown = true
 		case !resetAt.After(now):
 			current = false
 			row.Note = "reset passed; awaiting host report"

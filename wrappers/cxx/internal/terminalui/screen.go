@@ -361,6 +361,8 @@ func printMinimalScreen(w io.Writer, in ScreenInput, caps Caps) {
 		reset := ""
 		if row.ResetAfter > 0 {
 			reset = " | reset=" + ResetInText(row.ResetAfter)
+		} else if row.ResetUnknown {
+			reset = " | reset=unknown"
 		}
 		forecast := ""
 		if row.Projection != "" {

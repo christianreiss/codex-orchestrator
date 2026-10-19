@@ -68,8 +68,11 @@ func TestStartupScreenReportsFutureGrokResetInDays(t *testing.T) {
 	in.Auth.GrokUsage = &grokUsageReading{
 		Status: "ok", UsedPercent: &used, Period: &weekly, ResetsAt: &reset,
 	}
-	if ui := startupScreen(in); ui.QuotaNote != "weekly 38% used; resets in 20 days" {
-		t.Fatalf("quota note: %q", ui.QuotaNote)
+	if ui := startupScreen(in); len(ui.QuotaRows) != 1 || ui.QuotaNote != "" || ui.QuotaRows[0].Label != "weekly" || ui.QuotaRows[0].Used != 38 || ui.QuotaRows[0].ResetAfter < 19*24*time.Hour {
+		t.Fatalf("quota row: %+v note %q", ui.QuotaRows, ui.QuotaNote)
+	}
+	if note := grokQuotaNote(in.Auth.GrokUsage, time.Now()); note != "weekly 38% used; resets in 20 days" {
+		t.Fatalf("quota note: %q", note)
 	}
 	expired := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
 	in.Auth.GrokUsage.ResetsAt = &expired

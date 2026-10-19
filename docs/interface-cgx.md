@@ -338,9 +338,11 @@ removed, merged, and fleet-disabled accounts are not polled.
 A failed request keeps the last reading and marks it stale; missing data stays
 unknown, never 0%. Monthly or untyped periods are not labelled weekly. cgx
 startup, status, and doctor print that stored reading when `grok_usage.resets_at`
-is still in the future, for example `weekly 38% used; resets in 20 days`. A
-day or more is whole days; under a day the note keeps hours and minutes. A
-missing percent omits the percentage instead of printing 0%. A missing,
+is still in the future, as the same bar-and-reset row cdx and clx use
+(`weekly  38%  ━━━━──────  reset 20 days`; plain output `quota | weekly=38% |
+reset=20 days`). A day or more is whole days; under a day the row keeps hours and
+minutes. A missing percent falls back to the text note (`weekly; resets in 20
+days`) instead of printing 0%. A missing,
 unparseable, or already passed reset keeps `Subscription quota usage is
 unavailable.` This does not enable quota hard-fail, account balancing by Grok
 quota, automatic purchasing, or an extra provider call from the wrapper. The

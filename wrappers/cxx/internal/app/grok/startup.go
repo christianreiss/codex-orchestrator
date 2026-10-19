@@ -103,6 +103,28 @@ func grokQuotaNote(usage *grokUsageReading, now time.Time) string {
 	return fmt.Sprintf("%s %d%% used; %s", period, int(math.Round(*usage.UsedPercent)), reset)
 }
 
+// grokQuotaRow is the meter form of the subscription reading, so cgx shows the
+// same bar-and-reset row as cdx and clx. Readings without a usable percentage
+// or reset stay a text note (grokQuotaNote) rather than an invented bar.
+func grokQuotaRow(usage *grokUsageReading, now time.Time) (terminalui.QuotaRow, bool) {
+	if usage == nil || usage.Status == "unavailable" || usage.ResetsAt == nil || usage.UsedPercent == nil {
+		return terminalui.QuotaRow{}, false
+	}
+	used := *usage.UsedPercent
+	if math.IsNaN(used) || used < 0 || used > 100 {
+		return terminalui.QuotaRow{}, false
+	}
+	resetAt, err := time.Parse(time.RFC3339, strings.TrimSpace(*usage.ResetsAt))
+	if err != nil || !resetAt.After(now) {
+		return terminalui.QuotaRow{}, false
+	}
+	label := "current"
+	if usage.Period != nil && (*usage.Period == "weekly" || *usage.Period == "monthly") {
+		label = *usage.Period
+	}
+	return terminalui.QuotaRow{Label: label, Used: int(math.Round(used)), ResetAfter: resetAt.Sub(now)}, true
+}
+
 func startupScreen(in startupInput) terminalui.ScreenInput {
 	ui := terminalui.ScreenInput{
 		Prefix: "cgx", EngineName: "grok", SkipBanner: in.Minimal,
@@ -122,7 +144,11 @@ func startupScreen(in startupInput) terminalui.ScreenInput {
 		}
 	}
 	if in.Auth != nil {
-		ui.QuotaNote = grokQuotaNote(in.Auth.GrokUsage, time.Now())
+		if row, ok := grokQuotaRow(in.Auth.GrokUsage, time.Now()); ok {
+			ui.QuotaRows, ui.QuotaNote = []terminalui.QuotaRow{row}, ""
+		} else {
+			ui.QuotaNote = grokQuotaNote(in.Auth.GrokUsage, time.Now())
+		}
 		if in.Auth.Host != nil {
 			ui.APICalls = in.Auth.Host.APICalls
 			ui.Insecure = !in.Auth.Host.Secure

@@ -16,6 +16,7 @@ type QuotaRow struct {
 	Label          string // "5h", "weekly", "⚡ 5h", …
 	Used           int    // 0..100
 	ResetAfter     time.Duration
+	ResetUnknown   bool   // The reset time was not reported; shown in the reset column instead of a note line.
 	Lane           string // "normal" | "spark"  (informational)
 	Note           string // free-form trailing dim text
 	Projection     string // pre-rendered " ~100% in ~2d 5h, before reset" (red) when set
@@ -67,6 +68,8 @@ func formatQuotaLines(caps Caps, row QuotaRow, width int) []string {
 	resetTxt := ""
 	if row.ResetAfter > 0 {
 		resetTxt = "  reset " + ResetInText(row.ResetAfter)
+	} else if row.ResetUnknown {
+		resetTxt = "  " + caps.Palette.Dim + "reset unknown" + caps.Palette.Reset
 	}
 	barWidth := width - labelWidth - VisibleWidth(pct) - VisibleWidth(resetTxt) - 5
 	if barWidth > 42 {

@@ -1,5 +1,6 @@
 # 2026-10-19
 
+- **cdx, clx and cgx start boxes share one quota row (cxx 0.9.109).** cgx shows its subscription reading as the same bar-and-reset row as cdx and clx instead of a plain text line (plain output: `quota | weekly=9% | reset=2 days`). clx puts an unreported reset in the reset column (`reset unknown`) instead of on a second line under each bar, so the three boxes line up. Not published until the next `scripts/deploy.sh` run.
 - Hosts now show Online only with fresh connection evidence (45 seconds), with authenticated Last contact displayed separately. Admin edits and auth refreshes no longer imply liveness or postpone inactivity pruning.
 - Purge inactive server conversations and unused agent addresses after 24 hours, including peer, conference, remote/Advisor and Chatty history. Preserve explicit jobs and recovery targets, remove expired MCP/admin sessions and rebooted portal sessions, and retire attachments with retryable cleanup. Native transcript retention stays separate.
 
