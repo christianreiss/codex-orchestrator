@@ -3,6 +3,7 @@ package transfers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -125,7 +126,7 @@ func Command(args []string, selected string, stdout, stderr io.Writer) int {
 		result, err = client.Get(ctx, o.operand, o.output, o.resume, o.overwrite)
 	}
 	if err != nil {
-		fmt.Fprintln(stderr, "transfer:", err)
+		reportFailure(err, o.json, stdout, stderr)
 		return 1
 	}
 	if o.json {
@@ -137,4 +138,26 @@ func Command(args []string, selected string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "%s  %d bytes  SHA-256 %s  expires %s\n", result.ID, result.Size, result.SHA256, result.ExpiresAt)
 	}
 	return 0
+}
+
+// reportFailure prints the error, and for an upload whose journal exists also
+// the transfer ID with the resume and abandon steps. With --json the same
+// recovery facts go to stdout as one object; the exit status stays 1.
+func reportFailure(err error, asJSON bool, stdout, stderr io.Writer) {
+	fmt.Fprintln(stderr, "transfer:", err)
+	var put *PutError
+	if !errors.As(err, &put) {
+		return
+	}
+	fmt.Fprintln(stderr, "transfer:", put.Guidance())
+	if asJSON {
+		_ = json.NewEncoder(stdout).Encode(map[string]any{
+			"error":          err.Error(),
+			"id":             put.ID,
+			"outcome":        "unknown",
+			"journal":        put.Journal,
+			"resume_command": put.ResumeCommand(),
+			"abandon":        "delete transfer " + put.ID + " (MCP transfer_delete), then remove the journal",
+		})
+	}
 }

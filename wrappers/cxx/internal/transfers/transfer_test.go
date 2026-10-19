@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -275,5 +276,76 @@ func TestFleetHTTPAcceptance(t *testing.T) {
 		t.Logf("%d bytes round-trip in %s, %.1f MiB/s aggregate, client peak heap growth %.1f MiB", size, elapsed, float64(2*size)/(1<<20)/elapsed.Seconds(), float64(growth)/(1<<20))
 		os.Remove(path)
 		os.Remove(output)
+	}
+}
+
+// A disconnected communicator answers a sent request with a synthetic 409
+// (communicator.Transport). The server may already hold the transfer, so the
+// failure must name the journaled ID and recovery, a plain retry must not
+// allocate a second upload, and --resume must finish the same one.
+func TestCommunicatorOutcomeUnknownNamesTransferAndResumes(t *testing.T) {
+	c, data := fixture(t)
+	path := source(t)
+	real := c.HTTP.Transport
+	if real == nil {
+		real = http.DefaultTransport
+	}
+	posts := 0
+	c.HTTP.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+		create := r.Method == "POST" && r.URL.Path == "/host/transfers"
+		if create {
+			posts++
+		}
+		resp, err := real.RoundTrip(r)
+		if err == nil && create && posts == 1 {
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			return &http.Response{StatusCode: 409, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"error":{"code":"communicator_outcome_unknown","message":"Local communicator disconnected; request outcome unknown"}}`)), Request: r}, nil
+		}
+		return resp, err
+	})
+	journalPath := path + ".cxx-upload.json"
+	_, err := c.Put(context.Background(), path, 7200, false)
+	var put *PutError
+	if !errors.As(err, &put) || !strings.Contains(err.Error(), "outcome unknown") {
+		t.Fatalf("want PutError, got %v", err)
+	}
+	j, jerr := readJournal(journalPath)
+	if jerr != nil || put.ID != j.Upload.ID || put.Journal != journalPath {
+		t.Fatalf("error does not name the journaled transfer: %+v %v", put, jerr)
+	}
+	if !strings.Contains(put.Guidance(), put.ID) || !strings.Contains(put.ResumeCommand(), " --resume --engine codex") {
+		t.Fatalf("missing recovery guidance: %s", put.Guidance())
+	}
+	var stdout, stderr bytes.Buffer
+	reportFailure(err, true, &stdout, &stderr)
+	var out map[string]any
+	if e := json.Unmarshal(stdout.Bytes(), &out); e != nil || out["id"] != put.ID || out["outcome"] != "unknown" || out["resume_command"] != put.ResumeCommand() {
+		t.Fatalf("json recovery output %q: %v", stdout.String(), e)
+	}
+	if !strings.Contains(stderr.String(), "transfer_delete") {
+		t.Fatalf("stderr lacks abandon step: %s", stderr.String())
+	}
+	if _, err = c.Put(context.Background(), path, 7200, false); err == nil || errors.As(err, &put) || posts != 1 {
+		t.Fatalf("plain retry must be refused before any request: %v (posts %d)", err, posts)
+	}
+	tr, err := c.Put(context.Background(), path, 7200, true)
+	if err != nil || tr.ID != j.Upload.ID || posts != 2 {
+		t.Fatalf("resume: %v id %s posts %d", err, tr.ID, posts)
+	}
+	original, _ := os.ReadFile(path)
+	if !bytes.Equal(*data, original) {
+		t.Fatal("resumed upload differs")
+	}
+	if _, err = os.Stat(journalPath); !os.IsNotExist(err) {
+		t.Fatal("journal kept after success")
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	for in, want := range map[string]string{"/tmp/a.tar": "/tmp/a.tar", "/tmp/a b": "'/tmp/a b'", "it's": `'it'\''s'`} {
+		if got := shellQuote(in); got != want {
+			t.Fatalf("shellQuote(%q) = %s, want %s", in, got, want)
+		}
 	}
 }
