@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -79,6 +80,40 @@ func (c *Client) progress(done, total int64) {
 	}
 }
 
+// PutError reports an upload failure after its journal exists. The server may
+// already hold the transfer (a lost response, such as a disconnected local
+// communicator, leaves the outcome unknown), so the caller names the ID, the
+// journal and both ways out: --resume repeats the idempotent creation and
+// continues at the confirmed offset; abandoning needs the server copy deleted.
+type PutError struct {
+	ID, Journal, Path, Engine string
+	Err                       error
+}
+
+func (e *PutError) Error() string { return e.Err.Error() }
+func (e *PutError) Unwrap() error { return e.Err }
+
+// ResumeCommand is the exact command that continues this upload.
+func (e *PutError) ResumeCommand() string {
+	return "cxx transfer put " + shellQuote(e.Path) + " --resume --engine " + e.Engine
+}
+
+// Guidance is the human recovery text printed after the error.
+func (e *PutError) Guidance() string {
+	return fmt.Sprintf("transfer %s may already exist on the server; its outcome is not confirmed.\n"+
+		"  resume:  %s\n"+
+		"  abandon: delete transfer %s (MCP transfer_delete), then remove %s\n"+
+		"An abandoned upload otherwise expires with its TTL; a new plain put of this file is refused while the journal exists.",
+		e.ID, e.ResumeCommand(), e.ID, shellQuote(e.Journal))
+}
+
+func shellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+=:@,") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func (c *Client) Put(ctx context.Context, path string, ttl int64, resume bool) (Transfer, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
@@ -120,6 +155,17 @@ func (c *Client) Put(ctx context.Context, path string, ttl int64, resume bool) (
 	} else if err = writeJournal(statePath, j); err != nil {
 		return Transfer{}, err
 	}
+	result, err := c.upload(ctx, f, j, hash)
+	if err != nil {
+		return Transfer{}, &PutError{ID: j.Upload.ID, Journal: statePath, Path: absolute, Engine: c.Engine, Err: err}
+	}
+	if err = os.Remove(statePath); err != nil {
+		return Transfer{}, err
+	}
+	return result, nil
+}
+
+func (c *Client) upload(ctx context.Context, f *os.File, j journal, hash string) (Transfer, error) {
 	// Repeating creation is safe after a lost response; the UUID and full source
 	// fingerprint are persisted BEFORE the first request.
 	result, err := c.metadata(ctx, "POST", "", j.Upload)
@@ -159,9 +205,6 @@ func (c *Client) Put(ctx context.Context, path string, ttl int64, resume bool) (
 	}
 	if result.Transfer.ID != j.Upload.ID || result.Transfer.Size != j.Upload.Size || result.Transfer.SHA256 != hash || result.Transfer.Status != "live" {
 		return Transfer{}, fmt.Errorf("server returned an unverified transfer")
-	}
-	if err = os.Remove(statePath); err != nil {
-		return Transfer{}, err
 	}
 	return result.Transfer, nil
 }

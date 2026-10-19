@@ -34,6 +34,17 @@ The journal is removed on success. A changed source requires a fresh upload;
 remove the old journal after deciding to abandon it, and delete the old server
 transfer through `transfer_delete` or let its TTL expire.
 
+Any upload failure after the journal exists, including the communicator's
+`Local communicator disconnected; request outcome unknown` (HTTP 409), may leave
+an `uploading` server record. The error then names the transfer ID, the journal,
+the exact `cxx transfer put FILE --resume --engine ENGINE` command, and the
+abandon steps (`transfer_delete ID`, then remove the journal). With `--json`,
+stdout also receives one object `{error, id, outcome: "unknown", journal,
+resume_command, abandon}` and the exit status stays 1. A plain repeat of the same
+`put` is refused while the journal exists, so retries cannot allocate a second
+upload; an abandoned record keeps its quota reservation until deleted or until
+its TTL expires.
+
 Downloads use `<output>.cxx-part` and an adjacent `.json` journal. Resume uses
 HTTP Range and verifies the complete SHA-256, including the existing prefix.
 Only a verified file is published at the chosen path. The default publication
