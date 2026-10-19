@@ -8,6 +8,7 @@
   - Agent sessions that outlived an API outage are no longer ended as abandoned on the first sweep after start (150 s grace); `agent_session_finished` now names the resume route and carries `ended_reason`/`recovery`.
   - Agent message metadata exposes `sender_session_id`, the lifecycle that wrote the message.
   - Added a reviewed `#gime` copy under `docs/skills/` that merges locally and pushes only on an explicit operator request. It is not yet published to the skill store.
+  - Admin Reports: each report now shows how long ago it was created, in the inbox lists and the detail view, with the exact UTC timestamp on hover. The global inbox no longer shows raw markup in its meta line.
   - Added the binding web design standard `DESIGN.md` to main (it was referenced by the design docs but missing).
 
 - **Git merges loads fast again and Settings is its own tab.** The registry listing used to run four queries per clone one after another; with several hundred (mostly dormant) clones the page sat on loading rows. It now reads the same data in four set-based queries (about 6x faster on a local 400-clone benchmark, more over a real network). The commit-message preferences moved from below the table to a fourth tab, **Settings**, in the layout of Shared files, and the counts strip appears only once data has loaded instead of showing zeros.
