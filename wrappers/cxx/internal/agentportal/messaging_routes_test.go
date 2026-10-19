@@ -50,6 +50,7 @@ func TestBrokerAllowsEveryAgentbusMessagingOperation(t *testing.T) {
 		"insecure-enable", "spawn", "spawn-status", "stop",
 		"groups/list", "groups/create", "groups/detail", "groups/delete",
 		"subscribe", "unsubscribe", "subscriptions", "publish",
+		"roles/activate", "roles/current", "roles/release", "roles/propose", "roles/proposals", "roles/review",
 		"deliveries/claim",
 		"deliveries/0b5c6a3e-8f1d-4c2a-9e7b-3d4f5a6b7c8d/renew",
 		"deliveries/0b5c6a3e-8f1d-4c2a-9e7b-3d4f5a6b7c8d/ack",

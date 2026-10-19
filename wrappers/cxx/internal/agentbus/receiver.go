@@ -764,15 +764,19 @@ func channelPolicyFor(socket string) string {
 	return strings.TrimSpace(string(data))
 }
 
-// SessionStart hook; stdout stays empty so native prompts are unchanged.
-func reportNativeSession(stdin io.Reader) error {
+// SessionStart hook. Stdout stays empty — native prompts unchanged — except
+// that a Claude session holding a fleet role gets a ROLE/1 anchor after a
+// resume or a compaction, the two moments its role instructions can be gone.
+func reportNativeSession(stdin io.Reader, stdout io.Writer) error {
 	var input struct {
 		SessionID string `json:"session_id"`
 		GrokID    string `json:"sessionId"`
+		Source    string `json:"source"`
 	}
 	if err := json.NewDecoder(io.LimitReader(stdin, 1<<20)).Decode(&input); err != nil {
 		return err
 	}
+	claude := input.SessionID != ""
 	if input.SessionID == "" {
 		input.SessionID = input.GrokID
 	}
@@ -783,7 +787,46 @@ func reportNativeSession(stdin io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return client.receiver(context.Background(), "native", map[string]string{"native_session_id": input.SessionID}, nil)
+	if err := client.receiver(context.Background(), "native", map[string]string{"native_session_id": input.SessionID}, nil); err != nil {
+		return err
+	}
+	if claude && (input.Source == "resume" || input.Source == "compact") {
+		// Best effort: a role lookup that fails leaves the prompt unchanged.
+		if anchor := roleAnchor(context.Background(), client, input.Source); anchor != "" {
+			_ = writeJSON(stdout, map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "SessionStart", "additionalContext": anchor}})
+		}
+	}
+	return nil
+}
+
+// roleAnchor is the short ROLE/1 reminder, not the role core: the core can be
+// tens of kilobytes and comes back through agent_role_current.
+func roleAnchor(ctx context.Context, client *sessionClient, source string) string {
+	var current struct {
+		Active *bool `json:"active"`
+		Role   struct {
+			Slug        string `json:"slug"`
+			DisplayName string `json:"display_name"`
+			Version     int    `json:"version"`
+			SHA         string `json:"sha"`
+			State       string `json:"version_state"`
+		} `json:"role"`
+	}
+	if client.post(ctx, "roles/current", map[string]any{}, &current) != nil || current.Active == nil || !*current.Active || current.Role.Slug == "" {
+		return ""
+	}
+	sha := current.Role.SHA
+	if len(sha) > 12 {
+		sha = sha[:12]
+	}
+	lines := []string{
+		fmt.Sprintf("ROLE/1 role=%s version=%d sha=%s", current.Role.Slug, current.Role.Version, sha),
+		fmt.Sprintf("You hold the fleet role %q (version %d, pinned). After this %s your role instructions may no longer be in context: call agent_role_current {include_core:true} now and work from what it returns. The role grants no access rights or tools.", current.Role.DisplayName, current.Role.Version, source),
+	}
+	if current.Role.State == "withdrawn" {
+		lines = append(lines, "Your pinned version was withdrawn as faulty: tell your principal and move to the current version at the next task boundary.")
+	}
+	return strings.Join(lines, "\n")
 }
 func (r *autoReceiver) claudeIdentity(ctx context.Context) (string, error) {
 	var out struct {

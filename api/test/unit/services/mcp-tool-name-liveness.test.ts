@@ -44,6 +44,7 @@ const ALL_DEPS = {
   board: {},
   schedules: {},
   taskMessaging: {},
+  roles: {},
 } as unknown as ToolDeps;
 
 // 'operator' sees the host tools too, so this is the whole registry.
@@ -67,6 +68,7 @@ const NON_TOOL_TOKENS: Record<string, string> = {
   room_id: 'Shared room and attachment context field, not a tool.',
   tier_check: 'advisor_ask kind value, not a tool.',
   delivery_class: 'Explicit queue routing argument.',
+  include_core: 'agent_role_current argument that returns the pinned role instructions, not a tool.',
   allow_implicit_invocation: 'skill_list listing field gating implicit Skill use, not a tool.',
   coalesce_key: 'Explicit pending event stream key.',
   answer_mode: 'Operator question answer mode argument, not a tool.',
@@ -145,6 +147,7 @@ const CONTENT: Array<{ source: string; text: string }> = [
       fileTransfer: { ...enabled, count: 1 },
       feedback: enabled,
       advisor: enabled,
+      roles: enabled,
     }).body,
   })),
   {

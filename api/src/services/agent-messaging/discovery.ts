@@ -9,6 +9,8 @@ export interface AgentDiscoveryFilters {
   hostId?: number;
   includeOffline?: boolean;
   name?: string;
+  /** Only addresses currently holding this role slug. */
+  role?: string;
   limit?: number;
   offset?: number;
 }

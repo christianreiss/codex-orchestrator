@@ -23,6 +23,7 @@ import { GitDirectorService, GIT_DIRECTOR_ENABLED_FLAG } from './git-director.js
 import { DEFAULT_GIT_COMMIT_SETTINGS, readGitCommitSettings } from './git-commit-settings.js';
 import { AgentTransfersService, TRANSFERS_ENABLED_FLAG } from './agent-transfers.js';
 import { FEEDBACK_ENABLED_KEY } from './feedback-contract.js';
+import { ROLES_ENABLED_KEY, ROLES_MIN_CXX_VERSION } from './roles/contract.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from './api-keys-in-chat.js';
 import { buildModelTierTable, MODEL_TIER_CHECK_ENABLED_KEY, type ConfiguredModel } from './model-tiers.js';
@@ -30,7 +31,7 @@ import { buildModelPolicy, readModelPolicy } from './model-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
 import { activeHostEngines } from './host-engine-policy.js';
 import { daemonExecutionEnabled } from './host-daemon/policy.js';
-import { hostRunningWrapperVersion } from './wrapper-rollout.js';
+import { compareWrapperVersions, highestVersion, hostRunningWrapperVersion } from './wrapper-rollout.js';
 import { DEFAULT_CODEX_MODEL } from './codex-model-upgrades.js';
 import { GROK_DEFAULT_MODEL } from './grok-models.js';
 import { normalizeClaudeModel, normalizeStoredModel } from './config-normalizer.js';
@@ -591,6 +592,10 @@ export class HostAgentsService {
       advisor: !agentMessaging.enabled
         ? state(false, agentMessaging.reason)
         : await this.advisorState(host).catch(() => state(false, 'service_unavailable')),
+      roles: !agentMessaging.enabled ? state(false, agentMessaging.reason)
+        : !mcp.enabled ? state(false, mcp.reason)
+        : !(await this.settings.getFlag(ROLES_ENABLED_KEY, false).catch(() => false)) ? state(false, 'roles_disabled')
+        : rolesCxxSupported(hostRunningWrapperVersion(host)) ? state(true, 'ok') : state(false, 'roles_wrapper_outdated'),
       feedback: feedbackEnabled === null ? state(false, 'service_unavailable')
         : !mcp.enabled ? state(false, mcp.reason)
         : !feedbackEnabled ? state(false, 'feedback_disabled')
@@ -689,4 +694,10 @@ function configuredModel(host: Host, engine: Engine, settings: Record<string, un
     return { engine, model: typeof pick === 'string' ? pick.trim() : GROK_DEFAULT_MODEL };
   }
   return { engine, model: normalizeStoredModel(host.modelOverride ?? null) ?? normalizeStoredModel(fleet) ?? DEFAULT_CODEX_MODEL };
+}
+
+/** Hosts below the first cxx that serves `agent_role_*` get no Roles guidance. */
+function rolesCxxSupported(version: string | null | undefined): boolean {
+  const known = highestVersion([version]);
+  return known !== null && compareWrapperVersions(known, ROLES_MIN_CXX_VERSION) >= 0;
 }

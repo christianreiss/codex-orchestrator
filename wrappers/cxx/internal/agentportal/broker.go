@@ -350,6 +350,7 @@ func (b *Broker) allowedPath(path string) bool {
 		"list", "self", "translate", "send", "reply", "wait", "message", "digest", "cancel", "bind", "mailbox", "deliveries/claim",
 		"chats/list", "chats/read", "chats/send",
 		"context/get", "context/update", "rooms/list", "rooms/read", "rooms/send", "claims/acquire", "claims/status", "claims/release",
+		"roles/activate", "roles/current", "roles/release", "roles/propose", "roles/proposals", "roles/review",
 		"groups/list", "groups/create", "groups/detail", "groups/delete", "subscribe", "unsubscribe", "subscriptions", "publish",
 		"conf/open", "conf/list", "conf/invite", "conf/join", "conf/roster", "conf/say", "conf/dispatch", "conf/adjourn",
 	} {

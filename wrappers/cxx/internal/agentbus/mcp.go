@@ -545,6 +545,7 @@ func toolCatalogJSON() []byte {
 	}
 	tools = append(tools, chatTools()...)
 	tools = append(tools, coordinationTools()...)
+	tools = append(tools, roleTools()...)
 	raw, _ := json.Marshal(tools)
 	return raw
 }
@@ -910,6 +911,8 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		return callChatTool(ctx, client, name, args)
 	case "agent_chat_list", "agent_chat_read", "agent_chat_send", "agent_context_get", "agent_context_update", "agent_room_list", "agent_room_read", "agent_room_send", "resource_claim_acquire", "resource_claim_status", "resource_claim_release":
 		return callCoordinationTool(ctx, client, name, args)
+	case "agent_role_activate", "agent_role_current", "agent_role_release", "agent_role_propose", "agent_role_proposals", "agent_role_review":
+		return callRoleTool(ctx, client, name, args)
 	case "agent_self":
 		err := client.post(ctx, "self", map[string]any{}, &out)
 		return out, err

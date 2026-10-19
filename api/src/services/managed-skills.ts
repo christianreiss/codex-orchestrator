@@ -12,6 +12,7 @@
  * deleted, so an existing deployment needs no migration) and are rejected by the
  * admin store/delete paths.
  */
+import { getManagedRolesSkillIfEnabled, isManagedRolesSlug } from './managed-roles-skill.js';
 import { buildManagedWatchdogSkill, isManagedWatchdogSlug } from './managed-watchdog-skill.js';
 import { buildManagedWakeCronSkill, isManagedWakeCronSlug } from './managed-wake-cron-skill.js';
 import type { Database } from '../db/client.js';
@@ -41,6 +42,7 @@ export function isManagedSkillSlug(slug: string): boolean {
     || isManagedAfkSlug(slug)
     || isManagedConferenceSlug(slug)
     || isManagedSkillManagerSlug(slug)
+    || isManagedRolesSlug(slug)
   );
 }
 
@@ -66,6 +68,8 @@ export async function listManagedSkills(db: Database): Promise<ManagedSkillManif
   out.push(buildManagedAfkSkill(MANAGED_UPDATED_AT));
   out.push(buildManagedConferenceSkill(MANAGED_UPDATED_AT));
   out.push(buildManagedSkillManager(MANAGED_UPDATED_AT));
+  const roles = await getManagedRolesSkillIfEnabled(db, MANAGED_UPDATED_AT);
+  if (roles) out.push(roles);
   out.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
   return out;
 }

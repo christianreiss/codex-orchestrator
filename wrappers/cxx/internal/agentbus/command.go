@@ -46,7 +46,7 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 	case "watchdog-event":
 		err = reportWatchdogEvent(stdin)
 	case "native-session":
-		err = reportNativeSession(stdin)
+		err = reportNativeSession(stdin, stdout)
 	case "doctor":
 		err = runReceiverDoctor(stdout)
 	case "status":

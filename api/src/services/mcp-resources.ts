@@ -10,6 +10,7 @@
  *   - `skill://<slug>`                          — skill manifest
  *   - `skill://<slug>/<path>`                   — bundled skill support file
  */
+import type { RolesService } from './roles.js';
 import type { Host } from '../db/schema.js';
 import type { McpMemoriesService } from './mcp-memories.js';
 import type { SharedMemoriesService } from './shared-memories.js';
@@ -23,6 +24,8 @@ export interface ResourceDeps {
   sharedMemories?: SharedMemoriesService;
   projects: HostProjectsService;
   skills: HostSkillsService;
+  /** Agent roles; `role://` is served only when present and the module is on. */
+  roles?: RolesService;
 }
 
 export interface ResourceDescriptor {
@@ -37,6 +40,8 @@ export interface ResourceContent {
   name?: string;
   mimeType?: string;
   text?: string;
+  /** Base64 bytes for a binary resource, per the MCP resource contents shape. */
+  blob?: string;
   json?: unknown;
 }
 
@@ -214,6 +219,13 @@ export class McpResourcesService {
         mimeType: 'text/plain',
       },
     ];
+    if (this.deps.roles) {
+      templates.push(
+        { uriTemplate: 'role://{slug}', name: 'role', description: 'Agent role: current published manifest plus file index (JSON). A read is not an activation.', mimeType: 'application/json' },
+        { uriTemplate: 'role://{slug}@{version}', name: 'role_version', description: 'One published version of an agent role (JSON)', mimeType: 'application/json' },
+        { uriTemplate: 'role://{slug}@{version}/{path}', name: 'role_file', description: 'One file of a role version: text, or a base64 blob for binary material', mimeType: 'text/plain' },
+      );
+    }
     if (this.deps.sharedMemories) {
       templates.push({
         uriTemplate: 'shared://{slug}',
@@ -333,6 +345,7 @@ export class McpResourcesService {
   }
 
   async read(uri: string, host: Host, engine: Engine = ENGINE_CODEX): Promise<ResourceReadResponse> {
+    if (uri.startsWith('role://') && this.deps.roles) return await this.deps.roles.readResource(uri);
     const parsed = parseUri(uri);
     const { scheme, id } = parsed;
     if (scheme === 'memory') {

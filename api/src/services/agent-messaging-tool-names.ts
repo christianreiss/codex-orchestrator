@@ -76,6 +76,12 @@ export const AGENT_MESSAGING_TOOLS = [
   'agent_unsubscribe',
   'agent_subscriptions',
   'agent_publish',
+  'agent_role_activate',
+  'agent_role_current',
+  'agent_role_release',
+  'agent_role_propose',
+  'agent_role_proposals',
+  'agent_role_review',
 ] as const;
 
 /**

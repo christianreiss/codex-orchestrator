@@ -58,6 +58,8 @@ export interface ManagedAgentFeatureContext {
   fileTransfer: ManagedFeatureState;
   /** Fleet Advisor; requires Agent Messaging because its tools are served by `cxx-agent`. */
   advisor?: ManagedFeatureState;
+  /** Agent roles; needs the clx MCP (catalog) and Agent Messaging (`agent_role_*` on `cxx-agent`). */
+  roles?: ManagedFeatureState;
   gitCommitSettings?: GitCommitSettings;
   /** Recommendable models of the host's active engines, grouped by tier. */
   modelTiers?: ManagedFeatureState & { table: ModelTierRow[]; configured: ConfiguredModel };
@@ -95,6 +97,7 @@ export interface ManagedAgentFeatureSections {
   git_commit_messages: ManagedAgentFeatureSection;
   model_tiers?: ManagedAgentFeatureSection;
   advisor?: ManagedAgentFeatureSection;
+  roles?: ManagedAgentFeatureSection;
 }
 
 export interface RenderManagedAgentFeaturesResult {
@@ -142,6 +145,7 @@ const FEATURE_SECTION_LABELS: Partial<Record<keyof ManagedAgentFeatureSections, 
   file_transfer: 'File Transfer (fleet setting)',
   feedback: 'Orchestrator Feedback (fleet setting)',
   model_tiers: 'Model Class Check (fleet setting)',
+  roles: 'Agent Roles (fleet setting)',
   // Also one console switch for every host. Unlike its neighbours this one is
   // not an MCP surface: it reaches the wrapper through the signed host config,
   // so a host that has not refreshed its config yet still sees the old value.
@@ -736,6 +740,19 @@ stable UUID client_message_id, optional engine/model, cxx transfer ids) returns 
 your checkout. The answer arrives as an ADVISOR/1 peer message ending in a JSON verdict. Follow up with
 \`advisor_ask\` plus that id. When done, call \`advisor_close\`; idle advisors close after 60 minutes.
 `) : null;
+  const rolesState = context.roles ?? { enabled: false, reason: 'roles_disabled' };
+  const roles = rolesState.enabled && context.agentMessaging.enabled ? present(rolesState, `## Agent Roles
+
+A role is a specialist responsibility (design, for example) packaged as a versioned role prompt; it
+never grants a permission. Take one only on an explicit assignment such as "you are the design agent":
+follow the \`roles\` Skill, then \`role_list\` and \`agent_role_activate\`; a catalog entry is not an
+activation. After a resume or compaction, if \`agent_self\` reports a \`role\` whose instructions are
+not in your context, call \`agent_role_current\` with \`include_core: true\` before continuing. Your
+version stays pinned; \`ROLE-UPDATE/1\` never changes it on its own, and only your principal ends or
+switches the role (\`agent_role_release\`). Find a holder with \`agent_list\` \`role\` and request reviews
+with \`REVIEW/1\`. Holders improve a role with \`agent_role_propose\`, read proposals with
+\`agent_role_proposals\` and answer \`ROLE-REVIEW/1\` with \`agent_role_review\`, as the Skill describes.
+`) : null;
   const modelTiersState: ManagedFeatureState = context.modelTiers?.enabled && context.modelTiers.table.length === 0
     ? { enabled: false, reason: 'no_models' }
     : context.modelTiers ?? { enabled: false, reason: 'disabled' };
@@ -785,6 +802,7 @@ your checkout. The answer arrives as an ADVISOR/1 peer message ending in a JSON 
     git_commit_messages: gitCommitMessages.metadata,
     model_tiers: modelTiers?.metadata ?? absent(modelTiersState),
     advisor: advisor?.metadata ?? absent(context.agentMessaging.enabled ? advisorState : context.agentMessaging),
+    roles: roles?.metadata ?? absent(context.agentMessaging.enabled ? rolesState : context.agentMessaging),
   };
 
   // Appended last on purpose: provider order is part of `managed_sha256`, so
@@ -805,6 +823,7 @@ your checkout. The answer arrives as an ADVISOR/1 peer message ending in a JSON 
     { key: 'feedback', section: feedback },
     { key: 'model_tiers', section: modelTiers },
     ...(advisor ? [{ key: 'advisor' as const, section: advisor }] : []),
+    ...(roles ? [{ key: 'roles' as const, section: roles }] : []),
   ];
   const presentFeatures = orderedFeatures.filter(
     (entry): entry is { key: keyof ManagedAgentFeatureSections; section: RenderedSection } =>

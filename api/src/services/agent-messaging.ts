@@ -1,4 +1,5 @@
 import { ApiError } from '../http/errors.js';
+import { activeRolesForAddresses, roleLabelsForAddress } from './roles/assignments.js';
 import { newQueuedMessage } from './agent-messaging/views.js';
 import { queuePolicy, assertQueuePolicyReplay, validateRelatedWork, smartQueueAllowed, prepareSmartDigest, restoreUnpresentedDigests, presentDigest, coalescePendingRepeats, type QueuePolicy } from './agent-messaging/smart-queue.js';
 import { expireRebootHandoffs } from './reboot-handoffs.js';
@@ -418,6 +419,7 @@ export class AgentMessagingService {
   createAdminGroup(input: {slug: string; title: string; description?: string | null}) { return this.groups.createAdmin(input); }
   listAdminSubscriptions() { return this.groups.subscriptionsAdmin(); }
   publishAdmin(input: {topic: string; content: string; clientMessageId: string; ttlSeconds?: number | null}) { return this.groups.publishAdmin(input); }
+  noticeAddresses(addressIds: string[], content: string) { return this.groups.noticeAddresses(addressIds, content); }
   listGroups(sessionId: string, token: string) { return this.groups.listForAgent(sessionId, token); }
   createGroup(sessionId: string, token: string, input: {slug: string; title: string; description?: string | null}) { return this.groups.createForAgent(sessionId, token, input); }
   groupMembers(sessionId: string, token: string, slug: string) { return this.groups.detailForAgent(sessionId, token, slug); }
@@ -1345,7 +1347,9 @@ export class AgentMessagingService {
       const taskTitle = naming?.native_session_id === session.upstreamSessionId && typeof naming?.name === 'string' ? naming.name : null;
       return { identity_version: 1, name: session.launchName, uuid: address.id, address: `agent:${address.id}`,
         session_id: session.id, native_session_id: session.upstreamSessionId, engine: session.engine,
-        binding_generation: session.bindingGeneration, previous_names: [...new Set(leases.map(row => row.name))], task_title: taskTitle };
+        binding_generation: session.bindingGeneration, previous_names: [...new Set(leases.map(row => row.name))], task_title: taskTitle,
+        role: (await activeRolesForAddresses(tx, [address.id])).get(address.id) ?? null,
+        role_labels: await roleLabelsForAddress(tx, address.id) };
     });
   }
 

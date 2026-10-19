@@ -45,6 +45,7 @@ import { createAuthTrafficVerifier } from '../../services/auth-traffic-verificat
 import { SettingsService } from '../../services/settings.js';
 import { FeedbackService } from '../../services/feedback.js';
 import { ProjectBoardService } from '../../services/project-board.js';
+import { RolesService } from '../../services/roles.js';
 import { ENGINE_CLAUDE } from '../../util/engine.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 import { readFleetEngineState } from '../../services/engine-switch.js';
@@ -120,7 +121,10 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     dataRoot: ctx.env.DATA_ROOT ?? '/app/storage',
   });
 
-  const resources = new McpResourcesService({ memories, sharedMemories, projects, skills });
+  // Catalog and content only: activation needs the agent's session and rides
+  // the agent-messaging bridge, so this instance carries no session hooks.
+  const roles = new RolesService({ db: ctx.db, settings: new SettingsService(ctx.db) });
+  const resources = new McpResourcesService({ memories, sharedMemories, projects, skills, roles });
   const tools = new McpToolsRegistry({
     feedback: new FeedbackService(ctx.db, ctx.keyring),
     hostSpawn: new HostSpawnService(ctx),
@@ -136,6 +140,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     gitDirector,
     board,
     transfers,
+    roles,
   });
   const server = new McpServer(tools, resources, accessLog);
 

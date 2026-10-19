@@ -6,6 +6,7 @@ import { markWaitingForPresence, discardPresenceNotices } from './presence-feedb
 import { pageAgentAddresses, type AgentDiscoveryFilters } from './discovery.js';
 import { normalizeWorkspace, readWorkspace, workspaceCoverage, workspaceMatch } from './workspace.js';
 import { sessionTaskTitles } from './task-titles.js';
+import { activeRolesForAddresses, addressesHoldingRole, endAssignmentOnContinuityReset } from '../roles/assignments.js';
 import type { Keyring } from '../../security/keyring.js';
 import { assignLaunchNameLocked, endLaunchNamesLocked } from './names.js';
 import { receiverView, receiverState } from '../agent-receiver-state.js';
@@ -21,7 +22,7 @@ import { finishSessionWatchdogsLocked, type WatchdogFailure } from '../watchdog-
 
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, isNull, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 
 import type { Database } from '../../db/client.js';
 import {
@@ -292,6 +293,8 @@ export class SessionRegistry {
             updatedAt: now,
           })
           .where(eq(agentBusAddresses.id, address.id));
+        // A new lifecycle without the transcript that was told its role ends that role.
+        if (address.currentSessionId !== sessionId && nextContinuity === 'reset') await endAssignmentOnContinuityReset(tx, address.id);
         address = {
           ...address,
           currentSessionId: sessionId,
@@ -498,6 +501,10 @@ export class SessionRegistry {
     ];
     if (filters.engine) predicates.push(eq(agentBusAddresses.engine, filters.engine));
     if (filters.hostId) predicates.push(eq(agentBusAddresses.hostId, filters.hostId));
+    if (filters.role) {
+      const holders = await addressesHoldingRole(this.core.db, filters.role);
+      predicates.push(holders.length ? inArray(agentBusAddresses.id, holders) : sql`false`);
+    }
     const rows = await this.core.db.transaction(async (tx) => {
       await this.core.requireEnabledLocked(tx);
       const current = await this.core.requireAddressLocked(tx, currentAddressId);
@@ -552,6 +559,7 @@ export class SessionRegistry {
       );
     const page = pageAgentAddresses(ranked, filters);
     const titles = await sessionTaskTitles(this.core.db, this.core.keyring, page.addresses.flatMap((row) => row.session ? [row.session] : []));
+    const roles = await activeRolesForAddresses(this.core.db, page.addresses.map((row) => row.address.id));
     const coverage = workspaceCoverage(authenticated.session, eligible.map((row) => ({
       hostId: row.address.hostId, cwd: row.session?.cwd ?? row.address.cwd, workspace: row.session?.workspace,
     })), scope);
@@ -564,6 +572,7 @@ export class SessionRegistry {
         ...publicAddress(row.address, row.fqdn, row.presence), receiver: row.receiver,
         cwd: readWorkspace(row.session?.workspace)?.cwd ?? row.session?.cwd ?? row.address.cwd,
         task_title: row.session ? titles.get(row.session.id) ?? null : null,
+        role: roles.get(row.address.id) ?? null,
         match_reason: row.match,
       })),
     };

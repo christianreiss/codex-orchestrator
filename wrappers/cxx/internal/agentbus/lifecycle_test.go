@@ -39,8 +39,70 @@ func TestNativeSessionHookDecodesBothEngineSpellings(t *testing.T) {
 			go func() { _ = server.Serve(listener) }()
 			t.Setenv(envSocket, socket)
 			t.Setenv(envSessionID, "session")
-			if err := reportNativeSession(strings.NewReader(payload)); err != nil {
+			var out strings.Builder
+			if err := reportNativeSession(strings.NewReader(payload), &out); err != nil {
 				t.Fatal(err)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("a plain start must leave the native prompt unchanged: %q", out.String())
+			}
+		})
+	}
+}
+
+func TestNativeSessionHookAnchorsAnActiveRoleAfterCompaction(t *testing.T) {
+	for _, tc := range []struct {
+		payload string
+		role    string
+		want    bool
+	}{
+		{`{"session_id":"native-session","source":"compact"}`, `{"active":true,"role":{"slug":"design","display_name":"Design-Agent","version":3,"sha":"0123456789abcdef","version_state":"published"}}`, true},
+		{`{"session_id":"native-session","source":"resume"}`, `{"active":true,"role":{"slug":"design","display_name":"Design-Agent","version":3,"sha":"0123456789abcdef","version_state":"withdrawn"}}`, true},
+		{`{"session_id":"native-session","source":"startup"}`, `{"active":true,"role":{"slug":"design","version":3}}`, false},
+		{`{"session_id":"native-session","source":"compact"}`, `{"active":null}`, false},
+		{`{"sessionId":"native-session","source":"compact"}`, `{"active":true,"role":{"slug":"design","version":3}}`, false},
+	} {
+		t.Run(tc.payload+tc.role, func(t *testing.T) {
+			socket := filepath.Join(t.TempDir(), "broker.sock")
+			listener, err := net.Listen("unix", socket)
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if strings.HasSuffix(req.URL.Path, "/agent-messaging/roles/current") {
+					_, _ = io.WriteString(w, tc.role)
+					return
+				}
+				_, _ = io.WriteString(w, `{}`)
+			})}
+			t.Cleanup(func() { _ = server.Close() })
+			go func() { _ = server.Serve(listener) }()
+			t.Setenv(envSocket, socket)
+			t.Setenv(envSessionID, "session")
+			var out strings.Builder
+			if err := reportNativeSession(strings.NewReader(tc.payload), &out); err != nil {
+				t.Fatal(err)
+			}
+			if !tc.want {
+				if out.Len() != 0 {
+					t.Fatalf("unexpected anchor: %q", out.String())
+				}
+				return
+			}
+			var hook struct {
+				Output struct {
+					Event   string `json:"hookEventName"`
+					Context string `json:"additionalContext"`
+				} `json:"hookSpecificOutput"`
+			}
+			if err := json.Unmarshal([]byte(out.String()), &hook); err != nil {
+				t.Fatal(err)
+			}
+			if hook.Output.Event != "SessionStart" || !strings.HasPrefix(hook.Output.Context, "ROLE/1 role=design version=3 sha=0123456789ab\n") || !strings.Contains(hook.Output.Context, "agent_role_current {include_core:true}") {
+				t.Fatalf("unexpected anchor: %+v", hook.Output)
+			}
+			if strings.Contains(tc.role, "withdrawn") != strings.Contains(hook.Output.Context, "withdrawn") {
+				t.Fatalf("withdrawn state not carried: %q", hook.Output.Context)
 			}
 		})
 	}

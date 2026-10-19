@@ -2779,6 +2779,32 @@ agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduce
 The feature starts disabled and never grants permission for the reserved action.
 
 
+### Agent role endpoints
+
+Contract: [agent-roles.md](agent-roles.md). Module switch `roles_enabled` (default off). Admin reads need `content.read`, writes `content.manage`; every write is audited as `agent_roles.*`.
+
+- `GET /admin/roles/state` — module switch `{enabled}`.
+- `POST /admin/roles/state` — set `{enabled:boolean}`; the `roles` Skill and the Agent Roles guidance follow on sync.
+- `GET /admin/roles` — roles with current version, policy, holder and open-proposal counts.
+- `POST /admin/roles` — create `{slug, display_name, summary, policy?}`; `state` and `proposals` are reserved slugs.
+- `GET /admin/roles/:slug` — role, published versions, draft and active holders.
+- `PATCH /admin/roles/:slug` — `display_name`, `summary`, `status`, `policy` with `expected_version`.
+- `GET /admin/roles/:slug/timeline` — versions and proposals with gates, judge and reviews.
+- `GET /admin/roles/:slug/versions/:version` — one version's manifest and text files.
+- `PUT /admin/roles/:slug/draft` — save the operator draft `{manifest, files, changelog?}`.
+- `DELETE /admin/roles/:slug/draft` — discard the draft.
+- `POST /admin/roles/:slug/publish` — publish the draft as the next immutable version; holders get `ROLE-UPDATE/1`.
+- `POST /admin/roles/:slug/revert` — `{version, reason}` publishes a new version carrying an earlier one.
+- `POST /admin/roles/:slug/versions/:version/withdraw` — `{reason}` blocks new activations of a faulty version.
+- `GET /admin/roles/proposals/:id` — proposal with current and proposed bodies and its event trail.
+- `POST /admin/roles/proposals/:id/decide` — `{verdict: accept|reject, reason, expected_version}`; reject on an applied proposal vetoes it by reverting.
+- `POST /host/agent-sessions/:id/agent-messaging/roles/activate` — `agent_role_activate`; see [agent-roles.md](agent-roles.md).
+- `POST /host/agent-sessions/:id/agent-messaging/roles/current` — `agent_role_current`.
+- `POST /host/agent-sessions/:id/agent-messaging/roles/release` — `agent_role_release`.
+- `POST /host/agent-sessions/:id/agent-messaging/roles/propose` — `agent_role_propose`.
+- `POST /host/agent-sessions/:id/agent-messaging/roles/proposals` — `agent_role_proposals`.
+- `POST /host/agent-sessions/:id/agent-messaging/roles/review` — `agent_role_review`.
+
 ### Scope coordination endpoints
 
 - `POST /host/agent-sessions/:id/agent-messaging/context/get` — see [coordination contract](agent-coordination.md).

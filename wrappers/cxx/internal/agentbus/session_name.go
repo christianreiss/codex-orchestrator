@@ -170,12 +170,28 @@ type ownIdentity struct {
 	Engine        string   `json:"engine"`
 	PreviousNames []string `json:"previous_names"`
 	TaskTitle     string   `json:"task_title"`
+	Role          *struct {
+		Label string `json:"label"`
+	} `json:"role"`
+	// Every role label this address has carried, so a switch or release can
+	// strip the old "(Label)" from the title.
+	RoleLabels []string `json:"role_labels"`
 }
 
+// bareSessionTitle strips the "(Name)" and "(Label)" prefixes this fleet adds,
+// in any order and however often a past writer stacked them.
 func bareSessionTitle(title string, identity ownIdentity) string {
+	prefixes := append([]string{identity.Name}, identity.PreviousNames...)
+	prefixes = append(prefixes, identity.RoleLabels...)
+	if identity.Role != nil && identity.Role.Label != "" {
+		prefixes = append(prefixes, identity.Role.Label)
+	}
 	for {
 		previous := title
-		for _, name := range append([]string{identity.Name}, identity.PreviousNames...) {
+		for _, name := range prefixes {
+			if name == "" {
+				continue
+			}
 			prefix := "(" + name + ")"
 			if title == prefix || strings.HasPrefix(title, prefix+" ") {
 				title = strings.TrimSpace(strings.TrimPrefix(title, prefix))
@@ -186,6 +202,14 @@ func bareSessionTitle(title string, identity ownIdentity) string {
 			return title
 		}
 	}
+}
+
+// roleTitle puts the active role's label in front of a bare task title.
+func roleTitle(task string, identity ownIdentity) string {
+	if identity.Role == nil || identity.Role.Label == "" {
+		return task
+	}
+	return strings.TrimSpace("(" + identity.Role.Label + ") " + task)
 }
 
 func (r *sessionNameReporter) report(ctx context.Context, client *sessionClient, engine, nativeID string, writers ...nativeSessionTitleWriter) {
@@ -207,6 +231,9 @@ func (r *sessionNameReporter) report(ctx context.Context, client *sessionClient,
 			if task == "" {
 				task = bareSessionTitle(identity.TaskTitle, identity)
 			}
+			// A role shows as "(Name) (Label) task" natively, and the server
+			// title carries "(Label) task" so dashboards render the same.
+			task = roleTitle(task, identity)
 			named := "(" + identity.Name + ")"
 			if task != "" {
 				named += " " + task

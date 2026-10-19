@@ -934,7 +934,7 @@ describe('managed Agent Messaging guidance', () => {
     // The permission allowlist and this prose read the same array, so a rename
     // cannot leave an agent approved for a tool the document never mentions.
     // The advisor_* tools are named by their own opt-in block.
-    const body = renderManagedAgentFeatures('# Base\n', context(ENGINE_CODEX, { agentMessaging: enabled(), advisor: enabled() })).body;
+    const body = renderManagedAgentFeatures('# Base\n', context(ENGINE_CODEX, { agentMessaging: enabled(), advisor: enabled(), roles: enabled() })).body;
     for (const tool of AGENT_MESSAGING_TOOLS) {
       expect(body, tool).toContain(tool);
     }

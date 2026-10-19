@@ -285,7 +285,22 @@
       "POST /admin/feedback/:id/claim",
       "GET /admin/wrapper/rollout",
       "POST /admin/wrapper/rollout/:action",
-      "POST /admin/hosts/:id/wrapper-canary"
+      "POST /admin/hosts/:id/wrapper-canary",
+      "GET /admin/roles/state",
+      "POST /admin/roles/state",
+      "GET /admin/roles",
+      "POST /admin/roles",
+      "GET /admin/roles/proposals/:id",
+      "POST /admin/roles/proposals/:id/decide",
+      "GET /admin/roles/:slug",
+      "PATCH /admin/roles/:slug",
+      "GET /admin/roles/:slug/timeline",
+      "GET /admin/roles/:slug/versions/:version",
+      "PUT /admin/roles/:slug/draft",
+      "DELETE /admin/roles/:slug/draft",
+      "POST /admin/roles/:slug/publish",
+      "POST /admin/roles/:slug/revert",
+      "POST /admin/roles/:slug/versions/:version/withdraw"
     ]
   },
   "excluded": {

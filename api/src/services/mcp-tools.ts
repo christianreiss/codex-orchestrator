@@ -1,4 +1,5 @@
 import type { HostSpawnService } from './host-spawn.js';
+import type { RolesService } from './roles.js';
 import type { FeedbackService } from './feedback.js';
 import { FEEDBACK_TYPES, FEEDBACK_STATUSES, FEEDBACK_PRIORITIES, FEEDBACK_DEPLOYMENTS } from './feedback-contract.js';
 import type { AgentMessagingService } from './agent-messaging.js';
@@ -89,6 +90,12 @@ export interface ToolDeps {
    * serve, while this only decides whether the tools exist at all.
    */
   transfers?: AgentTransfersService;
+  /**
+   * Agent roles catalog. Optional like `secrets`: when omitted `role_list` is
+   * neither listed nor callable; when present it is listed only while the
+   * `roles_enabled` switch is on.
+   */
+  roles?: RolesService;
 }
 
 export type ToolResult =
@@ -113,7 +120,10 @@ export class McpToolsRegistry {
   /** Re-read the switch on every discovery; a live admin toggle needs no restart. */
   async listAvailable(capability: Capability = 'host'): Promise<ToolDefinition[]> {
     const enabled = await this.deps.feedback?.getEnabled().catch(() => false) ?? false;
-    return this.list(capability).filter((entry) => enabled || !entry.name.startsWith('feedback_'));
+    const roles = await this.deps.roles?.isEnabled().catch(() => false) ?? false;
+    return this.list(capability).filter(
+      (entry) => (enabled || !entry.name.startsWith('feedback_')) && (roles || entry.name !== 'role_list'),
+    );
   }
 
   /**
@@ -1425,6 +1435,26 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     },
     handler: async (args, host) => deps.skills.deleteSkill(String(args['slug'] ?? ''), host),
   });
+
+  if (deps.roles) {
+    const roles = deps.roles;
+    inputs.push({
+      definition: {
+        name: 'role_list',
+        description:
+          'List the fleet\'s agent roles (specialist responsibilities such as design review) with slug, summary and current version. Use it when you are explicitly assigned a role ("you are the design agent") or need to find which role covers a task; then follow skill://roles. A catalog entry is not an activation, and a role grants no permission.',
+        inputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            query: { type: 'string', description: 'Optional text matched against slug, name and summary.' },
+            include_retired: { type: 'boolean' },
+          },
+        },
+      },
+      handler: async (args) => roles.catalog(args),
+    });
+  }
 
   if (deps.resources) {
     inputs.push({

@@ -1,4 +1,5 @@
 import { registerCoordinationRoutes } from './coordination.js';
+import { registerRoleRoutes } from './roles.js';
 import { queuePolicySchema } from '../../services/agent-messaging/smart-queue.js';
 import { RebootHandoffs } from '../../services/reboot-handoffs.js';
 import { taskResultSchema, type TaskResult } from '../../services/agent-messaging/task-execution.js';
@@ -37,6 +38,7 @@ export async function registerAgentMessagingRoutes(
   const messaging = createAgentMessagingService(ctx.db, ctx.env, ctx.keyring);
   registerAgentGroupRoutes(app, ctx, messaging);
   registerCoordinationRoutes(app, ctx, messaging);
+  registerRoleRoutes(app, ctx, messaging);
   const reboot = new RebootHandoffs(ctx.db, ctx.keyring);
   const rebootHandler = (operation: 'prepare' | 'arm' | 'status' | 'restore' | 'disarm') => async (req: FastifyRequest) => {
       const id = stringParam(req.params, 'id');
@@ -252,6 +254,7 @@ export async function registerAgentMessagingRoutes(
         host_id: z.number().int().positive().optional(),
         include_offline: z.boolean().optional(),
         name: z.string().trim().min(1).max(96).optional(),
+        role: z.string().trim().min(1).max(64).optional(),
         limit: z.number().int().min(1).max(50).optional(),
         offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
       })
@@ -263,6 +266,7 @@ export async function registerAgentMessagingRoutes(
       hostId: body.host_id,
       includeOffline: body.include_offline,
       name: body.name,
+      role: body.role?.toLowerCase(),
       limit: body.limit,
       offset: body.offset,
     });

@@ -42,6 +42,7 @@ import { registerAdminSecretsRoutes } from './admin/secrets/index.js';
 import { registerAdminGitDirectorRoutes } from './admin/git-director/index.js';
 import { registerAdminTransfersRoutes } from './admin/transfers/index.js';
 import { registerAdminFeedbackRoutes } from './admin/feedback/index.js';
+import { registerAdminRoleRoutes } from './admin/roles/index.js';
 import { registerAdminAgentSessionsRoutes } from './admin/agent-sessions/index.js';
 import { registerAdminTopologyRoutes } from './admin/topology/index.js';
 import { registerAdminWrapperRolloutRoutes } from './admin/wrapper-rollout/index.js';
@@ -102,6 +103,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAdminGitDirectorRoutes(app, ctx);
   await registerAdminTransfersRoutes(app, ctx);
   await registerAdminFeedbackRoutes(app, ctx);
+  await registerAdminRoleRoutes(app, ctx);
   await registerAdminAgentSessionsRoutes(app, ctx);
   await registerAdminTopologyRoutes(app, ctx);
   await registerAdminWrapperRolloutRoutes(app, ctx);

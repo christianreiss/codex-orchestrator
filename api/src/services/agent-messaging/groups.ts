@@ -611,6 +611,66 @@ export class AgentMessagingGroups {
       await this.asAgent(sessionId, token, (tx, sender) => this.publish(tx, sender, sessionId, input)),
     );
   }
+  /**
+   * A Server-originated informational notice to named addresses, outside any
+   * topic: the role system's ROLE-UPDATE / ROLE-REVIEW / ROLE-PROPOSAL lines.
+   * The body carries its own protocol header; ineligible addresses are skipped.
+   */
+  async noticeAddresses(addressIds: string[], content: string) {
+    const body = normalizeMessageBody(content);
+    const result = await this.core.db.transaction(async (tx) => {
+      await this.core.requireEnabledLocked(tx);
+      const sender = await this.server(tx);
+      const now = nowIso();
+      const receipts: Receipts = { deliveries: [], skipped: [] };
+      for (const id of [...new Set(addressIds)]) {
+        let target: AgentBusAddress;
+        try {
+          target = await this.core.requireAddressLocked(tx, id);
+          await this.core.assertAddressEligibleLocked(tx, target);
+        } catch (error) {
+          if (!(error instanceof ApiError)) throw error;
+          receipts.skipped.push({ address_id: id, reason: 'address_ineligible' });
+          continue;
+        }
+        const conversationId = randomUUID();
+        await tx.insert(agentBusConversations).values({
+          id: conversationId,
+          addressAId: sender.id,
+          addressBId: target.id,
+          createdByAddressId: sender.id,
+          nextSequence: 2,
+          status: 'open',
+          lastActivityAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+        const messageId = randomUUID();
+        await tx.insert(agentBusMessages).values(
+          newQueuedMessage({
+            id: messageId,
+            conversationId,
+            sequence: 1,
+            sender,
+            senderSessionId: null,
+            target,
+            kind: 'publication',
+            content: body,
+            contentEnc: encrypt(body, this.core.keyring),
+            clientMessageId: randomUUID(),
+            expiresAt: isoOffsetSeconds(7 * 86400),
+            now,
+          }),
+        );
+        receipts.deliveries.push({ address_id: target.id, message_id: messageId });
+      }
+      return receipts;
+    });
+    for (const delivery of result.deliveries)
+      wsPublisher.publish('agent_messaging.message.changed', { message_id: delivery.message_id, status: 'queued' });
+    return result;
+  }
+
   async publishAdmin(input: PublicationInput) {
     return this.notify(
       await this.core.db.transaction(async (tx) => {
