@@ -1,5 +1,8 @@
 # 2026-10-19
 
+- **Unhandled reports show in the top bar.** When orchestrator reports are open and nobody has claimed them, the top bar shows their count ("3 open") linking to Reports. It is hidden at zero and for accounts without report access, and updates live (`GET /admin/feedback/summary`).
+- **Undo a shared-memory replace.** A shared memory's Activity tab now offers "Undo this change" on revisions that kept the text they replaced (the newest five replaces). It writes that text back as a new revision, keeps title, summary and tags, and refuses if the memory changed since you opened it (`POST /admin/memories/shared/{recordId}/restore`, audited as `admin.memory.restored`). Deleting a memory still cannot be undone.
+
 - **Agent roles (cxx 0.9.108).** Agents can now take a fleet role — design review is the first — on an explicit assignment such as "Du bist der Design-Agent", keep it across resume and compaction, and be found and asked by other agents. Off by default: turn on **Agent roles** in Library → Roles.
   - A role is a versioned package (a `ROLE.md` role prompt plus reference files). The agent activates it with `agent_role_activate` after reading the new `roles` Skill; its session pins that version, so a newer publish never changes it silently. A role grants no permission and changes no tool, sandbox or approval setting.
   - `agent_self` and `agent_list` show the role, `agent_list {role}` finds holders, and the session title reads "(Name) (Designer) …" on every engine. Reviews use `agent_request` with a `REVIEW/1` header; acceptance authority comes from the request's `mandate`, never from the role.

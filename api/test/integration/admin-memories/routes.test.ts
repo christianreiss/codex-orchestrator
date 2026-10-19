@@ -66,4 +66,19 @@ describe('admin memory lifecycle route guards', () => {
     expect(response.statusCode).toBe(422);
     expect(response.json()).toMatchObject({ status: 'error', code: 'validation_failed' });
   });
+
+  it('keeps shared restore to a revision and an ETag, and closes it to viewers', async () => {
+    const admin = await buildApp('admin');
+    const extra = await admin.inject({
+      method: 'POST',
+      url: '/admin/memories/shared/1/restore',
+      payload: { revision: 2, expected_etag: 'abc', content: 'smuggled' },
+    });
+    expect(extra.statusCode).toBe(422);
+    expect(extra.json()).toMatchObject({ status: 'error', code: 'validation_failed' });
+
+    const viewer = await buildApp('viewer');
+    const denied = await viewer.inject({ method: 'POST', url: '/admin/memories/shared/1/restore', payload: { revision: 2, expected_etag: 'abc' } });
+    expect(denied.statusCode).toBe(403);
+  });
 });

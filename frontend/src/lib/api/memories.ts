@@ -283,6 +283,14 @@ export const memoriesApi = {
     );
   },
 
+  /** Undo one replace of a shared memory: writes back the body `revision` overwrote. */
+  restoreShared(recordId: number | string, revision: number, expectedEtag: string): Promise<MemoryMutationResponse> {
+    return api.post<MemoryMutationResponse>(
+      `/admin/memories/shared/${encodeURIComponent(String(recordId))}/restore`,
+      { revision, expected_etag: expectedEtag },
+    );
+  },
+
   audit(nodeId: string, limit = 50, cursor?: string | null): Promise<MemoryAuditResponse> {
     const search = new URLSearchParams({ node_id: nodeId, limit: String(limit) });
     if (cursor) search.set("cursor", cursor);

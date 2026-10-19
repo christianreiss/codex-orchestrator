@@ -68,6 +68,14 @@ export class AdminMemoriesService {
     return this.lifecycle.appendShared(recordId, content, actorId);
   }
 
+  restoreShared(
+    recordId: number,
+    input: Record<string, unknown>,
+    actorId: number,
+  ): Promise<{ status: 'restored'; memory: MemoryDetail; restored_from_revision: number }> {
+    return this.lifecycle.restoreShared(recordId, input, actorId);
+  }
+
   audit(input: Record<string, unknown>): Promise<Record<string, unknown>> {
     return this.history.list(input);
   }

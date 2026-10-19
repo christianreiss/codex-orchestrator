@@ -407,4 +407,40 @@ describe.skipIf(!handle)('admin memory atlas against a real database', { timeout
     expect(boundedFacets.facets.tags).toHaveLength(200);
     expect(boundedFacets.facets_truncated).toEqual({ hosts: false, projects: false, tags: true });
   });
+
+  it('restores the body a shared revision replaced, keeping labels and refusing stale ETags', async () => {
+    const created = await service.create(
+      'shared',
+      { id: `${PREFIX}-restore`, content: 'first body', title: 'Restore fixture', summary: 'kept', tags: ['restore-tag'] },
+      ACTOR_ID,
+    );
+    const second = await service.update('shared', created.memory.record_id, { expected_etag: created.memory.etag, content: 'second body' }, ACTOR_ID);
+    const audit = (await service.audit({ node_id: second.memory.node_id, limit: 50 })) as { activities: Array<Record<string, unknown>> };
+    const replace = audit.activities.find(
+      (activity) => activity['source'] === 'shared_revision' && (activity['details'] as Record<string, unknown>)['restorable'] === true,
+    );
+    expect(replace).toBeDefined();
+    const revision = (replace!['details'] as { revision: number }).revision;
+
+    await expect(
+      service.restoreShared(created.memory.record_id, { revision, expected_etag: created.memory.etag }, ACTOR_ID),
+    ).rejects.toMatchObject({ status: 409, code: 'memory_conflict' });
+    const restored = await service.restoreShared(created.memory.record_id, { revision, expected_etag: second.memory.etag }, ACTOR_ID);
+    expect(restored).toMatchObject({ status: 'restored', restored_from_revision: revision });
+    expect(restored.memory).toMatchObject({ content: 'first body', title: 'Restore fixture', summary: 'kept', tags: ['restore-tag'] });
+
+    // The restore is itself a replace that kept a body, so it can be undone too.
+    const after = (await service.audit({ node_id: restored.memory.node_id, limit: 50 })) as { activities: Array<Record<string, unknown>> };
+    expect(after.activities.filter((activity) => activity['source'] === 'admin').map((activity) => activity['action'])).toContain('restored');
+    const createdRevision = after.activities.find(
+      (activity) => activity['source'] === 'shared_revision' && (activity['details'] as Record<string, unknown>)['restorable'] === false,
+    );
+    expect(createdRevision).toBeDefined();
+    await expect(
+      service.restoreShared(created.memory.record_id, { revision: (createdRevision!['details'] as { revision: number }).revision, expected_etag: restored.memory.etag }, ACTOR_ID),
+    ).rejects.toMatchObject({ status: 422 });
+    await expect(
+      service.restoreShared(created.memory.record_id, { revision: 9999, expected_etag: restored.memory.etag }, ACTOR_ID),
+    ).rejects.toMatchObject({ code: 'memory_revision_not_found' });
+  });
 });

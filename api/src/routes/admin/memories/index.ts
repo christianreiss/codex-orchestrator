@@ -75,6 +75,29 @@ export async function registerAdminMemoriesRoutes(app: FastifyInstance, ctx: Rou
   );
 
   app.post(
+    '/admin/memories/shared/:recordId/restore',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const params = req.params as { recordId?: unknown };
+      const body =
+        req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+          ? { ...(req.body as Record<string, unknown>) }
+          : {};
+      if (Object.keys(body).some((key) => key !== 'revision' && key !== 'expected_etag')) {
+        throw new ValidationError('restore accepts revision and expected_etag only', { param: 'body' });
+      }
+      if (!Object.prototype.hasOwnProperty.call(body, 'expected_etag') && typeof req.headers['if-match'] === 'string') {
+        body['expected_etag'] = req.headers['if-match'];
+      }
+      const actorId = req.admin?.user.id;
+      if (!actorId) throw new UnauthorizedError('Admin session required', 'admin_required');
+      const result = await memories.restoreShared(recordIdFrom(params.recordId), body, actorId);
+      setMemoryEtag(reply, result.memory);
+      return result;
+    },
+  );
+
+  app.post(
     '/admin/memories/:scope',
     { preHandler: app.requireAdmin },
     async (req, reply) => {

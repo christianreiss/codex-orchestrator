@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createQuery } from "@tanstack/svelte-query";
+  import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import Activity from "@lucide/svelte/icons/activity";
   import Braces from "@lucide/svelte/icons/braces";
@@ -9,6 +9,9 @@
   import Pencil from "@lucide/svelte/icons/pencil";
   import Plus from "@lucide/svelte/icons/plus";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import Undo2 from "@lucide/svelte/icons/undo-2";
+  import { ApiError } from "$lib/api/client";
+  import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import {
     memoriesApi,
@@ -80,6 +83,31 @@
   );
 
   const memory = $derived($detailQuery.data?.memory ?? null);
+
+  // A shared revision that kept the body it replaced can be undone. The restore
+  // carries the ETag of what is on screen, so a later write is never discarded.
+  const qc = useQueryClient();
+  let restoreRevision = $state<number | null>(null);
+  let restoreOpen = $state(false);
+  const restorable = (item: { source: string; details: Record<string, unknown> | null }) =>
+    item.source === "shared_revision" && item.details?.["restorable"] === true && typeof item.details?.["revision"] === "number";
+  const restore = createMutation({
+    mutationFn: () => {
+      if (!memory || !selection || restoreRevision === null) throw new Error("Nothing to restore");
+      return memoriesApi.restoreShared(selection.recordId, restoreRevision, memory.etag);
+    },
+    onSuccess: () => {
+      toast.success(`Restored the text from before revision ${restoreRevision}`);
+      restoreOpen = false;
+      void qc.invalidateQueries({ queryKey: memoriesKeys.all });
+    },
+    onError: (err: unknown) =>
+      toast.error(
+        err instanceof ApiError && err.code === "memory_conflict"
+          ? "The memory changed since you opened it. Reload it and try again."
+          : err instanceof ApiError ? err.message : "Not restored",
+      ),
+  });
 
   // Renders as a label/value list when every value is scalar; null when
   // any value is nested/array (the raw-JSON fallback stays truthful there
@@ -305,7 +333,7 @@
             <div class="border border-warning/25 bg-warning-muted p-3 text-caption text-warning-muted-foreground">
               <p class="font-semibold">Operational history</p>
               <p class="mt-1">{$auditQuery.data.retention.note}</p>
-              <p class="mt-1 opacity-80">Retention-bound · not immutable · no historical bodies</p>
+              <p class="mt-1 opacity-80">Retention-bound · not immutable · bodies are kept only for the newest five replaces of a shared memory</p>
             </div>
 
             {#if $auditQuery.data.activities.length === 0}
@@ -328,6 +356,16 @@
                       {#if item.tag_count != null}<span>{item.tag_count} tags</span>{/if}
                       {#if item.new_etag}<span class="font-mono">{shortEtag(item.new_etag)}</span>{/if}
                     </div>
+                    {#if restorable(item) && memory.capabilities.update}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        class="mt-2"
+                        onclick={() => ((restoreRevision = item.details?.["revision"] as number), (restoreOpen = true))}
+                      >
+                        <Undo2 class="h-3.5 w-3.5" /> Undo this change
+                      </Button>
+                    {/if}
                   </li>
                 {/each}
               </ol>
@@ -344,3 +382,12 @@
     {/if}
   </Sheet.Content>
 </Sheet.Root>
+
+<ConfirmDialog
+  bind:open={restoreOpen}
+  title={`Restore ${memory?.id ?? "memory"}`}
+  description={`Writes back the text this memory had before revision ${restoreRevision ?? ""}, as a new revision. Title, summary and tags stay as they are, and the restore itself can be undone the same way.`}
+  confirmLabel="Restore text"
+  busy={$restore.isPending}
+  onConfirm={() => $restore.mutate()}
+/>

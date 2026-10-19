@@ -246,14 +246,14 @@ This is a source audit, not a live visual acceptance report. All 32 `+page.svelt
 | --- | --- | --- |
 | Initial auth / setup probe | Layout loading/redirecting state or `AuthShell` “API unreachable” | No setup/login redirect loop on transient failure; retry keeps intended location |
 | Unknown route / unexpected page error | Catch-all throws 404; no custom `+error.svelte` at baseline | Assess framework fallback; make title, recovery and keyboard path match failure pattern |
-| Sidebar, top bar, mobile menu, hub/project navigation | App shell, registry, `HubTabs`, `ProjectTabsNav` | All destinations reachable at touch widths; no contradictory active locations |
+| Sidebar, top bar (incl. live-updates, temporary-access and unhandled-reports indicators), mobile menu, hub/project navigation | App shell, registry, `HubTabs`, `ProjectTabsNav` | All destinations reachable at touch widths; no contradictory active locations; indicators hidden at zero and without the read capability |
 | Cmd/Ctrl-K, global search, shortcuts help | Command palette, search modal, shortcuts components | Focus entry/exit, no results, accessible selection; shortcuts do not intercept typing |
 | Chatty assistant | Shared shell assistant and chatty components | Availability/role gates, drafts, errors and confirmation of concrete changes |
 | Client/session detail and attachments | Portal components inside Agents | Directory, retained chats, attention, timeline, composer, uploads, remote sessions, close/reconnect states |
 | Host creation, quick VM, seed auth and insecure approval popup | Host sheets/dialogs and shared `SeedAuthPanel` | One auth upload UI; focus return, pending/error, safety consequences |
 | Project About/settings, card editor, report creation/detail | Project and report sheets/dialogs | Preserve originating selection and draft; destructive scope clear |
 | Account add/login/seed/reveal/revoke; Access people/keys/secrets dialogs | Domain components plus shared dialog/sheet primitives | No credential exposure in status text or URLs; copy result and permissions clear |
-| Editor history/version/preview/manual mode; memory alternate views; role proposal sheet, revert/withdraw/publish dialogs | Library components | Read-only versus editable state, failed preview, long documents; agent-authored proposal text shown as data |
+| Editor history/version/preview/manual mode; memory alternate views and shared-memory restore from Activity; role proposal sheet, revert/withdraw/publish dialogs | Library components | Read-only versus editable state, failed preview, long documents; agent-authored proposal text shown as data |
 | Schedule form/result, Git detail, transfer audit | `ListDetail` / domain sheets | Correct action and event scope; explicit uncertainty |
 | Toasts, banners, inline alerts and confirmation dialogs | Shared feedback/UI components | Durable errors inline; focus, live announcements and both themes |
 | Setup steps | Infrastructure, Owner, Engines, Credentials, Fleet defaults, Agent policy, Modules, Collaboration, First host | Test each step plus skip/resume; preserve shared `SeedAuthPanel`; first owner created is not wizard finished |

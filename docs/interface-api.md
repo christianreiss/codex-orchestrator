@@ -702,13 +702,19 @@ All three engine config GET/store routes share the revision contract: `revision`
   supply `expected_etag` (the query string and `If-Match` header are accepted
   alternatives); a stale value returns `409 memory_conflict`. Success returns
   `{status:"deleted", node_id, scope, record_id}`. Every admin-scope delete is
-  hard, including host and project memories. There is no trash, restore, or
-  body rollback.
+  hard, including host and project memories. A delete has no trash or undo;
+  a shared document's replaced body can be restored (below) while it exists.
 - `POST /admin/memories/shared/{recordId}/append` — append to a shared document
   through the same row-lock/chunk/revision path as `shared_memory_append`, so
   concurrent additions are serialized rather than lost. The strict body is
   `{content:string}`; other keys fail validation. Returns the updated normalized
   memory with `status:"appended"` and the new HTTP `ETag`.
+- `POST /admin/memories/shared/{recordId}/restore` — undo one replace of a shared
+  document: `{revision, expected_etag}` (or `If-Match`) writes back the body that
+  revision overwrote as a new revision, preserving title, summary and tags. Only the
+  newest five replaces keep their earlier body (shared revision audit rows carry
+  `restorable`). A stale ETag answers 409 `memory_conflict`; a revision without a
+  kept body answers 422. Audited as `admin.memory.restored`.
 - `GET /admin/memories/audit` — normalized operational activity for required
   `node_id`; optional `limit` (default 50, maximum 200) and opaque cursor page
   the response. It returns
@@ -2660,6 +2666,7 @@ Claims are exclusive, token-fenced and renewable for 30 minutes. Updates check t
 ### Feedback admin endpoints
 
 - `GET /admin/feedback/state` — activation state (default off).
+- `GET /admin/feedback/summary` — `{open, in_progress, blocked}` counts for the console's top-bar indicator; expired claims are released first.
 - `POST /admin/feedback/state` — set `{enabled:boolean}`; dynamic agent guidance follows on sync.
 - `GET /admin/feedback` — filtered, paginated inbox; HTML navigation serves the SPA.
 - `POST /admin/feedback` — idempotent report submission.

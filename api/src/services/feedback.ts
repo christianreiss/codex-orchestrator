@@ -103,6 +103,23 @@ export class FeedbackService {
     return result;
   }
 
+  /**
+   * Counts for the console's top-bar indicator: `open` is unhandled (nobody has
+   * claimed it), `blocked` waits for a decision. Expired claims are released
+   * first, so a report an agent abandoned counts as open again.
+   */
+  async summary(actor: FeedbackActor) {
+    await this.available(actor);
+    await this.expire();
+    const rows = await this.db
+      .select({ status: feedbackItems.status, count: sql<number>`count(*)` })
+      .from(feedbackItems)
+      .where(inArray(feedbackItems.status, ['open', 'in_progress', 'blocked']))
+      .groupBy(feedbackItems.status);
+    const count = (status: string) => Number(rows.find((row) => row.status === status)?.count ?? 0);
+    return { open: count('open'), in_progress: count('in_progress'), blocked: count('blocked') };
+  }
+
   async list(input: unknown, actor: FeedbackActor) {
     await this.available(actor);
     const args = parseFeedback(feedbackListSchema, input);

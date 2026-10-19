@@ -31,11 +31,13 @@ export interface FeedbackSubmission {
 export const feedbackKeys = {
   all: ['feedback'] as const,
   state: ['feedback', 'state'] as const,
+  summary: ['feedback', 'summary'] as const,
   list: (filters: FeedbackFilters) => ['feedback', 'list', filters] as const,
   detail: (id: string) => ['feedback', 'detail', id] as const,
 };
 export const feedbackApi = {
   state: () => api.get<{ enabled: boolean }>('/admin/feedback/state'),
+  summary: () => api.get<{ open: number; in_progress: number; blocked: number }>('/admin/feedback/summary'),
   setEnabled: (enabled: boolean) => api.post<{ enabled: boolean }>('/admin/feedback/state', { enabled }),
   list: (filters: FeedbackFilters) => {
     const params = new URLSearchParams();

@@ -143,6 +143,48 @@ export class AdminMemoryLifecycle {
     return { status: 'appended', memory: toMemoryDetail(result.after, true) };
   }
 
+  /**
+   * Undo one shared-memory replace: write back the body revision `revision`
+   * overwrote, as a new revision (the ledger stays append-only, so the restore
+   * is itself undoable). Labels are kept. Requires the ETag of the state the
+   * operator is looking at, so it never discards a later write.
+   */
+  async restoreShared(
+    recordId: number,
+    input: Record<string, unknown>,
+    actorId: number,
+  ): Promise<{ status: 'restored'; memory: MemoryDetail; restored_from_revision: number }> {
+    const revision = normalizePositiveInt(input['revision'], 'revision');
+    const result = await this.db.transaction(async (tx) => {
+      await tx
+        .select({ id: sharedMemories.id })
+        .from(sharedMemories)
+        .where(eq(sharedMemories.id, recordId))
+        .for('update');
+      const scoped = new AdminMemoryCatalog(tx as unknown as Database);
+      const before = await scoped.loadRow('shared', recordId);
+      if (!before) throw new NotFoundError('Memory not found', 'memory_not_found');
+      assertEtag(input['expected_etag'], before);
+      const [kept] = await tx
+        .select({ prevContent: sharedMemoryRevisions.prevContent })
+        .from(sharedMemoryRevisions)
+        .where(and(eq(sharedMemoryRevisions.memoryId, recordId), eq(sharedMemoryRevisions.revision, revision)))
+        .limit(1);
+      if (!kept) throw new NotFoundError(`Revision ${revision} not found`, 'memory_revision_not_found');
+      if (kept.prevContent === null || kept.prevContent === undefined) {
+        throw new ValidationError(`Revision ${revision} kept no earlier body; only the newest replaces do`, { param: 'revision' });
+      }
+      const shared = new SharedMemoriesService(tx as unknown as Database, { publishEvents: false });
+      await shared.write({ slug: before.key, content: kept.prevContent }, null, isEngine(before.engine) ? before.engine : null);
+      const after = await scoped.loadRow('shared', recordId);
+      if (!after) throw new NotFoundError('Memory not found', 'memory_not_found');
+      await this.writeAudit(tx as unknown as Database, 'restored', actorId, before, after);
+      return after;
+    });
+    this.publishMutation('restored', result);
+    return { status: 'restored', memory: toMemoryDetail(result, true), restored_from_revision: revision };
+  }
+
   private async createHost(
     input: Record<string, unknown>,
     actorId: number,
@@ -621,7 +663,7 @@ export class AdminMemoryLifecycle {
 
   private async writeAudit(
     db: Database,
-    action: 'created' | 'updated' | 'deleted' | 'appended',
+    action: 'created' | 'updated' | 'deleted' | 'appended' | 'restored',
     actorId: number,
     before: UnifiedMemoryRow | null,
     after: UnifiedMemoryRow | null,
@@ -658,7 +700,7 @@ export class AdminMemoryLifecycle {
   }
 
   private publishMutation(
-    action: 'created' | 'updated' | 'deleted' | 'appended',
+    action: 'created' | 'updated' | 'deleted' | 'appended' | 'restored',
     row: UnifiedMemoryRow,
   ): void {
     const payload = {

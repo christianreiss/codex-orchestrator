@@ -56,6 +56,15 @@ describe.skipIf(!handle)('central feedback with real MySQL', () => {
     await handle!.pool.end();
   });
 
+  it('counts unhandled reports for the console indicator', async () => {
+    const before = await service.summary(admin);
+    const first = await submit();
+    await submit();
+    expect(await service.summary(admin)).toEqual({ ...before, open: before.open + 2 });
+    await acquire(first.id);
+    expect(await service.summary(admin)).toEqual({ ...before, open: before.open + 1, in_progress: before.in_progress + 1 });
+  });
+
   it('applies migration twice without destroying data', async () => {
     const row = await submit();
     const raw = await readFile(new URL('../../src/db/migrations/0061_feedback.sql', import.meta.url), 'utf8');

@@ -219,7 +219,8 @@ export class AdminMemoryAudit {
       delta_length: row.deltaLength,
       tag_count: null,
       created_at: row.createdAt,
-      details: { revision: row.revision, sha256: row.contentSha256, note: row.note },
+      // Whether this revision kept the body it replaced, i.e. whether it can be undone.
+      details: { revision: row.revision, sha256: row.contentSha256, note: row.note, restorable: row.prevContent !== null },
     }));
   }
 

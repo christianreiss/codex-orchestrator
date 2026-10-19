@@ -744,6 +744,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `GET /admin/memories/{scope}/{recordId}` — one memory record.
   - `POST /admin/memories/{scope}` — create a record; responds `201`.
   - `POST /admin/memories/shared/{recordId}/append` — append to a shared memory; the body accepts `content` and nothing else.
+  - `POST /admin/memories/shared/{recordId}/restore` — undo one replace: `{revision, expected_etag}` (or `If-Match`) writes back the body that revision overwrote, as a new revision, keeping title, summary and tags. Only the newest five replaces keep their earlier body (the audit's shared revision rows carry `restorable`); a stale ETag answers 409 `memory_conflict`; audited as `admin.memory.restored`. Requires `memory.write`.
   - `PATCH /admin/memories/{scope}/{recordId}` — update a record; `expected_etag` (or `If-Match`) guards the write.
   - `DELETE /admin/memories/{scope}/{recordId}` — delete a record; `expected_etag` may come from the body, query, or `If-Match`.
 - Fleet secrets (working credentials for agents — GitHub tokens, database passwords, service tokens; *not* engine-boot auth, which lives under `/auth`. Every mutation, and the reveal, requires the owner or admin role):
@@ -1141,6 +1142,7 @@ Audio and video preparation runs locally in the isolated `media-worker` service 
 ### Feedback admin endpoints
 
 - `GET /admin/feedback/state` — activation state (default off).
+- `GET /admin/feedback/summary` — `{open, in_progress, blocked}` counts for the console's top-bar indicator; expired claims are released first, so abandoned work counts as open.
 - `POST /admin/feedback/state` — set `{enabled:boolean}`; dynamic agent guidance follows on sync.
 - `GET /admin/feedback` — filtered, paginated inbox; HTML navigation serves the SPA.
 - `POST /admin/feedback` — idempotent report submission.

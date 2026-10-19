@@ -18,6 +18,7 @@ export async function registerAdminFeedbackRoutes(app: FastifyInstance, ctx: Rou
     await events.record({ type: 'feedback.changed', payload: { enabled, admin_user_id: req.admin!.user.id } });
     return state;
   });
+  app.get('/admin/feedback/summary', { preHandler: app.requireAdmin }, (req) => feedback.summary(actor(req)));
   app.get('/admin/feedback', { preHandler: [adminSpaHtmlPreHandler(ctx), app.requireAdmin] }, (req) => feedback.list(req.query, actor(req)));
   app.post('/admin/feedback', { preHandler: app.requireAdmin }, (req) => feedback.submit(req.body, actor(req)));
   app.get('/admin/feedback/:id', { preHandler: app.requireAdmin }, (req) => feedback.get(id(req), actor(req)));

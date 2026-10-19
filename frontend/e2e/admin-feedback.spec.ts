@@ -38,6 +38,7 @@ async function fixture(page: Page, manage = true) {
       return json({ feedback: item });
     }
     if (path === '/admin/feedback/state') return json({ enabled });
+    if (path === '/admin/feedback/summary') return json({ open: item.status === 'open' ? 1 : 0, in_progress: item.status === 'in_progress' ? 1 : 0, blocked: item.status === 'blocked' ? 1 : 0 });
     if (path === '/admin/feedback') {
       const status = url.searchParams.get('status'); const query = url.searchParams.get('query');
       const matches = (!status || status === item.status) && (!query || item.title.includes(query));
@@ -125,4 +126,21 @@ test('administrator can release an active claim with a reason', async ({ page })
   await page.getByRole('button', { name: 'Force release', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Force release', exact: true })).toHaveCount(0);
   expect(context.writes[0]).toEqual({ path: `/admin/feedback/${id}/claim`, body: { action: 'force_release', reason: 'Handing off to another agent' } });
+});
+
+test('the top bar shows unhandled reports and links to them', async ({ page }) => {
+  await fixture(page);
+  await page.goto('/admin/dashboard');
+  const badge = page.getByRole('link', { name: '1 unhandled report' });
+  await expect(badge).toBeVisible();
+  await badge.click();
+  await expect(page).toHaveURL(/\/admin\/reports$/);
+});
+
+test('the indicator stays hidden without feedback.read', async ({ page }) => {
+  await fixture(page, false);
+  await page.route('**/admin/auth/status', (route) => route.fulfill({ json: { authenticated: true, enforced: true, user: { id: 2, username: 'viewer', roles: ['viewer'] }, capabilities: ['admin.read'] } }));
+  await page.goto('/admin/dashboard');
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(page.getByRole('link', { name: /unhandled report/ })).toHaveCount(0);
 });

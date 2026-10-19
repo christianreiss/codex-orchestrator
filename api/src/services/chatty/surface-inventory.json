@@ -300,7 +300,9 @@
       "DELETE /admin/roles/:slug/draft",
       "POST /admin/roles/:slug/publish",
       "POST /admin/roles/:slug/revert",
-      "POST /admin/roles/:slug/versions/:version/withdraw"
+      "POST /admin/roles/:slug/versions/:version/withdraw",
+      "GET /admin/feedback/summary",
+      "POST /admin/memories/shared/:recordId/restore"
     ]
   },
   "excluded": {

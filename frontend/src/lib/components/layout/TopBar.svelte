@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import { createMutation, useQueryClient } from "@tanstack/svelte-query";
+  import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
+  import Inbox from "@lucide/svelte/icons/inbox";
   import Moon from "@lucide/svelte/icons/moon";
   import Monitor from "@lucide/svelte/icons/monitor";
   import Palette from "@lucide/svelte/icons/palette";
@@ -20,6 +21,9 @@
   import { wsStatus } from "$lib/stores/ws-status";
   import { setTheme, themeStore, type ThemeChoice } from "$lib/stores/theme";
   import { accountKeys, setTheme as persistTheme } from "$lib/api/account";
+  import { feedbackApi, feedbackKeys } from "$lib/api/feedback";
+  import { authStore } from "$lib/stores/auth";
+  import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import StatusPill from "$lib/components/hosts/StatusPill.svelte";
   import InsecureCountdown from "$lib/components/hosts/InsecureCountdown.svelte";
 
@@ -59,6 +63,20 @@
   onMount(() => {
     modifierKey = /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
   });
+
+  // Unhandled orchestrator reports: open and nobody has claimed them. Kept
+  // current by the `feedback.changed` invalidation; the interval only covers a
+  // dropped live connection.
+  const canReadFeedback = $derived($authStore.can("feedback.read"));
+  const feedbackSummary = createQuery(
+    reactiveOptions(() => ({
+      queryKey: [...feedbackKeys.summary],
+      queryFn: () => feedbackApi.summary(),
+      enabled: canReadFeedback,
+      refetchInterval: 120_000,
+    })),
+  );
+  const openReports = $derived($feedbackSummary.data?.open ?? 0);
 
   const activeWindows = $derived($hostsSummary.activeInsecureWindows);
   // A fleet-wide auto-allow outranks the per-host count: it is a state of the
@@ -104,6 +122,16 @@
           <Tooltip.Content>{wsIndicator.tooltip}</Tooltip.Content>
         </Tooltip.Root>
       </Tooltip.Provider>
+    {/if}
+    {#if openReports > 0}
+      <a
+        href={`${base}/reports`}
+        class="inline-flex h-9 items-center gap-1.5 rounded-md border border-info/30 bg-info-muted px-2 text-body-sm font-medium text-info-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={`${openReports} unhandled ${openReports === 1 ? "report" : "reports"}`}
+        title={`${openReports} open ${openReports === 1 ? "report" : "reports"} nobody has claimed`}
+      >
+        <Inbox class="h-3.5 w-3.5 shrink-0" /><span class="tabular-nums">{openReports}</span><span class="hidden sm:inline">open</span>
+      </a>
     {/if}
     {#if fleetWindowUntil}
       <a href={`${base}/hosts?insecure=1`} class="inline-flex h-9 items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive-muted px-2 text-body-sm font-medium text-destructive-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Fleet temporary access open">

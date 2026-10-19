@@ -373,6 +373,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'PATCH /admin/memories/:scope/:recordId': cap('memory.write'),
   'DELETE /admin/memories/:scope/:recordId': cap('memory.write'),
   'POST /admin/memories/shared/:recordId/append': cap('memory.write'),
+  'POST /admin/memories/shared/:recordId/restore': cap('memory.write'),
   'GET /admin/shared-memories': cap('memory.read'),
   'GET /admin/shared-memories/:slug': cap('memory.read'),
   'DELETE /admin/shared-memories/:slug': cap('memory.write'),
@@ -455,6 +456,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   // Central orchestrator feedback
   'GET /admin/feedback': cap('feedback.read'),
   'GET /admin/feedback/state': cap('feedback.read'),
+  'GET /admin/feedback/summary': cap('feedback.read'),
   'GET /admin/feedback/:id': cap('feedback.read'),
   'POST /admin/feedback/state': cap('feedback.manage'),
   'POST /admin/feedback': cap('feedback.manage'),
