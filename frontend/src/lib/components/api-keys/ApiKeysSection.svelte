@@ -62,7 +62,7 @@
 </script>
 
 <Collapsible.Root bind:open={configOpen}>
-  <Section id="api-keys" title="API keys" description="Keys for applications that call the fleet's OpenAI-, Anthropic- and Grok-compatible endpoints.">
+  <Section id="api-keys" title="API keys" hideTitle>
     {#snippet actions()}
       <Collapsible.Trigger>
         {#snippet child({ props })}

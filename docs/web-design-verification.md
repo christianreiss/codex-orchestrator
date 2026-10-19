@@ -21,7 +21,9 @@ impacts retained. These are automated checks, not a substitute for manual evalua
 
 | Source entry | Example URL |
 | --- | --- |
-| `src/routes/(access)/access/+page.svelte` | `/admin/access` |
+| `src/routes/(access)/api-keys/+page.svelte` | `/admin/api-keys` |
+| `src/routes/(access)/people/+page.svelte` | `/admin/people` |
+| `src/routes/(access)/secrets/+page.svelte` | `/admin/secrets` |
 | `src/routes/(access)/settings/+page.svelte` | `/admin/settings` |
 | `src/routes/(activity)/activity/+page.svelte` | `/admin/activity` |
 | `src/routes/(activity)/reports/+page.svelte` | `/admin/reports` |

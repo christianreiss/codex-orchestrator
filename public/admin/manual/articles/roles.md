@@ -63,7 +63,7 @@ While a fleet runs in `compatible`, every request the matrix *would* have refuse
 
 ## Managing users in the UI
 
-The roster lives in the **People** section (admin users) of the **Access** page (`/access#people`). Any role may open it (`users.read`); the **Add person** button, the per-row **Edit** and **Delete** menu items, the active switch, and the **Wipe all users** button (collapsed under *Danger zone* at the bottom of the page) render only when the caller holds `users.manage`, so a viewer sees a read-only table rather than buttons that would `403`.
+The roster lives on the **People** page (admin users; `/people`, in Access & Settings). Any role may open it (`users.read`); the **Add person** button, the per-row **Edit** and **Delete** menu items, the active switch, and the **Wipe all users** button (collapsed under *Danger zone* at the bottom of the page) render only when the caller holds `users.manage`, so a viewer sees a read-only table rather than buttons that would `403`.
 
 The page provides:
 

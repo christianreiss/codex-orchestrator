@@ -158,7 +158,7 @@
   }
 </script>
 
-<Section id="people" title="People" description="Admin accounts, their role and whether they can sign in. Also called admin users.">
+<Section id="people" title="People" hideTitle>
   <div class="space-y-3">
     <Toolbar bind:search searchPlaceholder="Filter people" count={query ? `${rows.length} of ${users.length}` : `${users.length} ${users.length === 1 ? "person" : "people"}`}>
       {#snippet actions()}

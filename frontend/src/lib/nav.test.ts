@@ -38,7 +38,7 @@ describe("route registry", () => {
       ["activity", ["activity", "reports"]],
       ["providers", ["provider-accounts", "engines"]],
       ["library", ["library"]],
-      ["access", ["access", "settings"]],
+      ["access", ["people", "api-keys", "secrets", "settings"]],
     ]);
     assert.deepEqual(NAV_FOOTER.map((entry) => entry.id), ["manual", "account"]);
   });
@@ -83,7 +83,9 @@ describe("route registry", () => {
   it("lights the rail hub for any page it owns, including detail routes", () => {
     const hubIdFor = (path: string) => hubFor(path)?.id;
     assert.equal(hubIdFor("/agents"), "agents");
-    assert.equal(hubIdFor("/access"), "access");
+    assert.equal(hubIdFor("/people"), "access");
+    assert.equal(hubIdFor("/api-keys"), "access");
+    assert.equal(hubIdFor("/secrets"), "access");
     assert.equal(hubIdFor("/settings"), "access");
     assert.equal(hubIdFor("/activity"), "activity");
     assert.equal(hubIdFor("/reports"), "activity");
@@ -107,7 +109,8 @@ describe("route registry", () => {
 describe("location text", () => {
   it("uses direct task labels and preserves useful detail breadcrumbs", () => {
     assert.equal(getPageContext("/engines"), "Engines");
-    assert.equal(getPageContext("/access"), "Access");
+    assert.equal(getPageContext("/people"), "People");
+    assert.equal(getPageContext("/api-keys"), "API keys");
     assert.equal(getPageContext("/library/skills/deploy-bot"), "Library / Skills / Deploy bot");
     assert.equal(getPageContext("/library/agent-rules"), "Library / Agent rules");
     assert.equal(getPageContext("/projects/fleet/board"), "Projects / Fleet / Board");

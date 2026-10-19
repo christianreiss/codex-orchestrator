@@ -7,7 +7,7 @@ verified: 2026-10-17
 sources: api/src/routes/admin/secrets/index.ts, api/src/services/secrets.ts, api/src/services/mcp-tools.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, frontend/src/routes/(access)/access/+page.svelte, frontend/src/lib/components/secrets/SecretsSection.svelte, frontend/src/lib/components/secrets/SecretsList.svelte, frontend/src/lib/components/secrets/NewSecretDialog.svelte, frontend/src/lib/api/secrets.ts, frontend/src/lib/ws/events.ts
 ---
 
-**Secrets** (a section of the **Access** page, `/access#secrets`, next to People and API keys) is the fleet credential store: API tokens, database passwords, service accounts — working credentials that agents fetch over MCP instead of finding in env files, config files, or shell history. Values are encrypted at rest with the same keyring as canonical auth, and nothing on this page shows one without an explicit, audited reveal.
+**Secrets** (`/secrets`, a tab of **Access & Settings** next to People and API keys) is the fleet credential store: API tokens, database passwords, service accounts — working credentials that agents fetch over MCP instead of finding in env files, config files, or shell history. Values are encrypted at rest with the same keyring as canonical auth, and nothing on this page shows one without an explicit, audited reveal.
 
 ## The module switch
 
@@ -40,7 +40,7 @@ The MCP tools are `secret_list` (no arguments; its `status` and `capabilities` r
 - api/src/services/secrets.ts (encrypted storage, host ownership)
 - api/src/services/mcp-tools.ts (`secret_list`, `secret_search`, `secret_get`, `secret_store`, `secret_delete`)
 - api/src/security/capabilities.ts, api/src/security/route-capabilities.ts (`secrets.read_metadata` / `secrets.reveal` / `secrets.manage`)
-- frontend/src/routes/(access)/access/+page.svelte (the Access page that hosts the Secrets section)
+- frontend/src/routes/(access)/secrets/+page.svelte (the Secrets page)
 - frontend/src/lib/components/secrets/SecretsSection.svelte (module switch, notes)
 - frontend/src/lib/components/secrets/SecretsList.svelte, frontend/src/lib/components/secrets/NewSecretDialog.svelte (rows, reveal, edit, revoke, creation form)
 - frontend/src/lib/api/secrets.ts (queries, owner labelling, tool-name hints)

@@ -50,7 +50,7 @@ test('one flat page keeps drafts, resolves anchors and has no duplicate IDs', as
 test('legacy settings bookmarks redirect to their new section', async ({ page }) => {
   const shared = state(); await fixture(page, shared);
   await page.goto('/admin/settings?tab=fleet-policy'); await expect(page).toHaveURL(/\/admin\/settings$/);
-  await page.goto('/admin/settings?tab=general'); await expect(page).toHaveURL(/\/admin\/access#api-keys$/);
+  await page.goto('/admin/settings?tab=general'); await expect(page).toHaveURL(/\/admin\/api-keys$/);
   await page.goto('/admin/settings#log-retention'); await expect(page).toHaveURL(/\/admin\/settings#retention$/);
 });
 test('immediate controls save, reload and recover after failure', async ({ page }) => {

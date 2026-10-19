@@ -1,7 +1,15 @@
 [
   {
-    "source": "src/routes/(access)/access/+page.svelte",
-    "path": "/admin/access"
+    "source": "src/routes/(access)/api-keys/+page.svelte",
+    "path": "/admin/api-keys"
+  },
+  {
+    "source": "src/routes/(access)/people/+page.svelte",
+    "path": "/admin/people"
+  },
+  {
+    "source": "src/routes/(access)/secrets/+page.svelte",
+    "path": "/admin/secrets"
   },
   {
     "source": "src/routes/(access)/settings/+page.svelte",

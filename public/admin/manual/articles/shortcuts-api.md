@@ -45,7 +45,7 @@ Key prefixes differ by engine:
 
 ### API keys (Access page)
 
-Open **Access** in the admin sidebar (or jump there via the `Ctrl`/`Cmd`+`K` command palette) and go to the **API keys** section (`/access#api-keys`; the old `/api-keys` URL redirects there). The keys toolbar has a search box, an API filter (**All**, **OpenAI**, **Anthropic**, **Grok**), compact endpoint rows with copy buttons and availability status, and a **New key** button. Choosing an API in the filter or an endpoint makes **New key** use that selection. Disabled APIs and disabled backends remain visible here.
+Open **Access & Settings** in the admin sidebar (or jump there via the `Ctrl`/`Cmd`+`K` command palette) and go to the **API keys** tab (`/api-keys`; the old `/access#api-keys` URL redirects there). The keys toolbar has a search box, an API filter (**All**, **OpenAI**, **Anthropic**, **Grok**), compact endpoint rows with copy buttons and availability status, and a **New key** button. Choosing an API in the filter or an endpoint makes **New key** use that selection. Disabled APIs and disabled backends remain visible here.
 
 Open **Configure** in the section header for *Service availability & routing*: routing, backend defaults and global API control. Existing setting links open Configure and expand the relevant backend automatically.
 

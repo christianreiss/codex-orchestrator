@@ -134,7 +134,9 @@ export const CANONICAL_DESTINATIONS = [
   { path: "/library?type=memories", heading: "Library", title: "Library" },
   { path: "/library?type=subagents", heading: "Library", title: "Library" },
   { path: "/library/agent-rules", heading: "Agent rules", title: "Agent rules" },
-  { path: "/access", heading: "Access", title: "Access" },
+  { path: "/people", heading: "People", title: "People" },
+  { path: "/api-keys", heading: "API keys", title: "API keys" },
+  { path: "/secrets", heading: "Secrets", title: "Secrets" },
   { path: "/manual", heading: "Manual", title: "Manual" },
   { path: "/account", heading: "Account", title: "Account" },
 ] as const;

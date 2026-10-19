@@ -48,7 +48,7 @@
   const count = $derived(moduleState?.count ?? 0);
 </script>
 
-<Section id="secrets" title="Secrets" description="Working credentials shared by Codex, Claude and Grok over MCP.">
+<Section id="secrets" title="Secrets" hideTitle>
   {#snippet actions()}
     <label class="flex items-center gap-2 text-body-sm text-muted-foreground">
       Store enabled

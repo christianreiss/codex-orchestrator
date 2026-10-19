@@ -9,10 +9,10 @@
 
 /** Section hashes and `?tab=` values from the retired Settings hub. */
 const SETTINGS_SECTION_DESTINATIONS: Record<string, string> = {
-  "api-state": "/access#api-keys",
-  "openai-engine": "/access#api-keys",
+  "api-state": "/api-keys",
+  "openai-engine": "/api-keys",
   "engine-state": "/engines#engine-state",
-  "claude-engine": "/access#api-keys",
+  "claude-engine": "/api-keys",
   "agent-messaging": "/agent-messaging",
   "codex-model-defaults": "/engines#codex-defaults",
   "claude-model-defaults": "/engines#claude-defaults",
@@ -40,7 +40,7 @@ export function settingsLegacyTarget(search: URLSearchParams, hash = ""): string
     case "fleet-policy": return "/settings";
     case "claude-config": return "/engines#claude-client";
     case "availability":
-    case "general": return "/access#api-keys";
+    case "general": return "/api-keys";
     default: return null;
   }
 }
@@ -54,6 +54,20 @@ function withQuery(path: string, search: URLSearchParams, extra?: Record<string,
   if (!query) return path;
   const [route, hash] = path.split("#");
   return `${route}${route!.includes("?") ? "&" : "?"}${query}${hash ? `#${hash}` : ""}`;
+}
+
+/** Hashes of the API keys page's "Configure" panel; the page opens it and scrolls to the target. */
+const API_KEY_CONFIG_ANCHORS = new Set(["configuration", "service-availability", "api-state", "exposed-apis", "backend-settings", "claude-proxy", "claude-engine", "grok-proxy", "grok-engine"]);
+
+/** `/access` was one page with `#people`, `#api-keys` and `#secrets` sections; each is a page now. */
+function accessTarget(search: URLSearchParams, hash: string): string {
+  const section = decodeURIComponent(hash.replace(/^#/, ""));
+  if (section === "secrets") return withQuery("/secrets", search);
+  if (section === "api-keys") return withQuery("/api-keys", search);
+  if (API_KEY_CONFIG_ANCHORS.has(section)) return `${withQuery("/api-keys", search)}#${section}`;
+  if (section === "people") return withQuery("/people", search);
+  if (search.has("dialog")) return withQuery("/api-keys", search);
+  return withQuery("/people", search);
 }
 
 /**
@@ -70,16 +84,15 @@ export function legacyTarget(pathname: string, search = new URLSearchParams(), h
     case "topology": return withQuery("/agents", search, { view: "graph" });
     case "feedback": return withQuery("/reports", search);
     case "logs": return withQuery("/activity", search, { type: second === "mcp" ? "tools" : "changes" });
-    case "users": return withQuery("/access", search) + "#people";
-    case "api-keys": return withQuery("/access", search) + "#api-keys";
-    case "secrets": return "/access#secrets";
+    case "access": return accessTarget(search, hash);
+    case "users": return withQuery("/people", search);
     case "policies": return hash ? `/settings${hash}` : "/settings";
     case "quick-settings": return "/engines#defaults";
     case "instructions": return "/library/agent-rules";
     case "memories": return withQuery("/library", search, { type: "memories" });
     case "hosts": return second === "new" ? "/hosts?add=1" : null;
     case "settings":
-      if (second === "users") return "/access#people";
+      if (second === "users") return "/people";
       return segments.length === 1 ? settingsLegacyTarget(search, hash) : null;
     case "account":
       if (second === "theme") return "/account#appearance";

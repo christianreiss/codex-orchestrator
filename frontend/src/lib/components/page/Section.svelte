@@ -9,20 +9,26 @@
     id?: string;
     /** Destructive blocks get a rule above them and sit last on the page. */
     danger?: boolean;
+    /** The page header already names this section: no heading or description here; the region keeps `title` as its accessible name. */
+    hideTitle?: boolean;
     actions?: Snippet;
     children?: Snippet;
     class?: string;
   };
-  let { title, description, id, danger = false, actions, children, class: className }: Props = $props();
+  let { title, description, id, danger = false, hideTitle = false, actions, children, class: className }: Props = $props();
 </script>
 
-<section {id} class={cn("scroll-mt-20", danger && "border-t border-destructive/30 pt-4", className)}>
-  <div class="mb-2 flex flex-wrap items-end justify-between gap-2">
-    <div class="min-w-0">
-      <h2 class={cn("text-h3", danger && "text-destructive")}>{title}</h2>
-      {#if description}<p class="mt-0.5 text-body-sm text-muted-foreground">{description}</p>{/if}
+<section {id} aria-label={hideTitle ? title : undefined} class={cn("scroll-mt-20", danger && "border-t border-destructive/30 pt-4", className)}>
+  {#if hideTitle}
+    {#if actions}<div class="mb-2 flex flex-wrap items-center justify-end gap-2">{@render actions()}</div>{/if}
+  {:else}
+    <div class="mb-2 flex flex-wrap items-end justify-between gap-2">
+      <div class="min-w-0">
+        <h2 class={cn("text-h3", danger && "text-destructive")}>{title}</h2>
+        {#if description}<p class="mt-0.5 text-body-sm text-muted-foreground">{description}</p>{/if}
+      </div>
+      {#if actions}<div class="flex flex-wrap items-center gap-2">{@render actions()}</div>{/if}
     </div>
-    {#if actions}<div class="flex flex-wrap items-center gap-2">{@render actions()}</div>{/if}
-  </div>
+  {/if}
   {@render children?.()}
 </section>

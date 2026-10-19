@@ -29,7 +29,7 @@ test("working secrets are shared across engines without a scope selector", async
     }
     return undefined;
   });
-  await page.goto("/admin/access#secrets");
+  await page.goto("/admin/secrets");
   await expect(page.getByText("fixture-token", { exact: true })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "Scope", exact: true })).toHaveCount(0);
   await expect(page.getByText("Operator", { exact: true }).last()).toBeVisible();
@@ -330,7 +330,7 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   const hubs: Array<[string, string]> = [
     ["Overview", "/admin/dashboard"], ["Hosts", "/admin/hosts"], ["Agents", "/admin/agents"], ["Projects", "/admin/projects"],
     ["Coordination", "/admin/agent-messaging"], ["Activity", "/admin/activity"],
-    ["Providers", "/admin/accounts"], ["Library", "/admin/library"], ["Access & Settings", "/admin/access"],
+    ["Providers", "/admin/accounts"], ["Library", "/admin/library"], ["Access & Settings", "/admin/people"],
   ];
   for (const [name, href] of hubs) {
     await expect(primary.getByRole("link", { name, exact: true })).toHaveAttribute("href", href);
@@ -340,7 +340,7 @@ test("desktop shell exposes direct task navigation and the command palette", asy
     ["Coordination", "/admin/agent-messaging", ["Messages", "Timed wake-ups", "Git merges", "Shared files"]],
     ["Activity", "/admin/activity", ["Activity", "Reports"]],
     ["Providers", "/admin/accounts", ["Accounts", "Engines"]],
-    ["Access & Settings", "/admin/access", ["Access", "Settings"]],
+    ["Access & Settings", "/admin/people", ["People", "API keys", "Secrets", "Settings"]],
   ];
   for (const [hub, path, pages] of hubPages) {
     await page.goto(path);
@@ -1490,7 +1490,7 @@ test("Access shows the Grok text gateway and issues a scoped client key", async 
       return { disabled: true };
     }
   });
-  await page.goto("/admin/access");
+  await page.goto("/admin/api-keys");
   await page.getByRole("button", { name: "API endpoints", exact: true }).click();
   await expect(page.locator('[data-endpoint="grok"]').getByText(/127\.0\.0\.1:4173\/grok\/v1/)).toBeVisible();
   await page.keyboard.press("Escape");
@@ -1660,7 +1660,7 @@ const keyFilter = (page: Page) => page.getByRole("group", { name: "Filter keys b
 test("Access keeps keys visible, copies endpoints and preserves the vendor filter", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/admin/access");
+  await page.goto("/admin/api-keys");
   await expect(page.getByRole("heading", { name: "API keys", exact: true })).toBeInViewport();
   await expect(page.getByRole("textbox", { name: "Search keys by name or prefix" })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Disable all API traffic" })).not.toBeVisible();
@@ -1683,7 +1683,7 @@ test("Access keeps keys visible, copies endpoints and preserves the vendor filte
   await expectNoSeriousAxeFindings(page);
   await page.screenshot({ path: "test-results/access-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/admin/access");
+  await page.goto("/admin/api-keys");
   await expect(page.getByRole("textbox", { name: "Search keys by name or prefix" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: "test-results/access-mobile.png", fullPage: true });
@@ -1691,11 +1691,11 @@ test("Access keeps keys visible, copies endpoints and preserves the vendor filte
 
 test("Access resolves legacy API anchors and the new-key deep link", async ({ page }) => {
   for (const [anchor, target] of [["service-availability", "#api-state-toggle"], ["exposed-apis", "#api-backend-openai"], ["claude-proxy", "#claude-model"], ["grok-proxy", "#grok-proxy-model"]]) {
-    await page.goto(`/admin/access#${anchor}`);
+    await page.goto(`/admin/api-keys#${anchor}`);
     await expect(page.locator(target)).toBeVisible();
     await expect(page.getByRole("button", { name: "Configure", exact: true })).toHaveAttribute("aria-expanded", "true");
   }
-  await page.goto("/admin/access?dialog=new&engine=grok");
+  await page.goto("/admin/api-keys?dialog=new&engine=grok");
   await expect(page.getByRole("dialog").getByRole("button", { name: "API format", exact: true })).toContainText("Grok");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page).not.toHaveURL(/dialog=new/);
@@ -1713,7 +1713,7 @@ test("Access reports disabled and rerouted backends without changing key namespa
       return { engines: data.engines.map(row => ({ ...row, enabled: row.engine !== "grok" })) };
     }
   });
-  await page.goto("/admin/access");
+  await page.goto("/admin/api-keys");
   await page.getByRole("button", { name: "API endpoints", exact: true }).click();
   await expect(page.locator('[data-endpoint="openai"]')).toContainText("Default engine off");
   await expect(page.locator('[data-endpoint="anthropic"]')).toContainText("Disabled");
@@ -1729,7 +1729,7 @@ test("Access reports disabled and rerouted backends without changing key namespa
 
 test("Access reports query errors instead of claiming access is enabled", async ({ page }) => {
   await page.route("**/admin/engines/state", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "status unavailable" }) }));
-  await page.goto("/admin/access");
+  await page.goto("/admin/api-keys");
   await page.getByRole("button", { name: "API endpoints", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Failed to load API status" })).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-endpoint="openai"]')).toContainText("Status unavailable");
@@ -1748,7 +1748,7 @@ test("Access retains search, toggle and revoke for issued keys", async ({ page }
     if (route.request().method() === "DELETE") { rows = []; writes.push(path); }
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(path.endsWith("/keys") ? rows : { status: "ok" }) });
   });
-  await page.goto("/admin/access");
+  await page.goto("/admin/api-keys");
   await expect(page.getByRole("cell", { name: /^CI runner/ })).toBeVisible();
   const search = page.getByRole("textbox", { name: "Search keys by name or prefix" });
   await search.fill("nothing");
@@ -1772,7 +1772,7 @@ test("Access configuration saves routing and backend defaults and supports keybo
       return body as Record<string, unknown>;
     }
   });
-  await page.goto("/admin/access#configuration");
+  await page.goto("/admin/api-keys#configuration");
   await page.getByRole("button", { name: "Backend for /v1", exact: true }).click();
   await page.getByRole("option", { name: "Claude", exact: true }).click();
   await expect.poll(() => writes).toContainEqual({ path: "/admin/api/surfaces/openai", body: { backend: "claude" } });

@@ -86,7 +86,9 @@ owning components when moving a setting; update this table in the same change.
 
 | Setting family | Editable home |
 | --- | --- |
-| API master/surface controls, gateway keys, people and shared secrets | `/admin/access`, respective section |
+| API master/surface controls and gateway keys | `/admin/api-keys` |
+| People (admin users) | `/admin/people` |
+| Shared secrets | `/admin/secrets` |
 | Engine switches, model/effort/version defaults, quotas, scaling and host-agent rollout | `/admin/engines` |
 | Host-specific access, engine assignments and overrides | `/admin/hosts/[id]` |
 | Fleet host policy, agent-session controls and retention | `/admin/settings` |
@@ -203,7 +205,7 @@ The current `PageShell` already uses a 20 px title, while `text-h1` is 30 px and
 
 ## 8. Baseline inventory and migration debt
 
-This is a source audit, not a live visual acceptance report. All 32 `+page.svelte` entrypoints are represented below, including redirects and the legacy catch-all. Route groups such as `(providers)` do not appear in browser URLs. Paths in this table include the `/admin` base. Child project pages inherit `PageShell` from their layout. “Step-2 check” is an unverified risk to exercise, not a confirmed defect.
+This is a source audit, not a live visual acceptance report. All 34 `+page.svelte` entrypoints are represented below, including redirects and the legacy catch-all. Route groups such as `(providers)` do not appear in browser URLs. Paths in this table include the `/admin` base. Child project pages inherit `PageShell` from their layout. “Step-2 check” is an unverified risk to exercise, not a confirmed defect.
 
 | Current entry / view | Primary task and pattern | Existing composition | Step-2 check |
 | --- | --- | --- | --- |
@@ -229,7 +231,9 @@ This is a source audit, not a live visual acceptance report. All 32 `+page.svelt
 | `/admin/library` | Find shared knowledge; list | `PageShell`, type switch, `LibraryList`, `MemoriesPanel`, `RolesPanel` (roles module switch in the `PageShell` toggle) | All types, memory alternate views, search and permissions; roles off versus empty |
 | `/admin/library/[type]/[name]` | Edit shared artifact; editor | Skill/artifact editors, `RoleEditor` (draft, publish, policy, `history` slot with versions/proposals/holders); invalid-type `PageShell`/`StateBlock` | Valid types, unknown type/name, unsaved changes; role draft versus published, proposal sheet focus |
 | `/admin/library/agent-rules` | Edit effective instructions; editor | `PageShell`, module picker, live preview, advanced/history/manual modes | Preview failure and stored versus effective content |
-| `/admin/access` | Manage people/keys/secrets; settings + lists | `PageShell`, people/API-key/secret sections | Every section, reveal/copy, revoke and permission denial |
+| `/admin/people` | Manage admin users; list | `PageShell`, people section, wipe-all danger zone | Role/permission denial, last-owner protection, wipe confirmation |
+| `/admin/api-keys` | Issue and revoke gateway keys; list + configuration | `PageShell`, API-key section, Configure panel | Reveal/copy, revoke, disabled surface/backend, legacy anchors |
+| `/admin/secrets` | Manage agent-readable credentials; list | `PageShell`, secrets section, secret dialog | Reveal/copy, store switch off/empty, permission denial |
 | `/admin/settings` | Set fleet behavior; settings | Narrow `PageShell`, `Section`, policy/session/retention controls | Immediate-save truth and scope clarity |
 | `/admin/account` | Manage own identity/security; settings | `PageShell`, `Section`, profile/password/passkey/theme/device components | Device pairing, recovery, all theme modes |
 | `/admin/manual` | Find help; help index | `PageShell`, `Section`, `StateBlock`, `ManualSidebar` | Findability and missing content |
@@ -252,7 +256,7 @@ This is a source audit, not a live visual acceptance report. All 32 `+page.svelt
 | Client/session detail and attachments | Portal components inside Agents | Directory, retained chats, attention, timeline, composer, uploads, remote sessions, close/reconnect states |
 | Host creation, quick VM, seed auth and insecure approval popup | Host sheets/dialogs and shared `SeedAuthPanel` | One auth upload UI; focus return, pending/error, safety consequences |
 | Project About/settings, card editor, report creation/detail | Project and report sheets/dialogs | Preserve originating selection and draft; destructive scope clear |
-| Account add/login/seed/reveal/revoke; Access people/keys/secrets dialogs | Domain components plus shared dialog/sheet primitives | No credential exposure in status text or URLs; copy result and permissions clear |
+| Account add/login/seed/reveal/revoke; People/API keys/Secrets dialogs | Domain components plus shared dialog/sheet primitives | No credential exposure in status text or URLs; copy result and permissions clear |
 | Editor history/version/preview/manual mode; memory alternate views and shared-memory restore from Activity; role proposal sheet, revert/withdraw/publish dialogs | Library components | Read-only versus editable state, failed preview, long documents; agent-authored proposal text shown as data |
 | Schedule form/result, Git detail, transfer audit | `ListDetail` / domain sheets | Correct action and event scope; explicit uncertainty |
 | Toasts, banners, inline alerts and confirmation dialogs | Shared feedback/UI components | Durable errors inline; focus, live announcements and both themes |
@@ -276,7 +280,7 @@ API endpoints, downloaded user-authored files, generated provider payloads and t
 
 ### Compatibility and architecture retained
 
-The Svelte SPA is built from `frontend/` into committed `public/admin/`. Browser requests under `/admin` receive the SPA; API clients keep their JSON contracts. The route registry and [legacy mapper](frontend/src/lib/legacy-admin-routes.ts) remain authoritative implementation sources. Current aliases map clients/topology to Agents, logs to Activity, feedback to Reports, authoring/knowledge to Library, users/keys/secrets to Access, policies to Settings and old project sections to Board/Documents/Reports. Preserve supported query/hash behavior using mapper tests; do not invent blanket preservation for aliases that intentionally drop it.
+The Svelte SPA is built from `frontend/` into committed `public/admin/`. Browser requests under `/admin` receive the SPA; API clients keep their JSON contracts. The route registry and [legacy mapper](frontend/src/lib/legacy-admin-routes.ts) remain authoritative implementation sources. Current aliases map clients/topology to Agents, logs to Activity, feedback to Reports, authoring/knowledge to Library, users/keys/secrets and the former `/access` page to People/API keys/Secrets, policies to Settings and old project sections to Board/Documents/Reports. Preserve supported query/hash behavior using mapper tests; do not invent blanket preservation for aliases that intentionally drop it.
 
 Legacy pink theme preferences continue to normalize to the neutral light/dark/system family; this design standard does not remove compatibility inputs. Server state remains in TanStack Query and shared WebSocket invalidation. Pages must not establish competing listeners or duplicated settings ownership to achieve a new appearance.
 

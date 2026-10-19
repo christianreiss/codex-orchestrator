@@ -12,7 +12,7 @@ describe("legacy admin destinations", () => {
     assert.equal(settingsLegacyTarget(q("tab=engines")), "/engines");
     assert.equal(settingsLegacyTarget(q("tab=fleet-policy")), "/settings");
     assert.equal(settingsLegacyTarget(q("tab=claude-config")), "/engines#claude-client");
-    assert.equal(settingsLegacyTarget(q("tab=availability")), "/access#api-keys");
+    assert.equal(settingsLegacyTarget(q("tab=availability")), "/api-keys");
     assert.equal(settingsLegacyTarget(q(), "#log-retention"), "/settings#retention");
     assert.equal(settingsLegacyTarget(q(), "#engine-state"), "/engines#engine-state");
   });
@@ -23,14 +23,23 @@ describe("legacy admin destinations", () => {
     assert.equal(legacyTarget("/logs/events", q()), "/activity?type=changes");
     assert.equal(legacyTarget("/logs/mcp", q()), "/activity?type=tools");
     assert.equal(legacyTarget("/feedback", q()), "/reports");
-    assert.equal(legacyTarget("/users", q()), "/access#people");
-    assert.equal(legacyTarget("/api-keys", q()), "/access#api-keys");
-    assert.equal(legacyTarget("/secrets", q()), "/access#secrets");
+    assert.equal(legacyTarget("/users", q()), "/people");
     assert.equal(legacyTarget("/policies", q()), "/settings");
-    assert.equal(legacyTarget("/api-keys", q("dialog=new")), "/access?dialog=new#api-keys");
     assert.equal(legacyTarget("/quick-settings", q()), "/engines#defaults");
-    assert.equal(legacyTarget("/settings/users", q()), "/access#people");
+    assert.equal(legacyTarget("/settings/users", q()), "/people");
     assert.equal(legacyTarget("/hosts/new", q()), "/hosts?add=1");
+  });
+
+  it("splits the retired /access page into People, API keys and Secrets", () => {
+    assert.equal(legacyTarget("/access", q()), "/people");
+    assert.equal(legacyTarget("/access", q(), "#people"), "/people");
+    assert.equal(legacyTarget("/access", q("user=7"), "#people"), "/people?user=7");
+    assert.equal(legacyTarget("/access", q(), "#api-keys"), "/api-keys");
+    assert.equal(legacyTarget("/access", q("dialog=new&engine=grok"), "#api-keys"), "/api-keys?dialog=new&engine=grok");
+    assert.equal(legacyTarget("/access", q("dialog=new")), "/api-keys?dialog=new");
+    assert.equal(legacyTarget("/access", q(), "#claude-proxy"), "/api-keys#claude-proxy");
+    assert.equal(legacyTarget("/access", q(), "#configuration"), "/api-keys#configuration");
+    assert.equal(legacyTarget("/access", q(), "#secrets"), "/secrets");
   });
 
   it("folds the six Library pages into /library", () => {
@@ -60,7 +69,7 @@ describe("legacy admin destinations", () => {
   });
 
   it("leaves current URLs alone", () => {
-    for (const path of ["/dashboard", "/hosts", "/hosts/3", "/agents", "/library", "/settings", "/access", "/account", "/projects", "/projects/alpha/board"]) {
+    for (const path of ["/dashboard", "/hosts", "/hosts/3", "/agents", "/library", "/settings", "/people", "/api-keys", "/secrets", "/account", "/projects", "/projects/alpha/board"]) {
       assert.equal(legacyTarget(path, q()), null, path);
     }
   });

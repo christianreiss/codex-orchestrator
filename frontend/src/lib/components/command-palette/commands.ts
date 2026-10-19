@@ -136,9 +136,6 @@ export const DEEP_NAV: DeepNavEntry[] = [
   { href: "/library?type=subagents", label: "Library / Subagents", icon: Library, description: "Claude subagents", keywords: ["agents", "claude"] },
   { href: "/library?type=commands", label: "Library / Commands", icon: Terminal, description: "Claude slash commands", keywords: ["slash", "claude"] },
   { href: "/library?type=output-styles", label: "Library / Reply styles", icon: Library, description: "How Claude words its replies (output styles)", keywords: ["output styles", "claude"] },
-  { href: "/access#people", label: "Access / People", icon: Users, description: "Who can sign in to this console (admin users)", keywords: ["users", "admin users", "roles"] },
-  { href: "/access#api-keys", label: "Access / API keys", icon: KeyRound, description: "Keys for the OpenAI, Anthropic and Grok gateways", keywords: ["keys", "gateway", "openai", "anthropic"] },
-  { href: "/access#secrets", label: "Access / Secrets", icon: Lock, description: "Credentials agents can fetch", keywords: ["vault", "credentials"] },
   { href: "/settings#hosts", label: "Settings / Hosts", icon: Server, description: "Fleet-wide host behavior: auto-update, DNS, temporary access", keywords: ["policies", "auto-update", "insecure", "dns"] },
   { href: "/settings#retention", label: "Settings / Data retention", icon: Activity, description: "How long logs and idle hosts are kept", keywords: ["prune", "logs", "retention"] },
   { href: "/account#security", label: "Account / Password & passkeys", icon: Lock, description: "Change your password or manage passkeys", keywords: ["password", "passkeys", "webauthn", "security"] },
@@ -221,7 +218,7 @@ function buildActionCommands(): PaletteCommand[] {
       icon: Plus,
       keywords: ["api", "key", "openai", "claude", "grok", "create"],
       run() {
-        void goto(`${base}/access?dialog=new#api-keys`);
+        void goto(`${base}/api-keys?dialog=new`);
         commandPalette.close();
       },
     },
@@ -392,7 +389,7 @@ function userCommand(u: QuickUser): PaletteCommand {
     icon: UserCircle,
     keywords: ["user", u.username.toLowerCase(), (u.name ?? "").toLowerCase(), (u.email ?? "").toLowerCase()],
     run() {
-      void goto(`${base}/access?user=${encodeURIComponent(String(u.id))}#people`);
+      void goto(`${base}/people?user=${encodeURIComponent(String(u.id))}`);
       commandPalette.close();
     },
   };

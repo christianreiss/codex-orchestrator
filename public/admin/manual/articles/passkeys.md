@@ -83,7 +83,7 @@ Delivering the email needs `SMTP_HOST` set (`api/src/services/mailer.ts`); the o
 
 `POST /admin/auth/password/reset` consumes the reset token. Tokens live in `admin_password_resets`.
 
-If SMTP isn't configured, the recovery path is: another owner or admin opens the **People** section of **Access** (`/access#people`), sets a temporary password, the target admin logs in with it, and then changes it immediately.
+If SMTP isn't configured, the recovery path is: another owner or admin opens **Access & Settings → People** (`/people`), sets a temporary password, the target admin logs in with it, and then changes it immediately.
 
 ## Locked out of every passkey?
 

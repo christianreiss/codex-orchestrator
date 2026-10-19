@@ -26,7 +26,7 @@ Use these canonical destinations from the sidebar or command palette:
 |---|---|---|
 | **Engines** | `/engines` | Engine master switches (Codex, Claude, Grok on/off for the whole fleet), then one section per engine with its state and usage, default model and effort, the **Only current models** policy, the CLI version, and a collapsed **Advanced** block (native settings, Codex silent mode and compaction, Claude client settings); below those, **Usage limits**, **Usage-based scaling**, and **Host agent rollout**. |
 | **Settings** | `/settings` | Fleet-wide behaviour in three sections. **Hosts** (`#hosts`): update hosts automatically (auto-update), look up host names (reverse DNS), allow temporary-access requests (insecure approval), let agents set up new hosts, and remove inactive hosts. **Agents** (`#agents`): agent sessions, how agents treat API keys pasted in chat, the model-tier self-check, and role checks (authorization mode). **Data retention** (`#retention`): remove old logs automatically and session housekeeping. |
-| **API keys** (in Access) | `/access#api-keys` | Issued keys first; **Configure** opens *Service availability & routing*: the **Routing** table, **Backend defaults**, and the global **All API traffic** control. |
+| **API keys** (in Access & Settings) | `/api-keys` | Issued keys first; **Configure** opens *Service availability & routing*: the **Routing** table, **Backend defaults**, and the global **All API traffic** control. |
 
 Each engine's section on Engines (`/engines#codex-defaults`, `#claude-defaults`, `#grok-defaults`; the former Quick Settings page redirects to `/engines#defaults`) saves the default model and effort immediately ("Selections save automatically"). Selecting a model also selects its catalog default effort; only supported effort levels appear, and models without effort support show **No effort setting**. A failed save restores the confirmed selection and refreshes the server state before another change, and a failed read offers **Retry** (for example *Retry Codex defaults*). Clients receive defaults on their next sync; per-host exceptions (host overrides) take precedence.
 
@@ -245,7 +245,7 @@ The following areas each have their own destination (a hub, page, or section).
 
 ### People (admin users)
 
-The **People** section of the Access page (`/access#people`).
+The **People** page (`/people`, in Access & Settings).
 
 Full CRUD for admin accounts (`api/src/routes/admin/users/index.ts`), `users.read` to list and `users.manage` (owner/admin) to change:
 
@@ -402,7 +402,7 @@ The following variables are read from the process environment at startup. They c
 
 - frontend/src/routes/(providers)/engines/+page.svelte (engine sections, anchors, grouped controls)
 - frontend/src/routes/(access)/settings/+page.svelte (fleet-wide behaviour: Hosts, Agents, Data retention)
-- frontend/src/routes/(access)/access/+page.svelte, frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/ApiConfigure.svelte (service availability, routing, proxy toggles, issued keys)
+- frontend/src/routes/(access)/api-keys/+page.svelte, frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/ApiConfigure.svelte (service availability, routing, proxy toggles, issued keys)
 - frontend/src/lib/components/policies/AuthorizationPolicy.svelte, frontend/src/lib/components/policies/TogglePolicy.svelte, frontend/src/lib/components/policies/CleanupPolicy.svelte (the Settings rows)
 - frontend/src/lib/components/settings/QuotasSection.svelte (Usage limits; sends `off`/`5`/`7`)
 - frontend/src/lib/components/authoring/HooksEditor.svelte, frontend/src/lib/constants/models.ts (hook shape, `HOOK_EVENTS`, `ADVISOR_MODELS`)

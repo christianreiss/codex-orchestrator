@@ -23,6 +23,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Library,
+  Lock,
   MessageSquareShare,
   MessageSquareText,
   RadioTower,
@@ -30,6 +31,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   UserRoundCog,
+  Users,
   Waypoints,
 } from "@lucide/svelte";
 import type { Component } from "svelte";
@@ -168,8 +170,16 @@ const REGISTRY: NavDefinition[] = [
     match: /^\/library(?:\/|$)/,
   },
   {
-    id: "access", group: "access", route: "/access", label: "Access",
-    description: "People, API keys and secrets", keywords: ["users", "people", "roles", "api keys", "openai", "anthropic", "proxy", "keys", "secrets", "credential", "vault"], icon: KeyRound,
+    id: "people", group: "access", route: "/people", label: "People",
+    description: "Who can sign in to this console", keywords: ["users", "admin users", "roles", "access", "accounts", "sign in", "wipe"], icon: Users,
+  },
+  {
+    id: "api-keys", group: "access", route: "/api-keys", label: "API keys",
+    description: "Keys for the OpenAI, Anthropic and Grok gateways", keywords: ["keys", "access", "gateway", "openai", "anthropic", "grok", "proxy", "availability", "routing"], icon: KeyRound,
+  },
+  {
+    id: "secrets", group: "access", route: "/secrets", label: "Secrets",
+    description: "Credentials agents can read over MCP", keywords: ["access", "credential", "credentials", "vault", "mcp", "secret_get"], icon: Lock,
   },
   {
     id: "settings", group: "access", route: "/settings", label: "Settings",
