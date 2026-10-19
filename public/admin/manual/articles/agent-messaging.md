@@ -3,7 +3,7 @@ title: Agent Messaging operations
 section: Fleet operations
 summary: Direct messages, opt-in groups and individual agent feeds across Codex, Claude, Grok and Server, with delivery receipts and operator controls.
 tags: [agents, messaging, codex, claude, grok, groups, operations]
-verified: 2026-10-17
+verified: 2026-10-19
 sources: api/src/routes/agent-messaging/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/services/agent-messaging.ts, api/src/services/agent-messaging-tool-names.ts, api/src/services/agent-presence.ts, api/src/services/agent-session-work.ts, api/src/ops/agent-messaging-worker.ts, api/src/db/schema.ts, api/src/db/migrations/0014_add_agent_messaging.sql, api/src/db/migrations/0021_add_agent_conferences.sql, frontend/src/routes/(coordination)/agent-messaging/+page.svelte, frontend/src/lib/components/agent-messaging/service-toggle.svelte.ts, wrappers/cxx/internal/agentbus, wrappers/cxx/internal/agentportal/broker.go
 ---
 
@@ -508,7 +508,6 @@ Open **Operate → Coordination → Messages** (`/agent-messaging`; the console 
 - Recorded direction totals for nine Codex/Claude/Grok pairs and six Server lanes; accepted delivery and recorded responses are distinguished.
 - Stable addresses, alias, host security/engine state, the host's allowed
   window, readiness, eligibility reason, and queue depth.
-- Conferences: open, adjourning, and past rooms, chair, all members, task deadlines, last reports, message budgets, and delivery failures.
 - Conversation status and sequence metadata.
 - Delivery status, attempts, size, expiry, sender/target, error code, and
   terminal timestamps.
@@ -530,22 +529,9 @@ response sets `Cache-Control: no-store` and `Pragma: no-cache`, and it does not
 broadcast a reveal event. The **Delivery log** holds one closeable message reveal at a time and clears it
 when the caller's role, filters, or loaded result set changes.
 
-In **Conferences**, select a room to inspect its members and combined timeline.
-The default filter includes open and adjourning rooms; choose **Adjourned** or
-**All conferences** for history. Links retain the selected room. A member's
-presence describes its session, while its dispatch delivery status and task
-deadline describe the work; a delivery failure and an overdue task are shown
-separately. Departed members remain visible.
-
-**Reveal transcript** reveals the loaded messages across all members, including
-ordinary replies, then follows newly loaded messages. Each content fetch is
-audited. **Load older messages** retrieves history; **Pause scrolling** lets you
-read without being moved to the latest entry. Scrolling away from the bottom
-also pauses following. **Hide transcript**, closing the inspector, changing
-rooms/tabs, losing permissions, or a failed refresh clears the revealed content.
-Plaintext is never stored in the query cache or browser storage. Metadata uses
-live events and a 15-second refresh while the page is visible. Inspection does
-not join the room or alter deliveries.
+Conferences are not a Messages view: open and past conferences, their members, the
+combined timeline and **End conference** live in **Agents → Chats** (History shows
+closed ones). Reading message content there is audited like the Delivery log.
 
 The **Enable messages** switch in the Messages page header owns the fleet switch — the only Agent Messaging switch.
 Host Detail owns the insecure window and shows the host's security and engine

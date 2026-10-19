@@ -1,5 +1,7 @@
 # 2026-10-19
 
+- Messages no longer has a Conferences tab: conferences (members, combined timeline, ending one, History) already live in Agents → Chats, which now applies the Android display rules. Conversations, Addresses, Groups and the Delivery log stay for diagnosis. The agent-side conference tools and API are unchanged.
+
 - Projects list is one tidy row per project: title, slug and a one-line description beneath, and the update time. The always-"Unknown" Open work column and the mostly empty Description column are gone, and long titles no longer push the slug and age onto extra lines.
 
 - Agents → Chats on the web now follows the Android display rules: Direct messages lists only online, writable agents (offline and ended ones are hidden even with an urgent notice, and stay readable by link), shared rooms appear only while a reachable member is also an online agent, and History shows closed conferences without direct chats. The Active/Online switch is gone.

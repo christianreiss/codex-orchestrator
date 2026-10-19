@@ -15,7 +15,7 @@ export const MESSAGE_STATUSES = [
   "expired", "canceled", "batched", "digested", "superseded",
 ] as const;
 export const LIMITS = [50, 100, 250, 500] as const;
-export const VIEWS = ["conversations", "addresses", "groups", "conferences", "deliveries"] as const;
+export const VIEWS = ["conversations", "addresses", "groups", "deliveries"] as const;
 
 export type ConversationStatusFilter = (typeof CONVERSATION_STATUSES)[number]["value"];
 export type MessageStatusFilter = (typeof MESSAGE_STATUSES)[number];

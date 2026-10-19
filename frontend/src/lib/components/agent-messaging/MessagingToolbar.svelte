@@ -22,7 +22,6 @@
     { value: "conversations", label: "Conversations" },
     { value: "addresses", label: "Addresses", hint: "Every agent that can be messaged" },
     { value: "groups", label: "Groups", hint: "Opt-in audiences and subscriptions" },
-    { value: "conferences", label: "Conferences" },
   ];
   const segment = $derived(VIEW_OPTIONS.some((option) => option.value === model.view) ? model.view : "");
   const showLimit = $derived(model.view !== "groups");

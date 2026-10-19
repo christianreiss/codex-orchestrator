@@ -7,7 +7,6 @@
   import { PageShell, StatStrip } from "$lib/components/page";
   import { Button } from "$lib/components/ui/button";
   import AddressesView from "$lib/components/agent-messaging/AddressesView.svelte";
-  import Conferences from "$lib/components/agent-messaging/Conferences.svelte";
   import ConversationsView from "$lib/components/agent-messaging/ConversationsView.svelte";
   import DeliveryLog from "$lib/components/agent-messaging/DeliveryLog.svelte";
   import Groups from "$lib/components/agent-messaging/Groups.svelte";
@@ -71,8 +70,6 @@
     <AddressesView />
   {:else if filters.view === "groups"}
     <Groups {enabled} />
-  {:else if filters.view === "conferences"}
-    <Conferences limit={filters.limit} />
   {:else}
     <DeliveryLog {filters} {enabled} />
   {/if}
