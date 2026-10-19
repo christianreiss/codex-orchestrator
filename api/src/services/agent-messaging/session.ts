@@ -63,6 +63,7 @@ import {
 import type { AgentMessagingDb, RegisterMessagingSessionInput } from './types.js';
 import { publicAddress } from './views.js';
 import { bindNativeMessagingIdentityLocked } from './native-identity.js';
+import { agentSessionFinishedError } from '../agent-session-finished.js';
 import {
   reapExpiredAgentMessagingBindingsLocked,
   suspendAgentMessagingRuntimeLocked,
@@ -164,7 +165,7 @@ export class SessionRegistry {
       const existing = existingRows[0];
       if (existing) {
         this.core.assertSessionRegistration(existing, host, input.engine, username, cwd, input.invocationKind, bridgeToken);
-        if (existing.endedAt) throw new ConflictError('Agent session is finished', 'agent_session_finished');
+        if (existing.endedAt) throw await agentSessionFinishedError(tx, existing);
         await tx.update(agentSessions).set({ ...(input.workspace ? { workspace } : {}), hostAuthFingerprint: fingerprint, bridgeExpiresAt, heartbeatAt: now, updatedAt: now }).where(eq(agentSessions.id, sessionId));
       } else {
         await tx.insert(agentSessions).values({

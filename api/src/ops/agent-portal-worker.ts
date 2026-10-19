@@ -4,6 +4,10 @@ import type { Database } from '../db/client.js';
 import type { Env } from '../env.js';
 import type { Keyring } from '../security/keyring.js';
 import { createAgentPortalService } from '../services/agent-portal.js';
+import { isoOffsetSeconds } from '../util/timestamp.js';
+
+/** How long after an API start the abandonment sweep waits for live wrappers to reconnect. */
+const ABANDONED_SESSION_START_GRACE_SECONDS = 150;
 
 /**
  * DB-backed retention worker. Database rows are the source of truth; the timer is
@@ -18,6 +22,10 @@ export function startAgentPortalWorker(
   keyring: Keyring,
 ): void {
   const portal = createAgentPortalService(db, env, keyring);
+  // A live wrapper retries its heartbeat at most every 60 s (cxx backoff ceiling)
+  // and a communicator redial adds up to 10 s more; give it twice that after a
+  // start before treating a lapsed bridge as an abandoned session.
+  const abandonedGraceUntil = isoOffsetSeconds(ABANDONED_SESSION_START_GRACE_SECONDS);
   let stopped = false;
   let running = false;
 
@@ -25,7 +33,7 @@ export function startAgentPortalWorker(
     if (stopped || running) return;
     running = true;
     try {
-      const purged = await portal.purgeExpired();
+      const purged = await portal.purgeExpired({ abandonedGraceUntil });
       await new ChatAttachments(db, keyring, env.DATA_ROOT ?? 'storage').purge();
       if (purged.sessions || purged.browser_sessions || purged.abandoned_sessions) {
         app.log.info({ purged }, 'agent portal retention purge');

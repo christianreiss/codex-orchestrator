@@ -112,6 +112,7 @@ import {
   reapExpiredAgentMessagingBindingsLocked,
 } from './agent-messaging/bindings.js';
 import { SessionRegistry } from './agent-messaging/session.js';
+import { agentSessionFinishedError } from './agent-session-finished.js';
 import { ConferenceCoordinator } from './agent-messaging/conference.js';
 import { AgentMessagingGroups, SERVER_ADDRESS_ID } from './agent-messaging/groups.js';
 import {
@@ -1929,7 +1930,7 @@ export class AgentMessagingService {
       throw new UnauthorizedError('Agent bridge host credential changed', 'agent_bridge_host_auth_changed');
     }
     assertHostEngineEnabled(row.host, row.session.engine as Engine, await readFleetEngineState(this.db));
-    if (row.session.endedAt && !allowEnded) throw new ConflictError('Agent session is finished', 'agent_session_finished');
+    if (row.session.endedAt && !allowEnded) throw await agentSessionFinishedError(this.db, row.session);
     if (!row.session.endedAt && row.session.bridgeExpiresAt <= nowIso()) throw new UnauthorizedError('Agent bridge credential expired', 'agent_bridge_expired');
     return row;
   }
@@ -2016,7 +2017,7 @@ export class AgentMessagingService {
     if (!session || session.hostId !== hostId || !safeHashEqual(sha256(rawToken ?? ''), session.bridgeTokenHash)) {
       throw new UnauthorizedError('Invalid agent bridge credential', 'agent_bridge_unauthorized');
     }
-    if (session.endedAt) throw new ConflictError('Agent session is finished', 'agent_session_finished');
+    if (session.endedAt) throw await agentSessionFinishedError(db, session);
     return session;
   }
 

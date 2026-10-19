@@ -1288,6 +1288,21 @@ headless; elsewhere its mail waits for a human to restart the agent and expires
 after its TTL. The scoped bridge bearer is kept by `cxx` and proxied to
 the engine over its private Unix socket.
 
+A bridge lease lasts `AGENT_PORTAL_BRIDGE_TTL_SECONDS` (default 900) and is
+renewed by the 15-second heartbeat (cxx backs off to 60 seconds while the API is
+unreachable). A lapsed lease is recoverable: the bridge answers
+`agent_bridge_expired` and the wrapper registers the same session ID and token
+again. The portal's abandonment sweep ends a session whose lease lapsed (status
+`failed`, event `server:abandoned`, address unbound). It waits 150 seconds after
+an API start, so wrappers that outlived an API outage renew before they are swept.
+An ended lifecycle is never revived, even with its own credential: every bridge
+call and re-registration answers `409 agent_session_finished`, which cxx treats
+as terminal. The response carries `ended_reason` (`abandoned` | `finished`) and
+`recovery: "resume_native_conversation"`. The message names the route: exit the CLI
+and resume the same native conversation in a new managed launch. The exact resume
+rebinds the same address (next binding generation, native continuity) and needs no
+fresh-start approval, which stays limited to operator-approved replacement deliveries.
+
 Session-bound operations require `X-Agent-Bridge-Token`:
 
 From cxx 0.9.59, registration accepts optional `workspace` with absolute `cwd`,
