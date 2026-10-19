@@ -3,7 +3,7 @@ title: Agents and agent sessions
 section: Admin workspace
 summary: Session settings, remote work, presence, Needs you, and instructing or closing an agent through the Agents page and Android.
 tags: [clients, sessions, android, afk]
-verified: 2026-10-17
+verified: 2026-10-19
 sources: api/src/routes/agent-portal/admin-host.ts, api/src/routes/admin/agent-sessions/index.ts, api/src/services/agent-portal.ts, frontend/src/routes/(agents)/agents/+page.svelte, frontend/src/lib/components/portal/ClientsWorkspace.svelte, frontend/src/lib/components/portal/SessionControls.svelte, frontend/src/lib/components/portal/RemoteSessions.svelte, wrappers/cxx/internal/agentportal/command.go
 ---
 
@@ -11,11 +11,14 @@ The **Agents** page (`/agents`, in the Operate group; previously Active Clients)
 The paired Android companion provides mobile chat, decisions and notifications.
 The old `/go` webchat, magic links and portal-user management have been removed.
 
-The compact directory has **Active** and **Online** filters, search and engine selection.
-Active includes ongoing sessions and unresolved Needs you notices; affected chats are
-highlighted and sorted first. Online shows sessions with fresh heartbeats. Avatar
-icons show working, idle, waiting and connection states, with labels on hover.
-Retained ended chats remain readable through existing session links.
+The directory applies the same display rules as the Android app, with search and
+engine selection. **Direct messages** lists only online agents (listening, working
+or idle, not read-only); offline and ended agents are not listed, even with an
+unresolved notice, but their chats stay readable through session links. Shared rooms
+(groups, conferences, project and host rooms) are listed only while a reachable
+member is also an online agent; without the agent overview the roster's `reachable`
+flag is used. **History** shows retained closed conferences and no direct chats.
+Avatar icons show working, idle, waiting and connection states, with labels on hover.
 
 ## Agent session settings
 

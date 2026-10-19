@@ -50,10 +50,10 @@ async function fixtures(page: Page, manage = true) {
   });
   return state;
 }
-async function open(page: Page) {
+async function open(page: Page, ready = CODEX) {
   await page.goto("/admin/agents");
   await expect(page.getByRole("heading", { name: "Agents", exact: true, level: 1 })).toBeVisible({ timeout: 15_000 });
-  await expect(page.locator(`#client-${CODEX}`)).toBeVisible();
+  await expect(page.locator(`#client-${ready}`)).toBeVisible();
 }
 async function stream(page: Page, type: string, data?: string) {
   await page.evaluate(({ type, data }) => {
@@ -62,12 +62,11 @@ async function stream(page: Page, type: string, data?: string) {
   }, { type, data });
 }
 
-test("retained chats stay visible through offline, end, reload and reconnect", async ({ page }) => {
+test("only online chats are listed; offline and ended ones stay readable by link", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const state = await fixtures(page);
   state.events = [{ cursor: 1, session_id: CODEX, type: "assistant_message", source: "engine", payload: { text: "Retained conversation" }, created_at: new Date().toISOString() }];
   await open(page);
-  await expect(page.getByRole("button", { name: "Active", exact: true })).toHaveAttribute("aria-pressed", "true");
   for (const presence of ["offline", "ended", "listening"]) {
     Object.assign(state.sessions[0], {
       presence, relay_ready: presence === "listening", read_only: presence === "ended",
@@ -75,7 +74,8 @@ test("retained chats stay visible through offline, end, reload and reconnect", a
       expires_at: presence === "ended" ? new Date(Date.now() + 86_400_000).toISOString() : null,
     });
     await page.reload();
-    if (presence === "ended") {
+    if (presence !== "listening") {
+      await expect(page.locator(`#client-${CLAUDE}`)).toBeVisible();
       await expect(page.locator(`#client-${CODEX}`)).toHaveCount(0);
       await page.goto(`/admin/agents?session=${CODEX}`);
     } else {
@@ -117,7 +117,7 @@ test("client directory exposes both engines, searchable work, and accessible ava
   await page.screenshot({ path: "/tmp/active-clients-desktop.png", fullPage: true });
 });
 
-test("compact Active and Online filters retain attention and show native activity on avatars", async ({ page }) => {
+test("the chat list shows online agents only and native activity on avatars", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const state = await fixtures(page);
   const at = new Date().toISOString();
@@ -136,27 +136,17 @@ test("compact Active and Online filters retain attention and show native activit
   unknown.activity = { state: "working", source: "engine", wait_reason: null, changed_at: at, expires_at: new Date(Date.now() - 1_000).toISOString() };
   state.sessions.push(waiting, offline, ended, unknown);
   await open(page);
-  const filters = page.getByRole("group", { name: "Show sessions" });
-  await expect(filters.getByRole("button")).toHaveText(["Active", "Online"]);
+  await expect(page.getByRole("group", { name: "Show sessions" })).toHaveCount(0);
   await expect(page.locator(`#client-${CODEX} [data-client-status="idle"]`)).toBeVisible();
   await expect(page.locator(`#client-${CLAUDE} [data-client-status="working"]`)).toBeVisible();
   await expect(page.locator('#client-waiting [data-client-status="waiting"]')).toBeVisible();
   await expect(page.locator('#client-unknown [data-client-status="unknown"]')).toBeVisible();
-  await expect(page.locator('#client-offline [data-client-status="offline"]')).toBeVisible();
-  await expect(page.locator('#client-ended-notice [data-client-status="ended"]')).toBeVisible();
-  await expect(page.locator('#client-offline')).toHaveClass(/ring-destructive/);
-  await expect(page.locator('#client-ended-notice')).toHaveClass(/ring-destructive/);
-  await expect(page.getByRole("region", { name: "Client directory" }).locator('button[id^="client-"]').first()).toHaveAttribute("id", "client-ended-notice");
-  const toolbar = filters.locator('..');
-  expect(await toolbar.evaluate(element => element.getBoundingClientRect().height)).toBeLessThan(260);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.screenshot({ path: "/tmp/active-clients-compact-mobile.png", fullPage: true });
-  await page.getByRole("button", { name: "Online", exact: true }).click();
+  // Same rule as the Android app: offline and ended agents are not current chats, even with a notice.
   await expect(page.locator('#client-offline')).toHaveCount(0);
   await expect(page.locator('#client-ended-notice')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: "/tmp/active-clients-compact-mobile.png", fullPage: true });
   await expect(page.locator('#client-waiting')).toBeVisible();
-  await page.getByRole("button", { name: "Active", exact: true }).click();
-  await expect(page.locator('#client-offline')).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ path: "/tmp/active-clients-compact-desktop.png", fullPage: true });
 });
@@ -224,9 +214,9 @@ test("mobile client details and return navigation remain reachable without overf
 test("a stale heartbeat becomes offline while stored status remains active", async ({ page }) => {
   const state = await fixtures(page);
   state.sessions[0].heartbeat_at = new Date(Date.now() - 120_000).toISOString();
-  await open(page);
-  await expect(page.locator(`#client-${CODEX}`).getByRole("img", { name: "Offline", exact: true })).toBeVisible();
-  await page.locator(`#client-${CODEX}`).click();
+  await open(page, CLAUDE);
+  await expect(page.locator(`#client-${CODEX}`)).toHaveCount(0);
+  await page.goto(`/admin/agents?session=${CODEX}`);
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
   await expect(page.getByText("No confirmed connection. The client may reconnect; running work is unconfirmed.", { exact: true }).first()).toBeVisible();
 });
@@ -484,7 +474,8 @@ test("explicit offline urgency survives browsing and resolves only the targeted 
   const state=await fixtures(page);const notice='44444444-4444-4444-8444-444444444444';const raised=new Date().toISOString();
   state.sessions[0].presence='ended';state.sessions[0].ended_at=raised;state.sessions[0].read_only=true;
   state.sessions[0].attention={id:notice,severity:'blocker',summary:'Review the failed rollout',since:raised};state.sessions[0].notices=[{id:notice,severity:'blocker',summary:'Review the failed rollout',since:raised}];
-  await open(page);await page.locator(`#client-${CODEX}`).click();
+  await open(page, CLAUDE);await expect(page.locator(`#client-${CODEX}`)).toHaveCount(0);
+  await page.goto(`/admin/agents?session=${CODEX}`);
   await expect(page.getByRole('region',{name:'Needs you',exact:true})).toContainText('blocker');
   expect(state.bodies.filter(b=>b.path.endsWith('/notices/resolve'))).toHaveLength(0);
   await page.getByRole('button',{name:'Mark resolved',exact:true}).click();

@@ -39,7 +39,6 @@
         <ClientsWorkspace
           bind:search={agents.search}
           bind:engine={agents.engine}
-          bind:filter={agents.liveFilter}
           bind:workspace={agents.workspace}
           bind:startRemote={agents.startRemote}
           bind:selectedId={agents.liveSelectedId}

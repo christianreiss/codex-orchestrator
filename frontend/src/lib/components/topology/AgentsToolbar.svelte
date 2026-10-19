@@ -58,14 +58,7 @@
       <option value="grok">Grok</option>
     </select>
   {/if}
-  {#if agents.view === "live" && !remote}
-    <SegmentedControl
-      label="Show sessions"
-      value={agents.liveFilter}
-      onChange={(next) => (agents.liveFilter = next === "online" ? "online" : "active")}
-      options={[{ value: "active", label: "Active" }, { value: "online", label: "Online" }]}
-    />
-  {:else if agents.view === "graph"}
+  {#if agents.view === "graph"}
     <select aria-label="Filter status" bind:value={agents.status} class={selectClass}>
       <option value="all">All statuses</option>
       {#each statuses as status (status)}<option value={status}>{status}</option>{/each}

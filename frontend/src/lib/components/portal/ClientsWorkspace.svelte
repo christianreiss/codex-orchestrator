@@ -41,7 +41,7 @@
   import { liveActivity } from "$lib/portal/activity";
   import { presenceView } from "$lib/portal/presence";
   import { listTime, visibleTimeline } from "$lib/portal/grouping";
-  import { clientClock, snapshotIsStale, visibleClients, type ClientFilter } from "$lib/portal/clients";
+  import { clientClock, isOnlineActiveAgent, roomHasActiveAgent, snapshotIsStale, visibleClients } from "$lib/portal/clients";
   import { watchClientEvents, type ClientFeedState } from "$lib/portal/client-events";
   import type { TimelineSource } from "$lib/portal/types";
   import { reconnectReceiverMutation, agentSessionKeys, agentSessionsQuery, forceCloseMutation, requestCloseMutation, sendMutation, sessionEventsQuery, type AgentSessionRow } from "$lib/api/agentSessions";
@@ -54,7 +54,6 @@
     /** Directory filters, owned by the Agents page toolbar. */
     search?: string;
     engine?: "all" | "codex" | "claude" | "grok";
-    filter?: ClientFilter;
     /** "agents" or "remote" (daemon-launched sessions). */
     workspace?: "agents" | "remote";
     /** Open the "start remote session" dialog. */
@@ -70,7 +69,6 @@
     spawnOpen = $bindable(false),
     search = $bindable(""),
     engine = $bindable("all"),
-    filter = $bindable("active"),
     workspace = $bindable("agents"),
     startRemote = $bindable(false),
     selectedId = $bindable(null),
@@ -86,7 +84,6 @@
   const sharedRooms = createInfiniteQuery(reactiveOptions(()=>roomOptions(!embedded && $authStore.can('agent_messaging.read'), roomView)));
   const roomData = $derived($sharedRooms.data ? {enabled:$sharedRooms.data.pages[0]?.enabled, rooms:$sharedRooms.data.pages.flatMap(p=>p.rooms ?? []), has_more:$sharedRooms.hasNextPage} : undefined);
   const selectedRoom = $derived(embedded ? null : page.url.searchParams.get('room'));
-  const roomRows = $derived(matchingRooms(roomData?.rooms ?? [], search, engine));
   $effect(()=>{if(selectedRoom&&!roomDrafts[selectedRoom])roomDrafts[selectedRoom]=emptyRoomDraft();});
   let newRoomOpen = $state(false);
   let roomDrafts = $state<Record<string,RoomDraft>>({});
@@ -141,7 +138,11 @@
   const timings = $derived($sessions.data?.timings ?? {});
   const serverNow = $derived(clientClock($sessions.data, $sessions.dataUpdatedAt, now));
   const stale = $derived(Boolean($sessions.data) && snapshotIsStale($sessions.dataUpdatedAt, now, timings));
-  const visible = $derived(visibleClients(rows, { search, engine, filter: roomView === 'history' ? 'ended' : filter, sort: "status" }, serverNow, timings));
+  // Same rule as the Android app: current rooms need a reachable member that is also an online agent.
+  const onlineSessionIds = $derived($sessions.data ? new Set(allRows.filter(row => isOnlineActiveAgent(row, serverNow, timings)).map(row => row.id)) : null);
+  const roomRows = $derived(matchingRooms((roomData?.rooms ?? []).filter(room => roomView === 'history' || roomHasActiveAgent(room, onlineSessionIds)), search, engine));
+  // History lists retained conferences only; direct chats are current chats.
+  const visible = $derived(roomView === 'history' ? [] : visibleClients(rows, { search, engine, filter: "active", sort: "status" }, serverNow, timings));
   const selected = $derived(allRows.find((row) => row.id === selectedId) ?? null);
   const selectedView = $derived(selected ? presenceView(selected, serverNow, timings) : null);
   const actionsUnavailable = $derived(!enabled || stale || $sessions.isError);
@@ -274,7 +275,7 @@
   }
   function onreply(option?: string) { if (option) void submit(option, true); else composerInput?.focus(); }
   function refresh() { void client.invalidateQueries({ queryKey: ["host-daemons"] }); void client.invalidateQueries({ queryKey: ["daemon-sessions"] }); void client.invalidateQueries({ queryKey: agentSessionKeys.all }); if (feedState === "reconnecting") feedRetry++; }
-  function resetFilters() { search = ""; engine = "all"; filter = "active"; }
+  function resetFilters() { search = ""; engine = "all"; }
   function agentName(row: AgentSessionRow) { return row.launch_name || row.session_name || row.work.address_alias || `Session ${row.id.slice(0, 8)}`; }
   function age(value: string | null, clock = serverNow) { return value ? shortAge(value, clock) || "unknown" : "unknown"; }
   function exactTime(value: string | null) { const date = value ? new Date(value) : null; return date && Number.isFinite(date.getTime()) ? date.toLocaleString() : "Not reported"; }
@@ -331,11 +332,13 @@
           {#if canRemoteManage}<Button variant="ghost" size="icon" class="h-8 w-8" aria-label="New conversation" onclick={()=>newRoomOpen=true}><PlusIcon class="h-4 w-4"/></Button>{/if}
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
+          {#if roomView === 'active'}
           <h3 class="px-3 pb-1 pt-3 text-caption font-medium text-muted-foreground">Direct messages <span class="ml-1 tabular-nums">{visible.length}</span></h3>
           {#if !visible.length}
-            <div class="px-3 py-3 text-caption text-muted-foreground">{#if rows.length}<h3 class="font-medium">No clients match</h3>{:else}<p>No direct conversations yet.</p>{/if}{#if rows.length}<button type="button" class="mt-1 min-h-8 text-primary underline" onclick={resetFilters}>Clear filters</button>{/if}</div>
+            <div class="px-3 py-3 text-caption text-muted-foreground">{#if search || engine !== "all"}<h3 class="font-medium">No clients match</h3><button type="button" class="mt-1 min-h-8 text-primary underline" onclick={resetFilters}>Clear filters</button>{:else}<p>No agents online.</p>{/if}</div>
           {:else}
             {#each visible as row (row.id)}{@render sessionRow(row)}{/each}
+          {/if}
           {/if}
           {#if $authStore.can('agent_messaging.read')}
             {#if $sharedRooms.isPending}<p role="status" class="p-3 text-caption text-muted-foreground">Loading shared conversations…</p>

@@ -51,6 +51,15 @@ async function fixture(page: Page) {
     },
   ];
   const sends: Record<string, unknown>[] = [];
+  // The member's agent: rooms only count as current while it is an online agent.
+  const agents: Record<string, unknown>[] = [{
+    id: AGENT, engine: "codex", host_id: 1, host: "biest.example", username: "operator", cwd: "/srv/fleet",
+    invocation_kind: "interactive", upstream_session_id: null, status: "active", presence: "listening",
+    relay_ready: true, relay_enabled: true, relay_heartbeat_at: now, active_turn_id: null, active_turn_started_at: null,
+    started_at: now, heartbeat_at: now, last_event_at: now, attention: null, ended_at: null, expires_at: null,
+    close_requested_at: null, close: null, read_only: false, pending_prompt: null,
+    work: { task: null, branch: null, target_branch: null, declared_paths: [], worktree_path: null, address: null, address_alias: null },
+  }];
   let loseResponse = false;
   await page.routeWebSocket("**/room-ws", () => {});
   await page.addInitScript(() => {
@@ -98,7 +107,7 @@ async function fixture(page: Page) {
         url: new URL("/room-ws", req.url()).href.replace(/^http/, "ws"),
       });
     if (path === "/admin/agent-sessions")
-      return json({ enabled: true, generated_at: now, sessions: [] });
+      return json({ enabled: true, generated_at: now, sessions: agents });
     if (path === "/admin/agent-messaging/chats") {
       const closed = rooms.filter(
         (r) =>
@@ -162,6 +171,7 @@ async function fixture(page: Page) {
   });
   return {
     rooms,
+    agents,
     events,
     sends,
     dropNext: () => {
@@ -175,7 +185,8 @@ test("History keeps closed conferences readable independently of the session too
   await page.setViewportSize({ width: 1440, height: 900 });
   const state = await fixture(page);
   state.rooms[1].status = "adjourned";
-  state.rooms[1].members[0].reachable = false;
+  // The members share one object; the conference needs its own unreachable copy.
+  state.rooms[1].members = [{ ...state.rooms[1].members[0], reachable: false }];
   await page.goto("/admin/agents");
   await expect(page.locator(`#room-${GROUP}`)).toBeVisible();
   await expect(page.locator(`#room-${CONF}`)).toHaveCount(0);
@@ -185,13 +196,8 @@ test("History keeps closed conferences readable independently of the session too
   ).toBeVisible();
   await expect(page.locator(`#room-${CONF}`)).toBeVisible();
   await expect(page.locator(`#room-${GROUP}`)).toHaveCount(0);
-  await page
-    .getByRole("group", { name: "Show sessions" })
-    .getByRole("button", { name: "Online", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "History", exact: true }),
-  ).toBeVisible();
+  // History lists retained conferences only, never direct chats.
+  await expect(page.getByRole("heading", { name: "Direct messages" })).toHaveCount(0);
   await page.locator(`#room-${CONF}`).click();
   await expect(page.getByText("This conference has ended.")).toBeVisible();
   await page
@@ -199,6 +205,16 @@ test("History keeps closed conferences readable independently of the session too
     .getByRole("button", { name: "Active", exact: true })
     .click();
   await expect(page.locator(`#room-${GROUP}`)).toBeVisible();
+  await expect(page.locator(`#room-${CONF}`)).toHaveCount(0);
+});
+test("current rooms need a reachable member that is also an online agent", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const state = await fixture(page);
+  state.agents[0].presence = "offline";
+  await page.goto("/admin/agents");
+  await expect(page.getByText("No agents online.")).toBeVisible();
+  // The roster still says reachable, but the agent behind it is not online.
+  await expect(page.locator(`#room-${GROUP}`)).toHaveCount(0);
   await expect(page.locator(`#room-${CONF}`)).toHaveCount(0);
 });
 test("shared rooms sit beside direct chats; switching preserves drafts and targeted retry IDs", async ({

@@ -1,5 +1,7 @@
 # 2026-10-19
 
+- Agents → Chats on the web now follows the Android display rules: Direct messages lists only online, writable agents (offline and ended ones are hidden even with an urgent notice, and stay readable by link), shared rooms appear only while a reachable member is also an online agent, and History shows closed conferences without direct chats. The Active/Online switch is gone.
+
 - Overview is now three tabs: Provider, Engines and Runner. The "Needs attention" list (hosts with outdated credentials or versions), the fleet-numbers line and the "Shared across Grok products" note are gone; host problems stay on Hosts, a login that needs renewal shows on its Provider row and in Runner. The top-bar search button no longer wraps its label.
 
 - Hosts no longer flag stale credentials or old versions: "Outdated auth" is gone as a status (a live host reads Online), and credentials older than the fleet's, partial credentials, outdated CLI/agent versions and agent drift moved from "Needs attention" warnings to detail-page info, because hosts repair them at their next run. Warnings remain for a waiting access approval and for credentials that never arrived. The Overview tab is kept in the URL (`?tab=runner`).

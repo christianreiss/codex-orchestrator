@@ -2,6 +2,7 @@ import { liveActivity } from './activity';
 import type { AgentSessionRow, AgentSessionsResponse } from "../api/agentSessions";
 import type { PresenceTimings } from "./types";
 import { livePresence } from "./presence";
+import type { ChatRoom } from "../api/roomChats";
 
 export type ClientFilter = "waiting" | "unknown" | "all" | "active" | "online" | "attention" | "working" | "listening" | "idle" | "offline" | "ended";
 export type ClientSort = "status" | "recent" | "host";
@@ -16,6 +17,17 @@ export function snapshotIsStale(updatedAt: number, now: number, timings: Presenc
   const window = timings.heartbeat_fresh_seconds;
   const freshMs = typeof window === "number" && Number.isFinite(window) && window > 0 ? window * 1000 : 45_000;
   return updatedAt <= 0 || now - updatedAt > freshMs;
+}
+
+/**
+ * The Chats rule shared with the Android app: an agent is listed as a current
+ * chat only while it is online (listening, working or idle) and not read-only.
+ * Ended and offline agents stay out, whatever notices they carry.
+ */
+export function isOnlineActiveAgent(row: AgentSessionRow, now: number, timings: PresenceTimings = {}): boolean {
+  if (row.read_only) return false;
+  const presence = livePresence(row, now, timings);
+  return presence === "listening" || presence === "working" || presence === "idle";
 }
 
 export function clientCounts(rows: AgentSessionRow[], now: number, timings: PresenceTimings = {}) {
@@ -44,7 +56,7 @@ export function visibleClients(
   const filtered = rows.filter((row) => {
     if (options.engine !== "all" && row.engine !== options.engine) return false;
     const presence = livePresence(row, now, timings);
-    if (options.filter === "active" && presence === "ended" && !row.attention?.severity) return false;
+    if (options.filter === "active" && !isOnlineActiveAgent(row, now, timings)) return false;
     if (options.filter === "online" && (presence === "ended" || presence === "offline")) return false;
     if (options.filter === "attention" && (!row.attention?.severity && (!(row.attention || (row.pending_prompt && !row.pending_prompt.answer_mode)) || presence === "ended"))) return false;
     if (!["all", "active", "online", "attention"].includes(options.filter) && (presence === "offline" || presence === "ended" || options.filter === "listening" ? presence : liveActivity(row, now) ?? presence) !== options.filter) return false;
@@ -70,4 +82,13 @@ export function visibleClients(
     }
     return activity(b) - activity(a) || a.id.localeCompare(b.id);
   });
+}
+
+/**
+ * A room is current when a reachable member is also an agent the Chats list
+ * shows as online; the roster's `reachable` only means a fresh heartbeat. With
+ * no agent overview (`onlineSessionIds` null) the roster flag is all there is.
+ */
+export function roomHasActiveAgent(room: ChatRoom, onlineSessionIds: ReadonlySet<string> | null): boolean {
+  return room.members.some((m) => m.reachable && (onlineSessionIds === null || (m.session_id !== null && onlineSessionIds.has(m.session_id))));
 }

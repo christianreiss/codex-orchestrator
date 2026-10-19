@@ -10,7 +10,6 @@ import { page } from "$app/state";
 import { goto, replaceState } from "$app/navigation";
 import { topologyQuery, type Topology } from "$lib/api/topology";
 import { emptyGhostState, filterGraph, graphModel, summarize, trackGhosts, type GhostState } from "$lib/topology/model";
-import type { ClientFilter } from "$lib/portal/clients";
 import type TopologyGraph from "./TopologyGraph.svelte";
 
 export type AgentsViewName = "live" | "graph";
@@ -25,7 +24,6 @@ class AgentsView {
   search = $state("");
   engine = $state<Engine>("all");
   // Live view.
-  liveFilter = $state<ClientFilter>("active");
   workspace = $state<"agents" | "remote">("agents");
   startRemote = $state(false);
   liveSelectedId = $state<string | null>(null);
