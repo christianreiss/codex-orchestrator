@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Snapshot } from "./$types";
-  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import Plus from "@lucide/svelte/icons/plus";
@@ -14,10 +13,10 @@
   import NewReportDialog from "$lib/components/feedback/NewReportDialog.svelte";
   import ReportDetail from "$lib/components/feedback/ReportDetail.svelte";
   import ReportInbox from "$lib/components/feedback/ReportInbox.svelte";
-  import { actorLabel, humanize, type ReportRow } from "$lib/components/feedback/report-model";
+  import { feedbackRow, type ReportRow } from "$lib/components/feedback/report-model";
   import {
     feedbackApi, feedbackKeys, feedbackPriorities, feedbackStatuses, feedbackTypes,
-    type FeedbackFilters, type FeedbackItem,
+    type FeedbackFilters,
   } from "$lib/api/feedback";
 
   const PAGE = 25;
@@ -55,19 +54,7 @@
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const rows = $derived<ReportRow[] | undefined>(
-    $listQuery.data?.feedback?.map((r: FeedbackItem) => ({
-      id: r.id,
-      title: r.title,
-      badges: [
-        { label: r.priority, variant: r.priority === "critical" ? "destructive" : r.priority === "high" ? "warning" : "outline" },
-        { label: r.type },
-        { label: humanize(r.status), variant: r.status === "resolved" ? "success" : "secondary" },
-      ],
-      meta: `${r.component} · $<Timestamp value={r.updated_at} />`,
-      note: r.claim_owner ? actorLabel(r.claim_owner) : undefined,
-    })),
-  );
+  const rows = $derived<ReportRow[] | undefined>($listQuery.data?.feedback?.map(feedbackRow));
 
   function select(id: string) { selected = id; detailOpen = true; }
   export const snapshot: Snapshot<{ search: typeof search, status: typeof status, type: typeof type, priority: typeof priority, component: typeof component, offset: typeof offset, selected: typeof selected }> = {

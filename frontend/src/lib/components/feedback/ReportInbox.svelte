@@ -4,6 +4,7 @@
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
   import { StateBlock } from "$lib/components/page";
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { cn } from "$lib/utils/cn";
   import type { ReportRow } from "./report-model";
 
@@ -51,7 +52,9 @@
                 {#each row.badges as badge (badge.label)}<Badge variant={badge.variant ?? "outline"}>{badge.label}</Badge>{/each}
               </span>
             </span>
-            <span class="mt-0.5 block text-caption text-muted-foreground">{row.meta}</span>
+            <span class="mt-0.5 block text-caption text-muted-foreground">
+              {#if row.meta}{row.meta}{/if}{#if row.meta && row.created !== undefined} · {/if}{#if row.created !== undefined}<Timestamp value={row.created} />{/if}
+            </span>
             {#if row.note}<span class="block break-words text-caption text-muted-foreground">{row.note}</span>{/if}
           </button>
         </li>

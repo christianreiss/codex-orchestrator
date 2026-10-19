@@ -36,7 +36,7 @@
       {#if item.claim_expires_at}<p class="text-caption text-muted-foreground">Claim expires {new Date(item.claim_expires_at).toLocaleString()}</p>{/if}
       <p class="mt-1 text-body-sm">Deployment: {humanize(item.deployment)}{item.deployment_ref ? ` · ${item.deployment_ref}` : ""}</p>
       {#if item.duplicate_of}<p class="break-all text-body-sm">Duplicate of {item.duplicate_of}</p>{/if}
-      <p class="mt-1 break-words text-caption text-muted-foreground">Reported by {actorLabel(item.source)}</p>
+      <p class="mt-1 break-words text-caption text-muted-foreground">Reported <Timestamp value={item.created_at} /> by {actorLabel(item.source)}</p>
     </div>
 
     <div class="space-y-3 border-y py-4">
