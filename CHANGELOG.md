@@ -1,5 +1,15 @@
 # 2026-10-19
 
+- **Feedback sweep (cxx 0.9.106).**
+  - `cxx transfer put` failures after the upload is journaled (for example "communicator disconnected, request outcome unknown") now name the transfer ID, the exact `--resume` command and the `transfer_delete` abandon step; `--json` also writes this recovery object to stdout.
+  - The launch identity hint no longer states the agent address; `agent_self` is its only source (the address can move when a native session rebinds after launch).
+  - The managed Fleet Advisor guidance is served only to hosts whose installed cxx and running host daemon are both 0.9.100 or newer, and names `cxx-agent` as the server for the advisor tools.
+  - Git Director merge verdicts now report overlap with non-holding peers' `git_join` declarations (`overlap` includes them, new `peer_overlap` field, the reason names the peer worktrees and paths); declarations stay advisory and never cause a wait.
+  - Agent sessions that outlived an API outage are no longer ended as abandoned on the first sweep after start (150 s grace); `agent_session_finished` now names the resume route and carries `ended_reason`/`recovery`.
+  - Agent message metadata exposes `sender_session_id`, the lifecycle that wrote the message.
+  - Added a reviewed `#gime` copy under `docs/skills/` that merges locally and pushes only on an explicit operator request. It is not yet published to the skill store.
+  - Added the binding web design standard `DESIGN.md` to main (it was referenced by the design docs but missing).
+
 - **Git merges loads fast again and Settings is its own tab.** The registry listing used to run four queries per clone one after another; with several hundred (mostly dormant) clones the page sat on loading rows. It now reads the same data in four set-based queries (about 6x faster on a local 400-clone benchmark, more over a real network). The commit-message preferences moved from below the table to a fourth tab, **Settings**, in the layout of Shared files, and the counts strip appears only once data has loaded instead of showing zeros.
 
 - **Timed wake-ups clean themselves up.** A wake-up whose agent has been gone for 24 hours (session ended or expired, or address archived) is paused with `agent_gone` and its waiting work canceled; a one-shot that already fired is deleted after 24 hours. Persistent (resume) wake-ups are left alone while their agent's address exists. The list hides retired wake-ups behind an Active / All switch and explains the pause reason. Takes effect after the API is redeployed; the first sweep clears the existing backlog.
