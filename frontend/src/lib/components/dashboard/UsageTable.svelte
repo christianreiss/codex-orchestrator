@@ -94,9 +94,10 @@
           <span class="text-body-sm text-muted-foreground">{account.usage.fetched_at ? "No quota windows reported" : "Waiting for usage data"}</span>
         {/if}
       </Table.Cell>
-      <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground">
+      <Table.Cell class={cn("whitespace-nowrap text-body-sm", account.usage.stale && account.usage.fetched_at ? "text-warning" : "text-muted-foreground")}
+        title={account.usage.stale && account.usage.fetched_at ? "Last known reading; the latest update did not succeed" : undefined}>
         {#if account.usage.fetched_at}
-          <time datetime={account.usage.fetched_at} title={account.usage.fetched_at}><Timestamp value={account.usage.fetched_at} /></time>
+          <Timestamp value={account.usage.fetched_at} />
         {:else}No reading yet{/if}
       </Table.Cell>
     </Table.Row>

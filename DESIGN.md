@@ -318,7 +318,8 @@ For step 1, verify documentation links/anchors, route inventory coverage, source
 
 ## 10. Exception register
 
-No design exceptions are approved at adoption. The baseline debt in section 8 is pending migration, not a permanent exemption. Use this format for subsequent reviewed decisions:
+No design exceptions were approved at adoption; EX-1 was added 2026-10-19. The baseline debt in section 8 is pending migration, not a permanent exemption. Use this format for subsequent reviewed decisions:
 
 | Exception ID | Rule | Exact surface | User need / alternative | Verification | Owner / decision date | Review or removal condition |
 | --- | --- | --- | --- | --- | --- | --- |
+| EX-1 | VIS-5 | Overview (`/admin/dashboard`) host and stored-account count tiles (`StatStrip variant="tiles"`) | Operators open the console to see fleet size first; each tile links to its owner page (Hosts, Accounts) and the per-engine split is shown inline. Alternative: the inline strip. | Visual check in both themes; `admin-design.spec.ts` sweep | Christian Reiß / 2026-10-19 | Remove (back to the inline strip) if the counts stop answering an operator question or no longer link to their owning page |

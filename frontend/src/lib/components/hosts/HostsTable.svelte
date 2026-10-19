@@ -10,7 +10,7 @@
   import SortableHead from "$lib/components/data-table/SortableHead.svelte";
   import { hostDaemonsQuery } from "$lib/api/hostDaemons";
   import { hostLastSeen, hostStatusKind, isInsecureWindowActive } from "$lib/api/hosts";
-  import { relativeTime } from "$lib/utils/format";
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import DaemonIndicator from "./DaemonIndicator.svelte";
   import EngineChips from "./EngineChips.svelte";
   import InsecureCountdown from "./InsecureCountdown.svelte";
@@ -96,8 +96,8 @@
           <DaemonIndicator host={$daemons.data?.hosts.find((d) => d.host_id === host.id)} />
         </span>
       </Table.Cell>
-      <Table.Cell class="whitespace-nowrap text-muted-foreground" title={hostLastSeen(host) ?? undefined}>
-        {relativeTime(hostLastSeen(host)) || "Never"}
+      <Table.Cell class="whitespace-nowrap text-muted-foreground">
+        <Timestamp value={hostLastSeen(host)} fallback="Never" />
       </Table.Cell>
     </Table.Row>
   {/snippet}

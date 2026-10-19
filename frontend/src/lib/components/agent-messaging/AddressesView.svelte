@@ -8,7 +8,7 @@
   import * as Table from "$lib/components/ui/table";
   import { DataTable } from "$lib/components/page";
   import { authStore } from "$lib/stores/auth";
-  import { relativeTime } from "$lib/utils/format";
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import {
     agentAddressAliasMutation,
     agentAddressEnabledMutation,
@@ -103,7 +103,7 @@
           <p class="truncate">{address.fqdn ?? `Host #${address.host_id}`}</p>
           <p class="truncate text-caption text-muted-foreground" title={address.cwd}>{address.username} · {address.host_secure ? "secure" : "insecure"} · {address.host_engines.join(" + ") || "no engines"}</p>
         </Table.Cell>
-        <Table.Cell class="text-muted-foreground">{address.last_seen_at ? relativeTime(address.last_seen_at) : "Never"}</Table.Cell>
+        <Table.Cell class="text-muted-foreground"><Timestamp value={address.last_seen_at} fallback="Never" /></Table.Cell>
         <Table.Cell>
           <div class="flex items-center justify-end gap-2">
             {#if canMutate}<Button size="sm" variant="outline" onclick={() => editAlias(address)}>Alias</Button>{/if}

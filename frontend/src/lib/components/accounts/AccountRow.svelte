@@ -5,7 +5,7 @@
   import { ENGINE_META } from "$lib/constants/engines";
   import { fleetDisabledTitle } from "$lib/engines/fleet-engines";
   import type { ProviderAccount } from "$lib/api/accounts";
-  import { relativeTime } from "$lib/utils/format";
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { cn } from "$lib/utils/cn";
   import AccountUsage from "./AccountUsage.svelte";
   import { accountStatus, sessionHosts } from "./account-state";
@@ -27,7 +27,6 @@
   const status = $derived(accountStatus(account, engineOn, meta.command));
   const hosts = $derived(sessionHosts(account));
   const runnerTask = $derived(account.sessions.some((session) => session.host_id === 0));
-  const verified = $derived(account.verification_checked_at ? relativeTime(account.verification_checked_at) : "never");
   const dot = { ok: "bg-success", warning: "bg-warning", danger: "bg-destructive", muted: "bg-muted-foreground/40" } as const;
   const textTone = { ok: "text-muted-foreground", warning: "text-warning-muted-foreground", danger: "text-destructive", muted: "text-muted-foreground" } as const;
   const offReason = $derived(engineOn ? undefined : fleetDisabledTitle(meta.label));
@@ -66,7 +65,7 @@
       </div>
     {/if}
   </Table.Cell>
-  <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground" title={account.verification_checked_at ?? undefined}>{verified}</Table.Cell>
+  <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground" ><Timestamp value={account.verification_checked_at} fallback="Never" /></Table.Cell>
   <Table.Cell class="w-10 text-right">
     {#if canManage && account.state !== "removing"}<RowActions {actions} label={`Actions for ${account.label}`} />{/if}
   </Table.Cell>

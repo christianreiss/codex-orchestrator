@@ -86,8 +86,8 @@
   }
 
   const stats = $derived([
-    { label: "files held", value: moduleState?.live_count ?? 0 },
-    { label: moduleState && moduleState.quota_bytes > 0 ? `used of ${formatBytes(moduleState.quota_bytes)}` : "used (unlimited quota)", value: formatBytes(moduleState?.used_bytes ?? 0) },
+    { label: "files held", value: moduleState?.live_count ?? "–" },
+    { label: moduleState && moduleState.quota_bytes > 0 ? `used of ${formatBytes(moduleState.quota_bytes)}` : "used (unlimited quota)", value: moduleState ? formatBytes(moduleState.used_bytes) : "–" },
   ]);
   export const snapshot: Snapshot<{ search: typeof search }> = {
     capture: () => ({ search }),
@@ -143,7 +143,7 @@
           </Table.Cell>
           <Table.Cell class="max-w-[12rem] truncate">{item.uploaded_by ?? "—"}</Table.Cell>
           <Table.Cell class="text-right tabular-nums">{item.download_count}</Table.Cell>
-          <Table.Cell title={new Date(item.expires_at).toLocaleString()}>
+          <Table.Cell>
             <Timestamp value={item.expires_at} />
             {#if item.ttl_clamped}<Badge variant="warning" class="ml-1">clamped</Badge>{/if}
           </Table.Cell>

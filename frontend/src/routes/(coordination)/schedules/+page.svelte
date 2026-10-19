@@ -21,7 +21,7 @@
   import { authStore } from "$lib/stores/auth";
   import { agentMessagingAddressesQuery } from "$lib/api/agentMessaging";
   import { scheduleKeys, scheduleMutation, scheduleQuery, schedulesQuery, type Schedule } from "$lib/api/schedules";
-  import { relativeTime } from "$lib/utils/format";
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
 
   const client = useQueryClient();
   const after = writable<string | undefined>();
@@ -139,7 +139,7 @@
             </Table.Cell>
             <Table.Cell class="max-w-48 break-words" title={item.target}>{agentLabel(item.target)}</Table.Cell>
             <Table.Cell>{timing(item)}<span class="block text-caption text-muted-foreground">{item.timezone}</span></Table.Cell>
-            <Table.Cell title={item.next_due_at ?? ""}>{item.next_due_at ? relativeTime(item.next_due_at) : "No further wake"}</Table.Cell>
+            <Table.Cell><Timestamp value={item.next_due_at} fallback="No further wake" /></Table.Cell>
             <Table.Cell>
               {item.persistent ? `On · ${item.progress_timeout_seconds}s timeout` : "Off"}
               {#if item.pause_reason}<p class="text-caption text-destructive">Paused: {PAUSE_REASONS[item.pause_reason] ?? item.pause_reason}</p>{/if}

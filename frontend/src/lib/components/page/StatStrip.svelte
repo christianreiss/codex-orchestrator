@@ -31,7 +31,7 @@
           {/if}
         </dd>
         <dt class="order-2 mt-1 text-body-sm text-muted-foreground">{stat.label}</dt>
-        {#if stat.hint}<p class="order-3 text-caption text-muted-foreground">{stat.hint}</p>{/if}
+        {#if stat.hint}<dd class="order-3 text-caption text-muted-foreground">{stat.hint}</dd>{/if}
       </div>
     {/each}
   </dl>
