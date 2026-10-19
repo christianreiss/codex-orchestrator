@@ -937,7 +937,8 @@ SIGTERM and ten seconds later by SIGKILL to the owned process group. Offline
 stops stay pending until the host reports exit. Host disable rejects new work,
 drains accepted turns, closes idle sessions and stops the optional daemon.
 
-Fleet Advisor tools (cxx 0.9.98; `engine`/`model` from 0.9.99): `advisor_ask` (`question`, `kind`
+Fleet Advisor tools (cxx 0.9.98; `engine`/`model` from 0.9.100: two different trees were both
+versioned 0.9.99): `advisor_ask` (`question`, `kind`
 verify|tier_check|classify|general, optional `transfer_ids`, optional `engine`/`model`
 (default: strongest available; see `advisor_status`), optional
 `advisor_session_id` for a follow-up, stable UUID `client_message_id`),
@@ -945,6 +946,9 @@ verify|tier_check|classify|general, optional `transfer_ids`, optional `engine`/`
 `advisor_status`. They post to `advisor/ask|close|status` under the session's
 agent-messaging routes. Each advisor is a daemon session in the stack's hidden
 `advisor` container; its answers arrive as ordinary peer messages headed `ADVISOR/1`.
+The tools are served by the `cxx-agent` stdio server, not by the
+orchestrator MCP. The managed `## Fleet Advisor` block is withheld while the installed cxx
+or an executing host daemon's private copy is older than 0.9.100.
 See [interface-api.md](interface-api.md#fleet-advisor).
 
 Hosts show the daemon indicator only when enabled. Green means connected and

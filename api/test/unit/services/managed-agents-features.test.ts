@@ -258,7 +258,8 @@ describe('served document size budget', () => {
       expect(section('Agent Messaging').length).toBeLessThan(4_600);
       expect(section('Git Director').length).toBeLessThan(3_100);
       expect(section('File Transfer').length).toBeLessThan(1_400);
-      expect(section('Fleet Advisor').length).toBeLessThan(700);
+      // 2026-10-19: +50 to name `cxx-agent` as the server: agents searched the orchestrator MCP.
+      expect(section('Fleet Advisor').length).toBeLessThan(750);
       expect(section('Memory').length).toBeLessThan(2_700);
       // Whole-assignment scouting and model-identity safeguards need explicit wording.
       expect(section('Model Class Check').length).toBeLessThan(1_800);
@@ -918,6 +919,8 @@ describe('managed Agent Messaging guidance', () => {
     const on = renderManagedAgentFeatures('# Base\n', context(ENGINE_CLAUDE, { agentMessaging: enabled(), advisor: enabled() }));
     expect(on.body).toContain('## Fleet Advisor');
     expect(on.body).toContain('advisor_close');
+    // The tools are served by cxx-agent, not the orchestrator MCP (feedback 289cfa53).
+    expect(on.body).toContain('Its tools are on `cxx-agent`, beside `agent_*`.');
     expect(on.sections.advisor?.present).toBe(true);
     const off = renderManagedAgentFeatures('# Base\n', context(ENGINE_CLAUDE, { agentMessaging: enabled(), advisor: disabled('advisor_disabled') }));
     expect(off.body).not.toContain('## Fleet Advisor');

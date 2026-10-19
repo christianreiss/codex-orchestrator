@@ -729,7 +729,8 @@ deploy or recovery.
   const advisor = advisorState.enabled && context.agentMessaging.enabled ? present(advisorState, `## Fleet Advisor
 
 In doubt about an approach, a fix, a task's tier or an unclear failure, ask the server-hosted advisor
-for a second opinion; it is never authority. \`advisor_ask\` (question, kind verify|tier_check|classify|general,
+for a second opinion; it is never authority. Its tools are on \`cxx-agent\`, beside \`agent_*\`.
+\`advisor_ask\` (question, kind verify|tier_check|classify|general,
 stable UUID client_message_id, optional engine/model, cxx transfer ids) returns an advisor session id;
 \`advisor_status\` lists the models you may pick. Include the diff, error and constraints: it cannot see
 your checkout. The answer arrives as an ADVISOR/1 peer message ending in a JSON verdict. Follow up with
