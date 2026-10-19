@@ -1,5 +1,6 @@
 # 2026-10-19
 
+- **Missing credentials no longer count as "Needs attention".** A host that has not delivered credentials yet gets them from cxx on its next run, so it is no longer a warning on Hosts (count, filter, sort); the host's detail page still lists it as information with the install command.
 - **Overview shows host and stored-account counts.** A number strip above the tabs links to Hosts and Accounts, with a per-engine breakdown on hover and a warning count for paused or being-removed accounts. A count appears only once its data has loaded ("–" until then, never a false 0).
 - **Hosts → "Last seen" can no longer contradict "Online".** The column showed the newest auth mint time, so a host that checked in minutes ago could read "Last seen 10 months ago" next to an Online pill. It now shows the same last-contact time the pill uses (newest check-in or engine refresh), and sorting follows it.
 - **Access is now three pages.** The long Access page that stacked people, API keys and secrets is split into **People**, **API keys** and **Secrets**, next to Settings in the Access & Settings tabs; "Wipe all users" sits at the bottom of People. Old `/access` bookmarks (including `#secrets`, `#api-keys`, the configuration anchors and `?dialog=new`) redirect to the right page. Frontend only; the API is unchanged.

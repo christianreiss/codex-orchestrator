@@ -61,6 +61,8 @@ test('Fix on a host without credentials produces the install command', async ({ 
   await page.goto('/admin/hosts/1');
   const item = page.getByRole('listitem').filter({ hasText: 'No credentials received yet' });
   await expect(item).toBeVisible();
+  // cxx seeds credentials itself on its next run: shown, but never counted as needing attention.
+  await expect(item).toHaveAttribute('data-tone', 'info');
   await item.getByRole('button', { name: /^Fix/ }).click();
   await expect(page.getByRole('dialog')).toContainText('Install command');
   await expect(page.getByLabel('Command', { exact: true })).toHaveValue(/install\/t/);
