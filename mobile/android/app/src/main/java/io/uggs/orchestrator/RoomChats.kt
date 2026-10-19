@@ -18,8 +18,18 @@ internal fun roomLabel(room: JSONObject): String = when (room.optString("kind"))
 }
 internal fun roomPersonLabel(person: JSONObject): String = listOf("name", "alias", "address").asSequence()
     .map { person.optString(it) }.firstOrNull { it.isNotBlank() && it != "null" } ?: "Unnamed agent"
-internal fun roomHasActiveAgent(room: JSONObject): Boolean =
-    room.optJSONArray("members")?.objects()?.any { it.optBoolean("reachable", false) } == true
+/**
+ * A room is active when a reachable member is also an online agent by the Chats
+ * rules ([isOnlineActiveAgent]); the server's `reachable` only means a fresh
+ * heartbeat. Without an agent overview (no transcript permission) the roster's
+ * `reachable` flag is the only signal left.
+ */
+internal fun roomHasActiveAgent(room: JSONObject, agents: List<JSONObject>? = null): Boolean {
+    val online = agents?.filter(::isOnlineActiveAgent)?.flatMap { listOf(it.optString("id"), it.optString("portal_session_id")) }?.filter { it.isNotBlank() && it != "null" }?.toSet()
+    return room.optJSONArray("members")?.objects()?.any {
+        it.optBoolean("reachable", false) && (online == null || it.optString("session_id") in online)
+    } == true
+}
 internal fun mergeRoomEvents(old: List<JSONObject>, fresh: List<JSONObject>): List<JSONObject> =
     (old + fresh).associateBy { it.getString("id") }.values.sortedWith(compareBy({ it.optString("created_at") }, { it.optString("id") }))
 

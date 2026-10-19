@@ -384,7 +384,7 @@ class CompanionUiTest {
     private val roomCreated = AtomicReference<JSONObject?>(null)
     private val roomClosed = AtomicBoolean(false)
     private val roomMemberActive = AtomicBoolean(true)
-    private fun roomFixture() = JSONObject().put("id", roomId).put("title", roomCreated.get()?.optString("title") ?: "Release workshop").put("kind", roomCreated.get()?.optString("kind") ?: "group").put("status", if (roomClosed.get()) "adjourned" else "open").put("members", org.json.JSONArray(listOf(JSONObject().put("id", session).put("name", "Liliana").put("engine", "codex").put("reachable", roomMemberActive.get() && !roomClosed.get()))))
+    private fun roomFixture() = JSONObject().put("id", roomId).put("title", roomCreated.get()?.optString("title") ?: "Release workshop").put("kind", roomCreated.get()?.optString("kind") ?: "group").put("status", if (roomClosed.get()) "adjourned" else "open").put("members", org.json.JSONArray(listOf(JSONObject().put("id", session).put("session_id", session).put("name", "Liliana").put("engine", "codex").put("reachable", roomMemberActive.get() && !roomClosed.get()))))
     private lateinit var scenario: ActivityScenario<MainActivity>
     private lateinit var originalClient: OkHttpClient
     private var firebase: JSONObject? = null

@@ -1,5 +1,13 @@
 # Android companion
 
+## Active conversations (0.5.4)
+
+Rooms now apply the Chats rules to their members: a member counts only if its
+`session_id` belongs to an agent the Chats tab would list as online (not closed,
+not read-only, presence `listening`, `working` or `idle`) **and** the roster says
+`reachable: true`. The roster flag alone only means a fresh heartbeat. Without an
+agent overview (no transcript permission) the roster flag is used as before.
+
 ## Active conversations (0.5.3)
 
 The Active directory requires at least one online agent. Direct chats use live

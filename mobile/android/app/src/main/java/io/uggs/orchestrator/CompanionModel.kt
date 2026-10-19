@@ -147,7 +147,8 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun reachable() = if (fresh() && can("agent_portal.manage") && can("agent_portal.reveal_transcript")) readyAgents(agents).filter { !it.optBoolean("daemon_session") || can("agent_messaging.manage") } else emptyList()
     fun canReadSession(id: String) = connection != null && portalAvailable &&
         ((can("agent_portal.read") && can("agent_portal.reveal_transcript")) || showingSavedChats) && agents.any { it.optString("id") == id }
-    fun overviewAgents(): List<JSONObject> = if ((!can("agent_portal.read") || !can("agent_portal.reveal_transcript")) && !showingSavedChats || !portalAvailable) emptyList() else
+    fun overviewAvailable(): Boolean = !((!can("agent_portal.read") || !can("agent_portal.reveal_transcript")) && !showingSavedChats || !portalAvailable)
+    fun overviewAgents(): List<JSONObject> = if (!overviewAvailable()) emptyList() else
         retainedChats(agents)
     fun canSpawn() = fresh() && portalAvailable && can("agent_messaging.manage") && can("agent_portal.manage") && can("agent_portal.read") && can("agent_portal.reveal_transcript")
     fun canSendSession(id: String?) = id != null && !(selected == id && showingCachedTranscript) && reachable().any { it.optString("id") == id }

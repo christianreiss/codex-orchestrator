@@ -28,6 +28,22 @@ class RoomChatsTest {
             assertFalse(roomHasActiveAgent(mixed))
         }
     }
+    @Test fun roomMembersMustAlsoBeOnlineAgentsByTheChatsRules() {
+        fun agent(id: String, presence: String, readOnly: Boolean = false) =
+            JSONObject().put("id", id).put("presence", presence).put("read_only", readOnly)
+        fun room(vararg ids: String) = JSONObject().put("members", org.json.JSONArray(ids.map {
+            JSONObject().put("session_id", it).put("reachable", true)
+        }))
+        val agents = listOf(agent("live", "listening"), agent("ro", "idle", true), agent("on", "online"), agent("gone", "ended"))
+        assertTrue(roomHasActiveAgent(room("live"), agents))
+        assertTrue(roomHasActiveAgent(room("ro", "live"), agents))
+        for (id in listOf("ro", "on", "gone", "unlisted")) assertFalse(id, roomHasActiveAgent(room(id), agents))
+        assertFalse(roomHasActiveAgent(room("live"), emptyList()))
+        assertFalse(roomHasActiveAgent(JSONObject().put("members", org.json.JSONArray().put(JSONObject().put("session_id", "live").put("reachable", false))), agents))
+        val daemon = JSONObject().put("id", "daemon").put("portal_session_id", "portal").put("presence", "working")
+        assertTrue(roomHasActiveAgent(room("portal"), listOf(daemon)))
+        assertTrue(roomHasActiveAgent(room("anything"), null))
+    }
     @Test fun switchingToHistoryUsesItsOwnDirectoryAndPagination() = runBlocking {
         val server = MockWebServer()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

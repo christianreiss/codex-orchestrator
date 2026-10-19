@@ -1,3 +1,7 @@
+# 2026-10-19
+
+- Android 0.5.4: groups, conferences and scope rooms now count as active only when a reachable member is also an online agent by the Chats rules (not closed, not read-only, presence listening/working/idle). Previously any member with a fresh heartbeat kept a room visible, so Groups could list many rooms while Chats was empty. APK-only; no server rollout.
+
 # 2026-10-18
 
 - **Stable agent names on resume (cxx 0.9.105):** Codex, Claude and Grok resumes restore the transcript’s original name and UUID, including picker/continue launches. The 24-hour reuse policy remains; if the name has been reassigned, resume stops with an explicit conflict instead of silently renaming the agent. Provisional name history is retained and wrapper recovery follows the restored identity.

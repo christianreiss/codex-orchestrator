@@ -44,7 +44,7 @@ import java.time.Instant
     // Filter only the already-authorized overview. Searching never fetches a
     // transcript or changes a read marker.
     val activeAgents = if (model.roomChats.history) emptyList() else agents.filter(::isOnlineActiveAgent)
-    val rooms = model.roomChats.rooms.filter { model.roomChats.history || roomHasActiveAgent(it) }
+    val rooms = model.roomChats.rooms.filter { model.roomChats.history || roomHasActiveAgent(it, agents.takeIf { model.overviewAvailable() }) }
     val categories = buildList {
         if (activeAgents.isNotEmpty()) add("chats" to "Chats")
         if (rooms.any { it.optString("kind") != "conference" }) add("group" to "Groups")
