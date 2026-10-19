@@ -170,6 +170,10 @@ export function messageMetadata(message: AgentBusMessage, sender?: AgentBusAddre
     digest_id: message.digestId,
     superseded_by_id: message.supersededById,
     presented_at: message.presentedAt,
+    // The lifecycle that wrote the row. One address is shared by every process
+    // of a launch and by later lifecycles that rebind it, so this is the only
+    // field a participant can use to attribute a send to a specific launch.
+    sender_session_id: message.senderSessionId,
     target_session_id: message.targetSessionId,
     execution_contract_version: message.executionContractVersion,
     work_kind: message.workKind,

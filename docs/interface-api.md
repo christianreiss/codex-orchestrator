@@ -1378,7 +1378,15 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
 - `POST /host/agent-sessions/{id}/agent-messaging/wait` — conversation-ordered
   long poll (`seconds` 0..25, default 20) after a sequence cursor.
 - `POST /host/agent-sessions/{id}/agent-messaging/message` — fetch one
-  participant-visible message by UUID.
+  participant-visible message by UUID. Message metadata (here, in send/reply
+  receipts, wait and digest results, and the admin message views) carries nullable
+  `sender_session_id`, the lifecycle (`agent_sessions.id`, the `session_id`
+  `agent_self` reports) that wrote the row; it is null for server-originated
+  rows. One address is shared by every process of a launch (sub-agents and
+  receiver turns use the same broker) and by later lifecycles an exact resume
+  rebinds, so this field is what tells "my launch" from "another launch under my
+  UUID". A send is accepted only from the lifecycle currently bound to the
+  sender address (`agent_messaging_binding_stale` otherwise).
 - `POST /host/agent-sessions/{id}/agent-messaging/cancel` — cancel an open
   participant conversation and all queued/leased messages in it.
 - `POST /host/agent-sessions/{id}/agent-messaging/mailbox` — peek the queue for
