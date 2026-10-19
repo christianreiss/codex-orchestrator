@@ -141,10 +141,27 @@ func Command(args []string, selected string, stdout, stderr io.Writer) int {
 }
 
 // reportFailure prints the error, and for an upload whose journal exists also
-// the transfer ID with the resume and abandon steps. With --json the same
-// recovery facts go to stdout as one object; the exit status stays 1.
+// the transfer ID with the resume and abandon steps; for an upload refused by
+// the owner preflight, the owner and its remedy. With --json the same recovery
+// facts go to stdout as one object; the exit status stays 1.
 func reportFailure(err error, asJSON bool, stdout, stderr io.Writer) {
 	fmt.Fprintln(stderr, "transfer:", err)
+	var owner *OwnerError
+	if errors.As(err, &owner) {
+		fmt.Fprintln(stderr, "transfer:", owner.Remedy())
+		if asJSON {
+			_ = json.NewEncoder(stdout).Encode(map[string]any{
+				"error":            err.Error(),
+				"outcome":          "not_started",
+				"owner_version":    owner.Owner.Version,
+				"owner_pid":        owner.Owner.PID,
+				"owner_mode":       owner.Owner.Mode,
+				"required_version": streamingOwnerVersion,
+				"remedy":           owner.Remedy(),
+			})
+		}
+		return
+	}
 	var put *PutError
 	if !errors.As(err, &put) {
 		return
