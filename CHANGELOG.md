@@ -1,6 +1,8 @@
 # 2026-10-19
 
 - Overview is now three tabs: Provider, Engines and Runner. The "Needs attention" list (hosts with outdated credentials or versions), the fleet-numbers line and the "Shared across Grok products" note are gone; host problems stay on Hosts, a login that needs renewal shows on its Provider row and in Runner. The top-bar search button no longer wraps its label.
+
+- Hosts no longer flag stale credentials or old versions: "Outdated auth" is gone as a status (a live host reads Online), and credentials older than the fleet's, partial credentials, outdated CLI/agent versions and agent drift moved from "Needs attention" warnings to detail-page info, because hosts repair them at their next run. Warnings remain for a waiting access approval and for credentials that never arrived. The Overview tab is kept in the URL (`?tab=runner`).
 - Android 0.5.4: groups, conferences and scope rooms now count as active only when a reachable member is also an online agent by the Chats rules (not closed, not read-only, presence listening/working/idle). Previously any member with a fresh heartbeat kept a room visible, so Groups could list many rooms while Chats was empty. APK-only; no server rollout.
 
 # 2026-10-18

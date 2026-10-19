@@ -1000,18 +1000,18 @@ test("control dashboard is accessible with both engines at desktop and mobile si
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/dashboard");
     await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible({ timeout: 15_000 });
-    // Exceptions come first, ahead of the fleet numbers and every table.
-    const headings = await page.locator("main").getByRole("heading", { level: 2 }).allTextContents();
-    expect(headings.slice(0, 4)).toEqual(["Needs attention", "Provider usage", "Engines", "Verification runner"]);
-    await expect(page.getByRole("list", { name: "Items needing attention" })).toContainText("Claude verification is failing");
+    await expect(page.getByRole("tab")).toHaveText(["Provider", "Engines", "Runner"]);
+    await expect(page.getByRole("heading", { name: "Provider usage", level: 2 })).toBeVisible();
+    await expect(page.getByRole("table", { name: "Provider accounts and their quota usage" }).getByRole("meter")).toHaveCount(3);
+    await page.getByRole("tab", { name: "Engines" }).click();
     const engines = page.getByRole("table", { name: "Engine installs and latest versions" });
     await expect(engines.getByRole("row", { name: /Codex/ })).toContainText("9 of 12");
     await expect(engines.getByRole("row", { name: /Claude/ })).toContainText("8 of 12");
     await expect(engines.getByRole("row", { name: /Grok/ })).toContainText("No data");
     await expect(page.getByText("No CLI version reported by 1 host.", { exact: false })).toBeVisible();
+    await page.getByRole("tab", { name: "Runner" }).click();
     const claudeRunner = page.getByRole("list", { name: "Verification by engine" }).getByRole("listitem").filter({ hasText: "Claude" });
     await expect(claudeRunner).toContainText("Canonical credentials need verification");
-    await expect(page.getByRole("table", { name: "Provider accounts and their quota usage" }).getByRole("meter")).toHaveCount(3);
     await expect(page.getByRole("link", { name: "Add host" })).toBeVisible();
     await expect.poll(() => page.evaluate(() => {
       const main = document.querySelector("main")!;
@@ -1049,7 +1049,7 @@ test("Grok account usage shows real periods and follows live updates without inv
     await page.goto("/admin/dashboard");
     const group = page.getByRole("group", { name: "Personal Grok usage" });
     await expect(group.getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "5");
-    await expect(group).toContainText("Shared across Grok products");
+    await expect(group).not.toContainText("Shared across");
     await expect(group.locator("time").first()).toHaveAttribute("datetime", resetsAt);
     await expect(group).not.toContainText("Short window");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -1176,6 +1176,7 @@ test("engine table reports independent counts, zeroes, and unavailable snapshots
   const coverage = page.locator("section#engines");
   const rows = coverage.getByRole("row");
   await page.goto("/admin/dashboard");
+  await page.getByRole("tab", { name: "Engines" }).click();
   await expect(rows.nth(1)).toContainText("121 of 130 (93%)");
   await expect(rows.nth(2)).toContainText("30 of 130 (23%)");
   await expect(rows.nth(3)).toContainText("2 of 130 (2%)");
@@ -1215,6 +1216,7 @@ test("control overview distinguishes unavailable, stale, and recovered snapshots
   }));
   await page.goto("/admin/dashboard");
   await expect(page.getByText("Could not load fleet overview", { exact: false })).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("tab", { name: "Engines" }).click();
   await expect(page.locator("section#engines")).toContainText("unavailable");
   failed = false;
   await page.getByRole("alert").getByRole("button", { name: "Retry", exact: true }).click();
@@ -1245,7 +1247,6 @@ test("control usage preserves missing windows and bounds over-limit meter semant
   await expect(usage.getByRole("meter")).toHaveCount(1);
   await expect(usage.getByRole("meter")).toHaveAttribute("aria-valuenow", "100");
   await expect(usage.getByRole("meter")).toHaveAttribute("aria-valuetext", "108% used");
-  await expect(page.getByRole("list", { name: "Items needing attention" })).toContainText("Claude account Claude has used its quota");
 });
 
 for (const engine of ["codex", "claude"] as const) {
@@ -1262,6 +1263,7 @@ for (const engine of ["codex", "claude"] as const) {
       await route.fulfill({ contentType: "application/json", body: JSON.stringify({ status: "fail", engine, reason: `${label} credential rejected` }) });
     });
     await page.goto("/admin/dashboard");
+    await page.getByRole("tab", { name: "Runner" }).click();
     await page.getByRole("button", { name: `Run ${label} runner verification` }).click();
     await expect(page.getByRole("list", { name: "Verification by engine" }).getByRole("listitem").filter({ hasText: label })).toContainText("Verifying…");
     await expect(page.getByRole("button", { name: `Run ${other} runner verification` })).toBeDisabled();
@@ -1356,6 +1358,7 @@ test("Claude login expiry remains visible with successful verification and clear
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/dashboard");
+    await page.getByRole("tab", { name: "Runner" }).click();
     const card = page.getByRole("list", { name: "Verification by engine" }).getByRole("listitem").filter({ hasText: "Claude" });
     await expect(card).toContainText("Claude login expires in 3 days");
     await expect(card.getByText("OK", { exact: true })).toBeVisible();
@@ -1367,13 +1370,14 @@ test("Claude login expiry remains visible with successful verification and clear
   }
   configured = false;
   await page.reload();
-  await expect(page.getByText("Claude login expires in 3 days", { exact: true })).toBeVisible();
+  const claude = page.getByRole("list", { name: "Verification by engine" }).getByRole("listitem").filter({ hasText: "Claude" });
+  await expect(claude).toContainText("Claude login expires in 3 days");
   expiryState = "expired";
   await page.reload();
-  await expect(page.getByText("Claude login expired", { exact: true })).toBeVisible();
+  await expect(claude).toContainText("Claude login expired");
   expiryState = "ok";
   // Existing polling must remove the warning after canonical renewal.
-  await expect(page.getByText("Claude login expired", { exact: true })).toHaveCount(0, { timeout: 20_000 });
+  await expect(claude).not.toContainText("Claude login expired", { timeout: 20_000 });
 });
 
 const CONFERENCE_ID = '44444444-4444-4444-8444-444444444444';

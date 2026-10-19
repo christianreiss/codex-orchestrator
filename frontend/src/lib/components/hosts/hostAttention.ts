@@ -3,6 +3,11 @@
  * already in the host payload (list or detail). No new endpoint: signals that
  * only the detail endpoint knows (fleet version targets) arrive through the
  * optional `versions` context and are skipped when absent.
+ *
+ * Only what stops a host from working counts as a `warning`: a pending access
+ * approval, or credentials that never arrived. Stale credentials and old
+ * versions repair themselves at the host's next run, so they are `info` (detail
+ * page only) and never raise the count.
  */
 import {
   hostCxxWrapperState,
@@ -67,9 +72,9 @@ export function hostAttention(host: HostListItem, ctx: AttentionContext = {}): A
   if (host.authed === false) {
     items.push({ id: "auth-none", tone: "warning", text: "No credentials received yet", hint: INSTALL_HINT, fix: "install" });
   } else if (host.auth_outdated) {
-    items.push({ id: "auth-stale", tone: "warning", text: "Credentials are older than the fleet's", hint: INSTALL_HINT, fix: "install" });
+    items.push({ id: "auth-stale", tone: "info", text: "Credentials are older than the fleet's", hint: INSTALL_HINT, fix: "install" });
   } else if (!hostHasRequiredAuth(host)) {
-    items.push({ id: "auth-partial", tone: "warning", text: "Some engines have no credentials yet", hint: INSTALL_HINT, fix: "install" });
+    items.push({ id: "auth-partial", tone: "info", text: "Some engines have no credentials yet", hint: INSTALL_HINT, fix: "install" });
   }
 
   let wrapperOutdated = false;
@@ -81,7 +86,7 @@ export function hostAttention(host: HostListItem, ctx: AttentionContext = {}): A
         if (reason === "wrapper_outdated" || reason === "wrapper_unknown") wrapperOutdated = true;
         const text = READINESS_TEXT[reason];
         if (text) {
-          items.push({ id: `${engine}-${reason}`, tone: "warning", text: `${label} CLI ${text}`, hint: INSTALL_HINT, fix: "install" });
+          items.push({ id: `${engine}-${reason}`, tone: "info", text: `${label} CLI ${text}`, hint: INSTALL_HINT, fix: "install" });
         }
       }
       continue;
@@ -90,16 +95,16 @@ export function hostAttention(host: HostListItem, ctx: AttentionContext = {}): A
     const target = ctx.versions?.[engine as HostEngine];
     const have = installedVersion(host, engine as HostEngine);
     if (target && have && target !== have) {
-      items.push({ id: `${engine}-drift`, tone: "warning", text: `${label} is on ${have}, the fleet is on ${target}`, hint: INSTALL_HINT, fix: "install" });
+      items.push({ id: `${engine}-drift`, tone: "info", text: `${label} is on ${have}, the fleet is on ${target}`, hint: INSTALL_HINT, fix: "install" });
     }
   }
   if (wrapperOutdated) {
-    items.push({ id: "agent-outdated", tone: "warning", text: "Host agent (cxx) is not at the target version", hint: INSTALL_HINT, fix: "install" });
+    items.push({ id: "agent-outdated", tone: "info", text: "Host agent (cxx) is not at the target version", hint: INSTALL_HINT, fix: "install" });
   }
 
   const wrapper = hostCxxWrapperState(host);
   if (wrapper.drift) {
-    items.push({ id: "agent-drift", tone: "warning", text: `Host agent versions differ between engines: ${wrapper.display}`, hint: INSTALL_HINT, fix: "install" });
+    items.push({ id: "agent-drift", tone: "info", text: `Host agent versions differ between engines: ${wrapper.display}`, hint: INSTALL_HINT, fix: "install" });
   }
 
   if (isInsecureWindowActive(host)) {

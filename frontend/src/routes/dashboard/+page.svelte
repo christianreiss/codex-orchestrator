@@ -3,7 +3,9 @@
    * Overview. Three tabs, one question each: how much quota is left (Provider),
    * what is installed (Engines), and whether logins still verify (Runner).
    */
+  import { goto } from "$app/navigation";
   import { base } from "$app/paths";
+  import { page } from "$app/state";
   import { PageShell, Section, StateBlock } from "$lib/components/page";
   import { Button } from "$lib/components/ui/button";
   import * as Tabs from "$lib/components/ui/tabs";
@@ -21,7 +23,12 @@
   const accounts = accountsQuery();
   const runner = createRunnerStateQuery();
 
-  let tab = $state("provider");
+  // The tab lives in the URL so a reload or a shared link lands on the same one.
+  const TABS = ["provider", "engines", "runner"];
+  const tab = $derived(TABS.find((id) => id === page.url.searchParams.get("tab")) ?? "provider");
+  function selectTab(id: string) {
+    void goto(id === "provider" ? page.url.pathname : `?tab=${id}`, { replaceState: true, noScroll: true, keepFocus: true });
+  }
 
   const fetching = $derived($overview.isFetching || $accounts.isFetching);
   function refresh() {
@@ -31,7 +38,7 @@
   const accountRows = $derived($accounts.data?.accounts);
 </script>
 
-<PageShell title="Overview" description="What needs attention across the fleet, then how it is doing.">
+<PageShell title="Overview" description="Provider quota, installed engines and login verification.">
   {#snippet actions()}
     <Button variant="outline" onclick={refresh} disabled={fetching}>
       <RefreshCw class="h-4 w-4 {fetching ? 'animate-spin' : ''}" /> Refresh
@@ -50,7 +57,7 @@
 
     <OnboardingNotice />
 
-    <Tabs.Root bind:value={tab} class="flex flex-col gap-4">
+    <Tabs.Root value={tab} onValueChange={selectTab} class="flex flex-col gap-4">
       <Tabs.List class="w-fit">
         <Tabs.Trigger value="provider">Provider</Tabs.Trigger>
         <Tabs.Trigger value="engines">Engines</Tabs.Trigger>

@@ -504,7 +504,7 @@ export function hostCxxWrapperState(
 
 export const HOST_ONLINE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-export type HostStatusKind = "online" | "offline" | "auth-missing" | "auth-outdated";
+export type HostStatusKind = "online" | "offline" | "auth-missing";
 
 function parseHostTime(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -552,7 +552,6 @@ export function hostStatusKind(host: HostListItem, nowMs = Date.now()): HostStat
   const raw = (host.status ?? "").toLowerCase();
   if (raw === "offline" || raw === "stale" || raw === "disabled") return "offline";
   if (!hostHasRequiredAuth(host)) return "auth-missing";
-  if (host.auth_outdated === true) return "auth-outdated";
   const lastSeen = hostLastSeenMs(host);
   if (lastSeen !== null && nowMs - lastSeen <= HOST_ONLINE_WINDOW_MS) return "online";
   return "offline";
@@ -562,7 +561,6 @@ export function hostStatusLabel(host: HostListItem): string {
   const kind = hostStatusKind(host);
   if (kind === "online") return "Online";
   if (kind === "auth-missing") return "Auth missing";
-  if (kind === "auth-outdated") return "Outdated auth";
   return "Offline";
 }
 

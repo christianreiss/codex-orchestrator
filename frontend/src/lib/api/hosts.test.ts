@@ -467,14 +467,14 @@ describe("hostStatusKind", () => {
     }
   });
 
-  it("reports auth-missing ahead of auth-outdated", () => {
+  it("reports auth-missing ahead of online", () => {
     const host = makeHost({ canonical_digest: null, auth_outdated: true });
     assert.equal(hostStatusKind(host), "auth-missing");
   });
 
-  it("reports auth-outdated ahead of online", () => {
+  it("does not demote a live host for stale auth, which heals on its next run", () => {
     const host = makeHost({ auth_outdated: true });
-    assert.equal(hostStatusKind(host), "auth-outdated");
+    assert.equal(hostStatusKind(host), "online");
   });
 
   it("is online exactly at the edge of the window and offline one ms past it", () => {
@@ -497,11 +497,11 @@ describe("hostStatusKind", () => {
 });
 
 describe("hostStatusLabel", () => {
-  it("renders each of the four kinds", () => {
+  it("renders each of the three kinds", () => {
     assert.equal(hostStatusLabel(makeHost()), "Online");
     assert.equal(hostStatusLabel(makeHost({ status: "offline" })), "Offline");
     assert.equal(hostStatusLabel(makeHost({ canonical_digest: null })), "Auth missing");
-    assert.equal(hostStatusLabel(makeHost({ auth_outdated: true })), "Outdated auth");
+    assert.equal(hostStatusLabel(makeHost({ auth_outdated: true })), "Online");
   });
 });
 

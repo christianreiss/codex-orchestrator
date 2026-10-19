@@ -32,7 +32,6 @@
     online: { tone: "online", label: "Online" },
     offline: { tone: "offline", label: "Offline" },
     "auth-missing": { tone: "warning", label: "Auth missing" },
-    "auth-outdated": { tone: "warning", label: "Outdated auth" },
   } as const;
 
   function open(event: MouseEvent, id: number): void {

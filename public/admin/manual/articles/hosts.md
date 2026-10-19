@@ -1,7 +1,7 @@
 ---
 title: Hosts — secure, insecure, unprovisioned
 section: Fleet operations
-verified: 2026-10-17
+verified: 2026-10-19
 sources: api/src/routes/admin/hosts/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/settings/index.ts, api/src/services/host-management.ts, api/src/services/host-auth.ts, api/src/services/insecure-window.ts, api/src/services/insecure-window-admin.ts, api/src/services/insecure-fleet-window.ts, api/src/ops/insecure-fleet-window-worker.ts, api/src/security/route-capabilities.ts, api/src/db/schema.ts, frontend/src/routes/hosts/+page.svelte, frontend/src/routes/hosts/[id]/+page.svelte, frontend/src/lib/components/hosts/HostsFilters.svelte, frontend/src/lib/components/hosts/hostsListState.svelte.ts, frontend/src/lib/components/hosts/HostsActions.svelte, frontend/src/lib/components/hosts/detail/HostAttention.svelte, frontend/src/lib/components/hosts/hostAttention.ts, frontend/src/lib/components/hosts/InsecureApprovalsDialog.svelte, frontend/src/lib/components/hosts/InsecureApprovalsAutoPopup.svelte, frontend/src/lib/stores/insecure-resolutions.ts, frontend/src/lib/api/hosts.ts
 ---
 
@@ -67,9 +67,8 @@ Online status is computed entirely in the frontend by `hostStatusKind()` — the
 
 1. If `host.status` is `'offline'`, `'stale'`, or `'disabled'` → **Offline**.
 2. If required engine digests are absent or `authed === false` → **Auth missing**.
-3. If `auth_outdated === true` → **Outdated auth**.
-4. If `max(updated_at, last_refresh, claude_last_refresh, grok_last_refresh)` is within the last 24 hours (`HOST_ONLINE_WINDOW_MS = 24 h`) → **Online**.
-5. Otherwise → **Offline**.
+3. If `max(updated_at, last_refresh, claude_last_refresh, grok_last_refresh)` is within the last 24 hours (`HOST_ONLINE_WINDOW_MS = 24 h`) → **Online**.
+4. Otherwise → **Offline**.
 
 ## Host detail page
 
@@ -77,18 +76,17 @@ Visiting `/hosts/[id]` (click a row) loads the detail view. Page data is fetched
 
 ### Header and status
 
-The page title is the hostname with `Host #id` below it. The header's primary action is **Get install command** (previously *Mint installer*): it generates a one-time installer via `POST /admin/hosts/{id}/installer` and shows the URL and command with copy buttons; **Create a new one** replaces it. The current **Skip TLS check** (`curl_insecure`) value is included so the copied command reflects the visible setting. Under the title a status pill shows the liveness (Online / Auth missing / Outdated auth / Offline, see *Online status*) next to **Last seen**, derived from the newest of `last_refresh`, `claude_last_refresh`, and `grok_last_refresh`.
+The page title is the hostname with `Host #id` below it. The header's primary action is **Get install command** (previously *Mint installer*): it generates a one-time installer via `POST /admin/hosts/{id}/installer` and shows the URL and command with copy buttons; **Create a new one** replaces it. The current **Skip TLS check** (`curl_insecure`) value is included so the copied command reflects the visible setting. Under the title a status pill shows the liveness (Online / Auth missing / Offline, see *Online status*) next to **Last seen**, derived from the newest of `last_refresh`, `claude_last_refresh`, and `grok_last_refresh`.
 
 ### Needs attention block
 
-The first block on the page lists what is wrong with this host, each item with an inline button (warnings first; informational items follow). Items are derived client-side from fields already in the host payload:
+The first block on the page lists what is wrong with this host, each item with an inline button (warnings first; informational items follow). Items are derived client-side from fields already in the host payload. Only what stops the host from working is a warning:
 
 - an access request is waiting (**Review** opens the temporary access dialog);
-- no credentials received yet, credentials older than the fleet's, or some engines without credentials (**Fix** gets a fresh install command);
-- a Codex, Claude, or Grok CLI that is not at the target version, or a host agent (`cxx`) that is not at the target version or differs between engines (**Fix**);
-- informational: temporary access is open (**Close** ends the window now), and an engine switched off fleet-wide (**Open Engines**).
+- no credentials received yet (**Fix** gets a fresh install command);
+- informational, not counted: credentials older than the fleet's, some engines without credentials yet, a CLI or host agent (`cxx`) that is not at the target version or differs between engines (all of these repair themselves at the host's next run, so a stale host is not shown as a problem), temporary access is open (**Close** ends the window now), and an engine switched off fleet-wide (**Open Engines**).
 
-With nothing to report it reads "Nothing needs attention." The same warnings feed the *Needs attention* column and status filter of the host list and the host findings on the Overview page.
+With nothing to report it reads "Nothing needs attention." Only the warnings feed the *Needs attention* column and status filter of the host list.
 
 ### Engines, access, and advanced controls
 
