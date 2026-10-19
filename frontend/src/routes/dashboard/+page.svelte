@@ -71,7 +71,7 @@
     <Button href={`${base}/hosts?dialog=new-host`}><Plus class="h-4 w-4" /> Add host</Button>
   {/snippet}
   {#snippet subheader()}
-    <StatStrip items={stats} />
+    <StatStrip items={stats} variant="tiles" />
   {/snippet}
 
   <div class="flex flex-col gap-6">

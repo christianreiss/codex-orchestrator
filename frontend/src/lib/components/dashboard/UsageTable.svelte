@@ -93,9 +93,6 @@
         {:else}
           <span class="text-body-sm text-muted-foreground">{account.usage.fetched_at ? "No quota windows reported" : "Waiting for usage data"}</span>
         {/if}
-        {#if account.usage.stale && (rows.length || grok)}
-          <Badge variant="warning" class="mt-1">Last known reading</Badge>
-        {/if}
       </Table.Cell>
       <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground">
         {#if account.usage.fetched_at}

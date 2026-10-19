@@ -65,7 +65,7 @@ test("three providers share one usage table in light/dark desktop, tablet and mo
     await expect(rows.nth(0).getByRole("meter")).toHaveCount(1);
     await expect(rows.nth(0)).not.toContainText("Short window");
     await expect(rows.nth(1).getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
-    await expect(rows.nth(1)).toContainText("Last known reading");
+    await expect(rows.nth(1)).not.toContainText("Last known reading");
     await expect(rows.nth(2).getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "87");
     await expect(rows.nth(2)).toContainText("in 1 day");
     // One compact table: every meter has the same height and the page never scrolls sideways.
