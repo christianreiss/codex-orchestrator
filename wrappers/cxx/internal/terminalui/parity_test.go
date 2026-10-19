@@ -157,3 +157,28 @@ func BenchmarkBootScreen(b *testing.B) {
 		printBootScreen(io.Discard, in, screenCaps(80))
 	}
 }
+
+func TestGrokAccentIsNotTheSuccessGreen(t *testing.T) {
+	caps := screenCaps(80)
+	caps.NoColor = false
+	caps.Palette = Palette{Bold: "\x1b[1m", Dim: "\x1b[2m", Reset: "\x1b[0m", Orange: "\x1b[38;5;208m", Violet: "\x1b[38;5;141m", Green: "\x1b[32m", Cyan: "\x1b[36m"}
+	var out bytes.Buffer
+	printBootScreen(&out, ScreenInput{Prefix: "cgx", EngineName: "grok", ResultTone: ToneOK, ResultLabel: "Ready."}, caps)
+	first := strings.SplitN(out.String(), "\n", 2)[0]
+	if !strings.Contains(first, caps.Palette.Cyan) || strings.Contains(first, caps.Palette.Green) {
+		t.Fatalf("cgx frame accent must be cyan, not the ok green: %q", first)
+	}
+}
+
+func TestSectionDividerIsALabelledRuleAndOutcomeHasABullet(t *testing.T) {
+	caps := screenCaps(60)
+	var out bytes.Buffer
+	printBootScreen(&out, ScreenInput{Prefix: "cdx", EngineName: "codex", ResultTone: ToneOK, ResultLabel: "Ready.", Dots: []HealthDot{{Name: "api", Tone: ToneOK}}}, caps)
+	plain := StripANSI(out.String())
+	if !strings.Contains(plain, "SYSTEM "+strings.Repeat(caps.BannerSym.BoxH, 3)) {
+		t.Fatalf("section label is not followed by a rule:\n%s", plain)
+	}
+	if !strings.Contains(plain, caps.BannerSym.DotOK+" READY") {
+		t.Fatalf("outcome lost its status bullet:\n%s", plain)
+	}
+}

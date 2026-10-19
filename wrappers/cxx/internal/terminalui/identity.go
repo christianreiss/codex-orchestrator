@@ -7,7 +7,8 @@ func engineCaps(caps Caps, engine string) Caps {
 		caps.Theme = ThemeViolet
 	}
 	if strings.EqualFold(engine, "cgx") || strings.EqualFold(engine, "grok") {
-		caps.Theme = ThemeGreen
+		// Not green: green already means "ok" in every row of the box.
+		caps.Theme = ThemeCyan
 	}
 	if !caps.IsTTY || caps.Dumb || caps.NoColor {
 		caps.Palette = Palette{}

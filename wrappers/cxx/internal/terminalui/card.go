@@ -61,8 +61,14 @@ func (c card) edge(left, right string) {
 func (c card) divider(label string) {
 	c.line("")
 	if strings.TrimSpace(label) != "" {
-		label = TruncateText(strings.ToUpper(CleanInline(label)), c.inner, c.caps)
-		c.line(c.caps.Palette.Dim + label + c.caps.Palette.Reset)
+		// A labelled rule: the section name, then a quiet line to the edge.
+		label = TruncateText(strings.ToUpper(CleanInline(label)), c.inner-2, c.caps)
+		rule := strings.Repeat(c.caps.BannerSym.BoxH, c.inner-VisibleWidth(label)-1)
+		ruleColor := c.caps.Palette.Border
+		if ruleColor == "" {
+			ruleColor = c.caps.Palette.Dim
+		}
+		c.line(c.caps.Palette.Text + label + c.caps.Palette.Reset + " " + ruleColor + rule + c.caps.Palette.Reset)
 	}
 }
 

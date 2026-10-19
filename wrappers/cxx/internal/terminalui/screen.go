@@ -83,7 +83,7 @@ func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 	if in.Concurrent && resultTone != ToneFail {
 		outcome = "SYNC PAUSED"
 	} else {
-		outcome = styleTone(caps, resultTone, outcome)
+		outcome = styleTone(caps, resultTone, caps.BannerSym.DotOK+" "+outcome)
 	}
 
 	c.top()
