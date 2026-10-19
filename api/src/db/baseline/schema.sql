@@ -2094,6 +2094,128 @@ CREATE TABLE `agent_room_operations` (
  `result` json NOT NULL,
  `created_at` varchar(100) NOT NULL
 );
+CREATE TABLE `agent_role_assignments` (
+	`id` char(36) NOT NULL,
+	`address_id` char(36) NOT NULL,
+	`active_address_id` char(36),
+	`role_id` char(36) NOT NULL,
+	`version_id` char(36) NOT NULL,
+	`status` varchar(16) NOT NULL,
+	`binding_generation` int NOT NULL,
+	`activated_by` json NOT NULL,
+	`reason` text NOT NULL,
+	`client_request_id` char(36) NOT NULL,
+	`previous_assignment_id` char(36),
+	`ended_at` varchar(100),
+	`end_reason` varchar(32),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_role_assignments_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_role_assignments_active` UNIQUE(`active_address_id`),
+	CONSTRAINT `uq_agent_role_assignments_request` UNIQUE(`address_id`,`client_request_id`)
+);
+
+CREATE TABLE `agent_role_blobs` (
+	`sha256` char(64) NOT NULL,
+	`encoding` varchar(8) NOT NULL,
+	`content` longtext NOT NULL,
+	`size_bytes` int NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_role_blobs_sha256` PRIMARY KEY(`sha256`)
+);
+
+CREATE TABLE `agent_role_proposal_events` (
+	`id` char(36) NOT NULL,
+	`proposal_id` char(36) NOT NULL,
+	`seq` int NOT NULL,
+	`action` varchar(32) NOT NULL,
+	`actor` json NOT NULL,
+	`detail` json NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_role_proposal_events_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_role_proposal_events_seq` UNIQUE(`proposal_id`,`seq`)
+);
+
+CREATE TABLE `agent_role_proposals` (
+	`id` char(36) NOT NULL,
+	`role_id` char(36) NOT NULL,
+	`author_address_id` char(36) NOT NULL,
+	`client_request_id` char(36) NOT NULL,
+	`base_version_id` char(36) NOT NULL,
+	`kind` varchar(24) NOT NULL,
+	`risk` varchar(16) NOT NULL,
+	`title` varchar(255) NOT NULL,
+	`rationale` text NOT NULL,
+	`evidence` json NOT NULL,
+	`ops` json NOT NULL,
+	`author` json NOT NULL,
+	`status` varchar(16) NOT NULL,
+	`version` int NOT NULL DEFAULT 1,
+	`gate_results` json,
+	`judge` json,
+	`reviews` json NOT NULL,
+	`reviewer_address_id` char(36),
+	`review_requested_at` varchar(100),
+	`attempts` int NOT NULL DEFAULT 0,
+	`next_attempt_at` varchar(100),
+	`decision_note` text,
+	`result_version_id` char(36),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_role_proposals_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_role_proposals_request` UNIQUE(`author_address_id`,`client_request_id`)
+);
+
+CREATE TABLE `agent_role_version_files` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`version_id` char(36) NOT NULL,
+	`path` varchar(512) NOT NULL,
+	`blob_sha256` char(64) NOT NULL,
+	`mime_type` varchar(127) NOT NULL,
+	`load_mode` varchar(16) NOT NULL,
+	`description` varchar(300),
+	`introduced_in_version` int,
+	`source_proposal_id` char(36),
+	CONSTRAINT `agent_role_version_files_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_role_version_files_path` UNIQUE(`version_id`,`path`)
+);
+
+CREATE TABLE `agent_role_versions` (
+	`id` char(36) NOT NULL,
+	`role_id` char(36) NOT NULL,
+	`version` int,
+	`state` varchar(16) NOT NULL,
+	`manifest` longtext NOT NULL,
+	`manifest_sha256` char(64) NOT NULL,
+	`bundle_sha256` char(64) NOT NULL,
+	`changelog` text,
+	`created_by` json NOT NULL,
+	`published_by` json,
+	`published_at` varchar(100),
+	`withdrawn_at` varchar(100),
+	`source_proposal_id` char(36),
+	`reverted_from_version` int,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_role_versions_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_role_versions_number` UNIQUE(`role_id`,`version`)
+);
+
+CREATE TABLE `agent_roles` (
+	`id` char(36) NOT NULL,
+	`slug` varchar(64) NOT NULL,
+	`display_name` varchar(255) NOT NULL,
+	`summary` varchar(600) NOT NULL,
+	`status` varchar(16) NOT NULL DEFAULT 'active',
+	`current_version_id` char(36),
+	`policy` json NOT NULL,
+	`version` int NOT NULL DEFAULT 1,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_roles_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_roles_slug` UNIQUE(`slug`)
+);
+
 CREATE TABLE `agent_room_deliveries` (
  `event_id` char(36) NOT NULL,
  `address_id` char(36) NOT NULL,

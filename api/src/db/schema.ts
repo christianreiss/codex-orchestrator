@@ -2664,3 +2664,134 @@ export const agentRoomDeliveries = mysqlTable('agent_room_deliveries', {
   messageId: char('message_id', { length: 36 }),
   reason: varchar('reason', { length: 80 }),
 }, t => ({ deliveryUnique: uniqueIndex('uq_room_delivery').on(t.eventId, t.addressId) }));
+
+// ────────────────────────────────────────────────────────────────────────────
+// agent roles — versioned role packages, assignments and proposals (0081)
+// ────────────────────────────────────────────────────────────────────────────
+
+export const agentRoles = mysqlTable('agent_roles', {
+  id: char('id', { length: 36 }).primaryKey(),
+  slug: varchar('slug', { length: 64 }).notNull(),
+  displayName: varchar('display_name', { length: 255 }).notNull(),
+  summary: varchar('summary', { length: 600 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('active'),
+  currentVersionId: char('current_version_id', { length: 36 }),
+  policy: json('policy').$type<Record<string, unknown>>().notNull(),
+  version: int('version').notNull().default(1),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({ slugUnique: uniqueIndex('uq_agent_roles_slug').on(t.slug) }));
+
+/** Immutable once published; a draft has no number until it is published. */
+export const agentRoleVersions = mysqlTable('agent_role_versions', {
+  id: char('id', { length: 36 }).primaryKey(),
+  roleId: char('role_id', { length: 36 }).notNull(),
+  version: int('version'),
+  state: varchar('state', { length: 16 }).notNull(),
+  manifest: longtext('manifest').notNull(),
+  manifestSha256: char('manifest_sha256', { length: 64 }).notNull(),
+  bundleSha256: char('bundle_sha256', { length: 64 }).notNull(),
+  changelog: text('changelog'),
+  createdBy: json('created_by').$type<Record<string, unknown>>().notNull(),
+  publishedBy: json('published_by').$type<Record<string, unknown>>(),
+  publishedAt: varchar('published_at', { length: 100 }),
+  withdrawnAt: varchar('withdrawn_at', { length: 100 }),
+  sourceProposalId: char('source_proposal_id', { length: 36 }),
+  revertedFromVersion: int('reverted_from_version'),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({
+  numberUnique: uniqueIndex('uq_agent_role_versions_number').on(t.roleId, t.version),
+  stateIdx: index('idx_agent_role_versions_state').on(t.roleId, t.state),
+}));
+
+/** Content-addressed file bodies, shared by every version that carries them. */
+export const agentRoleBlobs = mysqlTable('agent_role_blobs', {
+  sha256: char('sha256', { length: 64 }).primaryKey(),
+  encoding: varchar('encoding', { length: 8 }).notNull(),
+  content: longtext('content').notNull(),
+  sizeBytes: int('size_bytes').notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+});
+
+export const agentRoleVersionFiles = mysqlTable('agent_role_version_files', {
+  id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+  versionId: char('version_id', { length: 36 }).notNull(),
+  path: varchar('path', { length: 512 }).notNull(),
+  blobSha256: char('blob_sha256', { length: 64 }).notNull(),
+  mimeType: varchar('mime_type', { length: 127 }).notNull(),
+  loadMode: varchar('load_mode', { length: 16 }).notNull(),
+  description: varchar('description', { length: 300 }),
+  introducedInVersion: int('introduced_in_version'),
+  sourceProposalId: char('source_proposal_id', { length: 36 }),
+}, (t) => ({ pathUnique: uniqueIndex('uq_agent_role_version_files_path').on(t.versionId, t.path) }));
+
+/** `active_address_id` mirrors `address_id` while active, so one address holds one role. */
+export const agentRoleAssignments = mysqlTable('agent_role_assignments', {
+  id: char('id', { length: 36 }).primaryKey(),
+  addressId: char('address_id', { length: 36 }).notNull(),
+  activeAddressId: char('active_address_id', { length: 36 }),
+  roleId: char('role_id', { length: 36 }).notNull(),
+  versionId: char('version_id', { length: 36 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull(),
+  bindingGeneration: int('binding_generation').notNull(),
+  activatedBy: json('activated_by').$type<Record<string, unknown>>().notNull(),
+  reason: text('reason').notNull(),
+  clientRequestId: char('client_request_id', { length: 36 }).notNull(),
+  previousAssignmentId: char('previous_assignment_id', { length: 36 }),
+  endedAt: varchar('ended_at', { length: 100 }),
+  endReason: varchar('end_reason', { length: 32 }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({
+  activeUnique: uniqueIndex('uq_agent_role_assignments_active').on(t.activeAddressId),
+  requestUnique: uniqueIndex('uq_agent_role_assignments_request').on(t.addressId, t.clientRequestId),
+  roleIdx: index('idx_agent_role_assignments_role').on(t.roleId, t.status),
+}));
+
+export const agentRoleProposals = mysqlTable('agent_role_proposals', {
+  id: char('id', { length: 36 }).primaryKey(),
+  roleId: char('role_id', { length: 36 }).notNull(),
+  authorAddressId: char('author_address_id', { length: 36 }).notNull(),
+  clientRequestId: char('client_request_id', { length: 36 }).notNull(),
+  baseVersionId: char('base_version_id', { length: 36 }).notNull(),
+  kind: varchar('kind', { length: 24 }).notNull(),
+  risk: varchar('risk', { length: 16 }).notNull(),
+  title: varchar('title', { length: 255 }).notNull(),
+  rationale: text('rationale').notNull(),
+  evidence: json('evidence').$type<unknown[]>().notNull(),
+  ops: json('ops').$type<Array<Record<string, unknown>>>().notNull(),
+  author: json('author').$type<Record<string, unknown>>().notNull(),
+  status: varchar('status', { length: 16 }).notNull(),
+  version: int('version').notNull().default(1),
+  gateResults: json('gate_results').$type<Record<string, unknown>>(),
+  judge: json('judge').$type<Record<string, unknown>>(),
+  reviews: json('reviews').$type<Array<Record<string, unknown>>>().notNull(),
+  reviewerAddressId: char('reviewer_address_id', { length: 36 }),
+  reviewRequestedAt: varchar('review_requested_at', { length: 100 }),
+  attempts: int('attempts').notNull().default(0),
+  nextAttemptAt: varchar('next_attempt_at', { length: 100 }),
+  decisionNote: text('decision_note'),
+  resultVersionId: char('result_version_id', { length: 36 }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({
+  requestUnique: uniqueIndex('uq_agent_role_proposals_request').on(t.authorAddressId, t.clientRequestId),
+  roleIdx: index('idx_agent_role_proposals_role').on(t.roleId, t.status),
+  dueIdx: index('idx_agent_role_proposals_due').on(t.status, t.nextAttemptAt),
+}));
+
+export const agentRoleProposalEvents = mysqlTable('agent_role_proposal_events', {
+  id: char('id', { length: 36 }).primaryKey(),
+  proposalId: char('proposal_id', { length: 36 }).notNull(),
+  seq: int('seq').notNull(),
+  action: varchar('action', { length: 32 }).notNull(),
+  actor: json('actor').$type<Record<string, unknown>>().notNull(),
+  detail: json('detail').$type<Record<string, unknown>>().notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, (t) => ({ seqUnique: uniqueIndex('uq_agent_role_proposal_events_seq').on(t.proposalId, t.seq) }));
+
+export type AgentRole = typeof agentRoles.$inferSelect;
+export type AgentRoleVersion = typeof agentRoleVersions.$inferSelect;
+export type AgentRoleAssignment = typeof agentRoleAssignments.$inferSelect;
+export type AgentRoleProposal = typeof agentRoleProposals.$inferSelect;

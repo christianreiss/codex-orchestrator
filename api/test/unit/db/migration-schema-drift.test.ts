@@ -245,6 +245,13 @@ describe('migrations against the test baseline', () => {
       'agent_room_reads',
       'agent_room_operations',
       'agent_room_deliveries',
+      'agent_roles',
+      'agent_role_versions',
+      'agent_role_blobs',
+      'agent_role_version_files',
+      'agent_role_assignments',
+      'agent_role_proposals',
+      'agent_role_proposal_events',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
