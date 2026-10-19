@@ -4,6 +4,8 @@ import {
   agentsDocuments,
   agentsDocumentState,
   clientConfigDocuments,
+  hostDaemons,
+  hosts,
   logs,
   mcpSessionTokens,
   secrets,
@@ -528,6 +530,58 @@ describe('HostAgentsService Agent Messaging guidance', () => {
     expect(out['sections']).toMatchObject({
       agent_messaging: { present: false, reason: 'master_disabled' },
     });
+  });
+});
+
+describe('HostAgentsService Fleet Advisor cxx gate', () => {
+  // Feedback 289cfa53: a daemon-spawned Claude session read about advisor_* while the
+  // daemon's private cxx (0.9.83) served none of them; /usr/local/bin/cxx was 0.9.99.
+  const messagingOn = { name: 'agent_messaging_enabled', version: '1' };
+  const daemonRow = (hostId: number, version: string | null, enabled = true) => ({
+    hostId,
+    settings: { enabled, username: 'root', default_cwd: '', max_parallel: 8, idle_minutes: 60, question_minutes: 1440 },
+    runtime: version === null ? null : {
+      instance_id: 'i', generation: 'g', username: 'root', version, heartbeat_at: '2026-10-19T00:00:00Z',
+      connected: true, engines: ['claude'], error: null,
+    },
+    enabledAt: '2026-10-19T00:00:00Z',
+    updatedAt: '2026-10-19T00:00:00Z',
+  });
+  const advisorHostRow = { id: 99, fqdn: 'advisor.internal', internalRole: 'advisor', status: 'active', engines: 'claude' };
+  const serve = async (hostOverrides: Record<string, unknown>, daemons: Record<string, unknown>[]) => {
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, 'Canonical CLAUDE body\n', ENGINE_CLAUDE)]],
+      [versions, [messagingOn]],
+      [hosts, [advisorHostRow]],
+      [hostDaemons, [daemonRow(99, '0.9.105'), ...daemons]],
+    ]);
+    return makeService(db).retrieve(null, makeHost({ status: 'active', engines: 'claude', ...hostOverrides }), ENGINE_CLAUDE);
+  };
+
+  it('serves the block when the installed cxx and the executing daemon both carry the tools', async () => {
+    const out = await serve({ claudeWrapperVersion: '0.9.105' }, [daemonRow(7, '0.9.100')]);
+    expect(out['content']).toContain('## Fleet Advisor');
+    expect(out['sections']).toMatchObject({ advisor: { present: true, reason: 'ok' } });
+  });
+
+  it('withholds it while the daemon that spawns sessions runs an older private cxx', async () => {
+    const out = await serve({ claudeWrapperVersion: '0.9.99' }, [daemonRow(7, '0.9.83')]);
+    expect(out['content']).not.toContain('advisor_ask');
+    expect(out['sections']).toMatchObject({ advisor: { present: false, reason: 'advisor_wrapper_outdated' } });
+    const lagging = await serve({ claudeWrapperVersion: '0.9.105' }, [daemonRow(7, '0.9.83')]);
+    expect(lagging['content']).not.toContain('advisor_ask');
+    expect(lagging['sections']).toMatchObject({ advisor: { present: false, reason: 'advisor_daemon_outdated' } });
+  });
+
+  it('ignores a daemon that is switched off and reads the version any engine reported', async () => {
+    // One cxx binary serves every engine, so a peer column is a valid report.
+    const out = await serve({ wrapperVersion: '0.9.100' }, [daemonRow(7, '0.9.83', false)]);
+    expect(out['sections']).toMatchObject({ advisor: { present: true, reason: 'ok' } });
+  });
+
+  it('withholds it from a host that never reported a cxx version', async () => {
+    const out = await serve({}, []);
+    expect(out['sections']).toMatchObject({ advisor: { present: false, reason: 'advisor_wrapper_outdated' } });
   });
 });
 

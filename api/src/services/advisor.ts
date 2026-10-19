@@ -35,6 +35,7 @@ import { advisorHost } from './internal-hosts.js';
 import { readModelPolicy } from './model-policy.js';
 import { buildModelTierTable, modelTier } from './model-tiers.js';
 import { ADVISOR_KINDS, type AdvisorKind } from './advisor-delivery.js';
+import { compareWrapperVersions, highestVersion } from './wrapper-rollout.js';
 
 export const advisorAskSchema = z
   .object({
@@ -65,6 +66,35 @@ export interface AdvisorAvailability {
  * heartbeats, so a restarting container does not churn every host's served
  * AGENTS.md; live readiness is checked by `AdvisorService.availability`.
  */
+// The first cxx whose `cxx-agent` server serves advisor_ask/advisor_status/advisor_close with
+// the engine/model parameters the served guidance names. 0.9.98 (1fdef511) shipped the tools
+// without engine/model; two different trees were both versioned 0.9.99 and only one carried
+// the parameters; their merge became 0.9.100. CONFIRM AND UPDATE if the guidance ever names a
+// parameter a newer release adds.
+export const ADVISOR_MIN_CXX_VERSION = '0.9.100';
+
+/**
+ * Whether every cxx that can start an agent on this host serves the advisor tools. The
+ * guidance is one file per host and engine, but two binaries read it: the installed `cxx`
+ * (reported through `/cron/report`) and, while a host daemon executes work, the daemon's
+ * private copy (reported in its `hello` as `runtime.version`), which can lag. Either one
+ * being older, or the installed one being unknown, withholds the section: describing tools
+ * a session does not have costs more than omitting tools that describe themselves.
+ */
+export function advisorCxxSupport(
+  wrapperVersion: string | null | undefined,
+  daemonVersion: string | null | undefined,
+): { enabled: boolean; reason: string } {
+  const supports = (version: string | null | undefined): boolean => {
+    const known = highestVersion([version]);
+    return known !== null && compareWrapperVersions(known, ADVISOR_MIN_CXX_VERSION) >= 0;
+  };
+  if (!supports(wrapperVersion)) return { enabled: false, reason: 'advisor_wrapper_outdated' };
+  if (daemonVersion != null && daemonVersion.trim() !== '' && !supports(daemonVersion))
+    return { enabled: false, reason: 'advisor_daemon_outdated' };
+  return { enabled: true, reason: 'ok' };
+}
+
 export async function advisorConfigured(db: Database): Promise<{ enabled: boolean; reason: string }> {
   const host = await advisorHost(db);
   if (!host) return { enabled: false, reason: 'advisor_host_missing' };

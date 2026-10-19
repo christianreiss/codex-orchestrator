@@ -194,6 +194,15 @@ slug and deleting the module is Release B, once the fleet has converged.
   actionable findings through the existing feedback tools after deduplication.
   The automatic trigger ships with the API; the Skill remains separately editable.
 
+- `#gime` — shared stored Skill ("Git Merge Back"), with the review copy in
+  `docs/skills/gime.SKILL.md`. Publish with MCP `skill_store`; a git commit alone
+  does not install it. It lands a finished worktree branch into its target under
+  the Git Director lease and removes the worktree. Landing is a local merge: it
+  pushes the target (or deletes a remote feature branch) only when the operator
+  explicitly asked for a push, matching the served Git Director contract
+  (feedback 67af6b1d, 2026-10-19). The stored row before that correction had
+  manifest sha256 `fac714d40a871a45a598b0adac81e633669384db2ab5cfc6c59db70cedbc8e44`.
+
 - `#afk` — code-derived in `api/src/services/managed-afk-skill.ts`, unconditional.
   Keeps a root agent available in the permanent web portal without raising
   attention unless user input is actually needed; since cxx 0.8.4 opening it

@@ -1,11 +1,11 @@
 /**
  * Host-facing agents + client config retrieval.
  */
-import { advisorConfigured } from './advisor.js';
+import { advisorConfigured, advisorCxxSupport } from './advisor.js';
 import { eq, desc } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import type { Database } from '../db/client.js';
-import { agentsDocuments, agentsDocumentState, clientConfigDocuments, logs } from '../db/schema.js';
+import { agentsDocuments, agentsDocumentState, clientConfigDocuments, hostDaemons, logs } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import { nowIso } from '../util/timestamp.js';
 import { buildManagedMemoryRouting } from './managed-memory-routing.js';
@@ -29,6 +29,8 @@ import { buildModelTierTable, MODEL_TIER_CHECK_ENABLED_KEY, type ConfiguredModel
 import { buildModelPolicy, readModelPolicy } from './model-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
 import { activeHostEngines } from './host-engine-policy.js';
+import { daemonExecutionEnabled } from './host-daemon/policy.js';
+import { hostRunningWrapperVersion } from './wrapper-rollout.js';
 import { DEFAULT_CODEX_MODEL } from './codex-model-upgrades.js';
 import { GROK_DEFAULT_MODEL } from './grok-models.js';
 import { normalizeClaudeModel, normalizeStoredModel } from './config-normalizer.js';
@@ -588,7 +590,7 @@ export class HostAgentsService {
       fileTransfer,
       advisor: !agentMessaging.enabled
         ? state(false, agentMessaging.reason)
-        : await advisorConfigured(this.db).catch(() => state(false, 'service_unavailable')),
+        : await this.advisorState(host).catch(() => state(false, 'service_unavailable')),
       feedback: feedbackEnabled === null ? state(false, 'service_unavailable')
         : !mcp.enabled ? state(false, mcp.reason)
         : !feedbackEnabled ? state(false, 'feedback_disabled')
@@ -596,6 +598,18 @@ export class HostAgentsService {
       gitCommitSettings,
       modelTiers,
     };
+  }
+
+  /**
+   * The advisor tools live in `cxx-agent`, so the server-side advisor being ready is not
+   * enough: the cxx that starts the session must serve them too. Checked before the
+   * fleet-wide readiness so the host-specific reason wins.
+   */
+  private async advisorState(host: Host): Promise<ManagedFeatureState> {
+    const [daemon] = await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, host.id)).limit(1);
+    const daemonVersion = daemon && daemonExecutionEnabled(daemon.settings) ? daemon.runtime?.version ?? null : null;
+    const support = advisorCxxSupport(hostRunningWrapperVersion(host), daemonVersion);
+    return support.enabled ? advisorConfigured(this.db) : support;
   }
 
   private async resolveServedDocument(
