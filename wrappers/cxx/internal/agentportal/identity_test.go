@@ -151,10 +151,15 @@ func TestIdentityGateAndProviderContextAcrossEngines(t *testing.T) {
 						t.Fatal(err)
 					}
 					context := strings.Join(child.Args, " ")
-					for _, value := range []string{"Claudia", uuid, runtime.Session().ID, "agent_self", "Keep this user prompt", "PeerFixture", "Review workspace", "snapshot only"} {
+					for _, value := range []string{"Claudia", runtime.Session().ID, "agent_self", "Keep this user prompt", "PeerFixture", "Review workspace", "snapshot only"} {
 						if !strings.Contains(context, value) {
 							t.Fatalf("child context missing %s", value)
 						}
+					}
+					// A native identity report can rebind the launch after start;
+					// only agent_self may name the address.
+					if strings.Contains(context, uuid) {
+						t.Fatalf("child context states the launch-time address %s", uuid)
 					}
 					if child.Name != "Claudia" {
 						t.Fatal("child launch name missing")
@@ -219,5 +224,26 @@ func TestIdentityContextRequiresSetupOnEveryFirstTurn(t *testing.T) {
 	}
 	if strings.Contains(text, "near the start of work") {
 		t.Fatalf("identity context keeps work-gated timing: %s", text)
+	}
+}
+
+// 2026-10-18: the hint named the launch-time address while agent_self already
+// returned the address a later native identity report had rebound the launch
+// to. The hint is fixed at native start, so it must not state an address.
+func TestIdentityContextOmitsTheRebindableAddress(t *testing.T) {
+	uuid := "12345678-1234-4123-8123-123456789abc"
+	text := Identity{Name: "Helga", UUID: uuid, Address: "agent:" + uuid, SessionID: "557bb6a4-a9bf-4002-be32-4b98106be6d4", Engine: "claude"}.Context()
+	if strings.Contains(text, uuid) {
+		t.Fatalf("identity context states a launch-time address: %s", text)
+	}
+	for _, want := range []string{
+		"your name is Helga;",
+		"your launch session ID is 557bb6a4-a9bf-4002-be32-4b98106be6d4;",
+		"engine is claude.",
+		"agent_self is the only source of your agent address",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("identity context missing %q: %s", want, text)
+		}
 	}
 }
