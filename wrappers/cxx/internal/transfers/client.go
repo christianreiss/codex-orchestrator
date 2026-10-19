@@ -11,7 +11,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/update"
 )
@@ -36,6 +38,9 @@ type Client struct {
 	HTTP                    *http.Client
 	BaseURL, APIKey, Engine string
 	Progress                io.Writer
+	// Owner reads the local communicator owner that relays these requests; nil
+	// (direct HTTPS, tests) skips the owner preflight.
+	Owner func(ctx context.Context, base string) (communicator.Owner, bool)
 }
 
 func NewClient(cfg *config.Config, progress io.Writer) (*Client, error) {
@@ -50,7 +55,7 @@ func NewClient(cfg *config.Config, progress io.Writer) (*Client, error) {
 	// Transfer duration is unbounded. Each request has a separate idle timer.
 	h.Timeout = 0
 	h.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return &Client{HTTP: h, BaseURL: strings.TrimRight(cfg.Orchestrator.BaseURL, "/"), APIKey: cfg.Orchestrator.APIKey, Engine: cfg.Engine, Progress: progress}, nil
+	return &Client{HTTP: h, BaseURL: strings.TrimRight(cfg.Orchestrator.BaseURL, "/"), APIKey: cfg.Orchestrator.APIKey, Engine: cfg.Engine, Progress: progress, Owner: communicator.OwnerStatus}, nil
 }
 func (c *Client) endpoint(path string) string {
 	sep := "?"
@@ -100,9 +105,28 @@ func (c *Client) request(ctx context.Context, method, path string, body io.Reade
 		if e.Message == "" {
 			e.Message = e.Error.Message
 		}
+		if e.Message == "" {
+			// A plain-text refusal (http.Error from a local communicator, a proxy)
+			// is the only explanation the caller gets; keep it, bounded.
+			e.Message = plainText(raw, 200)
+		}
 		return nil, func() {}, fmt.Errorf("transfer HTTP %d: %s", resp.StatusCode, e.Message)
 	}
 	return resp, stop, nil
+}
+
+// plainText bounds a response body to one printable line.
+func plainText(raw []byte, limit int) string {
+	text := strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || r == utf8.RuneError {
+			return ' '
+		}
+		return r
+	}, string(raw))), " ")
+	if runes := []rune(text); len(runes) > limit {
+		text = string(runes[:limit])
+	}
+	return text
 }
 func (c *Client) metadata(ctx context.Context, method, path string, input any) (response, error) {
 	var body io.Reader

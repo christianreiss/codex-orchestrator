@@ -46,7 +46,7 @@ func Command(args []string, in io.Reader, out, stderr io.Writer, version string)
 	}
 	if len(args) == 0 || args[0] == "status" || args[0] == "doctor" {
 		Configure(ctx)
-		failed := statusReport(out)
+		failed := statusReport(out, version)
 		if failed && len(args) > 0 && args[0] == "doctor" {
 			return 1
 		}
@@ -427,8 +427,10 @@ func canonicalRPCNumber(raw string) (string, bool) {
 
 // statusReport writes one JSON line per configured endpoint, and always at
 // least one line: a status that prints nothing reads as success to an
-// operator. It reports whether any endpoint is unhealthy.
-func statusReport(out io.Writer) bool {
+// operator. It reports whether any endpoint is unhealthy. An owner older than
+// this cxx (version) gets a stale_owner warning with its remedy; it still runs,
+// so the warning alone does not fail doctor.
+func statusReport(out io.Writer, version string) bool {
 	enc := json.NewEncoder(out)
 	count := 0
 	failed := false
@@ -473,6 +475,11 @@ func statusReport(out io.Writer) bool {
 			}
 			unreachable(map[string]any{"server": ep.base, "socket": ep.localSocket(), "error": oneLine(msg, 240)})
 			return true
+		}
+		if running, _ := status["version"].(string); OlderThan(running, version) {
+			mode, _ := status["mode"].(string)
+			pid, _ := status["pid"].(float64)
+			status["stale_owner"] = map[string]any{"current_version": version, "remedy": Owner{Version: running, PID: int(pid), Mode: mode}.Remedy()}
 		}
 		enc.Encode(status)
 		if status["resident_error"] != "" && status["resident_error"] != nil {

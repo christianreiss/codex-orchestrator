@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/google/uuid"
 )
 
@@ -107,6 +108,40 @@ func (e *PutError) Guidance() string {
 		e.ID, e.ResumeCommand(), e.ID, shellQuote(e.Journal))
 }
 
+// streamingOwnerVersion is the first cxx whose local communicator owner streams
+// /host/transfers bodies (commit cdc9e6b9). Older owners buffer every request
+// body into the control-frame path and refuse anything over ownerBodyLimit
+// with a plain-text HTTP 413, so every upload chunk beyond it fails.
+const (
+	streamingOwnerVersion       = "0.9.93"
+	ownerBodyLimit        int64 = 8 << 20
+)
+
+// OwnerError refuses an upload, before any hashing, journal or server record,
+// that the running local owner would reject for its size.
+type OwnerError struct{ Owner communicator.Owner }
+
+func (e *OwnerError) Error() string {
+	return fmt.Sprintf("local communicator owner cxx %s (pid %d) predates streaming transfers (cxx %s) and refuses request bodies over 8 MiB; nothing was uploaded",
+		e.Owner.Version, e.Owner.PID, streamingOwnerVersion)
+}
+
+// Remedy is the supported step that replaces the owner with the installed cxx.
+func (e *OwnerError) Remedy() string { return e.Owner.Remedy() + "; then retry the transfer" }
+
+// ownerPreflight asks the owner that will relay an upload of size bytes for its
+// version. An unreadable version (no owner yet, direct HTTPS, a "dev" build)
+// proceeds unchanged; only a release known to refuse this upload stops it.
+func (c *Client) ownerPreflight(ctx context.Context, size int64) error {
+	if c.Owner == nil || size <= ownerBodyLimit {
+		return nil
+	}
+	if owner, ok := c.Owner(ctx, c.BaseURL); ok && communicator.OlderThan(owner.Version, streamingOwnerVersion) {
+		return &OwnerError{Owner: owner}
+	}
+	return nil
+}
+
 func shellQuote(s string) string {
 	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+=:@,") == "" {
 		return s
@@ -133,6 +168,9 @@ func (c *Client) Put(ctx context.Context, path string, ttl int64, resume bool) (
 	}
 	if info.Size() > 9007199254740991 {
 		return Transfer{}, fmt.Errorf("file size exceeds the server's exact integer range")
+	}
+	if err = c.ownerPreflight(ctx, info.Size()); err != nil {
+		return Transfer{}, err
 	}
 	if c.Progress != nil {
 		fmt.Fprintln(c.Progress, "transfer: calculating SHA-256")
