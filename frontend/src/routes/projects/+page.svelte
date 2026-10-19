@@ -147,8 +147,6 @@
       {/snippet}
       {#snippet head()}
         <Table.Head>Project</Table.Head>
-        <Table.Head class="hidden md:table-cell">Description</Table.Head>
-        <Table.Head class="text-right">Open work</Table.Head>
         <Table.Head class="hidden sm:table-cell">Updated</Table.Head>
         <Table.Head class="w-10"><span class="sr-only">Actions</span></Table.Head>
       {/snippet}
@@ -156,12 +154,11 @@
         <Table.Row>
           <Table.Cell>
             <a href={`${base}/projects/${encodeURIComponent(project.slug)}`} class="font-medium hover:text-primary hover:underline">{project.title || project.slug}</a>
-            {#if project.title && project.title !== project.slug}<code class="ml-2 text-caption text-muted-foreground">{project.slug}</code>{/if}
             {#if project.archived_at}<Badge variant="outline" class="ml-2">Archived</Badge>{/if}
+            {#if project.title && project.title !== project.slug}<code class="block truncate text-caption text-muted-foreground">{project.slug}</code>{/if}
+            {#if project.description}<p class="max-w-prose truncate text-body-sm text-muted-foreground">{project.description}</p>{/if}
           </Table.Cell>
-          <Table.Cell class="hidden max-w-md truncate text-muted-foreground md:table-cell">{project.description || "—"}</Table.Cell>
-          <Table.Cell class="text-right tabular-nums {(project.counts?.open_todos ?? 0) > 0 ? 'font-medium' : 'text-muted-foreground'}">{project.counts?.open_todos ?? "Unknown"}</Table.Cell>
-          <Table.Cell class="hidden text-muted-foreground sm:table-cell">{project.updated_at ? relativeTime(project.updated_at) : "—"}</Table.Cell>
+          <Table.Cell class="hidden whitespace-nowrap text-muted-foreground sm:table-cell">{project.updated_at ? relativeTime(project.updated_at) : "—"}</Table.Cell>
           <Table.Cell class="text-right">
             <RowActions
               label={`Actions for ${project.title || project.slug}`}

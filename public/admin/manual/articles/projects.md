@@ -26,7 +26,7 @@ Admin surface in `api/src/routes/admin/projects/index.ts` (all gated by `require
 - `DELETE /admin/projects/{slug}` — hard delete with cascade.
 - `GET /admin/projects/{slug}` — full state including notes, todos, files, feedback counts, and feedback list.
 
-The list page renders projects as cards in a responsive grid. The "New project" button (disabled when the module is off) opens a `NewProjectDialog`. Each card has a delete action that requires confirmation.
+The list page renders one row per project: the title, with the slug and (when set) a one-line description beneath it, and when it was last updated. It carries no open-work column, because the list endpoint returns no per-project counts. The "New project" button (disabled when the module is off) opens a `NewProjectDialog`. Each row has a delete action that requires confirmation.
 
 Projects can be closed. **Archive project** in the detail page's *More* menu (or `project_archive` over MCP, or `POST /admin/projects/{slug}/archive`) sets `coord_projects.archived_at`; **Reopen project** clears it. An archived project drops out of `project_list` for hosts and out of the MCP resource catalogue, and the console's project list hides it behind a *Show archived* toggle — but it stays fully readable and writable by slug, because a finished migration is exactly the thing somebody comes back to read. Its slug also stays taken. Deleting a project is still the separate, irreversible action.
 
