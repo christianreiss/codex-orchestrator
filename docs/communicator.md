@@ -194,7 +194,7 @@ always prints at least one line: an owner that cannot be reached, answers non-20
 returns no JSON gets `"running":false` with `"error"`, the searched `"runtime_dir"` and its
 `"runtime_dir_source"` (`XDG_RUNTIME_DIR`, `logind` or `tmp`); with the `tmp` fallback (for
 example `sudo` without `XDG_RUNTIME_DIR` and no `/run/user/<uid>`) a `"hint"` names the
-`XDG_RUNTIME_DIR` to retry with. When the owner's `version` is a release older
+`XDG_RUNTIME_DIR` to retry with. From cxx 0.9.107, when the owner's `version` is a release older
 than the `cxx` running `status`/`doctor`, its line also carries `"stale_owner":
 {"current_version", "remedy"}`: `sudo cxx daemon install` for a `resident` owner
 (it refreshes `/usr/local/lib/cxx-daemon/cxx`), otherwise `kill <pid>` so the next

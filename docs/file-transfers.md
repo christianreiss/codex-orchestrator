@@ -65,7 +65,7 @@ the CLI printed only `transfer HTTP 413: ` and left an `uploading` record at
 zero bytes; non-JSON error bodies are now shown, bounded to one 200-character
 line (`transfer HTTP 413: communicator request too large`).
 
-`cxx transfer put` now reads the owner's local `/_comm/status` (no server
+From cxx 0.9.107, `cxx transfer put` reads the owner's local `/_comm/status` (no server
 request, never starting an owner) before hashing the file. When the owner
 reports a release older than 0.9.93 and the file exceeds 8 MiB, it exits 1
 before any journal or server record exists, naming the owner's version and PID.

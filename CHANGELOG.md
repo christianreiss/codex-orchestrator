@@ -1,6 +1,6 @@
 # 2026-10-19
 
-- **Feedback sweep (cxx 0.9.106).**
+- **Feedback sweep (cxx 0.9.106, 0.9.107).**
   - `cxx transfer put` failures after the upload is journaled (for example "communicator disconnected, request outcome unknown") now name the transfer ID, the exact `--resume` command and the `transfer_delete` abandon step; `--json` also writes this recovery object to stdout.
   - The launch identity hint no longer states the agent address; `agent_self` is its only source (the address can move when a native session rebinds after launch).
   - The managed Fleet Advisor guidance is served only to hosts whose installed cxx and running host daemon are both 0.9.100 or newer, and names `cxx-agent` as the server for the advisor tools.
@@ -9,6 +9,7 @@
   - Agent message metadata exposes `sender_session_id`, the lifecycle that wrote the message.
   - Added a reviewed `#gime` copy under `docs/skills/` that merges locally and pushes only on an explicit operator request. It is not yet published to the skill store.
   - Admin Reports: each report now shows how long ago it was created, in the inbox lists and the detail view, with the exact UTC timestamp on hover. The global inbox no longer shows raw markup in its meta line.
+  - `cxx transfer put` (cxx 0.9.107) now refuses files over 8 MiB when the local communicator owner is older than 0.9.93 (it would reject them with HTTP 413), before any journal or server record exists, and names the owner's version, PID and remedy (`sudo cxx daemon install` for a resident owner, otherwise stop the owner PID); `--json` reports `outcome: "not_started"`. Plain-text HTTP error bodies are now shown instead of an empty message, and `cxx communicator status`/`doctor` warn with `stale_owner` when the owner is older than the running cxx.
   - Added the binding web design standard `DESIGN.md` to main (it was referenced by the design docs but missing).
 
 - **Git merges loads fast again and Settings is its own tab.** The registry listing used to run four queries per clone one after another; with several hundred (mostly dormant) clones the page sat on loading rows. It now reads the same data in four set-based queries (about 6x faster on a local 400-clone benchmark, more over a real network). The commit-message preferences moved from below the table to a fourth tab, **Settings**, in the layout of Shared files, and the counts strip appears only once data has loaded instead of showing zeros.
