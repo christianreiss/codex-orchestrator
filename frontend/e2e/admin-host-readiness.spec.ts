@@ -37,7 +37,8 @@ async function fixture(page: Page, shared: ReturnType<typeof state>) {
   });
   return async (type: string) => { await expect.poll(() => Boolean(emit)).toBe(true); emit!(JSON.stringify({ type, payload: {}, ts: new Date().toISOString() })); };
 }
-function row(page: Page, fqdn: string) { return page.getByRole('row').filter({ has: page.getByText(fqdn, { exact: true }) }); }
+// Under 640 px the hosts list renders one card per host instead of table rows.
+function row(page: Page, fqdn: string) { return page.getByRole((page.viewportSize()?.width ?? 1280) < 640 ? 'listitem' : 'row').filter({ has: page.getByText(fqdn, { exact: true }) }); }
 for (const width of [390, 1440]) test(`engine chips carry readiness (${width}px)`, async ({ page }) => {
   const shared = state(); await page.setViewportSize({ width, height: 900 }); await fixture(page, shared); await page.goto('/admin/hosts?sort=status');
   await expect(row(page, 'secure.test')).toBeVisible({ timeout: 15000 });

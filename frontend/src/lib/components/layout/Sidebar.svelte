@@ -26,21 +26,21 @@
   }
 </script>
 
-<aside aria-label="Fleet workspace" class="sidebar-surface hidden h-full w-56 shrink-0 flex-col border-r md:flex lg:w-64">
-  <a href={`${base}/dashboard`} class="flex h-12 shrink-0 items-center gap-3 border-b px-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" aria-label="Codex Orchestrator overview">
+<aside aria-label="Fleet workspace" class="sidebar-surface hidden h-full shrink-0 flex-col border-r md:flex md:w-14 lg:w-64">
+  <a href={`${base}/dashboard`} class="flex h-12 shrink-0 items-center gap-3 border-b px-4 outline-none md:max-lg:justify-center md:max-lg:px-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" aria-label="Codex Orchestrator overview">
     <BrandMark class="h-8 w-8 rounded-md" />
-    <span class="min-w-0">
+    <span class="min-w-0 md:max-lg:hidden">
       <span class="block truncate text-body font-semibold tracking-tight text-foreground">Codex Orchestrator</span>
       <span class="block text-caption text-muted-foreground">Codex · Claude · Grok</span>
     </span>
   </a>
 
-  <nav class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4" aria-label="Primary navigation">
+  <nav class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 md:max-lg:px-2" aria-label="Primary navigation">
     <div class="space-y-4">
       <InsecureApprovalsNavAlert />
       {#each NAV_SECTIONS as section (section.id)}
-        <section aria-labelledby={`nav-${section.id}`}>
-          <h2 id={`nav-${section.id}`} class="mb-1 px-2 text-caption font-semibold text-muted-foreground">
+        <section aria-labelledby={`nav-${section.id}`} class="md:max-lg:[&:not(:first-of-type)]:border-t md:max-lg:[&:not(:first-of-type)]:pt-3">
+          <h2 id={`nav-${section.id}`} class="mb-1 px-2 text-caption font-semibold text-muted-foreground md:max-lg:sr-only">
             {section.label}
           </h2>
           <ul class="space-y-0.5">
@@ -51,14 +51,14 @@
                 <a
                   href={`${base}${hub.route}`}
                   class={cn(
-                    "relative flex h-9 items-center gap-2.5 rounded-md px-2.5 text-body-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                    active ? "bg-primary/15 text-primary before:absolute before:-left-3 before:h-5 before:w-0.5 before:rounded-md before:bg-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    "relative flex h-9 items-center gap-2.5 rounded-md px-2.5 text-body-sm font-medium md:max-lg:justify-center md:max-lg:px-0 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                    active ? "bg-primary/15 text-primary before:absolute before:-left-3 md:max-lg:before:-left-2 before:h-5 before:w-0.5 before:rounded-md before:bg-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                   aria-current={active ? "page" : undefined}
-                  title={hub.description}
+                  title={`${hub.label}: ${hub.description}`}
                 >
                   <Icon class="h-4 w-4 shrink-0" />
-                  <span class="truncate">{hub.label}</span>
+                  <span class="truncate md:max-lg:sr-only">{hub.label}</span>
                 </a>
               </li>
             {/each}
@@ -68,13 +68,13 @@
     </div>
   </nav>
 
-  <div class="shrink-0 border-t p-3">
+  <div class="shrink-0 border-t p-3 md:max-lg:p-2">
     {#if auth.authenticated && auth.user}
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger class="flex h-9 w-full items-center gap-2.5 rounded-md border bg-card px-2.5 text-left text-body hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Account menu for ${auth.user.name ?? auth.user.username}`}>
+        <DropdownMenu.Trigger class="flex h-9 w-full items-center gap-2.5 rounded-md border bg-card px-2.5 text-left text-body md:max-lg:justify-center md:max-lg:px-0 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Account menu for ${auth.user.name ?? auth.user.username}`}>
           <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-muted text-caption">{(auth.user.name ?? auth.user.username ?? "?").slice(0, 1).toUpperCase()}</span>
-          <span class="min-w-0 flex-1 truncate">{auth.user.name ?? auth.user.username}</span>
-          <ChevronDown class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span class="min-w-0 flex-1 truncate md:max-lg:hidden">{auth.user.name ?? auth.user.username}</span>
+          <ChevronDown class="h-3.5 w-3.5 shrink-0 text-muted-foreground md:max-lg:hidden" />
         </DropdownMenu.Trigger>
         <DropdownMenu.Content side="top" align="start" class="w-52">
           {#each ACCOUNT_LINKS as link (link.hash)}
@@ -85,7 +85,7 @@
         </DropdownMenu.Content>
       </DropdownMenu.Root>
     {/if}
-    <div class="mt-2 grid grid-cols-3 gap-1">
+    <div class="mt-2 grid grid-cols-3 gap-1 md:max-lg:grid-cols-1">
       {#each NAV_FOOTER as item (item.id)}
         {@const Icon = item.icon}
         {@const active = isActive(item, path)}

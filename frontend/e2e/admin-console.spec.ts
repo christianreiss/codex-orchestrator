@@ -801,7 +801,10 @@ test("hosts list leads with a one-line fleet strip and a compact table", async (
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(hostRow).toBeVisible();
+  // Under 640 px each host is a card instead of a table row.
+  const hostCard = page.getByRole("listitem").filter({ hasText: "console.example.test" });
+  await expect(hostCard).toBeVisible();
+  await expect(hostCard).toContainText("192.0.2.20 · #1");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
@@ -1159,7 +1162,7 @@ test("host table engine chips show assignments and fleet suspension on desktop a
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/hosts");
-    const row = page.getByRole("row").filter({ hasText: "console.example.test" });
+    const row = page.getByRole(width < 640 ? "listitem" : "row").filter({ hasText: "console.example.test" });
     await expect(row).toBeVisible();
     await expect(row.getByRole("img", { name: /^Codex: ready/ }).filter({ visible: true })).toHaveCount(1);
     await expect(row.getByRole("img", { name: /^Claude: ready/ }).filter({ visible: true })).toHaveCount(1);
@@ -1171,7 +1174,7 @@ test("host table engine chips show assignments and fleet suspension on desktop a
   }
   suspended = true;
   await page.reload();
-  const row = page.getByRole("row").filter({ hasText: "console.example.test" });
+  const row = page.getByRole("listitem").filter({ hasText: "console.example.test" });
   await expect(row.getByRole("img", { name: /^Claude: disabled fleet-wide/ }).filter({ visible: true })).toHaveCount(1);
   await expect(row.getByRole("img", { name: /^Claude: disabled fleet-wide/ }).filter({ visible: true })).toHaveAttribute("data-state", "inactive");
 });

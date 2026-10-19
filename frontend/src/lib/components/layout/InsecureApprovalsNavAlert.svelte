@@ -22,7 +22,7 @@
 
   const rowClass = $derived(
     cn(
-      "flex w-full items-center gap-2.5 rounded-md border text-left font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+      "flex w-full items-center gap-2.5 rounded-md border text-left font-medium md:max-lg:justify-center md:max-lg:px-0 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
       variant === "sheet" ? "min-h-12 px-3 py-2 text-body" : "h-8 px-2.5 text-body-sm",
     ),
   );
@@ -36,8 +36,8 @@
     title="The temporary access (insecure window) check failed, so hosts waiting on approval may not be shown. Click to retry."
   >
     <ShieldAlert class="h-4 w-4 shrink-0" />
-    <span class="truncate">Access check failed</span>
-    <span class="ml-auto text-caption font-normal">Retry</span>
+    <span class="truncate md:max-lg:sr-only">Access check failed</span>
+    <span class="ml-auto text-caption font-normal md:max-lg:hidden">Retry</span>
   </button>
 {:else if pendingCount > 0}
   <a
@@ -48,7 +48,7 @@
     onclick={() => onnavigate?.()}
   >
     <ShieldAlert class="h-4 w-4 shrink-0" />
-    <span class="truncate">Temporary access requests</span>
-    <span class="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-warning px-1.5 text-caption tabular-nums text-warning-foreground">{pendingCount}</span>
+    <span class="truncate md:max-lg:sr-only">Temporary access requests</span>
+    <span class="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-warning md:max-lg:hidden px-1.5 text-caption tabular-nums text-warning-foreground">{pendingCount}</span>
   </a>
 {/if}
