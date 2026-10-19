@@ -115,7 +115,7 @@
     {:else}
       <div class="mb-4 flex flex-wrap items-center gap-2 text-body-sm text-muted-foreground">
         {#if summary?.section}
-          <span class="rounded-full bg-secondary px-2 py-0.5 text-secondary-foreground">{summary.section}</span>
+          <span class="rounded-md bg-secondary px-2 py-0.5 text-secondary-foreground">{summary.section}</span>
         {/if}
         {#if meta.verified ?? summary?.verified}
           <span>Verified {meta.verified ?? summary?.verified}</span>

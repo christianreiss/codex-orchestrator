@@ -39,8 +39,8 @@
   </Label>
   {@render children()}
   {#if error}
-    <p id={`${id}-error`} class="text-xs text-destructive">{error}</p>
+    <p id={`${id}-error`} class="text-body-sm text-destructive">{error}</p>
   {:else if hint}
-    <p id={`${id}-hint`} class="text-xs text-muted-foreground">{hint}</p>
+    <p id={`${id}-hint`} class="text-body-sm text-muted-foreground">{hint}</p>
   {/if}
 </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ModuleOffNotice from "$lib/components/feedback/ModuleOffNotice.svelte";
   import type { Snapshot } from "./$types";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { page } from "$app/state";
@@ -104,7 +105,7 @@
   {/snippet}
 
   {#if status && !status.enabled}
-    <p role="status" class="rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-body-sm text-warning-muted-foreground">Git merges are off: registration, discovery and merge arbitration are disabled. Existing registrations are kept.</p>
+    <ModuleOffNotice>Git merges are off: registration, discovery and merge arbitration are disabled. Existing registrations are kept.</ModuleOffNotice>
   {/if}
 
 

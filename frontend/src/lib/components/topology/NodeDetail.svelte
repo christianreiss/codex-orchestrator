@@ -257,7 +257,7 @@
     <section class="space-y-3">
       <header class="flex flex-wrap items-center gap-2">
         <h2 class="text-base font-semibold">{communicatorLabel(communicator)}</h2>
-        <span class="rounded-full border px-2 py-0.5 text-caption font-medium" style:color={appearance.color} style:background={appearance.fill} title={appearance.kind === "unknown" ? "Owner mode is missing or stale" : "Reported owner mode"}>{appearance.label}</span>
+        <span class="rounded-md border px-2 py-0.5 text-caption font-medium" style:color={appearance.color} style:background={appearance.fill} title={appearance.kind === "unknown" ? "Owner mode is missing or stale" : "Reported owner mode"}>{appearance.label}</span>
         {#if ghost}<Badge variant="secondary">Disconnected</Badge>
         {:else}<Badge variant={healthVariant(communicator.health)}>{communicator.health === "live" ? "Live" : communicator.health === "stale" ? "Gone quiet" : "Closing"}</Badge>{/if}
         <Badge variant="outline">cxx {communicator.version}</Badge>

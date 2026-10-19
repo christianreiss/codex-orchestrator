@@ -111,13 +111,14 @@
     </ol>
   </nav>
   <div class="flex shrink-0 items-center gap-1 sm:gap-2">
-    <button type="button" class="hidden h-9 w-64 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border bg-background px-3 text-body-sm text-muted-foreground outline-none transition-colors hover:border-input hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring xl:flex" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-3.5 w-3.5 shrink-0" /><span class="min-w-0 flex-1 truncate text-left">Search fleet &amp; commands</span><kbd class="keyboard-key shrink-0">{modifierKey} K</kbd></button>
+    <button type="button" class="hidden h-9 w-64 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border bg-background px-3 text-body-sm text-muted-foreground outline-none transition-colors hover:border-input hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring xl:flex" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-4 w-4 shrink-0" /><span class="min-w-0 flex-1 truncate text-left">Search fleet &amp; commands</span><kbd class="keyboard-key shrink-0">{modifierKey} K</kbd></button>
     <button type="button" class="shell-icon-button xl:hidden" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-4 w-4" /></button>
     {#if wsIndicator}
       <Tooltip.Provider>
         <Tooltip.Root>
-          <Tooltip.Trigger class={["h-9 items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring", wsIndicator.tone === "online" ? "hidden sm:inline-flex" : "inline-flex"]} aria-label={wsIndicator.tooltip}>
-            <StatusPill tone={wsIndicator.tone} label={wsIndicator.label} />
+          <Tooltip.Trigger class={["h-9 items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring", wsIndicator.tone === "online" ? "hidden sm:inline-flex" : "inline-flex min-w-9 justify-center"]} aria-label={wsIndicator.tooltip}>
+            <span class={["h-2.5 w-2.5 rounded-full sm:hidden", wsIndicator.tone === "offline" ? "bg-destructive" : "bg-warning"]} aria-hidden="true"></span>
+            <StatusPill class="hidden sm:inline-flex" tone={wsIndicator.tone} label={wsIndicator.label} />
           </Tooltip.Trigger>
           <Tooltip.Content>{wsIndicator.tooltip}</Tooltip.Content>
         </Tooltip.Root>
@@ -130,15 +131,15 @@
         aria-label={`${openReports} unhandled ${openReports === 1 ? "report" : "reports"}`}
         title={`${openReports} open ${openReports === 1 ? "report" : "reports"} nobody has claimed`}
       >
-        <Inbox class="h-3.5 w-3.5 shrink-0" /><span class="tabular-nums">{openReports}</span><span class="hidden sm:inline">open</span>
+        <Inbox class="h-4 w-4 shrink-0" /><span class="tabular-nums">{openReports}</span><span class="hidden sm:inline">open</span>
       </a>
     {/if}
     {#if fleetWindowUntil}
       <a href={`${base}/hosts?insecure=1`} class="inline-flex h-9 items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive-muted px-2 text-body-sm font-medium text-destructive-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Fleet temporary access open">
-        <AlertTriangle class="h-3.5 w-3.5 shrink-0" /><span class="hidden sm:inline">Fleet open</span><span class="sm:hidden">Open</span><InsecureCountdown until={fleetWindowUntil} class="hidden sm:inline" />
+        <AlertTriangle class="h-4 w-4 shrink-0" /><span class="hidden sm:inline">Fleet open</span><span class="sm:hidden">Open</span><InsecureCountdown until={fleetWindowUntil} class="hidden sm:inline" />
       </a>
     {:else if activeWindows > 0}
-      <a href={`${base}/hosts?insecure=1`} class="inline-flex h-9 items-center gap-1.5 rounded-md border border-warning/30 bg-warning-muted px-2 text-body-sm font-medium text-warning-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`${activeWindows} temporary access windows open`}><AlertTriangle class="h-3.5 w-3.5" />{activeWindows}</a>
+      <a href={`${base}/hosts?insecure=1`} class="inline-flex h-9 items-center gap-1.5 rounded-md border border-warning/30 bg-warning-muted px-2 text-body-sm font-medium text-warning-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`${activeWindows} temporary access windows open`}><AlertTriangle class="h-4 w-4" />{activeWindows}</a>
     {/if}
     <DropdownMenu.Root>
       <DropdownMenu.Trigger class="shell-icon-button" aria-label="Appearance"><Sun class="h-4 w-4 dark:hidden" /><Moon class="hidden h-4 w-4 dark:block" /></DropdownMenu.Trigger>

@@ -41,7 +41,7 @@
     {title}
   </h3>
   {#if description}
-    <p class={cn("max-w-sm text-muted-foreground", isSm ? "mt-0.5 text-xs" : "mt-1 text-sm")}>
+    <p class={cn("max-w-sm text-muted-foreground", isSm ? "mt-0.5 text-body-sm" : "mt-1 text-sm")}>
       {description}
     </p>
   {/if}

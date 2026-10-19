@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ModuleOffNotice from "$lib/components/feedback/ModuleOffNotice.svelte";
   import { useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
@@ -53,9 +54,9 @@
   {/snippet}
 
   {#if snapshot && !enabled}
-    <p role="status" class="rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-body-sm text-warning-muted-foreground">
+    <ModuleOffNotice>
       Messages are off. Discovery, send, reply, wake, resume and relay polling are blocked; retained metadata and audit history stay readable.
-    </p>
+    </ModuleOffNotice>
   {/if}
 
   {#if settingsOpen}<ServiceNotes {enabled} />{/if}
