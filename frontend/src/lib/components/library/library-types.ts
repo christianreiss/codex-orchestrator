@@ -11,6 +11,7 @@ import SquareTerminal from "@lucide/svelte/icons/square-terminal";
 import Palette from "@lucide/svelte/icons/palette";
 import Brain from "@lucide/svelte/icons/brain";
 import ScrollText from "@lucide/svelte/icons/scroll-text";
+import UserCog from "@lucide/svelte/icons/user-cog";
 import { skillsApi } from "$lib/api/skills";
 import { subagentsApi, subagentsKeys } from "$lib/api/subagents";
 import { commandsApi, commandsKeys } from "$lib/api/commands";
@@ -19,7 +20,7 @@ import type { ClaudeArtifactApi } from "$lib/api/claudeArtifacts";
 import type { ArtifactView, SkillRow } from "$lib/api/types";
 
 export type DocTypeId = "skills" | "subagents" | "commands" | "output-styles";
-export type LibraryTypeId = DocTypeId | "agent-rules" | "memories";
+export type LibraryTypeId = DocTypeId | "agent-rules" | "memories" | "roles";
 
 export const DOC_TYPE_IDS: readonly DocTypeId[] = ["skills", "subagents", "commands", "output-styles"];
 export const ARTIFACT_TYPE_IDS = ["subagents", "commands", "output-styles"] as const;
@@ -58,6 +59,10 @@ export const LIBRARY_TYPES: readonly LibraryTypeMeta[] = [
     description: "The instructions every agent in the fleet starts from.",
   },
   {
+    id: "roles", label: "Roles", canonical: "agent roles", icon: UserCog, claudeOnly: false,
+    description: "Specialist responsibilities agents take on assignment, such as design review. Agents improve them; you steer.",
+  },
+  {
     id: "memories", label: "Memories", icon: Brain, claudeOnly: false,
     description: "Durable notes agents keep across sessions, by fleet, project and host.",
   },
@@ -86,6 +91,10 @@ export function parseLibraryType(value: string | null | undefined): LibraryTypeI
 export function libraryListHref(type: LibraryTypeId): string {
   if (type === "agent-rules") return "/library/agent-rules";
   return type === "skills" ? "/library" : `/library?type=${type}`;
+}
+
+export function libraryRoleHref(slug: string): string {
+  return `/library/roles/${encodeURIComponent(slug)}`;
 }
 
 export function libraryDocHref(type: DocTypeId, slug: string): string {

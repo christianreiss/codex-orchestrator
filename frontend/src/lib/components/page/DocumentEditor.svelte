@@ -23,9 +23,11 @@
     preview?: Snippet;
     /** Metadata and rarely changed options; rendered below the body. */
     settings?: Snippet;
+    /** Version history and related records; after the settings, before the danger zone. */
+    history?: Snippet;
     danger?: Snippet;
   };
-  let { title, description, actions, body, preview, settings, danger, dirty = false, pending = false, error = null, saved = false }: Props = $props();
+  let { title, description, actions, body, preview, settings, history, danger, dirty = false, pending = false, error = null, saved = false }: Props = $props();
 </script>
 
 <DraftGuard {dirty} />
@@ -41,5 +43,6 @@
       <div class="space-y-3 border-t p-3">{@render settings()}</div>
     </details>
   {/if}
+  {#if history}<div class="space-y-6">{@render history()}</div>{/if}
   {#if danger}<Section title="Danger zone" danger>{@render danger()}</Section>{/if}
 </PageShell>

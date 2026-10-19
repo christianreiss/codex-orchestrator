@@ -24,6 +24,11 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "communicator.disconnected": [["communicators"], ["topology"]],
   "communicator.terminated": [["communicators"], ["topology"]],
   'feedback.changed': [['feedback'], ['agents']],
+  // Roles live in the Library; an assignment also changes what agent_list shows.
+  'agent_roles.changed': [['roles']],
+  'agent_roles.state.changed': [['roles'], ['agents']],
+  'agent_roles.assignment.changed': [['roles'], ['agent-messaging']],
+  'agent_roles.proposal.changed': [['roles']],
   "chatty.settings": [["chatty"]],
  "host.daemon.changed": [["host-daemons"], ["daemon-sessions"], ["topology"]],
  "host.daemon.configured": [["host-daemons"]],

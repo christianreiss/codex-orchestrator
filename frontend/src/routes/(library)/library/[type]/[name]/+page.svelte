@@ -5,6 +5,7 @@
   import { Button } from "$lib/components/ui/button";
   import ArtifactEditor from "$lib/components/library/ArtifactEditor.svelte";
   import SkillEditor from "$lib/components/library/SkillEditor.svelte";
+  import RoleEditor from "$lib/components/library/roles/RoleEditor.svelte";
   import { isArtifactType } from "$lib/components/library/library-types";
 
   // Skills are addressed by slug, the Claude-native types by name: the same URL segment.
@@ -16,6 +17,8 @@
 {#key `${type}/${name}`}
   {#if type === "skills"}
     <SkillEditor slug={name} />
+  {:else if type === "roles"}
+    <RoleEditor slug={name} />
   {:else if isArtifactType(type)}
     <ArtifactEditor {type} slug={name} />
   {:else}

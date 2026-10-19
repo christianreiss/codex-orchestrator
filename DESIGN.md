@@ -226,8 +226,8 @@ This is a source audit, not a live visual acceptance report. All 32 `+page.svelt
 | `/admin/reports` | Triage fleet reports; list/detail | `PageShell`, `Toolbar`, `ReportInbox`, `ListDetail` | Create/detail, long evidence, status transitions |
 | `/admin/accounts` | Manage provider accounts; list | `PageShell`, `Toolbar`, `DataTable`, account dialogs | Codex/Claude/Grok, missing quota, expired auth |
 | `/admin/engines` | Configure providers; settings | `PageShell`, `Section`, engine/quota/rollout/danger components | Per-engine deltas, save failure, suspended/destroy states |
-| `/admin/library` | Find shared knowledge; list | `PageShell`, type switch, `LibraryList`, `MemoriesPanel` | All types, memory alternate views, search and permissions |
-| `/admin/library/[type]/[name]` | Edit shared artifact; editor | Skill/artifact editors; invalid-type `PageShell`/`StateBlock` | Valid types, unknown type/name, unsaved changes |
+| `/admin/library` | Find shared knowledge; list | `PageShell`, type switch, `LibraryList`, `MemoriesPanel`, `RolesPanel` (roles module switch in the `PageShell` toggle) | All types, memory alternate views, search and permissions; roles off versus empty |
+| `/admin/library/[type]/[name]` | Edit shared artifact; editor | Skill/artifact editors, `RoleEditor` (draft, publish, policy, `history` slot with versions/proposals/holders); invalid-type `PageShell`/`StateBlock` | Valid types, unknown type/name, unsaved changes; role draft versus published, proposal sheet focus |
 | `/admin/library/agent-rules` | Edit effective instructions; editor | `PageShell`, module picker, live preview, advanced/history/manual modes | Preview failure and stored versus effective content |
 | `/admin/access` | Manage people/keys/secrets; settings + lists | `PageShell`, people/API-key/secret sections | Every section, reveal/copy, revoke and permission denial |
 | `/admin/settings` | Set fleet behavior; settings | Narrow `PageShell`, `Section`, policy/session/retention controls | Immediate-save truth and scope clarity |
@@ -253,7 +253,7 @@ This is a source audit, not a live visual acceptance report. All 32 `+page.svelt
 | Host creation, quick VM, seed auth and insecure approval popup | Host sheets/dialogs and shared `SeedAuthPanel` | One auth upload UI; focus return, pending/error, safety consequences |
 | Project About/settings, card editor, report creation/detail | Project and report sheets/dialogs | Preserve originating selection and draft; destructive scope clear |
 | Account add/login/seed/reveal/revoke; Access people/keys/secrets dialogs | Domain components plus shared dialog/sheet primitives | No credential exposure in status text or URLs; copy result and permissions clear |
-| Editor history/version/preview/manual mode; memory alternate views | Library components | Read-only versus editable state, failed preview, long documents |
+| Editor history/version/preview/manual mode; memory alternate views; role proposal sheet, revert/withdraw/publish dialogs | Library components | Read-only versus editable state, failed preview, long documents; agent-authored proposal text shown as data |
 | Schedule form/result, Git detail, transfer audit | `ListDetail` / domain sheets | Correct action and event scope; explicit uncertainty |
 | Toasts, banners, inline alerts and confirmation dialogs | Shared feedback/UI components | Durable errors inline; focus, live announcements and both themes |
 | Setup steps | Infrastructure, Owner, Engines, Credentials, Fleet defaults, Agent policy, Modules, Collaboration, First host | Test each step plus skip/resume; preserve shared `SeedAuthPanel`; first owner created is not wizard finished |
