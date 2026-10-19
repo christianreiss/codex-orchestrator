@@ -53,6 +53,13 @@
     return best;
   });
 
+  // On a phone the strip scrolls; bring the current tab into view so it is not clipped at the edge.
+  let strip = $state<HTMLElement | null>(null);
+  $effect(() => {
+    activeHref;
+    strip?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ inline: "center", block: "nearest" });
+  });
+
   type Group = { group: string | undefined; items: TabNavItem[] };
   const groups = $derived.by(() => {
     const out: Group[] = [];
@@ -91,7 +98,7 @@
 {/snippet}
 
 <nav class={cn("min-w-0 max-w-full border-b", className)} {...rest}>
-  <div class="flex min-w-0 gap-1 overflow-x-auto">
+  <div bind:this={strip} class="flex min-w-0 gap-1 overflow-x-auto">
     {#each items as item (item.href)}
       {@render tab(item)}
     {/each}

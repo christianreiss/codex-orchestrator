@@ -115,7 +115,7 @@
           {:else if $saveMutation.isError}<span class="text-destructive">Save failed: {$saveMutation.error.message}</span>
           {:else if dirty}Unsaved changes
           {:else if retention}{ $saveMutation.isSuccess ? "Saved" : "Saved durations" }
-          {:else}{#if $saveMutation.isSuccess}Saved · {/if}Current: {$query.data.inactivity_window_days === 0 ? "inactivity pruning disabled" : `remove after ${$query.data.inactivity_window_days} days`}{/if}
+          {:else}{#if $saveMutation.isSuccess}Saved · {/if}Current: {$query.data.inactivity_window_days == null ? "not reported" : $query.data.inactivity_window_days === 0 ? "inactivity pruning disabled" : `remove after ${$query.data.inactivity_window_days} ${$query.data.inactivity_window_days === 1 ? "day" : "days"}`}{/if}
         </p>
       </div>
     </form>

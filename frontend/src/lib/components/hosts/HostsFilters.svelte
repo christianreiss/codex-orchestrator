@@ -12,14 +12,14 @@
     id === "all" ? list.counts.total : id === "online" ? list.counts.online : id === "offline" ? list.counts.offline : id === "attention" ? list.counts.attention : undefined;
 </script>
 
-<div class="inline-flex h-9 max-w-full overflow-x-auto rounded-md border border-input bg-card" role="group" aria-label="Show hosts">
+<div class="inline-flex h-9 max-w-full overflow-x-auto rounded-md border border-input bg-card max-sm:flex max-sm:w-full" role="group" aria-label="Show hosts">
   {#each STATUS_OPTIONS as option (option.id)}
     {@const active = list.status === option.id}
     <button
       type="button"
       aria-pressed={active}
       class={cn(
-        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-r border-input px-3 text-body-sm transition-colors last:border-r-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-r border-input px-3 text-body-sm max-sm:flex-1 max-sm:justify-center max-sm:gap-1 max-sm:px-1.5 transition-colors last:border-r-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
       )}
       onclick={() => list.setStatus(option.id)}
