@@ -116,7 +116,7 @@
     {#if wsIndicator}
       <Tooltip.Provider>
         <Tooltip.Root>
-          <Tooltip.Trigger class="hidden h-9 items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring sm:inline-flex" aria-label={wsIndicator.tooltip}>
+          <Tooltip.Trigger class={["h-9 items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring", wsIndicator.tone === "online" ? "hidden sm:inline-flex" : "inline-flex"]} aria-label={wsIndicator.tooltip}>
             <StatusPill tone={wsIndicator.tone} label={wsIndicator.label} />
           </Tooltip.Trigger>
           <Tooltip.Content>{wsIndicator.tooltip}</Tooltip.Content>
