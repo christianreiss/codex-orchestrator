@@ -17,6 +17,7 @@ import {
   normalizePath,
   normalizeRemote,
   overlappingPaths,
+  peerDeclarationOverlap,
   resolveVerdict,
   summarizeCloneEntry,
 } from '../../../src/services/git-director.js';
@@ -130,6 +131,105 @@ describe('resolveVerdict', () => {
     expect(out.decidedBy).toBe('policy');
     // No judge was consulted, so the reason must not blame an unreachable one.
     expect(out.reason).not.toContain('no arbiter was reachable');
+  });
+
+  const peer = {
+    worktree_id: 'w-b',
+    worktree_path: '/srv/repo-b',
+    username: 'chris',
+    branch: 'feat/b',
+    paths: ['CHANGELOG.md', 'docs/x.md'],
+  };
+
+  it('allows over peer declarations alone but names the peer and the paths', () => {
+    // A declaration is a plan, not a hold on the branch: waiting on it would only
+    // clear when the peer deregisters, and two peers who both declared
+    // CHANGELOG.md would wait on each other forever.
+    const out = resolveVerdict({
+      holderPresent: false,
+      overlap: [],
+      peerOverlap: [peer],
+      judged: null,
+      judgeConsulted: false,
+    });
+    expect(out.verdict).toBe('allow');
+    expect(out.decidedBy).toBe('policy');
+    expect(out.reason).not.toContain('no declared paths overlap');
+    expect(out.reason).toContain('/srv/repo-b');
+    expect(out.reason).toContain('CHANGELOG.md');
+    expect(out.reason).toContain('docs/x.md');
+  });
+
+  it('keeps the holder wait and adds the peer declarations to its reason', () => {
+    const out = resolveVerdict({
+      holderPresent: true,
+      overlap: ['api/a.ts'],
+      peerOverlap: [peer],
+      judged: null,
+      judgeConsulted: false,
+    });
+    expect(out.verdict).toBe('wait');
+    expect(out.reason).toContain('holds the lease');
+    expect(out.reason).toContain('/srv/repo-b');
+  });
+
+  it('appends the peer declarations to a judged reason without changing the verdict', () => {
+    const judged = { verdict: 'allow' as const, reason: 'Distinct blocks.' };
+    const out = resolveVerdict({
+      holderPresent: true,
+      overlap: ['api/a.ts'],
+      peerOverlap: [peer],
+      judged,
+      judgeConsulted: true,
+    });
+    expect(out.verdict).toBe('allow');
+    expect(out.decidedBy).toBe('llm');
+    expect(out.reason.startsWith('Distinct blocks.')).toBe(true);
+    expect(out.reason).toContain('/srv/repo-b');
+  });
+});
+
+describe('peerDeclarationOverlap', () => {
+  const peers = [
+    {
+      worktree_id: 'w-b',
+      worktree_path: '/srv/repo-b',
+      username: 'chris',
+      branch: 'main',
+      declared_paths: ['frontend/e2e', 'docs', 'CHANGELOG.md'],
+    },
+    {
+      worktree_id: 'w-c',
+      worktree_path: '/srv/repo-c',
+      username: 'chris',
+      branch: 'feat/c',
+      declared_paths: ['doc', 'api/src/services'],
+    },
+  ];
+
+  it('matches declared directories against changed files beneath them', () => {
+    // The reported case: directory declarations, file-level changed paths.
+    const out = peerDeclarationOverlap(
+      ['frontend/e2e/admin-design.spec.ts', 'docs/web-design-verification.md', 'CHANGELOG.md', 'api/x.ts'],
+      peers,
+    );
+    expect(out).toEqual([
+      {
+        worktree_id: 'w-b',
+        worktree_path: '/srv/repo-b',
+        username: 'chris',
+        branch: 'main',
+        paths: ['CHANGELOG.md', 'docs/web-design-verification.md', 'frontend/e2e/admin-design.spec.ts'],
+      },
+    ]);
+  });
+
+  it('is path-segment aware: a declared "doc" never claims "docs/x"', () => {
+    expect(peerDeclarationOverlap(['docs/x.md', 'api/src/services-legacy/a.ts'], [peers[1]!])).toEqual([]);
+  });
+
+  it('drops peers that declared nothing', () => {
+    expect(peerDeclarationOverlap(['a.ts'], [{ ...peers[0]!, declared_paths: [] }])).toEqual([]);
   });
 });
 

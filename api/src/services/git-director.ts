@@ -188,6 +188,46 @@ export function overlappingPaths(left: readonly string[], right: readonly string
   return [...hits].sort();
 }
 
+/** A non-holding peer whose `git_join` declarations cover some changed paths. */
+export interface PeerOverlap {
+  worktree_id: string;
+  worktree_path: string;
+  username: string;
+  branch: string | null;
+  /** Requester's changed paths that fall on or under this peer's declarations. */
+  paths: string[];
+}
+
+/**
+ * Changed paths that land on what live peers declared via `git_join`, per peer.
+ * Uses the same segment-aware prefix rule as {@link overlappingPaths}, so a
+ * declared `docs` covers `docs/x.md` and a declared `doc` does not.
+ */
+export function peerDeclarationOverlap(
+  changedPaths: readonly string[],
+  peers: ReadonlyArray<{
+    worktree_id: string;
+    worktree_path: string;
+    username: string;
+    branch: string | null;
+    declared_paths: readonly string[];
+  }>,
+): PeerOverlap[] {
+  const out: PeerOverlap[] = [];
+  for (const peer of peers) {
+    const paths = overlappingPaths(changedPaths, peer.declared_paths);
+    if (paths.length === 0) continue;
+    out.push({
+      worktree_id: peer.worktree_id,
+      worktree_path: peer.worktree_path,
+      username: peer.username,
+      branch: peer.branch,
+      paths,
+    });
+  }
+  return out;
+}
+
 function cleanPaths(raw: unknown): string[] {
   if (raw == null) return [];
   const list = Array.isArray(raw) ? raw : [raw];
@@ -1059,7 +1099,15 @@ export class GitDirectorService {
       const holderPaths = holderRow
         ? [...readPaths(holderRow.changedPaths), ...readPaths(holderWorktree?.declaredPaths)]
         : [];
-      const overlap = overlappingPaths(changedPaths, holderPaths);
+      const holderOverlap = overlappingPaths(changedPaths, holderPaths);
+      // Live peers' git_join declarations are reported, not arbitrated (see
+      // resolveVerdict). Before this, a peer without the lease never counted and
+      // the reason claimed "no declared paths overlap" over its declarations.
+      const peerOverlap = peerDeclarationOverlap(
+        changedPaths,
+        await this.livePeerDeclarations(tx, clone.id, [worktree.id, holderRow?.worktreeId ?? null], targetBranch, now2),
+      );
+      const overlap = [...new Set([...holderOverlap, ...peerOverlap.flatMap((peer) => peer.paths)])].sort();
 
       const existing =
         updateRequestId === null
@@ -1070,7 +1118,8 @@ export class GitDirectorService {
 
       const resolved = resolveVerdict({
         holderPresent: Boolean(holderRow),
-        overlap,
+        overlap: holderOverlap,
+        peerOverlap,
         judged,
         judgeConsulted: Boolean(decision.brief),
       });
@@ -1131,6 +1180,7 @@ export class GitDirectorService {
           replayed: false,
           holder: holderWorktree,
           queueDepth: queued.length,
+          peerOverlap,
         });
       }
       try {
@@ -1163,6 +1213,7 @@ export class GitDirectorService {
         replayed: false,
         holder: holderWorktree,
         queueDepth: queued.length,
+        peerOverlap,
       });
     });
   }
@@ -1628,6 +1679,46 @@ export class GitDirectorService {
     );
   }
 
+  /**
+   * Live registrations in the clone whose `git_join` declarations should be
+   * checked against a merge request: active, unexpired, not excluded (the
+   * requester and the lease holder, whose declarations already count as holder
+   * paths), with declared paths, and aimed at this target branch or at none.
+   */
+  private async livePeerDeclarations(
+    tx: GitDirectorDb,
+    cloneId: string,
+    excludeWorktreeIds: ReadonlyArray<string | null>,
+    targetBranch: string,
+    now: string,
+  ): Promise<
+    Array<{ worktree_id: string; worktree_path: string; username: string; branch: string | null; declared_paths: string[] }>
+  > {
+    const rows = await tx
+      .select()
+      .from(gitWorktrees)
+      .where(and(eq(gitWorktrees.cloneId, cloneId), eq(gitWorktrees.status, 'active')))
+      .limit(200);
+    return rows
+      .filter(
+        (row) =>
+          row.cloneId === cloneId &&
+          row.status === 'active' &&
+          !isExpired(row.expiresAt, now) &&
+          !excludeWorktreeIds.includes(row.id) &&
+          (row.targetBranch === null || row.targetBranch === targetBranch),
+      )
+      .map((row) => ({
+        worktree_id: row.id,
+        worktree_path: row.worktreePath,
+        username: row.username,
+        branch: row.branch,
+        declared_paths: readPaths(row.declaredPaths),
+      }))
+      .filter((row) => row.declared_paths.length > 0)
+      .sort((a, b) => (a.worktree_path < b.worktree_path ? -1 : 1));
+  }
+
   private async liveLeaseForWorktree(
     tx: GitDirectorDb,
     worktreeId: string,
@@ -1817,7 +1908,13 @@ export class GitDirectorService {
 
   private requestWire(
     request: GitMergeRequest,
-    extra: { replayed?: boolean; renewed?: boolean; holder?: GitWorktree | null; queueDepth?: number },
+    extra: {
+      replayed?: boolean;
+      renewed?: boolean;
+      holder?: GitWorktree | null;
+      queueDepth?: number;
+      peerOverlap?: readonly PeerOverlap[];
+    },
   ): Record<string, unknown> {
     const out: Record<string, unknown> = {
       request_id: request.id,
@@ -1843,6 +1940,9 @@ export class GitDirectorService {
       };
     }
     if (typeof extra.queueDepth === 'number') out.queue_depth = extra.queueDepth;
+    // Only on a fresh decision: the stored row keeps the union in `overlap`, not
+    // the per-peer breakdown, so a replay omits this rather than inventing it.
+    if (extra.peerOverlap) out.peer_overlap = extra.peerOverlap.map((peer) => ({ ...peer }));
     return out;
   }
 }
@@ -1883,12 +1983,31 @@ export function normalizeJudgeVerdict(raw: JudgeVerdict | null | undefined): Jud
  */
 export function resolveVerdict(input: {
   holderPresent: boolean;
+  /** Paths shared with the lease holder (its changed and declared paths). */
   overlap: readonly string[];
+  /**
+   * Declarations of live peers that do NOT hold the lease. Reported in the
+   * reason, never contention: a declaration is a plan, not a hold on the
+   * branch, and a wait on it would only clear when the peer deregisters — two
+   * peers that both declared `CHANGELOG.md` would wait on each other forever.
+   */
+  peerOverlap?: readonly PeerOverlap[];
   judged: JudgeVerdict | null;
   judgeConsulted: boolean;
 }): { verdict: Verdict; decidedBy: DecidedBy; reason: string } {
+  const peers = input.peerOverlap ?? [];
+  const peerNote = peers.length > 0 ? ` ${describePeerOverlap(peers)}` : '';
   const contended = input.holderPresent || input.overlap.length > 0;
   if (!contended) {
+    if (peers.length > 0) {
+      return {
+        verdict: 'allow',
+        decidedBy: 'policy',
+        reason:
+          `No lease is held on this branch.${peerNote} A declaration does not hold the branch, so this is ` +
+          'allowed; the peer integrates your change when it next merges the target.',
+      };
+    }
     return {
       verdict: 'allow',
       decidedBy: 'policy',
@@ -1896,7 +2015,7 @@ export function resolveVerdict(input: {
     };
   }
   if (input.judged) {
-    return { verdict: input.judged.verdict, decidedBy: 'llm', reason: input.judged.reason };
+    return { verdict: input.judged.verdict, decidedBy: 'llm', reason: `${input.judged.reason}${peerNote}` };
   }
   const parts: string[] = [];
   if (input.holderPresent) parts.push('another worktree holds the lease on this branch');
@@ -1914,6 +2033,21 @@ export function resolveVerdict(input: {
   return {
     verdict: 'wait',
     decidedBy: 'policy',
-    reason: `Wait: ${parts.join('; ')}.${fallbackNote}`,
+    reason: `Wait: ${parts.join('; ')}.${fallbackNote}${peerNote}`,
   };
+}
+
+/** One sentence naming each overlapping peer worktree and the paths it declared. */
+function describePeerOverlap(peers: readonly PeerOverlap[]): string {
+  const total = new Set(peers.flatMap((peer) => peer.paths)).size;
+  const shown = peers.slice(0, 3).map((peer) => {
+    const who = `${peer.username}${peer.branch ? ` on ${peer.branch}` : ''}`;
+    const paths = peer.paths.slice(0, 5).join(', ');
+    return `${peer.worktree_path} (${who}): ${paths}${peer.paths.length > 5 ? ', …' : ''}`;
+  });
+  const more = peers.length > 3 ? `; and ${peers.length - 3} more` : '';
+  return (
+    `${total} changed path${total === 1 ? '' : 's'} overlap paths declared by ` +
+    `${peers.length} active peer worktree${peers.length === 1 ? '' : 's'}: ${shown.join('; ')}${more}.`
+  );
 }
