@@ -91,8 +91,6 @@ export type RoleProposalDetail = {
 
 export type DraftFileInput = { path: string; content?: string; encoding?: "utf8" | "base64"; blob_sha256?: string; mime_type?: string; load: "core" | "on_demand"; description?: string | null };
 
-const slugPath = (slug: string) => `/admin/roles/${encodeURIComponent(slug)}`;
-
 export const rolesKeys = {
   all: ["roles"] as const,
   list: () => ["roles", "list"] as const,
@@ -107,16 +105,16 @@ export const rolesApi = {
   setState: (enabled: boolean) => api.post<{ enabled: boolean }>("/admin/roles/state", { enabled }),
   list: () => api.get<{ enabled: boolean; roles: RoleListRow[] }>("/admin/roles"),
   create: (input: { slug: string; display_name: string; summary: string }) => api.post<RoleDetail>("/admin/roles", input),
-  get: (slug: string) => api.get<RoleDetail>(slugPath(slug)),
+  get: (slug: string) => api.get<RoleDetail>(`/admin/roles/${encodeURIComponent(slug)}`),
   update: (slug: string, input: Partial<{ display_name: string; summary: string; status: "active" | "retired"; policy: Partial<RolePolicy> }> & { expected_version: number }) =>
-    api.patch<RoleDetail>(slugPath(slug), input),
-  timeline: (slug: string) => api.get<{ role: string; versions: RoleVersion[]; proposals: RoleProposal[] }>(`${slugPath(slug)}/timeline`),
-  version: (slug: string, version: number) => api.get<RoleVersion & { manifest: string; files: RoleFile[] }>(`${slugPath(slug)}/versions/${version}`),
-  saveDraft: (slug: string, input: { manifest: string; files: DraftFileInput[]; changelog?: string | null }) => api.put<RoleDetail>(`${slugPath(slug)}/draft`, input),
-  discardDraft: (slug: string) => api.delete<RoleDetail>(`${slugPath(slug)}/draft`),
-  publish: (slug: string, changelog?: string) => api.post<RoleDetail>(`${slugPath(slug)}/publish`, changelog ? { changelog } : {}),
-  revert: (slug: string, version: number, reason: string) => api.post<RoleDetail>(`${slugPath(slug)}/revert`, { version, reason }),
-  withdraw: (slug: string, version: number, reason: string) => api.post<RoleDetail>(`${slugPath(slug)}/versions/${version}/withdraw`, { reason }),
+    api.patch<RoleDetail>(`/admin/roles/${encodeURIComponent(slug)}`, input),
+  timeline: (slug: string) => api.get<{ role: string; versions: RoleVersion[]; proposals: RoleProposal[] }>(`/admin/roles/${encodeURIComponent(slug)}/timeline`),
+  version: (slug: string, version: number) => api.get<RoleVersion & { manifest: string; files: RoleFile[] }>(`/admin/roles/${encodeURIComponent(slug)}/versions/${version}`),
+  saveDraft: (slug: string, input: { manifest: string; files: DraftFileInput[]; changelog?: string | null }) => api.put<RoleDetail>(`/admin/roles/${encodeURIComponent(slug)}/draft`, input),
+  discardDraft: (slug: string) => api.delete<RoleDetail>(`/admin/roles/${encodeURIComponent(slug)}/draft`),
+  publish: (slug: string, changelog?: string) => api.post<RoleDetail>(`/admin/roles/${encodeURIComponent(slug)}/publish`, changelog ? { changelog } : {}),
+  revert: (slug: string, version: number, reason: string) => api.post<RoleDetail>(`/admin/roles/${encodeURIComponent(slug)}/revert`, { version, reason }),
+  withdraw: (slug: string, version: number, reason: string) => api.post<RoleDetail>(`/admin/roles/${encodeURIComponent(slug)}/versions/${version}/withdraw`, { reason }),
   proposal: (id: string) => api.get<RoleProposalDetail>(`/admin/roles/proposals/${id}`),
   decide: (id: string, input: { verdict: "accept" | "reject"; reason: string; expected_version: number }) =>
     api.post<Record<string, unknown>>(`/admin/roles/proposals/${id}/decide`, input),

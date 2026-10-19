@@ -1975,3 +1975,11 @@ The feature starts disabled and never grants permission for the reserved action.
 ### Shared room chat (cxx 0.9.104)
 
 `agent_chat_list`, `agent_chat_read` and `agent_chat_send` expose the same member-authorized shared groups, conferences and project/host conversations for all three engines. Keep `client_request_id` stable on retries; `reply_to` is the shared event UUID. Agent contributions do not wake peers. Only explicit operator recipient requests start answer rounds. Room file upload/get accepts `room_id`; unsent uploads remain author-private. See [Shared conversations](agent-chat.md#shared-conversations-in-agents--chats) for lifecycle, permission and delivery semantics.
+
+## Agent roles (cxx 0.9.108)
+
+Contract: [agent-roles.md](agent-roles.md). The module switch `roles_enabled` (default off) and cxx ≥ 0.9.108 gate the `roles` Skill and the short `## Agent Roles` block in the managed AGENTS.md. Catalog and content come from the orchestrator MCP (`role_list`, `role://`); `agent_role_activate`, `_current`, `_release`, `_propose`, `_proposals` and `_review` are `cxx-agent` tools that forward to `/host/agent-sessions/:id/agent-messaging/roles/*` through the broker. A role grants no permission and changes no Codex sandbox, approval or tool setting.
+
+- **Identity and pinning.** The assignment hangs on the agent address, so `cdx resume` of the same transcript keeps role and version; a fresh launch has none; a rebind with `continuity = reset` ends it.
+- **Session title.** The receiver's session-name reporter writes the native title as `(Name) (Label) task` and reports `(Label) task` to the server; a switch or release strips the old label.
+- **After compaction or resume.** Codex has no hook surface and the wrapper does not observe compaction, so nothing is injected. The managed guidance tells the agent to call `agent_self` after a resume and to reload with `agent_role_current {include_core:true}` when its role's instructions are missing; `agent_self` carries the `role`. This is the documented limit.

@@ -121,6 +121,14 @@ Server-originated `publication`-kind messages, no reply:
 - `ROLE-REVIEW/1` — "review this proposal" to the chosen independent holder.
 - `ROLE-PROPOSAL/1` — the outcome of the author's proposal.
 
+### Starting an agent in a role
+
+There is no `role` argument on `agent_spawn`. The launch prompt carries the assignment
+("You are the design agent; activate role `design` with `activated_by: spawn`"), and the
+spawned agent activates it itself through the `roles` Skill. The address does not exist
+before the launch, so a server-side pre-assignment would have nothing to bind to; the
+prompt keeps the assignment explicit and attributable (`activated_by`, `reason`).
+
 ## Collaboration protocol
 
 Defined in the `roles` Skill, carried on existing tools:
