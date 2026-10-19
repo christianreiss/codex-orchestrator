@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ModuleOffNotice from "$lib/components/feedback/ModuleOffNotice.svelte";
   /** Secrets: the list first; the module switch lives in the section header. */
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
@@ -66,7 +67,7 @@
     <SecretsList onEdit={openEdit} onCreate={openCreate} />
 
     {#if moduleState && !enabled}
-      <p role="status" class="text-body-sm text-warning">The store is off, so <code class="font-mono">secret_list</code> returns nothing and <code class="font-mono">secret_get</code> refuses every host. You can still add secrets and switch it on afterwards.</p>
+      <ModuleOffNotice>The store is off, so <code class="font-mono">secret_list</code> returns nothing and <code class="font-mono">secret_get</code> refuses every host. You can still add secrets and switch it on afterwards.</ModuleOffNotice>
     {:else if moduleState && count === 0}
       <p role="status" class="text-body-sm text-warning">The store is on but holds no secrets, so no guidance is added to any host. Add a secret to make it useful.</p>
     {/if}

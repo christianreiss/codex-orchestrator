@@ -56,8 +56,15 @@
   // On a phone the strip scrolls; bring the current tab into view so it is not clipped at the edge.
   let strip = $state<HTMLElement | null>(null);
   $effect(() => {
+    // Counts arrive after the first paint and widen the tabs, so re-run when the items change too.
     activeHref;
-    strip?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ inline: "center", block: "nearest" });
+    items;
+    const frame = requestAnimationFrame(() => {
+      const current = strip?.querySelector<HTMLElement>('[aria-current="page"]');
+      if (!strip || !current) return;
+      strip.scrollTo({ left: current.offsetLeft - (strip.clientWidth - current.offsetWidth) / 2 });
+    });
+    return () => cancelAnimationFrame(frame);
   });
 
   type Group = { group: string | undefined; items: TabNavItem[] };

@@ -195,12 +195,12 @@
 >
   <div class="flex flex-wrap items-center gap-3">
     <div class="min-w-0">
-      <p class="text-caption font-semibold uppercase tracking-[0.08em] text-muted-foreground">Fleet configuration</p>
+      <p class="text-caption font-semibold text-muted-foreground">Fleet configuration</p>
       <p class="text-body-sm">Claude Code <span class="font-mono text-caption">settings.json</span> sub-blocks</p>
     </div>
     {#if serverSha}
       <div class="border-l pl-3">
-        <span class="block text-caption font-semibold uppercase tracking-[0.08em] text-muted-foreground">Revision</span>
+        <span class="block text-caption font-semibold text-muted-foreground">Revision</span>
         <span class="font-mono text-caption" title={serverSha}>{serverSha.slice(0, 12)}…</span>
       </div>
     {/if}
@@ -285,15 +285,15 @@
       </div>
       <div class="divide-y border-y border-border">
         <div class="py-4">
-          <p class="mb-2 text-caption font-semibold uppercase tracking-[0.08em] text-muted-foreground">Allow</p>
+          <p class="mb-2 text-caption font-semibold text-muted-foreground">Allow</p>
           <RepeatableList bind:items={allow} placeholder="e.g. Bash(npm run *)" addLabel="Add allow rule" />
         </div>
         <div class="py-4">
-          <p class="mb-2 text-caption font-semibold uppercase tracking-[0.08em] text-muted-foreground">Ask</p>
+          <p class="mb-2 text-caption font-semibold text-muted-foreground">Ask</p>
           <RepeatableList bind:items={ask} placeholder="e.g. Bash(git push *)" addLabel="Add ask rule" />
         </div>
         <div class="py-4">
-          <p class="mb-2 text-caption font-semibold uppercase tracking-[0.08em] text-muted-foreground">Deny</p>
+          <p class="mb-2 text-caption font-semibold text-muted-foreground">Deny</p>
           <RepeatableList bind:items={deny} placeholder="e.g. Read(./secrets/**)" addLabel="Add deny rule" />
         </div>
       </div>

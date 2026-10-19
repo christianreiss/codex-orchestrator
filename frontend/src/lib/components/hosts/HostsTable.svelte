@@ -70,6 +70,7 @@
       <Table.Cell class="max-w-[16rem]">
         <a href={`${base}/hosts/${host.id}`} class="block truncate font-medium hover:underline">{host.fqdn}</a>
         <span class="block truncate font-mono text-caption text-muted-foreground">{host.ip4 ?? host.ip6 ?? "no address"} · #{host.id}</span>
+        <span class="block truncate text-caption text-muted-foreground sm:hidden">Seen <Timestamp value={hostLastSeen(host)} fallback="never" /></span>
       </Table.Cell>
       <Table.Cell>
         <span class="inline-flex flex-wrap items-center gap-1.5">

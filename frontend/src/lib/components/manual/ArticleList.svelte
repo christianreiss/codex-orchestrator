@@ -43,7 +43,7 @@
     {#each grouped as group (group.section)}
       <div>
         <p
-          class="mb-1 px-2 text-caption uppercase tracking-wider text-muted-foreground"
+          class="mb-1 px-2 text-caption font-semibold text-muted-foreground"
         >
           {group.section}
         </p>

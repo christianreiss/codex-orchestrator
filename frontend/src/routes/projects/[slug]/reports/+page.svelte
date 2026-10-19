@@ -23,7 +23,7 @@
   const TYPES: ProjectFeedbackType[] = ["feature", "bug", "issue", "test", "note"];
   // `status` once had no writer anywhere, so every item ever filed was still open. A review inbox that cannot be closed is a list nobody reads.
   const STATUSES: ProjectFeedbackStatus[] = ["open", "acknowledged", "resolved", "dismissed"];
-  const STATUS_BADGE: Record<ProjectFeedbackStatus, BadgeVariant> = { open: "destructive", acknowledged: "default", resolved: "success", dismissed: "outline" };
+  const STATUS_BADGE: Record<ProjectFeedbackStatus, BadgeVariant> = { open: "warning", acknowledged: "default", resolved: "success", dismissed: "outline" };
   const TYPE_BADGE: Record<ProjectFeedbackType, BadgeVariant> = { feature: "default", bug: "destructive", note: "secondary", issue: "destructive", test: "outline" };
   const statusOf = (entry: ProjectFeedback): ProjectFeedbackStatus => entry.status ?? "open";
 

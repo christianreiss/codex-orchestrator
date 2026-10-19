@@ -40,7 +40,7 @@
       <InsecureApprovalsNavAlert />
       {#each NAV_SECTIONS as section (section.id)}
         <section aria-labelledby={`nav-${section.id}`}>
-          <h2 id={`nav-${section.id}`} class="mb-1 px-2 text-caption uppercase tracking-wider text-muted-foreground">
+          <h2 id={`nav-${section.id}`} class="mb-1 px-2 text-caption font-semibold text-muted-foreground">
             {section.label}
           </h2>
           <ul class="space-y-0.5">

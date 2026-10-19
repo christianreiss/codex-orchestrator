@@ -37,7 +37,7 @@
   {/if}
 
   <div class="divide-y rounded-md border">
-    <p class="px-3 py-2 text-caption font-semibold uppercase tracking-wide text-muted-foreground">Always included</p>
+    <p class="px-3 py-2 text-caption font-semibold text-muted-foreground">Always included</p>
     {#each catalog?.required ?? [] as item (item.id)}
       <div class="flex items-center justify-between gap-3 px-3 py-2">
         <div class="min-w-0">
@@ -50,7 +50,7 @@
   </div>
 
   <div class={cn("divide-y rounded-md border", off && "opacity-60")}>
-    <p class="px-3 py-2 text-caption font-semibold uppercase tracking-wide text-muted-foreground">Optional modules</p>
+    <p class="px-3 py-2 text-caption font-semibold text-muted-foreground">Optional modules</p>
     {#each catalog?.modules ?? [] as item (item.id)}
       <!-- Hover and focus are wired on the row, not the Switch, so the label and
            description are part of the target and keyboard users get the same link. -->

@@ -69,7 +69,7 @@
       <InsecureApprovalsNavAlert variant="sheet" onnavigate={() => (menuOpen = false)} />
       {#each menuSections as section (section.id)}
         <section>
-          <h2 class="mb-1 px-1 text-caption uppercase tracking-wider text-muted-foreground">{section.label}</h2>
+          <h2 class="mb-1 px-1 text-caption font-semibold text-muted-foreground">{section.label}</h2>
           <div class="space-y-3">
             {#each section.hubs as hub (hub.id)}
               <div>
