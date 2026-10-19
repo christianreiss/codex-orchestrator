@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { StateBlock } from "$lib/components/page";
   import { toast } from "svelte-sonner";
   import SectionCard from "$lib/components/engines/SettingGroup.svelte";
   import { Badge } from "$lib/components/ui/badge";
@@ -57,7 +58,7 @@
 
 <SectionCard id="wrapper-rollout" {description} {headingLevel}>
   {#if $query.isPending}
-    <p class="text-body-sm text-muted-foreground">Loading…</p>
+    <StateBlock state="loading" rows={2} />
   {:else if $query.isError}
     <p class="text-body-sm text-destructive">{$query.error.message}</p>
   {:else if $query.data}

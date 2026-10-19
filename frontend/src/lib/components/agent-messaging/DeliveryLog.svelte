@@ -154,7 +154,7 @@
               {#if message.superseded_by_id}<p class="text-caption text-muted-foreground">Superseded by <a data-sveltekit-reload class="underline" href={retained(message.superseded_by_id)}>{message.superseded_by_id}</a> · original retained</p>{/if}
             </div>
             <div class="flex shrink-0 flex-col items-end gap-1">
-              <Badge variant={statusVariant(message.status)} class="uppercase">{message.status}</Badge>
+              <Badge variant={statusVariant(message.status)}>{message.status}</Badge>
               {#if message.work_kind || message.kind === "request" || message.kind === "schedule"}<span class="text-caption text-muted-foreground">Task: {message.task_result_status ?? "unknown"} · agent report</span>{/if}
             </div>
           </div>

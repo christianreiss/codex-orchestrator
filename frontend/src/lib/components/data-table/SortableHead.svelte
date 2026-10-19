@@ -19,7 +19,7 @@
 <Table.Head class={className} aria-sort={ariaSort}>
   <button
     type="button"
-    class="-mx-2 inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+    class="-mx-2 inline-flex items-center gap-1 rounded px-2 py-1 text-body-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
     {onclick}
   >
     {label}

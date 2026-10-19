@@ -78,7 +78,7 @@
       {#snippet row(item)}
         <Table.Row class="cursor-pointer" onclick={() => inspect(item)}>
           <Table.Cell class="max-w-[22rem] font-medium"><button type="button" class="max-w-full truncate text-left underline-offset-4 hover:underline" onclick={(event) => { event.stopPropagation(); inspect(item); }}>{title(item)}</button></Table.Cell>
-          <Table.Cell><Badge variant={item.status === "open" ? "success" : "secondary"} class="uppercase">{item.status}</Badge></Table.Cell>
+          <Table.Cell><Badge variant={item.status === "open" ? "success" : "secondary"}>{item.status}</Badge></Table.Cell>
           <Table.Cell class="text-right tabular-nums">{item.next_sequence - 1}</Table.Cell>
           <Table.Cell class="text-muted-foreground"><Timestamp value={item.last_activity_at} /></Table.Cell>
           <Table.Cell onclick={(event: MouseEvent) => event.stopPropagation()}>

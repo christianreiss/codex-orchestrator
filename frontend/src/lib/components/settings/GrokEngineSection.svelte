@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { StateBlock } from "$lib/components/page";
   import { toast } from "svelte-sonner";
   import { Button } from "$lib/components/ui/button";
   import { Label } from "$lib/components/ui/label";
@@ -32,7 +33,7 @@
     <p class="text-sm font-medium">Gateway models</p>
     <p class="text-xs text-muted-foreground">Disabled models leave the model list of every API routed to Grok and are rejected at inference. Managed Grok Build hosts are unaffected.</p>
     {#if $models.isPending}
-      <p class="text-xs text-muted-foreground">Loading…</p>
+      <StateBlock state="loading" rows={3} />
     {:else}
       {#each catalog as entry (entry.id)}
         <SwitchRow id={`grok-model-${entry.id}`} label={modelLabel(entry.id)} description={entry.enabled ? `${entry.id} is offered by the gateway.` : `${entry.id} is disabled.`} checked={entry.enabled} disabled={$modelToggle.isPending} onCheckedChange={(enabled) => $modelToggle.mutate({ model: entry.id, enabled })} />

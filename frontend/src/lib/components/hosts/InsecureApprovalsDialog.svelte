@@ -8,6 +8,7 @@
 </script>
 
 <script lang="ts">
+  import { StateBlock } from "$lib/components/page";
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Tabs from "$lib/components/ui/tabs";
   import { Button } from "$lib/components/ui/button";
@@ -524,7 +525,7 @@
                 </div>
               </header>
               {#if $summary.isLoading}
-                <p class="text-body-sm text-muted-foreground">Loading…</p>
+                <StateBlock state="loading" rows={2} />
               {:else if $summary.isError}
                 <p class="text-body-sm text-destructive">Open windows could not be loaded.</p>
               {:else if !$summary.data?.hosts.length}

@@ -20,7 +20,7 @@
 </script>
 
 <span class={cn("inline-flex items-center gap-1.5", className)} title={tooltip ?? undefined}>
-  <Badge variant={variant as "success" | "destructive"} class="uppercase tracking-wide">{label}</Badge>
+  <Badge variant={variant as "success" | "destructive"}>{label}</Badge>
   {#if !ok && code}
     <code class="font-mono text-caption text-muted-foreground">{code}</code>
   {/if}

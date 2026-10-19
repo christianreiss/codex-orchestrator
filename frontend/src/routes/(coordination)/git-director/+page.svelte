@@ -144,13 +144,13 @@
               <button type="button" class="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onclick={() => show(item)}>
                 {#if item.kind === "worktree"}
                   <span class="block font-medium">{item.worktree.username}{item.worktree.engine ? ` · ${item.worktree.engine}` : ""}</span>
-                  <span class="block break-words text-body-sm text-muted-foreground">{item.worktree.task ?? "No task declared"}</span>
+                  <span class="line-clamp-2 break-words text-body-sm text-muted-foreground" title={item.worktree.task ?? undefined}>{item.worktree.task ?? "No task declared"}</span>
                 {:else if item.kind === "lease"}
                   <span class="flex items-center gap-2"><Badge variant={verdictVariant(item.lease.verdict)}>{item.lease.verdict}</Badge> <span class="font-medium">{item.lease.target_branch}</span></span>
-                  <span class="block text-body-sm text-muted-foreground">{item.lease.reason ?? "No reason recorded"}</span>
+                  <span class="line-clamp-2 break-words text-body-sm text-muted-foreground" title={item.lease.reason ?? undefined}>{item.lease.reason ?? "No reason recorded"}</span>
                 {:else if item.kind === "recent"}
                   <span class="flex items-center gap-2"><Badge variant={verdictVariant(item.request.verdict)}>{item.request.verdict}</Badge> <span class="font-medium">{item.request.target_branch}</span></span>
-                  <span class="block text-body-sm text-muted-foreground">{item.request.reason ?? "No reason recorded"}</span>
+                  <span class="line-clamp-2 break-words text-body-sm text-muted-foreground" title={item.request.reason ?? undefined}>{item.request.reason ?? "No reason recorded"}</span>
                 {:else}
                   <span class="flex items-center gap-2"><Badge variant="secondary">{staleLabel(item.stale.status)}</Badge> <span class="font-medium">{item.stale.username} · {item.stale.task ?? repoName(item.stale.worktree_path)}</span></span>
                 {/if}
@@ -159,8 +159,7 @@
             <Table.Cell class="whitespace-nowrap text-body-sm">
               {#if item.kind === "worktree"}{item.worktree.branch ?? "Detached"}{item.worktree.target_branch ? ` → ${item.worktree.target_branch}` : ""}
               {:else if item.kind === "stale"}{item.stale.branch ?? "Detached"}
-              {:else if item.kind === "lease"}→ {item.lease.target_branch}
-              {:else}→ {item.request.target_branch}{/if}
+              {:else}<span class="text-muted-foreground" title="The target branch is shown in the first column">–</span>{/if}
             </Table.Cell>
             <Table.Cell class="max-w-[16rem]">
               <span class="block truncate font-medium">{repoName(item.clone.repo_root)}</span>

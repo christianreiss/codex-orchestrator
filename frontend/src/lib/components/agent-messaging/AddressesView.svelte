@@ -9,6 +9,8 @@
   import { DataTable } from "$lib/components/page";
   import { authStore } from "$lib/stores/auth";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
+  import { cn } from "$lib/utils/cn";
+  import { ENGINE_META, isEngine } from "$lib/constants/engines";
   import {
     agentAddressAliasMutation,
     agentAddressEnabledMutation,
@@ -89,14 +91,14 @@
         <Table.Cell class="max-w-[20rem]">
           <div class="flex flex-wrap items-center gap-1.5">
             <strong class="truncate font-mono text-body-sm">{routeLabel(address)}</strong>
-            <Badge variant="outline" class="uppercase">{address.engine}</Badge>
-            {#if !address.eligible}<Badge variant="warning" class="uppercase">Ineligible</Badge>{/if}
+            <span class="inline-flex items-center gap-1.5 text-body-sm text-muted-foreground"><span class={cn("h-2 w-2 rounded-full", isEngine(address.engine) ? ENGINE_META[address.engine].color : "bg-muted-foreground/40")} aria-hidden="true"></span>{address.engine}</span>
+            {#if !address.eligible}<Badge variant="warning">Ineligible</Badge>{/if}
           </div>
           <p class="truncate font-mono text-caption text-muted-foreground">{address.address}</p>
           {#if ineligibleLabel}<p class="text-caption text-warning-muted-foreground">{ineligibleLabel}</p>{/if}
         </Table.Cell>
         <Table.Cell>
-          <Badge variant={address.presence === "listening" ? "success" : "secondary"} class="uppercase">{presence(address)}</Badge>
+          <Badge variant={address.presence === "listening" ? "success" : "secondary"}>{presence(address)}</Badge>
           <p class="mt-0.5 text-caption text-muted-foreground">{address.queue_depth ?? 0} queued · {address.continuity}</p>
         </Table.Cell>
         <Table.Cell class="max-w-[16rem]">

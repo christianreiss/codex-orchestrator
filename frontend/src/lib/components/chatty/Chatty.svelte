@@ -167,11 +167,11 @@
   .selection-button[aria-pressed="true"] { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
   .selection-button:disabled { cursor: not-allowed; opacity: .5; }
   .selection-button:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
-  :global(.chatty-launcher) { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 40; width: 52px; height: 52px; border-radius: 1rem; color: hsl(var(--primary)); background: hsl(var(--background)); box-shadow: 0 4px 24px #0003; padding: 4px; }
+  :global(.chatty-launcher) { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 40; width: 52px; height: 52px; border-radius: var(--radius); color: hsl(var(--primary)); background: hsl(var(--background)); border: 1px solid hsl(var(--border)); box-shadow: var(--shadow-pop); padding: 4px; }
   :global(.chatty-launcher:focus-visible), :global(.icon-button:focus-visible) { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
-  :global(.chatty-panel) { position: fixed; right: 1.25rem; bottom: 5.25rem; z-index: 50; width: min(420px, calc(100vw - 2rem)); height: min(640px, calc(100dvh - 7rem)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid hsl(var(--border)); border-radius: 1rem; background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: 0 12px 50px #0004; }
+  :global(.chatty-panel) { position: fixed; right: 1.25rem; bottom: 5.25rem; z-index: 50; width: min(420px, calc(100vw - 2rem)); height: min(640px, calc(100dvh - 7rem)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: var(--shadow-pop); }
   :global(.icon-button) { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; border-radius: .5rem; }
-  .offline { position: absolute; width: 10px; height: 10px; border-radius: 100%; background: #929292; right: 2px; bottom: 2px; }
+  .offline { position: absolute; width: 10px; height: 10px; border-radius: 100%; background: hsl(var(--muted-foreground)); right: 2px; bottom: 2px; }
   .thinking { animation: ponder 1.8s ease-in-out infinite; }
   @keyframes ponder { 50% { transform: rotate(-5deg) translateY(-2px); } }
   @media (prefers-reduced-motion: reduce) { .thinking { animation: none; } }
