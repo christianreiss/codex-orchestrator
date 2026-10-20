@@ -36,7 +36,7 @@ describe("route registry", () => {
       ["projects", ["projects"]],
       ["coordination", ["agent-messaging", "schedules", "git-director", "transfers", "workflows"]],
       ["activity", ["activity", "reports"]],
-      ["providers", ["provider-accounts", "engines"]],
+      ["providers", ["provider-accounts", "engines", "limits"]],
       ["library", ["library"]],
       ["access", ["people", "api-keys", "secrets", "settings"]],
     ]);

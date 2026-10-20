@@ -64,6 +64,10 @@
     "path": "/admin/engines"
   },
   {
+    "source": "src/routes/(providers)/limits/+page.svelte",
+    "path": "/admin/limits"
+  },
+  {
     "source": "src/routes/+page.svelte",
     "path": "/admin"
   },

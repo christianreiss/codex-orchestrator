@@ -6,6 +6,8 @@
   import AuthorizationPolicy from "$lib/components/policies/AuthorizationPolicy.svelte";
   import CleanupPolicy from "$lib/components/policies/CleanupPolicy.svelte";
   import SessionHousekeeping from "$lib/components/policies/SessionHousekeeping.svelte";
+  import WrapperRolloutSection from "$lib/components/settings/WrapperRolloutSection.svelte";
+  import ChattySettings from "$lib/components/chatty/ChattySettings.svelte";
 
   const canManage = $derived($authStore.can("settings.manage"));
 </script>
@@ -34,6 +36,12 @@
         <AuthorizationPolicy />
       </div>
     </Section>
+
+    <Section id="cxx-rollout" title="Host agent rollout" description="Try new host-agent versions early: a few hosts get each new cxx release first, the rest follow in stages.">
+      <WrapperRolloutSection headingLevel={3} />
+    </Section>
+
+    <ChattySettings />
 
     <Section id="retention" title="Data retention" description="How long logs and agent sessions are kept before automatic cleanup.">
       <div class="divide-y border-y">

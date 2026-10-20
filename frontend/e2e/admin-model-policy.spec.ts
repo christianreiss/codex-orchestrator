@@ -34,6 +34,7 @@ test('each engine limits choices and restores saved older preferences', async ({
   await page.goto('/admin/engines');
   for (const engine of Object.keys(models) as Engine[]) {
     const [old, current] = models[engine];
+    await page.getByRole('tab', { name: engine[0]!.toUpperCase() + engine.slice(1) }).click();
     const toggle = page.locator(`#${engine}-model-policy`).getByRole('switch', { name: 'Only current models' });
     await expect(toggle).toBeEnabled();
     await expect(toggle).not.toBeChecked();

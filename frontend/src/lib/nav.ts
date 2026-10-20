@@ -20,6 +20,7 @@ import {
   FolderKanban,
   GitMerge,
   FileUp,
+  Gauge,
   KeyRound,
   LayoutDashboard,
   Library,
@@ -161,8 +162,13 @@ const REGISTRY: NavDefinition[] = [
   },
   {
     id: "engines", group: "providers", route: "/engines", label: "Engines",
-    description: "Switch engines on or off; default models, versions and quotas",
-    keywords: ["models", "effort", "defaults", "versions", "quota", "codex", "claude", "grok", "sync"], icon: SlidersHorizontal,
+    description: "Switch engines on or off; default models and versions",
+    keywords: ["models", "effort", "defaults", "versions", "codex", "claude", "grok", "sync", "native config", "danger"], icon: SlidersHorizontal,
+  },
+  {
+    id: "limits", group: "providers", route: "/limits", label: "Usage limits",
+    description: "Quota enforcement, quota warnings and usage-based scaling",
+    keywords: ["quota", "limit", "usage", "scaling", "tiers", "warnings", "resume", "provider recommendation", "hard", "soft"], icon: Gauge,
   },
   {
     id: "library", group: "library", route: "/library", label: "Library",

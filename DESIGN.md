@@ -89,9 +89,10 @@ owning components when moving a setting; update this table in the same change.
 | API master/surface controls and gateway keys | `/admin/api-keys` |
 | People (admin users) | `/admin/people` |
 | Shared secrets | `/admin/secrets` |
-| Engine switches, model/effort/version defaults, quotas, scaling and host-agent rollout | `/admin/engines` |
+| Engine switches, model/effort/version defaults and native engine configuration | `/admin/engines` |
+| Quota enforcement, quota warnings and usage-based scaling | `/admin/limits` |
 | Host-specific access, engine assignments and overrides | `/admin/hosts/[id]` |
-| Fleet host policy, agent-session controls and retention | `/admin/settings` |
+| Fleet host policy, host-agent rollout, agent-session controls, Chatty and retention | `/admin/settings` |
 | Agent messaging service and coordination data | `/admin/agent-messaging` |
 | Workflow module switch and reusable instructions | `/admin/workflows` and selected definition |
 | Schedule configuration, Git coordination settings and transfer limits | Their respective Coordination pages |
@@ -233,7 +234,8 @@ This is a source audit, not a live visual acceptance report. All 39 `+page.svelt
 | `/admin/activity` | Inspect changes/tool calls; history | `PageShell`, type selector, filters, event panels | Both types, empty/error, details and deep links |
 | `/admin/reports` | Triage fleet reports; list/detail | `PageShell`, `Toolbar`, `ReportInbox`, `ListDetail` | Create/detail, long evidence, status transitions; feedback destination/configuration, opt-in, old-version/retest and uncertain publication evidence |
 | `/admin/accounts` | Manage provider accounts and quota overrides (PayG, warnings, reset recovery); list | `PageShell`, `Toolbar`, `DataTable`, account dialogs | Codex/Claude/Grok, missing quota, expired auth |
-| `/admin/engines` | Configure providers; settings | `PageShell`, `Section`, engine/quota/rollout/danger components | Per-engine deltas, save failure, suspended/destroy states |
+| `/admin/engines` | Configure providers; settings, one engine per tab (`?engine=`) | `PageShell`, `Tabs`, `Section`, engine master switches, `EngineSection`, `EngineDangerZone` | Per-engine deltas, tab and hash deep links, save failure, suspended/destroy states |
+| `/admin/limits` | Configure usage limits; settings | `PageShell`, `Section`, quota and scaling components, per-engine quota policy tabs | Hard/soft enforcement, per-engine warning policy, scaling tiers, save failure |
 | `/admin/library` | Find shared knowledge; list | `PageShell`, type switch, `LibraryList`, `MemoriesPanel`, `RolesPanel` (roles module switch in the `PageShell` toggle) | All types, memory alternate views, search and permissions; roles off versus empty |
 | `/admin/library/[type]/[name]` | Edit shared artifact; editor | Skill/artifact editors, `RoleEditor` (draft, publish, policy, `history` slot with versions/proposals/holders); invalid-type `PageShell`/`StateBlock` | Valid types, unknown type/name, unsaved changes; role draft versus published, proposal sheet focus |
 | `/admin/library/agent-rules` | Edit effective instructions; editor | `PageShell`, module picker, live preview, advanced/history/manual modes | Preview failure and stored versus effective content |

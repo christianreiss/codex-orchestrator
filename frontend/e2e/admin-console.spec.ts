@@ -12,6 +12,13 @@ async function expectNoSeriousAxeFindings(page: Page): Promise<void> {
   ).toEqual([]);
 }
 
+/** /engines shows one engine per tab; the tab lives in the URL and survives a reload. */
+async function engineTab(page: Page, label: "Codex" | "Claude" | "Grok"): Promise<void> {
+  const tab = page.getByRole("tab", { name: label });
+  await tab.click();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+}
+
 test.beforeEach(async ({ page }) => {
   await installFixtures(page);
 });
@@ -96,6 +103,7 @@ test("quick settings save model and catalog effort together for both engines and
   await expect(codex.getByRole("status")).toHaveText("Saved");
   await codex.getByRole("radio", { name: "Max", exact: true }).locator("..").click();
   await expect(codex.getByRole("status")).toHaveText("Saved");
+  await engineTab(page, "Claude");
   await claude.getByRole("radio", { name: "Opus 5.5", exact: true }).locator("..").click();
   await expect(claude.getByRole("radio", { name: "Medium Default", exact: true })).toBeChecked();
   await expect(claude.getByRole("radio", { name: "Max", exact: true })).toHaveCount(0);
@@ -114,7 +122,9 @@ test("quick settings save model and catalog effort together for both engines and
     { engine: "claude", body: { model: "claude-haiku-4-5-20251001", reasoning_effort: null } },
   ]);
   await page.reload();
+  await engineTab(page, "Codex");
   await expect(codex.getByRole("radio", { name: "Max", exact: true })).toBeChecked();
+  await engineTab(page, "Claude");
   await expect(claude.getByRole("radio", { name: "Haiku 4.5", exact: true })).toBeChecked();
   await claude.getByRole("radio", { name: "Fable 5.1", exact: true }).locator("..").click();
   await expect(claude.getByRole("radio", { name: "High Default", exact: true })).toBeChecked();
@@ -131,11 +141,14 @@ test("quick settings save Grok context windows, retain them across model and eff
   await page.goto("/admin/engines#defaults");
   const grok = page.getByRole("region", { name: "Grok", exact: true });
   const window256 = grok.getByRole("radio", { name: "256k tokens Default", exact: true });
+  await engineTab(page, "Grok");
   const window500 = grok.getByRole("radio", { name: "500k tokens", exact: true });
   await expect(window256).toBeChecked();
-  for (const engine of ["Codex", "Claude"]) {
+  for (const engine of ["Codex", "Claude"] as const) {
+    await engineTab(page, engine);
     await expect(page.getByRole("region", { name: engine, exact: true }).getByRole("group", { name: "Context window" })).toHaveCount(0);
   }
+  await engineTab(page, "Grok");
   await window256.locator("..").click();
   expect(writes).toEqual([]);
   await window256.focus();
@@ -178,11 +191,15 @@ test("quick settings reconcile failed Grok window saves and follow live context 
   await page.goto("/admin/engines#defaults");
   const grok = page.getByRole("region", { name: "Grok", exact: true });
   const window500 = grok.getByRole("radio", { name: "500k tokens", exact: true });
+  await engineTab(page, "Grok");
   await window500.locator("..").click();
   await expect.poll(() => Boolean(finishWrite)).toBe(true);
   await expect(window500).toBeDisabled();
   await expect(grok.getByRole("radio", { name: "Low", exact: true })).toBeDisabled();
+  // Another engine's controls stay usable while Grok saves.
+  await engineTab(page, "Codex");
   await expect(page.getByRole("region", { name: "Codex", exact: true }).getByRole("radio").first()).toBeEnabled();
+  await engineTab(page, "Grok");
   finishWrite!();
   await expect(grok.getByRole("alert")).toContainText("Configuration changed elsewhere");
   await expect(grok.getByRole("radio", { name: "256k tokens Default", exact: true })).toBeChecked();
@@ -220,7 +237,10 @@ test("quick settings isolate saving, follow live updates, and ignore stale reads
   await codex.getByRole("radio", { name: "GPT-6 Luna", exact: true }).locator("..").click();
   await expect.poll(() => Boolean(finishWrite)).toBe(true);
   await expect(codex.getByRole("radio", { name: "Max", exact: true })).toBeDisabled();
+  // Another engine's controls stay usable while Codex saves.
+  await engineTab(page, "Claude");
   await expect(claude.getByRole("radio", { name: "Opus 5.5", exact: true })).toBeEnabled();
+  await engineTab(page, "Codex");
   const refreshed = page.waitForResponse((response) => response.url().endsWith("/admin/model-defaults/codex") && response.request().method() === "GET");
   emit!(JSON.stringify({ type: "settings.changed", payload: {}, ts: new Date().toISOString() }));
   await refreshed;
@@ -841,9 +861,11 @@ test("Claude client settings use one full-width operator workflow", async ({ pag
 
 test("engine policy settings stay sequential and show the effective scaling tier", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
+  // The section moved off /engines; the old bookmark must land on it.
   await page.goto("/admin/engines#quota-enforcement");
+  await expect(page).toHaveURL(/\/admin\/limits#quota-enforcement$/);
 
-  await expect(page.getByRole("heading", { name: "Usage limits", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Usage limits", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Usage-based scaling", level: 2 })).toBeVisible();
   await expect(page.getByLabel("At %")).toHaveValue("75");
   await expect(page.locator("#scaling")).toContainText(/Current state:\s*active/);
@@ -1487,6 +1509,7 @@ test("Grok quick defaults honor model-specific effort and persist across reload"
   });
   await page.goto("/admin/engines#defaults");
   const grok = page.getByRole("region", { name: "Grok", exact: true });
+  await engineTab(page, "Grok");
   await expect(grok.getByRole("radio", { name: "High Default", exact: true })).toBeChecked();
   await grok.getByRole("radio", { name: "Extra high", exact: true }).locator("..").click();
   await expect(grok.getByRole("status")).toHaveText("Saved");
@@ -1535,6 +1558,19 @@ test("Access shows the Grok text gateway and issues a scoped client key", async 
 });
 
 
+test("engine deep links open the owning tab, its Advanced block and scroll to the anchor", async ({ page }) => {
+  await page.goto("/admin/engines#claude-client");
+  await expect(page.getByRole("tab", { name: "Claude" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#claude-advanced")).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("#claude-client")).toBeInViewport();
+  await page.goto("/admin/engines?engine=grok");
+  await expect(page.getByRole("tab", { name: "Grok" })).toHaveAttribute("aria-selected", "true");
+  // Sections that moved off this page keep their old bookmarks.
+  await page.goto("/admin/engines#cxx-rollout");
+  await expect(page).toHaveURL(/\/admin\/settings#cxx-rollout$/);
+  await expect(page.locator("#cxx-rollout")).toBeVisible();
+});
+
 test("engine master switch confirms both edges and reverts on cancel", async ({ page }) => {
   const writes: Array<{ path: string; body: unknown }> = [];
   const state = { grok: true };
@@ -1569,6 +1605,7 @@ test("engine master switch confirms both edges and reverts on cancel", async ({ 
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0]).toEqual({ path: "/admin/engines/grok/state", body: { enabled: false } });
   await expect(grok).not.toBeChecked();
+  await engineTab(page, "Grok");
   await expect(page.locator("#grok-defaults").getByText("Disabled fleet-wide", { exact: true })).toBeVisible();
 
   // Enabling confirms too.
