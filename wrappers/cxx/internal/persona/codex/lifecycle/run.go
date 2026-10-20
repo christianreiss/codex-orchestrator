@@ -662,6 +662,11 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		_ = connection.Close("failed", "Launch identity could not be confirmed")
 		return 1, identityErr
 	}
+	// Codex has no native --name banner. Show the confirmed registration before
+	// its TUI accepts input, rather than waiting for the model's first turn.
+	if !opts.SkipBoot && identity.Name != "" {
+		ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneOK, ui.TopicSession, "("+identity.Name+") registered")
+	}
 	if connectionErr != nil {
 		logger.Warn("agent connection unavailable; continuing local session", "err", connectionErr)
 	}

@@ -121,7 +121,45 @@ func nativeSubcommand(args []string) string {
 
 func nativeHeadless(args []string) bool {
 	command := nativeSubcommand(args)
-	return command == "exec" || command == "e"
+	return command == "exec" || command == "e" || command == "review"
+}
+
+// sessionCommandArgs preserves the wrapper's raw `exec -- <args...>` grammar,
+// while routing every native conversation command through managed registration.
+func sessionCommandArgs(sub string, args, passthrough []string) ([]string, bool) {
+	var prefix []string
+	switch sub {
+	case "run":
+	case "exec":
+		raw := append(append([]string{}, args...), passthrough...)
+		if nativeargs.Has("codex", raw, "--help", "--version") {
+			return raw, false
+		}
+		command := nativeSubcommand(raw)
+		// Raw diagnostics, auth and utilities keep their existing native path.
+		// An unrecognized positional is the native TUI's initial prompt.
+		return raw, command == "" || !reservedCodexSubcommands[command] || command == "exec" || command == "e" || command == "review" || command == "resume" || command == "fork"
+	case "e", "review", "fork":
+		prefix = []string{sub}
+	default:
+		return nil, false
+	}
+	return append(append(prefix, args...), passthrough...), true
+}
+
+func cmdSession(ctx context.Context, cfg *config.Config, f flags, logger *slog.Logger, args []string) (int, error) {
+	return lifecycle.Run(ctx, lifecycle.Options{
+		QuotaChoiceReset:    f.quotaChoiceReset,
+		Config:              cfg,
+		ExtraArgs:           args,
+		Headless:            nativeHeadless(args),
+		Resumed:             nativeargs.Resumed("codex", args),
+		SkipBoot:            f.skipBoot || f.silent,
+		Minimal:             f.minimal,
+		AllowConcurrentSync: f.allowConc,
+		Logger:              logger,
+		WrapperVersion:      Version,
+	})
 }
 
 func invocationFlags(args []string, native bool) (flags, []string, []string) {
@@ -403,8 +441,8 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 	if !native {
 		serviceCommand, rest := resolveCommand(f, positional)
 		switch serviceCommand {
-		case "run":
-			serviceArgs = append(append([]string{}, rest...), passthrough...)
+		case "run", "exec", "e", "review", "fork":
+			serviceArgs, _ = sessionCommandArgs(serviceCommand, rest, passthrough)
 		case "resume":
 			serviceArgs = resumeArgs(rest, passthrough)
 		case "profile":
@@ -488,7 +526,8 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 	if sub == "auth-upload-auto" {
 		return cmdAuthUploadAuto(ctx, cfg, stdout, stderr)
 	}
-	if sub == "run" || sub == "resume" || sub == "execute" || sub == "exec" || sub == "profile" || (isProfileShorthand(sub) && codex.HasProfile(sub)) {
+	_, sessionCommand := sessionCommandArgs(sub, nil, nil)
+	if sessionCommand || sub == "exec" || sub == "resume" || sub == "execute" || sub == "profile" || (isProfileShorthand(sub) && codex.HasProfile(sub)) {
 		if exit := ensureCLIForLaunch(ctx, cfg, f, logger, stderr); exit != 0 {
 			return exit
 		}
@@ -533,7 +572,7 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 				ui.Say(stderr, "cdx", ui.ToneDim, "auth", "insecure-host credentials purged")
 			}
 		}()
-		if sub == "run" || sub == "resume" || sub == "execute" || sub == "exec" || sub == "profile" {
+		if sessionCommand || sub == "exec" || sub == "resume" || sub == "execute" || sub == "profile" {
 			if err := maintenance.Request(config.EngineCodex, f.configPath); err != nil {
 				logger.Debug("background maintenance request deferred", "err", err)
 			}
@@ -560,22 +599,19 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 		return cmdProfile(ctx, cfg, profileArgs, stderr)
 	}
 
+	if launchArgs, ok := sessionCommandArgs(sub, subArgs, passthrough); ok {
+		exit, err := cmdSession(ctx, cfg, f, logger, launchArgs)
+		printLifecycleError(stderr, "cdx "+sub, err)
+		return exit
+	}
+
 	switch sub {
-	case "run":
-		launchArgs := append(subArgs, passthrough...)
-		exit, err := lifecycle.Run(ctx, lifecycle.Options{
-			QuotaChoiceReset:    f.quotaChoiceReset,
-			Config:              cfg,
-			ExtraArgs:           launchArgs,
-			Headless:            nativeHeadless(launchArgs),
-			Resumed:             nativeargs.Resumed("codex", launchArgs),
-			SkipBoot:            f.skipBoot || f.silent,
-			Minimal:             f.minimal,
-			AllowConcurrentSync: f.allowConc,
-			Logger:              logger,
-			WrapperVersion:      Version,
-		})
-		printLifecycleError(stderr, "cdx run", err)
+	case "exec":
+		// Raw non-conversation commands do not acquire a launch identity.
+		exit, err := codex.Run(ctx, cfg, append(subArgs, passthrough...))
+		if err != nil {
+			ui.Say(stderr, "cdx", ui.ToneFail, "exec", err.Error())
+		}
 		return exit
 	case "resume":
 		// Interactive like `run`, never Headless like `execute` — resume opens
@@ -592,12 +628,6 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 			WrapperVersion:      Version,
 		})
 		printLifecycleError(stderr, "cdx resume", err)
-		return exit
-	case "exec":
-		exit, err := codex.Run(ctx, cfg, append(subArgs, passthrough...))
-		if err != nil {
-			ui.Say(stderr, "cdx", ui.ToneFail, "exec", err.Error())
-		}
 		return exit
 	case "execute":
 		// Headless one-shot via upstream codex exec.
