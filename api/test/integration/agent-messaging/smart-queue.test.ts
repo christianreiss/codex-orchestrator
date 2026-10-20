@@ -198,7 +198,7 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
     const batch = (await claim(target))!; expect(batch.kind).toBe('digest');
     expect(JSON.parse(batch.content)).toMatchObject({ entries: [], total: 3, next_after: 0 });
     const retained = await service.getDigest(target.id, target.token, batch.message_id);
-    expect((retained.messages as Array<Record<string, unknown>>)[0]).toMatchObject({ content: 'x'.repeat(13000) });
+    expect((retained.messages as Array<Record<string, unknown>>)[0]).toMatchObject({ id: large.message.id, content: 'x'.repeat(13000) });
     // Certainly unpresented lease expiration, then turn the new presentation policy off.
     await db.update(schema.agentBusMessages).set({ status: 'queued', leaseOwner: null, claimId: null, leaseUntil: null }).where(eq(schema.agentBusMessages.id, batch.message_id));
     env.CXX_PEER_BATCH_V1_ENABLED = false;
