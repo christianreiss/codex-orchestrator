@@ -646,9 +646,10 @@ export class WorkflowsService {
     return { ...snapshot, document: v?.document, report: run.report };
   }
   async runCurrent(actor: WorkflowActor) {
-    await this.deps.db.transaction(async (tx) => {
+    const now = await this.deps.db.transaction(async (tx) => {
       if (this.deps.collaboration) await this.deps.collaboration.lock(tx, actor);
       await this.authenticate(tx, actor);
+      return dbNow(tx);
     });
     requireAgent(actor);
     const memberRows = await this.deps.db
@@ -658,11 +659,9 @@ export class WorkflowsService {
         and(
           eq(workflowRunMembers.agentAddressId, actor.address_id!),
           eq(workflowRunMembers.status, 'active'),
-          eq(workflowRunMembers.sessionId, actor.session_id!),
-          eq(workflowRunMembers.bindingGeneration, actor.binding_generation!),
         ),
       );
-    const runs = memberRows.length
+    const openRuns = memberRows.length
       ? await this.deps.db
           .select()
           .from(workflowRuns)
@@ -690,18 +689,44 @@ export class WorkflowsService {
     const claims = await this.deps.db
       .select()
       .from(workflowRunTasks)
-      .where(
-        and(
-          eq(workflowRunTasks.claimOwnerAddressId, actor.address_id!),
-          eq(workflowRunTasks.claimSessionId, actor.session_id!),
-          eq(workflowRunTasks.claimBindingGeneration, actor.binding_generation!),
-        ),
-      );
+      .where(eq(workflowRunTasks.claimOwnerAddressId, actor.address_id!));
+    const currentRunIds = new Set(
+      memberRows
+        .filter((m) => m.sessionId === actor.session_id && m.bindingGeneration === actor.binding_generation)
+        .map((m) => m.runId),
+    );
+    const runs = openRuns.filter((r) => currentRunIds.has(r.id));
+    const currentClaim = (t: (typeof claims)[number]) =>
+      t.claimSessionId === actor.session_id && t.claimBindingGeneration === actor.binding_generation;
     return {
+      server_time: now,
+      // Historical bindings are discovery only: no membership or claim is transferred.
+      stale_memberships: openRuns
+        .filter((r) => !currentRunIds.has(r.id))
+        .map((r) => {
+          const membership = memberRows.find((m) => m.runId === r.id)!;
+          return {
+            ...runView(r, this.baseUrl),
+            binding_current: false as const,
+            session_id: membership.sessionId,
+            binding_generation: membership.bindingGeneration,
+            recovery_required: 'operator_coordinator_recover' as const,
+          };
+        }),
+      stale_claims: claims
+        .filter((t) => !currentClaim(t))
+        .map((t) => ({
+          run_id: t.runId,
+          ...taskView(t, now),
+          binding_current: false as const,
+          session_id: t.claimSessionId,
+          binding_generation: t.claimBindingGeneration,
+          recovery_required: 'resolve_old_claim_then_operator_recovery' as const,
+        })),
       enabled: await this.isEnabled(),
       runs: runs.map((r) => runView(r, this.baseUrl)),
       invitations: invitations.map((i) => invitationView(i)),
-      claims: claims.map((t) => ({ run_id: t.runId, ...taskView(t, new Date().toISOString()) })),
+      claims: claims.filter(currentClaim).map((t) => ({ run_id: t.runId, ...taskView(t, now) })),
       pending_evaluations: runs.filter((r) => r.status === 'evaluating').map((r) => runView(r, this.baseUrl)),
     };
   }

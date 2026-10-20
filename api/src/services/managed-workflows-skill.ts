@@ -32,6 +32,20 @@ The server records and fences work; the agents execute it within their existing 
    A different body needs a new UUID. A stale binding is resolved explicitly, never by
    pretending to be a new native session.
 
+When run_current returns stale_memberships or stale_claims, these are read-only records
+for your address's earlier binding, not permission to continue. Do not replay the old
+claim token under the new session. Ask the operator to read the current run version and
+use POST /admin/workflow-runs/<run_id>/control with action coordinator_recover,
+target_address_id set to your canonical UUID, expected_run_version, an explicit reason
+and a stable client_request_id. This renews membership and coordinator fencing for the
+current authenticated binding; it does not restart tasks or a native session.
+Recovery refuses while that address owns an unexpired claim. Preserve external-effect
+uncertainty: wait for expiry, or have the current coordinator explicitly remove a stale
+non-coordinator member and reconcile the resulting uncertain task. After operator recovery,
+read run_current/run_get again and reconcile uncertain tasks before new execution.
+Successful tasks remain successful. If another member must retain coordination, arrange
+an explicit transfer after recovery. Never substitute a fresh native session.
+
 ## Invite collaborators
 
 Any active participant can invite; the coordinator need not relay every request.

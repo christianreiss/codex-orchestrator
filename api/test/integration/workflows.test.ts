@@ -794,6 +794,102 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
         .where(eq(agentBusAddresses.id, a.address_id!));
     }
   });
+  it('discovers earlier bindings without inheriting membership or claim authority', async () => {
+    const { run } = await setup();
+    await result(run.run_id, 'a', await claim(run.run_id, 'a'));
+    const oldClaim = await claim(run.run_id, 'b');
+    const [oldSession] = await db.select().from(agentSessions).where(eq(agentSessions.id, a.session_id!));
+    const resumed = { ...a, session_id: randomUUID(), binding_generation: 2 };
+    await db.insert(agentSessions).values({ ...oldSession!, id: resumed.session_id, bindingGeneration: 2 });
+    await db
+      .update(agentBusAddresses)
+      .set({ currentSessionId: resumed.session_id, bindingGeneration: 2 })
+      .where(eq(agentBusAddresses.id, a.address_id!));
+    const collaborative = new WorkflowsService({
+      db,
+      settings,
+      keyring,
+      collaboration: {
+        lock: async () => {},
+        resolveTarget: async () => resumed,
+        invite: async () => ({ message_id: randomUUID() }),
+        syncGroup: async () => null,
+      },
+    });
+    try {
+      const before = await service.runGet(run.run_id);
+      if (!('tasks' in before)) throw new Error('Expected run projection');
+      const current = await service.runCurrent(resumed);
+      expect(current.runs.some((r) => r.run_id === run.run_id)).toBe(false);
+      expect(current.claims.some((t) => t.run_id === run.run_id)).toBe(false);
+      expect(current.stale_memberships).toContainEqual(
+        expect.objectContaining({
+          run_id: run.run_id,
+          binding_current: false,
+          session_id: a.session_id,
+          binding_generation: 1,
+          recovery_required: 'operator_coordinator_recover',
+        }),
+      );
+      expect(current.stale_claims).toContainEqual(
+        expect.objectContaining({
+          run_id: run.run_id,
+          task_id: 'b',
+          binding_current: false,
+          recovery_required: 'resolve_old_claim_then_operator_recovery',
+        }),
+      );
+      expect(JSON.stringify(current)).not.toContain(oldClaim.claim_token);
+      expect(JSON.stringify(current)).not.toMatch(/claimTokenHash|claim_token|secretResponse/);
+      expect(await service.runGet(run.run_id)).toMatchObject({
+        version: before.version,
+        tasks: before.tasks,
+      });
+      const stranger = await service.runCurrent(b);
+      expect(stranger.stale_memberships.some((r) => r.run_id === run.run_id)).toBe(false);
+      expect(stranger.stale_claims.some((t) => t.run_id === run.run_id)).toBe(false);
+      await expect(service.runCurrent(a)).rejects.toMatchObject({ code: 'workflow_binding_changed' });
+      await expect(result(run.run_id, 'b', oldClaim, resumed)).rejects.toMatchObject({
+        code: 'workflow_member_required',
+      });
+      const recovery = {
+        client_request_id: randomUUID(),
+        run_id: run.run_id,
+        expected_run_version: 1,
+        action: 'coordinator_recover',
+        target_address_id: a.address_id,
+        reason: 'Explicit resume recovery',
+      };
+      await expect(collaborative.mutate('run_control', recovery, admin)).rejects.toMatchObject({
+        code: 'workflow_member_has_claims',
+      });
+      await db
+        .update(workflowRunTasks)
+        .set({ claimLeaseUntil: '2000-01-01T00:00:00.000Z' })
+        .where(and(eq(workflowRunTasks.runId, run.run_id), eq(workflowRunTasks.taskId, 'b')));
+      const expired = await service.runCurrent(resumed);
+      expect(expired.stale_claims.find((t) => t.run_id === run.run_id)?.status).toBe('uncertain');
+      await collaborative.mutate('run_control', recovery, admin);
+      const recovered = await service.runCurrent(resumed);
+      expect(recovered.stale_memberships.some((r) => r.run_id === run.run_id)).toBe(false);
+      expect(recovered.stale_claims.some((t) => t.run_id === run.run_id)).toBe(false);
+      expect(recovered.runs).toContainEqual(
+        expect.objectContaining({
+          run_id: run.run_id,
+          coordinator: expect.objectContaining({ generation: 2 }),
+        }),
+      );
+      const detail = await service.runGet(run.run_id);
+      if (!('tasks' in detail)) throw new Error('Expected run projection');
+      expect(detail.tasks.find((t) => t.task_id === 'a')?.status).toBe('succeeded');
+      expect(detail.tasks.find((t) => t.task_id === 'b')?.status).toBe('uncertain');
+    } finally {
+      await db
+        .update(agentBusAddresses)
+        .set({ currentSessionId: a.session_id, bindingGeneration: 1 })
+        .where(eq(agentBusAddresses.id, a.address_id!));
+    }
+  });
   it('prepared cancellation remains evaluation-pending and archive retains history', async () => {
     const { w } = await setup();
     const pending = await call(
