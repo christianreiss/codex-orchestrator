@@ -13,6 +13,7 @@
   import WorkflowEditor from "$lib/components/workflows/WorkflowEditor.svelte";
   import WorkflowRunForm from "$lib/components/workflows/WorkflowRunForm.svelte";
   import WorkflowMarkdown from "$lib/components/workflows/WorkflowMarkdown.svelte";
+  import WorkflowAvailability from "$lib/components/workflows/WorkflowAvailability.svelte";
   import WorkflowStatus from "$lib/components/workflows/WorkflowStatus.svelte";
   import WorkflowVersionDiff from "$lib/components/workflows/WorkflowVersionDiff.svelte";
   import { safeWorkflowUrl } from "$lib/components/workflows/helpers";
@@ -21,7 +22,7 @@
   const current = createQuery(reactiveOptions(() => ({ queryKey: workflowKeys.definition(slug), queryFn: () => workflowsApi.get(slug), enabled: canRead })));
   const historical = createQuery(reactiveOptions(() => ({ queryKey: workflowKeys.definition(slug, selected), queryFn: () => workflowsApi.get(slug, selected), enabled: canRead && !!selected })));
   const versions = createInfiniteQuery(reactiveOptions(() => ({ queryKey: workflowKeys.versions(slug), queryFn: ({ pageParam }: { pageParam: string | undefined }) => workflowsApi.versions(slug, pageParam), initialPageParam: undefined as string | undefined, getNextPageParam: (last: { next_cursor: string | number | null }) => last.next_cursor == null ? undefined : String(last.next_cursor), enabled: canRead })));
-  const shown = $derived(selected ? $historical.data : $current.data), client = useQueryClient();
+  const shown = $derived(canRead ? (selected ? $historical.data : $current.data) : undefined), client = useQueryClient();
   let reason = $state(""), request = $state<{ fingerprint: string; id: string } | null>(null);
   const change = createMutation({ mutationFn: (action: "archive" | "restore" | "revert") => {
     const d = $current.data!, fingerprint = JSON.stringify({ action, reason, selected, version: d.version, control: d.control_version });
@@ -35,6 +36,7 @@
   {#snippet actions()}<Button href={`${base}/workflows`} variant="outline">Back to workflows</Button>{#if shown}<Button href={`${base}/workflows/runs?workflow_id=${shown.workflow_id}`} variant="outline">Workflow runs</Button>{#if canRun && $current.data?.enabled && $current.data.status === "active"}<Button onclick={() => setView({ mode: mode === "run" ? "view" : "run" })}>{mode === "run" ? "View definition" : "New run"}</Button>{/if}{/if}{/snippet}
   {#if !canRead}<StateBlock state="empty" message="Workflow access required" />{:else if $current.isPending || (selected && $historical.isPending)}<StateBlock state="loading" />{:else if $current.isError || (selected && $historical.isError)}<StateBlock state="error" message={shown ? "Refresh failed. Showing previously loaded definition; it may be stale." : $current.error?.message ?? $historical.error?.message ?? "Could not load workflow."} onRetry={() => { void $current.refetch(); if (selected) void $historical.refetch(); }} />{/if}
   {#if shown}
+    <WorkflowAvailability />
     <div class="flex flex-wrap items-center gap-3 text-body-sm"><WorkflowStatus value={$current.data?.status} /><span>Version {shown.version}{selected ? " · Historical version" : " · Current head"}</span><Timestamp value={shown.created_at} />{#if !$current.data?.enabled}<span>Module disabled; history remains readable.</span>{/if}{#if mode !== "edit" && !selected && canManage}<Button variant="outline" size="sm" onclick={() => setView({ mode: "edit" })}>Edit workflow</Button>{/if}{#if mode === "edit"}<Button variant="outline" size="sm" onclick={() => setView({ mode: "view" })}>View definition</Button>{/if}</div>
     {#if mode === "edit" && !selected}<WorkflowEditor definition={shown} {canManage} enabled={$current.data?.enabled ?? false} />{:else if mode === "run"}<Section title="Prepare a run"><WorkflowRunForm definition={shown} allowed={canRun && !!$current.data?.enabled && $current.data.status === "active"} /></Section>{:else}
       <Section title="Goal"><WorkflowMarkdown text={shown.document.goal.statement} /><ul class="mt-3 space-y-2">{#each shown.document.goal.success_criteria as c}<li class="flex gap-2 text-body"><span aria-hidden="true">•</span><span>{c.text}</span></li>{/each}</ul></Section>

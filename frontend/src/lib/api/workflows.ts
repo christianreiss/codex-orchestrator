@@ -16,7 +16,7 @@ export interface WorkflowEvidence { id: string; description: string; type?: stri
 export interface WorkflowAttempt { attempt_no: number; status: string; started_at?: string; ended_at?: string; execution_host?: string; summary?: string; outputs?: Record<string, unknown>; evidence?: WorkflowEvidence[]; error?: unknown }
 export interface WorkflowEvaluation { version: number; status: string; draft?: Record<string, unknown>; decision?: string; reason?: string; findings?: unknown; lessons?: unknown; applied_version?: number; diff?: unknown }
 export interface WorkflowRun {
-  enabled: boolean; run_id: string; workflow_id: string; workflow_slug?: string; workflow_version: number; version: number;
+  server_time?: string; enabled: boolean; run_id: string; workflow_id: string; workflow_slug?: string; workflow_version: number; version: number;
   next_cursor?: string | number | null; status: "pending" | "running" | "paused" | "blocked" | "evaluating" | "completed"; outcome: string | null;
   title: string; inputs: Record<string, unknown>; coordinator: { address_id: string; generation: number; lease_until: string } | null;
   report_url: string; communication: { group_id: string; room_id: string; group_topic: string; communication_url: string } | null;
@@ -48,7 +48,7 @@ function query(filters: Record<string, unknown>) {
   return params.size ? `?${params}` : "";
 }
 export const workflowsApi = {
-  state: () => api.get<{ enabled: boolean; unavailable_reason?: string }>(`${definitions}/state`),
+  state: () => api.get<{ enabled: boolean; messaging_enabled?: boolean; unavailable_reason?: string | null }>(`${definitions}/state`),
   setState: (enabled: boolean, client_request_id: string) => api.post<{ enabled: boolean }>(`${definitions}/state`, { enabled, client_request_id }),
   list: (filter: Record<string, unknown>, signal?: AbortSignal) => api.get<WorkflowPage<WorkflowSummary>>(`${definitions}${query(filter)}`, { signal }),
   get: (id: string, version?: number) => api.get<WorkflowDefinition>(`${definitions}/${encodeURIComponent(id)}${version ? `/versions/${version}` : ""}`),
