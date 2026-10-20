@@ -5,7 +5,8 @@ import { definition, document, run, RUN_ID, WORKFLOW_ID, ROOM_ID, AGENT_ID, work
 
 async function fixtures(page: Page) {
   const current = structuredClone(definition), report = structuredClone(run);
-  const state = { enabled: true, denied: false, fail: false, empty: false, conflict: false, dropPrepare: false, prepared: false, calls: [] as { path: string; body: Record<string,unknown> }[], errors: [] as string[], sockets: [] as WebSocketRoute[] };
+  const state = { enabled: true, denied: false, fail: false, empty: false, conflict: false, dropPrepare: false, dropConfirm: false, prepared: false, calls: [] as { path: string; body: Record<string,unknown> }[], errors: [] as string[], sockets: [] as WebSocketRoute[] };
+  const receipts = new Map<string, unknown>();
   page.on("pageerror",e=>state.errors.push(e.message));
   await installFixtures(page);
   await page.routeWebSocket("**/workflow-ws",socket=>state.sockets.push(socket));
@@ -21,10 +22,21 @@ async function fixtures(page: Page) {
     if (path==="/admin/workflow-definitions") {if(req.method()==="POST")return json({...current,...body,version:1});return json({enabled:state.enabled,items:state.empty||url.searchParams.get("search")==="absent"?[]:[{...current,title:current.document.title,summary:current.document.summary}],next_cursor:null});}
     if (path.endsWith("/revise")) {if(state.conflict)return json({status:"error",code:"workflow_version_conflict",message:"Head changed to version 3"},409);Object.assign(current,{...body,version:current.version+1});return json(current);}
     if (path==="/admin/workflow-runs") {
-      if(req.method()==="POST") {state.prepared=true;report.status="pending";report.coordinator=null;report.members=[];report.evaluation=null;report.outcome=null;report.inputs=body.inputs as Record<string,unknown>;report.title=String(body.title);report.summary="";if(state.dropPrepare){state.dropPrepare=false;return route.abort("failed");}return json(report);}
+      if(req.method()==="POST") {state.prepared=true;report.status="pending";report.coordinator=null;report.members=[];report.evaluation=null;report.outcome=null;report.inputs=body.inputs as Record<string,unknown>;report.title=String(body.title);report.summary="";report.results={};report.criteria=[];report.started_at=null;report.finished_at=null;report.preparation={phase:"clarifying",revision:1,notes:"",questions:[],summary:null,confirmation:null};report.tasks=report.tasks.map(t=>({...t,status:"pending",attempt_no:0}));if(state.dropPrepare){state.dropPrepare=false;return route.abort("failed");}return json(report);}
       return json({enabled:state.enabled,items:[report],next_cursor:null});
     }
-    if(path.endsWith("/control")){Object.assign(report,{version:report.version+1,status:body.action==="pause"?"paused":body.action==="resume"?"running":report.status});return json(report);}
+    if(path.endsWith("/control")){
+      const receipt=receipts.get(String(body.client_request_id));if(receipt)return json(receipt);
+      if(report.preparation){
+        if(body.expected_run_version!==report.version)return json({status:"error",code:"workflow_run_version_conflict",message:"Run revision changed"},409);
+        const p=report.preparation;
+        if(body.action==="configure"){report.inputs=(body.inputs as Record<string,unknown>)??report.inputs;report.title=String(body.title??report.title);p.questions=(body.questions as typeof p.questions)??p.questions;p.revision++;p.phase="clarifying";p.summary=null;p.confirmation=null;}
+        if(body.action==="present_summary"){p.revision++;p.notes=String(body.notes??"");p.summary={revision:p.revision,title:report.title,goal:document.goal.statement,inputs:structuredClone(report.inputs),questions:structuredClone(p.questions),tasks:structuredClone(document.tasks),notes:p.notes};p.phase="awaiting_confirmation";p.confirmation=null;}
+        if(body.action==="confirm_summary"){p.phase="ready";p.confirmation={summary_revision:Number(body.summary_revision),actor:{kind:"admin",id:"1"},time:report.updated_at,channel:"web",user_confirmation:"Confirmed in the workflow review"};}
+        report.version++;const result=structuredClone(report);receipts.set(String(body.client_request_id),result);
+        if(state.dropConfirm&&body.action==="confirm_summary"){state.dropConfirm=false;return route.abort("failed");}return json(result);
+      }
+      Object.assign(report,{version:report.version+1,status:body.action==="pause"?"paused":body.action==="resume"?"running":report.status});return json(report);}
     if(path.startsWith("/admin/workflow-runs/")&&!path.endsWith("/events")&&!path.includes("/tasks/"))return json({...report,enabled:state.enabled,next_cursor:null});
     const data=workflowFixture(path);
     if(path.startsWith("/admin/workflow-definitions/")&&!path.endsWith("/versions")&&!path.includes("/versions/"))return json({...current,enabled:state.enabled});
@@ -135,4 +147,75 @@ test("claim expiry uses the observed server clock despite workstation skew",asyn
   await page.clock.install({time:new Date("2039-01-01T00:00:00Z")});const {report}=await fixtures(page);report.status="running";report.outcome=null;report.tasks[0].status="running";report.tasks[0].claim={owner_address_id:AGENT_ID,generation:1,lease_until:"2026-10-20T10:30:00Z",recovery:false};
   await page.goto(`/admin/workflows/runs/${RUN_ID}`);await expect(page.getByRole("heading",{name:"Release 42 verification",exact:true})).toBeVisible();await expect(page.getByText("Uncertain attempts require reconciliation",{exact:false})).toHaveCount(0);
   await page.clock.fastForward(31*60*1000);await expect(page.getByText("Uncertain attempts require reconciliation",{exact:false})).toBeVisible();
+});
+
+
+test("clarification saves incomplete answers, reviews explicit approval, retries and invalidates corrected summaries", async ({page}) => {
+  const {state,report}=await fixtures(page);
+  await page.goto("/admin/workflows/definitions/verify-artifacts?mode=run");
+  await page.getByRole("button",{name:"Prepare run",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"Prepare execution",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"Review execution summary",exact:true}).click();
+  await expect(page.locator("#workflow-preparation-errors")).toBeFocused();
+  await expect(page.locator("#run-input-release")).toHaveAttribute("aria-invalid","true");
+  await page.getByRole("textbox",{name:"Release name",exact:true}).fill("release-42");
+  await page.getByRole("button",{name:"Add follow-up question",exact:true}).click();
+  await page.getByRole("textbox",{name:"Additional question 1",exact:true}).fill("Which operating system?");
+  await page.getByRole("textbox",{name:"Answer 1",exact:true}).fill("Debian");
+  await expect(page.getByRole("button",{name:"Review execution summary",exact:true})).toBeDisabled();
+  await page.getByRole("button",{name:"Save answers",exact:true}).click();
+  await expect(page.getByRole("button",{name:"Review execution summary",exact:true})).toBeEnabled();
+  await page.getByRole("textbox",{name:"Additional agreements (optional)",exact:true}).fill("Use existing network");
+  await page.getByRole("button",{name:"Review execution summary",exact:true}).click();
+  await expect(page.locator("#execution-summary-heading")).toBeFocused();
+  await expect(page.getByRole("definition").filter({hasText:"Debian"})).toBeVisible();
+  await expect(page.getByText("Use existing network",{exact:true})).toBeVisible();
+  expect(report.status).toBe("pending");expect(report.preparation?.confirmation).toBeNull();
+  state.dropConfirm=true;
+  await page.getByRole("button",{name:"Confirm execution summary",exact:true}).click();
+  await expect(page.getByRole("alert")).toContainText("Save not confirmed");
+  await page.getByRole("button",{name:"Confirm execution summary",exact:true}).click();
+  await expect(page.getByText("Ready for an agent to start execution.",{exact:false})).toBeVisible();
+  const confirms=state.calls.filter(c=>c.body.action==="confirm_summary");expect(confirms).toHaveLength(2);expect(confirms[0].body).toEqual(confirms[1].body);
+  await page.getByText("Correct answers or add a question",{exact:true}).click();
+  await page.getByRole("textbox",{name:"Release name",exact:true}).fill("release-43");
+  await page.getByRole("button",{name:"Save answers",exact:true}).click();
+  await expect(page.getByRole("button",{name:"Review execution summary",exact:true})).toBeVisible();
+  await expect(page.getByRole("textbox",{name:"Additional agreements (optional)",exact:true})).toHaveValue("Use existing network");
+  expect(report.preparation?.confirmation).toBeNull();
+  await page.getByRole("button",{name:"Review execution summary",exact:true}).click();
+  await expect(page.getByRole("definition").filter({hasText:"release-43"})).toBeVisible();
+  await page.getByRole("button",{name:"Confirm execution summary",exact:true}).click();
+  await page.reload();await expect(page.getByText("Ready for an agent to start execution.",{exact:false})).toBeVisible();
+  expect(report.status).toBe("pending");expect(state.errors).toEqual([]);
+});
+
+for(const width of [320,1440])for(const theme of ["light","dark"] as const)test(`clarification review accessible ${theme} ${width}`,async({page},info)=>{
+  const {report,state}=await fixtures(page);
+  report.status="pending";report.summary="";report.coordinator=null;report.results={};
+  report.preparation={phase:"awaiting_confirmation",revision:2,notes:"Review before execution",questions:[],confirmation:null,
+    summary:{revision:2,title:report.title,goal:document.goal.statement,inputs:report.inputs,questions:[{id:"os",question:"Which operating system?",answer:"Debian"}],tasks:document.tasks,notes:"Review before execution"}};
+  await page.setViewportSize({width,height:900});await page.emulateMedia({colorScheme:theme});await page.addInitScript(theme=>localStorage.setItem("codex.theme",theme),theme);
+  await page.goto(`/admin/workflows/runs/${RUN_ID}`);
+  const button=page.getByRole("button",{name:"Confirm execution summary",exact:true});await button.focus();await expect(button).toBeFocused();
+  expect(await page.locator("main").evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(2);
+  const axe=await new AxeBuilder({page}).withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"]).analyze();expect(axe.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)}))).toEqual([]);
+  await page.screenshot({path:info.outputPath(`clarification-${theme}-${width}.png`),fullPage:true});expect(state.errors).toEqual([]);
+});
+
+
+test("concurrent answer changes retain the local draft and require comparison before retry",async({page})=>{
+  const {report,state}=await fixtures(page);report.status="pending";report.summary="";report.inputs={release:"original",copies:2,dry_run:false};
+  report.preparation={phase:"clarifying",revision:1,notes:"",questions:[],summary:null,confirmation:null};
+  await page.goto(`/admin/workflows/runs/${RUN_ID}`);
+  const answer=page.getByRole("textbox",{name:"Release name",exact:true});await answer.fill("local draft");
+  report.inputs.release="another operator's answer";report.version++;
+  await page.getByRole("button",{name:"Save answers",exact:true}).click();
+  await expect(page.getByRole("alert")).toContainText("Run revision changed");await expect(answer).toHaveValue("local draft");
+  await page.getByRole("button",{name:"Load current answers for comparison",exact:true}).click();
+  await expect(page.getByRole("definition").filter({hasText:"another operator's answer"})).toBeVisible();await expect(answer).toHaveValue("local draft");
+  await page.getByRole("button",{name:"I reviewed the saved answers; keep my draft",exact:true}).click();
+  await page.getByRole("button",{name:"Save answers",exact:true}).click();
+  await expect(page.getByText("Saved. Confirmed by the server.",{exact:true})).toBeVisible();
+  expect(report.inputs.release).toBe("local draft");expect(state.calls.filter(c=>c.body.action==="configure").map(c=>c.body.expected_run_version)).toEqual([4,5]);expect(state.errors).toEqual([]);
 });

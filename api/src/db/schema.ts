@@ -1,3 +1,4 @@
+import type { WorkflowPreparation } from '../services/workflows/contract.js';
 /**
  * Drizzle schema mirror of the cumulative MySQL schema produced by the legacy
  * PHP migrations under ../src/Migrations/. Every column, index, FK, and default
@@ -2836,6 +2837,7 @@ export const workflowRuns = mysqlTable('workflow_runs', {
   id: char('id', { length: 36 }).primaryKey(), workflowId: char('workflow_id', { length: 36 }).notNull(),
   workflowVersionId: char('workflow_version_id', { length: 36 }).notNull(), workflowVersion: int('workflow_version').notNull(),
   workflowSha256: char('workflow_sha256', { length: 64 }).notNull(), title: varchar('title', { length: 255 }).notNull(),
+  preparation: json('preparation').$type<WorkflowPreparation>(),
   inputs: json('inputs').$type<Record<string, unknown>>().notNull(), status: varchar('status', { length: 16 }).notNull(), outcome: varchar('outcome', { length: 16 }),
   version: int('version').notNull().default(1), eventSequence: int('event_sequence').notNull().default(0),
   coordinatorAddressId: char('coordinator_address_id', { length: 36 }), coordinatorGeneration: int('coordinator_generation').notNull().default(0),

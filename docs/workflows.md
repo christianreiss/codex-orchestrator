@@ -21,12 +21,46 @@ source revisions and useful findings. Fleetwide templates cannot reference
 host-local `memory://` records. Credentials belong in the secrets store, never
 in workflow inputs, task outputs, chat or reports.
 
+## Clarification and confirmation
+
+Every new run, including one from an existing template or a template without inputs,
+follows request → clarification → confirmed summary → execution → final report.
+The existing typed `inputs` are its freely defined questions: label/question,
+description, string/number/boolean/enum, required and optional default. No resource
+or VM-specific fields are imposed. Answers may be saved incomplete in the web form
+or by the agent in conversation. Existing answers and defaults are reused and
+shown for review; `false` and `0` are values, not missing answers.
+
+`preparation` tracks `clarifying`, `awaiting_confirmation` and `ready` while the
+run stays `pending`. `coordinator_acquire` establishes preparation ownership;
+`start` is separate. Additional `{id, question, answer?}` questions are stored on
+the run. They do not change the reusable definition. All required inputs and
+all follow-ups must be answered before `present_summary` stores a snapshot of
+the goal, answers, agreements and planned task instructions/acceptance criteria.
+
+The operator confirms the current summary in the web report or explicitly in
+conversation. `confirm_summary` records its revision, actor, timestamp, channel
+and approval text. An agent records the user's explicit approval, never inferred
+consent. This is an agent attestation of the conversation, not an independently
+authenticated user signature. Correcting answers or presenting a new summary
+invalidates confirmation; existing agreements remain available for re-review.
+Preparation mutations append snapshots to the event history. Final reports
+retain the confirmed request as well as execution results.
+
+Start and task mutations are fenced server-side until the current summary is
+confirmed. Recovery does not start an unconfirmed run. A ready run still needs
+an agent to start it; web confirmation launches no process. New run participation
+requires cxx 0.9.114's `workflow_protocol_version: 2`. Older agents may drain
+historical runs (`preparation: null`) under protocol 1 without acquiring rights
+to new runs. Migration 0085 leaves historical runs unchanged.
+
 ## Execution and collaboration
 
 Every run has an authenticated report URL from creation:
 `/admin/workflows/runs/<run-id>`. Preparing a run does not launch a session.
-An admin preparation stays pending until an agent starts it. An agent-created
-run starts atomically with that agent as coordinator. The coordinator may invite existing agents across hosts
+Both admin- and agent-created runs stay pending until clarification and explicit
+summary confirmation are complete. Agent-created runs assign preparation
+coordination without starting execution. The coordinator may invite existing agents across hosts
 and engines. Any active participant may invite another suitable agent.
 
 Invitations bind the target's canonical address and session generation.
@@ -95,7 +129,8 @@ host, messaging and engine restrictions still apply.
 
 Ship schema, API, managed instructions, cxx and the built SPA together.
 The shared cxx implementation supports Codex, Claude and Grok through workflow
-protocol version 1. Old wrappers must upgrade before accepting work.
+protocol version 2 for new runs. Old wrappers must upgrade before new-run participation;
+protocol 1 remains available for historical runs.
 Check the running host daemon as well as the interactive CLI: legacy installations
 can pin `/usr/local/lib/cxx-daemon/cxx` independently of `/usr/local/bin/cxx`.
 After draining active daemon operations, run `cxx daemon install` from the updated

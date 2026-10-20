@@ -15,6 +15,17 @@ export interface WorkflowTask { task_id: string; title: string; status: string; 
 export interface WorkflowEvidence { id: string; description: string; type?: string; uri?: string; hash?: string; execution_host?: string; time?: string; expires_at?: string }
 export interface WorkflowAttempt { attempt_no: number; status: string; started_at?: string; ended_at?: string; execution_host?: string; summary?: string; outputs?: Record<string, unknown>; evidence?: WorkflowEvidence[]; error?: unknown }
 export interface WorkflowEvaluation { version: number; status: string; draft?: Record<string, unknown>; decision?: string; reason?: string; findings?: unknown; lessons?: unknown; applied_version?: number; diff?: unknown }
+export interface WorkflowQuestion { id: string; question: string; answer?: string }
+export interface WorkflowPreparation {
+  phase: "clarifying" | "awaiting_confirmation" | "ready";
+  revision: number;
+  notes: string;
+  questions: WorkflowQuestion[];
+  summary: { revision: number; title: string; goal: string; inputs: Record<string, unknown>;
+    questions: WorkflowQuestion[]; tasks: { id: string; title: string; instructions: string; acceptance_criteria: string[] }[]; notes: string } | null;
+  confirmation: { summary_revision: number; actor: Record<string, unknown>; time: string;
+    channel: "web" | "conversation"; user_confirmation: string } | null;
+}
 export interface WorkflowRun {
   server_time?: string; enabled: boolean; run_id: string; workflow_id: string; workflow_slug?: string; workflow_version: number; version: number;
   next_cursor?: string | number | null; status: "pending" | "running" | "paused" | "blocked" | "evaluating" | "completed"; outcome: string | null;
@@ -23,6 +34,7 @@ export interface WorkflowRun {
   members: WorkflowMember[]; invitations: WorkflowInvitation[]; tasks: WorkflowTask[]; evaluation: WorkflowEvaluation | null;
   summary?: string; criteria?: { id: string; status: string; reason?: string; evidence_ids?: string[] }[]; open_items?: unknown[];
   created_at: string; updated_at: string; started_at?: string | null; finished_at?: string | null; completed_at?: string | null;
+  preparation?: WorkflowPreparation | null;
   document?: WorkflowDocument; report?: Record<string, unknown> | null; results?: Record<string, unknown>; cancel_requested?: boolean;
 }
 export interface WorkflowEvent { id: string; sequence: number; type: string; actor: unknown; detail: unknown; created_at: string }
@@ -64,6 +76,6 @@ export const workflowsApi = {
   report: (id: string) => api.get<WorkflowRun>(`${runs}/${encodeURIComponent(id)}/report`),
   events: (id: string, cursor?: string) => api.get<WorkflowPage<WorkflowEvent>>(`${runs}/${encodeURIComponent(id)}/events${query({ cursor })}`),
   task: (id: string, task: string, cursor?: string) => api.get<{ task: WorkflowTask; attempts: WorkflowAttempt[]; next_cursor: string | number | null }>(`${runs}/${encodeURIComponent(id)}/tasks/${encodeURIComponent(task)}${query({ cursor })}`),
-  control: (id: string, input: { client_request_id: string; expected_run_version: number; action: string; reason?: string; title?: string; inputs?: Record<string, unknown>; target_address_id?: string }) => api.post<WorkflowRun>(`${runs}/${encodeURIComponent(id)}/control`, input),
+  control: (id: string, input: { client_request_id: string; expected_run_version: number; action: string; reason?: string; title?: string; inputs?: Record<string, unknown>; questions?: WorkflowQuestion[]; notes?: string; summary_revision?: number; target_address_id?: string }) => api.post<WorkflowRun>(`${runs}/${encodeURIComponent(id)}/control`, input),
   cancelPrepared: (id: string, input: { client_request_id: string; expected_run_version: number; reason: string }) => api.post<WorkflowRun>(`${runs}/${encodeURIComponent(id)}/prepare-cancel`, input),
 };

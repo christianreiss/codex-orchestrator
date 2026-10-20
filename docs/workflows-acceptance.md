@@ -211,3 +211,32 @@ versions. The production pre-release API image is tagged
 `codex-orchestrator-api:pre-workflows-20261020`; the previous production source is
 `f7877a6fc1e3fdc448ad41e0e71fa0a789ee2953`. A database restore is reserved for
 actual database damage and must account for work recorded after the backup.
+
+## Clarification acceptance (2026-10-20)
+
+New requests stay pending for partial typed answers and run-specific follow-ups.
+Exercise both authenticated web review and an agent's recorded explicit conversational
+approval. Confirming a summary does not launch a process. Check stale summary/run
+revisions, lost-response replay, correction invalidation, unconfirmed recovery, and
+protocol-1 historical draining. The final report must retain its confirmed request.
+The workflow integration suite and browser workflow suite cover these scenarios;
+browser checks include linked errors, keyboard focus, 320/1440 px and both themes.
+
+Local implementation checks on 2026-10-20: API suite 5,265 passed (895 DB-gated
+cases skipped); targeted real-MySQL workflow/transport/HTTP/authorization suite
+53 passed. Frontend check reported zero errors/warnings and 989 unit tests passed;
+30 workflow browser tests passed. API and SPA builds, Go build/vet, and agentbus/
+agentportal tests passed. Migration 0085 was reapplied successfully, and a separate
+empty database completed baseline installation plus all 85 migrations.
+
+Affected design rules: NAV-3, INT-2/3/7 and ACC-1/3/4. Browser evidence covers linked
+field validation, focus transfer, retained drafts and explicit conflict comparison,
+plus light/dark 320/1440 px summary review with Axe checks and screenshots. Existing
+report reflow tests additionally cover 390/768/1920 px. Light desktop and dark
+320 px review captures were visually inspected. No design exception was added.
+
+These are local checks, including three authenticated engine sessions over loopback
+HTTP. Production deployment, live native wrapper rollout, the entire DB/coverage
+suite and physical cross-host execution were not performed. Rollback restores the
+previous API/SPA/wrapper together while retaining additive preparation data and
+historical reports; disable new runs before rolling back active protocol-2 work.

@@ -2,7 +2,11 @@
 
 ## Workflows and shared runs
 
-The Coordination hub includes versioned workflows and durable runs. Agents
+The Coordination hub includes versioned workflows and durable runs. New requests
+clarify freely defined questions in a form or conversation, then require explicit
+confirmation of the saved execution summary. Corrections require confirmation again;
+only then may execution begin (cxx 0.9.114, workflow protocol 2). Historical runs
+retain their previous behavior. Agents
 claim tasks, invite collaborators across hosts and engines, and share an
 automatically managed conversation. Every run has a stable report URL and
 requires evaluation before completion; improvements publish a new workflow

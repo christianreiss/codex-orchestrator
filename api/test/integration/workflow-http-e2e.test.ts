@@ -175,7 +175,7 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
         adapterCapabilities: {
           execution_contract_version: 2,
           shared_room_chat_version: 1,
-          workflow_protocol_version: 1,
+          workflow_protocol_version: 2,
         },
       });
       clients.push({
@@ -288,7 +288,14 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
     runIds.push(run.run_id);
     const url = run.report_url;
     expect(url).toContain(`/admin/workflows/runs/${run.run_id}`);
-    expect((await report(run.run_id)).status).toBe('running');
+    expect((await report(run.run_id)).status).toBe('pending');
+    await call(a, 'task-claim', { run_id: run.run_id, task_id: 'alpha', expected_task_version: 1, action: 'acquire' }, 409);
+    run = await call<Run>(a, 'run-control', { run_id: run.run_id, expected_run_version: run.version, coordinator_generation: 1, action: 'present_summary' });
+    const prepared = (await report(run.run_id)) as Run & { preparation: { summary: { revision: number } } };
+    run = await call<Run>(a, 'run-control', { run_id: run.run_id, expected_run_version: run.version, coordinator_generation: 1,
+      action: 'confirm_summary', summary_revision: prepared.preparation.summary.revision, user_confirmation: 'Yes, execute the reviewed workflow' });
+    run = await call<Run>(a, 'run-control', { run_id: run.run_id, expected_run_version: run.version, coordinator_generation: 1, action: 'start' });
+    expect(run.status).toBe('running');
     const invite = await call<{ invitation_id: string }>(a, 'invite', {
       run_id: run.run_id,
       target_address_id: b.address,

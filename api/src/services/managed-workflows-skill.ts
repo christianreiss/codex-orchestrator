@@ -22,8 +22,10 @@ The server records and fences work; the agents execute it within their existing 
 1. Read with workflow_list and workflow_get (or workflow://<slug>@<version>). Load
    referenced knowledge through its existing tools and access rules. Record used source
    URIs, read time and available digest/revision with agent_workflow_run_note kind knowledge.
-2. Create with agent_workflow_run_create, or use the run_id of a prepared run. Read the
-   run snapshot before taking coordination with agent_workflow_run_control action start.
+2. Create with agent_workflow_run_create, or use the run_id of a prepared run. New runs
+   remain pending for clarification. Take preparation coordination with
+   agent_workflow_run_control action coordinator_acquire if no coordinator exists.
+   Do not start tasks or perform their external changes before explicit confirmation.
 3. After resume/compaction call agent_self, then agent_workflow_run_current. Reconcile
    open invitations, membership bindings, coordinator lease and task claims before writes.
    Several open runs are possible: every write explicitly names run_id.
@@ -45,6 +47,31 @@ non-coordinator member and reconcile the resulting uncertain task. After operato
 read run_current/run_get again and reconcile uncertain tasks before new execution.
 Successful tasks remain successful. If another member must retain coordination, arrange
 an explicit transfer after recovery. Never substitute a fresh native session.
+
+## Clarify, summarize and confirm
+
+New runs use workflow protocol 2; upgrade cxx if participation is refused. Historical
+runs with preparation=null retain their existing execution contract.
+
+1. Read the pinned inputs as freely defined questions. Reuse supplied answers and
+   defaults; ask only missing or unclear questions in conversation, or let the user
+   answer in the web report. Save partial answers with run_control action configure,
+   inputs and optional questions [{id, question, answer?}]. Both collections replace
+   the saved collection, so read first and preserve existing values. Additional
+   questions belong to this run, not automatically to the reusable definition.
+2. When all required inputs and follow-ups are answered, the coordinator calls
+   run_control action present_summary with optional notes and coordinator_generation.
+   Read preparation.summary and show its goal, answers, agreements and planned tasks
+   to the user. Defaults are included for review. The summary is stored server-side.
+3. Wait for explicit user approval of this exact summary. Then call confirm_summary
+   with summary_revision, coordinator_generation and user_confirmation containing
+   the explicit approval. An authenticated web confirmation also suffices. Never
+   infer approval from silence, a workflow request, a default value or elapsed time.
+4. Any configure or present_summary change invalidates earlier approval. Review and
+   confirm again. Writes use expected_run_version and a stable client_request_id.
+5. Only preparation.phase=ready allows action start. Coordination for clarification
+   does not start execution. Recovery never bypasses confirmation. On resume inspect
+   the stored preparation before acting; a ready run still needs an explicit start.
 
 ## Invite collaborators
 

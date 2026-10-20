@@ -100,6 +100,7 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
       bindingGeneration: 1,
       invocationKind: 'interactive',
       status: 'running',
+      adapterCapabilities: { workflow_protocol_version: 2 },
       hostAuthFingerprint: 'a'.repeat(64),
       bridgeTokenHash: 'b'.repeat(64),
       bridgeExpiresAt: '2099-01-01T00:00:00.000Z',
@@ -124,6 +125,7 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
     });
     return {
       kind: 'agent' as const,
+      protocol_version: 2,
       id: address,
       address_id: address,
       session_id: session,
@@ -132,21 +134,31 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
       engine,
     };
   }
-  async function setup(doc = document()) {
+  async function setup(doc = document(), start = true) {
     const w = await call(
       'create',
       { slug: `test-${randomUUID()}`, document: doc, reason: 'Test fixture' },
       admin,
     );
     workflowIds.push(w.workflow_id);
-    const run = await call('run_create', {
+    let run = await call('run_create', {
       workflow_id: w.workflow_id,
       version: 'latest',
       title: 'Test run',
       inputs: {},
     });
     runIds.push(run.run_id);
+    if (start) run = await begin(run);
     return { w, run };
+  }
+  async function begin(run: Result) {
+    let r = await call('run_control', { run_id: run.run_id, expected_run_version: run.version,
+      coordinator_generation: run.coordinator.generation, action: 'present_summary' });
+    r = await call('run_control', { run_id: run.run_id, expected_run_version: r.version,
+      coordinator_generation: r.coordinator.generation, action: 'confirm_summary',
+      summary_revision: r.preparation.summary.revision, user_confirmation: 'Yes, execute this summary' });
+    return call('run_control', { run_id: run.run_id, expected_run_version: r.version,
+      coordinator_generation: r.coordinator.generation, action: 'start' });
   }
   async function join(runId: string, who = b) {
     const now = new Date().toISOString();
@@ -207,11 +219,11 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
           }),
         }
       : await setup();
-    if (existingWorkflowId) runIds.push(x.run.run_id);
+    if (existingWorkflowId) { runIds.push(x.run.run_id); x.run = await begin(x.run); }
     for (const id of ['a', 'b', 'verify']) await result(x.run.run_id, id, await claim(x.run.run_id, id));
     const finish = await call('run_finish', {
       run_id: x.run.run_id,
-      expected_run_version: 1,
+      expected_run_version: x.run.version,
       coordinator_generation: 1,
       outcome: 'succeeded',
       summary: 'All verified',
@@ -317,7 +329,7 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
         {
           client_request_id: randomUUID(),
           run_id: r.run_id,
-          expected_run_version: 1,
+          expected_run_version: r.version,
           reason: 'Cancel preparation',
         },
         admin,
@@ -367,7 +379,7 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
     ]);
     const detail = (await service.runGet(run.run_id)) as Result;
     expect(detail.tasks.filter((t: Result) => t.status === 'succeeded')).toHaveLength(2);
-    expect(detail.version).toBe(1);
+    expect(detail.version).toBe(run.version);
     const rows = await db
       .select()
       .from(workflowTaskAttempts)
@@ -425,7 +437,7 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
       await expect(
         call('run_finish', {
           run_id: run.run_id,
-          expected_run_version: 1,
+          expected_run_version: run.version,
           coordinator_generation: 1,
           outcome: 'succeeded',
           summary: 'Unsupported success',
@@ -434,7 +446,7 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
       ).rejects.toMatchObject({ code: 'workflow_outcome_inconsistent' });
       const finish = await call('run_finish', {
         run_id: run.run_id,
-        expected_run_version: 1,
+        expected_run_version: run.version,
         coordinator_generation: 1,
         outcome,
         summary: 'Explicit outcome',
@@ -605,7 +617,7 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
       c = await claim(run.run_id, 'a');
     const paused = await call('run_control', {
       run_id: run.run_id,
-      expected_run_version: 1,
+      expected_run_version: run.version,
       coordinator_generation: 1,
       action: 'pause',
       reason: 'Check environment',
@@ -733,7 +745,7 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
     expect(released.task.status).toBe('uncertain');
     const finish = {
       run_id: run.run_id,
-      expected_run_version: 1,
+      expected_run_version: run.version,
       coordinator_generation: 1,
       summary: 'Lost target',
       criteria: [
@@ -855,7 +867,7 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
       const recovery = {
         client_request_id: randomUUID(),
         run_id: run.run_id,
-        expected_run_version: 1,
+        expected_run_version: run.version,
         action: 'coordinator_recover',
         target_address_id: a.address_id,
         reason: 'Explicit resume recovery',
@@ -936,7 +948,7 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
       call('run_control', {
         run_id: run.run_id,
         action: 'coordinator_recover',
-        expected_run_version: 1,
+        expected_run_version: run.version,
         target_address_id: b.address_id,
         reason: 'Pretend operator',
       }),
@@ -1206,4 +1218,93 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
       true,
     );
   });
+  it('clarifies partial typed inputs and follow-ups before versioned explicit approval', async () => {
+    const doc = document();
+    doc.inputs = [
+      { key: 'cpus', label: 'How many CPUs?', type: 'number', required: true },
+      { key: 'backup', label: 'Enable backup?', type: 'boolean', required: true },
+      { key: 'site', label: 'Location?', type: 'enum', required: true, options: ['east', 'west'] },
+    ];
+    const { run } = await setup(doc, false);
+    expect(run).toMatchObject({ status: 'pending', started_at: null, inputs: {}, preparation: { phase: 'clarifying' } });
+    const control = (r: Result, action: string, extra = {}) => call('run_control', {
+      run_id: r.run_id, expected_run_version: r.version, coordinator_generation: r.coordinator.generation, action, ...extra,
+    });
+    await expect(control(run, 'start')).rejects.toMatchObject({ code: 'workflow_confirmation_required' });
+    await expect(claim(run.run_id, 'a')).rejects.toMatchObject({ code: 'workflow_confirmation_required' });
+    await expect(control(run, 'present_summary')).rejects.toMatchObject({ code: 'validation_failed' });
+    let r = await control(run, 'configure', { inputs: { cpus: 0, backup: false }, questions: [{ id: 'os', question: 'Which OS?' }] });
+    await expect(control(r, 'present_summary')).rejects.toMatchObject({ code: 'validation_failed' });
+    r = await control(r, 'configure', { inputs: { cpus: 0, backup: false, site: 'east' } });
+    await expect(control(r, 'present_summary')).rejects.toMatchObject({ code: 'validation_failed' });
+    r = await control(r, 'configure', { questions: [{ id: 'os', question: 'Which OS?', answer: 'Debian' }] });
+    const before = r;
+    const request = { client_request_id: randomUUID(), run_id: r.run_id, expected_run_version: r.version,
+      coordinator_generation: 1, action: 'present_summary', notes: 'Use existing network' };
+    r = await service.mutate('run_control', request, a);
+    expect(await service.mutate('run_control', request, a)).toEqual(r);
+    expect(r.preparation.summary).toMatchObject({ inputs: { cpus: 0, backup: false, site: 'east' }, questions: [{ answer: 'Debian' }], notes: 'Use existing network' });
+    await expect(control(before, 'configure', { inputs: {} })).rejects.toMatchObject({ code: 'workflow_run_version_conflict' });
+    await expect(control(r, 'confirm_summary', { summary_revision: r.preparation.summary.revision })).rejects.toMatchObject({ code: 'validation_failed' });
+    await expect(control(r, 'confirm_summary', { summary_revision: 999, user_confirmation: 'Yes' })).rejects.toMatchObject({ code: 'workflow_summary_revision_conflict' });
+    const summaryRevision = r.preparation.summary.revision;
+    r = await control(r, 'confirm_summary', { summary_revision: summaryRevision, user_confirmation: 'Yes, use these settings' });
+    expect(r).toMatchObject({ status: 'pending', preparation: { phase: 'ready', confirmation: { channel: 'conversation', user_confirmation: 'Yes, use these settings' } } });
+    await expect(claim(run.run_id, 'a')).rejects.toMatchObject({ code: 'workflow_run_not_running' });
+    r = await control(r, 'configure', { inputs: { cpus: 2, backup: false, site: 'west' } });
+    expect(r.preparation).toMatchObject({ phase: 'clarifying', summary: null, confirmation: null });
+    await expect(control(r, 'start')).rejects.toMatchObject({ code: 'workflow_confirmation_required' });
+    await expect(control(r, 'confirm_summary', { summary_revision: summaryRevision, user_confirmation: 'Yes' })).rejects.toMatchObject({ code: 'workflow_summary_revision_conflict' });
+    r = await begin(r);
+    expect(r.status).toBe('running');
+    expect((await claim(r.run_id, 'a')).task.status).toBe('running');
+    const history = await service.events(r.run_id);
+    expect(history.items.some(e => e.type === 'run.confirm_summary' && JSON.stringify(e.detail).includes('Yes, use these settings'))).toBe(true);
+  });
+  it('requires review even without questions, and supports web approval without launching an agent', async () => {
+    const doc = document(); doc.inputs = [];
+    const w = await call('create', { slug: `test-${randomUUID()}`, document: doc, reason: 'No inputs' }, admin);
+    workflowIds.push(w.workflow_id);
+    let r = await call('run_create', { workflow_id: w.workflow_id, title: 'Web request' }, admin);
+    runIds.push(r.run_id);
+    const control = (action: string, extra = {}) => call('run_control', { run_id: r.run_id, expected_run_version: r.version, action, ...extra }, admin);
+    r = await control('present_summary');
+    r = await control('confirm_summary', { summary_revision: r.preparation.summary.revision });
+    expect(r).toMatchObject({ status: 'pending', coordinator: null, preparation: { phase: 'ready', confirmation: { channel: 'web' } } });
+    r = await call('run_control', { run_id: r.run_id, expected_run_version: r.version, action: 'start' });
+    expect(r.status).toBe('running');
+  });
+  it('preserves unconfirmed preparation during coordinator recovery and rejects duplicate questions', async () => {
+    const { run } = await setup(document(), false);
+    await expect(call('run_control', { run_id: run.run_id, expected_run_version: run.version, action: 'configure',
+      questions: [{ id: 'x', question: 'One?' }, { id: 'x', question: 'Two?' }] })).rejects.toMatchObject({ code: 'validation_failed' });
+    const recovery = new WorkflowsService({ db, settings, keyring, collaboration: {
+      lock: async () => {}, resolveTarget: async () => a, syncGroup: async () => null, invite: async () => ({ message_id: randomUUID() }),
+    } });
+    const r = await recovery.mutate('run_control', { client_request_id: randomUUID(), run_id: run.run_id,
+      expected_run_version: run.version, action: 'coordinator_recover', target_address_id: a.address_id, reason: 'Recover preparation' }, admin);
+    expect(r).toMatchObject({ status: 'pending', started_at: null, preparation: { phase: 'clarifying' } });
+    await expect(call('run_control', { run_id: run.run_id, expected_run_version: r.version, action: 'start', coordinator_generation: 2 })).rejects.toMatchObject({ code: 'workflow_confirmation_required' });
+  });
+  it('allows historical runs to drain with protocol 1 while fencing new preparation participation', async () => {
+    const { run, w } = await setup();
+    await db.update(agentSessions).set({ adapterCapabilities: { workflow_protocol_version: 1 } }).where(eq(agentSessions.id, a.session_id!));
+    try {
+      await expect(call('run_create', { workflow_id: w.workflow_id, title: 'Old client' })).rejects.toMatchObject({ code: 'workflow_wrapper_outdated' });
+      await expect(claim(run.run_id, 'a')).rejects.toMatchObject({ code: 'workflow_wrapper_outdated' });
+      await db.update(workflowRuns).set({ preparation: null }).where(eq(workflowRuns.id, run.run_id));
+      expect((await claim(run.run_id, 'a')).task.status).toBe('running');
+    } finally {
+      await db.update(agentSessions).set({ adapterCapabilities: { workflow_protocol_version: 2 } }).where(eq(agentSessions.id, a.session_id!));
+    }
+  });
+  it('keeps the confirmed request in the final report', async () => {
+    const { run, finish } = await successRun();
+    const end = await call('run_evaluate', { run_id: run.run_id, expected_run_version: finish.version, coordinator_generation: 1,
+      expected_evaluation_version: 1, action: 'finalize', evaluation: { findings: [], lessons: [], decision: 'no_change', reason: 'Verified' } });
+    expect(end.status).toBe('completed');
+    const report = await service.report(run.run_id) as Result;
+    expect(report.report.preparation).toMatchObject({ phase: 'ready', confirmation: { channel: 'conversation' }, summary: { inputs: { enabled: true } } });
+  });
+
 });

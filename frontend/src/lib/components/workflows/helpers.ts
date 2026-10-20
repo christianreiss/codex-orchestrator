@@ -48,3 +48,16 @@ export function validateDraft(document: WorkflowDocument): Record<string, string
   });
   return errors;
 }
+
+export function preparationErrors(document: WorkflowDocument, inputs: Record<string, unknown>, questions: { id: string; question: string; answer?: string }[]): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const input of document.inputs) {
+    const value = inputs[input.key];
+    if (value === undefined) { if (input.required) errors[`run-input-${input.key}`] = `Answer “${input.label}” before reviewing.`; }
+    else if ((input.type === "enum" ? typeof value !== "string" || !input.options?.includes(value) : typeof value !== input.type)
+      || (input.type === "number" && !Number.isFinite(value)) || (input.required && typeof value === "string" && !value.trim()))
+      errors[`run-input-${input.key}`] = `Enter a valid answer for “${input.label}”.`;
+  }
+  for (const question of questions) if (!question.answer?.trim()) errors[`followup-answer-${question.id}`] = `Answer “${question.question}” before reviewing.`;
+  return errors;
+}

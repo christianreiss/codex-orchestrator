@@ -61,6 +61,11 @@ export async function member(ctx: Session, run: Run) {
     );
   return found;
 }
+export function assertPreparationReady(run: Run) {
+  const p = run.preparation;
+  if (p && (p.phase !== 'ready' || !p.summary || p.confirmation?.summary_revision !== p.summary.revision))
+    throw new ConflictError('Confirm the current workflow summary before execution', 'workflow_confirmation_required');
+}
 export function mutable(run: Run) {
   if (run.status === 'completed')
     throw new ConflictError('Completed runs are immutable', 'workflow_run_completed');
@@ -227,6 +232,7 @@ export function runView(run: Run, baseUrl: string) {
     outcome: run.outcome,
     title: run.title,
     inputs: run.inputs,
+    preparation: run.preparation ?? null,
     coordinator: run.coordinatorAddressId
       ? {
           address_id: run.coordinatorAddressId,

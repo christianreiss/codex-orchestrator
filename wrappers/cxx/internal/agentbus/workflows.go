@@ -43,7 +43,7 @@ func callWorkflowTool(ctx context.Context, client *sessionClient, name string, a
 const workflowToolDefinitions = `[
   {
     "name": "agent_workflow_create",
-    "description": "Create a reusable workflow with one stable goal, success criteria, inputs, ordered tasks and knowledge. Read skill://workflows first. Keep client_request_id unchanged when retrying the identical operation. Authority and membership are checked server-side.",
+    "description": "Create a reusable workflow with one stable goal, success criteria, freely defined pre-execution questions (inputs), ordered tasks and knowledge. Read skill://workflows first. Keep client_request_id unchanged when retrying the identical operation. Authority and membership are checked server-side.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -676,6 +676,32 @@ const workflowToolDefinitions = `[
             "inputs": {
               "type": "object",
               "additionalProperties": {}
+            },
+            "questions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+                  },
+                  "question": {
+                    "type": "string",
+                    "maxLength": 65536
+                  },
+                  "answer": {
+                    "type": "string",
+                    "maxLength": 65536
+                  }
+                },
+                "required": [
+                  "id",
+                  "question"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 64
             }
           },
           "required": [
@@ -683,6 +709,84 @@ const workflowToolDefinitions = `[
             "run_id",
             "expected_run_version",
             "action"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "client_request_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "run_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "expected_run_version": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "coordinator_generation": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "action": {
+              "const": "present_summary",
+              "type": "string"
+            },
+            "notes": {
+              "type": "string",
+              "maxLength": 65536,
+              "default": ""
+            }
+          },
+          "required": [
+            "client_request_id",
+            "run_id",
+            "expected_run_version",
+            "action"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "client_request_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "run_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "expected_run_version": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "coordinator_generation": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "action": {
+              "const": "confirm_summary",
+              "type": "string"
+            },
+            "summary_revision": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "user_confirmation": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": [
+            "client_request_id",
+            "run_id",
+            "expected_run_version",
+            "action",
+            "summary_revision"
           ],
           "additionalProperties": false
         },

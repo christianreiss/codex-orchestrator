@@ -2988,14 +2988,37 @@ See [Workflows](workflows.md) for state transitions, recovery and delivery. All 
 - `GET /admin/workflow-runs/:id/report` — Read the live or frozen final report.
 - `GET /admin/workflow-runs/:id/tasks/:taskId` — Read task attempts and evidence.
 - `POST /admin/workflow-runs/:id/control` — Configure a pending run, pause/resume/block, request cancellation or recover coordinator according to actor authority.
-- `POST /admin/workflow-runs/:id/prepare-cancel` — Cancel an untouched preparation; preserves required evaluation state.
+- `POST /admin/workflow-runs/:id/prepare-cancel` — Cancel an unstarted preparation; preserves required evaluation state.
+
+New runs expose `preparation: {phase, revision, notes, questions, summary, confirmation}`.
+They stay `pending` throughout `clarifying` → `awaiting_confirmation` → `ready`;
+agent creation and coordinator recovery do not start execution. Historical runs
+have `preparation: null` and retain their previous behavior. New agent participation
+requires authenticated session capability `workflow_protocol_version >= 2` (cxx 0.9.114);
+protocol 1 may still drain historical runs.
+
+Additional run-control actions, shared by admin HTTP and native MCP:
+
+- `configure`: optional `title`, `inputs` and `questions: [{id, question, answer?}]`.
+  Supplied answer/question collections replace their respective saved collections.
+  Partial inputs are allowed; duplicate question IDs are rejected. Changes invalidate
+  the summary and confirmation, retaining additional agreements and event history.
+- `present_summary`: optional `notes` (defaults to empty). Validates required inputs
+  and answered follow-ups, then snapshots title, goal, answers and planned tasks.
+- `confirm_summary`: required `summary_revision`; agents additionally supply nonempty
+  `user_confirmation` recording explicit user approval. Agent writes require current
+  coordinator generation; an authorized admin may review and confirm without an agent.
+  Confirmation records actor, timestamp and web/conversation channel.
+- `coordinator_acquire` can acquire preparation ownership without execution. `start`
+  requires the confirmed current summary and transitions to `running`. Task writes
+  cannot bypass this gate. Every action retains version and idempotency fencing.
 
 Bridge endpoints authenticate `x-agent-bridge-token` and derive address, host, engine and binding from the native session. Every operation except run-current requires a stable `client_request_id`; replay identical bodies after a lost response. Run controls require `expected_run_version`; coordinator writes also check `coordinator_generation`. Task writes use independent `expected_task_version`; claimed writes additionally require `claim_token` and `claim_generation`. Invalid documents fail validation; stale versions/bindings/claims return 409 without silently overwriting another actor. Full executable field schemas live in `api/src/services/workflows/contract.ts` and generate the native tool declarations.
 
 - `POST /host/agent-sessions/:id/agent-messaging/workflows/create` — Create a definition.
 - `POST /host/agent-sessions/:id/agent-messaging/workflows/revise` — Publish an instruction revision using compare-and-swap.
 - `POST /host/agent-sessions/:id/agent-messaging/workflows/archive` — Archive or restore with instruction and control revisions.
-- `POST /host/agent-sessions/:id/agent-messaging/workflows/run-create` — Create and start a pinned run with the caller as coordinator and member.
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/run-create` — Create a pending pinned run with the caller as preparation coordinator and member.
 - `POST /host/agent-sessions/:id/agent-messaging/workflows/run-control` — Start a prepared run or control/renew/transfer/recover coordinator ownership.
 - `POST /host/agent-sessions/:id/agent-messaging/workflows/invite` — Invite an active compatible target_address_id, with reason and optional task_ids.
 - `POST /host/agent-sessions/:id/agent-messaging/workflows/membership` — Accept/decline/revoke an invitation, leave or remove a participant.

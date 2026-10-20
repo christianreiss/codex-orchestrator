@@ -1,5 +1,7 @@
 # 2026-10-20
 
+- **Workflow clarification (cxx 0.9.114).** New runs clarify freely defined questions in a web form or conversation, review a saved summary and require explicit approval before execution. Follow-up answers and approval history remain in the report; corrections invalidate approval. Already existing runs retain their previous flow.
+
 - Fix missing Codex and Claude quota reset times: accept provider Unix-second timestamps and normalize them to ISO timestamps for MCP, dashboard and wrapper readers. Claude's statusline reporter requires cxx 0.9.113; stored readings gain resets on their next successful refresh/report. Grok continues to expose its actual weekly/monthly period end, with no fabricated short window.
 
 - Added account-scoped quota warnings, short/long quota MCP lookup and heavy-workload guidance, configurable reset recovery through the existing Watchdog, and explicit PayG/unlimited overrides that bypass quota actions. cxx 0.9.112.

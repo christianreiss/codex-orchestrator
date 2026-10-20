@@ -2347,6 +2347,7 @@ CREATE TABLE `workflow_runs` (
 	`workflow_version` int NOT NULL,
 	`workflow_sha256` char(64) NOT NULL,
 	`title` varchar(255) NOT NULL,
+	`preparation` json,
 	`inputs` json NOT NULL,
 	`status` varchar(16) NOT NULL,
 	`outcome` varchar(16),

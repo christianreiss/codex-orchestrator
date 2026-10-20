@@ -344,7 +344,7 @@ func (t *channelTracker) ensureListenBind(ctx context.Context) error {
 		// The server preserves the stored adapter_protocol when the field is
 		// omitted, so the pump's identity survives a listen bind untouched.
 		body["adapter_protocol"] = "cxx-agent-listen-v1"
-		body["adapter_capabilities"] = map[string]any{"listen": true, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 1, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1}
+		body["adapter_capabilities"] = map[string]any{"listen": true, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 2, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1}
 	}
 	var ignored map[string]any
 	if err := t.client.post(ctx, "bind", body, &ignored); err != nil {
@@ -670,7 +670,7 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 			if !automatic && channel && initialized && !channelActive && req.Method == "notifications/initialized" {
 				var bound map[string]any
 				if err := client.post(ctx, "bind", map[string]any{
-					"adapter_protocol": "claude-channel-preview-v1", "adapter_capabilities": map[string]any{"channel": true, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 1, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1}, "receive_capable": true,
+					"adapter_protocol": "claude-channel-preview-v1", "adapter_capabilities": map[string]any{"channel": true, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 2, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1}, "receive_capable": true,
 				}, &bound); err != nil {
 					return fmt.Errorf("activate Claude channel adapter: %w", err)
 				}

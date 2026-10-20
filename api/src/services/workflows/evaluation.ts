@@ -120,6 +120,8 @@ export async function evaluateRun(
         workflow_sha256: run.workflowSha256,
         outcome: run.outcome,
         summary: run.summary,
+        preparation: run.preparation ?? null,
+        inputs: run.inputs,
         results: run.results,
         criteria: run.criteria,
         open_items: run.openItems,

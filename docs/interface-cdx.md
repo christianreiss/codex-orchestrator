@@ -2035,3 +2035,12 @@ notification totals remain client-specific; the bound is on peer continuation de
 ## Account quota lifecycle (cxx 0.9.112)
 
 `quota_get` on cxx-agent reports the current lifecycle's bound provider account, short/long usage, reset, freshness and effective quota policy. Check before heavy workloads and large delegations. Start a new managed lifecycle through the updated wrapper to supply the verified provider lease binding; older sessions return unavailable. Engine defaults and complete account overrides configure warnings and short/long auto-resume independently. PayG/unlimited suppresses quota actions, including existing startup blocks. A quota warning only requests a checkpoint. Confirmed quota interruptions use existing Watchdog recovery for the same native transcript on persistent hosts, with bounded retries and no fresh-session fallback. Native subagent restoration depends on the native parent's resume implementation; no independent helpers are spawned. See [API contract](interface-api.md#account-quota-warnings-and-reset-recovery-cxx-09112).
+
+## Workflow clarification (cxx 0.9.114)
+
+cdx advertises `workflow_protocol_version: 2` through the shared native bridge.
+New runs remain pending for freely defined input questions and optional follow-ups.
+The coordinator presents a saved summary, records explicit user approval of its
+revision (or observes web approval), then starts execution. Answer changes invalidate
+approval; recovery never bypasses it. Existing protocol-1 agents may still finish
+historical runs with `preparation: null`. See [workflow contracts](workflows.md).

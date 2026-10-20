@@ -10,6 +10,7 @@ import {
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../http/errors.js';
 import {
   validateInputs,
+  requireWorkflowProtocol,
   type MutationInput,
   type WorkflowCollaboration,
   type WorkflowDocument,
@@ -17,6 +18,7 @@ import {
 } from './contract.js';
 import { addMember, syncGroup } from './members.js';
 import {
+  assertPreparationReady,
   agentRecord,
   coordinator,
   knownEvidence,
@@ -37,6 +39,7 @@ import {
   type Session,
 } from './store.js';
 export async function createRun(ctx: Session, input: MutationInput<'run_create'>) {
+  requireWorkflowProtocol(ctx.actor);
   const workflow = await definition(ctx.tx, input.workflow_id, true);
   if (workflow.status !== 'active')
     throw new ConflictError('Archived workflows cannot start runs', 'workflow_archived');
@@ -56,8 +59,9 @@ export async function createRun(ctx: Session, input: MutationInput<'run_create'>
     workflowVersion: number,
     workflowSha256: v.sha256,
     title: input.title,
-    inputs: validateInputs(doc, input.inputs),
-    status: agent ? 'running' : 'pending',
+    inputs: validateInputs(doc, input.inputs, true),
+    preparation: { phase: 'clarifying', revision: 1, notes: '', questions: [], summary: null, confirmation: null },
+    status: 'pending',
     outcome: null,
     version: 1,
     eventSequence: 0,
@@ -73,7 +77,7 @@ export async function createRun(ctx: Session, input: MutationInput<'run_create'>
     openItems: null,
     report: null,
     actor: agentRecord(ctx.actor),
-    startedAt: agent ? ctx.now : null,
+    startedAt: null,
     finishedAt: null,
     completedAt: null,
     createdAt: ctx.now,
@@ -109,32 +113,70 @@ export async function runControl(
       throw new ConflictError('Only pending runs may be configured', 'workflow_run_not_pending');
     if (ctx.actor.kind === 'agent') await member(ctx, run);
     const doc = await pinned(ctx, run);
+    if (input.questions && new Set(input.questions.map(q => q.id)).size !== input.questions.length)
+      throw new ValidationError('Question IDs must be unique', { param: 'questions' });
+    if (input.questions && !run.preparation)
+      throw new ConflictError('Historical run has no clarification phase', 'workflow_legacy_run');
     await patchRun(ctx, run, {
       title: input.title ?? run.title,
-      inputs: input.inputs ? validateInputs(doc, input.inputs) : run.inputs,
+      inputs: input.inputs ? validateInputs(doc, input.inputs, !!run.preparation) : run.inputs,
+      ...(run.preparation ? { preparation: { phase: 'clarifying' as const, revision: run.preparation.revision + 1,
+        notes: run.preparation.notes, questions: input.questions ?? run.preparation.questions, summary: null, confirmation: null } } : {}),
     });
+  } else if (input.action === 'present_summary' || input.action === 'confirm_summary') {
+    if (run.status !== 'pending' || !run.preparation)
+      throw new ConflictError('Only unstarted clarification runs can be reviewed', 'workflow_run_not_pending');
+    if (ctx.actor.kind === 'agent') await coordinator(ctx, run, input.coordinator_generation);
+    const preparation = run.preparation;
+    if (input.action === 'present_summary') {
+      const doc = await pinned(ctx, run);
+      const inputs = validateInputs(doc, run.inputs);
+      if (preparation.questions.some(q => !q.answer?.trim()))
+        throw new ValidationError('Answer every open follow-up question first', { param: 'questions' });
+      const revision = preparation.revision + 1;
+      await patchRun(ctx, run, { preparation: { ...preparation, phase: 'awaiting_confirmation', revision, notes: input.notes,
+        summary: { revision, title: run.title, goal: doc.goal.statement, inputs,
+          questions: preparation.questions, tasks: doc.tasks.map(({ id, title, instructions, acceptance_criteria }) => ({ id, title, instructions, acceptance_criteria })), notes: input.notes }, confirmation: null } });
+    } else {
+      if (preparation.phase !== 'awaiting_confirmation' || !preparation.summary || preparation.summary.revision !== input.summary_revision)
+        throw new ConflictError('Read and confirm the current summary revision', 'workflow_summary_revision_conflict');
+      if (ctx.actor.kind === 'agent' && !input.user_confirmation?.trim())
+        throw new ValidationError('Record the explicit user approval of this summary', { param: 'user_confirmation' });
+      await patchRun(ctx, run, { preparation: { ...preparation, phase: 'ready', confirmation: {
+        summary_revision: input.summary_revision, actor: agentRecord(ctx.actor), time: ctx.now,
+        channel: ctx.actor.kind === 'admin' ? 'web' : 'conversation',
+        user_confirmation: input.user_confirmation ?? 'Confirmed in the workflow review',
+      } } });
+    }
   } else if (input.action === 'start' || input.action === 'coordinator_acquire') {
     requireAgent(ctx.actor);
+    if (input.action === 'start') {
+      if (run.status !== 'pending')
+        throw new ConflictError('Run already started', 'workflow_run_not_pending');
+      assertPreparationReady(run);
+    }
     if (run.status === 'pending' && !run.coordinatorAddressId) {
       await addMember(ctx, run, ctx.actor, 'First coordinator');
       await patchRun(ctx, run, {
-        status: 'running',
-        startedAt: ctx.now,
+        ...(input.action === 'start' || !run.preparation ? { status: 'running', startedAt: ctx.now } : {}),
         coordinatorAddressId: ctx.actor.address_id!,
         coordinatorGeneration: run.coordinatorGeneration + 1,
         coordinatorLeaseUntil: leaseUntil(ctx.now),
       });
     } else {
       await member(ctx, run);
-      if (input.action === 'start')
-        throw new ConflictError('Run already started', 'workflow_run_not_pending');
-      if (!expired(run.coordinatorLeaseUntil, ctx.now))
-        throw new ConflictError('Coordinator lease remains valid', 'workflow_coordinator_claimed');
-      await patchRun(ctx, run, {
-        coordinatorAddressId: ctx.actor.address_id!,
-        coordinatorGeneration: run.coordinatorGeneration + 1,
-        coordinatorLeaseUntil: leaseUntil(ctx.now),
-      });
+      if (input.action === 'start') {
+        await coordinator(ctx, run, input.coordinator_generation);
+        await patchRun(ctx, run, { status: 'running', startedAt: ctx.now });
+      } else {
+        if (!expired(run.coordinatorLeaseUntil, ctx.now))
+          throw new ConflictError('Coordinator lease remains valid', 'workflow_coordinator_claimed');
+        await patchRun(ctx, run, {
+          coordinatorAddressId: ctx.actor.address_id!,
+          coordinatorGeneration: run.coordinatorGeneration + 1,
+          coordinatorLeaseUntil: leaseUntil(ctx.now),
+        });
+      }
     }
   } else if (input.action === 'coordinator_recover') {
     if (ctx.actor.kind !== 'admin')
@@ -162,7 +204,7 @@ export async function runControl(
       coordinatorAddressId: target.address_id!,
       coordinatorGeneration: run.coordinatorGeneration + 1,
       coordinatorLeaseUntil: leaseUntil(ctx.now),
-      ...(run.status === 'pending' ? { status: 'running', startedAt: ctx.now } : {}),
+      ...(run.status === 'pending' && !run.preparation ? { status: 'running', startedAt: ctx.now } : {}),
     });
     await syncGroup(ctx, run, collaboration);
   } else {
@@ -224,6 +266,7 @@ export async function runControl(
   await event(ctx, run, `run.${input.action}`, {
     ...('reason' in input ? { reason: input.reason } : {}),
     coordinator_generation: run.coordinatorGeneration,
+    ...(['configure', 'present_summary', 'confirm_summary'].includes(input.action) ? { title: run.title, inputs: run.inputs, preparation: run.preparation } : {}),
     ...(cancelDeliveries ? { notifications: cancelDeliveries } : {}),
   });
   return run;
@@ -327,9 +370,9 @@ export async function prepareCancel(ctx: Session, run: Run, input: MutationInput
   if (ctx.actor.kind !== 'admin')
     throw new ForbiddenError('Only an operator can cancel a prepared run', 'workflow_admin_required');
   expect(run.version, input.expected_run_version, 'workflow_run_version_conflict');
-  if (run.status !== 'pending' || run.coordinatorAddressId)
+  if (run.status !== 'pending' || (run.coordinatorAddressId && !run.preparation))
     throw new ConflictError(
-      'Only an unstarted unoccupied run can be canceled here',
+      'Only an unstarted run can be canceled here',
       'workflow_run_not_pending',
     );
   const doc = await pinned(ctx, run);

@@ -15,6 +15,7 @@ export function createWorkflowCollaboration(bus: AgentMessagingService, publicBa
   const target = async (tx: WorkflowTx, addressId: string): Promise<WorkflowActor> => {
     const { address, session } = await bus.workflowTarget(tx, addressId);
     return { kind: 'agent', id: address.id, address_id: address.id, session_id: session.id,
+      protocol_version: Number((session.adapterCapabilities as Record<string, unknown> | null)?.workflow_protocol_version ?? 0),
       binding_generation: address.bindingGeneration, host_id: address.hostId, engine: address.engine,
       name: session.launchName ?? address.launchName ?? address.address };
   };

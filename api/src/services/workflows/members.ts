@@ -9,6 +9,7 @@ import {
 import { ConflictError, ForbiddenError, NotFoundError, ServiceUnavailableError } from '../../http/errors.js';
 import {
   WORKFLOW_LIMITS,
+  requireWorkflowProtocol,
   type MutationInput,
   type WorkflowActor,
   type WorkflowCollaboration,
@@ -32,6 +33,7 @@ import {
 } from './store.js';
 export async function addMember(ctx: Session, run: Run, actor: WorkflowActor, reason: string) {
   requireAgent(actor);
+  if (run.preparation) requireWorkflowProtocol(actor);
   const list = await members(ctx, run);
   const previous = list.find((m) => m.agentAddressId === actor.address_id);
   if (previous?.status === 'active') {
@@ -105,6 +107,7 @@ export async function invite(
     );
   const target = await collaboration.resolveTarget(ctx.tx, input.target_address_id);
   requireAgent(target);
+  if (run.preparation) requireWorkflowProtocol(target);
   const existing = (await members(ctx, run)).find(
     (m) => m.agentAddressId === target.address_id && m.status === 'active',
   );

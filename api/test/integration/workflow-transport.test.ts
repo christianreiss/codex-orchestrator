@@ -48,7 +48,7 @@ describe.skipIf(!handle)('workflow collaboration transport with MySQL', { timeou
       const host = (await db.select().from(hosts).where(eq(hosts.fqdn, fqdn)))[0]!;
       await markPersistentHost(db, host.id);
       const sessionId = randomUUID(), token = randomBytes(32).toString('base64url');
-      const registered = await bus.registerSession(host, { engine: engine as 'codex' | 'claude' | 'grok', username: 'workflow-test', cwd: `/tmp/workflow-${index}`, sessionId, bridgeToken: token, invocationKind: 'interactive', adapterProtocol: 'workflow-test-v1', adapterCapabilities: { workflow_protocol_version: 1, shared_room_chat_version: 1, execution_contract_version: 2 } });
+      const registered = await bus.registerSession(host, { engine: engine as 'codex' | 'claude' | 'grok', username: 'workflow-test', cwd: `/tmp/workflow-${index}`, sessionId, bridgeToken: token, invocationKind: 'interactive', adapterProtocol: 'workflow-test-v1', adapterCapabilities: { workflow_protocol_version: 2, shared_room_chat_version: 1, execution_contract_version: 2 } });
       const addressId = String((registered.address as { id: string }).id);
       const actor = await db.transaction(tx => collaboration.resolveTarget(tx, addressId));
       peers.push({ hostId: host.id, sessionId, token, addressId, actor });

@@ -336,7 +336,7 @@ func runListen(args []string, stdout, stderr io.Writer) error {
 	ctx := context.Background()
 	var ignored map[string]any
 	if err := client.post(ctx, "bind", map[string]any{
-		"receive_capable": true, "adapter_protocol": "cxx-agent-listen-v1", "adapter_capabilities": map[string]any{"listen": true, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 1, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1},
+		"receive_capable": true, "adapter_protocol": "cxx-agent-listen-v1", "adapter_capabilities": map[string]any{"listen": true, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 2, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1},
 	}, &ignored); err != nil {
 		return err
 	}

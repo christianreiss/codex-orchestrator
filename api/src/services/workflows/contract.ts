@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import type { Database } from '../../db/client.js';
-import { ValidationError } from '../../http/errors.js';
+import { ConflictError, ValidationError } from '../../http/errors.js';
 
 export const WORKFLOWS_ENABLED_KEY = 'workflows_enabled';
-export const WORKFLOW_PROTOCOL_VERSION = 1;
+export const WORKFLOW_PROTOCOL_VERSION = 2;
 export const WORKFLOW_LEASE_MS = 30 * 60 * 1000;
 export const WORKFLOW_LIMITS = {
   tasks: 200,
@@ -24,6 +24,7 @@ export interface WorkflowActor {
   host_id?: number;
   engine?: string;
   name?: string;
+  protocol_version?: number;
 }
 export type WorkflowTx = Parameters<Parameters<Database['transaction']>[0]>[0];
 export interface WorkflowCollaboration {
@@ -194,7 +195,7 @@ function inputValid(input: z.infer<typeof inputSchema>, value: unknown) {
       ? typeof value === 'number' && Number.isFinite(value)
       : typeof value === input.type;
 }
-export function validateInputs(document: WorkflowDocument, values: Record<string, unknown>) {
+export function validateInputs(document: WorkflowDocument, values: Record<string, unknown>, partial = false) {
   const out = { ...values };
   for (const key of Object.keys(out))
     if (!document.inputs.some((i) => i.key === key))
@@ -202,12 +203,44 @@ export function validateInputs(document: WorkflowDocument, values: Record<string
   for (const input of document.inputs) {
     if (out[input.key] === undefined && input.default !== undefined) out[input.key] = input.default;
     if (out[input.key] === undefined) {
-      if (input.required)
+      if (input.required && !partial)
         throw new ValidationError(`Missing input ${input.key}`, { param: `inputs.${input.key}` });
-    } else if (!inputValid(input, out[input.key]))
+    } else if (!inputValid(input, out[input.key]) || (!partial && input.required && typeof out[input.key] === 'string' && !(out[input.key] as string).trim()))
       throw new ValidationError(`Invalid input ${input.key}`, { param: `inputs.${input.key}` });
   }
   return out;
+}
+export const clarificationQuestionSchema = z.object({
+  id,
+  question: nonempty,
+  answer: text.optional(),
+}).strict();
+export type ClarificationQuestion = z.infer<typeof clarificationQuestionSchema>;
+export interface WorkflowPreparation {
+  phase: 'clarifying' | 'awaiting_confirmation' | 'ready';
+  revision: number;
+  notes: string;
+  questions: ClarificationQuestion[];
+  summary: {
+    revision: number;
+    title: string;
+    goal: string;
+    inputs: Record<string, unknown>;
+    questions: ClarificationQuestion[];
+    tasks: { id: string; title: string; instructions: string; acceptance_criteria: string[] }[];
+    notes: string;
+  } | null;
+  confirmation: {
+    summary_revision: number;
+    actor: WorkflowActor;
+    time: string;
+    channel: 'web' | 'conversation';
+    user_confirmation: string;
+  } | null;
+}
+export function requireWorkflowProtocol(actor: WorkflowActor) {
+  if (actor.kind === 'agent' && (actor.protocol_version ?? 1) < WORKFLOW_PROTOCOL_VERSION)
+    throw new ConflictError('Update this agent wrapper for workflow clarification protocol 2', 'workflow_wrapper_outdated');
 }
 export function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -326,8 +359,12 @@ export const workflowMutationSchemas = {
         action: z.literal('configure'),
         title: z.string().min(1).max(255).optional(),
         inputs: data.optional(),
+        questions: z.array(clarificationQuestionSchema).max(64).refine(v => Buffer.byteLength(JSON.stringify(v)) <= WORKFLOW_LIMITS.textBytes, 'Questions exceed 64 KiB').optional(),
       })
       .strict(),
+    z.object({ ...control, action: z.literal('present_summary'), notes: text.default('') }).strict(),
+    z.object({ ...control, action: z.literal('confirm_summary'), summary_revision: revision,
+      user_confirmation: nonempty.optional() }).strict(),
     ...(['start', 'coordinator_acquire', 'coordinator_renew'] as const).map((action) =>
       z.object({ ...control, action: z.literal(action) }).strict(),
     ),

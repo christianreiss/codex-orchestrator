@@ -4,6 +4,7 @@ import { workflowTaskAttempts } from '../../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../http/errors.js';
 import type { MutationInput } from './contract.js';
 import {
+  assertPreparationReady,
   checkClaim,
   clearClaim,
   event,
@@ -26,6 +27,7 @@ async function target(ctx: Session, run: Run, id: string) {
   await member(ctx, run);
   if (run.status === 'evaluating')
     throw new ConflictError('Execution ended; tasks are immutable', 'workflow_execution_ended');
+  assertPreparationReady(run);
   const list = await tasks(ctx, run);
   const t = list.find((t) => t.taskId === id);
   if (!t) throw new NotFoundError('Task not found', 'workflow_task_not_found');

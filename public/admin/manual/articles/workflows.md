@@ -16,7 +16,7 @@ runs.
 
 Open **Coordination → Workflows**, enable the module, and create a workflow.
 Give it one goal with clear success criteria. Add task instructions and their
-dependencies, inputs, and optional knowledge references.
+dependencies, freely defined questions, and optional knowledge references.
 
 **New run** prepares an execution with a title and inputs. Give its continuation
 instruction to a managed agent. Preparation does not launch a process.
@@ -24,6 +24,25 @@ You may also ask an agent to find a workflow and create its run directly.
 
 The run's report link exists immediately. Use it to follow progress, open
 evidence and see which tasks need attention.
+
+## Clarify and confirm before execution
+
+Define questions such as CPUs, RAM, disk size or location using text, numbers,
+yes/no or choices. These are examples: every workflow defines its own questions,
+required answers, hints and optional defaults.
+
+Save a request even if some answers are missing. Answer in the web report or ask
+an agent to clarify them with you. Additional questions and answers stay with
+that run. Once the required answers are complete, choose **Review execution
+summary**. Check the goal, answers, agreements and planned tasks, then choose
+**Confirm execution summary**, or explicitly approve it in conversation.
+
+Execution waits for that confirmation. Correcting an answer requires a new review
+and confirmation. Confirmation does not launch an agent; give the continuation
+assignment to an existing agent. This also applies to new runs from older templates
+and templates without questions. Already existing runs retain their original flow.
+The final report preserves the confirmed request and its history alongside results.
+New runs require cxx 0.9.114 or newer; older agents can finish historical runs.
 
 ## Let agents collaborate
 

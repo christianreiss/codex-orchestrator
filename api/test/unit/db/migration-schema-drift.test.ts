@@ -367,6 +367,7 @@ describe('migrations against the test baseline', () => {
       'agent_watchdogs.quota_attempts',
       'agent_watchdogs.quota_attempt_at',
       'agent_schedule_runs.quota_recovery',
+      'workflow_runs.preparation',
     ]);
   });
 

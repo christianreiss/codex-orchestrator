@@ -49,6 +49,7 @@ import {
   taskView,
   type Session,
 } from './workflows/store.js';
+import { requireWorkflowProtocol } from './workflows/contract.js';
 import { createRun, runControl, runNote, finishRun, prepareCancel } from './workflows/runs.js';
 import { taskClaim, taskUpdate } from './workflows/tasks.js';
 import { invite, membership, invitationView } from './workflows/members.js';
@@ -76,7 +77,7 @@ export class WorkflowsService {
     ]);
     return {
       enabled,
-      protocol_version: 1,
+      protocol_version: 2,
       draining: true,
       messaging_enabled: messagingEnabled,
       unavailable_reason: messagingEnabled
@@ -110,6 +111,7 @@ export class WorkflowsService {
       session.engine !== actor.engine
     )
       throw new ForbiddenError('Agent binding is no longer current', 'workflow_binding_changed');
+    actor.protocol_version = Number((session.adapterCapabilities as Record<string, unknown> | null)?.workflow_protocol_version ?? 0);
   }
   async mutate<K extends WorkflowOperation>(
     operation: K,
@@ -188,7 +190,7 @@ export class WorkflowsService {
           .insert(settingsRows)
           .values({ name: WORKFLOWS_ENABLED_KEY, version: enabled ? '1' : '0', updatedAt: now })
           .onDuplicateKeyUpdate({ set: { version: enabled ? '1' : '0', updatedAt: now } });
-        out = { enabled, protocol_version: 1, draining: true };
+        out = { enabled, protocol_version: 2, draining: true };
       } else if (operation === 'create') {
         const d = input as MutationInput<'create'>,
           id = randomUUID(),
@@ -285,6 +287,7 @@ export class WorkflowsService {
         out = runView(await createRun(ctx, input as MutationInput<'run_create'>), this.baseUrl);
       } else {
         const run = await lockRun(ctx, (input as { run_id: string }).run_id);
+        if (run.preparation) requireWorkflowProtocol(ctx.actor);
         if (run.status !== 'completed') await materializeExpiry(ctx, run);
         let extra: Record<string, unknown> = {};
         switch (operation) {
