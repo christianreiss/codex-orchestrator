@@ -262,6 +262,7 @@ const evaluation = z
       c.addIssue({ code: 'custom', message: 'Revision needs document and expected_workflow_version' });
   });
 export const workflowMutationSchemas = {
+  state: z.object({ ...base, enabled: z.boolean() }).strict(),
   create: z
     .object({
       ...base,
