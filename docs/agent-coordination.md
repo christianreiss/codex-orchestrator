@@ -5,6 +5,17 @@ It is initially disabled (`versions.agent_coordination_enabled=0` or absent).
 Enable it under Agents → Graph after upgrading wrappers to cxx 0.9.103 or later.
 This does not provision hosts or grant agents new authority.
 
+`agent_context_get` returning `enabled: false` and acquisitions returning
+`agent_coordination_disabled` reflect that switch, not a failed lock service.
+An operator with the existing manage capability can use Agents → Graph or
+`POST /admin/agent-messaging/scopes/state` to enable it after the rollout checks
+below. Agents must not enable a fleet feature just to bypass a task's missing
+ownership prerequisite. Keep tasks requiring that ownership blocked until enabled.
+For cluster maintenance, all participants must agree on the same canonical
+`host_id` and service key: separate node-local keys do not serialize a cluster.
+Claims are leased ownership, not durable locks across a reboot; use the
+`reboot-safe` Skill to reconcile ownership before continuing after boot.
+
 ## Check-in and membership
 
 The wrapper reports `scope_protocol_version: 1` in adapter capabilities and captures

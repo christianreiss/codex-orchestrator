@@ -63,6 +63,7 @@ const managedSlugs = [
   MANAGED_CONFERENCE_SKILL_SLUG,
   MANAGED_CONTEXT_SKILL_SLUG,
   MANAGED_SKILL_MANAGER_SLUG,
+  'reboot-safe',
   'wake-cron',
   'watchdog',
 ];

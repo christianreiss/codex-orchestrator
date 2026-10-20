@@ -7,9 +7,27 @@ import { McpToolsRegistry } from '../../../src/services/mcp-tools.js';
 import { MANAGED_COCO_SKILL_SLUG, PROJECTS_ENABLED_FLAG } from '../../../src/services/managed-coco-skill.js';
 import { computeSkillBundleDigest } from '../../../src/services/skill-provenance.js';
 import { createDbFake } from '../../helpers/db-fake.js';
+import { buildManagedRebootSafeSkill } from '../../../src/services/managed-reboot-safe-skill.js';
 import type { Host } from '../../../src/db/schema.js';
 
 const host: Host = { id: 1, fqdn: 'host.example' } as unknown as Host;
+
+describe('HostSkillsService reboot-safe delivery', () => {
+  it.each(['codex', 'claude', 'grok'] as const)('lists and retrieves the canonical Skill for %s without project enablement', async (engine) => {
+    const stale = skillRow({ slug: 'reboot-safe', manifest: 'Old stored instructions' });
+    const service = makeService(false, [stale]);
+    const expected = buildManagedRebootSafeSkill('2026-07-31T00:00:00Z');
+    const listed = await service.listSkills(host, engine);
+    expect(listed.skills.filter((skill) => skill.slug === 'reboot-safe')).toMatchObject([
+      { managed: true, sha256: expected.sha256, engine: null },
+    ]);
+    const fetched = await service.retrieve('reboot-safe', null, host);
+    expect(fetched).toMatchObject({ status: 'updated', manifest: expected.manifest, sha256: expected.sha256 });
+    expect(await service.retrieve('reboot-safe', expected.sha256, host)).toMatchObject({ status: 'unchanged' });
+    await expect(service.store({ slug: 'reboot-safe', manifest: 'replacement' }, host)).rejects.toMatchObject({ code: 'managed_skill' });
+    await expect(service.deleteSkill('reboot-safe', host)).rejects.toMatchObject({ code: 'managed_skill' });
+  });
+});
 
 function skillRow(overrides: Record<string, unknown>): Record<string, unknown> {
   const manifest = String(overrides.manifest ?? 'Skill body');

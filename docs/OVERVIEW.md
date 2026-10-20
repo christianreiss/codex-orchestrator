@@ -1197,6 +1197,9 @@ Use `cxx housekeeping status`, `cxx housekeeping run --dry-run`, or `cxx houseke
 
 ## Planned host reboot
 
+Read the code-managed `reboot-safe` Skill before preparing a reboot. It covers
+authorization, one-use resume, competing recovery and ownership reconciliation.
+
 cxx can checkpoint and reboot a Linux host, then resume the exact native Codex,
 Claude or Grok session once. One root-owned cron entry and a durable consumed
 journal prevent reboot loops. Accepted Peer, Wake and Portal instructions retain

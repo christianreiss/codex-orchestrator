@@ -152,7 +152,7 @@ jq -n --arg m "$(cat docs/skills/<slug>.SKILL.md)" \
 
 ## Managed skills (code-derived, never stored)
 
-`afk`, `coco`, `conference`, `context`, `wake-cron`, `watchdog`, and `skill-manager` are NOT rows in the `skills`
+`afk`, `coco`, `conference`, `context`, `reboot-safe`, `wake-cron`, `watchdog`, and `skill-manager` are NOT rows in the `skills`
 table and must never be stored with `POST /admin/skills/store` or MCP `skill_store`; the
 mutation paths reject every managed slug. Their manifests are constants in
 `api/src/services/managed-afk-skill.ts`, `api/src/services/managed-coco-skill.ts`,

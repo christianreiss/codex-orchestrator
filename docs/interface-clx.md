@@ -1914,6 +1914,10 @@ Removal uses an exclusive native-home guard and a host/engine reservation. A jou
 
 ## Planned reboot resume (cxx 0.9.54)
 
+Read the shared code-managed `reboot-safe` Skill before preparing a reboot. Its
+procedure includes recovery exclusion, exact transcript continuation and ownership
+reconciliation; the Skill grants no additional authority.
+
 `cxx reboot --request-id UUID --reason TEXT --stdin` and `agent_reboot` prepare
 one Linux host reboot and resume the exact Claude native transcript once.
 `agent_reboot_status`, `cxx reboot status [--id UUID]` and

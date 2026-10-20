@@ -25,6 +25,7 @@ import { isManagedContextSlug, type ManagedSkillManifest } from './managed-conte
 import { buildManagedAfkSkill, isManagedAfkSlug } from './managed-afk-skill.js';
 import { buildManagedConferenceSkill, isManagedConferenceSlug } from './managed-conference-skill.js';
 import { buildManagedSkillManager, isManagedSkillManagerSlug } from './managed-skill-manager.js';
+import { buildManagedRebootSafeSkill, isManagedRebootSafeSlug } from './managed-reboot-safe-skill.js';
 
 export type { ManagedSkillManifest };
 
@@ -44,6 +45,7 @@ export function isManagedSkillSlug(slug: string): boolean {
     || isManagedConferenceSlug(slug)
     || isManagedSkillManagerSlug(slug)
     || isManagedRolesSlug(slug)
+    || isManagedRebootSafeSlug(slug)
   );
 }
 
@@ -69,6 +71,7 @@ export async function listManagedSkills(db: Database): Promise<ManagedSkillManif
   out.push(buildManagedAfkSkill(MANAGED_UPDATED_AT));
   out.push(buildManagedConferenceSkill(MANAGED_UPDATED_AT));
   out.push(buildManagedSkillManager(MANAGED_UPDATED_AT));
+  out.push(buildManagedRebootSafeSkill(MANAGED_UPDATED_AT));
   out.push(...await managedWorkflowSkills(db, MANAGED_UPDATED_AT));
   const roles = await getManagedRolesSkillIfEnabled(db, MANAGED_UPDATED_AT);
   if (roles) out.push(roles);

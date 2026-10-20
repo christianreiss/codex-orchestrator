@@ -2463,6 +2463,11 @@ Pins, incomplete session metadata, open native goals, queued native work, live s
 
 ## Planned reboot handoff (protocol 1)
 
+The code-managed `reboot-safe` Skill is listed and retrieved through the ordinary
+Skill API at `skill://reboot-safe` for Codex, Claude and Grok. It documents the
+existing one-use lifecycle and ownership reconciliation without granting reboot
+authority or enabling scope coordination. The Skill ships with the API image.
+
 All three engines advertise `adapter_capabilities.reboot_protocol_version: 1`.
 Current bridge tools `agent_reboot` and `agent_reboot_status` map to
 `POST /host/agent-sessions/:id/agent-messaging/reboot/prepare`,

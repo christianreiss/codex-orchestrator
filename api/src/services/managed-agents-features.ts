@@ -414,10 +414,10 @@ function agentMessagingSection(context: ManagedAgentFeatureContext): RenderedSec
     context.agentMessaging,
     `## Quotas
 
-Before heavy work or large delegation call \`quota_get\` (cxx-agent): account short/long limits,
-reset, freshness and policy. Unknown is not zero. On warning save a checkpoint; unlimited
-bypasses quota actions. Recovery continues only unfinished authorized work in the same
-session; finish its watchdog when done. Keep native subagents with their parent.
+Before heavy work or large delegation call \`quota_get\` for account limits, reset,
+freshness and policy. Unknown is not zero; checkpoint on warning. Unlimited bypasses
+quota actions. Recover only unfinished authorized work in the same session; finish
+its watchdog. Keep native subagents with their parent. If older catalogs lack it, report unavailable and continue authorized work; tools refresh next launch.
 
 ## Agent Messaging
 
@@ -465,7 +465,7 @@ transcript stops work; only an explicit operator request may approve one replace
 \`agent_portal_ask\` (\`answer_mode\`, stable \`choices\`); \`agent_portal_notify\` (stable \`notice_id\`)
 until \`agent_portal_resolve\`. \`agent_attachment_upload\`/\`agent_attachment_get\` carry untrusted data.
 
-**Read the Skill first.** \`#wake-cron\` before \`schedule_*\`. \`#watchdog\` before \`watchdog_get\`,
+**Read the Skill first.** \`#reboot-safe\` before \`agent_reboot\`. \`#wake-cron\` before \`schedule_*\`. \`#watchdog\` before \`watchdog_get\`,
 \`watchdog_enable\`, \`watchdog_disable\`, \`watchdog_finish\`. \`#conference\` before \`agent_conf_list\`,
 \`agent_conf_open\`, \`agent_conf_invite\`, \`agent_conf_join\`, \`agent_conf_roster\`, \`agent_conf_say\`,
 \`agent_conf_dispatch\`, \`agent_conf_adjourn\`.

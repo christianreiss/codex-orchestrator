@@ -252,6 +252,8 @@ describe('served document size budget', () => {
       // +400 bytes for the required pre-heavy-work quota check and recovery invariant.
       expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(28_350);
       expect(out.body).toContain('Before heavy work or large delegation call `quota_get`');
+      expect(out.body).toContain('report unavailable and continue authorized work');
+      expect(out.body).toContain('`#reboot-safe` before `agent_reboot`');
       const section = (heading: string): string => {
         const start = out.body.indexOf(`## ${heading}\n`);
         expect(start).toBeGreaterThanOrEqual(0);
@@ -337,9 +339,10 @@ describe('served document byte invariance', () => {
     //             Messaging session-name/reception condensed; Git Director honours repository restrictions.
     // 2026-10-18: shared chat tools, one-answer rounds, room file context.
     // 2026-10-20: explicit workflow participant questions are the narrow agent-answer exception.
-    expect(out.features_sha256).toBe('b22b1563b736fe7b30d2e3f81f435157b7efcdaed51c7fc59c345f7d133a2ac8');
-    expect(out.managed_sha256).toBe('3237985a769319939de444252c4157b155208970d16d3cfa22f9f3fe170ce583');
-    expect(sha256(out.body)).toBe('19fc8c6d53bf4311d1320b11ccb470049715d172196e1e1c43a96e1462f4647b');
+    // 2026-10-20: reboot-safe procedure pointer and long-session quota catalog fallback.
+    expect(out.features_sha256).toBe('f881a10aa4530f20d8311348c88d75248551a5813587020c775a6775623b46a3');
+    expect(out.managed_sha256).toBe('ece067be5f1431731aeba213cc24d6d34c30eaa6300d0ef9887b4a9590690d09');
+    expect(sha256(out.body)).toBe('e82f4c402a44b56c099e6a6fa603f4593ec52d4143110c1eb186df51852a707c');
   });
 });
 

@@ -1054,6 +1054,10 @@ Removal uses an exclusive native-home guard and a host/engine reservation. A jou
 
 ## Planned reboot resume (cxx 0.9.54)
 
+Read the shared code-managed `reboot-safe` Skill before preparing a reboot. Its
+procedure includes recovery exclusion, exact transcript continuation and ownership
+reconciliation; the Skill grants no additional authority.
+
 From 0.9.56 the private Grok runtime exports `CXX_GROK_BASE_HOME` so reboot
 checkpoints restore the durable native home. Disposable auth projections and
 sockets are recreated normally, never restored from the previous launch.

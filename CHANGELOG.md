@@ -1,5 +1,7 @@
 # 2026-10-20
 
+- Added the shared code-managed `reboot-safe` Skill for authorized one-use host reboot/resume, including recovery exclusion and ownership reconciliation. Clarified disabled coordination and cluster claim keys. Managed quota guidance now handles older session catalogs without interrupting accepted work; served guidance digests deliberately change.
+
 - **Workflow clarification (cxx 0.9.114).** New runs clarify freely defined questions in a web form or conversation, review a saved summary and require explicit approval before execution. Follow-up answers and approval history remain in the report; corrections invalidate approval. Already existing runs retain their previous flow.
 
 - Fix missing Codex and Claude quota reset times: accept provider Unix-second timestamps and normalize them to ISO timestamps for MCP, dashboard and wrapper readers. Claude's statusline reporter requires cxx 0.9.113; stored readings gain resets on their next successful refresh/report. Grok continues to expose its actual weekly/monthly period end, with no fabricated short window.

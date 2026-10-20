@@ -5,6 +5,11 @@ reboot. cxx owns the boot hook; no permanent reboot daemon is required. The agen
 needs operator authorization for the reboot and root or passwordless sudo. An
 active `cron.service` or `crond.service` and systemd reboot support are required.
 
+The code-managed `reboot-safe` Skill (`skill://reboot-safe`) provides the agent
+procedure for preparation, one-use continuation, ownership reconciliation and
+failure handling. It is shared across all three engines and ships with the API;
+reading the Skill grants no reboot permission.
+
 ```sh
 cxx reboot --request-id 6d260949-01bf-42da-b9a9-f3843a7ad787 \
   --reason 'Activate the installed kernel' --stdin <<'CHECKPOINT'
