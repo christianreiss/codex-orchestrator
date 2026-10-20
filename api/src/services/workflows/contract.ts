@@ -239,6 +239,7 @@ export const evidenceSchema = z
     expires_at: z.string().datetime().optional(),
   })
   .strict();
+export type WorkflowEvidence = z.infer<typeof evidenceSchema>;
 const evidence = z.array(evidenceSchema).max(200);
 const base = { client_request_id: uuid };
 const run = { ...base, run_id: uuid };

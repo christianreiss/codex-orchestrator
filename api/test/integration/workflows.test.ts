@@ -27,6 +27,7 @@ import type {
   WorkflowActor,
   WorkflowDocument,
   WorkflowOperation,
+  WorkflowCollaboration,
 } from '../../src/services/workflows/contract.js';
 const handle = await getTestDb();
 const document = (): WorkflowDocument => ({
@@ -195,8 +196,18 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
       who,
     );
   }
-  async function successRun() {
-    const x = await setup();
+  async function successRun(existingWorkflowId?: string) {
+    const x = existingWorkflowId
+      ? {
+          w: { workflow_id: existingWorkflowId },
+          run: await call('run_create', {
+            workflow_id: existingWorkflowId,
+            title: 'Another run',
+            inputs: {},
+          }),
+        }
+      : await setup();
+    if (existingWorkflowId) runIds.push(x.run.run_id);
     for (const id of ['a', 'b', 'verify']) await result(x.run.run_id, id, await claim(x.run.run_id, id));
     const finish = await call('run_finish', {
       run_id: x.run.run_id,
@@ -814,5 +825,289 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
     ).rejects.toMatchObject({ code: 'workflow_archived' });
     expect((await service.get(w.workflow_id)).status).toBe('archived');
     expect(((await service.report(pending.run_id)) as Result).evaluation.status).toBe('pending');
+  });
+  it('rejects actor spoofing fields and never exposes claim secrets through any read projection', async () => {
+    const { w, run } = await setup();
+    await expect(
+      call('run_note', {
+        run_id: run.run_id,
+        kind: 'note',
+        text: 'Forged',
+        actor: { kind: 'admin', id: '1' },
+      }),
+    ).rejects.toMatchObject({ name: 'ZodError' });
+    await expect(
+      call('run_control', {
+        run_id: run.run_id,
+        action: 'coordinator_recover',
+        expected_run_version: 1,
+        target_address_id: b.address_id,
+        reason: 'Pretend operator',
+      }),
+    ).rejects.toMatchObject({ code: 'workflow_admin_required' });
+    const c = await claim(run.run_id, 'a');
+    const [row] = await db
+      .select()
+      .from(workflowRunTasks)
+      .where(and(eq(workflowRunTasks.runId, run.run_id), eq(workflowRunTasks.taskId, 'a')));
+    for (const projection of await Promise.all([
+      service.list(),
+      service.get(w.workflow_id),
+      service.versions(w.workflow_id),
+      service.runList(),
+      service.runGet(run.run_id),
+      service.report(run.run_id),
+      service.taskDetail(run.run_id, 'a'),
+      service.events(run.run_id),
+      service.runCurrent(a),
+    ])) {
+      const encoded = JSON.stringify(projection);
+      expect(encoded).not.toContain(c.claim_token);
+      expect(encoded).not.toContain(row!.claimTokenHash!);
+      expect(encoded).not.toContain('secret_response');
+    }
+  });
+  it('retains uncertain evidence during recovery and refuses redefined evidence IDs', async () => {
+    const { run } = await setup();
+    const initial = await result(run.run_id, 'a', await claim(run.run_id, 'a'), a, 'uncertain');
+    const recovery = await call('task_claim', {
+      run_id: run.run_id,
+      task_id: 'a',
+      expected_task_version: initial.task.version,
+      action: 'reconcile',
+      stage: 'begin',
+      reason: 'Inspect prior execution',
+    });
+    const uncertain = await call('task_claim', {
+      run_id: run.run_id,
+      task_id: 'a',
+      expected_task_version: recovery.task.version,
+      action: 'reconcile',
+      stage: 'resolve',
+      resolution: 'still_uncertain',
+      reason: 'Partial investigation',
+      evidence: [evidence('investigation')],
+      claim_token: recovery.claim_token,
+      claim_generation: recovery.claim_generation,
+    });
+    const detail = await service.taskDetail(run.run_id, 'a');
+    expect((detail.task.evidence as { id: string }[]).map((e) => e.id)).toEqual(['a', 'investigation']);
+    expect(detail.attempts[0]!.ended_at).toBeNull();
+    const next = await call('task_claim', {
+      run_id: run.run_id,
+      task_id: 'a',
+      expected_task_version: uncertain.task.version,
+      action: 'reconcile',
+      stage: 'begin',
+      reason: 'Complete investigation',
+    });
+    const resolved = await call('task_claim', {
+      run_id: run.run_id,
+      task_id: 'a',
+      expected_task_version: next.task.version,
+      action: 'reconcile',
+      stage: 'resolve',
+      resolution: 'verified_success',
+      reason: 'No running old process; output verified',
+      old_execution_stopped: true,
+      evidence: [evidence('verified')],
+      outputs: { artifact: 'recovered' },
+      execution_host: 'actual-target',
+      claim_token: next.claim_token,
+      claim_generation: next.claim_generation,
+    });
+    expect(resolved.task.status).toBe('succeeded');
+    const final = await service.taskDetail(run.run_id, 'a');
+    expect((final.attempts[0]!.evidence as { id: string }[]).map((e) => e.id)).toEqual([
+      'a',
+      'investigation',
+      'verified',
+    ]);
+    const other = await claim(run.run_id, 'b');
+    await expect(
+      call('task_update', {
+        run_id: run.run_id,
+        task_id: 'b',
+        expected_task_version: other.task.version,
+        action: 'result',
+        status: 'succeeded',
+        summary: 'Collision',
+        outputs: {},
+        evidence: [{ ...evidence('a'), description: 'Different observation under old ID' }],
+        execution_host: 'test',
+        claim_token: other.claim_token,
+        claim_generation: other.claim_generation,
+      }),
+    ).rejects.toMatchObject({ code: 'validation_failed' });
+    expect((await service.taskDetail(run.run_id, 'b')).task.status).toBe('running');
+  });
+  it('rejects a changed-goal evaluation draft before saving or returning head conflict', async () => {
+    const { w, run, finish } = await successRun();
+    const changed = document();
+    changed.goal.success_criteria[0]!.text = 'Weakened criterion';
+    for (const action of ['save_draft', 'finalize'])
+      await expect(
+        call('run_evaluate', {
+          run_id: run.run_id,
+          expected_run_version: finish.version,
+          coordinator_generation: 1,
+          expected_evaluation_version: 1,
+          action,
+          evaluation: {
+            findings: [],
+            lessons: [],
+            decision: 'revise',
+            reason: 'Changing goal is prohibited',
+            document: changed,
+            expected_workflow_version: 1,
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'workflow_goal_changed' });
+    expect(((await service.runGet(run.run_id)) as Result).evaluation).toMatchObject({
+      version: 1,
+      status: 'pending',
+      draft: null,
+    });
+    expect((await service.get(w.workflow_id)).version).toBe(1);
+  });
+  it('serializes two improving runs without losing either evaluation or duplicating a version', async () => {
+    const first = await successRun(),
+      second = await successRun(first.w.workflow_id);
+    const changed = document();
+    changed.tasks[0]!.instructions = 'One shared clarification';
+    const evaluate = (run: Result, version: number) => ({
+      run_id: run.run_id,
+      expected_run_version: run.version,
+      coordinator_generation: 1,
+      expected_evaluation_version: version,
+      action: 'finalize',
+      evaluation: {
+        findings: [],
+        lessons: [],
+        decision: 'revise',
+        reason: 'Clarify once',
+        document: changed,
+        expected_workflow_version: 1,
+      },
+    });
+    const results = await Promise.allSettled([
+      call('run_evaluate', evaluate(first.finish, 1)),
+      call('run_evaluate', evaluate(second.finish, 1)),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect((await service.get(first.w.workflow_id)).version).toBe(2);
+    const losing = results[0]!.status === 'rejected' ? first : second;
+    const pending = (await service.runGet(losing.run.run_id)) as Result;
+    expect(pending.status).toBe('evaluating');
+    expect(pending.evaluation).toMatchObject({ status: 'draft', version: 2 });
+    const req = evaluate(losing.finish, 2);
+    req.evaluation.expected_workflow_version = 2;
+    const complete = await call('run_evaluate', req);
+    expect(complete.evaluation.draft.decision).toBe('no_change');
+    expect((await service.get(first.w.workflow_id)).version).toBe(2);
+  });
+  it('keeps invitation/member state separate and finalizes prepared cancellation through explicit recovery', async () => {
+    const hook: WorkflowCollaboration = {
+      lock: async () => {},
+      resolveTarget: async (_tx, id) => [a, b].find((actor) => actor.address_id === id)!,
+      invite: async () => ({ message_id: randomUUID() }),
+      syncGroup: async (_tx, input) => ({
+        group_id: input.group_id ?? randomUUID(),
+        room_id: input.group_id ?? randomUUID(),
+        group_topic: `group:workflow-run-${input.run_id}`,
+        communication_url: '/admin/agents',
+      }),
+    };
+    const collaborative = new WorkflowsService({ db, settings, keyring, collaboration: hook });
+    const { w, run } = await setup();
+    const invited = (await collaborative.mutate(
+      'invite',
+      {
+        client_request_id: randomUUID(),
+        run_id: run.run_id,
+        target_address_id: b.address_id,
+        reason: 'Help',
+        task_ids: [],
+      },
+      a,
+    )) as Result;
+    expect(invited).toMatchObject({
+      status: 'running',
+      invitation_status: 'pending',
+      created_at: run.created_at,
+    });
+    const joined = (await collaborative.mutate(
+      'membership',
+      {
+        client_request_id: randomUUID(),
+        run_id: run.run_id,
+        action: 'accept',
+        invitation_id: invited.invitation_id,
+        reason: 'Ready',
+      },
+      b,
+    )) as Result;
+    expect(joined).toMatchObject({ status: 'running', membership_status: 'accepted' });
+    const prepared = await call(
+      'run_create',
+      { workflow_id: w.workflow_id, title: 'Cancel before starting', inputs: {} },
+      admin,
+    );
+    runIds.push(prepared.run_id);
+    const cancel = await call(
+      'prepare_cancel',
+      { run_id: prepared.run_id, expected_run_version: 1, reason: 'No execution required' },
+      admin,
+    );
+    expect(cancel.started_at).toBeNull();
+    await expect(
+      call(
+        'task_update',
+        {
+          run_id: prepared.run_id,
+          task_id: 'a',
+          action: 'skip',
+          skip_reason: 'not_applicable',
+          reason: 'Pretend admin result',
+          expected_task_version: 2,
+        },
+        admin,
+      ),
+    ).rejects.toMatchObject({ code: 'workflow_agent_required' });
+    const recovered = (await collaborative.mutate(
+      'run_control',
+      {
+        client_request_id: randomUUID(),
+        run_id: prepared.run_id,
+        expected_run_version: cancel.version,
+        action: 'coordinator_recover',
+        target_address_id: a.address_id,
+        reason: 'Evaluate canceled preparation',
+      },
+      admin,
+    )) as Result;
+    const completed = (await collaborative.mutate(
+      'run_evaluate',
+      {
+        client_request_id: randomUUID(),
+        run_id: prepared.run_id,
+        expected_run_version: recovered.version,
+        coordinator_generation: recovered.coordinator.generation,
+        action: 'finalize',
+        expected_evaluation_version: 1,
+        evaluation: {
+          findings: [],
+          lessons: [],
+          decision: 'no_change',
+          reason: 'Canceled before execution; no workflow defect',
+        },
+      },
+      a,
+    )) as Result;
+    expect(completed).toMatchObject({ status: 'completed', outcome: 'canceled', started_at: null });
+    const snapshot = ((await service.report(prepared.run_id)) as Result).report;
+    expect(snapshot.tasks.every((t: Result) => t.status === 'skipped' && t.skip_reason === 'run_ended')).toBe(
+      true,
+    );
   });
 });

@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { workflowRunEvaluations, workflowRunInvitations, workflowRunEvents } from '../../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../http/errors.js';
-import type { MutationInput, WorkflowCollaboration } from './contract.js';
+import { canonical, type MutationInput, type WorkflowCollaboration } from './contract.js';
 import { syncGroup } from './members.js';
 import {
   coordinator,
@@ -35,6 +35,11 @@ export async function evaluateRun(
   expect(evaluation.version, input.expected_evaluation_version, 'workflow_evaluation_version_conflict');
   const doc = await pinned(ctx, run),
     list = await tasks(ctx, run);
+  if (input.evaluation.document && canonical(input.evaluation.document.goal) !== canonical(doc.goal))
+    throw new ConflictError(
+      'Evaluation must preserve the goal and success criteria',
+      'workflow_goal_changed',
+    );
   const eventRows = await ctx.tx
     .select({ id: workflowRunEvents.id })
     .from(workflowRunEvents)

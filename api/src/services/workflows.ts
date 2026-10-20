@@ -332,6 +332,17 @@ export class WorkflowsService {
             throw new NotFoundError('Workflow operation not found');
         }
         out = { ...runView(run, this.baseUrl), ...extra };
+        if (operation === 'invite' || operation === 'membership') {
+          const { status: detailStatus, created_at: _detailCreatedAt, ...identifiers } = extra;
+          out = {
+            ...runView(run, this.baseUrl),
+            ...identifiers,
+            ...(operation === 'invite'
+              ? { invitation: extra, invitation_status: detailStatus ?? null }
+              : { membership: extra, membership_status: detailStatus ?? null }),
+          };
+        }
+
         // Task version/status are distinct from the enclosing run control version/status.
         if (operation === 'task_claim' || operation === 'task_update')
           out = {

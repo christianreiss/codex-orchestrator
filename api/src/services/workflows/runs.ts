@@ -180,6 +180,14 @@ export async function runControl(
       );
       if (!target)
         throw new ConflictError('Target must be an active participant', 'workflow_member_required');
+      if (collaboration) {
+        const current = await collaboration.resolveTarget(ctx.tx, target.agentAddressId);
+        if (
+          current.session_id !== target.sessionId ||
+          current.binding_generation !== target.bindingGeneration
+        )
+          throw new ConflictError('Coordinator target binding changed', 'workflow_binding_changed');
+      }
       await patchRun(ctx, run, {
         coordinatorAddressId: target.agentAddressId,
         coordinatorGeneration: run.coordinatorGeneration + 1,
@@ -264,6 +272,10 @@ export async function finishRun(ctx: Session, run: Run, input: MutationInput<'ru
       'Uncertain external effects require outcome unknown and exact task IDs',
       'workflow_task_uncertain',
     );
+  if (uncertain.length && !input.open_items.length)
+    throw new ValidationError('Uncertain tasks require an explicit statement of remaining external risks', {
+      param: 'open_items',
+    });
   if (input.uncertain_task_ids.some((id) => !uncertain.includes(id)))
     throw new ValidationError('Unknown uncertain task', { param: 'uncertain_task_ids' });
   const ids = doc.goal.success_criteria.map((c) => c.id).sort();

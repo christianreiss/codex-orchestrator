@@ -9,13 +9,14 @@ import {
   workflowTaskAttempts,
   workflows,
 } from '../../db/schema.js';
-import { ConflictError, ForbiddenError, NotFoundError } from '../../http/errors.js';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../http/errors.js';
 import {
   WORKFLOW_LEASE_MS,
   canonical,
   digest,
   type WorkflowActor,
   type WorkflowDocument,
+  type WorkflowEvidence,
   type WorkflowTx,
 } from './contract.js';
 export type Run = typeof workflowRuns.$inferSelect;
@@ -321,4 +322,37 @@ export async function knownEvidence(ctx: Session, run: Run) {
     .from(workflowTaskAttempts)
     .where(eq(workflowTaskAttempts.runId, run.id));
   return new Set(rows.flatMap((row) => (row.evidence ?? []).map((e) => (e as { id: string }).id)));
+}
+
+/** An evidence ID keeps the same meaning across the entire run. Recovery appends
+ * evidence to its open attempt; it never erases the observations that made the
+ * external outcome uncertain in the first place. */
+export async function mergeAttemptEvidence(ctx: Session, run: Run, task: Task, incoming: WorkflowEvidence[]) {
+  if (new Set(incoming.map((e) => e.id)).size !== incoming.length)
+    throw new ValidationError('Evidence IDs must be unique', { param: 'evidence' });
+  const attempts = await ctx.tx
+    .select({
+      taskId: workflowTaskAttempts.taskId,
+      attemptNo: workflowTaskAttempts.attemptNo,
+      evidence: workflowTaskAttempts.evidence,
+    })
+    .from(workflowTaskAttempts)
+    .where(eq(workflowTaskAttempts.runId, run.id));
+  const registry = new Map<string, WorkflowEvidence>();
+  for (const attempt of attempts)
+    for (const entry of (attempt.evidence ?? []) as WorkflowEvidence[]) registry.set(entry.id, entry);
+  const current = attempts.find((a) => a.taskId === task.taskId && a.attemptNo === task.attemptNo);
+  if (!current) throw new NotFoundError('Task attempt not found', 'workflow_attempt_not_found');
+  const merged = [...(current.evidence ?? [])] as WorkflowEvidence[];
+  for (const entry of incoming) {
+    const existing = registry.get(entry.id);
+    if (existing && canonical(existing) !== canonical(entry))
+      throw new ValidationError(`Evidence ${entry.id} already names another observation; use a new ID`, {
+        param: 'evidence',
+      });
+    if (!merged.some((e) => e.id === entry.id)) merged.push(entry);
+  }
+  if (merged.length > 200)
+    throw new ValidationError('An attempt may retain at most 200 evidence entries', { param: 'evidence' });
+  return merged;
 }

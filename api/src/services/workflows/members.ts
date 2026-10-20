@@ -248,7 +248,11 @@ export async function membership(
       .set({ status, updatedAt: ctx.now })
       .where(eq(workflowRunInvitations.id, inv.id));
     await syncGroup(ctx, run, collaboration);
-    await event(ctx, run, `member.${status}`, { invitation_id: inv.id, address_id: inv.targetAddressId });
+    await event(ctx, run, `member.${status}`, {
+      invitation_id: inv.id,
+      address_id: inv.targetAddressId,
+      reason: input.reason,
+    });
     return { status, invitation_id: inv.id };
   }
   await member(ctx, run);

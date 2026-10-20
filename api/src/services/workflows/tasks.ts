@@ -10,6 +10,7 @@ import {
   expect,
   leaseUntil,
   member,
+  mergeAttemptEvidence,
   mutable,
   newClaim,
   patchTask,
@@ -107,8 +108,10 @@ export async function taskClaim(ctx: Session, run: Run, input: MutationInput<'ta
     checkClaim(ctx, t, input.claim_token, input.claim_generation, true);
     if (!input.resolution)
       throw new ValidationError('Reconcile resolve needs resolution', { param: 'resolution' });
+    const retainedEvidence = await mergeAttemptEvidence(ctx, run, t, input.evidence ?? []);
     if (input.resolution === 'still_uncertain') {
-      await patchTask(ctx, t, { ...clearClaim, reason: input.reason });
+      await patchTask(ctx, t, { ...clearClaim, reason: input.reason, evidence: retainedEvidence });
+      await finishAttempt(ctx, run, t, { evidence: retainedEvidence });
     } else {
       if (!input.old_execution_stopped || !input.evidence?.length || !input.execution_host)
         throw new ValidationError(
@@ -121,14 +124,14 @@ export async function taskClaim(ctx: Session, run: Run, input: MutationInput<'ta
         status,
         reason: input.reason,
         outputs: input.outputs ?? {},
-        evidence: input.evidence,
+        evidence: retainedEvidence,
       });
       await finishAttempt(ctx, run, t, {
         status,
         endedAt: ctx.now,
         summary: input.reason,
         outputs: input.outputs ?? {},
-        evidence: input.evidence,
+        evidence: retainedEvidence,
         executionHost: input.execution_host,
       });
     }
@@ -176,20 +179,19 @@ export async function taskUpdate(ctx: Session, run: Run, input: MutationInput<'t
     if (t.status !== 'running') throw new ConflictError('Task is not running', 'workflow_claim_lost');
     if (input.status === 'succeeded' && !input.evidence.length)
       throw new ValidationError('A successful task needs evidence', { param: 'evidence' });
-    if (new Set(input.evidence.map((e) => e.id)).size !== input.evidence.length)
-      throw new ValidationError('Evidence IDs must be unique', { param: 'evidence' });
+    const retainedEvidence = await mergeAttemptEvidence(ctx, run, t, input.evidence);
     await patchTask(ctx, t, {
       ...clearClaim,
       status: input.status,
       reason: input.summary,
       outputs: input.outputs,
-      evidence: input.evidence,
+      evidence: retainedEvidence,
     });
     await finishAttempt(ctx, run, t, {
       status: input.status,
       summary: input.summary,
       outputs: input.outputs,
-      evidence: input.evidence,
+      evidence: retainedEvidence,
       error: input.error ?? null,
       executionHost: input.execution_host,
       ...(input.status !== 'uncertain' ? { endedAt: ctx.now } : {}),
