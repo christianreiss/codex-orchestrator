@@ -187,4 +187,3 @@ CREATE TABLE IF NOT EXISTS `workflows` (
 	CONSTRAINT `uq_workflows_slug` UNIQUE(`slug`),
 	INDEX `idx_workflows_status` (`status`,`updated_at`)
 );
-
