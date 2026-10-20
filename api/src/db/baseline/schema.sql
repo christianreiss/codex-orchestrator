@@ -108,10 +108,30 @@ CREATE TABLE `admin_webauthn_challenges` (
 	CONSTRAINT `challenge` UNIQUE(`challenge`)
 );
 
+CREATE TABLE `advisor_sessions` (
+	`id` char(36) NOT NULL,
+	`caller_address_id` char(36) NOT NULL,
+	`client_key` varchar(150) NOT NULL,
+	`daemon_session_id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`kind` varchar(24) NOT NULL,
+	`conversation_id` char(36),
+	`status` varchar(16) NOT NULL,
+	`verdict_enc` longtext,
+	`close_reason` varchar(24),
+	`turns` int unsigned NOT NULL DEFAULT 0,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	`closed_at` varchar(100),
+	CONSTRAINT `advisor_sessions_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_advisor_client` UNIQUE(`client_key`),
+	CONSTRAINT `uq_advisor_daemon_session` UNIQUE(`daemon_session_id`)
+);
+
 CREATE TABLE `agent_bus_addresses` (
-	`launch_name` varchar(96),
 	`id` char(36) NOT NULL,
 	`address` varchar(48) NOT NULL,
+	`launch_name` varchar(96),
 	`display_alias` varchar(96),
 	`host_id` bigint unsigned NOT NULL,
 	`engine` varchar(16) NOT NULL,
@@ -138,10 +158,10 @@ CREATE TABLE `agent_bus_addresses` (
 );
 
 CREATE TABLE `agent_bus_conference_members` (
-	`launch_name` varchar(96),
-	`requested_target` varchar(96),
 	`id` char(36) NOT NULL,
 	`conference_id` char(36) NOT NULL,
+	`launch_name` varchar(96),
+	`requested_target` varchar(96),
 	`address_id` char(36) NOT NULL,
 	`conversation_id` char(36),
 	`role` varchar(16) NOT NULL DEFAULT 'participant',
@@ -153,7 +173,7 @@ CREATE TABLE `agent_bus_conference_members` (
 	`dispatched_at` varchar(100),
 	`last_report_at` varchar(100),
 	`message_count` int unsigned NOT NULL DEFAULT 0,
-	`joined_at` varchar(100) NOT NULL,
+	`joined_at` varchar(100),
 	`left_at` varchar(100),
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
@@ -196,29 +216,28 @@ CREATE TABLE `agent_bus_conversations` (
 	CONSTRAINT `agent_bus_conversations_id` PRIMARY KEY(`id`)
 );
 
+CREATE TABLE `agent_bus_groups` (
+	`id` char(36) NOT NULL,
+	`slug` varchar(64) NOT NULL,
+	`title` varchar(120) NOT NULL,
+	`description` varchar(1024),
+	`created_by_address_id` char(36) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_bus_groups_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_bus_groups_slug` UNIQUE(`slug`)
+);
+
 CREATE TABLE `agent_bus_messages` (
-  `delivery_class` VARCHAR(16) NOT NULL DEFAULT 'information',
-  `coalesce_key` VARCHAR(128) NULL,
-  `related_work_id` CHAR(36) NULL,
-  `event_count` INT UNSIGNED NOT NULL DEFAULT 1,
-  `event_first_at` VARCHAR(100) NULL,
-  `event_last_at` VARCHAR(100) NULL,
-  `digest_id` CHAR(36) NULL,
-  `superseded_by_id` CHAR(36) NULL,
-  `presented_at` VARCHAR(100) NULL,
-	`sender_name` varchar(96),
-	`target_name` varchar(96),
-	`requested_target` varchar(96),
-  `execution_contract_version` INT UNSIGNED NOT NULL DEFAULT 1,
-  `work_kind` VARCHAR(16) NULL,
-  `task_result_status` VARCHAR(16) NULL,
-  `execution_version` INT UNSIGNED NOT NULL DEFAULT 1,
 	`id` char(36) NOT NULL,
 	`dispatch_order` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`conversation_id` char(36) NOT NULL,
 	`sequence` bigint unsigned NOT NULL,
 	`reply_to_message_id` char(36),
 	`redrive_of_message_id` char(36),
+	`sender_name` varchar(96),
+	`target_name` varchar(96),
+	`requested_target` varchar(96),
 	`sender_address_id` char(36) NOT NULL,
 	`sender_session_id` char(36),
 	`target_session_id` char(36),
@@ -228,6 +247,19 @@ CREATE TABLE `agent_bus_messages` (
 	`source_engine` varchar(16) NOT NULL,
 	`target_engine` varchar(16) NOT NULL,
 	`kind` varchar(16) NOT NULL DEFAULT 'message',
+	`delivery_class` varchar(16) NOT NULL DEFAULT 'information',
+	`coalesce_key` varchar(128),
+	`related_work_id` char(36),
+	`event_count` int unsigned NOT NULL DEFAULT 1,
+	`event_first_at` varchar(100),
+	`event_last_at` varchar(100),
+	`digest_id` char(36),
+	`superseded_by_id` char(36),
+	`presented_at` varchar(100),
+	`execution_contract_version` int unsigned NOT NULL DEFAULT 1,
+	`work_kind` varchar(16),
+	`task_result_status` varchar(16),
+	`execution_version` int unsigned NOT NULL DEFAULT 1,
 	`content_enc` longtext NOT NULL,
 	`content_bytes` int unsigned NOT NULL,
 	`client_message_id` char(36) NOT NULL,
@@ -253,13 +285,25 @@ CREATE TABLE `agent_bus_messages` (
 	`canceled_at` varchar(100),
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
-	INDEX `idx_agent_bus_messages_digest` (`digest_id`, `dispatch_order`),
-	INDEX `idx_agent_bus_messages_queue_class` (`target_address_id`, `status`, `delivery_class`, `dispatch_order`),
 	CONSTRAINT `agent_bus_messages_id` PRIMARY KEY(`id`),
 	CONSTRAINT `uq_agent_bus_messages_presence_notice` UNIQUE(`presence_notice_key`),
 	CONSTRAINT `uq_agent_bus_messages_dispatch_order` UNIQUE(`dispatch_order`),
 	CONSTRAINT `uq_agent_bus_messages_sender_client` UNIQUE(`sender_address_id`,`client_message_id`),
 	CONSTRAINT `uq_agent_bus_messages_conversation_sequence` UNIQUE(`conversation_id`,`sequence`)
+);
+
+CREATE TABLE `agent_bus_publications` (
+	`id` char(36) NOT NULL,
+	`topic` varchar(80) NOT NULL,
+	`sender_address_id` char(36) NOT NULL,
+	`client_message_id` char(36) NOT NULL,
+	`payload_sha256` char(64) NOT NULL,
+	`content_bytes` int unsigned NOT NULL,
+	`ttl_seconds` int unsigned NOT NULL,
+	`receipts` json NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_bus_publications_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_bus_publications_sender_client` UNIQUE(`sender_address_id`,`client_message_id`)
 );
 
 CREATE TABLE `agent_bus_relays` (
@@ -283,6 +327,40 @@ CREATE TABLE `agent_bus_relays` (
 	CONSTRAINT `uq_agent_bus_relays_host_user` UNIQUE(`host_id`,`username`)
 );
 
+CREATE TABLE `agent_bus_subscriptions` (
+	`id` char(36) NOT NULL,
+	`topic` varchar(80) NOT NULL,
+	`subscriber_address_id` char(36) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_bus_subscriptions_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_bus_subscriptions_topic_address` UNIQUE(`topic`,`subscriber_address_id`)
+);
+
+CREATE TABLE `agent_chat_attachments` (
+	`id` char(36) NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`owner` varchar(80) NOT NULL,
+	`metadata_enc` longtext NOT NULL,
+	`size_bytes` bigint unsigned NOT NULL,
+	`uploaded_bytes` bigint unsigned NOT NULL DEFAULT 0,
+	`sha256` char(64),
+	`status` varchar(16) NOT NULL DEFAULT 'uploading',
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_chat_attachments_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `agent_chat_notices` (
+	`id` char(36) NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`severity` varchar(16) NOT NULL,
+	`payload_enc` longtext NOT NULL,
+	`event_id` bigint unsigned NOT NULL,
+	`resolved_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_chat_notices_id` PRIMARY KEY(`id`)
+);
+
 CREATE TABLE `agent_events` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`session_id` char(36) NOT NULL,
@@ -295,6 +373,19 @@ CREATE TABLE `agent_events` (
 	CONSTRAINT `uq_agent_events_session_client` UNIQUE(`session_id`,`client_event_id`)
 );
 
+CREATE TABLE `agent_fresh_start_grants` (
+	`message_id` char(36) NOT NULL,
+	`target_address_id` char(36) NOT NULL,
+	`binding_generation` int unsigned NOT NULL,
+	`execution_version` int unsigned NOT NULL,
+	`reason` varchar(500) NOT NULL,
+	`approved_by` varchar(191) NOT NULL,
+	`consumed_claim_id` char(36),
+	`created_at` varchar(100) NOT NULL,
+	`consumed_at` varchar(100),
+	CONSTRAINT `agent_fresh_start_grants_message_id` PRIMARY KEY(`message_id`)
+);
+
 CREATE TABLE `agent_messages` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`message_id` char(36) NOT NULL,
@@ -305,6 +396,7 @@ CREATE TABLE `agent_messages` (
 	`prompt_id` char(36),
 	`client_message_id` char(36) NOT NULL,
 	`content_enc` longtext NOT NULL,
+	`metadata_enc` longtext,
 	`status` varchar(16) NOT NULL DEFAULT 'queued',
 	`attempts` int unsigned NOT NULL DEFAULT 0,
 	`next_attempt_at` varchar(100) NOT NULL,
@@ -316,10 +408,40 @@ CREATE TABLE `agent_messages` (
 	`canceled_at` varchar(100),
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
-	`metadata_enc` longtext,
 	CONSTRAINT `agent_messages_id` PRIMARY KEY(`id`),
 	CONSTRAINT `uq_agent_messages_message_id` UNIQUE(`message_id`),
 	CONSTRAINT `uq_agent_messages_session_client` UNIQUE(`session_id`,`client_message_id`)
+);
+
+CREATE TABLE `agent_name_leases` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`name_key` varchar(96) NOT NULL,
+	`name` varchar(96) NOT NULL,
+	`address_id` char(36) NOT NULL,
+	`started_at` varchar(100) NOT NULL,
+	`ended_at` varchar(100),
+	`cooldown_until` varchar(100),
+	CONSTRAINT `agent_name_leases_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `agent_name_pool` (
+	`name_key` varchar(96) NOT NULL,
+	`name` varchar(96) NOT NULL,
+	`current_session_id` char(36),
+	CONSTRAINT `agent_name_pool_name_key` PRIMARY KEY(`name_key`)
+);
+
+CREATE TABLE `agent_native_controls` (
+	`session_id` char(36) NOT NULL,
+	`instance_id` char(36) NOT NULL,
+	`binding_generation` int unsigned NOT NULL,
+	`request_id` char(36),
+	`client_message_id` char(36),
+	`actor_id` bigint unsigned,
+	`status` varchar(24) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_native_controls_session_id` PRIMARY KEY(`session_id`)
 );
 
 CREATE TABLE `agent_policy_profile_assignments` (
@@ -343,14 +465,14 @@ CREATE TABLE `agent_policy_profiles` (
 	CONSTRAINT `uniq_agent_policy_profiles_name` UNIQUE(`name`)
 );
 
-
-
 CREATE TABLE `agent_prompts` (
 	`id` char(36) NOT NULL,
 	`session_id` char(36) NOT NULL,
 	`event_id` bigint unsigned,
 	`question_enc` longtext NOT NULL,
 	`options_enc` longtext,
+	`answer_mode` varchar(16) NOT NULL DEFAULT 'both',
+	`choices_enc` longtext,
 	`status` varchar(16) NOT NULL DEFAULT 'open',
 	`answered_by_user_id` bigint unsigned,
 	`answer_message_id` char(36),
@@ -358,9 +480,303 @@ CREATE TABLE `agent_prompts` (
 	`created_at` varchar(100) NOT NULL,
 	`answered_at` varchar(100),
 	`expires_at` varchar(100),
-	`answer_mode` varchar(16) NOT NULL DEFAULT 'both',
-	`choices_enc` longtext,
 	CONSTRAINT `agent_prompts_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `agent_reboot_handoffs` (
+	`id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`active_host_id` bigint unsigned,
+	`address_id` char(36) NOT NULL,
+	`old_session_id` char(36) NOT NULL,
+	`new_session_id` char(36),
+	`engine` varchar(16) NOT NULL,
+	`username` varchar(255) NOT NULL,
+	`cwd` varchar(1024) NOT NULL,
+	`native_session_id` varchar(255) NOT NULL,
+	`boot_id` char(36) NOT NULL,
+	`resume_boot_id` char(36),
+	`request_sha` char(64) NOT NULL,
+	`continuation_enc` longtext NOT NULL,
+	`reason` varchar(1000) NOT NULL,
+	`status` varchar(24) NOT NULL,
+	`bus_message_ids` json NOT NULL,
+	`portal_message_ids` json NOT NULL,
+	`expires_at` varchar(100) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_reboot_handoffs_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_reboot_active_host` UNIQUE(`active_host_id`)
+);
+
+CREATE TABLE `agent_resource_claims` (
+	`id` char(36) NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`generation` int unsigned NOT NULL,
+	`request_id` char(36) NOT NULL,
+	`purpose` varchar(1000) NOT NULL,
+	`resources` json NOT NULL,
+	`state` varchar(24) NOT NULL,
+	`blockers` json NOT NULL,
+	`replied_at` varchar(100),
+	`expires_at` varchar(100) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_resource_claims_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_resource_claim_request` UNIQUE(`session_id`,`request_id`)
+);
+
+CREATE TABLE `agent_role_assignments` (
+	`id` char(36) NOT NULL,
+	`address_id` char(36) NOT NULL,
+	`active_address_id` char(36),
+	`role_id` char(36) NOT NULL,
+	`version_id` char(36) NOT NULL,
+	`status` varchar(16) NOT NULL,
+	`binding_generation` int NOT NULL,
+	`activated_by` json NOT NULL,
+	`reason` text NOT NULL,
+	`client_request_id` char(36) NOT NULL,
+	`previous_assignment_id` char(36),
+	`ended_at` varchar(100),
+	`end_reason` varchar(32),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_role_assignments_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_role_assignments_active` UNIQUE(`active_address_id`),
+	CONSTRAINT `uq_agent_role_assignments_request` UNIQUE(`address_id`,`client_request_id`)
+);
+
+CREATE TABLE `agent_role_blobs` (
+	`sha256` char(64) NOT NULL,
+	`encoding` varchar(8) NOT NULL,
+	`content` longtext NOT NULL,
+	`size_bytes` int NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_role_blobs_sha256` PRIMARY KEY(`sha256`)
+);
+
+CREATE TABLE `agent_role_proposal_events` (
+	`id` char(36) NOT NULL,
+	`proposal_id` char(36) NOT NULL,
+	`seq` int NOT NULL,
+	`action` varchar(32) NOT NULL,
+	`actor` json NOT NULL,
+	`detail` json NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_role_proposal_events_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_role_proposal_events_seq` UNIQUE(`proposal_id`,`seq`)
+);
+
+CREATE TABLE `agent_role_proposals` (
+	`id` char(36) NOT NULL,
+	`role_id` char(36) NOT NULL,
+	`author_address_id` char(36) NOT NULL,
+	`client_request_id` char(36) NOT NULL,
+	`base_version_id` char(36) NOT NULL,
+	`kind` varchar(24) NOT NULL,
+	`risk` varchar(16) NOT NULL,
+	`title` varchar(255) NOT NULL,
+	`rationale` text NOT NULL,
+	`evidence` json NOT NULL,
+	`ops` json NOT NULL,
+	`author` json NOT NULL,
+	`status` varchar(16) NOT NULL,
+	`version` int NOT NULL DEFAULT 1,
+	`gate_results` json,
+	`judge` json,
+	`reviews` json NOT NULL,
+	`reviewer_address_id` char(36),
+	`review_requested_at` varchar(100),
+	`attempts` int NOT NULL DEFAULT 0,
+	`next_attempt_at` varchar(100),
+	`decision_note` text,
+	`result_version_id` char(36),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_role_proposals_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_role_proposals_request` UNIQUE(`author_address_id`,`client_request_id`)
+);
+
+CREATE TABLE `agent_role_version_files` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`version_id` char(36) NOT NULL,
+	`path` varchar(512) NOT NULL,
+	`blob_sha256` char(64) NOT NULL,
+	`mime_type` varchar(127) NOT NULL,
+	`load_mode` varchar(16) NOT NULL,
+	`description` varchar(300),
+	`introduced_in_version` int,
+	`source_proposal_id` char(36),
+	CONSTRAINT `agent_role_version_files_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_role_version_files_path` UNIQUE(`version_id`,`path`)
+);
+
+CREATE TABLE `agent_role_versions` (
+	`id` char(36) NOT NULL,
+	`role_id` char(36) NOT NULL,
+	`version` int,
+	`state` varchar(16) NOT NULL,
+	`manifest` longtext NOT NULL,
+	`manifest_sha256` char(64) NOT NULL,
+	`bundle_sha256` char(64) NOT NULL,
+	`changelog` text,
+	`created_by` json NOT NULL,
+	`published_by` json,
+	`published_at` varchar(100),
+	`withdrawn_at` varchar(100),
+	`source_proposal_id` char(36),
+	`reverted_from_version` int,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_role_versions_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_role_versions_number` UNIQUE(`role_id`,`version`)
+);
+
+CREATE TABLE `agent_roles` (
+	`id` char(36) NOT NULL,
+	`slug` varchar(64) NOT NULL,
+	`display_name` varchar(255) NOT NULL,
+	`summary` varchar(600) NOT NULL,
+	`status` varchar(16) NOT NULL DEFAULT 'active',
+	`current_version_id` char(36),
+	`policy` json NOT NULL,
+	`version` int NOT NULL DEFAULT 1,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_roles_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_roles_slug` UNIQUE(`slug`)
+);
+
+CREATE TABLE `agent_room_deliveries` (
+	`event_id` char(36) NOT NULL,
+	`address_id` char(36) NOT NULL,
+	`message_id` char(36),
+	`reason` varchar(80),
+	CONSTRAINT `uq_room_delivery` UNIQUE(`event_id`,`address_id`)
+);
+
+CREATE TABLE `agent_room_events` (
+	`id` char(36) NOT NULL,
+	`room_id` char(36) NOT NULL,
+	`actor` varchar(80) NOT NULL,
+	`request_id` char(36) NOT NULL,
+	`payload_hash` char(64) NOT NULL,
+	`body_enc` longtext NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_room_events_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_room_event_request` UNIQUE(`room_id`,`actor`,`request_id`)
+);
+
+CREATE TABLE `agent_room_operations` (
+	`id` char(36) NOT NULL,
+	`actor` varchar(80) NOT NULL,
+	`payload_hash` char(64) NOT NULL,
+	`result` json NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_room_operations_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `agent_room_reads` (
+	`room_id` char(36) NOT NULL,
+	`admin_id` int unsigned NOT NULL,
+	`read_at` varchar(100) NOT NULL,
+	CONSTRAINT `uq_room_read` UNIQUE(`room_id`,`admin_id`)
+);
+
+CREATE TABLE `agent_schedule_runs` (
+	`id` char(36) NOT NULL,
+	`schedule_id` char(36) NOT NULL,
+	`target_address_id` char(36) NOT NULL,
+	`prompt_enc` longtext NOT NULL,
+	`persistent` tinyint unsigned NOT NULL DEFAULT 0,
+	`progress_timeout_seconds` int unsigned,
+	`max_recovery_attempts` int unsigned,
+	`warning_at` varchar(100),
+	`retry_seconds` int unsigned NOT NULL,
+	`due_at` varchar(100) NOT NULL,
+	`status` varchar(32) NOT NULL DEFAULT 'waiting',
+	`message_id` char(36),
+	`recovery_count` int unsigned NOT NULL DEFAULT 0,
+	`next_attempt_at` varchar(100) NOT NULL,
+	`last_error` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_schedule_runs_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_schedule_run_due` UNIQUE(`schedule_id`,`due_at`),
+	CONSTRAINT `uq_agent_schedule_run_message` UNIQUE(`message_id`)
+);
+
+CREATE TABLE `agent_schedules` (
+	`id` char(36) NOT NULL,
+	`name` varchar(120) NOT NULL,
+	`target_address_id` char(36) NOT NULL,
+	`prompt_enc` longtext NOT NULL,
+	`kind` varchar(16) NOT NULL,
+	`at_time` varchar(100),
+	`cron_expression` varchar(120),
+	`interval_minutes` int unsigned,
+	`timezone` varchar(100) NOT NULL,
+	`enabled` tinyint unsigned NOT NULL DEFAULT 1,
+	`persistent` tinyint unsigned NOT NULL DEFAULT 0,
+	`progress_timeout_seconds` int unsigned,
+	`max_recovery_attempts` int unsigned,
+	`pause_reason` varchar(100),
+	`next_due_at` varchar(100),
+	`version` int unsigned NOT NULL DEFAULT 1,
+	`created_by` varchar(191) NOT NULL,
+	`updated_by` varchar(191) NOT NULL,
+	`deleted_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_schedules_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `agent_scope_bindings` (
+	`repository_key` varchar(191) NOT NULL,
+	`project_slug` varchar(191) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_scope_bindings_repository_key` PRIMARY KEY(`repository_key`)
+);
+
+CREATE TABLE `agent_scope_events` (
+	`id` char(36) NOT NULL,
+	`scope_id` char(36) NOT NULL,
+	`sequence` bigint unsigned NOT NULL,
+	`kind` varchar(32) NOT NULL,
+	`actor` varchar(191) NOT NULL,
+	`request_id` char(36) NOT NULL,
+	`body_enc` longtext NOT NULL,
+	`dispatched` tinyint NOT NULL DEFAULT 0,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_scope_events_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_scope_event_seq` UNIQUE(`scope_id`,`sequence`),
+	CONSTRAINT `uq_scope_event_request` UNIQUE(`scope_id`,`actor`,`request_id`)
+);
+
+CREATE TABLE `agent_scope_members` (
+	`id` char(36) NOT NULL,
+	`scope_id` char(36) NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`generation` int unsigned NOT NULL,
+	`protocol` int unsigned NOT NULL DEFAULT 0,
+	`context_hash` char(64) NOT NULL DEFAULT '',
+	`state` varchar(16) NOT NULL,
+	`joined_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_scope_members_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_scope_member` UNIQUE(`scope_id`,`session_id`)
+);
+
+CREATE TABLE `agent_scopes` (
+	`id` char(36) NOT NULL,
+	`scope_key` varchar(191) NOT NULL,
+	`kind` varchar(16) NOT NULL,
+	`title` varchar(255) NOT NULL,
+	`sequence` bigint unsigned NOT NULL DEFAULT 0,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_scopes_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_scopes_key` UNIQUE(`scope_key`)
 );
 
 CREATE TABLE `agent_sessions` (
@@ -395,6 +811,18 @@ CREATE TABLE `agent_sessions` (
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
 	CONSTRAINT `agent_sessions_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `agent_task_results` (
+	`id` char(36) NOT NULL,
+	`message_id` char(36) NOT NULL,
+	`claim_id` char(36) NOT NULL,
+	`status` varchar(16) NOT NULL,
+	`body_enc` longtext NOT NULL,
+	`body_sha256` char(64) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_task_results_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_task_result_claim` UNIQUE(`message_id`,`claim_id`)
 );
 
 CREATE TABLE `agent_transfer_events` (
@@ -433,6 +861,29 @@ CREATE TABLE `agent_transfers` (
 	`created_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
 	CONSTRAINT `agent_transfers_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `agent_watchdogs` (
+	`id` char(36) NOT NULL,
+	`target_address_id` char(36) NOT NULL,
+	`native_session_id` varchar(255) NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`task_key` varchar(255) NOT NULL,
+	`message_id` char(36),
+	`schedule_id` char(36) NOT NULL,
+	`continuation_sha` char(64) NOT NULL,
+	`status` varchar(32) NOT NULL DEFAULT 'watching',
+	`deadline_at` varchar(100) NOT NULL,
+	`progress_timeout_seconds` int unsigned NOT NULL,
+	`last_progress_at` varchar(100) NOT NULL,
+	`last_error` varchar(100),
+	`version` int unsigned NOT NULL DEFAULT 1,
+	`created_by` varchar(191) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `agent_watchdogs_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_agent_watchdog_task` UNIQUE(`target_address_id`,`native_session_id`,`task_key`),
+	CONSTRAINT `uq_agent_watchdog_schedule` UNIQUE(`schedule_id`)
 );
 
 CREATE TABLE `agents_document_state` (
@@ -564,6 +1015,62 @@ CREATE TABLE `chatgpt_usage_snapshots` (
 	CONSTRAINT `chatgpt_usage_snapshots_id` PRIMARY KEY(`id`)
 );
 
+CREATE TABLE `chatty_actions` (
+	`id` char(36) NOT NULL,
+	`run_id` char(36) NOT NULL,
+	`user_id` bigint unsigned NOT NULL,
+	`generation` int NOT NULL,
+	`tool` varchar(100) NOT NULL,
+	`status` varchar(24) NOT NULL,
+	`payload_enc` longtext NOT NULL,
+	`result_enc` longtext,
+	`expires_at` varchar(100) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `chatty_actions_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `chatty_events` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`user_id` bigint unsigned NOT NULL,
+	`generation` int NOT NULL,
+	`run_id` char(36),
+	`kind` varchar(24) NOT NULL,
+	`body_enc` longtext NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `chatty_events_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `chatty_runs` (
+	`id` char(36) NOT NULL,
+	`user_id` bigint unsigned NOT NULL,
+	`admin_session_id` bigint unsigned NOT NULL,
+	`generation` int NOT NULL,
+	`client_message_id` char(36) NOT NULL,
+	`request_hash` char(64) NOT NULL,
+	`status` varchar(32) NOT NULL,
+	`input_enc` longtext NOT NULL,
+	`state_enc` longtext NOT NULL,
+	`claim_id` char(36),
+	`lease_until` varchar(100),
+	`steps` int NOT NULL DEFAULT 0,
+	`active_ms` int NOT NULL DEFAULT 0,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `chatty_runs_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_chatty_client` UNIQUE(`user_id`,`client_message_id`)
+);
+
+CREATE TABLE `chatty_sessions` (
+	`user_id` bigint unsigned NOT NULL,
+	`generation` int NOT NULL DEFAULT 1,
+	`selection` json NOT NULL,
+	`seen_available` tinyint NOT NULL DEFAULT 0,
+	`summary_enc` longtext,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `chatty_sessions_user_id` PRIMARY KEY(`user_id`)
+);
+
 CREATE TABLE `claude_artifacts` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`kind` varchar(32) NOT NULL,
@@ -630,6 +1137,12 @@ CREATE TABLE `client_config_documents` (
 	`updated_at` varchar(100) NOT NULL,
 	`engine` varchar(16) NOT NULL DEFAULT 'codex',
 	CONSTRAINT `client_config_documents_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `companion_daemon_follows` (
+	`device_id` char(36) NOT NULL,
+	`daemon_session_id` char(36) NOT NULL,
+	CONSTRAINT `companion_daemon_follows_device_id_daemon_session_id_pk` PRIMARY KEY(`device_id`,`daemon_session_id`)
 );
 
 CREATE TABLE `companion_devices` (
@@ -875,6 +1388,56 @@ CREATE TABLE `dashboard_graph_quota_snapshots` (
 	CONSTRAINT `uniq_dashboard_graph_quota_fetched` UNIQUE(`fetched_at`)
 );
 
+CREATE TABLE `engine_destroy_hosts` (
+	`request_id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`engine` varchar(16) NOT NULL,
+	`status` varchar(16) NOT NULL DEFAULT 'pending',
+	`residue_json` text,
+	`reported_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `engine_destroy_hosts_request_id_host_id_pk` PRIMARY KEY(`request_id`,`host_id`)
+);
+
+CREATE TABLE `feedback_events` (
+	`id` char(36) NOT NULL,
+	`feedback_id` char(36) NOT NULL,
+	`version` int NOT NULL,
+	`action` varchar(32) NOT NULL,
+	`actor` json NOT NULL,
+	`detail` json NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `feedback_events_id` PRIMARY KEY(`id`),
+	CONSTRAINT `idx_feedback_event_version` UNIQUE(`feedback_id`,`version`)
+);
+
+CREATE TABLE `feedback_items` (
+	`id` char(36) NOT NULL,
+	`request_key` char(64) NOT NULL,
+	`request_digest` char(64) NOT NULL,
+	`type` varchar(16) NOT NULL,
+	`title` varchar(255) NOT NULL,
+	`component` varchar(100) NOT NULL DEFAULT 'other',
+	`priority` varchar(16) NOT NULL DEFAULT 'normal',
+	`status` varchar(16) NOT NULL DEFAULT 'open',
+	`report` json NOT NULL,
+	`source` json NOT NULL,
+	`result` json,
+	`deployment` varchar(16) NOT NULL DEFAULT 'unknown',
+	`deployment_ref` varchar(1000),
+	`duplicate_of` char(36),
+	`claim_owner` json,
+	`claim_request_key` char(64),
+	`claim_token_hash` char(64),
+	`claim_token_enc` longtext,
+	`claim_expires_at` varchar(100),
+	`version` int NOT NULL DEFAULT 1,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `feedback_items_id` PRIMARY KEY(`id`),
+	CONSTRAINT `idx_feedback_request` UNIQUE(`request_key`)
+);
+
 CREATE TABLE `git_clones` (
 	`id` char(36) NOT NULL,
 	`host_id` bigint unsigned NOT NULL,
@@ -961,10 +1524,10 @@ CREATE TABLE `grok_auth_refresh_state` (
 );
 
 CREATE TABLE `grok_usage_snapshots` (
+	`account_id` bigint unsigned NOT NULL,
 	`plan_name` varchar(128),
 	`plan_fetched_at` varchar(100),
 	`plan_error_code` varchar(48),
-	`account_id` bigint unsigned NOT NULL,
 	`used_percent` double,
 	`period_type` varchar(16),
 	`period_starts_at` varchar(100),
@@ -994,6 +1557,76 @@ CREATE TABLE `host_auth_states` (
 	`seen_at` varchar(100) NOT NULL,
 	`engine` varchar(16) NOT NULL DEFAULT 'codex',
 	CONSTRAINT `host_auth_states_host_id_engine_pk` PRIMARY KEY(`host_id`,`engine`)
+);
+
+CREATE TABLE `host_daemon_operations` (
+	`id` char(36) NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`client_key` varchar(150) NOT NULL,
+	`request_hash` char(64) NOT NULL,
+	`prompt_enc` longtext NOT NULL,
+	`status` varchar(24) NOT NULL,
+	`claim_id` char(36),
+	`result_enc` longtext,
+	`portal_content_enc` longtext,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `host_daemon_operations_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_daemon_operation_client` UNIQUE(`client_key`)
+);
+
+CREATE TABLE `host_daemon_portal_bindings` (
+	`portal_session_id` char(36) NOT NULL,
+	`daemon_session_id` char(36) NOT NULL,
+	CONSTRAINT `host_daemon_portal_bindings_portal_session_id` PRIMARY KEY(`portal_session_id`)
+);
+
+CREATE TABLE `host_daemon_sessions` (
+	`id` char(36) NOT NULL,
+	`host_id` bigint unsigned NOT NULL,
+	`owner` varchar(100) NOT NULL,
+	`engine` varchar(16) NOT NULL,
+	`username` varchar(64) NOT NULL,
+	`cwd` varchar(1024) NOT NULL,
+	`title` varchar(160) NOT NULL,
+	`address_id` char(36),
+	`session_id` char(36),
+	`active_message_id` char(36),
+	`model` varchar(128),
+	`status` varchar(24) NOT NULL,
+	`last_activity_at` varchar(100) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `host_daemon_sessions_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_daemon_session_address` UNIQUE(`address_id`)
+);
+
+CREATE TABLE `host_daemons` (
+	`host_id` bigint unsigned NOT NULL,
+	`settings` json NOT NULL,
+	`runtime` json,
+	`enabled_at` varchar(100),
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `host_daemons_host_id` PRIMARY KEY(`host_id`)
+);
+
+CREATE TABLE `host_spawns` (
+	`id` char(36) NOT NULL,
+	`source_host_id` bigint unsigned NOT NULL,
+	`target_host_id` bigint unsigned NOT NULL,
+	`client_message_id` char(36) NOT NULL,
+	`request_hash` char(64) NOT NULL,
+	`request` json NOT NULL,
+	`installer_enc` longtext NOT NULL,
+	`installer_revision` int NOT NULL DEFAULT 0,
+	`renewal_receipts` json NOT NULL,
+	`renewal_client_message_id` char(36),
+	`setup_completed_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `host_spawns_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_host_spawn_client` UNIQUE(`source_host_id`,`client_message_id`),
+	CONSTRAINT `uq_host_spawn_target` UNIQUE(`target_host_id`)
 );
 
 CREATE TABLE `host_users` (
@@ -1239,6 +1872,14 @@ CREATE TABLE `secrets` (
 	CONSTRAINT `uniq_secrets_slug` UNIQUE(`slug`)
 );
 
+CREATE TABLE `session_housekeeping_reservations` (
+	`host_id` bigint unsigned NOT NULL,
+	`engine` varchar(16) NOT NULL,
+	`token` char(36) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `uq_housekeeping_host_engine` UNIQUE(`host_id`,`engine`)
+);
+
 CREATE TABLE `shared_memories` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`slug` varchar(160) NOT NULL,
@@ -1334,6 +1975,186 @@ CREATE TABLE `versions` (
 	CONSTRAINT `versions_name` PRIMARY KEY(`name`)
 );
 
+CREATE TABLE `workflow_mutations` (
+	`id` char(36) NOT NULL,
+	`actor_key` varchar(160) NOT NULL,
+	`operation` varchar(40) NOT NULL,
+	`client_request_id` char(36) NOT NULL,
+	`payload_hash` char(64) NOT NULL,
+	`response` json,
+	`secret_response` text,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `workflow_mutations_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_workflow_mutations_request` UNIQUE(`actor_key`,`operation`,`client_request_id`)
+);
+
+CREATE TABLE `workflow_run_evaluations` (
+	`run_id` char(36) NOT NULL,
+	`version` int NOT NULL DEFAULT 1,
+	`status` varchar(16) NOT NULL DEFAULT 'pending',
+	`draft` json,
+	`applied_version` int,
+	`actor` json,
+	`finalized_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `workflow_run_evaluations_run_id` PRIMARY KEY(`run_id`)
+);
+
+CREATE TABLE `workflow_run_events` (
+	`id` char(36) NOT NULL,
+	`run_id` char(36) NOT NULL,
+	`sequence` int NOT NULL,
+	`type` varchar(64) NOT NULL,
+	`actor` json NOT NULL,
+	`detail` json NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `workflow_run_events_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_workflow_event_seq` UNIQUE(`run_id`,`sequence`)
+);
+
+CREATE TABLE `workflow_run_invitations` (
+	`id` char(36) NOT NULL,
+	`run_id` char(36) NOT NULL,
+	`inviter_address_id` char(36) NOT NULL,
+	`target_address_id` char(36) NOT NULL,
+	`target_session_id` char(36) NOT NULL,
+	`target_binding_generation` int NOT NULL,
+	`target` json NOT NULL,
+	`reason` text NOT NULL,
+	`task_ids` json NOT NULL,
+	`status` varchar(16) NOT NULL,
+	`message_id` char(36),
+	`expires_at` varchar(100) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `workflow_run_invitations_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `workflow_run_members` (
+	`id` char(36) NOT NULL,
+	`run_id` char(36) NOT NULL,
+	`agent_address_id` char(36) NOT NULL,
+	`session_id` char(36) NOT NULL,
+	`binding_generation` int NOT NULL,
+	`status` varchar(16) NOT NULL,
+	`actor` json NOT NULL,
+	`reason` text,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `workflow_run_members_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_workflow_members_agent` UNIQUE(`run_id`,`agent_address_id`)
+);
+
+CREATE TABLE `workflow_run_tasks` (
+	`id` char(36) NOT NULL,
+	`run_id` char(36) NOT NULL,
+	`task_id` varchar(64) NOT NULL,
+	`position` int NOT NULL,
+	`title` varchar(255) NOT NULL,
+	`status` varchar(16) NOT NULL DEFAULT 'pending',
+	`version` int NOT NULL DEFAULT 1,
+	`attempt_no` int NOT NULL DEFAULT 0,
+	`claim_owner_address_id` char(36),
+	`claim_session_id` char(36),
+	`claim_binding_generation` int,
+	`claim_generation` int NOT NULL DEFAULT 0,
+	`claim_token_hash` char(64),
+	`claim_lease_until` varchar(100),
+	`claim_recovery` tinyint NOT NULL DEFAULT 0,
+	`skip_reason` varchar(32),
+	`reason` text,
+	`outputs` json,
+	`evidence` json,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `workflow_run_tasks_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_workflow_run_task` UNIQUE(`run_id`,`task_id`)
+);
+
+CREATE TABLE `workflow_runs` (
+	`id` char(36) NOT NULL,
+	`workflow_id` char(36) NOT NULL,
+	`workflow_version_id` char(36) NOT NULL,
+	`workflow_version` int NOT NULL,
+	`workflow_sha256` char(64) NOT NULL,
+	`title` varchar(255) NOT NULL,
+	`inputs` json NOT NULL,
+	`status` varchar(16) NOT NULL,
+	`outcome` varchar(16),
+	`version` int NOT NULL DEFAULT 1,
+	`event_sequence` int NOT NULL DEFAULT 0,
+	`coordinator_address_id` char(36),
+	`coordinator_generation` int NOT NULL DEFAULT 0,
+	`coordinator_lease_until` varchar(100),
+	`cancel_requested` tinyint NOT NULL DEFAULT 0,
+	`communication_group_id` char(36),
+	`communication` json,
+	`summary` text,
+	`criteria` json,
+	`results` json,
+	`open_items` json,
+	`report` json,
+	`actor` json NOT NULL,
+	`started_at` varchar(100),
+	`finished_at` varchar(100),
+	`completed_at` varchar(100),
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `workflow_runs_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_workflow_runs_group` UNIQUE(`communication_group_id`)
+);
+
+CREATE TABLE `workflow_task_attempts` (
+	`id` char(36) NOT NULL,
+	`run_id` char(36) NOT NULL,
+	`task_id` varchar(64) NOT NULL,
+	`attempt_no` int NOT NULL,
+	`status` varchar(16) NOT NULL,
+	`actor` json NOT NULL,
+	`execution_host` varchar(255),
+	`summary` text,
+	`outputs` json,
+	`evidence` json,
+	`error` text,
+	`started_at` varchar(100) NOT NULL,
+	`ended_at` varchar(100),
+	CONSTRAINT `workflow_task_attempts_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_workflow_attempt_number` UNIQUE(`run_id`,`task_id`,`attempt_no`)
+);
+
+CREATE TABLE `workflow_versions` (
+	`id` char(36) NOT NULL,
+	`workflow_id` char(36) NOT NULL,
+	`version` int NOT NULL,
+	`previous_version_id` char(36),
+	`document` json NOT NULL,
+	`sha256` char(64) NOT NULL,
+	`reason` text NOT NULL,
+	`diff` json NOT NULL,
+	`source_run_id` char(36),
+	`actor` json NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `workflow_versions_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_workflow_versions_number` UNIQUE(`workflow_id`,`version`)
+);
+
+CREATE TABLE `workflows` (
+	`id` char(36) NOT NULL,
+	`slug` varchar(64) NOT NULL,
+	`status` varchar(16) NOT NULL DEFAULT 'active',
+	`current_version` int NOT NULL DEFAULT 1,
+	`current_version_id` char(36) NOT NULL,
+	`control_version` int NOT NULL DEFAULT 1,
+	`title` varchar(255) NOT NULL,
+	`summary` text NOT NULL,
+	`actor` json NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `workflows_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_workflows_slug` UNIQUE(`slug`)
+);
+
 CREATE TABLE `wrapper_signing_keys` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`algo` varchar(32) NOT NULL DEFAULT 'ed25519',
@@ -1360,6 +2181,24 @@ CREATE TABLE `wrapper_v2_binaries` (
 	CONSTRAINT `uniq_v2_bin_target` UNIQUE(`engine`,`os`,`arch`,`version`)
 );
 
+ALTER TABLE `advisor_sessions` ADD CONSTRAINT `advisor_sessions_host_id_hosts_id_fk` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `agent_native_controls` ADD CONSTRAINT `agent_native_controls_session_id_agent_sessions_id_fk` FOREIGN KEY (`session_id`) REFERENCES `agent_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `chatty_actions` ADD CONSTRAINT `chatty_actions_user_id_admin_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `admin_users`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `chatty_events` ADD CONSTRAINT `chatty_events_user_id_admin_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `admin_users`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `chatty_runs` ADD CONSTRAINT `chatty_runs_user_id_admin_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `admin_users`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `chatty_sessions` ADD CONSTRAINT `chatty_sessions_user_id_admin_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `admin_users`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `companion_daemon_follows` ADD CONSTRAINT `companion_daemon_follows_device_id_companion_devices_id_fk` FOREIGN KEY (`device_id`) REFERENCES `companion_devices`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `companion_daemon_follows` ADD CONSTRAINT `companion_daemon_follows_daemon_session_id_host_daemon_sessions_id_fk` FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `engine_destroy_hosts` ADD CONSTRAINT `engine_destroy_hosts_host_id_hosts_id_fk` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `feedback_events` ADD CONSTRAINT `feedback_events_feedback_id_feedback_items_id_fk` FOREIGN KEY (`feedback_id`) REFERENCES `feedback_items`(`id`) ON DELETE no action ON UPDATE no action;
+ALTER TABLE `host_daemon_operations` ADD CONSTRAINT `host_daemon_operations_session_id_host_daemon_sessions_id_fk` FOREIGN KEY (`session_id`) REFERENCES `host_daemon_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `host_daemon_operations` ADD CONSTRAINT `host_daemon_operations_host_id_hosts_id_fk` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `host_daemon_portal_bindings` ADD CONSTRAINT `host_daemon_portal_bindings_portal_session_id_agent_sessions_id_fk` FOREIGN KEY (`portal_session_id`) REFERENCES `agent_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `host_daemon_portal_bindings` ADD CONSTRAINT `host_daemon_portal_bindings_daemon_session_id_host_daemon_sessions_id_fk` FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `host_daemon_sessions` ADD CONSTRAINT `host_daemon_sessions_host_id_hosts_id_fk` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `host_daemons` ADD CONSTRAINT `host_daemons_host_id_hosts_id_fk` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `host_spawns` ADD CONSTRAINT `host_spawns_target_host_id_hosts_id_fk` FOREIGN KEY (`target_host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `session_housekeeping_reservations` ADD CONSTRAINT `session_housekeeping_reservations_host_id_hosts_id_fk` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
 CREATE INDEX `idx_admin_events_host` ON `admin_events` (`host_id`);
 CREATE INDEX `idx_admin_events_type` ON `admin_events` (`type`);
 CREATE INDEX `idx_admin_events_created_at` ON `admin_events` (`created_at`);
@@ -1371,14 +2210,18 @@ CREATE INDEX `idx_admin_sessions_expires` ON `admin_sessions` (`expires_at`);
 CREATE INDEX `idx_admin_users_access` ON `admin_users` (`access_level`);
 CREATE INDEX `idx_admin_users_active` ON `admin_users` (`active`);
 CREATE INDEX `idx_admin_webauthn_challenges_expires` ON `admin_webauthn_challenges` (`expires_at`);
+CREATE INDEX `idx_advisor_caller` ON `advisor_sessions` (`caller_address_id`,`status`);
+CREATE INDEX `idx_agent_addresses_retention` ON `agent_bus_addresses` (`last_seen_at`);
 CREATE INDEX `idx_agent_bus_addresses_discovery` ON `agent_bus_addresses` (`enabled`,`archived_at`,`engine`,`host_id`);
 CREATE INDEX `idx_agent_bus_addresses_native` ON `agent_bus_addresses` (`host_id`,`engine`,`username`,`last_upstream_session_id`);
 CREATE INDEX `idx_agent_bus_addresses_cwd` ON `agent_bus_addresses` (`host_id`,`engine`,`username`,`cwd_hash`);
 CREATE INDEX `idx_agent_bus_conference_members_address` ON `agent_bus_conference_members` (`address_id`,`state`);
 CREATE INDEX `idx_agent_bus_conference_members_dispatch` ON `agent_bus_conference_members` (`state`,`dispatch_deadline_at`);
 CREATE INDEX `idx_agent_bus_conference_members_conversation` ON `agent_bus_conference_members` (`conversation_id`);
+CREATE INDEX `idx_agent_conferences_retention` ON `agent_bus_conferences` (`adjourned_at`);
 CREATE INDEX `idx_agent_bus_conferences_owner` ON `agent_bus_conferences` (`owner_address_id`,`status`);
 CREATE INDEX `idx_agent_bus_conferences_status` ON `agent_bus_conferences` (`status`,`deadline_at`);
+CREATE INDEX `idx_agent_conversations_retention` ON `agent_bus_conversations` (`last_activity_at`);
 CREATE INDEX `idx_agent_bus_conversations_a` ON `agent_bus_conversations` (`address_a_id`,`status`,`last_activity_at`);
 CREATE INDEX `idx_agent_bus_conversations_b` ON `agent_bus_conversations` (`address_b_id`,`status`,`last_activity_at`);
 CREATE INDEX `idx_agent_bus_conversations_status` ON `agent_bus_conversations` (`status`,`last_activity_at`);
@@ -1386,19 +2229,44 @@ CREATE INDEX `idx_agent_bus_messages_dispatch` ON `agent_bus_messages` (`target_
 CREATE INDEX `idx_agent_bus_messages_conversation` ON `agent_bus_messages` (`conversation_id`,`sequence`);
 CREATE INDEX `idx_agent_bus_messages_status` ON `agent_bus_messages` (`status`,`updated_at`);
 CREATE INDEX `idx_agent_bus_messages_expiry` ON `agent_bus_messages` (`status`,`expires_at`);
+CREATE INDEX `idx_agent_bus_messages_digest` ON `agent_bus_messages` (`digest_id`,`dispatch_order`);
+CREATE INDEX `idx_agent_bus_messages_queue_class` ON `agent_bus_messages` (`target_address_id`,`status`,`delivery_class`,`dispatch_order`);
 CREATE INDEX `idx_agent_bus_messages_reply` ON `agent_bus_messages` (`reply_to_message_id`);
 CREATE INDEX `idx_agent_bus_messages_redrive` ON `agent_bus_messages` (`redrive_of_message_id`);
+CREATE INDEX `idx_agent_bus_publications_rate` ON `agent_bus_publications` (`sender_address_id`,`created_at`);
 CREATE INDEX `idx_agent_bus_relays_status` ON `agent_bus_relays` (`status`,`heartbeat_at`);
 CREATE INDEX `idx_agent_bus_relays_expiry` ON `agent_bus_relays` (`token_expires_at`);
+CREATE INDEX `idx_agent_bus_subscriptions_address` ON `agent_bus_subscriptions` (`subscriber_address_id`);
+CREATE INDEX `idx_agent_chat_attachments_session` ON `agent_chat_attachments` (`session_id`,`status`);
+CREATE INDEX `idx_agent_chat_notices_session` ON `agent_chat_notices` (`session_id`,`resolved_at`);
 CREATE INDEX `idx_agent_events_session_cursor` ON `agent_events` (`session_id`,`id`);
 CREATE INDEX `idx_agent_events_type` ON `agent_events` (`event_type`,`created_at`);
 CREATE INDEX `idx_agent_messages_dispatch` ON `agent_messages` (`session_id`,`status`,`next_attempt_at`,`id`);
 CREATE INDEX `idx_agent_messages_user` ON `agent_messages` (`portal_user_id`,`status`);
 CREATE INDEX `idx_agent_messages_admin_user` ON `agent_messages` (`admin_user_id`,`status`);
+CREATE INDEX `idx_agent_name_leases_session` ON `agent_name_leases` (`session_id`,`id`);
+CREATE INDEX `idx_agent_name_leases_name` ON `agent_name_leases` (`name_key`,`started_at`);
+CREATE INDEX `idx_agent_name_leases_address` ON `agent_name_leases` (`address_id`,`started_at`);
 CREATE INDEX `idx_agent_policy_profile_assignments_profile` ON `agent_policy_profile_assignments` (`profile_id`);
 CREATE INDEX `idx_agent_policy_profiles_is_default` ON `agent_policy_profiles` (`is_default`);
 CREATE INDEX `idx_agent_prompts_session_status` ON `agent_prompts` (`session_id`,`status`);
 CREATE INDEX `idx_agent_prompts_expires` ON `agent_prompts` (`expires_at`);
+CREATE INDEX `idx_reboot_native` ON `agent_reboot_handoffs` (`host_id`,`engine`,`native_session_id`);
+CREATE INDEX `idx_reboot_old_session` ON `agent_reboot_handoffs` (`old_session_id`);
+CREATE INDEX `idx_reboot_new_session` ON `agent_reboot_handoffs` (`new_session_id`);
+CREATE INDEX `idx_resource_claim_state` ON `agent_resource_claims` (`state`,`expires_at`);
+CREATE INDEX `idx_agent_role_assignments_role` ON `agent_role_assignments` (`role_id`,`status`);
+CREATE INDEX `idx_agent_role_proposals_role` ON `agent_role_proposals` (`role_id`,`status`);
+CREATE INDEX `idx_agent_role_proposals_due` ON `agent_role_proposals` (`status`,`next_attempt_at`);
+CREATE INDEX `idx_agent_role_versions_state` ON `agent_role_versions` (`role_id`,`state`);
+CREATE INDEX `idx_room_event_time` ON `agent_room_events` (`room_id`,`created_at`,`id`);
+CREATE INDEX `idx_room_operations_retention` ON `agent_room_operations` (`created_at`);
+CREATE INDEX `idx_agent_schedule_runs_status` ON `agent_schedule_runs` (`status`,`next_attempt_at`);
+CREATE INDEX `idx_agent_schedule_runs_schedule` ON `agent_schedule_runs` (`schedule_id`,`created_at`);
+CREATE INDEX `idx_agent_schedules_due` ON `agent_schedules` (`enabled`,`next_due_at`);
+CREATE INDEX `idx_agent_schedules_target` ON `agent_schedules` (`target_address_id`);
+CREATE INDEX `idx_scope_event_pending` ON `agent_scope_events` (`dispatched`,`created_at`);
+CREATE INDEX `idx_scope_member_session` ON `agent_scope_members` (`session_id`);
 CREATE INDEX `idx_agent_sessions_status` ON `agent_sessions` (`status`,`heartbeat_at`);
 CREATE INDEX `idx_agent_sessions_host` ON `agent_sessions` (`host_id`,`engine`);
 CREATE INDEX `idx_agent_sessions_expiry` ON `agent_sessions` (`expires_at`);
@@ -1407,6 +2275,7 @@ CREATE INDEX `idx_agent_transfer_events_transfer` ON `agent_transfer_events` (`t
 CREATE INDEX `idx_agent_transfers_expiry` ON `agent_transfers` (`status`,`expires_at`);
 CREATE INDEX `idx_agent_transfers_created_at` ON `agent_transfers` (`created_at`);
 CREATE INDEX `idx_agent_transfers_host` ON `agent_transfers` (`source_host_id`,`status`);
+CREATE INDEX `idx_agent_watchdog_status` ON `agent_watchdogs` (`status`,`deadline_at`);
 CREATE INDEX `idx_agents_document_state_updated_at` ON `agents_document_state` (`updated_at`);
 CREATE INDEX `idx_agents_documents_updated_at` ON `agents_documents` (`updated_at`);
 CREATE INDEX `idx_agents_documents_engine` ON `agents_documents` (`engine`);
@@ -1420,6 +2289,11 @@ CREATE INDEX `idx_auth_payloads_purge_after` ON `auth_payloads` (`purge_after`);
 CREATE INDEX `idx_auth_seed_tokens_expires_at` ON `auth_seed_tokens` (`expires_at`);
 CREATE INDEX `idx_chatgpt_usage_host` ON `chatgpt_usage_snapshots` (`host_id`);
 CREATE INDEX `idx_chatgpt_usage_fetched` ON `chatgpt_usage_snapshots` (`fetched_at`);
+CREATE INDEX `idx_chatty_actions` ON `chatty_actions` (`run_id`,`status`);
+CREATE INDEX `idx_chatty_events` ON `chatty_events` (`user_id`,`generation`,`id`);
+CREATE INDEX `idx_chatty_runs_user` ON `chatty_runs` (`user_id`);
+CREATE INDEX `idx_chatty_queue` ON `chatty_runs` (`status`,`created_at`);
+CREATE INDEX `idx_chatty_sessions_retention` ON `chatty_sessions` (`updated_at`);
 CREATE INDEX `idx_claude_artifacts_kind` ON `claude_artifacts` (`kind`);
 CREATE INDEX `idx_claude_artifacts_updated_at` ON `claude_artifacts` (`updated_at`);
 CREATE INDEX `idx_claude_artifacts_engine` ON `claude_artifacts` (`engine`);
@@ -1458,6 +2332,10 @@ CREATE INDEX `idx_coord_projects_updated_at` ON `coord_projects` (`updated_at`);
 CREATE INDEX `idx_coord_projects_archived_at` ON `coord_projects` (`archived_at`);
 CREATE INDEX `idx_snapshot` ON `dashboard_graph_claude_quota_snapshots` (`snapshot_at`);
 CREATE INDEX `idx_dashboard_graph_quota_updated` ON `dashboard_graph_quota_snapshots` (`updated_at`);
+CREATE INDEX `idx_engine_destroy_engine` ON `engine_destroy_hosts` (`engine`,`status`);
+CREATE INDEX `idx_feedback_inbox` ON `feedback_items` (`status`,`priority`,`created_at`);
+CREATE INDEX `idx_feedback_component` ON `feedback_items` (`component`,`type`);
+CREATE INDEX `idx_feedback_claim_expiry` ON `feedback_items` (`claim_expires_at`);
 CREATE INDEX `idx_git_clones_remote` ON `git_clones` (`remote_key`);
 CREATE INDEX `idx_git_clones_host` ON `git_clones` (`host_id`,`archived_at`,`last_seen_at`);
 CREATE INDEX `idx_git_merge_requests_lease` ON `git_merge_requests` (`clone_id`,`target_branch`,`verdict`,`completed_at`);
@@ -1467,6 +2345,10 @@ CREATE INDEX `idx_git_worktrees_clone` ON `git_worktrees` (`clone_id`,`status`,`
 CREATE INDEX `idx_git_worktrees_address` ON `git_worktrees` (`agent_bus_address_id`);
 CREATE INDEX `idx_auth_digest_host` ON `host_auth_digests` (`host_id`);
 CREATE INDEX `idx_auth_digest_host_engine` ON `host_auth_digests` (`host_id`,`engine`);
+CREATE INDEX `idx_daemon_operations_host` ON `host_daemon_operations` (`host_id`,`status`);
+CREATE INDEX `idx_daemon_portal_session` ON `host_daemon_portal_bindings` (`daemon_session_id`);
+CREATE INDEX `idx_daemon_sessions_retention` ON `host_daemon_sessions` (`last_activity_at`);
+CREATE INDEX `idx_daemon_sessions_host` ON `host_daemon_sessions` (`host_id`);
 CREATE INDEX `idx_host_users_host` ON `host_users` (`host_id`);
 CREATE INDEX `idx_hosts_updated_at` ON `hosts` (`updated_at`);
 CREATE INDEX `idx_hosts_last_contact` ON `hosts` (`last_contact_at`);
@@ -1504,733 +2386,14 @@ CREATE INDEX `idx_shared_memory_revisions_memory` ON `shared_memory_revisions` (
 CREATE INDEX `idx_skill_files_skill` ON `skill_files` (`skill_id`);
 CREATE INDEX `idx_skills_updated_at` ON `skills` (`updated_at`);
 CREATE INDEX `idx_skills_engine` ON `skills` (`engine`);
+CREATE INDEX `idx_workflow_evaluations_pending` ON `workflow_run_evaluations` (`status`,`updated_at`);
+CREATE INDEX `idx_workflow_invites_target` ON `workflow_run_invitations` (`target_address_id`,`status`);
+CREATE INDEX `idx_workflow_invites_run` ON `workflow_run_invitations` (`run_id`,`status`);
+CREATE INDEX `idx_workflow_members_agent` ON `workflow_run_members` (`agent_address_id`,`status`);
+CREATE INDEX `idx_workflow_tasks_claim` ON `workflow_run_tasks` (`claim_owner_address_id`,`claim_lease_until`);
+CREATE INDEX `idx_workflow_tasks_run` ON `workflow_run_tasks` (`run_id`,`position`);
+CREATE INDEX `idx_workflow_runs_workflow` ON `workflow_runs` (`workflow_id`,`created_at`);
+CREATE INDEX `idx_workflow_runs_status` ON `workflow_runs` (`status`,`updated_at`);
+CREATE INDEX `idx_workflows_status` ON `workflows` (`status`,`updated_at`);
 CREATE INDEX `idx_wrapper_signing_keys_active` ON `wrapper_signing_keys` (`active`);
 CREATE INDEX `idx_v2_bin_engine_version` ON `wrapper_v2_binaries` (`engine`,`version`);
-CREATE TABLE `agent_bus_groups` (
-	`id` char(36) NOT NULL,
-	`slug` varchar(64) NOT NULL,
-	`title` varchar(120) NOT NULL,
-	`description` varchar(1024),
-	`created_by_address_id` char(36) NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_bus_groups_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_bus_groups_slug` UNIQUE(`slug`)
-);
-
-CREATE TABLE `agent_bus_publications` (
-	`id` char(36) NOT NULL,
-	`topic` varchar(80) NOT NULL,
-	`sender_address_id` char(36) NOT NULL,
-	`client_message_id` char(36) NOT NULL,
-	`payload_sha256` char(64) NOT NULL,
-	`content_bytes` int unsigned NOT NULL,
-	`ttl_seconds` int unsigned NOT NULL,
-	`receipts` json NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_bus_publications_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_bus_publications_sender_client` UNIQUE(`sender_address_id`,`client_message_id`)
-);
-
-CREATE INDEX `idx_agent_bus_publications_rate` ON `agent_bus_publications` (`sender_address_id`,`created_at`);
-
-CREATE TABLE `agent_bus_subscriptions` (
-	`id` char(36) NOT NULL,
-	`topic` varchar(80) NOT NULL,
-	`subscriber_address_id` char(36) NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_bus_subscriptions_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_bus_subscriptions_topic_address` UNIQUE(`topic`,`subscriber_address_id`)
-);
-
-CREATE INDEX `idx_agent_bus_subscriptions_address` ON `agent_bus_subscriptions` (`subscriber_address_id`);
-
-CREATE TABLE `agent_schedules` (
-  `max_recovery_attempts` INT UNSIGNED NULL,
-  `pause_reason` VARCHAR(100) NULL,
-	`id` char(36) NOT NULL,
-	`name` varchar(120) NOT NULL,
-	`target_address_id` char(36) NOT NULL,
-	`prompt_enc` longtext NOT NULL,
-	`kind` varchar(16) NOT NULL,
-	`at_time` varchar(100),
-	`cron_expression` varchar(120),
-	`interval_minutes` int unsigned,
-	`timezone` varchar(100) NOT NULL,
-	`enabled` tinyint unsigned NOT NULL DEFAULT 1,
-	`persistent` tinyint unsigned NOT NULL DEFAULT 0,
-	`progress_timeout_seconds` int unsigned,
-	`next_due_at` varchar(100),
-	`version` int unsigned NOT NULL DEFAULT 1,
-	`created_by` varchar(191) NOT NULL,
-	`updated_by` varchar(191) NOT NULL,
-	`deleted_at` varchar(100),
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_schedules_id` PRIMARY KEY(`id`)
-);
-
-CREATE TABLE `agent_schedule_runs` (
-  `max_recovery_attempts` INT UNSIGNED NULL,
-  `warning_at` VARCHAR(100) NULL,
-	`id` char(36) NOT NULL,
-	`schedule_id` char(36) NOT NULL,
-	`target_address_id` char(36) NOT NULL,
-	`prompt_enc` longtext NOT NULL,
-	`persistent` tinyint unsigned NOT NULL DEFAULT 0,
-	`progress_timeout_seconds` int unsigned,
-	`retry_seconds` int unsigned NOT NULL,
-	`due_at` varchar(100) NOT NULL,
-	`status` varchar(32) NOT NULL DEFAULT 'waiting',
-	`message_id` char(36),
-	`recovery_count` int unsigned NOT NULL DEFAULT 0,
-	`next_attempt_at` varchar(100) NOT NULL,
-	`last_error` varchar(100),
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_schedule_runs_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_schedule_run_due` UNIQUE(`schedule_id`,`due_at`),
-	CONSTRAINT `uq_agent_schedule_run_message` UNIQUE(`message_id`)
-);
-
-CREATE INDEX `idx_agent_schedule_runs_status` ON `agent_schedule_runs` (`status`,`next_attempt_at`);
-CREATE INDEX `idx_agent_schedule_runs_schedule` ON `agent_schedule_runs` (`schedule_id`,`created_at`);
-CREATE INDEX `idx_agent_schedules_due` ON `agent_schedules` (`enabled`,`next_due_at`);
-CREATE INDEX `idx_agent_schedules_target` ON `agent_schedules` (`target_address_id`);
-
-CREATE TABLE `agent_task_results` (
- `id` CHAR(36) NOT NULL PRIMARY KEY,
- `message_id` CHAR(36) NOT NULL,
- `claim_id` CHAR(36) NOT NULL,
- `status` VARCHAR(16) NOT NULL,
- `body_enc` LONGTEXT NOT NULL,
- `body_sha256` CHAR(64) NOT NULL,
- `created_at` VARCHAR(100) NOT NULL,
- UNIQUE KEY uq_agent_task_result_claim (message_id, claim_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-CREATE TABLE `agent_fresh_start_grants` (
- `message_id` CHAR(36) NOT NULL PRIMARY KEY,
- `target_address_id` CHAR(36) NOT NULL,
- `binding_generation` INT UNSIGNED NOT NULL,
- `execution_version` INT UNSIGNED NOT NULL,
- `reason` VARCHAR(500) NOT NULL,
- `approved_by` VARCHAR(191) NOT NULL,
- `consumed_claim_id` CHAR(36) NULL,
- `created_at` VARCHAR(100) NOT NULL,
- `consumed_at` VARCHAR(100) NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-SET @bus_collation := (SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='agent_bus_addresses');
-SET @ddl := CONCAT('ALTER TABLE agent_task_results CONVERT TO CHARACTER SET utf8mb4 COLLATE ', @bus_collation);
-PREPARE align_contract FROM @ddl; EXECUTE align_contract; DEALLOCATE PREPARE align_contract;
-SET @ddl := CONCAT('ALTER TABLE agent_fresh_start_grants CONVERT TO CHARACTER SET utf8mb4 COLLATE ', @bus_collation);
-PREPARE align_contract FROM @ddl; EXECUTE align_contract; DEALLOCATE PREPARE align_contract;
-
-CREATE TABLE `agent_name_leases` (
-	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
-	`session_id` char(36) NOT NULL,
-	`name_key` varchar(96) NOT NULL,
-	`name` varchar(96) NOT NULL,
-	`address_id` char(36) NOT NULL,
-	`started_at` varchar(100) NOT NULL,
-	`ended_at` varchar(100),
-	`cooldown_until` varchar(100),
-	CONSTRAINT `agent_name_leases_id` PRIMARY KEY(`id`)
-);
-
-CREATE TABLE `agent_name_pool` (
-	`name_key` varchar(96) NOT NULL,
-	`name` varchar(96) NOT NULL,
-	`current_session_id` char(36),
-	CONSTRAINT `agent_name_pool_name_key` PRIMARY KEY(`name_key`)
-);
-
-CREATE INDEX `idx_agent_name_leases_session` ON `agent_name_leases` (`session_id`,`id`);
-
-CREATE INDEX `idx_agent_name_leases_name` ON `agent_name_leases` (`name_key`,`started_at`);
-
-CREATE INDEX `idx_agent_name_leases_address` ON `agent_name_leases` (`address_id`,`started_at`);
-
--- One durable watchdog `per` native-session task. Recovery reuses the schedule bus.
-CREATE TABLE `agent_watchdogs` (
- `id` CHAR(36) NOT NULL PRIMARY KEY,
- `target_address_id` CHAR(36) NOT NULL,
- `native_session_id` VARCHAR(255) NOT NULL,
- `session_id` CHAR(36) NOT NULL,
- `task_key` VARCHAR(255) NOT NULL,
- `message_id` CHAR(36) NULL,
- `schedule_id` CHAR(36) NOT NULL,
- `continuation_sha` CHAR(64) NOT NULL,
- `status` VARCHAR(32) NOT NULL DEFAULT 'watching',
- `deadline_at` VARCHAR(100) NOT NULL,
- `progress_timeout_seconds` INT UNSIGNED NOT NULL,
- `last_progress_at` VARCHAR(100) NOT NULL,
- `last_error` VARCHAR(100) NULL,
- `version` INT UNSIGNED NOT NULL DEFAULT 1,
- `created_by` VARCHAR(191) NOT NULL,
- `created_at` VARCHAR(100) NOT NULL,
- `updated_at` VARCHAR(100) NOT NULL,
- UNIQUE KEY uq_agent_watchdog_task (target_address_id, native_session_id, task_key),
- UNIQUE KEY uq_agent_watchdog_schedule (schedule_id),
- KEY idx_agent_watchdog_status (status, deadline_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-
-CREATE TABLE `host_daemon_operations` (
-	`id` char(36) NOT NULL,
-	`session_id` char(36) NOT NULL,
-	`host_id` bigint unsigned NOT NULL,
-	`client_key` varchar(150) NOT NULL,
-	`request_hash` char(64) NOT NULL,
-	`prompt_enc` longtext NOT NULL,
-	`status` varchar(24) NOT NULL,
-	`claim_id` char(36),
-	`result_enc` longtext,
-	`portal_content_enc` longtext,
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `host_daemon_operations_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_daemon_operation_client` UNIQUE(`client_key`)
-);
-
-CREATE TABLE `host_daemon_sessions` (
-	`id` char(36) NOT NULL,
-	`host_id` bigint unsigned NOT NULL,
-	`owner` varchar(100) NOT NULL,
-	`engine` varchar(16) NOT NULL,
-	`username` varchar(64) NOT NULL,
-	`cwd` varchar(1024) NOT NULL,
-	`title` varchar(160) NOT NULL,
-	`address_id` char(36),
-	`session_id` char(36),
-	`active_message_id` char(36),
-	`model` varchar(128),
-	`status` varchar(24) NOT NULL,
-	`last_activity_at` varchar(100) NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `host_daemon_sessions_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_daemon_session_address` UNIQUE(`address_id`)
-);
-
-CREATE TABLE `host_daemons` (
-	`host_id` bigint unsigned NOT NULL,
-	`settings` json NOT NULL,
-	`runtime` json,
-	`enabled_at` varchar(100),
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `host_daemons_host_id` PRIMARY KEY(`host_id`)
-);
-
-ALTER TABLE `host_daemon_operations` ADD CONSTRAINT `host_daemon_operations_session_id_host_daemon_sessions_id_fk` FOREIGN KEY (`session_id`) REFERENCES `host_daemon_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
-
-ALTER TABLE `host_daemon_operations` ADD CONSTRAINT `host_daemon_operations_host_id_hosts_id_fk` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
-
-ALTER TABLE `host_daemon_sessions` ADD CONSTRAINT `host_daemon_sessions_host_id_hosts_id_fk` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
-
-ALTER TABLE `host_daemons` ADD CONSTRAINT `host_daemons_host_id_hosts_id_fk` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
-
-CREATE INDEX `idx_daemon_operations_host` ON `host_daemon_operations` (`host_id`,`status`);
-
-CREATE INDEX `idx_daemon_sessions_host` ON `host_daemon_sessions` (`host_id`);
-
-CREATE TABLE `chatty_actions` (
-	`id` char(36) NOT NULL,
-	`run_id` char(36) NOT NULL,
-	`user_id` bigint unsigned NOT NULL,
-	`generation` int NOT NULL,
-	`tool` varchar(100) NOT NULL,
-	`status` varchar(24) NOT NULL,
-	`payload_enc` longtext NOT NULL,
-	`result_enc` longtext,
-	`expires_at` varchar(100) NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `chatty_actions_id` PRIMARY KEY(`id`)
-);
-
-CREATE TABLE `chatty_events` (
-	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
-	`user_id` bigint unsigned NOT NULL,
-	`generation` int NOT NULL,
-	`run_id` char(36),
-	`kind` varchar(24) NOT NULL,
-	`body_enc` longtext NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `chatty_events_id` PRIMARY KEY(`id`)
-);
-
-CREATE TABLE `chatty_runs` (
-	`id` char(36) NOT NULL,
-	`user_id` bigint unsigned NOT NULL,
-	`admin_session_id` bigint unsigned NOT NULL,
-	`generation` int NOT NULL,
-	`client_message_id` char(36) NOT NULL,
-	`request_hash` char(64) NOT NULL,
-	`status` varchar(32) NOT NULL,
-	`input_enc` longtext NOT NULL,
-	`state_enc` longtext NOT NULL,
-	`claim_id` char(36),
-	`lease_until` varchar(100),
-	`steps` int NOT NULL DEFAULT 0,
-	`active_ms` int NOT NULL DEFAULT 0,
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `chatty_runs_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_chatty_client` UNIQUE(`user_id`,`client_message_id`)
-);
-
-CREATE TABLE `chatty_sessions` (
-	`user_id` bigint unsigned NOT NULL,
-	`generation` int NOT NULL DEFAULT 1,
-	`selection` json NOT NULL,
-	`seen_available` tinyint NOT NULL DEFAULT 0,
-	`summary_enc` longtext,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `chatty_sessions_user_id` PRIMARY KEY(`user_id`)
-);
-
-ALTER TABLE `chatty_actions` ADD CONSTRAINT `chatty_actions_user_id_admin_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `admin_users`(`id`) ON DELETE cascade ON UPDATE no action;
-
-ALTER TABLE `chatty_events` ADD CONSTRAINT `chatty_events_user_id_admin_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `admin_users`(`id`) ON DELETE cascade ON UPDATE no action;
-
-ALTER TABLE `chatty_runs` ADD CONSTRAINT `chatty_runs_user_id_admin_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `admin_users`(`id`) ON DELETE cascade ON UPDATE no action;
-
-ALTER TABLE `chatty_sessions` ADD CONSTRAINT `chatty_sessions_user_id_admin_users_id_fk` FOREIGN KEY (`user_id`) REFERENCES `admin_users`(`id`) ON DELETE cascade ON UPDATE no action;
-
-CREATE INDEX `idx_chatty_actions` ON `chatty_actions` (`run_id`,`status`);
-
-CREATE INDEX `idx_chatty_events` ON `chatty_events` (`user_id`,`generation`,`id`);
-
-CREATE INDEX `idx_chatty_queue` ON `chatty_runs` (`status`,`created_at`);
-
-
-CREATE TABLE `host_daemon_portal_bindings` (
-	`portal_session_id` char(36) NOT NULL,
-	`daemon_session_id` char(36) NOT NULL,
-	CONSTRAINT `host_daemon_portal_bindings_portal_session_id` PRIMARY KEY(`portal_session_id`)
-);
-
-ALTER TABLE `host_daemon_portal_bindings` ADD CONSTRAINT `fk_daemon_portal_launch` FOREIGN KEY (`portal_session_id`) REFERENCES `agent_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
-
-ALTER TABLE `host_daemon_portal_bindings` ADD CONSTRAINT `fk_daemon_portal_remote` FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
-
-CREATE INDEX `idx_daemon_portal_session` ON `host_daemon_portal_bindings` (`daemon_session_id`);
-
-
-CREATE TABLE `companion_daemon_follows` (
-	`device_id` char(36) NOT NULL,
-	`daemon_session_id` char(36) NOT NULL,
-	CONSTRAINT `companion_daemon_follows_device_id_daemon_session_id_pk` PRIMARY KEY(`device_id`,`daemon_session_id`)
-);
-
-ALTER TABLE `companion_daemon_follows` ADD CONSTRAINT `fk_companion_daemon_device` FOREIGN KEY (`device_id`) REFERENCES `companion_devices`(`id`) ON DELETE cascade ON UPDATE no action;
-
-ALTER TABLE `companion_daemon_follows` ADD CONSTRAINT `fk_companion_daemon_remote` FOREIGN KEY (`daemon_session_id`) REFERENCES `host_daemon_sessions`(`id`) ON DELETE cascade ON UPDATE no action;
-
-CREATE TABLE `session_housekeeping_reservations` (
- `host_id` BIGINT UNSIGNED NOT NULL,
- `engine` VARCHAR(16) NOT NULL,
- `token` CHAR(36) NOT NULL,
- `created_at` VARCHAR(100) NOT NULL,
- UNIQUE KEY `uq_housekeeping_host_engine` (`host_id`, `engine`),
- CONSTRAINT `fk_housekeeping_host` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE `agent_reboot_handoffs` (
-	`id` char(36) NOT NULL,
-	`host_id` bigint unsigned NOT NULL,
-	`active_host_id` bigint unsigned,
-	`address_id` char(36) NOT NULL,
-	`old_session_id` char(36) NOT NULL,
-	`new_session_id` char(36),
-	`engine` varchar(16) NOT NULL,
-	`username` varchar(255) NOT NULL,
-	`cwd` varchar(1024) NOT NULL,
-	`native_session_id` varchar(255) NOT NULL,
-	`boot_id` char(36) NOT NULL,
-	`resume_boot_id` char(36),
-	`request_sha` char(64) NOT NULL,
-	`continuation_enc` longtext NOT NULL,
-	`reason` varchar(1000) NOT NULL,
-	`status` varchar(24) NOT NULL,
-	`bus_message_ids` json NOT NULL,
-	`portal_message_ids` json NOT NULL,
-	`expires_at` varchar(100) NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_reboot_handoffs_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_reboot_active_host` UNIQUE(`active_host_id`)
-);
-CREATE INDEX `idx_reboot_native` ON `agent_reboot_handoffs` (`host_id`,`engine`,`native_session_id`);
-CREATE INDEX `idx_reboot_old_session` ON `agent_reboot_handoffs` (`old_session_id`);
-CREATE INDEX `idx_reboot_new_session` ON `agent_reboot_handoffs` (`new_session_id`);
-CREATE TABLE `host_spawns` (
-	`id` char(36) NOT NULL,
-	`source_host_id` bigint unsigned NOT NULL,
-	`target_host_id` bigint unsigned NOT NULL,
-	`client_message_id` char(36) NOT NULL,
-	`request_hash` char(64) NOT NULL,
-	`request` json NOT NULL,
-	`installer_enc` longtext NOT NULL,
-	`installer_revision` int NOT NULL DEFAULT 0,
-	`renewal_receipts` json NOT NULL,
-	`renewal_client_message_id` char(36),
-	`setup_completed_at` varchar(100),
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `host_spawns_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_host_spawn_client` UNIQUE(`source_host_id`,`client_message_id`),
-	CONSTRAINT `uq_host_spawn_target` UNIQUE(`target_host_id`)
-);
-ALTER TABLE `host_spawns` ADD CONSTRAINT `host_spawns_target_host_id_hosts_id_fk` FOREIGN KEY (`target_host_id`) REFERENCES `hosts`(`id`) ON DELETE cascade ON UPDATE no action;
-
-
-CREATE TABLE `agent_chat_attachments` (
-	`id` char(36) NOT NULL,
-	`session_id` char(36) NOT NULL,
-	`owner` varchar(80) NOT NULL,
-	`metadata_enc` longtext NOT NULL,
-	`size_bytes` bigint unsigned NOT NULL,
-	`uploaded_bytes` bigint unsigned NOT NULL DEFAULT 0,
-	`sha256` char(64),
-	`status` varchar(16) NOT NULL DEFAULT 'uploading',
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_chat_attachments_id` PRIMARY KEY(`id`)
-);
-CREATE INDEX `idx_agent_chat_attachments_session` ON `agent_chat_attachments` (`session_id`,`status`);
-
-
-CREATE TABLE `agent_chat_notices` (
-	`id` char(36) NOT NULL,
-	`session_id` char(36) NOT NULL,
-	`severity` varchar(16) NOT NULL,
-	`payload_enc` longtext NOT NULL,
-	`event_id` bigint unsigned NOT NULL,
-	`resolved_at` varchar(100),
-	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_chat_notices_id` PRIMARY KEY(`id`)
-);
-CREATE INDEX `idx_agent_chat_notices_session` ON `agent_chat_notices` (`session_id`,`resolved_at`);
-
-CREATE TABLE `feedback_events` (
-	`id` char(36) NOT NULL,
-	`feedback_id` char(36) NOT NULL,
-	`version` int NOT NULL,
-	`action` varchar(32) NOT NULL,
-	`actor` json NOT NULL,
-	`detail` json NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `feedback_events_id` PRIMARY KEY(`id`),
-	CONSTRAINT `idx_feedback_event_version` UNIQUE(`feedback_id`,`version`)
-);
-
-CREATE TABLE `feedback_items` (
-	`id` char(36) NOT NULL,
-	`request_key` char(64) NOT NULL,
-	`request_digest` char(64) NOT NULL,
-	`type` varchar(16) NOT NULL,
-	`title` varchar(255) NOT NULL,
-	`component` varchar(100) NOT NULL DEFAULT 'other',
-	`priority` varchar(16) NOT NULL DEFAULT 'normal',
-	`status` varchar(16) NOT NULL DEFAULT 'open',
-	`report` json NOT NULL,
-	`source` json NOT NULL,
-	`result` json,
-	`deployment` varchar(16) NOT NULL DEFAULT 'unknown',
-	`deployment_ref` varchar(1000),
-	`duplicate_of` char(36),
-	`claim_owner` json,
-	`claim_request_key` char(64),
-	`claim_token_hash` char(64),
-	`claim_token_enc` longtext,
-	`claim_expires_at` varchar(100),
-	`version` int NOT NULL DEFAULT 1,
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `feedback_items_id` PRIMARY KEY(`id`),
-	CONSTRAINT `idx_feedback_request` UNIQUE(`request_key`)
-);
-
-ALTER TABLE `feedback_events` ADD CONSTRAINT `feedback_events_feedback_id_feedback_items_id_fk` FOREIGN KEY (`feedback_id`) REFERENCES `feedback_items`(`id`) ON DELETE no action ON UPDATE no action;
-
-CREATE INDEX `idx_feedback_inbox` ON `feedback_items` (`status`,`priority`,`created_at`);
-
-CREATE INDEX `idx_feedback_component` ON `feedback_items` (`component`,`type`);
-
-CREATE INDEX `idx_feedback_claim_expiry` ON `feedback_items` (`claim_expires_at`);
-
-CREATE TABLE `agent_native_controls` (
-	`session_id` char(36) NOT NULL,
-	`instance_id` char(36) NOT NULL,
-	`binding_generation` int unsigned NOT NULL,
-	`request_id` char(36),
-	`client_message_id` char(36),
-	`actor_id` bigint unsigned,
-	`status` varchar(24) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_native_controls_session_id` PRIMARY KEY(`session_id`)
-);
-
-ALTER TABLE `agent_native_controls` ADD CONSTRAINT `fk_native_control_session` FOREIGN KEY (`session_id`) REFERENCES `agent_sessions`(`id`) ON DELETE CASCADE;
-
-CREATE TABLE `engine_destroy_hosts` (
-	`request_id` char(36) NOT NULL,
-	`host_id` bigint unsigned NOT NULL,
-	`engine` varchar(16) NOT NULL,
-	`status` varchar(16) NOT NULL DEFAULT 'pending',
-	`residue_json` text,
-	`reported_at` varchar(100),
-	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `engine_destroy_hosts_request_id_host_id_pk` PRIMARY KEY(`request_id`,`host_id`),
-	KEY `idx_engine_destroy_engine` (`engine`, `status`)
-);
-
-CREATE TABLE `advisor_sessions` (
-	`id` char(36) NOT NULL,
-	`caller_address_id` char(36) NOT NULL,
-	`client_key` varchar(150) NOT NULL,
-	`daemon_session_id` char(36) NOT NULL,
-	`host_id` bigint unsigned NOT NULL,
-	`kind` varchar(24) NOT NULL,
-	`conversation_id` char(36),
-	`status` varchar(16) NOT NULL,
-	`verdict_enc` longtext,
-	`close_reason` varchar(24),
-	`turns` int unsigned NOT NULL DEFAULT 0,
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	`closed_at` varchar(100),
-	CONSTRAINT `advisor_sessions_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_advisor_client` UNIQUE(`client_key`),
-	CONSTRAINT `uq_advisor_daemon_session` UNIQUE(`daemon_session_id`),
-	KEY `idx_advisor_caller` (`caller_address_id`, `status`)
-);
-
-ALTER TABLE `advisor_sessions` ADD CONSTRAINT `fk_advisor_host` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE CASCADE;
-
-CREATE TABLE `agent_resource_claims` (
-	`id` char(36) NOT NULL,
-	`session_id` char(36) NOT NULL,
-	`generation` int unsigned NOT NULL,
-	`request_id` char(36) NOT NULL,
-	`purpose` varchar(1000) NOT NULL,
-	`resources` json NOT NULL,
-	`state` varchar(24) NOT NULL,
-	`blockers` json NOT NULL,
-	`replied_at` varchar(100),
-	`expires_at` varchar(100) NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_resource_claims_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_resource_claim_request` UNIQUE(`session_id`,`request_id`)
-);
-
-CREATE TABLE `agent_scope_bindings` (
-	`repository_key` varchar(191) NOT NULL,
-	`project_slug` varchar(191) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_scope_bindings_repository_key` PRIMARY KEY(`repository_key`)
-);
-
-CREATE TABLE `agent_scope_events` (
-	`id` char(36) NOT NULL,
-	`scope_id` char(36) NOT NULL,
-	`sequence` bigint unsigned NOT NULL,
-	`kind` varchar(32) NOT NULL,
-	`actor` varchar(191) NOT NULL,
-	`request_id` char(36) NOT NULL,
-	`body_enc` longtext NOT NULL,
-	`dispatched` tinyint NOT NULL DEFAULT 0,
-	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_scope_events_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_scope_event_seq` UNIQUE(`scope_id`,`sequence`),
-	CONSTRAINT `uq_scope_event_request` UNIQUE(`scope_id`,`actor`,`request_id`)
-);
-
-CREATE TABLE `agent_scope_members` (
-	`id` char(36) NOT NULL,
-	`scope_id` char(36) NOT NULL,
-	`session_id` char(36) NOT NULL,
-	`generation` int unsigned NOT NULL,
-	`protocol` int unsigned NOT NULL DEFAULT 0,
-	`context_hash` char(64) NOT NULL DEFAULT '',
-	`state` varchar(16) NOT NULL,
-	`joined_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_scope_members_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_scope_member` UNIQUE(`scope_id`,`session_id`)
-);
-
-CREATE TABLE `agent_scopes` (
-	`id` char(36) NOT NULL,
-	`scope_key` varchar(191) NOT NULL,
-	`kind` varchar(16) NOT NULL,
-	`title` varchar(255) NOT NULL,
-	`sequence` bigint unsigned NOT NULL DEFAULT 0,
-	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_scopes_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_scopes_key` UNIQUE(`scope_key`)
-);
-
-CREATE TABLE `agent_room_events` (
- `id` char(36) PRIMARY KEY,
- `room_id` char(36) NOT NULL,
- `actor` varchar(80) NOT NULL,
- `request_id` char(36) NOT NULL,
- `payload_hash` char(64) NOT NULL,
- `body_enc` longtext NOT NULL,
- `created_at` varchar(100) NOT NULL,
- UNIQUE KEY uq_room_event_request (room_id, actor, request_id),
- KEY idx_room_event_time (room_id, created_at, id)
-);
-CREATE TABLE `agent_room_reads` (
- `room_id` char(36) NOT NULL,
- `admin_id` int unsigned NOT NULL,
- `read_at` varchar(100) NOT NULL,
- UNIQUE KEY uq_room_read (room_id, admin_id)
-);
-CREATE TABLE `agent_room_operations` (
- `id` char(36) PRIMARY KEY,
- `actor` varchar(80) NOT NULL,
- `payload_hash` char(64) NOT NULL,
- `result` json NOT NULL,
- `created_at` varchar(100) NOT NULL
-);
-CREATE TABLE `agent_role_assignments` (
-	`id` char(36) NOT NULL,
-	`address_id` char(36) NOT NULL,
-	`active_address_id` char(36),
-	`role_id` char(36) NOT NULL,
-	`version_id` char(36) NOT NULL,
-	`status` varchar(16) NOT NULL,
-	`binding_generation` int NOT NULL,
-	`activated_by` json NOT NULL,
-	`reason` text NOT NULL,
-	`client_request_id` char(36) NOT NULL,
-	`previous_assignment_id` char(36),
-	`ended_at` varchar(100),
-	`end_reason` varchar(32),
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_role_assignments_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_role_assignments_active` UNIQUE(`active_address_id`),
-	CONSTRAINT `uq_agent_role_assignments_request` UNIQUE(`address_id`,`client_request_id`)
-);
-
-CREATE TABLE `agent_role_blobs` (
-	`sha256` char(64) NOT NULL,
-	`encoding` varchar(8) NOT NULL,
-	`content` longtext NOT NULL,
-	`size_bytes` int NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_role_blobs_sha256` PRIMARY KEY(`sha256`)
-);
-
-CREATE TABLE `agent_role_proposal_events` (
-	`id` char(36) NOT NULL,
-	`proposal_id` char(36) NOT NULL,
-	`seq` int NOT NULL,
-	`action` varchar(32) NOT NULL,
-	`actor` json NOT NULL,
-	`detail` json NOT NULL,
-	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_role_proposal_events_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_role_proposal_events_seq` UNIQUE(`proposal_id`,`seq`)
-);
-
-CREATE TABLE `agent_role_proposals` (
-	`id` char(36) NOT NULL,
-	`role_id` char(36) NOT NULL,
-	`author_address_id` char(36) NOT NULL,
-	`client_request_id` char(36) NOT NULL,
-	`base_version_id` char(36) NOT NULL,
-	`kind` varchar(24) NOT NULL,
-	`risk` varchar(16) NOT NULL,
-	`title` varchar(255) NOT NULL,
-	`rationale` text NOT NULL,
-	`evidence` json NOT NULL,
-	`ops` json NOT NULL,
-	`author` json NOT NULL,
-	`status` varchar(16) NOT NULL,
-	`version` int NOT NULL DEFAULT 1,
-	`gate_results` json,
-	`judge` json,
-	`reviews` json NOT NULL,
-	`reviewer_address_id` char(36),
-	`review_requested_at` varchar(100),
-	`attempts` int NOT NULL DEFAULT 0,
-	`next_attempt_at` varchar(100),
-	`decision_note` text,
-	`result_version_id` char(36),
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_role_proposals_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_role_proposals_request` UNIQUE(`author_address_id`,`client_request_id`)
-);
-
-CREATE TABLE `agent_role_version_files` (
-	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
-	`version_id` char(36) NOT NULL,
-	`path` varchar(512) NOT NULL,
-	`blob_sha256` char(64) NOT NULL,
-	`mime_type` varchar(127) NOT NULL,
-	`load_mode` varchar(16) NOT NULL,
-	`description` varchar(300),
-	`introduced_in_version` int,
-	`source_proposal_id` char(36),
-	CONSTRAINT `agent_role_version_files_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_role_version_files_path` UNIQUE(`version_id`,`path`)
-);
-
-CREATE TABLE `agent_role_versions` (
-	`id` char(36) NOT NULL,
-	`role_id` char(36) NOT NULL,
-	`version` int,
-	`state` varchar(16) NOT NULL,
-	`manifest` longtext NOT NULL,
-	`manifest_sha256` char(64) NOT NULL,
-	`bundle_sha256` char(64) NOT NULL,
-	`changelog` text,
-	`created_by` json NOT NULL,
-	`published_by` json,
-	`published_at` varchar(100),
-	`withdrawn_at` varchar(100),
-	`source_proposal_id` char(36),
-	`reverted_from_version` int,
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_role_versions_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_role_versions_number` UNIQUE(`role_id`,`version`)
-);
-
-CREATE TABLE `agent_roles` (
-	`id` char(36) NOT NULL,
-	`slug` varchar(64) NOT NULL,
-	`display_name` varchar(255) NOT NULL,
-	`summary` varchar(600) NOT NULL,
-	`status` varchar(16) NOT NULL DEFAULT 'active',
-	`current_version_id` char(36),
-	`policy` json NOT NULL,
-	`version` int NOT NULL DEFAULT 1,
-	`created_at` varchar(100) NOT NULL,
-	`updated_at` varchar(100) NOT NULL,
-	CONSTRAINT `agent_roles_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_roles_slug` UNIQUE(`slug`)
-);
-
-CREATE TABLE `agent_room_deliveries` (
- `event_id` char(36) NOT NULL,
- `address_id` char(36) NOT NULL,
- `message_id` char(36),
- `reason` varchar(80),
- UNIQUE KEY uq_room_delivery (event_id, address_id)
-);
-
--- Server retention range indexes (0082).
-CREATE INDEX `idx_agent_addresses_retention` ON `agent_bus_addresses` (`last_seen_at`);
-CREATE INDEX `idx_agent_conversations_retention` ON `agent_bus_conversations` (`last_activity_at`);
-CREATE INDEX `idx_agent_conferences_retention` ON `agent_bus_conferences` (`adjourned_at`);
-CREATE INDEX `idx_daemon_sessions_retention` ON `host_daemon_sessions` (`last_activity_at`);
-CREATE INDEX `idx_chatty_sessions_retention` ON `chatty_sessions` (`updated_at`);
-CREATE INDEX `idx_chatty_runs_user` ON `chatty_runs` (`user_id`);
-CREATE INDEX `idx_room_operations_retention` ON `agent_room_operations` (`created_at`);
