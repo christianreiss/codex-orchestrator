@@ -39,7 +39,6 @@ import {
 import {
   dbNow,
   definition,
-  event,
   expect,
   lockRun,
   materializeExpiry,

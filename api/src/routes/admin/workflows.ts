@@ -33,14 +33,17 @@ export async function registerAdminWorkflowRoutes(app: FastifyInstance, ctx: Rou
     );
     return result;
   };
-  const guard = { preHandler: app.requireAdmin };
-  app.get('/admin/workflow-definitions/state', guard, () => service.state());
-  app.post('/admin/workflow-definitions/state', guard, (req) => mutate(req, 'state'));
-  app.get('/admin/workflow-definitions', guard, (req) => service.list(req.query));
-  app.post('/admin/workflow-definitions', guard, (req) => mutate(req, 'create'));
-  app.get('/admin/workflow-definitions/:id', guard, (req) => service.get(id(req)));
-  app.get('/admin/workflow-definitions/:id/versions', guard, (req) => service.versions(id(req), req.query));
-  app.get('/admin/workflow-definitions/:id/versions/:version', guard, (req) =>
+  app.get('/admin/workflow-definitions/state', { preHandler: app.requireAdmin }, () => service.state());
+  app.post('/admin/workflow-definitions/state', { preHandler: app.requireAdmin }, (req) =>
+    mutate(req, 'state'),
+  );
+  app.get('/admin/workflow-definitions', { preHandler: app.requireAdmin }, (req) => service.list(req.query));
+  app.post('/admin/workflow-definitions', { preHandler: app.requireAdmin }, (req) => mutate(req, 'create'));
+  app.get('/admin/workflow-definitions/:id', { preHandler: app.requireAdmin }, (req) => service.get(id(req)));
+  app.get('/admin/workflow-definitions/:id/versions', { preHandler: app.requireAdmin }, (req) =>
+    service.versions(id(req), req.query),
+  );
+  app.get('/admin/workflow-definitions/:id/versions/:version', { preHandler: app.requireAdmin }, (req) =>
     service.get(
       id(req),
       z.coerce
@@ -50,30 +53,36 @@ export async function registerAdminWorkflowRoutes(app: FastifyInstance, ctx: Rou
         .parse((req.params as { version: string }).version),
     ),
   );
-  app.post('/admin/workflow-definitions/:id/revise', guard, (req) =>
+  app.post('/admin/workflow-definitions/:id/revise', { preHandler: app.requireAdmin }, (req) =>
     mutate(req, 'revise', { workflow_id: id(req) }),
   );
-  app.post('/admin/workflow-definitions/:id/archive', guard, (req) =>
+  app.post('/admin/workflow-definitions/:id/archive', { preHandler: app.requireAdmin }, (req) =>
     mutate(req, 'archive', { workflow_id: id(req), action: 'archive' }),
   );
-  app.post('/admin/workflow-definitions/:id/restore', guard, (req) =>
+  app.post('/admin/workflow-definitions/:id/restore', { preHandler: app.requireAdmin }, (req) =>
     mutate(req, 'archive', { workflow_id: id(req), action: 'restore' }),
   );
-  app.post('/admin/workflow-definitions/:id/revert', guard, (req) =>
+  app.post('/admin/workflow-definitions/:id/revert', { preHandler: app.requireAdmin }, (req) =>
     mutate(req, 'revert', { workflow_id: id(req) }),
   );
-  app.get('/admin/workflow-runs', guard, (req) => service.runList(req.query));
-  app.post('/admin/workflow-runs', guard, (req) => mutate(req, 'run_create'));
-  app.get('/admin/workflow-runs/:id', guard, (req) => service.runGet(id(req), req.query));
-  app.get('/admin/workflow-runs/:id/events', guard, (req) => service.events(id(req), req.query));
-  app.get('/admin/workflow-runs/:id/report', guard, (req) => service.report(id(req)));
-  app.get('/admin/workflow-runs/:id/tasks/:taskId', guard, (req) =>
+  app.get('/admin/workflow-runs', { preHandler: app.requireAdmin }, (req) => service.runList(req.query));
+  app.post('/admin/workflow-runs', { preHandler: app.requireAdmin }, (req) => mutate(req, 'run_create'));
+  app.get('/admin/workflow-runs/:id', { preHandler: app.requireAdmin }, (req) =>
+    service.runGet(id(req), req.query),
+  );
+  app.get('/admin/workflow-runs/:id/events', { preHandler: app.requireAdmin }, (req) =>
+    service.events(id(req), req.query),
+  );
+  app.get('/admin/workflow-runs/:id/report', { preHandler: app.requireAdmin }, (req) =>
+    service.report(id(req)),
+  );
+  app.get('/admin/workflow-runs/:id/tasks/:taskId', { preHandler: app.requireAdmin }, (req) =>
     service.taskDetail(id(req), (req.params as { taskId: string }).taskId, req.query),
   );
-  app.post('/admin/workflow-runs/:id/control', guard, (req) =>
+  app.post('/admin/workflow-runs/:id/control', { preHandler: app.requireAdmin }, (req) =>
     mutate(req, 'run_control', { run_id: id(req) }),
   );
-  app.post('/admin/workflow-runs/:id/prepare-cancel', guard, (req) =>
+  app.post('/admin/workflow-runs/:id/prepare-cancel', { preHandler: app.requireAdmin }, (req) =>
     mutate(req, 'prepare_cancel', { run_id: id(req) }),
   );
 }

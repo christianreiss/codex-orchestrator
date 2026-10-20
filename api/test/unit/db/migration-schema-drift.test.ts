@@ -252,6 +252,16 @@ describe('migrations against the test baseline', () => {
       'agent_role_assignments',
       'agent_role_proposals',
       'agent_role_proposal_events',
+      'workflow_mutations',
+      'workflow_run_evaluations',
+      'workflow_run_events',
+      'workflow_run_invitations',
+      'workflow_run_members',
+      'workflow_run_tasks',
+      'workflow_runs',
+      'workflow_task_attempts',
+      'workflow_versions',
+      'workflows',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
