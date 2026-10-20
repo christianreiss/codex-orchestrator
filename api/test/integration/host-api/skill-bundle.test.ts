@@ -378,7 +378,7 @@ description: Shared lifecycle integration fixture
     const slugs = body.claude_skills.map((s: { slug: string }) => s.slug).sort();
     // These are MANAGED skills: derived from code, not skills rows, and
     // bundled to Claude hosts using the native fallback.
-    expect(slugs).toEqual(['afk', 'conference', 'git-commit', 'reviewer', 'skill-manager', 'wake-cron', 'watchdog']); // codex-only + deleted excluded
+    expect(slugs).toEqual(['afk', 'conference', 'git-commit', 'reboot-safe', 'reviewer', 'skill-manager', 'wake-cron', 'watchdog']); // codex-only + deleted excluded
 
     // `context` is retired, and its ABSENCE from this array is what deletes it
     // from every Claude host: applyClaudeSkillsResult prunes any slug in its
