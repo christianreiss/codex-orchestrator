@@ -103,6 +103,12 @@ func TestSharedReceiverElectsOnlyOneAndHandsOverAfterExit(t *testing.T) {
 	cancel1()
 	<-done1
 	waitOwner(t, second)
+	// Ownership is published before the receiver goroutine starts. Wait for
+	// that distinct event rather than racing its first counter increment.
+	deadline := time.Now().Add(3 * time.Second)
+	for runs.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
 	if runs.Load() != 2 {
 		t.Fatal("successor did not start after owner shutdown")
 	}

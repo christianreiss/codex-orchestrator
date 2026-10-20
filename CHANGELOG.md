@@ -1,6 +1,7 @@
 # 2026-10-20
 
 - **Feedback sweep (cxx 0.9.115).** Wrapper updates report pending privileged daemon installation when its binary differs, unavailable automatic receivers explain the supported informational CLI path, and peer startup failures retain bounded sanitized phase/code evidence without changing ambiguous-work recovery.
+- Workflows can opt in to required source and applicability receipts before linked tasks start. Receipts identify the claiming agent binding and pinned source; missing or mismatched sources remain visible. They are agent attestations, and historical workflows retain their previous behavior.
 - Explicit empty Git Director paths now clear previous declarations; omitted paths retain them. Long project-card release notes retain their full audit history while row summaries fit MySQL limits. Baseline regeneration now atomically emits deterministic MySQL-safe constraint/index names.
 
 - Added the shared code-managed `reboot-safe` Skill for authorized one-use host reboot/resume, including recovery exclusion and ownership reconciliation. Clarified disabled coordination and cluster claim keys. Managed quota guidance now handles older session catalogs without interrupting accepted work; served guidance digests deliberately change.
