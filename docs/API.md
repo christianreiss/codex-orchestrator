@@ -1312,7 +1312,7 @@ See [Workflows](workflows.md) for state transitions, recovery and delivery. All 
 - `GET /admin/workflow-runs` — List runs by workflow/status with bounded pagination.
 - `POST /admin/workflow-runs` — Prepare a pending run with workflow_id, version (latest or number), title and inputs.
 - `GET /admin/workflow-runs/:id` — Read durable state, membership and task summaries.
-- `GET /admin/workflow-runs/:id/events` — Read ordered events using after_sequence and limit.
+- `GET /admin/workflow-runs/:id/events` — Read ordered events using the sequence cursor and limit.
 - `GET /admin/workflow-runs/:id/report` — Read the live or frozen final report.
 - `GET /admin/workflow-runs/:id/tasks/:taskId` — Read task attempts and evidence.
 - `POST /admin/workflow-runs/:id/control` — Configure a pending run, pause/resume/block, request cancellation or recover coordinator according to actor authority.

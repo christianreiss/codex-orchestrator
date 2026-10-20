@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { adminUsers, hosts, workflowRuns } from '../../src/db/schema.js';
+import { adminUsers, agentRoomDeliveries, hosts, workflowRuns } from '../../src/db/schema.js';
 import { runMigrations } from '../../src/db/migrator.js';
 import { AdminAuthService } from '../../src/services/admin-auth.js';
 import { AgentMessagingService } from '../../src/services/agent-messaging.js';
@@ -280,6 +280,26 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
     run = await report(run.run_id);
     expect(run.communication?.room_id).toBeTruthy();
     const room = run.communication!.room_id;
+    const question = await chat<{ id: string }>(a, 'send', {
+      room_id: room,
+      client_request_id: randomUUID(),
+      content: 'Which artifact will you verify?',
+      recipients: [c.address],
+    });
+    const deliveries = await db
+      .select()
+      .from(agentRoomDeliveries)
+      .where(eq(agentRoomDeliveries.eventId, question.id));
+    expect(deliveries).toHaveLength(1);
+    await chat(c, 'send', {
+      room_id: room,
+      client_request_id: randomUUID(),
+      content: 'I will verify both recorded hashes.',
+      reply_to: question.id,
+    });
+    expect(
+      await db.select().from(agentRoomDeliveries).where(eq(agentRoomDeliveries.eventId, question.id)),
+    ).toHaveLength(1);
     await call(
       outsider,
       'task-claim',
@@ -348,6 +368,15 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
     expect(run.report_url).toBe(url);
     expect(run.communication!.room_id).toBe(room);
     expect(run.tasks.filter((t) => t.status === 'succeeded')).toHaveLength(2);
+    for (const taskId of ['alpha', 'beta']) {
+      const detail = await request<{ task: { outputs: { hash: string } } }>(
+        `/admin/workflow-runs/${run.run_id}/tasks/${taskId}`,
+      );
+      const observed = createHash('sha256')
+        .update(await readFile(join(root, `${taskId}.txt`)))
+        .digest('hex');
+      expect(detail.task.outputs.hash).toBe(observed);
+    }
     const claim = await call<Claim>(c, 'task-claim', {
       run_id: run.run_id,
       task_id: 'verify',
