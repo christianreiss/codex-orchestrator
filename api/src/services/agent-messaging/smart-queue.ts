@@ -35,6 +35,7 @@ export function queuePolicy(input: QueuePolicy | undefined, work = false) {
   return { deliveryClass, coalesceKey: v.coalesce_key ?? null, relatedWorkId: v.related_work_id ?? null };
 }
 export function smartQueueAllowed(env: Env, hostId: number, receiver: unknown): boolean {
+  if (peerBatchAllowed(env, receiver)) return true;
   const allowed =
     env.CXX_QUEUE_DELIVERY_V1_HOST_IDS?.split(',')
       .map((x) => x.trim())
@@ -47,6 +48,12 @@ export function smartQueueAllowed(env: Env, hostId: number, receiver: unknown): 
     (receiver as { queue_delivery_v1?: boolean }).queue_delivery_v1 === true
   );
 }
+/** Full-content batching is negotiated independently of preview-only smart digests. */
+export function peerBatchAllowed(env: Env, receiver: unknown): boolean {
+  return env.CXX_PEER_BATCH_V1_ENABLED !== false && !!receiver && typeof receiver === 'object' &&
+    (receiver as { peer_batch_v1?: boolean }).peer_batch_v1 === true;
+}
+
 export function assertQueuePolicyReplay(message: AgentBusMessage, policy: ReturnType<typeof queuePolicy>) {
   if (
     (message.deliveryClass ?? 'information') !== policy.deliveryClass ||
@@ -369,7 +376,7 @@ export async function prepareSmartDigest(
     );
 }
 /** Rollback restores only certainly unpresented groups. Ambiguous/accepted groups never replay. */
-export async function restoreUnpresentedDigests(tx: AgentMessagingDb, targetId: string, disabled: boolean) {
+export async function restoreUnpresentedDigests(tx: AgentMessagingDb, targetId: string, disabled: boolean, fullBatchPolicy?: { allowed: boolean; keyring: Keyring }) {
   const now = nowIso();
   await tx
     .update(agentBusMessages)
@@ -395,6 +402,8 @@ export async function restoreUnpresentedDigests(tx: AgentMessagingDb, targetId: 
   for (const root of roots) {
     // Accepted/uncertain presentations may already be in the native transcript.
     if (root.acceptedAt) continue;
+    const fullBatchDisabled = fullBatchPolicy && !fullBatchPolicy.allowed &&
+      JSON.parse(decrypt(root.contentEnc, fullBatchPolicy.keyring)).presentation === 'peer_batch_v1';
     const [changedMember] = await tx
       .select({ id: agentBusMessages.id })
       .from(agentBusMessages)
@@ -402,7 +411,7 @@ export async function restoreUnpresentedDigests(tx: AgentMessagingDb, targetId: 
       .limit(1);
     if (
       !changedMember &&
-      !(['expired', 'dead', 'canceled'].includes(root.status) || (disabled && root.status === 'queued'))
+      !(['expired', 'dead', 'canceled'].includes(root.status) || ((disabled || fullBatchDisabled) && root.status === 'queued'))
     )
       continue;
     if (['queued', 'leased'].includes(root.status))

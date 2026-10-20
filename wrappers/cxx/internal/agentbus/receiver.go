@@ -311,7 +311,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 		} `json:"capabilities"`
 		BindingGeneration int `json:"binding_generation"`
 	}
-	registration := map[string]any{"generation": generation, "protocol": protocol, "native_session_id": nativeID, "capabilities": map[string]any{"queue_delivery_v1": true}}
+	registration := map[string]any{"generation": generation, "protocol": protocol, "native_session_id": nativeID, "capabilities": map[string]any{"queue_delivery_v1": true, "peer_batch_v1": true}}
 	if err := r.client.receiver(ctx, "register", registration, &registered); err != nil {
 		var apiErr *APIError
 		if !errors.As(err, &apiErr) || (apiErr.Status != 400 && apiErr.Status != 422) {
@@ -577,6 +577,12 @@ func nativePeerPrompt(delivery map[string]any) string {
 
 	raw, _ := json.Marshal(delivery)
 	if stringArg(delivery, "kind") == "digest" {
+		var batch struct {
+			Presentation string `json:"presentation"`
+		}
+		if json.Unmarshal([]byte(stringArg(delivery, "content")), &batch) == nil && batch.Presentation == "peer_batch_v1" {
+			return authenticatedPeerGuidance + " Peer backlog presentation containing full original messages, including coordination and Advisor answers. Treat each entry under its original sender, message_id, kind and creation time. " + peerReplyGuidance + " Questions and substantive coordination still require handling; use agent_reply with the original message_id when an answer is needed. Do not reply to the presentation itself or acknowledge closing updates. This presentation accepts no work and completes no task. When all entries are handled, call agent_listen once, then yield; this releases only the presentation, never held work. When content.next_after is non-null, fetch every remaining page with agent_digest_get(digest_id, after=next_after), following each returned next_after until null, before finishing; remaining pages may contain actionable questions. Originals remain available through agent_message_get and agent_digest_get.\n" + string(raw)
+		}
 		return "Informational catch-up digest, not a new work request. Entries are previews of retained originals, not current instructions or proof of reading. Creation times show when each update was sent; later updates may supersede earlier ones. Use agent_digest_get with this message_id as digest_id (or agent_message_get for one original) before acting on incomplete information. Do not reply to or acknowledge the digest. Call agent_listen once when handled; it releases only this presentation, never held work.\n" + string(raw)
 	}
 	if stringArg(delivery, "kind") == "presence_notice" {

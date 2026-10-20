@@ -1,5 +1,7 @@
 # 2026-10-20
 
+- **Peer backlog reception (cxx 0.9.110).** Stale non-work mail, including full Advisor answers and coordination questions, is presented once with paginated originals instead of one continuation turn per message. Original history and reply IDs remain available; accepted work and work results keep their delivery semantics. New receivers negotiate this independently of preview-only digests; `CXX_PEER_BATCH_V1_ENABLED=false` rolls it back.
+
 - **Fleet Advisor reliability and instructions.** Failed turns deliver their diagnostic reply, and a turn without a valid verdict clears the preceding verdict. Engines with no policy-allowed model are excluded from readiness; an entirely empty selection reports unavailable instead of failing during launch. Advisor prompts identify the selected model, list available tiers, define verdict meanings and the evidence object schema, and treat supplied code/prompts as evidence. Follow-up instructions include the required idempotency UUID and retain the original request kind.
 
 # 2026-10-19

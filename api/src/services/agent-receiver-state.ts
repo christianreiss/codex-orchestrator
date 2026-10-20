@@ -18,6 +18,7 @@ export interface ReceiverState {
   /** Negotiated once per connection; replaying registration preserves it. */
   activity_v1?: boolean;
   queue_delivery_v1?: boolean;
+  peer_batch_v1?: boolean;
   probes: Partial<Record<ReceiverSource, ReceiverSourceState>>;
 }
 export const RECEIVER_FRESH_MS = 45_000;
@@ -64,6 +65,7 @@ export function receiverView(raw: unknown, now = Date.now()) {
     heartbeat_at: s.heartbeat_at,
     failure: s.failure,
     queue_delivery_v1: s.queue_delivery_v1 === true,
+    peer_batch_v1: s.peer_batch_v1 === true,
     sources,
     state: s.failure ? 'failed' : !fresh || !sources.length ? 'unavailable' : 'ready',
   };
