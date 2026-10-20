@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { workflowRunTasks, workflowTaskAttempts } from '../../db/schema.js';
+import { workflowTaskAttempts } from '../../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../http/errors.js';
 import type { MutationInput } from './contract.js';
 import {
@@ -137,7 +137,14 @@ export async function taskClaim(ctx: Session, run: Run, input: MutationInput<'ta
     task_id: t.taskId,
     task_version: t.version,
     ...(input.action === 'reconcile'
-      ? { stage: input.stage, resolution: input.resolution ?? null, reason: input.reason }
+      ? {
+          stage: input.stage,
+          resolution: input.resolution ?? null,
+          reason: input.reason,
+          evidence: input.evidence ?? [],
+          old_execution_stopped: input.old_execution_stopped ?? false,
+          execution_host: input.execution_host ?? null,
+        }
       : {}),
     claim_generation: t.claimGeneration,
   });

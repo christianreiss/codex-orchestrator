@@ -73,6 +73,13 @@ const data = z.record(z.unknown()).superRefine((v, ctx) => {
   if (Buffer.byteLength(JSON.stringify(v)) > WORKFLOW_LIMITS.textBytes)
     ctx.addIssue({ code: 'custom', message: 'Data exceeds 64 KiB' });
 });
+function validWebUri(value: string) {
+  try {
+    return Boolean(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+}
 export const referenceUri = z
   .string()
   .max(2048)
@@ -80,7 +87,9 @@ export const referenceUri = z
     (v) =>
       /^(shared:\/\/[^\s]+|project:\/\/[^\s]+\/(memory|files)\/[^\s]+|skill:\/\/[^\s]+|https?:\/\/[^\s]+)$/.test(
         v,
-      ) && !/[\u0000-\u0020]/.test(v),
+      ) &&
+      Array.from(v).every((char) => char.charCodeAt(0) > 32) &&
+      (!/^https?:/.test(v) || validWebUri(v)),
     'Use shared://, project://…/memory/… or /files/…, skill://, http:// or https://',
   );
 const inputSchema = z

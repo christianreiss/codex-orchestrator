@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { workflowRunInvitations, workflowRunMembers, workflowTaskAttempts } from '../../db/schema.js';
+import {
+  workflowRunInvitations,
+  workflowRunMembers,
+  workflowTaskAttempts,
+  workflowRuns,
+} from '../../db/schema.js';
 import { ConflictError, ForbiddenError, NotFoundError, ServiceUnavailableError } from '../../http/errors.js';
 import {
   WORKFLOW_LIMITS,
@@ -75,9 +80,9 @@ export async function syncGroup(
     run.communicationGroupId = group.group_id;
     run.communication = { ...group };
     await ctx.tx
-      .update((await import('../../db/schema.js')).workflowRuns)
+      .update(workflowRuns)
       .set({ communicationGroupId: group.group_id, communication: { ...group } })
-      .where(eq((await import('../../db/schema.js')).workflowRuns.id, run.id));
+      .where(eq(workflowRuns.id, run.id));
   }
 }
 export async function invite(
