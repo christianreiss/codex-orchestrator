@@ -22,6 +22,8 @@ const ROOT = resolve(import.meta.dirname, '../../../..');
 const RUN = /\bfunc runMode\(args \[\]string, stdout, stderr io\.Writer, native bool, choices \.\.\.\*quotaadvice\.Session\)[^\n]*\{/;
 /** Native and wrapper entries share runMode(); other switch blocks are helpers. */
 const DISPATCH = 'switch sub {';
+/** Codex routes conversations before its utility switch. Both are public dispatch. */
+const CODEX_SESSION = /\bfunc sessionCommandArgs\(sub string, args, passthrough \[\]string\) \(\[\]string, bool\) \{/;
 
 /** cgx resolves its subcommands while parsing argv, not in a run() switch. */
 const GROK_PARSE = /\bfunc parse\(args \[\]string\) \(options, error\) \{/;
@@ -80,7 +82,16 @@ const dispatchedSubcommands = (wrapper: (typeof WRAPPERS)[number]): string[] => 
   const body = block(source, fn.index + fn[0].length - 1);
   const dispatch = body.indexOf(wrapper.dispatch);
   if (dispatch < 0) throw new Error(`"${wrapper.dispatch}" not found in ${wrapper.main}`);
-  return caseNames(block(body, dispatch + wrapper.dispatch.length - 1)).filter((name) => !name.startsWith('-'));
+  const names = caseNames(block(body, dispatch + wrapper.dispatch.length - 1));
+  if (wrapper.name === 'cdx') {
+    const session = CODEX_SESSION.exec(source);
+    if (!session) throw new Error(`Codex conversation dispatch not found in ${wrapper.main}`);
+    const sessionBody = block(source, session.index + session[0].length - 1);
+    const sessionSwitch = sessionBody.indexOf(DISPATCH);
+    if (sessionSwitch < 0) throw new Error('Codex conversation switch not found');
+    names.push(...caseNames(block(sessionBody, sessionSwitch + DISPATCH.length - 1)));
+  }
+  return [...new Set(names)].filter((name) => !name.startsWith('-'));
 };
 
 const CLI_SURFACE = '## CLI surface';
