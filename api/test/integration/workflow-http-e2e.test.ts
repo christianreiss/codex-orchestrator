@@ -12,6 +12,7 @@ import { AgentMessagingService } from '../../src/services/agent-messaging.js';
 import { registerAgentMessagingRoutes } from '../../src/routes/agent-messaging/index.js';
 import { registerAdminWorkflowRoutes } from '../../src/routes/admin/workflows.js';
 import { registerAgentRoomChatRoutes } from '../../src/routes/agent-room-chat.js';
+import { registerMcpRoutes } from '../../src/routes/mcp/index.js';
 import { buildAppWithDb } from '../helpers/build-app.js';
 import { getTestDb } from '../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../helpers/test-keyring.js';
@@ -23,6 +24,8 @@ interface Client {
   token: string;
   address: string;
   host: string;
+  apiKey: string;
+  engine: string;
 }
 interface Task {
   task_id: string;
@@ -69,6 +72,7 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
     const ctx = { db, env, keyring };
     await registerAgentMessagingRoutes(app, ctx);
     await registerAdminWorkflowRoutes(app, ctx);
+    await registerMcpRoutes(app, ctx);
     registerAgentRoomChatRoutes(app, ctx);
     base = await app.listen({ host: '127.0.0.1', port: 0 });
   }
@@ -103,6 +107,18 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
       expected,
     );
   const report = (id: string) => request<Run>(`/admin/workflow-runs/${id}/report`);
+  async function mcp(client: Client, method: string, params: Json) {
+    const response = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': client.apiKey, 'x-engine': client.engine },
+      body: JSON.stringify({ jsonrpc: '2.0', id: randomUUID(), method, params }),
+    });
+    const payload = await response.json();
+    expect(response.status, JSON.stringify(payload)).toBe(200);
+    expect(payload.error).toBeUndefined();
+    expect(payload.result.isError).not.toBe(true);
+    return payload.result;
+  }
 
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), 'workflow-http-'));
@@ -128,9 +144,11 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
     await bus.setEnabled(true);
     for (const [index, engine] of (['codex', 'claude', 'grok', 'codex'] as const).entries()) {
       const host = `${prefix}-${index}.example`;
+      const apiKey = randomBytes(32).toString('hex');
       await db.insert(hosts).values({
         fqdn: host,
-        apiKey: randomBytes(32).toString('hex'),
+        apiKey: createHash('sha256').update(apiKey).digest('hex'),
+        apiKeyHash: createHash('sha256').update(apiKey).digest('hex'),
         status: 'active',
         secure: 1,
         engines: engine,
@@ -160,7 +178,14 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
           workflow_protocol_version: 1,
         },
       });
-      clients.push({ session, token, address: (registration.address as { id: string }).id, host });
+      clients.push({
+        session,
+        token,
+        address: (registration.address as { id: string }).id,
+        host,
+        apiKey,
+        engine,
+      });
     }
     await start();
     await request('/admin/workflow-definitions/state', { enabled: true, client_request_id: randomUUID() });
@@ -246,6 +271,15 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
       reason: 'Acceptance fixture',
     });
     workflowIds.push(definition.workflow_id);
+    for (const client of [a, b, c]) {
+      const result = await mcp(client, 'tools/call', {
+        name: 'workflow_get',
+        arguments: { workflow_id: definition.workflow_id, version: 1 },
+      });
+      expect(JSON.parse(result.content[0].text).document).toMatchObject(document);
+    }
+    const resource = await mcp(a, 'resources/read', { uri: `workflow://${prefix}@1` });
+    expect(resource.contents[0].text).toContain('Two artifacts have verified hashes');
     let run = await call<Run>(a, 'run-create', {
       workflow_id: definition.workflow_id,
       title: 'HTTP acceptance',
@@ -366,6 +400,11 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
     await start(); // New API/service instances against the same durable database.
     run = await report(run.run_id);
     expect(run.report_url).toBe(url);
+    const mcpReport = await mcp(c, 'tools/call', {
+      name: 'workflow_run_get',
+      arguments: { run_id: run.run_id },
+    });
+    expect(JSON.parse(mcpReport.content[0].text)).toMatchObject({ run_id: run.run_id, report_url: url });
     expect(run.communication!.room_id).toBe(room);
     expect(run.tasks.filter((t) => t.status === 'succeeded')).toHaveLength(2);
     for (const taskId of ['alpha', 'beta']) {
