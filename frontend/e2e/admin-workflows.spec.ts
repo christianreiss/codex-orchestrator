@@ -123,3 +123,16 @@ test("coarse-pointer report actions and enlarged text retain access",async({brow
   const copy=page.getByRole("button",{name:"Copy link",exact:true});const bounds=await copy.boundingBox();expect(bounds?.height).toBeGreaterThanOrEqual(44);expect(bounds?.width).toBeGreaterThanOrEqual(44);
   await page.addStyleTag({content:"html{font-size:200% !important}"});expect(await page.locator("main").evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(2);await expect(copy).toBeVisible();await context.close();
 });
+
+
+test("execution prerequisite failures remain distinct from an empty catalog or a prepared run",async({page})=>{
+  await fixtures(page);const unavailable_reason="Agent Messaging is disabled. Definitions and prepared runs remain manageable; enable Agent Messaging for agent execution and invitations.";
+  await page.route("**/admin/workflow-definitions/state",route=>route.fulfill({json:{enabled:true,messaging_enabled:false,unavailable_reason}}));
+  await page.goto(`/admin/workflows/runs/${RUN_ID}`);await expect(page.getByText(unavailable_reason,{exact:true})).toBeVisible();await expect(page.getByRole("link",{name:"Agent Messaging settings",exact:true})).toHaveAttribute("href","/admin/agent-messaging");await expect(page.getByRole("heading",{name:"Release 42 verification",exact:true})).toBeVisible();
+});
+
+test("claim expiry uses the observed server clock despite workstation skew",async({page})=>{
+  await page.clock.install({time:new Date("2039-01-01T00:00:00Z")});const {report}=await fixtures(page);report.status="running";report.outcome=null;report.tasks[0].status="running";report.tasks[0].claim={owner_address_id:AGENT_ID,generation:1,lease_until:"2026-10-20T10:30:00Z",recovery:false};
+  await page.goto(`/admin/workflows/runs/${RUN_ID}`);await expect(page.getByRole("heading",{name:"Release 42 verification",exact:true})).toBeVisible();await expect(page.getByText("Uncertain attempts require reconciliation",{exact:false})).toHaveCount(0);
+  await page.clock.fastForward(31*60*1000);await expect(page.getByText("Uncertain attempts require reconciliation",{exact:false})).toBeVisible();
+});

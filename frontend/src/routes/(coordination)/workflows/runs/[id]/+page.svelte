@@ -8,6 +8,7 @@
   import { workflowRunKeys, workflowKeys, workflowsApi, type WorkflowDefinition } from "$lib/api/workflows";
   import { PageShell, Section, StateBlock, Timestamp } from "$lib/components/page";
   import { Button } from "$lib/components/ui/button";
+  import WorkflowAvailability from "$lib/components/workflows/WorkflowAvailability.svelte";
   import WorkflowStatus from "$lib/components/workflows/WorkflowStatus.svelte";
   import WorkflowMarkdown from "$lib/components/workflows/WorkflowMarkdown.svelte";
   import WorkflowFacts from "$lib/components/workflows/WorkflowFacts.svelte";
@@ -20,11 +21,12 @@
   const id = $derived($page.params.id ?? "");
   const report = createQuery(reactiveOptions(() => ({ queryKey: workflowRunKeys.report(id), queryFn: () => workflowsApi.report(id), enabled: canRead })));
   const events = createInfiniteQuery(reactiveOptions(() => ({ queryKey: workflowRunKeys.events(id), queryFn: ({ pageParam }: { pageParam: string | undefined }) => workflowsApi.events(id,pageParam), initialPageParam: undefined as string | undefined, getNextPageParam: (last: { next_cursor: string | number | null }) => last.next_cursor == null ? undefined : String(last.next_cursor), enabled: canRead })));
-  const run = $derived($report.data);
+  const run = $derived(canRead ? $report.data : undefined);
   const taskPages = createInfiniteQuery(reactiveOptions(() => ({ queryKey: workflowRunKeys.tasks(id), queryFn: ({ pageParam }: { pageParam: string | undefined }) => workflowsApi.runGet(id,pageParam), initialPageParam: undefined as string | undefined, getNextPageParam: (last: { next_cursor?: string | number | null }) => last.next_cursor == null ? undefined : String(last.next_cursor), enabled: canRead && !!run })));
   let now = $state(Date.now());
   onMount(() => { const timer = setInterval(() => now = Date.now(), 1000); return () => clearInterval(timer); });
-  const taskRows = $derived(($taskPages.data?.pages.flatMap(p => p.tasks) ?? run?.tasks ?? []).map(task => task.status === "running" && task.claim && Date.parse(task.claim.lease_until) <= now ? { ...task, status: "uncertain" } : task));
+  const estimatedServerNow = $derived(run?.server_time ? Date.parse(run.server_time) + (now - $report.dataUpdatedAt) : null);
+  const taskRows = $derived(($taskPages.data?.pages.flatMap(p => p.tasks) ?? run?.tasks ?? []).map(task => task.status === "running" && task.claim && estimatedServerNow !== null && Date.parse(task.claim.lease_until) <= estimatedServerNow ? { ...task, status: "uncertain" } : task));
   const appliedVersion = createQuery(reactiveOptions(() => ({ queryKey: workflowKeys.definition(run?.workflow_id ?? "", run?.evaluation?.applied_version), queryFn: () => workflowsApi.get(run!.workflow_id,run!.evaluation!.applied_version), enabled: canRead && !!run?.evaluation?.applied_version })));
   const evaluation = $derived(run?.evaluation?.draft ?? run?.evaluation);
   const facts = $derived(run?.results ?? (run?.report?.results as Record<string, unknown> | undefined) ?? {});
@@ -41,6 +43,8 @@
   {#snippet actions()}<Button href={`${base}/workflows/runs`} variant="outline">All runs</Button>{#if run}<Button variant="outline" onclick={() => copy(run.report_url, "Report link")}>Copy link</Button>{/if}{/snippet}
   {#if !canRead}<StateBlock state="empty" message="Workflow access required" description="Ask an owner for workflows.read to inspect this report." />{:else if $report.isPending}<StateBlock state="loading" />{:else if $report.isError}<StateBlock state="error" message={run ? "Refresh failed. Showing the previously loaded report; its data may be stale." : `Could not load run report. ${$report.error.message}`} onRetry={() => $report.refetch()} />{/if}
   {#if run}
+
+    <WorkflowAvailability />
     <div class="flex flex-wrap items-center gap-2" aria-label="Run state"><WorkflowStatus value={run.status} />{#if run.outcome}<WorkflowStatus value={run.outcome} />{:else}<span class="text-body-sm text-muted-foreground">Outcome not yet recorded</span>{/if}<span class="text-body-sm text-muted-foreground">Updated <Timestamp value={run.updated_at} /></span>{#if $report.isFetching}<span role="status" class="text-body-sm text-muted-foreground">Refreshing…</span>{/if}</div>
     <dl class="grid min-w-0 gap-x-6 gap-y-3 border-b pb-4 text-body-sm sm:grid-cols-2"><div><dt class="text-muted-foreground">Workflow</dt><dd><a class="break-all underline" href={`${base}/workflows/definitions/${encodeURIComponent(run.workflow_slug ?? run.workflow_id)}?version=${run.workflow_version}`}>{run.document?.title ?? run.workflow_slug ?? "Workflow"} · Version {run.workflow_version}</a></dd></div><div><dt class="text-muted-foreground">Coordinator</dt><dd class="break-all">{run.coordinator ? memberName(run.coordinator.address_id) : "Awaiting an agent"}{#if run.coordinator}<span class="block text-caption text-muted-foreground">Lease until <Timestamp value={run.coordinator.lease_until} /></span>{/if}</dd></div><div><dt class="text-muted-foreground">Started / finished</dt><dd><Timestamp value={run.started_at} fallback="Not started" /> / <Timestamp value={run.completed_at ?? run.finished_at} fallback="Not finished" /></dd></div><div><dt class="text-muted-foreground">Duration</dt><dd>{duration}</dd></div></dl>
     <p role="status" class="text-body-sm text-muted-foreground">{copied ? `${copied} copied.` : ""}</p>{#if copyError}<p role="alert" class="text-body-sm text-destructive">{copyError}</p>{/if}
@@ -50,7 +54,7 @@
       {#if run.status === "pending"}<p>Give the assignment below to an existing agent to begin. Preparation does not launch a session.</p>{/if}
       {#if run.status === "evaluating"}<p class="font-semibold">Evaluation pending</p><p>Work has ended. The coordinator must assess the evidence and either improve the workflow or explain why no change is needed before this run can complete.</p>{/if}
       {#if run.cancel_requested}<p>Cancellation requested. Existing external work must be checked before its outcome can be recorded.</p>{/if}
-      {#if run.coordinator && Date.parse(run.coordinator.lease_until) < now && run.status !== "completed"}<p>Coordinator lease expired. Recover coordination without restarting tasks automatically.</p>{/if}
+      {#if run.coordinator && estimatedServerNow !== null && Date.parse(run.coordinator.lease_until) < estimatedServerNow && run.status !== "completed"}<p>Coordinator lease expired. Recover coordination without restarting tasks automatically.</p>{/if}
       {#if issues.length}<ul class="list-inside list-disc space-y-2">{#each issues as issue}<li class="break-words">{displayValue(issue)}</li>{/each}</ul>{/if}
       {#if taskRows.some(t => t.status === "uncertain")}<p>Uncertain attempts require reconciliation of the old process and target system before another attempt can start.</p>{/if}
     </div></Section>{/if}

@@ -206,7 +206,7 @@ The current `PageShell` already uses a 20 px title, while `text-h1` is 30 px and
 
 ## 8. Baseline inventory and migration debt
 
-This is a source audit, not a live visual acceptance report. All 39 `+page.svelte` entrypoints are represented below, including redirects and the legacy catch-all. Route groups such as `(providers)` do not appear in browser URLs. Paths in this table include the `/admin` base. Child project pages inherit `PageShell` from their layout. “Step-2 check” is an unverified risk to exercise, not a confirmed defect.
+This is a source audit, not a live visual acceptance report. All 39 `+page.svelte` entrypoints are represented below, including redirects and the legacy catch-all. The five workflow routes were added on 2026-10-20 with automated interaction and responsive coverage; manual screen-reader and independent usability acceptance remain separate. Route groups such as `(providers)` do not appear in browser URLs. Paths in this table include the `/admin` base. Child project pages inherit `PageShell` from their layout. “Step-2 check” is an unverified risk to exercise, not a confirmed defect.
 
 | Current entry / view | Primary task and pattern | Existing composition | Step-2 check |
 | --- | --- | --- | --- |
