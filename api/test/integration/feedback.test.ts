@@ -335,7 +335,7 @@ describe.skipIf(!handle)('central feedback with real MySQL', () => {
   it.each(['codex', 'claude', 'grok'] as const)('%s: MCP discovery/calls follow the switch in the same registry', async (engine) => {
     const registry = new McpToolsRegistry({ feedback: service } as unknown as ToolDeps);
     const host = { id: 700 } as Host;
-    expect((await registry.listAvailable()).filter((t) => t.name.startsWith('feedback_'))).toHaveLength(5);
+    expect((await registry.listAvailable()).filter((t) => t.name.startsWith('feedback_'))).toHaveLength(7);
     const result = await registry.dispatch('feedback_submit', report(), host, 'host', engine);
     const data = JSON.parse((result as { content: { text: string }[] }).content[0]!.text);
     ids.push(data.feedback.id);

@@ -21,6 +21,10 @@
   let expected = $state("");
   let actual = $state("");
   let versions = $state("");
+  let probeEndpoint = $state('');
+  let probePointer = $state('/ok');
+  let probeExpected = $state('true');
+  let probeError = $state('');
   // The same draft keeps the same request id, so a retry after a dropped connection is replayed, not duplicated.
   let identity: { digest: string; id: string } | null = null;
 
@@ -28,6 +32,7 @@
     mutationFn: feedbackApi.submit,
     onSuccess: ({ feedback }) => {
       title = ""; description = ""; reproduction = ""; expected = ""; actual = ""; versions = ""; identity = null;
+      probeEndpoint = ''; probeError = '';
       open = false;
       void qc.invalidateQueries({ queryKey: feedbackKeys.all });
       toast.success("Report submitted");
@@ -37,12 +42,22 @@
   });
 
   function submit() {
+    let retest: import('$lib/api/feedback').FeedbackProbe | undefined;
+    probeError = '';
+    if (probeEndpoint) {
+      try {
+        const value = JSON.parse(probeExpected);
+        if (typeof value === 'object' && value !== null) throw new Error('Use a string, number, boolean or null');
+        retest = { endpoint: probeEndpoint as 'health' | 'versions', pointer: probePointer, equals: value };
+      } catch { probeError = 'Expected value must be a JSON string, number, boolean or null.'; return; }
+    }
     const report = {
       type, title, description, component, priority,
       ...(reproduction.trim() ? { reproduction } : {}),
       ...(expected.trim() ? { expected } : {}),
       ...(actual.trim() ? { actual } : {}),
       ...(versions.trim() ? { versions } : {}),
+      ...(retest ? { retest } : {}),
     };
     const digest = JSON.stringify(report);
     if (!identity || identity.digest !== digest) identity = { digest, id: crypto.randomUUID() };
@@ -81,6 +96,14 @@
             <FormField id="nr-actual" label="Actual behavior"><textarea id="nr-actual" class={areaClass} bind:value={actual} maxlength="32000"></textarea></FormField>
           </div>
           <FormField id="nr-versions" label="Versions"><input id="nr-versions" class={controlClass} bind:value={versions} maxlength="1000" /></FormField>
+          <FormField id="nr-probe" label="Automatic API retest" hint="The server checks this read-only assertion. Other reproduction steps remain in the report.">
+            <select id="nr-probe" class={controlClass} bind:value={probeEndpoint}><option value="">No supported API assertion</option><option value="health">GET /healthz</option><option value="versions">GET /versions</option></select>
+          </FormField>
+          {#if probeEndpoint}
+            <FormField id="nr-pointer" label="Response JSON pointer"><input id="nr-pointer" class={controlClass} bind:value={probePointer} maxlength="300" placeholder="/ok" /></FormField>
+            <FormField id="nr-probe-expected" label="Expected JSON value"><input id="nr-probe-expected" class={controlClass} bind:value={probeExpected} maxlength="1000" placeholder="true" /></FormField>
+          {/if}
+          {#if probeError}<p role="alert" class="text-body-sm text-destructive">{probeError}</p>{/if}
         </div>
       </details>
       <Dialog.Footer>

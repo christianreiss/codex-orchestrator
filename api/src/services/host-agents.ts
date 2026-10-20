@@ -23,6 +23,7 @@ import { GitDirectorService, GIT_DIRECTOR_ENABLED_FLAG } from './git-director.js
 import { DEFAULT_GIT_COMMIT_SETTINGS, readGitCommitSettings } from './git-commit-settings.js';
 import { AgentTransfersService, TRANSFERS_ENABLED_FLAG } from './agent-transfers.js';
 import { FEEDBACK_ENABLED_KEY } from './feedback-contract.js';
+import { FEEDBACK_MODE_KEY } from './feedback/contract.js';
 import { WORKFLOWS_MIN_CXX_VERSION } from './managed-workflows-skill.js';
 import { ROLES_ENABLED_KEY, ROLES_MIN_CXX_VERSION } from './roles/contract.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
@@ -408,6 +409,7 @@ export class HostAgentsService {
       transferCount,
       gitCommitSettings,
       feedbackEnabled,
+      feedbackMode,
       modelTierCheckEnabled,
       fleetEngines,
       modelPolicies,
@@ -435,6 +437,7 @@ export class HostAgentsService {
       // like the neighbouring policy readers; defaults never add attribution.
       readGitCommitSettings(this.settings).catch(() => ({ ...DEFAULT_GIT_COMMIT_SETTINGS })),
       this.settings.getFlag(FEEDBACK_ENABLED_KEY, false).catch(() => null),
+      this.settings.getRaw(FEEDBACK_MODE_KEY).catch(() => null),
       this.settings.getFlag(MODEL_TIER_CHECK_ENABLED_KEY, true).catch(() => null),
       readFleetEngineState(this.db),
       // A missing settings table must not hide the check: fall back to the
@@ -607,6 +610,7 @@ export class HostAgentsService {
         : !mcp.enabled ? state(false, mcp.reason)
         : !feedbackEnabled ? state(false, 'feedback_disabled')
         : state(true, 'ok'),
+      feedbackMode: feedbackMode === 'user' ? 'user' : 'source_developer',
       gitCommitSettings,
       modelTiers,
     };

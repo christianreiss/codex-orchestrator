@@ -5,6 +5,7 @@
   import { StateBlock } from "$lib/components/page";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { feedbackApi, feedbackKeys } from "$lib/api/feedback";
+  import FeedbackReview from "./FeedbackReview.svelte";
   import ReportTriageForm from "./ReportTriageForm.svelte";
   import { actorLabel, humanize } from "./report-model";
 
@@ -39,12 +40,14 @@
       <p class="mt-1 break-words text-caption text-muted-foreground">Reported <Timestamp value={item.created_at} /> by {actorLabel(item.source)}</p>
     </div>
 
+    <FeedbackReview {item} {canManage} />
+
     <div class="space-y-3 border-y py-4">
       <h4 class="text-body font-semibold">Original report</h4>
       {#each Object.entries(item.report ?? {}) as [key, value] (key)}
         <div>
           <h5 class="text-caption font-medium uppercase text-muted-foreground">{key}</h5>
-          <p class="whitespace-pre-wrap break-words text-body-sm">{value}</p>
+          <p class="whitespace-pre-wrap break-words text-body-sm">{typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}</p>
         </div>
       {/each}
     </div>
@@ -53,7 +56,7 @@
       <div class="space-y-2">
         <h4 class="text-body font-semibold">Outcome</h4>
         {#each Object.entries(item.result) as [key, value] (key)}
-          {#if value}<p class="whitespace-pre-wrap break-words text-body-sm"><strong>{key}:</strong> {value}</p>{/if}
+          {#if value}<p class="whitespace-pre-wrap break-words text-body-sm"><strong>{key}:</strong> {typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}</p>{/if}
         {/each}
       </div>
     {/if}

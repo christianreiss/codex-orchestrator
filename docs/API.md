@@ -1141,6 +1141,10 @@ Audio and video preparation runs locally in the isolated `media-worker` service 
 
 ### Feedback admin endpoints
 
+- `GET /admin/feedback/configuration` — feedback mode, explicit runner engine/model, automatic-publication opt-in, revision and token presence; never token material.
+- `POST /admin/feedback/configuration` — `{expected_revision, config:{mode,auto_publish,runner_enabled,engine,model}, token?, disconnect?}`. Revision-checked, audited settings; a supplied classic GitHub PAT is secretbox-encrypted. Existing installations retain `source_developer`; fresh baselines select `user`. Outbound reporting and runner use remain opt-in.
+- `POST /admin/feedback/preflight` — `{title,component?}`; reads baked build identity and searches open/closed upstream issues. Does not publish or pass the gate.
+- `POST /admin/feedback/:id/recheck` — `{expected_version}` queues a User-mode review of this local report, or reconciliation of an uncertain publication. Old developer reports require this explicit selection before entering the pipeline.
 - `GET /admin/feedback/state` — activation state (default off).
 - `GET /admin/feedback/summary` — `{open, in_progress, blocked}` counts for the console's top-bar indicator; expired claims are released first, so abandoned work counts as open.
 - `POST /admin/feedback/state` — set `{enabled:boolean}`; dynamic agent guidance follows on sync.

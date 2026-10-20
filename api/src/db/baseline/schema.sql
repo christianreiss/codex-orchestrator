@@ -2435,3 +2435,29 @@ CREATE INDEX `idx_workflow_runs_workflow` ON `workflow_runs` (`workflow_id`,`cre
 CREATE INDEX `idx_workflow_runs_status` ON `workflow_runs` (`status`,`updated_at`);
 
 CREATE INDEX `idx_workflows_status` ON `workflows` (`status`,`updated_at`);
+
+
+CREATE TABLE `feedback_pipeline` (
+	`feedback_id` char(36) NOT NULL,
+	`version_state` varchar(24) NOT NULL DEFAULT 'unknown',
+	`review_state` varchar(24) NOT NULL DEFAULT 'pending',
+	`delivery_state` varchar(24) NOT NULL DEFAULT 'local',
+	`created_commit` char(40),
+	`tested_commit` char(40),
+	`upstream_commit` char(40),
+	`evidence` json NOT NULL,
+	`github_issue_number` int,
+	`github_url` varchar(1000),
+	`reason` varchar(2000),
+	`lease_token` char(36),
+	`lease_expires_at` varchar(100),
+	`next_attempt_at` varchar(100),
+	`attempts` int NOT NULL DEFAULT 0,
+	`updated_at` varchar(100) NOT NULL,
+	CONSTRAINT `feedback_pipeline_feedback_id` PRIMARY KEY(`feedback_id`)
+);
+ALTER TABLE `feedback_pipeline` ADD CONSTRAINT `feedback_pipeline_feedback_id_feedback_items_id_fk` FOREIGN KEY (`feedback_id`) REFERENCES `feedback_items`(`id`) ON DELETE cascade ON UPDATE no action;
+CREATE INDEX `idx_feedback_pipeline_due` ON `feedback_pipeline` (`next_attempt_at`,`lease_expires_at`);
+
+-- Fresh installations select User feedback mode; outbound publication remains opt-in.
+INSERT INTO versions (name, version, updated_at) VALUES ('feedback_mode', 'user', '2026-10-20T00:00:00.000Z') ON DUPLICATE KEY UPDATE name = VALUES(name);

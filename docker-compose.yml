@@ -2,7 +2,11 @@ name: codex-orchestrator
 
 services:
   api:
-    build: .
+    build:
+      context: .
+      args:
+        ORCHESTRATOR_BUILD_COMMIT: ${ORCHESTRATOR_BUILD_COMMIT:-}
+        ORCHESTRATOR_BUILD_DIRTY: ${ORCHESTRATOR_BUILD_DIRTY:-true}
     env_file:
       - ${ENV_FILE:-./.env}
     depends_on:

@@ -1,5 +1,7 @@
 # 2026-10-20
 
+- Add User feedback mode with a local durable GitHub gate, explicit automatic-publication opt-in, encrypted PAT configuration and a server review worker. Baked build identities, old-version retests, duplicate/fix references and publication reconciliation keep unsupported or uncertain reports local; Source Developer keeps its existing repair workflow. Reports displays separate version, review and delivery evidence across all three engines.
+
 - Workflow reports put open work and unmet acceptance checks before the handover, render nested results as readable fields and lists, and disclose verbose evidence and history. Section links and Copy report support human handoffs; raw JSON remains available.
 
 - Android 0.5.5 automatically closes host-access popups after approval, denial or expiry, including decisions made elsewhere. Connection loss alone keeps the review open with disabled actions.

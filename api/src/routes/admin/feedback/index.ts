@@ -12,6 +12,10 @@ export async function registerAdminFeedbackRoutes(app: FastifyInstance, ctx: Rou
   const actor = (req: FastifyRequest): FeedbackActor => ({ host_id: null, engine: null, admin_user_id: req.admin!.user.id });
   const id = (req: FastifyRequest) => (req.params as { id: string }).id;
   app.get('/admin/feedback/state', { preHandler: app.requireAdmin }, async () => ({ enabled: await feedback.getEnabled() }));
+  app.get('/admin/feedback/configuration', { preHandler: app.requireAdmin }, () => feedback.configuration());
+  app.post('/admin/feedback/configuration', { preHandler: app.requireAdmin }, (req) => feedback.saveConfiguration(req.body, req.admin!.user.id));
+  app.post('/admin/feedback/preflight', { preHandler: app.requireAdmin }, (req) => feedback.preflight(req.body, actor(req)));
+  app.post('/admin/feedback/:id/recheck', { preHandler: app.requireAdmin }, (req) => feedback.recheck({ ...(req.body as object), id: id(req) }, actor(req)));
   app.post('/admin/feedback/state', { preHandler: app.requireAdmin }, async (req) => {
     const { enabled } = parseFeedback(z.object({ enabled: z.boolean() }).strict(), req.body);
     const state = await feedback.setEnabled(enabled);

@@ -43,6 +43,7 @@ export interface ManagedFeatureState {
 
 export interface ManagedAgentFeatureContext {
   feedback?: ManagedFeatureState;
+  feedbackMode?: 'source_developer' | 'user';
   engine: Engine;
   hostSpawn?: ManagedFeatureState;
   skills: ManagedFeatureState;
@@ -725,7 +726,20 @@ and never extend; accepted work drains before exit.
   const gitDirector = gitDirectorSection(context, commitAllowed);
   const fileTransfer = fileTransferSection(context);
   const feedbackState = context.feedback ?? { enabled: false, reason: 'feedback_disabled' };
-  const feedback = feedbackState.enabled ? present(feedbackState, `## Orchestrator Feedback
+  const feedback = feedbackState.enabled ? present(feedbackState, context.feedbackMode === 'user' ? `## Orchestrator Feedback
+
+This installation uses User feedback mode. Search feedback_list locally and feedback_preflight on
+GitHub before reporting. Submit through feedback_submit with a stable client_request_id; reports
+stay local while the server checks installed versions, matching issues and current reproduction.
+For reproducible public read-only API bugs, include retest {endpoint: "health"|"versions", pointer:
+JSON pointer into the response, equals: expected scalar}. /healthz and /versions are the only probes.
+old_version waits for an update and retest; recent means current version, not publication.
+Read feedback_get for review_state, delivery_state, evidence and the confirmed GitHub link.
+feedback_recheck queues another check using expected_version. An uncertain send needs reconciliation.
+The server publishes new issues or useful comments only after the operator's automatic-publication
+opt-in and a completed gate. UI/host/write-dependent retests stay pending when evidence is missing.
+Reporting requests no software update or source repair. Project feedback uses project_feedback_create.
+` : `## Orchestrator Feedback
 
 For bugs, missing functions or wishes about the orchestrator itself, search with feedback_list, then
 report with feedback_submit: component, versions, reproduction, expected vs actual, sanitized

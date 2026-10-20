@@ -1360,3 +1360,8 @@ delivery. See `docs/interface-api.md` (Peer backlog presentations) for limits an
 Native acceptance: `python3 wrappers/scripts/receiver-canary.py --engine codex --cxx /absolute/path/to/cxx --native-cli /absolute/path/to/native/codex --peer-batch` verifies 31 originals, one continuation, a paginated actionable question, one presentation completion, and a quiet interval. It uses an isolated native home with access-only credentials and a temporary broker.
 
 Account quota monitoring: Engines owns per-engine defaults; Accounts owns overrides and explicit PayG/unlimited. The cxx-agent `quota_get` tool reports bound short/long windows and observation age. Warnings request checkpoints, while confirmed quota interruptions can use bounded exact-session reset recovery. See [quota contract](interface-api.md#account-quota-warnings-and-reset-recovery-cxx-09112).
+
+
+## User feedback routing
+
+Reports now supports Source Developer and User feedback modes. User reports stay local while a durable server worker compares baked build/affected wrapper versions with GitHub main, searches existing/fixed reports and runs supported read-only API retests. Old reports are retried after actual updates; demonstrated fixes are discarded locally. Public issues and useful comments require explicit automatic-publication opt-in and a backend-only encrypted GitHub PAT. Incomplete checks and uncertain sends remain visible locally. Developer-side GitHub triage stays external. See [MCP workflow](MCP.md#user-feedback-and-github-checks).

@@ -64,7 +64,7 @@ The four `group: methods` bullets below are the dispatch table: everything after
 
 The `group: names` bullets below are the tool catalog: everything after the colon is backticked tool names and nothing else. `api/test/unit/services/mcp-doc-catalog.test.ts` compares them against the `name:` registrations in `api/src/services/mcp-tools.ts` and fails on any name that is in one and not the other, so notes about a group go on the indented bullet under it.
 
-- Orchestrator feedback: `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim`, `feedback_update`.
+- Orchestrator feedback: `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim`, `feedback_update`, `feedback_preflight`, `feedback_recheck`.
   - Independent of Projects. Hidden from discovery and blocked on call while `feedback_enabled` is off (default).
 - Host-authenticated tools: `host_spawn_prepare`, `host_spawn_status`, `memory_store`, `memory_retrieve`, `memory_search`, `memory_delete`, `skill_list`, `skill_retrieve`, `skill_store`, `skill_delete`, `role_list`, `resource_list`, `resource_read`, `resource_create`, `resource_update`, `resource_delete`.
   - `role_list` is the agent-role catalog (listed only while `roles_enabled`); role content is read through `role://{slug}[@{version}][/{path}]` resources, and activation is `agent_role_activate` on `cxx-agent` — see [agent-roles.md](agent-roles.md).
@@ -206,3 +206,14 @@ agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduce
 `agent_context_get/update`, `agent_room_list/read/send`, and
 `resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
 The feature starts disabled and never grants permission for the reserved action.
+
+
+### User feedback and GitHub checks
+
+Reports offers Source Developer (existing local claims/fix workflow) and User mode. Every User report is stored locally. `feedback_preflight({title,component?})` reads the running build identity and searches upstream GitHub issues, including closed ones. `feedback_submit` optionally accepts `retest:{endpoint:"health"|"versions",pointer:"/ok",equals:true}`: a fixed read-only API assertion with a scalar JSON expectation. No arbitrary URLs, headers or shell commands are accepted. `feedback_list` adds `version_state`, `review_state` and `delivery_state` filters. Full/detail summaries include the independent `pipeline` state, version/evidence timestamps, reason and confirmed/related GitHub link.
+
+`feedback_recheck({id,expected_version})` queues a server check; it never authorizes source repairs or updates. The server uses the existing bounded, inference-only runner with an explicitly selected Codex/Claude/Grok engine/model and existing account/quota gates. Only the API executes the fixed read-only probes and GitHub operations. One job runs across API processes; unavailable checks retry at most three times with backoff. Version waits poll every 15 minutes without invoking AI. Updated clean builds requeue old-version reports automatically.
+
+`old_version` waits for update/retest; `recent` means current software, not successful review or delivery. A formerly failing assertion now passing yields `discarded` and locally dismisses the report with evidence. Unsupported UI/host/write-dependent retests stay open. New bug publication requires a current failing API assertion. Features undergo current-version and duplicate checks without a bug assertion. A matching issue is linked; only useful additional evidence becomes a comment. Closed issues or merged PRs alone do not establish an installed fix.
+
+Automatic public issues/comments require a configured GitHub classic PAT (`public_repo`, encrypted backend-only) and explicit operator opt-in under Reports. This scope also permits public repository code writes, although the feedback client only creates issues/comments. The target is fixed to christianreiss/codex-orchestrator. Missing provenance, dirty/diverged builds, incomplete searches, privacy findings and ambiguous AI output hold publication. Every send has a durable marker; a lost response stays `uncertain` and is reconciled against GitHub before any further action. An unfound marker never triggers an automatic resend. Existing reports are not bulk-exported on mode changes. Developer-side GitHub triage remains outside this software.

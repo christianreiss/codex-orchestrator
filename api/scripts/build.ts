@@ -2,9 +2,19 @@ import { writeChattyKnowledge } from './build-chatty-knowledge.js';
 import * as esbuild from 'esbuild';
 import { mkdirSync, copyFileSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const root = resolve(import.meta.dirname, '..');
 const dist = resolve(root, 'dist');
+let buildCommit = process.env.ORCHESTRATOR_BUILD_COMMIT ?? null;
+let buildDirty = process.env.ORCHESTRATOR_BUILD_DIRTY !== 'false';
+if (!buildCommit) {
+  try {
+    buildCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    buildDirty = Boolean(execFileSync('git', ['status', '--porcelain', '--untracked-files=normal'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim());
+  } catch { /* Images without build provenance deliberately remain unknown. */ }
+}
+if (!buildCommit || !/^[a-f0-9]{40}$/.test(buildCommit)) { buildCommit = null; buildDirty = true; }
 
 // Validate source manifests before generating any artifacts. Invalid input
 // must abort the build, with the file named but no manifest contents in logs.
@@ -34,6 +44,7 @@ const sharedBuildOptions: Omit<esbuild.BuildOptions, 'entryPoints' | 'outfile'> 
   format: 'esm',
   minify: true,
   sourcemap: true,
+  define: { __ORCHESTRATOR_BUILD__: JSON.stringify({ commit: buildCommit, dirty: buildDirty }) },
   // Native addons + sodium WASM must be marked external (loaded at runtime).
   // The @opentelemetry/* entries are external for a different reason: they are
   // `await import()`ed only when OTEL_TRACES_ENABLED is set, and bundling them

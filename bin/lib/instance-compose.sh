@@ -54,6 +54,12 @@ instance_compose_init() {
     done < "$ENV_PATH"
   fi
   [[ -z "${DATA_ROOT_RESOLVED:-}" ]] || overrides+=("DATA_ROOT=$DATA_ROOT_RESOLVED")
+  local feedback_build_commit feedback_build_status feedback_build_dirty=true
+  feedback_build_commit="$(git -C "$INSTANCE_ROOT" rev-parse HEAD 2>/dev/null || true)"
+  if [[ -n "$feedback_build_commit" ]] && feedback_build_status="$(git -C "$INSTANCE_ROOT" status --porcelain --untracked-files=normal 2>/dev/null)" && [[ -z "$feedback_build_status" ]]; then
+    feedback_build_dirty=false
+  fi
+  overrides+=("ORCHESTRATOR_BUILD_COMMIT=$feedback_build_commit" "ORCHESTRATOR_BUILD_DIRTY=$feedback_build_dirty")
   overrides+=("ENV_FILE=$ENV_PATH")
   configured="$(instance_env_get COMPOSE_PROFILES || printf '%s' "${COMPOSE_PROFILES:-}")"
   IFS=',' read -r -a enabled <<< "$configured"

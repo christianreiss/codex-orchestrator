@@ -11,6 +11,8 @@
 ARG NODE_IMAGE=node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
 
 FROM ${NODE_IMAGE} AS build
+ARG ORCHESTRATOR_BUILD_COMMIT
+ARG ORCHESTRATOR_BUILD_DIRTY=true
 WORKDIR /app/api
 # Toolchain for any dependency without a prebuilt binding. It stays in this
 # stage; the runtime image never gets a compiler.
@@ -24,7 +26,7 @@ RUN npm ci --no-audit --no-fund
 COPY api ./
 COPY docs /app/docs
 COPY public/admin/manual /app/public/admin/manual
-RUN npm run typecheck && npm run build
+RUN npm run typecheck && ORCHESTRATOR_BUILD_COMMIT="$ORCHESTRATOR_BUILD_COMMIT" ORCHESTRATOR_BUILD_DIRTY="$ORCHESTRATOR_BUILD_DIRTY" npm run build
 
 # The build emits dist/package.json and dist/package-lock.json holding the exact
 # closure of the specifiers esbuild left external. Installing from that pair is

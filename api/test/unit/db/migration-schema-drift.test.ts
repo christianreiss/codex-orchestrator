@@ -262,6 +262,7 @@ describe('migrations against the test baseline', () => {
       'workflow_task_attempts',
       'workflow_versions',
       'workflows',
+      'feedback_pipeline',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',

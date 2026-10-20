@@ -46,8 +46,8 @@ const context = { host: { id: 7 } as Host, engine: 'grok' as const,
 
 describe('Grok MCP full server catalogue', () => {
   it('includes all host tools and the optional operator filesystem tools', () => {
-    expect(harness().registry.list('host')).toHaveLength(87);
-    expect(all).toHaveLength(93);
+    expect(harness().registry.list('host')).toHaveLength(89);
+    expect(all).toHaveLength(95);
   });
 
   for (const tool of all) {

@@ -22,7 +22,8 @@ try {
   if (files.length !== 1) throw new Error('Expected exactly one generated baseline SQL file');
   const header = readFileSync(baseline, 'utf8').split(/\n\s*\n/, 1)[0]!;
   const sql = normalizeBaselineSql(readFileSync(resolve(directory, files[0]!), 'utf8'));
-  writeFileSync(staging, `${header}\n\n${sql}`);
+  const freshFeedback = "\n-- Fresh installations select User feedback mode; outbound publication remains opt-in.\nINSERT INTO versions (name, version, updated_at) VALUES ('feedback_mode', 'user', '2026-10-20T00:00:00.000Z') ON DUPLICATE KEY UPDATE name = VALUES(name);\n";
+  writeFileSync(staging, `${header}\n\n${sql}${freshFeedback}`);
   renameSync(staging, output);
   process.stdout.write(`Baseline generated: ${output}\n`);
 } finally {

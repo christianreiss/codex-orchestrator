@@ -1,7 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import { and, asc, eq, inArray, lt, lte, like, or, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { adminEvents, feedbackItems, feedbackEvents } from '../db/schema.js';
+import { adminEvents, feedbackItems, feedbackEvents, feedbackPipeline } from '../db/schema.js';
+import { FeedbackConfiguration } from './feedback/config.js';
+import { FeedbackPipelineStore, pipelineView } from './feedback/store.js';
+import { buildIdentity } from './feedback/build-identity.js';
+import { FeedbackGithub, sensitiveText } from './feedback/github.js';
+import { searchTerms } from './feedback/worker.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../http/errors.js';
 import type { Keyring } from '../security/keyring.js';
 import { encrypt, decrypt } from '../security/secret-box.js';
@@ -67,6 +73,32 @@ export class FeedbackService {
   }
   private publish(id?: string) { wsPublisher.publish('feedback.changed', { id }); }
 
+  async configuration() { return new FeedbackConfiguration(this.db, this.keyring).read(); }
+  async saveConfiguration(input: unknown, adminUserId: number) { return new FeedbackConfiguration(this.db, this.keyring).save(input, adminUserId); }
+  async recheck(input: unknown, actor: FeedbackActor) {
+    await this.available(actor);
+    const { id, expected_version } = parseFeedback(z.object({ id: z.string().uuid(), expected_version: z.number().int().positive() }).strict(), input);
+    if ((await this.configuration()).mode !== 'user') throw new ValidationError('Select User feedback mode before requesting a GitHub check');
+    return new FeedbackPipelineStore(this.db).recheck(id, expected_version, actor);
+  }
+  async preflight(input: unknown, actor: FeedbackActor) {
+    await this.available(actor);
+    const args = parseFeedback(z.object({ title: z.string().trim().min(3).max(255), component: z.string().trim().min(1).max(100).default('other') }).strict(), input);
+    if (sensitiveText(args.title) || sensitiveText(args.component)) throw new ValidationError('Redact private data from title/component before searching GitHub');
+    const configuration = new FeedbackConfiguration(this.db, this.keyring);
+    const github = new FeedbackGithub(await configuration.token());
+    const [head, results] = await Promise.all([github.head(), Promise.all(searchTerms(args).map((q) => github.search(q)))]);
+    return { installed: buildIdentity(), upstream_commit: head, repository: 'christianreiss/codex-orchestrator',
+      issues: [...new Map(results.flat().map((issue) => [issue.number, { number: issue.number, title: issue.title, state: issue.state, url: issue.html_url }])).values()] };
+  }
+
+  private async withPipeline<T extends { id: string }>(items: T[]) {
+    if (!items.length) return items;
+    const rows = await this.db.select().from(feedbackPipeline).where(inArray(feedbackPipeline.feedbackId, items.map((i) => i.id)));
+    const lookup = new Map(rows.map((r) => [r.feedbackId, r]));
+    return items.map((item) => ({ ...item, ...(lookup.has(item.id) ? { pipeline: pipelineView(lookup.get(item.id)!) } : {}) }));
+  }
+
   private async expire(id?: string): Promise<void> {
     const expired = await this.db.transaction(async (tx) => {
       const now = new Date().toISOString();
@@ -83,6 +115,7 @@ export class FeedbackService {
   async submit(input: unknown, actor: FeedbackActor) {
     await this.available(actor);
     const data = parseFeedback(feedbackSubmitSchema, input);
+    const userMode = (await this.configuration()).mode === 'user';
     const { client_request_id, agent_uuid, ...report } = data;
     const requestKey = hash(`${scope(actor)}:${client_request_id.toLowerCase()}`);
     const requestDigest = hash(JSON.stringify({ ...report, agent_uuid: agent_uuid ?? null }));
@@ -96,11 +129,15 @@ export class FeedbackService {
       }).onDuplicateKeyUpdate({ set: { id: sql`id` } });
       const [row] = await tx.select().from(feedbackItems).where(eq(feedbackItems.requestKey, requestKey)).for('update');
       if (!row || row.requestDigest !== requestDigest) throw new ConflictError('Request ID already used for different feedback');
-      if (row.id === id) await this.event(tx, row, 'submitted', actor, { report });
+      if (row.id === id) {
+        await this.event(tx, row, 'submitted', actor, { report });
+        if (userMode) await tx.insert(feedbackPipeline).values({ feedbackId: id, createdCommit: buildIdentity().commit,
+          evidence: data.retest ? { probe: data.retest } : {}, nextAttemptAt: now, updatedAt: now });
+      }
       return { feedback: feedbackView(row), replayed: row.id !== id };
     });
     if (!result.replayed) this.publish(result.feedback.id);
-    return result;
+    return { ...result, feedback: (await this.withPipeline([result.feedback]))[0]! };
   }
 
   /**
@@ -125,6 +162,12 @@ export class FeedbackService {
     const args = parseFeedback(feedbackListSchema, input);
     await this.expire();
     const where = and(
+      args.version_state || args.review_state || args.delivery_state ? inArray(feedbackItems.id,
+        this.db.select({ id: feedbackPipeline.feedbackId }).from(feedbackPipeline).where(and(
+          args.version_state ? eq(feedbackPipeline.versionState, args.version_state) : undefined,
+          args.review_state ? eq(feedbackPipeline.reviewState, args.review_state) : undefined,
+          args.delivery_state ? eq(feedbackPipeline.deliveryState, args.delivery_state) : undefined,
+        ))) : undefined,
       args.status ? eq(feedbackItems.status, args.status) : undefined,
       args.type ? eq(feedbackItems.type, args.type) : undefined,
       args.component ? eq(feedbackItems.component, args.component) : undefined,
@@ -135,7 +178,7 @@ export class FeedbackService {
     const rows = await this.db.select().from(feedbackItems).where(where)
       .orderBy(sql`FIELD(${feedbackItems.priority}, 'critical', 'high', 'normal', 'low')`, asc(feedbackItems.createdAt), asc(feedbackItems.id))
       .limit(args.limit + 1).offset(args.offset);
-    return { feedback: rows.slice(0, args.limit).map((r) => feedbackView(r, false)),
+    return { feedback: await this.withPipeline(rows.slice(0, args.limit).map((r) => feedbackView(r, false))),
       next_offset: rows.length > args.limit ? args.offset + args.limit : null };
   }
 
@@ -147,7 +190,8 @@ export class FeedbackService {
     return this.db.transaction(async (tx) => {
       const row = await this.row(tx, id);
       const events = await tx.select().from(feedbackEvents).where(eq(feedbackEvents.feedbackId, id)).orderBy(asc(feedbackEvents.version));
-      return { feedback: feedbackView(row), events: events.map((e) => ({
+      const [pipeline] = await tx.select().from(feedbackPipeline).where(eq(feedbackPipeline.feedbackId, id));
+      return { feedback: { ...feedbackView(row), ...(pipeline ? { pipeline: pipelineView(pipeline) } : {}) }, events: events.map((e) => ({
         id: e.id, version: e.version, action: e.action, actor: e.actor, detail: e.detail, created_at: e.createdAt,
       })) };
     });

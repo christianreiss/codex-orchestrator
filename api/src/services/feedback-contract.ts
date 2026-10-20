@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { probeSchema, versionStates, reviewStates, deliveryStates } from './feedback/contract.js';
 import { ValidationError } from '../http/errors.js';
 
 export const FEEDBACK_ENABLED_KEY = 'feedback_enabled';
@@ -25,9 +26,13 @@ export const feedbackSubmitSchema = z.object({
   actual: body.optional(),
   versions: short.optional(),
   agent_uuid: uuid.optional(),
+  retest: probeSchema.optional(),
 }).strict();
 
 export const feedbackListSchema = z.object({
+  version_state: z.enum(versionStates).optional(),
+  review_state: z.enum(reviewStates).optional(),
+  delivery_state: z.enum(deliveryStates).optional(),
   status: z.enum(FEEDBACK_STATUSES).optional(),
   type: z.enum(FEEDBACK_TYPES).optional(),
   component: z.string().trim().min(1).max(100).optional(),

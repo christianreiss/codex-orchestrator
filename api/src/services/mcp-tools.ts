@@ -436,6 +436,9 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       type: { type: 'string', enum: [...FEEDBACK_TYPES] },
       priority: { type: 'string', enum: [...FEEDBACK_PRIORITIES] },
       component: string,
+      version_state: { type: 'string', enum: ['unknown', 'old_version', 'recent'] },
+      review_state: { type: 'string', enum: ['pending', 'needs_retest', 'new', 'known', 'fixed', 'discarded', 'unclear'] },
+      delivery_state: { type: 'string', enum: ['local', 'pending', 'sent', 'uncertain', 'failed'] },
     };
     inputs.push({
       definition: {
@@ -446,9 +449,25 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             client_request_id: id, type: filters.type, title: string, description: string,
             component: string, priority: filters.priority, reproduction: string, expected: string,
             actual: string, versions: string, agent_uuid: id,
+            retest: { type: 'object', additionalProperties: false, required: ['endpoint', 'pointer', 'equals'], properties: {
+              endpoint: { type: 'string', enum: ['health', 'versions'] }, pointer: string,
+              equals: { type: ['string', 'number', 'boolean', 'null'] },
+            } },
           } },
       },
       handler: (args, host, engine) => service.submit(args, { host_id: host.id, engine: engine ?? ENGINE_CODEX }),
+    });
+    inputs.push({
+      definition: { name: 'feedback_preflight',
+        description: 'Read installed Orchestrator build identity and search open/closed upstream GitHub issues. This does not publish or pass the server gate. Send only a sanitized title and component.',
+        inputSchema: { type: 'object', additionalProperties: false, required: ['title'], properties: { title: string, component: string } } },
+      handler: (args, host, engine) => service.preflight(args, { host_id: host.id, engine: engine ?? ENGINE_CODEX }),
+    });
+    inputs.push({
+      definition: { name: 'feedback_recheck',
+        description: 'Queue a server-side User feedback review or reconcile an uncertain GitHub publication. Read feedback_get and use its current version; this never blindly republishes.',
+        inputSchema: { type: 'object', additionalProperties: false, required: ['id', 'expected_version'], properties: { id, expected_version: { type: 'integer', minimum: 1 } } } },
+      handler: (args, host, engine) => service.recheck(args, { host_id: host.id, engine: engine ?? ENGINE_CODEX }),
     });
     inputs.push({
       definition: {

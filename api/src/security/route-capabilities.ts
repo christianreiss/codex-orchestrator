@@ -479,6 +479,10 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   // Central orchestrator feedback
   'GET /admin/feedback': cap('feedback.read'),
   'GET /admin/feedback/state': cap('feedback.read'),
+  'GET /admin/feedback/configuration': cap('feedback.read'),
+  'POST /admin/feedback/configuration': cap('feedback.manage'),
+  'POST /admin/feedback/preflight': cap('feedback.manage'),
+  'POST /admin/feedback/:id/recheck': cap('feedback.manage'),
   'GET /admin/feedback/summary': cap('feedback.read'),
   'GET /admin/feedback/:id': cap('feedback.read'),
   'POST /admin/feedback/state': cap('feedback.manage'),

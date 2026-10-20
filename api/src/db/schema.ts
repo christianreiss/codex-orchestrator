@@ -2557,6 +2557,25 @@ export const feedbackItems = mysqlTable('feedback_items', {
   claimExpiryIdx: index('idx_feedback_claim_expiry').on(t.claimExpiresAt),
 }));
 
+export const feedbackPipeline = mysqlTable('feedback_pipeline', {
+  feedbackId: char('feedback_id', { length: 36 }).primaryKey().references(() => feedbackItems.id, { onDelete: 'cascade' }),
+  versionState: varchar('version_state', { length: 24 }).notNull().default('unknown'),
+  reviewState: varchar('review_state', { length: 24 }).notNull().default('pending'),
+  deliveryState: varchar('delivery_state', { length: 24 }).notNull().default('local'),
+  createdCommit: char('created_commit', { length: 40 }),
+  testedCommit: char('tested_commit', { length: 40 }),
+  upstreamCommit: char('upstream_commit', { length: 40 }),
+  evidence: json('evidence').$type<import('../services/feedback/contract.js').PipelineEvidence>().notNull(),
+  githubIssueNumber: int('github_issue_number'),
+  githubUrl: varchar('github_url', { length: 1000 }),
+  reason: varchar('reason', { length: 2000 }),
+  leaseToken: char('lease_token', { length: 36 }),
+  leaseExpiresAt: varchar('lease_expires_at', { length: 100 }),
+  nextAttemptAt: varchar('next_attempt_at', { length: 100 }),
+  attempts: int('attempts').notNull().default(0),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({ dueIdx: index('idx_feedback_pipeline_due').on(t.nextAttemptAt, t.leaseExpiresAt) }));
+
 export const feedbackEvents = mysqlTable('feedback_events', {
   id: char('id', { length: 36 }).primaryKey(),
   feedbackId: char('feedback_id', { length: 36 }).notNull().references(() => feedbackItems.id),

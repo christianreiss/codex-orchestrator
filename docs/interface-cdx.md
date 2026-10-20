@@ -2068,3 +2068,8 @@ relay removes the file after the child ends. Raw stderr, prompts, tokens and
 private tool results are never forwarded as diagnostics. Other failures retain
 the generic native-exit message. These diagnostics do not change ambiguous
 outcomes, transcript checks, or the prohibition on automatic fresh starts.
+
+
+### User feedback guidance
+
+Served agent instructions follow the installation feedback mode for this engine. User mode uses `feedback_preflight`, local `feedback_submit` and `feedback_recheck`; the server gates GitHub publication by current build, duplicate/fix evidence and retest. Source Developer retains claims and local repair workflow. See [MCP feedback](MCP.md#user-feedback-and-github-checks). This changes served guidance and MCP only; the native wrapper requires no binary change.

@@ -114,6 +114,16 @@ describe('Skill support-script safety parity', () => {
 });
 
 describe('dynamic orchestrator feedback guidance', () => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s routes User reports through the server gate and changes the served digest', (engine) => {
+    const user = renderManagedAgentFeatures('# Rules\n', context(engine, { feedback: enabled(), feedbackMode: 'user' }));
+    const developer = renderManagedAgentFeatures('# Rules\n', context(engine, { feedback: enabled(), feedbackMode: 'source_developer' }));
+    expect(user.body).toContain('feedback_preflight');
+    expect(user.body).toContain('feedback_recheck');
+    expect(user.body).toContain('old_version');
+    expect(user.body).not.toContain('When authorized to fix one');
+    expect(developer.body).toContain('When authorized to fix one');
+    expect(user.managed_sha256).not.toBe(developer.managed_sha256);
+  });
   for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
     it(`${engine}: toggle adds/removes guidance and updates served digest without altering authored rules`, () => {
       const base = '# House rules\nPreserve this text.\n';

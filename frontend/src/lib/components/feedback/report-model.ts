@@ -41,6 +41,7 @@ export function feedbackRow(r: FeedbackItem): ReportRow {
     badges: [
       { label: r.priority, variant: r.priority === "critical" ? "destructive" : r.priority === "high" ? "warning" : "outline" },
       { label: r.type },
+      ...(r.pipeline ? [{ label: r.pipeline.version_state }, { label: humanize(r.pipeline.review_state) }, { label: humanize(r.pipeline.delivery_state) }] : []),
       { label: humanize(r.status), variant: r.status === "resolved" ? "success" : "secondary" },
     ],
     meta: r.component,

@@ -1,4 +1,5 @@
 import { startQuotaWorker } from './ops/quota-worker.js';
+import { startFeedbackWorker } from './ops/feedback-worker.js';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
@@ -123,6 +124,7 @@ export async function buildServer() {
   startWrapperRolloutWorker(app, db, env);
   startAgentTransfersWorker(app, db, env);
   startGrokUsageWorker(app, db, env, keyring);
+  startFeedbackWorker(app, { db, env, keyring });
 
   // The default span processor batches, so without this flush a SIGTERM drops
   // whatever the last batch window collected.

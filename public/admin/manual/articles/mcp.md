@@ -35,7 +35,7 @@ Tools tagged `operator` are filtered out of `tools/list` for `host` callers (and
 
 **Orchestrator feedback** (only when feedback is enabled)
 
-- `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim`, `feedback_update` — report, search, inspect, claim and finish orchestrator improvements. Enable Feedback on its page; managed instructions appear on the next host sync for Codex, Claude and Grok.
+- `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim`, `feedback_update`, `feedback_preflight`, `feedback_recheck` — report, search, inspect, claim and finish orchestrator improvements. Enable Feedback on its page; managed instructions appear on the next host sync for Codex, Claude and Grok.
 
 Defined in `api/src/services/mcp-tools.ts`. What you get at runtime depends on capability and, for `fs_*`, on server config (`MCP_FS_ROOT`):
 
@@ -360,3 +360,14 @@ Search `feedback_list` first. `feedback_submit` requires a UUID `client_request_
 Deployment is `unknown|not_deployed|deployed`, tracked separately. Resolved defaults to not_deployed; deployed requires a deployment reference. Evidence is an agent/operator report, not independent verification. Reporting or claiming never launches an agent, authorizes additional execution, merges or deploys.
 
 Admin endpoints: GET/POST `/admin/feedback/state`; GET/POST `/admin/feedback`; GET/POST `/admin/feedback/{id}`; POST `/admin/feedback/{id}/claim`. Read needs `feedback.read`, writes need `feedback.manage`. Admins may release a claim with `{action:"force_release",reason}` and reopen reports. WebSocket `feedback.changed` refreshes inbox/detail/state and the agent-document preview.
+
+
+### User feedback and GitHub checks
+
+Reports offers Source Developer (existing local claims/fix workflow) and User mode. Every User report is stored locally. `feedback_preflight({title,component?})` reads the running build identity and searches upstream GitHub issues, including closed ones. `feedback_submit` optionally accepts `retest:{endpoint:"health"|"versions",pointer:"/ok",equals:true}`: a fixed read-only API assertion with a scalar JSON expectation. No arbitrary URLs, headers or shell commands are accepted. `feedback_list` adds `version_state`, `review_state` and `delivery_state` filters. Full/detail summaries include the independent `pipeline` state, version/evidence timestamps, reason and confirmed/related GitHub link.
+
+`feedback_recheck({id,expected_version})` queues a server check; it never authorizes source repairs or updates. The server uses the existing bounded, inference-only runner with an explicitly selected Codex/Claude/Grok engine/model and existing account/quota gates. Only the API executes the fixed read-only probes and GitHub operations. One job runs across API processes; unavailable checks retry at most three times with backoff. Version waits poll every 15 minutes without invoking AI. Updated clean builds requeue old-version reports automatically.
+
+`old_version` waits for update/retest; `recent` means current software, not successful review or delivery. A formerly failing assertion now passing yields `discarded` and locally dismisses the report with evidence. Unsupported UI/host/write-dependent retests stay open. New bug publication requires a current failing API assertion. Features undergo current-version and duplicate checks without a bug assertion. A matching issue is linked; only useful additional evidence becomes a comment. Closed issues or merged PRs alone do not establish an installed fix.
+
+Automatic public issues/comments require a configured GitHub classic PAT (`public_repo`, encrypted backend-only) and explicit operator opt-in under Reports. This scope also permits public repository code writes, although the feedback client only creates issues/comments. The target is fixed to christianreiss/codex-orchestrator. Missing provenance, dirty/diverged builds, incomplete searches, privacy findings and ambiguous AI output hold publication. Every send has a durable marker; a lost response stays `uncertain` and is reconciled against GitHub before any further action. An unfound marker never triggers an automatic resend. Existing reports are not bulk-exported on mode changes. Developer-side GitHub triage remains outside this software.
