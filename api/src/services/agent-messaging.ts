@@ -2178,8 +2178,12 @@ export class AgentMessagingService {
 
   /** Workflow collaboration joins the same bus transaction before taking run locks. */
   async workflowLock(db: AgentMessagingDb, actor: { kind: string; address_id?: string; session_id?: string; binding_generation?: number }): Promise<void> {
+    if (actor.kind !== 'agent') {
+      // Operator preparation/recovery and the module switch remain available when messaging is off.
+      await db.select().from(versions).where(eq(versions.name, AGENT_MESSAGING_ENABLED_KEY)).for('update');
+      return;
+    }
     await this.requireEnabledLocked(db);
-    if (actor.kind !== 'agent') return;
     if (!actor.address_id || !actor.session_id) throw new UnauthorizedError('Authenticated workflow actor required');
     const address = await this.requireAddressLocked(db, actor.address_id);
     await this.assertSessionAddressLocked(db, actor.session_id, address);

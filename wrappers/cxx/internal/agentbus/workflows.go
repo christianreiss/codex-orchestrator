@@ -643,6 +643,7 @@ const workflowToolDefinitions = `[
     "name": "agent_workflow_run_control",
     "description": "Control this run or renew/transfer its coordinator lease. Pause/cancel does not terminate external processes. Keep client_request_id unchanged when retrying the identical operation. Authority and membership are checked server-side.",
     "inputSchema": {
+      "type": "object",
       "oneOf": [
         {
           "type": "object",
@@ -1071,6 +1072,7 @@ const workflowToolDefinitions = `[
     "name": "agent_workflow_membership",
     "description": "Accept/decline your invitation, leave a run, remove a participant as coordinator, or revoke an invitation. Acceptance joins the managed chat; task ownership requires a separate claim. Keep client_request_id unchanged when retrying the identical operation. Authority and membership are checked server-side.",
     "inputSchema": {
+      "type": "object",
       "oneOf": [
         {
           "type": "object",
@@ -1248,6 +1250,7 @@ const workflowToolDefinitions = `[
     "name": "agent_workflow_task_claim",
     "description": "Acquire/renew/release a task claim or reconcile uncertainty. Claims last 30 minutes: renew within ten and before further external changes. Reconcile investigates the prior process; it never blindly retries. Keep client_request_id unchanged when retrying the identical operation. Authority and membership are checked server-side.",
     "inputSchema": {
+      "type": "object",
       "oneOf": [
         {
           "type": "object",
@@ -1506,6 +1509,7 @@ const workflowToolDefinitions = `[
     "name": "agent_workflow_task_update",
     "description": "Store task progress/result, structured outputs and evidence under your current claim. Retry is explicit and justified. A chat message never changes task state. Keep client_request_id unchanged when retrying the identical operation. Authority and membership are checked server-side.",
     "inputSchema": {
+      "type": "object",
       "oneOf": [
         {
           "type": "object",

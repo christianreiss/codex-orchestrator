@@ -9,7 +9,7 @@ import type { Host } from '../../../src/db/schema.js';
 // database, filesystem, credential, schedule or another agent. These service
 // doubles test the transport contract, not each service's business semantics.
 const groups = ['feedback', 'memories', 'sharedMemories', 'projects', 'skills', 'resources',
-  'fs', 'secrets', 'gitDirector', 'transfers', 'board', 'schedules', 'taskMessaging'];
+  'fs', 'secrets', 'gitDirector', 'transfers', 'board', 'schedules', 'taskMessaging', 'workflows'];
 function harness(fail = false) {
   const calls: Array<{ group: string; method: string; args: unknown[] }> = [];
   const deps = Object.fromEntries(groups.map(group => [group, new Proxy({}, {
@@ -46,8 +46,8 @@ const context = { host: { id: 7 } as Host, engine: 'grok' as const,
 
 describe('Grok MCP full server catalogue', () => {
   it('includes all host tools and the optional operator filesystem tools', () => {
-    expect(harness().registry.list('host')).toHaveLength(83);
-    expect(all).toHaveLength(89);
+    expect(harness().registry.list('host')).toHaveLength(87);
+    expect(all).toHaveLength(93);
   });
 
   for (const tool of all) {

@@ -49,6 +49,7 @@ export interface RoomMember {
   name: string;
   engine: string;
   session_id: string | null;
+  binding_generation?: number;
   reachable: boolean;
   chat_capable: boolean;
   role: string;

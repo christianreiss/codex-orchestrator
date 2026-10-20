@@ -231,6 +231,7 @@ describe('served document size budget', () => {
       feedback: enabled(),
       hostSpawn: enabled(),
       advisor: enabled(),
+      workflows: enabled(),
       modelTiers: {
         ...enabled(),
         table: [
@@ -247,7 +248,8 @@ describe('served document size budget', () => {
       // 2026-10-17: +650 for the opt-in Fleet Advisor block, which is served only
       // while an operator has an advisor host enabled; the block itself is capped below.
       // 2026-10-18: +2000 for the new mandatory scope/claim protocol (bounded below).
-      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(27_450);
+      // 2026-10-20: +500 for the opt-in Workflows pointer; shared-chat guidance was condensed first.
+      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(27_950);
       const section = (heading: string): string => {
         const start = out.body.indexOf(`## ${heading}\n`);
         expect(start).toBeGreaterThanOrEqual(0);
@@ -260,6 +262,7 @@ describe('served document size budget', () => {
       expect(section('File Transfer').length).toBeLessThan(1_400);
       // 2026-10-19: +50 to name `cxx-agent` as the server: agents searched the orchestrator MCP.
       expect(section('Fleet Advisor').length).toBeLessThan(750);
+      expect(section('Workflows').length).toBeLessThan(500);
       expect(section('Memory').length).toBeLessThan(2_700);
       // Whole-assignment scouting and model-identity safeguards need explicit wording.
       expect(section('Model Class Check').length).toBeLessThan(1_800);
@@ -331,9 +334,10 @@ describe('served document byte invariance', () => {
     // 2026-10-16: Memory defers the complete-read procedure to the write tool descriptions; Agent
     //             Messaging session-name/reception condensed; Git Director honours repository restrictions.
     // 2026-10-18: shared chat tools, one-answer rounds, room file context.
-    expect(out.features_sha256).toBe('6ecacfe7dac1d63192b5062a9a348e5af7cc7d69297b99a309cef8556102739e');
-    expect(out.managed_sha256).toBe('9b4d82291bc77923134eccc0d9178100613338c659c72c093be7df7c068e3966');
-    expect(sha256(out.body)).toBe('d694bcfb397401db5d9753a62c2c7d15c476d3f075cb6ff58c6945be55bf49e6');
+    // 2026-10-20: explicit workflow participant questions are the narrow agent-answer exception.
+    expect(out.features_sha256).toBe('2e558c39a49055a871fed8f77bdae97ade900e81a2e04b6dc864d9df94786ad9');
+    expect(out.managed_sha256).toBe('7f9d1d86eb6934cc0de3084e80aeb7c8e9ceab26386cce09ce0023152201a73e');
+    expect(sha256(out.body)).toBe('64394abda96f4d337bb743f05412a82be57dbcf87ef25637e6502abcd81a229c');
   });
 });
 
@@ -1142,5 +1146,20 @@ describe('Model Class Check section', () => {
     expect(headings.at(-1)).toBe('## Model Class Check');
     expect(out.body).toContain('| 4 | Architecture');
     expect(out.body).toContain('`claude-haiku-5-5`');
+  });
+});
+
+
+describe('managed workflow guidance parity', () => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s discovers execution, resume and final outcome contracts', engine => {
+    const enabledContext = context(engine, { skills: enabled(), workflows: enabled(), agentMessaging: enabled() });
+    const out = renderManagedAgentFeatures('# Fleet', enabledContext);
+    expect(out.body).toContain('skill://workflows');
+    expect(out.body).toContain('agent_workflow_run_current');
+    expect(out.body).toContain('report_url');
+    expect(out.body).toContain('WORKFLOW-QUESTION/1');
+    expect(out.sections.workflows).toMatchObject({ present: true });
+    const unavailable = renderManagedAgentFeatures('# Fleet', { ...enabledContext, workflows: disabled('workflows_wrapper_outdated') });
+    expect(unavailable.body).not.toContain('## Workflows');
   });
 });

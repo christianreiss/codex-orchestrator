@@ -26,18 +26,22 @@ export function registerWorkflowBridgeRoutes(app: FastifyInstance, workflows: Wo
       session_id: session.id, binding_generation: session.bindingGeneration, host_id: session.hostId,
       engine: session.engine, name: session.launchName ?? undefined };
   };
-  const operations: Record<string, WorkflowOperation> = {
-    create: 'create', revise: 'revise', archive: 'archive', 'run-create': 'run_create',
-    'run-control': 'run_control', invite: 'invite', membership: 'membership',
-    'task-claim': 'task_claim', 'task-update': 'task_update', 'run-note': 'run_note',
-    'run-finish': 'run_finish', 'run-evaluate': 'run_evaluate',
+  const mutate = (operation: WorkflowOperation) => async (req: FastifyRequest) => {
+    const authenticated = await actor(req);
+    return workflows.mutate(operation, req.body ?? {}, authenticated);
   };
-  for (const [suffix, operation] of Object.entries(operations)) {
-    app.post(`/host/agent-sessions/:id/agent-messaging/workflows/${suffix}`, async req => {
-      const authenticated = await actor(req);
-      return workflows.mutate(operation, req.body ?? {}, authenticated);
-    });
-  }
+  app.post('/host/agent-sessions/:id/agent-messaging/workflows/create', mutate('create'));
+  app.post('/host/agent-sessions/:id/agent-messaging/workflows/revise', mutate('revise'));
+  app.post('/host/agent-sessions/:id/agent-messaging/workflows/archive', mutate('archive'));
+  app.post('/host/agent-sessions/:id/agent-messaging/workflows/run-create', mutate('run_create'));
+  app.post('/host/agent-sessions/:id/agent-messaging/workflows/run-control', mutate('run_control'));
+  app.post('/host/agent-sessions/:id/agent-messaging/workflows/invite', mutate('invite'));
+  app.post('/host/agent-sessions/:id/agent-messaging/workflows/membership', mutate('membership'));
+  app.post('/host/agent-sessions/:id/agent-messaging/workflows/task-claim', mutate('task_claim'));
+  app.post('/host/agent-sessions/:id/agent-messaging/workflows/task-update', mutate('task_update'));
+  app.post('/host/agent-sessions/:id/agent-messaging/workflows/run-note', mutate('run_note'));
+  app.post('/host/agent-sessions/:id/agent-messaging/workflows/run-finish', mutate('run_finish'));
+  app.post('/host/agent-sessions/:id/agent-messaging/workflows/run-evaluate', mutate('run_evaluate'));
   app.post('/host/agent-sessions/:id/agent-messaging/workflows/run-current', async req => {
     const authenticated = await actor(req);
     z.object({}).strict().parse(req.body ?? {});

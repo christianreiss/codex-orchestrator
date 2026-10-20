@@ -90,6 +90,7 @@ export class AgentRoomChat {
       name: s?.launchName ?? a.launchName ?? a.displayAlias ?? a.address,
       engine: a.engine,
       session_id: s?.id ?? null,
+      binding_generation: a.bindingGeneration,
       role: ids.find((i) => i.id === a.id)!.role,
       chat_capable:
         Number((s?.adapterCapabilities as Record<string, unknown> | null)?.shared_room_chat_version ?? 0) >=
@@ -97,6 +98,7 @@ export class AgentRoomChat {
       reachable:
         !!s &&
         !s.endedAt &&
+        s.bindingGeneration === a.bindingGeneration &&
         a.enabled === 1 &&
         !a.archivedAt &&
         Date.parse(s.heartbeatAt) > Date.now() - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000,
@@ -126,7 +128,7 @@ export class AgentRoomChat {
       };
       if (managed) for (const member of room.members) {
         const snapshot = managed.members.find(m => m.agentAddressId === member.id)!;
-        if (snapshot.status !== 'active' || snapshot.sessionId !== member.session_id) member.reachable = false;
+        if (snapshot.status !== 'active' || snapshot.sessionId !== member.session_id || snapshot.bindingGeneration !== member.binding_generation) member.reachable = false;
       }
     } else {
       const [c] = await tx.select().from(agentBusConferences).where(eq(agentBusConferences.id, id));
@@ -498,7 +500,7 @@ export class AgentRoomChat {
         if (body.recipients.length > 10 || body.recipients.includes(session.agentBusAddressId!))
           throw new ValidationError('A workflow question requires at most ten other participants');
         const managed = await resolveWorkflowRunGroup(tx, room.id);
-        if (body.recipients.some(id => !managed?.members.some(m => m.agentAddressId === id && m.status === 'active')))
+        if (body.recipients.some(id => !managed?.members.some(m => m.agentAddressId === id && m.status === 'active' && m.sessionId === room.members.find(r => r.id === id)?.session_id && m.bindingGeneration === room.members.find(r => r.id === id)?.binding_generation)))
           throw new ValidationError('Workflow question recipients must be active participants');
       }
       if (body.recipients.some((id) => !room.members.some((m) => m.id === id)))

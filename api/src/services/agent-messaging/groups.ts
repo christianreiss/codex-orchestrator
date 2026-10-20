@@ -180,7 +180,7 @@ export class AgentMessagingGroups {
     const owned = await tx
       .select({ value: count() })
       .from(agentBusGroups)
-      .where(eq(agentBusGroups.createdByAddressId, actorId));
+      .where(and(eq(agentBusGroups.createdByAddressId, actorId), sql`NOT EXISTS (SELECT 1 FROM workflow_runs r WHERE r.communication_group_id = ${agentBusGroups.id} AND r.status = 'completed')`));
     if (Number(owned[0]?.value ?? 0) >= MAX_AGENT_SUBSCRIPTIONS)
       throw new ConflictError('Group creation limit reached', 'agent_messaging_group_limit');
     const now = nowIso();

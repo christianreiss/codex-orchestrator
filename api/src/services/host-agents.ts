@@ -2,10 +2,10 @@
  * Host-facing agents + client config retrieval.
  */
 import { advisorConfigured, advisorCxxSupport } from './advisor.js';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, ne } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import type { Database } from '../db/client.js';
-import { agentsDocuments, agentsDocumentState, clientConfigDocuments, hostDaemons, logs } from '../db/schema.js';
+import { agentsDocuments, agentsDocumentState, clientConfigDocuments, hostDaemons, logs, workflowRuns } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import { nowIso } from '../util/timestamp.js';
 import { buildManagedMemoryRouting } from './managed-memory-routing.js';
@@ -576,6 +576,8 @@ export class HostAgentsService {
       configured: configuredModel(host, engine, rawSettings as Record<string, unknown> | null),
     };
 
+    const workflowsEnabled = await this.settings.getFlag('workflows_enabled', false).catch(() => false);
+    const workflowsDraining = !workflowsEnabled && (await this.db.select({ id: workflowRuns.id }).from(workflowRuns).where(ne(workflowRuns.status, 'completed')).limit(1)).length > 0;
     return {
       engine,
       skills,
@@ -596,7 +598,7 @@ export class HostAgentsService {
       workflows: !agentMessaging.enabled ? state(false, agentMessaging.reason)
         : !mcp.enabled ? state(false, mcp.reason)
         : !workflowCxxSupported(hostRunningWrapperVersion(host)) ? state(false, 'workflows_wrapper_outdated')
-        : state(await this.settings.getFlag('workflows_enabled', false).catch(() => false), 'workflows_disabled'),
+        : state(workflowsEnabled || workflowsDraining, workflowsEnabled ? 'ok' : workflowsDraining ? 'workflows_draining' : 'workflows_disabled'),
       roles: !agentMessaging.enabled ? state(false, agentMessaging.reason)
         : !mcp.enabled ? state(false, mcp.reason)
         : !(await this.settings.getFlag(ROLES_ENABLED_KEY, false).catch(() => false)) ? state(false, 'roles_disabled')
