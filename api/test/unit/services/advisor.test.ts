@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { advisorSessions, agentBusAddresses, agentBusMessages, hosts, versions } from '../../../src/db/schema.js';
 import { decrypt, encrypt } from '../../../src/security/secret-box.js';
 import { AdvisorService } from '../../../src/services/advisor.js';
-import { advisorTurnCompleted } from '../../../src/services/advisor-delivery.js';
+import { advisorTurnCompleted, parseAdvisorVerdict } from '../../../src/services/advisor-delivery.js';
 import { HostDaemonService } from '../../../src/services/host-daemon/service.js';
 import { buildModelPolicy } from '../../../src/services/model-policy.js';
 import { createDbFake } from '../../helpers/db-fake.js';
@@ -11,6 +11,24 @@ import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
 const keyring = testKeyring();
 afterEach(() => vi.restoreAllMocks());
+
+describe('Advisor role prompt', () => {
+  it.each([
+    ['codex', 'gpt-6-astra'], ['claude', 'claude-opus-5-5'], ['grok', 'grok-4.7'],
+  ] as const)('%s demonstrates evidence objects accepted by the verdict parser', async (engine, model) => {
+    const callerId = randomUUID();
+    const db = createDbFake(new Map([[agentBusAddresses, [{ id: callerId, launchName: 'Caller', engine }]]]));
+    const service = new AdvisorService({ db, env: loadTestEnv(), keyring } as never);
+    vi.spyOn(service, 'availability').mockResolvedValue({ enabled: true, reason: 'ok', host_id: 264, engines: [engine], models: [{ engine, model, tier: 4 }], default: { engine, model } });
+    vi.spyOn(HostDaemonService.prototype, 'settings').mockResolvedValue({ settings: { max_parallel: 8 } } as never);
+    const start = vi.spyOn(HostDaemonService.prototype, 'start').mockResolvedValue({ session_id: randomUUID(), operation_id: randomUUID() });
+    await service.ask({ session: { agentBusAddressId: callerId }, host: { fqdn: 'caller.test' } } as never, { question: 'Review the supplied task', kind: 'tier_check', client_message_id: randomUUID() });
+    const prompt = start.mock.calls[0]![0].prompt;
+    expect(prompt).toContain(`Your concrete session model: ${engine}/${model}`);
+    expect(parseAdvisorVerdict(prompt)?.evidence?.[0]).toMatchObject({ description: expect.any(String), reference: expect.any(String) });
+    expect(prompt).toContain('never a bare string');
+  });
+});
 
 describe('Advisor availability', () => {
   it('reports unavailable when the only ready engine has every model disabled', async () => {

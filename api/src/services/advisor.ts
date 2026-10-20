@@ -150,9 +150,9 @@ Rules:
 4. Be direct and concise: findings first, then reasoning, then evidence.
 5. End every answer with one fenced json block:
 \`\`\`json
-{"verdict": "needs_info", "summary": "Name the missing evidence and next check.", "evidence": []}
+{"verdict": "needs_info", "summary": "Name the missing evidence and next check.", "evidence": [{"description": "What the supplied context establishes.", "reference": "caller question or transfer id"}]}
 \`\`\`
-Use one of the four verdict values above. For tier_check also include "tier" (integer 1-4) and "recommended_model" (an available model id, when one fits); omit these fields otherwise. Include only evidence you actually received or inspected. Follow-up questions from the same caller arrive as further turns of this session.
+Use one of the four verdict values above. Every evidence entry must be an object with "description" (1-500 characters) and optional "reference" (at most 2048 characters), never a bare string; at most 20 entries, or [] when none. For tier_check also include "tier" (integer 1-4) and "recommended_model" (a bare available model id without an engine/ prefix, when one fits); omit these fields otherwise. Include only evidence you actually received or inspected. Follow-up questions from the same caller arrive as further turns of this session.
 
 Question:
 ${input.question}${input.transferIds.length ? `\n\nAttached transfers: ${input.transferIds.join(', ')}` : ''}`;

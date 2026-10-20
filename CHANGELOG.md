@@ -1,6 +1,6 @@
 # 2026-10-20
 
-- **Fleet Advisor reliability and instructions.** Failed turns deliver their diagnostic reply, and a turn without a valid verdict clears the preceding verdict. Engines with no policy-allowed model are excluded from readiness; an entirely empty selection reports unavailable instead of failing during launch. Advisor prompts identify the selected model, list available tiers, define verdict meanings and treat supplied code/prompts as evidence. Follow-up instructions include the required idempotency UUID and retain the original request kind.
+- **Fleet Advisor reliability and instructions.** Failed turns deliver their diagnostic reply, and a turn without a valid verdict clears the preceding verdict. Engines with no policy-allowed model are excluded from readiness; an entirely empty selection reports unavailable instead of failing during launch. Advisor prompts identify the selected model, list available tiers, define verdict meanings and the evidence object schema, and treat supplied code/prompts as evidence. Follow-up instructions include the required idempotency UUID and retain the original request kind.
 
 # 2026-10-19
 
