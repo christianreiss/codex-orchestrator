@@ -138,6 +138,9 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 | `memory.write` | yes | yes | — | — | — | — |
 | `projects.read` | yes | yes | yes | yes | yes | yes |
 | `projects.manage` | yes | yes | — | — | — | — |
+| `workflows.read` | yes | yes | yes | yes | yes | yes |
+| `workflows.manage` | yes | yes | — | — | — | — |
+| `workflows.run` | yes | yes | yes | yes | — | — |
 | `secrets.read_metadata` | yes | yes | yes | yes | yes | yes |
 | `secrets.reveal` | yes | yes | — | — | — | — |
 | `secrets.manage` | yes | yes | — | — | — | — |
@@ -169,8 +172,9 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   its engines, or moving it between the secure and insecure lanes stays with
   `owner` and `admin`, because each can atomically revoke or generation-fence
   live Agent Messaging work.
-- `trusted_user` holds the reads plus `hosts.activate_insecure`, and nothing
-  else.
+- `trusted_user` holds the reads plus `hosts.activate_insecure` and
+  `workflows.run`. Workflow execution controls are also available to fleet
+  operators; template management remains with owner/admin.
 - `viewer` and the legacy `user` are read-only.
 - Three reads are their own capability rather than part of the domain's `.read`,
   because each returns bearer material or private content:

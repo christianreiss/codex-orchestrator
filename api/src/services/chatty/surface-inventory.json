@@ -302,7 +302,23 @@
       "POST /admin/roles/:slug/revert",
       "POST /admin/roles/:slug/versions/:version/withdraw",
       "GET /admin/feedback/summary",
-      "POST /admin/memories/shared/:recordId/restore"
+      "POST /admin/memories/shared/:recordId/restore",
+      "GET /admin/workflow-definitions/state",
+      "POST /admin/workflow-definitions/state",
+      "GET /admin/workflow-definitions",
+      "POST /admin/workflow-definitions",
+      "GET /admin/workflow-definitions/:id",
+      "GET /admin/workflow-definitions/:id/versions",
+      "GET /admin/workflow-definitions/:id/versions/:version",
+      "POST /admin/workflow-definitions/:id/revise",
+      "POST /admin/workflow-definitions/:id/archive",
+      "POST /admin/workflow-definitions/:id/restore",
+      "POST /admin/workflow-definitions/:id/revert",
+      "GET /admin/workflow-runs",
+      "GET /admin/workflow-runs/:id",
+      "GET /admin/workflow-runs/:id/events",
+      "GET /admin/workflow-runs/:id/report",
+      "GET /admin/workflow-runs/:id/tasks/:taskId"
     ]
   },
   "excluded": {
@@ -413,7 +429,10 @@
       "GET /admin/agent-messaging/chats/:roomId/attachments/:attachmentId",
       "GET /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/content",
       "GET /admin/model-policy/:engine",
-      "PUT /admin/model-policy/:engine"
+      "PUT /admin/model-policy/:engine",
+      "POST /admin/workflow-runs",
+      "POST /admin/workflow-runs/:id/control",
+      "POST /admin/workflow-runs/:id/prepare-cancel"
     ]
   }
 }

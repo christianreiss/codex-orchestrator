@@ -79,7 +79,7 @@ Setup bootstrap uses `GET /admin/setup/status` (public only while there are no u
     (switch, limits, delete — but not reading a transfer back). No account
     management, no reveal of any kind, and none of the four host security
     transitions.
-  - `trusted_user` — the reads plus `hosts.activate_insecure`.
+  - `trusted_user` — the reads plus `hosts.activate_insecure` and `workflows.run`.
   - `viewer` and the legacy `user` — read-only.
 - Authorization is a default-deny capability layer.
   `requireAdmin` (`api/src/http/plugins/auth-admin.ts`) authenticates only: it

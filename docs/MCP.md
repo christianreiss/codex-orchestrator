@@ -1,5 +1,19 @@
 # MCP Server
 
+## Workflow catalog and execution
+
+The shared MCP exposes `workflow_list`, `workflow_get`, `workflow_run_list`,
+and `workflow_run_get`, plus read-only `workflow://<slug>` and
+`workflow://<slug>@<version>` resources. These return instructions and bounded
+state; they do not execute task text or recursively fetch knowledge.
+
+Mutations use the session-bound `cxx-agent` tools prefixed `agent_workflow_`.
+They derive actor, host, engine and binding from the authenticated bridge,
+require stable request UUIDs and enforce task/run/version ownership. Read the
+managed `workflows` and `invite` Skills before execution. On resume, use
+`agent_self` and `agent_workflow_run_current`. The final work response includes
+the run's report URL. See [workflow contracts and recovery](workflows.md).
+
 Native streamable HTTP MCP endpoint plus REST memory helpers for Codex, Claude, and Grok hosts. When the optional Projects module is enabled, the same MCP surface also exposes shared-project coordination tools/resources that back the managed `coco` skill, which now carries the CoCo toolkit/help inline.
 
 Three memory substrates live behind this endpoint and they are not interchangeable: `memory_*` / `memory://...` is host-scoped (one row per host per key, invisible to other hosts), `project_memory_*` / `project://...` is project-scoped coordination state, and `shared_memory_*` / `shared://...` is the fleet-wide document corpus — no host and no project scoping, discoverable with `shared_memory_list` before you know any key. For CoCo specifically, coordination state stays project-only; `memory://...` is never a cross-server fallback.

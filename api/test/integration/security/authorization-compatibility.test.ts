@@ -253,7 +253,10 @@ describe('the exceptions are exceptions, not holes', () => {
         method: route.method as 'GET',
         url: route.url.replace(/:[A-Za-z0-9_]+/g, '1'),
       });
-      expect(response.statusCode, `${key} must not be relaxed by compatible mode`).toBe(403);
+      // Workflow reports are deliberately readable by viewers in both modes;
+      // enforcing that capability must not turn its read grant into a denial.
+      const workflowRead = key.startsWith('GET /admin/workflow-');
+      expect(response.statusCode, `${key} must not be relaxed by compatible mode`).toBe(workflowRead ? 200 : 403);
     }
   });
 
@@ -269,6 +272,25 @@ describe('the exceptions are exceptions, not holes', () => {
     // is the fleet's conversations, and for the writes it is instructing, or
     // ending, someone else's running agent.
     expect([...ALWAYS_ENFORCED_ROUTES].sort()).toEqual([
+      'GET /admin/workflow-definitions/state',
+      'POST /admin/workflow-definitions/state',
+      'GET /admin/workflow-definitions',
+      'POST /admin/workflow-definitions',
+      'GET /admin/workflow-definitions/:id',
+      'GET /admin/workflow-definitions/:id/versions',
+      'GET /admin/workflow-definitions/:id/versions/:version',
+      'POST /admin/workflow-definitions/:id/revise',
+      'POST /admin/workflow-definitions/:id/archive',
+      'POST /admin/workflow-definitions/:id/restore',
+      'POST /admin/workflow-definitions/:id/revert',
+      'GET /admin/workflow-runs',
+      'POST /admin/workflow-runs',
+      'GET /admin/workflow-runs/:id',
+      'GET /admin/workflow-runs/:id/events',
+      'GET /admin/workflow-runs/:id/report',
+      'GET /admin/workflow-runs/:id/tasks/:taskId',
+      'POST /admin/workflow-runs/:id/control',
+      'POST /admin/workflow-runs/:id/prepare-cancel',
       'POST /admin/agent-messaging/chats/create',
       'POST /admin/agent-messaging/chats/manage',
       'POST /admin/agent-messaging/chats/send',

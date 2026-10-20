@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-01",
+  "version": "2026-10-20",
   "articles": [
     {
       "slug": "welcome",
@@ -71,7 +71,7 @@
     },
     {
       "slug": "hosts",
-      "title": "Hosts \u2014 secure, insecure, unprovisioned",
+      "title": "Hosts — secure, insecure, unprovisioned",
       "section": "Fleet operations",
       "summary": "Filter chips, host detail page, registration, pruning, and the insecure access dialog with its approval queue, domain allows, and fleet window.",
       "tags": [
@@ -107,7 +107,7 @@
     },
     {
       "slug": "clx",
-      "title": "clx \u2014 the Claude Code wrapper",
+      "title": "clx — the Claude Code wrapper",
       "section": "Fleet operations",
       "summary": "The Claude persona of cxx: config schema, subcommands and flags, startup sequence, auth model, cron, settings deep-merge, and Claude-native collections.",
       "tags": [
@@ -147,7 +147,7 @@
       "slug": "settings",
       "title": "Engines, Settings, and API keys",
       "section": "Admin workspace",
-      "summary": "Every fleet configuration control under Engines, Settings, and API keys \u2014 what each one changes and which endpoint it touches.",
+      "summary": "Every fleet configuration control under Engines, Settings, and API keys — what each one changes and which endpoint it touches.",
       "tags": [
         "settings",
         "engines",
@@ -258,7 +258,7 @@
     },
     {
       "slug": "logs",
-      "title": "Activity \u2014 admin changes and tool calls",
+      "title": "Activity — admin changes and tool calls",
       "section": "Admin workspace",
       "summary": "Where each log stream originates, retention, filtering, and the admin-ws live feed.",
       "tags": [
@@ -317,6 +317,20 @@
         "gateway"
       ],
       "verified": "2026-10-01"
+    },
+    {
+      "slug": "workflows",
+      "title": "Workflows and shared runs",
+      "section": "Fleet operations",
+      "summary": "Reusable instructions, autonomous agent collaboration, durable results and automatic improvement.",
+      "tags": [
+        "workflows",
+        "runs",
+        "agents",
+        "reports",
+        "collaboration"
+      ],
+      "verified": "2026-10-20"
     }
   ]
 }

@@ -1,5 +1,14 @@
 # Overview
 
+## Workflows and shared runs
+
+The Coordination hub includes versioned workflows and durable runs. Agents
+claim tasks, invite collaborators across hosts and engines, and share an
+automatically managed conversation. Every run has a stable report URL and
+requires evaluation before completion; improvements publish a new workflow
+version. The module starts disabled and existing runs can drain after it is
+disabled again. See [Workflows and shared runs](workflows.md).
+
 ## Smart queue delivery v1 (cxx 0.9.87)
 
 Native receivers negotiate an opt-in catch-up digest and a coordination lane

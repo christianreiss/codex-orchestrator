@@ -100,6 +100,12 @@ export const CAPABILITIES = [
   'projects.read',
   'projects.manage',
 
+  // Versioned instructions and their durable executions. Reading a report
+  // does not grant access to the associated private conversation.
+  'workflows.read',
+  'workflows.manage',
+  'workflows.run',
+
   'secrets.read_metadata',
   'secrets.reveal',
   'secrets.manage',
@@ -166,6 +172,7 @@ const READ_ONLY: readonly Capability[] = [
   'content.read',
   'memory.read',
   'projects.read',
+  'workflows.read',
   'secrets.read_metadata',
   'agent_portal.read',
   'agent_messaging.read',
@@ -198,6 +205,7 @@ const FLEET_OPERATOR: readonly Capability[] = [
   // in it, exactly as they may replace a credential without revealing one.
   'transfers.manage',
   'feedback.manage',
+  'workflows.run',
 ];
 
 /**
@@ -217,7 +225,7 @@ export const ROLE_CAPABILITIES: Readonly<Record<AccessLevel, readonly Capability
   [ROLE_FLEET]: FLEET_OPERATOR,
   // Exactly what the role name claims: the insecure-window activations, plus
   // the reads needed to find the host it is opening a window for.
-  [ROLE_TRUSTED]: [...READ_ONLY, 'hosts.activate_insecure'],
+  [ROLE_TRUSTED]: [...READ_ONLY, 'hosts.activate_insecure', 'workflows.run'],
   [ROLE_VIEWER]: READ_ONLY,
   [ROLE_USER]: READ_ONLY,
 };

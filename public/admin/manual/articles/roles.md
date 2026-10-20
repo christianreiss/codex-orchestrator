@@ -14,7 +14,7 @@ Constants declared in `api/src/services/admin-auth.ts`; `VALID_ACCESS_LEVELS` is
 - `ROLE_OWNER = 'owner'` — holds every capability. The first-run claim at `/admin/setup/owner` always creates one of these.
 - `ROLE_ADMIN = 'admin'` — also holds every capability. Owner and admin differ only in the ownership invariants enforced by `AdminUserService.guardLastAdmin` (`api/src/services/admin-users.ts`): the last active owner-like account cannot be demoted, deactivated, or deleted. Those are properties of the *target* row, so no capability of the caller can express them.
 - `ROLE_FLEET = 'fleet_operator'` — runs the fleet: hosts, insecure windows, global settings, canonical credentials, Git Director arbitration, and the file-transfer pool. Holds no account management and no reveal of any kind.
-- `ROLE_TRUSTED = 'trusted_user'` — the reads plus `hosts.activate_insecure`, and nothing else.
+- `ROLE_TRUSTED = 'trusted_user'` — the reads plus `hosts.activate_insecure` and `workflows.run`. Fleet operators also hold workflow execution controls; template management remains with owner/admin.
 - `ROLE_VIEWER = 'viewer'` and the legacy `ROLE_USER = 'user'` — read-only.
 
 ## The role → capability matrix

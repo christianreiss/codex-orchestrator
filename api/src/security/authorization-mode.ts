@@ -137,6 +137,8 @@ export const LEGACY_OWNER_ADMIN_ROUTES: ReadonlySet<string> = new Set([
 export const ALWAYS_ENFORCED: readonly Capability[] = [
 
   'chatty.use', 'chatty.manage',
+  // These are new execution/content surfaces, with no legacy access to keep.
+  'workflows.read', 'workflows.manage', 'workflows.run',
   // New opt-in group publications are an operator action. Compatibility must
   // not let a viewer publish as Server or expose management controls.
   'agent_messaging.manage',

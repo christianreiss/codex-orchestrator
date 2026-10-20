@@ -1,5 +1,20 @@
 # cdx Wrapper Interface (Source of Truth)
 
+## Workflow protocol v1 (cxx 0.9.111)
+
+The shared wrapper advertises `workflow_protocol_version: 1` and exposes the
+session-bound `agent_workflow_*` tools on `cxx-agent` for all three engines.
+Catalog reads remain on the central MCP. The managed `workflows` and `invite`
+Skills explain task claims, autonomous invitations, evaluation and report links.
+Read `agent_self` and `agent_workflow_run_current` after resume before continuing
+work. A claim is tied to the current session binding; expiry requires
+reconciliation and never authorizes an automatic retry or fresh transcript.
+
+Each mutation uses a stable `client_request_id`; retry an uncertain acknowledgement
+with the same UUID and body. Completing a workflow does not replace the separate
+accepted-work `agent_task_result`. See [Workflows and shared runs](workflows.md)
+for states, collaboration, module draining and recovery.
+
 ## Smart queue delivery v1 (cxx 0.9.87)
 
 Native receivers negotiate an opt-in catch-up digest and a coordination lane
