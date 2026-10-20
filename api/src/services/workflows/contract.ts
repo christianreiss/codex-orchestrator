@@ -121,6 +121,7 @@ const knowledgeSchema = z
     title: z.string().min(1).max(255),
     inline: text.optional(),
     reference: z.object({ uri: referenceUri, read_hint: text.optional() }).strict().optional(),
+    required_check: z.object({ applicability: nonempty }).strict().optional(),
   })
   .strict()
   .refine(
@@ -441,13 +442,16 @@ export const workflowMutationSchemas = {
       evidence_ids: z.array(id).max(200).optional(),
       source: z
         .object({
-          uri: referenceUri,
+          uri: z.union([referenceUri, z.string().regex(/^workflow:\/\/[a-f0-9]{64}\/knowledge\/[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/)]),
           title: z.string().min(1).max(255),
           read_at: z.string().datetime(),
           digest: z.string().max(128).optional(),
           revision: z.string().max(128).optional(),
           summary: nonempty,
           unavailable: z.boolean().optional(),
+          knowledge_id: id.optional(),
+          applicability: z.enum(['applicable', 'mismatch', 'unknown']).optional(),
+          applicability_reason: nonempty.optional(),
         })
         .strict()
         .optional(),

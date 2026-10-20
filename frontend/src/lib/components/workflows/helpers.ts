@@ -43,6 +43,7 @@ export function validateDraft(document: WorkflowDocument): Record<string, string
   document.knowledge.forEach((source, i) => {
     if (knowledgeIds.has(source.id)) errors[`source-title-${i}`] = "Knowledge IDs must be unique.";
     knowledgeIds.add(source.id);
+    if (source.required_check && !source.required_check.applicability.trim()) errors[`source-applicability-${i}`] = "Describe the scope and operating system this source must apply to.";
     if (!source.title.trim()) errors[`source-title-${i}`] = "Enter a knowledge source title.";
     if (source.reference && (!/^(shared:\/\/[^\s]+|project:\/\/[^\s]+\/(memory|files)\/[^\s]+|skill:\/\/[^\s]+|https?:\/\/[^\s]+)$/.test(source.reference.uri) || /[\u0000-\u0020]/.test(source.reference.uri))) errors[`source-uri-${i}`] = "Use shared://, project:// with memory/files, skill://, https:// or http://. Host-local memory references are unavailable to other agents.";
   });

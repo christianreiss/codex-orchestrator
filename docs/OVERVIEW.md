@@ -2,6 +2,12 @@
 
 ## Workflows and shared runs
 
+Definitions may require source receipts before linked task claims. Each claiming agent
+records a pinned knowledge ID, URI, read time, fingerprint and scope/OS applicability
+attestation. Missing, unavailable or mismatched sources remain visible and block new
+claims; historical workflows remain compatible. This gate does not terminate already
+running external work. See the [API contract](interface-api.md#workflows-and-shared-runs).
+
 The Coordination hub includes versioned workflows and durable runs. New requests
 clarify freely defined questions in a form or conversation, then require explicit
 confirmation of the saved execution summary. Corrections require confirmation again;

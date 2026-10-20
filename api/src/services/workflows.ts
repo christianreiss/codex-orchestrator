@@ -52,6 +52,7 @@ import {
 import { requireWorkflowProtocol } from './workflows/contract.js';
 import { createRun, runControl, runNote, finishRun, prepareCancel } from './workflows/runs.js';
 import { taskClaim, taskUpdate } from './workflows/tasks.js';
+import { knowledgeChecks, knowledgeUri, requiredKnowledge } from './workflows/knowledge.js';
 import { invite, membership, invitationView } from './workflows/members.js';
 import { evaluateRun } from './workflows/evaluation.js';
 export type { WorkflowActor, WorkflowCollaboration, WorkflowOperation } from './workflows/contract.js';
@@ -619,9 +620,31 @@ export class WorkflowsService {
       .limit(input.limit + 1)
       .offset(input.cursor);
     const now = new Date().toISOString();
+    const [run] = await this.deps.db.select().from(workflowRuns).where(eq(workflowRuns.id, runId));
+    if (!run) throw new NotFoundError('Run not found', 'workflow_run_not_found');
+    const [version] = await this.deps.db.select().from(workflowVersions).where(eq(workflowVersions.id, run.workflowVersionId));
+    const address = t.claimOwnerAddressId ?? run.coordinatorAddressId;
+    const [subject] = address ? await this.deps.db.select().from(workflowRunMembers).where(and(
+      eq(workflowRunMembers.runId, runId), eq(workflowRunMembers.agentAddressId, address), eq(workflowRunMembers.status, 'active'),
+    )) : [];
+    const knowledge = version && subject ? {
+      subject: { ...subject.actor, address_id: subject.agentAddressId, session_id: subject.sessionId, binding_generation: subject.bindingGeneration },
+      role: t.claimOwnerAddressId ? 'claim_owner' : 'coordinator',
+      checks: await this.deps.db.transaction((tx) => knowledgeChecks({ tx, now, actor: {
+        ...subject.actor, kind: 'agent', id: subject.agentAddressId,
+        address_id: subject.agentAddressId, session_id: subject.sessionId, binding_generation: subject.bindingGeneration,
+      } }, run, version.document as WorkflowDocument, taskId)),
+    } : version ? {
+      subject: null, role: null,
+      checks: requiredKnowledge(version.document as WorkflowDocument, taskId).map((knowledge) => ({
+        knowledge_id: knowledge.id, title: knowledge.title, uri: knowledgeUri(run, knowledge),
+        applicability: knowledge.required_check!.applicability, blocker: 'missing_receipt', receipt: null,
+      })),
+    } : null;
     return {
       server_time: now,
       task: { ...taskView(t, now), outputs: t.outputs, evidence: t.evidence },
+      knowledge,
       attempts: attempts.slice(0, input.limit).map((a) => ({
         id: a.id,
         attempt_no: a.attemptNo,

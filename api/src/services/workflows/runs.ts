@@ -17,6 +17,7 @@ import {
   type WorkflowActor,
 } from './contract.js';
 import { addMember, syncGroup } from './members.js';
+import { validateKnowledgeReceipt } from './knowledge.js';
 import {
   assertPreparationReady,
   agentRecord,
@@ -282,6 +283,7 @@ export async function runNote(ctx: Session, run: Run, input: MutationInput<'run_
     throw new ValidationError('Unknown evidence reference', { param: 'evidence_ids' });
   if (input.kind === 'knowledge' && !input.source)
     throw new ValidationError('Knowledge notes need source metadata', { param: 'source' });
+  validateKnowledgeReceipt(doc, run, input, ctx.now);
   await event(ctx, run, `note.${input.kind}`, {
     text: input.text,
     task_id: input.task_id ?? null,

@@ -219,3 +219,55 @@ test("concurrent answer changes retain the local draft and require comparison be
   await expect(page.getByText("Saved. Confirmed by the server.",{exact:true})).toBeVisible();
   expect(report.inputs.release).toBe("local draft");expect(state.calls.filter(c=>c.body.action==="configure").map(c=>c.body.expected_run_version)).toEqual([4,5]);expect(state.errors).toEqual([]);
 });
+
+test("required source checks retain the applicability draft and publish an explicit opt-in", async ({ page }, testInfo) => {
+  const { state } = await fixtures(page);
+  await page.goto("/admin/workflows/definitions/verify-artifacts?mode=edit");
+  await page.getByRole("button", { name: "Add knowledge", exact: true }).click();
+  await page.getByLabel("Source 1 title").fill("Linux runbook");
+  await page.getByLabel("Notes (Markdown)").fill("Read the Linux task instructions.");
+  const optIn = page.getByRole("checkbox", { name: "Require an applicable source receipt before linked tasks start" });
+  await optIn.focus(); await page.keyboard.press("Space");
+  await page.getByLabel("Change reason").fill("Require source applicability checks");
+  await page.getByRole("button", { name: "Publish new version", exact: true }).click();
+  await expect(page.getByRole("alert").first()).toContainText("Describe the scope and operating system");
+  await page.getByRole("textbox", { name: "Required scope and operating system" }).fill("Linux hosts only");
+  await page.getByRole("group", { name: "Knowledge for task 1", exact: true }).getByRole("checkbox", { name: "Linux runbook" }).check();
+  await page.screenshot({ path: testInfo.outputPath("source-check-editor.png"), fullPage: true });
+  await page.getByRole("button", { name: "Publish new version", exact: true }).click();
+  await expect(page.getByText("Saved. Confirmed by the server.", { exact: true })).toBeVisible();
+  const saved = state.calls.find(c => c.path.endsWith("/revise"))!.body.document as typeof document;
+  expect(saved.knowledge[0]).toMatchObject({ required_check: { applicability: "Linux hosts only" } });
+  expect(saved.tasks[0].knowledge_ids).toEqual([saved.knowledge[0].id]);
+  expect(state.errors).toEqual([]);
+});
+
+for (const theme of ["light", "dark"] as const) for (const width of [320, 390, 1440]) {
+  test(`source receipt blockers and attribution remain readable at ${width}px in ${theme}`, async ({ page }, testInfo) => {
+    const { report, state } = await fixtures(page);
+    report.document!.knowledge = [{ id: "linux", title: "Linux runbook", reference: { uri: "shared://linux-runbook" }, required_check: { applicability: "Linux production hosts only" } }];
+    report.document!.tasks[0].knowledge_ids = ["linux"];
+    await page.setViewportSize({ width, height: 900 });
+    await page.route("**/admin/theme", route => route.fulfill({ json: { theme } }));
+    await page.route(`**/admin/workflow-runs/${RUN_ID}/tasks/produce*`, route => route.fulfill({ json: {
+      task: report.tasks[0], attempts: [], next_cursor: null,
+      knowledge: { subject: { name: "Artifact reviewer", address_id: AGENT_ID, binding_generation: 2 }, role: "coordinator", checks: [
+        { knowledge_id: "linux", title: "Linux runbook", uri: `shared://linux-runbook/${"long-scope-".repeat(20)}`, applicability: "Linux production hosts only", blocker: "applicability_mismatch", receipt: { event_id: "receipt", actor: { name: "Artifact reviewer" }, recorded_at: report.updated_at, source: { read_at: report.updated_at, digest: "a".repeat(64), applicability_reason: "The target is Windows; use a matching runbook before claiming this task." } } },
+        { knowledge_id: "missing", title: "Unread source", uri: "shared://unread", applicability: "Current host", blocker: "missing_receipt", receipt: null },
+      ] },
+    } }));
+    await page.goto(`/admin/workflows/runs/${RUN_ID}`);
+    await expect(page.getByText("Source receipt required before claim", { exact: true })).toBeVisible();
+    await page.getByText("Produce artifacts", { exact: true }).click();
+    const checks = page.getByRole("region", { name: "Required source checks" });
+    await expect(checks).toContainText("Agent attestations for the coordinator: Artifact reviewer · Binding 2");
+    await expect(checks).toContainText("Applicability mismatch");
+    await expect(checks).toContainText("Missing receipt");
+    await expect(checks).toContainText("Each agent needs its own receipts");
+    expect(await page.locator("main").evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(2);
+    const axe = await new AxeBuilder({ page }).include('[aria-label="Required source checks"]').analyze();
+    expect(axe.violations).toEqual([]);
+    await checks.screenshot({ path: testInfo.outputPath("source-checks.png") });
+    expect(state.errors).toEqual([]);
+  });
+}

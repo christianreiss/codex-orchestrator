@@ -240,3 +240,28 @@ HTTP. Production deployment, live native wrapper rollout, the entire DB/coverage
 suite and physical cross-host execution were not performed. Rollback restores the
 previous API/SPA/wrapper together while retaining additive preparation data and
 historical reports; disable new runs before rolling back active protocol-2 work.
+
+## Required source receipt checks — 2026-10-20, local sweep
+
+Optional `knowledge.required_check` gates acquisition using attributable source receipts
+from the claiming session binding. The implementation uses existing audited events and
+run-row serialization; it fetches no URLs and executes no source commands. Task-specific
+assessments take precedence over general rereads. Later failures prevent new acquisitions
+within their scope; an already running external process is not stopped.
+
+- API typecheck passed. Source contract units: 9/9 (4 new source-check tests); workflow
+  tool-schema/liveness units: 16/16. MySQL 8.4.10 disposable database: workflow domain,
+  transport and HTTP suites 41/41 (2 new source-check cases); authorization suite 14/14.
+- Frontend check: 0 Svelte errors/warnings, 989/989 unit tests. Workflow Chromium suite:
+  37/37. New coverage includes opt-in/applicability validation, retained drafts, receipt
+  attribution and missing/mismatch states at 320, 390 and 1440 px in both themes. Axe
+  checks all findings on the source-check region; the detected heading-order issue was
+  fixed before the final passing run.
+- Common cxx: `go build ./...`, `go vet ./...` and agentbus tests passed. The workflow
+  tool-schema payload is regenerated for all three engines. No migration is needed.
+
+Applicable design rules: VIS-1/2/4/5, INT-2/3/5/6/7 and ACC-1/3/4; existing shared form,
+state and timestamp components are reused. No design exception was added. Independent
+operator usability, manual screen-reader, full zoom/text-spacing and Firefox/WebKit
+acceptance of the new source-check controls have not been performed in this sweep.
+These checks establish local behavior; no production deployment was performed.

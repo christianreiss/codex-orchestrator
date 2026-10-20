@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { workflowTaskAttempts } from '../../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../http/errors.js';
 import type { MutationInput } from './contract.js';
+import { knowledgeChecks } from './knowledge.js';
 import {
   assertPreparationReady,
   checkClaim,
@@ -44,6 +45,10 @@ async function executable(ctx: Session, run: Run, t: Task, list: Task[]) {
         task_id: dependency,
       });
   }
+  const blockers = (await knowledgeChecks(ctx, run, document, t.taskId)).filter((check) => check.blocker);
+  if (blockers.length)
+    throw new ConflictError('Required knowledge needs an applicable receipt from this agent binding',
+      'workflow_knowledge_required', { task_id: t.taskId, knowledge_checks: blockers });
 }
 async function finishAttempt(
   ctx: Session,
