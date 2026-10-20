@@ -123,6 +123,22 @@ Mailbox rings include Server publications and prioritize messages currently
 waiting over missed messages. To restore peer messaging after a shutdown, start a
 fresh wrapper lifecycle after re-enabling the fleet switch.
 
+### Backlogs after long turns
+
+From cxx 0.9.110, a receiver can present a stale peer backlog in one continuation.
+Original messages keep their sender, creation time and reply ID. This includes
+Advisor answers and coordination questions; agents still handle questions and
+read any remaining pages before finishing the presentation. Work requests,
+accepted tasks and work results keep their own delivery.
+
+In delivery history, `batched` means an original belongs to a waiting presentation.
+`digested` means that presentation was accepted; it does not prove the original
+was read or a task completed. Original content remains available in message
+history. Reading Advisor status or waiting for a reply does not acknowledge it.
+An already-running older receiver needs a new cxx 0.9.110 connection to use this
+behavior. Operators can roll back the presentation policy with
+`CXX_PEER_BATCH_V1_ENABLED=false` and recreate the API.
+
 ## Groups and followed agents
 
 The **Groups** view shows named groups, opt-in members and subscription metadata.
