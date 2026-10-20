@@ -25,6 +25,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipv4"
@@ -574,7 +575,15 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 	var diagnostic tailBuffer
 	output.limit, diagnostic.limit = workerOutputLimit, 256*1024
 	cmd.Stdout, cmd.Stderr = &output, &diagnostic
+	startupFile, _ := os.CreateTemp("", "cxx-native-startup-*.json")
+	startupPath := ""
+	if startupFile != nil {
+		startupPath = startupFile.Name()
+		defer os.Remove(startupPath)
+		defer startupFile.Close()
+	}
 	cmd.Env = append(os.Environ(),
+		agentportal.StartupFailureEnv+"="+startupPath,
 		"CXX_AGENT_MESSAGING_ADDRESS="+stringArg(delivery.Target, "address"),
 		"CXX_AGENT_MESSAGING_BINDING_GENERATION="+strconv.Itoa(intArg(delivery.Target, "binding_generation", 0)),
 		"CXX_AGENT_MESSAGING_CONTINUITY="+map[bool]string{true: "native", false: "reset"}[upstream != ""],
@@ -644,6 +653,11 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 		text := strings.ToLower(output.String() + "\n" + diagnostic.String())
 		result.Capacity = strings.Contains(text, "at capacity") || strings.Contains(text, "rate_limit") || strings.Contains(text, "usage limit") || strings.Contains(text, "quota limit") || strings.Contains(text, "overloaded")
 		result.Err = fmt.Errorf("native %s exited unsuccessfully", engine)
+		if startupFile != nil {
+			if diagnostic := agentportal.ReadStartupFailure(startupFile); diagnostic != "" {
+				result.Err = fmt.Errorf("native %s exited unsuccessfully: %s", engine, diagnostic)
+			}
+		}
 		return result
 	}
 	text := strings.ToLower(output.String() + "\n" + diagnostic.String())

@@ -191,15 +191,30 @@ func TestConfiguredDaemonReconciliation(t *testing.T) {
 	}
 }
 
-func TestUnprivilegedDaemonPendingOnlyWhenUnitMissing(t *testing.T) {
-	unit := filepath.Join(t.TempDir(), "cxx-daemon.service")
-	if err := unprivilegedDaemonPending(unit); err == nil || !strings.Contains(err.Error(), "sudo cxx daemon install") {
-		t.Fatal("a missing unit must name the install step", err)
-	}
-	if err := os.WriteFile(unit, []byte("[Unit]\n"), 0600); err != nil {
+func TestUnprivilegedDaemonPendingNamesMissingUnit(t *testing.T) {
+	if err := unprivilegedDaemonPending(filepath.Join(t.TempDir(), "missing")); err == nil || !strings.Contains(err.Error(), "sudo cxx daemon install") {
 		t.Fatal(err)
 	}
-	if err := unprivilegedDaemonPending(unit); err != nil {
-		t.Fatal("an installed unit must not nag on every launch", err)
+}
+
+func TestDaemonBinaryPendingChecksInstalledSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	wrapper, installed := filepath.Join(dir, "wrapper"), filepath.Join(dir, "installed")
+	for _, path := range []string{wrapper, installed} {
+		if err := os.WriteFile(path, []byte("same binary"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := daemonBinaryPending(wrapper, installed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installed, []byte("old binary"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := daemonBinaryPending(wrapper, installed); err == nil || !strings.Contains(err.Error(), "daemon update pending") {
+		t.Fatal("old daemon snapshot was silently accepted", err)
+	}
+	if err := daemonBinaryPending(wrapper, filepath.Join(dir, "missing")); err == nil || !strings.Contains(err.Error(), "unverified") {
+		t.Fatal("missing daemon snapshot was silently accepted", err)
 	}
 }

@@ -34,7 +34,7 @@ func TestListenReportsUnavailableReceiver(t *testing.T) {
 	if out["status"] != "receiver_unavailable" {
 		t.Fatalf("a receiver that never registered reported %v", out["status"])
 	}
-	if !strings.Contains(out["message"].(string), "Do NOT yield") {
+	if !strings.Contains(out["message"].(string), "Do NOT yield") || !strings.Contains(out["message"].(string), "cxx agent listen --seconds 0") || !strings.Contains(out["message"].(string), "cannot accept work") {
 		t.Fatalf("message = %v", out["message"])
 	}
 

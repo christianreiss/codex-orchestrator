@@ -29,6 +29,7 @@ type ConnectionRuntime struct {
 func StartConnection(ctx context.Context, cfg *config.Config, input StartInput) (*ConnectionRuntime, error) {
 	restore := ScrubEnvironment()
 	session, startErr := Start(ctx, cfg, input)
+	recordStartupFailure("registration", startErr)
 	if session == nil {
 		return &ConnectionRuntime{ctx: ctx, restore: restore, stopHeartbeat: func() {}}, startErr
 	}
@@ -36,6 +37,7 @@ func StartConnection(ctx context.Context, cfg *config.Config, input StartInput) 
 	runtime := &ConnectionRuntime{session: session, ctx: session.withNativeControl(session.WithScheduleWatch(ctx)), restore: restore}
 	runtime.stopWatchdog = session.startWatchdogFeed(runtime.ctx)
 	broker, brokerErr := session.StartBroker(runtime.ctx)
+	recordStartupFailure("connection", brokerErr)
 	runtime.broker = broker
 	if broker != nil {
 		restoreBroker := broker.ActivateEnvironment()
