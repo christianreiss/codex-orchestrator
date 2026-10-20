@@ -61,6 +61,9 @@ export interface Room {
   status: string;
   created_at: string;
   members: RoomMember[];
+  workflow_managed?: boolean;
+  workflow_run_id?: string;
+  workflow_report_url?: string;
   owner_admin_id?: number | null;
   deadline_at?: string;
   unread?: number;

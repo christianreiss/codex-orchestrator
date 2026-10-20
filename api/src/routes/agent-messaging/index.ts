@@ -1,4 +1,5 @@
 import { registerCoordinationRoutes } from './coordination.js';
+import { createWorkflowsService, registerWorkflowBridgeRoutes } from './workflows.js';
 import { registerRoleRoutes } from './roles.js';
 import { queuePolicySchema } from '../../services/agent-messaging/smart-queue.js';
 import { RebootHandoffs } from '../../services/reboot-handoffs.js';
@@ -39,6 +40,7 @@ export async function registerAgentMessagingRoutes(
   registerAgentGroupRoutes(app, ctx, messaging);
   registerCoordinationRoutes(app, ctx, messaging);
   registerRoleRoutes(app, ctx, messaging);
+  registerWorkflowBridgeRoutes(app, createWorkflowsService(ctx, messaging), messaging);
   const reboot = new RebootHandoffs(ctx.db, ctx.keyring);
   const rebootHandler = (operation: 'prepare' | 'arm' | 'status' | 'restore' | 'disarm') => async (req: FastifyRequest) => {
       const id = stringParam(req.params, 'id');

@@ -60,6 +60,7 @@ export interface ManagedAgentFeatureContext {
   advisor?: ManagedFeatureState;
   /** Agent roles; needs the clx MCP (catalog) and Agent Messaging (`agent_role_*` on `cxx-agent`). */
   roles?: ManagedFeatureState;
+  workflows?: ManagedFeatureState;
   gitCommitSettings?: GitCommitSettings;
   /** Recommendable models of the host's active engines, grouped by tier. */
   modelTiers?: ManagedFeatureState & { table: ModelTierRow[]; configured: ConfiguredModel };
@@ -98,6 +99,7 @@ export interface ManagedAgentFeatureSections {
   model_tiers?: ManagedAgentFeatureSection;
   advisor?: ManagedAgentFeatureSection;
   roles?: ManagedAgentFeatureSection;
+  workflows?: ManagedAgentFeatureSection;
 }
 
 export interface RenderManagedAgentFeaturesResult {
@@ -146,6 +148,7 @@ const FEATURE_SECTION_LABELS: Partial<Record<keyof ManagedAgentFeatureSections, 
   feedback: 'Orchestrator Feedback (fleet setting)',
   model_tiers: 'Model Class Check (fleet setting)',
   roles: 'Agent Roles (fleet setting)',
+  workflows: 'Workflows (fleet setting)',
   // Also one console switch for every host. Unlike its neighbours this one is
   // not an MCP surface: it reaches the wrapper through the signed host config,
   // so a host that has not refreshed its config yet still sees the old value.
@@ -473,7 +476,8 @@ recovery off; after resume check \`agent_self\` and \`agent_reboot_status\`; nev
 ## Shared Chat Rooms
 
 Use \`agent_chat_list\`, \`agent_chat_read\`, \`agent_chat_send\` for groups and rooms.
-Only operator @mentions or answer rounds request a response. Answer once in the room,
+Operator @mentions/answer rounds and explicit WORKFLOW-QUESTION/1 requests from active run
+participants request one response. The latter applies only to open managed run groups. Answer once in the room,
 using the event UUID as reply_to, then \`agent_listen\`; agent answers never wake peers.
 Retain request UUIDs on retries. Use room_id with \`agent_attachment_upload\` and
 \`agent_attachment_get\` for room files. Reading grants no new authority. Operator chairs
@@ -741,6 +745,18 @@ your checkout. Answers arrive as ADVISOR/1 peer messages with JSON verdicts. Fol
 with that session id and a new client_message_id per question; reuse it on retry. Finish with
 \`advisor_close\`; idle advisors close after 60 minutes.
 `) : null;
+  const workflowsState = context.workflows ?? { enabled: false, reason: 'workflows_disabled' };
+  const workflows = workflowsState.enabled && context.agentMessaging.enabled ? present(workflowsState, `## Workflows
+
+Read \`skill://workflows\` before creating, executing or joining a shared workflow run; \`#invite\`
+routes an active participant to its collaboration instructions. Discover templates with
+\`workflow_list/get\`, execute through \`agent_workflow_*\`, and keep each mutation's request UUID.
+Any active participant may invite an existing suitable agent; invitations start no process.
+After resume call \`agent_self\` then \`agent_workflow_run_current\` and reconcile claims/bindings.
+Finish work, evaluate it and either publish a reasoned improvement or record no_change before
+completion. Include the stable report_url in the final answer. Workflow results never replace
+\`agent_task_result\` for an original request, Conference or Wake work delivery.
+`) : null;
   const rolesState = context.roles ?? { enabled: false, reason: 'roles_disabled' };
   const roles = rolesState.enabled && context.agentMessaging.enabled ? present(rolesState, `## Agent Roles
 
@@ -803,6 +819,7 @@ with \`REVIEW/1\`. Holders improve a role with \`agent_role_propose\`, read prop
     git_commit_messages: gitCommitMessages.metadata,
     model_tiers: modelTiers?.metadata ?? absent(modelTiersState),
     advisor: advisor?.metadata ?? absent(context.agentMessaging.enabled ? advisorState : context.agentMessaging),
+    workflows: workflows?.metadata ?? absent(context.agentMessaging.enabled ? workflowsState : context.agentMessaging),
     roles: roles?.metadata ?? absent(context.agentMessaging.enabled ? rolesState : context.agentMessaging),
   };
 
@@ -825,6 +842,7 @@ with \`REVIEW/1\`. Holders improve a role with \`agent_role_propose\`, read prop
     { key: 'model_tiers', section: modelTiers },
     ...(advisor ? [{ key: 'advisor' as const, section: advisor }] : []),
     ...(roles ? [{ key: 'roles' as const, section: roles }] : []),
+    ...(workflows ? [{ key: 'workflows' as const, section: workflows }] : []),
   ];
   const presentFeatures = orderedFeatures.filter(
     (entry): entry is { key: keyof ManagedAgentFeatureSections; section: RenderedSection } =>

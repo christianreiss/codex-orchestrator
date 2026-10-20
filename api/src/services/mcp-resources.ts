@@ -10,6 +10,7 @@
  *   - `skill://<slug>`                          — skill manifest
  *   - `skill://<slug>/<path>`                   — bundled skill support file
  */
+import type { WorkflowsService } from './workflows.js';
 import type { RolesService } from './roles.js';
 import type { Host } from '../db/schema.js';
 import type { McpMemoriesService } from './mcp-memories.js';
@@ -26,6 +27,7 @@ export interface ResourceDeps {
   skills: HostSkillsService;
   /** Agent roles; `role://` is served only when present and the module is on. */
   roles?: RolesService;
+  workflows?: WorkflowsService;
 }
 
 export interface ResourceDescriptor {
@@ -219,6 +221,10 @@ export class McpResourcesService {
         mimeType: 'text/plain',
       },
     ];
+    if (this.deps.workflows) templates.push(
+      { uriTemplate: 'workflow://{slug}', name: 'workflow', description: 'Current reusable workflow definition; read only', mimeType: 'application/json' },
+      { uriTemplate: 'workflow://{slug}@{version}', name: 'workflow_version', description: 'Pinned immutable workflow definition; read only', mimeType: 'application/json' },
+    );
     if (this.deps.roles) {
       templates.push(
         { uriTemplate: 'role://{slug}', name: 'role', description: 'Agent role: current published manifest plus file index (JSON). A read is not an activation.', mimeType: 'application/json' },
@@ -345,6 +351,12 @@ export class McpResourcesService {
   }
 
   async read(uri: string, host: Host, engine: Engine = ENGINE_CODEX): Promise<ResourceReadResponse> {
+    if (uri.startsWith('workflow://') && this.deps.workflows) {
+      const match = /^workflow:\/\/([a-z0-9][a-z0-9-]{0,63})(?:@([1-9][0-9]*))?$/.exec(uri);
+      if (!match) throw new Error('Invalid workflow resource URI');
+      const value = await this.deps.workflows.get(match[1]!, match[2] ? Number(match[2]) : undefined);
+      return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(value) }] };
+    }
     if (uri.startsWith('role://') && this.deps.roles) return await this.deps.roles.readResource(uri);
     const parsed = parseUri(uri);
     const { scheme, id } = parsed;

@@ -12,6 +12,7 @@
  * deleted, so an existing deployment needs no migration) and are rejected by the
  * admin store/delete paths.
  */
+import { isManagedWorkflowSlug, managedWorkflowSkills } from './managed-workflows-skill.js';
 import { getManagedRolesSkillIfEnabled, isManagedRolesSlug } from './managed-roles-skill.js';
 import { buildManagedWatchdogSkill, isManagedWatchdogSlug } from './managed-watchdog-skill.js';
 import { buildManagedWakeCronSkill, isManagedWakeCronSlug } from './managed-wake-cron-skill.js';
@@ -36,7 +37,7 @@ const MANAGED_UPDATED_AT = '2026-07-31T00:00:00Z';
 /** True for any slug owned by code, whether or not it is currently served. */
 export function isManagedSkillSlug(slug: string): boolean {
   return (
-    isManagedWatchdogSlug(slug) || isManagedWakeCronSlug(slug)
+    isManagedWorkflowSlug(slug) || isManagedWatchdogSlug(slug) || isManagedWakeCronSlug(slug)
     || isManagedCocoSlug(slug)
     || isManagedContextSlug(slug)
     || isManagedAfkSlug(slug)
@@ -68,6 +69,7 @@ export async function listManagedSkills(db: Database): Promise<ManagedSkillManif
   out.push(buildManagedAfkSkill(MANAGED_UPDATED_AT));
   out.push(buildManagedConferenceSkill(MANAGED_UPDATED_AT));
   out.push(buildManagedSkillManager(MANAGED_UPDATED_AT));
+  out.push(...await managedWorkflowSkills(db, MANAGED_UPDATED_AT));
   const roles = await getManagedRolesSkillIfEnabled(db, MANAGED_UPDATED_AT);
   if (roles) out.push(roles);
   out.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));

@@ -2800,3 +2800,116 @@ export type AgentRole = typeof agentRoles.$inferSelect;
 export type AgentRoleVersion = typeof agentRoleVersions.$inferSelect;
 export type AgentRoleAssignment = typeof agentRoleAssignments.$inferSelect;
 export type AgentRoleProposal = typeof agentRoleProposals.$inferSelect;
+
+// Workflows retain historical actors without cascading agent/host foreign keys.
+export const workflows = mysqlTable('workflows', {
+  id: char('id', { length: 36 }).primaryKey(),
+  slug: varchar('slug', { length: 64 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull().default('active'),
+  currentVersion: int('current_version').notNull().default(1),
+  currentVersionId: char('current_version_id', { length: 36 }).notNull(),
+  controlVersion: int('control_version').notNull().default(1),
+  title: varchar('title', { length: 255 }).notNull(),
+  summary: text('summary').notNull(),
+  actor: json('actor').$type<Record<string, unknown>>().notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({ slugUnique: uniqueIndex('uq_workflows_slug').on(t.slug), statusIdx: index('idx_workflows_status').on(t.status, t.updatedAt) }));
+
+export const workflowVersions = mysqlTable('workflow_versions', {
+  id: char('id', { length: 36 }).primaryKey(), workflowId: char('workflow_id', { length: 36 }).notNull(),
+  version: int('version').notNull(), previousVersionId: char('previous_version_id', { length: 36 }),
+  document: json('document').$type<Record<string, unknown>>().notNull(), sha256: char('sha256', { length: 64 }).notNull(),
+  reason: text('reason').notNull(), diff: json('diff').$type<unknown[]>().notNull(),
+  sourceRunId: char('source_run_id', { length: 36 }), actor: json('actor').$type<Record<string, unknown>>().notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, (t) => ({ versionUnique: uniqueIndex('uq_workflow_versions_number').on(t.workflowId, t.version) }));
+
+export const workflowRuns = mysqlTable('workflow_runs', {
+  id: char('id', { length: 36 }).primaryKey(), workflowId: char('workflow_id', { length: 36 }).notNull(),
+  workflowVersionId: char('workflow_version_id', { length: 36 }).notNull(), workflowVersion: int('workflow_version').notNull(),
+  workflowSha256: char('workflow_sha256', { length: 64 }).notNull(), title: varchar('title', { length: 255 }).notNull(),
+  inputs: json('inputs').$type<Record<string, unknown>>().notNull(), status: varchar('status', { length: 16 }).notNull(), outcome: varchar('outcome', { length: 16 }),
+  version: int('version').notNull().default(1), eventSequence: int('event_sequence').notNull().default(0),
+  coordinatorAddressId: char('coordinator_address_id', { length: 36 }), coordinatorGeneration: int('coordinator_generation').notNull().default(0),
+  coordinatorLeaseUntil: varchar('coordinator_lease_until', { length: 100 }),
+  cancelRequested: tinyint('cancel_requested').notNull().default(0),
+  communicationGroupId: char('communication_group_id', { length: 36 }), communication: json('communication').$type<Record<string, unknown>>(),
+  summary: text('summary'), criteria: json('criteria').$type<unknown[]>(), results: json('results').$type<Record<string, unknown>>(),
+  openItems: json('open_items').$type<string[]>(), report: json('report').$type<Record<string, unknown>>(),
+  actor: json('actor').$type<Record<string, unknown>>().notNull(), startedAt: varchar('started_at', { length: 100 }),
+  finishedAt: varchar('finished_at', { length: 100 }), completedAt: varchar('completed_at', { length: 100 }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({ groupUnique: uniqueIndex('uq_workflow_runs_group').on(t.communicationGroupId), workflowIdx: index('idx_workflow_runs_workflow').on(t.workflowId,t.createdAt), statusIdx: index('idx_workflow_runs_status').on(t.status,t.updatedAt) }));
+
+export const workflowRunMembers = mysqlTable('workflow_run_members', {
+  id: char('id', { length: 36 }).primaryKey(), runId: char('run_id', { length: 36 }).notNull(),
+  agentAddressId: char('agent_address_id', { length: 36 }).notNull(), sessionId: char('session_id', { length: 36 }).notNull(),
+  bindingGeneration: int('binding_generation').notNull(), status: varchar('status', { length: 16 }).notNull(),
+  actor: json('actor').$type<Record<string, unknown>>().notNull(), reason: text('reason'),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({ memberUnique: uniqueIndex('uq_workflow_members_agent').on(t.runId,t.agentAddressId), agentIdx: index('idx_workflow_members_agent').on(t.agentAddressId,t.status) }));
+
+export const workflowRunInvitations = mysqlTable('workflow_run_invitations', {
+  id: char('id', { length: 36 }).primaryKey(), runId: char('run_id', { length: 36 }).notNull(),
+  inviterAddressId: char('inviter_address_id', { length: 36 }).notNull(), targetAddressId: char('target_address_id', { length: 36 }).notNull(),
+  targetSessionId: char('target_session_id', { length: 36 }).notNull(), targetBindingGeneration: int('target_binding_generation').notNull(),
+  target: json('target').$type<Record<string, unknown>>().notNull(), reason: text('reason').notNull(),
+  taskIds: json('task_ids').$type<string[]>().notNull(), status: varchar('status', { length: 16 }).notNull(),
+  messageId: char('message_id', { length: 36 }), expiresAt: varchar('expires_at', { length: 100 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({ targetIdx: index('idx_workflow_invites_target').on(t.targetAddressId,t.status), runIdx: index('idx_workflow_invites_run').on(t.runId,t.status) }));
+
+export const workflowRunTasks = mysqlTable('workflow_run_tasks', {
+  id: char('id', { length: 36 }).primaryKey(), runId: char('run_id', { length: 36 }).notNull(), taskId: varchar('task_id', { length: 64 }).notNull(),
+  position: int('position').notNull(), title: varchar('title', { length: 255 }).notNull(), status: varchar('status', { length: 16 }).notNull().default('pending'),
+  version: int('version').notNull().default(1), attemptNo: int('attempt_no').notNull().default(0),
+  claimOwnerAddressId: char('claim_owner_address_id', { length: 36 }), claimSessionId: char('claim_session_id', { length: 36 }),
+  claimBindingGeneration: int('claim_binding_generation'), claimGeneration: int('claim_generation').notNull().default(0),
+  claimTokenHash: char('claim_token_hash', { length: 64 }), claimLeaseUntil: varchar('claim_lease_until', { length: 100 }),
+  claimRecovery: tinyint('claim_recovery').notNull().default(0), skipReason: varchar('skip_reason', { length: 32 }),
+  reason: text('reason'), outputs: json('outputs').$type<Record<string, unknown>>(), evidence: json('evidence').$type<unknown[]>(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({ taskUnique: uniqueIndex('uq_workflow_run_task').on(t.runId,t.taskId), claimIdx: index('idx_workflow_tasks_claim').on(t.claimOwnerAddressId,t.claimLeaseUntil), runIdx: index('idx_workflow_tasks_run').on(t.runId,t.position) }));
+
+export const workflowTaskAttempts = mysqlTable('workflow_task_attempts', {
+  id: char('id', { length: 36 }).primaryKey(), runId: char('run_id', { length: 36 }).notNull(), taskId: varchar('task_id', { length: 64 }).notNull(),
+  attemptNo: int('attempt_no').notNull(), status: varchar('status', { length: 16 }).notNull(), actor: json('actor').$type<Record<string, unknown>>().notNull(),
+  executionHost: varchar('execution_host', { length: 255 }), summary: text('summary'), outputs: json('outputs').$type<Record<string, unknown>>(),
+  evidence: json('evidence').$type<unknown[]>(), error: text('error'), startedAt: varchar('started_at', { length: 100 }).notNull(), endedAt: varchar('ended_at', { length: 100 }),
+}, (t) => ({ attemptUnique: uniqueIndex('uq_workflow_attempt_number').on(t.runId,t.taskId,t.attemptNo) }));
+
+export const workflowRunEvents = mysqlTable('workflow_run_events', {
+  id: char('id', { length: 36 }).primaryKey(), runId: char('run_id', { length: 36 }).notNull(), sequence: int('sequence').notNull(),
+  type: varchar('type', { length: 64 }).notNull(), actor: json('actor').$type<Record<string, unknown>>().notNull(),
+  detail: json('detail').$type<Record<string, unknown>>().notNull(), createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, (t) => ({ seqUnique: uniqueIndex('uq_workflow_event_seq').on(t.runId,t.sequence) }));
+
+export const workflowRunEvaluations = mysqlTable('workflow_run_evaluations', {
+  runId: char('run_id', { length: 36 }).primaryKey(), version: int('version').notNull().default(1),
+  status: varchar('status', { length: 16 }).notNull().default('pending'), draft: json('draft').$type<Record<string, unknown>>(),
+  appliedVersion: int('applied_version'), actor: json('actor').$type<Record<string, unknown>>(), finalizedAt: varchar('finalized_at', { length: 100 }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({ statusIdx: index('idx_workflow_evaluations_pending').on(t.status,t.updatedAt) }));
+
+export const workflowMutations = mysqlTable('workflow_mutations', {
+  id: char('id', { length: 36 }).primaryKey(), actorKey: varchar('actor_key', { length: 160 }).notNull(), operation: varchar('operation', { length: 40 }).notNull(),
+  clientRequestId: char('client_request_id', { length: 36 }).notNull(), payloadHash: char('payload_hash', { length: 64 }).notNull(),
+  response: json('response').$type<Record<string, unknown>>(), secretResponse: text('secret_response'), createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, (t) => ({ requestUnique: uniqueIndex('uq_workflow_mutations_request').on(t.actorKey,t.operation,t.clientRequestId) }));
+
+export type WorkflowRow = typeof workflows.$inferSelect;
+export type WorkflowVersionRow = typeof workflowVersions.$inferSelect;
+export type WorkflowRunRow = typeof workflowRuns.$inferSelect;
+export type WorkflowRunMemberRow = typeof workflowRunMembers.$inferSelect;
+export type WorkflowRunInvitationRow = typeof workflowRunInvitations.$inferSelect;
+export type WorkflowRunTaskRow = typeof workflowRunTasks.$inferSelect;
+export type WorkflowTaskAttemptRow = typeof workflowTaskAttempts.$inferSelect;
+export type WorkflowRunEventRow = typeof workflowRunEvents.$inferSelect;
+export type WorkflowRunEvaluationRow = typeof workflowRunEvaluations.$inferSelect;
+export type WorkflowMutationRow = typeof workflowMutations.$inferSelect;
