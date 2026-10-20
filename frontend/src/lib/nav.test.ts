@@ -34,7 +34,7 @@ describe("route registry", () => {
       ["hosts", ["hosts"]],
       ["agents", ["agents"]],
       ["projects", ["projects"]],
-      ["coordination", ["agent-messaging", "schedules", "git-director", "transfers"]],
+      ["coordination", ["agent-messaging", "schedules", "git-director", "transfers", "workflows"]],
       ["activity", ["activity", "reports"]],
       ["providers", ["provider-accounts", "engines"]],
       ["library", ["library"]],
@@ -140,4 +140,9 @@ describe("navigation targets", () => {
     assert.ok(routes.length > 20, "expected the canonical route set");
     for (const entry of NAV) assert.equal(resolves(entry.route), true, `${entry.id} -> ${entry.route} has no page`);
   });
+});
+
+it("keeps workflows within Coordination and names deep report locations", () => {
+  assert.deepEqual(getBreadcrumbs("/workflows/runs/run-id"), [{label:"Workflows",route:"/workflows"},{label:"Runs",route:"/workflows/runs"},{label:"Run report"}]);
+  assert.equal(NAV.find(item=>item.id==="workflows")?.group,"coordination");
 });

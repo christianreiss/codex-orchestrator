@@ -243,3 +243,10 @@ test("watchdog read capability exposes status without recovery controls",async({
   await page.goto("/admin/agent-messaging?view=addresses");const panels=page.getByTestId("watchdog-panel");await expect(panels.first()).toContainText("capacity_wait");
   await expect(panels.getByRole("button",{name:/watchdog/})).toHaveCount(0);expect(state.bodies).toEqual([]);expect(state.errors).toEqual([]);
 });
+
+
+test("managed workflow group explains run-owned membership and hides generic publication", async ({page}) => {
+  const state=await fixtures(page);Object.assign(state.groups[0],{workflow_managed:true,workflow_run_id:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",status:"closed"});await open(page);
+  await expect(page.getByRole("link",{name:"Run report and membership"})).toHaveAttribute("href","/admin/workflows/runs/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+  await expect(page.getByText("Closed run group; history is retained.")).toBeVisible();await expect(page.getByRole("heading",{name:"Publish from Server",exact:true})).toHaveCount(0);await expect(page.getByText("Generic subscription changes cannot change run participation.",{exact:false})).toBeVisible();
+});

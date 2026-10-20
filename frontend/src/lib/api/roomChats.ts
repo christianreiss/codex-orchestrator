@@ -17,6 +17,9 @@ export interface ChatRoom {
   status: string;
   created_at: string;
   members: RoomMember[];
+  workflow_run_id?: string;
+  workflow_report_url?: string;
+  workflow_managed?: boolean;
   owner_admin_id?: number | null;
   deadline_at?: string;
   unread?: number;

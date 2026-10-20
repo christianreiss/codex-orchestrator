@@ -50,7 +50,8 @@
     return text.includes(subscriptionSearch.trim().toLowerCase());
   }));
   const draftChanged = $derived(pendingAttempt !== null && (pendingAttempt.topic !== topic || pendingAttempt.content !== content.trim()));
-  const composeUnavailable = $derived(!enabled || !topic || (recipientMode === "group" && (!$detail.data || $detail.data.group.slug !== selectedSlug || $detail.isError || $groups.isError)));
+  const managedGroup = $derived(!!($detail.data?.group.workflow_managed || $detail.data?.group.workflow_run_id));
+  const composeUnavailable = $derived((recipientMode === "group" && managedGroup) || !enabled || !topic || (recipientMode === "group" && (!$detail.data || $detail.data.group.slug !== selectedSlug || $detail.isError || $groups.isError)));
 
   function selectGroup(value: string) {
     const url = new URL(page.url);
@@ -143,7 +144,8 @@
   <div class="grid items-start gap-6 lg:grid-cols-2">
     <section class="min-w-0" aria-label="Group subscribers">
       <h3 class="text-h3">{$detail.data?.group.title ?? "Group"} subscribers</h3>
-      <p class="text-body-sm text-muted-foreground">Membership belongs to each stable agent address. Reconnecting keeps the subscription.</p>
+      <p class="text-body-sm text-muted-foreground">{managedGroup ? "Membership and closure are controlled by the workflow run. Generic subscription changes cannot change run participation." : "Membership belongs to each stable agent address. Reconnecting keeps the subscription."}</p>
+      {#if $detail.data?.group.workflow_run_id}<a class="mt-2 inline-flex min-h-9 items-center text-body-sm underline" href={`${base}/workflows/runs/${encodeURIComponent($detail.data.group.workflow_run_id)}`}>Run report and membership</a><p class="text-caption text-muted-foreground">{$detail.data.group.status === "closed" ? "Closed run group; history is retained." : "Open run group"}</p>{/if}
       {#if selectedSlug && $detail.isError}
         <p role="alert" class="mt-3 text-body-sm text-destructive">Could not load subscribers: {$detail.error.message}</p>
       {:else if selectedSlug && $detail.isPending}
@@ -156,13 +158,13 @@
               <p class="text-caption text-muted-foreground">Subscribed <Timestamp value={member.joined_at} /></p>
             </li>
           {:else}
-            <li class="py-2 text-body-sm text-muted-foreground">{selectedSlug ? "No subscribers yet. Publications go only to agents who opt in." : "Select a group to inspect its audience."}</li>
+            <li class="py-2 text-body-sm text-muted-foreground">{selectedSlug ? (managedGroup ? "No active subscriptions. The run report links to retained group history." : "No subscribers yet. Publications go only to agents who opt in.") : "Select a group to inspect its audience."}</li>
           {/each}
         </ul>
       {/if}
     </section>
 
-    {#if canManage}
+    {#if canManage && !managedGroup}
       <section class="min-w-0" aria-labelledby="publish-heading">
         <h3 id="publish-heading" class="text-h3">Publish from Server</h3>
         <p class="text-body-sm text-muted-foreground">Each publication snapshots its subscribers and queues a separate ordered delivery per recipient.</p>

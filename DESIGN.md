@@ -93,6 +93,7 @@ owning components when moving a setting; update this table in the same change.
 | Host-specific access, engine assignments and overrides | `/admin/hosts/[id]` |
 | Fleet host policy, agent-session controls and retention | `/admin/settings` |
 | Agent messaging service and coordination data | `/admin/agent-messaging` |
+| Workflow module switch and reusable instructions | `/admin/workflows` and selected definition |
 | Schedule configuration, Git coordination settings and transfer limits | Their respective Coordination pages |
 | Project/module controls and project content | `/admin/projects` and selected project views |
 | Fleet instruction content and managed instruction modules | `/admin/library/agent-rules` |
@@ -205,7 +206,7 @@ The current `PageShell` already uses a 20 px title, while `text-h1` is 30 px and
 
 ## 8. Baseline inventory and migration debt
 
-This is a source audit, not a live visual acceptance report. All 34 `+page.svelte` entrypoints are represented below, including redirects and the legacy catch-all. Route groups such as `(providers)` do not appear in browser URLs. Paths in this table include the `/admin` base. Child project pages inherit `PageShell` from their layout. “Step-2 check” is an unverified risk to exercise, not a confirmed defect.
+This is a source audit, not a live visual acceptance report. All 39 `+page.svelte` entrypoints are represented below, including redirects and the legacy catch-all. Route groups such as `(providers)` do not appear in browser URLs. Paths in this table include the `/admin` base. Child project pages inherit `PageShell` from their layout. “Step-2 check” is an unverified risk to exercise, not a confirmed defect.
 
 | Current entry / view | Primary task and pattern | Existing composition | Step-2 check |
 | --- | --- | --- | --- |
@@ -221,6 +222,11 @@ This is a source audit, not a live visual acceptance report. All 34 `+page.svelt
 | `/admin/projects/[slug]/reports` | Triage project reports; list/detail | Project shell, `Toolbar`, `ReportInbox`, `ListDetail` | Status vocabulary, mutation recovery |
 | `/admin/projects/[slug]/activity` | Inspect project events; history | Project shell, `EventFeed`, `DataTable`, diagnostics | Pagination, timestamp context, long JSON |
 | `/admin/agent-messaging` | Inspect coordination; list/history | `PageShell`, domain toolbar, address/conversation/delivery/group/conference views | Every subview, unreadable raw payloads, action scope |
+| `/admin/workflows` | Find reusable instructions; list | `PageShell`, `Toolbar`, `DataTable`, module switch | Disabled versus empty, search, pagination, stale/denied |
+| `/admin/workflows/new` | Author one reusable goal; editor | Structured `WorkflowEditor`, `FormField`, `SaveState`, `DraftGuard` | Validation, retained drafts, typed inputs, accessible task ordering/dependencies |
+| `/admin/workflows/definitions/[slug]` | Inspect/edit versioned instructions; detail/editor | Goal/tasks/knowledge, version comparison, run preparation | CAS conflict retains draft; historical pinning; revert publishes a new version |
+| `/admin/workflows/runs` | Find active work and evaluation; list | `PageShell`, filters, `DataTable`, pagination | Pending/evaluating/unknown outcomes; server filters and back navigation |
+| `/admin/workflows/runs/[id]` | Understand progress and final evidence; detail/history | Result facts, open work, task attempts, participants, evaluation/diff, events | Direct link/reload, stale data, claim uncertainty, chat reveal permission, closed-group history |
 | `/admin/schedules` | Schedule/review prompts; list/detail | `PageShell`, `DataTable`, `ListDetail`, schedule form | Timezone, recurrence, failure and recovery meaning |
 | `/admin/git-director` | Inspect merge coordination; list/detail | `PageShell`, `Toolbar`, `DataTable`, `ListDetail`, settings | Pending versus granted/denied; stale evidence |
 | `/admin/transfers` | Inspect shared files; list | `PageShell`, `DataTable`, `Toolbar`, audit sheet | Expiry, unavailable download, limits and deletion |
@@ -257,6 +263,7 @@ This is a source audit, not a live visual acceptance report. All 34 `+page.svelt
 | Host creation, quick VM, seed auth and insecure approval popup | Host sheets/dialogs and shared `SeedAuthPanel` | One auth upload UI; focus return, pending/error, safety consequences |
 | Project About/settings, card editor, report creation/detail | Project and report sheets/dialogs | Preserve originating selection and draft; destructive scope clear |
 | Account add/login/seed/reveal/revoke; People/API keys/Secrets dialogs | Domain components plus shared dialog/sheet primitives | No credential exposure in status text or URLs; copy result and permissions clear |
+| Workflow run preparation, coordinator recovery and managed run group | Typed inputs, explicit controls, retained mutation receipt, existing `RoomConversation` | No implicit agent spawn; pause is no external process stop; run-owned membership; closed history |
 | Editor history/version/preview/manual mode; memory alternate views and shared-memory restore from Activity; role proposal sheet, revert/withdraw/publish dialogs | Library components | Read-only versus editable state, failed preview, long documents; agent-authored proposal text shown as data |
 | Schedule form/result, Git detail, transfer audit | `ListDetail` / domain sheets | Correct action and event scope; explicit uncertainty |
 | Toasts, banners, inline alerts and confirmation dialogs | Shared feedback/UI components | Durable errors inline; focus, live announcements and both themes |

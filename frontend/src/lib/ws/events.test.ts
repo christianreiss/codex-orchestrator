@@ -95,7 +95,7 @@ function emit(type: string, payload?: unknown): void {
 
 it("resamples client snapshots and selected timelines after WS reconnect", () => {
   emit("transport.connected");
-  assert.deepEqual(qc.keys, [["agent-sessions"], ["agent-messaging"], ["host-daemons"], ["daemon-sessions"], ["topology"]]);
+  assert.deepEqual(qc.keys, [["workflows"], ["workflow-runs"], ["agent-sessions"], ["agent-messaging"], ["host-daemons"], ["daemon-sessions"], ["topology"]]);
 });
 
 describe("toast events", () => {
@@ -311,4 +311,10 @@ describe("coalesced invalidation", () => {
     await sleep(25);
     assert.deepEqual(fake.keys, []);
   });
+});
+
+it("workflow invalidation refreshes reports and managed communication after changes and reconnect", () => {
+  assert.deepEqual(DEFAULT_INVALIDATIONS["workflow.changed"], [["workflows"],["workflow-runs"]]);
+  assert.deepEqual(DEFAULT_INVALIDATIONS["workflow.run.changed"], [["workflow-runs"],["agent-messaging"]]);
+  for (const root of ["workflows","workflow-runs"]) assert.ok(DEFAULT_INVALIDATIONS["transport.connected"].some(key=>key[0]===root));
 });

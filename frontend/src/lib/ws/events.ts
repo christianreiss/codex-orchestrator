@@ -36,7 +36,10 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
  "host.daemon.start_requested": [["host-daemons"], ["daemon-sessions"]],
  "host.daemon.stop_requested": [["host-daemons"], ["daemon-sessions"], ["topology"]],
   // A reconnect has no durable WS replay; resample retained client snapshots.
-  "transport.connected": [["agent-sessions"], ["agent-messaging"], ["host-daemons"], ["daemon-sessions"], ["topology"]],
+  "workflow.changed": [["workflows"], ["workflow-runs"]],
+  "workflow.run.changed": [["workflow-runs"], ["agent-messaging"]],
+  "workflow.state.changed": [["workflows"], ["workflow-runs"]],
+  "transport.connected": [["workflows"], ["workflow-runs"],["agent-sessions"], ["agent-messaging"], ["host-daemons"], ["daemon-sessions"], ["topology"]],
   "agent_portal.sessions.changed": [["agent-sessions"], ["topology"], ["hosts"]],
   "agent_session.native_stop": [["agent-sessions"], ["topology"], ["native-stop"]],
   // Logs
