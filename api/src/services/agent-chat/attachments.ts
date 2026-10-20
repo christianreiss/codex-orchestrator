@@ -16,6 +16,7 @@ import { decrypt, encrypt } from '../../security/secret-box.js';
 import type { Keyring } from '../../security/keyring.js';
 import { nowIso } from '../../util/timestamp.js';
 import { wsPublisher } from '../../ws/publisher.js';
+import { assertWorkflowAttachmentWrite } from '../workflow-run-group.js';
 import { attachmentCreateSchema, CHAT_LIMITS, type ChatMetadata } from './contracts.js';
 
 type ChatDb = Pick<Database, 'select' | 'update' | 'insert'>;
@@ -79,6 +80,7 @@ export class ChatAttachments {
     await this.session(sessionId);
     const now = nowIso();
     await this.db.transaction(async (tx) => {
+      await assertWorkflowAttachmentWrite(tx, sessionId, owner);
       await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).for('update');
       await tx.select().from(hostDaemonSessions).where(eq(hostDaemonSessions.id, sessionId)).for('update');
       await tx.select().from(agentBusGroups).where(eq(agentBusGroups.id, sessionId)).for('update');
@@ -139,6 +141,7 @@ export class ChatAttachments {
     if (!bytes.length || bytes.length > CHAT_LIMITS.max_chunk_bytes)
       throw new ValidationError('Invalid upload chunk size');
     await this.db.transaction(async (tx) => {
+      await assertWorkflowAttachmentWrite(tx, sessionId, owner);
       const [row] = await tx
         .select()
         .from(agentChatAttachments)
@@ -183,6 +186,7 @@ export class ChatAttachments {
     sessionId = await this.conversationKey(sessionId);
     if (owner.startsWith('agent:')) owner = `agent:${sessionId}`;
     await this.db.transaction(async (tx) => {
+      await assertWorkflowAttachmentWrite(tx, sessionId, owner);
       const [row] = await tx
         .select()
         .from(agentChatAttachments)
@@ -285,6 +289,7 @@ export class ChatAttachments {
     sessionId = await this.conversationKey(sessionId);
     if (owner.startsWith('agent:')) owner = `agent:${sessionId}`;
     await this.db.transaction(async (tx) => {
+      await assertWorkflowAttachmentWrite(tx, sessionId, owner);
       const [row] = await tx
         .select()
         .from(agentChatAttachments)
@@ -355,6 +360,7 @@ export class ChatAttachments {
           and(
             inArray(agentChatAttachments.status, ['uploading', 'ready']),
             lt(agentChatAttachments.updatedAt, cutoff),
+            sql`NOT EXISTS (SELECT 1 FROM workflow_runs r WHERE BINARY r.communication_group_id = BINARY ${agentChatAttachments.sessionId})`,
           ),
         ),
       )

@@ -32,6 +32,7 @@ import {
   normalizeUuid,
 } from './normalize.js';
 import type { AgentMessagingDb } from './types.js';
+import { resolveWorkflowRunGroup, rejectManagedWorkflowGroupMutation } from '../workflow-run-group.js';
 import { newQueuedMessage } from './views.js';
 
 export const SERVER_ADDRESS_ID = '00000000-0000-4000-8000-000000000001';
@@ -137,9 +138,11 @@ export class AgentMessagingGroups {
       .from(agentBusSubscriptions)
       .groupBy(agentBusSubscriptions.topic);
     return {
-      groups: rows.map((row) =>
-        this.view(row, Number(counts.find((c) => c.topic === `group:${row.slug}`)?.value ?? 0)),
-      ),
+      groups: await Promise.all(rows.map(async row => {
+        const managed = await resolveWorkflowRunGroup(tx, row.id);
+        return { ...this.view(row, Number(counts.find(c => c.topic === `group:${row.slug}`)?.value ?? 0)),
+          ...(managed ? { workflow_managed: true, workflow_run_id: managed.run.id, workflow_report_url: `/admin/workflows/runs/${managed.run.id}`, status: managed.closed ? 'closed' : 'open' } : {}) };
+      })),
       server_topic: SERVER_PUBLICATION_TOPIC,
       max_topic_subscribers: MAX_TOPIC_SUBSCRIBERS,
       max_agent_subscriptions: MAX_AGENT_SUBSCRIPTIONS,
@@ -160,6 +163,7 @@ export class AgentMessagingGroups {
     input: { slug: string; title: string; description?: string | null },
   ) {
     const slug = normalizeGroupSlug(input.slug);
+    if (slug.startsWith('workflow-run-')) throw new ConflictError('Workflow group slugs are reserved', 'workflow_group_managed');
     const title = normalizeRequiredText(input.title, 'title', 120);
     const description = normalizeOptionalText(input.description, 1024);
     const existing = await tx.select().from(agentBusGroups).where(eq(agentBusGroups.slug, slug)).limit(1);
@@ -220,6 +224,7 @@ export class AgentMessagingGroups {
    */
   private async remove(tx: AgentMessagingDb, actorId: string | null, rawSlug: string) {
     const group = await this.group(tx, normalizeGroupSlug(rawSlug));
+    await rejectManagedWorkflowGroupMutation(tx, group.id);
     if (actorId !== null && group.createdByAddressId !== actorId)
       throw new ForbiddenError(
         'Only the agent that created a group may delete it',
@@ -279,8 +284,9 @@ export class AgentMessagingGroups {
       .innerJoin(agentBusAddresses, eq(agentBusAddresses.id, agentBusSubscriptions.subscriberAddressId))
       .where(eq(agentBusSubscriptions.topic, `group:${group.slug}`))
       .orderBy(asc(agentBusSubscriptions.createdAt));
+    const managed = await resolveWorkflowRunGroup(tx, group.id);
     return {
-      group: this.view(group, rows.length),
+      group: { ...this.view(group, rows.length), ...(managed ? { workflow_managed: true, workflow_run_id: managed.run.id, workflow_report_url: `/admin/workflows/runs/${managed.run.id}`, status: managed.closed ? 'closed' : 'open' } : {}) },
       members: rows.map(({ subscription, address }) => ({
         address_id: address.id,
         address: address.address,
@@ -331,6 +337,10 @@ export class AgentMessagingGroups {
   async subscribe(sessionId: string, token: string, rawTopic: string, subscribed: boolean) {
     const topic = normalizePublicationTopic(rawTopic);
     const result = await this.asAgent(sessionId, token, async (tx, actor) => {
+      if (topic.startsWith('group:')) {
+        const group = await this.group(tx, topic.slice(6));
+        await rejectManagedWorkflowGroupMutation(tx, group.id);
+      }
       // Leaving remains possible when the followed agent is retired or disabled.
       if (subscribed) await this.requireTopic(tx, topic);
       if (subscribed) await this.pruneRetiredSubscriptions(tx);
@@ -473,6 +483,12 @@ export class AgentMessagingGroups {
       };
     }
     await this.requireTopic(tx, topic);
+    if (topic.startsWith('group:')) {
+      const group = await this.group(tx, topic.slice(6));
+      const managed = await resolveWorkflowRunGroup(tx, group.id);
+      if (managed && (managed.closed || (sender.id !== SERVER_ADDRESS_ID && !managed.members.some(m => m.status === 'active' && m.agentAddressId === sender.id && m.sessionId === sessionId && m.bindingGeneration === sender.bindingGeneration))))
+        throw new ForbiddenError('Active workflow membership is required to publish', 'workflow_member_required');
+    }
     if (topic.startsWith('agent:')) {
       if (topic !== `agent:${sender.id}`)
         throw new ForbiddenError(

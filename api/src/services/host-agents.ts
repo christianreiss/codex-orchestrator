@@ -23,6 +23,7 @@ import { GitDirectorService, GIT_DIRECTOR_ENABLED_FLAG } from './git-director.js
 import { DEFAULT_GIT_COMMIT_SETTINGS, readGitCommitSettings } from './git-commit-settings.js';
 import { AgentTransfersService, TRANSFERS_ENABLED_FLAG } from './agent-transfers.js';
 import { FEEDBACK_ENABLED_KEY } from './feedback-contract.js';
+import { WORKFLOWS_MIN_CXX_VERSION } from './managed-workflows-skill.js';
 import { ROLES_ENABLED_KEY, ROLES_MIN_CXX_VERSION } from './roles/contract.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from './api-keys-in-chat.js';
@@ -592,6 +593,10 @@ export class HostAgentsService {
       advisor: !agentMessaging.enabled
         ? state(false, agentMessaging.reason)
         : await this.advisorState(host).catch(() => state(false, 'service_unavailable')),
+      workflows: !agentMessaging.enabled ? state(false, agentMessaging.reason)
+        : !mcp.enabled ? state(false, mcp.reason)
+        : !workflowCxxSupported(hostRunningWrapperVersion(host)) ? state(false, 'workflows_wrapper_outdated')
+        : state(await this.settings.getFlag('workflows_enabled', false).catch(() => false), 'workflows_disabled'),
       roles: !agentMessaging.enabled ? state(false, agentMessaging.reason)
         : !mcp.enabled ? state(false, mcp.reason)
         : !(await this.settings.getFlag(ROLES_ENABLED_KEY, false).catch(() => false)) ? state(false, 'roles_disabled')
@@ -700,4 +705,9 @@ function configuredModel(host: Host, engine: Engine, settings: Record<string, un
 function rolesCxxSupported(version: string | null | undefined): boolean {
   const known = highestVersion([version]);
   return known !== null && compareWrapperVersions(known, ROLES_MIN_CXX_VERSION) >= 0;
+}
+
+function workflowCxxSupported(version: string | null | undefined): boolean {
+  const known = highestVersion([version]);
+  return known !== null && compareWrapperVersions(known, WORKFLOWS_MIN_CXX_VERSION) >= 0;
 }

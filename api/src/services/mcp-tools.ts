@@ -1,4 +1,5 @@
 import type { HostSpawnService } from './host-spawn.js';
+import type { WorkflowsService } from './workflows.js';
 import type { RolesService } from './roles.js';
 import type { FeedbackService } from './feedback.js';
 import { FEEDBACK_TYPES, FEEDBACK_STATUSES, FEEDBACK_PRIORITIES, FEEDBACK_DEPLOYMENTS } from './feedback-contract.js';
@@ -96,6 +97,7 @@ export interface ToolDeps {
    * `roles_enabled` switch is on.
    */
   roles?: RolesService;
+  workflows?: WorkflowsService;
 }
 
 export type ToolResult =
@@ -1435,6 +1437,19 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     },
     handler: async (args, host) => deps.skills.deleteSkill(String(args['slug'] ?? ''), host),
   });
+
+  if (deps.workflows) {
+    const workflows = deps.workflows;
+    const page = { cursor: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 } };
+    const definitions = [
+      { name: 'workflow_list', description: 'Search reusable fleet workflows. Availability is separate from an empty catalog. Read skill://workflows before execution.', properties: { ...page, query: { type: 'string' }, status: { type: 'string', enum: ['active', 'archived'] } }, required: [] as string[], handler: (args: Record<string, unknown>) => workflows.list(args) },
+      { name: 'workflow_get', description: 'Read a workflow by slug or UUID, optionally at an immutable version. Referenced knowledge is not fetched automatically; a catalog read does not start work.', properties: { workflow_id: { type: 'string' }, version: { type: 'integer', minimum: 1 } }, required: ['workflow_id'], handler: (args: Record<string, unknown>) => workflows.get(String(args.workflow_id ?? ''), args.version as number | undefined) },
+      { name: 'workflow_run_list', description: 'List shared workflow runs, including pending evaluations. Reading grants neither task ownership nor chat access.', properties: { ...page, workflow_id: { type: 'string' }, status: { type: 'string' }, outcome: { type: 'string' }, agent_address_id: { type: 'string', format: 'uuid' }, evaluation: { type: 'string' } }, required: [] as string[], handler: (args: Record<string, unknown>) => workflows.runList(args) },
+      { name: 'workflow_run_get', description: 'Read a compact workflow run snapshot and stable report URL. Use task_id, events and cursor for focused evidence/history. Claim tokens and full chat contents are excluded.', properties: { ...page, run_id: { type: 'string', format: 'uuid' }, task_id: { type: 'string' }, events: { type: 'boolean' } }, required: ['run_id'], handler: (args: Record<string, unknown>) => { const { run_id, ...options } = args; return workflows.runGet(String(run_id ?? ''), options); } },
+    ];
+    for (const definition of definitions) inputs.push({ definition: { name: definition.name, description: definition.description,
+      inputSchema: { type: 'object', additionalProperties: false, properties: definition.properties, required: definition.required } }, handler: definition.handler });
+  }
 
   if (deps.roles) {
     const roles = deps.roles;

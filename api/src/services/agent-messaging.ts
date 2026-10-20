@@ -3,6 +3,8 @@ import { ApiError } from '../http/errors.js';
 import { activeRolesForAddresses, roleLabelsForAddress } from './roles/assignments.js';
 import { newQueuedMessage } from './agent-messaging/views.js';
 import { queuePolicy, assertQueuePolicyReplay, validateRelatedWork, smartQueueAllowed, peerBatchAllowed, prepareSmartDigest, restoreUnpresentedDigests, presentDigest, coalescePendingRepeats, type QueuePolicy } from './agent-messaging/smart-queue.js';
+import { WORKFLOWS_MIN_CXX_VERSION } from './managed-workflows-skill.js';
+import { compareWrapperVersions, hostRunningWrapperVersion } from './wrapper-rollout.js';
 import { expireRebootHandoffs } from './reboot-handoffs.js';
 import { daemonAccepting, daemonResidentFor } from './host-daemon/policy.js';
 import { assertHousekeepingAvailable } from './session-housekeeping.js';
@@ -2174,7 +2176,36 @@ export class AgentMessagingService {
     });
   }
 
-  async coordinationNotice(tx: AgentMessagingDb, session: AgentSession, content: string, roomQuestion = false): Promise<string | undefined> {
+  /** Workflow collaboration joins the same bus transaction before taking run locks. */
+  async workflowLock(db: AgentMessagingDb, actor: { kind: string; address_id?: string; session_id?: string; binding_generation?: number }): Promise<void> {
+    await this.requireEnabledLocked(db);
+    if (actor.kind !== 'agent') return;
+    if (!actor.address_id || !actor.session_id) throw new UnauthorizedError('Authenticated workflow actor required');
+    const address = await this.requireAddressLocked(db, actor.address_id);
+    await this.assertSessionAddressLocked(db, actor.session_id, address);
+    await this.workflowTarget(db, actor.address_id);
+    if (address.bindingGeneration !== actor.binding_generation)
+      throw new ConflictError('Agent binding changed', 'agent_messaging_binding_stale');
+  }
+
+  async workflowTarget(db: AgentMessagingDb, addressId: string) {
+    const address = await this.requireAddressLocked(db, addressId);
+    await this.assertAddressEligibleLocked(db, address);
+    if (!address.currentSessionId) throw new ConflictError('Workflow invitation requires an active session', 'workflow_target_unavailable');
+    await this.assertSessionAddressLocked(db, address.currentSessionId, address);
+    const [session] = await db.select().from(agentSessions).where(eq(agentSessions.id, address.currentSessionId)).limit(1);
+    if (!session || session.bindingGeneration !== address.bindingGeneration)
+      throw new ConflictError('Agent binding changed', 'agent_messaging_binding_stale');
+    const host = await this.requireEligibleHostLocked(db, session.hostId);
+    const runningVersion = hostRunningWrapperVersion(host);
+    if (!runningVersion || compareWrapperVersions(runningVersion, WORKFLOWS_MIN_CXX_VERSION) < 0)
+      throw new ConflictError('Update this host wrapper before workflow participation', 'workflow_wrapper_outdated');
+    if (Number((session.adapterCapabilities as Record<string, unknown> | null)?.workflow_protocol_version ?? 0) < 1)
+      throw new ConflictError('Update this agent wrapper before workflow participation', 'workflow_wrapper_outdated');
+    return { address, session };
+  }
+
+  async coordinationNotice(tx: AgentMessagingDb, session: AgentSession, content: string, roomQuestion = false, clientMessageId?: string): Promise<string | undefined> {
     if (!session.agentBusAddressId || session.endedAt) return;
     const target = await this.requireAddressLocked(tx, session.agentBusAddressId);
     if (target.currentSessionId !== session.id) return;
@@ -2186,8 +2217,9 @@ export class AgentMessagingService {
     await tx.insert(agentBusMessages).values({
       ...newQueuedMessage({ id: messageId, conversationId, sequence: 1, sender, senderSessionId: null, target,
         kind: roomQuestion ? 'message' : 'presence_notice', deliveryClass: roomQuestion ? 'coordination' : 'notice', content, contentEnc: encrypt(content, this.keyring),
-        clientMessageId: randomUUID(), expiresAt: new Date(Date.now() + 86400000).toISOString(), now }),
+        clientMessageId: clientMessageId ?? randomUUID(), expiresAt: new Date(Date.now() + 86400000).toISOString(), now }),
       targetSessionId: session.id,
+      targetBindingGeneration: target.bindingGeneration,
     });
     return messageId;
   }
