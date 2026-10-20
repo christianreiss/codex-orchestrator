@@ -41,7 +41,8 @@ export const workflowRunKeys = {
   events: (id: string) => ["workflow-runs", id, "events"] as const,
   task: (id: string, task: string) => ["workflow-runs", id, "task", task] as const,
 };
-const definitions = "/admin/workflow-definitions", runs = "/admin/workflow-runs";
+const definitions = "/admin/workflow-definitions";
+const runs = "/admin/workflow-runs";
 function query(filters: Record<string, unknown>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
