@@ -5,6 +5,7 @@ import { eq, inArray, or } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import * as schema from '../../../src/db/schema.js';
 import { AgentMessagingService, AGENT_MESSAGING_ENABLED_KEY } from '../../../src/services/agent-messaging.js';
+import { advisorTurnCompleted } from '../../../src/services/advisor-delivery.js';
 import { AgentReceiverService } from '../../../src/services/agent-receiver.js';
 import { invalidateFleetEngineState } from '../../../src/services/engine-switch.js';
 import { ENGINES, type Engine } from '../../../src/util/engine.js';
@@ -95,7 +96,7 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
     await pool.end();
   });
 
-  async function peer(engine: Engine = 'codex', capable = true) {
+  async function peer(engine: Engine = 'codex', capable = true, batch = false) {
     const id = randomUUID(),
       token = randomBytes(32).toString('base64url'),
       generation = randomUUID(),
@@ -115,7 +116,7 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
       generation,
       protocol: protocols[engine],
       native_session_id: native,
-      capabilities: capable ? { queue_delivery_v1: true } : undefined,
+      capabilities: capable ? { queue_delivery_v1: true, ...(batch ? { peer_batch_v1: true } : {}) } : undefined,
     });
     return { id, token, generation, address: address.address, addressId: address.id };
   }
@@ -143,6 +144,138 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
   ) {
     return service.acknowledgeSessionDelivery(p.id, p.token, d.message_id, { claimId: d.claim_id, outcome });
   }
+  it('batches eight actual Advisor completion hooks without dropping any turn', async () => {
+    env.CXX_QUEUE_DELIVERY_V1_ENABLED = false;
+    const source = await peer(), target = await peer('codex', true, true);
+    const advisorId = randomUUID(), daemonId = randomUUID(), now = new Date().toISOString();
+    await db.insert(schema.advisorSessions).values({ id: advisorId, callerAddressId: target.addressId,
+      clientKey: randomUUID(), daemonSessionId: daemonId, hostId: host.id, kind: 'verify', status: 'open', createdAt: now, updatedAt: now });
+    try {
+      const session = { id: daemonId, addressId: source.addressId } as typeof schema.hostDaemonSessions.$inferSelect;
+      for (let turn = 1; turn <= 8; turn++) await db.transaction(tx => advisorTurnCompleted(tx, testKeyring(), session,
+        { status: 'completed', reply: `Advisor full answer ${turn}\nWhich target needs verification?` }, 'idle', 30));
+      await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(eq(schema.agentBusMessages.targetAddressId, target.addressId));
+      const d = (await claim(target))!;
+      expect(d.kind).toBe('digest');
+      const entries = JSON.parse(d.content).entries;
+      expect(entries).toHaveLength(8);
+      expect(entries.every((e: { delivery_class: string }) => e.delivery_class === 'coordination')).toBe(true);
+      entries.forEach((e: { content: string }, i: number) => {
+        expect(e.content).toContain(`turn=${i + 1}`); expect(e.content).toContain(`Advisor full answer ${i + 1}`);
+        expect(e.content).toContain('Which target needs verification?');
+      });
+      await ack(target, d, 'accepted'); await ack(target, d, 'completed');
+      expect((await service.getDigest(target.id, target.token, d.message_id)).messages).toHaveLength(8);
+      expect(await claim(target)).toBeNull();
+    } finally { await db.delete(schema.advisorSessions).where(eq(schema.advisorSessions.id, advisorId)); }
+  });
+
+  it('keeps an earlier work result ahead of a mixed batch with later coordination', async () => {
+    env.CXX_QUEUE_DELIVERY_V1_ENABLED = false;
+    const source = await peer(), target = await peer('codex', true, true);
+    const request = await send(target, source, 'work', { kind: 'request' });
+    const held = (await claim(source))!; await ack(source, held, 'accepted');
+    await send(source, target, 'old information');
+    await service.replyMessage(source.id, source.token, request.message.id, { content: 'Result', claimId: held.claim_id,
+      clientMessageId: randomUUID(), taskResult: { status: 'succeeded', summary: 'Result' } });
+    await send(source, target, 'later question?', { queue: { delivery_class: 'coordination' } });
+    await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(eq(schema.agentBusMessages.targetAddressId, target.addressId));
+    const first = (await claim(target))!;
+    expect(first.reply_to_message_id).toBe(request.message.id); expect(first.kind).toBe('reply');
+    await ack(target, first, 'accepted'); await ack(target, first, 'completed');
+    const batch = (await claim(target))!; expect(batch.kind).toBe('digest');
+    expect(JSON.parse(batch.content).entries).toHaveLength(2);
+    await ack(target, batch, 'accepted'); await ack(target, batch, 'completed');
+  });
+
+  it('paginates oversized entries without truncation and restores unpresented batches on rollback', async () => {
+    env.CXX_QUEUE_DELIVERY_V1_ENABLED = false;
+    const source = await peer(), target = await peer('codex', true, true);
+    const large = await send(source, target, 'x'.repeat(13000));
+    const queue = { delivery_class: 'coordination' as const };
+    const one = await send(source, target, 'one', { queue }), two = await send(source, target, 'two', { queue });
+    await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(eq(schema.agentBusMessages.targetAddressId, target.addressId));
+    const batch = (await claim(target))!; expect(batch.kind).toBe('digest');
+    expect(JSON.parse(batch.content)).toMatchObject({ entries: [], total: 3, next_after: 0 });
+    const retained = await service.getDigest(target.id, target.token, batch.message_id);
+    expect((retained.messages as Array<Record<string, unknown>>)[0]).toMatchObject({ content: 'x'.repeat(13000) });
+    // Certainly unpresented lease expiration, then turn the new presentation policy off.
+    await db.update(schema.agentBusMessages).set({ status: 'queued', leaseOwner: null, claimId: null, leaseUntil: null }).where(eq(schema.agentBusMessages.id, batch.message_id));
+    env.CXX_PEER_BATCH_V1_ENABLED = false;
+    env.CXX_QUEUE_DELIVERY_V1_ENABLED = true; // Preview digests remain enabled on rollback.
+    try {
+      const first = (await claim(target))!; expect(first.message_id).toBe(one.message.id);
+      await ack(target, first, 'accepted'); await ack(target, first, 'completed');
+      const second = (await claim(target))!; expect(second.message_id).toBe(two.message.id);
+      await ack(target, second, 'accepted'); await ack(target, second, 'completed');
+      const last = (await claim(target))!;
+      expect(((await service.getDigest(target.id, target.token, last.message_id)).messages as Array<Record<string, unknown>>)[0]).toMatchObject({ content: 'x'.repeat(13000) });
+      await ack(target, last, 'accepted'); await ack(target, last, 'completed');
+      expect(await claim(target)).toBeNull();
+    } finally { env.CXX_PEER_BATCH_V1_ENABLED = true; }
+  });
+
+  for (const engine of ENGINES) {
+    it(`${engine}: reproduces eleven separate legacy turns and batches the full stale backlog once`, async () => {
+      env.CXX_QUEUE_DELIVERY_V1_ENABLED = false;
+      const source = await peer(engine), legacy = await peer(engine), target = await peer(engine, true, true);
+      const ids: string[] = [];
+      const contents = Array.from({ length: 11 }, (_, i) => i === 7
+        ? 'ADVISOR/1 advisor_session_id=retained turn=1 kind=verify\n' + 'Complete evidence. '.repeat(30)
+        : i === 5 ? 'Question: which deployment should I verify?' : `Closing status ${i}`);
+      for (const [i, content] of contents.entries()) {
+        const queue = { delivery_class: i % 2 ? 'coordination' as const : 'information' as const };
+        await send(source, legacy, content, { queue });
+        ids.push((await send(source, target, content, { queue })).message.id);
+      }
+      await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' })
+        .where(inArray(schema.agentBusMessages.targetAddressId, [legacy.addressId, target.addressId]));
+      let legacyTurns = 0;
+      for (let d = await claim(legacy); d; d = await claim(legacy)) {
+        expect(d.kind).not.toBe('digest');
+        await ack(legacy, d, 'accepted'); await ack(legacy, d, 'completed'); legacyTurns++;
+      }
+      expect(legacyTurns).toBe(11);
+      const d = (await claim(target))!;
+      expect(d.kind).toBe('digest');
+      const body = JSON.parse(d.content);
+      expect(body.presentation).toBe('peer_batch_v1');
+      expect(body.entries.map((e: { message_id: string }) => e.message_id)).toEqual(ids);
+      expect(body.entries.map((e: { content: string }) => e.content)).toEqual(contents);
+      await ack(target, d, 'accepted');
+      // Reply to the original actionable question while the single presentation is held.
+      await service.replyMessage(target.id, target.token, ids[5]!, { content: 'Verify staging.', clientMessageId: randomUUID() });
+      expect((await service.getDigest(target.id, target.token, d.message_id)).messages).toHaveLength(11);
+      await ack(target, d, 'completed');
+      expect(await claim(target)).toBeNull();
+      const rows = await db.select().from(schema.agentBusMessages).where(inArray(schema.agentBusMessages.id, ids));
+      expect(rows.every(m => m.status === 'digested' && m.attempts === 0 && !m.completedAt)).toBe(true);
+    });
+
+    it(`${engine}: full batches preserve held work, unbatched work results, and coordination FIFO`, async () => {
+      env.CXX_QUEUE_DELIVERY_V1_ENABLED = false;
+      const source = await peer(engine), target = await peer(engine, true, true);
+      const request = await send(source, target, 'accepted task', { kind: 'request' });
+      const held = (await claim(target))!; await ack(target, held, 'accepted');
+      const ids: string[] = [];
+      for (let i = 0; i < 21; i++) ids.push((await send(source, target, `coordination ${i}`, { queue: { delivery_class: 'coordination' } })).message.id);
+      await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(inArray(schema.agentBusMessages.id, ids));
+      const batch = (await claim(target, randomUUID(), true))!;
+      expect(batch.kind).toBe('digest');
+      expect(JSON.parse(batch.content).entries.map((e: { message_id: string }) => e.message_id)).toEqual(ids.slice(0, 20));
+      await ack(target, batch, 'accepted');
+      const rest = await service.getDigest(target.id, target.token, batch.message_id, JSON.parse(batch.content).next_after);
+      expect(rest.messages).toHaveLength(1);
+      await ack(target, batch, 'completed');
+      expect((await service.getMessage(target.id, target.token, request.message.id)).message).toMatchObject({ status: 'accepted' });
+      expect(await claim(target, randomUUID(), true)).toBeNull();
+      await service.replyMessage(target.id, target.token, request.message.id, { content: 'done', claimId: held.claim_id,
+        clientMessageId: randomUUID(), taskResult: { status: 'succeeded', summary: 'verified' } });
+      const result = (await claim(source))!;
+      expect(result.kind).toBe('reply'); expect(result.reply_to_message_id).toBe(request.message.id);
+    });
+  }
+
   for (const engine of ENGINES) {
     it(`${engine}: seven stale updates are one retrievable digest`, async () => {
       const source = await peer(engine),
@@ -437,11 +570,12 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
     const room = (await service.openConference(source.id, source.token, { topic: 'full conference' })) as {
       conference_id: string;
     };
-    await service.inviteToConference(source.id, source.token, {
+    const invited = await service.inviteToConference(source.id, source.token, {
       conferenceId: room.conference_id,
       to: [target.address],
       note: 'LIVE INVITE',
     });
+    expect(invited, JSON.stringify(invited)).toMatchObject({ results: [{ delivered: true }] });
     const invite = (await claim(target))!;
     expect(invite.kind).not.toBe('digest');
     expect(invite.delivery_class).toBe('coordination');

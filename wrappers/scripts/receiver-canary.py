@@ -104,7 +104,7 @@ def run_grok(cxx, native_cli, auth_file):
             raise RuntimeError("Grok native leader canary failed")
 
 
-def run(engine, cxx, timeout, native_cli=None, sibling_mcp=False):
+def run(engine, cxx, timeout, native_cli=None, sibling_mcp=False, peer_batch=False):
     cli = native_cli or engine
     with tempfile.TemporaryDirectory(prefix="cxx-receiver-canary-") as tmp:
         receiver_log = pathlib.Path(tmp) / "receiver.log"
@@ -120,7 +120,7 @@ def run(engine, cxx, timeout, native_cli=None, sibling_mcp=False):
         broker = str(pathlib.Path(tmp) / "portal.sock")
         sock = str(pathlib.Path(tmp) / "codex.sock")
         healthy = False
-        sources = ("peer", "portal")
+        sources = ("peer",) if peer_batch else ("peer", "portal")
         message_ids = {s: str(uuid.uuid4()) for s in sources}
         receipts = {s: "canary-" + str(uuid.uuid4()) for s in sources}
         submitted = set()
@@ -132,6 +132,10 @@ def run(engine, cxx, timeout, native_cli=None, sibling_mcp=False):
         registered = None
         failure = None
         operations = {}
+        batch_receipts = {"accepted": 0, "completed": 0}
+        batch_completed_at = None
+        batch_entries = []
+        batch_id = str(uuid.uuid4())
         sibling_checked = False
         lock = threading.Lock()
 
@@ -140,7 +144,7 @@ def run(engine, cxx, timeout, native_cli=None, sibling_mcp=False):
                 pass
 
             def do_POST(self):
-                nonlocal registered, failure, native_reported, reconnect_requested, reconnected, completed_replies, healthy
+                nonlocal registered, failure, native_reported, reconnect_requested, reconnected, completed_replies, healthy, batch_completed_at, batch_entries
                 data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or "{}")
                 op = self.path.rsplit("/", 1)[-1]
                 out, status = {}, 200
@@ -159,7 +163,7 @@ def run(engine, cxx, timeout, native_cli=None, sibling_mcp=False):
                         healthy = False
                         submitted.clear()
                         replied.clear()
-                        out = {"sources": ["peer", "portal"]}
+                        out = {"sources": list(sources), "capabilities": {"queue_delivery_v1": peer_batch}}
                     elif op == "native":
                         if data.get("native_session_id"):
                             native_reported = data["native_session_id"] == native
@@ -174,10 +178,20 @@ def run(engine, cxx, timeout, native_cli=None, sibling_mcp=False):
                                 instruction += " Include summary Canary completed."
                             instruction += " Do not use other tools, run commands or edit files."
                             message = {"message_id": message_ids[source], "lease_owner": data["claim_id"], "kind": "message", "content": instruction}
+                            if peer_batch:
+                                entries = [{"message_id": str(uuid.uuid4()), "kind": "reply", "sender": {"name": "Canary"}, "created_at": "2026-01-01T00:00:00Z", "delivery_class": "coordination" if i % 2 else "information", "content": "Old closing status. No reply required."} for i in range(31)]
+                                entries[25].update(message_id=message_ids[source], content=instruction + " Then call agent_listen once and yield.")
+                                entries[27]["content"] = "ADVISOR/1 turn=1 kind=verify\nAll checks passed. No reply required."
+                                batch_entries = entries
+                                message.update(message_id=batch_id, kind="digest", content=json.dumps({"presentation": "peer_batch_v1", "digest_id": batch_id, "total": 31, "next_after": 11, "entries": entries[:11]}))
                             out = {"delivery" if source == "peer" else "message": message}
                     elif op == "ack" and "/receiver/" in self.path:
                         failure = "unexpected receiver probe acknowledgment"
                         status = 400
+                    elif peer_batch and op == "digest":
+                        if data.get("after") != 11:
+                            failure = "batch pagination lost cursor"
+                        out = {"messages": batch_entries[11:], "next_after": None}
                     elif op == "reply":
                         if data.get("message_id") == message_ids["peer"] and data.get("content", "").strip() == receipts["peer"]:
                             replied.add("peer")
@@ -201,6 +215,12 @@ def run(engine, cxx, timeout, native_cli=None, sibling_mcp=False):
                     elif op == "heartbeat" and "/receiver/" in self.path:
                         healthy = True
                         out = {"receiver": {"sources": [{"source": s} for s in sources]}}
+                    elif peer_batch and op == "ack" and "/deliveries/" in self.path:
+                        outcome = data.get("outcome")
+                        if outcome in batch_receipts:
+                            batch_receipts[outcome] += 1
+                            if outcome == "completed": batch_completed_at = time.monotonic()
+                        out = {"message": {"status": outcome}}
                     elif op == "ack" and data.get("outcome") == "accepted":
                         out = {"status": "accepted"} if "/agent-commands/" in self.path else {"message": {"status": "accepted"}}
                     elif op == "self":
@@ -242,7 +262,7 @@ def run(engine, cxx, timeout, native_cli=None, sibling_mcp=False):
                     overrides += ["-c", "mcp_servers.cxx-agent.env." + key + "=" + json.dumps(value)]
                 # This isolated canary grants only its own receipt tools; shell
                 # commands and files remain read-only with approvals disabled.
-                for name in ("agent_receiver_reply", "agent_receiver_status", "agent_self", "agent_reply"):
+                for name in ("agent_receiver_reply", "agent_receiver_status", "agent_self", "agent_reply", "agent_listen", "agent_digest_get"):
                     overrides += ["-c", "mcp_servers.cxx-agent.tools." + name + '.approval_mode="approve"']
                 daemon = subprocess.Popen([cli, "app-server", "--listen", "unix://" + sock, *overrides],
                                           cwd=tmp, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -252,7 +272,7 @@ def run(engine, cxx, timeout, native_cli=None, sibling_mcp=False):
                 while not os.path.exists(sock) and time.monotonic() < deadline and daemon.poll() is None:
                     time.sleep(.1)
                 command = [cli, "--remote", "unix://" + sock, "--no-alt-screen", "-C", tmp,
-                           "-a", "never", "-s", "read-only", "Canary setup only: reply exactly READY for this setup turn. For subsequent canary challenges, call agent_reply or agent_receiver_reply with the supplied message_id and exact receipt content. Those two receipt tools are authorized for this test; do not use other tools."]
+                           "-a", "never", "-s", "read-only", "Canary setup only: reply exactly READY for this setup turn. For subsequent canary challenges, call agent_reply or agent_receiver_reply with the supplied message_id and exact receipt content. Those receipt tools, agent_listen and agent_digest_get are authorized for this test; do not use other tools."]
             else:
                 # The plugin directory basename is the plugin's identity to
                 # Claude Code (`<basename>@inline`), and it provides the MCP
@@ -269,12 +289,12 @@ def run(engine, cxx, timeout, native_cli=None, sibling_mcp=False):
                 mcp = {"mcpServers": {"cxx-agent": {"command": cxx, "args": ["agent", "mcp", "--auto"], "env": mcp_env}}}
                 (plugin / ".mcp.json").write_text(json.dumps(mcp))
                 tools = ["mcp__" + CLAUDE_MCP_SERVER + "__agent_receiver_reply",
-                         "mcp__" + CLAUDE_MCP_SERVER + "__agent_reply"]
+                         "mcp__" + CLAUDE_MCP_SERVER + "__agent_reply", "mcp__" + CLAUDE_MCP_SERVER + "__agent_listen", "mcp__" + CLAUDE_MCP_SERVER + "__agent_digest_get"]
                 command = [cli, "--plugin-dir", str(plugin), "--session-id", native,
                            *(["--channels", CLAUDE_CHANNEL] if channel_approved() else
                              ["--dangerously-load-development-channels", CLAUDE_CHANNEL]),
                            "--permission-mode", "dontAsk",
-                           "--allowedTools", *tools, "--", "Canary setup only: reply exactly READY for this setup turn. For subsequent canary challenges, call agent_reply or agent_receiver_reply with the supplied message_id and exact receipt content. Those two receipt tools are authorized for this test; do not use other tools."]
+                           "--allowedTools", *tools, "--", "Canary setup only: reply exactly READY for this setup turn. For subsequent canary challenges, call agent_reply or agent_receiver_reply with the supplied message_id and exact receipt content. Those receipt tools, agent_listen and agent_digest_get are authorized for this test; do not use other tools."]
             master, slave = pty.openpty()
             import fcntl
             import struct
@@ -323,6 +343,11 @@ def run(engine, cxx, timeout, native_cli=None, sibling_mcp=False):
                             print(receiver_log.read_text()[-4000:])
                         raise RuntimeError(failure)
                     outcome = None
+                    if peer_batch and batch_completed_at and time.monotonic() - batch_completed_at >= 16:
+                        if batch_receipts != {"accepted": 1, "completed": 1} or replied != {"peer"} or operations.get("digest", 0) != 1:
+                            raise RuntimeError("batch receipts/replies differ: " + json.dumps({"receipts": batch_receipts, "replied": sorted(replied)}))
+                        print(json.dumps({"engine": engine, "result": "passed", "originals": 31, "peer_continuation_deliveries": 1, "remaining_page_reads": operations.get("digest", 0), "actionable_original_reply": True, "presentation_receipts": batch_receipts, "quiet_seconds": 16}))
+                        return
                     if reconnected and healthy and len(replied) == 2:
                         outcome = {"engine": engine, "result": "passed", "native_session_id": registered["native_session_id"],
                                    "generation": registered["generation"], "correlated_message_replies": completed_replies,
@@ -409,8 +434,11 @@ if __name__ == "__main__":
     parser.add_argument("--native-cli", help="exact native CLI binary to test; defaults to the engine on PATH")
     parser.add_argument("--sibling-mcp", action="store_true", help="verify a second MCP process shares the receiver instead of registering one")
     parser.add_argument("--grok-auth", help="protected current access-only Grok projection; never a refresh-bearing auth file")
+    parser.add_argument("--peer-batch", action="store_true", help="verify 31 retained backlog entries require one continuation and preserve an actionable original reply")
     args = parser.parse_args()
+    if args.engine == "grok" and args.peer_batch:
+        parser.error("--peer-batch currently supports Codex and Claude native canaries")
     if args.engine == "grok":
         run_grok(os.path.abspath(args.cxx), args.native_cli, args.grok_auth)
         sys.exit(0)
-    run(args.engine, os.path.abspath(args.cxx), args.timeout, args.native_cli, args.sibling_mcp)
+    run(args.engine, os.path.abspath(args.cxx), args.timeout, args.native_cli, args.sibling_mcp, args.peer_batch)

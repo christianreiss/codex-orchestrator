@@ -1,4 +1,4 @@
-import { smartQueueAllowed } from './agent-messaging/smart-queue.js';
+import { smartQueueAllowed, peerBatchAllowed } from './agent-messaging/smart-queue.js';
 import { markWaitingForPresence } from './agent-messaging/presence-feedback.js';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
@@ -64,7 +64,7 @@ export class AgentReceiverService {
   async register(
     id: string,
     token: string,
-    input: { generation: string; protocol: ReceiverState['protocol']; native_session_id: string; capabilities?: { queue_delivery_v1?: boolean } },
+    input: { generation: string; protocol: ReceiverState['protocol']; native_session_id: string; capabilities?: { queue_delivery_v1?: boolean; peer_batch_v1?: boolean } },
   ) {
     const auth = await this.authenticate(id, token);
     if ({ codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' }[auth.engine] !== input.protocol)
@@ -92,7 +92,8 @@ export class AgentReceiverService {
         ...input,
         portal_closed: old?.portal_closed,
         activity_v1: activityEnabled,
-        queue_delivery_v1: smartQueueAllowed(this.env, auth.hostId, { queue_delivery_v1: input.capabilities?.queue_delivery_v1 === true }),
+        peer_batch_v1: peerBatchAllowed(this.env, input.capabilities),
+        queue_delivery_v1: smartQueueAllowed(this.env, auth.hostId, input.capabilities),
         heartbeat_at: now,
         failure: null,
         probes: Object.fromEntries(sources.map((source) => [source, {}])),
@@ -135,7 +136,7 @@ export class AgentReceiverService {
       binding_generation: bound.bindingGeneration,
     } : null;
     return { receiver: receiverView(state), sources: Object.keys(state.probes) as ReceiverSource[],
-      capabilities: { activity_v1: state.activity_v1 === true, queue_policy_v1: true, queue_delivery_v1: state.queue_delivery_v1 === true }, binding_generation: bound?.bindingGeneration ?? 0, identity };
+      capabilities: { activity_v1: state.activity_v1 === true, queue_policy_v1: true, queue_delivery_v1: state.queue_delivery_v1 === true, peer_batch_v1: state.peer_batch_v1 === true }, binding_generation: bound?.bindingGeneration ?? 0, identity };
   }
 
   async update(

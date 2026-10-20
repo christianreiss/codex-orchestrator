@@ -199,3 +199,20 @@ func TestQueueMetadataRespectsServerSyntaxIndependentlyOfActivation(t *testing.T
 		}
 	}
 }
+
+func TestFullPeerBatchPreservesActionableOriginals(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
+			prompt := nativePeerPrompt(map[string]any{"message_id": "presentation", "kind": "digest", "content": `{"presentation":"peer_batch_v1","entries":[{"message_id":"question","content":"Which target?"},{"message_id":"advisor","content":"ADVISOR/1 full answer"}]}`})
+			for _, required := range []string{"full original messages", "Questions and substantive coordination", "original message_id", "never held work", "Which target?", "ADVISOR/1 full answer"} {
+				if !strings.Contains(prompt, required) {
+					t.Fatalf("missing %s: %s", required, prompt)
+				}
+			}
+			if strings.Contains(prompt, "Entries are previews") {
+				t.Fatal("full content presented as preview")
+			}
+		})
+	}
+}

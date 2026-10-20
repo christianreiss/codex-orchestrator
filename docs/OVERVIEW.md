@@ -1319,3 +1319,10 @@ Server-side inactive conversations and unused addresses expire after 24 hours; p
 jobs and recovery targets remain protected. Cleanup also retires expired credentials and
 rebooted sessions, and runs without traffic from offline hosts. Native transcript files retain
 their independent housekeeping policy. See `interface-api.md` for the wire and retention contract.
+
+Peer backlog reception from cxx 0.9.110 uses negotiated full-content batches for stale
+non-work mail, including Advisor answers and coordination questions, to reduce repeated
+continuation turns. All originals remain addressable; work/results keep individual
+delivery. See `docs/interface-api.md` (Peer backlog presentations) for limits and rollback.
+
+Native acceptance: `python3 wrappers/scripts/receiver-canary.py --engine codex --cxx /absolute/path/to/cxx --native-cli /absolute/path/to/native/codex --peer-batch` verifies 31 originals, one continuation, a paginated actionable question, one presentation completion, and a quiet interval. It uses an isolated native home with access-only credentials and a temporary broker.

@@ -61,6 +61,7 @@ const schema = z
     NODE_ENV: z.string().default('production'),
     APP_ENV: z.string().default('production'),
 
+    CXX_PEER_BATCH_V1_ENABLED: boolish.default(true),
     CXX_QUEUE_DELIVERY_V1_ENABLED: boolish.default(false),
     CXX_QUEUE_DELIVERY_V1_HOST_IDS: z.string().default(''),
     CXX_COMMUNICATOR_ENABLED: boolish.default(false),

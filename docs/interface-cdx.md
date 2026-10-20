@@ -1983,3 +1983,33 @@ Contract: [agent-roles.md](agent-roles.md). The module switch `roles_enabled` (d
 - **Identity and pinning.** The assignment hangs on the agent address, so `cdx resume` of the same transcript keeps role and version; a fresh launch has none; a rebind with `continuity = reset` ends it.
 - **Session title.** The receiver's session-name reporter writes the native title as `(Name) (Label) task` and reports `(Label) task` to the server; a switch or release strips the old label.
 - **After compaction or resume.** Codex has no hook surface and the wrapper does not observe compaction, so nothing is injected. The managed guidance tells the agent to call `agent_self` after a resume and to reload with `agent_role_current {include_core:true}` when its role's instructions are missing; `agent_self` carries the `role`. This is the documented limit.
+
+### Peer backlog presentations (cxx 0.9.110)
+
+Receivers advertise `capabilities.peer_batch_v1: true` alongside `queue_delivery_v1`.
+With `CXX_PEER_BATCH_V1_ENABLED=true` (default), this negotiates full-content batching
+independently of the opt-in preview digest flag and its host allowlist. Older receivers
+retain their previous behavior. Set the new flag to `false` and recreate the API to
+roll back this presentation policy.
+
+When at least two untouched non-work messages wait and the oldest is at least 60 seconds
+old, the receiver claims one `kind: digest` presentation with
+`content.presentation: peer_batch_v1`. It owns the complete waiting backlog and initially carries up to 20 complete originals
+within 12,000 UTF-8 JSON bytes, including sender, original message/conversation/reply IDs,
+creation time, delivery class and full content. A non-null `next_after` requires reading the remaining originals through paginated
+`agent_digest_get` in the same turn, including oversized entries; no content is truncated. This groups transport turns; it does not infer that a status is obsolete,
+truncate answers, or silently acknowledge already-inspected messages. Advisor answers
+are coordination and participate with every answer/turn intact. `advisor_status`,
+`agent_wait` and message reads remain read-only.
+
+Questions and coordination in a batch still require handling. Reply to the original
+message ID, never the presentation. Call `agent_listen` once after handling all entries;
+it releases only the presentation and leaves accepted work held. Work requests, wakes,
+tasks, and replies to work (progress or results) retain individual delivery. Coordination
+priority and FIFO position use the earliest original at that priority's dispatch order. Retained originals
+are `batched` then `digested` on presentation acceptance, with no fabricated completion
+or delivery attempts; `agent_message_get` and `agent_digest_get` retain full audit access.
+Unpresented canceled/expired presentations or policy rollback restore eligible originals;
+accepted or uncertain presentations never replay them. A receiver already running an
+older wrapper must reconnect with cxx 0.9.110 to negotiate this behavior. Browser/OS
+notification totals remain client-specific; the bound is on peer continuation deliveries.

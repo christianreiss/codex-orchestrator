@@ -1,7 +1,8 @@
+import { preparePeerBatch, presentationOrder } from './agent-messaging/peer-batch.js';
 import { ApiError } from '../http/errors.js';
 import { activeRolesForAddresses, roleLabelsForAddress } from './roles/assignments.js';
 import { newQueuedMessage } from './agent-messaging/views.js';
-import { queuePolicy, assertQueuePolicyReplay, validateRelatedWork, smartQueueAllowed, prepareSmartDigest, restoreUnpresentedDigests, presentDigest, coalescePendingRepeats, type QueuePolicy } from './agent-messaging/smart-queue.js';
+import { queuePolicy, assertQueuePolicyReplay, validateRelatedWork, smartQueueAllowed, peerBatchAllowed, prepareSmartDigest, restoreUnpresentedDigests, presentDigest, coalescePendingRepeats, type QueuePolicy } from './agent-messaging/smart-queue.js';
 import { expireRebootHandoffs } from './reboot-handoffs.js';
 import { daemonAccepting, daemonResidentFor } from './host-daemon/policy.js';
 import { assertHousekeepingAvailable } from './session-housekeeping.js';
@@ -812,7 +813,7 @@ export class AgentMessagingService {
     }
     normalizeUuid(claimId, 'claim_id');
     if (await idleSessionPoll(this.db, sessionId, this.env, { bridgeToken, receiverGeneration })) return null;
-    return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly, smartQueueAllowed(this.env, authenticated.host.id, authenticated.session.receiver));
+    return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly, smartQueueAllowed(this.env, authenticated.host.id, authenticated.session.receiver), peerBatchAllowed(this.env, authenticated.session.receiver));
   }
 
   /**
@@ -1433,6 +1434,7 @@ export class AgentMessagingService {
     receiverGeneration?: string,
     informationalOnly = false,
     smartQueue = false,
+    peerBatch = false,
   ): Promise<MessageDelivery | null> {
     const claimId = normalizeUuid(rawClaimId, 'claim_id');
     const now = nowIso();
@@ -1491,9 +1493,12 @@ export class AgentMessagingService {
 
       if (relayGeneration == null) {
         const target = await this.requireAddressLocked(tx, targetAddressIds[0]!);
-        await restoreUnpresentedDigests(tx, target.id, !smartQueue);
-        if (smartQueue) await prepareSmartDigest(tx, target, { keyring: this.keyring, server: db => this.groups.server(db) });
+        await restoreUnpresentedDigests(tx, target.id, !smartQueue, { allowed: peerBatch, keyring: this.keyring });
+        if (peerBatch) await preparePeerBatch(tx, target, { keyring: this.keyring, server: db => this.groups.server(db) });
+        else if (smartQueue) await prepareSmartDigest(tx, target, { keyring: this.keyring, server: db => this.groups.server(db) });
       }
+      const candidateOrder = presentationOrder(sql`${agentBusMessages.id}`, sql`${agentBusMessages.kind}`, sql`${agentBusMessages.dispatchOrder}`, sql`${agentBusMessages.deliveryClass}`);
+      const earlierOrder = presentationOrder(sql`earlier.id`, sql`earlier.kind`, sql`earlier.dispatch_order`, sql`earlier.delivery_class`);
       const candidates = await tx
         .select()
         .from(agentBusMessages)
@@ -1528,10 +1533,10 @@ export class AgentMessagingService {
                  OR ((${agentBusMessages.workKind} IS NULL AND ${agentBusMessages.kind} NOT IN ('request','task','schedule'))
                    AND earlier.work_kind IS NULL AND earlier.kind NOT IN ('request','task','schedule')
                    AND (earlier.status IN ('leased','accepted','reboot_hold') OR
-                     (${agentBusMessages.deliveryClass} = 'coordination' AND earlier.delivery_class = 'coordination' AND earlier.dispatch_order < ${agentBusMessages.dispatchOrder}) OR
+                     (${agentBusMessages.deliveryClass} = 'coordination' AND earlier.delivery_class = 'coordination' AND ${earlierOrder} < ${candidateOrder}) OR
                      (${agentBusMessages.deliveryClass} <> 'coordination' AND (earlier.delivery_class = 'coordination' OR
-                       (${agentBusMessages.kind} = 'digest' AND earlier.kind = 'digest' AND earlier.dispatch_order < ${agentBusMessages.dispatchOrder}) OR
-                       (${agentBusMessages.kind} <> 'digest' AND (earlier.kind = 'digest' OR earlier.dispatch_order < ${agentBusMessages.dispatchOrder}))))))
+                       (${agentBusMessages.kind} = 'digest' AND earlier.kind = 'digest' AND ${earlierOrder} < ${candidateOrder}) OR
+                       (${agentBusMessages.kind} <> 'digest' AND (earlier.kind = 'digest' OR ${earlierOrder} < ${candidateOrder}))))))
                )
           )` : and(
           sql`NOT EXISTS (
@@ -1552,7 +1557,7 @@ export class AgentMessagingService {
           ...(!smartQueue ? [sql`${agentBusMessages.kind} <> 'digest'`] : []),
           ...(informationalOnly ? [sql`${agentBusMessages.workKind} IS NULL AND ${agentBusMessages.kind} NOT IN ('request','task','schedule')`] : []),
         ))
-        .orderBy(smartQueue ? sql`CASE WHEN ${agentBusMessages.deliveryClass} = 'coordination' THEN 0 WHEN ${agentBusMessages.workKind} IS NOT NULL THEN 1 WHEN ${agentBusMessages.kind} = 'digest' THEN 2 ELSE 3 END` : asc(agentBusMessages.dispatchOrder), asc(agentBusMessages.dispatchOrder))
+        .orderBy(smartQueue ? sql`CASE WHEN ${agentBusMessages.deliveryClass} = 'coordination' THEN 0 WHEN ${agentBusMessages.workKind} IS NOT NULL THEN 1 WHEN ${agentBusMessages.kind} = 'digest' THEN 2 ELSE 3 END` : asc(agentBusMessages.dispatchOrder), smartQueue ? candidateOrder : asc(agentBusMessages.dispatchOrder))
         .limit(64)
         .for('update');
       for (const candidate of candidates) {
