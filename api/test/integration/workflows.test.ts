@@ -365,6 +365,76 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
       call('run_create', { workflow_id: w.workflow_id, title: 'Bad', inputs: { enabled: 'yes' } }, admin),
     ).rejects.toMatchObject({ code: 'validation_failed' });
   });
+  it('gates new claims on the latest applicable receipt from the claiming binding only', async () => {
+    const doc = document();
+    doc.knowledge = [{ id: 'source', title: 'Linux runbook', reference: { uri: 'shared://workflow-test-runbook' }, required_check: { applicability: 'Linux targets only' } }];
+    doc.tasks[0]!.knowledge_ids = ['source'];
+    doc.tasks[1]!.knowledge_ids = ['source'];
+    const { run } = await setup(doc);
+    await join(run.run_id);
+    const note = (who = a, patch: Record<string, unknown> = {}, taskId?: string) => call('run_note', {
+      run_id: run.run_id, kind: 'knowledge', text: 'Source preflight attestation', ...(taskId ? { task_id: taskId } : {}),
+      source: { knowledge_id: 'source', uri: 'shared://workflow-test-runbook', title: 'Linux runbook',
+        read_at: new Date(Date.now() - 1).toISOString(), digest: 'sha256:test', summary: 'Read source',
+        applicability: 'applicable', applicability_reason: 'Target is Linux', ...patch },
+    }, who);
+    await expect(claim(run.run_id, 'a')).rejects.toMatchObject({ code: 'workflow_knowledge_required' });
+    expect(((await service.taskDetail(run.run_id, 'a')) as Result).knowledge).toMatchObject({
+      role: 'coordinator', subject: { address_id: a.address_id }, checks: [{ blocker: 'missing_receipt' }],
+    });
+    await note(b);
+    await expect(claim(run.run_id, 'a')).rejects.toMatchObject({ code: 'workflow_knowledge_required' });
+    await note(a, {}, 'b');
+    await expect(claim(run.run_id, 'a')).rejects.toMatchObject({ code: 'workflow_knowledge_required' });
+    await note(a);
+    await note(a, { applicability: 'mismatch', applicability_reason: 'New discovery: target is Windows' });
+    await expect(claim(run.run_id, 'a')).rejects.toMatchObject({ code: 'workflow_knowledge_required', extra: { knowledge_checks: [{ blocker: 'applicability_mismatch' }] } });
+    await note(a, { unavailable: true, digest: undefined });
+    await expect(claim(run.run_id, 'a')).rejects.toMatchObject({ code: 'workflow_knowledge_required' });
+    await expect(note(a, { knowledge_id: 'undeclared' })).rejects.toMatchObject({ code: 'validation_failed' });
+    await expect(note(a, { uri: 'https://different.example' })).rejects.toMatchObject({ code: 'validation_failed' });
+    await expect(note(a, { read_at: '2099-01-01T00:00:00.000Z' })).rejects.toMatchObject({ code: 'validation_failed' });
+    const unchanged = (await service.taskDetail(run.run_id, 'a')) as Result;
+    expect(unchanged.task).toMatchObject({ status: 'pending', attempt_no: 0, version: 1, claim: null });
+    expect(unchanged.attempts).toEqual([]);
+    await note(a, { applicability: 'mismatch', applicability_reason: 'This task targets Windows' }, 'a');
+    await note(a, { revision: 'runbook-v3', digest: undefined });
+    // A general success must not clear the more precise task-specific mismatch.
+    await expect(claim(run.run_id, 'a')).rejects.toMatchObject({ code: 'workflow_knowledge_required' });
+    await note(a, { revision: 'runbook-v3', digest: undefined }, 'a');
+    const c = await claim(run.run_id, 'a');
+    expect(c.task.status).toBe('running');
+    expect(((await service.taskDetail(run.run_id, 'a')) as Result).knowledge).toMatchObject({
+      role: 'claim_owner', subject: { address_id: a.address_id }, checks: [{ blocker: null, receipt: { source: { revision: 'runbook-v3' } } }],
+    });
+    // Another actor's run-wide receipt is valid for that actor's own linked task.
+    expect((await claim(run.run_id, 'b', b)).task.status).toBe('running');
+  });
+  it('requires fresh binding receipts after operator recovery and preserves unaffected task execution', async () => {
+    const doc = document();
+    doc.knowledge = [{ id: 'source', title: 'Inline source', inline: 'Pinned Linux instructions', required_check: { applicability: 'Linux' } }];
+    doc.tasks[0]!.knowledge_ids = ['source'];
+    const { run } = await setup(doc);
+    const { digest } = await import('../../src/services/workflows/contract.js');
+    const snapshot = (await service.report(run.run_id)) as Result;
+    const receipt = { run_id: run.run_id, kind: 'knowledge', text: 'Inline read', source: {
+      knowledge_id: 'source', title: 'Inline source', uri: `workflow://${snapshot.workflow_sha256}/knowledge/source`,
+      read_at: new Date().toISOString(), digest: digest('Pinned Linux instructions'), summary: 'Instructions read',
+      applicability: 'applicable', applicability_reason: 'Linux task',
+    } };
+    const reader = await actor('codex');
+    await join(run.run_id, reader);
+    await call('run_note', receipt, reader);
+    const generation = reader.binding_generation! + 1;
+    await db.update(agentBusAddresses).set({ bindingGeneration: generation }).where(eq(agentBusAddresses.id, reader.address_id!));
+    await db.update(agentSessions).set({ bindingGeneration: generation }).where(eq(agentSessions.id, reader.session_id!));
+    await db.update(workflowRunMembers).set({ bindingGeneration: generation }).where(and(eq(workflowRunMembers.runId, run.run_id), eq(workflowRunMembers.agentAddressId, reader.address_id!)));
+    const rebound = { ...reader, binding_generation: generation };
+    await expect(claim(run.run_id, 'a', rebound)).rejects.toMatchObject({ code: 'workflow_knowledge_required' });
+    await call('run_note', receipt, rebound);
+    expect((await claim(run.run_id, 'a', rebound)).task.status).toBe('running');
+    expect((await claim(run.run_id, 'b', rebound)).task.status).toBe('running');
+  });
   it('serializes same-task contenders and preserves independent task progress', async () => {
     const { run } = await setup();
     await join(run.run_id);

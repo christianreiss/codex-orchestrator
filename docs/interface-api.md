@@ -3038,6 +3038,40 @@ Bridge endpoints authenticate `x-agent-bridge-token` and derive address, host, e
 - `POST /host/agent-sessions/:id/agent-messaging/workflows/run-evaluate` — Save or finalize evaluation; publish a validated improvement atomically.
 - `POST /host/agent-sessions/:id/agent-messaging/workflows/run-current` — Read current membership, invitations and pending evaluations for the authenticated binding; empty body. `server_time`, `stale_memberships` and `stale_claims` also expose recovery information for the same authenticated address's earlier bindings. These read-only projections contain no claim tokens and confer no write access. Stale membership identifies the prior session/generation with `binding_current: false` and `recovery_required: operator_coordinator_recover`; stale claims require `resolve_old_claim_then_operator_recovery`. An authorized admin uses the run-control `coordinator_recover` action with the current run version, target address, reason and stable request UUID. Outstanding earlier claims must be settled first; no implicit ownership transfer occurs.
 
+A knowledge entry may opt in to required source checks with
+`required_check: {applicability: "required scope and operating system"}`. Every task
+whose `knowledge_ids` includes it requires an applicable receipt from the claiming
+agent's current address/session/binding before `task-claim acquire` can start an attempt.
+Absent opt-in, historical definitions and informational knowledge notes behave unchanged.
+
+Record receipts with `run-note kind:knowledge`, optional `task_id`, and `source` containing
+`knowledge_id` (from the pinned workflow), exact pinned `uri`, `title`, `read_at`,
+`summary`, `applicability` (`applicable|mismatch|unknown`) and `applicability_reason`.
+`read_at` must be at or after run creation and no later than server time. An applicable,
+readable source needs a nonblank `digest` or `revision`. Inline sources use
+`workflow://<run.workflow_sha256>/knowledge/<knowledge_id>` and a digest equal to SHA-256
+of the canonical JSON encoding of the inline string in UTF-8. Referenced fingerprints
+and applicability are agent attestations, not independent server verification; no URI
+is fetched and no source commands are executed. Declared scope/OS is human-readable
+applicability criteria that the agent must assess and explain.
+
+An unavailable source (`unavailable:true`), applicability mismatch, unknown applicability
+or missing receipt returns `409 workflow_knowledge_required` with per-source
+`knowledge_checks`; no claim/attempt is created. Unreadable or inapplicable receipts
+remain visible without requiring an unavailable fingerprint. With `task_id`, the task
+must reference that knowledge ID. Without it, the receipt covers linked tasks in this
+run. The latest task-specific receipt by event sequence wins, including later failures;
+only when none exists does the latest run-wide receipt apply. A task-specific mismatch
+therefore needs a new task-specific applicable receipt, even after a later run-wide read.
+Other tasks' scoped receipts and other actor bindings cannot satisfy a claim. Once a
+claim has started, later receipts do not terminate external execution. Task-detail
+responses include `knowledge` with checks for the active claim owner, or the active
+coordinator when unclaimed, and the exact subject binding/role. This is attributed
+readiness for that subject only, not for all participants. Other receipts remain in
+the paginated run history. Claim gates use a locked run row and at most 100 bounded
+latest-receipt lookups, so notes and acquisitions serialize without a schema migration.
+All three engines use the same contract; update cxx for the extended tool schemas.
+
 Responses include canonical IDs, versions and an authenticated `report_url`; claims alone return the private claim token. Lists and task/event reads are bounded; follow returned pagination metadata. Evidence carries `id`, `description`, `type`, `time` and optional `uri`, `hash`, `execution_host`, `expires_at`; no arbitrary URI is fetched by the server. Definition changes publish `workflow.changed`, run progress publishes `workflow.run.changed`, and module changes publish `workflow.state.changed`; payloads invalidate query caches and do not carry private claim tokens or chat bodies.
 
 ## Account quota warnings and reset recovery (cxx 0.9.112)

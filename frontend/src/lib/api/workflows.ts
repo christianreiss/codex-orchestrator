@@ -4,7 +4,7 @@ export interface WorkflowDocument {
   goal: { statement: string; success_criteria: { id: string; text: string }[] };
   inputs: { key: string; label: string; type: "string" | "number" | "boolean" | "enum"; required: boolean; default?: string | number | boolean; options?: string[]; description?: string }[];
   tasks: { id: string; title: string; instructions: string; acceptance_criteria: string[]; depends_on: string[]; knowledge_ids: string[]; execution_hint?: string }[];
-  knowledge: { id: string; title: string; inline?: string; reference?: { uri: string; read_hint?: string } }[];
+  knowledge: { id: string; title: string; inline?: string; reference?: { uri: string; read_hint?: string }; required_check?: { applicability: string } }[];
 }
 export interface WorkflowSummary { workflow_id: string; slug: string; status: "active" | "archived"; version: number; control_version: number; title: string; summary: string; goal: WorkflowDocument["goal"]; updated_at: string }
 export interface WorkflowVersion { version: number; sha256: string; document: WorkflowDocument; reason: string; diff?: unknown; source_run_id?: string | null; created_at: string }
@@ -12,6 +12,11 @@ export interface WorkflowDefinition extends WorkflowVersion { enabled: boolean; 
 export interface WorkflowMember { address_id: string; agent_address?: string; name?: string; display_name?: string; engine?: string; host_id?: number; fqdn?: string; status: string; joined_at?: string; session_id?: string; binding_generation?: number }
 export interface WorkflowInvitation { invitation_id?: string; id?: string; target_address_id?: string; name?: string; status: string; reason?: string; expires_at?: string }
 export interface WorkflowTask { task_id: string; title: string; status: string; version: number; attempt_no: number; claim: { owner_address_id: string; generation: number; lease_until: string; recovery: boolean } | null; summary?: string; outputs?: Record<string, unknown>; evidence?: WorkflowEvidence[]; depends_on?: string[]; reason?: string; skip_reason?: string }
+export interface WorkflowKnowledgeCheck {
+  knowledge_id: string; title: string; uri: string; applicability: string; blocker: string | null;
+  receipt: { event_id: string; recorded_at: string; actor: Record<string, unknown>; source: { read_at: string; digest?: string; revision?: string; applicability_reason?: string } } | null;
+}
+export interface WorkflowKnowledgeChecks { subject: Record<string, unknown> | null; role: string | null; checks: WorkflowKnowledgeCheck[] }
 export interface WorkflowEvidence { id: string; description: string; type?: string; uri?: string; hash?: string; execution_host?: string; time?: string; expires_at?: string }
 export interface WorkflowAttempt { attempt_no: number; status: string; started_at?: string; ended_at?: string; execution_host?: string; summary?: string; outputs?: Record<string, unknown>; evidence?: WorkflowEvidence[]; error?: unknown }
 export interface WorkflowEvaluation { version: number; status: string; draft?: Record<string, unknown>; decision?: string; reason?: string; findings?: unknown; lessons?: unknown; applied_version?: number; diff?: unknown }
@@ -75,7 +80,7 @@ export const workflowsApi = {
   runGet: (id: string, cursor?: string) => api.get<WorkflowRun>(`${runs}/${encodeURIComponent(id)}${query({ cursor })}`),
   report: (id: string) => api.get<WorkflowRun>(`${runs}/${encodeURIComponent(id)}/report`),
   events: (id: string, cursor?: string) => api.get<WorkflowPage<WorkflowEvent>>(`${runs}/${encodeURIComponent(id)}/events${query({ cursor })}`),
-  task: (id: string, task: string, cursor?: string) => api.get<{ task: WorkflowTask; attempts: WorkflowAttempt[]; next_cursor: string | number | null }>(`${runs}/${encodeURIComponent(id)}/tasks/${encodeURIComponent(task)}${query({ cursor })}`),
+  task: (id: string, task: string, cursor?: string) => api.get<{ task: WorkflowTask; knowledge?: WorkflowKnowledgeChecks | null; attempts: WorkflowAttempt[]; next_cursor: string | number | null }>(`${runs}/${encodeURIComponent(id)}/tasks/${encodeURIComponent(task)}${query({ cursor })}`),
   control: (id: string, input: { client_request_id: string; expected_run_version: number; action: string; reason?: string; title?: string; inputs?: Record<string, unknown>; questions?: WorkflowQuestion[]; notes?: string; summary_revision?: number; target_address_id?: string }) => api.post<WorkflowRun>(`${runs}/${encodeURIComponent(id)}/control`, input),
   cancelPrepared: (id: string, input: { client_request_id: string; expected_run_version: number; reason: string }) => api.post<WorkflowRun>(`${runs}/${encodeURIComponent(id)}/prepare-cancel`, input),
 };

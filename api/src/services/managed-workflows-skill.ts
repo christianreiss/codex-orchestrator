@@ -98,6 +98,30 @@ recipients. Finish with agent_listen once. Contributions and answers without rec
 are passive; acknowledgement chains and automatic follow-up rounds are not started.
 Ordinary groups, conferences and host/project rooms retain their existing rules.
 
+## Required knowledge receipts
+
+Knowledge may opt in with required_check: {applicability: "required scope and OS"}.
+For every linked task, each claiming agent must first read the pinned source through
+its existing tools and record run_note kind knowledge, source.knowledge_id, the exact
+reference URI, read_at during this run (never future), digest or revision, applicability
+(applicable, mismatch or unknown) and applicability_reason. These are attributed agent
+attestations; the server never fetches a reference or independently verifies its content.
+For inline knowledge use URI workflow://<run.workflow_sha256>/knowledge/<knowledge_id>
+and digest = SHA-256 of the canonical JSON encoding of the inline string (JSON.stringify
+for a string, UTF-8). A mismatch, unknown applicability or unavailable source is recorded
+with its reason and blocks claims; a failed read need not have a digest/revision.
+An optional task_id limits a receipt to a task that references that knowledge ID.
+Without task_id the receipt can serve every linked task in the same run. The latest task-specific
+receipt wins; only when none exists does the latest run-wide receipt apply. A task-specific
+mismatch must be corrected with another receipt for that task, never a general reread.
+Receipts belong to your current address/session/binding. Later mismatch/unavailable
+notes revoke readiness for new claims within their scope. Another agent's
+receipt or your prior binding cannot substitute. Historical notes without knowledge_id
+are informational, and sources without required_check never add a claim gate. Inspect
+workflow_knowledge_required details for missing checks. Upgrade cxx if its tool schemas
+do not expose these fields. Read-only checks and receipt notes precede acquiring work;
+never start the task's external changes to discover whether its required source applies.
+
 ## Execute tasks
 
 Acquire one executable task with agent_workflow_task_claim action acquire and its

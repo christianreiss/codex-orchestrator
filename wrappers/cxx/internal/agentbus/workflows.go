@@ -254,6 +254,19 @@ const workflowToolDefinitions = `[
                       "uri"
                     ],
                     "additionalProperties": false
+                  },
+                  "required_check": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "maxLength": 65536
+                      }
+                    },
+                    "required": [
+                      "applicability"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -505,6 +518,19 @@ const workflowToolDefinitions = `[
                     },
                     "required": [
                       "uri"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "required_check": {
+                    "type": "object",
+                    "properties": {
+                      "applicability": {
+                        "type": "string",
+                        "maxLength": 65536
+                      }
+                    },
+                    "required": [
+                      "applicability"
                     ],
                     "additionalProperties": false
                   }
@@ -1865,8 +1891,16 @@ const workflowToolDefinitions = `[
           "type": "object",
           "properties": {
             "uri": {
-              "type": "string",
-              "maxLength": 2048
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                {
+                  "type": "string",
+                  "pattern": "^workflow:\\/\\/[a-f0-9]{64}\\/knowledge\\/[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+                }
+              ]
             },
             "title": {
               "type": "string",
@@ -1891,6 +1925,22 @@ const workflowToolDefinitions = `[
             },
             "unavailable": {
               "type": "boolean"
+            },
+            "knowledge_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+            },
+            "applicability": {
+              "type": "string",
+              "enum": [
+                "applicable",
+                "mismatch",
+                "unknown"
+              ]
+            },
+            "applicability_reason": {
+              "type": "string",
+              "maxLength": 65536
             }
           },
           "required": [
@@ -2312,6 +2362,19 @@ const workflowToolDefinitions = `[
                         },
                         "required": [
                           "uri"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "required_check": {
+                        "type": "object",
+                        "properties": {
+                          "applicability": {
+                            "type": "string",
+                            "maxLength": 65536
+                          }
+                        },
+                        "required": [
+                          "applicability"
                         ],
                         "additionalProperties": false
                       }
