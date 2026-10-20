@@ -599,14 +599,13 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 		return cmdProfile(ctx, cfg, profileArgs, stderr)
 	}
 
-	if launchArgs, ok := sessionCommandArgs(sub, subArgs, passthrough); ok {
-		exit, err := cmdSession(ctx, cfg, f, logger, launchArgs)
-		printLifecycleError(stderr, "cdx "+sub, err)
-		return exit
-	}
-
 	switch sub {
-	case "exec":
+	case "run", "exec", "e", "review", "fork":
+		if launchArgs, ok := sessionCommandArgs(sub, subArgs, passthrough); ok {
+			exit, err := cmdSession(ctx, cfg, f, logger, launchArgs)
+			printLifecycleError(stderr, "cdx "+sub, err)
+			return exit
+		}
 		// Raw non-conversation commands do not acquire a launch identity.
 		exit, err := codex.Run(ctx, cfg, append(subArgs, passthrough...))
 		if err != nil {
