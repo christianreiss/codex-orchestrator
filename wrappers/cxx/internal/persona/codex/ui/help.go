@@ -14,7 +14,7 @@ type wrapperHelpItem struct {
 var cdxHelpCommands = []wrapperHelpItem{
 	{"cdx [run] [args...]", "Sync managed state, then launch Codex."},
 	{"cdx resume [session] [prompt]", "Reopen a session, or choose one."},
-	{"cdx exec -- <args...>", "Local preflight, then direct execution."},
+	{"cdx exec -- <args...>", "Raw Codex args; sessions use managed startup."},
 	{"cdx --execute <prompt>", "One prompt under the fleet policy."},
 	{"cdx status", "Host, versions, health and usage."},
 	{"cdx doctor", "Diagnose and show repair steps."},

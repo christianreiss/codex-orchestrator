@@ -51,6 +51,12 @@ Managed AGENTS.md carries the fleet's short/long commit preference and AI attrib
 
 ## Native names in Android (cxx 0.9.32)
 
+From cxx 0.9.116, normal and managed-native Codex startup prints
+`cdx session: (Name) registered` after server confirmation and before starting
+the native input prompt, including launches without an initial user message.
+Silent/skip-boot launches retain their suppressed startup output. This startup
+name is the assigned agent identity; the task title is set once a task is known.
+
 The automatic receiver reads Codex `session_index.jsonl` entries matching the bound native ID (`thread_name`); custom `CODEX_HOME` is honored. Changes are sent as encrypted, idempotent `session_named` events on its 15-second heartbeat. Failed reports retry the original ID/payload and do not disable reception. The metadata reader does not derive titles from transcript text. On its first turn, before its first response (including question-only or do-not-act-yet turns), fleet guidance tells the AI to call the session-bound `agent_session_name` tool with a concise name in the operator’s language; its atomic set-if-missing mode preserves known native or AI names. Android 0.4.6 displays the latest name above host and working directory; the API exposes it only with transcript permission. Update the API before wrappers/APK; older builds remain compatible.
 
 ## Managed native starts (cxx 0.9.24)
@@ -478,7 +484,7 @@ server bakes effective `CODEX_HOME/config.toml`.
 | `ls` | Retired shorthand for the retired `spark` lane: prints a notice, exits 2 |
 | `profile <name>` | Forward `--profile <name>` to the upstream `codex` CLI |
 | `<profile-name>` | Shorthand for `cdx profile <name>` when the profile exists — as `$CODEX_HOME/<name>.config.toml` (codex-cli >= 0.156.1) or, for an older Codex, as a `[profiles.<name>]` section of `config.toml` — and the token is not a wrapper-owned or reserved-Codex subcommand |
-| `exec -- <cmd...>` | Bypass the startup sequence and run a single Codex command |
+| `exec -- <cmd...>` | Run raw Codex arguments; conversation commands use managed startup and registration, while utility commands retain direct execution |
 | `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude\|grok`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
 | `--help` / `-h` / `help` | Passed straight through to a supervised upstream `codex` child without running auth/sync/boot — handles `cdx --help`, `cdx help`, and `cdx <reserved-subcommand> --help`; it skips the managed run lock but the child inherits effective-home session + active-child descriptors until Codex exits; wrapper-only `--minimal`/`--minimal-output` is consumed rather than forwarded as an unsupported Codex flag |
 | `--wrapper-help` | Render the wrapper-owned commands and flags without loading config; never intercepts tokens after `--` |

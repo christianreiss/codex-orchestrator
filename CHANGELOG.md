@@ -2,6 +2,8 @@
 
 - Git Director now sends relevant scope, lease and operator changes to affected active agents through session-bound notices. Polling remains authoritative; unchanged activity stays quiet. Merge completion can be reported explicitly and is labelled unverified. Releasing an already retired worktree no longer reactivates it. Known limits remain advisory parallel grants (97677182), expiry detected on access, and no FIFO guarantee.
 
+- **Codex startup identity (cxx 0.9.116).** Show the confirmed agent name and registration before the native prompt opens, without waiting for a first user message. Session-generating `cdx exec`, `e`, `review` and `fork` calls now use the same registration gate as normal/native launches. Integration coverage checks startup identity and refusal of unnamed sessions across Codex, Claude and Grok.
+
 - Clarify the shared workflow Skill for legacy runs that are already running after creation, and document accepted knowledge-note source URIs for pinned inline knowledge. Protocol-2 clarification and confirmation gates are unchanged.
 
 - Add User feedback mode with a local durable GitHub gate, explicit automatic-publication opt-in, encrypted PAT configuration and a server review worker. Baked build identities, old-version retests, duplicate/fix references and publication reconciliation keep unsupported or uncertain reports local; Source Developer keeps its existing repair workflow. Reports displays separate version, review and delivery evidence across all three engines.
