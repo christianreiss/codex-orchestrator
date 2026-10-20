@@ -2,6 +2,8 @@
 
 - Git Director now sends relevant scope, lease and operator changes to affected active agents through session-bound notices. Polling remains authoritative; unchanged activity stays quiet. Merge completion can be reported explicitly and is labelled unverified. Releasing an already retired worktree no longer reactivates it. Known limits remain advisory parallel grants (97677182), expiry detected on access, and no FIFO guarantee.
 
+- **Engines page split.** `/admin/engines` now shows one engine per tab (Codex, Claude, Grok; the tab is `?engine=` in the URL) with its defaults, version, native configuration and, while switched off, its danger zone. Quota enforcement, per-engine quota warnings (now tabs, not three stacked forms) and usage-based scaling moved to the new Providers tab **Usage limits** (`/admin/limits`). Host agent rollout and the Chatty assistant settings moved to **Settings**; Chatty's settings now use the standard section layout and English copy. Old `/engines#quota-enforcement`, `#scaling-rules`, `#cxx-rollout` and `#chatty` links forward to the new pages. No API or setting changed.
+
 - Keep Codex conversation commands explicit in the CLI dispatch table and document `e`, `review` and `fork`, restoring the API CLI-surface contract check after the startup identity fix.
 
 - **Codex startup identity (cxx 0.9.116).** Show the confirmed agent name and registration before the native prompt opens, without waiting for a first user message. Session-generating `cdx exec`, `e`, `review` and `fork` calls now use the same registration gate as normal/native launches. Integration coverage checks startup identity and refusal of unnamed sessions across Codex, Claude and Grok.

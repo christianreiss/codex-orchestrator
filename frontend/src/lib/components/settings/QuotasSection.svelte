@@ -1,6 +1,7 @@
 <script lang="ts">
   import QuotaPolicyEditor from "./QuotaPolicyEditor.svelte";
-  import { ENGINES, ENGINE_META } from "$lib/constants/engines";
+  import { ENGINES, ENGINE_META, type Engine } from "$lib/constants/engines";
+  import * as Tabs from "$lib/components/ui/tabs";
   import type { QuotaAdviceSettings } from "$lib/api/types";
   import { Switch } from "$lib/components/ui/switch";
   import { toast } from "svelte-sonner";
@@ -13,6 +14,8 @@
 
   type Props = { headingLevel?: 2 | 3 };
   let { headingLevel = 2 }: Props = $props();
+
+  let policyEngine = $state<Engine>(ENGINES[0]);
 
   const query = quotaModeQuery();
   let lastSavedAt = $state<Date | null>(null);
@@ -163,8 +166,17 @@
   </div>
 </SectionCard>
 
-{#each ENGINES as engine}
-  <SectionCard id={`quota-policy-${engine}`} title={`${ENGINE_META[engine].label} quota warnings and resume`} description="Defaults for provider accounts; account overrides are edited under Accounts." {headingLevel}>
-    <QuotaPolicyEditor {engine} />
-  </SectionCard>
-{/each}
+<SectionCard id="quota-policy" title="Quota warnings and resume" description="Defaults for provider accounts; account overrides are edited under Accounts." {headingLevel}>
+  <Tabs.Root bind:value={policyEngine} class="flex flex-col gap-3">
+    <Tabs.List class="w-fit" aria-label="Engine quota policy">
+      {#each ENGINES as engine (engine)}
+        <Tabs.Trigger value={engine}>{ENGINE_META[engine].label}</Tabs.Trigger>
+      {/each}
+    </Tabs.List>
+    {#each ENGINES as engine (engine)}
+      <Tabs.Content value={engine} id={`quota-policy-${engine}`} class="scroll-mt-20">
+        <QuotaPolicyEditor {engine} />
+      </Tabs.Content>
+    {/each}
+  </Tabs.Root>
+</SectionCard>

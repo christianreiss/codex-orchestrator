@@ -125,6 +125,7 @@ export const CANONICAL_DESTINATIONS = [
   { path: "/reports", heading: "Reports", title: "Reports" },
   { path: "/hosts", heading: "Hosts", title: "Hosts" },
   { path: "/engines", heading: "Engines", title: "Engines" },
+  { path: "/limits", heading: "Usage limits", title: "Usage limits" },
   { path: "/settings", heading: "Settings", title: "Settings" },
   { path: "/projects", heading: "Projects", title: "Projects" },
   { path: "/agent-messaging", heading: "Messages", title: "Messages" },

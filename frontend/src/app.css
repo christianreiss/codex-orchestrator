@@ -71,10 +71,6 @@
   .eyebrow, .section-label { @apply text-caption font-semibold uppercase tracking-[0.08em] text-muted-foreground; }
   .section-rule { @apply my-6 border-t border-border; }
   .settings-workspace { @apply divide-y divide-border border-y border-border; }
-  .setting-boundary { @apply scroll-mt-16 border-b border-border py-5 last:border-b-0; }
-  .setting-boundary__head { @apply mb-3 max-w-3xl; }
-  .setting-boundary__head h2 { @apply text-sm font-semibold; }
-  .setting-boundary__head p { @apply mt-1 text-sm text-muted-foreground; }
 }
 
 @media (min-width: 768px) {

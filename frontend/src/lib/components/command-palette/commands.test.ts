@@ -28,6 +28,7 @@ const ICON_NAMES = [
   "Brain",
   "FileText",
   "FileUp",
+  "Gauge",
   "Fingerprint",
   "FolderKanban",
   "GitBranch",

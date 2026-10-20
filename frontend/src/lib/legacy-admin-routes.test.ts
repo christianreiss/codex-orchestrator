@@ -15,6 +15,8 @@ describe("legacy admin destinations", () => {
     assert.equal(settingsLegacyTarget(q("tab=availability")), "/api-keys");
     assert.equal(settingsLegacyTarget(q(), "#log-retention"), "/settings#retention");
     assert.equal(settingsLegacyTarget(q(), "#engine-state"), "/engines#engine-state");
+    assert.equal(settingsLegacyTarget(q(), "#quotas"), "/limits#quota-enforcement");
+    assert.equal(settingsLegacyTarget(q(), "#scaling"), "/limits#scaling-rules");
   });
 
   it("sends every merged page to its new home", () => {
