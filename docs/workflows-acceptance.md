@@ -1,0 +1,126 @@
+# Workflow delivery acceptance — 2026-10-20
+
+Release source: `f4febc6d43958176aaf87494f730f7edc6241538`; common cxx
+`0.9.111`. Scope and decisions: [PLAN.md](../PLAN.md). Domain implementation
+was delegated to Astra, transport and UI to Sol. The integrating agent reviewed
+the changes and ran independent acceptance before the authorized rollout.
+
+## Automated evidence
+
+| Check | Result / boundary |
+| --- | --- |
+| API typecheck and build | Passed |
+| API lint | 0 errors, 147 warnings; not warning-free |
+| API ordinary test command | 402 suites, 5,244 tests passed; DB suites deliberately opt-in |
+| Full API coverage with fresh MySQL 8.4.10 | 471 suites, 6,139 passed, 5 optional tests skipped; coverage thresholds passed (87.67% lines, 83.54% branches, 90.65% functions) |
+| Schema upgrade and replay | Pre-feature baseline upgraded through 0083; idempotent replay passed; final check 83 applied, 0 pending, 0 drifted |
+| HTTP/MCP integration | Real TCP Fastify, real authentication and MySQL; Codex/Claude/Grok bridge identities plus outsider; no mocked domain service |
+| Wrapper checks | Build, vet, race suite, `make test`, `make test-traced` passed; terminal suite 451 cases |
+| Frontend check | Svelte 0 errors / 0 warnings; 989 unit tests passed |
+| Chromium | Full suite 284 passed; final workflow/group slice 53 passed after availability changes |
+| Firefox / WebKit | Full canonical cross-browser suite: 73 each, 146 total, including design sweep |
+| Generated artifacts | Final SPA built and committed; source/catalog/inventory tests passed |
+
+The HTTP test creates and independently hashes two temporary artifacts, exercises
+A→B→C invitations, one managed group, claim contention, targeted question/reply,
+idempotent result/finalization replay and mandatory automatic revision. Recreating
+the API service preserves the pinned run and membership. A new run uses version 2
+while the original retains version 1. This is service-restart evidence in one test
+process, not a native multi-host receiver test or an OS-restart test.
+
+Five API skips are explicit opt-ins: three native Codex parser/resolver tests
+(`CODEX_NATIVE_TEST_BIN`), isolated Docker instance control
+(`TEST_INSTANCE_DOCKER`), and multi-GiB binary transfer stress
+(`TEST_BINARY_TRANSFER_LARGE`). None is counted as passed. Dependency lockfiles
+were unchanged; `npm ci` was not repeated. Browser runtimes were already installed.
+Linux WebKit needed temporary official ICU/JPEG libraries under
+`/tmp/workflow-webkit-runtime`; no system package or library configuration changed.
+
+An earlier run against a reused acceptance database encountered pre-existing
+orphan messaging fixtures. The identical source passed the relevant suites on a
+fresh database and then the complete coverage run. No product behavior was changed
+to accommodate contaminated fixtures.
+
+## Design evidence and remaining limits
+
+The five routes follow NAV-1..4, VIS-1..5, INT-1..8 and ACC-1..4. Automated coverage
+includes empty/loading/error/denied/disabled/stale states, retained drafts and CAS
+conflicts, direct links/reload/back, group access, long text, both themes/system,
+responsive widths including 320px, keyboard/focus, coarse pointer, 200% text sizing
+and Axe.
+Representative light desktop and dark 320px report screenshots were independently
+visually inspected by the integrating agent.
+
+Fixtures prove UI behavior; they do not prove the deployed backend. Linux WebKit
+is not native Safari. A manual 400% browser-zoom task, screen-reader use and field
+performance distributions have not been measured. No full WCAG certification is
+claimed; 320px reflow tests do not replace actual browser zoom.
+
+## Production and native acceptance
+
+`scripts/deploy.sh --backup --no-cleanup` completed with exit 0 on
+`docker01.uggs.io` at approximately 10:09 UTC. The production checkout is
+`/var/docker_data/codex-auth.uggs.io/app` at the release source above. The script
+built/published all four cxx targets, applied additive migration 0083 and recreated
+the API and quota service. API, auth-runner, media-worker, MySQL and quota service
+reported healthy; the existing advisor remained running.
+
+Backup:
+`backups/codex-orchestrator-20261020T100327Z.sql` (306,447,051 bytes).
+Post-deploy migration check: 83 applied, 0 pending, 0 drifted. `/healthz` returned
+OK. The served HTML SHA-256 matched committed `public/admin/index.html`:
+`613b9cd229e7684b28450c671934d175f817b0b27d7d8c10a6b377a8e236425c`.
+Browser requests require `Accept: text/html`; a generic curl to a browser route
+returns 404 by the existing API/browser distinction. Unauthenticated workflow
+state API access returned 401.
+
+Workflows was confirmed disabled after migration, then enabled through the
+authenticated console switch. A fresh API read and checked switch confirmed the
+change. The initial BrowserOS reference-clicks did not dispatch an interaction;
+a DOM click on the same rendered switch exercised the UI handler successfully.
+
+Updated cxx on `biest.eulie.de` from 0.9.110 and on `jadon.eulie.de` from 0.9.109
+to 0.9.111 (embedded commit `f4febc6d`). Managed engine configuration synced;
+native CLI versions remained unchanged. Authentication, TLS and sandbox settings
+were not weakened.
+
+The initial native create exposed a stale pinned daemon binary on both hosts:
+updating `/usr/local/bin/cxx` had left `/usr/local/lib/cxx-daemon/cxx` at 0.9.109.
+After confirming no active daemon operations, `cxx daemon install` updated and
+restarted the existing daemon on each host. Both pinned binaries now report
+0.9.111. Original native sessions were resumed through supported daemon turns;
+their original agent and native-session UUIDs were independently verified.
+Feedback `ae1a6ac8-2a79-4097-8de1-2b81cd068950` was resolved after the identical
+create request succeeded and both hosts recorded successful tasks.
+
+Native shared-run acceptance is in progress:
+[live report](https://codex-auth.uggs.io/admin/workflows/runs/f146e003-2094-40bc-a954-474d868ad49a).
+Invitation, second-member group creation, two host tasks and a targeted question
+with a native reply have run. Independent verification and final evaluation are
+still pending. A separate peer-triggered resume failure is being investigated;
+the supported explicit daemon turn preserved and resumed both original sessions.
+
+## Evidence locations
+
+Local reproducible test source:
+`api/test/integration/workflow-http-e2e.test.ts`,
+`api/test/integration/workflows.test.ts`,
+`api/test/integration/workflow-transport.test.ts`,
+`frontend/e2e/admin-workflows.spec.ts` and the managed-group messaging cases.
+
+Diagnostic logs (temporary, not durable artifacts):
+`/tmp/coco-workflow-acceptance-97d3ae01/`,
+`/tmp/workflow-ui-cross-full-{firefox,webkit}.log`.
+Browser captures/traces:
+`/tmp/workflow-ui-evidence/`,
+`/tmp/workflow-ui-canonical-{firefox,webkit}-evidence/`.
+
+## Rollback
+
+Disable new workflow work through the module switch and reconcile active external
+work before a software rollback. Preserve additive tables and report history.
+Restore an older workflow as a new revision rather than changing historical
+versions. The production pre-release API image is tagged
+`codex-orchestrator-api:pre-workflows-20261020`; the previous production source is
+`f7877a6fc1e3fdc448ad41e0e71fa0a789ee2953`. A database restore is reserved for
+actual database damage and must account for work recorded after the backup.

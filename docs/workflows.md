@@ -96,6 +96,19 @@ host, messaging and engine restrictions still apply.
 Ship schema, API, managed instructions, cxx and the built SPA together.
 The shared cxx implementation supports Codex, Claude and Grok through workflow
 protocol version 1. Old wrappers must upgrade before accepting work.
+Check the running host daemon as well as the interactive CLI: legacy installations
+can pin `/usr/local/lib/cxx-daemon/cxx` independently of `/usr/local/bin/cxx`.
+After draining active daemon operations, run `cxx daemon install` from the updated
+binary as the existing service administrator if that copy is stale. Verify its
+version and restarted service before resuming the original native sessions.
+An updated CLI alone does not prove the daemon's broker supports workflow routes.
+
+After a session binding changes, `agent_workflow_run_current` separates current
+work from `stale_memberships` and `stale_claims` belonging to that same address.
+These entries explain recovery without transferring ownership or exposing claim
+tokens. Settle outstanding earlier claims, then use the report's “Assign recovery
+coordinator” control to bind the existing agent explicitly. Check current
+membership and coordinator generation again before continuing.
 
 Before enabling the feature, verify migrations, API health, served UI and the
 published wrapper. Exercise a harmless shared run with two hosts, task evidence,

@@ -1,8 +1,9 @@
 # Workflows und gemeinsame Runs — End-to-End-Umsetzungsplan
 
 Stand: 2026-10-20. Repository-Basis: `74d380bb78e6f5f9e1eb931d238e19a14ac43399`.
-Status: Umsetzung seit 2026-10-20 autorisiert und in Arbeit; Abnahme und Deploy
-sind Teil des Folgeauftrags. Checklisten werden erst nach geprüftem Nachweis abgehakt.
+Status: Implementierung integriert, automatisierte Abnahme bestanden; Produktionsrollout
+und native Mehrhost-Abnahme laufen. Nachweise und verbleibende Grenzen stehen in
+[docs/workflows-acceptance.md](docs/workflows-acceptance.md).
 
 ## 1. Produktauftrag und verbindliche Entscheidungen
 
@@ -637,12 +638,12 @@ abgeschlossen markiert; im Implementierungslauf hier Commit/Checks/Evidenz ergä
 
 ### A — Vertrag, Schema und Kerninvarianten
 
-- [ ] Gemeinsame Typen/Zod-Schemas, IDs, Limits, Statusübergänge, DAG-Prüfung,
+- [x] Gemeinsame Typen/Zod-Schemas, IDs, Limits, Statusübergänge, DAG-Prüfung,
   Inputs/Outputs, Actor- und Idempotenzverträge implementieren.
-- [ ] Nächste freie Migration verwenden, sämtliche Tabellen/Indizes hinzufügen,
+- [x] Nächste freie Migration verwenden, sämtliche Tabellen/Indizes hinzufügen,
   `schema.ts` und generierte Baseline aktualisieren. Nur additive Migrationen.
-- [ ] Vorlagen/Versionen und Run-Erstellung mit gepinnter Version implementieren.
-- [ ] Echte MySQL-Tests für leere Installation, Upgrade, erneutes Anwenden,
+- [x] Vorlagen/Versionen und Run-Erstellung mit gepinnter Version implementieren.
+- [x] Echte MySQL-Tests für leere Installation, Upgrade, erneutes Anwenden,
   Eindeutigkeit, Rollback und historische Versionen bestehen.
 
 **Abnahme:** Ein Workflow ohne Runs und zwei unabhängige Runs derselben Version
@@ -650,11 +651,11 @@ sind persistierbar; spätere Revision verändert keinen der beiden Runs.
 
 ### B — Tasks, parallele Claims und Wiederaufnahme
 
-- [ ] Task-Versuche, Claims/Fencing, unabhängige Revisionen, Event-Historie,
+- [x] Task-Versuche, Claims/Fencing, unabhängige Revisionen, Event-Historie,
   Koordinator-Lease und Kontrolloperationen implementieren.
-- [ ] Pause, Blockade, Abbruchanforderung, Lease-Ablauf, Reconcile und Übergabe
+- [x] Pause, Blockade, Abbruchanforderung, Lease-Ablauf, Reconcile und Übergabe
   mit konkreten Konfliktcodes implementieren.
-- [ ] Tests mit echten konkurrierenden DB-Verbindungen für denselben und
+- [x] Tests mit echten konkurrierenden DB-Verbindungen für denselben und
   unterschiedliche Tasks; verlorene ACKs, abgelaufene Claims und späte Writes.
 
 **Abnahme:** Zwei Agenten bearbeiten zwei unabhängige Tasks parallel. Um denselben
@@ -663,13 +664,13 @@ Ausführungsversuch ohne Reconciliation statt.
 
 ### C — Einladungen und automatische Kommunikation
 
-- [ ] Run-Mitgliedschaft, Einladung/Annahme/Ablehnung/Austritt/Entfernung und
+- [x] Run-Mitgliedschaft, Einladung/Annahme/Ablehnung/Austritt/Entfernung und
   transaktionale Messaging-Anbindung implementieren.
-- [ ] Genau eine verwaltete Run-Gruppe ab dem zweiten Teilnehmer; synchronisierte
+- [x] Genau eine verwaltete Run-Gruppe ab dem zweiten Teilnehmer; synchronisierte
   Mitgliedschaft, zulässige gezielte Agentenfragen und dauerhafte Historie.
-- [ ] Generische Gruppen-/Subscribe-/Chat-/Attachment-Wege gegen Umgehungen
+- [x] Generische Gruppen-/Subscribe-/Chat-/Attachment-Wege gegen Umgehungen
   der Run-Mitgliedschaft und des Gruppenabschlusses absichern.
-- [ ] Bestehende normale Gruppen/Conferences/Host-/Projekt-Chats unverändert testen.
+- [x] Bestehende normale Gruppen/Conferences/Host-/Projekt-Chats unverändert testen.
 
 **Abnahme:** Agent A auf Host A lädt B auf Host B ein; B nimmt an und lädt C ein.
 Einladungen benötigen keinen Nutzerdialog. Alle angenommenen Teilnehmer sehen
@@ -677,12 +678,12 @@ denselben Run und dieselbe Gruppe; ein nicht eingeladener Agent erhält keinen S
 
 ### D — Abschluss, Evaluation, Revision und Report-Projektion
 
-- [ ] Arbeitsabschluss von Evaluation trennen; Kriterienprüfung und Outcome-
+- [x] Arbeitsabschluss von Evaluation trennen; Kriterienprüfung und Outcome-
   Konsistenz umsetzen.
-- [ ] Evaluationsentwürfe, atomare Verbesserung/Finalisierung, Konfliktbehandlung
+- [x] Evaluationsentwürfe, atomare Verbesserung/Finalisierung, Konfliktbehandlung
   und unveränderlichen Report-Snapshot implementieren.
-- [ ] Abschluss schließt ausstehende Einladungen und Run-Gruppe atomar.
-- [ ] Report-Projektion bereits ab Run-Erstellung mit stabiler URL bereitstellen.
+- [x] Abschluss schließt ausstehende Einladungen und Run-Gruppe atomar.
+- [x] Report-Projektion bereits ab Run-Erstellung mit stabiler URL bereitstellen.
 
 **Abnahme:** Erfolgreicher, fehlgeschlagener, partieller und abgebrochener Run
 besitzen jeweils Report und Evaluation; ein Crash während der Evaluation bleibt
@@ -690,13 +691,13 @@ sichtbar offen. Zwei gleichzeitige Verbesserungen verlieren keine Version.
 
 ### E — Schnittstellen, Wrapper und Agentenanleitung
 
-- [ ] Zentrale MCP-Reads/Ressourcen, Bridge-Mutationen und Admin-Routen verbinden;
+- [x] Zentrale MCP-Reads/Ressourcen, Bridge-Mutationen und Admin-Routen verbinden;
   Rechteinventar, Service-Aufbau und Test-App-Aufbau synchronisieren.
-- [ ] Gemeinsame Go-MCP-Werkzeuge samt Protokollfähigkeit und Fehlerweitergabe
+- [x] Gemeinsame Go-MCP-Werkzeuge samt Protokollfähigkeit und Fehlerweitergabe
   implementieren; keine Persona-spezifische Kopie.
-- [ ] Managed Skills `workflows`/`invite`, Featurekontext und Anleitung für alle
+- [x] Managed Skills `workflows`/`invite`, Featurekontext und Anleitung für alle
   drei Engines einschließlich Resume und finalem Report-Link ergänzen.
-- [ ] Aktuelle Wrapper-Version einmal erhöhen; Mindestversion/Discovery/Capabilities
+- [x] Aktuelle Wrapper-Version einmal erhöhen; Mindestversion/Discovery/Capabilities
   gegen tatsächlich laufende Wrapper testen.
 
 **Abnahme:** Codex, Claude und Grok erreichen dieselben fachlichen Operationen.
@@ -705,13 +706,13 @@ werden serverseitig korrekt abgewiesen; ein verlorenes Mutationsergebnis ist rep
 
 ### F — UI, Kommunikation und vollständige Zustände
 
-- [ ] Katalog, Editor, Versionsvergleich, Run-Listen, Run-Vorbereitung und Report
+- [x] Katalog, Editor, Versionsvergleich, Run-Listen, Run-Vorbereitung und Report
   mit den festgelegten Routen implementieren.
-- [ ] Teilnehmer/Claims/Einladungen und Gruppen-Deep-Link integrieren; offene
+- [x] Teilnehmer/Claims/Einladungen und Gruppen-Deep-Link integrieren; offene
   Evaluationen und ungewisse Tasks auffindbar machen.
-- [ ] Queries/WS/Navigation/Breadcrumbs/Rechte, leere/fehlerhafte/veraltete/
+- [x] Queries/WS/Navigation/Breadcrumbs/Rechte, leere/fehlerhafte/veraltete/
   deaktivierte Zustände und erhaltene Formulardrafts umsetzen.
-- [ ] Designinventar, Fixtures und Browserprüfungen erweitern; SPA erzeugen.
+- [x] Designinventar, Fixtures und Browserprüfungen erweitern; SPA erzeugen.
 
 **Abnahme:** Ein Operator findet einen Run, versteht Ergebnis und offene Arbeit,
 öffnet Nachweise/Gruppe und erkennt die automatische Verbesserung ohne Kenntnis
@@ -719,15 +720,15 @@ der internen Implementierung. Der Report funktioniert per Direktlink und Reload.
 
 ### G — Dokumentation, vollständige Prüfung und Lieferung
 
-- [ ] `docs/OVERVIEW.md`, `docs/interface-api.md`, `docs/interface-db.md`,
+- [x] `docs/OVERVIEW.md`, `docs/interface-api.md`, `docs/interface-db.md`,
   `docs/MCP.md`, `docs/interface-cdx.md`, `docs/interface-clx.md`,
   `docs/interface-cgx.md` und betroffene Messaging-Dokumentation aktualisieren.
-- [ ] In-App-Manual mit Workflows/Runs, Zusammenarbeit, Evaluation, Fehlern und
+- [x] In-App-Manual mit Workflows/Runs, Zusammenarbeit, Evaluation, Fehlern und
   Wiederaufnahme ergänzen; Manifest aktualisieren. CLI-/MCP-Katalogtests anpassen.
-- [ ] `CHANGELOG.md` unter tatsächlichem Implementierungsdatum ergänzen;
+- [x] `CHANGELOG.md` unter tatsächlichem Implementierungsdatum ergänzen;
   generierte Capability-Dokumentation und SPA mitführen.
 - [ ] Alle Checks aus Abschnitt 10 ausführen und Ergebnisse/Restlücken festhalten.
-- [ ] Task-eigene Änderungen nach gültigem Git-Director-Verfahren integrieren.
+- [x] Task-eigene Änderungen nach gültigem Git-Director-Verfahren integrieren.
   Push und Produktionsrollout nur, wenn der spätere Ausführungsauftrag sie enthält.
 
 **Abnahme:** Quellcode, Migrationen, Wrapper, Anleitung und gebaute UI sind dieselbe
