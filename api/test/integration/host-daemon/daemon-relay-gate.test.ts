@@ -13,6 +13,7 @@ import {
   agentBusRelays,
 } from '../../../src/db/schema.js';
 import { AgentMessagingService } from '../../../src/services/agent-messaging.js';
+import { createAgentPortalService } from '../../../src/services/agent-portal.js';
 import { HostDaemonService } from '../../../src/services/host-daemon/service.js';
 import { daemonSettingsSchema } from '../../../src/services/host-daemon/policy.js';
 import { getTestDb } from '../../helpers/test-db.js';
@@ -24,6 +25,7 @@ import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 const handle = await getTestDb();
 describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
   let id: number, service: HostDaemonService, messaging: AgentMessagingService, generation: string;
+  const portal = handle ? createAgentPortalService(handle.db, loadTestEnv(), testKeyring()) : null!;
   beforeAll(async () => {
     const stamp = new Date().toISOString(),
       fqdn = `daemon-relay-gate-${randomUUID()}.test`;
@@ -49,6 +51,7 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
       .onDuplicateKeyUpdate({ set: { version: '1' } });
     service = new HostDaemonService({ db: handle!.db, env: loadTestEnv(), keyring: testKeyring() });
     messaging = new AgentMessagingService(handle!.db, loadTestEnv(), testKeyring());
+    await portal.setEnabled(true);
   });
   beforeEach(async () => {
     await handle!.db.delete(hostDaemonSessions).where(eq(hostDaemonSessions.hostId, id));
@@ -108,7 +111,7 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
     return { sessionId, token, address: registered.address as { id: string; address: string } };
   };
   /** An idle remote-start session bound to a dormant mailbox with one queued peer message. */
-  const idleRemoteSessionWithMail = async (engine: 'codex' | 'claude' | 'grok' = 'codex') => {
+  const idleRemoteSessionWithMail = async (engine: 'codex' | 'claude' | 'grok' = 'codex', request = false) => {
     await service.start(
       { host_id: id, engine, cwd: '/tmp', title: 'Fixture', prompt: 'Fixture', client_message_id: randomUUID() },
       'fixture-owner',
@@ -126,6 +129,7 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
     await messaging.sendMessage(sender.sessionId, sender.token, {
       to: target.address.address,
       content: 'Resume fixture',
+      kind: request ? 'request' : 'message',
       clientMessageId: randomUUID(),
     });
     return { sessionId: op.session_id, target };
@@ -141,7 +145,7 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
   });
 
   it.each(['codex', 'claude', 'grok'] as const)('binds an accepted %s daemon delivery to its exact native user and transcript', async (engine) => {
-    const { target } = await idleRemoteSessionWithMail(engine);
+    const { target } = await idleRemoteSessionWithMail(engine, true);
     const relay = await registerDaemonRelay();
     const claimId = randomUUID();
     const delivery = await messaging.claimForRelay(relay.relayId, relay.token, claimId);
@@ -177,9 +181,101 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
     expect(identity).toMatchObject({ session_id: childId, uuid: target.address.id,
       native_session_id: delivery.target.upstream_session_id });
     await messaging.renewRelayDelivery(relay.relayId, relay.token, delivery.message_id, claimId);
+    await portal.registerAgent(await host(), registration);
+    // The shared HTTP finish path runs Portal first, then messaging. Portal
+    // invalidates the native binding before the relay can read buffered stdout.
+    await portal.finishAgent(childId, bridgeToken, { status: 'completed' });
     await messaging.finishSession(childId, bridgeToken, 'completed');
+    await expect(messaging.self(childId, bridgeToken)).rejects.toMatchObject({ code: 'agent_session_finished' });
+    await messaging.renewRelayDelivery(relay.relayId, relay.token, delivery.message_id, claimId);
+    const result = { claimId, content: 'Stored native result', clientMessageId: randomUUID(),
+      taskResult: { status: 'succeeded' as const, summary: 'Read-only probe completed' },
+      upstreamSessionId: String(delivery.target.upstream_session_id) };
+    await expect(messaging.replyFromRelayDelivery(relay.relayId, relay.token, delivery.message_id,
+      { ...result, claimId: randomUUID() })).rejects.toMatchObject({ code: 'agent_messaging_lease_lost' });
+    await handle!.db.update(agentBusRelays).set({ generation: storedRelay!.generation + 1 }).where(eq(agentBusRelays.id, relay.relayId));
+    await expect(messaging.replyFromRelayDelivery(relay.relayId, relay.token, delivery.message_id, result))
+      .rejects.toMatchObject({ code: 'agent_messaging_lease_lost' });
+    await handle!.db.update(agentBusRelays).set({ generation: storedRelay!.generation }).where(eq(agentBusRelays.id, relay.relayId));
+    await handle!.db.update(agentBusRelays).set({ username: 'root:daemon:daemon' }).where(eq(agentBusRelays.id, relay.relayId));
+    await expect(messaging.replyFromRelayDelivery(relay.relayId, relay.token, delivery.message_id, result))
+      .rejects.toMatchObject({ code: 'agent_messaging_relay_target_mismatch' });
+    await handle!.db.update(agentBusRelays).set({ username: storedRelay!.username }).where(eq(agentBusRelays.id, relay.relayId));
+    const reply = await messaging.replyFromRelayDelivery(relay.relayId, relay.token, delivery.message_id, result);
+    expect(reply.created).toBe(true);
+    expect((await messaging.replyFromRelayDelivery(relay.relayId, relay.token, delivery.message_id, result)).created).toBe(false);
+    await expect(messaging.replyFromRelayDelivery(relay.relayId, relay.token, delivery.message_id,
+      { ...result, taskResult: { status: 'failed', summary: 'Changed result' } })).rejects.toMatchObject({ code: 'agent_task_result_conflict' });
     await messaging.acknowledgeRelayDelivery(relay.relayId, relay.token, delivery.message_id,
       { claimId, outcome: 'completed', upstreamSessionId: String(delivery.target.upstream_session_id) });
+    const [stored] = await handle!.db.select().from(agentBusMessages).where(eq(agentBusMessages.id, delivery.message_id));
+    expect(stored).toMatchObject({ status: 'completed', taskResultStatus: 'succeeded', deliverySessionId: childId });
+    const nextId = randomUUID(), nextToken = randomBytes(32).toString('base64url');
+    await messaging.registerSession(await host(), { ...registration, sessionId: nextId, bridgeToken: nextToken,
+      expectedBindingGeneration: Number(identity.binding_generation) + 1, deliveryMessageId: undefined, deliveryClaimId: undefined });
+    await expect(messaging.replyFromRelayDelivery(relay.relayId, relay.token, delivery.message_id, result))
+      .rejects.toMatchObject({ code: 'agent_messaging_binding_stale' });
+  });
+
+  it.each(['new_binding', 'failed', 'admin_close', 'expired', 'unrelated_session'] as const)('does not publish a finished child result after %s', async (mode) => {
+    const { target } = await idleRemoteSessionWithMail('codex', true);
+    const relay = await registerDaemonRelay(), claimId = randomUUID();
+    const delivery = await messaging.claimForRelay(relay.relayId, relay.token, claimId);
+    if (!delivery) throw new Error('Peer fixture was not leased');
+    await messaging.acknowledgeRelayDelivery(relay.relayId, relay.token, delivery.message_id, { claimId, outcome: 'accepted' });
+    const sessionId = randomUUID(), bridgeToken = randomBytes(32).toString('base64url');
+    const registration = { engine: 'codex' as const, username: 'root', cwd: '/tmp', sessionId, bridgeToken,
+      invocationKind: 'peer_delivery' as const, requestedAddress: target.address.address,
+      expectedBindingGeneration: Number(delivery.target.binding_generation),
+      upstreamSessionId: String(delivery.target.upstream_session_id), continuity: 'native' as const,
+      deliveryMessageId: delivery.message_id, deliveryClaimId: claimId };
+    await messaging.registerSession(await host(), registration);
+    await portal.registerAgent(await host(), registration);
+    if (mode === 'expired') await handle!.db.update(agentBusMessages).set({ leaseUntil: '2000-01-01T00:00:00Z' }).where(eq(agentBusMessages.id, delivery.message_id));
+    if (mode === 'unrelated_session') await handle!.db.update(agentBusMessages).set({ deliverySessionId: target.sessionId }).where(eq(agentBusMessages.id, delivery.message_id));
+    if (mode === 'admin_close') await handle!.db.update(agentSessions).set({ closeRequestedAt: new Date().toISOString() }).where(eq(agentSessions.id, sessionId));
+    await portal.finishAgent(sessionId, bridgeToken, { status: mode === 'failed' ? 'failed' : 'completed' });
+    if (mode === 'new_binding') await messaging.registerSession(await host(), { ...registration,
+      sessionId: randomUUID(), bridgeToken: randomBytes(32).toString('base64url'),
+      expectedBindingGeneration: Number(delivery.target.binding_generation) + 2,
+      deliveryMessageId: undefined, deliveryClaimId: undefined });
+    await expect(messaging.replyFromRelayDelivery(relay.relayId, relay.token, delivery.message_id,
+      { claimId, content: 'Buffered result', clientMessageId: randomUUID(),
+        taskResult: { status: 'succeeded', summary: 'Must not be stored' } }))
+      .rejects.toMatchObject({ code: 'agent_messaging_binding_stale' });
+    const [stored] = await handle!.db.select().from(agentBusMessages).where(eq(agentBusMessages.id, delivery.message_id));
+    expect(stored).toMatchObject({ status: 'accepted', taskResultStatus: null });
+  });
+
+  it('retains exact ordinary relay user ownership after shared Portal finish', async () => {
+    const sender = await actor('fixture-sender'), target = await actor('root');
+    await messaging.finishSession(target.sessionId, target.token, 'completed');
+    const sent = await messaging.sendMessage(sender.sessionId, sender.token, {
+      to: target.address.address, kind: 'request', content: 'Ordinary relay probe', clientMessageId: randomUUID(),
+    });
+    const relay = await messaging.registerRelay(await host(), { username: 'root', instanceId: randomUUID(),
+      wrapperVersion: 'fixture', capabilities: { execution_contract_version: 2 } });
+    const relayId = String(relay.relay_id), relayToken = String(relay.relay_token), claimId = randomUUID();
+    const delivery = await messaging.claimForRelay(relayId, relayToken, claimId);
+    expect(delivery?.message_id).toBe((sent.message as { id: string }).id);
+    if (!delivery) throw new Error('Ordinary relay fixture was not leased');
+    await messaging.acknowledgeRelayDelivery(relayId, relayToken, delivery.message_id, { claimId, outcome: 'accepted' });
+    const sessionId = randomUUID(), bridgeToken = randomBytes(32).toString('base64url');
+    const registration = { engine: 'codex' as const, username: 'root', cwd: '/tmp', sessionId, bridgeToken,
+      invocationKind: 'peer_delivery' as const, requestedAddress: target.address.address,
+      expectedBindingGeneration: Number(delivery.target.binding_generation),
+      upstreamSessionId: String(delivery.target.upstream_session_id), continuity: 'native' as const,
+      deliveryMessageId: delivery.message_id, deliveryClaimId: claimId };
+    await messaging.registerSession(await host(), registration);
+    await portal.registerAgent(await host(), registration);
+    await portal.finishAgent(sessionId, bridgeToken, { status: 'completed' });
+    const result = { claimId, content: 'Ordinary result', clientMessageId: randomUUID(),
+      taskResult: { status: 'succeeded' as const, summary: 'Ordinary native result' } };
+    await handle!.db.update(agentBusRelays).set({ capabilities: { host_daemon: true } }).where(eq(agentBusRelays.id, relayId));
+    await expect(messaging.replyFromRelayDelivery(relayId, relayToken, delivery.message_id, result))
+      .rejects.toMatchObject({ code: 'agent_messaging_relay_target_mismatch' });
+    await handle!.db.update(agentBusRelays).set({ capabilities: { execution_contract_version: 2 } }).where(eq(agentBusRelays.id, relayId));
+    expect((await messaging.replyFromRelayDelivery(relayId, relayToken, delivery.message_id, result)).created).toBe(true);
   });
 
   it('refuses heartbeat and claim of an idle daemon relay once the operator disables the daemon', async () => {

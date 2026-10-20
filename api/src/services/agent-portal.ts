@@ -1853,7 +1853,7 @@ export class AgentPortalService {
     const [session] = await db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).for('update');
     if (session && !session.closeRequestedAt && await plannedRebootForSession(db, sessionId)) return;
     if (session) await finishSessionWatchdogsLocked(db, session, status, watchdogFailure, now);
-    await releaseAgentMessagingBindingsLocked(db, [sessionId], now);
+    await releaseAgentMessagingBindingsLocked(db, [sessionId], now, status === 'completed' && !session?.closeRequestedAt);
     await db
       .update(agentSessions)
       .set({

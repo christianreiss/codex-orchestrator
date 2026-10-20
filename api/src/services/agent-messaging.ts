@@ -1182,7 +1182,8 @@ export class AgentMessagingService {
       if (parent.workKind) await this.finishTaskLocked(tx, parent, claimId, `relay:${relay.id}:${relay.generation}`, input.taskResult);
       const sender = await this.requireAddressLocked(tx, parent.targetAddressId);
       if (sender.bindingGeneration !== parent.targetBindingGeneration) throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
-      if (sender.hostId !== relay.hostId || sender.username !== relay.username) {
+      const relayUsername = jsonRecord(relay.capabilities)?.host_daemon === true ? `${sender.username}:daemon` : sender.username;
+      if (sender.hostId !== relay.hostId || relayUsername !== relay.username) {
         throw new ForbiddenError('Relay does not own this delivery address', 'agent_messaging_relay_target_mismatch');
       }
       const target = await this.requireAddressLocked(tx, parent.senderAddressId);

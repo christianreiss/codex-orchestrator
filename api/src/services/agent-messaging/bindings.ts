@@ -8,7 +8,7 @@ import { endLaunchNamesLocked } from './names.js';
  * request, so they take a transaction handle and never touch the service.
  */
 
-import { and, count, eq, inArray, isNotNull, lte, ne, or, sql } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, isNotNull, like, lte, ne, or, sql } from 'drizzle-orm';
 
 import {
   agentBusAddresses,
@@ -153,6 +153,7 @@ export async function releaseAgentMessagingBindingsLocked(
   db: AgentMessagingDb,
   sessionIds: string[],
   now = nowIso(),
+  retainAcceptedRelayResults = false,
 ): Promise<number> {
   if (sessionIds.length === 0) return 0;
   const rows = await db
@@ -164,6 +165,22 @@ export async function releaseAgentMessagingBindingsLocked(
   for (const row of rows) {
     await markWaitingForPresence(db, row.address.id);
     const upstream = row.session.upstreamSessionId ?? row.address.lastUpstreamSessionId;
+    if (retainAcceptedRelayResults) {
+      // The supervisor publishes buffered stdout after the child has closed
+      // its bridge. Carry only this accepted child's existing relay lease
+      // across normal shutdown; a later lifecycle still advances past it.
+      await db.update(agentBusMessages)
+        .set({ targetBindingGeneration: row.address.bindingGeneration + 1, updatedAt: now })
+        .where(and(
+          eq(agentBusMessages.targetAddressId, row.address.id),
+          eq(agentBusMessages.deliverySessionId, row.session.id),
+          eq(agentBusMessages.targetBindingGeneration, row.address.bindingGeneration),
+          eq(agentBusMessages.status, 'accepted'),
+          isNotNull(agentBusMessages.relayGeneration),
+          like(agentBusMessages.leaseOwner, 'relay:%'),
+          gt(agentBusMessages.leaseUntil, now),
+        ));
+    }
     await db
       .update(agentBusAddresses)
       .set({
