@@ -74,3 +74,19 @@ Agents are told to pass `changed_paths` from `git diff --name-only base...head`:
 - frontend/src/lib/api/gitDirector.ts (queries and mutations)
 
 Git Director registrations require absolute worktree, repository and common-directory paths (`git rev-parse --path-format=absolute --show-toplevel --git-common-dir`). A correct re-registration supersedes earlier mappings for that host/path and withdraws their queued requests while retaining history. A live lease on an earlier mapping blocks reassignment. Join/list/merge/release never select an arbitrary legacy duplicate: `git_director_worktree_ambiguous` requires explicit re-registration with the correct clone facts. Superseded rows cannot be revived by path lookups.
+
+## Agent notifications
+
+With Agent Messaging enabled, the server informs affected active agents about
+changed work scope, merge requests, lease release or recognized expiry, and
+operator decisions. These are hints to reread Director and local Git state;
+notices neither grant a merge lease nor promise queue order. They target the
+registered session and never wake ended sessions. Ordinary heartbeats,
+registrations and commit-format changes do not create extra messages.
+
+Polling remains necessary, including when Messaging is off or a notice expires.
+Expiry is recognized on the next Director access. Disabling the Director suspends
+its tools while retaining registrations and leases. Operator decisions do not
+implicitly revoke other leases. A merge-completion notice is an unverified agent
+report; releasing a lease alone does not mean the merge succeeded. Notice queue
+and skip counts are recorded as `git_director.notifications` audit events.

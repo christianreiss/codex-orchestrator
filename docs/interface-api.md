@@ -818,8 +818,9 @@ All three engine config GET/store routes share the revision contract: `revision`
   unit is the clone on a host (`git rev-parse --git-common-dir`), so every
   linked worktree of one checkout contends as one; clones sharing a normalized
   remote are grouped across hosts for visibility but never arbitrated together.
-  Delivery to hosts is MCP-only (`git_register`, `git_list`, `git_join`,
-  `git_merge_request`, `git_merge_status`, `git_release`). The orchestrator has
+  Git operations use MCP (`git_register`, `git_list`, `git_join`,
+  `git_merge_request`, `git_merge_status`, `git_release`). Optional server-originated
+  `GIT-DIRECTOR/1` notices use the existing Agent Messaging queue. The orchestrator has
   no filesystem access to any host, so every git fact is reported by the calling
   agent and the verdict is advice it can ignore — nothing is enforced and no
   hooks are installed. The module switch and forcing a verdict require the
@@ -869,6 +870,52 @@ All three engine config GET/store routes share the revision contract: `revision`
   verdict, expiry; no reason or overlap) and `stale_count` (capped at 25).
   `detail: "full"` restores the complete entries (declared paths, lease reasons
   and overlap, `stale` rows). `scope: "clone"` defaults to `full`.
+  **Agent notifications.** With Messaging enabled, substantive `git_join` path-set
+  or target-branch changes notify relevant live peers (both old and new scope),
+  including overlap resolution. `git_join` also returns `peer_overlap`, using
+  the same directory-prefix matching as merge arbitration. Merge requests notify
+  overlapping peers and the current holder; changed decisions/blockers/overlap,
+  releases and recognized expiry notify affected waiters to recheck. Operator
+  decisions/eviction, replacement of a binding, and invalidated registrations
+  notify the exact affected live owner where a saved binding exists. Operator
+  decision notices explicitly carry `other_leases_revoked: false`: this feature
+  changes no arbitration policy and promises neither exclusivity nor FIFO order.
+  Off/On notices ask active Git sessions to revalidate; disabling the Director
+  retains registrations and leases rather than revoking them.
+
+  Notices are `presence_notice` messages without an acknowledgement requirement,
+  bound to `targetSessionId` and `targetBindingGeneration`. Ownership recipients
+  must match the session/generation saved by `git_register`; historical unbound
+  registrations must re-register and are never guessed onto a new owner. State
+  and queue inserts commit together. Expected duplicate/eligibility failures roll
+  back the notice savepoint and leave an observable `git_director.notifications`
+  audit record; genuine database failures abort the operation. Dashboard and queue
+  invalidations publish after commit. Audit records count queued/skipped notices
+  and unbound registrations; queued is not proof of receipt. Each notice carries
+  an event UUID, request ID where applicable, observation time and monotone audit
+  `revision`; `git_list` and merge responses carry the latest global observation revision
+  `coordination_revision` (not an atomic snapshot watermark or lease fence). Delayed notices require a fresh status/snapshot and
+  must never reactivate an old grant. Owner invalidations use coordination priority
+  with a 900-second TTL; scope/completion information has a 3600-second TTL.
+
+  Correctness remains independent of Messaging: it may be disabled, notices may
+  expire or be skipped, and polling remains required. Expiry is still detected
+  on reads, with no deadline-delivery guarantee. Rebind, reconnect or reactivation
+  requires a fresh `git_list`/`git_merge_status`; no historical notice backlog is
+  transferred to a replacement session. Identical retries, unchanged waits,
+  heartbeats, ordinary registrations/deregistrations, feature HEAD reports, task
+  title edits and commit-format settings produce no separate agent notice.
+
+  `git_release` accepts optional `outcome: merged|aborted|unknown` (default unknown).
+  A reported outcome requires `request_id` and matching `worktree_path`; `merged` also requires `target_head_sha` (40–64 lowercase hex characters). It remains
+  an **unverified agent report**, labelled `evidence: agent_reported`; a reported
+  merge informs relevant repository peers, including related clones. Release
+  alone proves neither integration, push nor deployment. The first report is stored even after expiry/withdrawal; identical retries
+  are silent, `unknown` may be refined once, and conflicting terminal reports return `git_director_outcome_conflict`.
+  `git_merge_status` exposes `reported_outcome`, `reported_target_head_sha` and
+  `outcome_reported_at`. A `merged` report requires a request with a grant timestamp/lease expiry; it never reactivates a lease. The path is a caller consistency assertion, not additional authentication: the MCP credential is shared by a host. An explicit report releases only the named request unless deregistering. Registration replies
+  expose `superseded_registrations: [{worktree_id, withdrawn_request_ids}]`.
+
   - `GET /admin/git-director/state` — `{enabled, model, clones, worktrees,
     updated_at}` for the `git_director_enabled` switch.
   - `POST /admin/git-director/state` — `{enabled}` (boolean, `0`/`1`, or

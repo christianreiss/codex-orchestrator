@@ -3,6 +3,8 @@ import { z } from 'zod';
 import type { RouteContext } from '../../index.js';
 import { ApiError } from '../../../http/errors.js';
 import { AdminEventsService } from '../../../services/admin-events.js';
+import { createAgentMessagingService } from '../../../services/agent-messaging.js';
+import { GitDirectorNotifications } from '../../../services/git-director/notifications.js';
 import { GitDirectorService } from '../../../services/git-director.js';
 import { SettingsService } from '../../../services/settings.js';
 import { GIT_COMMIT_SETTINGS_KEY, gitCommitSettingsSchema, readGitCommitSettings } from '../../../services/git-commit-settings.js';
@@ -54,6 +56,7 @@ export async function registerAdminGitDirectorRoutes(
   ctx: RouteContext,
 ): Promise<void> {
   const director = new GitDirectorService({
+    notifications: new GitDirectorNotifications(createAgentMessagingService(ctx.db, ctx.env, ctx.keyring), ctx.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS),
     db: ctx.db,
     settings: new SettingsService(ctx.db),
     freshSeconds: ctx.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,

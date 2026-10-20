@@ -37,7 +37,7 @@ import type { Host } from '../../../src/db/schema.js';
  * the path that must keep working when inference is unreachable.
  */
 
-const MIGRATIONS = ['0025_add_git_director.sql', '0073_git_worktree_head_observed_at.sql'].map((f) =>
+const MIGRATIONS = ['0025_add_git_director.sql', '0073_git_worktree_head_observed_at.sql', '0087_git_worktree_notice_binding.sql', '0088_git_merge_reported_outcome.sql'].map((f) =>
   join(dirname(fileURLToPath(import.meta.url)), '../../../src/db/migrations/', f),
 );
 

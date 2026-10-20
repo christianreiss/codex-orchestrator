@@ -36,6 +36,7 @@ import { McpToolsRegistry, type Capability } from '../../services/mcp-tools.js';
 import { McpFsTools } from '../../services/mcp-fs.js';
 import { McpResourcesService } from '../../services/mcp-resources.js';
 import { McpServer } from '../../services/mcp-server.js';
+import { GitDirectorNotifications } from '../../services/git-director/notifications.js';
 import { GitDirectorService } from '../../services/git-director.js';
 import { AgentTransfersService } from '../../services/agent-transfers.js';
 import { createRunnerGitDirectorJudge } from '../../services/git-director-judge.js';
@@ -93,7 +94,9 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     engine: ENGINE_CLAUDE,
     log: app.log,
   });
+  const taskMessaging = createAgentMessagingService(ctx.db, ctx.env, ctx.keyring);
   const gitDirector = new GitDirectorService({
+    notifications: new GitDirectorNotifications(taskMessaging, ctx.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS),
     db: ctx.db,
     settings: new SettingsService(ctx.db),
     freshSeconds: ctx.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,
@@ -125,7 +128,6 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
   // Catalog and content only: activation needs the agent's session and rides
   // the agent-messaging bridge, so this instance carries no session hooks.
   const roles = new RolesService({ db: ctx.db, settings: new SettingsService(ctx.db) });
-  const taskMessaging = createAgentMessagingService(ctx.db, ctx.env, ctx.keyring);
   const workflows = createWorkflowsService(ctx, taskMessaging);
   const resources = new McpResourcesService({ memories, sharedMemories, projects, skills, roles, workflows });
   const tools = new McpToolsRegistry({

@@ -2217,7 +2217,7 @@ export class AgentMessagingService {
     return { address, session };
   }
 
-  async coordinationNotice(tx: AgentMessagingDb, session: AgentSession, content: string, roomQuestion = false, clientMessageId?: string): Promise<string | undefined> {
+  async coordinationNotice(tx: AgentMessagingDb, session: AgentSession, content: string, roomQuestion = false, clientMessageId?: string, noticeOptions: { deliveryClass?: 'notice' | 'coordination'; ttlSeconds?: number } = {}): Promise<string | undefined> {
     if (!session.agentBusAddressId || session.endedAt) return;
     const target = await this.requireAddressLocked(tx, session.agentBusAddressId);
     if (target.currentSessionId !== session.id) return;
@@ -2228,8 +2228,8 @@ export class AgentMessagingService {
     await tx.insert(agentBusConversations).values({ id: conversationId, addressAId: sender.id, addressBId: target.id, createdByAddressId: sender.id, nextSequence: 2, status: 'open', lastActivityAt: now, createdAt: now, updatedAt: now });
     await tx.insert(agentBusMessages).values({
       ...newQueuedMessage({ id: messageId, conversationId, sequence: 1, sender, senderSessionId: null, target,
-        kind: roomQuestion ? 'message' : 'presence_notice', deliveryClass: roomQuestion ? 'coordination' : 'notice', content, contentEnc: encrypt(content, this.keyring),
-        clientMessageId: clientMessageId ?? randomUUID(), expiresAt: new Date(Date.now() + 86400000).toISOString(), now }),
+        kind: roomQuestion ? 'message' : 'presence_notice', deliveryClass: roomQuestion ? 'coordination' : noticeOptions.deliveryClass ?? 'notice', content, contentEnc: encrypt(content, this.keyring),
+        clientMessageId: clientMessageId ?? randomUUID(), expiresAt: new Date(Date.now() + (noticeOptions.ttlSeconds ?? 86400) * 1000).toISOString(), now }),
       targetSessionId: session.id,
       targetBindingGeneration: target.bindingGeneration,
     });

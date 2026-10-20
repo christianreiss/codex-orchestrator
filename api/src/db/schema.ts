@@ -1984,6 +1984,9 @@ export const gitWorktrees = mysqlTable(
     username: varchar('username', { length: 255 }).notNull(),
     engine: varchar('engine', { length: 16 }),
     agentBusAddressId: char('agent_bus_address_id', { length: 36 }),
+    /** Exact session that registered this worktree; notices never transfer to a later binding. */
+    agentSessionId: char('agent_session_id', { length: 36 }),
+    agentBindingGeneration: int('agent_binding_generation', { unsigned: true }),
     branch: varchar('branch', { length: 255 }),
     headSha: varchar('head_sha', { length: 64 }),
     /** When the agent last reported head_sha; the Director never reads a worktree. */
@@ -2039,6 +2042,10 @@ export const gitMergeRequests = mysqlTable(
     requestedAt: varchar('requested_at', { length: 100 }).notNull(),
     decidedAt: varchar('decided_at', { length: 100 }).notNull(),
     renewedAt: varchar('renewed_at', { length: 100 }),
+    /** Terminal unverified report, independent of the lease's lifecycle. */
+    reportedOutcome: varchar('reported_outcome', { length: 16 }),
+    reportedTargetHeadSha: varchar('reported_target_head_sha', { length: 64 }),
+    outcomeReportedAt: varchar('outcome_reported_at', { length: 100 }),
     completedAt: varchar('completed_at', { length: 100 }),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
     updatedAt: varchar('updated_at', { length: 100 }).notNull(),

@@ -1920,13 +1920,15 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'git_release',
         description:
-          'Give back a merge lease as soon as the merge is done or abandoned, so whoever is waiting can proceed — a lease you forget about blocks the branch until its TTL runs out. Pass request_id to release one request, or worktree_path to drop everything outstanding for that worktree. Add deregister:true when you are finished in that directory entirely, and do that rather than simply stopping: the Director will eventually reclaim an abandoned registration, but until it does your peers are queued behind an agent that is never coming back.',
+          'Give back a merge lease as soon as the merge is done or abandoned, so whoever is waiting can proceed — a lease you forget about blocks the branch until its TTL runs out. Pass request_id to release one request, or worktree_path to drop everything outstanding for that worktree. Optionally report outcome merged|aborted|unknown; a reported outcome requires request_id plus matching worktree_path and merged requires a prior grant plus target_head_sha (40-64 lowercase hex). This is an agent report, never server-verified merge proof. Add deregister:true when you are finished in that directory entirely, and do that rather than simply stopping: the Director will eventually reclaim an abandoned registration, but until it does your peers are queued behind an agent that is never coming back.',
         inputSchema: {
           type: 'object',
           properties: {
             request_id: { type: 'string' },
             worktree_path: { type: 'string' },
             deregister: { type: 'boolean' },
+            outcome: { type: 'string', enum: ['merged', 'aborted', 'unknown'] },
+            target_head_sha: { type: 'string' },
           },
         },
       },

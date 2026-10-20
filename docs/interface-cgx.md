@@ -1378,3 +1378,14 @@ outcomes, transcript checks, or the prohibition on automatic fresh starts.
 ### User feedback guidance
 
 Served agent instructions follow the installation feedback mode for this engine. User mode uses `feedback_preflight`, local `feedback_submit` and `feedback_recheck`; the server gates GitHub publication by current build, duplicate/fix evidence and retest. Source Developer retains claims and local repair workflow. See [MCP feedback](MCP.md#user-feedback-and-github-checks). This changes served guidance and MCP only; the native wrapper requires no binary change.
+
+### Git Director state notices
+
+The server may deliver `GIT-DIRECTOR/1` informational notices for relevant scope,
+lease and operator changes through Agent Messaging. Do not acknowledge them or
+interpret them as work authorization, a lease, revocation of other grants, or
+verified merge proof. Recheck `git_list`/`git_merge_status` and local Git state;
+keep polling even without notices. Notices target the current saved session and
+binding only; reconnect/rebind requires a fresh snapshot. Merge completion may be
+reported with `git_release(request_id: "<request>", worktree_path: "<path>", outcome: "merged", target_head_sha: "<sha>")`, labelled
+`agent_reported` rather than server-verified. Full contract: [Git Director](interface-api.md).

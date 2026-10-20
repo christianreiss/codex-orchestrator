@@ -369,6 +369,11 @@ describe('migrations against the test baseline', () => {
       'agent_watchdogs.quota_attempt_at',
       'agent_schedule_runs.quota_recovery',
       'workflow_runs.preparation',
+      'git_worktrees.agent_session_id',
+      'git_worktrees.agent_binding_generation',
+      'git_merge_requests.reported_outcome',
+      'git_merge_requests.reported_target_head_sha',
+      'git_merge_requests.outcome_reported_at',
     ]);
   });
 
