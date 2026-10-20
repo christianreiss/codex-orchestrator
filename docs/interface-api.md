@@ -2295,6 +2295,15 @@ The default root service needs usable managed configs and provider binaries in
 root's environment; choosing an existing user uses that user's home and native
 transcripts. No provider login is copied from another Unix account.
 
+On normal completed Portal shutdown, the exact accepted relay delivery retains
+its existing, unexpired claim across that session's binding release so the
+supervisor can publish buffered output after child exit. This does not reopen the
+bridge or extend the lease. A failed/admin-closed session, different delivery
+session, expired lease or subsequent native binding cannot use this handoff.
+Result retries preserve the same claim and immutable result; ambiguous old work
+is not rerun to recover a lost acknowledgement. Daemon replies authenticate the
+same `<native-user>:daemon` relay namespace as registration.
+
 - `POST /host/agent-sessions/:sessionId/agent-messaging/spawn`
 - `POST /host/agent-sessions/:sessionId/agent-messaging/spawn-status`
 - `POST /host/agent-sessions/:sessionId/agent-messaging/stop`
