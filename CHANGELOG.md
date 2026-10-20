@@ -1,5 +1,8 @@
 # 2026-10-20
 
+- **Feedback sweep (cxx 0.9.115).** Wrapper updates report pending privileged daemon installation when its binary differs, unavailable automatic receivers explain the supported informational CLI path, and peer startup failures retain bounded sanitized phase/code evidence without changing ambiguous-work recovery.
+- Explicit empty Git Director paths now clear previous declarations; omitted paths retain them. Long project-card release notes retain their full audit history while row summaries fit MySQL limits. Baseline regeneration now atomically emits deterministic MySQL-safe constraint/index names.
+
 - Added the shared code-managed `reboot-safe` Skill for authorized one-use host reboot/resume, including recovery exclusion and ownership reconciliation. Clarified disabled coordination and cluster claim keys. Managed quota guidance now handles older session catalogs without interrupting accepted work; served guidance digests deliberately change.
 
 - **Workflow clarification (cxx 0.9.114).** New runs clarify freely defined questions in a web form or conversation, review a saved summary and require explicit approval before execution. Follow-up answers and approval history remain in the report; corrections invalidate approval. Already existing runs retain their previous flow.
