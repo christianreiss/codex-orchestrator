@@ -56,6 +56,7 @@ import { readFleetEngineState } from '../engine-switch.js';
 import { messagingHostEligibleSql } from './eligibility.js';
 import { hostAuthFingerprint, safeHashEqual } from './internals.js';
 import {
+  jsonRecord,
   normalizeBridgeToken,
   normalizeOptionalText,
   normalizeRequiredText,
@@ -316,7 +317,10 @@ export class SessionRegistry {
         }
         const relayId = delivery.leaseOwner!.split(':')[1]!;
         const [relay] = await tx.select().from(agentBusRelays).where(eq(agentBusRelays.id, relayId)).limit(1).for('update');
-        if (!relay || relay.status !== 'active' || relay.generation !== delivery.relayGeneration || relay.hostId !== host.id || relay.username !== username) throw new ConflictError('Relay generation changed', 'agent_messaging_lease_lost');
+        // Daemon relay identities have a reserved suffix; their native child
+        // still runs as the exact service user selected by claimForRelay.
+        const relayUsername = jsonRecord(relay?.capabilities)?.host_daemon === true ? `${username}:daemon` : username;
+        if (!relay || relay.status !== 'active' || relay.generation !== delivery.relayGeneration || relay.hostId !== host.id || relay.username !== relayUsername) throw new ConflictError('Relay generation changed', 'agent_messaging_lease_lost');
         await tx.update(agentBusMessages).set({ targetBindingGeneration: address.bindingGeneration, deliverySessionId: sessionId }).where(eq(agentBusMessages.id, delivery.id));
       }
       await tx

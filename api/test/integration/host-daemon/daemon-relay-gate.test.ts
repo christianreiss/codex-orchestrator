@@ -1,5 +1,5 @@
 import { createHash, randomUUID, randomBytes } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   hosts,
@@ -7,6 +7,7 @@ import {
   hostDaemonSessions,
   versions,
   agentBusMessages,
+  agentBusConversations,
   agentSessions,
   agentBusAddresses,
   agentBusRelays,
@@ -66,7 +67,8 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
   afterEach(async () => {
     const addresses = await handle!.db.select().from(agentBusAddresses).where(eq(agentBusAddresses.hostId, id));
     for (const address of addresses) {
-      await handle!.db.delete(agentBusMessages).where(eq(agentBusMessages.targetAddressId, address.id));
+      await handle!.db.delete(agentBusMessages).where(or(eq(agentBusMessages.targetAddressId, address.id), eq(agentBusMessages.senderAddressId, address.id)));
+      await handle!.db.delete(agentBusConversations).where(or(eq(agentBusConversations.addressAId, address.id), eq(agentBusConversations.addressBId, address.id)));
     }
     await handle!.db.delete(agentBusRelays).where(eq(agentBusRelays.hostId, id));
     await handle!.db.delete(agentSessions).where(eq(agentSessions.hostId, id));
@@ -89,11 +91,11 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
     });
     return { relayId: String(relay.relay_id), token: String(relay.relay_token) };
   };
-  const actor = async (username: string) => {
+  const actor = async (username: string, engine: 'codex' | 'claude' | 'grok' = 'codex') => {
     const sessionId = randomUUID(),
       token = randomBytes(32).toString('base64url');
     const registered = await messaging.registerSession(await host(), {
-      engine: 'codex',
+      engine,
       sessionId,
       bridgeToken: token,
       upstreamSessionId: randomUUID(),
@@ -106,16 +108,16 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
     return { sessionId, token, address: registered.address as { id: string; address: string } };
   };
   /** An idle remote-start session bound to a dormant mailbox with one queued peer message. */
-  const idleRemoteSessionWithMail = async () => {
+  const idleRemoteSessionWithMail = async (engine: 'codex' | 'claude' | 'grok' = 'codex') => {
     await service.start(
-      { host_id: id, engine: 'codex', cwd: '/tmp', title: 'Fixture', prompt: 'Fixture', client_message_id: randomUUID() },
+      { host_id: id, engine, cwd: '/tmp', title: 'Fixture', prompt: 'Fixture', client_message_id: randomUUID() },
       'fixture-owner',
     );
     const op = (await service.offer(id, generation))!;
     await service.accept(id, op.operation_id, op.claim_id);
     await service.complete(id, op.operation_id, op.claim_id, { status: 'completed', reply: 'Idle' });
     const sender = await actor('fixture-sender'),
-      target = await actor('root');
+      target = await actor('root', engine);
     await handle!.db
       .update(hostDaemonSessions)
       .set({ addressId: target.address.id, sessionId: target.sessionId })
@@ -136,6 +138,48 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
     await expect(messaging.claimForRelay(relay.relayId, relay.token, randomUUID())).resolves.toMatchObject({
       message_id: expect.any(String),
     });
+  });
+
+  it.each(['codex', 'claude', 'grok'] as const)('binds an accepted %s daemon delivery to its exact native user and transcript', async (engine) => {
+    const { target } = await idleRemoteSessionWithMail(engine);
+    const relay = await registerDaemonRelay();
+    const claimId = randomUUID();
+    const delivery = await messaging.claimForRelay(relay.relayId, relay.token, claimId);
+    if (!delivery) throw new Error('Peer fixture was not leased');
+    await messaging.acknowledgeRelayDelivery(relay.relayId, relay.token, delivery.message_id, { claimId, outcome: 'accepted' });
+    const childId = randomUUID(), bridgeToken = randomBytes(32).toString('base64url');
+    const registration = {
+      engine, username: 'root', cwd: '/tmp', sessionId: childId, bridgeToken,
+      invocationKind: 'peer_delivery' as const, requestedAddress: target.address.address,
+      expectedBindingGeneration: Number(delivery.target.binding_generation),
+      upstreamSessionId: String(delivery.target.upstream_session_id), continuity: 'native' as const,
+      deliveryMessageId: delivery.message_id, deliveryClaimId: claimId,
+      adapterCapabilities: { execution_contract_version: 2, launch_identity_version: 1 },
+    };
+    await expect(messaging.registerSession(await host(), { ...registration, deliveryClaimId: randomUUID() }))
+      .rejects.toMatchObject({ code: 'agent_messaging_lease_lost' });
+    const [storedRelay] = await handle!.db.select().from(agentBusRelays).where(eq(agentBusRelays.id, relay.relayId));
+    for (const patch of [
+      { generation: storedRelay!.generation + 1 },
+      { capabilities: { host_daemon: false } },
+      { username: 'root:daemon:daemon' },
+    ]) {
+      await handle!.db.update(agentBusRelays).set(patch).where(eq(agentBusRelays.id, relay.relayId));
+      await expect(messaging.registerSession(await host(), registration))
+        .rejects.toMatchObject({ code: 'agent_messaging_lease_lost' });
+      await handle!.db.update(agentBusRelays).set({ generation: storedRelay!.generation,
+        capabilities: storedRelay!.capabilities, username: storedRelay!.username }).where(eq(agentBusRelays.id, relay.relayId));
+    }
+    const registered = await messaging.registerSession(await host(), registration);
+    expect(registered.address).toMatchObject({ id: target.address.id, username: 'root',
+      binding_generation: Number(delivery.target.binding_generation) + 1 });
+    const identity = await messaging.self(childId, bridgeToken);
+    expect(identity).toMatchObject({ session_id: childId, uuid: target.address.id,
+      native_session_id: delivery.target.upstream_session_id });
+    await messaging.renewRelayDelivery(relay.relayId, relay.token, delivery.message_id, claimId);
+    await messaging.finishSession(childId, bridgeToken, 'completed');
+    await messaging.acknowledgeRelayDelivery(relay.relayId, relay.token, delivery.message_id,
+      { claimId, outcome: 'completed', upstreamSessionId: String(delivery.target.upstream_session_id) });
   });
 
   it('refuses heartbeat and claim of an idle daemon relay once the operator disables the daemon', async () => {

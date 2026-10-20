@@ -1498,7 +1498,13 @@ drains, without new work. See
 uses normal host API-key/IP policy and returns a generation-fenced 15-minute
 bearer; subsequent calls require `X-Agent-Relay-Token`. The relay never opens a
 listener and never claims an address while its interactive, receive-capable
-session is attached:
+session is attached.
+
+Daemon relays use the reserved `<username>:daemon` identity with authenticated
+`host_daemon: true` capabilities. An accepted native child binds as the exact
+unsuffixed service user; registration retains the message claim, relay generation,
+host, target address and native transcript checks. Ordinary relays require an exact
+username match and cannot acquire daemon semantics by adding the suffix.
 
 - `POST /host/agent-relays/register` — register/replace the per-user relay and
   return its id, generation, token, expiry, and polling interval.
