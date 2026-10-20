@@ -360,6 +360,13 @@ describe('migrations against the test baseline', () => {
       'host_daemon_sessions.model',
       'agent_bus_conferences.owner_admin_id',
       'hosts.last_contact_at',
+      'agent_sessions.provider_account_id',
+      'agent_watchdogs.quota_account_id',
+      'agent_watchdogs.quota_window',
+      'agent_watchdogs.quota_reset_at',
+      'agent_watchdogs.quota_attempts',
+      'agent_watchdogs.quota_attempt_at',
+      'agent_schedule_runs.quota_recovery',
     ]);
   });
 

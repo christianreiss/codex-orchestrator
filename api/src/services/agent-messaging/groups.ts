@@ -632,7 +632,7 @@ export class AgentMessagingGroups {
    * topic: the role system's ROLE-UPDATE / ROLE-REVIEW / ROLE-PROPOSAL lines.
    * The body carries its own protocol header; ineligible addresses are skipped.
    */
-  async noticeAddresses(addressIds: string[], content: string) {
+  async noticeAddresses(addressIds: string[], content: string, noticeId?: string) {
     const body = normalizeMessageBody(content);
     const result = await this.core.db.transaction(async (tx) => {
       await this.core.requireEnabledLocked(tx);
@@ -649,6 +649,13 @@ export class AgentMessagingGroups {
           receipts.skipped.push({ address_id: id, reason: 'address_ineligible' });
           continue;
         }
+        if (noticeId) {
+          const [existing] = await tx.select({ id: agentBusMessages.id }).from(agentBusMessages).where(and(
+            eq(agentBusMessages.senderAddressId, sender.id), eq(agentBusMessages.targetAddressId, target.id),
+            eq(agentBusMessages.clientMessageId, noticeId),
+          )).limit(1);
+          if (existing) { receipts.deliveries.push({ address_id: id, message_id: existing.id }); continue; }
+        }
         const conversationId = randomUUID();
         await tx.insert(agentBusConversations).values({
           id: conversationId,
@@ -662,22 +669,22 @@ export class AgentMessagingGroups {
           updatedAt: now,
         });
         const messageId = randomUUID();
-        await tx.insert(agentBusMessages).values(
-          newQueuedMessage({
+        const message = newQueuedMessage({
             id: messageId,
             conversationId,
             sequence: 1,
             sender,
             senderSessionId: null,
             target,
-            kind: 'publication',
+            kind: noticeId ? 'presence_notice' : 'publication',
             content: body,
             contentEnc: encrypt(body, this.core.keyring),
-            clientMessageId: randomUUID(),
+            clientMessageId: noticeId ?? randomUUID(),
             expiresAt: isoOffsetSeconds(7 * 86400),
             now,
-          }),
-        );
+          });
+        if (noticeId) message.targetSessionId = target.currentSessionId;
+        await tx.insert(agentBusMessages).values(message);
         receipts.deliveries.push({ address_id: target.id, message_id: messageId });
       }
       return receipts;

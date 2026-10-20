@@ -378,6 +378,8 @@ func TestReceiverHealthAndReconnectsDoNotDeliverChatProbes(t *testing.T) {
 							case "initialize":
 							case "thread/loaded/list":
 								result["data"] = []string{"native"}
+							case "thread/turns/list":
+								result = map[string]any{"data": []any{}}
 							case "thread/read":
 								result["thread"] = map[string]any{"id": "native", "source": "cli", "status": map[string]any{"type": "idle"}}
 							default:

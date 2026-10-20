@@ -611,6 +611,9 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	}
 
 	if authResp != nil && !opts.SyncOnly {
+		if authResp.QuotaUnlimited && authResp.QuotaAdvice != nil {
+			authResp.QuotaAdvice.Settings.Mode = "off"
+		}
 		if stop, code, err := quotaadvice.BeforeStart(ctx, cfg, authResp.QuotaAdvice, opts.ExtraArgs, opts.Headless, opts.QuotaChoiceReset); stop {
 			return code, err
 		}

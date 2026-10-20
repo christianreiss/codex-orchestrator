@@ -344,7 +344,7 @@ func (b *Broker) allowedPath(path string) bool {
 	}
 	for _, operation := range []string{
 		"reboot/prepare", "reboot/arm", "reboot/status", "reboot/restore", "reboot/disarm",
-		"watchdog/get", "watchdog/enable", "watchdog/disable", "watchdog/finish",
+		"quota/get", "watchdog/get", "watchdog/enable", "watchdog/disable", "watchdog/finish",
 		"spawn", "spawn-status", "stop", "insecure-enable",
 		"advisor/ask", "advisor/close", "advisor/status",
 		"list", "self", "translate", "send", "reply", "wait", "message", "digest", "cancel", "bind", "mailbox", "deliveries/claim",

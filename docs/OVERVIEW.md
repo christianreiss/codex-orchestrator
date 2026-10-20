@@ -1335,3 +1335,5 @@ continuation turns. All originals remain addressable; work/results keep individu
 delivery. See `docs/interface-api.md` (Peer backlog presentations) for limits and rollback.
 
 Native acceptance: `python3 wrappers/scripts/receiver-canary.py --engine codex --cxx /absolute/path/to/cxx --native-cli /absolute/path/to/native/codex --peer-batch` verifies 31 originals, one continuation, a paginated actionable question, one presentation completion, and a quiet interval. It uses an isolated native home with access-only credentials and a temporary broker.
+
+Account quota monitoring: Engines owns per-engine defaults; Accounts owns overrides and explicit PayG/unlimited. The cxx-agent `quota_get` tool reports bound short/long windows and observation age. Warnings request checkpoints, while confirmed quota interruptions can use bounded exact-session reset recovery. See [quota contract](interface-api.md#account-quota-warnings-and-reset-recovery-cxx-09112).

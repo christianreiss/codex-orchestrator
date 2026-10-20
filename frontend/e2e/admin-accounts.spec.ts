@@ -130,3 +130,41 @@ test("Grok subscription accounts show unavailable quota and upload full OIDC cre
   await expect(dialog).toHaveCount(0);
   expect(writes).toEqual([{ method: "POST", path: "/admin/accounts/5/credentials", body: { payload } }]);
 });
+
+for (const mobile of [false, true]) {
+  test(`quota overrides preserve failed saves and PayG suppresses controls (${mobile ? "mobile" : "desktop"})`, async ({ page }) => {
+    if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ colorScheme: mobile ? "dark" : "light" });
+    await fixtures(page);
+    const defaults = { unlimited: false, short_warn_percent: 85, long_warn_percent: 85, short_auto_resume: true, long_auto_resume: false };
+    let override: typeof defaults | null = null, fail = true;
+    await page.route("**/admin/accounts/1/quota-policy", async route => {
+      if (route.request().method() === "PUT") {
+        if (fail) { fail = false; await route.fulfill({ status: 503, json: { status: "error", message: "Policy save unavailable" } }); return; }
+        override = route.request().postDataJSON().policy;
+      }
+      await route.fulfill({ json: { status: "ok", data: { defaults, override, effective: override ?? defaults } } });
+    });
+    await page.goto("/admin/accounts");
+    await choose(page, rowOf(page, /Claude Alpha/), "Claude Alpha", "Quota policy");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("switch", { name: "Use engine defaults" })).toBeChecked();
+    await dialog.getByRole("switch", { name: "Use engine defaults" }).click();
+    await dialog.getByRole("switch", { name: "PayG / unlimited" }).click();
+    await expect(dialog.getByRole("switch", { name: "Warn agents" }).first()).toBeDisabled();
+    await dialog.getByRole("button", { name: "Save quota policy" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("Policy save unavailable");
+    await expect(dialog.getByRole("switch", { name: "PayG / unlimited" })).toBeChecked();
+    await dialog.getByRole("button", { name: "Save quota policy" }).click();
+    await expect(dialog.getByRole("status")).toContainText("Quota policy saved");
+    expect(override).toMatchObject({ unlimited: true });
+    await dialog.getByRole("switch", { name: "Use engine defaults" }).click();
+    await dialog.getByRole("button", { name: "Save quota policy" }).click();
+    await expect.poll(() => override).toBeNull();
+    await expect(dialog.getByRole("switch", { name: "PayG / unlimited" })).not.toBeChecked();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const { default: AxeBuilder } = await import("@axe-core/playwright");
+    const axe = await new AxeBuilder({ page }).include('[role="dialog"]').analyze();
+    expect(axe.violations).toEqual([]);
+  });
+}

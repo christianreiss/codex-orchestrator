@@ -52,6 +52,7 @@ const NON_ROUTE_ENDPOINTS: Record<string, string> = {};
 
 /** Files that call a path built at runtime, and what feeds that path. */
 const RUNTIME_PATH_CALLERS: Record<string, string> = {
+  'frontend/src/lib/components/settings/QuotaPolicyEditor.svelte': 'Reactive account or engine policy endpoint; quota-policy route tests and account/engine browser flows exercise GET and PUT.',
   'frontend/src/lib/components/library/ArtifactEditor.svelte': 'cfg.api is a typed ClaudeArtifactApi selected from ARTIFACT_APIS; its get/delete methods and literal routes live in lib/api/claudeArtifacts.ts.',
   'frontend/src/lib/components/library/library-types.ts': 'api is a ClaudeArtifactApi, not the raw HTTP client; create/remove call its typed artifact store/delete methods.',
   'frontend/src/lib/components/portal/AttachmentList.svelte': 'attachmentBase selects session or shared-room URLs; room and direct-chat browser tests exercise both access paths.',

@@ -1,3 +1,4 @@
+import { registerQuotaRoutes } from './quota.js';
 import type { FastifyInstance } from 'fastify';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
@@ -9,6 +10,7 @@ import { createSseLifecycle } from '../http/sse-lifecycle.js';
 import { ForbiddenError } from '../http/errors.js';
 
 export async function registerWatchdogRoutes(app: FastifyInstance, ctx: RouteContext) {
+  await registerQuotaRoutes(app, ctx);
   const service = new WatchdogsService(ctx.db, ctx.keyring);
   const trackStream = createSseLifecycle(app);
   const hostAuth = createHostAuthService({

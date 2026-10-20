@@ -21,7 +21,8 @@
   let hours = $state(2);
   let minutes = $state(10);
 
-  const current = $derived($query.data?.watchdogs.find((w) => LIVE.includes(w.status)) ?? $query.data?.watchdogs[0]);
+  const quotaRun = $derived($query.data?.quota_runs?.[0]);
+  const current = $derived($query.data?.watchdogs.find((w) => LIVE.includes(w.status)) ?? (quotaRun ? undefined : $query.data?.watchdogs[0]));
   const active = $derived(!!current && LIVE.includes(current.status));
   const when = (value: string | null | undefined) => (value ? new Date(value).toLocaleString() : "none");
 
@@ -55,14 +56,19 @@
 
 <div class="border-t border-border/60 bg-muted/20 px-3 py-2 text-caption" data-testid="watchdog-panel">
   <div class="flex flex-wrap items-center gap-3">
-    <strong>Watchdog</strong>
+    <strong>{current?.quota || quotaRun ? "Quota recovery" : "Watchdog"}</strong>
     {#if $query.isError}
       <span class="text-destructive">Status unavailable</span>
     {:else if current}
       <span>{current.status} · {current.recovery_count} recovery attempts</span>
+      {#if current.quota}<span>{current.quota.window} limit · reset {when(current.quota.reset_at)} · {current.quota.attempts} quota attempts</span>{/if}
       <span>Until {when(current.deadline_at)}</span>
       <span>Next wake: {when(current.next_wake_at)}</span>
       {#if current.last_error}<span>{current.last_error}</span>{/if}
+    {:else if quotaRun}
+      <span>{quotaRun.status} · {quotaRun.quota.window} limit · {quotaRun.quota.attempts} attempts</span>
+      <span>Reset: {when(quotaRun.quota.reset_at)} · Next attempt: {when(quotaRun.next_attempt_at)}</span>
+      {#if quotaRun.last_error}<span>{quotaRun.last_error}</span>{/if}
     {:else}
       <span class="text-muted-foreground">Off</span>
     {/if}

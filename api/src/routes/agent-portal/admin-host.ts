@@ -1,3 +1,5 @@
+import { and, eq, gt } from 'drizzle-orm';
+import { agentSessions, providerAccountSessions } from '../../db/schema.js';
 import { AgentCoordination } from '../../services/agent-coordination/index.js';
 import { NativeStopService } from '../../services/native-stop.js';
 import { activityInputSchema } from '../../services/agent-activity.js';
@@ -97,6 +99,7 @@ export async function registerAgentPortalAdminHostRoutes(
         cwd: z.string(),
         workspace: workspaceInputSchema.optional(),
         upstream_session_id: z.string().nullable().optional(),
+        provider_session_id: z.string().max(64).optional(),
         invocation_kind: z.enum(['interactive', 'execute', 'peer_delivery']),
         resumed: z.boolean().optional(),
         session_id: z.string().uuid().optional(),
@@ -114,6 +117,11 @@ export async function registerAgentPortalAdminHostRoutes(
       .parse(req.body ?? {});
     const engine = parseEngine(body.engine);
     assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
+    const [providerLease] = body.provider_session_id ? await ctx.db.select().from(providerAccountSessions).where(and(
+      eq(providerAccountSessions.id, body.provider_session_id), eq(providerAccountSessions.hostId, host.id),
+      eq(providerAccountSessions.engine, engine), gt(providerAccountSessions.expiresAt, new Date().toISOString()),
+    )) : [];
+    if (body.provider_session_id && !providerLease) throw new ForbiddenError('Provider account lease is unavailable');
     const sessionId = body.session_id ?? randomUUID();
     const bridgeToken = body.bridge_token ?? randomBytes(32).toString('base64url');
     const [portalEnabled, messagingEnabled] = await Promise.all([
@@ -177,6 +185,17 @@ export async function registerAgentPortalAdminHostRoutes(
         enabled: false,
         capabilities: { portal: false, agent_messaging: false },
       };
+    }
+    if (providerLease) {
+      // Serialize registration retries before attaching the immutable account binding.
+      await ctx.db.transaction(async tx => {
+        const [registered] = await tx.select().from(agentSessions).where(and(
+          eq(agentSessions.id, sessionId), eq(agentSessions.hostId, host.id), eq(agentSessions.engine, engine),
+        )).for('update');
+        if (!registered || (registered.providerAccountId && registered.providerAccountId !== providerLease.accountId))
+          throw new ForbiddenError('Provider account binding changed');
+        await tx.update(agentSessions).set({ providerAccountId: providerLease.accountId }).where(eq(agentSessions.id, sessionId));
+      });
     }
     const coordination = new AgentCoordination(ctx.db, ctx.env, ctx.keyring, messaging);
     const scopeContext = messagingResult.enabled === true && await coordination.enabled()

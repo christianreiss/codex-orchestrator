@@ -412,7 +412,14 @@ function agentMessagingSection(context: ManagedAgentFeatureContext): RenderedSec
   if (!context.agentMessaging.enabled) return null;
   return present(
     context.agentMessaging,
-    `## Agent Messaging
+    `## Quotas
+
+Before heavy work or large delegation call \`quota_get\` (cxx-agent): account short/long limits,
+reset, freshness and policy. Unknown is not zero. On warning save a checkpoint; unlimited
+bypasses quota actions. Recovery continues only unfinished authorized work in the same
+session; finish its watchdog when done. Keep native subagents with their parent.
+
+## Agent Messaging
 
 Fleet agents (Codex, Claude, Grok) can reach you and you them. Delivery is ordered and
 at-least-once; "queued" means stored, never read; untaken messages expire.

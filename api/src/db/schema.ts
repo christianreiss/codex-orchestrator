@@ -1526,6 +1526,7 @@ export const agentSessions = mysqlTable(
     id: char('id', { length: 36 }).primaryKey(),
     hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull(),
     launchName: varchar('launch_name', { length: 96 }),
+    providerAccountId: bigint('provider_account_id', { mode: 'number', unsigned: true }),
     engine: varchar('engine', { length: 16 }).notNull(),
     username: varchar('username', { length: 255 }).notNull(),
     cwd: varchar('cwd', { length: 1024 }).notNull(),
@@ -2276,6 +2277,7 @@ export const agentSchedules = mysqlTable('agent_schedules', {
   updatedAt: varchar('updated_at', { length: 100 }).notNull(),
 }, t => ({ due: index('idx_agent_schedules_due').on(t.enabled, t.nextDueAt), target: index('idx_agent_schedules_target').on(t.targetAddressId) }));
 export const agentScheduleRuns = mysqlTable('agent_schedule_runs', {
+  quotaRecovery: json('quota_recovery').$type<import('../services/quota-observation.js').QuotaRecovery>(),
   id: char('id', { length: 36 }).primaryKey(),
   scheduleId: char('schedule_id', { length: 36 }).notNull(),
   targetAddressId: char('target_address_id', { length: 36 }).notNull(),
@@ -2317,6 +2319,11 @@ export const agentFreshStartGrants = mysqlTable('agent_fresh_start_grants', {
 });
 
 export const agentWatchdogs = mysqlTable('agent_watchdogs', {
+  quotaAccountId: bigint('quota_account_id', { mode: 'number', unsigned: true }),
+  quotaWindow: varchar('quota_window', { length: 8 }),
+  quotaResetAt: varchar('quota_reset_at', { length: 100 }),
+  quotaAttempts: int('quota_attempts', { unsigned: true }).notNull().default(0),
+  quotaAttemptAt: varchar('quota_attempt_at', { length: 100 }),
   id: char('id', { length: 36 }).primaryKey(),
   targetAddressId: char('target_address_id', { length: 36 }).notNull(),
   nativeSessionId: varchar('native_session_id', { length: 255 }).notNull(),

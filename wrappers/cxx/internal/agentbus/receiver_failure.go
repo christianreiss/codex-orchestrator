@@ -17,21 +17,15 @@ func (r *autoReceiver) observeFailure(ctx context.Context, nativeID string) erro
 	if !ok {
 		return nil
 	}
-	r.tracker.mu.Lock()
-	held := len(r.tracker.items) > 0
-	r.tracker.mu.Unlock()
 	var policy struct {
 		Watchdog json.RawMessage `json:"watchdog"`
 	}
 	protected := r.client.post(ctx, "watchdog/get", map[string]any{}, &policy) == nil && len(policy.Watchdog) > 0 && string(policy.Watchdog) != "null"
-	if !held && !protected {
-		return nil
-	}
 	failure, retry, err := observed.watchdogFailure()
 	if err != nil || failure == "" {
 		return err
 	}
-	if protected {
+	if protected || failure == "capacity" || failure == "user_stop" || failure == "blocked" {
 		body := map[string]any{"last_progress_at": time.Now().UTC().Format(time.RFC3339Nano), "failure": failure, "native_session_id": nativeID}
 		if retry != "" {
 			body["retry_not_before"] = retry

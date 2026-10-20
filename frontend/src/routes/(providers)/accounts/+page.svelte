@@ -111,6 +111,7 @@
         engineOn={$fleet.isEnabled(account.engine)}
         {canManage}
         busy={$change.isPending}
+        onQuota={() => (dialog = { kind: "quota", account })}
         onRename={() => (dialog = { kind: "rename", account })}
         onReplace={() => (dialog = { kind: "replace", account })}
         onVerify={() => run(account, "verify")}

@@ -1,3 +1,4 @@
+import { startQuotaWorker } from './ops/quota-worker.js';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
@@ -116,6 +117,7 @@ export async function buildServer() {
   startMattPocockSkillsWorker(app, new MattPocockSkillsService(db));
   startAgentPortalWorker(app, db, env, keyring);
   startSchedulesWorker(app, db, keyring);
+  startQuotaWorker(app, db, env, keyring);
   startAgentMessagingWorker(app, db, env, keyring);
   startInsecureFleetWindowWorker(app, db, env);
   startWrapperRolloutWorker(app, db, env);

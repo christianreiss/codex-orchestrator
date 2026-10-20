@@ -1,6 +1,8 @@
+import { quotaSnapshot, quotaInterruption, quotaRecoveryAllowed } from './quota-observation.js';
+import type { Engine } from '../util/engine.js';
 import { assertNoRebootRecovery } from './reboot-handoffs.js';
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
@@ -128,6 +130,7 @@ export class WatchdogsService {
       target: `agent:${row.targetAddressId}`,
       native_session_id: row.nativeSessionId,
       task_key: row.taskKey,
+      quota: row.quotaAccountId ? { account_id: row.quotaAccountId, window: row.quotaWindow, reset_at: row.quotaResetAt, attempts: row.quotaAttempts, last_attempt_at: row.quotaAttemptAt } : null,
       status:
         WATCHDOG_LIVE.includes(row.status) && run?.status === 'capacity_wait' ? 'capacity_wait' : row.status,
       version: row.version,
@@ -183,7 +186,15 @@ export class WatchdogsService {
       )
       .orderBy(desc(agentWatchdogs.createdAt))
       .limit(200);
-    return { watchdogs: await Promise.all(rows.map((r) => this.get(r.id))) };
+    const quotaRuns = await this.db.select().from(agentScheduleRuns).where(and(
+      isNotNull(agentScheduleRuns.quotaRecovery),
+      target ? eq(agentScheduleRuns.targetAddressId, target.slice(6).toLowerCase()) : undefined,
+    )).orderBy(desc(agentScheduleRuns.createdAt)).limit(20);
+    return { watchdogs: await Promise.all(rows.map((r) => this.get(r.id))), quota_runs: quotaRuns.map(r => ({
+      id: r.id, schedule_id: r.scheduleId, target: `agent:${r.targetAddressId}`, status: r.status,
+      quota: r.quotaRecovery, next_attempt_at: r.nextAttemptAt, last_error: r.lastError,
+    })) };
+
   }
   async enable(raw: unknown, actor: string, ownSessionId?: string) {
     const v = watchdogEnableInput.parse(raw),
@@ -387,15 +398,16 @@ export class WatchdogsService {
       .where(and(eq(agentPrompts.sessionId, sessionId), eq(agentPrompts.status, 'open')))
       .limit(1);
     const watchdog = row ? await this.get(row.id) : null;
+    const quotaAllowed = !row?.quotaAccountId || await quotaRecoveryAllowed(this.db, session.engine as Engine, row.quotaAccountId, row.quotaWindow);
     return {
       server_time: new Date().toISOString(),
       watchdog,
       progress_timeout_seconds:
-        row && row.deadlineAt > new Date().toISOString() && !prompt && WATCHDOG_LIVE.includes(row.status)
+        quotaAllowed && row && row.deadlineAt > new Date().toISOString() && !prompt && WATCHDOG_LIVE.includes(row.status)
           ? row.progressTimeoutSeconds
           : null,
       terminate_requested:
-        !!row &&
+        quotaAllowed && !!row &&
         row.sessionId === sessionId &&
         row.deadlineAt > new Date().toISOString() &&
         !prompt &&
@@ -412,12 +424,52 @@ export class WatchdogsService {
         failure: z.enum(['capacity', 'crash', 'hang', 'user_stop', 'blocked']).optional(),
         native_session_id: z.string().optional(),
         retry_not_before: z.string().datetime().optional(),
+        quota_limit: z.boolean().optional(),
       })
       .strict()
       .parse(raw);
     const session = await this.bridge(sessionId, token),
       now = new Date().toISOString();
     if (v.native_session_id && v.native_session_id !== session.upstreamSessionId) return { ignored: true };
+    if (v.failure === 'capacity' && session.providerAccountId && session.upstreamSessionId) {
+      const snapshot = await quotaSnapshot(this.db, session.providerAccountId, session.engine as Engine);
+      const interruption = quotaInterruption(snapshot, v.quota_limit === true, v.retry_not_before);
+      if (interruption) {
+        let current = await this.forSession(sessionId);
+        // A scheduled delivery already owns an exact-session execution lane. Attach
+        // the quota wait to that run rather than launching a competing watchdog.
+        const messages = !current ? await this.db.select().from(agentBusMessages).where(and(
+          eq(agentBusMessages.deliverySessionId, sessionId), eq(agentBusMessages.targetAddressId, session.agentBusAddressId!),
+        )).orderBy(desc(agentBusMessages.createdAt)).limit(1) : [];
+        const [scheduled] = messages[0] ? await this.db.select().from(agentScheduleRuns).where(and(
+          eq(agentScheduleRuns.messageId, messages[0].id), eq(agentScheduleRuns.persistent, 1),
+          inArray(agentScheduleRuns.status, ['queued', 'leased', 'accepted', 'recovering', 'capacity_wait']),
+        )).limit(1) : [];
+        if (scheduled) {
+          await this.db.update(agentScheduleRuns).set({ quotaRecovery: {
+            account_id: session.providerAccountId, native_session_id: session.upstreamSessionId,
+            window: interruption.kind, reset_at: interruption.reset_at,
+            attempts: scheduled.quotaRecovery?.attempts ?? 0, attempt_at: scheduled.quotaRecovery?.attempt_at ?? null,
+          } }).where(eq(agentScheduleRuns.id, scheduled.id));
+        }
+        if (!current && !scheduled && interruption.enabled && session.invocationKind !== 'peer_delivery') {
+          // A quota watchdog is armed only by a proven interrupted turn, never by usage alone.
+          current = await this.enable({ target: `agent:${session.agentBusAddressId}`,
+            task_key: `quota:${session.upstreamSessionId}`,
+            continuation: 'The previous turn was interrupted by a provider quota limit. Continue only its unfinished authorized task, preserving the existing native subagents. Check quota_get before heavy work. If the task is finished or canceled, report that and call watchdog_finish; do not invent new work.',
+            duration_seconds: 604800, progress_timeout_seconds: 600,
+          }, `quota:${sessionId}`, sessionId);
+        }
+        if (current && WATCHDOG_LIVE.includes(current.status)) {
+          await this.db.update(agentWatchdogs).set({ quotaAccountId: session.providerAccountId,
+            quotaWindow: interruption.kind, quotaResetAt: interruption.reset_at,
+            ...(current.created_by.startsWith('quota:') && interruption.reset_at ? { deadlineAt: new Date(Math.max(Date.now() + 604800000, Date.parse(interruption.reset_at) + 86400000)).toISOString() } : {}),
+          }).where(eq(agentWatchdogs.id, current.id));
+          // One durable wake, fenced by the existing native-session recovery executor.
+          if (interruption.reset_at) v.retry_not_before = interruption.retry_at;
+        }
+      }
+    }
     // Local clocks may drift. Never let a client move progress into the future.
     const progress = new Date(Math.min(Date.parse(v.last_progress_at), Date.parse(now))).toISOString();
     await this.db.transaction(async (tx) => {
@@ -493,6 +545,10 @@ export class WatchdogsService {
           await this.stop(tx, row, 'blocked', 'target_unavailable', timestamp);
           return;
         }
+        if (row.quotaAccountId && !(await quotaRecoveryAllowed(tx, target.engine as Engine, row.quotaAccountId, row.quotaWindow))) {
+          await this.stop(tx, row, 'blocked', 'quota_policy_disabled', timestamp);
+          return;
+        }
         if (target.lastUpstreamSessionId !== row.nativeSessionId || target.continuity !== 'native') {
           await this.stop(tx, row, 'blocked', 'native_session_changed', timestamp);
           return;
@@ -531,7 +587,7 @@ export class WatchdogsService {
           await this.stop(tx, row, 'disabled', 'user_stop', timestamp);
           return;
         }
-        if (row.status !== 'watching') return;
+        if (row.status !== 'watching' || row.quotaAccountId) return;
         if (session && !session.endedAt && Date.parse(session.heartbeatAt) > now.getTime() - 90000) return;
         const at = watchdogRetryTime(now);
         await tx

@@ -1,3 +1,5 @@
+import { quotaSnapshot, quotaResumeGate } from './quota-observation.js';
+import { stopWatchdogLocked } from './watchdog-lifecycle.js';
 import { assertNoRebootRecovery } from './reboot-handoffs.js';
 import { recoveryDelaySeconds } from './schedules/recovery.js';
 import { randomUUID } from 'node:crypto';
@@ -449,6 +451,31 @@ export class SchedulesService {
         .update(agentScheduleRuns)
         .set({ ...v, updatedAt: timestamp })
         .where(eq(agentScheduleRuns.id, run.id));
+    const quotaGate = async () => {
+      const q = watchdog?.quotaAccountId ? { account_id: watchdog.quotaAccountId,
+        window: watchdog.quotaWindow, reset_at: watchdog.quotaResetAt,
+        attempts: watchdog.quotaAttempts, attempt_at: watchdog.quotaAttemptAt,
+        native_session_id: watchdog.nativeSessionId } : run.quotaRecovery;
+      if (!q) return true;
+      const [target] = await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, run.targetAddressId));
+      const snapshot = target && isEngine(target.engine) ? await quotaSnapshot(tx, q.account_id, target.engine, now.getTime()) : null;
+      const gate = target?.lastUpstreamSessionId === q.native_session_id && target.continuity === 'native'
+        ? quotaResumeGate(snapshot, q.window, q.reset_at, q.attempts, q.attempt_at, now.getTime())
+        : { stop: 'quota_native_session_changed' };
+      if ('stop' in gate) {
+        if (watchdog) await stopWatchdogLocked(tx, watchdog, 'blocked', gate.stop!, timestamp);
+        await set({ status: 'blocked', lastError: gate.stop });
+        wsPublisher.publish('watchdogs.changed', { id: watchdog?.id ?? null, reason: gate.stop });
+        return false;
+      }
+      if ('wait_until' in gate) {
+        await set({ status: 'capacity_wait', nextAttemptAt: gate.wait_until, lastError: 'quota_wait' });
+        return false;
+      }
+      if (watchdog) await tx.update(agentWatchdogs).set({ quotaAttempts: q.attempts + 1, quotaAttemptAt: timestamp, updatedAt: timestamp }).where(eq(agentWatchdogs.id, watchdog.id));
+      else await set({ quotaRecovery: { ...run.quotaRecovery!, attempts: q.attempts + 1, attempt_at: timestamp } });
+      return true;
+    };
     if (run.messageId) {
       const [message] = await tx
         .select()
@@ -510,6 +537,7 @@ export class SchedulesService {
         return;
       }
       if (run.nextAttemptAt > timestamp) return;
+      if (!(await quotaGate())) return;
       // Explicit opt-in recovery after an ambiguous crash may repeat effects.
       await tx
         .update(agentBusMessages)
@@ -573,6 +601,7 @@ export class SchedulesService {
         .limit(1);
       if (!session || !receiverReady(session.receiver, 'peer', now.getTime())) return;
     }
+    if (!(await quotaGate())) return;
     let [sender] = await tx
       .select()
       .from(agentBusAddresses)

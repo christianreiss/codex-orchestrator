@@ -1336,3 +1336,7 @@ Unpresented canceled/expired presentations or policy rollback restore eligible o
 accepted or uncertain presentations never replay them. A receiver already running an
 older wrapper must reconnect with cxx 0.9.110 to negotiate this behavior. Browser/OS
 notification totals remain client-specific; the bound is on peer continuation deliveries.
+
+## Account quota lifecycle (cxx 0.9.112)
+
+`quota_get` on cxx-agent reports the current lifecycle's bound provider account, short/long usage, reset, freshness and effective quota policy. Check before heavy workloads and large delegations. Start a new managed lifecycle through the updated wrapper to supply the verified provider lease binding; older sessions return unavailable. Engine defaults and complete account overrides configure warnings and short/long auto-resume independently. PayG/unlimited suppresses quota actions, including existing startup blocks. A quota warning only requests a checkpoint. Confirmed quota interruptions use existing Watchdog recovery for the same native transcript on persistent hosts, with bounded retries and no fresh-session fallback. Native subagent restoration depends on the native parent's resume implementation; no independent helpers are spawned. See [API contract](interface-api.md#account-quota-warnings-and-reset-recovery-cxx-09112).

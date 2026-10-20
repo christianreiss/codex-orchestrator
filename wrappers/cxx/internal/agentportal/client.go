@@ -223,6 +223,10 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 		"resumed":              input.Resumed,
 		"upstream_session_id":  emptyToNil(upstreamSessionID),
 	}
+	// The server verifies this lease against the authenticated host and engine.
+	if lease := os.Getenv("CXX_PROVIDER_SESSION_ID"); lease != "" {
+		body["provider_session_id"] = lease
+	}
 	if peerAddress != "" {
 		body["agent_address"] = peerAddress
 		if messageID, claimID := os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID"), os.Getenv("CXX_AGENT_MESSAGING_CLAIM_ID"); messageID != "" && claimID != "" {

@@ -408,6 +408,7 @@ func taskResultProperties() map[string]any {
 
 func toolCatalogJSON() []byte {
 	tools := []map[string]any{
+		tool("quota_get", "Read short and long quota for this session’s bound provider account before heavy workloads or large delegations. Includes observation age, reset times, effective policy and PayG/unlimited; unavailable is not zero.", map[string]any{}, nil),
 		tool("host_insecure_enable", "Open an insecure host access window from an authenticated agent on an active secure host. Defaults to the target host window duration; this is audited and does not start work.", map[string]any{"host_id": map[string]any{"type": "integer", "minimum": 1}, "duration_minutes": map[string]any{"type": "integer", "minimum": 0, "maximum": 480}}, []string{"host_id"}),
 		tool("agent_spawn", "Start a helper on an enabled remote host. Keep client_message_id for retries. Returns operation_id and session_id; use agent_spawn_status, then existing messaging with its address.", map[string]any{"host_id": map[string]any{"type": "integer"}, "engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok"}}, "cwd": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"}, "client_message_id": map[string]any{"type": "string", "description": "Stable UUID for idempotent retries"}}, []string{"host_id", "engine", "title", "prompt", "client_message_id"}),
 		tool("agent_spawn_status", "Read the state and result of your remote helper; omit session_id to discover enabled remote hosts.", map[string]any{"session_id": map[string]any{"type": "string"}}, nil),
@@ -892,6 +893,10 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		}
 	}
 	switch name {
+	case "quota_get":
+		var out map[string]any
+		err := client.post(ctx, "quota/get", args, &out)
+		return out, err
 	case "watchdog_get", "watchdog_enable", "watchdog_disable", "watchdog_finish":
 		var out map[string]any
 		err := client.post(ctx, "watchdog/"+strings.TrimPrefix(name, "watchdog_"), args, &out)

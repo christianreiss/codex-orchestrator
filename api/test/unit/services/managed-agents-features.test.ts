@@ -249,7 +249,9 @@ describe('served document size budget', () => {
       // while an operator has an advisor host enabled; the block itself is capped below.
       // 2026-10-18: +2000 for the new mandatory scope/claim protocol (bounded below).
       // 2026-10-20: +500 for the opt-in Workflows pointer; shared-chat guidance was condensed first.
-      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(27_950);
+      // +400 bytes for the required pre-heavy-work quota check and recovery invariant.
+      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(28_350);
+      expect(out.body).toContain('Before heavy work or large delegation call `quota_get`');
       const section = (heading: string): string => {
         const start = out.body.indexOf(`## ${heading}\n`);
         expect(start).toBeGreaterThanOrEqual(0);
@@ -335,9 +337,9 @@ describe('served document byte invariance', () => {
     //             Messaging session-name/reception condensed; Git Director honours repository restrictions.
     // 2026-10-18: shared chat tools, one-answer rounds, room file context.
     // 2026-10-20: explicit workflow participant questions are the narrow agent-answer exception.
-    expect(out.features_sha256).toBe('2e558c39a49055a871fed8f77bdae97ade900e81a2e04b6dc864d9df94786ad9');
-    expect(out.managed_sha256).toBe('7f9d1d86eb6934cc0de3084e80aeb7c8e9ceab26386cce09ce0023152201a73e');
-    expect(sha256(out.body)).toBe('64394abda96f4d337bb743f05412a82be57dbcf87ef25637e6502abcd81a229c');
+    expect(out.features_sha256).toBe('b22b1563b736fe7b30d2e3f81f435157b7efcdaed51c7fc59c345f7d133a2ac8');
+    expect(out.managed_sha256).toBe('3237985a769319939de444252c4157b155208970d16d3cfa22f9f3fe170ce583');
+    expect(sha256(out.body)).toBe('19fc8c6d53bf4311d1320b11ccb470049715d172196e1e1c43a96e1462f4647b');
   });
 });
 

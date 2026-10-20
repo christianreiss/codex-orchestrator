@@ -13,6 +13,9 @@ import (
 // provider probe. Keep the existing advisory launch policy: a report does not
 // become a new local refusal simply because ChatGPT hard-fail is configured.
 func buildQuota(auth *orchestrator.AuthRetrieveResponse, now time.Time) ([]ui.QuotaRow, string) {
+	if auth != nil && auth.QuotaUnlimited {
+		return nil, ""
+	}
 	if auth == nil || auth.ClaudeUsage == nil {
 		return nil, ""
 	}

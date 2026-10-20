@@ -457,6 +457,9 @@ func worstTone(dots []ui.HealthDot, extra ...ui.Tone) ui.Tone {
 }
 
 func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string, string) {
+	if auth != nil && auth.QuotaUnlimited {
+		return nil, "", ""
+	}
 	q := auth.ChatGPT
 	if q == nil {
 		return nil, "", ""

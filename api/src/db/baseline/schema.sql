@@ -367,6 +367,7 @@ CREATE TABLE `agent_sessions` (
 	`id` char(36) NOT NULL,
 	`host_id` bigint unsigned NOT NULL,
 	`launch_name` varchar(96),
+	`provider_account_id` bigint unsigned,
 	`engine` varchar(16) NOT NULL,
 	`username` varchar(255) NOT NULL,
 	`cwd` varchar(1024) NOT NULL,
@@ -1571,6 +1572,7 @@ CREATE TABLE `agent_schedules` (
 );
 
 CREATE TABLE `agent_schedule_runs` (
+ `quota_recovery` JSON NULL,
   `max_recovery_attempts` INT UNSIGNED NULL,
   `warning_at` VARCHAR(100) NULL,
 	`id` char(36) NOT NULL,
@@ -1652,6 +1654,11 @@ CREATE INDEX `idx_agent_name_leases_address` ON `agent_name_leases` (`address_id
 
 -- One durable watchdog `per` native-session task. Recovery reuses the schedule bus.
 CREATE TABLE `agent_watchdogs` (
+ `quota_account_id` BIGINT UNSIGNED NULL,
+ `quota_window` VARCHAR(8) NULL,
+ `quota_reset_at` VARCHAR(100) NULL,
+ `quota_attempts` INT UNSIGNED NOT NULL DEFAULT 0,
+ `quota_attempt_at` VARCHAR(100) NULL,
  `id` CHAR(36) NOT NULL PRIMARY KEY,
  `target_address_id` CHAR(36) NOT NULL,
  `native_session_id` VARCHAR(255) NOT NULL,

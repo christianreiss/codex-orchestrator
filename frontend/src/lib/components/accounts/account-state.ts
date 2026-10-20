@@ -28,7 +28,7 @@ export function peakUsage(account: ProviderAccount): number | null {
   return values.length ? Math.max(...values) : null;
 }
 
-export const isNearQuota = (account: ProviderAccount): boolean => (peakUsage(account) ?? 0) >= NEAR_QUOTA_PERCENT;
+export const isNearQuota = (account: ProviderAccount): boolean => !account.quota_policy?.unlimited && (peakUsage(account) ?? 0) >= NEAR_QUOTA_PERCENT;
 
 export const loginNeedsRenewal = (account: ProviderAccount): boolean => account.refresh_state === "login_required";
 

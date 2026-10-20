@@ -15,13 +15,14 @@
     engineOn: boolean;
     canManage: boolean;
     busy: boolean;
+    onQuota: () => void;
     onRename: () => void;
     onReplace: () => void;
     onVerify: () => void;
     onToggle: () => void;
     onRemove: () => void;
   };
-  let { account, engineOn, canManage, busy, onRename, onReplace, onVerify, onToggle, onRemove }: Props = $props();
+  let { account, engineOn, canManage, busy, onQuota, onRename, onReplace, onVerify, onToggle, onRemove }: Props = $props();
 
   const meta = $derived(ENGINE_META[account.engine]);
   const status = $derived(accountStatus(account, engineOn, meta.command));
@@ -31,6 +32,7 @@
   const textTone = { ok: "text-muted-foreground", warning: "text-warning-muted-foreground", danger: "text-destructive", muted: "text-muted-foreground" } as const;
   const offReason = $derived(engineOn ? undefined : fleetDisabledTitle(meta.label));
   const actions = $derived<RowAction[]>([
+    { label: "Quota policy", onClick: onQuota },
     { label: "Rename", onClick: onRename },
     { label: "Replace credentials", onClick: onReplace, disabled: !engineOn, reason: offReason },
     { label: "Verify", onClick: onVerify, disabled: busy || !engineOn, reason: offReason },
@@ -53,6 +55,7 @@
   </Table.Cell>
   <Table.Cell class="whitespace-nowrap text-body-sm">
     <span class="inline-flex items-center gap-1.5"><span class={cn("h-2 w-2 rounded-full", meta.color)} aria-hidden="true"></span>{meta.account}</span>
+    {#if account.quota_policy?.unlimited}<div class="text-caption text-muted-foreground">PayG / unlimited</div>{/if}
     {#if account.plan?.name}<div class="text-caption text-muted-foreground">{account.plan.name}</div>{/if}
   </Table.Cell>
   <Table.Cell><AccountUsage {account} /></Table.Cell>

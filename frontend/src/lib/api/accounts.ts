@@ -3,6 +3,7 @@ import { api } from "./client";
 import type { AuthEngine } from "./auth";
 
 export interface ProviderAccount {
+  quota_policy?: import("$lib/components/settings/QuotaPolicyEditor.svelte").QuotaPolicy;
   id: number;
   engine: AuthEngine;
   label: string;

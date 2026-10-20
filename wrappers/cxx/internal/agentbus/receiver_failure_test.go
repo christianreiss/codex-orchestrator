@@ -23,7 +23,7 @@ func TestFailedNativeTurnStopsRenewalWithoutWatchdog(t *testing.T) {
 			var acks atomic.Int32
 			client := &sessionClient{id: "session", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 				switch {
-				case strings.HasSuffix(req.URL.Path, "/watchdog/get"):
+				case strings.HasSuffix(req.URL.Path, "/watchdog/get"), strings.HasSuffix(req.URL.Path, "/watchdog/activity"):
 				case strings.HasSuffix(req.URL.Path, "/ack"):
 					var body map[string]any
 					_ = json.NewDecoder(req.Body).Decode(&body)

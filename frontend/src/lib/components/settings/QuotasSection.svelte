@@ -1,4 +1,6 @@
 <script lang="ts">
+  import QuotaPolicyEditor from "./QuotaPolicyEditor.svelte";
+  import { ENGINES, ENGINE_META } from "$lib/constants/engines";
   import type { QuotaAdviceSettings } from "$lib/api/types";
   import { Switch } from "$lib/components/ui/switch";
   import { toast } from "svelte-sonner";
@@ -160,3 +162,9 @@
     <Button size="sm" onclick={save} disabled={$query.isPending || $query.isError || $mutation.isPending}>Save</Button>
   </div>
 </SectionCard>
+
+{#each ENGINES as engine}
+  <SectionCard id={`quota-policy-${engine}`} title={`${ENGINE_META[engine].label} quota warnings and resume`} description="Defaults for provider accounts; account overrides are edited under Accounts." {headingLevel}>
+    <QuotaPolicyEditor {engine} />
+  </SectionCard>
+{/each}

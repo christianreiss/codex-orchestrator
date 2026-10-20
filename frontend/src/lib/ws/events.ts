@@ -166,6 +166,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // Source checks update their state even when the imported catalogue itself
   // is unchanged, so keep the source card live across tabs and worker ticks.
   "companion.devices.changed": [["companion-devices"]],
+  "quota.policy.updated": [["settings", "quota-policy"], ["accounts"]],
   "accounts.updated": [["accounts"], ["overview"], ["hosts"]],
   "host.spawn.state_changed": [["settings", "host-spawn"], ["hosts"]],
   "settings.changed": [["settings"], ["claude-settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"]],

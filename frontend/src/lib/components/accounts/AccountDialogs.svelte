@@ -2,11 +2,12 @@
   import type { ProviderAccount } from "$lib/api/accounts";
   export type AccountDialog =
     | { kind: "add" }
-    | { kind: "replace" | "rename" | "remove"; account: ProviderAccount };
+    | { kind: "replace" | "rename" | "remove" | "quota"; account: ProviderAccount };
 </script>
 
 <script lang="ts">
   /** Every account dialog in one place: rename, add / replace credentials (SeedAuthPanel), remove. */
+  import QuotaPolicyEditor from "$lib/components/settings/QuotaPolicyEditor.svelte";
   import * as Dialog from "$lib/components/ui/dialog";
   import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
   import { Button } from "$lib/components/ui/button";
@@ -91,3 +92,12 @@
   onConfirm={() => { if (dialog?.kind === "remove") onRemove(dialog.account); }}
   onClose={onClose}
 />
+
+<Dialog.Root open={dialog?.kind === "quota"} onOpenChange={(open) => { if (!open) onClose(); }}>
+  <Dialog.Content class="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+    <Dialog.Header><Dialog.Title>{target?.label} quota policy</Dialog.Title><Dialog.Description>Account overrides for warnings, reset recovery and PayG.</Dialog.Description></Dialog.Header>
+    {#if dialog?.kind === "quota"}
+      {#key dialog.account.id}<QuotaPolicyEditor engine={dialog.account.engine} accountId={dialog.account.id} />{/key}
+    {/if}
+  </Dialog.Content>
+</Dialog.Root>

@@ -1,3 +1,5 @@
+import { isEngine } from '../util/engine.js';
+import { quotaRecoveryAllowed } from './quota-observation.js';
 import { preparePeerBatch, presentationOrder } from './agent-messaging/peer-batch.js';
 import { ApiError } from '../http/errors.js';
 import { activeRolesForAddresses, roleLabelsForAddress } from './roles/assignments.js';
@@ -422,7 +424,7 @@ export class AgentMessagingService {
   createAdminGroup(input: {slug: string; title: string; description?: string | null}) { return this.groups.createAdmin(input); }
   listAdminSubscriptions() { return this.groups.subscriptionsAdmin(); }
   publishAdmin(input: {topic: string; content: string; clientMessageId: string; ttlSeconds?: number | null}) { return this.groups.publishAdmin(input); }
-  noticeAddresses(addressIds: string[], content: string) { return this.groups.noticeAddresses(addressIds, content); }
+  noticeAddresses(addressIds: string[], content: string, noticeId?: string) { return this.groups.noticeAddresses(addressIds, content, noticeId); }
   listGroups(sessionId: string, token: string) { return this.groups.listForAgent(sessionId, token); }
   createGroup(sessionId: string, token: string, input: {slug: string; title: string; description?: string | null}) { return this.groups.createForAgent(sessionId, token, input); }
   groupMembers(sessionId: string, token: string, slug: string) { return this.groups.detailForAgent(sessionId, token, slug); }
@@ -1592,6 +1594,8 @@ export class AgentMessagingService {
           if (!run || !schedule?.enabled || schedule.deletedAt || (skipReceiveCapable && !run.persistent)) continue;
           const [watchdog] = await tx.select().from(agentWatchdogs).where(eq(agentWatchdogs.scheduleId,run.scheduleId));
           if (watchdog && (!['watching','recovering','capacity_wait'].includes(watchdog.status) || watchdog.deadlineAt <= now || target.lastUpstreamSessionId !== watchdog.nativeSessionId || target.continuity !== 'native')) continue;
+          const quota = watchdog?.quotaAccountId ? { account_id: watchdog.quotaAccountId, window: watchdog.quotaWindow } : run.quotaRecovery;
+          if (quota && isEngine(target.engine) && !(await quotaRecoveryAllowed(tx, target.engine, quota.account_id, quota.window))) continue;
           if (watchdog) {
             const [relay] = relayGeneration != null ? await tx.select().from(agentBusRelays).where(eq(agentBusRelays.id, relayIdFromLeaseOwner(leaseOwner)!)).limit(1) : [];
             const capabilities = jsonRecord(relayGeneration != null ? relay?.capabilities ?? null : target.adapterCapabilities) ?? {};
@@ -1778,6 +1782,9 @@ export class AgentMessagingService {
         const [watchdog] = run ? await tx.select().from(agentWatchdogs).where(eq(agentWatchdogs.scheduleId, run.scheduleId)) : [];
         if (watchdog && (!['watching','recovering','capacity_wait'].includes(watchdog.status) || watchdog.deadlineAt <= now || currentTarget.lastUpstreamSessionId !== watchdog.nativeSessionId || (upstreamSessionId && upstreamSessionId !== watchdog.nativeSessionId)))
           throw new ConflictError('Watchdog recovery expired or native binding changed', 'watchdog_recovery_unavailable');
+        const quota = watchdog?.quotaAccountId ? { account_id: watchdog.quotaAccountId, window: watchdog.quotaWindow } : run?.quotaRecovery;
+        if (quota && isEngine(currentTarget.engine) && !(await quotaRecoveryAllowed(tx, currentTarget.engine, quota.account_id, quota.window)))
+          throw new ConflictError('Quota recovery policy changed', 'quota_recovery_disabled');
       }
       if (input.outcome === 'accepted' && await freshStartAllowed(tx, message, currentTarget)) {
         await tx.update(agentFreshStartGrants).set({ consumedAt: now, consumedClaimId: claimId }).where(eq(agentFreshStartGrants.messageId, message.id));

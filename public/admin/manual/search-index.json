@@ -1629,7 +1629,7 @@
             "slug": "accounts",
             "title": "Provider accounts",
             "section": "Fleet operations",
-            "summary": "Manage independent ChatGPT and Claude account pools, quota balancing, active assignments and retiring credentials.",
+            "summary": "Manage provider accounts, quota warnings, reset recovery, PayG/unlimited and active assignments.",
             "anchors": [
                 {
                     "id": "add-and-maintain-accounts",
@@ -1649,6 +1649,11 @@
                 {
                     "id": "source-references",
                     "text": "Source references",
+                    "level": 2
+                },
+                {
+                    "id": "quota-warnings-reset-recovery-and-payg",
+                    "text": "Quota warnings, reset recovery and PayG",
                     "level": 2
                 }
             ]
@@ -1678,6 +1683,15 @@
         }
     ],
     "index": {
+        "quota_get": [
+            24
+        ],
+        "unlimited": [
+            24
+        ],
+        "payg": [
+            24
+        ],
         "##": [
             0,
             1,
@@ -25313,7 +25327,8 @@
             10,
             12,
             16,
-            23
+            23,
+            24
         ],
         "quota).": [
             6
@@ -26014,7 +26029,8 @@
         "recovery": [
             4,
             8,
-            9
+            9,
+            24
         ],
         "recovery.": [
             10
@@ -26900,7 +26916,8 @@
             3,
             4,
             8,
-            14
+            14,
+            24
         ],
         "reset`.": [
             20
@@ -33964,7 +33981,8 @@
         ],
         "warnings": [
             6,
-            8
+            8,
+            24
         ],
         "warns": [
             20

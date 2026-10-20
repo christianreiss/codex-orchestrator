@@ -318,7 +318,11 @@
       "GET /admin/workflow-runs/:id",
       "GET /admin/workflow-runs/:id/events",
       "GET /admin/workflow-runs/:id/report",
-      "GET /admin/workflow-runs/:id/tasks/:taskId"
+      "GET /admin/workflow-runs/:id/tasks/:taskId",
+      "GET /admin/quota-policy/:engine",
+      "PUT /admin/quota-policy/:engine",
+      "GET /admin/accounts/:id/quota-policy",
+      "PUT /admin/accounts/:id/quota-policy"
     ]
   },
   "excluded": {

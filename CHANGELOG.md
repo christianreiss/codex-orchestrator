@@ -1,5 +1,7 @@
 # 2026-10-20
 
+- Added account-scoped quota warnings, short/long quota MCP lookup and heavy-workload guidance, configurable reset recovery through the existing Watchdog, and explicit PayG/unlimited overrides that bypass quota actions. cxx 0.9.112.
+
 - **Workflows and shared runs (cxx 0.9.111).** Versioned instructions now have durable runs, task claims, autonomous cross-host invitations and an automatic communication group. Runs retain a report link from creation, require evaluation before completion, and can publish improvements without rewriting historical versions. Coordination includes the workflow editor and live/final reports. The module starts disabled; disabling it later lets existing runs finish. Workflow permissions apply in both authorization modes.
 - Workflow resume discovery now distinguishes stale memberships and claims from current ownership and explains explicit recovery. Daemon peer resumes recognize the daemon relay's authenticated username convention while retaining generation, host and accepted-delivery checks.
 - Native relay results remain publishable after their own successful session shutdown. Only the exact accepted delivery keeps its unexpired claim across shutdown; failed or canceled sessions, expired claims and later bindings remain fenced.

@@ -134,6 +134,7 @@ func (c *Context) saveLocked() error {
 }
 
 type LeaseResponse struct {
+	QuotaUnlimited      *bool           `json:"quota_unlimited"`
 	AccountID           int64           `json:"account_id"`
 	AccountLabel        string          `json:"account_label"`
 	SessionID           string          `json:"session_id"`

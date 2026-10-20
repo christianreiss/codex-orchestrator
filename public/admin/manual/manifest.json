@@ -295,7 +295,7 @@
       "slug": "accounts",
       "title": "Provider accounts",
       "section": "Fleet operations",
-      "summary": "Manage ChatGPT and Claude pools, quota balancing, active assignments and retiring credentials.",
+      "summary": "Manage provider accounts, quota warnings, reset recovery, PayG/unlimited and active assignments.",
       "tags": [
         "accounts",
         "auth",

@@ -1,3 +1,4 @@
+import { readQuotaPolicy } from './quota-policy.js';
 import { createHash } from 'node:crypto';
 import { and, asc, count, desc, eq, gt, inArray, lte } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
@@ -272,6 +273,7 @@ export class ProviderAccountsService {
             updated_at: a.updatedAt,
             last_selected_at: a.lastSelectedAt,
             usage,
+            quota_policy: (await readQuotaPolicy(this.db, a.engine as Engine, a.id)).effective,
             plan,
             sessions: sessions
               .filter((s) => s.accountId === a.id)
@@ -392,13 +394,14 @@ export class ProviderAccountsService {
           const row = (await tx.select().from(authPayloads).where(eq(authPayloads.id, a.payloadId)))[0];
           if (row?.verificationState !== 'verified') continue;
           const usage = await this.usage(a.id, engine, tx);
+          const unlimited = (await readQuotaPolicy(tx, engine, a.id)).effective.unlimited;
           const scores = [
             quotaWindowScore(usage.short_used_percent, usage.short_resets_at, Date.now()),
             quotaWindowScore(usage.weekly_used_percent, usage.weekly_resets_at, Date.now()),
           ].filter((x): x is number => x !== null);
           candidates.push({
             id: a.id,
-            score: scores.length ? Math.max(...scores) : null,
+            score: unlimited ? 0 : scores.length ? Math.max(...scores) : null,
             active: sessions.filter((s) => s.accountId === a.id).length,
             lastSelectedAt: a.lastSelectedAt,
           });

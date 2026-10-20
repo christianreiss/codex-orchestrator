@@ -1,3 +1,4 @@
+import { readQuotaPolicy } from '../../services/quota-policy.js';
 import { ProviderAccountsService } from '../../services/provider-accounts.js';
 import { hostWithCallerWrapper } from '../../services/host-wrapper-capabilities.js';
 import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../services/pooled-auth-store.js';
@@ -166,7 +167,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp);
     const scope = opaqueId(payload.scope_id, 'scope_id');
     const sessionId = opaqueId(payload.session_id, 'session_id');
-    const quota = await readQuotaControls(ctx, host.vip === 1);
+    let quota = await readQuotaControls(ctx, host.vip === 1, engine);
     const preferred = accountIdFrom(payload.account_id);
     const lease = await accounts.acquire(
       host.id,
@@ -176,6 +177,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       quota.quota_limit_percent,
       preferred,
     );
+    quota = await readQuotaControls(ctx, host.vip === 1, engine, lease.account.id);
     if (engine === ENGINE_GROK) {
       try {
         const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({ accountId: lease.account.id, sourceHostId: host.id, sessionId });
@@ -683,7 +685,7 @@ async function handleRetrieve(
     .where(eq(hostsTable.id, host.id));
 
   const versions = await projectVersions(engine, payload.wrapper_version);
-  const quota = await readQuotaControls(ctx, host.vip === 1);
+  const quota = await readQuotaControls(ctx, host.vip === 1, engine, accountId ?? canonicalRow?.accountId ?? undefined);
   const baseResponse: Record<string, unknown> = {
     account_pool: true,
     account_id: accountId ?? canonicalRow?.accountId ?? undefined,
@@ -704,7 +706,7 @@ async function handleRetrieve(
   ]);
   if (engine === ENGINE_CODEX) Object.assign(baseResponse, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
-  baseResponse.quota_advice = quotaAdviceSnapshot(advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
+  baseResponse.quota_advice = quotaAdviceSnapshot(quota.quota_unlimited ? { ...advice, mode: 'off' } : advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
 
   if (!canonicalRow || !canonicalDigest) {
     return {
@@ -800,7 +802,7 @@ async function buildRetrieveBaseResponse(
     .where(eq(hostsTable.id, host.id));
 
   const versions = await projectVersions(engine, payload.wrapper_version);
-  const quota = await readQuotaControls(ctx, host.vip === 1);
+  const quota = await readQuotaControls(ctx, host.vip === 1, engine, accountIdFrom(payload.account_id));
   const baseResponse: Record<string, unknown> = {
     host: buildHostPayload(host, await readFleetEngineState(ctx.db)),
     api_calls: Number(host.apiCalls ?? 0) + 1,
@@ -817,7 +819,7 @@ async function buildRetrieveBaseResponse(
   if (engine === ENGINE_CODEX) Object.assign(baseResponse, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
   else if (engine === ENGINE_GROK) baseResponse.grok_usage = await readGrokUsageSnapshot(ctx, accountIdFrom(payload.account_id));
-  baseResponse.quota_advice = quotaAdviceSnapshot(advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
+  baseResponse.quota_advice = quotaAdviceSnapshot(quota.quota_unlimited ? { ...advice, mode: 'off' } : advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
   return baseResponse;
 }
 
@@ -1148,7 +1150,7 @@ async function handleStore(
     .where(eq(hostsTable.id, host.id));
 
   const summary = await projectVersions(engine, payload.wrapper_version);
-  const quota = await readQuotaControls(ctx, host.vip === 1);
+  const quota = await readQuotaControls(ctx, host.vip === 1, engine, stored.account_id);
 
   const response: Record<string, unknown> = {
     ...stored,
@@ -1167,7 +1169,7 @@ async function handleStore(
   if (engine === ENGINE_CODEX) Object.assign(response, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) response.claude_usage = claude;
   else if (engine === ENGINE_GROK) response.grok_usage = await readGrokUsageSnapshot(ctx, stored.account_id);
-  response.quota_advice = quotaAdviceSnapshot(advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
+  response.quota_advice = quotaAdviceSnapshot(quota.quota_unlimited ? { ...advice, mode: 'off' } : advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
   return response;
 }
 
@@ -1354,15 +1356,20 @@ function buildHostPayload(host: Host, fleet: FleetEngineState): Record<string, u
 export async function readQuotaControls(
   ctx: RouteContext,
   vip: boolean,
+  engine?: Engine,
+  accountId?: number,
 ): Promise<{
   quota_hard_fail: boolean;
+  quota_unlimited: boolean;
   quota_limit_percent: number;
   quota_week_partition: 0 | 5 | 7;
 }> {
   const settings = new SettingsService(ctx.db);
   const rawPartition = ((await settings.getString('quota_week_partition', 'off')) ?? 'off').trim();
+  const unlimited = engine ? (await readQuotaPolicy(ctx.db, engine, accountId)).effective.unlimited : false;
   return {
-    quota_hard_fail: vip ? false : await settings.getFlag('quota_hard_fail', true),
+    quota_unlimited: unlimited,
+    quota_hard_fail: vip || unlimited ? false : await settings.getFlag('quota_hard_fail', true),
     quota_limit_percent: Math.max(50, Math.min(100, await settings.getInt('quota_limit_percent', 95))),
     quota_week_partition: rawPartition === '5' ? 5 : rawPartition === '7' ? 7 : 0,
   };
