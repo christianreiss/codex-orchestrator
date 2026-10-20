@@ -862,6 +862,10 @@ Fleet → Accounts manages any number of ChatGPT and Claude subscriptions indepe
 
 ## Android companion
 
+Android 0.5.5 automatically closes an open host-access review when a fresh
+snapshot shows the request is resolved or expired, including decisions made on
+another device. A disconnected review stays open with disabled actions.
+
 Android 0.5.0 extends Chats to shared groups, conferences and scope rooms, with
 participant management, attachments, explicit answer requests and a unified native
 light/dark design. See [the Companion contract](android-companion.md#shared-conversations-and-mobile-design-050).

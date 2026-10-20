@@ -1,5 +1,13 @@
 # Android companion
 
+## Resolved host reviews (0.5.5)
+
+An open host-access review closes automatically when a fresh approval snapshot
+shows that the request was allowed or denied elsewhere, removed, or expired.
+While disconnected it stays open with disabled actions until a fresh snapshot
+arrives. Local Allow and Deny still close the review after a successful decision.
+This APK-only change needs no server rollout.
+
 ## Active conversations (0.5.4)
 
 Rooms now apply the Chats rules to their members: a member counts only if its

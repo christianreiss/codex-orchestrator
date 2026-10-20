@@ -155,6 +155,9 @@ class MainActivity : ComponentActivity() {
     var minutes by remember(request.optLong("id")) { mutableIntStateOf(model.defaultMinutes.coerceIn(1, 480)) }
     val current = model.approvals.firstOrNull { it.optLong("id") == request.optLong("id") }
     val active = fresh && current?.let { liveApproval(it, now) } == true
+    LaunchedEffect(request.optLong("id"), fresh, active) {
+        if (fresh && !active) onDismiss()
+    }
     val remaining = current?.let { runCatching { (Instant.parse(it.optString("expires_at")).toEpochMilli() - now) / 1000 }.getOrDefault(0).coerceAtLeast(0) } ?: 0
     ModalBottomSheet(onDismissRequest = onDismiss, modifier = Modifier.testTag("approval-sheet"), shape = SheetShape, dragHandle = { BottomSheetDefaults.DragHandle() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

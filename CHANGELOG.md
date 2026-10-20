@@ -1,5 +1,7 @@
 # 2026-10-20
 
+- Android 0.5.5 automatically closes host-access popups after approval, denial or expiry, including decisions made elsewhere. Connection loss alone keeps the review open with disabled actions.
+
 - **Feedback sweep (cxx 0.9.115).** Wrapper updates report pending privileged daemon installation when its binary differs, unavailable automatic receivers explain the supported informational CLI path, and peer startup failures retain bounded sanitized phase/code evidence without changing ambiguous-work recovery.
 - Workflows can opt in to required source and applicability receipts before linked tasks start. Receipts identify the claiming agent binding and pinned source; missing or mismatched sources remain visible. They are agent attestations, and historical workflows retain their previous behavior.
 - Explicit empty Git Director paths now clear previous declarations; omitted paths retain them. Long project-card release notes retain their full audit history while row summaries fit MySQL limits. Baseline regeneration now atomically emits deterministic MySQL-safe constraint/index names.

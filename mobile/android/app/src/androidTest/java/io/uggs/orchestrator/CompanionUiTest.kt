@@ -953,15 +953,39 @@ class CompanionUiTest {
         compose.onNodeWithTag("agent:$session").assertExists()
         Assert.assertNull(sent.get())
     }
-    @Test fun expiredApprovalCannotBeTapped() {
+    @Test fun remotelyHandledApprovalClosesItsOpenReview() {
+        waitForAgentRows(session)
+        compose.onNodeWithTag("review-next").performClick()
+        compose.onNodeWithTag("approval-sheet").assertIsDisplayed()
+        approved.set(true)
+        changed("approvals")
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("approval-sheet").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("No waiting authorizations").assertIsDisplayed()
+    }
+    @Test fun disconnectedApprovalStaysOpenUntilItsResolvedSnapshotArrives() {
+        waitForAgentRows(session)
+        compose.onNodeWithTag("review-next").performClick()
+        compose.onNodeWithTag("approval-sheet").assertIsDisplayed()
+        networkAvailable.set(false)
+        try {
+            changed("approvals")
+            compose.waitUntil(10000) { compose.onAllNodesWithText("Reconnect to review").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("approval-sheet").assertIsDisplayed()
+            compose.onNodeWithText("Deny").assertIsNotEnabled()
+            approved.set(true)
+        } finally { networkAvailable.set(true) }
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("approval-sheet").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithText("No waiting authorizations").assertIsDisplayed()
+    }
+    @Test fun expiredApprovalClosesItsOpenReview() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
         expiresAt = Instant.now().plusSeconds(8)
         changed("approvals")
         compose.waitUntil(10000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Review next · 1").performClick()
-        compose.waitUntil(12000) { compose.onAllNodesWithText("Already handled or expired").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Allow 8h").assertIsNotEnabled()
-        compose.onNodeWithText("Deny").assertIsNotEnabled()
+        compose.onNodeWithTag("approval-sheet").assertIsDisplayed()
+        compose.waitUntil(12000) { compose.onAllNodesWithTag("approval-sheet").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("review-next").assertDoesNotExist()
         Assert.assertFalse(approved.get())
     }
     @Test fun staleNotificationCannotOpenRemovedConversation() {
