@@ -28,10 +28,38 @@ func TestExtractRateLimitsPrimaryFieldNames(t *testing.T) {
 	}
 }
 
-// used_percentage was this package's original (wrong) guess at the field
-// name, sourced from secondhand community-tool inference rather than the
-// real shipped code. Kept as a fallback purely in case some other code path
-// or version exposes it; `utilization` is what actually ships.
+// Current native versions use used_percentage; older utilization payloads
+// remain supported by TestExtractRateLimitsPrimaryFieldNames.
+func TestExtractRateLimitsUnixResetsReachReport(t *testing.T) {
+	payload := parsePayload([]byte(`{"rate_limits": {
+		"five_hour": {"used_percentage": 0, "resets_at": 1793083284},
+		"seven_day": {"used_percentage": 45, "resets_at": 1793086884}
+	}}`))
+	fiveHour, sevenDay := extractRateLimits(payload)
+	body := reportBody(fiveHour, sevenDay)
+	for key, want := range map[string]string{"five_hour": "2026-10-27T06:41:24Z", "seven_day": "2026-10-27T07:41:24Z"} {
+		window, ok := body[key].(map[string]any)
+		if !ok || window["resets_at"] != want {
+			t.Fatalf("%s report = %#v; want reset %s", key, body[key], want)
+		}
+	}
+	if fiveHour.UsedPercent != 0 || sevenDay.UsedPercent != 45 {
+		t.Fatalf("percentages lost: fiveHour=%+v sevenDay=%+v", fiveHour, sevenDay)
+	}
+}
+
+func TestExtractRateLimitsInvalidResetsKeepUsage(t *testing.T) {
+	for _, raw := range []string{`null`, `false`, `{}`, `-1`, `0`, `1e20`, `"invalid"`} {
+		t.Run(raw, func(t *testing.T) {
+			payload := parsePayload([]byte(`{"rate_limits":{"five_hour":{"used_percentage":28,"resets_at":` + raw + `}}}`))
+			fiveHour, _ := extractRateLimits(payload)
+			if fiveHour == nil || fiveHour.UsedPercent != 28 || fiveHour.ResetsAt != "" {
+				t.Fatalf("invalid reset must preserve usage: %+v", fiveHour)
+			}
+		})
+	}
+}
+
 func TestExtractRateLimitsUsedPercentageFallback(t *testing.T) {
 	payload := parsePayload([]byte(`{
 		"rate_limits": {

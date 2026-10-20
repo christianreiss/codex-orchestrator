@@ -1,5 +1,7 @@
 # 2026-10-20
 
+- Fix missing Codex and Claude quota reset times: accept provider Unix-second timestamps and normalize them to ISO timestamps for MCP, dashboard and wrapper readers. Claude's statusline reporter requires cxx 0.9.113; stored readings gain resets on their next successful refresh/report. Grok continues to expose its actual weekly/monthly period end, with no fabricated short window.
+
 - Added account-scoped quota warnings, short/long quota MCP lookup and heavy-workload guidance, configurable reset recovery through the existing Watchdog, and explicit PayG/unlimited overrides that bypass quota actions. cxx 0.9.112.
 
 - **Workflows and shared runs (cxx 0.9.111).** Versioned instructions now have durable runs, task claims, autonomous cross-host invitations and an automatic communication group. Runs retain a report link from creation, require evaluation before completion, and can publish improvements without rewriting historical versions. Coordination includes the workflow editor and live/final reports. The module starts disabled; disabling it later lets existing runs finish. Workflow permissions apply in both authorization modes.

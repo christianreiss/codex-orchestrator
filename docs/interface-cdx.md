@@ -583,7 +583,10 @@ Quota rows derive their window labels from the provider's `limit_seconds`
 real `0%` reading, and make warning/block copy say `reset unknown` when the
 provider supplies no reset.
 Cached reset countdowns age from `fetched_at`, with an absolute `reset_at`
-taking precedence. A known expired or inconsistent window becomes dim
+taking precedence. The API normalizes numeric Unix-second `reset_at` values
+from `/wham/usage` to ISO timestamps before storage, retaining ISO-string
+compatibility. Existing rows missing a reset acquire it on the next successful
+provider refresh. A known expired or inconsistent window becomes dim
 last-known context and cannot block from its stored percentage or ambiguous
 provider flags; another current window can still enforce its limit. Forecast
 burn rates use the observation time, while time-to-limit counts down from now.

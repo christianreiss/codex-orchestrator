@@ -8,12 +8,9 @@
 // render and feeds a JSON payload on stdin; as of Claude Code >= 2.1.80 that
 // payload includes a `rate_limits` object carrying the account's own
 // already-computed Pro/Max quota for the 5-hour and 7-day windows (see
-// anthropics/claude-code#20636 and its CHANGELOG entry). The exact field
-// name for the percentage — `utilization`, scaled 0-100 — was confirmed by
-// reading it out of the installed @anthropic-ai/claude-code 2.1.235 binary
-// (see rawWindow's doc comment); everything else about the shape is still an
-// inference and parsed defensively. This package has two jobs: print a
-// usable statusline, and — throttled — report those percentages to the
+// anthropics/claude-code#20636 and its CHANGELOG entry). Percentage and reset
+// fields vary by native version (see rawWindow). This package has two jobs:
+// print a usable statusline, and — throttled — report those percentages to the
 // orchestrator so the dashboard's Claude usage card has a live number.
 //
 // This is deliberately the ONLY way this fleet obtains Claude usage/quota
@@ -66,24 +63,30 @@ type reportWindow struct {
 	ResetsAt    string
 }
 
-// rawWindow's field order is confidence order, highest first. `Utilization`
-// is the name actually shipped: read out of the installed
-// @anthropic-ai/claude-code 2.1.235 binary (bin/claude.exe) via `strings`,
-// its internal rate-limit projector reads `r.utilization` and does
-// `r.utilization*100` to produce the exposed percentage — not
-// `used_percentage`, which was this package's original guess sourced from
-// secondhand community-tool inference (a GitHub changelog's prose, not the
-// real field). `used_percentage`/`used_percent` stay as fallbacks in case a
-// different code path or a future version exposes an alternate shape; they
-// cost nothing and only fire when `utilization` is absent. `resets_at` is
-// confirmed correct as-is: the same binary converts an internal Unix-seconds
-// epoch to an ISO 8601 string before exposing it externally.
+// The installed native 2.1.304 statusline projector uses used_percentage and
+// forwards numeric Unix-second resets_at. Retain utilization and ISO-string
+// compatibility, decoding resets independently so bad timestamps retain usage.
 type rawWindow struct {
-	Utilization    *float64 `json:"utilization"`
-	UsedPercentage *float64 `json:"used_percentage"`
-	UsedPercent    *float64 `json:"used_percent"`
-	ResetsAt       string   `json:"resets_at"`
-	ResetAt        string   `json:"reset_at"`
+	Utilization    *float64        `json:"utilization"`
+	UsedPercentage *float64        `json:"used_percentage"`
+	UsedPercent    *float64        `json:"used_percent"`
+	ResetsAt       json.RawMessage `json:"resets_at"`
+	ResetAt        json.RawMessage `json:"reset_at"`
+}
+
+func normalizeResetAt(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		if instant, err := time.Parse(time.RFC3339Nano, text); err == nil {
+			return instant.UTC().Format(time.RFC3339Nano)
+		}
+		return ""
+	}
+	var seconds int64
+	if json.Unmarshal(raw, &seconds) != nil || seconds <= 0 || seconds >= 253402300800 {
+		return ""
+	}
+	return time.Unix(seconds, 0).UTC().Format(time.RFC3339)
 }
 
 func (w *rawWindow) resolve() *reportWindow {
@@ -100,9 +103,9 @@ func (w *rawWindow) resolve() *reportWindow {
 	if pct == nil {
 		return nil
 	}
-	resetsAt := w.ResetsAt
+	resetsAt := normalizeResetAt(w.ResetsAt)
 	if resetsAt == "" {
-		resetsAt = w.ResetAt
+		resetsAt = normalizeResetAt(w.ResetAt)
 	}
 	return &reportWindow{UsedPercent: *pct, ResetsAt: resetsAt}
 }

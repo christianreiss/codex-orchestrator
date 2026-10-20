@@ -1105,6 +1105,11 @@ default is `medium` even though its API default is `high`.
   not understand). An admin-configured statusLine always wins and, when present,
   suppresses this default — which also takes that host's Claude quota telemetry
   offline, since the statusline command is the only source of it.
+  From cxx 0.9.113, the reporter accepts both Unix-second numbers (native
+  2.1.304's statusline shape) and ISO strings for each window's `resets_at`,
+  normalizing valid resets to UTC ISO strings before `/claude/usage/report`.
+  Invalid or absent resets retain the percentage with an unknown reset;
+  existing stored reports gain resets only after a new native statusline report.
 - Legacy clx wrappers (no `claude_settings` support) still receive the wholesale
   `config` body and overwrite as before; new wrappers prefer the merge.
 - On an explicit server refusal (`disabled` / `invalid` / `insecure-denied`) the

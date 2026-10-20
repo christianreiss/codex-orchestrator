@@ -300,6 +300,15 @@ function latestReadingPoint(points: ChatGptHistoryPoint[]): ChatGptHistoryPoint 
   return null;
 }
 
+/** /wham/usage returns Unix seconds; retain compatibility with ISO-string fixtures. */
+function normalizeResetAt(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  // Bound the seconds before conversion so malformed provider data cannot throw
+  // or become an extended-year date that downstream RFC3339 readers reject.
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value >= 253402300800) return null;
+  return new Date(value * 1000).toISOString();
+}
+
 export function parseChatGptUsageJson(json: Record<string, unknown>): Partial<ChatGptSnapshotInsert> {
   const rate = isRecord(json['rate_limit']) ? json['rate_limit'] : {};
   const primary = isRecord(rate['primary_window']) ? rate['primary_window'] : {};
@@ -317,11 +326,11 @@ export function parseChatGptUsageJson(json: Record<string, unknown>): Partial<Ch
     primaryUsedPercent: normalizeInt(primary['used_percent']),
     primaryLimitSeconds: normalizeInt(primary['limit_window_seconds']),
     primaryResetAfterSeconds: normalizeInt(primary['reset_after_seconds']),
-    primaryResetAt: typeof primary['reset_at'] === 'string' ? primary['reset_at'] : null,
+    primaryResetAt: normalizeResetAt(primary['reset_at']),
     secondaryUsedPercent: normalizeInt(secondary['used_percent']),
     secondaryLimitSeconds: normalizeInt(secondary['limit_window_seconds']),
     secondaryResetAfterSeconds: normalizeInt(secondary['reset_after_seconds']),
-    secondaryResetAt: typeof secondary['reset_at'] === 'string' ? secondary['reset_at'] : null,
+    secondaryResetAt: normalizeResetAt(secondary['reset_at']),
     sparkLimitName: typeof spark['limit_name'] === 'string' ? spark['limit_name'].trim() : null,
     sparkMeteredFeature:
       typeof spark['metered_feature'] === 'string' ? spark['metered_feature'].trim() : null,
@@ -330,11 +339,11 @@ export function parseChatGptUsageJson(json: Record<string, unknown>): Partial<Ch
     sparkPrimaryUsedPercent: normalizeInt(sparkPrimary['used_percent']),
     sparkPrimaryLimitSeconds: normalizeInt(sparkPrimary['limit_window_seconds']),
     sparkPrimaryResetAfterSeconds: normalizeInt(sparkPrimary['reset_after_seconds']),
-    sparkPrimaryResetAt: typeof sparkPrimary['reset_at'] === 'string' ? sparkPrimary['reset_at'] : null,
+    sparkPrimaryResetAt: normalizeResetAt(sparkPrimary['reset_at']),
     sparkSecondaryUsedPercent: normalizeInt(sparkSecondary['used_percent']),
     sparkSecondaryLimitSeconds: normalizeInt(sparkSecondary['limit_window_seconds']),
     sparkSecondaryResetAfterSeconds: normalizeInt(sparkSecondary['reset_after_seconds']),
-    sparkSecondaryResetAt: typeof sparkSecondary['reset_at'] === 'string' ? sparkSecondary['reset_at'] : null,
+    sparkSecondaryResetAt: normalizeResetAt(sparkSecondary['reset_at']),
     hasCredits: boolToTinyint(credits['has_credits']),
     unlimited: boolToTinyint(credits['unlimited']),
     creditBalance:

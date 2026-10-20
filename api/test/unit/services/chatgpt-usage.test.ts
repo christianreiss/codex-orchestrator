@@ -7,6 +7,8 @@ import {
 } from '../../../src/services/chatgpt-usage.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 import type { RunnerValidationService } from '../../../src/services/runner-validation.js';
+import { providerAccounts } from '../../../src/db/schema.js';
+import { quotaSnapshot } from '../../../src/services/quota-observation.js';
 
 describe('ChatGPT usage compatibility shape', () => {
   it('normalizes flat snapshot rows into nested quota windows', () => {
@@ -178,6 +180,25 @@ describe('ChatGPT usage compatibility shape', () => {
     expect(series[0]?.points).toEqual([{ ts: '2026-05-20T09:00:00Z', value: 2 }]);
   });
 
+  it('preserves Unix-second resets from the live wham payload in every window', () => {
+    const window = { used_percent: 18, limit_window_seconds: 604800, reset_after_seconds: 587135, reset_at: 1793083284 };
+    const parsed = parseChatGptUsageJson({
+      rate_limit: { primary_window: window, secondary_window: window },
+      additional_rate_limits: [{ limit_name: 'Spark', metered_feature: 'bengalfox', rate_limit: { primary_window: window, secondary_window: window } }],
+    });
+    expect(parsed).toMatchObject({
+      primaryResetAt: '2026-10-27T06:41:24.000Z',
+      secondaryResetAt: '2026-10-27T06:41:24.000Z',
+      sparkPrimaryResetAt: '2026-10-27T06:41:24.000Z',
+      sparkSecondaryResetAt: '2026-10-27T06:41:24.000Z',
+    });
+  });
+
+  it.each([null, undefined, false, {}, -1, 0, Infinity, NaN, 1e20])('keeps an invalid numeric reset unknown: %j', (reset) => {
+    expect(parseChatGptUsageJson({ rate_limit: { primary_window: { used_percent: 0, reset_at: reset } } }))
+      .toMatchObject({ primaryUsedPercent: 0, primaryResetAt: null });
+  });
+
   it('parses ChatGPT wham usage payloads including the Spark lane', () => {
     const parsed = parseChatGptUsageJson({
       plan_type: 'pro',
@@ -231,6 +252,27 @@ describe('ChatGptUsageService.fetchAndStore', () => {
       canonicalAuthFromPayload: () => ({ tokens: { access_token: 'tok', account_id: 'acct' } }),
     } as unknown as RunnerValidationService;
   }
+
+  it('stores numeric provider resets and exposes ISO timestamps through quota_get windows', async () => {
+    const db = createDbFake();
+    db.tables.set(providerAccounts, [{ id: 2, engine: 'codex', state: 'enabled', label: 'ChatGPT' }]);
+    const service = new ChatGptUsageService(db as never, undefined, {
+      accountId: 2,
+      runnerValidation: fakeValidation(),
+      fetchImpl: (async () => new Response(JSON.stringify({ rate_limit: {
+        primary_window: { used_percent: 18, limit_window_seconds: 604800, reset_at: 1793083284 },
+        secondary_window: { used_percent: 0, limit_window_seconds: 18000, reset_at: 1792482084 },
+      } }))) as typeof fetch,
+    });
+    const result = await service.refresh();
+    expect(result.snapshot).toMatchObject({
+      primary_reset_at: '2026-10-27T06:41:24.000Z',
+      primary_window: { resets_at: '2026-10-27T06:41:24.000Z' },
+    });
+    const snapshot = await quotaSnapshot(db as never, 2, 'codex');
+    expect(snapshot?.long).toMatchObject({ used_percent: 18, resets_at: '2026-10-27T06:41:24.000Z' });
+    expect(snapshot?.short).toMatchObject({ used_percent: 0, resets_at: '2026-10-20T07:41:24.000Z' });
+  });
 
   // Regression: chatgpt.com returns 429 once an account is already at its
   // limit, but the body still carries the real rate_limit payload. Treating

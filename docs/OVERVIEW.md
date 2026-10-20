@@ -478,6 +478,12 @@ visible with a choice to load the latest values or discard the draft.
 6) **Quotas**
    - The `quota-cron` Compose sidecar polls ChatGPT `/wham/usage` using canonical tokens immediately on startup and then on `CHATGPT_USAGE_CRON_INTERVAL` (default 15 minutes). It respects the service's five-minute cooldown, writes its health heartbeat only after a usable provider snapshot, and retries on the next interval after failure. Results are cached and surfaced on `/auth` responses and admin dashboards with dual-lane metadata: normal + Spark windows and provider rate flags. `/auth` shapes `active_quota_lane` per calling host (`spark` only for a Spark-preferring host; otherwise `normal`) instead of reusing the account snapshot's default. If no readable snapshot exists, the host still receives `{status:"unavailable", active_quota_lane:...}` so the wrapper renders unknown quota health explicitly.
 
+Quota reset times from Codex's `/wham/usage` and Claude's native statusline
+may be Unix-second numbers. The API (Codex) and cxx 0.9.113+ reporter (Claude)
+normalize them to ISO timestamps for shared readers; existing missing resets
+require a new successful provider refresh or native statusline report. Grok's
+known weekly/monthly period end is retained, without inventing a short window.
+
 ## Safety rails
 
 - **Traffic shaping** — No in-process request-rate limiter is installed. Deployments that need volumetric controls provide them at the trusted reverse proxy or network edge.
