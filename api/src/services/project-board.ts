@@ -433,6 +433,13 @@ function requiredString(args: Record<string, unknown>, key: string): string {
   return value;
 }
 
+// Row summaries have smaller limits than event notes. Count Unicode characters,
+// as MySQL VARCHAR does, and keep the complete explanation in the event log.
+function textSummary(value: string, max: number): string {
+  const characters = Array.from(value);
+  return characters.length > max ? characters.slice(0, max - 1).join('') + '…' : value;
+}
+
 function boundedText(value: string, max: number, param: string): string {
   if (value.length > max) throw new ValidationError(`${param} exceeds ${max} characters`, { param });
   return value;
@@ -2054,7 +2061,7 @@ export class ProjectBoardService {
               // applies: the destination really would be over its limit.
               null,
               note,
-              resolution === 'blocked' ? (note ?? 'Blocked without a stated reason.') : null,
+              resolution === 'blocked' ? textSummary(note ?? 'Blocked without a stated reason.', MAX_BLOCKED_REASON) : null,
             );
 
       // A move into a terminal lane already released the claim; releasing again
@@ -2065,7 +2072,7 @@ export class ProjectBoardService {
           .update(coordProjectCards)
           .set({
             claimReleasedAt: ctx.now,
-            claimReleaseReason: note ? `Released: ${note}` : 'Released by its holder.',
+            claimReleaseReason: note ? textSummary(`Released: ${note}`, 255) : 'Released by its holder.',
             updatedAt: ctx.now,
           })
           .where(eq(coordProjectCards.id, card.id));
@@ -2402,7 +2409,7 @@ export class ProjectBoardService {
         : 'Released by an operator.';
       await ctx.tx
         .update(coordProjectCards)
-        .set({ claimReleasedAt: ctx.now, claimReleaseReason: message, updatedAt: ctx.now })
+        .set({ claimReleasedAt: ctx.now, claimReleaseReason: textSummary(message, 255), updatedAt: ctx.now })
         .where(eq(coordProjectCards.id, card.id));
       await this.emit(
         ctx,

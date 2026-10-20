@@ -790,7 +790,7 @@ export class GitDirectorService {
     const worktreePath = normalizePath(requiredString(args, 'worktree_path'));
     const task = optionalString(args, 'task', MAX_TASK_LENGTH);
     const targetBranch = optionalString(args, 'target_branch', 255);
-    const paths = cleanPaths(args.paths);
+    const paths = args.paths === undefined ? undefined : cleanPaths(args.paths);
 
     return await this.deps.db.transaction(async (tx) => {
       await lockClaimGate(tx);
@@ -802,7 +802,7 @@ export class GitDirectorService {
         .set({
           task: task ?? worktree.task,
           targetBranch: targetBranch ?? worktree.targetBranch,
-          declaredPaths: paths.length > 0 ? paths : worktree.declaredPaths,
+          declaredPaths: paths ?? worktree.declaredPaths,
           status: 'active',
           heartbeatAt: now,
           expiresAt,
@@ -816,7 +816,7 @@ export class GitDirectorService {
         worktree_id: worktree.id,
         task: task ?? worktree.task,
         target_branch: targetBranch ?? worktree.targetBranch,
-        declared_paths: paths.length > 0 ? paths : readPaths(worktree.declaredPaths),
+        declared_paths: paths ?? readPaths(worktree.declaredPaths),
         expires_at: expiresAt,
         peers: await this.peerWire(tx, clone.id, worktree.id, now),
       };
