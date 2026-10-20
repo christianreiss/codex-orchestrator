@@ -88,7 +88,7 @@ test("live report shows results before evidence and keeps evaluation distinct fr
 
 test("final report exposes applied version and sanitizes untrusted Markdown and links",async({page})=>{
   const {report,state}=await fixtures(page);report.status="completed";report.completed_at=report.finished_at;report.evaluation={version:2,status:"final",applied_version:2,draft:{decision:"revise",reason:"Clarified verification.",findings:[{text:"Hash instructions were unclear"}],lessons:["Record digests before handoff."]}};report.summary='# Done\n\n<script>window.workflowXss=1</script><img src=x onerror="window.workflowXss=1">[Unsafe](javascript:alert(1))';report.results={safe:"https://example.test/proof",unsafe:"javascript:alert(1)"};
-  await page.goto(`/admin/workflows/runs/${RUN_ID}`);await expect(page.getByRole("heading",{name:"Workflow improved",exact:true})).toBeVisible();await expect(page.getByRole("link",{name:"Published version 2"})).toBeVisible();await expect(page.getByRole("region",{name:"Changes to tasks"})).toContainText("Compare hashes");await expect(page.locator("h1")).toHaveCount(1);expect(await page.evaluate(()=>Object.hasOwn(window,"workflowXss"))).toBe(false);expect(await page.locator('a[href^="javascript:"]').count()).toBe(0);await expect(page.getByRole("link",{name:"Read group history"})).toBeVisible();expect(state.errors).toEqual([]);
+  await page.goto(`/admin/workflows/runs/${RUN_ID}`);await expect(page.getByRole("heading",{name:"Workflow improved",exact:true})).toBeVisible();await expect(page.getByRole("link",{name:"Published version 2"})).toBeVisible();await page.getByText("Workflow changes",{exact:true}).click();await expect(page.getByRole("region",{name:"Changes to tasks"})).toContainText("Compare hashes");await expect(page.locator("h1")).toHaveCount(1);expect(await page.evaluate(()=>Object.hasOwn(window,"workflowXss"))).toBe(false);expect(await page.locator('a[href^="javascript:"]').count()).toBe(0);await expect(page.getByRole("link",{name:"Read group history"})).toBeVisible();expect(state.errors).toEqual([]);
 });
 
 for(const width of [320,390,768,1440,1920])for(const theme of ["light","dark"] as const)test(`report reflows ${theme} ${width} with accessible status and focus`,async({page},info)=>{
@@ -271,3 +271,46 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 390, 1
     expect(state.errors).toEqual([]);
   });
 }
+
+for (const width of [320, 1440]) for (const theme of ["light", "dark"] as const) test(`nested final handover prioritizes follow-up and keeps evidence usable ${theme} ${width}`, async ({page, context}, info) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const {report, state} = await fixtures(page);
+  report.status = "completed"; report.outcome = "partial"; report.completed_at = report.finished_at;
+  report.summary = "The host is available. Backup acceptance remains open.";
+  report.open_items = ["Run the first full backup when the shared storage service is idle."];
+  report.criteria = [...report.criteria!, {id:"backup", status:"not_met", reason:"No successful backup or restore proof yet."}];
+  report.results = {handover: {fqdn:"test01.example.test", ip:"10.0.0.37/24", vcpus:2, enabled:true, optional:null, ipam:{id:1679, state:"Used"}, resolvers:["10.0.0.53","10.1.0.53"], production_changes:["Created the VM", "Enrolled the host"], proof_url:"https://example.test/proof", unsafe:"javascript:alert(1)"}, tests_not_run:["First backup and restore"]};
+  report.evaluation = {version:2, status:"final", applied_version:2, draft:{decision:"revise", reason:"Clarified backup acceptance.", findings:[{text:"Backup checks need their own acceptance criteria."}], lessons:["Check the shared service before starting."]}};
+  await page.setViewportSize({width, height:900}); await page.emulateMedia({colorScheme:theme}); await page.addInitScript(theme=>localStorage.setItem("codex.theme",theme),theme);
+  await page.goto(`/admin/workflows/runs/${RUN_ID}`);
+  const openWork=page.locator("#open-work"), handover=page.locator("#handover");
+  await expect(openWork).toContainText(report.open_items[0] as string);
+  expect(await openWork.evaluate(el=>el.getBoundingClientRect().top)).toBeLessThan(await handover.evaluate(el=>el.getBoundingClientRect().top));
+  await expect(page.locator("#acceptance")).toContainText("1 of 2 recorded checks met.");
+  await expect(page.getByText("No successful backup or restore proof yet.",{exact:true})).toBeVisible();
+  await expect(page.getByText("Both hashes match.",{exact:true})).not.toBeVisible();
+  const passed=page.getByText("Passed checks (1)",{exact:true}); await passed.focus(); await page.keyboard.press("Enter");
+  await expect(page.getByText("Both hashes match.",{exact:true})).toBeVisible();
+  await expect(handover.getByText("FQDN",{exact:true})).toBeVisible();
+  await expect(handover.getByText("10.0.0.37/24",{exact:true})).toBeVisible();
+  await expect(handover.getByText("Yes",{exact:true})).toBeVisible();
+  await expect(handover.getByText("Not recorded",{exact:true})).toBeVisible();
+  await expect(handover.getByRole("listitem").filter({hasText:"Created the VM"})).toBeVisible();
+  await expect(handover.getByRole("link",{name:"https://example.test/proof"})).toHaveAttribute("href","https://example.test/proof");
+  expect(await page.locator('a[href^="javascript:"]').count()).toBe(0);
+  await expect(handover.locator("pre")).not.toBeVisible();
+  await expect(page.getByText("Produce artifacts",{exact:true})).not.toBeVisible();
+  await page.getByText("Task evidence (2)",{exact:true}).click(); await page.getByText("Produce artifacts",{exact:true}).click();
+  await expect(page.getByRole("link",{name:"Open evidence",exact:true})).toBeVisible();
+  await page.getByText("Raw JSON · Result facts",{exact:true}).click();
+  await expect(handover.locator("pre")).toContainText('"ipam": {');
+  await page.getByText("Raw JSON · Result facts",{exact:true}).click();
+  await page.getByRole("button",{name:"Copy report",exact:true}).click();
+  await expect(page.getByText("Report copied.",{exact:true})).toBeVisible();
+  const copied=await page.evaluate(()=>navigator.clipboard.readText());
+  expect(copied).toContain("Outcome: Partial"); expect(copied).toContain(report.open_items[0]); expect(copied).toContain("FQDN: test01.example.test"); expect(copied).toContain("First backup and restore"); expect(copied).toContain("Full report and evidence:");
+  await page.getByRole("navigation",{name:"Report sections"}).getByRole("link",{name:"Open work",exact:true}).click(); await expect(page).toHaveURL(/#open-work$/);
+  expect(await page.locator("main").evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(2);
+  const axe=await new AxeBuilder({page}).withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"]).analyze(); expect(axe.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)}))).toEqual([]);
+  await page.screenshot({path:info.outputPath(`nested-handover-${theme}-${width}.png`), fullPage:true}); expect(state.errors).toEqual([]);
+});

@@ -265,3 +265,45 @@ state and timestamp components are reused. No design exception was added. Indepe
 operator usability, manual screen-reader, full zoom/text-spacing and Firefox/WebKit
 acceptance of the new source-check controls have not been performed in this sweep.
 These checks establish local behavior; no production deployment was performed.
+
+## Report readability follow-up — 2026-10-20 (not deployed)
+
+The operator supplied run `5f51f65e-10d2-42f8-9e80-9aa91543fd01`.
+BrowserOS read-only inspection found 84,234 characters of page text, including a
+large raw handover before open work and expanded workflow diffs. The fix puts
+open work and unmet checks before readable nested fields/lists, adds section
+links and Copy report, and discloses secondary evidence and raw values.
+Completed-run metadata is collapsed and its old coordinator lease is omitted.
+
+Source base: `c74b5b437c7b81f365a74a79543b49c10ef477fa` on `main`.
+The operator subsequently authorized committing and pushing the source and
+rebuilt `public/admin` to `origin/main`. Production deployment remains outside
+this request; no service restart, database change or stored-run mutation was
+performed. Feedback: `8aa0cf96-196b-4e0d-878c-7ac1defdf4b2`.
+
+Verification:
+
+- `npm --prefix frontend run check`: Svelte 0 errors/0 warnings, 989 unit tests passed.
+- Full `npm --prefix frontend run test:e2e`: 315 tests passed, including ten
+  temporary browser replays of the exact supplied report, in 4.0 minutes.
+- After final metadata/bullet/layout refinements, the workflow and exact-report
+  slices passed again: 51 tests in 51.3 seconds. The final SPA was rebuilt by
+  this command. No implementation changes followed these checks.
+- Exact report replay: light/dark at 320, 390, 768, 1440 and 1920 CSS px;
+  overflow assertions and Axe checks passed. Desktop light and phone dark
+  captures were visually inspected. Four permanent regression cases cover
+  nested values, partial outcomes, unmet-check priority, keyboard disclosure,
+  safe links, raw-value access and clipboard handoff content.
+- The temporary exact-report test and its local JSON snapshot were removed
+  after verification; the permanent canonical suite contains 305 tests.
+  The exact report was fetched read-only through the authenticated browser;
+  no private report data was embedded in committed fixtures or built assets.
+- `git diff --check` passed. Backend, database and Go checks were not run for
+  this presentation-only change.
+
+Affected rules: NAV-2/3, VIS-1/2/3/4/5, INT-5/6/7, ACC-1/3/4 and GOV-2.
+Manual screen-reader, actual browser zoom and independent operator usability
+acceptance remain pending; no WCAG certification or field-performance claim.
+Rollback is limited to this task's source diff and rebuilding the prior SPA;
+existing workflow records need no restoration. Build output replaced generated
+admin assets; no other source or user data was deleted.

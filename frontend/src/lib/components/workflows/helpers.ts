@@ -6,6 +6,7 @@ export function safeWorkflowUrl(value: unknown): string | null {
   try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) ? url.href : null; } catch { return null; }
 }
 export const displayValue = (value: unknown) => typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? "Not recorded";
+export const factLabel = (key: string) => key.replaceAll("_", " ").replace(/^./, c => c.toUpperCase()).replace(/\b(fqdn|ip|ipam|os|ipa|mac|dns|ram|ssh|url|uuid|id|ipv6|vcpus|gib|sha256)\b/gi, word => ({ vcpus: "vCPUs", ipv6: "IPv6", gib: "GiB" }[word.toLowerCase()] ?? word.toUpperCase()));
 export const newWorkflowDocument = (): WorkflowDocument => ({ schema_version: 1, title: "", summary: "", goal: { statement: "", success_criteria: [{ id: "criterion-1", text: "" }] }, inputs: [], tasks: [{ id: "task-1", title: "", instructions: "", acceptance_criteria: [""], depends_on: [], knowledge_ids: [] }], knowledge: [] });
 export function moveTask(document: WorkflowDocument, index: number, delta: number): WorkflowDocument {
   const tasks = [...document.tasks], other = index + delta;

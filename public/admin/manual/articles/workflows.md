@@ -73,8 +73,13 @@ native session.
 
 ## Read the result
 
-The report puts the outcome and generated results first, then unresolved items,
-tasks and evidence, participants and the evaluation.
+The report starts with the outcome, unresolved work and unmet acceptance checks,
+followed by the handover as readable fields and lists. Use the section links to
+jump through a long report, or **Copy report** to copy a readable handoff with
+the outcome, open work and report link.
+
+Expand passed checks, task evidence, participants, workflow changes or history
+when you need their details. **Raw JSON** preserves the exact recorded values.
 
 **Evaluating** means execution has ended but the final review is still open.
 **Completed** means that review is stored; read the outcome to distinguish

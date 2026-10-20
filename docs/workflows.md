@@ -109,9 +109,16 @@ Workflow results do not acknowledge unrelated bus deliveries.
 ## Console and authorization
 
 Workflows live in the existing Coordination hub. The catalog leads to an editor,
-version history, run preparation and run lists. A report shows the result first,
-then unresolved work, tasks and evidence, participants, evaluation and history.
-The live page becomes the final report at the same URL.
+version history, run preparation and run lists. A report shows the result,
+unresolved work and unmet acceptance checks before the handover. Nested handover
+objects use labeled fields, arrays use lists, and safe web references are links.
+Passed checks, completed task evidence, participants, evaluation findings,
+workflow changes and history can be expanded; raw JSON remains available for
+exact values. Active task problems stay visible. Section links navigate long
+reports, and **Copy report** copies a readable handoff including outcome, open
+work, acceptance checks, handover, evaluation and the full report link.
+The live page becomes the final report at the same URL; completed reports no
+longer present the coordinator's historical lease as an active deadline.
 
 `workflows.read` allows authenticated workflow/report reads.
 `workflows.manage` controls definitions and the module switch.

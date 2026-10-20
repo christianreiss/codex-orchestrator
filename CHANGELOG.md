@@ -1,5 +1,7 @@
 # 2026-10-20
 
+- Workflow reports put open work and unmet acceptance checks before the handover, render nested results as readable fields and lists, and disclose verbose evidence and history. Section links and Copy report support human handoffs; raw JSON remains available.
+
 - Android 0.5.5 automatically closes host-access popups after approval, denial or expiry, including decisions made elsewhere. Connection loss alone keeps the review open with disabled actions.
 
 - **Feedback sweep (cxx 0.9.115).** Wrapper updates report pending privileged daemon installation when its binary differs, unavailable automatic receivers explain the supported informational CLI path, and peer startup failures retain bounded sanitized phase/code evidence without changing ambiguous-work recovery.
