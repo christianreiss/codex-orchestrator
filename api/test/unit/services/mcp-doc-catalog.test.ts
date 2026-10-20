@@ -22,6 +22,7 @@ const REGISTRY = resolve(HERE, '../../../src/services/mcp-tools.ts');
 
 /** The catalog bullets, in doc order. Each names one group's tools and nothing else. */
 const GROUPS = [
+  'Workflows',
   'Orchestrator feedback',
   'Host-authenticated tools',
   'Fleet-wide shared memory',

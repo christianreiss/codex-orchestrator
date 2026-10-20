@@ -59,6 +59,9 @@ The four `group: methods` bullets below are the dispatch table: everything after
 
 ## Tools (names satisfy `^[a-zA-Z0-9_-]+$`)
 
+- Workflows: `workflow_list`, `workflow_get`, `workflow_run_list`, `workflow_run_get`.
+  - Read-only instructions, immutable versions and durable run reports. Writes use the session-bound agent bridge; see [Workflows](workflows.md).
+
 The `group: names` bullets below are the tool catalog: everything after the colon is backticked tool names and nothing else. `api/test/unit/services/mcp-doc-catalog.test.ts` compares them against the `name:` registrations in `api/src/services/mcp-tools.ts` and fails on any name that is in one and not the other, so notes about a group go on the indented bullet under it.
 
 - Orchestrator feedback: `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim`, `feedback_update`.

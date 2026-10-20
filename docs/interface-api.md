@@ -2950,3 +2950,45 @@ Unpresented canceled/expired presentations or policy rollback restore eligible o
 accepted or uncertain presentations never replay them. A receiver already running an
 older wrapper must reconnect with cxx 0.9.110 to negotiate this behavior. Browser/OS
 notification totals remain client-specific; the bound is on peer continuation deliveries.
+
+## Workflows and shared runs
+
+See [Workflows](workflows.md) for state transitions, recovery and delivery. All admin endpoints require an authenticated session. Reads require `workflows.read`; definition mutations and state changes require `workflows.manage`; run mutations require `workflows.run`, enforced in both compatible and strict modes. Report access does not grant chat-body access. JSON API namespaces deliberately differ from the SPA route `/admin/workflows`.
+
+- `GET /admin/workflow-definitions/state` — Read module availability.
+- `POST /admin/workflow-definitions/state` — Set enabled with a stable client_request_id.
+- `GET /admin/workflow-definitions` — List definitions with bounded pagination.
+- `POST /admin/workflow-definitions` — Create a validated document and initial immutable version.
+- `GET /admin/workflow-definitions/:id` — Read current definition.
+- `GET /admin/workflow-definitions/:id/versions` — List immutable versions.
+- `GET /admin/workflow-definitions/:id/versions/:version` — Read one pinned document and diff.
+- `POST /admin/workflow-definitions/:id/revise` — Publish document using expected_workflow_version.
+- `POST /admin/workflow-definitions/:id/archive` — Archive using expected_workflow_version and expected_control_version.
+- `POST /admin/workflow-definitions/:id/restore` — Restore archived definition with both expected revisions.
+- `POST /admin/workflow-definitions/:id/revert` — Publish the selected version as a new version; requires expected_workflow_version.
+- `GET /admin/workflow-runs` — List runs by workflow/status with bounded pagination.
+- `POST /admin/workflow-runs` — Prepare a pending run with workflow_id, version (latest or number), title and inputs.
+- `GET /admin/workflow-runs/:id` — Read durable state, membership and task summaries.
+- `GET /admin/workflow-runs/:id/events` — Read ordered events using after_sequence and limit.
+- `GET /admin/workflow-runs/:id/report` — Read the live or frozen final report.
+- `GET /admin/workflow-runs/:id/tasks/:taskId` — Read task attempts and evidence.
+- `POST /admin/workflow-runs/:id/control` — Configure a pending run, pause/resume/block, request cancellation or recover coordinator according to actor authority.
+- `POST /admin/workflow-runs/:id/prepare-cancel` — Cancel an untouched preparation; preserves required evaluation state.
+
+Bridge endpoints authenticate `x-agent-bridge-token` and derive address, host, engine and binding from the native session. Every operation except run-current requires a stable `client_request_id`; replay identical bodies after a lost response. Run controls require `expected_run_version`; coordinator writes also check `coordinator_generation`. Task writes use independent `expected_task_version`; claimed writes additionally require `claim_token` and `claim_generation`. Invalid documents fail validation; stale versions/bindings/claims return 409 without silently overwriting another actor. Full executable field schemas live in `api/src/services/workflows/contract.ts` and generate the native tool declarations.
+
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/create` — Create a definition.
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/revise` — Publish an instruction revision using compare-and-swap.
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/archive` — Archive or restore with instruction and control revisions.
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/run-create` — Create and start a pinned run with the caller as coordinator and member.
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/run-control` — Start a prepared run or control/renew/transfer/recover coordinator ownership.
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/invite` — Invite an active compatible target_address_id, with reason and optional task_ids.
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/membership` — Accept/decline/revoke an invitation, leave or remove a participant.
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/task-claim` — Acquire, renew, release or reconcile a task claim.
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/task-update` — Record an explicit attempt result, retry or justified skip.
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/run-note` — Append knowledge, an observation or an improvement suggestion.
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/run-finish` — Assess all goal criteria and enter mandatory evaluation.
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/run-evaluate` — Save or finalize evaluation; publish a validated improvement atomically.
+- `POST /host/agent-sessions/:id/agent-messaging/workflows/run-current` — Recover current membership, invitations and pending evaluations for the authenticated binding; empty body.
+
+Responses include canonical IDs, versions and an authenticated `report_url`; claims alone return the private claim token. Lists and task/event reads are bounded; follow returned pagination metadata. Evidence carries `id`, `description`, `type`, `time` and optional `uri`, `hash`, `execution_host`, `expires_at`; no arbitrary URI is fetched by the server. Definition changes publish `workflow.changed`, run progress publishes `workflow.run.changed`, and module changes publish `workflow.state.changed`; payloads invalidate query caches and do not carry private claim tokens or chat bodies.

@@ -25,7 +25,8 @@ in workflow inputs, task outputs, chat or reports.
 
 Every run has an authenticated report URL from creation:
 `/admin/workflows/runs/<run-id>`. Preparing a run does not launch a session.
-Its coordinator starts execution and may invite existing agents across hosts
+An admin preparation stays pending until an agent starts it. An agent-created
+run starts atomically with that agent as coordinator. The coordinator may invite existing agents across hosts
 and engines. Any active participant may invite another suitable agent.
 
 Invitations bind the target's canonical address and session generation.
