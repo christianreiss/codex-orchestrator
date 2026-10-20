@@ -6,6 +6,8 @@ Use this document in full as the work order. Start in the repository; current re
 
 Clear the orchestrator feedback queue: every open item ends in a recorded outcome (`resolved`, `dismissed`, `duplicate` or `blocked`, each with evidence), and every fix is merged and, if the operator asked for it, deployed. Delivery is part of the order only as far as the operator's request says: merge back is the default, push and deploy need an explicit mention. A fix that is merged but not deployed is `resolved` with `deployment: not_deployed`.
 
+A solved issue is complete only when the parent has closed the feedback it solved: mark every corresponding canonical report `resolved` with fix and verification evidence, and close duplicate reports as `duplicate`. A commit, merge, deployment or sub-agent report does not replace this feedback update.
+
 Decide routine matters yourself and state the assumption in one line. Keep working on independent items when one is blocked. A missing permission or fact is reported as a blocker, never as success.
 
 ## 1. Orient (parent, read-only)
@@ -90,6 +92,7 @@ For each item: `feedback_claim` acquire (new request id), `feedback_get` for the
 - Fixed: `status: resolved`, `resolution`, `fix_ref` (merge or commit SHA), `verification` (commands and results actually run), `deployment` (`deployed` plus `deployment_ref` as `<sha> on <host> via <script>, <date>; rollback <image>`, or `not_deployed`).
 - Already fixed earlier: resolved with the earlier SHA and your evidence; mark `deployed` only after checking the served artifact.
 - Out of scope or upstream: `dismissed` with a precise reason. Needs a decision or access: `blocked` with the missing piece.
+- Read each updated item back with `feedback_get` to confirm the closing status and evidence were saved. If closure fails or remains unconfirmed, report the feedback id as an unfinished delivery step and retry safely; do not claim the item complete.
 - Release every claim. Finish with `feedback_list` and confirm nothing is left open or in progress; anything left must be named with its reason.
 
 ## 8. Cleanup and report
