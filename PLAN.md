@@ -1,8 +1,9 @@
 # Workflows und gemeinsame Runs — End-to-End-Umsetzungsplan
 
 Stand: 2026-10-20. Repository-Basis: `74d380bb78e6f5f9e1eb931d238e19a14ac43399`.
-Status: Implementierung integriert, automatisierte Abnahme bestanden; Produktionsrollout
-und native Mehrhost-Abnahme laufen. Nachweise und verbleibende Grenzen stehen in
+Status: Implementierung integriert und veröffentlicht, Produktionsrollout und native
+Mehrhost-Abnahme abgeschlossen. Automatisierte Prüfungen bestanden; ausdrücklich
+nicht durchgeführte manuelle und native Engine-Prüfungen stehen mit den Nachweisen in
 [docs/workflows-acceptance.md](docs/workflows-acceptance.md).
 
 ## 1. Produktauftrag und verbindliche Entscheidungen
@@ -874,17 +875,17 @@ Datenbankproblem nötig und muss zwischenzeitliche Runs berücksichtigen.
 
 **Fertig ist die Funktion erst, wenn:**
 
-- [ ] Workflow/Run-Trennung und alle Kardinalitäten serverseitig gelten.
-- [ ] Agenten sich innerhalb eines Runs selbstständig über Host-/Engine-Grenzen
+- [x] Workflow/Run-Trennung und alle Kardinalitäten serverseitig gelten.
+- [x] Agenten sich innerhalb eines Runs selbstständig über Host-/Engine-Grenzen
   einladen und unterschiedliche Tasks sicher parallel bearbeiten.
-- [ ] Jeder Mehragenten-Run genau eine automatisch verwaltete, später lesbare
+- [x] Jeder Mehragenten-Run genau eine automatisch verwaltete, später lesbare
   Kommunikationsgruppe besitzt.
-- [ ] Ergebnisse/Claims/Versionen nach Neustart erhalten sind und verlorene ACKs
+- [x] Ergebnisse/Claims/Versionen nach Neustart erhalten sind und verlorene ACKs
   keine doppelte Arbeit auslösen.
-- [ ] Kein Run ohne Evaluation abgeschlossen wird; Verbesserungen automatisch,
+- [x] Kein Run ohne Evaluation abgeschlossen wird; Verbesserungen automatisch,
   versioniert und ohne Zielveränderung erfolgen.
-- [ ] Jeder Run ab Erstellung einen funktionierenden, authentifizierten Report-Link
+- [x] Jeder Run ab Erstellung einen funktionierenden, authentifizierten Report-Link
   hat und Agenten diesen am Ende ausgeben.
-- [ ] Tests, Dokumentation, gebaute UI und Wrapper dieselbe Lieferung abdecken.
-- [ ] Lokal integriert, remote veröffentlicht und live verifiziert im Abschlussbericht
+- [x] Tests, Dokumentation, gebaute UI und Wrapper dieselbe Lieferung abdecken.
+- [x] Lokal integriert, remote veröffentlicht und live verifiziert im Abschlussbericht
   getrennt ausgewiesen sind; nicht durchgeführte Schritte explizit genannt werden.

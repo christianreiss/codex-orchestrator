@@ -1,7 +1,7 @@
 # Workflow delivery acceptance — 2026-10-20
 
 Initial release source: `f4febc6d43958176aaf87494f730f7edc6241538`; common cxx
-`0.9.111`. API follow-up: `8245b4b8a697f9e58a5ea6c9aac73c24cc68812a`
+`0.9.111`. Final live API: `99d5f20880679fe19a6a05c9c5f32be669f3afb1`
 (no wrapper or SPA change). Scope and decisions: [PLAN.md](../PLAN.md). Domain implementation
 was delegated to Astra, transport and UI to Sol. The integrating agent reviewed
 the changes and ran independent acceptance before the authorized rollout.
@@ -51,6 +51,15 @@ skipped 41 DB tests; it is not acceptance evidence. Reusing the earlier full-sui
 database reproduced three fixture-contamination failures; the new database passed
 all 157 on the identical source. The full pre-follow-up coverage, Go and browser
 runs above were not repeated for these API-only changes.
+
+The subsequent real Portal-finish result regression is fixed in `99d5f208`.
+Independent integrated verification passed **197 tests in nine suites on another
+fresh MySQL database**, including Portal durability and 13 daemon relay cases.
+The latter exercise normal finish before result publication for all three engines,
+immutable result replay, ordinary relay ownership, and rejection after wrong
+claim/relay/user, failed/admin-closed session, expired lease, unrelated session or
+new binding. Typecheck and build passed; focused lint reported 0 errors and two
+existing unused-helper warnings. No wrapper or frontend source changed.
 
 ## Design evidence and remaining limits
 
@@ -137,6 +146,46 @@ native user's `<user>` identity. Feedback
 `ab5d88ea-ba9b-4c6e-960f-d6069e62c8bb` tracks the targeted fix and subsequent
 native resume verification. A separate read-only discovery improvement exposes
 stale memberships/claims rather than hiding the required recovery.
+
+The second deployment of `8245b4b8` completed around 10:36 UTC with backup
+`backups/codex-orchestrator-20261020T103413Z.sql` (306,978,409 bytes), healthy
+services and migration status 83/0/0. The completed report and evaluation survived
+this real API container restart unchanged.
+
+The next native read-only probe `5773bf14-2dd9-44ed-8aff-e7c1f1083798` automatically
+resumed the original native transcript at 10:38:25 UTC and emitted a valid succeeded
+result at 10:38:54. Publication then failed with `agent_messaging_binding_stale`:
+Portal shutdown had released the child binding before its supervisor stored the
+buffered result. Feedback `1434bee7-7503-4396-804f-7d52b0a45534` records this
+separate finding. The message remains ambiguous after its lease expired; the
+original transcript preserves its result. It was not rerun or retroactively
+marked successful. The narrow API fix above preserves only the exact accepted
+receipt across normal completion.
+
+The final API deployment of `99d5f208` completed with exit 0 before 10:50 UTC,
+with backup `backups/codex-orchestrator-20261020T104759Z.sql` (307,033,353 bytes).
+Independent health at 10:50:01 UTC, healthy Compose services, 83 applied / 0
+pending / 0 drifted migrations and the unchanged completed report were verified.
+Published cxx remains 0.9.111 at `f4febc6d`; this follow-up changes neither wrapper
+nor SPA. Authentication, TLS and execution restrictions remained intact.
+
+After an explicit same-transcript idle recovery from the previous unknown state,
+a **new, distinct** read-only health/version request
+`a9886e00-57b9-45d6-be89-0ef43d692009` automatically resumed the coordinator.
+It observed HTTP 200/healthy at 10:51:10.536 UTC and cxx 0.9.111, using the original
+canonical agent and native transcript `01a158cb-5228-7730-833d-365b195cc32e`.
+The server confirmed `completed` at 10:51:26 UTC, no error, and exactly one stored
+`succeeded` task result with evidence. The daemon returned to idle at 10:51:28.
+This proves actual result storage after native exit, beyond a successful final
+message or process exit. Both relay findings are resolved and marked deployed;
+the old ambiguous receipt remains historical evidence.
+
+Both task-owned native helpers on biest and jadon were closed after acceptance.
+The disposable local MySQL was shut down. All delegated worktrees were audited
+clean with their changes integrated or patch-equivalent, then removed along with
+their task branches. Original tips remain recoverable through
+`refs/archive/workflows-20261020/{core,transport,ui,peer-result}`. No unrelated
+worktree, production backup, native transcript or acceptance artifact was deleted.
 
 ## Evidence locations
 
