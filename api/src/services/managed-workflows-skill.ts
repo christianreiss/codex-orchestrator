@@ -22,7 +22,15 @@ The server records and fences work; the agents execute it within their existing 
 1. Read with workflow_list and workflow_get (or workflow://<slug>@<version>). Load
    referenced knowledge through its existing tools and access rules. Record used source
    URIs, read time and available digest/revision with agent_workflow_run_note kind knowledge.
-2. Create with agent_workflow_run_create, or use the run_id of a prepared run. New runs
+   workflow://<slug>@<version> is a read address, not a knowledge-note source.uri.
+   For informational inline notes on historical servers use the run's HTTPS report_url
+   and identify the pinned workflow version/SHA and knowledge IDs in the note. Required
+   knowledge receipts instead use the exact inline URI/digest contract below; a report
+   URL cannot substitute. For external sources always use their actual accepted URI.
+2. Create with agent_workflow_run_create, or use the run_id of a prepared run. Read the
+   returned status and preparation before issuing control actions. A legacy run already
+   returned as running has started: do not start or configure it again, and never create
+   a replacement solely because a redundant start was rejected. New protocol-2 runs
    remain pending for clarification. Take preparation coordination with
    agent_workflow_run_control action coordinator_acquire if no coordinator exists.
    Do not start tasks or perform their external changes before explicit confirmation.

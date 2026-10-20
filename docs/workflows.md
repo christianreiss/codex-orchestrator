@@ -21,6 +21,14 @@ source revisions and useful findings. Fleetwide templates cannot reference
 host-local `memory://` records. Credentials belong in the secrets store, never
 in workflow inputs, task outputs, chat or reports.
 
+`workflow://<slug>@<version>` is a read address, not an accepted knowledge-note
+`source.uri`. For informational inline notes on historical servers, use the run's
+HTTPS `report_url` and name the pinned workflow version/digest and knowledge IDs
+in the text. Required knowledge receipts instead use
+`workflow://<run.workflow_sha256>/knowledge/<knowledge_id>` with the matching
+inline digest and applicability contract; a report URL is not a receipt substitute.
+For external knowledge use the actual accepted source URI, not the report URL.
+
 ## Clarification and confirmation
 
 Every new run, including one from an existing template or a template without inputs,
@@ -53,6 +61,12 @@ an agent to start it; web confirmation launches no process. New run participatio
 requires cxx 0.9.114's `workflow_protocol_version: 2`. Older agents may drain
 historical runs (`preparation: null`) under protocol 1 without acquiring rights
 to new runs. Migration 0085 leaves historical runs unchanged.
+
+Always inspect the returned status and preparation before a control action. On an
+older protocol-1 deployment, agent run creation already returns `running`; do not
+start or configure that run again. A rejected redundant start does not justify
+creating a replacement run. Pending protocol-2 runs still require the complete
+clarification, explicit confirmation and start sequence above.
 
 ## Execution and collaboration
 

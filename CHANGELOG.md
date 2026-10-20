@@ -1,5 +1,7 @@
 # 2026-10-20
 
+- Clarify the shared workflow Skill for legacy runs that are already running after creation, and document accepted knowledge-note source URIs for pinned inline knowledge. Protocol-2 clarification and confirmation gates are unchanged.
+
 - Add User feedback mode with a local durable GitHub gate, explicit automatic-publication opt-in, encrypted PAT configuration and a server review worker. Baked build identities, old-version retests, duplicate/fix references and publication reconciliation keep unsupported or uncertain reports local; Source Developer keeps its existing repair workflow. Reports displays separate version, review and delivery evidence across all three engines.
 
 - Workflow reports put open work and unmet acceptance checks before the handover, render nested results as readable fields and lists, and disclose verbose evidence and history. Section links and Copy report support human handoffs; raw JSON remains available.
