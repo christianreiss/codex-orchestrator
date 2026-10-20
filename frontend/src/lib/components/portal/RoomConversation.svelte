@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from "$app/paths";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { tick, onDestroy } from "svelte";
@@ -184,7 +185,7 @@
     action: "invite" | "remove" | "close",
     addressId?: string,
   ) {
-    if (busy) return;
+    if (busy || room?.workflow_managed || room?.workflow_run_id) return;
     draft.manageRequest ??= {
       room_id: id,
       client_request_id: crypto.randomUUID(),
@@ -257,6 +258,7 @@
       onclick={() => (details = !details)}><Info class="h-4 w-4" /></Button
     >
   </header>
+  {#if room?.workflow_run_id}<div class="flex flex-wrap items-center justify-between gap-2 border-b bg-muted px-4 py-2 text-body-sm"><p>{room.status === "closed" ? "Completed run group · retained history" : "Workflow run group · membership follows the run"}</p><a class="underline" href={`${base}/workflows/runs/${encodeURIComponent(room.workflow_run_id)}`}>Run report and controls</a></div>{/if}
   <div class="relative flex min-h-0 flex-1">
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       {#if !canRead}<p class="p-6 text-body-sm">
@@ -401,7 +403,9 @@
           {#if !writable}<p
               class="border-t p-4 text-body-sm text-muted-foreground"
             >
-              {room.status === "adjourning"
+              {room.workflow_run_id && room.status === "closed"
+                ? "This run is complete. Its group is closed; history remains readable."
+                : room.status === "adjourning"
                 ? "This conference is closing. Outstanding answers can still arrive."
                 : room.status === "adjourned"
                   ? "This conference has ended. Its retained history remains readable."
@@ -542,7 +546,7 @@
                     ? "Available"
                     : "Unavailable"}{member.role === "owner" ? " · Chair" : ""}
                 </p>
-                {#if canWrite && room.status === "open" && ["group", "conference"].includes(room.kind) && member.role !== "owner"}<button
+                {#if canWrite && !room.workflow_managed && !room.workflow_run_id && room.status === "open" && ["group", "conference"].includes(room.kind) && member.role !== "owner"}<button
                     type="button"
                     class="mt-1 min-h-8 text-caption underline"
                     disabled={busy || !!draft.manageRequest}
@@ -551,7 +555,7 @@
                   >{/if}
               </li>{/each}
           </ul>
-          {#if canWrite && room.status === "open" && ["group", "conference"].includes(room.kind)}<label
+          {#if canWrite && !room.workflow_managed && !room.workflow_run_id && room.status === "open" && ["group", "conference"].includes(room.kind)}<label
               class="mt-4 block text-body-sm"
               >Invite an agent<select
                 bind:value={invite}
@@ -571,15 +575,14 @@
               onclick={() => manage("invite", invite)}>Invite</Button
             >{/if}
           <p class="mt-5 text-caption text-muted-foreground">
-            History follows the room’s existing server retention rules. Leaving
-            this view does not delete it.
+            {room.workflow_run_id ? "Run group history is retained with its report. Leaving this view does not delete it." : "History follows the room’s existing server retention rules. Leaving this view does not delete it."}
           </p>
           {#if room.deadline_at}<p
               class="mt-2 text-caption text-muted-foreground"
             >
               Deadline: {new Date(room.deadline_at).toLocaleString()}
             </p>{/if}
-          {#if canWrite && room.kind === "conference" && room.status === "open"}<div
+          {#if canWrite && !room.workflow_managed && !room.workflow_run_id && room.kind === "conference" && room.status === "open"}<div
               class="mt-6 border-t pt-4"
             >
               <Button
@@ -589,7 +592,8 @@
                 onclick={() => { details = false; void tick().then(() => closeOpen = true); }}>End conference</Button
               >
             </div>{/if}
-          {#if draft.manageRequest && !busy}<p class="mt-3 text-caption">
+          {#if room.workflow_run_id}<p class="mt-3 text-body-sm">Invitations, membership and closure are managed by the run. <a class="underline" href={`${base}/workflows/runs/${encodeURIComponent(room.workflow_run_id)}`}>Open run controls</a></p>{/if}
+          {#if draft.manageRequest && !busy && !room.workflow_managed && !room.workflow_run_id}<p class="mt-3 text-caption">
               Operation not confirmed.
             </p>
             <Button

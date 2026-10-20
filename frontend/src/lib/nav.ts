@@ -146,6 +146,7 @@ const REGISTRY: NavDefinition[] = [
     id: "transfers", group: "coordination", route: "/transfers", label: "Shared files",
     description: "Files agents hand each other, and when they expire", keywords: ["file", "transfer", "upload", "download", "artifact", "ttl", "expiry"], icon: FileUp,
   },
+  { id: "workflows", group: "coordination", route: "/workflows", label: "Workflows", description: "Reusable instructions, shared runs and reports", keywords: ["tasks", "runs", "evaluation", "reports"], icon: Waypoints },
   {
     id: "activity", group: "activity", route: "/activity", label: "Activity",
     description: "Admin changes and tool calls", keywords: ["audit", "logs", "mcp", "events", "diagnostics", "troubleshooting"], icon: Activity,
@@ -206,7 +207,7 @@ const HUB_DEFINITIONS: HubDefinition[] = [
   { id: "hosts", section: "Operate", label: "Hosts", description: "Machines and their access", icon: Server, mobilePriority: 2 },
   { id: "agents", section: "Operate", label: "Agents", description: "Running agents, live", icon: RadioTower, mobilePriority: 4 },
   { id: "projects", section: "Operate", label: "Projects", description: "Boards, documents and reports", icon: FolderKanban, mobilePriority: 3 },
-  { id: "coordination", section: "Operate", label: "Coordination", description: "Messages, wake-ups, git merges and shared files", icon: Waypoints },
+  { id: "coordination", section: "Operate", label: "Coordination", description: "Messages, workflows, wake-ups, git merges and shared files", icon: Waypoints },
   { id: "activity", section: "Operate", label: "Activity", description: "What changed, and reports about the orchestrator", icon: Activity },
   { id: "providers", section: "Configure", label: "Providers", description: "Provider accounts and engine defaults", icon: Cpu },
   { id: "library", section: "Configure", label: "Library", description: "Skills, agent rules, memories and reply styles", icon: Library },
@@ -265,6 +266,12 @@ function detailTrail(parent: Breadcrumb, detail: string): Breadcrumb[] {
 export function getBreadcrumbs(pathname: string): Breadcrumb[] {
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length === 0 || pathname === "/dashboard") return [{ label: "Overview" }];
+  if (pathname.startsWith("/workflows/")) {
+    const root = { label: "Workflows", route: "/workflows" };
+    if (segments[1] === "runs") return segments[2] ? [root, { label: "Runs", route: "/workflows/runs" }, { label: "Run report" }] : [root, { label: "Runs" }];
+    if (segments[1] === "definitions") return [root, { label: humanize(segments[2] ?? "Definition") }];
+    return [root, { label: "New workflow" }];
+  }
   if (pathname.startsWith("/hosts/")) return detailTrail({ label: "Hosts", route: "/hosts" }, `Host #${humanize(segments[1] ?? "")}`);
   if (pathname.startsWith("/projects/")) {
     const project = humanize(segments[1] ?? "");

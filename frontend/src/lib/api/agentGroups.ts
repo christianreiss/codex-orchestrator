@@ -11,6 +11,10 @@ export interface AgentGroup {
   description: string | null;
   topic: string;
   member_count: number;
+  workflow_managed?: boolean;
+  workflow_run_id?: string;
+  workflow_report_url?: string;
+  status?: "open" | "closed";
   created_at: string;
   updated_at: string;
 }

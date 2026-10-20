@@ -13,7 +13,7 @@ async function fixture(page: Page) {
     reachable: true,
     role: "member",
   };
-  const rooms = [
+  const rooms: (Record<string, unknown> & { id: string; kind: string; status: string; members: typeof member[] })[] = [
     {
       id: GROUP,
       kind: "group",
@@ -111,9 +111,9 @@ async function fixture(page: Page) {
     if (path === "/admin/agent-messaging/chats") {
       const closed = rooms.filter(
         (r) =>
-          r.kind === "conference" &&
+          (r.status === "closed" && !!r.workflow_run_id) || (r.kind === "conference" &&
           r.status === "adjourned" &&
-          r.members.every((m) => !m.reachable),
+          r.members.every((m) => !m.reachable)),
       );
       const history = new URL(req.url()).searchParams.get("view") === "history";
       return json({
@@ -341,3 +341,19 @@ for (const width of [1920, 1440, 768, 390, 320])
         await expect(page.locator(`#room-${CONF}`)).toBeVisible();
       }
     });
+
+
+test("managed run groups link to their report, fence generic membership and retain closed history", async ({page}) => {
+  const state=await fixture(page);
+  state.rooms[0].workflow_managed=true;state.rooms[0].workflow_run_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  await page.goto(`/admin/agents?view=live&room=${GROUP}`);
+  await expect(page.getByRole("link",{name:"Run report and controls"})).toHaveAttribute("href","/admin/workflows/runs/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+  await page.getByRole("button",{name:"Conversation details"}).click();
+  await expect(page.getByText("Invitations, membership and closure are managed by the run.",{exact:false})).toBeVisible();
+  await expect(page.getByText("Invite an agent",{exact:true})).toHaveCount(0);await expect(page.getByRole("button",{name:"Remove from room"})).toHaveCount(0);
+  await page.keyboard.press("Escape");state.rooms[0].status="closed";await page.reload();
+  await expect(page.getByText("This run is complete. Its group is closed; history remains readable.")).toBeVisible();
+  await expect(page.getByLabel("Message this conversation")).toHaveCount(0);
+  await expect(page.getByText("The release candidate is ready for review.",{exact:false})).toBeVisible();
+  await page.getByRole("button",{name:"History",exact:true}).click();await expect(page.locator(`#room-${GROUP}`)).toBeVisible();
+});

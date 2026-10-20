@@ -134,5 +134,25 @@
   {
     "source": "src/routes/setup/+page.svelte",
     "path": "/admin/setup"
+  },
+  {
+    "source": "src/routes/(coordination)/workflows/+page.svelte",
+    "path": "/admin/workflows"
+  },
+  {
+    "source": "src/routes/(coordination)/workflows/new/+page.svelte",
+    "path": "/admin/workflows/new"
+  },
+  {
+    "source": "src/routes/(coordination)/workflows/definitions/[slug]/+page.svelte",
+    "path": "/admin/workflows/definitions/verify-artifacts"
+  },
+  {
+    "source": "src/routes/(coordination)/workflows/runs/+page.svelte",
+    "path": "/admin/workflows/runs"
+  },
+  {
+    "source": "src/routes/(coordination)/workflows/runs/[id]/+page.svelte",
+    "path": "/admin/workflows/runs/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
   }
 ]
