@@ -1,7 +1,8 @@
 # Workflow delivery acceptance — 2026-10-20
 
-Release source: `f4febc6d43958176aaf87494f730f7edc6241538`; common cxx
-`0.9.111`. Scope and decisions: [PLAN.md](../PLAN.md). Domain implementation
+Initial release source: `f4febc6d43958176aaf87494f730f7edc6241538`; common cxx
+`0.9.111`. API follow-up: `8245b4b8a697f9e58a5ea6c9aac73c24cc68812a`
+(no wrapper or SPA change). Scope and decisions: [PLAN.md](../PLAN.md). Domain implementation
 was delegated to Astra, transport and UI to Sol. The integrating agent reviewed
 the changes and ran independent acceptance before the authorized rollout.
 
@@ -40,6 +41,16 @@ An earlier run against a reused acceptance database encountered pre-existing
 orphan messaging fixtures. The identical source passed the relevant suites on a
 fresh database and then the complete coverage run. No product behavior was changed
 to accommodate contaminated fixtures.
+
+After the native run exposed recovery discovery and daemon relay registration
+issues, the integrated follow-up passed TypeScript/build, focused lint (0 errors,
+1 existing test warning) and **157 tests in eight suites on a new MySQL database**.
+This includes workflow core/transport/HTTP, daemon relay registration and messaging
+durability/schedules/names. A preliminary command omitted `TEST_USE_DB=1` and
+skipped 41 DB tests; it is not acceptance evidence. Reusing the earlier full-suite
+database reproduced three fixture-contamination failures; the new database passed
+all 157 on the identical source. The full pre-follow-up coverage, Go and browser
+runs above were not repeated for these API-only changes.
 
 ## Design evidence and remaining limits
 
