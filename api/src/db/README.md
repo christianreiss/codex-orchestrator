@@ -129,15 +129,26 @@ npm run test:db
 `services: mysql` container — so the baseline-then-migrate path a fresh install
 depends on is exercised on every CI run, not only on install day.
 
-The file is generated from `schema.ts`, not hand-written; regenerate it after a
-schema change with the `drizzle-kit generate` command in its own header.
-`schema-baseline-drift` and `migration-schema-drift` fail if you forget. Because
-it is drizzle output it has the mirror's blind spots — no FULLTEXT indexes, no
-foreign keys — so a database built from it is precisely the `drizzle-kit push`
-shape that 0003 and 0006 carry their backstops for. That is a feature twice over:
-the real-DB suites exercise those backstops rather than asserting against a schema
-that was already correct, and a freshly installed database ends up in the same
-shape as every database that predates the runner.
+The file is generated from `schema.ts`, not hand-written. After a schema change,
+run from `api/`:
+
+```sh
+npx tsx scripts/generate-schema-baseline.ts
+# To inspect or test a candidate without replacing the shipped baseline:
+npx tsx scripts/generate-schema-baseline.ts /tmp/candidate-baseline.sql
+```
+
+The generator uses a fresh temporary directory for Drizzle, strips its statement
+separators, and shortens generated constraint/index names over MySQL's 64-character
+limit to a 47-character prefix plus a stable 16-hex-digit SHA-256 suffix. Existing
+short names and table/column references remain intact. It atomically replaces the
+output only after generation succeeds. `schema-baseline-drift` and
+`migration-schema-drift` check the schema pairing; test candidate SQL against an
+empty disposable MySQL before shipping it.
+
+The mirror includes some foreign keys; others and FULLTEXT indexes still come
+from migrations, including the 0003 and 0006 backstops. Baseline regeneration is
+not a migration and does not rename constraints on an existing deployment.
 
 `scripts/build.ts` copies it to `dist/baseline/schema.sql`, resolved by
 `defaultBaselineFile()` the same way `migrations/` is — `src/db/baseline` under

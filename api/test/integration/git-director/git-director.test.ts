@@ -220,6 +220,15 @@ describe.skipIf(!handle)('git director against a real database', () => {
     expect(joined.worktree_id).toBe(current.worktree_id);
   });
 
+  it('clears explicit empty paths while preserving paths omitted by a heartbeat', async () => {
+    await register(MAIN_WT);
+    await svc.join({ worktree_path: MAIN_WT, paths: ['keys'] }, host);
+    expect((await svc.join({ worktree_path: MAIN_WT }, host)).declared_paths).toEqual(['keys']);
+    const cleared = await svc.join({ worktree_path: MAIN_WT, task: 'Read-only review', paths: [] }, host);
+    expect(cleared.declared_paths).toEqual([]);
+    expect((await svc.join({ worktree_path: MAIN_WT }, host)).declared_paths).toEqual([]);
+  });
+
   it('grants one lease and makes the overlapping contender wait, naming the files', async () => {
     await register(MAIN_WT);
     await register(LINKED_WT);

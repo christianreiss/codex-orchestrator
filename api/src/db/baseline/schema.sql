@@ -13,23 +13,17 @@
 -- Generated from `src/db/schema.ts`, not hand-written. Regenerate after any
 -- schema change, from `api/`, with:
 --
---   npx drizzle-kit generate --dialect=mysql --schema=./src/db/schema.ts --out=/tmp/baseline
---   { sed -n '1,/^$/p' src/db/baseline/schema.sql;                 \
---     sed 's/--> statement-breakpoint//' /tmp/baseline/0000_*.sql; \
---   } > /tmp/baseline/schema.sql
---   mv /tmp/baseline/schema.sql src/db/baseline/schema.sql
+--   npx tsx scripts/generate-schema-baseline.ts
 --
--- The `sed` drops drizzle's own statement separator, which is not SQL and is not
--- a MySQL comment either (`--` only opens one when whitespace follows); what is
--- left is plain semicolon-terminated SQL that `splitSqlStatements` handles like
--- any migration. Nothing else is edited.
+-- The generator strips drizzle statement separators and bounds generated
+-- constraint/index names to MySQL's 64-character limit using a stable hash.
+-- Short names and all table/column references are preserved. A unique temporary
+-- directory forces a complete generation on each invocation; the output replaces
+-- this file atomically only after generation succeeds.
 --
--- The file therefore has the same blind spots as the mirror: drizzle-orm's
--- mysql-core can express neither FULLTEXT indexes nor foreign keys, so a
--- database built from it is exactly the "push-built" database 0003 and 0006
--- carry their backstops for — which is what makes the real-DB suites meaningful
--- against it, and what makes a fresh install identical in shape to every
--- existing one.
+-- FULLTEXT indexes and foreign keys missing from the typed mirror are still
+-- supplied by migrations (notably 0003 and 0006). Foreign keys declared in the
+-- mirror are included in the generated baseline.
 
 CREATE TABLE `admin_events` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,

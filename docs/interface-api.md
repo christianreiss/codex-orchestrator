@@ -775,7 +775,9 @@ All three engine config GET/store routes share the revision contract: `revision`
   `project_card_get`). Advisory throughout: a role that does not match a lane
   and an exceeded WIP limit both attach an advisory to a move that still
   happens, and the only refusal is recording a claim somebody else holds. Reads
-  need `projects.read`, mutations `projects.manage`.
+  need `projects.read`, mutations `projects.manage`. Release notes retain their full
+  text in the project event log; row summaries are bounded to 255 characters
+  (`claim_release_reason`) and 500 characters (`blocked_reason`).
   - `GET /admin/project-board/state` — `{enabled, boards, cards, claimed,
     updated_at}` for the `project_board_enabled` switch. It lives outside
     `/admin/projects/…` because that tree routes `/admin/projects/{slug}` and a
@@ -828,6 +830,8 @@ All three engine config GET/store routes share the revision contract: `revision`
   survive registration TTL, while ended or stale sessions are reclaimed on
   sweep. `git_merge_status` also refreshes an active registration before sweeping;
   an expired merge lease still requires a new request.
+  `git_join` preserves declared paths when `paths` is omitted; an explicit
+  `paths: []` clears previous write scope for read-only work.
   A merge decision compares the request's `changed_paths` with two sets, using
   segment-aware directory prefixes (a declared `docs` covers `docs/x.md`; a
   declared `doc` does not): the live lease holder's changed plus `git_join`

@@ -388,6 +388,36 @@ describe.skipIf(!handle)('project board against a real database', () => {
     expect(new Set(cards.map((c) => c['entity_id'])).size).toBe(1);
   });
 
+  it.each(['blocked', 'handoff'])('releases a %s claim with a long note and preserves the full event note', async (resolution) => {
+    const note = 'Investigating 🧪 '.repeat(40).trim();
+    await claim(1, 'code', agent('chris', '/srv/a'));
+    const before = Number(rowsOf(await exec(`SELECT latest_event_seq s FROM coord_projects WHERE id = ${projectId}`))[0]!['s']);
+    const released = await board.releaseCard({ slug: SLUG, card: 1, resolution, note }, host);
+    expect(released.released).toBe(true);
+    const row = await cardRow(1);
+    expect(row['claim_released_at']).not.toBeNull();
+    expect(Array.from(String(row['claim_release_reason']))).toHaveLength(255);
+    expect(String(row['claim_release_reason'])).toMatch(/^Released: /);
+    if (resolution === 'blocked') expect(Array.from(String(row['blocked_reason']))).toHaveLength(500);
+    const changes = (await projects.listChanges(SLUG, before, host)) as { changes: Array<Record<string, unknown>> };
+    const release = changes.changes.find((change) => change['action'] === 'release');
+    expect(release).toBeDefined();
+    expect((release!['payload'] as Record<string, unknown>)['note']).toBe(note);
+  });
+
+  it('preserves a long operator release reason in the event while bounding the row summary', async () => {
+    await claim(1, 'code', agent('chris', '/srv/a'));
+    const reason = 'Awaiting external evidence. '.repeat(30).trim();
+    const before = Number(rowsOf(await exec(`SELECT latest_event_seq s FROM coord_projects WHERE id = ${projectId}`))[0]!['s']);
+    expect((await board.adminForceRelease(SLUG, 1, reason)).released).toBe(true);
+    const row = await cardRow(1);
+    expect(row['claim_released_at']).not.toBeNull();
+    expect(Array.from(String(row['claim_release_reason']))).toHaveLength(255);
+    const changes = (await projects.listChanges(SLUG, before, host)) as { changes: Array<Record<string, unknown>> };
+    const release = changes.changes.find((change) => change['action'] === 'force_release');
+    expect((release!['payload'] as Record<string, unknown>)['reason']).toBe(`Released by an operator: ${reason}`);
+  });
+
   it('advances a released card to the next lane without being told where', async () => {
     await claim(1, 'code', agent('chris', '/srv/a'));
     await board.moveCard({ slug: SLUG, card: 1, column: 'coding', role: 'code' }, host);
