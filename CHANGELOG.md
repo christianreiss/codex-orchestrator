@@ -1,5 +1,7 @@
 # 2026-10-20
 
+- Installer and legacy-transition test fixtures isolate inherited cdx/clx/cgx config paths and XDG directories, preventing daemon-launched tests from overwriting real signed host configuration. Regression checks preserve external config and signature canaries for all three engines.
+
 - **Fleet Advisor reliability and instructions.** Failed turns deliver their diagnostic reply, and a turn without a valid verdict clears the preceding verdict. Engines with no policy-allowed model are excluded from readiness; an entirely empty selection reports unavailable instead of failing during launch. Advisor prompts identify the selected model, list available tiers, define verdict meanings and the evidence object schema, and treat supplied code/prompts as evidence. Follow-up instructions include the required idempotency UUID and retain the original request kind.
 
 # 2026-10-19

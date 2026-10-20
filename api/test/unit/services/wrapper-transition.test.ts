@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -12,7 +12,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   buildLegacyWrapperTransitionScript,
@@ -26,6 +26,20 @@ import type { VersionSnapshot } from '../../../src/services/version-snapshot.js'
 function writeExecutable(path: string, body: string): void {
   writeFileSync(path, body, 'utf8');
   chmodSync(path, 0o755);
+}
+
+// Daemon launches export explicit config paths; HOME alone does not isolate them.
+function fixtureEnvironment(home: string): NodeJS.ProcessEnv {
+  const configRoot = join(home, '.config', 'codex-orchestrator');
+  return {
+    ...process.env,
+    HOME: home,
+    XDG_CONFIG_HOME: join(home, '.config'),
+    XDG_DATA_HOME: join(home, '.local', 'share'),
+    CDX_CONFIG_PATH: join(configRoot, 'cdx.json'),
+    CLX_CONFIG_PATH: join(configRoot, 'clx.json'),
+    CGX_CONFIG_PATH: join(configRoot, 'cgx.json'),
+  };
 }
 
 function runDualInstallerFixture(
@@ -216,9 +230,8 @@ printf '%s\n' "$url" >> "$CURL_LOG"
     const result = spawnSync('sh', [installer], {
       encoding: 'utf8',
       env: {
-        ...process.env,
+        ...fixtureEnvironment(home),
         BIN_DIR: options.unwritableBin ? join(dir, 'not-a-dir', 'bin') : installBin,
-        HOME: home,
         PATH: `${fakeBin}:/usr/bin:/bin`,
         TERM: 'dumb',
         NO_COLOR: '1',
@@ -339,8 +352,7 @@ esac
     const result = spawnSync('sh', [launcher, '--status'], {
       encoding: 'utf8',
       env: {
-        ...process.env,
-        HOME: home,
+        ...fixtureEnvironment(home),
         XDG_DATA_HOME: dataHome,
         PATH: `${fakeBin}:/usr/bin:/bin`,
         TERM: 'dumb',
@@ -424,6 +436,37 @@ describe('wrapper transition helpers', () => {
     }
     expect(result.wrapperInvocations.filter(command => command.includes('sync'))).toHaveLength(engines.length);
   });
+
+  it.each(['installer', 'codex', 'claude', 'grok'] as const)(
+    '%s fixture preserves inherited host config files', (mode) => {
+      const external = mkdtempSync(join(tmpdir(), 'wrapper-host-canaries-'));
+      const canaries: string[] = [];
+      try {
+        const xdg = join(external, 'xdg');
+        vi.stubEnv('XDG_CONFIG_HOME', xdg);
+        for (const name of ['cdx', 'clx', 'cgx']) {
+          const override = join(external, 'overrides', name + '.json');
+          vi.stubEnv(name.toUpperCase() + '_CONFIG_PATH', override);
+          for (const path of [override, join(xdg, 'codex-orchestrator', name + '.json')]) {
+            mkdirSync(dirname(path), { recursive: true });
+            for (const suffix of ['', '.sig']) {
+              const file = path + suffix;
+              writeFileSync(file, 'preserve-host-config', { mode: 0o600 });
+              canaries.push(file);
+            }
+          }
+        }
+        const result = mode === 'installer'
+          ? runDualInstallerFixture({ engines: ['codex', 'claude', 'grok'] })
+          : runLegacyTransitionFixture(mode);
+        for (const file of canaries) expect(readFileSync(file, 'utf8'), file).toBe('preserve-host-config');
+        expect(result.status, result.stderr).toBe(0);
+      } finally {
+        vi.unstubAllEnvs();
+        rmSync(external, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('transitions a Grok shell persona to the shared cxx binary', () => {
     const result = runLegacyTransitionFixture('grok');
