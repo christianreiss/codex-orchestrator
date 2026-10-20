@@ -3,7 +3,9 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Database } from '../../src/db/client.js';
 import { getTestDb } from '../helpers/test-db.js';
-import { testKeyring } from '../helpers/test-keyring.js';
+import { AgentMessagingService } from '../../src/services/agent-messaging.js';
+import { createWorkflowCollaboration } from '../../src/services/agent-messaging/workflows.js';
+import { loadTestEnv, testKeyring } from '../helpers/test-keyring.js';
 import { WorkflowsService } from '../../src/services/workflows.js';
 import { SettingsService } from '../../src/services/settings.js';
 import {
@@ -261,6 +263,60 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
     }
     await settings.set('workflows_enabled', originalEnabled ?? '0');
     await handle!.pool.end();
+  });
+  it('reports messaging unavailability while keeping admin preparation and cancellation usable', async () => {
+    const prior = await settings.getRaw('agent_messaging_enabled');
+    await settings.set('agent_messaging_enabled', '0');
+    const adminService = new WorkflowsService({
+      db,
+      settings,
+      keyring,
+      collaboration: createWorkflowCollaboration(new AgentMessagingService(db, loadTestEnv(), keyring)),
+    });
+    try {
+      expect(await adminService.state()).toMatchObject({
+        enabled: true,
+        messaging_enabled: false,
+        unavailable_reason: expect.stringContaining('Agent Messaging is disabled'),
+      });
+      const w = (await adminService.mutate(
+        'create',
+        {
+          client_request_id: randomUUID(),
+          slug: `test-${randomUUID()}`,
+          document: document(),
+          reason: 'Prepare while messaging disabled',
+        },
+        admin,
+      )) as Result;
+      workflowIds.push(w.workflow_id);
+      const r = (await adminService.mutate(
+        'run_create',
+        {
+          client_request_id: randomUUID(),
+          workflow_id: w.workflow_id,
+          title: 'Prepared with messaging off',
+          inputs: {},
+        },
+        admin,
+      )) as Result;
+      runIds.push(r.run_id);
+      const canceled = await adminService.mutate(
+        'prepare_cancel',
+        {
+          client_request_id: randomUUID(),
+          run_id: r.run_id,
+          expected_run_version: 1,
+          reason: 'Cancel preparation',
+        },
+        admin,
+      );
+      expect(canceled).toMatchObject({ status: 'evaluating', outcome: 'canceled' });
+      await settings.set('agent_messaging_enabled', '1');
+      expect((await adminService.state()).unavailable_reason).toBeNull();
+    } finally {
+      await settings.set('agent_messaging_enabled', prior ?? '0');
+    }
   });
   it('pins immutable versions, typed defaults and two independent runs', async () => {
     const { w, run } = await setup();

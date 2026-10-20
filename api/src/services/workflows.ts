@@ -23,6 +23,7 @@ import type { Keyring } from '../security/keyring.js';
 import { encrypt, decrypt } from '../security/secret-box.js';
 import { isTruthyFlagValue, type SettingsService } from './settings.js';
 import { wsPublisher } from '../ws/publisher.js';
+import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging/constants.js';
 import {
   WORKFLOWS_ENABLED_KEY,
   canonical,
@@ -69,7 +70,19 @@ export class WorkflowsService {
     return this.deps.settings.getFlag(WORKFLOWS_ENABLED_KEY, false);
   }
   async state() {
-    return { enabled: await this.isEnabled(), protocol_version: 1, draining: true };
+    const [enabled, messagingEnabled] = await Promise.all([
+      this.isEnabled(),
+      this.deps.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false),
+    ]);
+    return {
+      enabled,
+      protocol_version: 1,
+      draining: true,
+      messaging_enabled: messagingEnabled,
+      unavailable_reason: messagingEnabled
+        ? null
+        : 'Agent Messaging is disabled. Definitions and prepared runs remain manageable; enable Agent Messaging for agent execution and invitations.',
+    };
   }
   setEnabled(enabled: boolean, actor: WorkflowActor, clientRequestId: string) {
     return this.mutate('state', { enabled, client_request_id: clientRequestId }, actor);
@@ -533,6 +546,7 @@ export class WorkflowsService {
     return {
       enabled: await this.isEnabled(),
       ...runView(run, this.baseUrl),
+      server_time: now,
       tasks: ts.slice(0, options.limit).map((t) => taskView(t, now)),
       next_cursor: ts.length > options.limit ? options.cursor + options.limit : null,
       members: ms.map((m) => ({
@@ -590,8 +604,10 @@ export class WorkflowsService {
       .orderBy(asc(workflowTaskAttempts.attemptNo))
       .limit(input.limit + 1)
       .offset(input.cursor);
+    const now = new Date().toISOString();
     return {
-      task: { ...taskView(t, new Date().toISOString()), outputs: t.outputs, evidence: t.evidence },
+      server_time: now,
+      task: { ...taskView(t, now), outputs: t.outputs, evidence: t.evidence },
       attempts: attempts.slice(0, input.limit).map((a) => ({
         id: a.id,
         attempt_no: a.attemptNo,
