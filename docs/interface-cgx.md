@@ -921,8 +921,10 @@ required. `cxx daemon install|status|start|stop|uninstall|run` manages a separat
 `cxx-daemon.service`; its account defaults to root and may be an existing user.
 Installation requires root. `cxx update`, wrapper sync/cron and managed
 Codex/Claude/Grok launches reconcile an enabled service before native execution;
-unprivileged runs report `sudo cxx daemon install` as the pending step only while the
-system unit is absent (from cxx 0.9.67; an installed unit stays silent). Accepted
+unprivileged runs report `sudo cxx daemon install` when the system unit is absent,
+its private binary differs from the current wrapper, or the binary comparison
+cannot be verified. Matching binaries stay silent; reconciliation never escalates
+privileges automatically. Accepted
 daemon operations and peer deliveries do not reconcile their parent service.
 From cxx 0.9.48, successful service reconciliation prints an enabled/start
 confirmation; this confirms systemd startup, while connection health is shown
@@ -1349,3 +1351,21 @@ The coordinator presents a saved summary, records explicit user approval of its
 revision (or observes web approval), then starts execution. Answer changes invalidate
 approval; recovery never bypasses it. Existing protocol-1 agents may still finish
 historical runs with `preparation: null`. See [workflow contracts](workflows.md).
+
+## Receiver recovery and peer startup diagnostics
+
+When `agent_listen` reports `receiver_unavailable`, its response names
+`cxx agent listen --seconds 0` as the manual path for queued informational
+messages in the same managed lifecycle. This path completes informational
+deliveries only; it cannot accept work or repair automatic reception. Preserve
+original message IDs, do not resend queued messages, and restore automatic
+reception before opening or joining calls.
+
+Failed relay native launches preserve a bounded startup diagnostic in the relay
+log: `registration`, `connection`, or `identity`, an enumerated error code and,
+when available, the HTTP status. A private temporary file carries these fields
+from the wrapper; its capability is removed before provider execution and the
+relay removes the file after the child ends. Raw stderr, prompts, tokens and
+private tool results are never forwarded as diagnostics. Other failures retain
+the generic native-exit message. These diagnostics do not change ambiguous
+outcomes, transcript checks, or the prohibition on automatic fresh starts.

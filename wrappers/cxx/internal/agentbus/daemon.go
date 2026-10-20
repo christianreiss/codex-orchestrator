@@ -204,15 +204,29 @@ func ReconcileHostDaemon(stdout, stderr io.Writer) error {
 
 const daemonUnitPath = "/etc/systemd/system/cxx-daemon.service"
 
-// unprivilegedDaemonPending names the install step only while the system unit
-// is absent. An installed unit is root-owned and already running the daemon, so
-// a refresh is not worth a notice on every native launch. The unit is 0600, but
-// stat needs only its readable parent directory.
+// unprivilegedDaemonPending keeps current installs quiet, but never treats an
+// existing unit as proof that its private binary matches this wrapper.
 func unprivilegedDaemonPending(unitPath string) error {
-	if _, err := os.Stat(unitPath); err == nil {
-		return nil
+	if _, err := os.Stat(unitPath); err != nil {
+		return errors.New("daemon enabled: run 'sudo cxx daemon install' to install the system service")
 	}
-	return errors.New("daemon enabled: run 'sudo cxx daemon install' to install the system service")
+	exe, err := daemonExecutable()
+	if err != nil {
+		return errors.New("daemon update unverified: run 'sudo cxx daemon install' to reconcile the system service")
+	}
+	return daemonBinaryPending(exe, "/usr/local/lib/cxx-daemon/cxx")
+}
+
+func daemonBinaryPending(wrapper, installed string) error {
+	candidate, candidateErr := residency.DigestFile(wrapper)
+	current, currentErr := residency.DigestFile(installed)
+	if candidateErr != nil || currentErr != nil {
+		return errors.New("daemon update unverified: run 'sudo cxx daemon install' to reconcile the system service")
+	}
+	if candidate != current {
+		return errors.New("daemon update pending: installed binary differs from this wrapper; run 'sudo cxx daemon install'")
+	}
+	return nil
 }
 
 func daemonService(action string, stdout, stderr io.Writer) error {

@@ -47,7 +47,15 @@ func (i Identity) SessionTitle(task string) string {
 
 // RequireIdentity is the final gate before any provider process is started.
 // Signed messaging-disabled launches retain their local-only behavior.
-func (r *ConnectionRuntime) RequireIdentity(ctx context.Context, cfg *config.Config) (Identity, error) {
+func (r *ConnectionRuntime) RequireIdentity(ctx context.Context, cfg *config.Config) (confirmed Identity, failure error) {
+	defer func() {
+		if failure != nil {
+			recordStartupFailure("identity", failure)
+		} else {
+			clearStartupFailure()
+		}
+		_ = os.Unsetenv(StartupFailureEnv)
+	}()
 	if cfg == nil || !cfg.AgentMessaging.Enabled {
 		if os.Getenv("CXX_REBOOT_REQUEST_ID") != "" {
 			return Identity{}, fmt.Errorf("reboot resume requires an enabled, confirmed managed binding")
