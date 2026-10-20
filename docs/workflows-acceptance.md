@@ -93,12 +93,39 @@ their original agent and native-session UUIDs were independently verified.
 Feedback `ae1a6ac8-2a79-4097-8de1-2b81cd068950` was resolved after the identical
 create request succeeded and both hosts recorded successful tasks.
 
-Native shared-run acceptance is in progress:
-[live report](https://codex-auth.uggs.io/admin/workflows/runs/f146e003-2094-40bc-a954-474d868ad49a).
-Invitation, second-member group creation, two host tasks and a targeted question
-with a native reply have run. Independent verification and final evaluation are
-still pending. A separate peer-triggered resume failure is being investigated;
-the supported explicit daemon turn preserved and resumed both original sessions.
+The native shared run completed successfully at 10:27:41 UTC:
+[final report](https://codex-auth.uggs.io/admin/workflows/runs/f146e003-2094-40bc-a954-474d868ad49a).
+Albinia (`ea376b3e-ac0c-4adc-b109-fe5527875e9b`, host 32) invited Anne-Katrin
+(`95b7d016-a143-4ffb-b17a-635e60cbc7b7`, host 35). The second acceptance created
+group `4d2e690e-a2e8-43db-b401-80d2a74bf225`. Both Codex sessions used
+`gpt-6.1-sol`; no native Claude/Grok execution is claimed.
+
+Alpha and beta succeeded, followed by the dependent verification task. The
+coordinator retrieved beta through transfer `fd741315-cfe5-43a3-91ae-808d9bdaa2d5`
+and independently read both files. The integrating agent also read the original
+files on their respective hosts and the retrieved copy on biest:
+
+- Alpha SHA-256: `1f102553f288c03ed436c641b117ae9ef346bdf9245b2d01b0a49666006f7aee`.
+- Beta source and retrieved SHA-256: `ef7f67d72b5d0d8b80a700e0b48651f0f173f9e35e332bd7e9d6cfff03d90da3`.
+- Verification JSON SHA-256: `c917260326704146552895be7297aaa00afde97a9eb2f3b0d450d8a7214b964e`.
+
+Native question `d1316a4d-a1f5-4429-be51-d6a40012b989` has completed delivery
+to the participant and exactly one reply
+`8bc51850-db1e-46f4-a6df-141ed9066825`, with matching `reply_to` and no answer
+recipients. The group is now closed with four retained events. Actual report,
+task detail, group deep link and reload were inspected in the authenticated UI.
+Final evaluation published version 2; independent reads prove the goal and
+criteria unchanged and the original run still pinned to version 1.
+
+The initial pass required explicit daemon turns and report-UI coordinator
+recovery after the original session's binding changed; no new native transcript
+or run was substituted. Recovery preserved successful tasks. A peer resume was
+rejected with HTTP 409 `agent_messaging_lease_lost` before provider launch:
+the server compared a daemon relay's `<user>:daemon` identity literally to its
+native user's `<user>` identity. Feedback
+`ab5d88ea-ba9b-4c6e-960f-d6069e62c8bb` tracks the targeted fix and subsequent
+native resume verification. A separate read-only discovery improvement exposes
+stale memberships/claims rather than hiding the required recovery.
 
 ## Evidence locations
 
