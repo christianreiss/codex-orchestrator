@@ -63,7 +63,7 @@ This is the Fleet Advisor's answer to your question; treat it as a second opinio
 ${body.trim()}
 
 ---
-Follow up with advisor_ask {advisor_session_id: "${id}", question}. When you are done, call advisor_close {advisor_session_id: "${id}"}; it also closes after ${idleMinutes} minutes idle.`;
+Follow up with advisor_ask {advisor_session_id: "${id}", question, client_message_id: <new UUID; reuse on retry>}. When you are done, call advisor_close {advisor_session_id: "${id}"}; it also closes after ${idleMinutes} minutes idle.`;
 }
 
 /** Queue one peer message from the advisor's bus address to its caller, opening the conversation once. */
@@ -149,7 +149,7 @@ export async function advisorTurnCompleted(
   const body =
     result.status === 'completed' && result.reply.trim()
       ? result.reply
-      : `The advisor turn ended with status "${result.status}" and no answer. Ask again or close it.`;
+      : `The advisor turn ended with status "${result.status}".${result.reply.trim() ? `\n\n${result.reply.trim()}` : ' No answer was returned.'}\n\nCheck advisor_status; open a new advisor if this session ended, or close it.`;
   const delivered = await deliverToCaller(
     tx,
     keyring,
@@ -168,7 +168,7 @@ export async function advisorTurnCompleted(
       status: ended ? (nextStatus === 'closed' ? 'closed' : 'failed') : 'open',
       ...(ended ? { closedAt: now, closeReason: row.closeReason ?? (nextStatus === 'closed' ? 'stopped' : 'error') } : {}),
       ...(delivered ? { conversationId: delivered.conversationId } : {}),
-      ...(verdict ? { verdictEnc: encrypt(JSON.stringify(verdict), keyring) } : {}),
+      verdictEnc: verdict ? encrypt(JSON.stringify(verdict), keyring) : null,
       updatedAt: now,
     })
     .where(eq(advisorSessions.id, row.id));

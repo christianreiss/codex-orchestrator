@@ -1,3 +1,7 @@
+# 2026-10-20
+
+- **Fleet Advisor reliability and instructions.** Failed turns deliver their diagnostic reply, and a turn without a valid verdict clears the preceding verdict. Engines with no policy-allowed model are excluded from readiness; an entirely empty selection reports unavailable instead of failing during launch. Advisor prompts identify the selected model, list available tiers, define verdict meanings and treat supplied code/prompts as evidence. Follow-up instructions include the required idempotency UUID and retain the original request kind.
+
 # 2026-10-19
 
 - **cdx, clx and cgx start boxes share one quota row (cxx 0.9.109).** cgx shows its subscription reading as the same bar-and-reset row as cdx and clx instead of a plain text line (plain output: `quota | weekly=9% | reset=2 days`). clx puts an unreported reset in the reset column (`reset unknown`) instead of on a second line under each bar, so the three boxes line up. The boxes also look calmer: section names (System, Quota, Activity) sit on a quiet rule instead of floating, the status carries a dot (`● READY`), and cgx uses a cyan accent instead of green, which already means "ok" in every row. Not published until the next `scripts/deploy.sh` run.

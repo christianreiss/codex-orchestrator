@@ -732,13 +732,14 @@ deploy or recovery.
   const advisorState = context.advisor ?? { enabled: false, reason: 'advisor_disabled' };
   const advisor = advisorState.enabled && context.agentMessaging.enabled ? present(advisorState, `## Fleet Advisor
 
-In doubt about an approach, a fix, a task's tier or an unclear failure, ask the server-hosted advisor
-for a second opinion; it is never authority. Its tools are on \`cxx-agent\`, beside \`agent_*\`.
+For an uncertain fix, task tier or failure, ask the server-hosted advisor for a second opinion;
+it is never authority. Its tools are on \`cxx-agent\`, beside \`agent_*\`.
 \`advisor_ask\` (question, kind verify|tier_check|classify|general,
 stable UUID client_message_id, optional engine/model, cxx transfer ids) returns an advisor session id;
 \`advisor_status\` lists the models you may pick. Include the diff, error and constraints: it cannot see
-your checkout. The answer arrives as an ADVISOR/1 peer message ending in a JSON verdict. Follow up with
-\`advisor_ask\` plus that id. When done, call \`advisor_close\`; idle advisors close after 60 minutes.
+your checkout. Answers arrive as ADVISOR/1 peer messages with JSON verdicts. Follow up via \`advisor_ask\`
+with that session id and a new client_message_id per question; reuse it on retry. Finish with
+\`advisor_close\`; idle advisors close after 60 minutes.
 `) : null;
   const rolesState = context.roles ?? { enabled: false, reason: 'roles_disabled' };
   const roles = rolesState.enabled && context.agentMessaging.enabled ? present(rolesState, `## Agent Roles

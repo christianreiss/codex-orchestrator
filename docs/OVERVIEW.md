@@ -1102,6 +1102,12 @@ verify|tier_check|classify|general, optional `transfer_ids`, optional `engine`/`
 `advisor_status`. They post to `advisor/ask|close|status` under the session's
 agent-messaging routes. Each advisor is a daemon session in the stack's hidden
 `advisor` container; its answers arrive as ordinary peer messages headed `ADVISOR/1`.
+Follow-ups keep the original request kind and pinned model, with a new `client_message_id`
+per question (reuse it only for retries). The prompt identifies the actual advisor model,
+defines verdict meanings and lists allowed model tiers. Status reflects only the latest
+turn's verdict (null for missing/invalid JSON or failed turns); failures retain their
+diagnostic reply. Readiness excludes engines without an allowed model and reports
+`advisor_model_unavailable` if no model remains.
 The tools are served by the `cxx-agent` stdio server, not by the
 orchestrator MCP. The managed `## Fleet Advisor` block is withheld while the installed cxx
 or an executing host daemon's private copy is older than 0.9.100.
