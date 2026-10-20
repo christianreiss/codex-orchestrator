@@ -171,6 +171,7 @@ describe('admin-content routes registration', () => {
       skills: [
         { slug: 'afk', managed: true },
         { slug: 'conference', managed: true },
+        { slug: 'reboot-safe', managed: true },
         { slug: 'skill-manager', managed: true },
         { slug: 'wake-cron', managed: true },
         { slug: 'watchdog', managed: true },
