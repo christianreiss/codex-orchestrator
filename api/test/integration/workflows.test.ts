@@ -576,6 +576,27 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
     expect(restored.version).toBe(3);
     expect((await service.get(w.workflow_id, 2)).document.summary).toBe('Revision two');
   });
+  it('keeps agent execution replies compact while full reads retain the prepared instructions', async () => {
+    const doc = document();
+    doc.tasks = doc.tasks.map((task) => ({ ...task, instructions: 'Detailed pinned instruction. '.repeat(2000) }));
+    const { run } = await setup(doc);
+    const claimed = await claim(run.run_id, 'a');
+    const note = await call('run_note', { run_id: run.run_id, kind: 'note', text: 'Working on the pinned task' });
+    const updated = await result(run.run_id, 'a', claimed);
+    for (const response of [claimed, note, updated]) {
+      expect(response.compact).toBe(true);
+      expect(response.preparation).toMatchObject({ phase: 'ready', summary_revision: run.preparation.summary.revision,
+        confirmed_summary_revision: run.preparation.summary.revision });
+      expect(response.preparation.summary).toBeUndefined();
+      expect(JSON.stringify(response).length).toBeLessThan(4000);
+      expect(response.report_url).toContain(run.run_id);
+    }
+    expect(claimed.claim_token).toEqual(expect.any(String));
+    expect(claimed.task).toMatchObject({ task_id: 'a', status: 'running', version: 2 });
+    expect(updated.task).toMatchObject({ task_id: 'a', status: 'succeeded', version: 3 });
+    const full = await service.runGet(run.run_id) as Result;
+    expect(full.preparation.summary.tasks[0].instructions).toBe(doc.tasks[0]!.instructions);
+  });
   it('replays encrypted claim and result receipts before stale CAS validation', async () => {
     const { run } = await setup();
     const body = {

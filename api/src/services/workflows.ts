@@ -46,6 +46,7 @@ import {
   publish,
   requireAgent,
   runView,
+  compactRunMutation,
   taskView,
   type Session,
 } from './workflows/store.js';
@@ -391,7 +392,8 @@ export class WorkflowsService {
       const err = result._workflow_error as { message: string; code: string; extra: Record<string, unknown> };
       throw new ConflictError(err.message, err.code, err.extra);
     }
-    return result;
+    return actor.kind === 'agent' && ['run_note', 'task_claim', 'task_update'].includes(operation)
+      ? compactRunMutation(result) : result;
   }
   async list(body: unknown = {}) {
     const input = pageSchema

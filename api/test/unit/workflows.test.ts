@@ -5,6 +5,7 @@ import {
   canonical,
   referenceUri,
 } from '../../src/services/workflows/contract.js';
+import { compactRunMutation } from '../../src/services/workflows/store.js';
 const document = () => ({
   schema_version: 1,
   title: 'Test',
@@ -24,6 +25,25 @@ const document = () => ({
   ],
 });
 describe('workflow contract', () => {
+  it('keeps execution revisions, claims and outcomes without repeating long prepared instructions', () => {
+    const instructions = 'Read and execute the pinned task. '.repeat(10000);
+    const result = { run_id: 'run', workflow_id: 'workflow', version: 9, status: 'running',
+      coordinator: { generation: 3, lease_until: 'future' }, report_url: 'https://fleet.example/run',
+      claim_token: 'one-time-token', claim_generation: 4, event_sequence: 12, sequence: 12,
+      task: { task_id: 'one', version: 6, status: 'running', claim: { generation: 4 } },
+      preparation: { phase: 'ready', revision: 2, summary: { revision: 2, tasks: [{ instructions }] },
+        confirmation: { summary_revision: 2, user_confirmation: instructions } },
+      inputs: { long: instructions }, results: { long: instructions } };
+    const compact = compactRunMutation(result);
+    expect(compact).toEqual({ run_id: 'run', workflow_id: 'workflow', version: 9, status: 'running',
+      coordinator: result.coordinator, report_url: result.report_url,
+      claim_token: result.claim_token, claim_generation: 4, event_sequence: 12, sequence: 12,
+      task: result.task, compact: true,
+      preparation: { phase: 'ready', revision: 2, summary_revision: 2, confirmed_summary_revision: 2 } });
+    expect(JSON.stringify(compact).length).toBeLessThan(1000);
+    expect(result.preparation.summary.tasks[0]!.instructions).toBe(instructions);
+    expect(compactRunMutation({ run_id: 'legacy', preparation: null }).preparation).toBeNull();
+  });
   it('requires one goal and tasks but allows zero knowledge', () => {
     expect(workflowDocumentSchema.safeParse(document()).success).toBe(true);
     expect(workflowDocumentSchema.safeParse({ ...document(), tasks: [] }).success).toBe(false);
