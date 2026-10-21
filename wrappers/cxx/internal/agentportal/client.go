@@ -137,6 +137,7 @@ type Session struct {
 	finishMu               sync.Mutex
 	recoveryDone           chan struct{}
 	pendingRegistration    bool
+	registrationStatus     int
 	closing                bool
 	finished               bool
 	terminalErr            error
@@ -304,6 +305,10 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 			// startup failure. Only the supervisor can retry host registration;
 			// the native child receives the same private broker as a healthy run.
 			session.pendingRegistration = true
+			var apiErr *PortalError
+			if errors.As(registerErr, &apiErr) {
+				session.registrationStatus = apiErr.Status
+			}
 			return session, registerErr
 		}
 		return nil, registerErr
@@ -827,6 +832,7 @@ func (s *Session) recoverRegistration(ctx context.Context, observedGeneration ui
 	s.registrationBody = registrationBody
 	s.registrationGeneration++
 	s.pendingRegistration = false
+	s.registrationStatus = 0
 	s.mu.Unlock()
 	return nil
 }

@@ -67,9 +67,15 @@ func (r *ConnectionRuntime) RequireIdentity(ctx context.Context, cfg *config.Con
 	}
 	s := r.session
 	s.mu.Lock()
-	pending, name := s.pendingRegistration, s.LaunchName
+	pending, name, status := s.pendingRegistration, s.LaunchName, s.registrationStatus
 	s.mu.Unlock()
-	if pending || strings.TrimSpace(name) == "" {
+	if pending {
+		if status >= 400 && status <= 599 {
+			return Identity{}, &PortalError{Status: status, Code: "registration_unavailable", Message: fmt.Sprintf("agent identity: registration unavailable (HTTP %d); native launch refused", status)}
+		}
+		return Identity{}, fmt.Errorf("agent identity: registration unavailable; native launch refused")
+	}
+	if strings.TrimSpace(name) == "" {
 		return Identity{}, fmt.Errorf("agent identity: registration has no confirmed name; native launch refused")
 	}
 	// Both reads use the already registered bridge. Discovery is independent

@@ -737,6 +737,10 @@ alias collisions keep the affected name out of allocation.
 
 ### Confirmed launch identity (cxx 0.9.37)
 
+From cxx 0.9.118, an unconfirmed registration reports its HTTP failure status
+instead of implying that the server returned an unnamed registration. Server
+response bodies are excluded from this diagnostic; the identity gate is unchanged.
+
 Before any messaging-enabled provider starts, the wrapper confirms its name,
 engine, launch ID and canonical address with the authenticated session-bound
 `POST /host/agent-sessions/:id/agent-messaging/self` (`{}` body, bridge token).

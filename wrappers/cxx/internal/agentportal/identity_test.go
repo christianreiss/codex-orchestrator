@@ -63,6 +63,32 @@ func TestIdentityProviderProcess(t *testing.T) {
 	os.Exit(0)
 }
 
+func TestIdentityGateExplainsFailedRegistrationWithoutServerBody(t *testing.T) {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+		t.Run(engine, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"code":"server_error","message":"private-fixture-server-body"}`))
+			}))
+			defer server.Close()
+			cfg := &config.Config{Engine: engine, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "fixture"}, AgentMessaging: config.AgentMessaging{Enabled: true}}
+			session, registrationErr := Start(context.Background(), cfg, StartInput{Engine: engine})
+			if registrationErr == nil || session == nil {
+				t.Fatalf("expected retained pending registration: %v", registrationErr)
+			}
+			runtime := &ConnectionRuntime{session: session, broker: &Broker{}}
+			_, err := runtime.RequireIdentity(context.Background(), cfg)
+			if err == nil || !strings.Contains(err.Error(), "registration unavailable (HTTP 500)") || !strings.Contains(err.Error(), "native launch refused") {
+				t.Fatalf("missing registration failure diagnostic: %v", err)
+			}
+			if strings.Contains(err.Error(), "private-fixture") {
+				t.Fatalf("server body leaked: %v", err)
+			}
+		})
+	}
+}
+
 func TestIdentityGateAndProviderContextAcrossEngines(t *testing.T) {
 	const uuid = "12345678-1234-4123-8123-123456789abc"
 	for _, engine := range []string{"codex", "claude", "grok"} {

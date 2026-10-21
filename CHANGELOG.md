@@ -1,5 +1,7 @@
 # 2026-10-21
 
+- **Launch diagnostics (cxx 0.9.118).** An unavailable registration reports its HTTP status across Codex, Claude and Grok without exposing the server response body. Confirmed identity is still required before starting a provider.
+
 - Deployment now captures API build provenance after updating Git, preventing a fast-forward rollout from reporting the previous commit.
 
 - **Codex setup before the first prompt (cxx 0.9.117).** Treat Codex 0.163.0's specific not-yet-materialized turn-history response as an empty history. The receiver now stays ready and sets the assigned name in the native status line before the first user message; the task title follows once known. Unrelated native read errors still stop admission.
