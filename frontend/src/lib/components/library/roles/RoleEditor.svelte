@@ -270,9 +270,9 @@
   <Dialog.Content>
     <Dialog.Header>
       <Dialog.Title>Publish {slug} v{(detail?.versions[0]?.version ?? 0) + 1}</Dialog.Title>
-      <Dialog.Description>Creates an immutable version. New activations get it; holders are told and switch at their next task boundary unless the role says otherwise.</Dialog.Description>
+      <Dialog.Description>Creates an immutable version. New activations use it; existing holders find updates in role history and switch at their next task boundary unless the role says otherwise.</Dialog.Description>
     </Dialog.Header>
-    <FormField id="role-changelog" label="Changelog" hint="Optional; holders see it in the update notice.">
+    <FormField id="role-changelog" label="Changelog" hint="Optional; shown in version history.">
       <Textarea id="role-changelog" rows={3} bind:value={changelog} aria-describedby="role-changelog-hint" />
     </FormField>
     <Dialog.Footer class="gap-2">

@@ -77,9 +77,10 @@ Git Director registrations require absolute worktree, repository and common-dire
 
 ## Agent notifications
 
-With Agent Messaging enabled, the server informs affected active agents about
-changed work scope, merge requests, lease release or recognized expiry, and
-operator decisions. These are hints to reread Director and local Git state;
+With Agent Messaging enabled, the server alerts current waiting requests when
+they need to recheck, and exact live owners about critical lease or operator
+changes. Routine repository bookkeeping stays in history, dashboard updates and
+explicit reads. Alerts are hints to reread Director and local Git state;
 notices neither grant a merge lease nor promise queue order. They target the
 registered session and never wake ended sessions. Ordinary heartbeats,
 registrations and commit-format changes do not create extra messages.

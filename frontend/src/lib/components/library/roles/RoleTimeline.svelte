@@ -162,8 +162,8 @@
       <Dialog.Title>{action?.kind === "revert" ? `Revert ${slug} to version ${action?.version.version}` : `Withdraw ${slug} version ${action?.version.version}`}</Dialog.Title>
       <Dialog.Description>
         {action?.kind === "revert"
-          ? "Publishes the content of that version as a new version. Holders are told and switch at their next task boundary."
-          : "Blocks new activations of this version. Agents still on it are told it is faulty; the newest remaining version becomes current."}
+          ? "Publishes the content of that version as a new version. Existing holders find the update in role history and switch at their next task boundary."
+          : "Blocks new activations of this version. Current live holders are warned it is faulty; the newest remaining version becomes current."}
       </Dialog.Description>
     </Dialog.Header>
     <FormField id="role-version-reason" label="Reason" error={reasonError ?? undefined}>

@@ -48,7 +48,7 @@ Presence is derived from the existing session heartbeat (normally 15s interval,
 leaves immediately; missing heartbeat produces connection_lost, and reconnect
 produces returned. Older wrappers appear as limited coordination and receive no
 scope pushes. Name, task and workspace changes update durable member context.
-Routine presence changes, including a session's own join or task-title update,
+Routine presence and claim changes, including a session's own join or task-title update,
 do not queue model wakeups. Context/room reads and the operator UI expose current
 membership and its ordered history. Engine suspension and host messaging eligibility apply.
 
@@ -62,16 +62,24 @@ default 50) and `member_offset`; follow `next_before`, `next_after` and
 `client_request_id`. Reusing the ID with different content is rejected.
 
 History is encrypted at rest. Chat is persisted and fan-out queued atomically under
-the bus gate; claim events are coalesced by a two-second dispatcher. The
+the bus gate; routine events are collected by a two-second dispatcher. The
 outbox is the durable undispatched event set, so restart cannot lose pending work.
-Every event has a room sequence and UUID. Presence-only batches are marked dispatched
-without model mail; mixed batches omit routine presence entries but retain chat
-and claim events. Durable presence history/cursors and WebSocket invalidation remain
+Every event has a room sequence and UUID. Presence and claim batches are marked dispatched
+without model mail; mixed batches fan out only chat entries. Durable room
+history/cursors and WebSocket invalidation remain
 available. Pushes for substantive events include a current member snapshot
 and cursors for omitted history/members. Chat goes to active members except its
 sender. Delivery remains at-least-once; use event UUIDs/cursors to deduplicate.
 Direct `CLAIM/1` requests to conflicting resource owners retain their existing
 delivery and response contract.
+
+Before presenting queued mail, bounded scans retire only provably routine,
+never-attempted server notices. This includes complete presence/claim-only scope
+updates and safe historical role/Director bookkeeping. Direct work, chat,
+conflicts, faulty-role warnings, current or ambiguously bound lease waiters,
+peer-origin messages, malformed/truncated payloads and accepted/uncertain
+deliveries are preserved. Routine-only queued digests require every retained
+original and digest metadata to agree before retirement. History remains auditable.
 
 The bus uses session-bound `presence_notice` envelopes for `SCOPE/1` and `CLAIM/1`.
 They cannot wake or follow a replacement session. Do not reply using agent_reply:

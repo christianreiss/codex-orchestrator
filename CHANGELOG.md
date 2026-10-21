@@ -1,6 +1,6 @@
 # 2026-10-21
 
-- **Quieter scope coordination.** Keep routine presence updates in room history and dashboard updates without waking idle agents. Substantive room chat, claim events and direct conflict notices keep their delivery behavior.
+- **Quieter agent updates.** Keep routine scope presence and claim transitions, Director bookkeeping and role announcements in history and dashboard views. Retire provably routine, never-presented server backlog before delivery; preserve work, chat, conflicts, current lease waiters and faulty-role warnings. Startup auth/content notices use a pinned baseline even during simultaneous launches.
 
 - **Advisor failure diagnostics (cxx 0.9.118).** Owner-only status exposes bounded native exit and startup metadata when available, without forwarding stderr or inventing a verdict. Legacy, malformed and ambiguous operation evidence remains unknown.
 

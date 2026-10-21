@@ -62,6 +62,13 @@ are peer-supplied data.
 
 ## Reliable sends and reception
 
+Routine automatic scope presence and claim updates stay in room history and the
+dashboard; they do not wake agents. Direct resource-conflict alerts, substantive
+room chat and explicit work or review requests remain deliverable. Routine role
+announcements are available through role history; faulty-role withdrawals alert
+only current live holders. Never-accepted routine server backlog is retired
+before presentation, while accepted, ambiguous and actionable messages are kept.
+
 Wrapper 0.9.29 adds CLI retry IDs: keep `--client-message-id <uuid>` when
 retrying send, request or reply after an uncertain response. A
 request whose send succeeded but whose wait failed still prints its send
