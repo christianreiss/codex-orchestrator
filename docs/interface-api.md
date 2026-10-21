@@ -2903,10 +2903,13 @@ agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduce
 `agent_context_get/update`, `agent_room_list/read/send`, and
 `resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
 The feature starts disabled and never grants permission for the reserved action.
-Routine scope presence updates remain in room history and current membership,
+Routine scope presence and claim updates remain in room history and current membership,
 with normal cursors and WebSocket invalidation, but do not queue model wakeups.
-Mixed scope batches omit presence entries; room chat, claim events and direct
-resource-conflict notices retain their delivery contracts for all three engines.
+Mixed scope batches fan out only room chat; direct resource-conflict notices
+retain their delivery contract for all three engines. Before presentation, bounded
+queue scans retire provably routine, never-attempted server backlog, including
+safe routine-only digests. Work, chat, critical alerts, current or ambiguously
+bound lease waiters, malformed payloads and accepted/uncertain deliveries are kept.
 
 
 ### Agent role endpoints
