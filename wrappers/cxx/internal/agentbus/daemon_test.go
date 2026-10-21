@@ -59,6 +59,55 @@ func TestDaemonRejectsUnknownEngine(t *testing.T) {
 	}
 }
 
+func TestDaemonNativeFailureDoesNotForwardUnrecognizedDiagnostics(t *testing.T) {
+	original := daemonExecutable
+	t.Cleanup(func() { daemonExecutable = original })
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			dir := t.TempDir()
+			script := filepath.Join(dir, "native-fixture")
+			body := "#!/bin/sh\nprintf '%s' '{\"stage\":\"registration\",\"code\":\"private-token-and-prompt\",\"status\":409}' > \"$CXX_NATIVE_STARTUP_FAILURE_PATH\"\nprintf '%s' 'private-token-and-prompt' >&2\nexit 7\n"
+			if err := os.WriteFile(script, []byte(body), 0700); err != nil {
+				t.Fatal(err)
+			}
+			daemonExecutable = func() (string, error) { return script, nil }
+			result := runDaemonOperation(context.Background(), daemonOperation{ID: newUUID(), Claim: newUUID(), Cwd: dir, Engine: engine})
+			if result.Status != "failed" || result.Reply != "Native process exited unsuccessfully; exit_status=7" {
+				t.Fatalf("unsafe terminal diagnostic: %+v", result)
+			}
+		})
+	}
+}
+
+func TestDaemonNativeFailureReportsBoundedStartupEvidence(t *testing.T) {
+	original := daemonExecutable
+	t.Cleanup(func() { daemonExecutable = original })
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			dir := t.TempDir()
+			probe := filepath.Join(dir, "diagnostic-path")
+			t.Setenv("CXX_DAEMON_TEST_DIAGNOSTIC_PATH", probe)
+			script := filepath.Join(dir, "native-fixture")
+			body := "#!/bin/sh\nprintf '%s' \"$CXX_NATIVE_STARTUP_FAILURE_PATH\" > \"$CXX_DAEMON_TEST_DIAGNOSTIC_PATH\"\nprintf '%s' '{\"stage\":\"registration\",\"code\":\"agent_messaging_lease_lost\",\"status\":409}' > \"$CXX_NATIVE_STARTUP_FAILURE_PATH\"\nprintf '%s' 'private-token-and-prompt' >&2\nexit 1\n"
+			if err := os.WriteFile(script, []byte(body), 0700); err != nil {
+				t.Fatal(err)
+			}
+			daemonExecutable = func() (string, error) { return script, nil }
+			result := runDaemonOperation(context.Background(), daemonOperation{ID: newUUID(), Claim: newUUID(), Cwd: dir, Engine: engine})
+			if result.Status != "failed" || result.Reply != "Native process exited unsuccessfully; exit_status=1; startup stage=registration code=agent_messaging_lease_lost http=409" {
+				t.Fatalf("missing bounded terminal diagnostic: %+v", result)
+			}
+			path, err := os.ReadFile(probe)
+			if err != nil || len(path) == 0 {
+				t.Fatalf("startup capability unavailable: %q %v", path, err)
+			}
+			if _, err := os.Stat(string(path)); !os.IsNotExist(err) {
+				t.Fatal("startup diagnostic was not cleaned", err)
+			}
+		})
+	}
+}
+
 func TestDaemonNativeAdaptersProduceResumableResults(t *testing.T) {
 	original := daemonExecutable
 	defer func() { daemonExecutable = original }()

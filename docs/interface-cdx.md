@@ -1633,6 +1633,9 @@ agent-messaging routes. Each advisor is a daemon session in the stack's hidden
 The tools are served by the `cxx-agent` stdio server, not by the
 orchestrator MCP. The managed `## Fleet Advisor` block is withheld while the installed cxx
 or an executing host daemon's private copy is older than 0.9.100.
+Terminal advisor status includes nullable bounded `diagnostic` metadata: native
+exit status and vetted startup stage/code/HTTP status. Missing, legacy or ambiguous
+evidence stays null; raw stderr is never forwarded and no verdict is fabricated.
 See [interface-api.md](interface-api.md#fleet-advisor).
 
 Hosts show the daemon indicator only when enabled. Green means connected and

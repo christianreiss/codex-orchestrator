@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -804,6 +805,14 @@ func runDaemonOperation(ctx context.Context, op daemonOperation) daemonResult {
 		// This parent holds the writer lock until the child has exited.
 		cmd.Env = append(cmd.Env, "CXX_DAEMON_NATIVE_WRITER_ID="+op.Upstream)
 	}
+	startupFile, _ := os.CreateTemp("", "cxx-daemon-startup-*.json")
+	startupPath := ""
+	if startupFile != nil {
+		startupPath = startupFile.Name()
+		defer os.Remove(startupPath)
+		defer startupFile.Close()
+	}
+	cmd.Env = append(cmd.Env, agentportal.StartupFailureEnv+"="+startupPath)
 	var output, diagnostic tailBuffer
 	output.limit = workerOutputLimit
 	diagnostic.limit = 64 * 1024
@@ -823,7 +832,16 @@ func runDaemonOperation(ctx context.Context, op daemonOperation) daemonResult {
 	}
 	reply, upstream := parseNativeOutput(op.Engine, output.Bytes())
 	if err != nil {
-		return daemonResult{Status: "failed", Reply: "Native process exited unsuccessfully; inspect the native session on the host", Upstream: upstream}
+		failure := "Native process exited unsuccessfully"
+		if cmd.ProcessState != nil {
+			failure += fmt.Sprintf("; exit_status=%d", cmd.ProcessState.ExitCode())
+		}
+		if startupFile != nil {
+			if startup := agentportal.ReadStartupFailure(startupFile); startup != "" {
+				failure += "; " + startup
+			}
+		}
+		return daemonResult{Status: "failed", Reply: failure, Upstream: upstream}
 	}
 	if reply == "" || upstream == "" {
 		return daemonResult{Status: "unknown", Reply: "Native process ended without a verifiable session result"}

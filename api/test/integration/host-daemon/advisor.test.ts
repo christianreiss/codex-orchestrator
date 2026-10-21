@@ -265,10 +265,22 @@ describe.skipIf(!handle)('Fleet Advisor over the host daemon', () => {
     const strangerAddress = await insertAddress('Stranger', callerHostId);
     const stranger = { session: await insertNative(strangerAddress, callerHostId), host: caller.host };
     await expect(advisor.close(stranger, { advisor_session_id: opened.advisor_session_id })).rejects.toMatchObject({ status: 403 });
+    await expect(advisor.status(stranger, { advisor_session_id: opened.advisor_session_id })).rejects.toMatchObject({ status: 403 });
     const self = { session: await insertNative(advisorAddress), host: caller.host };
     await expect(
       advisor.ask(self, { question: 'Help me', client_message_id: randomUUID() }),
     ).rejects.toMatchObject({ code: 'advisor_recursion' });
+    await advisor.close(caller, { advisor_session_id: opened.advisor_session_id });
+  });
+
+  it('exposes bounded terminal metadata in status and the failure message without inventing a verdict', async () => {
+    const opened = await advisor.ask(caller, { question: 'Review the supplied artifact', client_message_id: randomUUID() });
+    const reply = 'Native process exited unsuccessfully; exit_status=1; startup stage=identity code=agent_identity_conflict http=409';
+    await runTurn(reply, undefined, 'failed');
+    expect(await advisor.status(caller, { advisor_session_id: opened.advisor_session_id })).toMatchObject({
+      status: 'failed', verdict: null, diagnostic: { code: 'native_exit', exit_status: 1, startup_stage: 'identity', startup_code: 'agent_identity_conflict', http_status: 409 },
+    });
+    expect(decrypt((await inbox()).at(-1)!.contentEnc, ctx.keyring)).toContain(reply);
     await advisor.close(caller, { advisor_session_id: opened.advisor_session_id });
   });
 

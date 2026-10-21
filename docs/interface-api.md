@@ -2432,7 +2432,17 @@ available model (highest tier, canonical engine order). The model is pinned on t
 - `POST .../advisor/close` `{advisor_session_id}`: the caller's done confirmation; stops the daemon session and records `close_reason: done`. Only the opening agent may close or follow up (403 otherwise).
 - `POST .../advisor/status` `{advisor_session_id?}`: one advisor, or the caller's last 20 plus `availability` (`enabled`, `reason`, `engines`, `models[{engine, model, tier}]`, `default`).
 
-Advisor view fields: `advisor_session_id`, `kind`, `status` (`starting|open|closed|failed`, derived from the daemon session when it ended without the advisor row hearing of it), `busy`, `turns`, `advisor_address`, `conversation_id`, `verdict`, `close_reason` (`done|idle|stopped|error`), `created_at`, `closed_at`.
+Advisor view fields: `advisor_session_id`, `kind`, `status` (`starting|open|closed|failed`, derived from the daemon session when it ended without the advisor row hearing of it), `busy`, `turns`, `advisor_address`, `conversation_id`, `verdict`, `close_reason` (`done|idle|stopped|error`), `diagnostic`, `created_at`, `closed_at`.
+
+`diagnostic` is nullable terminal metadata from the latest daemon operation:
+`{code:"native_exit", exit_status:-1..255, startup_stage?, startup_code?, http_status?}`.
+Startup fields use only the existing registration/connection/identity and error-code
+allowlists; HTTP status is 400–599. Updated daemons include this bounded evidence in
+the existing failure reply, using a private startup file removed after child exit.
+Native stderr, prompts and provider error text are never copied into status diagnostics.
+Missing, legacy, unrecognized or ambiguously ordered operation evidence returns null;
+the server does not infer turn order from UUIDs when newest timestamps tie. The
+opening-agent authorization and failed-turn `verdict:null` behavior remain unchanged.
 
 Delivery: when a turn completes, the server queues a `kind: message`, `delivery_class: coordination` peer message from the advisor's own bus address to the caller, headed `ADVISOR/1 advisor_session_id=… turn=… kind=…`, in one conversation per advisor. The native answer is expected to end in a fenced JSON verdict `{verdict: agree|disagree|needs_info|n/a, tier?, recommended_model?, summary, evidence[]}`; the last valid block of the latest completed turn is stored encrypted. A failed turn or a turn without a valid verdict clears the preceding verdict (`verdict: null`). An idle-sweep close sends a `delivery_class: notice` message (`closed reason=idle`). A failed turn still sends the caller a message with its status and diagnostic reply (or an explicit no-answer notice).
 
