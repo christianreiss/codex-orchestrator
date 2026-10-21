@@ -50,6 +50,16 @@ function context(
 
 const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
 
+describe('ordinary operator updates', () => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s reserves attention for actionable exceptions', (engine) => {
+    const out = renderManagedAgentFeatures('# Fleet rules', context(engine, { agentMessaging: enabled() }));
+    expect(out.body).toContain('Routine progress, successful checks and completion reports are normal messages');
+    expect(out.body).toContain('`agent_portal_say` for proactive updates');
+    expect(out.body).toContain('omit severity from `agent_receiver_reply`');
+    expect(out.body).toContain('Only actionable exceptions needing operator attention');
+  });
+});
+
 describe('automatic fleet work reflection guidance', () => {
   it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s reviews completed work through its existing Skill mechanism', (engine) => {
     // Reflection remains available with reporting disabled; the Skill handles
@@ -260,7 +270,8 @@ describe('served document size budget', () => {
       // 2026-10-18: +2000 for the new mandatory scope/claim protocol (bounded below).
       // 2026-10-20: +500 for the opt-in Workflows pointer; shared-chat guidance was condensed first.
       // +400 bytes for the required pre-heavy-work quota check and recovery invariant.
-      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(28_350);
+      // 2026-10-21: +550 for ordinary proactive Portal updates and explicit attention criteria.
+      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(28_900);
       expect(out.body).toContain('Before heavy work or large delegation call `quota_get`');
       expect(out.body).toContain('report unavailable and continue authorized work');
       expect(out.body).toContain('`#reboot-safe` before `agent_reboot`');
@@ -271,7 +282,7 @@ describe('served document size budget', () => {
         return out.body.slice(start, next === -1 ? undefined : next);
       };
       expect(section('Scope Coordination').length).toBeLessThan(1_800);
-      expect(section('Agent Messaging').length).toBeLessThan(4_600);
+      expect(section('Agent Messaging').length).toBeLessThan(5_150);
       expect(section('Git Director').length).toBeLessThan(3_100);
       expect(section('File Transfer').length).toBeLessThan(1_400);
       // 2026-10-19: +50 to name `cxx-agent` as the server: agents searched the orchestrator MCP.
@@ -350,9 +361,10 @@ describe('served document byte invariance', () => {
     // 2026-10-18: shared chat tools, one-answer rounds, room file context.
     // 2026-10-20: explicit workflow participant questions are the narrow agent-answer exception.
     // 2026-10-20: reboot-safe procedure pointer and long-session quota catalog fallback.
-    expect(out.features_sha256).toBe('f881a10aa4530f20d8311348c88d75248551a5813587020c775a6775623b46a3');
-    expect(out.managed_sha256).toBe('ece067be5f1431731aeba213cc24d6d34c30eaa6300d0ef9887b4a9590690d09');
-    expect(sha256(out.body)).toBe('e82f4c402a44b56c099e6a6fa603f4593ec52d4143110c1eb186df51852a707c');
+    // 2026-10-21: ordinary Portal updates and explicit actionable attention criteria.
+    expect(out.features_sha256).toBe('e5b7ef3b2d47252e08f86d0493c406290d84fff6380ce76fe8b6c7e596d8b1c5');
+    expect(out.managed_sha256).toBe('4b1add7cfd4954ff28812102b03860c6331fe014886400b9518b5076e664c062');
+    expect(sha256(out.body)).toBe('6096ba64de1f68c9651179bfcc324c1e20469dd8918241fecbb2e22504002c46');
   });
 });
 

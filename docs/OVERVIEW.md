@@ -30,6 +30,9 @@ see [Smart queue](smart-queue.md) for limits, canary setup and rollback.
 
 ## What it is
 
+
+With cxx 0.9.119, `agent_portal_say` sends ordinary proactive progress or results to the existing operator chat using a stable `client_event_id`, `content` and a one-sentence `summary` (at most 160 characters). It may include `attachments` and `reply_to`; it creates no classified attention and does not finish an inbound instruction. Answer that instruction with `agent_receiver_reply` and its original message ID, normally omitting `severity` and `notice_id`. Use `agent_portal_notify` only for actionable exceptions: important needs attention soon, critical is urgent harm/failure, blocker requires operator action before work can proceed. Routine progress, successful checks and completion reports stay normal. Existing genuine notices still require explicit resolution; no historical notice is silently reclassified.
+
 Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex, Claude, and Grok subscription credentials for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx`/`clx`/`cgx` wrappers. The same API also ships Skills, shared project coordination, fleet memories and secrets, agent-to-agent messaging, a TTL'd file transfer pool, token-usage telemetry, and ChatGPT/Claude usage snapshots.
 
 Daemon continuations register one shared Portal/Messaging session with the original

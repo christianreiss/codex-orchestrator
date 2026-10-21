@@ -104,3 +104,62 @@ func TestRoomAttachmentUploadUsesAuthenticatedRoomRoute(t *testing.T) {
 		}
 	}
 }
+
+func TestPortalSayStaysNormalAndPreservesHeldInstruction(t *testing.T) {
+	var sent []map[string]any
+	client := &sessionClient{id: "launch", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/host/agent-sessions/launch/events" {
+			t.Fatalf("unexpected route: %s", req.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		sent = append(sent, body)
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"stored":true}`))}, nil
+	})}}
+	tracker := newChannelTracker(client)
+	tracker.receiver = &autoReceiver{client: client, pendingPortal: map[string]any{"message_id": "original"}}
+	args := map[string]any{"client_event_id": "stable-update", "content": "Tests passed; integration continues.", "summary": strings.Repeat("x", 200), "reply_to": 42, "attachments": []string{"11111111-1111-4111-8111-111111111111"}, "severity": "important", "notice_id": "must-not-forward", "message_id": "original"}
+	for range 2 {
+		out := handleMCPRequest(context.Background(), client, ownerTool("agent_portal_say", args), false, tracker)
+		raw, _ := json.Marshal(out)
+		if strings.Contains(string(raw), `"isError":true`) {
+			t.Fatal(string(raw))
+		}
+	}
+	if len(sent) != 2 || sent[0]["client_event_id"] != "stable-update" || sent[1]["client_event_id"] != "stable-update" {
+		t.Fatalf("retry identity lost: %v", sent)
+	}
+	for _, body := range sent {
+		payload := body["payload"].(map[string]any)
+		if body["type"] != "assistant_message" || payload["text"] != args["content"] || len([]rune(payload["summary"].(string))) != 160 || payload["reply_to"] != float64(42) || payload["attachments"] == nil {
+			t.Fatalf("normal content lost: %v", body)
+		}
+		for _, key := range []string{"severity", "notice_id", "message_id"} {
+			if _, exists := payload[key]; exists {
+				t.Fatalf("ordinary update forwarded %s", key)
+			}
+		}
+	}
+	if tracker.receiver.pendingPortal == nil {
+		t.Fatal("progress finished the held instruction")
+	}
+}
+
+func TestPortalNotifyRetainsExplicitAttention(t *testing.T) {
+	client := &sessionClient{id: "launch", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		var body map[string]any
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		payload := body["payload"].(map[string]any)
+		if body["type"] != "attention" || payload["severity"] != "blocker" || payload["notice_id"] != "specific-notice" {
+			t.Fatalf("explicit attention lost: %v", body)
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+	})}}
+	if _, err := callChatTool(context.Background(), client, "agent_portal_notify", map[string]any{"client_event_id": "stable-alert", "summary": "Operator decision required.", "severity": "blocker", "notice_id": "specific-notice"}); err != nil {
+		t.Fatal(err)
+	}
+}

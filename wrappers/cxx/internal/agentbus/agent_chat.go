@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 )
 
 func chatTools() []map[string]any {
@@ -19,8 +21,9 @@ func chatTools() []map[string]any {
 	ids := map[string]any{"type": "array", "maxItems": 10, "items": map[string]any{"type": "string", "format": "uuid"}}
 	uuid := func() map[string]any { return map[string]any{"type": "string", "format": "uuid"} }
 	return []map[string]any{
+		tool("agent_portal_say", "Send an ordinary progress update or result to the operator's existing chat without finishing an instruction. Use for routine updates, successful checks and completion reports. No Important label or persistent Needs you notice. Retain client_event_id on retries. For the final answer to a Portal instruction use agent_receiver_reply with its original message_id.", map[string]any{"client_event_id": uuid(), "content": text(), "summary": text(), "attachments": ids, "reply_to": map[string]any{"type": "integer", "minimum": 1}}, []string{"client_event_id", "content", "summary"}),
 		tool("agent_portal_ask", "Ask the operator in the existing agent chat. Choose buttons, text or both. Normal questions do not imply Needs you. Retain client_event_id and prompt_id on retries. severity and notice_id explicitly mark important/critical/blocker.", map[string]any{"client_event_id": uuid(), "prompt_id": uuid(), "question": text(), "summary": text(), "answer_mode": map[string]any{"type": "string", "enum": []string{"buttons", "text", "both"}}, "choices": map[string]any{"type": "array", "maxItems": 20, "items": map[string]any{"type": "object", "properties": map[string]any{"label": text(), "value": text()}, "required": []string{"label", "value"}}}, "severity": map[string]any{"type": "string", "enum": []string{"important", "critical", "blocker"}}, "notice_id": uuid(), "attachments": ids}, []string{"client_event_id", "prompt_id", "question", "answer_mode"}),
-		tool("agent_portal_notify", "Mark important, critical or blocker in the operator agent chat. Requires a reason in summary. It remains until explicitly resolved, including offline. Retain notice_id and client_event_id on retries; reuse notice_id to escalate.", map[string]any{"client_event_id": uuid(), "notice_id": uuid(), "severity": map[string]any{"type": "string", "enum": []string{"important", "critical", "blocker"}}, "summary": text()}, []string{"client_event_id", "notice_id", "severity", "summary"}),
+		tool("agent_portal_notify", "Request operator attention for an actionable exception: important needs attention soon, critical is urgent harm/failure, blocker means work cannot proceed without operator action. Never use for routine progress, successful tests or completion; use agent_portal_say instead. Requires a reason in summary. It remains until explicitly resolved, including offline. Retain notice_id and client_event_id on retries; reuse notice_id to escalate.", map[string]any{"client_event_id": uuid(), "notice_id": uuid(), "severity": map[string]any{"type": "string", "enum": []string{"important", "critical", "blocker"}}, "summary": text()}, []string{"client_event_id", "notice_id", "severity", "summary"}),
 		tool("agent_portal_resolve", "Resolve only the identified Needs you notice in this operator conversation. Does not answer a question. Retain client_event_id on retries.", map[string]any{"client_event_id": uuid(), "notice_id": uuid(), "summary": text()}, []string{"client_event_id", "notice_id"}),
 		tool("agent_attachment_upload", "Upload a local file to this operator agent chat, then use its ID in agent_receiver_reply or agent_portal_ask attachments. Retain upload_id on retry. Original local files are preserved.", map[string]any{"room_id": uuid(), "upload_id": uuid(), "path": text(), "mime_type": text()}, []string{"upload_id", "path", "mime_type"}),
 		tool("agent_attachment_get", "Fetch an operator chat attachment or a prepared transcript/video frame to a local file. Returns metadata, processing state and local_path. Use the local file with your image/file tools. No automatic execution. Originals remain available if processing failed. variant is original, transcript.json or frame-NN.jpg.", map[string]any{"room_id": uuid(), "attachment_id": uuid(), "variant": text()}, []string{"attachment_id"}),
@@ -150,6 +153,17 @@ func callChatTool(ctx context.Context, client *sessionClient, name string, args 
 		out["local_path"] = path
 		out["download_sha256"] = digest
 		return out, nil
+	}
+	if name == "agent_portal_say" {
+		content := stringArg(args, "content")
+		summary := agentportal.CompactSummary(stringArg(args, "summary"))
+		if strings.TrimSpace(content) == "" || summary == "" || stringArg(args, "client_event_id") == "" {
+			return nil, errors.New("client_event_id, content and summary are required")
+		}
+		payload := map[string]any{"text": content, "summary": summary}
+		copyOptional(args, payload, "attachments", "reply_to")
+		err := client.sessionPost(ctx, "events", map[string]any{"client_event_id": stringArg(args, "client_event_id"), "type": "assistant_message", "payload": payload}, &out)
+		return out, err
 	}
 	payload := map[string]any{}
 	copyOptional(args, payload, "question", "summary", "answer_mode", "choices", "prompt_id", "severity", "notice_id", "attachments")

@@ -480,7 +480,7 @@ func toolCatalogJSON() []byte {
 			"message_id": map[string]any{"type": "string"},
 			"status":     map[string]any{"type": "string", "enum": []string{"read", "working"}},
 		}, []string{"message_id", "status"}),
-		tool("agent_receiver_reply", "Reply only to an operator Portal delivery. For peer messages use agent_reply. Include summary: one plain sentence in the response language, at most 160 characters, giving the latest result or decision needed for mobile tiles and push notifications.", map[string]any{
+		tool("agent_receiver_reply", "Reply normally to an operator Portal delivery; omit severity and notice_id for routine results. Explicit severity creates persistent operator attention and is only for actionable exceptions, never successful checks or progress. For proactive updates use agent_portal_say; for peer messages use agent_reply. Include summary: one plain sentence in the response language, at most 160 characters, giving the latest result or decision needed for mobile tiles and push notifications.", map[string]any{
 			"message_id": map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"summary":     map[string]any{"type": "string", "maxLength": 160},
 			"attachments": map[string]any{"type": "array", "maxItems": 10, "items": map[string]any{"type": "string", "format": "uuid"}},
@@ -913,7 +913,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 	case "agent_reboot_status":
 		err := client.post(ctx, "reboot/status", args, &out)
 		return out, err
-	case "agent_portal_ask", "agent_portal_notify", "agent_portal_resolve", "agent_attachment_upload", "agent_attachment_get":
+	case "agent_portal_say", "agent_portal_ask", "agent_portal_notify", "agent_portal_resolve", "agent_attachment_upload", "agent_attachment_get":
 		return callChatTool(ctx, client, name, args)
 	case "agent_chat_list", "agent_chat_read", "agent_chat_send", "agent_context_get", "agent_context_update", "agent_room_list", "agent_room_read", "agent_room_send", "resource_claim_acquire", "resource_claim_status", "resource_claim_release":
 		return callCoordinationTool(ctx, client, name, args)

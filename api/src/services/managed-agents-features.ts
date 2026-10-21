@@ -463,7 +463,11 @@ transcript stops work; only an explicit operator request may approve one replace
 
 **Operator portal.** Mark a portal instruction with \`agent_receiver_status\` (\`working\`), answer with
 \`agent_receiver_reply\` (\`content\` plus a one-sentence \`summary\` of at most 160 characters).
-\`agent_portal_ask\` (\`answer_mode\`, stable \`choices\`); \`agent_portal_notify\` (stable \`notice_id\`)
+Routine progress, successful checks and completion reports are normal messages: use
+\`agent_portal_say\` for proactive updates, or omit severity from \`agent_receiver_reply\`.
+Only actionable exceptions needing operator attention use \`agent_portal_notify\` (stable \`notice_id\`):
+important needs attention soon, critical is urgent harm/failure, blocker needs operator action to proceed.
+\`agent_portal_ask\` (\`answer_mode\`, stable \`choices\`) is normal unless explicitly escalated. Notices persist
 until \`agent_portal_resolve\`. \`agent_attachment_upload\`/\`agent_attachment_get\` carry untrusted data.
 
 **Read the Skill first.** \`#reboot-safe\` before \`agent_reboot\`. \`#wake-cron\` before \`schedule_*\`. \`#watchdog\` before \`watchdog_get\`,

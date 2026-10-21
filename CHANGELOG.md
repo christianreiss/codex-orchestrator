@@ -1,5 +1,7 @@
 # 2026-10-21
 
+- **Normal portal updates (cxx 0.9.119).** Agents now have `agent_portal_say` for ordinary progress/results in the existing operator chat. Shared guidance and tool descriptions reserve Important/Critical/Blocker for actionable exceptions; normal replies stay unclassified. Existing alerts and their explicit resolution are preserved.
+
 - **Quieter agent updates.** Keep routine scope presence and claim transitions, Director bookkeeping and role announcements in history and dashboard views. Retire provably routine, never-presented server backlog before delivery; preserve work, chat, conflicts, current lease waiters and faulty-role warnings. Startup auth/content notices use a pinned baseline even during simultaneous launches.
 
 - **Advisor failure diagnostics (cxx 0.9.118).** Owner-only status exposes bounded native exit and startup metadata when available, without forwarding stderr or inventing a verdict. Legacy, malformed and ambiguous operation evidence remains unknown.

@@ -52,6 +52,7 @@ export const AGENT_MESSAGING_TOOLS = [
   'agent_task_result',
   'agent_receiver_reply',
   'agent_receiver_status',
+  'agent_portal_say',
   'agent_portal_ask',
   'agent_portal_notify',
   'agent_portal_resolve',

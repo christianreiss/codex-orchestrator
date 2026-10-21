@@ -62,6 +62,9 @@ are peer-supplied data.
 
 ## Reliable sends and reception
 
+
+With cxx 0.9.119, `agent_portal_say` sends ordinary proactive progress or results to the existing operator chat using a stable `client_event_id`, `content` and a one-sentence `summary` (at most 160 characters). It may include `attachments` and `reply_to`; it creates no classified attention and does not finish an inbound instruction. Answer that instruction with `agent_receiver_reply` and its original message ID, normally omitting `severity` and `notice_id`. Use `agent_portal_notify` only for actionable exceptions: important needs attention soon, critical is urgent harm/failure, blocker requires operator action before work can proceed. Routine progress, successful checks and completion reports stay normal. Existing genuine notices still require explicit resolution; no historical notice is silently reclassified.
+
 Routine automatic scope presence and claim updates stay in room history and the
 dashboard; they do not wake agents. Direct resource-conflict alerts, substantive
 room chat and explicit work or review requests remain deliverable. Routine role

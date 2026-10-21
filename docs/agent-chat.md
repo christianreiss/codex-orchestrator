@@ -33,6 +33,9 @@ Metadata is encrypted in MySQL; file bytes are private on the store volume. Down
 
 ## Agent usage
 
+
+With cxx 0.9.119, `agent_portal_say` sends ordinary proactive progress or results to the existing operator chat using a stable `client_event_id`, `content` and a one-sentence `summary` (at most 160 characters). It may include `attachments` and `reply_to`; it creates no classified attention and does not finish an inbound instruction. Answer that instruction with `agent_receiver_reply` and its original message ID, normally omitting `severity` and `notice_id`. Use `agent_portal_notify` only for actionable exceptions: important needs attention soon, critical is urgent harm/failure, blocker requires operator action before work can proceed. Routine progress, successful checks and completion reports stay normal. Existing genuine notices still require explicit resolution; no historical notice is silently reclassified.
+
 Use `agent_portal_ask` with stable `client_event_id`, `prompt_id`, `answer_mode` and optional `choices`. Add `severity`, `notice_id` and a short reason in `summary` only when operator attention is important/critical/blocking. `agent_portal_notify` publishes a classified notice; `agent_portal_resolve` resolves one. Retain caller IDs on retry.
 
 An authorized unattended reboot continuation restores the original Portal reply/status and accepted-work correlation through its shared MCP owner, even without an automatic receiver. Continue with those original IDs; restoration neither submits the task again nor establishes readiness for new automatic deliveries.
