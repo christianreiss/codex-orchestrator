@@ -255,6 +255,23 @@ export function runView(run: Run, baseUrl: string) {
     event_sequence: run.eventSequence,
   };
 }
+/** Execution acknowledgements carry fences and outcomes, not the pinned instructions. */
+export function compactRunMutation(result: Record<string, unknown>) {
+  const fields = ['run_id', 'workflow_id', 'workflow_version', 'workflow_sha256', 'version', 'status',
+    'outcome', 'coordinator', 'cancel_requested', 'report_url', 'event_sequence', 'task',
+    'claim_token', 'claim_generation', 'sequence'];
+  const preparation = result.preparation as Run['preparation'];
+  return {
+    ...Object.fromEntries(fields.filter((field) => field in result).map((field) => [field, result[field]])),
+    compact: true,
+    preparation: preparation ? {
+      phase: preparation.phase,
+      revision: preparation.revision,
+      summary_revision: preparation.summary?.revision ?? null,
+      confirmed_summary_revision: preparation.confirmation?.summary_revision ?? null,
+    } : null,
+  };
+}
 export async function dbNow(tx: WorkflowTx) {
   const rows = await tx.execute(
     sql`SELECT DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%fZ') AS workflow_now`,

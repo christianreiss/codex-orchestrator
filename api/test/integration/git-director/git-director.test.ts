@@ -8,7 +8,7 @@ import { GitDirectorService, GIT_DIRECTOR_ENABLED_FLAG } from '../../../src/serv
 import { SettingsService } from '../../../src/services/settings.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { splitSqlStatements } from '../../../src/db/migration-sql.js';
-import type { Host } from '../../../src/db/schema.js';
+import { gitMergeRequests, type Host } from '../../../src/db/schema.js';
 
 /**
  * The Git Director against real MySQL. Everything here needs a database to mean
@@ -97,6 +97,11 @@ describe.skipIf(!handle)('git director against a real database', () => {
       for (const stmt of splitSqlStatements(readFileSync(file, 'utf8'))) await exec(stmt);
     }
     const now = new Date().toISOString();
+    // Retrying a failed run must not leave orphan registrations under the same
+    // fixture paths after replacing its host ID.
+    await exec(`DELETE FROM git_merge_requests WHERE clone_id IN (SELECT id FROM git_clones WHERE repo_root='${MAIN_WT}')`);
+    await exec(`DELETE FROM git_worktrees WHERE worktree_path LIKE '/srv/ztest-gd/%'`);
+    await exec(`DELETE FROM git_clones WHERE repo_root='${MAIN_WT}'`);
     await exec(`DELETE FROM hosts WHERE fqdn = '${FQDN}'`);
     await exec(
       `INSERT INTO hosts (fqdn, api_key, status, created_at, updated_at)
@@ -317,6 +322,148 @@ describe.skipIf(!handle)('git director against a real database', () => {
     // Promotion is poll-driven: nothing was pushed to the waiter.
     const promoted = (await svc.mergeStatus({ request_id: waiting['request_id'] }, host)) as Record<string, unknown>;
     expect(promoted['verdict']).toBe('allow');
+  });
+
+  it('rejects an operator second lease, inactive registration and completed request', async () => {
+    await register(MAIN_WT);
+    await register(LINKED_WT);
+    const granted = await requestMerge(MAIN_WT, ['shared.ts']);
+    const waiting = await requestMerge(LINKED_WT, ['shared.ts']);
+    await expect(svc.adminDecide(String(waiting.request_id), 'allow', 'Override')).rejects.toMatchObject({ code: 'git_director_lease_held' });
+    await svc.release({ request_id: granted.request_id }, host);
+    await exec(`UPDATE git_worktrees SET status='released' WHERE worktree_path='${LINKED_WT}'`);
+    await expect(svc.adminDecide(String(waiting.request_id), 'allow', 'Override')).rejects.toMatchObject({ code: 'git_director_worktree_inactive' });
+    await svc.release({ request_id: waiting.request_id }, host);
+    await expect(svc.adminDecide(String(waiting.request_id), 'allow', 'Override')).rejects.toMatchObject({ code: 'git_director_request_completed' });
+  });
+
+  it('runs the resource guard on operator grants and preserves a granted lease on override retries', async () => {
+    await register(MAIN_WT);
+    await register(LINKED_WT);
+    const granted = await requestMerge(MAIN_WT, ['shared.ts']);
+    const waiting = await requestMerge(LINKED_WT, ['shared.ts']);
+    await svc.release({ request_id: granted.request_id }, host);
+    const claim = randomUUID(), owner = randomUUID(), now = new Date().toISOString();
+    await db.execute(sql`INSERT INTO agent_resource_claims
+      (id,session_id,generation,request_id,purpose,resources,state,blockers,expires_at,created_at,updated_at)
+      VALUES (${claim},${owner},1,${randomUUID()},'operator guard',
+      ${JSON.stringify([{ kind: 'path', host_id: host.id, path: LINKED_WT }])},'active','[]',
+      ${new Date(Date.now() + 60000).toISOString()},${now},${now})`);
+    try {
+      await expect(svc.adminDecide(String(waiting.request_id), 'allow', 'Override')).rejects.toMatchObject({ code: 'resource_claim_conflict' });
+    } finally { await db.execute(sql`DELETE FROM agent_resource_claims WHERE id=${claim}`); }
+    const allowed = await svc.adminDecide(String(waiting.request_id), 'allow', 'Override');
+    // A later identical operator retry is not a lease renewal.
+    const later = new GitDirectorService({ db, settings: new SettingsService(db), now: () => new Date(Date.now() + 5000).toISOString() });
+    const retried = await later.adminDecide(String(waiting.request_id), 'allow', 'Override');
+    expect(retried.lease_expires_at).toBe(allowed.lease_expires_at);
+  });
+
+  it('keeps one live lease even when the arbiter explicitly allows a contender', async () => {
+    await register(MAIN_WT);
+    await register(LINKED_WT);
+    await requestMerge(MAIN_WT, ['shared.ts']);
+    const judging = new GitDirectorService({ db, settings: new SettingsService(db),
+      judge: { model: 'test', judge: async () => ({ verdict: 'allow', reason: 'Distinct blocks' }) } });
+    const response = await judging.requestMerge({ worktree_path: LINKED_WT, target_branch: 'main',
+      client_request_id: randomUUID(), changed_paths: ['shared.ts'] }, host);
+    expect(response.verdict).toBe('wait');
+    expect(rowsOf(await exec(`SELECT id FROM git_merge_requests WHERE verdict='allow' AND completed_at IS NULL`))).toHaveLength(1);
+  });
+
+  it('finds the target lease beyond 200 live grants on other branches', async () => {
+    const registered = await register(MAIN_WT);
+    await register(LINKED_WT);
+    const now = new Date().toISOString();
+    await db.insert(gitMergeRequests).values(Array.from({ length: 201 }, (_, index) => ({
+      id: randomUUID(), cloneId: (registered.clone as { clone_id: string }).clone_id,
+      worktreeId: String(registered.worktree_id), clientRequestId: randomUUID(),
+      targetBranch: index === 200 ? 'main' : `a-${index}`, verdict: 'allow', decidedBy: 'policy',
+      leaseExpiresAt: new Date(Date.now() + 60000).toISOString(),
+      requestedAt: now, decidedAt: now, createdAt: now, updatedAt: now,
+    })));
+    expect((await requestMerge(LINKED_WT, ['shared.ts'])).verdict).toBe('wait');
+  });
+
+  it.each(['allow', 'wait', 'deny', 'withdraw'] as const)('preserves a newer %s decision across an arbiter roundtrip', async (change) => {
+    await register(MAIN_WT);
+    await register(LINKED_WT);
+    const holder = await requestMerge(MAIN_WT, ['shared.ts']);
+    const waiting = await requestMerge(LINKED_WT, ['shared.ts']);
+    let entered!: () => void, resume!: () => void;
+    const consulted = new Promise<void>((resolve) => { entered = resolve; });
+    const released = new Promise<void>((resolve) => { resume = resolve; });
+    const judging = new GitDirectorService({ db, settings: new SettingsService(db), judge: { model: 'test', judge: async () => {
+      entered(); await released; return { verdict: 'allow', reason: 'Stale model result' };
+    } } });
+    const pending = judging.mergeStatus({ request_id: waiting.request_id }, host);
+    await consulted;
+    let expected: Record<string, unknown>;
+    try {
+      if (change === 'withdraw') {
+        await svc.release({ request_id: waiting.request_id }, host);
+        expected = await svc.mergeStatus({ request_id: waiting.request_id }, host);
+      } else if (change === 'wait') {
+        const newer = new GitDirectorService({ db, settings: new SettingsService(db), judge: { model: 'test',
+          judge: async () => ({ verdict: 'wait', reason: 'Newer wait decision' }) } });
+        expected = await newer.mergeStatus({ request_id: waiting.request_id }, host);
+      } else {
+        if (change === 'allow') await svc.release({ request_id: holder.request_id }, host);
+        expected = await svc.adminDecide(String(waiting.request_id), change, 'New operator decision');
+      }
+    } finally { resume(); }
+    const response = await pending;
+    expect(response.verdict).toBe(expected.verdict);
+    expect(response.reason).toBe(expected.reason);
+    expect(response.lease_expires_at).toBe(expected.lease_expires_at);
+  });
+
+  it.each(['released', 'expired', 'binding', 'username', 'engine', 'archived', 'mapping'] as const)(
+    'refuses a stale arbiter grant after its registration becomes %s', async (change) => {
+    await register(MAIN_WT);
+    await register(LINKED_WT);
+    const holder = await requestMerge(MAIN_WT, ['shared.ts']);
+    let stamp = isoSeconds(new Date());
+    let entered!: () => void, resume!: () => void;
+    const consulted = new Promise<void>((resolve) => { entered = resolve; });
+    const released = new Promise<void>((resolve) => { resume = resolve; });
+    const judging = new GitDirectorService({ db, settings: new SettingsService(db), now: () => stamp, judge: { model: 'test', judge: async () => {
+      entered(); await released; return { verdict: 'allow', reason: 'Stale model result' };
+    } } });
+    const pending = judging.requestMerge({ worktree_path: LINKED_WT, target_branch: 'main',
+      client_request_id: randomUUID(), changed_paths: ['shared.ts'] }, host);
+    const refused = expect(pending).rejects.toMatchObject({ code: ['archived', 'mapping'].includes(change)
+      ? 'git_director_clone_changed' : 'git_director_worktree_changed' });
+    await consulted;
+    try {
+      if (change === 'released') await svc.release({ worktree_path: LINKED_WT, deregister: true }, host);
+      if (change === 'expired') stamp = isoSeconds(new Date(Date.parse(stamp) + 7200000));
+      if (change === 'binding') await exec(`UPDATE git_worktrees SET agent_binding_generation=2 WHERE worktree_path='${LINKED_WT}'`);
+      if (change === 'username' || change === 'engine') {
+        await register(LINKED_WT, change === 'username' ? { username: 'new-owner' } : { engine: 'claude' });
+        await svc.release({ request_id: holder.request_id }, host);
+      }
+      if (change === 'archived') await exec(`UPDATE git_clones SET archived_at='${stamp}' WHERE host_id=${host.id}`);
+      if (change === 'mapping') await exec(`UPDATE git_clones SET clone_dir='/srv/ztest-gd/changed/.git' WHERE host_id=${host.id}`);
+    }
+    finally { resume(); }
+    await refused;
+  });
+
+  it('uses the clock after acquiring the gate when an operator waited past lease expiry', async () => {
+    await register(MAIN_WT);
+    const grant = await requestMerge(MAIN_WT, ['shared.ts']);
+    let stamp = isoSeconds(new Date());
+    const later = new GitDirectorService({ db, settings: new SettingsService(db), now: () => stamp });
+    await exec(`INSERT IGNORE INTO versions (name,version,updated_at) VALUES ('agent_messaging_enabled','0','${stamp}')`);
+    const gate = await handle!.pool.getConnection();
+    await gate.beginTransaction();
+    await gate.query(`SELECT name FROM versions WHERE name='agent_messaging_enabled' FOR UPDATE`);
+    const pending = later.adminDecide(String(grant.request_id), 'allow', 'Late override');
+    const refused = expect(pending).rejects.toMatchObject({ code: 'git_director_request_completed' });
+    stamp = isoSeconds(new Date(Date.parse(stamp) + 1800000));
+    try { await gate.commit(); } finally { gate.release(); }
+    await refused;
   });
 
   describe('forgotten clients', () => {

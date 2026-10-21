@@ -839,7 +839,11 @@ All three engine config GET/store routes share the revision contract: `revision`
   paths, and the `git_join` paths of every other active, unexpired registration
   in the clone whose `target_branch` is the requested branch or unset. Only a
   live lease, or overlap with the holder's paths, is contention: it goes to the
-  arbiter, or without one to a deterministic `wait`. Overlap with a non-holding
+  arbiter, or without one to a deterministic `wait`. A live holder always prevents
+  another `allow`, even if the arbiter recommends it: leases are exclusive per
+  clone and target branch. Decisions and the exact worktree are revalidated under
+  the coordination gate after model calls; a newer decision or completed request
+  is returned unchanged, preserving its lease expiry. Overlap with a non-holding
   peer's declarations never makes a request wait — a declaration is a plan, not
   a hold on the branch, and waiting on one would only end when that peer
   deregisters (two peers declaring `CHANGELOG.md` would wait on each other
@@ -930,7 +934,10 @@ All three engine config GET/store routes share the revision contract: `revision`
   - `POST /admin/git-director/requests/{id}/decide` — `{verdict, reason?}` where
     `verdict` is `allow` or `deny`. Writes `decided_by: "operator"`, so a
     human's override is never attributed to the model that would otherwise have
-    judged it.
+    judged it. Completed requests cannot be revived. An `allow` requires an active
+    worktree, the normal resource guard and no other live branch lease; release
+    the current holder explicitly first. Overriding an already granted request
+    preserves its existing lease expiry, including identical retries.
   - `POST /admin/git-director/worktrees/{id}/release` — evict one registration
     and withdraw every merge request it still had outstanding. The Director
     reclaims on its own in two cases — a bound agent whose session the fleet can
@@ -3052,6 +3059,11 @@ older wrapper must reconnect with cxx 0.9.110 to negotiate this behavior. Browse
 notification totals remain client-specific; the bound is on peer continuation deliveries.
 
 ## Workflows and shared runs
+
+Agent `run-note`, `task-claim` and `task-update` mutation replies use compact
+acknowledgements by default: run/task revisions, status, lease/claim fields,
+preparation revision metadata and report URL. Full preparation instructions stay
+available through `workflow_run_get`; admin and control responses remain complete.
 
 See [Workflows](workflows.md) for state transitions, recovery and delivery. All admin endpoints require an authenticated session. Reads require `workflows.read`; definition mutations and state changes require `workflows.manage`; run mutations require `workflows.run`, enforced in both compatible and strict modes. Report access does not grant chat-body access. JSON API namespaces deliberately differ from the SPA route `/admin/workflows`.
 

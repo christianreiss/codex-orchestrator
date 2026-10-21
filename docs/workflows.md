@@ -91,6 +91,15 @@ independent revisions, so parallel progress does not overwrite another result.
 Every mutation carries a stable `client_request_id`; retry an uncertain HTTP
 response with the same request and body, not a new task execution.
 
+Agent `run_note`, `task_claim` and `task_update` acknowledgements default to
+`compact:true`: run/task revisions, status, coordinator and claim fences, action
+outcomes, event sequence and `report_url`. Preparation includes only phase,
+revision, summary revision and confirmed summary revision. They do not repeat
+the prepared instructions, input answers or run results. `workflow_run_get`
+continues to return the full preparation summary; control and admin responses
+remain complete. Identical mutation retries preserve the original claim token
+and outcome while returning the same compact acknowledgement.
+
 Pause or cancellation prevents new work but does not kill a remote process.
 An expired claim makes an unfinished task uncertain. Reconcile the old process
 and its target before marking success or authorizing a retry. Recovery does not
