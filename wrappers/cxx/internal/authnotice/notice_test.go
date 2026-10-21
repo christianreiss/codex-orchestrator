@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -171,5 +172,77 @@ func TestNoticeFilesArePrivate(t *testing.T) {
 		if info.Mode().Perm() != 0o600 {
 			t.Fatalf("%s mode=%v", name, info.Mode().Perm())
 		}
+	}
+}
+
+func TestPrimeDoesNotNeedPublisherLock(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			isolate(t)
+			t.Setenv("GROK_HOME", "")
+			if err := Publish(engine, generation("before")); err != nil {
+				t.Fatal(err)
+			}
+			err := withLock(engine, func(dir string) error { return Prime(engine, "fresh") })
+			if err != nil {
+				t.Fatalf("startup baseline lost under publisher contention: %v", err)
+			}
+			if n, err := Consume(engine, "fresh"); err != nil || n != nil {
+				t.Fatalf("historical notice replayed: %+v %v", n, err)
+			}
+		})
+	}
+}
+
+func TestPrimePinsBaselineAndPreservesConcurrentRotation(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			isolate(t)
+			t.Setenv("GROK_HOME", "")
+			if err := Publish(engine, generation("before")); err != nil {
+				t.Fatal(err)
+			}
+			delivery, err := preparePrime(engine, "fresh")
+			if err != nil || delivery == nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			defer delivery.Abort()
+			if err := Publish(engine, generation("after")); err != nil {
+				t.Fatal(err)
+			}
+			if err := delivery.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			n, err := Consume(engine, "fresh")
+			if err != nil || n == nil || n.Generation != generation("after") {
+				t.Fatalf("later rotation lost: %+v %v", n, err)
+			}
+			if n, err := Consume(engine, "fresh"); err != nil || n != nil {
+				t.Fatalf("notice replayed: %+v %v", n, err)
+			}
+		})
+	}
+}
+func TestPrimeFailsImmediatelyOnSessionContention(t *testing.T) {
+	isolate(t)
+	if err := Publish("codex", generation("before")); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := preparePrime("codex", "fresh")
+	if err != nil || delivery == nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	defer delivery.Abort()
+	started := time.Now()
+	err = Prime("codex", "fresh")
+	if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN {
+		t.Fatalf("expected session contention: %v", err)
+	}
+	if time.Since(started) > time.Second {
+		t.Fatal("Prime blocked startup")
+	}
+	delivery.Abort()
+	if n, err := Consume("codex", "fresh"); err != nil || n == nil {
+		t.Fatalf("failed prime discarded notice: %+v %v", n, err)
 	}
 }

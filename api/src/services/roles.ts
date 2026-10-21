@@ -115,6 +115,14 @@ export class RolesService {
 
   /** Delivery is best effort: a notice that cannot be sent never undoes the change it reports. */
   private async notify(addressIds: string[], body: string) {
+    // Routine role history is available through role/proposal reads and audit.
+    // Address-bound information must not follow an ended session or resume it.
+    // Explicit ROLE-REVIEW requests still need delivery.
+    const [header, instruction] = body.split('\n', 2);
+    if (instruction === 'Informational; no reply required.' && (
+      /^ROLE-UPDATE\/1 role=[a-z0-9][a-z0-9._-]* version=[1-9]\d* previous=(?:none|[1-9]\d*) sha=[a-f0-9]{12}$/.test(header!) ||
+      /^ROLE-PROPOSAL\/1 role=[a-z0-9][a-z0-9._-]* proposal_id=[a-f0-9-]{36} status=(?:applied|rejected|superseded|held)(?: version=[1-9]\d*)?$/.test(header!)
+    )) return;
     if (!this.deps.notify || !addressIds.length) return;
     try {
       await this.deps.notify(addressIds, body);

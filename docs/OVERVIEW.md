@@ -1387,8 +1387,13 @@ Account quota monitoring: Engines owns per-engine defaults; Accounts owns overri
 
 Reports now supports Source Developer and User feedback modes. User reports stay local while a durable server worker compares baked build/affected wrapper versions with GitHub main, searches existing/fixed reports and runs supported read-only API retests. Old reports are retried after actual updates; demonstrated fixes are discarded locally. Public issues and useful comments require explicit automatic-publication opt-in and a backend-only encrypted GitHub PAT. Incomplete checks and uncertain sends remain visible locally. Developer-side GitHub triage stays external. See [MCP workflow](MCP.md#user-feedback-and-github-checks).
 
-Git Director can send session-bound `GIT-DIRECTOR/1` poll hints to affected live
-agents when declared scope, merge coordination or operator decisions change.
+Git Director can send session-bound `GIT-DIRECTOR/1` poll hints to current
+merge waiters and affected owners when merge coordination or operator decisions
+change. Routine scope/module bookkeeping and role version/proposal information
+remain available through audit and polling without waking ordinary sessions.
+Explicit role reviews and current-session faulty-role withdrawal alerts remain
+delivered. Startup content/auth notice baselines use the atomic published
+generation without competing for the publisher lock; later updates remain pending.
 Messaging is optional; polling and local verification remain necessary. Reported
 merge completion is explicitly unverified and separate from lease release, push
 and deployment. See `docs/interface-api.md` for the event and delivery contract.

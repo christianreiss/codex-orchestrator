@@ -182,6 +182,10 @@ insecure cleanup, native reload semantics, and the cross-host refresh boundary.
 Fleet content changes (instructions, Skills, managed config) that a content
 pass writes while a session runs produce a per-session content-change notice at
 the same boundaries; see [Content-change notices](communicator.md#content-change-notices-cxx-0996).
+Startup snapshots existing content and credential notice generations without
+waiting on the publisher lock. Only that captured baseline is suppressed; later
+content changes or credential rotations remain eligible for delivery. A busy
+session delivery lock fails immediately and preserves the pending notice.
 
 ## Build + Publish
 - `cdx` is the Codex persona of the static `cxx` Go binary built from `wrappers/cxx/cmd/cxx`; the installed `cdx` path is a relative `cdx -> cxx` symlink. During legacy self-update migration, a `cdx-<major>.<minor>.<patch>` filename selects the same persona.
@@ -2102,10 +2106,17 @@ outcomes, transcript checks, or the prohibition on automatic fresh starts.
 
 Served agent instructions follow the installation feedback mode for this engine. User mode uses `feedback_preflight`, local `feedback_submit` and `feedback_recheck`; the server gates GitHub publication by current build, duplicate/fix evidence and retest. Source Developer retains claims and local repair workflow. See [MCP feedback](MCP.md#user-feedback-and-github-checks). This changes served guidance and MCP only; the native wrapper requires no binary change.
 
+Routine role version updates and proposal outcomes are discovered through
+`agent_role_current`/`agent_role_proposals` and role resources. Explicit role review
+requests remain delivered; faulty-role withdrawals alert only the current live
+holder's session and binding, and cannot follow an ended session.
+
 ### Git Director state notices
 
-The server may deliver `GIT-DIRECTOR/1` informational notices for relevant scope,
-lease and operator changes through Agent Messaging. Do not acknowledge them or
+The server delivers `GIT-DIRECTOR/1` recheck notices to exactly bound current
+merge waiters and affected owners for lease, conflict and operator changes.
+Routine registration/scope/module bookkeeping stays in audit, WebSocket and poll
+views; it does not broadcast to ordinary native sessions. Do not acknowledge them or
 interpret them as work authorization, a lease, revocation of other grants, or
 verified merge proof. Recheck `git_list`/`git_merge_status` and local Git state;
 keep polling even without notices. Notices target the current saved session and
