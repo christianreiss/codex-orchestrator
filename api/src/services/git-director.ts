@@ -1194,6 +1194,7 @@ export class GitDirectorService {
       const [worktree] = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, decision.worktree.id));
       if (!worktree || worktree.status !== 'active' || worktree.cloneId !== clone.id || worktree.worktreePath !== worktreePath ||
         !(Date.parse(worktree.expiresAt) > Date.parse(now2)) ||
+        worktree.username !== decision.worktree.username || worktree.engine !== decision.worktree.engine ||
         worktree.agentBusAddressId !== decision.worktree.agentBusAddressId ||
         worktree.agentSessionId !== decision.worktree.agentSessionId ||
         worktree.agentBindingGeneration !== decision.worktree.agentBindingGeneration)

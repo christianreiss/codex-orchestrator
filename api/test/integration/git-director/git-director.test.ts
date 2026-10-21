@@ -97,6 +97,11 @@ describe.skipIf(!handle)('git director against a real database', () => {
       for (const stmt of splitSqlStatements(readFileSync(file, 'utf8'))) await exec(stmt);
     }
     const now = new Date().toISOString();
+    // Retrying a failed run must not leave orphan registrations under the same
+    // fixture paths after replacing its host ID.
+    await exec(`DELETE FROM git_merge_requests WHERE clone_id IN (SELECT id FROM git_clones WHERE repo_root='${MAIN_WT}')`);
+    await exec(`DELETE FROM git_worktrees WHERE worktree_path LIKE '/srv/ztest-gd/%'`);
+    await exec(`DELETE FROM git_clones WHERE repo_root='${MAIN_WT}'`);
     await exec(`DELETE FROM hosts WHERE fqdn = '${FQDN}'`);
     await exec(
       `INSERT INTO hosts (fqdn, api_key, status, created_at, updated_at)
@@ -413,11 +418,11 @@ describe.skipIf(!handle)('git director against a real database', () => {
     expect(response.lease_expires_at).toBe(expected.lease_expires_at);
   });
 
-  it.each(['released', 'expired', 'binding', 'archived', 'mapping'] as const)(
+  it.each(['released', 'expired', 'binding', 'username', 'engine', 'archived', 'mapping'] as const)(
     'refuses a stale arbiter grant after its registration becomes %s', async (change) => {
     await register(MAIN_WT);
     await register(LINKED_WT);
-    await requestMerge(MAIN_WT, ['shared.ts']);
+    const holder = await requestMerge(MAIN_WT, ['shared.ts']);
     let stamp = isoSeconds(new Date());
     let entered!: () => void, resume!: () => void;
     const consulted = new Promise<void>((resolve) => { entered = resolve; });
@@ -434,6 +439,10 @@ describe.skipIf(!handle)('git director against a real database', () => {
       if (change === 'released') await svc.release({ worktree_path: LINKED_WT, deregister: true }, host);
       if (change === 'expired') stamp = isoSeconds(new Date(Date.parse(stamp) + 7200000));
       if (change === 'binding') await exec(`UPDATE git_worktrees SET agent_binding_generation=2 WHERE worktree_path='${LINKED_WT}'`);
+      if (change === 'username' || change === 'engine') {
+        await register(LINKED_WT, change === 'username' ? { username: 'new-owner' } : { engine: 'claude' });
+        await svc.release({ request_id: holder.request_id }, host);
+      }
       if (change === 'archived') await exec(`UPDATE git_clones SET archived_at='${stamp}' WHERE host_id=${host.id}`);
       if (change === 'mapping') await exec(`UPDATE git_clones SET clone_dir='/srv/ztest-gd/changed/.git' WHERE host_id=${host.id}`);
     }
