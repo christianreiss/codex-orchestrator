@@ -2,15 +2,19 @@
 
 Scope coordination protocol 1 uses the existing managed session identity and bus.
 It is initially disabled (`versions.agent_coordination_enabled=0` or absent).
-Enable it under Agents → Graph after upgrading wrappers to cxx 0.9.103 or later.
+Enable it under Settings → Agent coordination after upgrading wrappers to cxx 0.9.103 or later.
 This does not provision hosts or grant agents new authority.
 
 `agent_context_get` returning `enabled: false` and acquisitions returning
 `agent_coordination_disabled` reflect that switch, not a failed lock service.
-An operator with the existing manage capability can use Agents → Graph or
+An operator with the existing manage capability can use Settings → Agent coordination or
 `POST /admin/agent-messaging/scopes/state` to enable it after the rollout checks
 below. Agents must not enable a fleet feature just to bypass a task's missing
 ownership prerequisite. Keep tasks requiring that ownership blocked until enabled.
+The setting covers both automatic project/host rooms and new resource claims.
+Agents → Graph shows the independently loaded effective state and links to Settings;
+it does not offer a second editable control. Settings confirms accepted changes and
+reads the current state before retrying an uncertain save.
 For cluster maintenance, all participants must agree on the same canonical
 `host_id` and service key: separate node-local keys do not serialize a cluster.
 Claims are leased ownership, not durable locks across a reboot; use the

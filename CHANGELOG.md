@@ -1,5 +1,7 @@
 # 2026-10-21
 
+- **Agent coordination recovery and settings.** Repair mixed-collation session references that broke rooms and prevented named launches after enabling coordination. Optional room snapshots no longer discard confirmed registrations; authentication and binding failures still block launch. Move the fleet rooms/resource-claim switch to Settings, with independent Graph status, explicit scope and confirmed save recovery.
+
 - **Launch diagnostics (cxx 0.9.118).** An unavailable registration reports its HTTP status across Codex, Claude and Grok without exposing the server response body. Confirmed identity is still required before starting a provider.
 
 - Deployment now captures API build provenance after updating Git, preventing a fast-forward rollout from reporting the previous commit.

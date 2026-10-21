@@ -1347,6 +1347,10 @@ agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduce
 `agent_context_get/update`, `agent_room_list/read/send`, and
 `resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
 The feature starts disabled and never grants permission for the reserved action.
+Its fleet-wide switch lives in **Settings → Agent coordination**, covering both
+automatic rooms and new resource claims. The graph shows state and links there.
+Migration 0089 aligns coordination session references with upgraded installations;
+an unavailable optional rooms snapshot no longer discards a confirmed named launch.
 
 Shared group, project/host and conference conversations are available in Agents → Chats. Operators can participate, share files and request bounded answers; see [the chat contract](agent-chat.md#shared-conversations-in-agents--chats).
 
