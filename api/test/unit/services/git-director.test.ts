@@ -96,12 +96,12 @@ describe('resolveVerdict', () => {
     });
   });
 
-  it('takes the judge only when there is a real contention', () => {
+  it('never lets a judge grant a second lease while another holder remains', () => {
     const judged = { verdict: 'allow' as const, reason: 'Both edits append to distinct blocks.' };
     const out = resolveVerdict({ holderPresent: true, overlap: ['a.ts'], judged, judgeConsulted: true });
-    expect(out.decidedBy).toBe('llm');
-    expect(out.verdict).toBe('allow');
-    expect(out.reason).toBe(judged.reason);
+    expect(out.decidedBy).toBe('policy');
+    expect(out.verdict).toBe('wait');
+    expect(out.reason).toContain('holds the lease');
   });
 
   it('falls back to a deterministic wait when no arbiter answered', () => {
@@ -176,7 +176,7 @@ describe('resolveVerdict', () => {
   it('appends the peer declarations to a judged reason without changing the verdict', () => {
     const judged = { verdict: 'allow' as const, reason: 'Distinct blocks.' };
     const out = resolveVerdict({
-      holderPresent: true,
+      holderPresent: false,
       overlap: ['api/a.ts'],
       peerOverlap: [peer],
       judged,

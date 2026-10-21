@@ -28,7 +28,7 @@ import { lockClaimGate, guardGitMutation } from './agent-coordination/git-guard.
  * Messaging off.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   adminEvents,
@@ -1077,6 +1077,10 @@ export class GitDirectorService {
     const decision = await this.transaction(async (tx) => {
       await lockClaimGate(tx);
       await this.sweepExpired(tx, now);
+      const observedRequest = updateRequestId === null ? null : await this.requireRequest(tx, updateRequestId, host);
+      // A release/operator decision may have won after mergeStatus read wait.
+      if (observedRequest && (observedRequest.completedAt || observedRequest.verdict !== 'wait'))
+        return { request: observedRequest, replayed: true as const, brief: null };
       const { clone, worktree } = await this.requireWorktree(tx, host, worktreePath, now);
       await guardGitMutation(tx, clone, worktree, targetBranch, changedPaths);
 
@@ -1099,7 +1103,7 @@ export class GitDirectorService {
         (row) => row.worktreeId === worktree.id && row.clientRequestId === clientRequestId,
       );
       if (replay) {
-        return { clone, worktree, request: replay, replayed: true, brief: null as MergeBrief | null };
+        return { clone, worktree, request: replay, replayed: true as const, brief: null as MergeBrief | null };
       }
 
       // Lock the clone row: this is what makes the lease exclusive. MySQL has no
@@ -1147,10 +1151,10 @@ export class GitDirectorService {
         : null;
 
       void contended;
-      return { clone, worktree, request: null as GitMergeRequest | null, replayed: false, brief };
+      return { clone, worktree, observedRequest, request: null, replayed: false as const, brief };
     });
 
-    if (decision.replayed && decision.request) {
+    if (decision.replayed) {
       return this.requestWire(decision.request, { replayed: true });
     }
 
@@ -1174,9 +1178,27 @@ export class GitDirectorService {
     return await this.transaction(async (tx) => {
       await lockClaimGate(tx);
       const now2 = this.now();
-      const { clone, worktree } = decision;
+      const [clone] = await tx.select().from(gitClones).where(eq(gitClones.id, decision.clone.id)).limit(1).for('update');
+      if (!clone || clone.archivedAt || clone.hostId !== host.id || clone.cloneDir !== decision.clone.cloneDir)
+        throw new ConflictError('Clone changed while the merge was being judged', 'git_director_clone_changed');
+      const existing = updateRequestId === null
+        ? (await tx.select().from(gitMergeRequests).where(and(
+          eq(gitMergeRequests.worktreeId, decision.worktree.id),
+          eq(gitMergeRequests.clientRequestId, clientRequestId),
+        )).limit(1)).find((row) => row.worktreeId === decision.worktree.id && row.clientRequestId === clientRequestId) ?? null
+        : await this.requireRequest(tx, updateRequestId, host);
+      // The arbiter ran without locks. Never overwrite a newer decision (even
+      // a nonterminal operator allow/wait), or renew a retried grant by accident.
+      if (existing && (updateRequestId === null || JSON.stringify(existing) !== JSON.stringify(decision.observedRequest)))
+        return this.requestWire(existing, { replayed: true }, tx);
+      const [worktree] = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, decision.worktree.id));
+      if (!worktree || worktree.status !== 'active' || worktree.cloneId !== clone.id || worktree.worktreePath !== worktreePath ||
+        !(Date.parse(worktree.expiresAt) > Date.parse(now2)) ||
+        worktree.agentBusAddressId !== decision.worktree.agentBusAddressId ||
+        worktree.agentSessionId !== decision.worktree.agentSessionId ||
+        worktree.agentBindingGeneration !== decision.worktree.agentBindingGeneration)
+        throw new ConflictError('Worktree changed while the merge was being judged', 'git_director_worktree_changed');
       await guardGitMutation(tx, clone, worktree, targetBranch, changedPaths);
-      await tx.select().from(gitClones).where(eq(gitClones.id, clone.id)).limit(1).for('update');
 
       // Re-read under the lock: the holder may have released while the judge ran.
       const holderRow = await this.liveLeaseForClone(tx, clone.id, targetBranch, now2);
@@ -1198,13 +1220,6 @@ export class GitDirectorService {
         await this.livePeerDeclarations(tx, clone.id, [worktree.id, holderRow?.worktreeId ?? null], targetBranch, now2),
       );
       const overlap = [...new Set([...holderOverlap, ...peerOverlap.flatMap((peer) => peer.paths)])].sort();
-
-      const existing =
-        updateRequestId === null
-          ? null
-          : (
-              await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.id, updateRequestId)).limit(1)
-            ).find((row) => row.id === updateRequestId) ?? null;
 
       const resolved = resolveVerdict({
         holderPresent: Boolean(holderRow),
@@ -1530,16 +1545,30 @@ export class GitDirectorService {
    * to the model.
    */
   async adminDecide(requestId: string, verdict: 'allow' | 'deny', reason: string | null): Promise<Record<string, unknown>> {
-    const now = this.now();
     if (verdict !== 'allow' && verdict !== 'deny') {
       throw new ValidationError('verdict must be "allow" or "deny"', { param: 'verdict' });
     }
     return await this.transaction(async (tx) => {
       await lockClaimGate(tx);
+      const now = this.now();
+      await this.sweepExpired(tx, now);
       const rows = await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.id, requestId)).limit(1).for('update');
       const request = rows.find((row) => row.id === requestId);
       if (!request) throw new NotFoundError('Merge request not found', 'git_director_request_not_found');
-      const leaseExpiresAt = verdict === 'allow' ? isoOffsetSeconds(LEASE_TTL_SECONDS, new Date(now)) : null;
+      if (request.completedAt || !['allow', 'wait'].includes(request.verdict))
+        throw new ConflictError('Completed merge requests cannot be overridden', 'git_director_request_completed');
+      const [clone] = await tx.select().from(gitClones).where(eq(gitClones.id, request.cloneId)).limit(1).for('update');
+      const [worktree] = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId));
+      if (verdict === 'allow') {
+        if (!clone || clone.archivedAt || !worktree || worktree.status !== 'active' || worktree.cloneId !== clone.id)
+          throw new ConflictError('An active worktree is required for a merge lease', 'git_director_worktree_inactive');
+        await guardGitMutation(tx, clone, worktree, request.targetBranch, readPaths(request.changedPaths));
+        if (await this.liveLeaseForClone(tx, clone.id, request.targetBranch, now, request.id))
+          throw new ConflictError('Another request holds the lease on this branch', 'git_director_lease_held');
+      }
+      const leaseExpiresAt = verdict === 'allow'
+        ? request.verdict === 'allow' ? request.leaseExpiresAt : isoOffsetSeconds(LEASE_TTL_SECONDS, new Date(now))
+        : null;
       await tx
         .update(gitMergeRequests)
         .set({
@@ -1554,8 +1583,6 @@ export class GitDirectorService {
         .where(eq(gitMergeRequests.id, requestId));
       this.publish(tx, 'decision', request.cloneId);
       if (request.verdict !== verdict || request.decidedBy !== 'operator' || request.reason !== (reason?.trim() || `Forced ${verdict} by an operator from the console.`)) {
-        const [clone] = await tx.select().from(gitClones).where(eq(gitClones.id, request.cloneId));
-        const [worktree] = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId));
         const grants = await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.cloneId, request.cloneId));
         const holderIds = grants.filter(r => r.verdict === 'allow' && !r.completedAt && r.targetBranch === request.targetBranch && !isExpired(r.leaseExpiresAt, now)).map(r => r.worktreeId);
         const holders = holderIds.length ? await tx.select().from(gitWorktrees).where(inArray(gitWorktrees.id, holderIds)) : [];
@@ -1837,16 +1864,23 @@ export class GitDirectorService {
     cloneId: string,
     targetBranch: string,
     now: string,
+    excludeRequestId?: string,
   ): Promise<GitMergeRequest | null> {
     const rows = await tx
       .select()
       .from(gitMergeRequests)
-      .where(and(eq(gitMergeRequests.cloneId, cloneId), eq(gitMergeRequests.verdict, 'allow')))
-      .limit(200);
+      .where(and(
+        eq(gitMergeRequests.cloneId, cloneId),
+        eq(gitMergeRequests.targetBranch, targetBranch),
+        eq(gitMergeRequests.verdict, 'allow'),
+        isNull(gitMergeRequests.completedAt),
+        excludeRequestId ? ne(gitMergeRequests.id, excludeRequestId) : undefined,
+      ));
     return (
       rows.find(
         (row) =>
           row.cloneId === cloneId &&
+          row.id !== excludeRequestId &&
           row.verdict === 'allow' &&
           row.targetBranch === targetBranch &&
           !row.completedAt &&
@@ -2200,7 +2234,7 @@ export function resolveVerdict(input: {
       reason: 'No lease is held on this branch and no declared paths overlap.',
     };
   }
-  if (input.judged) {
+  if (input.judged && !(input.holderPresent && input.judged.verdict === 'allow')) {
     return { verdict: input.judged.verdict, decidedBy: 'llm', reason: `${input.judged.reason}${peerNote}` };
   }
   const parts: string[] = [];
@@ -2213,7 +2247,9 @@ export function resolveVerdict(input: {
       })`,
     );
   }
-  const fallbackNote = input.judgeConsulted
+  const fallbackNote = input.judged?.verdict === 'allow' && input.holderPresent
+    ? ' The arbiter cannot grant a second lease before the holder releases.'
+    : input.judgeConsulted
     ? ' Decided by policy because no arbiter was reachable.'
     : '';
   return {

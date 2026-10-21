@@ -228,14 +228,18 @@ describe.skipIf(!handle)('Git Director transactional agent notifications', () =>
     const common = `${root}/admin/.git`,
       holder = await peer('codex', common),
       waiter = await peer('claude', common);
-    await merge(holder);
+    const grant = await merge(holder);
     const pending = await merge(waiter);
+    await expect(director.adminDecide(pending.request_id as string, 'allow', 'operator review'))
+      .rejects.toMatchObject({ code: 'git_director_lease_held' });
+    expect((await messages(waiter)).some((message) => message.event.kind === 'operator_decision')).toBe(false);
+    await director.release({ request_id: grant.request_id }, host);
     await director.adminDecide(pending.request_id as string, 'allow', 'operator review');
-    expect((await messages(holder)).at(-1)!.event).toMatchObject({
+    expect((await messages(waiter)).at(-1)!.event).toMatchObject({
       kind: 'operator_decision',
       other_leases_revoked: false,
     });
-    expect((await messages(waiter)).at(-1)!.event.kind).toBe('operator_decision');
+    expect((await messages(holder)).some((message) => message.event.kind === 'operator_decision')).toBe(false);
     const [worktree] = await db!
       .select()
       .from(gitWorktrees)
