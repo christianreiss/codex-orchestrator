@@ -212,11 +212,9 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       return event;
     });
     const claimMail = await mail();
-    expect(claimMail).toHaveLength(3);
-    for (const message of claimMail) {
-      expect(payload(message).events).toEqual([expect.objectContaining({ id: claim.id, kind: 'claim' })]);
-      expect(payload(message).members.length).toBeGreaterThanOrEqual(3);
-    }
+    expect(claimMail).toHaveLength(0);
+    expect((await service.read(a.id, a.token, { scope_id: room.id })).events)
+      .toContainEqual(expect.objectContaining({ id: claim.id, kind: 'claim' }));
 
     const chat = await service.run(a.id, a.token, async (tx) => {
       const routine = await service.event(tx, room.id, 'presence', b.id, { action: 'updated' });
@@ -327,7 +325,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
     }
     expect(ids.size).toBe(room.member_count);
     const event = await service.run(a.id, a.token, (tx) =>
-      service.event(tx, room.id, 'claim', a.id, { action: 'restart_test' }),
+      service.event(tx, room.id, 'chat', 'operator:1', { content: 'restart_test' }),
     );
     await handle!.db
       .update(agentScopeEvents)

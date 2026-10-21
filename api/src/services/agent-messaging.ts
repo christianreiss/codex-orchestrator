@@ -12,6 +12,7 @@ import { daemonAccepting, daemonResidentFor } from './host-daemon/policy.js';
 import { assertHousekeepingAvailable } from './session-housekeeping.js';
 import { hostDaemons, hostDaemonSessions } from '../db/schema.js';
 import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from './agent-messaging/presence-feedback.js';
+import { retireRoutineNotice, retireRoutineNotices } from './agent-messaging/routine-notices.js';
 import { idleSessionPoll } from './agent-messaging/idle-session.js';
 import { type AgentDiscoveryFilters } from './agent-messaging/discovery.js';
 import { translateAgent } from './agent-messaging/names.js';
@@ -1499,6 +1500,10 @@ export class AgentMessagingService {
       if (relayGeneration == null) {
         const target = await this.requireAddressLocked(tx, targetAddressIds[0]!);
         await restoreUnpresentedDigests(tx, target.id, !smartQueue, { allowed: peerBatch, keyring: this.keyring });
+      }
+      const routineScan = await retireRoutineNotices(tx, this.keyring, targetAddressIds, now);
+      if (relayGeneration == null && routineScan.complete) {
+        const target = await this.requireAddressLocked(tx, targetAddressIds[0]!);
         if (peerBatch) await preparePeerBatch(tx, target, { keyring: this.keyring, server: db => this.groups.server(db) });
         else if (smartQueue) await prepareSmartDigest(tx, target, { keyring: this.keyring, server: db => this.groups.server(db) });
       }
@@ -1566,6 +1571,7 @@ export class AgentMessagingService {
         .limit(64)
         .for('update');
       for (const candidate of candidates) {
+        if (await retireRoutineNotice(tx, candidate, this.keyring, now)) continue;
         // A one-shot CLI reader cannot keep work alive or report its result.
         // Leave the FIFO head untouched for a persistent execution adapter.
         if (informationalOnly && (candidate.workKind || ['request', 'task', 'schedule'].includes(candidate.kind))) continue;
