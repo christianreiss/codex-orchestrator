@@ -28,6 +28,7 @@ import { splitSqlStatements } from '../../../src/db/migration-sql.js';
 import { registerAgentPortalAdminHostRoutes } from '../../../src/routes/agent-portal/admin-host.js';
 import { buildRouteApp } from '../../helpers/build-route-app.js';
 import { UnauthorizedError, ConflictError } from '../../../src/http/errors.js';
+import { wsPublisher } from '../../../src/ws/publisher.js';
 const handle = await getTestDb();
 describe.skipIf(!handle)('scope coordination with real MySQL transactions', { timeout: 120000 }, () => {
   const env = loadTestEnv(),
@@ -168,6 +169,67 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       after.rooms.map((r) => r.cursor),
     );
   });
+  it('keeps own and peer presence durable without model mail, including presence mixed with claims and chat', async () => {
+    const peers = await Promise.all([register('codex'), register('claude'), register('grok')]);
+    const a = peers[0]!, b = peers[1]!;
+    const snapshot = await service.context(a.id, a.token);
+    const room = snapshot.rooms.find((r) => r.kind === 'project')!;
+    const mail = () => handle!.db.select().from(agentBusMessages)
+      .where(inArray(agentBusMessages.targetSessionId, peers.map((p) => p.id)));
+    const payload = (message: typeof agentBusMessages.$inferSelect) => {
+      const content = decrypt(message.contentEnc, keyring);
+      return JSON.parse(content.slice(content.indexOf('\n{') + 1)) as { events: Array<{ id: string; kind: string }>; members: unknown[] };
+    };
+    const presence = await service.run(a.id, a.token, async (tx) => {
+      const own = await service.event(tx, room.id, 'presence', a.id, { action: 'joined' });
+      const other = await service.event(tx, room.id, 'presence', b.id, { action: 'updated', task_title: 'Peer task' });
+      await service.dispatch(tx, [own]);
+      await service.dispatch(tx, [other]);
+      return [own, other];
+    });
+    expect(await mail()).toHaveLength(0);
+    await handle!.db.update(agentScopeEvents)
+      .set({ createdAt: new Date(Date.now() - 3000).toISOString(), dispatched: 0 })
+      .where(inArray(agentScopeEvents.id, presence.map((e) => e.id)));
+    const publish = vi.spyOn(wsPublisher, 'publish');
+    try {
+      await service.tick();
+      expect(publish).toHaveBeenCalledWith('agent_coordination.changed', {});
+    } finally { publish.mockRestore(); }
+    expect(await mail()).toHaveLength(0);
+    const durable = await service.read(a.id, a.token, { scope_id: room.id });
+    expect(durable.events.filter((e) => presence.some((p) => p.id === e.id)).map((e) => e.kind))
+      .toEqual(['presence', 'presence']);
+    expect(durable.cursor).toBeGreaterThanOrEqual(presence[1]!.sequence);
+    const stored = await handle!.db.select().from(agentScopeEvents)
+      .where(inArray(agentScopeEvents.id, presence.map((e) => e.id)));
+    expect(stored.every((e) => e.dispatched === 1)).toBe(true);
+
+    const claim = await service.run(a.id, a.token, async (tx) => {
+      const routine = await service.event(tx, room.id, 'presence', a.id, { action: 'updated' });
+      const event = await service.event(tx, room.id, 'claim', a.id, { action: 'active', claim_id: randomUUID() });
+      await service.dispatch(tx, [routine, event]);
+      return event;
+    });
+    const claimMail = await mail();
+    expect(claimMail).toHaveLength(3);
+    for (const message of claimMail) {
+      expect(payload(message).events).toEqual([expect.objectContaining({ id: claim.id, kind: 'claim' })]);
+      expect(payload(message).members.length).toBeGreaterThanOrEqual(3);
+    }
+
+    const chat = await service.run(a.id, a.token, async (tx) => {
+      const routine = await service.event(tx, room.id, 'presence', b.id, { action: 'updated' });
+      const event = await service.event(tx, room.id, 'chat', a.id, { content: 'Substantive room coordination', name: 'Sender' });
+      await service.dispatch(tx, [routine, event]);
+      return event;
+    });
+    const chatMail = (await mail()).filter((m) => !claimMail.some((before) => before.id === m.id));
+    expect(chatMail).toHaveLength(2);
+    expect(chatMail.every((m) => m.targetSessionId !== a.id)).toBe(true);
+    for (const message of chatMail)
+      expect(payload(message).events).toEqual([expect.objectContaining({ id: chat.id, kind: 'chat' })]);
+  });
   it('atomically grants one overlapping writer, retains uncertain claims, and rejects stale generations', async () => {
     const [a, b] = await Promise.all([register('codex'), register('claude')]);
     const resources = [{ kind: 'path' as const, host_id: host.id, path: `/tmp/claims-${suffix}` }];
@@ -188,6 +250,11 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       waiter = x.state === 'active' ? b! : a!;
     const held = x.state === 'active' ? x : y,
       waiting = x.state === 'active' ? y : x;
+    const ownerMail = await handle!.db.select().from(agentBusMessages)
+      .where(eq(agentBusMessages.targetSessionId, owner.id));
+    const conflictNotices = ownerMail.filter((m) => decrypt(m.contentEnc, keyring).startsWith('CLAIM/1\n'));
+    expect(conflictNotices).toHaveLength(1);
+    expect(decrypt(conflictNotices[0]!.contentEnc, keyring)).toContain(waiting.id);
     await handle!.db
       .update(agentResourceClaims)
       .set({ createdAt: new Date(Date.now() - 121000).toISOString() })
@@ -260,7 +327,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
     }
     expect(ids.size).toBe(room.member_count);
     const event = await service.run(a.id, a.token, (tx) =>
-      service.event(tx, room.id, 'presence', a.id, { action: 'restart_test' }),
+      service.event(tx, room.id, 'claim', a.id, { action: 'restart_test' }),
     );
     await handle!.db
       .update(agentScopeEvents)

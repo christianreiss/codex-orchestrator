@@ -47,7 +47,10 @@ Presence is derived from the existing session heartbeat (normally 15s interval,
 45s freshness). Multiple sessions may be present in one checkout. Clean finish
 leaves immediately; missing heartbeat produces connection_lost, and reconnect
 produces returned. Older wrappers appear as limited coordination and receive no
-scope pushes. Name, task and workspace changes publish updated member context. Engine suspension and host messaging eligibility apply.
+scope pushes. Name, task and workspace changes update durable member context.
+Routine presence changes, including a session's own join or task-title update,
+do not queue model wakeups. Context/room reads and the operator UI expose current
+membership and its ordered history. Engine suspension and host messaging eligibility apply.
 
 ## Rooms and delivery
 
@@ -59,11 +62,16 @@ default 50) and `member_offset`; follow `next_before`, `next_after` and
 `client_request_id`. Reusing the ID with different content is rejected.
 
 History is encrypted at rest. Chat is persisted and fan-out queued atomically under
-the bus gate; presence/claim events are coalesced by a two-second dispatcher. The
+the bus gate; claim events are coalesced by a two-second dispatcher. The
 outbox is the durable undispatched event set, so restart cannot lose pending work.
-Every event has a room sequence and UUID. Pushes include a current member snapshot
+Every event has a room sequence and UUID. Presence-only batches are marked dispatched
+without model mail; mixed batches omit routine presence entries but retain chat
+and claim events. Durable presence history/cursors and WebSocket invalidation remain
+available. Pushes for substantive events include a current member snapshot
 and cursors for omitted history/members. Chat goes to active members except its
 sender. Delivery remains at-least-once; use event UUIDs/cursors to deduplicate.
+Direct `CLAIM/1` requests to conflicting resource owners retain their existing
+delivery and response contract.
 
 The bus uses session-bound `presence_notice` envelopes for `SCOPE/1` and `CLAIM/1`.
 They cannot wake or follow a replacement session. Do not reply using agent_reply:
