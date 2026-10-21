@@ -4,9 +4,8 @@
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { StateBlock } from "$lib/components/page";
   import ClientsWorkspace from "$lib/components/portal/ClientsWorkspace.svelte";
-  import { createMutation, useQueryClient } from '@tanstack/svelte-query';
-  import { coordinationQuery } from '$lib/api/coordination';
-  import { api } from '$lib/api/client';
+  import { base } from '$app/paths';
+  import { coordinationQuery, coordinationStateQuery } from '$lib/api/coordination';
   import { authStore } from '$lib/stores/auth';
   import { scopeGroups } from '$lib/topology/scope-groups';
   import ScopeChat from './ScopeChat.svelte';
@@ -16,12 +15,11 @@
 
   let { agents }: { agents: AgentsView } = $props();
   const scopes = coordinationQuery();
-  const queryClient = useQueryClient();
+  const coordination = coordinationStateQuery();
   let roomId = $state<string | null>(null);
   $effect(() => { if (agents.chatOpen) roomId = null; });
   const room = $derived($scopes.data?.rooms.find(r => r.id === roomId));
-  const enableScopes = createMutation({ mutationFn: () => api.post('/admin/agent-messaging/scopes/state', { enabled: true }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agent-scopes'] }) });
-  const groups = $derived(agents.grouping === 'connection' || !$scopes.data?.enabled ? [] : (agents.grouping === 'scopes' ? ['project', 'host'] as const : [agents.grouping]).flatMap(kind => scopeGroups(agents.visibleModel.agents.map(a => a.node), $scopes.data!.rooms, $scopes.data!.claims, kind)).filter(g => g.room));
+  const groups = $derived(agents.grouping === 'connection' || !$coordination.data?.enabled || !$scopes.data?.enabled ? [] : (agents.grouping === 'scopes' ? ['project', 'host'] as const : [agents.grouping]).flatMap(kind => scopeGroups(agents.visibleModel.agents.map(a => a.node), $scopes.data!.rooms, $scopes.data!.claims, kind)).filter(g => g.room));
   const palette = ['hsl(var(--primary))', 'hsl(var(--persona-claude))', 'hsl(var(--success))', 'hsl(var(--warning))', 'hsl(var(--muted-foreground))'];
   const clouds = $derived(groups.map((group, i) => ({ id: group.id, title: group.title, color: palette[i % palette.length], members: group.agents.map(a => a.id) })));
   const topology = $derived(agents.topology.current);
@@ -46,10 +44,11 @@
     <select id="scope-grouping" class="rounded border bg-background px-2 py-1" bind:value={agents.grouping}>
       <option value="connection">None</option><option value="project">Project</option><option value="host">Host</option><option value="scopes">Project + Host</option>
     </select>
-    {#if $scopes.data && !$scopes.data.enabled}{#if $authStore.can('agent_messaging.manage')}<Button size="sm" variant="outline" disabled={$enableScopes.isPending} onclick={() => $enableScopes.mutate()}>Enable project rooms</Button>{/if}{/if}
-    {#if $scopes.error}<span role="alert" class="text-destructive">{$scopes.error.message}</span>{/if}
-    {#if $enableScopes.error}<span role="alert" class="text-destructive">{$enableScopes.error.message}</span>{/if}
+    <span class="text-body-sm" role="status">Agent coordination: {#if !$authStore.can('agent_messaging.read')}access restricted{:else if $coordination.isPending}loading…{:else if $coordination.isError}{$coordination.data ? `${$coordination.data.enabled ? 'Enabled' : 'Disabled'} (stale)` : 'unavailable'}{:else}{$coordination.data?.enabled ? 'Enabled' : 'Disabled'}{/if}</span>
+    <Button href={`${base}/settings#agent-coordination`} size="sm" variant="outline">Agent coordination settings</Button>
+    {#if $coordination.isError}<Button size="sm" variant="outline" onclick={() => void $coordination.refetch()}>Retry coordination status</Button>{/if}
   </div>
+  {#if $scopes.error}<StateBlock state="error" message="Project and host rooms could not be loaded. The connection graph remains available; coordination settings are separate." onRetry={() => void $scopes.refetch()} />{/if}
   {#if groups.length}
     <div class="mb-2 flex flex-wrap gap-2" aria-label="Scope groups">
       {#each groups as group, i (group.id)}

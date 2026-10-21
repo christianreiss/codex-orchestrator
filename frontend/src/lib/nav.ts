@@ -190,7 +190,7 @@ const REGISTRY: NavDefinition[] = [
   },
   {
     id: "settings", group: "access", route: "/settings", label: "Settings",
-    description: "Fleet-wide behavior: hosts, agents, data retention", keywords: ["policies", "dns", "prune", "retention", "insecure", "auto-update", "approval"], icon: ShieldCheck,
+    description: "Fleet-wide behavior: hosts, agent coordination, data retention", keywords: ["policies", "dns", "prune", "retention", "insecure", "auto-update", "approval", "coordination", "project rooms", "host rooms", "resource claims"], icon: ShieldCheck,
   },
   {
     id: "manual", group: "Utilities", route: "/manual", label: "Manual",

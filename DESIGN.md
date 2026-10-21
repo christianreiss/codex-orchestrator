@@ -93,6 +93,7 @@ owning components when moving a setting; update this table in the same change.
 | Quota enforcement, quota warnings and usage-based scaling | `/admin/limits` |
 | Host-specific access, engine assignments and overrides | `/admin/hosts/[id]` |
 | Fleet host policy, host-agent rollout, agent-session controls, Chatty and retention | `/admin/settings` |
+| Fleet-wide agent coordination: project/host rooms and resource claims | `/admin/settings#agent-coordination` (Graph shows status and links here) |
 | Agent messaging service and coordination data | `/admin/agent-messaging` |
 | Workflow module switch and reusable instructions | `/admin/workflows` and selected definition |
 | Schedule configuration, Git coordination settings and transfer limits | Their respective Coordination pages |
@@ -215,7 +216,7 @@ This is a source audit, not a live visual acceptance report. All 39 `+page.svelt
 | `/admin/dashboard` | Prioritize attention; overview | `PageShell`, `Section`, `StatStrip`, attention/usage tables | Unknown/stale usage versus healthy zero |
 | `/admin/hosts` | Find/register hosts; list | `PageShell`, `Toolbar`, `HostsTable`, add/seed sheets | Filter retention, loading and no matches |
 | `/admin/hosts/[id]` | Diagnose/manage one host; detail | `PageShell`, attention, engine/access/advanced/delete sections | Long identity, accessible repair, disabled engine |
-| `/admin/agents` | Operate agents; conversation / graph | `PageShell`, `ClientsWorkspace`, `GraphView`, inspector | Both views, reconnect, focus and non-graph access |
+| `/admin/agents` | Operate agents; conversation / graph | `PageShell`, `ClientsWorkspace`, `GraphView`, inspector; coordination status links to Settings | Both views, reconnect, focus and non-graph access; independent setting state when room loading fails |
 | `/admin/projects` | Browse/create projects; list | `PageShell`, `Toolbar`, `DataTable`, settings sheet | Selection scope and bulk destructive action |
 | `/admin/projects/[slug]` | Project entry redirect | Redirect to board | Encoded slugs and back navigation |
 | `/admin/projects/[slug]/board` | Manage work; board | Project shell, `Section`, columns, card sheet | Non-drag move, narrow layout, empty columns |
@@ -242,7 +243,7 @@ This is a source audit, not a live visual acceptance report. All 39 `+page.svelt
 | `/admin/people` | Manage admin users; list | `PageShell`, people section, wipe-all danger zone | Role/permission denial, last-owner protection, wipe confirmation |
 | `/admin/api-keys` | Issue and revoke gateway keys; list + configuration | `PageShell`, API-key section, Configure panel | Reveal/copy, revoke, disabled surface/backend, legacy anchors |
 | `/admin/secrets` | Manage agent-readable credentials; list | `PageShell`, secrets section, secret dialog | Reveal/copy, store switch off/empty, permission denial |
-| `/admin/settings` | Set fleet behavior; settings | Narrow `PageShell`, `Section`, policy/session/retention controls | Immediate-save truth and scope clarity |
+| `/admin/settings` | Set fleet behavior; settings | Narrow `PageShell`, `Section`, policy/session/retention controls and Agent coordination | Immediate-save truth, read-only/stale states, scope clarity; reconcile coordination state before retrying an ambiguous save |
 | `/admin/account` | Manage own identity/security; settings | `PageShell`, `Section`, profile/password/passkey/theme/device components | Device pairing, recovery, all theme modes |
 | `/admin/manual` | Find help; help index | `PageShell`, `Section`, `StateBlock`, `ManualSidebar` | Findability and missing content |
 | `/admin/manual/[slug]` | Read help; article | `PageShell`, `ManualSidebar`, `ArticleView` | Heading structure, code, long links, unknown slug |

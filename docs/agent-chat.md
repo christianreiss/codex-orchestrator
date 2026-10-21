@@ -4,6 +4,8 @@ Agent chat is the existing Active Clients / Android Chats conversation with mana
 
 ## Active Clients workspace
 
+Fleet-wide **Agent coordination** has one editable home at **Settings → Agent coordination** (`/admin/settings#agent-coordination`), also searchable in the command palette. It controls automatic project/host rooms and resource claims for Codex, Claude and Grok. The Graph view shows its independently loaded status and links to Settings; a room snapshot error does not imply that the setting is disabled. Changes save immediately and show the confirmed effective state. After an ambiguous response, Settings reads the lightweight state endpoint before retrying and avoids another write when the requested state is already effective. Read access requires `agent_messaging.read`; changes require `agent_messaging.manage`. Turning coordination off does not stop running agents; claims do not sandbox shell commands.
+
 The page updates automatically through shared WebSocket events, reconnect resampling and polling, with scoped SSE for the selected timeline. There is no routine Refresh button; Retry remains available for failed or stale status and failed timeline requests.
 
 Active Clients opens on **Agents**. **Remote sessions** has a separate searchable list of host-daemon sessions, including sessions on disabled hosts. Current / Ended / All filters retain access to completed work. A remote session's bound agent is shown only in the Remote sessions workspace, using the same native timeline, attachments, questions and delivery receipts as ordinary agents. Session and address UUIDs establish this association; names and host labels do not.
