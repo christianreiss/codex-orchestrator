@@ -118,11 +118,6 @@ if ! docker compose version >/dev/null 2>&1; then
   fail "docker compose v2 is required"
 fi
 
-INSTANCE_PROFILES=("${profiles[@]}")
-instance_adopt_caddy || fail "could not discover existing Caddy containers"
-instance_compose_init
-compose=("${INSTANCE_COMPOSE[@]}")
-
 if [[ "${skip_git}" -eq 0 ]]; then
   [[ -d .git ]] || fail "not a git checkout: ${repo_root}"
 
@@ -158,6 +153,12 @@ if [[ "${skip_git}" -eq 0 ]]; then
 else
   log "skipping git checks"
 fi
+
+# Capture build provenance from the sources we actually build, after the pull.
+INSTANCE_PROFILES=("${profiles[@]}")
+instance_adopt_caddy || fail "could not discover existing Caddy containers"
+instance_compose_init
+compose=("${INSTANCE_COMPOSE[@]}")
 
 deploy_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 

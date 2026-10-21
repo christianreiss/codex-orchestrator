@@ -31,7 +31,9 @@ a = sys.argv[1:]
 with open(os.environ['MOCK_LOG'], 'a') as f:
     f.write(json.dumps({'args': a, 'env_file': os.environ.get('ENV_FILE'),
                         'data_root': os.environ.get('DATA_ROOT'),
-                        'probe': os.environ.get('PROBE')}) + '\\n')
+                        'probe': os.environ.get('PROBE'),
+                        'build_commit': os.environ.get('ORCHESTRATOR_BUILD_COMMIT'),
+                        'build_dirty': os.environ.get('ORCHESTRATOR_BUILD_DIRTY')}) + '\\n')
 if a == ['info']:
     sys.exit(int(os.environ.get('DAEMON_EXIT', '0')))
 if a == ['compose', 'version']:
@@ -86,7 +88,7 @@ elif 'up' in a:
   }
   function calls() {
     return existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map((s) =>
-      JSON.parse(s) as { args: string[]; env_file: string; data_root: string; probe?: string }) : [];
+      JSON.parse(s) as { args: string[]; env_file: string; data_root: string; probe?: string; build_commit?: string; build_dirty?: string }) : [];
   }
   return { dir, repo, data, env, log, git, run, calls };
 }
@@ -248,6 +250,39 @@ describe('local instance CLI', () => {
     expect(config.env_file).toBe(join(f.repo, '.env.local'));
     expect(config.data_root).toBe(f.data);
     expect(config.args).toContain('caddy');
+  });
+
+  it.each([false, true])('stamps the sources actually built after a pull (skip git: %s)', (skipGit) => {
+    const f = fixture();
+    // Ownership changes belong to deployment, not this unprivileged fixture.
+    const chown = join(f.dir, 'mock/chown');
+    writeFileSync(chown, '#!/bin/sh\nexit 0\n');
+    chmodSync(chown, 0o755);
+    const previous = f.git('rev-parse', 'HEAD');
+    writeFileSync(join(f.repo, 'source-update'), 'new application sources');
+    f.git('add', 'source-update');
+    f.git('commit', '-m', 'source update');
+    const target = f.git('rev-parse', 'HEAD');
+    if (!skipGit) {
+      const remote = join(f.dir, 'source-remote.git');
+      const cloned = spawnSync('git', ['clone', '--bare', f.repo, remote], { env: f.env, encoding: 'utf8' });
+      expect(cloned.status, cloned.stderr).toBe(0);
+      // Reset only this disposable fixture to exercise a real fast-forward.
+      f.git('reset', '--hard', previous);
+      f.git('remote', 'add', 'origin', remote);
+      f.git('fetch', 'origin');
+      f.git('branch', '--set-upstream-to=origin/main', 'main');
+    }
+    const args = ['--skip-wrappers', '--no-cleanup', '--no-wait', '--service', 'api'];
+    if (skipGit) args.push('--skip-git');
+    const result = spawnSync('bash', [join(f.repo, 'scripts/deploy.sh'), ...args],
+      { cwd: f.dir, env: f.env, encoding: 'utf8', timeout: 15000 });
+    expect(result.status, result.stderr).toBe(0);
+    expect(f.git('rev-parse', 'HEAD')).toBe(target);
+    const build = f.calls().find(c => c.args.includes('build') && c.args.includes('api'))!;
+    expect(build).toBeDefined();
+    expect(build.build_commit).toBe(target);
+    expect(build.build_dirty).toBe('false');
   });
 
   it('updates from pinned main, backs up privately, re-execs and retries the same revision', () => {
