@@ -386,6 +386,7 @@ func TestLaneRejectsContradictorySelectorsBeforeRequest(t *testing.T) {
 func TestStatusAppliesReturnedCanonicalAuth(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
 	bin := filepath.Join(t.TempDir(), "codex")
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho 0.144.1\n"), 0o755); err != nil {
 		t.Fatal(err)
