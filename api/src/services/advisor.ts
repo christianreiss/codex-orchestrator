@@ -18,6 +18,7 @@ import {
   agentBusAddresses,
   hostDaemons,
   hostDaemonSessions,
+  hostDaemonOperations,
   type Host,
   type AgentSession,
 } from '../db/schema.js';
@@ -34,7 +35,7 @@ import type { Database } from '../db/client.js';
 import { advisorHost } from './internal-hosts.js';
 import { readModelPolicy } from './model-policy.js';
 import { buildModelTierTable, modelTier } from './model-tiers.js';
-import { ADVISOR_KINDS, type AdvisorKind } from './advisor-delivery.js';
+import { ADVISOR_KINDS, advisorFailureDiagnostic, type AdvisorKind } from './advisor-delivery.js';
 import { compareWrapperVersions, highestVersion } from './wrapper-rollout.js';
 
 export const advisorAskSchema = z
@@ -369,6 +370,17 @@ export class AdvisorService {
     // offer that expired before any host accepted it); report the effective state.
     const ended = !daemon || ['closed', 'failed', 'unknown'].includes(daemon.status);
     const status = row.status !== 'closed' && row.status !== 'failed' && ended ? (daemon?.status === 'closed' ? 'closed' : 'failed') : row.status;
+    let diagnostic: ReturnType<typeof advisorFailureDiagnostic> = null;
+    if (status === 'failed' || status === 'closed') {
+      const [operation, previous] = await this.ctx.db.select({ resultEnc: hostDaemonOperations.resultEnc, createdAt: hostDaemonOperations.createdAt })
+        .from(hostDaemonOperations).where(eq(hostDaemonOperations.sessionId, row.daemonSessionId))
+        .orderBy(desc(hostDaemonOperations.createdAt)).limit(2);
+      // UUID order cannot establish which turn was last at a tied timestamp.
+      if (operation?.resultEnc && (!previous || previous.createdAt !== operation.createdAt)) {
+        try { diagnostic = advisorFailureDiagnostic(JSON.parse(decrypt(operation.resultEnc, this.ctx.keyring))); }
+        catch { /* Missing or legacy evidence never becomes a fabricated diagnostic. */ }
+      }
+    }
     return {
       advisor_session_id: row.id,
       kind: row.kind,
@@ -379,6 +391,7 @@ export class AdvisorService {
       conversation_id: row.conversationId,
       verdict: row.verdictEnc ? (JSON.parse(decrypt(row.verdictEnc, this.ctx.keyring)) as unknown) : null,
       close_reason: row.closeReason,
+      diagnostic,
       created_at: row.createdAt,
       closed_at: row.closedAt,
     };

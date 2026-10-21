@@ -40,6 +40,21 @@ export const advisorVerdictSchema = z
   .strip();
 export type AdvisorVerdict = z.infer<typeof advisorVerdictSchema>;
 
+/** Only wrapper-generated terminal metadata is public; never forward native stderr. */
+export function advisorFailureDiagnostic(result: unknown) {
+  if (!result || typeof result !== 'object') return null;
+  const { status, reply } = result as Record<string, unknown>;
+  if (status !== 'failed' || typeof reply !== 'string' || reply.length > 256 || /[\r\n]/.test(reply)) return null;
+  const match = /^Native process exited unsuccessfully; exit_status=(-1|\d{1,3})(?:; startup stage=(registration|connection|identity) code=(failed|api_rejected|agent_messaging_lease_lost|agent_session_finished|agent_identity_conflict)(?: http=([45]\d{2}))?)?$/.exec(reply);
+  if (!match || Number(match[1]) > 255) return null;
+  return {
+    code: 'native_exit',
+    exit_status: Number(match[1]),
+    ...(match[2] ? { startup_stage: match[2], startup_code: match[3] } : {}),
+    ...(match[4] ? { http_status: Number(match[4]) } : {}),
+  };
+}
+
 /** The last fenced JSON block whose object carries a valid verdict, if any. */
 export function parseAdvisorVerdict(reply: string): AdvisorVerdict | null {
   const blocks = [...reply.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/g)].map((m) => m[1]!);

@@ -1149,7 +1149,10 @@ Follow-ups keep the original request kind and pinned model, with a new `client_m
 per question (reuse it only for retries). The prompt identifies the actual advisor model,
 defines verdict meanings and lists allowed model tiers. Status reflects only the latest
 turn's verdict (null for missing/invalid JSON or failed turns); failures retain their
-diagnostic reply. Readiness excludes engines without an allowed model and reports
+diagnostic reply. Terminal status also includes nullable bounded `diagnostic`
+metadata (exit status and vetted startup stage/code/HTTP status); legacy or ambiguous
+evidence stays null, and native stderr is never forwarded. Readiness excludes
+engines without an allowed model and reports
 `advisor_model_unavailable` if no model remains.
 The tools are served by the `cxx-agent` stdio server, not by the
 orchestrator MCP. The managed `## Fleet Advisor` block is withheld while the installed cxx

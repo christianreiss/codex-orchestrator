@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { advisorSessions, agentBusAddresses, agentBusMessages, hosts, versions } from '../../../src/db/schema.js';
+import { advisorSessions, agentBusAddresses, agentBusMessages, hostDaemonSessions, hostDaemonOperations, hosts, versions } from '../../../src/db/schema.js';
 import { decrypt, encrypt } from '../../../src/security/secret-box.js';
 import { AdvisorService } from '../../../src/services/advisor.js';
 import { advisorTurnCompleted, parseAdvisorVerdict } from '../../../src/services/advisor-delivery.js';
@@ -83,5 +83,57 @@ describe('Advisor turn delivery', () => {
     expect(f.message()).toContain('status "failed"');
     expect(f.row.verdictEnc).toBeNull();
     expect(f.row.status).toBe('failed');
+  });
+});
+
+describe('Advisor terminal diagnostics', () => {
+  function fixture(reply: string, resultStatus = 'failed') {
+    const callerId = randomUUID(), id = randomUUID(), sessionId = randomUUID();
+    const db = createDbFake(new Map<unknown, Record<string, unknown>[]>([
+      [advisorSessions, [{ id, callerAddressId: callerId, daemonSessionId: sessionId, status: 'failed', turns: 1, verdictEnc: null, closeReason: 'error' }]],
+      [hostDaemonSessions, [{ id: sessionId, status: 'failed' }]],
+      [hostDaemonOperations, [{ id: randomUUID(), sessionId, createdAt: '2026-10-21T14:00:00.000Z', status: resultStatus, resultEnc: encrypt(JSON.stringify({ status: resultStatus, reply }), keyring) }]],
+    ]));
+    const service = new AdvisorService({ db, env: loadTestEnv(), keyring } as never);
+    const status = (owner = callerId) => service.status({ session: { agentBusAddressId: owner } } as never, { advisor_session_id: id });
+    return { status, db };
+  }
+  it('exposes only bounded terminal evidence to the owner without fabricating a verdict', async () => {
+    const f = fixture('Native process exited unsuccessfully; exit_status=1; startup stage=registration code=agent_messaging_lease_lost http=409');
+    expect(await f.status()).toMatchObject({ status: 'failed', verdict: null,
+      diagnostic: { code: 'native_exit', exit_status: 1, startup_stage: 'registration', startup_code: 'agent_messaging_lease_lost', http_status: 409 } });
+    await expect(f.status(randomUUID())).rejects.toMatchObject({ status: 403 });
+  });
+  it.each([
+    'Native process exited unsuccessfully; inspect the native session on the host',
+    'Provider refused private-account-data',
+    'Native process exited unsuccessfully; exit_status=999',
+    'Native process exited unsuccessfully; exit_status=1; startup stage=registration code=failed http=200',
+    'Native process exited unsuccessfully; exit_status=1; startup stage=registration code=private-token http=409',
+    'Native process exited unsuccessfully; exit_status=1\nprivate-account-data',
+    'Native process exited unsuccessfully; exit_status=1' + 'x'.repeat(257),
+  ])('leaves legacy or unsafe diagnostics null: %s', async (reply) => {
+    expect(await fixture(reply).status()).toMatchObject({ verdict: null, diagnostic: null });
+  });
+  it('does not promote successful model text into failure evidence', async () => {
+    expect(await fixture('Native process exited unsuccessfully; exit_status=1', 'completed').status()).toMatchObject({ diagnostic: null });
+  });
+  it.each([null, 'legacy-unreadable-result'])('keeps missing or unreadable legacy result evidence null: %s', async (resultEnc) => {
+    const f = fixture('Native process exited unsuccessfully; exit_status=1');
+    f.db.tables.get(hostDaemonOperations)![0]!.resultEnc = resultEnc;
+    expect(await f.status()).toMatchObject({ diagnostic: null, verdict: null });
+  });
+  it('does not infer the newest turn from random UUIDs at tied timestamps', async () => {
+    const f = fixture('Native process exited unsuccessfully; exit_status=1');
+    const operations = f.db.tables.get(hostDaemonOperations)!;
+    operations.push({ ...operations[0], id: randomUUID(), resultEnc: encrypt(JSON.stringify({ status: 'failed', reply: 'Native process exited unsuccessfully; exit_status=7' }), keyring) });
+    expect(await f.status()).toMatchObject({ diagnostic: null });
+  });
+  it('does not retain an older failure while the latest operation has no result', async () => {
+    const f = fixture('Native process exited unsuccessfully; exit_status=1');
+    const operations = f.db.tables.get(hostDaemonOperations)!;
+    // DbFake preserves seeded ordering; put the newest operation first.
+    operations.unshift({ ...operations[0], id: randomUUID(), createdAt: '2026-10-21T14:00:01.000Z', status: 'queued', resultEnc: null });
+    expect(await f.status()).toMatchObject({ diagnostic: null });
   });
 });
