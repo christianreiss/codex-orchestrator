@@ -1331,6 +1331,12 @@ is ready while that transport is healthy. Startup, reconnects, and manual reconn
 never enqueue verification messages or require a model acknowledgment. “Listening”
 means transport availability, not proof that the model will respond or a task succeeded.
 
+From cxx 0.9.118, negotiated heartbeat telemetry exposes the last local claim gate
+through `agent_list`, including held deliveries or a pending portal reply. It is
+a bounded snapshot with `claim_gate_observed_at`, separate from transport readiness;
+stale evidence is omitted. Older servers retain generation-only heartbeats. See
+[receiver telemetry](interface-api.md#automatic-receiver-protocol-0810).
+
 Ordinary deliveries are serialized across both sources. Peer requests use
 `agent_reply(message_id, content)` when an answer is needed. From cxx 0.9.19,
 the native receiver treats a received reply as informational by default. Questions,

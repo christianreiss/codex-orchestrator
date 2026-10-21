@@ -127,12 +127,16 @@ func TestQueueCapabilityFallsBackOnlyAfterExplicitOldServerRejection(t *testing.
 				if body["capabilities"] == nil {
 					t.Error("missing negotiation")
 				}
+			}
+			if body["generation"] != firstGeneration.Load() {
+				t.Error("fallback changed identity")
+			}
+			if body["capabilities"] != nil {
+				// A strict pre-capabilities server rejects both the new optional
+				// gate advertisement and the older queue-only retry.
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = w.Write([]byte(`{"message":"unknown capabilities field"}`))
 				return
-			}
-			if body["capabilities"] != nil || body["generation"] != firstGeneration.Load() {
-				t.Error("fallback changed identity or retained unsupported fields")
 			}
 			out["sources"] = []string{"peer"}
 		case "claim":
@@ -161,7 +165,7 @@ func TestQueueCapabilityFallsBackOnlyAfterExplicitOldServerRejection(t *testing.
 	}
 	cancel()
 	<-done
-	if registrations.Load() != 2 || r.coordinationEnabled() {
+	if registrations.Load() != 3 || r.coordinationEnabled() {
 		t.Fatal("legacy receiver incorrectly negotiated smart delivery")
 	}
 }

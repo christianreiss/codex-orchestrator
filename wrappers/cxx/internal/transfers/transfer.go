@@ -324,8 +324,8 @@ func (c *Client) Get(ctx context.Context, id, path string, resume, overwrite boo
 		if offset > 0 && (resp.StatusCode != http.StatusPartialContent || resp.Header.Get("Content-Range") != fmt.Sprintf("bytes %d-%d/%d", offset, t.Size-1, t.Size)) {
 			return Transfer{}, fmt.Errorf("server did not honor the resume range")
 		}
-		if resp.ContentLength != t.Size-offset {
-			return Transfer{}, fmt.Errorf("download length differs from metadata")
+		if resp.ContentLength >= 0 && resp.ContentLength != t.Size-offset {
+			return Transfer{}, fmt.Errorf("download length differs from metadata: expected %d bytes, received Content-Length %d", t.Size-offset, resp.ContentLength)
 		}
 		written, e := io.Copy(&downloadWriter{file: f, client: c, done: offset, total: t.Size, last: offset, at: time.Now()}, io.LimitReader(resp.Body, t.Size-offset+1))
 		if syncErr := f.Sync(); e == nil {
@@ -334,8 +334,11 @@ func (c *Client) Get(ctx context.Context, id, path string, resume, overwrite boo
 		if e != nil {
 			return Transfer{}, fmt.Errorf("download interrupted; use --resume: %w", e)
 		}
-		if offset+written != t.Size {
-			return Transfer{}, fmt.Errorf("incomplete download; use --resume")
+		if offset+written > t.Size {
+			return Transfer{}, fmt.Errorf("download exceeds metadata size: expected %d bytes, received at least %d; discard the partial download and retry", t.Size, offset+written)
+		}
+		if offset+written < t.Size {
+			return Transfer{}, fmt.Errorf("incomplete download: expected %d bytes, received %d; use --resume", t.Size, offset+written)
 		}
 		c.progress(offset+written, t.Size)
 	}

@@ -21,6 +21,114 @@ import (
 
 type rewriteTransport struct{ server *httptest.Server }
 
+func TestReceiverHeartbeatGateIsNegotiatedAndBounded(t *testing.T) {
+	r := &autoReceiver{}
+	r.setGate("thread_active")
+	r.mu.Lock()
+	r.gateSince = time.Now().Add(-8 * 24 * time.Hour)
+	r.mu.Unlock()
+	legacy := r.heartbeatRequest("generation", false)
+	if len(legacy) != 1 || legacy["generation"] != "generation" {
+		t.Fatalf("strict legacy heartbeat changed: %+v", legacy)
+	}
+	gate := r.heartbeatRequest("generation", true)["claim_gate"].(map[string]any)
+	if gate["state"] != "thread_active" || gate["seconds"] != 604800 {
+		t.Fatalf("unbounded gate: %+v", gate)
+	}
+	r.setGate("thread_private-native-content")
+	gate = r.heartbeatRequest("generation", true)["claim_gate"].(map[string]any)
+	if gate["state"] != "thread_other" {
+		t.Fatalf("forwarded native status content: %+v", gate)
+	}
+	r.setGate("open")
+	gate = r.heartbeatRequest("generation", true)["claim_gate"].(map[string]any)
+	if gate["state"] != "open" || gate["seconds"] != 0 {
+		t.Fatalf("open gate: %+v", gate)
+	}
+}
+
+func TestReceiverNegotiatesGateWithoutBreakingStrictOlderServers(t *testing.T) {
+	for _, serverVersion := range []string{"current", "previous", "legacy"} {
+		t.Run(serverVersion, func(t *testing.T) {
+			t.Setenv("CXX_AGENT_PORTAL_ENGINE", "codex")
+			t.Setenv("CODEX_HOME", t.TempDir())
+			socket, methods := fakeCodexAppServer(t, func(method string, _ map[string]any) nativeAnswer {
+				switch method {
+				case "thread/loaded/list":
+					return nativeAnswer{result: map[string]any{"data": []string{"native"}}}
+				case "thread/read":
+					return nativeAnswer{result: map[string]any{"thread": map[string]any{"id": "native", "source": "cli", "status": map[string]any{"type": "active"}}}}
+				case "thread/turns/list":
+					return nativeAnswer{result: map[string]any{"data": []any{}}}
+				}
+				return nativeAnswer{}
+			})
+			t.Setenv("CXX_CODEX_SOCKET", socket)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			var registrations, heartbeats atomic.Int32
+			generation := ""
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				var body map[string]any
+				_ = json.NewDecoder(req.Body).Decode(&body)
+				w.Header().Set("Content-Type", "application/json")
+				switch path.Base(req.URL.Path) {
+				case "register":
+					registrations.Add(1)
+					if generation != "" && generation != body["generation"] {
+						t.Error("compatibility retry changed generation")
+					}
+					generation, _ = body["generation"].(string)
+					caps, hasCaps := body["capabilities"].(map[string]any)
+					if serverVersion == "previous" && caps["claim_gate_v1"] != nil || serverVersion == "legacy" && hasCaps {
+						w.WriteHeader(http.StatusUnprocessableEntity)
+						_, _ = w.Write([]byte(`{}`))
+						return
+					}
+					if serverVersion != "legacy" && (caps["queue_delivery_v1"] != true || caps["peer_batch_v1"] != true) {
+						t.Error("discarded compatible queue capabilities")
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"sources": []string{"peer"}, "capabilities": map[string]any{"claim_gate_v1": serverVersion == "current"}})
+					return
+				case "heartbeat":
+					heartbeats.Add(1)
+					if _, hasGate := body["claim_gate"]; hasGate != (serverVersion == "current") {
+						t.Errorf("heartbeat violated negotiated schema: %+v", body)
+					}
+					if serverVersion != "current" && len(body) != 1 {
+						t.Errorf("strict older heartbeat: %+v", body)
+					}
+					if serverVersion != "current" {
+						cancel()
+					} else if gate, ok := body["claim_gate"].(map[string]any); ok && gate["state"] == "thread_active" {
+						cancel()
+					}
+				case "claim":
+					t.Error("active native thread claimed a message")
+				}
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer server.Close()
+			client := &sessionClient{id: "session", http: &http.Client{Transport: rewriteTransport{server}}}
+			r := &autoReceiver{client: client, tracker: newChannelTracker(client)}
+			_ = r.connection(ctx)
+			wantRegistrations := map[string]int32{"current": 1, "previous": 2, "legacy": 3}[serverVersion]
+			wantHeartbeats := int32(1)
+			if serverVersion == "current" {
+				wantHeartbeats = 2
+			}
+			if registrations.Load() != wantRegistrations || heartbeats.Load() != wantHeartbeats {
+				t.Fatalf("registration/heartbeat attempts = %d/%d", registrations.Load(), heartbeats.Load())
+			}
+			for _, method := range methods() {
+				if method == "turn/start" || method == "thread/queue/add" {
+					t.Fatalf("telemetry scheduled native input: %s", method)
+				}
+			}
+		})
+	}
+}
+
 func TestCodexReceiverNamesSessionBeforeFirstUserMessage(t *testing.T) {
 	t.Setenv("CXX_AGENT_PORTAL_ENGINE", "codex")
 	t.Setenv("CODEX_HOME", t.TempDir())

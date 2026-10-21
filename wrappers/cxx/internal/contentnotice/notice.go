@@ -31,6 +31,7 @@ type Notice struct {
 	Generation   string    `json:"generation"`
 	Engine       string    `json:"engine"`
 	Kinds        []string  `json:"kinds"`
+	Digests      Snapshot  `json:"digests,omitempty"`
 	Instructions string    `json:"instructions,omitempty"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -46,12 +47,26 @@ func (n Notice) has(kind string) bool {
 
 func (n Notice) Message() string {
 	var parts []string
+	var changed []string
+	for _, kind := range n.Kinds {
+		label := map[string]string{KindInstructions: "fleet instructions", KindSkills: "Skill catalog", KindConfig: "managed configuration"}[kind]
+		if label == "" {
+			continue
+		}
+		if digest := n.Digests[kind]; digest != "" {
+			label += " (sha256:" + digest + ")"
+		}
+		changed = append(changed, label)
+	}
+	if n.Generation != "" {
+		parts = append(parts, "Fleet content generation sha256:"+n.Generation+". Changed: "+strings.Join(changed, ", ")+".")
+	}
 	if n.has(KindInstructions) {
 		file := n.Instructions
 		if file == "" {
 			file = map[string]string{"codex": "~/.codex/AGENTS.md", "claude": "~/.claude/CLAUDE.md", "grok": "~/.grok/AGENTS.md"}[n.Engine]
 		}
-		parts = append(parts, "The fleet instructions in "+file+" changed after this session started. Re-read that file now; where it differs from what you loaded at startup, the file is current.")
+		parts = append(parts, "The fleet instructions in "+file+" changed since this session's last notice. Re-read that file now; where it differs from what you loaded earlier, the file is current.")
 	}
 	if n.has(KindSkills) {
 		if n.Engine == "grok" {
@@ -199,7 +214,7 @@ func PublishChanges(engine, instructions string, before, after Snapshot) error {
 	for _, kind := range keys {
 		h.Write([]byte(kind + "=" + after[kind] + "\n"))
 	}
-	return Publish(Notice{Generation: hex.EncodeToString(h.Sum(nil)), Engine: engine, Kinds: changed, Instructions: instructions})
+	return Publish(Notice{Generation: hex.EncodeToString(h.Sum(nil)), Engine: engine, Kinds: changed, Digests: after, Instructions: instructions})
 }
 
 // Publish deduplicates all writers of the same exact content generation. A
@@ -264,6 +279,11 @@ type Delivery struct {
 	lock   *os.File
 }
 
+type seenGeneration struct {
+	Generation string   `json:"generation"`
+	Digests    Snapshot `json:"digests,omitempty"`
+}
+
 func (d *Delivery) Abort() {
 	if d != nil && d.lock != nil {
 		_ = d.lock.Close()
@@ -276,6 +296,16 @@ func (d *Delivery) Commit() error {
 		return nil
 	}
 	defer d.Abort()
+	raw, err := json.Marshal(seenGeneration{Generation: d.Notice.Generation, Digests: d.Notice.Digests})
+	if err != nil {
+		return err
+	}
+	// Keep the original ledger readable by still-running older hooks/MCP
+	// consumers. Commit the matching metadata first; a failed write leaves
+	// the generation pending, while a legacy writer invalidates stale metadata.
+	if err = atomicWrite(d.ledger+".json", raw); err != nil {
+		return err
+	}
 	return atomicWrite(d.ledger, []byte(d.Notice.Generation))
 }
 
@@ -315,6 +345,27 @@ func Prepare(engine, session string) (*Delivery, error) {
 		}
 		if string(seen) == notice.Generation {
 			return nil
+		}
+		var previous seenGeneration
+		if raw, err := os.ReadFile(ledger + ".json"); err == nil {
+			_ = json.Unmarshal(raw, &previous)
+		}
+		if previous.Generation != string(seen) {
+			// Older consumers record no category metadata. Conservatively emit
+			// one full notice rather than relying on stale companion digests.
+			previous = seenGeneration{}
+		}
+		if len(previous.Digests) > 0 && len(notice.Digests) > 0 {
+			var changed []string
+			for _, kind := range notice.Kinds {
+				if previous.Digests[kind] != notice.Digests[kind] {
+					changed = append(changed, kind)
+				}
+			}
+			if len(changed) == 0 {
+				return nil
+			}
+			notice.Kinds = changed
 		}
 		result = &Delivery{Notice: notice, ledger: ledger, lock: lock}
 		keepLock = true

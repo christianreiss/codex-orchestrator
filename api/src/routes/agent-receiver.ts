@@ -3,9 +3,14 @@ import { z } from 'zod';
 import type { RouteContext } from './index.js';
 import { AgentReceiverService } from '../services/agent-receiver.js';
 import { UnauthorizedError } from '../http/errors.js';
+import { RECEIVER_CLAIM_GATES, RECEIVER_CLAIM_GATE_MAX_SECONDS } from '../services/agent-receiver-state.js';
 
 const generation = z.string().uuid();
 const source = z.enum(['peer', 'portal']);
+const claimGate = z.object({
+  state: z.enum(RECEIVER_CLAIM_GATES),
+  seconds: z.number().int().min(0).max(RECEIVER_CLAIM_GATE_MAX_SECONDS),
+}).strict();
 export async function registerAgentReceiverRoutes(app: FastifyInstance, ctx: RouteContext) {
   const service = new AgentReceiverService(ctx.db, ctx.env, ctx.keyring);
   type Op = 'register' | 'heartbeat' | 'stop' | 'ack' | 'status' | 'claim';
@@ -26,7 +31,7 @@ export async function registerAgentReceiverRoutes(app: FastifyInstance, ctx: Rou
             generation,
             protocol: z.enum(['codex-queue-v1', 'claude-channel-v1', 'grok-acp-v1']),
             native_session_id: z.string().min(1).max(255),
-            capabilities: z.object({ queue_delivery_v1: z.boolean().optional(), peer_batch_v1: z.boolean().optional() }).strict().optional(),
+            capabilities: z.object({ queue_delivery_v1: z.boolean().optional(), peer_batch_v1: z.boolean().optional(), claim_gate_v1: z.boolean().optional() }).strict().optional(),
           })
           .strict()
           .parse(req.body),
@@ -35,15 +40,15 @@ export async function registerAgentReceiverRoutes(app: FastifyInstance, ctx: Rou
       const body = z.object({ generation, source, claim_id: z.string().uuid(), informational_only: z.boolean().optional() }).strict().parse(req.body);
       return service.claim(id, token, body.generation, body.source, body.claim_id, body.informational_only);
     }
-    const body = z
+    const schema = z
       .object({
         generation,
         source: source.optional(),
         nonce: z.string().uuid().optional(),
         failure: z.string().max(255).optional(),
       })
-      .strict()
-      .parse(req.body);
+      .strict();
+    const body = (op === 'heartbeat' ? schema.extend({ claim_gate: claimGate.optional() }) : schema).parse(req.body);
     return service.update(id, token, body.generation, op, body);
   };
   app.post('/host/agent-sessions/:id/receiver/register', handler('register'));

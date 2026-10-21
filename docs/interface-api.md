@@ -1756,8 +1756,15 @@ applicable peer/portal switch. No host credential is sent to the model process.
   `receiver_registration_conflict`; enabling another source does not silently
   add it to an existing registration. A live owner cannot be
   replaced. Same-generation retries are idempotent.
+  Optional `capabilities.claim_gate_v1: true` negotiates bounded claim-gate telemetry;
+  the response echoes the connection's stored `capabilities.claim_gate_v1`.
 - `heartbeat`, `stop`: `{generation}`, optionally `failure` on stop. Native health
   expires after 45 seconds and cannot be revived; reconnect with a new generation.
+  A negotiated heartbeat may include `claim_gate: {state, seconds}`. `state` is
+  `unknown|open|held_delivery|work_active|portal_pending|thread_active|thread_waiting|thread_other`;
+  `seconds` is an integer from 0 through 604800, sampled at the heartbeat. Other
+  fields and unbounded native status text are rejected. Omission clears prior
+  gate evidence; a new generation starts without it. Stop/ack do not accept it.
 - `claim`: `{generation, source: "peer"|"portal", claim_id: UUID}` returns an existing
   queue `delivery` (peer) or `message` (portal), possibly null. It never returns a probe.
   Queue transactions check generation again before leasing ordinary work; manual
@@ -1774,6 +1781,19 @@ applicable peer/portal switch. No host credential is sent to the model process.
   protocol, last native-health heartbeat, failure and per-source transport state.
   Legacy source `delivery_id`, `delivered_at`, `acknowledged_at`, and `latency_ms`
   fields remain present but null. No model-response proof is inferred from readiness.
+
+From cxx 0.9.118, a fresh negotiated receiver also exposes `claim_gate`,
+`claim_gate_seconds`, `claim_gate_observed_at` and an explanatory `claim_gate_note`
+through status, admin listings and `agent_list`. These describe the last 15-second
+heartbeat snapshot; they do not renew independently or change transport readiness,
+claim authorization or native scheduling. `thread_*` means the next delivery waits
+for the native thread to become idle; `work_active` permits only informational
+coordination while accepted work remains active. `unknown` is the initial snapshot
+before a local gate has been observed. Failed, stale or unnegotiated receivers omit
+gate evidence. A ready receiver with a closed gate can normally leave messages queued
+at zero attempts; that is not proof of a stalled transport. Wrappers omit heartbeat
+extensions when unsupported, and registration retries retain compatible older queue
+capabilities before falling back to a legacy registration.
 
 `POST /admin/agent-sessions/:id/receiver/verify` remains the compatibility route for the
 **Reconnect receiver** action, with existing operator/manage capability and origin
