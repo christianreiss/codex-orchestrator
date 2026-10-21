@@ -1,5 +1,22 @@
 import { createQuery } from '@tanstack/svelte-query';
 import { api } from './client';
+import { derived } from 'svelte/store';
+import { authStore } from '$lib/stores/auth';
+export interface CoordinationState { enabled: boolean; protocol: number; shell_enforcement: boolean }
+export const coordinationStateKey = ['agent-coordination-state'] as const;
+function checkedState(value: CoordinationState): CoordinationState {
+  if (typeof value?.enabled !== 'boolean') throw new Error('The server did not confirm the coordination setting.');
+  return value;
+}
+export async function readCoordinationState(): Promise<CoordinationState> {
+  return checkedState(await api.get<CoordinationState>(`${scopeBase}/state`));
+}
+export async function writeCoordinationState(enabled: boolean): Promise<CoordinationState> {
+  return checkedState(await api.post<CoordinationState>(`${scopeBase}/state`, { enabled }));
+}
+export function coordinationStateQuery() {
+  return createQuery(derived(authStore, auth => ({ queryKey: coordinationStateKey, queryFn: readCoordinationState, enabled: auth.can('agent_messaging.read'), retry: false, refetchInterval: 15000 })));
+}
 export interface ScopeMember { session_id: string; agent_id: string | null; name: string | null; engine: string; host_id: number; host: string; cwd: string; coordinated: boolean; workspace: { git_root: string | null; git_common_dir: string | null; branch?: string | null; head_sha?: string | null } | null }
 export interface ScopeRoom { id: string; key: string; kind: 'project' | 'host'; title: string; cursor: number; member_count: number; members: ScopeMember[]; next_member_offset: number | null }
 export interface ResourceClaim { scope_ids?: string[]; id: string; session_id: string; state: string; purpose: string; resources: unknown; blockers: unknown; isolation_available: boolean; expires_at: string }

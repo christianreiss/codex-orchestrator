@@ -8,13 +8,14 @@
   import SessionHousekeeping from "$lib/components/policies/SessionHousekeeping.svelte";
   import WrapperRolloutSection from "$lib/components/settings/WrapperRolloutSection.svelte";
   import ChattySettings from "$lib/components/chatty/ChattySettings.svelte";
+  import AgentCoordinationSettings from "$lib/components/settings/AgentCoordinationSettings.svelte";
 
   const canManage = $derived($authStore.can("settings.manage"));
 </script>
 
 <PageShell title="Settings" description="Fleet-wide behaviour. Switches save immediately. Retention and cleanup forms use Save changes. Individual hosts can override most settings." width="narrow">
   {#if !canManage}
-    <p class="text-body-sm text-muted-foreground">Read only. Changing these settings requires <code class="font-mono">settings.manage</code>.</p>
+    <p class="text-body-sm text-muted-foreground">Read only. Changing these settings requires <code class="font-mono">settings.manage</code>. Agent coordination has separate permissions below.</p>
   {/if}
 
   <div class="space-y-8">
@@ -36,6 +37,8 @@
         <AuthorizationPolicy />
       </div>
     </Section>
+
+    <AgentCoordinationSettings />
 
     <Section id="cxx-rollout" title="Host agent rollout" description="Try new host-agent versions early: a few hosts get each new cxx release first, the rest follow in stages.">
       <WrapperRolloutSection headingLevel={3} />

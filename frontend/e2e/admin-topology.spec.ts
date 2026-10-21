@@ -81,6 +81,22 @@ async function open(page: Page) {
   await expect(page.locator("[data-node]")).toHaveCount(5);
 }
 
+test('the graph links to the single coordination settings home and keeps state when rooms fail', async ({ page }) => {
+  const state = await fixtures(page, ['hosts.read', 'agent_portal.read', 'agent_messaging.read', 'agent_messaging.manage']);
+  await page.route('**/admin/agent-messaging/scopes**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/state')) return route.fulfill({ json: { enabled: true, protocol: 1, shell_enforcement: false } });
+    return route.fulfill({ status: 500, json: { status: 'error', message: 'Room snapshot unavailable' } });
+  });
+  await open(page);
+  await expect(page.getByRole('status').filter({ hasText: 'Agent coordination: Enabled' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Agent coordination settings', exact: true })).toHaveAttribute('href', '/admin/settings#agent-coordination');
+  await expect(page.getByRole('button', { name: 'Enable project rooms', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('alert')).toContainText('Project and host rooms could not be loaded', { timeout: 15000 });
+  await expect(page.locator('[data-node]')).toHaveCount(5);
+  expect(state.posts).toEqual([]);
+});
+
 test("draws the server, communicators and agents and says who carries whom", async ({ page }) => {
   const state = await fixtures(page);
   state.topology.communicators[0].host = "web01.office.long-domain.example";
