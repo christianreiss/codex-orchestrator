@@ -133,3 +133,82 @@ func TestAbortedDeliveryStaysPending(t *testing.T) {
 		t.Fatalf("failed write swallowed notice: %v", err)
 	}
 }
+
+func TestLaterChangesDoNotRepeatSeenKinds(t *testing.T) {
+	home := isolate(t)
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			agents := filepath.Join(home, engine, "AGENTS.md")
+			skills := filepath.Join(home, engine, "skills-digest")
+			config := filepath.Join(home, engine, "config")
+			kinds := map[string][]string{KindInstructions: {agents}, KindSkills: {skills}, KindConfig: {config}}
+			before := Capture(kinds)
+			write(t, agents, "policy one")
+			write(t, skills, "skills one")
+			after := Capture(kinds)
+			if err := PublishChanges(engine, agents, before, after); err != nil {
+				t.Fatal(err)
+			}
+			first, err := Consume(engine, "active")
+			if err != nil || first == nil {
+				t.Fatalf("initial notice: %+v %v", first, err)
+			}
+			if message := first.Message(); !strings.Contains(message, first.Generation) || !strings.Contains(message, after[KindInstructions]) || !strings.Contains(message, after[KindSkills]) || !strings.Contains(message, "Changed:") {
+				t.Fatalf("missing version or summary: %s", message)
+			}
+			before = after
+			write(t, config, "config two")
+			if err := PublishChanges(engine, agents, before, Capture(kinds)); err != nil {
+				t.Fatal(err)
+			}
+			later, err := Consume(engine, "active")
+			if err != nil || later == nil || len(later.Kinds) != 1 || later.Kinds[0] != KindConfig {
+				t.Fatalf("seen categories repeated: %+v %v", later, err)
+			}
+			if message := later.Message(); strings.Contains(message, "Re-read") || strings.Contains(message, "skill_list") {
+				t.Fatalf("unnecessary reread: %s", message)
+			}
+			idle, err := Consume(engine, "idle")
+			if err != nil || idle == nil || len(idle.Kinds) != 3 {
+				t.Fatalf("idle session lost pending categories: %+v %v", idle, err)
+			}
+			if again, err := Consume(engine, "active"); err != nil || again != nil {
+				t.Fatalf("unchanged notice repeated: %+v %v", again, err)
+			}
+		})
+	}
+}
+
+func TestCategoryMetadataKeepsLegacyLedgerCompatible(t *testing.T) {
+	home := isolate(t)
+	agents := filepath.Join(home, "AGENTS.md")
+	config := filepath.Join(home, "settings.json")
+	kinds := map[string][]string{KindInstructions: {agents}, KindConfig: {config}}
+	before := Capture(kinds)
+	write(t, agents, "policy")
+	if err := PublishChanges("claude", agents, before, Capture(kinds)); err != nil {
+		t.Fatal(err)
+	}
+	notice, err := Consume("claude", "session")
+	if err != nil || notice == nil {
+		t.Fatalf("notice: %+v %v", notice, err)
+	}
+	dir, _ := paths("claude")
+	ledger := filepath.Join(dir, "session.seen")
+	seen, err := os.ReadFile(ledger)
+	if err != nil || string(seen) != notice.Generation {
+		t.Fatalf("legacy ledger changed format: %q %v", seen, err)
+	}
+	// Simulate an older consumer having acknowledged a different generation
+	// without updating the companion metadata. Its fingerprints are unknown.
+	write(t, ledger, strings.Repeat("a", 64))
+	before = Capture(kinds)
+	write(t, config, "settings")
+	if err := PublishChanges("claude", agents, before, Capture(kinds)); err != nil {
+		t.Fatal(err)
+	}
+	notice, err = Consume("claude", "session")
+	if err != nil || notice == nil || len(notice.Kinds) != 2 {
+		t.Fatalf("stale legacy metadata suppressed pending changes: %+v %v", notice, err)
+	}
+}

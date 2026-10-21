@@ -307,7 +307,13 @@ the `/skills` fingerprint, because MCP-served Skills leave no file behind.
 
 Delivery uses the same boundaries as credential notices: the next managed agent
 MCP tool result for all engines, and the Claude `UserPromptSubmit` hook. Each
-session gets a generation once. It is told to re-read the instructions file, to
+session gets a generation once. The notice includes the generation SHA-256 and
+a short summary of the changed categories with each category's SHA-256. Its
+ledger retains category fingerprints in a digest-only companion file while
+keeping its generation file compatible with older consumers, so a later
+settings-only change does not repeat advice for instructions or Skills the
+session was already told about.
+It is told to re-read the instructions file, to
 call `skill_list` again (Grok: re-read `~/.grok/skills`), and that config changes
 apply on the next launch. A session primes its ledger when its broker starts, so
 content it launched with never triggers a notice. A newer generation that lands
