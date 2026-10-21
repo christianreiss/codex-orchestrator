@@ -507,9 +507,9 @@ export class AgentCoordination {
     const [scope] = await tx.select().from(agentScopes).where(eq(agentScopes.id, scopeId));
     for (const member of members) {
       if (member.member.protocol !== 1) continue;
-      // Presence stays in durable room history and current membership. Routine
-      // updates, including a session's own check-in, must not wake the model.
-      const relevant = events.filter((e) => e.kind !== 'presence' && (e.kind !== 'chat' || e.actor !== member.session.id));
+      // Bookkeeping stays in durable history. Conflicts have targeted CLAIM/1
+      // alerts; unrelated peers need no model turn for routine claim changes.
+      const relevant = events.filter((e) => e.kind === 'chat' && e.actor !== member.session.id);
       if (!relevant.length) continue;
       const payload = {
         scope_id: scopeId,
