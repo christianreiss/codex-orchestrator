@@ -5,7 +5,7 @@ import { runMigrations } from '../../../src/db/migrator.js';
 import type { GitClone, GitWorktree } from '../../../src/db/schema.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   agentScopes,
   agentScopeMembers,
@@ -13,6 +13,8 @@ import {
   agentResourceClaims,
   agentSessions,
   agentBusMessages,
+  adminEvents,
+  agentNamePool,
   hosts,
   versions,
 } from '../../../src/db/schema.js';
@@ -21,6 +23,11 @@ import { AgentCoordination } from '../../../src/services/agent-coordination/inde
 import { getTestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 import { decrypt } from '../../../src/security/secret-box.js';
+import { readFile } from 'node:fs/promises';
+import { splitSqlStatements } from '../../../src/db/migration-sql.js';
+import { registerAgentPortalAdminHostRoutes } from '../../../src/routes/agent-portal/admin-host.js';
+import { buildRouteApp } from '../../helpers/build-route-app.js';
+import { UnauthorizedError, ConflictError } from '../../../src/http/errors.js';
 const handle = await getTestDb();
 describe.skipIf(!handle)('scope coordination with real MySQL transactions', { timeout: 120000 }, () => {
   const env = loadTestEnv(),
@@ -416,6 +423,79 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       state: 'uncertain',
       scope_ids: expect.arrayContaining([project.id]),
     });
+  });
+  it('keeps the setting and its audit atomic and returns state independently of room snapshots', async () => {
+    const db = handle!.db;
+    const hiddenAudit = `scope_audit_${suffix.replaceAll('-', '')}`;
+    await service.setEnabled(true);
+    await handle!.pool.query(`RENAME TABLE admin_events TO ${hiddenAudit}`);
+    try {
+      await expect(service.setEnabled(false, 999999)).rejects.toMatchObject({ cause: { code: 'ER_NO_SUCH_TABLE' } });
+      expect(await service.state()).toEqual({ enabled: true, protocol: 1, shell_enforcement: false });
+    } finally { await handle!.pool.query(`RENAME TABLE ${hiddenAudit} TO admin_events`); }
+    try {
+      expect(await service.setEnabled(false, 999998)).toEqual({ enabled: false, protocol: 1, shell_enforcement: false });
+      expect(await service.state()).toMatchObject({ enabled: false });
+      const audit = await db.select().from(adminEvents).where(eq(adminEvents.type, 'agent_coordination.state'));
+      expect(audit.some((event) => (event.payload as { admin_user_id?: number })?.admin_user_id === 999998)).toBe(true);
+      expect(audit.some((event) => (event.payload as { admin_user_id?: number })?.admin_user_id === 999999)).toBe(false);
+    } finally {
+      await db.execute(sql`DELETE FROM admin_events WHERE type='agent_coordination.state' AND JSON_EXTRACT(payload, '$.admin_user_id') IN (999998, 999999)`);
+      await service.setEnabled(true);
+    }
+  });
+  it('preserves confirmed registration through a broken optional scope join, then restores full context after migration', async () => {
+    const a = await register('codex');
+    await service.context(a.id, a.token);
+    const [columnRows] = await handle!.pool.query<import('mysql2/promise').RowDataPacket[]>(
+      `SELECT COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()
+       AND TABLE_NAME='agent_sessions' AND COLUMN_NAME='id'`);
+    const mismatch = columnRows[0]!.COLLATION_NAME === 'utf8mb4_unicode_ci' ? 'utf8mb4_0900_ai_ci' : 'utf8mb4_unicode_ci';
+    const migration = splitSqlStatements(await readFile(new URL('../../../src/db/migrations/0089_coordination_session_collation.sql', import.meta.url), 'utf8'));
+    const app = await buildRouteApp();
+    await registerAgentPortalAdminHostRoutes(app, { db: handle!.db, env, keyring });
+    const names = Array.from({ length: 10 }, (_, index) => `Scope-${suffix.slice(0, 8)}-${index}`);
+    await handle!.db.insert(agentNamePool).values(names.map((name) => ({ nameKey: name.toLowerCase(), name })));
+    const launch = async (engine: 'codex' | 'claude' | 'grok' = 'codex') => {
+      const id = randomUUID();
+      sessions.push(id);
+      return app.inject({ method: 'POST', url: '/host/agent-sessions', headers: { 'x-api-key': host.apiKey }, payload: {
+        session_id: id, bridge_token: randomBytes(32).toString('base64url'), engine, username: id,
+        cwd: `/tmp/registration-${id}`, invocation_kind: 'interactive',
+        adapter_capabilities: { scope_protocol_version: 1, execution_contract_version: 2, launch_identity_version: 1 },
+      } });
+    };
+    try {
+      await handle!.pool.query(`ALTER TABLE agent_scope_members MODIFY session_id CHAR(36) CHARACTER SET utf8mb4 COLLATE ${mismatch} NOT NULL`);
+      await expect(service.context(a.id, a.token)).rejects.toMatchObject({ cause: { code: 'ER_CANT_AGGREGATE_2COLLATIONS' } });
+      expect(await service.state()).toMatchObject({ enabled: true });
+      for (const engine of ['codex', 'claude', 'grok'] as const) {
+        const degraded = await launch(engine);
+        expect(degraded.statusCode, degraded.body).toBe(200);
+        expect(degraded.json()).toMatchObject({ enabled: true, name_status: 'assigned',
+          agent_address: { name: expect.any(String) },
+          scope_context: { enabled: true, available: false, reason: 'snapshot_unavailable' } });
+      }
+      for (const statement of migration) await handle!.pool.query(statement);
+      for (const engine of ['codex', 'claude', 'grok'] as const) {
+        const restored = await launch(engine);
+        expect(restored.statusCode, restored.body).toBe(200);
+        expect(restored.json()).toMatchObject({ enabled: true, name_status: 'assigned',
+          scope_context: { enabled: true, rooms: expect.any(Array) } });
+      }
+      expect((await service.context(a.id, a.token)).rooms.length).toBeGreaterThan(0);
+      const context = vi.spyOn(AgentCoordination.prototype, 'context');
+      try {
+        context.mockRejectedValueOnce(new UnauthorizedError('Credential revoked', 'agent_bridge_unauthorized'));
+        expect((await launch()).statusCode).toBe(401);
+        context.mockRejectedValueOnce(new ConflictError('Binding changed', 'agent_messaging_binding_stale'));
+        expect((await launch()).statusCode).toBe(409);
+      } finally { context.mockRestore(); }
+    } finally {
+      for (const statement of migration) await handle!.pool.query(statement);
+      await handle!.db.delete(agentNamePool).where(inArray(agentNamePool.nameKey, names.map((name) => name.toLowerCase())));
+      await app.close();
+    }
   });
   it('feature off rejects new work but permits releasing claims', async () => {
     const a = await register('codex');

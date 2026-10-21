@@ -21,6 +21,13 @@ Claims are leased ownership, not durable locks across a reboot; use the
 The wrapper reports `scope_protocol_version: 1` in adapter capabilities and captures
 canonical cwd, Git root/common directory, credential-free origin, branch and HEAD.
 Registration returns `scope_context`, also included in the native launch context.
+Room enrichment is optional after authenticated naming/binding succeeds. A database
+or snapshot read failure returns `scope_context` with `available:false` and
+`reason:"snapshot_unavailable"`, retaining `enabled:true` when the setting was read
+successfully; a sanitized warning records the failure. It does not discard the
+confirmed launch identity. Authentication, authorization and stale binding errors
+still fail registration. Refresh unavailable context with `agent_context_get`;
+an unavailable snapshot grants no resources and never bypasses the identity gate.
 `agent_context_get` refreshes the snapshot; `agent_context_update` changes workspace
 or sets/clears `project_slug`. Changing a subprocess cwd does not change membership.
 
@@ -104,6 +111,13 @@ Agent Messaging itself. No rollback drops claim/history tables.
 
 All endpoints use existing admin authentication/capabilities:
 
+The state GET/POST responses are the lightweight `{enabled, protocol:1,
+shell_enforcement:false}` setting, independent of room/member snapshots. Operator
+setting changes and their audit event commit together; a failed audit leaves the
+old setting intact. WebSocket invalidation happens after commit. A failed room
+refresh does not undo a successful setting change; read the state endpoint to
+reconcile an uncertain response before retrying.
+
 - GET/POST `/admin/agent-messaging/scopes/state`: status/toggle (read/manage).
 - GET `/admin/agent-messaging/scopes`: rooms, members and claims (read).
 - GET `/admin/agent-messaging/scopes/:scopeId/members?offset=N`: paged metadata (read).
@@ -128,6 +142,10 @@ scope and topology queries; periodic refresh also catches missed socket events.
 
 Migration 0078 adds `agent_scopes`, `agent_scope_bindings`, `agent_scope_members`,
 `agent_scope_events`, and `agent_resource_claims`; baseline and Drizzle mirror match.
+Migration 0089 aligns only `agent_scope_members.session_id` and
+`agent_resource_claims.session_id` with the installed `agent_sessions.id` charset
+and collation. This repairs membership and retention joins on upgraded databases
+whose defaults changed, preserving rows, indexes and all other column collations.
 No existing session or manual subscription is rewritten. Deploy API/schema and
 wrapper together before enabling. Protocol 0 remains observable but cannot acquire
 claims. Revert by disabling the feature after operations drain; preserve uncertain

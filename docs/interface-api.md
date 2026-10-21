@@ -1344,7 +1344,12 @@ pairs across Codex, Claude, and Grok use the same contract.
 An agent receives a stable canonical address (`agent:<uuid>`) from the shared
 `POST /host/agent-sessions` lifecycle registration. Portal and Messaging keep the
 same `invocation_kind` (`interactive`, `execute`, or `peer_delivery`) in their
-shared session row, including daemon resumes and registration retries. The address
+shared session row, including daemon resumes and registration retries. Optional
+scope snapshot failures retain the confirmed registration and return
+`scope_context: {enabled:true, protocol:1, available:false, reason:"snapshot_unavailable"}`
+when coordination was confirmed enabled (the `enabled` field is omitted if the
+setting read itself failed). Authentication and stale binding errors still fail.
+The address
 is rebound on an exact native-transcript resume. A fresh conversation always gets a new
 address, even in the same host/user/engine/cwd. Picker/continue launches recover
 the old address only after native identity is reported; `/clear` or another native

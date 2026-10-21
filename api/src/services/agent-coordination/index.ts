@@ -13,6 +13,7 @@ import {
   agentSessions,
   hosts,
   versions,
+  adminEvents,
   coordProjects,
   type AgentSession,
 } from '../../db/schema.js';
@@ -61,19 +62,26 @@ export class AgentCoordination {
   async state() {
     return { enabled: await this.enabled(), protocol: 1, shell_enforcement: false };
   }
-  async setEnabled(enabled: boolean) {
+  async setEnabled(enabled: boolean, adminUserId?: number) {
     await this.bus.coordinationTransaction(null, null, async (tx) => {
+      const now = new Date().toISOString();
       await tx
         .insert(versions)
         .values({
           name: COORDINATION_ENABLED,
           version: enabled ? '1' : '0',
-          updatedAt: new Date().toISOString(),
+          updatedAt: now,
         })
-        .onDuplicateKeyUpdate({ set: { version: enabled ? '1' : '0' } });
+        .onDuplicateKeyUpdate({ set: { version: enabled ? '1' : '0', updatedAt: now } });
+      if (adminUserId !== undefined) await tx.insert(adminEvents).values({
+        type: 'agent_coordination.state',
+        hostId: null,
+        payload: { enabled, admin_user_id: adminUserId },
+        createdAt: now,
+      });
     });
     wsPublisher.publish('agent_coordination.changed', {});
-    return this.state();
+    return { enabled, protocol: 1, shell_enforcement: false };
   }
   async run<T>(
     id: string | null,
