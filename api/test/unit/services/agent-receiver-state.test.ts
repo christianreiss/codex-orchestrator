@@ -64,4 +64,25 @@ describe('receiver transport health', () => {
       expect(JSON.stringify(receiverView(s, now))).not.toContain('secret-nonce');
     }
   });
+  it.each(['codex-queue-v1', 'claude-channel-v1', 'grok-acp-v1'] as const)(
+    'exposes a fresh negotiated claim gate without changing %s transport readiness',
+    (protocol) => {
+      const s = { ...state(), protocol, claim_gate_v1: true, claim_gate: { state: 'thread_active', seconds: 18, observed_at: new Date(now).toISOString() } };
+      expect(receiverReady(s, 'peer', now)).toBe(true);
+      expect(receiverView(s, now)).toMatchObject({ state: 'ready', claim_gate: 'thread_active', claim_gate_seconds: 18, claim_gate_observed_at: s.heartbeat_at });
+      expect(receiverView(s, now + 45_000)).not.toHaveProperty('claim_gate');
+      expect(receiverView({ ...s, failure: 'disconnected' }, now)).not.toHaveProperty('claim_gate');
+      expect(receiverView({ ...s, claim_gate_v1: false }, now)).not.toHaveProperty('claim_gate');
+      expect(receiverView({ ...s, claim_gate: { ...s.claim_gate, observed_at: new Date(now - 1).toISOString() } }, now)).not.toHaveProperty('claim_gate');
+    },
+  );
+  it.each([
+    { state: 'thread_prompt-secret', seconds: 5 },
+    { state: 'thread_active', seconds: -1 },
+    { state: 'thread_active', seconds: 604801 },
+    { state: 'thread_active', seconds: 1.5 },
+  ])('never projects invalid claim-gate metadata: %j', (gate) => {
+    const s = { ...state(), claim_gate_v1: true, claim_gate: { ...gate, observed_at: new Date(now).toISOString() } };
+    expect(receiverView(s, now)).not.toHaveProperty('claim_gate');
+  });
 });

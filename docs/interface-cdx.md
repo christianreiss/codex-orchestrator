@@ -1257,6 +1257,12 @@ heartbeat is older than 45 seconds. The model must not yield expecting a deliver
 that case, and must tell the user instead. The receiver's own connection state is
 local; `agent_listen` makes no server call for it.
 
+From cxx 0.9.118, negotiated claim-gate snapshots also reach `agent_list` through
+the existing native-health heartbeat. A ready peer can report `thread_active`
+while deliveries wait at zero attempts for its turn to end. Gate age is sampled
+at `claim_gate_observed_at`; stale evidence is omitted and idle-only native
+scheduling is unchanged. See [receiver telemetry](interface-api.md#automatic-receiver-protocol-0810).
+
 Native permission settings are preserved. Real message replies remain subject to
 the model's tool permissions; no remote permission approval capability is advertised.
 Authenticated peer requests are handled within existing authorization; factual

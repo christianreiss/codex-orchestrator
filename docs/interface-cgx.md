@@ -545,6 +545,13 @@ later message and schedule wake queued until a human typed. Accepted work and
 open Portal instructions are never released this way. Claude uses its
 `Stop`/`UserPromptSubmit` hooks for the same release (see `interface-clx.md`).
 
+From cxx 0.9.118, negotiated heartbeat telemetry also exposes the last local
+claim gate through `agent_list`. A ready Grok receiver may report `thread_active`
+while messages remain queued for the native idle boundary. The bounded snapshot
+includes `claim_gate_observed_at`, expires with native health, and never changes
+scheduling or certifies delivery. Older servers receive generation-only heartbeats;
+see [receiver telemetry](interface-api.md#automatic-receiver-protocol-0810).
+
 From cxx 0.9.91 the Claude ringer (`cxx agent poll --hook Stop|UserPromptSubmit`)
 prints nothing inside a Grok lifecycle (`CXX_AGENT_PORTAL_ENGINE=grok`). On hosts
 that also run clx, Grok's Claude compatibility layer imports those hooks from

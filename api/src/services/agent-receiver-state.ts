@@ -1,4 +1,10 @@
 export type ReceiverSource = 'peer' | 'portal';
+export const RECEIVER_CLAIM_GATES = ['unknown', 'open', 'held_delivery', 'work_active', 'portal_pending', 'thread_active', 'thread_waiting', 'thread_other'] as const;
+export const RECEIVER_CLAIM_GATE_MAX_SECONDS = 604800;
+export interface ReceiverClaimGate {
+  state: typeof RECEIVER_CLAIM_GATES[number];
+  seconds: number;
+}
 /** The legacy probes map now records source membership only. Old evidence is inert. */
 export interface ReceiverSourceState {
   id?: string;
@@ -19,6 +25,8 @@ export interface ReceiverState {
   activity_v1?: boolean;
   queue_delivery_v1?: boolean;
   peer_batch_v1?: boolean;
+  claim_gate_v1?: boolean;
+  claim_gate?: ReceiverClaimGate & { observed_at: string };
   probes: Partial<Record<ReceiverSource, ReceiverSourceState>>;
 }
 export const RECEIVER_FRESH_MS = 45_000;
@@ -58,6 +66,10 @@ export function receiverView(raw: unknown, now = Date.now()) {
       latency_ms: null,
       state: s.failure ? 'failed' : !fresh ? 'unavailable' : 'ready',
     }));
+  const gate = s.claim_gate;
+  const showGate = s.claim_gate_v1 === true && fresh && !s.failure && sources.length > 0 && gate &&
+    RECEIVER_CLAIM_GATES.includes(gate.state) && Number.isInteger(gate.seconds) &&
+    gate.seconds >= 0 && gate.seconds <= RECEIVER_CLAIM_GATE_MAX_SECONDS && gate.observed_at === s.heartbeat_at;
   return {
     generation: s.generation,
     protocol: s.protocol,
@@ -66,6 +78,17 @@ export function receiverView(raw: unknown, now = Date.now()) {
     failure: s.failure,
     queue_delivery_v1: s.queue_delivery_v1 === true,
     peer_batch_v1: s.peer_batch_v1 === true,
+    claim_gate_v1: s.claim_gate_v1 === true,
+    ...(showGate ? {
+      claim_gate: gate.state,
+      claim_gate_seconds: gate.seconds,
+      claim_gate_observed_at: gate.observed_at,
+      claim_gate_note: gate.state === 'open' ? 'No local claim gate at the last heartbeat; delivery is not confirmed.'
+        : gate.state === 'unknown' ? 'The local claim gate has not been observed yet.'
+        : gate.state === 'work_active' ? 'Only informational coordination can be claimed while accepted work remains active.'
+        : gate.state.startsWith('thread_') ? 'The next delivery waits for the native thread to become idle.'
+        : 'The next delivery waits for this session to finish its current delivery.',
+    } : {}),
     sources,
     state: s.failure ? 'failed' : !fresh || !sources.length ? 'unavailable' : 'ready',
   };

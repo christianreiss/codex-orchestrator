@@ -837,6 +837,9 @@ without synthetic chat probes or acknowledgment turns. Readiness expires after 4
 without native health. Active Clients exposes transport state and **Reconnect receiver**;
 `cxx agent doctor --json` reports local receiver state. Actual correlated message replies
 provide model-response evidence. See the engine and API interfaces for failure semantics.
+From cxx 0.9.118, negotiated heartbeat snapshots expose the local claim gate in
+`agent_list`, distinguishing a ready receiver waiting for an idle native turn
+from transport failure without changing delivery scheduling.
 
 For opt-in native verification, build `make -C wrappers cxx` and run
 `python3 wrappers/scripts/receiver-canary.py --engine codex --cxx "$PWD/wrappers/bin/cxx"`

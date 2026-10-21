@@ -87,6 +87,33 @@ func (r *autoReceiver) setGate(gate string) {
 	r.mu.Unlock()
 }
 
+// Gate evidence is a bounded snapshot, never a scheduling input. Older strict
+// heartbeat schemas receive only the generation unless registration opted in.
+func (r *autoReceiver) heartbeatRequest(generation string, claimGate bool) map[string]any {
+	body := map[string]any{"generation": generation}
+	if !claimGate {
+		return body
+	}
+	r.mu.Lock()
+	gate, since := r.gate, r.gateSince
+	r.mu.Unlock()
+	switch gate {
+	case "open", "held_delivery", "work_active", "portal_pending", "thread_active", "thread_waiting":
+	default:
+		if strings.HasPrefix(gate, "thread_") {
+			gate = "thread_other"
+		} else {
+			gate = "unknown"
+		}
+	}
+	seconds := 0
+	if gate != "unknown" && gate != "open" && !since.IsZero() {
+		seconds = max(0, min(604800, int(time.Since(since).Seconds())))
+	}
+	body["claim_gate"] = map[string]any{"state": gate, "seconds": seconds}
+	return body
+}
+
 // Every health attempt has its own ID. A response from an earlier connection,
 // or an MCP error instead of a pong, cannot certify the current input/output pipes.
 func (r *autoReceiver) beginPing() string {
@@ -308,19 +335,30 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			Activity      bool `json:"activity_v1"`
 			QueueDelivery bool `json:"queue_delivery_v1"`
 			QueuePolicy   bool `json:"queue_policy_v1"`
+			ClaimGate     bool `json:"claim_gate_v1"`
 		} `json:"capabilities"`
 		BindingGeneration int `json:"binding_generation"`
 	}
-	registration := map[string]any{"generation": generation, "protocol": protocol, "native_session_id": nativeID, "capabilities": map[string]any{"queue_delivery_v1": true, "peer_batch_v1": true}}
-	if err := r.client.receiver(ctx, "register", registration, &registered); err != nil {
+	capabilities := map[string]any{"queue_delivery_v1": true, "peer_batch_v1": true, "claim_gate_v1": true}
+	registration := map[string]any{"generation": generation, "protocol": protocol, "native_session_id": nativeID, "capabilities": capabilities}
+	for {
+		err := r.client.receiver(ctx, "register", registration, &registered)
+		if err == nil {
+			break
+		}
 		var apiErr *APIError
 		if !errors.As(err, &apiErr) || (apiErr.Status != 400 && apiErr.Status != 422) {
 			return err
 		}
-		// Older servers reject unknown registration fields. Same generation, no
-		// new identity, no fallback after an ambiguous transport failure.
-		delete(registration, "capabilities")
-		if err := r.client.receiver(ctx, "register", registration, &registered); err != nil {
+		// Drop only the additive capability first, retaining existing queue and
+		// batch features on strict older servers. A second validation refusal
+		// permits the legacy registration, with the same generation/identity.
+		// Never fall back after an ambiguous transport failure.
+		if _, ok := capabilities["claim_gate_v1"]; ok {
+			delete(capabilities, "claim_gate_v1")
+		} else if _, ok := registration["capabilities"]; ok {
+			delete(registration, "capabilities")
+		} else {
 			return err
 		}
 	}
@@ -377,7 +415,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 					} `json:"sources"`
 				} `json:"receiver"`
 			}
-			if err := r.client.receiver(ctx, "heartbeat", map[string]any{"generation": generation}, &health); err != nil {
+			if err := r.client.receiver(ctx, "heartbeat", r.heartbeatRequest(generation, registered.Capabilities.ClaimGate), &health); err != nil {
 				return err
 			}
 			if health.Receiver != nil {

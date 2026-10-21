@@ -19,6 +19,7 @@ import {
   RECEIVER_FRESH_MS,
   type ReceiverSource,
   type ReceiverState,
+  type ReceiverClaimGate,
 } from './agent-receiver-state.js';
 
 /** One connection owns reception across both queues; its health never survives a reconnect. */
@@ -64,7 +65,7 @@ export class AgentReceiverService {
   async register(
     id: string,
     token: string,
-    input: { generation: string; protocol: ReceiverState['protocol']; native_session_id: string; capabilities?: { queue_delivery_v1?: boolean; peer_batch_v1?: boolean } },
+    input: { generation: string; protocol: ReceiverState['protocol']; native_session_id: string; capabilities?: { queue_delivery_v1?: boolean; peer_batch_v1?: boolean; claim_gate_v1?: boolean } },
   ) {
     const auth = await this.authenticate(id, token);
     if ({ codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' }[auth.engine] !== input.protocol)
@@ -94,6 +95,7 @@ export class AgentReceiverService {
         activity_v1: activityEnabled,
         peer_batch_v1: peerBatchAllowed(this.env, input.capabilities),
         queue_delivery_v1: smartQueueAllowed(this.env, auth.hostId, input.capabilities),
+        claim_gate_v1: input.capabilities?.claim_gate_v1 === true,
         heartbeat_at: now,
         failure: null,
         probes: Object.fromEntries(sources.map((source) => [source, {}])),
@@ -136,7 +138,7 @@ export class AgentReceiverService {
       binding_generation: bound.bindingGeneration,
     } : null;
     return { receiver: receiverView(state), sources: Object.keys(state.probes) as ReceiverSource[],
-      capabilities: { activity_v1: state.activity_v1 === true, queue_policy_v1: true, queue_delivery_v1: state.queue_delivery_v1 === true, peer_batch_v1: state.peer_batch_v1 === true }, binding_generation: bound?.bindingGeneration ?? 0, identity };
+      capabilities: { activity_v1: state.activity_v1 === true, queue_policy_v1: true, queue_delivery_v1: state.queue_delivery_v1 === true, peer_batch_v1: state.peer_batch_v1 === true, claim_gate_v1: state.claim_gate_v1 === true }, binding_generation: bound?.bindingGeneration ?? 0, identity };
   }
 
   async update(
@@ -144,7 +146,7 @@ export class AgentReceiverService {
     token: string,
     generation: string,
     operation: 'heartbeat' | 'stop' | 'ack',
-    input: { source?: ReceiverSource; nonce?: string; failure?: string },
+    input: { source?: ReceiverSource; nonce?: string; failure?: string; claim_gate?: ReceiverClaimGate },
   ) {
     const auth = await this.authenticate(id, token, input.source);
     const peerEnabled = await this.messaging.isEnabled();
@@ -168,8 +170,12 @@ export class AgentReceiverService {
       )
         throw new ConflictError('Receiver connection expired; reconnect', 'receiver_expired');
       if (operation === 'heartbeat') {
+        if (input.claim_gate && !state.claim_gate_v1)
+          throw new ConflictError('Receiver claim gate telemetry was not negotiated', 'receiver_claim_gate_unsupported');
         state.heartbeat_at = new Date(now).toISOString();
         state.queue_delivery_v1 = smartQueueAllowed(this.env, session.hostId, state);
+        if (input.claim_gate) state.claim_gate = { ...input.claim_gate, observed_at: state.heartbeat_at };
+        else delete state.claim_gate;
       }
       if (operation === 'stop') {
         state.failure = input.failure ?? 'receiver_stopped';

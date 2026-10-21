@@ -118,6 +118,37 @@ describe.skipIf(!handle).each(engines)('$engine receiver connection health and f
     await expect(receiver.register(id, token, { ...input, protocol: mismatch })).rejects.toMatchObject({ code: 'receiver_engine_mismatch' });
   });
 
+  it('negotiates gate diagnostics per generation without changing claim readiness', async () => {
+    const [old] = await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, id));
+    const previous = receiverState(old!.receiver)!;
+    await receiver.update(id, token, previous.generation, 'stop', {});
+    const next = randomUUID();
+    const input = { generation: next, protocol, native_session_id: previous.native_session_id, capabilities: { claim_gate_v1: true } };
+    const registered = await receiver.register(id, token, input);
+    expect(registered.capabilities.claim_gate_v1).toBe(true);
+    expect(registered.receiver).not.toHaveProperty('claim_gate');
+    expect((await receiver.register(id, token, { ...input, capabilities: {} })).capabilities.claim_gate_v1).toBe(true);
+    const health = await receiver.update(id, token, next, 'heartbeat', { claim_gate: { state: 'thread_active', seconds: 19 } });
+    expect(health.receiver).toMatchObject({ state: 'ready', claim_gate: 'thread_active', claim_gate_seconds: 19 });
+    expect(health.receiver?.claim_gate_observed_at).toBe(health.receiver?.heartbeat_at);
+    const senderId = randomUUID(), senderToken = randomBytes(32).toString('base64url');
+    await messaging.registerSession(host, { sessionId: senderId, bridgeToken: senderToken, engine,
+      username: 'receiver-sender-test', cwd: '/tmp/receiver-test', invocationKind: 'interactive' });
+    const page = await messaging.listAddresses(senderId, senderToken, { scope: 'fleet', includeOffline: false });
+    expect(page.addresses).toEqual(expect.arrayContaining([expect.objectContaining({
+      receiver: expect.objectContaining({ generation: next, state: 'ready', claim_gate: 'thread_active', claim_gate_seconds: 19 }),
+    })]));
+    expect(await receiver.claim(id, token, next, 'peer', randomUUID())).toEqual({ delivery: null });
+    await expect(receiver.update(id, token, previous.generation, 'heartbeat', { claim_gate: { state: 'open', seconds: 0 } })).rejects.toMatchObject({ code: 'receiver_generation_changed' });
+    expect((await receiver.status(id, token)).receiver?.claim_gate).toBe('thread_active');
+    await receiver.update(id, token, next, 'heartbeat', {});
+    expect((await receiver.status(id, token)).receiver).not.toHaveProperty('claim_gate');
+    await receiver.update(id, token, next, 'stop', {});
+    const legacy = randomUUID();
+    expect((await receiver.register(id, token, { generation: legacy, protocol, native_session_id: previous.native_session_id })).capabilities.claim_gate_v1).toBe(false);
+    await expect(receiver.update(id, token, legacy, 'heartbeat', { claim_gate: { state: 'open', seconds: 0 } })).rejects.toMatchObject({ code: 'receiver_claim_gate_unsupported' });
+    expect((await receiver.status(id, token)).receiver).not.toHaveProperty('claim_gate');
+  });
   it('accepts a matching legacy receipt without changing any health or probe state', async () => {
     const [session] = await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, id));
     const s = receiverState(session!.receiver)!;
