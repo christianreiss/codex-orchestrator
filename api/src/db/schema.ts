@@ -2639,6 +2639,7 @@ export const agentScopeBindings = mysqlTable('agent_scope_bindings', {
 export const agentScopeMembers = mysqlTable('agent_scope_members', {
   id: char('id', { length: 36 }).primaryKey(),
   scopeId: char('scope_id', { length: 36 }).notNull(),
+  // Migration 0089 matches agent_sessions.id's installed charset/collation.
   sessionId: char('session_id', { length: 36 }).notNull(),
   generation: int('generation', { unsigned: true }).notNull(),
   protocol: int('protocol', { unsigned: true }).notNull().default(0),
@@ -2662,6 +2663,7 @@ export const agentScopeEvents = mysqlTable('agent_scope_events', {
 
 export const agentResourceClaims = mysqlTable('agent_resource_claims', {
   id: char('id', { length: 36 }).primaryKey(),
+  // Migration 0089 matches agent_sessions.id's installed charset/collation.
   sessionId: char('session_id', { length: 36 }).notNull(),
   generation: int('generation', { unsigned: true }).notNull(),
   requestId: char('request_id', { length: 36 }).notNull(),

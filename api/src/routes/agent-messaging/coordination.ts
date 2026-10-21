@@ -49,12 +49,7 @@ export function registerCoordinationRoutes(
   app.get('/admin/agent-messaging/scopes/state', { preHandler: app.requireAdmin }, () => service.state());
   app.post('/admin/agent-messaging/scopes/state', { preHandler: app.requireAdmin }, async (req) => {
     const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(req.body);
-    const result = await service.setEnabled(enabled);
-    await audit.record(
-      { type: 'agent_coordination.state', payload: { enabled, admin_user_id: req.admin!.user.id } },
-      { broadcast: false },
-    );
-    return result;
+    return service.setEnabled(enabled, req.admin!.user.id);
   });
   app.get('/admin/agent-messaging/scopes', { preHandler: app.requireAdmin }, async () =>
     (await messaging.isEnabled())

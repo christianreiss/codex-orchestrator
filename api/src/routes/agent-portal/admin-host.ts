@@ -11,7 +11,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../index.js';
-import { ForbiddenError, ValidationError } from '../../http/errors.js';
+import { ApiError, ForbiddenError, ValidationError } from '../../http/errors.js';
 import { clientGone } from '../../http/long-poll.js';
 import { ok } from '../../http/reply.js';
 import { createAdminEventsService } from '../../services/admin-events.js';
@@ -198,8 +198,25 @@ export async function registerAgentPortalAdminHostRoutes(
       });
     }
     const coordination = new AgentCoordination(ctx.db, ctx.env, ctx.keyring, messaging);
-    const scopeContext = messagingResult.enabled === true && await coordination.enabled()
-      ? await coordination.context(sessionId, bridgeToken) : null;
+    let scopeContext: Record<string, unknown> | null = null;
+    if (messagingResult.enabled === true) {
+      let coordinationEnabled: boolean | undefined;
+      try {
+        coordinationEnabled = await coordination.enabled();
+        if (coordinationEnabled) scopeContext = await coordination.context(sessionId, bridgeToken);
+      } catch (error) {
+        // Naming and the authenticated binding have already committed. Optional
+        // room enrichment must not strand that launch on a database/read error.
+        // Domain failures still fence revoked credentials and stale bindings.
+        if (error instanceof ApiError) throw error;
+        const code = (error as { code?: unknown; cause?: { code?: unknown } } | null)?.cause?.code
+          ?? (error as { code?: unknown } | null)?.code;
+        req.log.warn({ session_id: sessionId, code: typeof code === 'string' && /^[A-Z0-9_]+$/.test(code) ? code : 'unknown' },
+          'Optional scope snapshot unavailable after session registration');
+        scopeContext = { ...(coordinationEnabled === undefined ? {} : { enabled: coordinationEnabled }),
+          protocol: 1, available: false, reason: 'snapshot_unavailable' };
+      }
+    }
     return {
       ...(scopeContext ? { scope_context: scopeContext } : {}),
       enabled: true,
