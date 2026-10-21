@@ -874,18 +874,17 @@ All three engine config GET/store routes share the revision contract: `revision`
   verdict, expiry; no reason or overlap) and `stale_count` (capped at 25).
   `detail: "full"` restores the complete entries (declared paths, lease reasons
   and overlap, `stale` rows). `scope: "clone"` defaults to `full`.
-  **Agent notifications.** With Messaging enabled, substantive `git_join` path-set
-  or target-branch changes notify relevant live peers (both old and new scope),
-  including overlap resolution. `git_join` also returns `peer_overlap`, using
-  the same directory-prefix matching as merge arbitration. Merge requests notify
-  overlapping peers and the current holder; changed decisions/blockers/overlap,
-  releases and recognized expiry notify affected waiters to recheck. Operator
-  decisions/eviction, replacement of a binding, and invalidated registrations
-  notify the exact affected live owner where a saved binding exists. Operator
-  decision notices explicitly carry `other_leases_revoked: false`: this feature
-  changes no arbitration policy and promises neither exclusivity nor FIFO order.
-  Off/On notices ask active Git sessions to revalidate; disabling the Director
-  retains registrations and leases rather than revoking them.
+  **Agent notifications.** With Messaging enabled, routine registration, scope,
+  and module bookkeeping remains available through audit, WebSocket invalidation
+  and `git_list`; it does not broadcast to ordinary native sessions. `git_join`
+  still returns `peer_overlap`. Scope/branch changes and reported merges notify
+  only exactly bound current waiters on affected target branches, including the
+  previous branch on a scope change. Merge requests notify overlapping owners and
+  the current holder; changed decisions/blockers, releases and expiry preserve
+  waiter rechecks. Operator decisions/eviction, binding replacement and invalidated
+  registrations notify the exact affected live owner where a saved binding exists.
+  Operator decision notices carry `other_leases_revoked: false`. Disabling the
+  Director retains registrations and leases. Polling remains authoritative.
 
   Notices are `presence_notice` messages without an acknowledgement requirement,
   bound to `targetSessionId` and `targetBindingGeneration`. Ownership recipients
@@ -2924,7 +2923,7 @@ Contract: [agent-roles.md](agent-roles.md). Module switch `roles_enabled` (defau
 - `GET /admin/roles/:slug/versions/:version` — one version's manifest and text files.
 - `PUT /admin/roles/:slug/draft` — save the operator draft `{manifest, files, changelog?}`.
 - `DELETE /admin/roles/:slug/draft` — discard the draft.
-- `POST /admin/roles/:slug/publish` — publish the draft as the next immutable version; holders get `ROLE-UPDATE/1`.
+- `POST /admin/roles/:slug/publish` — publish the draft as the next immutable version; holders discover it through `agent_role_current` or role reads.
 - `POST /admin/roles/:slug/revert` — `{version, reason}` publishes a new version carrying an earlier one.
 - `POST /admin/roles/:slug/versions/:version/withdraw` — `{reason}` blocks new activations of a faulty version.
 - `GET /admin/roles/proposals/:id` — proposal with current and proposed bodies and its event trail.
@@ -2935,6 +2934,14 @@ Contract: [agent-roles.md](agent-roles.md). Module switch `roles_enabled` (defau
 - `POST /host/agent-sessions/:id/agent-messaging/roles/propose` — `agent_role_propose`.
 - `POST /host/agent-sessions/:id/agent-messaging/roles/proposals` — `agent_role_proposals`.
 - `POST /host/agent-sessions/:id/agent-messaging/roles/review` — `agent_role_review`.
+
+Routine role version updates and proposal outcomes are pull-only through
+`agent_role_current`, `agent_role_proposals`, role resources and the audit/timeline.
+They do not queue automatic `ROLE-UPDATE/1` or `ROLE-PROPOSAL/1` information for
+resumable addresses. Explicit `ROLE-REVIEW/1` requests remain delivered. Faulty-role
+withdrawals retain a `ROLE-UPDATE/1 severity=withdrawn` alert, bound to the current
+live session and binding as a coordination notice; ended or replaced holders do
+not inherit it. User publications retain their normal delivery semantics.
 
 ### Scope coordination endpoints
 

@@ -104,13 +104,16 @@ export class GitDirectorNotifications {
     const requests = event.clone
       ? await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.cloneId, event.clone.id))
       : [];
+    const targetBranch = event.targetBranch ?? event.worktree?.targetBranch;
     const waitingIds = new Set(
       requests
         .filter(
           (r) =>
             r.verdict === 'wait' &&
             !r.completedAt &&
-            (!event.targetBranch || r.targetBranch === event.targetBranch),
+            (!targetBranch ||
+              r.targetBranch === targetBranch ||
+              (event.previousTargetBranch !== undefined && r.targetBranch === event.previousTargetBranch)),
         )
         .map((r) => r.worktreeId),
     );
@@ -168,16 +171,6 @@ export class GitDirectorNotifications {
         (workspace?.git_common_dir === event.clone.cloneDir ||
           own.some((w) => w.cloneId === event.clone!.id)),
       );
-      const sameRepository =
-        sameClone || Boolean(event.clone?.remoteKey && workspace?.repository_key === event.clone.remoteKey);
-      const target = event.targetBranch ?? event.worktree?.targetBranch;
-      const targets = [
-        target,
-        ...(event.previousTargetBranch !== undefined ? [event.previousTargetBranch] : []),
-      ];
-      const relevantBranch = targets.some(
-        (t) => !t || own.some((w) => !w.targetBranch || w.targetBranch === t) || workspace?.branch === t,
-      );
       const informationalActor =
         event.worktree && session.hostId === event.worktree.hostId && root === event.worktree.worktreePath;
       if ((actor || informationalActor) && !event.includeActor) continue;
@@ -186,12 +179,13 @@ export class GitDirectorNotifications {
         (event.includeActor && actor) ||
         owner ||
         (event.audience === 'repository'
-          ? (sameRepository && relevantBranch && (event.kind !== 'work_scope_changed' || sameClone)) ||
-            (event.requestId !== undefined && affectedWaiter)
+          ? // Routine repository bookkeeping remains in audit/WS/poll. Only a
+            // current, exactly bound waiting request needs a native recheck.
+            affectedWaiter
           : event.audience === 'branch'
             ? sameClone && own.some((w) => waitingIds.has(w.id) && bound(w))
             : event.audience === 'active'
-              ? own.length > 0 || workspace?.git_status === 'repository'
+              ? false // Global module bookkeeping is audit/WS/poll only.
               : false);
       if (!selected) continue;
       const detail =

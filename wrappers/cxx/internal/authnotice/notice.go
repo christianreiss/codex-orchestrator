@@ -237,4 +237,49 @@ func Consume(engine, session string) (*Notice, error) {
 
 // Prime suppresses a notice that predates this session. Later updates remain
 // eligible for delivery through its prompt hook or agent MCP connection.
-func Prime(engine, session string) error { _, err := Consume(engine, session); return err }
+func Prime(engine, session string) error {
+	delivery, err := preparePrime(engine, session)
+	if err != nil || delivery == nil {
+		return err
+	}
+	return delivery.Commit()
+}
+
+// Read the atomically published baseline without the publisher lock. Prime runs
+// before native startup and only writes this session's ledger. The delivery lock
+// still fences hook/MCP consumers; contention fails immediately. Pinning the
+// snapshot here means a publication during Commit remains pending for delivery.
+func preparePrime(engine, session string) (*Delivery, error) {
+	if !validSession(session) {
+		return nil, errors.New("invalid auth notice session")
+	}
+	dir, err := paths(engine)
+	if err != nil {
+		return nil, err
+	}
+	if err = os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	lock, err := os.OpenFile(filepath.Join(dir, session+".delivery"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	keepLock := false
+	defer func() {
+		if !keepLock {
+			lock.Close()
+		}
+	}()
+	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return nil, err
+	}
+	notice, err := read(dir)
+	if err != nil || notice.Generation == "" {
+		return nil, err
+	}
+	if notice.Engine != engine {
+		return nil, errors.New("auth notice engine mismatch")
+	}
+	keepLock = true
+	return &Delivery{Notice: notice, ledger: filepath.Join(dir, session+".seen"), lock: lock}, nil
+}

@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func isolate(t *testing.T) string {
@@ -210,5 +212,79 @@ func TestCategoryMetadataKeepsLegacyLedgerCompatible(t *testing.T) {
 	notice, err = Consume("claude", "session")
 	if err != nil || notice == nil || len(notice.Kinds) != 2 {
 		t.Fatalf("stale legacy metadata suppressed pending changes: %+v %v", notice, err)
+	}
+}
+
+func TestPrimeDoesNotNeedPublisherLock(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			isolate(t)
+			if err := Publish(Notice{Generation: strings.Repeat("a", 64), Engine: engine, Kinds: []string{KindInstructions}}); err != nil {
+				t.Fatal(err)
+			}
+			err := withLock(engine, func(dir string) error { return Prime(engine, "fresh") })
+			if err != nil {
+				t.Fatalf("startup baseline lost under publisher contention: %v", err)
+			}
+			if n, err := Consume(engine, "fresh"); err != nil || n != nil {
+				t.Fatalf("historical notice replayed: %+v %v", n, err)
+			}
+		})
+	}
+}
+
+func TestPrimePinsBaselineAndPreservesConcurrentPublication(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			isolate(t)
+			baseline := Notice{Generation: strings.Repeat("a", 64), Engine: engine, Kinds: []string{KindInstructions}, Digests: Snapshot{KindInstructions: "old"}}
+			if err := Publish(baseline); err != nil {
+				t.Fatal(err)
+			}
+			delivery, err := preparePrime(engine, "fresh")
+			if err != nil || delivery == nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			defer delivery.Abort()
+			// A new pass can publish after the activation baseline but before its ledger commit.
+			later := Notice{Generation: strings.Repeat("b", 64), Engine: engine, Kinds: []string{KindInstructions}, Digests: Snapshot{KindInstructions: "new"}}
+			if err := Publish(later); err != nil {
+				t.Fatal(err)
+			}
+			if err := delivery.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			notice, err := Consume(engine, "fresh")
+			if err != nil || notice == nil || notice.Generation != later.Generation {
+				t.Fatalf("later publication lost: %+v %v", notice, err)
+			}
+			if again, err := Consume(engine, "fresh"); err != nil || again != nil {
+				t.Fatalf("notice replayed: %+v %v", again, err)
+			}
+		})
+	}
+}
+
+func TestPrimeFailsImmediatelyOnSessionContention(t *testing.T) {
+	isolate(t)
+	if err := Publish(Notice{Generation: strings.Repeat("a", 64), Engine: "codex", Kinds: []string{KindSkills}}); err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := preparePrime("codex", "fresh")
+	if err != nil || delivery == nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	defer delivery.Abort()
+	started := time.Now()
+	err = Prime("codex", "fresh")
+	if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN {
+		t.Fatalf("expected session contention: %v", err)
+	}
+	if time.Since(started) > time.Second {
+		t.Fatal("Prime blocked startup")
+	}
+	delivery.Abort()
+	if n, err := Consume("codex", "fresh"); err != nil || n == nil {
+		t.Fatalf("failed prime discarded notice: %+v %v", n, err)
 	}
 }

@@ -8,6 +8,7 @@ import {
   agentBusMessages,
   agentBusPublications, agentRoomEvents,
   agentBusSubscriptions,
+  agentSessions,
   type AgentBusAddress,
   type AgentSession,
   type Host,
@@ -634,6 +635,7 @@ export class AgentMessagingGroups {
    */
   async noticeAddresses(addressIds: string[], content: string, noticeId?: string) {
     const body = normalizeMessageBody(content);
+    const roleWithdrawal = /^ROLE-UPDATE\/1 [^\n]* severity=withdrawn(?:\n|$)/.test(body);
     const result = await this.core.db.transaction(async (tx) => {
       await this.core.requireEnabledLocked(tx);
       const sender = await this.server(tx);
@@ -648,6 +650,17 @@ export class AgentMessagingGroups {
           if (!(error instanceof ApiError)) throw error;
           receipts.skipped.push({ address_id: id, reason: 'address_ineligible' });
           continue;
+        }
+        if (roleWithdrawal) {
+          const [session] = target.currentSessionId
+            // The address lock fences binding/finish cleanup. Do not take the
+            // session lock after it: finishSession locks session then address.
+            ? await tx.select().from(agentSessions).where(eq(agentSessions.id, target.currentSessionId))
+            : [];
+          if (!session || session.endedAt || session.agentBusAddressId !== target.id || session.bindingGeneration !== target.bindingGeneration) {
+            receipts.skipped.push({ address_id: id, reason: 'session_ineligible' });
+            continue;
+          }
         }
         if (noticeId) {
           const [existing] = await tx.select({ id: agentBusMessages.id }).from(agentBusMessages).where(and(
@@ -676,14 +689,18 @@ export class AgentMessagingGroups {
             sender,
             senderSessionId: null,
             target,
-            kind: noticeId ? 'presence_notice' : 'publication',
+            kind: noticeId || roleWithdrawal ? 'presence_notice' : 'publication',
             content: body,
             contentEnc: encrypt(body, this.core.keyring),
             clientMessageId: noticeId ?? randomUUID(),
             expiresAt: isoOffsetSeconds(7 * 86400),
             now,
           });
-        if (noticeId) message.targetSessionId = target.currentSessionId;
+        if (noticeId || roleWithdrawal) message.targetSessionId = target.currentSessionId;
+        if (roleWithdrawal) {
+          message.targetBindingGeneration = target.bindingGeneration;
+          message.deliveryClass = 'coordination';
+        }
         await tx.insert(agentBusMessages).values(message);
         receipts.deliveries.push({ address_id: target.id, message_id: messageId });
       }

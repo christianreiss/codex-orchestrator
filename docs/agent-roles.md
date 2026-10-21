@@ -111,15 +111,19 @@ writes the native title as `(Name) (Label) task`; it posts `(Label) task` as the
   observable to the wrapper; this is the documented limit.
 - **Grok:** same as Codex until its SessionStart output is verified to inject context.
 
-### Notices (Server → holder, informational)
+### Role changes and review requests
 
-Server-originated `publication`-kind messages, no reply:
+Routine version updates and proposal outcomes remain in role resources,
+`agent_role_current`, `agent_role_proposals` and the operator timeline/audit. They
+are pull-only and do not wake a session through automatic `ROLE-UPDATE/1` or
+`ROLE-PROPOSAL/1` information. The holder stays pinned and upgrades explicitly at
+the permitted task boundary.
 
-- `ROLE-UPDATE/1` — a newer version was published (or `severity=withdrawn`). The holder
-  stays pinned; with `holder_upgrade: at_task_boundary` it switches itself between two work
-  items (`activated_by: self_upgrade`) and says so.
-- `ROLE-REVIEW/1` — "review this proposal" to the chosen independent holder.
-- `ROLE-PROPOSAL/1` — the outcome of the author's proposal.
+`ROLE-REVIEW/1` still delivers the explicit review request to the selected
+independent holder. A faulty-version withdrawal retains `ROLE-UPDATE/1` with
+`severity=withdrawn` as a coordination alert bound to the current live holder's
+session and binding. It is skipped for ended/replaced holders and retired when
+the session ends. User-authored publications remain delivered normally.
 
 ### Starting an agent in a role
 
@@ -171,7 +175,7 @@ deletes an existing file); otherwise `additive`.
    gets one stricter judge pass instead; `core` has no fallback.
 4. **Publish** under the role row lock, re-checking the base (a concurrent publish
    supersedes the loser), the policy (`supervised` → `held`) and the daily budget. The new
-   version announces itself with `ROLE-UPDATE/1`.
+   version becomes available through `agent_role_current` and role resources.
 
 Open proposals untouched for 14 days are `superseded`. The worker runs every 30 s in the
 API process while `roles_enabled` is on.

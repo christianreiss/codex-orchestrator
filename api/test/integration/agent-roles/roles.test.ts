@@ -196,9 +196,7 @@ describe.skipIf(!handle)('agent roles on MySQL', { timeout: 120_000 }, () => {
     await roles.saveDraft('ztest-design', { manifest: MANIFEST('Second version of the prompt.') }, admin);
     await roles.publishDraft('ztest-design', { changelog: 'tightened prompt' }, admin);
 
-    const update = (await notices(designer.address)).find((body) => body.startsWith('ROLE-UPDATE/1'));
-    expect(update).toContain('version=2 previous=1');
-    expect(update).toContain('activated_by:"self_upgrade"');
+    expect(await notices(designer.address)).toEqual([]);
 
     // Resume of the same native transcript: same address, same pinned version.
     await messaging.registerSession(host, { sessionId: randomUUID(), bridgeToken: 'x'.repeat(43), engine: 'claude', username: 'role-user', cwd: '/repo', invocationKind: 'interactive', upstreamSessionId: designer.upstream, resumed: true }).catch(() => undefined);
@@ -236,8 +234,37 @@ describe.skipIf(!handle)('agent roles on MySQL', { timeout: 120_000 }, () => {
     const [row] = await db!.select().from(agentRoleProposals).where(eq(agentRoleProposals.id, proposal.id));
     expect(row!.status).toBe('applied');
     expect((await roles.readResource('role://ztest-design@2/checklists/focus.md')).contents[0]!.text).toContain('visible focus');
-    expect((await notices(designer.address)).some((body) => body.startsWith('ROLE-PROPOSAL/1') && body.includes('status=applied'))).toBe(true);
+    expect(await notices(designer.address)).toEqual([]);
     expect(judge.briefs[0]!.title).toBe('Add focus checklist');
+  });
+
+  it.each(['codex', 'claude', 'grok'] as const)('keeps %s role updates pull-only after the holder ends', async (engine) => {
+    await publishedRole();
+    const holder = await launch(engine);
+    await activate(holder);
+    await messaging.finishSession(holder.id, holder.token, 'completed');
+    await roles.saveDraft('ztest-design', { manifest: MANIFEST('Updated role prompt.') }, admin);
+    await roles.publishDraft('ztest-design', {}, admin);
+    expect(await notices(holder.address)).toEqual([]);
+    expect((await roles.catalog()).roles.find((role) => role.slug === 'ztest-design')?.current_version).toBe(2);
+  });
+
+  it.each(['codex', 'claude', 'grok'] as const)('keeps faulty-role withdrawal alerts bound to the current live %s holder', async (engine) => {
+    await publishedRole();
+    const live = await launch(engine), ended = await launch(engine), rebound = await launch(engine);
+    await activate(live); await activate(ended); await activate(rebound);
+    await messaging.finishSession(ended.id, ended.token, 'completed');
+    // A stale saved session may not lend its role alert to a replacement binding.
+    await db!.update(agentBusAddresses).set({ bindingGeneration: 2 }).where(eq(agentBusAddresses.id, rebound.address));
+    await roles.withdraw('ztest-design', 1, { reason: 'faulty boundary advice' });
+    expect(await notices(ended.address)).toEqual([]);
+    expect(await notices(rebound.address)).toEqual([]);
+    const [alert] = await db!.select().from(agentBusMessages).where(eq(agentBusMessages.targetAddressId, live.address));
+    expect(alert).toMatchObject({ kind: 'presence_notice', targetSessionId: live.id, targetBindingGeneration: 1, deliveryClass: 'coordination' });
+    expect(decrypt(alert!.contentEnc, keyring)).toContain('severity=withdrawn');
+    await messaging.finishSession(live.id, live.token, 'completed');
+    const [cancelled] = await db!.select().from(agentBusMessages).where(eq(agentBusMessages.id, alert!.id));
+    expect(cancelled!.status).toBe('canceled');
   });
 
   it('never publishes without a judge verdict and rejects what the judge or the gates refuse', async () => {
@@ -264,10 +291,10 @@ describe.skipIf(!handle)('agent roles on MySQL', { timeout: 120_000 }, () => {
     expect((secret.proposal.gate_results as { checks: Array<{ gate: string; ok: boolean }> }).checks).toContainEqual(expect.objectContaining({ gate: 'no_secrets', ok: false }));
   });
 
-  it('needs an independent holder for a core change; the author cannot review it', async () => {
+  it.each(['codex', 'claude', 'grok'] as const)('keeps explicit core review requests for an independent %s holder', async (engine) => {
     await publishedRole();
     const author = await launch('claude');
-    const other = await launch('codex');
+    const other = await launch(engine);
     await activate(author);
     const { proposal } = await roles.propose(author.id, author.token, {
       kind: 'manifest_change', title: 'Sharper prompt', rationale: 'r', client_request_id: randomUUID(),
@@ -316,6 +343,7 @@ describe.skipIf(!handle)('agent roles on MySQL', { timeout: 120_000 }, () => {
     await roles.updateRole('ztest-design', { policy: { mutation: 'frozen' }, expected_version: detail.role.version });
     const frozen = await roles.propose(one.id, one.token, { kind: 'note', title: 'n', rationale: 'r', client_request_id: randomUUID(), ops: [{ op: 'put', path: 'notes/new.md', content: 'x' }] });
     expect(frozen.proposal.status).toBe('held');
+    expect((await notices(one.address)).some((body) => body.startsWith('ROLE-PROPOSAL/1'))).toBe(false);
     const applied = await view(first.proposal.id);
     const veto = await roles.decide(applied.id, { verdict: 'reject', reason: 'regressed reviews', expected_version: applied.version }, admin);
     expect(veto).toMatchObject({ vetoed: true, version: 3 });

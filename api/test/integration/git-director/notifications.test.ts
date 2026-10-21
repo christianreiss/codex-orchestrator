@@ -138,25 +138,86 @@ describe.skipIf(!handle)('Git Director transactional agent notifications', () =>
   const join = (p: Peer, paths: string[], target = 'main') =>
     director.join({ worktree_path: p.path, target_branch: target, paths }, host);
 
-  it('notifies live Codex, Claude and Grok peers about substantive scope changes once', async () => {
+  it('keeps routine scope bookkeeping pull-only across Codex, Claude and Grok', async () => {
     const a = await peer('codex'),
       b = await peer('claude'),
       c = await peer('grok');
-    const outsider = await peer('codex', `${root}/other/.git`, 'ssh://git@example.test/unrelated.git');
     await join(b, ['shared.ts']);
     await join(c, ['shared.ts']);
-    const before = (await messages(b)).length;
-    await join(a, ['shared.ts']);
-    expect((await messages(b)).length).toBe(before + 1);
-    expect((await messages(c)).at(-1)!.event.kind).toBe('work_scope_changed');
-    expect(await messages(outsider)).toHaveLength(0);
-    const count = (await messages(b)).length;
-    await join(a, ['shared.ts']);
-    await director.list({ worktree_path: a.path, head_sha: 'a'.repeat(40) }, host);
-    expect((await messages(b)).length).toBe(count);
-    const notice = (await messages(b)).at(-1)!;
-    expect(notice.row).toMatchObject({ kind: 'presence_notice', targetBindingGeneration: 1 });
-    expect(notice.event.revision).toEqual(expect.any(Number));
+    const before = [(await messages(b)).length, (await messages(c)).length];
+    const overlap = await join(a, ['shared.ts']);
+    expect(overlap.peer_overlap).toHaveLength(2);
+    expect([(await messages(b)).length, (await messages(c)).length]).toEqual(before);
+    const audit = await db!.select().from(adminEvents).where(eq(adminEvents.hostId, host.id));
+    expect(audit.some((r) => (r.payload as Record<string, unknown>)?.kind === 'work_scope_changed')).toBe(
+      true,
+    );
+  });
+
+  it.each(['codex', 'claude', 'grok'] as const)(
+    'keeps scope rechecks for exactly bound current %s waiters',
+    async (engine) => {
+      const common = `${root}/scope-wait-${engine}/.git`;
+      const holder = await peer('codex', common),
+        waiter = await peer(engine, common),
+        ordinary = await peer('claude', common);
+      await merge(holder);
+      await merge(waiter);
+      const before = (await messages(ordinary)).length;
+      await join(holder, ['changed.ts']);
+      expect((await messages(waiter)).at(-1)!.event.kind).toBe('work_scope_changed');
+      expect((await messages(ordinary)).length).toBe(before);
+      const count = (await messages(waiter)).length;
+      await db!
+        .update(agentBusAddresses)
+        .set({ bindingGeneration: 2 })
+        .where(eq(agentBusAddresses.id, waiter.addressId));
+      await db!
+        .update(agentSessions)
+        .set({ bindingGeneration: 2 })
+        .where(eq(agentSessions.id, waiter.sessionId));
+      await join(holder, ['changed-again.ts']);
+      expect((await messages(waiter)).length).toBe(count);
+    },
+  );
+
+  it('uses the effective worktree branch and both explicit branch-change targets for waiter rechecks', async () => {
+    const common = `${root}/target-fence/.git`;
+    const actor = await peer('codex', common),
+      mainWaiter = await peer('claude', common),
+      developHolder = await peer('grok', common),
+      developWaiter = await peer('codex', common);
+    await join(actor, [], 'main');
+    await merge(actor);
+    await merge(mainWaiter);
+    await merge(developHolder, 'develop');
+    await merge(developWaiter, 'develop');
+    const [clone] = await db!.select().from(gitClones).where(eq(gitClones.cloneDir, common));
+    const [worktree] = await db!.select().from(gitWorktrees).where(eq(gitWorktrees.worktreePath, actor.path));
+    const notices = new GitDirectorNotifications(bus);
+    const mainBefore = (await messages(mainWaiter)).length,
+      developBefore = (await messages(developWaiter)).length;
+    await db!.transaction((tx) =>
+      notices.enqueue(tx, { kind: 'work_scope_changed', clone, worktree, audience: 'repository' }, now()),
+    );
+    expect((await messages(mainWaiter)).length).toBe(mainBefore + 1);
+    expect((await messages(developWaiter)).length).toBe(developBefore);
+    await db!.transaction((tx) =>
+      notices.enqueue(
+        tx,
+        {
+          kind: 'work_scope_changed',
+          clone,
+          worktree,
+          targetBranch: 'develop',
+          previousTargetBranch: 'main',
+          audience: 'repository',
+        },
+        now(),
+      ),
+    );
+    expect((await messages(mainWaiter)).length).toBe(mainBefore + 2);
+    expect((await messages(developWaiter)).length).toBe(developBefore + 1);
   });
 
   it('notifies only affected waiters on release and keeps polling authoritative', async () => {
@@ -230,16 +291,21 @@ describe.skipIf(!handle)('Git Director transactional agent notifications', () =>
       waiter = await peer('claude', common);
     const grant = await merge(holder);
     const pending = await merge(waiter);
-    await expect(director.adminDecide(pending.request_id as string, 'allow', 'operator review'))
-      .rejects.toMatchObject({ code: 'git_director_lease_held' });
-    expect((await messages(waiter)).some((message) => message.event.kind === 'operator_decision')).toBe(false);
+    await expect(
+      director.adminDecide(pending.request_id as string, 'allow', 'operator review'),
+    ).rejects.toMatchObject({ code: 'git_director_lease_held' });
+    expect((await messages(waiter)).some((message) => message.event.kind === 'operator_decision')).toBe(
+      false,
+    );
     await director.release({ request_id: grant.request_id }, host);
     await director.adminDecide(pending.request_id as string, 'allow', 'operator review');
     expect((await messages(waiter)).at(-1)!.event).toMatchObject({
       kind: 'operator_decision',
       other_leases_revoked: false,
     });
-    expect((await messages(holder)).some((message) => message.event.kind === 'operator_decision')).toBe(false);
+    expect((await messages(holder)).some((message) => message.event.kind === 'operator_decision')).toBe(
+      false,
+    );
     const [worktree] = await db!
       .select()
       .from(gitWorktrees)
@@ -284,6 +350,8 @@ describe.skipIf(!handle)('Git Director transactional agent notifications', () =>
       }),
       now,
     });
+    await merge(a);
+    await merge(b);
     const count = (await messages(b)).length;
     await failing.join({ worktree_path: a.path, target_branch: 'main', paths: ['changed.ts'] }, host);
     const [worktree] = await db!.select().from(gitWorktrees).where(eq(gitWorktrees.worktreePath, a.path));
@@ -299,6 +367,8 @@ describe.skipIf(!handle)('Git Director transactional agent notifications', () =>
     const common = `${root}/rollback/.git`,
       a = await peer('codex', common),
       b = await peer('claude', common);
+    await merge(a);
+    await merge(b);
     const [clone] = await db!.select().from(gitClones).where(eq(gitClones.cloneDir, common));
     const [worktree] = await db!.select().from(gitWorktrees).where(eq(gitWorktrees.worktreePath, a.path));
     const count = (await messages(b)).length;
@@ -354,6 +424,7 @@ describe.skipIf(!handle)('Git Director transactional agent notifications', () =>
       b = await peer('claude', common);
     await join(b, ['shared.ts']);
     const grant = await merge(a);
+    await merge(b);
     await expect(
       director.release({ request_id: grant.request_id, worktree_path: a.path, outcome: 'merged' }, host),
     ).rejects.toThrow('target_head_sha');
@@ -374,7 +445,7 @@ describe.skipIf(!handle)('Git Director transactional agent notifications', () =>
     });
   });
 
-  it('notifies both old and new branch peers about scope removal without treating declarations as locks', async () => {
+  it('keeps scope removal and branch changes pull-only for ordinary peers', async () => {
     const common = `${root}/scope-switch/.git`,
       a = await peer('codex', common),
       oldPeer = await peer('claude', common),
@@ -388,9 +459,8 @@ describe.skipIf(!handle)('Git Director transactional agent notifications', () =>
     const oldCount = (await messages(oldPeer)).length,
       newCount = (await messages(newPeer)).length;
     await join(a, ['api/x.ts'], 'develop');
-    expect((await messages(oldPeer)).length).toBe(oldCount + 1);
-    expect((await messages(newPeer)).length).toBe(newCount + 1);
-    expect((await messages(oldPeer)).at(-1)!.event.previous_paths).toContain('docs/x.md');
+    expect((await messages(oldPeer)).length).toBe(oldCount);
+    expect((await messages(newPeer)).length).toBe(newCount);
     const count = (await messages(newPeer)).length;
     await director.join({ worktree_path: a.path, task: 'new title only' }, host);
     expect((await messages(newPeer)).length).toBe(count);
@@ -424,23 +494,23 @@ describe.skipIf(!handle)('Git Director transactional agent notifications', () =>
     expect(worktree).toBeDefined();
   });
 
-  it('delivers module Off/On transitions once and exposes a revision watermark', async () => {
+  it('keeps module Off/On bookkeeping pull-only and exposes a revision watermark', async () => {
     const a = await peer('codex', `${root}/toggle/.git`);
+    const count = (await messages(a)).length;
     await director.setEnabled(true);
     await director.setEnabled(false);
-    const count = (await messages(a)).length;
     await director.setEnabled(false);
     expect((await messages(a)).length).toBe(count);
     const snapshot = await director.list({}, host);
-    expect(snapshot.coordination_revision).toBeGreaterThanOrEqual(
-      Number((await messages(a)).at(-1)!.event.revision),
-    );
+    expect(snapshot.coordination_revision).toBeGreaterThanOrEqual(0);
   });
 
   it('propagates transaction failures instead of returning false success', async () => {
     const common = `${root}/db-error/.git`,
       a = await peer('codex', common);
-    await peer('claude', common);
+    const b = await peer('claude', common);
+    await merge(a);
+    await merge(b);
     const failing = new GitDirectorService({
       db: db!,
       settings: new SettingsService(db!),
