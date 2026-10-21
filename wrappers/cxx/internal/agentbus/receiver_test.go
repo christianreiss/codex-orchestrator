@@ -21,6 +21,63 @@ import (
 
 type rewriteTransport struct{ server *httptest.Server }
 
+func TestCodexReceiverNamesSessionBeforeFirstUserMessage(t *testing.T) {
+	t.Setenv("CXX_AGENT_PORTAL_ENGINE", "codex")
+	t.Setenv("CODEX_HOME", t.TempDir())
+	named := make(chan string, 1)
+	socket, methods := fakeCodexAppServer(t, func(method string, params map[string]any) nativeAnswer {
+		switch method {
+		case "thread/loaded/list":
+			return nativeAnswer{result: map[string]any{"data": []string{"native"}}}
+		case "thread/read":
+			return nativeAnswer{result: map[string]any{"thread": map[string]any{"id": "native", "source": "cli", "status": map[string]any{"type": "idle"}}}}
+		case "thread/turns/list":
+			return nativeAnswer{err: map[string]any{"code": -32600, "message": "thread native is not materialized yet; thread/turns/list is unavailable before first user message"}}
+		case "thread/name/set":
+			if params["threadId"] != "native" {
+				t.Error("renamed a foreign thread")
+			}
+			named <- params["name"].(string)
+		}
+		return nativeAnswer{}
+	})
+	t.Setenv("CXX_CODEX_SOCKET", socket)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch path.Base(req.URL.Path) {
+		case "register":
+			_, _ = w.Write([]byte(`{"sources":["peer"]}`))
+		case "self":
+			_, _ = w.Write([]byte(`{"name":"Lynn","session_id":"launch","native_session_id":"native","engine":"codex"}`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	defer server.Close()
+	client := &sessionClient{id: "launch", http: &http.Client{Transport: rewriteTransport{server}}}
+	r := &autoReceiver{client: client, tracker: newChannelTracker(client)}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	var runErr error
+	go func() { runErr = r.connection(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+	select {
+	case name := <-named:
+		if name != "(Lynn)" || r.health()["state"] != "ready" {
+			t.Fatalf("pre-submit setup incomplete: name=%q health=%v", name, r.health())
+		}
+	case <-done:
+		t.Fatalf("receiver exited before pre-submit naming: %v", runErr)
+	case <-time.After(5 * time.Second):
+		t.Fatal("receiver did not name the empty session")
+	}
+	for _, method := range methods() {
+		if method == "thread/start" || method == "turn/start" || method == "thread/queue/add" {
+			t.Fatalf("setup created a conversation or submitted input: %s", method)
+		}
+	}
+}
+
 func TestReceiverHealthRequiresCurrentSuccessfulPong(t *testing.T) {
 	r := &autoReceiver{}
 	old := r.beginPing()

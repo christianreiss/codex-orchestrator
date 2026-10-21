@@ -121,8 +121,17 @@ func TestNativeQueueAdmitsDeliveryToLongHistory(t *testing.T) {
 }
 
 func TestNativeQueueAdmitsFirstDeliveryToFreshThread(t *testing.T) {
-	// Codex 0.163 before the thread's first persisted turn.
-	notYet := map[string]any{"code": -32601, "message": "list_turns is not supported yet"}
+	for _, notYet := range []map[string]any{
+		{"code": -32601, "message": "list_turns is not supported yet"},
+		// Observed on native Codex 0.163.0 before the first user message.
+		{"code": -32600, "message": "thread native is not materialized yet; thread/turns/list is unavailable before first user message"},
+	} {
+		t.Run(notYet["message"].(string), func(t *testing.T) { admitsFirstDeliveryToFreshThread(t, notYet) })
+	}
+}
+
+func admitsFirstDeliveryToFreshThread(t *testing.T, notYet map[string]any) {
+	t.Helper()
 	socket, _ := fakeCodexAppServer(t, func(method string, params map[string]any) nativeAnswer {
 		switch method {
 		case "thread/turns/list", "thread/read":
@@ -185,9 +194,21 @@ func fallsBackWithoutTurnsList(t *testing.T, missing map[string]any) {
 }
 
 func TestNativeQueueStillFailsClosedOnOtherReadErrors(t *testing.T) {
+	for _, failure := range []map[string]any{
+		{"code": -32600, "message": "thread not loaded: native"},
+		{"code": -32600, "message": "thread foreign is not materialized yet; thread/turns/list is unavailable before first user message"},
+		{"code": -32600, "message": "thread native is not materialized yet"},
+		{"code": -32603, "message": "thread native is not materialized yet; thread/turns/list is unavailable before first user message"},
+	} {
+		t.Run(failure["message"].(string), func(t *testing.T) { failsClosedOnNativeReadError(t, failure) })
+	}
+}
+
+func failsClosedOnNativeReadError(t *testing.T, failure map[string]any) {
+	t.Helper()
 	socket, methods := fakeCodexAppServer(t, func(method string, params map[string]any) nativeAnswer {
 		if method == "thread/turns/list" {
-			return nativeAnswer{err: map[string]any{"code": -32600, "message": "thread not loaded: native"}}
+			return nativeAnswer{err: failure}
 		}
 		if method == "thread/queue/add" {
 			return admitted(params)

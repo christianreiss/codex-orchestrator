@@ -57,6 +57,12 @@ the native input prompt, including launches without an initial user message.
 Silent/skip-boot launches retain their suppressed startup output. This startup
 name is the assigned agent identity; the task title is set once a task is known.
 
+From cxx 0.9.117, the receiver also sets `(Name)` in the native status line
+before the first user message. Codex 0.163.0 reports `thread/turns/list` as
+`-32600` with a thread-specific "not materialized yet" diagnostic until then;
+that exact response is an empty history, so receiver setup and naming continue
+without a synthetic prompt. Other read errors still stop receiver admission.
+
 The automatic receiver reads Codex `session_index.jsonl` entries matching the bound native ID (`thread_name`); custom `CODEX_HOME` is honored. Changes are sent as encrypted, idempotent `session_named` events on its 15-second heartbeat. Failed reports retry the original ID/payload and do not disable reception. The metadata reader does not derive titles from transcript text. On its first turn, before its first response (including question-only or do-not-act-yet turns), fleet guidance tells the AI to call the session-bound `agent_session_name` tool with a concise name in the operator’s language; its atomic set-if-missing mode preserves known native or AI names. Android 0.4.6 displays the latest name above host and working directory; the API exposes it only with transcript permission. Update the API before wrappers/APK; older builds remain compatible.
 
 ## Managed native starts (cxx 0.9.24)

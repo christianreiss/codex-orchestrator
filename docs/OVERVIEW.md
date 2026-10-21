@@ -659,6 +659,11 @@ informational by default, and scheduled wakes retain the schedule creator's
 existing authorization. Server-feed publications are identified as an authenticated
 fleet source. Host authentication and allowed-window checks are unchanged.
 
+Cxx 0.9.117 keeps Codex reception ready before the first user message and sets
+the assigned `(Name)` in its native status line. The precise Codex 0.163.0
+not-yet-materialized turn-history diagnostic is an empty history; unrelated
+native read errors still stop admission. No synthetic prompt is submitted.
+
 Cxx 0.9.29 makes one-shot CLI listen informational-only and preserves send
 receipts when request waiting fails. CLI send/request/reply support
 `--client-message-id` for safe retries. The API atomically completes claimed

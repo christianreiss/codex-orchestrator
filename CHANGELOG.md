@@ -1,3 +1,7 @@
+# 2026-10-21
+
+- **Codex setup before the first prompt (cxx 0.9.117).** Treat Codex 0.163.0's specific not-yet-materialized turn-history response as an empty history. The receiver now stays ready and sets the assigned name in the native status line before the first user message; the task title follows once known. Unrelated native read errors still stop admission.
+
 # 2026-10-20
 
 - Git Director now sends relevant scope, lease and operator changes to affected active agents through session-bound notices. Polling remains authoritative; unchanged activity stays quiet. Merge completion can be reported explicitly and is labelled unverified. Releasing an already retired worktree no longer reactivates it. Known limits remain advisory parallel grants (97677182), expiry detected on access, and no FIFO guarantee.

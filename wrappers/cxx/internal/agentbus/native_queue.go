@@ -207,13 +207,18 @@ type nativeTurn struct {
 // items stays a few hundred bytes. Codex answers -32601 for a thread with no
 // persisted turn yet (a fresh launch before its first prompt). That is an empty
 // history, not a failure, or a new idle session could never get its first
-// message.
+// message. Codex 0.163.0 also returns -32600 with a specific materialization
+// diagnostic before the first user message, including on receiver startup.
 func (q *nativeQueue) latestTurn() (*nativeTurn, error) {
 	var page struct {
 		Data []nativeTurn `json:"data"`
 	}
 	err := q.call("thread/turns/list", map[string]any{"threadId": q.thread, "limit": 1, "sortDirection": "desc", "itemsView": "notLoaded"}, &page)
 	var rpc *nativeRPCError
+	if errors.As(err, &rpc) && rpc.code == -32600 &&
+		rpc.message == "thread "+q.thread+" is not materialized yet; thread/turns/list is unavailable before first user message" {
+		return nil, nil
+	}
 	unknownMethod := errors.As(err, &rpc) && ((rpc.code == -32600 && strings.Contains(rpc.message, "unknown variant")) ||
 		(rpc.code == -32601 && !strings.Contains(rpc.message, "not supported yet")))
 	if unknownMethod {
