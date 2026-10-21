@@ -185,6 +185,77 @@ func TestSourceChangesAndCorruptDownload(t *testing.T) {
 		t.Fatal("published corrupt file")
 	}
 }
+
+func TestDownloadUnknownLengthStillVerifiesBytes(t *testing.T) {
+	for _, mode := range []string{"complete", "short", "long", "corrupt", "known-mismatch"} {
+		t.Run(mode, func(t *testing.T) {
+			c, _ := fixture(t)
+			path := source(t)
+			original, _ := os.ReadFile(path)
+			tr, err := c.Put(context.Background(), path, 600, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			transportMode := mode
+			base := http.DefaultTransport
+			c.HTTP.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+				resp, err := base.RoundTrip(r)
+				if err == nil && strings.HasSuffix(r.URL.Path, "/content") {
+					resp.Body.Close()
+					offset := 0
+					if r.Header.Get("Range") != "" {
+						_, _ = fmt.Sscanf(r.Header.Get("Range"), "bytes=%d-", &offset)
+					}
+					body := append([]byte(nil), original[offset:]...)
+					switch transportMode {
+					case "short":
+						body = body[:len(body)-1]
+					case "long":
+						body = append(body, 42)
+					case "corrupt":
+						body[0] ^= 0xff
+					}
+					resp.ContentLength = -1
+					resp.Header.Del("Content-Length")
+					if transportMode == "known-mismatch" {
+						resp.ContentLength = int64(len(body) - 1)
+					}
+					resp.Body = io.NopCloser(bytes.NewReader(body))
+				}
+				return resp, err
+			})
+			output := filepath.Join(t.TempDir(), "download")
+			_, err = c.Get(context.Background(), tr.ID, output, false, false)
+			if mode == "complete" {
+				if err != nil {
+					t.Fatalf("valid unknown-length body refused: %v", err)
+				}
+				got, readErr := os.ReadFile(output)
+				if readErr != nil || !bytes.Equal(got, original) {
+					t.Fatalf("download: %v %v", got, readErr)
+				}
+				return
+			}
+			want := map[string]string{"short": "incomplete", "long": "exceeds", "corrupt": "SHA-256", "known-mismatch": "expected 11 bytes, received Content-Length 10"}[mode]
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("%s body: %v, want %s", mode, err, want)
+			}
+			if _, err := os.Stat(output); !os.IsNotExist(err) {
+				t.Fatal("unverified bytes published")
+			}
+			if mode == "short" {
+				transportMode = "complete"
+				if _, err := c.Get(context.Background(), tr.ID, output, true, false); err != nil {
+					t.Fatalf("resume unknown-length body: %v", err)
+				}
+				got, err := os.ReadFile(output)
+				if err != nil || !bytes.Equal(got, original) {
+					t.Fatalf("resumed bytes: %v %v", got, err)
+				}
+			}
+		})
+	}
+}
 func TestCommandOptions(t *testing.T) {
 	for _, engine := range []string{"codex", "claude", "grok"} {
 		o, err := parse([]string{"get", "id", "--output", "file", "--resume", "--json"}, engine)

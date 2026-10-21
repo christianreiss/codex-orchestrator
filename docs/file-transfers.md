@@ -47,6 +47,10 @@ its TTL expires.
 
 Downloads use `<output>.cxx-part` and an adjacent `.json` journal. Resume uses
 HTTP Range and verifies the complete SHA-256, including the existing prefix.
+Chunked responses with no declared content length are accepted; the actual byte
+count must still match metadata, and known mismatched lengths are refused before
+reading. Size errors report expected and received counts. Oversized, incomplete
+or hash-mismatched responses never publish the destination.
 Only a verified file is published at the chosen path. The default publication
 atomically refuses an existing target; `--overwrite` permits atomic replacement.
 Keep journals and partial files to resume; delete both to abandon a download.
