@@ -1,5 +1,9 @@
 # 2026-10-21
 
+- **Quieter scope coordination.** Keep routine presence updates in room history and dashboard updates without waking idle agents. Substantive room chat, claim events and direct conflict notices keep their delivery behavior.
+
+- **Advisor failure diagnostics (cxx 0.9.118).** Owner-only status exposes bounded native exit and startup metadata when available, without forwarding stderr or inventing a verdict. Legacy, malformed and ambiguous operation evidence remains unknown.
+
 - **Git Director lease safety.** Serialize operator approvals with normal grants, preserve existing grants on retries, and reject stale judge results after intervening decisions, registration changes or claim invalidation. Branch filtering now happens before the result limit.
 
 - **Compact workflow replies.** Execution notes, task claims and task updates return concise acknowledgements; explicit reads and preparation controls retain the full workflow snapshot.
