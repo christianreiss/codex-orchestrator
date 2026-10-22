@@ -76,6 +76,7 @@ function stubSettings(values: Record<string, string> = {}): SettingsService {
 interface Harness {
   db: DbFake;
   svc: HostAuthService;
+  settings: SettingsService;
 }
 
 function harness(
@@ -92,6 +93,7 @@ function harness(
     (opts.rows ?? []).map((row) => ({ ...row }) as unknown as Record<string, unknown>),
   );
   const db = createDbFake(tables);
+  const settings = stubSettings(opts.settings);
   const svc = createHostAuthService({
     db: db as never,
     env: {
@@ -99,11 +101,18 @@ function harness(
       AUTH_RUNNER_BYPASS_SUBNETS: '',
       ...opts.env,
     } as Env,
-    settings: stubSettings(opts.settings),
+    settings,
     insecure: opts.insecure,
   });
-  return { db, svc };
+  return { db, svc, settings };
 }
+
+it('does not read the fleet reverse-DNS default for an explicit disabled host policy', async () => {
+  const h = harness({ rows: [hostRow({ ip4: CLIENT_IP, reverseDnsMode: 0 })], settings: { reverse_dns_enabled: '1' } });
+  const flag = vi.spyOn(h.settings, 'getFlag');
+  await h.svc.authenticate(makeReq({ key: KEY, ip: CLIENT_IP }));
+  expect(flag).not.toHaveBeenCalled();
+});
 
 function makeReq(
   opts: { key?: string; ip?: string | null; method?: string; force?: boolean } = {},

@@ -1,5 +1,9 @@
 # Overview
 
+Daemon starts and resumptions wake the connected transport after their queue
+transaction commits. Idle offer checks use a small queue peek every 15 seconds;
+actual offers retain fresh authentication and locked admission.
+
 Permanent-host contact timestamps are checkpointed every 30 seconds, with fresh
 database admission checks on every contact. Daemon cleanup batches eligible old
 operation content and preserves retry/outcome tombstones. Retired rows do not

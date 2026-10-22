@@ -20,6 +20,7 @@ import { makeAdminEventsWriter } from '../../../src/services/admin-events-writer
 import { daemonSettingsSchema } from '../../../src/services/host-daemon/policy.js';
 import { getTestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
+import { wsPublisher } from '../../../src/ws/publisher.js';
 const handle = await getTestDb();
 describe.skipIf(!handle)('durable host daemon lifecycle', () => {
   let id: number, service: HostDaemonService, generation: string;
@@ -73,6 +74,23 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
     title: 'Remote helper',
     prompt: 'Return hello',
     client_message_id: randomUUID(),
+  });
+  it('peeks an empty offer without a transaction and wakes only after queued work commits', async () => {
+    const connection = vi.spyOn(handle!.pool, 'getConnection');
+    try {
+      expect(await service.hasPendingOffer(id)).toBe(false);
+      expect(connection).not.toHaveBeenCalled();
+    } finally { connection.mockRestore(); }
+    const observed: Promise<boolean>[] = [];
+    const unsubscribe = wsPublisher.subscribe(({ type, payload }) => {
+      if (type === 'host.daemon.operation.queued' && (payload as { host_id: number }).host_id === id)
+        observed.push(service.hasPendingOffer(id));
+    });
+    try {
+      const started = await service.start(input(), 'agent:owner');
+      expect(await Promise.all(observed)).toEqual([true]);
+      expect(await service.offer(id, generation)).toMatchObject({ operation_id: started.operation_id });
+    } finally { unsubscribe(); }
   });
   it('upserts enablement while preserving existing daemon settings', async () => {
     const custom = daemonSettingsSchema.parse({ enabled: true, username: 'worker', default_cwd: '/srv/work', max_parallel: 3, idle_minutes: 25, question_minutes: 120 });

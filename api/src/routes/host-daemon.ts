@@ -14,6 +14,7 @@ import { createAdminEventsService } from '../services/admin-events.js';
 import { InsecureWindowAdminService } from '../services/insecure-window-admin.js';
 import { makeAdminEventsWriter } from '../services/admin-events-writer.js';
 import { ForbiddenError, NotFoundError } from '../http/errors.js';
+import { wsPublisher } from '../ws/publisher.js';
 
 export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteContext) {
   await registerWebsocketTransport(app);
@@ -224,21 +225,35 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
       const send = (data: unknown) => {
         if (!closed) socket.send(JSON.stringify(data));
       };
-      const timer = setInterval(() => {
-        if (!generation || busy || closed) return;
+      let pendingWake = false;
+      const poll = () => {
+        if (!generation || closed) return;
+        if (busy) { pendingWake = true; return; }
+        pendingWake = false;
         busy = true;
         void (async () => {
+          // This peek authorizes nothing. Nonempty work still performs fresh
+          // host authentication, daemon admission and the original locked offer.
+          if (!await service.hasPendingOffer(hostID) || closed) return;
           const host = await auth.authenticate(req);
           const row = await service.settings(host.id);
-          if (!row.settings.enabled) return;
+          if (!row.settings.enabled || closed) return;
           const operation = await service.offer(hostID, generation);
           if (operation) send({ type: 'operation', operation });
         })()
           .catch(() => {})
           .finally(() => {
             busy = false;
+            if (pendingWake) poll();
           });
-      }, 2000);
+      };
+      // Queue events are hints only; pending work still takes all durable fences.
+      // Periodic reconciliation covers external writers and lost process events.
+      const unsubscribe = wsPublisher.subscribe(({ type, payload }) => {
+        if (type === 'host.daemon.operation.queued' && payload && typeof payload === 'object' &&
+          'host_id' in payload && payload.host_id === hostID) poll();
+      });
+      const timer = setInterval(poll, 15_000);
       socket.on('message', (raw: { toString(): string }) => {
         chain = chain
           .then(async () => {
@@ -307,6 +322,9 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
                 } else throw new ForbiddenError('Unknown daemon operation');
               }
               send({ id: msg.id, result });
+              // Acceptance frees the offered queue head; immediately fill the
+              // next execution slot instead of waiting for the fallback tick.
+              if (msg.type === 'hello' || msg.type === 'accept' || msg.type === 'complete') poll();
             } catch (err) {
               send({ id: msg.id, error: err instanceof Error ? err.message : 'Request rejected' });
             }
@@ -318,6 +336,7 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
       socket.on('close', () => {
         closed = true;
         clearInterval(timer);
+        unsubscribe();
         if (generation) void service.disconnect(hostID, generation).catch(() => {});
       });
 }

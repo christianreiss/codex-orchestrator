@@ -2362,11 +2362,16 @@ and occupied/max slots. Engine readiness dots retain their separate meaning.
 
 ### Daemon HTTP surfaces
 
+Native-control idle polls use a fresh binding snapshot and coalesce their durable
+readiness checkpoint to seven seconds. The existing 15-second availability window,
+generation fences and locked stop-request/report path are unchanged.
+
 - `GET /admin/host-daemons`, `GET /admin/hosts/:id/daemon` and `PUT /admin/hosts/:id/daemon`: configuration and readiness. PUT accepts `enabled`, optional `resident_enabled`, `username`, `default_cwd`, `max_parallel` (1–64), `idle_minutes` (1–1440), `question_minutes` (1–10080). Omitted `resident_enabled` preserves the stored value; reads and new stores default it to false. Residence requests never enable remote execution. Responses include `residence.requested` and `residence.runtime_enabled`; these describe desired residence and the default-off `CXX_COMMUNICATOR_RUNTIME_ENABLED` rollout switch, not proof of a running service. The switch independently adds signed `orchestrator.communicator_runtime_protocol: 1`. Runtime/service migration acceptance is described in `docs/communicator-resident-runtime.md`.
 - `POST /admin/daemon-sessions`: start, using the MCP start fields above. `GET /admin/daemon-sessions/:id` returns status and retained operation results; `POST .../:id/messages` resumes with `prompt` and UUID `client_message_id`; `POST .../:id/stop` requests process termination.
 - `GET /host/daemon/config` uses host authentication. `GET /host/daemon/connect` upgrades to WebSocket. Frames contain UUID `id`, `type`, `payload`; replies echo `id` with `result` or `error`. The handshake (`hello`) supplies instance UUID, username, version and ready engines; `heartbeat` accepts optional UUID `active_sessions` (max 64), naming locally running owned processes, and returns current settings and session IDs to stop. `operation` notifications carry offered starts; `accept` must be durably confirmed before execution; `complete` stores an immutable result.
 - Per-session MCP routes: the bridge-token authenticated spawn, spawn-status and stop endpoints under `/host/agent-sessions/:sessionId/agent-messaging/` use the existing bridge token and stable agent ownership.
 - `host.daemon.changed` invalidates host-daemon and remote-session queries. Configuration/start/stop requests have dedicated audited events.
+- Queued starts and resumptions publish `host.daemon.operation.queued` after commit to wake their connected daemon. A 15-second fallback covers missed in-process events and external writers. Empty offer checks read only the operations queue; pending work still performs fresh host authentication and the existing locked daemon/generation/engine admission. Heartbeat and expiry sweeps are unchanged. This wake bus is process-local; another API process relies on the fallback.
 
 ### Remote daemon route inventory
 

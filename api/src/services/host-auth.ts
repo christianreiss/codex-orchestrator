@@ -182,9 +182,10 @@ async function enforceReverseDns(
   settings: SettingsService,
 ): Promise<void> {
   if (!ip) return;
-  const fleetEnabled = await settings.getFlag('reverse_dns_enabled', false);
   const mode = host.reverseDnsMode;
-  const required = mode === 1 || (mode === null && fleetEnabled);
+  // Explicit host policy does not depend on the fleet default. Avoid a
+  // settings query for every transport frame when the result cannot matter.
+  const required = mode === 1 || (mode === null && await settings.getFlag('reverse_dns_enabled', false));
   if (!required) return;
   if (host.secure !== 1 && insecureWindowActive(host)) return;
   try {

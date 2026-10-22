@@ -1,5 +1,9 @@
 # 2026-10-22
 
+- **Event-driven daemon offers.** Committed starts and resumptions wake the connected daemon immediately. Empty fallback checks run every 15 seconds and read only the operations queue; host authentication and locked admission still run before offering actual work. The existing heartbeat and expiry sweep retain their cadence.
+
+- **Less native-control heartbeat locking.** Valid idle polls use a fresh binding snapshot and checkpoint readiness every seven seconds instead of writing on every three-second poll. Stop requests and reports retain the existing locked path and the 15-second availability window.
+
 - **Cheaper idle receivers.** Peer and portal receivers certify valid empty polls in one fresh database snapshot without opening a transaction. SQL plans are reused without caching permissions or queue results. Coordination batches scope/binding reads per reconciliation, and host authentication reuses its current request's admission row for optional contact bookkeeping.
 
 - **Less idle persistence.** Permanent hosts checkpoint contact at most once per 30 seconds while still checking current credentials/status on every contact; temporary-host expiry renewal is unchanged. Daemon retention scrubs eligible operations in batches and stops issuing repeated zero-row retirement writes for old tombstones.

@@ -24,6 +24,33 @@ export class NativeStopService {
     return controlView(row);
   }
   async poll(sessionId: string, instanceId: string, report?: { request_id: string; status: 'accepted' | 'exited' | 'refused' }) {
+    if (!report) {
+      // One fresh snapshot proves only an idle, still-bound process with a
+      // recent checkpoint. Requests, reports and overdue checkpoints retain
+      // the existing locked path; no queue or authorization result is cached.
+      const [idle] = await this.db.select({
+        instanceId: agentNativeControls.instanceId,
+        generation: agentNativeControls.bindingGeneration,
+        sessionGeneration: agentSessions.bindingGeneration,
+        addressId: agentSessions.agentBusAddressId,
+        addressSession: agentBusAddresses.currentSessionId,
+        addressGeneration: agentBusAddresses.bindingGeneration,
+        endedAt: agentSessions.endedAt,
+        requestId: agentNativeControls.requestId,
+        status: agentNativeControls.status,
+        updatedAt: agentNativeControls.updatedAt,
+      }).from(agentNativeControls)
+        .innerJoin(agentSessions, eq(agentSessions.id, agentNativeControls.sessionId))
+        .leftJoin(agentBusAddresses, eq(agentBusAddresses.id, agentSessions.agentBusAddressId))
+        .where(eq(agentNativeControls.sessionId, sessionId)).limit(1);
+      const age = Date.now() - Date.parse(idle?.updatedAt ?? '');
+      if (idle && !idle.endedAt && idle.instanceId === instanceId &&
+        idle.generation === idle.sessionGeneration && !idle.requestId && idle.status === 'ready' &&
+        (!idle.addressId || (idle.addressSession === sessionId && idle.addressGeneration === idle.sessionGeneration)) &&
+        age >= 0 && age < 7_000) {
+        return { request_id: null, instance_id: idle.instanceId, binding_generation: idle.generation };
+      }
+    }
     return this.db.transaction(async tx => {
       const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).for('update');
       if (!session) throw new NotFoundError('Session not found');
@@ -47,6 +74,9 @@ export class NativeStopService {
         throw new ConflictError('Stop already settled', 'native_stop_settled');
       // A delayed acceptance must never regress an observed exit.
       const status = report?.status ?? row.status;
+      const age = Date.now() - Date.parse(row.updatedAt);
+      if (!report && !row.requestId && status === 'ready' && age >= 0 && age < 7_000)
+        return { request_id: null, instance_id: row.instanceId, binding_generation: row.bindingGeneration };
       await tx.update(agentNativeControls).set({ status, updatedAt: now }).where(eq(agentNativeControls.sessionId, sessionId));
       return { request_id: ['requested', 'accepted'].includes(status) ? row.requestId : null, instance_id: row.instanceId, binding_generation: row.bindingGeneration };
     });

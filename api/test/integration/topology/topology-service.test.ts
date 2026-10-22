@@ -2,7 +2,7 @@ import { NativeStopService } from '../../../src/services/native-stop.js';
 import { agentNativeControls, agentSessions, agentWatchdogs, agentSchedules } from '../../../src/db/schema.js';
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { adminUsers, hostDaemonPortalBindings, hostDaemonSessions, hosts } from '../../../src/db/schema.js';
 import { AgentPortalService, type PortalActor } from '../../../src/services/agent-portal.js';
 import { CommunicatorRegistry } from '../../../src/services/topology/communicator-registry.js';
@@ -172,6 +172,25 @@ describe.skipIf(!handle)('topology service against MySQL', () => {
       await portal.setEnabled(true);
     }
   });
+  it('keeps recent idle control polls read-only and checkpoints before freshness expires', async () => {
+    const a = await live(host, 'codex');
+    const control = new NativeStopService(db!);
+    const instance = randomUUID();
+    const initial = await control.poll(a.session_id, instance);
+    const before = await control.get(a.session_id);
+    const connection = vi.spyOn(handle!.pool, 'getConnection');
+    try {
+      for (let i = 0; i < 3; i++) expect(await control.poll(a.session_id, instance)).toEqual(initial);
+      expect(connection).not.toHaveBeenCalled();
+      expect((await control.get(a.session_id))?.updated_at).toBe(before?.updated_at);
+      await db!.update(agentNativeControls).set({ updatedAt: new Date(Date.now() - 8000).toISOString() }).where(eq(agentNativeControls.sessionId, a.session_id));
+      await control.poll(a.session_id, instance);
+      expect(connection).toHaveBeenCalledTimes(1);
+      expect(Date.now() - Date.parse((await control.get(a.session_id))!.updated_at)).toBeLessThan(2000);
+    } finally { connection.mockRestore(); }
+    await expect(control.poll(a.session_id, randomUUID())).rejects.toThrow('binding changed');
+  });
+
   it('binds native stop to a launch, serializes duplicate requests and preserves exit evidence', async () => {
     const a = await live(host, 'codex');
     const control = new NativeStopService(db!);

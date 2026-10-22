@@ -412,7 +412,7 @@ export class HostDaemonService {
       throw new ValidationError('Working directory must be absolute when specified');
     const clientKey = `${owner}:${input.client_message_id}`,
       requestHash = hash(input);
-    return this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       await this.assertWorkAccess(tx, input.host_id, input.engine);
       const [locked] = await tx
         .select()
@@ -472,6 +472,9 @@ export class HostDaemonService {
       this.changed(input.host_id);
       return { operation_id: opId, session_id: id };
     });
+    // Wake only after commit: a pre-commit peek could miss this operation.
+    wsPublisher.publish('host.daemon.operation.queued', { host_id: input.host_id });
+    return result;
   }
   async session(id: string, owner?: string) {
     const [row] = await this.db.select().from(sessions).where(eq(sessions.id, id));
@@ -496,7 +499,7 @@ export class HostDaemonService {
     const row = await this.session(id, owner);
     await this.eligible(row.hostId, row.engine as Engine);
     const key = `${owner ?? 'admin'}:${clientId}`;
-    return this.db.transaction(async (tx) => {
+    const result = await this.db.transaction(async (tx) => {
       await this.assertWorkAccess(tx, row.hostId, row.engine as Engine);
       const [config] = await tx
         .select()
@@ -573,6 +576,9 @@ export class HostDaemonService {
       this.changed(row.hostId);
       return { operation_id: opId, session_id: id };
     });
+    // Wake only after commit: a pre-commit peek could miss this operation.
+    wsPublisher.publish('host.daemon.operation.queued', { host_id: row.hostId });
+    return result;
   }
   async stop(
     id: string,
@@ -608,6 +614,13 @@ export class HostDaemonService {
     });
     this.changed(row.hostId);
     return this.session(id, owner);
+  }
+  /** Empty transport ticks do not mutate state and need no admission locks. */
+  async hasPendingOffer(id: number): Promise<boolean> {
+    const [operation] = await this.db.select({ id: operations.id }).from(operations)
+      .where(and(eq(operations.hostId, id), inArray(operations.status, ['offered', 'queued'])))
+      .limit(1);
+    return Boolean(operation);
   }
   async offer(id: number, generation: string) {
     const config = await this.eligible(id);
