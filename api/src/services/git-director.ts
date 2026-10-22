@@ -246,6 +246,22 @@ function cleanPaths(raw: unknown): string[] {
   return out;
 }
 
+/**
+ * Registration binding state, mirrored from `git_list`'s `agent_address_bound`
+ * so an unbound registration is visible at registration time instead of first
+ * surfacing as an unattributable claim at the merge guard.
+ */
+function bindingWire(address: { id: string } | null): Record<string, unknown> {
+  if (address) return { agent_address_bound: true };
+  return {
+    agent_address_bound: false,
+    binding_hint:
+      'No unique live agent session on this host matched engine, username and this worktree directory, so ' +
+      'resource claims cannot be attributed to this registration. Pass username and engine, and run ' +
+      'agent_context_update with this worktree as cwd/git_root first if your session started elsewhere.',
+  };
+}
+
 function readPaths(raw: unknown): string[] {
   // JSON columns come back parsed on MySQL and as text on some drivers.
   if (typeof raw === 'string') {
@@ -790,6 +806,7 @@ export class GitDirectorService {
           clone: this.cloneWire(clone, host),
           worktree_id: id,
           worktree_path: worktreePath,
+          ...bindingWire(address),
           expires_at: expiresAt,
           peers: await this.peerWire(tx, clone.id, id, now),
         };
@@ -844,6 +861,7 @@ export class GitDirectorService {
         clone: this.cloneWire(clone, host),
         worktree_id: existing.id,
         worktree_path: worktreePath,
+        ...bindingWire(address),
         expires_at: expiresAt,
         peers: await this.peerWire(tx, clone.id, existing.id, now),
       };

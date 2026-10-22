@@ -135,7 +135,11 @@ uncertain claim with evidence in the WebUI, recorded in the audit log.
 
 Git Director takes the same coordination gate before clone locks. It rejects
 conflicting/uncertain claims and requires live path and target-branch claims from
-bound protocol-1 sessions before granting or renewing merge leases. Existing
+bound protocol-1 sessions before granting or renewing merge leases. A worktree
+registration without a live bound session cannot own claims, so its own live
+claims still block; that refusal names the missing binding and the repair
+(re-register with `username`/`engine`, after `agent_context_update` if needed)
+instead of implying a foreign owner. Existing
 legacy merge leases also block new resource claims. Shell/SSH file writes are not
 OS-fenced; agents must follow the claim contract. This is not a sandbox and cannot
 prove a remote process stopped. Claims grant no permission to execute an action.
