@@ -1701,6 +1701,11 @@ generation. Version 1 performs queue maintenance and state transitions only:
 terminal messages, canceled conversations, dormant addresses, and their audit
 history are retained; there is no automatic Agent Messaging history purge.
 
+### Idle relay FIFO observation
+
+An idle relay uses the same strict FIFO readiness predicate as its authoritative claim. A due queued follower behind an earlier queued message or accepted/leased/reboot-held work does not start an empty claim transaction. Completion or the head becoming due makes normal delivery eligible on the next observation. Expired messages, lease reconciliation, routine-notice retirement and safe digest recovery still enter their existing locked paths. This observation caches no authorization or queue results.
+
+
 ## Agent sessions
 
 Active Clients and paired Android devices provide operator chat. The legacy `/go`

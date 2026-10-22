@@ -1,5 +1,7 @@
 # 2026-10-22
 
+- **Avoid blocked FIFO relay transactions.** Idle relay peeks use the claim's strict ordering predicate, so accepted work and delayed queue heads do not repeatedly trigger locked empty claims. Expiry and routine cleanup remain eligible.
+
 - **Bound relay recovery checks.** Identify digest-recovery targets together before taking address locks. Relays with many dormant addresses no longer issue a recovery query for every unrelated address; selected targets are still rechecked under lock.
 
 - **Unblock dormant relay mail behind digests.** Relays restore certainly unpresented digest members to their original FIFO positions instead of repeatedly scanning an undeliverable digest head. The root remains as a tombstone; leased, accepted, presented or ambiguous groups and newly rebound live sessions are preserved.

@@ -324,6 +324,62 @@ describe.skipIf(!config)(
       expect(await claim()).toBe(baseline);
     });
 
+    it('waits lock-free behind accepted FIFO work and wakes normal delivery after completion', async () => {
+      const source = await register('fifo-accepted-source');
+      const relay = await offlineTargetWithRelay('fifo-accepted');
+      const send = async () => String(((await service.sendMessage(source.sessionId, source.bridgeToken, {
+        to: relay.target.address, content: 'FIFO work', clientMessageId: randomUUID(),
+      })).message as Record<string, unknown>).id);
+      const first = await send(), firstClaim = randomUUID();
+      await service.claimForRelay(relay.relayId, relay.token, firstClaim);
+      await service.acknowledgeRelayDelivery(relay.relayId, relay.token, first, { claimId: firstClaim, outcome: 'accepted' });
+      const second = await send();
+      const lock = await holdFlagLock();
+      const claim = service.claimForRelay(relay.relayId, relay.token, randomUUID());
+      let outcome: Awaited<ReturnType<typeof settledWithin>>;
+      try { outcome = await settledWithin(claim, SETTLE_MS); }
+      finally { await lock.release(); await claim; }
+      expect(outcome).toEqual({ value: null });
+      expect(await messageRow(second)).toMatchObject({ status: 'queued', attempts: 0 });
+      await service.acknowledgeRelayDelivery(relay.relayId, relay.token, first, { claimId: firstClaim, outcome: 'completed' });
+      expect(await service.claimForRelay(relay.relayId, relay.token, randomUUID())).toMatchObject({ message_id: second });
+    });
+
+    it('keeps due followers idle behind a delayed FIFO head, then delivers the head first', async () => {
+      const source = await register('fifo-delay-source');
+      const relay = await offlineTargetWithRelay('fifo-delay');
+      const send = async () => String(((await service.sendMessage(source.sessionId, source.bridgeToken, {
+        to: relay.target.address, content: 'ordered', clientMessageId: randomUUID(),
+      })).message as Record<string, unknown>).id);
+      const first = await send(), second = await send();
+      await db.update(schema.agentBusMessages).set({ nextAttemptAt: new Date(Date.now() + 60_000).toISOString() }).where(eq(schema.agentBusMessages.id, first));
+      const lock = await holdFlagLock();
+      const claim = service.claimForRelay(relay.relayId, relay.token, randomUUID());
+      let outcome: Awaited<ReturnType<typeof settledWithin>>;
+      try { outcome = await settledWithin(claim, SETTLE_MS); }
+      finally { await lock.release(); await claim; }
+      expect(outcome).toEqual({ value: null });
+      expect(await messageRow(second)).toMatchObject({ status: 'queued', attempts: 0 });
+      await db.update(schema.agentBusMessages).set({ nextAttemptAt: new Date(Date.now() - 1000).toISOString() }).where(eq(schema.agentBusMessages.id, first));
+      expect(await service.claimForRelay(relay.relayId, relay.token, randomUUID())).toMatchObject({ message_id: first });
+    });
+
+    it('still expires a blocked follower without completing its accepted FIFO head', async () => {
+      const source = await register('fifo-expiry-source');
+      const relay = await offlineTargetWithRelay('fifo-expiry');
+      const send = async () => String(((await service.sendMessage(source.sessionId, source.bridgeToken, {
+        to: relay.target.address, content: 'expiry', clientMessageId: randomUUID(),
+      })).message as Record<string, unknown>).id);
+      const first = await send(), claimId = randomUUID();
+      await service.claimForRelay(relay.relayId, relay.token, claimId);
+      await service.acknowledgeRelayDelivery(relay.relayId, relay.token, first, { claimId, outcome: 'accepted' });
+      const second = await send();
+      await db.update(schema.agentBusMessages).set({ expiresAt: new Date(Date.now() - 1000).toISOString() }).where(eq(schema.agentBusMessages.id, second));
+      expect(await service.claimForRelay(relay.relayId, relay.token, randomUUID())).toBeNull();
+      expect(await messageRow(first)).toMatchObject({ status: 'accepted' });
+      expect(await messageRow(second)).toMatchObject({ status: 'expired' });
+    });
+
     it('answers idle polls without waiting on the flag lock or pinning pool connections', async () => {
       // Six concurrent idle polls against a two-connection pool. One relay polled six times: relays are per user, and
       // only the daemon's user of a persistent host may run one (docs/host-runtime-policy.md).

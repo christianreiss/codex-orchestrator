@@ -13,6 +13,7 @@ import { assertHousekeepingAvailable } from './session-housekeeping.js';
 import { hostDaemons, hostDaemonSessions } from '../db/schema.js';
 import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from './agent-messaging/presence-feedback.js';
 import { retireRoutineNotice, retireRoutineNotices } from './agent-messaging/routine-notices.js';
+import { strictFifoDeliveryReady } from './agent-messaging/delivery-readiness.js';
 import { relayDigestRecoveryPending, relayDigestRecoveryTargets, restoreRelayDigests } from './agent-messaging/relay-digests.js';
 import { idleSessionPoll } from './agent-messaging/idle-session.js';
 import { type AgentDiscoveryFilters } from './agent-messaging/discovery.js';
@@ -1064,7 +1065,7 @@ export class AgentMessagingService {
         eq(agentBusMessages.status, 'leased'),
         relayDigestRecoveryPending(this.db),
         and(eq(agentBusMessages.status, 'queued'), or(
-          lte(agentBusMessages.nextAttemptAt, now),
+          and(lte(agentBusMessages.nextAttemptAt, now), strictFifoDeliveryReady()),
           lte(agentBusMessages.expiresAt, now),
           // Routine retirement can act before a queued notice's retry time.
           inArray(agentBusMessages.kind, ['presence_notice', 'publication', 'digest']),
@@ -1583,22 +1584,7 @@ export class AgentMessagingService {
                        (${agentBusMessages.kind} = 'digest' AND earlier.kind = 'digest' AND ${earlierOrder} < ${candidateOrder}) OR
                        (${agentBusMessages.kind} <> 'digest' AND (earlier.kind = 'digest' OR ${earlierOrder} < ${candidateOrder}))))))
                )
-          )` : and(
-          sql`NOT EXISTS (
-            SELECT 1
-              FROM agent_bus_messages AS earlier
-             WHERE earlier.target_address_id = ${agentBusMessages.targetAddressId}
-               AND earlier.status IN ('queued', 'leased', 'accepted', 'reboot_hold')
-               AND earlier.dispatch_order < ${agentBusMessages.dispatchOrder}
-          )`,
-          sql`NOT EXISTS (
-            SELECT 1
-              FROM agent_bus_messages AS in_flight
-             WHERE in_flight.target_address_id = ${agentBusMessages.targetAddressId}
-               AND in_flight.status IN ('leased', 'accepted', 'reboot_hold')
-               AND in_flight.id <> ${agentBusMessages.id}
-          )`,
-          ),
+          )` : strictFifoDeliveryReady(),
           ...(!smartQueue ? [sql`${agentBusMessages.kind} <> 'digest'`] : []),
           ...(informationalOnly ? [sql`${agentBusMessages.workKind} IS NULL AND ${agentBusMessages.kind} NOT IN ('request','task','schedule')`] : []),
         ))
