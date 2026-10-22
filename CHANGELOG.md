@@ -1,3 +1,11 @@
+# 2026-10-22
+
+- **Claim renewal resilience (cxx 0.9.120).** Resource-claim renewal no longer lapses after one transient error, a slow sibling renewal or failed heartbeats; each held claim renews independently every 15 s, including claims taken by native child agents. Only a definitive non-active answer stops renewal.
+
+- **Advisors outside scope coordination.** Fleet Advisor sessions get no `scope_context`, `agent_context_get` reports `enabled:false` (`internal_host`), and claim attempts return `agent_coordination_not_applicable` instead of "Target host not found"; advisors fetch transfers into unique files without a claim.
+
+- **Git Director unbound registration.** A merge refused only because the worktree's registration is unbound now names the missing binding and the repair instead of a generic reserved-resources conflict; `git_register` replies include `agent_address_bound`.
+
 # 2026-10-21
 
 - **Normal portal updates (cxx 0.9.119).** Agents now have `agent_portal_say` for ordinary progress/results in the existing operator chat. Shared guidance and tool descriptions reserve Important/Critical/Blocker for actionable exceptions; normal replies stay unclassified. Existing alerts and their explicit resolution are preserved.
