@@ -47,15 +47,15 @@ export class ResourceClaims {
       response_received: Boolean(claim.repliedAt),
     };
   }
-  async sweep(tx: AgentMessagingDb, sessions: AgentSession[]) {
+  async sweep(tx: AgentMessagingDb, sessions: AgentSession[], now = Date.now()) {
     const claims = await tx.select().from(agentResourceClaims).where(eq(agentResourceClaims.state, 'active'));
     for (const claim of claims) {
       const owner = sessions.find((s) => s.id === claim.sessionId);
       if (
         !owner ||
-        !this.core.present(owner) ||
+        !this.core.present(owner, now) ||
         owner.bindingGeneration !== claim.generation ||
-        Date.parse(claim.expiresAt) <= Date.now()
+        Date.parse(claim.expiresAt) <= now
       ) {
         await tx
           .update(agentResourceClaims)

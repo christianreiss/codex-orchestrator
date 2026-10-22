@@ -88,10 +88,14 @@ export type InsecureCommand = 'auth' | 'store' | 'retrieve' | 'mcp' | 'host_lane
  * separate tail used by the auth lane and does not grant access here.
  */
 export function insecureWindowActive(host: Pick<Host, 'insecureEnabledUntil'>): boolean {
+  return insecureWindowActiveAt(host, Date.now());
+}
+
+export function insecureWindowActiveAt(host: Pick<Host, 'insecureEnabledUntil'>, now: number): boolean {
   const until = host.insecureEnabledUntil;
   if (!until) return false;
   const ms = until instanceof Date ? until.getTime() : new Date(until).getTime();
-  return Number.isFinite(ms) && ms >= Date.now();
+  return Number.isFinite(ms) && ms >= now;
 }
 
 export interface InsecureWindowService {

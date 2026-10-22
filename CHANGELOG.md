@@ -1,5 +1,9 @@
 # 2026-10-22
 
+- **Shared relay idle checks.** Parallel long polls for the same credential share only an in-flight empty-queue check on a common two-second timer. Every new request authenticates independently; nonempty queues still use separate fenced claims and retain all execution slots.
+
+- **Skip unchanged coordination sweeps.** Background reconciliation observes its relevant inputs in one fresh database snapshot and skips the locked transaction while they are unchanged. Presence and claim deadlines, title/binding changes and undispatched events still trigger reconciliation. The remembered input comes only from a successfully committed reconciliation snapshot.
+
 - **Keep fleet scans out of successful requests.** Host cleanup runs in the existing retention worker and explicit registration/admin passes, instead of scanning every host after each authenticated response. Expired credentials still reject immediately.
 
 - **Event-driven daemon offers.** Committed starts and resumptions wake the connected daemon immediately. Empty fallback checks run every 15 seconds and read only the operations queue; host authentication and locked admission still run before offering actual work. The existing heartbeat and expiry sweep retain their cadence.

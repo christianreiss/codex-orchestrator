@@ -9,7 +9,7 @@ import { and, eq, gt, or } from 'drizzle-orm';
 
 import { hosts, type AgentBusConversation, type Host } from '../../db/schema.js';
 import { type Engine } from '../../util/engine.js';
-import { insecureWindowActive } from '../insecure-window.js';
+import { insecureWindowActive, insecureWindowActiveAt } from '../insecure-window.js';
 
 /**
  * The single host-eligibility rule for Agent Messaging. The fleet switch is
@@ -23,6 +23,12 @@ export function messagingHostEligible(
   host: Pick<Host, 'status' | 'secure' | 'insecureEnabledUntil'>,
 ): boolean {
   return host.status === 'active' && (host.secure === 1 || insecureWindowActive(host));
+}
+
+export function messagingHostEligibleAt(
+  host: Pick<Host, 'status' | 'secure' | 'insecureEnabledUntil'>, now: number,
+): boolean {
+  return host.status === 'active' && (host.secure === 1 || insecureWindowActiveAt(host, now));
 }
 
 /**

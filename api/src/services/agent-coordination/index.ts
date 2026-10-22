@@ -31,10 +31,11 @@ import {
   workspaceMatch,
 } from '../agent-messaging/workspace.js';
 import { isFreshPresenceTimestamp } from '../agent-presence.js';
-import { messagingHostEligible } from '../agent-messaging/eligibility.js';
-import { activeHostEngines, readFleetEngineState } from '../engine-switch.js';
+import { messagingHostEligible, messagingHostEligibleAt } from '../agent-messaging/eligibility.js';
+import { activeHostEngines, readFleetEngineState, type FleetEngineState } from '../engine-switch.js';
 import { repositoryIdentity, roomReadSchema, roomSendSchema } from './model.js';
 import { ResourceClaims } from './claims.js';
+import { coordinationTickInput } from './idle-tick.js';
 
 export const COORDINATION_ENABLED = 'agent_coordination_enabled';
 export const contextUpdateSchema = z
@@ -46,6 +47,8 @@ export const contextUpdateSchema = z
 type Scope = typeof agentScopes.$inferSelect;
 type Event = typeof agentScopeEvents.$inferSelect;
 export class AgentCoordination {
+  private tickFingerprint: string | undefined;
+  private ticking: Promise<void> | undefined;
   readonly claims: ResourceClaims;
   constructor(
     readonly db: Database,
@@ -88,6 +91,7 @@ export class AgentCoordination {
     token: string | null,
     action: (tx: AgentMessagingDb, session: AgentSession | null) => Promise<T>,
     allowDisabled = false,
+    options?: { isolationLevel: 'repeatable read' },
   ) {
     const result = await this.bus.coordinationTransaction(id, token, async (tx, session) => {
       if (!allowDisabled && !(await this.enabled(tx)))
@@ -98,7 +102,7 @@ export class AgentCoordination {
           'agent_coordination_not_applicable',
         );
       return action(tx, session);
-    });
+    }, options);
     return result;
   }
   /**
@@ -233,7 +237,7 @@ export class AgentCoordination {
       same_directory: caller ? workspaceMatch(caller, s, 'directory') === 'same_directory' : undefined,
     };
   }
-  async reconcile(tx: AgentMessagingDb) {
+  async reconcile(tx: AgentMessagingDb, now = Date.now(), certifiedFleet?: FleetEngineState) {
     const allMembers = await tx.select().from(agentScopeMembers).where(eq(agentScopeMembers.state, 'active'));
     const activeIds = allMembers.map((m) => m.sessionId);
     const sessions = await tx
@@ -245,14 +249,14 @@ export class AgentCoordination {
           activeIds.length ? inArray(agentSessions.id, activeIds) : undefined,
         ),
       );
-    const fleet = await readFleetEngineState(tx);
+    const fleet = certifiedFleet ?? await readFleetEngineState(tx);
     const hostRows = await tx.select().from(hosts);
     const titles = await sessionTaskTitles(tx, this.keyring, sessions);
     const hostsById = new Map(hostRows.map(host => [host.id, host]));
     const liveSession = (session: AgentSession) => {
       const host = hostsById.get(session.hostId);
-      return Boolean(this.present(session) && session.agentBusAddressId && host?.status === 'active' &&
-        !host.internalRole && messagingHostEligible(host) &&
+      return Boolean(this.present(session, now) && session.agentBusAddressId && host?.status === 'active' &&
+        !host.internalRole && messagingHostEligibleAt(host, now) &&
         activeHostEngines(host.engines, fleet).includes(session.engine as 'codex' | 'claude' | 'grok'));
     };
     const liveSessions = sessions.filter(liveSession);
@@ -349,7 +353,7 @@ export class AgentCoordination {
         });
       }
     }
-    await this.claims.sweep(tx, sessions);
+    await this.claims.sweep(tx, sessions, now);
   }
   async membership(tx: AgentMessagingDb, scopeId: string, session: AgentSession | null) {
     const [scope] = await tx.select().from(agentScopes).where(eq(agentScopes.id, scopeId));
@@ -577,9 +581,22 @@ export class AgentCoordination {
       );
   }
   async tick() {
-    if (!(await this.enabled()) || !(await this.bus.isEnabled())) return;
-    const changed = await this.run(null, null, async (tx) => {
-      await this.reconcile(tx);
+    if (this.ticking) return this.ticking;
+    this.ticking = this.tickOnce().finally(() => { this.ticking = undefined; });
+    return this.ticking;
+  }
+  private async tickOnce() {
+    const input = await coordinationTickInput(this.db, this.env);
+    if (input) {
+      if (!input.enabled) { this.tickFingerprint = undefined; return; }
+      if (!input.pending && input.fingerprint === this.tickFingerprint) return;
+    } else if (!(await this.enabled()) || !(await this.bus.isEnabled())) return;
+    const result = await this.run(null, null, async (tx) => {
+      const now = Date.now();
+      // This statement and reconciliation consume the same repeatable-read
+      // snapshot and evaluation time, after admission locks have been acquired.
+      const certified = input ? await coordinationTickInput(tx, this.env, { transaction: true, now }) : null;
+      await this.reconcile(tx, now, certified?.fleet);
       const pending = await tx
         .select()
         .from(agentScopeEvents)
@@ -596,8 +613,11 @@ export class AgentCoordination {
           tx,
           pending.filter((e) => e.scopeId === id),
         );
-      return pending.length > 0;
-    });
-    if (changed) wsPublisher.publish('agent_coordination.changed', {});
+      return { changed: pending.length > 0, fingerprint: certified?.fingerprint };
+    }, false, input ? { isolationLevel: 'repeatable read' } : undefined);
+    // Never certify the external peek or a later post-commit observation: either
+    // could describe a state that this transaction did not actually reconcile.
+    this.tickFingerprint = result.fingerprint;
+    if (result.changed) wsPublisher.publish('agent_coordination.changed', {});
   }
 }

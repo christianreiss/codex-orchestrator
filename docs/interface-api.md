@@ -1588,8 +1588,11 @@ username match and cannot acquire daemon semantics by adding the suffix.
 - `POST /host/agent-relays/{id}/stop` — stop the generation and erase its token.
 - `POST /host/agent-relays/{id}/deliveries/claim` — long-poll for one eligible
   dormant address delivery. Empty polls wait for in-process message/admission events
-  with a two-second fallback for external changes. Each retry fully revalidates
-  credentials and admission; no authorization or empty-queue result is cached.
+  with a two-second fallback for external changes. Every request first runs its own
+  authenticated claim. Later iterations for the same relay and token can share
+  only a still-running empty-queue check at a common timer boundary. Completed
+  results are discarded; work and errors go through each waiter's own fenced
+  claim. Execution parallelism and the absolute long-poll deadline are unchanged.
 - `POST /host/agent-relays/{id}/deliveries/{messageId}/renew` — extend the
   relay-owned lease.
 - `POST /host/agent-relays/{id}/deliveries/{messageId}/reply` — atomically add

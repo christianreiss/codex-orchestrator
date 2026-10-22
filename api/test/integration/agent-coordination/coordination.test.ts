@@ -4,7 +4,7 @@ import { guardGitMutation } from '../../../src/services/agent-coordination/git-g
 import { runMigrations } from '../../../src/db/migrator.js';
 import type { GitClone, GitWorktree } from '../../../src/db/schema.js';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { isNull, and, eq, inArray, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/mysql2';
 import * as schema from '../../../src/db/schema.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -24,7 +24,10 @@ import { AgentMessagingService } from '../../../src/services/agent-messaging.js'
 import { AgentCoordination } from '../../../src/services/agent-coordination/index.js';
 import { getTestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
-import { decrypt } from '../../../src/security/secret-box.js';
+import { decrypt, encrypt } from '../../../src/security/secret-box.js';
+import { repositoryIdentity } from '../../../src/services/agent-coordination/model.js';
+import { sessionTaskTitles } from '../../../src/services/agent-messaging/task-titles.js';
+import { coordinationTickInput } from '../../../src/services/agent-coordination/idle-tick.js';
 import { readFile } from 'node:fs/promises';
 import { splitSqlStatements } from '../../../src/db/migration-sql.js';
 import { registerAgentPortalAdminHostRoutes } from '../../../src/routes/agent-portal/admin-host.js';
@@ -743,6 +746,266 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       await db.execute(sql`DELETE FROM agent_bus_addresses WHERE host_id = ${advisor!.id}`);
       await db.delete(hosts).where(eq(hosts.id, advisor!.id));
       await db.delete(agentNamePool).where(inArray(agentNamePool.nameKey, names.map((name) => name.toLowerCase())));
+    }
+  });
+  it('keeps stable background ticks lock-free but detects fresh heartbeat expiry and concurrent host changes', async () => {
+    const a = await register('codex');
+    const snapshot = await service.context(a.id, a.token);
+    const scopeIds = snapshot.rooms.map((room) => room.id);
+    await handle!.db
+      .update(agentScopeEvents)
+      .set({ dispatched: 1 })
+      .where(inArray(agentScopeEvents.scopeId, scopeIds));
+    await service.tick();
+    const connection = vi.spyOn(handle!.pool, 'getConnection');
+    const query = vi.spyOn(handle!.pool, 'query');
+    try {
+      await service.tick();
+      expect(connection).not.toHaveBeenCalled();
+      expect(query).toHaveBeenCalledTimes(1);
+      // Renewed timestamps remain the same live-presence state.
+      await handle!.db
+        .update(agentSessions)
+        .set({ heartbeatAt: new Date().toISOString() })
+        .where(eq(agentSessions.id, a.id));
+      query.mockClear();
+      await service.tick();
+      expect(connection).not.toHaveBeenCalled();
+      expect(query).toHaveBeenCalledTimes(1);
+      await handle!.db
+        .update(agentSessions)
+        .set({ heartbeatAt: '2000-01-01T00:00:00Z' })
+        .where(eq(agentSessions.id, a.id));
+      await service.tick();
+      expect(connection).toHaveBeenCalledTimes(1);
+      expect(
+        await handle!.db
+          .select()
+          .from(agentScopeMembers)
+          .where(and(eq(agentScopeMembers.sessionId, a.id), eq(agentScopeMembers.state, 'active'))),
+      ).toHaveLength(0);
+    } finally {
+      connection.mockRestore();
+      query.mockRestore();
+    }
+    await handle!.db
+      .update(agentSessions)
+      .set({ heartbeatAt: new Date().toISOString() })
+      .where(eq(agentSessions.id, a.id));
+    const reconcile = service.reconcile.bind(service);
+    const changedDuring = vi.spyOn(service, 'reconcile').mockImplementationOnce(async (tx, now) => {
+      await reconcile(tx, now);
+      await handle!.db.update(hosts).set({ status: 'inactive' }).where(eq(hosts.id, host.id));
+    });
+    try {
+      await service.tick();
+      // A post-transaction observation would incorrectly absorb this mutation.
+      await service.tick();
+      expect(
+        await handle!.db
+          .select()
+          .from(agentScopeMembers)
+          .where(and(eq(agentScopeMembers.sessionId, a.id), eq(agentScopeMembers.state, 'active'))),
+      ).toHaveLength(0);
+    } finally {
+      changedDuring.mockRestore();
+      await handle!.db.update(hosts).set({ status: 'active' }).where(eq(hosts.id, host.id));
+    }
+  });
+  it('certifies the reconciled transaction snapshot rather than external A across an A-B-A race', async () => {
+    const a = await register('grok');
+    const snapshot = await service.context(a.id, a.token);
+    await handle!.db
+      .update(agentScopeEvents)
+      .set({ dispatched: 1 })
+      .where(
+        inArray(
+          agentScopeEvents.scopeId,
+          snapshot.rooms.map((room) => room.id),
+        ),
+      );
+    // A needs removal; B, observed only inside reconciliation, needs no write.
+    await handle!.db.update(hosts).set({ status: 'inactive' }).where(eq(hosts.id, host.id));
+    const transaction = bus.coordinationTransaction.bind(bus);
+    const flip = vi.spyOn(bus, 'coordinationTransaction').mockImplementationOnce(async (...args) => {
+      await handle!.db.update(hosts).set({ status: 'active' }).where(eq(hosts.id, host.id));
+      return transaction(...args);
+    });
+    try {
+      await service.tick();
+      expect(
+        await handle!.db
+          .select()
+          .from(agentScopeMembers)
+          .where(and(eq(agentScopeMembers.sessionId, a.id), eq(agentScopeMembers.state, 'active'))),
+      ).toHaveLength(2);
+      await handle!.db.update(hosts).set({ status: 'inactive' }).where(eq(hosts.id, host.id));
+      await service.tick();
+      expect(
+        await handle!.db
+          .select()
+          .from(agentScopeMembers)
+          .where(and(eq(agentScopeMembers.sessionId, a.id), eq(agentScopeMembers.state, 'active'))),
+      ).toHaveLength(0);
+    } finally {
+      flip.mockRestore();
+      await handle!.db.update(hosts).set({ status: 'active' }).where(eq(hosts.id, host.id));
+    }
+  });
+  it('ignores live claim renewals but reacts to titles, repository bindings and claim expiry', async () => {
+    const a = await register('claude');
+    await service.context(a.id, a.token);
+    const held = await service.claims.acquire(a.id, a.token, {
+      client_request_id: randomUUID(),
+      purpose: 'idle tick',
+      resources: [{ kind: 'service', host_id: host.id, service: `idle-${suffix}` }],
+    });
+    const settle = async () => {
+      // Earlier cases leave members in several rooms. Keep the fixture's other
+      // live sessions away from the 45-second boundary, and settle their own
+      // pending events before attributing a transaction to this claim renewal.
+      await handle!.db.update(agentSessions).set({ heartbeatAt: new Date().toISOString() })
+        .where(and(eq(agentSessions.hostId, host.id), isNull(agentSessions.endedAt)));
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const rooms = await handle!.db.select({ id: agentScopeMembers.scopeId })
+          .from(agentScopeMembers).innerJoin(agentSessions, eq(agentScopeMembers.sessionId, agentSessions.id))
+          .where(eq(agentSessions.hostId, host.id));
+        if (rooms.length) await handle!.db.update(agentScopeEvents).set({ dispatched: 1 })
+          .where(inArray(agentScopeEvents.scopeId, rooms.map(room => room.id)));
+        await service.tick();
+      }
+    };
+    await settle();
+    await handle!.db
+      .update(agentResourceClaims)
+      .set({ expiresAt: new Date(Date.now() + 90000).toISOString() })
+      .where(eq(agentResourceClaims.id, held.id));
+    const connection = vi.spyOn(handle!.pool, 'getConnection');
+    try {
+      await service.tick();
+      expect(connection).not.toHaveBeenCalled();
+    } finally {
+      connection.mockRestore();
+    }
+    const before = (
+      await handle!.db
+        .select()
+        .from(agentScopeMembers)
+        .where(and(eq(agentScopeMembers.sessionId, a.id), eq(agentScopeMembers.state, 'active')))
+    )[0]!.contextHash;
+    const inputBefore = await coordinationTickInput(handle!.db, env);
+    const [session] = await handle!.db.select().from(agentSessions).where(eq(agentSessions.id, a.id));
+    await handle!.db
+      .insert(schema.agentEvents)
+      .values({
+        sessionId: a.id,
+        clientEventId: randomUUID(),
+        eventType: 'session_named',
+        source: 'test',
+        payloadEnc: encrypt(
+          JSON.stringify({ native_session_id: session!.upstreamSessionId, name: 'Changed task' }),
+          keyring,
+        ),
+        createdAt: new Date().toISOString(),
+      });
+    expect((await sessionTaskTitles(handle!.db, keyring, [session!])).get(a.id)).toBe('Changed task');
+    expect((await coordinationTickInput(handle!.db, env))!.fingerprint).not.toBe(inputBefore!.fingerprint);
+    const reconciliation = vi.spyOn(service, 'reconcile');
+    await service.tick();
+    expect(reconciliation).toHaveBeenCalledTimes(1);
+    reconciliation.mockRestore();
+    expect(
+      (
+        await handle!.db
+          .select()
+          .from(agentScopeMembers)
+          .where(and(eq(agentScopeMembers.sessionId, a.id), eq(agentScopeMembers.state, 'active')))
+      )[0]!.contextHash,
+    ).not.toBe(before);
+    await settle();
+    const key = repositoryIdentity(session!);
+    const [prior] = await handle!.db
+      .select()
+      .from(schema.agentScopeBindings)
+      .where(eq(schema.agentScopeBindings.repositoryKey, key));
+    try {
+      await handle!.db
+        .insert(schema.agentScopeBindings)
+        .values({ repositoryKey: key, projectSlug: `idle-${suffix}`, updatedAt: new Date().toISOString() })
+        .onDuplicateKeyUpdate({ set: { projectSlug: `idle-${suffix}` } });
+      await service.tick();
+      const [project] = await handle!.db
+        .select()
+        .from(agentScopes)
+        .where(eq(agentScopes.scopeKey, `project:idle-${suffix}`));
+      expect(
+        await handle!.db
+          .select()
+          .from(agentScopeMembers)
+          .where(
+            and(
+              eq(agentScopeMembers.sessionId, a.id),
+              eq(agentScopeMembers.scopeId, project!.id),
+              eq(agentScopeMembers.state, 'active'),
+            ),
+          ),
+      ).toHaveLength(1);
+      await handle!.db
+        .update(agentResourceClaims)
+        .set({ expiresAt: '2000-01-01T00:00:00Z' })
+        .where(eq(agentResourceClaims.id, held.id));
+      await service.tick();
+      expect(
+        (await handle!.db.select().from(agentResourceClaims).where(eq(agentResourceClaims.id, held.id)))[0]!
+          .state,
+      ).toBe('uncertain');
+    } finally {
+      if (prior)
+        await handle!.db
+          .update(schema.agentScopeBindings)
+          .set({ projectSlug: prior.projectSlug })
+          .where(eq(schema.agentScopeBindings.repositoryKey, key));
+      else
+        await handle!.db
+          .delete(schema.agentScopeBindings)
+          .where(eq(schema.agentScopeBindings.repositoryKey, key));
+    }
+  });
+  it('honors certified engine flags when secondary reads fall back to all enabled', async () => {
+    const a = await register('codex');
+    await service.context(a.id, a.token);
+    await handle!.db.update(versions).set({ version: '1' }).where(eq(versions.name, 'codex_engine_disabled'));
+    const engineSwitch = await import('../../../src/services/engine-switch.js');
+    const fallback = vi.spyOn(engineSwitch, 'readFleetEngineState').mockResolvedValue({ codex: true, claude: true, grok: true });
+    try {
+      const reconciled = vi.spyOn(service, 'reconcile');
+      await service.tick();
+      expect(reconciled.mock.calls.at(-1)?.[2]).toEqual({ codex: false, claude: true, grok: true });
+      reconciled.mockRestore();
+      expect(await handle!.db.select().from(agentScopeMembers).where(and(eq(agentScopeMembers.sessionId, a.id), eq(agentScopeMembers.state, 'active')))).toHaveLength(0);
+    } finally {
+      fallback.mockRestore();
+      await handle!.db.update(versions).set({ version: '0' }).where(eq(versions.name, 'codex_engine_disabled'));
+    }
+  });
+
+  it('uses the exact inclusive insecure-window boundary in the idle input proof', async () => {
+    const deadline = Math.ceil(Date.now() / 1000) * 1000 + 5000;
+    await handle!.db
+      .update(hosts)
+      .set({ secure: 0, insecureEnabledUntil: new Date(deadline) })
+      .where(eq(hosts.id, host.id));
+    try {
+      const before = await coordinationTickInput(handle!.db, env, { now: deadline - 1 });
+      const at = await coordinationTickInput(handle!.db, env, { now: deadline });
+      const after = await coordinationTickInput(handle!.db, env, { now: deadline + 1 });
+      expect(before!.fingerprint).toBe(at!.fingerprint);
+      expect(after!.fingerprint).not.toBe(at!.fingerprint);
+    } finally {
+      await handle!.db
+        .update(hosts)
+        .set({ secure: 1, insecureEnabledUntil: null })
+        .where(eq(hosts.id, host.id));
     }
   });
   it('feature off rejects new work but permits releasing claims', async () => {

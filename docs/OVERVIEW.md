@@ -11,7 +11,15 @@ trigger repeated cleanup writes.
 
 Idle agent-relay delivery waits use message notifications and a two-second
 reconciliation fallback, avoiding a full database claim check every 400 ms.
-Credentials and delivery admission are revalidated on every attempt for all engines.
+Every new request authenticates independently. Parallel waiters for one credential
+share only an in-flight idle check on a common two-second timer; settled answers
+are discarded. Nonempty queues retain independent authenticated, fenced claims
+and the daemon keeps its configured execution parallelism.
+
+The background coordination tick compares one fresh database input snapshot
+against the snapshot of its last successful reconciliation. Stable idle ticks
+avoid the locked reconciliation transaction. Presence and claim deadlines are
+evaluated on each observation; due undispatched events always drain.
 
 ## Workflows and shared runs
 

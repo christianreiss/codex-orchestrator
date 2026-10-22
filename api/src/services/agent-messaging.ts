@@ -2186,7 +2186,8 @@ export class AgentMessagingService {
 
   /** Shared bus lock orders room membership, recipient snapshots and claim transitions. */
   async coordinationTransaction<T>(sessionId: string | null, token: string | null,
-    action: (tx: AgentMessagingDb, session: AgentSession | null) => Promise<T>): Promise<T> {
+    action: (tx: AgentMessagingDb, session: AgentSession | null) => Promise<T>,
+    options?: { isolationLevel: 'repeatable read' }): Promise<T> {
     if (sessionId) await this.authenticateBridge(sessionId, token!);
     return this.db.transaction(async tx => {
       await this.requireEnabledLocked(tx);
@@ -2201,7 +2202,7 @@ export class AgentMessagingService {
         await this.assertSessionAddressLocked(tx, sessionId, address);
       }
       return action(tx, session);
-    });
+    }, options);
   }
 
   /** Workflow collaboration joins the same bus transaction before taking run locks. */

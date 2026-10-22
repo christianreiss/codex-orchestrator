@@ -75,6 +75,14 @@ default 50) and `member_offset`; follow `next_before`, `next_after` and
 History is encrypted at rest. Chat is persisted and fan-out queued atomically under
 the bus gate; routine events are collected by a two-second dispatcher. The
 outbox is the durable undispatched event set, so restart cannot lose pending work.
+A background tick first observes all membership, host/engine eligibility, title,
+binding and active-claim inputs in one fresh database snapshot. While those inputs
+are unchanged and no event is due, it skips the locked reconciliation transaction.
+Fresh heartbeats and unexpired claim renewals do not themselves require a sweep;
+presence/claim expiry still changes the observed input. A certificate is remembered
+only after a successful transaction, from the same repeatable-read snapshot and
+evaluation time used by reconciliation. Overlapping ticks share one execution.
+Due events bypass the unchanged-input guard, including backlogs over 500 entries.
 Every event has a room sequence and UUID. Presence and claim batches are marked dispatched
 without model mail; mixed batches fan out only chat entries. Durable room
 history/cursors and WebSocket invalidation remain
