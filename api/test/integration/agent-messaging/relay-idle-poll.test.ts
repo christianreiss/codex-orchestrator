@@ -2,13 +2,14 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import mysql from 'mysql2/promise';
 import { drizzle } from 'drizzle-orm/mysql2';
 import { eq, inArray, or } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as schema from '../../../src/db/schema.js';
 import { AGENT_MESSAGING_ENABLED_KEY, AgentMessagingService } from '../../../src/services/agent-messaging.js';
 import { invalidateFleetEngineState } from '../../../src/services/engine-switch.js';
 import { ENGINES } from '../../../src/util/engine.js';
 import { readDbConfig } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
+import { preparePeerBatch } from '../../../src/services/agent-messaging/peer-batch.js';
 import { relayLongPoll } from '../../../src/http/relay-long-poll.js';
 import { encrypt } from '../../../src/security/secret-box.js';
 import { sha256 } from '../../../src/security/hash.js';
@@ -192,6 +193,112 @@ describe.skipIf(!config)(
       return (await db.select().from(schema.agentBusMessages).where(eq(schema.agentBusMessages.id, id)))[0]!;
     }
 
+    async function serverAddress() {
+      if (!(await db.select().from(schema.agentBusAddresses).where(eq(schema.agentBusAddresses.id, SERVER_ADDRESS_ID)))[0]) {
+        const now = new Date().toISOString();
+        await db.insert(schema.agentBusAddresses).values({ id: SERVER_ADDRESS_ID, address: `agent:${SERVER_ADDRESS_ID}`,
+          hostId: 0, engine: 'server', username: 'Server', cwd: '/', cwdHash: sha256('/'), continuity: 'server',
+          readiness: 'offline', lastSeenAt: now, createdAt: now, updatedAt: now });
+        createdServer = true;
+      }
+      return (await db.select().from(schema.agentBusAddresses).where(eq(schema.agentBusAddresses.id, SERVER_ADDRESS_ID)))[0]!;
+    }
+
+    async function queuedBatch(label: string) {
+      const source = await register(`${label}-source`);
+      const relay = await offlineTargetWithRelay(label);
+      const originals: string[] = [];
+      for (let i = 0; i < 2; i++) {
+        const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+          to: relay.target.address, content: `${label}-${i}`, clientMessageId: randomUUID(),
+        });
+        originals.push(String((sent.message as Record<string, unknown>).id));
+      }
+      await db.update(schema.agentBusMessages).set({ createdAt: new Date(Date.now() - 120000).toISOString() })
+        .where(inArray(schema.agentBusMessages.id, originals));
+      const server = await serverAddress();
+      const [targetRow] = await db.select().from(schema.agentBusAddresses).where(eq(schema.agentBusAddresses.id, relay.target.addressId));
+      await service.coordinationTransaction(null, null, tx => preparePeerBatch(tx, targetRow!, { keyring: testKeyring(), server: async () => server }));
+      const [root] = await db.select().from(schema.agentBusMessages).where(inArray(schema.agentBusMessages.id,
+        [(await messageRow(originals[0]!)).digestId!]));
+      if (!root) throw new Error('Expected a peer-batch fixture');
+      return { ...relay, source, originals, root };
+    }
+
+    it('restores an unpresented digest head so a dormant relay can claim originals in order', async () => {
+      const batch = await queuedBatch('digest-head');
+      const later = await service.sendMessage(batch.source.sessionId, batch.source.bridgeToken, {
+        to: batch.target.address, content: 'later', clientMessageId: randomUUID(),
+      });
+      const expected = [...batch.originals, String((later.message as Record<string, unknown>).id)];
+      const before = await Promise.all(batch.originals.map(messageRow));
+      for (const id of expected) {
+        const claimId = randomUUID();
+        expect(await service.claimForRelay(batch.relayId, batch.token, claimId)).toMatchObject({ message_id: id });
+        await service.acknowledgeRelayDelivery(batch.relayId, batch.token, id, { claimId, outcome: 'completed' });
+      }
+      expect(await messageRow(batch.root.id)).toMatchObject({ status: 'canceled', contentEnc: batch.root.contentEnc });
+      for (let i = 0; i < before.length; i++) expect(await messageRow(before[i]!.id))
+        .toMatchObject({ digestId: null, dispatchOrder: before[i]!.dispatchOrder, contentEnc: before[i]!.contentEnc });
+    });
+
+    it.each(['expired', 'dead', 'canceled'])('restores %s digest members even when no ordinary queued row remains', async status => {
+      const batch = await queuedBatch(`terminal-${status}`);
+      await db.update(schema.agentBusMessages).set({ status }).where(eq(schema.agentBusMessages.id, batch.root.id));
+      expect(await service.relayIdle(batch.relayId, batch.token)).toBe(false);
+      expect(await service.claimForRelay(batch.relayId, batch.token, randomUUID())).toMatchObject({ message_id: batch.originals[0] });
+      expect(await messageRow(batch.root.id)).toMatchObject({ status });
+      expect(await messageRow(batch.originals[1]!)).toMatchObject({ status: 'queued', digestId: null });
+    });
+
+    it.each(['acceptedAt', 'presentedAt', 'ambiguousAt'] as const)('never restores a digest with %s evidence', async marker => {
+      const batch = await queuedBatch(`protected-${marker}`);
+      await db.update(schema.agentBusMessages).set({ [marker]: new Date().toISOString() }).where(eq(schema.agentBusMessages.id, batch.root.id));
+      const before = await messageRow(batch.root.id);
+      expect(await service.claimForRelay(batch.relayId, batch.token, randomUUID())).toBeNull();
+      expect(await messageRow(batch.root.id)).toEqual(before);
+      for (const id of batch.originals) expect(await messageRow(id)).toMatchObject({ status: 'batched', digestId: batch.root.id });
+    });
+
+    it('preserves a live leased digest despite changed members and restores it only after lease expiry', async () => {
+      const batch = await queuedBatch('live-lease');
+      await db.update(schema.agentBusMessages).set({ status: 'leased', leaseOwner: 'session:prior', claimId: randomUUID(),
+        leaseUntil: new Date(Date.now() + 60000).toISOString() }).where(eq(schema.agentBusMessages.id, batch.root.id));
+      await db.update(schema.agentBusMessages).set({ status: 'canceled' }).where(eq(schema.agentBusMessages.id, batch.originals[0]!));
+      const before = await messageRow(batch.root.id);
+      expect(await service.claimForRelay(batch.relayId, batch.token, randomUUID())).toBeNull();
+      expect(await messageRow(batch.root.id)).toEqual(before);
+      expect(await messageRow(batch.originals[1]!)).toMatchObject({ status: 'batched', digestId: batch.root.id });
+      await db.update(schema.agentBusMessages).set({ leaseUntil: '2000-01-01T00:00:00Z' }).where(eq(schema.agentBusMessages.id, batch.root.id));
+      expect(await service.claimForRelay(batch.relayId, batch.token, randomUUID())).toMatchObject({ message_id: batch.originals[1] });
+      expect(await messageRow(batch.originals[0]!)).toMatchObject({ status: 'canceled' });
+    });
+
+    it('expires batch members instead of restoring them after their own TTL', async () => {
+      const batch = await queuedBatch('member-expiry');
+      await db.update(schema.agentBusMessages).set({ expiresAt: '2000-01-01T00:00:00Z' }).where(eq(schema.agentBusMessages.id, batch.originals[0]!));
+      expect(await service.claimForRelay(batch.relayId, batch.token, randomUUID())).toMatchObject({ message_id: batch.originals[1] });
+      expect(await messageRow(batch.originals[0]!)).toMatchObject({ status: 'expired', digestId: batch.root.id });
+    });
+
+    it('preserves a batch when a new live session binds before the relay transaction', async () => {
+      const batch = await queuedBatch('binding-race');
+      const [address] = await db.select().from(schema.agentBusAddresses).where(eq(schema.agentBusAddresses.id, batch.target.addressId));
+      const transaction = db.transaction.bind(db);
+      const race = vi.spyOn(db, 'transaction').mockImplementationOnce(async (...args) => {
+        const bound = await service.registerSession(host, { engine: 'claude', username: batch.target.username,
+          cwd: `/tmp/${batch.target.username}`, upstreamSessionId: address!.lastUpstreamSessionId!, invocationKind: 'interactive',
+          sessionId: randomUUID(), bridgeToken: randomBytes(32).toString('base64url'), adapterProtocol: 'test-live-v1',
+          adapterCapabilities: { test: true, execution_contract_version: 2 } });
+        expect((bound.address as Record<string, unknown>).id).toBe(batch.target.addressId);
+        return transaction(...args);
+      });
+      try { expect(await service.claimForRelay(batch.relayId, batch.token, randomUUID())).toBeNull(); }
+      finally { race.mockRestore(); }
+      expect(await messageRow(batch.root.id)).toMatchObject({ status: 'queued' });
+      for (const id of batch.originals) expect(await messageRow(id)).toMatchObject({ status: 'batched', digestId: batch.root.id });
+    });
+
     it('answers idle polls without waiting on the flag lock or pinning pool connections', async () => {
       // Six concurrent idle polls against a two-connection pool. One relay polled six times: relays are per user, and
       // only the daemon's user of a persistent host may run one (docs/host-runtime-policy.md).
@@ -258,13 +365,7 @@ describe.skipIf(!config)(
     it('still retires a server publication whose retry is in the future', async () => {
       const source = await register('routine-source');
       const { target, relayId, token } = await offlineTargetWithRelay('routine');
-      if (!(await db.select().from(schema.agentBusAddresses).where(eq(schema.agentBusAddresses.id, SERVER_ADDRESS_ID)))[0]) {
-        const now = new Date().toISOString();
-        await db.insert(schema.agentBusAddresses).values({ id: SERVER_ADDRESS_ID, address: `agent:${SERVER_ADDRESS_ID}`,
-          hostId: 0, engine: 'server', username: 'Server', cwd: '/', cwdHash: sha256('/'), continuity: 'server',
-          readiness: 'offline', lastSeenAt: now, createdAt: now, updatedAt: now });
-        createdServer = true;
-      }
+      await serverAddress();
       const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
         to: target.address, content: 'placeholder', clientMessageId: randomUUID(),
       });

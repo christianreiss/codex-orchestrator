@@ -14,7 +14,10 @@ reconciliation fallback, avoiding a full database claim check every 400 ms.
 Every new request authenticates independently. Parallel waiters for one credential
 share only an in-flight idle check on a common two-second timer; settled answers
 are discarded. Nonempty queues retain independent authenticated, fenced claims
-and the daemon keeps its configured execution parallelism.
+and the daemon keeps its configured execution parallelism. Dormant relays
+recover certainly unpresented digest groups into their original messages, keeping
+IDs, content and FIFO order plus the canceled root tombstone. Active leases,
+uncertain presentations and a newly rebound live session are protected.
 
 The background coordination tick compares one fresh database input snapshot
 against the snapshot of its last successful reconciliation. Stable idle ticks

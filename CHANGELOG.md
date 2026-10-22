@@ -1,5 +1,7 @@
 # 2026-10-22
 
+- **Unblock dormant relay mail behind digests.** Relays restore certainly unpresented digest members to their original FIFO positions instead of repeatedly scanning an undeliverable digest head. The root remains as a tombstone; leased, accepted, presented or ambiguous groups and newly rebound live sessions are preserved.
+
 - **Avoid relay retry spin.** Ordinary future retries and already accepted work no longer force an idle relay into a locked claim transaction. Expiry, lease replay/requeue and routine/presence-notice cleanup retain the existing locked path.
 
 - **One fresh communicator admission read.** Each frame reads its host, API kill switch and inherited reverse-DNS policy together. Compiled SQL plans reuse construction only; credentials and permissions are read again for every frame, with locked checkpoint revalidation retained.

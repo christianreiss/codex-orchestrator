@@ -13,6 +13,7 @@ import { assertHousekeepingAvailable } from './session-housekeeping.js';
 import { hostDaemons, hostDaemonSessions } from '../db/schema.js';
 import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from './agent-messaging/presence-feedback.js';
 import { retireRoutineNotice, retireRoutineNotices } from './agent-messaging/routine-notices.js';
+import { relayDigestRecoveryPending, restoreRelayDigests } from './agent-messaging/relay-digests.js';
 import { idleSessionPoll } from './agent-messaging/idle-session.js';
 import { type AgentDiscoveryFilters } from './agent-messaging/discovery.js';
 import { translateAgent } from './agent-messaging/names.js';
@@ -1061,6 +1062,7 @@ export class AgentMessagingService {
       .from(agentBusMessages)
       .where(and(inArray(agentBusMessages.targetAddressId, targetAddressIds), or(
         eq(agentBusMessages.status, 'leased'),
+        relayDigestRecoveryPending(this.db),
         and(eq(agentBusMessages.status, 'queued'), or(
           lte(agentBusMessages.nextAttemptAt, now),
           lte(agentBusMessages.expiresAt, now),
@@ -1524,6 +1526,14 @@ export class AgentMessagingService {
       if (relayGeneration == null) {
         const target = await this.requireAddressLocked(tx, targetAddressIds[0]!);
         await restoreUnpresentedDigests(tx, target.id, !smartQueue, { allowed: peerBatch, keyring: this.keyring });
+      } else {
+        // A relay cannot present peer/smart digests. A session may have left an
+        // unpresented batch at FIFO head when it detached. Restore only after
+        // checking the current binding under the same bus/address locks.
+        for (const id of [...targetAddressIds].sort()) {
+          const target = await this.requireAddressLocked(tx, id);
+          if (!target.currentSessionId) await restoreRelayDigests(tx, id);
+        }
       }
       const routineScan = await retireRoutineNotices(tx, this.keyring, targetAddressIds, now);
       if (relayGeneration == null && routineScan.complete) {

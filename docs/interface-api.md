@@ -1594,7 +1594,11 @@ username match and cannot acquire daemon semantics by adding the suffix.
   results are discarded; work and errors go through each waiter's own fenced
   claim. Ordinary future retries and accepted work do not require the locked
   path; expiry, leases and notice cleanup still do. Execution parallelism and
-  the absolute long-poll deadline are unchanged.
+  the absolute long-poll deadline are unchanged. For dormant targets, certainly
+  unpresented digest roots are canceled as tombstones and their unexpired batched
+  originals restored without changing IDs, content or dispatch order. Live leases
+  and accepted/presented/ambiguous groups are preserved; the target binding is
+  checked again under lock before recovery.
 - `POST /host/agent-relays/{id}/deliveries/{messageId}/renew` — extend the
   relay-owned lease.
 - `POST /host/agent-relays/{id}/deliveries/{messageId}/reply` — atomically add
