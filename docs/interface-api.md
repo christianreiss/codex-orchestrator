@@ -1598,7 +1598,8 @@ username match and cannot acquire daemon semantics by adding the suffix.
   unpresented digest roots are canceled as tombstones and their unexpired batched
   originals restored without changing IDs, content or dispatch order. Live leases
   and accepted/presented/ambiguous groups are preserved; the target binding is
-  checked again under lock before recovery.
+  checked again under lock before recovery. Candidate targets are identified in
+  one set read, so unrelated dormant addresses incur no per-address recovery locks.
 - `POST /host/agent-relays/{id}/deliveries/{messageId}/renew` — extend the
   relay-owned lease.
 - `POST /host/agent-relays/{id}/deliveries/{messageId}/reply` — atomically add

@@ -28,7 +28,8 @@ describe.skipIf(!config)(
     // Two connections: a handful of polls that pinned them while waiting for the flag would starve every other query,
     // which is how an unrelated bootstrap request stalled in production.
     const pool = mysql.createPool({ ...config, connectionLimit: 2 });
-    const db = drizzle(pool, { schema, mode: 'default' });
+    const queries: string[] = [];
+    const db = drizzle(pool, { schema, mode: 'default', logger: { logQuery(query) { queries.push(query); } } });
     const fqdn = `relay-idle-poll-${randomUUID()}.test`;
     let service: AgentMessagingService;
     let host: typeof schema.hosts.$inferSelect;
@@ -297,6 +298,30 @@ describe.skipIf(!config)(
       finally { race.mockRestore(); }
       expect(await messageRow(batch.root.id)).toMatchObject({ status: 'queued' });
       for (const id of batch.originals) expect(await messageRow(id)).toMatchObject({ status: 'batched', digestId: batch.root.id });
+    });
+
+    it('does not acquire recovery locks for fifty unrelated dormant targets', async () => {
+      const source = await register('fanout-source');
+      const relay = await offlineTargetWithRelay('fanout');
+      const claim = async () => {
+        const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+          to: relay.target.address, content: 'ordinary work', clientMessageId: randomUUID(),
+        });
+        const id = String((sent.message as Record<string, unknown>).id), claimId = randomUUID();
+        queries.length = 0;
+        expect(await service.claimForRelay(relay.relayId, relay.token, claimId)).toMatchObject({ message_id: id });
+        const locks = queries.filter(query => /from `agent_bus_addresses`.*for update/i.test(query)).length;
+        await service.acknowledgeRelayDelivery(relay.relayId, relay.token, id, { claimId, outcome: 'completed' });
+        return locks;
+      };
+      const baseline = await claim();
+      const [template] = await db.select().from(schema.agentBusAddresses).where(eq(schema.agentBusAddresses.id, relay.target.addressId));
+      await db.insert(schema.agentBusAddresses).values(Array.from({ length: 50 }, () => {
+        const id = randomUUID(), cwd = `/tmp/${id}`;
+        return { ...template!, id, address: `agent:${id}`, displayAlias: null, launchName: null,
+          cwd, cwdHash: sha256(cwd), lastUpstreamSessionId: randomUUID() };
+      }));
+      expect(await claim()).toBe(baseline);
     });
 
     it('answers idle polls without waiting on the flag lock or pinning pool connections', async () => {

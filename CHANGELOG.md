@@ -1,5 +1,7 @@
 # 2026-10-22
 
+- **Bound relay recovery checks.** Identify digest-recovery targets together before taking address locks. Relays with many dormant addresses no longer issue a recovery query for every unrelated address; selected targets are still rechecked under lock.
+
 - **Unblock dormant relay mail behind digests.** Relays restore certainly unpresented digest members to their original FIFO positions instead of repeatedly scanning an undeliverable digest head. The root remains as a tombstone; leased, accepted, presented or ambiguous groups and newly rebound live sessions are preserved.
 
 - **Avoid relay retry spin.** Ordinary future retries and already accepted work no longer force an idle relay into a locked claim transaction. Expiry, lease replay/requeue and routine/presence-notice cleanup retain the existing locked path.

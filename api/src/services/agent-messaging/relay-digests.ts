@@ -38,34 +38,46 @@ export function relayDigestRecoveryPending(db: AgentMessagingDb) {
   );
 }
 
-/** Caller holds the bus gate and the dormant target address lock. Keep every original and the root tombstone. */
+type RootIdentity = RootColumns & Record<'id' | 'targetAddressId', AnyMySqlColumn>;
+function recoveryRoot(db: AgentMessagingDb, root: RootIdentity) {
+  const member = alias(agentBusMessages, 'relay_restore_member');
+  return and(
+    restorable(root),
+    or(
+      eq(root.status, 'queued'),
+      exists(
+        db
+          .select({ id: member.id })
+          .from(member)
+          .where(
+            and(
+              eq(member.digestId, root.id),
+              eq(member.targetAddressId, root.targetAddressId),
+              eq(member.status, 'batched'),
+            ),
+          ),
+      ),
+    ),
+  );
+}
+
+/** One advisory set read, before locking only the target addresses that actually need recovery. */
+export async function relayDigestRecoveryTargets(db: AgentMessagingDb, targetIds: string[]) {
+  return db
+    .select({ id: agentBusMessages.targetAddressId })
+    .from(agentBusMessages)
+    .where(and(inArray(agentBusMessages.targetAddressId, targetIds), recoveryRoot(db, agentBusMessages)))
+    .groupBy(agentBusMessages.targetAddressId)
+    .orderBy(asc(agentBusMessages.targetAddressId));
+}
+
+/** Caller holds the bus gate and the dormant target address lock. Recheck current roots before writing. */
 export async function restoreRelayDigests(tx: AgentMessagingDb, targetId: string) {
   const now = nowIso();
-  const member = alias(agentBusMessages, 'relay_restore_member');
   const roots = await tx
     .select()
     .from(agentBusMessages)
-    .where(
-      and(
-        eq(agentBusMessages.targetAddressId, targetId),
-        restorable(agentBusMessages),
-        or(
-          eq(agentBusMessages.status, 'queued'),
-          exists(
-            tx
-              .select({ id: member.id })
-              .from(member)
-              .where(
-                and(
-                  eq(member.digestId, agentBusMessages.id),
-                  eq(member.targetAddressId, targetId),
-                  eq(member.status, 'batched'),
-                ),
-              ),
-          ),
-        ),
-      ),
-    )
+    .where(and(eq(agentBusMessages.targetAddressId, targetId), recoveryRoot(tx, agentBusMessages)))
     .orderBy(asc(agentBusMessages.dispatchOrder))
     .for('update');
   for (const root of roots) {

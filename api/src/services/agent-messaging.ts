@@ -13,7 +13,7 @@ import { assertHousekeepingAvailable } from './session-housekeeping.js';
 import { hostDaemons, hostDaemonSessions } from '../db/schema.js';
 import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from './agent-messaging/presence-feedback.js';
 import { retireRoutineNotice, retireRoutineNotices } from './agent-messaging/routine-notices.js';
-import { relayDigestRecoveryPending, restoreRelayDigests } from './agent-messaging/relay-digests.js';
+import { relayDigestRecoveryPending, relayDigestRecoveryTargets, restoreRelayDigests } from './agent-messaging/relay-digests.js';
 import { idleSessionPoll } from './agent-messaging/idle-session.js';
 import { type AgentDiscoveryFilters } from './agent-messaging/discovery.js';
 import { translateAgent } from './agent-messaging/names.js';
@@ -1530,7 +1530,8 @@ export class AgentMessagingService {
         // A relay cannot present peer/smart digests. A session may have left an
         // unpresented batch at FIFO head when it detached. Restore only after
         // checking the current binding under the same bus/address locks.
-        for (const id of [...targetAddressIds].sort()) {
+        const recoveries = await relayDigestRecoveryTargets(tx, targetAddressIds);
+        for (const { id } of recoveries) {
           const target = await this.requireAddressLocked(tx, id);
           if (!target.currentSessionId) await restoreRelayDigests(tx, id);
         }
