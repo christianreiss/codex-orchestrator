@@ -1,5 +1,7 @@
 # 2026-10-22
 
+- **Cheaper idle receivers.** Peer and portal receivers certify valid empty polls in one fresh database snapshot without opening a transaction. SQL plans are reused without caching permissions or queue results. Coordination batches scope/binding reads per reconciliation, and host authentication reuses its current request's admission row for optional contact bookkeeping.
+
 - **Less idle persistence.** Permanent hosts checkpoint contact at most once per 30 seconds while still checking current credentials/status on every contact; temporary-host expiry renewal is unchanged. Daemon retention scrubs eligible operations in batches and stops issuing repeated zero-row retirement writes for old tombstones.
 
 - **Relay polling CPU hotfix.** Idle relay long polls wait for message events with a two-second reconciliation fallback instead of rebuilding and executing the full claim query chain every 400 ms. Every retry still checks credentials, host/engine admission and delivery fences; host, daemon and address heartbeat events do not wake the loop.

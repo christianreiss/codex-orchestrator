@@ -84,11 +84,13 @@ export async function pruneHosts(db: Database, settings = new SettingsService(db
 }
 
 /** A valid authenticated contact; it cannot resurrect an expired/deleted host. */
-export async function recordHostContact(db: Database, host: Host, now = new Date()): Promise<Host> {
+export async function recordHostContact(db: Database, host: Host, now = new Date(), freshlyAuthenticated = false): Promise<Host> {
   // Revalidate against a fresh durable row, never an in-memory auth cache.
   // Only a checkpoint that actually writes needs the contact/prune row lock.
   if (!host.expiresAt) {
-    const [current] = await db.select().from(hosts).where(eq(hosts.id, host.id)).limit(1);
+    // Authentication already read this row during the same request. Reuse it
+    // only for optional bookkeeping; every write still revalidates under lock.
+    const current = freshlyAuthenticated ? host : (await db.select().from(hosts).where(eq(hosts.id, host.id)).limit(1))[0];
     validateContact(current, host, now);
     if (!contactCheckpointDue(current, now)) return { ...current };
   }

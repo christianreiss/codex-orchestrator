@@ -5,6 +5,8 @@ import { runMigrations } from '../../../src/db/migrator.js';
 import type { GitClone, GitWorktree } from '../../../src/db/schema.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/mysql2';
+import * as schema from '../../../src/db/schema.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   agentScopes,
@@ -128,10 +130,16 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
   it('joins all three engines once, separates host/project, and reads a durable idempotent chat', async () => {
     const agents = await Promise.all([register('codex'), register('claude'), register('grok')]);
     const a = agents[0]!;
-    const snapshot = await service.context(a.id, a.token);
+    const queries: string[] = [];
+    const measuredDb = drizzle(handle!.pool, { schema, mode: 'default', logger: { logQuery(query) { queries.push(query); } } });
+    const measured = new AgentCoordination(measuredDb, env, keyring, new AgentMessagingService(measuredDb, env, keyring));
+    const snapshot = await measured.context(a.id, a.token);
     expect(snapshot.rooms).toHaveLength(2);
     for (const room of snapshot.rooms) expect(room.member_count).toBe(3);
-    const again = await service.context(a.id, a.token);
+    queries.length = 0;
+    const again = await measured.context(a.id, a.token);
+    expect(queries.filter(query => /from `agent_scopes` where `agent_scopes`.`scope_key`/.test(query))).toHaveLength(1);
+    expect(queries.filter(query => /from `agent_scope_bindings` where `agent_scope_bindings`.`repository_key`/.test(query))).toHaveLength(1);
     expect(again.rooms.map((r) => r.cursor)).toEqual(snapshot.rooms.map((r) => r.cursor));
     const room = snapshot.rooms.find((r) => r.kind === 'project')!;
     const body = {

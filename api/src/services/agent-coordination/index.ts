@@ -248,31 +248,48 @@ export class AgentCoordination {
     const fleet = await readFleetEngineState(tx);
     const hostRows = await tx.select().from(hosts);
     const titles = await sessionTaskTitles(tx, this.keyring, sessions);
+    const hostsById = new Map(hostRows.map(host => [host.id, host]));
+    const liveSession = (session: AgentSession) => {
+      const host = hostsById.get(session.hostId);
+      return Boolean(this.present(session) && session.agentBusAddressId && host?.status === 'active' &&
+        !host.internalRole && messagingHostEligible(host) &&
+        activeHostEngines(host.engines, fleet).includes(session.engine as 'codex' | 'claude' | 'grok'));
+    };
+    const liveSessions = sessions.filter(liveSession);
+    const identities = [...new Set(liveSessions.map(repositoryIdentity))];
+    const bindings = identities.length ? await tx.select().from(agentScopeBindings)
+      .where(inArray(agentScopeBindings.repositoryKey, identities)) : [];
+    const bindingsByRepository = new Map(bindings.map(binding => [binding.repositoryKey, binding]));
+    const keys = [...new Set(liveSessions.flatMap(session => {
+      const identity = repositoryIdentity(session), binding = bindingsByRepository.get(identity);
+      return [`host:${session.hostId}`, binding ? `project:${binding.projectSlug}` : identity];
+    }))];
+    // One reconciliation transaction already serializes scope changes. Reuse
+    // its snapshot instead of selecting the same host/project for each member.
+    const scopes = keys.length ? await tx.select().from(agentScopes).where(inArray(agentScopes.scopeKey, keys)) : [];
+    const scopesByKey = new Map(scopes.map(scope => [scope.scopeKey, scope]));
+    const resolveScope = async (key: string, kind: string, title: string) => {
+      const existing = scopesByKey.get(key);
+      if (existing) return existing;
+      const scope = await this.scope(tx, key, kind, title);
+      scopesByKey.set(key, scope);
+      return scope;
+    };
     for (const session of sessions) {
       const contextHash = sha256(
         JSON.stringify([session.launchName, session.workspace, titles.get(session.id) ?? null]),
       );
-      const host = hostRows.find((h) => h.id === session.hostId);
-      const live =
-        this.present(session) &&
-        session.agentBusAddressId &&
-        host?.status === 'active' &&
-        !host.internalRole &&
-        messagingHostEligible(host) &&
-        activeHostEngines(host.engines, fleet).includes(session.engine as 'codex' | 'claude' | 'grok');
+      const host = hostsById.get(session.hostId);
+      const live = liveSession(session);
       const old = allMembers.filter((m) => m.sessionId === session.id);
       let desired: Scope[] = [];
       if (live) {
         const identity = repositoryIdentity(session);
-        const [binding] = await tx
-          .select()
-          .from(agentScopeBindings)
-          .where(eq(agentScopeBindings.repositoryKey, identity));
+        const binding = bindingsByRepository.get(identity);
         const w = readWorkspace(session.workspace);
         desired = [
-          await this.scope(tx, `host:${session.hostId}`, 'host', host!.fqdn),
-          await this.scope(
-            tx,
+          await resolveScope(`host:${session.hostId}`, 'host', host!.fqdn),
+          await resolveScope(
             binding ? `project:${binding.projectSlug}` : identity,
             'project',
             binding?.projectSlug ?? w?.git_root ?? w?.cwd ?? session.cwd,

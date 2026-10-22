@@ -25,6 +25,17 @@ const CLIENT_IP6 = '2001:db8::5';
 
 const warnSpy = vi.fn();
 
+it('reuses only the current request admission row for a recent contact checkpoint', async () => {
+  const h = harness({ rows: [hostRow({ ip4: CLIENT_IP, lastContactAt: new Date().toISOString() })] });
+  const select = vi.spyOn(h.db, 'select');
+  await h.svc.authenticate(makeReq({ key: KEY, ip: CLIENT_IP }));
+  expect(select).toHaveBeenCalledTimes(1);
+  h.db.tables.get(hosts)![0]!.apiKeyHash = hashApiKey('rotated');
+  await expect(h.svc.authenticate(makeReq({ key: KEY, ip: CLIENT_IP }))).rejects.toMatchObject({ code: 'invalid_api_key' });
+  expect(select.mock.calls.length).toBeGreaterThan(1);
+  select.mockRestore();
+});
+
 function hostRow(overrides: Partial<Host> = {}): Host {
   return {
     id: 1,

@@ -88,7 +88,7 @@ export function createHostAuthService(deps: HostAuthDeps): HostAuthService {
       } else {
         logForceDeleteIpMismatch(req, host, ip);
       }
-      if (req.method !== 'DELETE') host = await recordHostContact(deps.db, host);
+      if (req.method !== 'DELETE') host = await recordHostContact(deps.db, host, new Date(), true);
       req.authHost = host;
       return host;
     },

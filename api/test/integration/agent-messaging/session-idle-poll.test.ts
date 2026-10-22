@@ -24,7 +24,7 @@ describe.skipIf(!config)('session idle polls preserve admission on real MySQL', 
   const receiver = new AgentReceiverService(db, env, testKeyring());
   let host: typeof schema.hosts.$inferSelect;
   const prior = new Map<string, string | undefined>();
-  const flagNames = [AGENT_MESSAGING_ENABLED_KEY, ...ENGINES.map(e => `${e}_engine_disabled`)];
+  const flagNames = [AGENT_MESSAGING_ENABLED_KEY, 'agent_portal_enabled', ...ENGINES.map(e => `${e}_engine_disabled`)];
 
   async function flag(name: string, value: string) {
     await db.insert(schema.versions).values({ name, version: value, updatedAt: new Date().toISOString() }).onDuplicateKeyUpdate({ set: { version: value } });
@@ -38,6 +38,7 @@ describe.skipIf(!config)('session idle polls preserve admission on real MySQL', 
   });
   beforeEach(async () => {
     await flag(AGENT_MESSAGING_ENABLED_KEY, '1');
+    await flag('agent_portal_enabled', '0');
     for (const engine of ENGINES) await flag(`${engine}_engine_disabled`, '0');
     await db.update(schema.hosts).set({ status: 'active' }).where(eq(schema.hosts.id, host.id));
   });
@@ -84,6 +85,17 @@ describe.skipIf(!config)('session idle polls preserve admission on real MySQL', 
   }
 
   for (const engine of ENGINES) {
+    for (const source of ['peer', 'portal'] as const) it(`${engine}/${source}: certifies an empty receiver poll with one query and no transaction`, async () => {
+      if (source === 'portal') await flag('agent_portal_enabled', '1');
+      const target = await peer(engine);
+      const query = vi.spyOn(pool, 'query');
+      const connection = vi.spyOn(pool, 'getConnection');
+      try {
+        expect(await receiver.claim(target.id, target.token, target.generation, source, randomUUID())).toEqual(source === 'peer' ? { delivery: null } : { message: null });
+        expect(query).toHaveBeenCalledTimes(1);
+        expect(connection).not.toHaveBeenCalled();
+      } finally { query.mockRestore(); connection.mockRestore(); }
+    });
     it(`${engine}: empty receiver polls and presence checks bypass held flag/host locks`, async () => {
       const target = await peer(engine), release = await holdGate(true);
       try {
@@ -97,6 +109,18 @@ describe.skipIf(!config)('session idle polls preserve admission on real MySQL', 
       await expect(service.claimForSession(target.id, target.token, randomUUID(), randomUUID())).rejects.toMatchObject({ code: 'receiver_generation_changed' });
     });
   }
+
+  it('portal cache retains current token, source, generation and heartbeat gates', async () => {
+    await flag('agent_portal_enabled', '1');
+    const target = await peer();
+    await expect(receiver.claim(target.id, 'wrong', target.generation, 'portal', randomUUID())).rejects.toMatchObject({ code: 'agent_bridge_unauthorized' });
+    await expect(receiver.claim(target.id, target.token, randomUUID(), 'portal', randomUUID())).rejects.toMatchObject({ code: 'receiver_expired' });
+    await db.update(schema.agentSessions).set({ heartbeatAt: '2000-01-01T00:00:00Z' }).where(eq(schema.agentSessions.id, target.id));
+    await expect(receiver.claim(target.id, target.token, target.generation, 'portal', randomUUID())).rejects.toMatchObject({ code: 'agent_relay_unavailable' });
+    await db.update(schema.agentSessions).set({ heartbeatAt: new Date().toISOString() }).where(eq(schema.agentSessions.id, target.id));
+    await flag('agent_portal_enabled', '0');
+    await expect(receiver.claim(target.id, target.token, target.generation, 'portal', randomUUID())).rejects.toMatchObject({ code: 'agent_portal_disabled' });
+  });
 
   it('retains invalid claim-ID, token, stale heartbeat and disabled binding errors', async () => {
     const target = await peer();
@@ -136,11 +160,11 @@ describe.skipIf(!config)('session idle polls preserve admission on real MySQL', 
     });
   }
 
-  it('presence-return with waiting mail still waits and creates its notice', async () => {
+  it('receiver claim with waiting mail still waits and creates its presence-return notice', async () => {
     const source = await peer(), target = await peer(), sent = await send(source, target);
     await db.update(schema.agentBusMessages).set({ awaitingPresence: 1 }).where(eq(schema.agentBusMessages.id, sent.message.id));
     const release = await holdGate();
-    const operation = service.notifyPresenceReturn(target.id);
+    const operation = receiver.claim(target.id, target.token, target.generation, 'peer', randomUUID());
     try { expect(await within(operation, 150)).toBe('pending'); } finally { await release(); }
     await operation;
     expect(await db.select().from(schema.agentBusMessages).where(and(eq(schema.agentBusMessages.targetAddressId, source.addressId), eq(schema.agentBusMessages.kind, 'presence_notice')))).toHaveLength(1);

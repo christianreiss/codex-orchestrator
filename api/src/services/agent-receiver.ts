@@ -12,6 +12,8 @@ import { createAgentMessagingService } from './agent-messaging.js';
 import { createAgentPortalService } from './agent-portal.js';
 import { bindNativeMessagingIdentityLocked } from './agent-messaging/native-identity.js';
 import { wsPublisher } from '../ws/publisher.js';
+import { z } from 'zod';
+import { idleSessionPoll } from './agent-messaging/idle-session.js';
 import {
   receiverReady,
   receiverState,
@@ -231,6 +233,10 @@ export class AgentReceiverService {
   }
 
   async claim(id: string, token: string, generation: string, source: ReceiverSource, claimId: string, informationalOnly = false) {
+    if (z.string().uuid().safeParse(id).success && z.string().uuid().safeParse(claimId).success &&
+      await idleSessionPoll(this.db, id, this.env, { bridgeToken: token, receiverGeneration: generation, requireReceiver: true, source })) {
+      return source === 'peer' ? { delivery: null } : { message: null };
+    }
     const auth = await this.authenticate(id, token, source);
     await this.db.transaction(async (tx) => {
       const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, id)).for('update');

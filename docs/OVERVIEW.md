@@ -119,6 +119,10 @@ cxx 0.9.86 reuses verified credentials confirmed by a fresh matching account lea
 and overlaps launch identity confirmation with peer discovery. Bootstrap version
 data is reused within each request. The API also keeps valid empty receiver polls
 off the global messaging and host-row locks; real deliveries retain their fences.
+Peer and portal empty-poll checks share one fresh SQL snapshot of admission,
+receiver generation and queue absence. Compiled query plans are reused, never
+authorization or queue results. Scope reconciliation batches scope and binding
+lookups within its transaction instead of rereading them for each session.
 See [startup measurements and verification](archive/startup-performance-2026-10-15.md).
 
 Fleet installation, update/sync and successful managed launches prepare the native

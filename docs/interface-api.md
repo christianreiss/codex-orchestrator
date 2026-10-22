@@ -3060,6 +3060,12 @@ Permanent-host authentication checkpoints `last_contact_at` at 30-second interva
 it is approximate contact history, not a per-request ledger. Current credentials,
 status and expiry are checked on every contact. Temporary-host sliding expiry still
 renews on every valid contact under the host lock.
+Optional contact bookkeeping reuses the same request's fresh authenticated host
+snapshot; checkpoints that write still revalidate the current row under lock.
+Valid empty peer/portal receiver claims use one fresh SQL snapshot for admission,
+receiver ownership and queue absence. Only compiled SQL is cached; permissions,
+settings and queue results are not cached between requests. Uncertain or nonempty
+claims retain the existing locked validation and delivery path.
 It is independent of provider authentication readiness. Administrative edits and provider
 refreshes never update `last_contact_at`; legacy timestamps remain for compatibility.
 Host inactivity pruning uses genuine contact, falling back to creation when unknown. An
