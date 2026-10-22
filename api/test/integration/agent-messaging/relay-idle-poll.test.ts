@@ -639,6 +639,8 @@ describe.skipIf(!config)(
 
     it('certifies an idle relay poll in a single statement', async () => {
       const { relayId, token } = await offlineTargetWithRelay('one-statement');
+      // The first proof also reads the relay's immutable host/user once; every later one is a single statement.
+      expect(await relayIdleProof(db, relayId, token)).toBe(true);
       const query = vi.spyOn(pool, 'query');
       const execute = vi.spyOn(pool, 'execute');
       try {
