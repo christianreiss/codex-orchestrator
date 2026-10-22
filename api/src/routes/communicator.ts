@@ -5,8 +5,6 @@ import { attachHostDaemonSocket, type DaemonSocket } from './host-daemon.js';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
-import { versions } from '../db/schema.js';
 import { createHostAuthService } from '../services/host-auth.js';
 import { registerWebsocketTransport } from '../ws/transport.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -154,9 +152,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
   const authorize = async (req: FastifyRequest) => {
     if (!ctx.env.CXX_COMMUNICATOR_ENABLED)
       throw new ForbiddenError('Communicator is disabled', 'communicator_disabled');
-    const [kill] = await ctx.db.select().from(versions).where(eq(versions.name, 'api_disabled'));
-    if (kill?.version === '1') throw new ForbiddenError('API disabled', 'api_disabled');
-    return auth.authenticate(req);
+    return auth.authenticate(req, { checkApiDisabled: true });
   };
   app.get('/admin/communicators', { preHandler: app.requireAdmin }, async () => ({
     enabled: ctx.env.CXX_COMMUNICATOR_ENABLED,

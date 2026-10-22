@@ -8,7 +8,7 @@ import { registerCommunicatorRoutes, communicatorPathAllowed, communicatorRespon
 import { buildRouteApp } from '../../helpers/build-route-app.js';
 import { createMockDb } from '../../helpers/in-memory-db.js';
 
-const auth = vi.hoisted(() => ({ allowed: true }));
+const auth = vi.hoisted(() => ({ allowed: true, policies: [] as unknown[] }));
 const transferHits = vi.hoisted(() => ({ count: 0 }));
 vi.mock('../../../src/services/mcp-session.js', () => ({
   McpSessionService: class {
@@ -22,7 +22,8 @@ vi.mock('../../../src/services/host-auth.js', () => ({
     authenticate: async (req: {
       headers: Record<string, string>;
       authHost?: { id: number; secure: number };
-    }) => {
+    }, policy?: unknown) => {
+      auth.policies.push(policy);
       const key = req.headers['x-api-key'];
       if (!auth.allowed || (key !== 'host-one' && key !== 'host-two')) throw new Error('denied');
       req.authHost = { id: key === 'host-two' ? 2 : 1, secure: 1 };
@@ -33,6 +34,7 @@ vi.mock('../../../src/services/host-auth.js', () => ({
 let app: FastifyInstance;
 afterEach(async () => {
   auth.allowed = true;
+  auth.policies.length = 0;
   await app?.close();
 });
 async function setup(enabled = true, update = false) {
@@ -85,6 +87,19 @@ async function open(realSocket = false, control = ['terminate', 'owner_identity'
   return ws;
 }
 describe('communicator transport', () => {
+  it('requires fresh combined kill-switch admission for every request frame', async () => {
+    await setup();
+    const ws = await open();
+    const before = auth.policies.length;
+    for (let i = 0; i < 2; i++) {
+      const reply = new Promise<string>(resolve => ws.once('message', (data: unknown) => resolve(String(data))));
+      ws.send(JSON.stringify({ id: randomUUID(), type: 'request', method: 'POST', path: '/host/echo', headers: {}, body: '' }));
+      expect(JSON.parse(await reply).status).toBe(200);
+    }
+    expect(auth.policies).toHaveLength(before + 2);
+    expect(auth.policies.every(policy => JSON.stringify(policy) === '{"checkApiDisabled":true}')).toBe(true);
+    ws.close();
+  });
   it('restricts oversized reply retries to known content reads', () => {
     const request = (path: string, body: string) => ({method:'POST', path, body:Buffer.from(body).toString('base64')});
     expect(communicatorResponseMayRepeat(request('/sync/bootstrap/', '{"include_auth":false}'))).toBe(true);

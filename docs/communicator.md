@@ -328,7 +328,12 @@ resident runtime keeps content scopes alive (see
 ## Protocol and failure handling
 
 `GET /host/communicator/connect` upgrades to WebSocket protocol 1, authenticated
-with the host key and the existing IP policy. A `hello` identifies protocol,
+with the host key and the existing IP policy. Every frame still performs fresh
+authorization. Its host row, API kill switch and inherited reverse-DNS default
+come from one database admission snapshot; the latter is evaluated at that
+snapshot rather than after any IP-binding write. Compiled query plans retain no
+credentials or result rows, and the 15-second connection recheck remains active.
+A `hello` identifies protocol,
 username and cxx version. UUID-correlated `request`/response frames preserve HTTP
 method, relative path, permitted headers, status and base64 body. Account lease
 acquisition and heartbeat/release (`/auth/sessions` and its two lifecycle routes)

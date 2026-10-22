@@ -1,3 +1,4 @@
+import { readTransportAdmission } from './host-auth-admission.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
@@ -25,7 +26,7 @@ export interface HostAuthService {
    * Resolve a host by API key from a Fastify request. Throws on a
    * missing, invalid, or disabled host.
    */
-  authenticate(req: FastifyRequest): Promise<Host>;
+  authenticate(req: FastifyRequest, options?: { checkApiDisabled: true }): Promise<Host>;
   /**
    * Remove inactive, expired temporary and abandoned unprovisioned hosts.
    * A zero inactivity_window_days disables only the inactivity criterion.
@@ -49,28 +50,34 @@ export function createHostAuthService(deps: HostAuthDeps): HostAuthService {
   const bypassCidrs = parseBypassCidrs(deps.env.AUTH_RUNNER_BYPASS_SUBNETS);
 
   return {
-    async authenticate(req) {
+    async authenticate(req, options) {
       const key = extractApiKey(req.headers as Record<string, string | string[] | undefined>);
       const ip = req.clientIp || null;
+      const assertApiEnabled = async () => {
+        if (options?.checkApiDisabled && await settings.getRaw('api_disabled') === '1')
+          throw new ForbiddenError('API disabled', 'api_disabled');
+      };
       if (!key) {
+        await assertApiEnabled();
         throw new UnauthorizedError('API key missing', 'missing_api_key');
       }
 
       const hash = hashApiKey(key);
-      const found = await deps.db
-        .select()
-        .from(hostsTable)
-        .where(eq(hostsTable.apiKeyHash, hash))
-        .limit(1);
-
-      let host: Host | undefined = found[0];
-      if (!host) {
-        const legacy = await deps.db
-          .select()
-          .from(hostsTable)
-          .where(eq(hostsTable.apiKey, key))
-          .limit(1);
-        host = legacy[0];
+      let host: Host | undefined;
+      let reverseDnsDefault: boolean | undefined;
+      if (options?.checkApiDisabled) {
+        const admission = await readTransportAdmission(deps.db, hash, key);
+        if (admission?.apiDisabled) throw new ForbiddenError('API disabled', 'api_disabled');
+        host = admission?.host;
+        reverseDnsDefault = admission?.reverseDnsDefault;
+        if (!host) await assertApiEnabled();
+      } else {
+        const found = await deps.db.select().from(hostsTable).where(eq(hostsTable.apiKeyHash, hash)).limit(1);
+        host = found[0];
+        if (!host) {
+          const legacy = await deps.db.select().from(hostsTable).where(eq(hostsTable.apiKey, key)).limit(1);
+          host = legacy[0];
+        }
       }
 
       if (!host) {
@@ -84,7 +91,7 @@ export function createHostAuthService(deps: HostAuthDeps): HostAuthService {
       const force = req.method === 'DELETE' && (req.query as { force?: string })?.force === '1';
       if (!force) {
         host = await enforceIpBinding(deps, host, ip, bypassCidrs);
-        await enforceReverseDns(host, ip, settings);
+        await enforceReverseDns(host, ip, settings, reverseDnsDefault);
       } else {
         logForceDeleteIpMismatch(req, host, ip);
       }
@@ -180,12 +187,13 @@ async function enforceReverseDns(
   host: Host,
   ip: string | null,
   settings: SettingsService,
+  snapshotDefault?: boolean,
 ): Promise<void> {
   if (!ip) return;
   const mode = host.reverseDnsMode;
   // Explicit host policy does not depend on the fleet default. Avoid a
   // settings query for every transport frame when the result cannot matter.
-  const required = mode === 1 || (mode === null && await settings.getFlag('reverse_dns_enabled', false));
+  const required = mode === 1 || (mode === null && (snapshotDefault ?? await settings.getFlag('reverse_dns_enabled', false)));
   if (!required) return;
   if (host.secure !== 1 && insecureWindowActive(host)) return;
   try {

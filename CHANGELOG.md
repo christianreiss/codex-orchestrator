@@ -1,5 +1,7 @@
 # 2026-10-22
 
+- **One fresh communicator admission read.** Each frame reads its host, API kill switch and inherited reverse-DNS policy together. Compiled SQL plans reuse construction only; credentials and permissions are read again for every frame, with locked checkpoint revalidation retained.
+
 - **Bound coordination snapshot scans.** Active membership IDs are selected as a set rather than rescanning all membership rows for each historical session. Ended sessions with active membership remain visible for cleanup.
 
 - **Shared relay idle checks.** Parallel long polls for the same credential share only an in-flight empty-queue check on a common two-second timer. Every new request authenticates independently; nonempty queues still use separate fenced claims and retain all execution slots.
