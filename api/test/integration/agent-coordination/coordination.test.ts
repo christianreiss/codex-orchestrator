@@ -562,6 +562,95 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       await app.close();
     }
   });
+  it('keeps server-owned advisor sessions outside scope coordination instead of demanding unreachable claims', async () => {
+    const db = handle!.db,
+      now = new Date().toISOString(),
+      fqdn = `advisor-${suffix}.internal`;
+    await db.insert(hosts).values({
+      fqdn,
+      apiKey: randomBytes(32).toString('hex'),
+      status: 'active',
+      secure: 1,
+      engines: 'codex,claude,grok',
+      internalRole: 'advisor',
+      createdAt: now,
+      updatedAt: now,
+    });
+    const [advisor] = await db.select().from(hosts).where(eq(hosts.fqdn, fqdn));
+    const app = await buildRouteApp();
+    await registerAgentPortalAdminHostRoutes(app, { db, env, keyring });
+    const advisorSessions: string[] = [];
+    const names = Array.from({ length: 6 }, (_, index) => `Advisor-${suffix.slice(0, 8)}-${index}`);
+    await db.insert(agentNamePool).values(names.map((name) => ({ nameKey: name.toLowerCase(), name })));
+    try {
+      for (const engine of ['codex', 'claude', 'grok'] as const) {
+        const id = randomUUID(),
+          token = randomBytes(32).toString('base64url');
+        advisorSessions.push(id);
+        await bus.registerSession(advisor!, {
+          sessionId: id,
+          bridgeToken: token,
+          engine,
+          username: id,
+          cwd: '/work',
+          invocationKind: 'interactive',
+          workspace: { cwd: '/work', git_status: 'none', git_root: null, git_common_dir: null },
+          adapterCapabilities: { scope_protocol_version: 1, execution_contract_version: 2 },
+        });
+        const context = await service.context(id, token);
+        expect(context).toMatchObject({ enabled: false, reason: 'internal_host', rooms: [], claims: [] });
+        await expect(
+          service.claims.acquire(id, token, {
+            purpose: 'fetch transfer',
+            resources: [{ kind: 'path', host_id: advisor!.id, path: `/work/${id}.diff` }],
+            client_request_id: randomUUID(),
+          }),
+        ).rejects.toMatchObject({ code: 'agent_coordination_not_applicable' });
+        // Nor may an advisor claim a fleet host it cannot see: it is not a scope member.
+        await expect(
+          service.claims.acquire(id, token, {
+            purpose: 'fetch transfer',
+            resources: [{ kind: 'path', host_id: host.id, path: `/tmp/${id}` }],
+            client_request_id: randomUUID(),
+          }),
+        ).rejects.toMatchObject({ code: 'agent_coordination_not_applicable' });
+        // Registration omits scope_context, so the wrapper adds no claim-before-write instruction.
+        const launchId = randomUUID();
+        advisorSessions.push(launchId);
+        const launched = await app.inject({
+          method: 'POST',
+          url: '/host/agent-sessions',
+          headers: { 'x-api-key': advisor!.apiKey },
+          payload: {
+            session_id: launchId,
+            bridge_token: randomBytes(32).toString('base64url'),
+            engine,
+            username: launchId,
+            cwd: '/work',
+            invocation_kind: 'interactive',
+            adapter_capabilities: { scope_protocol_version: 1, execution_contract_version: 2, launch_identity_version: 1 },
+          },
+        });
+        expect(launched.statusCode, launched.body).toBe(200);
+        expect(launched.json()).toMatchObject({ enabled: true });
+        expect(launched.json()).not.toHaveProperty('scope_context');
+      }
+      // A fleet session on the same server keeps the full contract.
+      const fleet = await register('codex');
+      expect(await service.context(fleet.id, fleet.token)).toMatchObject({ enabled: true });
+      expect(await service.context(fleet.id, fleet.token)).not.toHaveProperty('reason');
+    } finally {
+      await app.close();
+      await db.delete(agentResourceClaims).where(inArray(agentResourceClaims.sessionId, advisorSessions));
+      await db.execute(sql`UPDATE agent_name_pool SET current_session_id = NULL WHERE current_session_id IN (SELECT id FROM agent_sessions WHERE host_id = ${advisor!.id})`);
+      await db.execute(sql`DELETE FROM agent_name_leases WHERE address_id IN (SELECT id FROM agent_bus_addresses WHERE host_id = ${advisor!.id})`);
+      await db.execute(sql`DELETE FROM agent_events WHERE session_id IN (SELECT id FROM agent_sessions WHERE host_id = ${advisor!.id})`);
+      await db.delete(agentSessions).where(eq(agentSessions.hostId, advisor!.id));
+      await db.execute(sql`DELETE FROM agent_bus_addresses WHERE host_id = ${advisor!.id}`);
+      await db.delete(hosts).where(eq(hosts.id, advisor!.id));
+      await db.delete(agentNamePool).where(inArray(agentNamePool.nameKey, names.map((name) => name.toLowerCase())));
+    }
+  });
   it('feature off rejects new work but permits releasing claims', async () => {
     const a = await register('codex');
     const claim = await service.claims.acquire(a.id, a.token, {

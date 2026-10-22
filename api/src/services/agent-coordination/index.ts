@@ -92,9 +92,27 @@ export class AgentCoordination {
     const result = await this.bus.coordinationTransaction(id, token, async (tx, session) => {
       if (!allowDisabled && !(await this.enabled(tx)))
         throw new ServiceUnavailableError('Scope coordination disabled', 'agent_coordination_disabled');
+      if (!allowDisabled && session && (await this.internalSession(tx, session)))
+        throw new ForbiddenError(
+          'Scope coordination does not apply to server-owned advisor sessions',
+          'agent_coordination_not_applicable',
+        );
       return action(tx, session);
     });
     return result;
+  }
+  /**
+   * A session on a server-owned host (the Fleet Advisor) is never a scope member
+   * and its host is never a claim target (`internal-hosts.ts`), so coordination
+   * does not apply to it: context reports it off, and new claims/rooms are refused
+   * with a distinct code instead of an unreachable claim-before-write demand.
+   */
+  async internalSession(tx: AgentMessagingDb, session: AgentSession) {
+    const [host] = await tx
+      .select({ internalRole: hosts.internalRole })
+      .from(hosts)
+      .where(eq(hosts.id, session.hostId));
+    return Boolean(host?.internalRole);
   }
   present(session: AgentSession, now = Date.now()) {
     return (
@@ -360,8 +378,10 @@ export class AgentCoordination {
         next_member_offset: members.length > 50 ? 50 : null,
       });
     }
+    const internal = session ? await this.internalSession(tx, session) : false;
     return {
-      enabled: await this.enabled(tx),
+      enabled: !internal && (await this.enabled(tx)),
+      ...(internal ? { reason: 'internal_host' as const } : {}),
       protocol: 1,
       observed_at: new Date().toISOString(),
       rooms,

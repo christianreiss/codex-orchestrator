@@ -27,6 +27,7 @@ describe('Advisor role prompt', () => {
     expect(prompt).toContain(`Your concrete session model: ${engine}/${model}`);
     expect(parseAdvisorVerdict(prompt)?.evidence?.[0]).toMatchObject({ description: expect.any(String), reference: expect.any(String) });
     expect(prompt).toContain('never a bare string');
+    expect(prompt).toContain('fetching a transfer needs no resource claim');
   });
 });
 
