@@ -1680,6 +1680,7 @@ export const agentBusAddresses = mysqlTable(
     aliasUnique: uniqueIndex('uq_agent_bus_addresses_alias').on(t.displayAlias),
     sessionUnique: uniqueIndex('uq_agent_bus_addresses_session').on(t.currentSessionId),
     discoveryIdx: index('idx_agent_bus_addresses_discovery').on(t.enabled, t.archivedAt, t.engine, t.hostId),
+    relayIdx: index('idx_agent_bus_addresses_relay').on(t.hostId, t.username, t.enabled, t.archivedAt),
     nativeIdx: index('idx_agent_bus_addresses_native').on(
       t.hostId,
       t.engine,

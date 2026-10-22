@@ -367,7 +367,9 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
     });
   });
 
-  it('accepted work keeps the locked path and is never automatically replayed', async () => {
+  // Since 4ecfc64b accepted ordinary work cannot change on the relay path, so the poll stays lock-free; replay safety
+  // is what matters (see relay-idle-poll "does not lock or modify accepted ordinary work").
+  it('accepted work is left alone and never automatically replayed', async () => {
     const relay = await relayFor(1);
     await send(0, 1);
     const delivery = await service.claimForRelay(relay.id, relay.token, randomUUID());
@@ -379,7 +381,7 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
     });
     const admission = vi.spyOn(service as unknown as Admission, 'requireEnabledLocked');
     expect(await service.claimForRelay(relay.id, relay.token, randomUUID())).toBeNull();
-    expect(admission).toHaveBeenCalledTimes(1);
+    expect(admission).not.toHaveBeenCalled();
     expect((await currentMessages())[0]).toMatchObject({
       status: 'accepted',
       attempts: 1,

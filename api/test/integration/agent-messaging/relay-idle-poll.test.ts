@@ -5,6 +5,7 @@ import { eq, inArray, or } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as schema from '../../../src/db/schema.js';
 import { AGENT_MESSAGING_ENABLED_KEY, AgentMessagingService } from '../../../src/services/agent-messaging.js';
+import { relayIdleProof } from '../../../src/services/agent-messaging/relay-idle.js';
 import { invalidateFleetEngineState } from '../../../src/services/engine-switch.js';
 import { ENGINES } from '../../../src/util/engine.js';
 import { readDbConfig } from '../../helpers/test-db.js';
@@ -633,6 +634,69 @@ describe.skipIf(!config)(
       await setFlag('0');
       await expect(service.relayIdle(other.relayId, other.token)).rejects.toMatchObject({
         code: 'agent_messaging_disabled',
+      });
+    });
+
+    it('certifies an idle relay poll in a single statement', async () => {
+      const { relayId, token } = await offlineTargetWithRelay('one-statement');
+      const query = vi.spyOn(pool, 'query');
+      const execute = vi.spyOn(pool, 'execute');
+      try {
+        expect(await service.claimForRelay(relayId, token, randomUUID())).toBeNull();
+        expect(query.mock.calls.length + execute.mock.calls.length).toBe(1);
+      } finally {
+        query.mockRestore();
+        execute.mockRestore();
+      }
+    });
+
+    it('never certifies a state the full relay path would act on or refuse', async () => {
+      const source = await register('proof-source');
+      const { target, relayId, token } = await offlineTargetWithRelay('proof');
+      expect(await relayIdleProof(db, relayId, token)).toBe(true);
+      expect(await relayIdleProof(db, relayId, 'wrong-token')).toBe(false);
+      expect(await relayIdleProof(db, 'not-a-uuid', token)).toBe(false);
+      const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+        to: target.address,
+        content: 'proof wake',
+        clientMessageId: randomUUID(),
+      });
+      const id = String((sent.message as Record<string, unknown>).id);
+      expect(await relayIdleProof(db, relayId, token)).toBe(false);
+      await expect(service.claimForRelay(relayId, token, randomUUID())).resolves.toMatchObject({ message_id: id });
+      // A lease can still expire into a requeue, so leased work is never idle.
+      expect(await relayIdleProof(db, relayId, token)).toBe(false);
+      await db
+        .update(schema.agentBusMessages)
+        .set({ status: 'completed', leaseUntil: null })
+        .where(eq(schema.agentBusMessages.id, id));
+      expect(await relayIdleProof(db, relayId, token)).toBe(true);
+      const expiring = String(
+        ((await service.sendMessage(source.sessionId, source.bridgeToken, {
+          to: target.address,
+          content: 'expires',
+          clientMessageId: randomUUID(),
+        })).message as Record<string, unknown>).id,
+      );
+      await db
+        .update(schema.agentBusMessages)
+        .set({ expiresAt: '2000-01-01T00:00:00Z', nextAttemptAt: '2999-01-01T00:00:00Z' })
+        .where(eq(schema.agentBusMessages.id, expiring));
+      expect(await relayIdleProof(db, relayId, token)).toBe(false);
+      expect(await service.claimForRelay(relayId, token, randomUUID())).toBeNull();
+      expect(await messageRow(expiring)).toMatchObject({ status: 'expired' });
+      expect(await relayIdleProof(db, relayId, token)).toBe(true);
+
+      await setFlag('0');
+      expect(await relayIdleProof(db, relayId, token)).toBe(false);
+      await expect(service.claimForRelay(relayId, token, randomUUID())).rejects.toMatchObject({
+        code: 'agent_messaging_disabled',
+      });
+      await setFlag('1');
+      await service.stopRelay(relayId, token);
+      expect(await relayIdleProof(db, relayId, token)).toBe(false);
+      await expect(service.claimForRelay(relayId, token, randomUUID())).rejects.toMatchObject({
+        code: 'agent_messaging_relay_unauthorized',
       });
     });
   },

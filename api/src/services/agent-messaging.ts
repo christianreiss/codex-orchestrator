@@ -14,7 +14,8 @@ import { hostDaemons, hostDaemonSessions } from '../db/schema.js';
 import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from './agent-messaging/presence-feedback.js';
 import { retireRoutineNotice, retireRoutineNotices } from './agent-messaging/routine-notices.js';
 import { strictFifoDeliveryReady } from './agent-messaging/delivery-readiness.js';
-import { relayDigestRecoveryPending, relayDigestRecoveryTargets, restoreRelayDigests } from './agent-messaging/relay-digests.js';
+import { pendingRelayWork, relayIdleProof } from './agent-messaging/relay-idle.js';
+import { relayDigestRecoveryTargets, restoreRelayDigests } from './agent-messaging/relay-digests.js';
 import { idleSessionPoll } from './agent-messaging/idle-session.js';
 import { type AgentDiscoveryFilters } from './agent-messaging/discovery.js';
 import { translateAgent } from './agent-messaging/names.js';
@@ -1007,6 +1008,7 @@ export class AgentMessagingService {
   }
 
   async claimForRelay(relayId: string, rawToken: string, claimId: string): Promise<MessageDelivery | null> {
+    if (await relayIdleProof(this.db, relayId, rawToken)) return null;
     const targets = await this.relayClaimTargets(relayId, rawToken);
     if (!targets) return null;
     return await this.claimDelivery(targets.ids, `relay:${targets.relay.id}:${targets.relay.generation}`, claimId, targets.relay.generation, true);
@@ -1017,6 +1019,7 @@ export class AgentMessagingService {
    * the same order; it claims nothing, so concurrent waiters of one relay credential may share a true answer.
    */
   async relayIdle(relayId: string, rawToken: string): Promise<boolean> {
+    if (await relayIdleProof(this.db, relayId, rawToken)) return true;
     return (await this.relayClaimTargets(relayId, rawToken)) === null;
   }
 
@@ -1061,17 +1064,7 @@ export class AgentMessagingService {
     const rows = await this.db
       .select({ id: agentBusMessages.id })
       .from(agentBusMessages)
-      .where(and(inArray(agentBusMessages.targetAddressId, targetAddressIds), or(
-        eq(agentBusMessages.status, 'leased'),
-        relayDigestRecoveryPending(this.db),
-        and(eq(agentBusMessages.status, 'queued'), or(
-          and(lte(agentBusMessages.nextAttemptAt, now), strictFifoDeliveryReady()),
-          lte(agentBusMessages.expiresAt, now),
-          // Routine retirement can act before a queued notice's retry time.
-          inArray(agentBusMessages.kind, ['presence_notice', 'publication', 'digest']),
-        )),
-        and(eq(agentBusMessages.kind, 'presence_notice'), inArray(agentBusMessages.status, ['accepted', 'batched'])),
-      )))
+      .where(and(inArray(agentBusMessages.targetAddressId, targetAddressIds), pendingRelayWork(this.db, now)))
       .limit(1);
     return rows.length > 0;
   }
@@ -1961,15 +1954,15 @@ export class AgentMessagingService {
   }
 
   async authenticateBridge(sessionId: string, rawToken: string, allowEnded = false): Promise<{ session: AgentSession; host: Host }> {
-    await this.requireEnabled();
-    const id = normalizeUuid(sessionId, 'session_id');
+    const id = await this.normalizeEnabledUuid(sessionId, 'session_id');
     const rows = await this.db
-      .select({ session: agentSessions, host: hosts })
+      .select({ session: agentSessions, host: hosts, enabled: messagingEnabledFlag })
       .from(agentSessions)
       .innerJoin(hosts, eq(hosts.id, agentSessions.hostId))
       .where(eq(agentSessions.id, id))
       .limit(1);
     const row = rows[0];
+    await this.requireEnabledFrom(row);
     if (!row || !safeHashEqual(sha256(rawToken ?? ''), row.session.bridgeTokenHash)) {
       throw new UnauthorizedError('Invalid agent bridge credential', 'agent_bridge_unauthorized');
     }
@@ -1980,7 +1973,24 @@ export class AgentMessagingService {
     assertHostEngineEnabled(row.host, row.session.engine as Engine, await readFleetEngineState(this.db));
     if (row.session.endedAt && !allowEnded) throw await agentSessionFinishedError(this.db, row.session);
     if (!row.session.endedAt && row.session.bridgeExpiresAt <= nowIso()) throw new UnauthorizedError('Agent bridge credential expired', 'agent_bridge_expired');
-    return row;
+    return { session: row.session, host: row.host };
+  }
+
+  /** The enable check used to be its own statement before every bridge/relay read; it rides on that read now. */
+  private async normalizeEnabledUuid(value: string, field: string): Promise<string> {
+    try {
+      return normalizeUuid(value, field);
+    } catch (error) {
+      await this.requireEnabled();
+      throw error;
+    }
+  }
+
+  /** Same error order as the former leading requireEnabled(): only a missing row needs the flag read on its own. */
+  private async requireEnabledFrom(row: { enabled: string | null } | undefined): Promise<void> {
+    if (row ? !isTruthyFlagValue(row.enabled, false) : !(await this.isEnabled())) {
+      throw new ServiceUnavailableError('Agent Messaging is disabled', 'agent_messaging_disabled');
+    }
   }
 
   /**
@@ -1991,16 +2001,16 @@ export class AgentMessagingService {
    * can finish and be recorded.
    */
   private async authenticateRelay(relayId: string, rawToken: string, requirePersistent = false): Promise<AgentBusRelay> {
-    await this.requireEnabled();
-    const id = normalizeUuid(relayId, 'relay_id');
+    const id = await this.normalizeEnabledUuid(relayId, 'relay_id');
     const rows = await this.db
-      .select({ relay: agentBusRelays, host: hosts, daemon: hostDaemons.settings })
+      .select({ relay: agentBusRelays, host: hosts, daemon: hostDaemons.settings, enabled: messagingEnabledFlag })
       .from(agentBusRelays)
       .innerJoin(hosts, eq(hosts.id, agentBusRelays.hostId))
       .leftJoin(hostDaemons, eq(hostDaemons.hostId, agentBusRelays.hostId))
       .where(eq(agentBusRelays.id, id))
       .limit(1);
     const row = rows[0];
+    await this.requireEnabledFrom(row);
     if (!row || row.relay.status !== 'active' || !row.relay.tokenHash || !safeHashEqual(sha256(rawToken ?? ''), row.relay.tokenHash)) {
       throw new UnauthorizedError('Invalid agent relay credential', 'agent_messaging_relay_unauthorized');
     }
@@ -2341,6 +2351,9 @@ export function createAgentMessagingService(db: Database, env: Env, keyring: Key
 }
 
 /** 503, not 403: workers before cxx 0.9.82 back off 30 s on a 503 but retry a 403 every 3 s. */
+/** The fleet enable flag as a column of the credential read itself (same snapshot, one statement fewer). */
+const messagingEnabledFlag = sql<string | null>`(SELECT ${versions.version} FROM ${versions} WHERE ${versions.name} = ${AGENT_MESSAGING_ENABLED_KEY} LIMIT 1)`;
+
 function notPersistentRelay(): ServiceUnavailableError {
   return new ServiceUnavailableError('Agent relays run only on persistent hosts', 'agent_messaging_relay_not_persistent');
 }

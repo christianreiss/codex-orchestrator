@@ -107,6 +107,9 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
             };
             return inner;
           };
+          // Joins are not modeled: a joined select sees the base table's rows and no joined columns. Enough for
+          // lookups that miss (e.g. an unknown session id), which is all the unit suites rely on.
+          builder.innerJoin = builder.leftJoin = (_table: unknown, _on: unknown) => builder;
           builder.orderBy = (..._args: unknown[]) => {
             const o: any = Promise.resolve(rows);
             o.limit = (_n: number) => Promise.resolve(rows.slice(0, _n));
