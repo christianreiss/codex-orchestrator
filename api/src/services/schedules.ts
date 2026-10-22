@@ -25,7 +25,8 @@ import { encrypt, decrypt } from '../security/secret-box.js';
 import { hostAuthFingerprint, safeHashEqual } from './agent-messaging/internals.js';
 import { sha256 } from '../security/hash.js';
 import { ConflictError, NotFoundError, ForbiddenError, ValidationError } from '../http/errors.js';
-import { readFleetEngineState } from './engine-switch.js';
+import { ENGINE_DISABLED_FLAGS, readFleetEngineState } from './engine-switch.js';
+import { isTruthyFlagValue } from './settings.js';
 import { activeHostEngines } from './host-engine-policy.js';
 import { isEngine } from '../util/engine.js';
 import { messagingHostEligible } from './agent-messaging/eligibility.js';
@@ -666,12 +667,59 @@ export class SchedulesService {
     }
     return new Date(next).toISOString();
   }
+  /**
+   * Polled by every live session (every 5 s). One statement reads the bridge credential, binding, host, fleet flags,
+   * the governing schedule, an open prompt and the active persistent run; it used to be six to seven reads. The
+   * decisions and response shapes are unchanged.
+   */
   async sessionPolicy(sessionId: string, token: string) {
-    const [session] = await this.db
-      .select()
+    const flag = (name: string) => sql<string | null>`(SELECT ${versions.version} FROM ${versions} WHERE ${versions.name} = ${name} LIMIT 1)`;
+    const watchdogFree = sql`NOT EXISTS (SELECT 1 FROM agent_watchdogs w WHERE w.schedule_id = ${agentSchedules.id})`;
+    const [row] = await this.db
+      .select({
+        session: {
+          endedAt: agentSessions.endedAt, bridgeExpiresAt: agentSessions.bridgeExpiresAt,
+          bridgeTokenHash: agentSessions.bridgeTokenHash, agentBusAddressId: agentSessions.agentBusAddressId,
+          hostAuthFingerprint: agentSessions.hostAuthFingerprint, activeTurnId: agentSessions.activeTurnId,
+        },
+        address: {
+          id: agentBusAddresses.id, enabled: agentBusAddresses.enabled, archivedAt: agentBusAddresses.archivedAt,
+          currentSessionId: agentBusAddresses.currentSessionId, engine: agentBusAddresses.engine,
+          bindingGeneration: agentBusAddresses.bindingGeneration,
+        },
+        host: {
+          id: hosts.id, status: hosts.status, secure: hosts.secure, insecureEnabledUntil: hosts.insecureEnabledUntil,
+          apiKey: hosts.apiKey, apiKeyHash: hosts.apiKeyHash, engines: hosts.engines,
+        },
+        apiDisabled: flag('api_disabled'),
+        messagingEnabled: flag('agent_messaging_enabled'),
+        codexDisabled: flag(ENGINE_DISABLED_FLAGS.codex),
+        claudeDisabled: flag(ENGINE_DISABLED_FLAGS.claude),
+        grokDisabled: flag(ENGINE_DISABLED_FLAGS.grok),
+        schedule: sql<unknown>`(SELECT JSON_ARRAY(${agentSchedules.progressTimeoutSeconds}, ${agentSchedules.nextDueAt})
+          FROM ${agentSchedules}
+          WHERE ${agentSchedules.targetAddressId} = ${agentBusAddresses.id} AND ${agentSchedules.enabled} = 1 AND ${watchdogFree}
+            AND ${agentSchedules.persistent} = 1 AND ${agentSchedules.deletedAt} IS NULL
+          ORDER BY ${agentSchedules.progressTimeoutSeconds} ASC LIMIT 1)`,
+        openPrompt: sql<number>`EXISTS (SELECT 1 FROM ${agentPrompts}
+          WHERE ${agentPrompts.sessionId} = ${agentSessions.id} AND ${agentPrompts.status} = 'open')`,
+        // An accepted execution retains its snapshot even when future settings change.
+        activeRunTimeout: sql<number | null>`(SELECT ${agentScheduleRuns.progressTimeoutSeconds}
+          FROM ${agentScheduleRuns}
+          INNER JOIN ${agentSchedules} ON ${agentSchedules.id} = ${agentScheduleRuns.scheduleId}
+          LEFT JOIN ${agentBusMessages} ON ${agentBusMessages.id} = ${agentScheduleRuns.messageId}
+          WHERE ${agentScheduleRuns.targetAddressId} = ${agentBusAddresses.id} AND ${agentScheduleRuns.persistent} = 1
+            AND ${agentScheduleRuns.status} IN (${sql.join(activeStatuses.map((status) => sql`${status}`), sql`, `)})
+            AND (${agentSessions.activeTurnId} IS NOT NULL OR ${agentBusMessages.status} = 'accepted')
+            AND ${agentSchedules.enabled} = 1 AND ${watchdogFree} AND ${agentSchedules.deletedAt} IS NULL
+          ORDER BY ${agentScheduleRuns.progressTimeoutSeconds} ASC LIMIT 1)`,
+      })
       .from(agentSessions)
+      .leftJoin(agentBusAddresses, eq(agentBusAddresses.id, agentSessions.agentBusAddressId))
+      .leftJoin(hosts, eq(hosts.id, agentSessions.hostId))
       .where(eq(agentSessions.id, sessionId))
       .limit(1);
+    const session = row?.session;
     if (
       !session ||
       session.endedAt ||
@@ -679,72 +727,35 @@ export class SchedulesService {
       !safeHashEqual(session.bridgeTokenHash, sha256(token))
     )
       throw new ForbiddenError('Invalid session bridge', 'schedule_bridge_invalid');
-    const [address] = session.agentBusAddressId
-      ? await this.db
-          .select()
-          .from(agentBusAddresses)
-          .where(eq(agentBusAddresses.id, session.agentBusAddressId))
-          .limit(1)
-      : [];
+    const address = session.agentBusAddressId ? row.address : null;
     if (
-      !address ||
+      !address?.id ||
       !address.enabled ||
       address.archivedAt ||
       address.currentSessionId !== sessionId ||
-      !(await this.enabled(this.db))
+      row.apiDisabled === '1' ||
+      row.messagingEnabled !== '1'
     )
       return { progress_timeout_seconds: null };
-    const [host] = await this.db.select().from(hosts).where(eq(hosts.id, session.hostId));
+    const host = row.host;
+    const fleet = {
+      codex: !isTruthyFlagValue(row.codexDisabled),
+      claude: !isTruthyFlagValue(row.claudeDisabled),
+      grok: !isTruthyFlagValue(row.grokDisabled),
+    };
     if (
-      !host ||
+      !host?.id ||
       session.hostAuthFingerprint !== hostAuthFingerprint(host) ||
       !messagingHostEligible(host) ||
       !isEngine(address.engine) ||
-      !activeHostEngines(host.engines, await readFleetEngineState(this.db)).includes(address.engine)
+      !activeHostEngines(host.engines, fleet).includes(address.engine)
     )
       return { progress_timeout_seconds: null };
-    const [row] = await this.db
-      .select()
-      .from(agentSchedules)
-      .where(
-        and(
-          eq(agentSchedules.targetAddressId, address.id),
-          eq(agentSchedules.enabled, 1),
-          sql`NOT EXISTS (SELECT 1 FROM agent_watchdogs w WHERE w.schedule_id = ${agentSchedules.id})`,
-          eq(agentSchedules.persistent, 1),
-          isNull(agentSchedules.deletedAt),
-        ),
-      )
-      .orderBy(asc(agentSchedules.progressTimeoutSeconds))
-      .limit(1);
-    const [prompt] = await this.db
-      .select({ id: agentPrompts.id })
-      .from(agentPrompts)
-      .where(and(eq(agentPrompts.sessionId, sessionId), eq(agentPrompts.status, 'open')))
-      .limit(1);
-    const [activeRun] = await this.db
-      .select({ timeout: agentScheduleRuns.progressTimeoutSeconds })
-      .from(agentScheduleRuns)
-      .innerJoin(agentSchedules, eq(agentSchedules.id, agentScheduleRuns.scheduleId))
-      .leftJoin(agentBusMessages, eq(agentBusMessages.id, agentScheduleRuns.messageId))
-      .where(
-        and(
-          eq(agentScheduleRuns.targetAddressId, address.id),
-          eq(agentScheduleRuns.persistent, 1),
-          inArray(agentScheduleRuns.status, activeStatuses),
-          session.activeTurnId ? undefined : eq(agentBusMessages.status, 'accepted'),
-          eq(agentSchedules.enabled, 1),
-          sql`NOT EXISTS (SELECT 1 FROM agent_watchdogs w WHERE w.schedule_id = ${agentSchedules.id})`,
-          isNull(agentSchedules.deletedAt),
-        ),
-      )
-      .orderBy(asc(agentScheduleRuns.progressTimeoutSeconds))
-      .limit(1);
-    // An accepted execution retains its snapshot even when future settings change.
-    const timeout =
-      activeRun?.timeout ?? (session.activeTurnId && row?.nextDueAt ? row.progressTimeoutSeconds : null);
+    const schedule = row.schedule == null ? null : ((typeof row.schedule === 'string' ? JSON.parse(row.schedule) : row.schedule) as [number | null, string | null]);
+    const activeRun = row.activeRunTimeout == null ? null : Number(row.activeRunTimeout);
+    const timeout = activeRun ?? (session.activeTurnId && schedule?.[1] ? schedule[0] : null);
     return {
-      progress_timeout_seconds: prompt ? null : timeout,
+      progress_timeout_seconds: Number(row.openPrompt) ? null : timeout,
       binding_generation: address.bindingGeneration,
     };
   }

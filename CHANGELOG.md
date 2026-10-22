@@ -1,5 +1,7 @@
 # 2026-10-22
 
+- **One-statement session schedule policy.** The schedule-policy poll each live session sends every 5 seconds reads credential, binding, host, flags, governing schedule, open prompt and active run in one statement instead of six to seven. Outcomes and response shapes are unchanged.
+
 - **One-statement idle relay checks.** An idle relay poll is certified from one consistent read (relay credential, host, daemon gate, fleet flags, candidate addresses, daemon sessions and pending work) instead of four to five queries. Any uncertain, invalid or non-empty case keeps the existing path, errors and locked claim. Bridge and relay authentication read the Agent Messaging enable flag in the same statement as the credential. New indexes: `idx_agent_bus_addresses_relay` and the long-declared `idx_scope_member_session` (migration 0090).
 
 - **Avoid blocked FIFO relay transactions.** Idle relay peeks use the claim's strict ordering predicate, so accepted work and delayed queue heads do not repeatedly trigger locked empty claims. Expiry and routine cleanup remain eligible.

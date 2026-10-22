@@ -1,6 +1,6 @@
 import { randomUUID, randomBytes } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
-import { beforeAll, afterAll, afterEach, describe, expect, it } from 'vitest';
+import { beforeAll, afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   agentTaskResults,
   agentFreshStartGrants,
@@ -293,6 +293,20 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
       .where(eq(agentBusMessages.id, run!.messageId!));
     expect(message!.status).toBe('canceled');
     expect((await runs(schedule.id))[0]!.status).toBe('canceled');
+  });
+  it('answers the polled session policy in a single statement', async () => {
+    const target = await agent('codex');
+    await create(target.address.address);
+    const query = vi.spyOn(handle!.pool, 'query');
+    const execute = vi.spyOn(handle!.pool, 'execute');
+    try {
+      expect(await service.sessionPolicy(target.id, target.token)).toMatchObject({ progress_timeout_seconds: null });
+      expect(query.mock.calls.length + execute.mock.calls.length).toBe(1);
+    } finally {
+      query.mockRestore();
+      execute.mockRestore();
+    }
+    await expect(service.sessionPolicy(target.id, 'wrong-token')).rejects.toMatchObject({ code: 'schedule_bridge_invalid' });
   });
   it('running recovery keeps its timeout snapshot; pausing protects accepted work', async () => {
     const target = await agent('codex'),
