@@ -1587,7 +1587,9 @@ username match and cannot acquire daemon semantics by adding the suffix.
   expiry.
 - `POST /host/agent-relays/{id}/stop` — stop the generation and erase its token.
 - `POST /host/agent-relays/{id}/deliveries/claim` — long-poll for one eligible
-  dormant address delivery.
+  dormant address delivery. Empty polls wait for in-process message/admission events
+  with a two-second fallback for external changes. Each retry fully revalidates
+  credentials and admission; no authorization or empty-queue result is cached.
 - `POST /host/agent-relays/{id}/deliveries/{messageId}/renew` — extend the
   relay-owned lease.
 - `POST /host/agent-relays/{id}/deliveries/{messageId}/reply` — atomically add

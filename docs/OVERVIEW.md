@@ -1,5 +1,9 @@
 # Overview
 
+Idle agent-relay delivery waits use message notifications and a two-second
+reconciliation fallback, avoiding a full database claim check every 400 ms.
+Credentials and delivery admission are revalidated on every attempt for all engines.
+
 ## Workflows and shared runs
 
 Definitions may require source receipts before linked task claims. Each claiming agent

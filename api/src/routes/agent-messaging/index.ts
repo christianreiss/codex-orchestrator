@@ -9,6 +9,7 @@ import { z } from 'zod';
 
 import { ForbiddenError, ValidationError } from '../../http/errors.js';
 import { clientGone } from '../../http/long-poll.js';
+import { relayLongPoll } from '../../http/relay-long-poll.js';
 import { createAdminEventsService } from '../../services/admin-events.js';
 import {
   createAgentMessagingService,
@@ -562,11 +563,13 @@ export async function registerAgentMessagingRoutes(
     const token = requireToken(req, RELAY_TOKEN_HEADER, 'agent_relay_token_required');
     const body = z.object({ claim_id: z.string().uuid(), wait_seconds: z.number().int().min(0).max(25).optional() }).strict().parse(req.body ?? {});
     const deadline = Date.now() + (body.wait_seconds ?? 20) * 1000;
-    while (true) {
-      const delivery = await messaging.claimForRelay(id, token, body.claim_id);
-      if (delivery || Date.now() >= deadline || clientGone(reply)) return { delivery };
-      await delay(400);
-    }
+    const delivery = await relayLongPoll(
+      () => messaging.claimForRelay(id, token, body.claim_id),
+      deadline,
+      () => clientGone(reply),
+      reply.raw,
+    );
+    return { delivery };
   });
   app.post('/host/agent-relays/:id/deliveries/:messageId/renew', async (req) => {
     const id = stringParam(req.params, 'id');
