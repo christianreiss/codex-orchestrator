@@ -8,42 +8,72 @@ function wakesRelays(type: string): boolean {
   return type === 'agent_messaging.message.changed' || /^(settings\.|engine\.|agent_messaging\.state\.)/.test(type);
 }
 
-// Process-wide count of those events: a shared idle answer is only reusable while it has not moved.
-let wakeRevision = 0;
+// Admission changes wake nobody, but no waiter may join a shared check that started before one of them.
+function invalidatesSharedIdle(type: string): boolean {
+  return wakesRelays(type) || type === 'agent_messaging.relay.changed' || /^host\.(updated|deleted|pruned)$/.test(type);
+}
+
+let shareRevision = 0;
 wsPublisher.subscribe(({ type }) => {
-  if (wakesRelays(type)) wakeRevision++;
+  if (invalidatesSharedIdle(type)) shareRevision++;
 });
 
-interface IdleCheck {
-  revision: number;
-  startedAt: number;
-  idle: Promise<boolean>;
-}
-const idleChecks = new Map<string, IdleCheck>();
+const inFlight = new Map<string, { revision: number; idle: Promise<boolean> }>();
 
 /**
  * A daemon relay parks one waiter per execution slot on the same credential, and every fallback repeated the identical
- * admission and pending-work check. Waiters share only a proven-idle answer, only from the same wake revision and only
- * within one fallback period, so a change without an event is still seen within one period. Work or an error sends
- * every waiter down its own fenced claim. Returns when the shared check started, or null when the caller must poll.
+ * admission and pending-work check. Parked waiters of one credential now wake on one shared grid timer and join the
+ * check still in flight. A settled answer is never reused, and nothing started before an admission or wake event is
+ * joined after it. True means proven idle; false or an error sends the caller down its own fenced claim.
  */
-async function sharedIdle(key: string, check: () => Promise<boolean>): Promise<number | null> {
-  const now = Date.now();
-  let current = idleChecks.get(key);
-  if (!current || current.revision !== wakeRevision || now - current.startedAt >= FALLBACK_MS) {
-    for (const [stale, entry] of idleChecks) if (now - entry.startedAt >= FALLBACK_MS) idleChecks.delete(stale);
-    const entry: IdleCheck = { revision: wakeRevision, startedAt: now, idle: check() };
-    entry.idle.catch(() => {
-      if (idleChecks.get(key) === entry) idleChecks.delete(key);
-    });
-    idleChecks.set(key, entry);
-    current = entry;
+function sharedIdle(key: string, check: () => Promise<boolean>): Promise<boolean> {
+  let entry = inFlight.get(key);
+  if (!entry || entry.revision !== shareRevision) {
+    const created = { revision: shareRevision, idle: check() };
+    inFlight.set(key, created);
+    void created.idle
+      .finally(() => {
+        if (inFlight.get(key) === created) inFlight.delete(key);
+      })
+      .catch(() => undefined);
+    entry = created;
   }
-  try {
-    return (await current.idle) ? current.startedAt : null;
-  } catch {
-    return null;
+  return entry.idle.catch(() => false);
+}
+
+/** Milliseconds until the next grid point of `key`, in (0, FALLBACK_MS]; the phase is stable per credential. */
+export function relayGridDelay(key: string, now: number): number {
+  let phase = 0;
+  for (let i = 0; i < key.length; i++) phase = (phase * 31 + key.charCodeAt(i)) % FALLBACK_MS;
+  return (phase - (now % FALLBACK_MS) + FALLBACK_MS) % FALLBACK_MS || FALLBACK_MS;
+}
+
+const gridTicks = new Map<string, { waiters: Set<() => void>; timer: ReturnType<typeof setTimeout> }>();
+
+/** Parks `release` on the key's next grid point. One timer releases every waiter of the key in the same tick. */
+function onGrid(key: string, release: () => void): () => void {
+  let tick = gridTicks.get(key);
+  if (!tick) {
+    const waiters = new Set<() => void>();
+    const created = {
+      waiters,
+      timer: setTimeout(() => {
+        if (gridTicks.get(key) === created) gridTicks.delete(key);
+        for (const waiter of [...waiters]) waiter();
+      }, relayGridDelay(key, Date.now())),
+    };
+    gridTicks.set(key, created);
+    tick = created;
   }
+  const parked = tick;
+  parked.waiters.add(release);
+  return () => {
+    parked.waiters.delete(release);
+    if (parked.waiters.size === 0 && gridTicks.get(key) === parked) {
+      clearTimeout(parked.timer);
+      gridTicks.delete(key);
+    }
+  };
 }
 
 /** Events only hint that work changed; every retry rechecks durable admission. */
@@ -71,29 +101,31 @@ export async function relayLongPoll<T>(
     wake?.();
   });
   try {
+    // A request's first check is always its own, so it never inherits another waiter's admission.
+    let first = true;
     while (true) {
       const observed = revision;
-      const idleSince = idle ? await sharedIdle(idle.key, idle.check) : null;
-      const result = idleSince === null ? await poll() : null;
+      const proven = idle && !first ? await sharedIdle(idle.key, idle.check) : false;
+      first = false;
+      const result = proven ? null : await poll();
       if (result || Date.now() >= deadline || disconnected || gone()) return result;
       // A send may have committed while the empty query was in flight.
       if (revision !== observed) continue;
-      // A shared answer keeps its own fallback grid, so siblings recheck together instead of drifting apart.
-      const wait =
-        idleSince !== null && idleSince + FALLBACK_MS > Date.now() ? idleSince + FALLBACK_MS - Date.now() : FALLBACK_MS;
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(
-          () => {
-            wake = undefined;
-            resolve();
-          },
-          Math.max(0, Math.min(wait, deadline - Date.now())),
-        );
-        wake = () => {
-          clearTimeout(timer);
+        let cancel = () => {};
+        const done = () => {
+          cancel();
           wake = undefined;
           resolve();
         };
+        const remaining = Math.max(0, deadline - Date.now());
+        if (idle && relayGridDelay(idle.key, Date.now()) < remaining) {
+          cancel = onGrid(idle.key, done);
+        } else {
+          const timer = setTimeout(done, Math.min(FALLBACK_MS, remaining));
+          cancel = () => clearTimeout(timer);
+        }
+        wake = done;
       });
       if (Date.now() >= deadline || disconnected || gone()) return null;
     }
