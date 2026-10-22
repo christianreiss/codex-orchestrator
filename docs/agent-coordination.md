@@ -43,6 +43,17 @@ one project room without creating a board. Bindings apply to the repository,
 not just the calling session. An update re-evaluates all affected memberships.
 Names and paths are labels, never authority. Internal advisor hosts stay hidden.
 
+Sessions on a server-owned host (`hosts.internal_role`, the Fleet Advisor) are
+outside scope coordination: they join no room and their host is never a claim
+target. Registration therefore returns no `scope_context` for them (so the wrapper
+adds no claim-before-write instruction), `agent_context_get` returns
+`enabled:false` with `reason:"internal_host"` even while the fleet switch is on, and
+new claims, room reads/sends and context updates return 403
+`agent_coordination_not_applicable` rather than `agent_coordination_disabled` or a
+`Target host not found` for their own host. Claim status and release stay available.
+The advisor role prompt states the matching rule: a unique file name in the shared
+working directory is the only ownership rule for fetched transfers.
+
 Presence is derived from the existing session heartbeat (normally 15s interval,
 45s freshness). Multiple sessions may be present in one checkout. Clean finish
 leaves immediately; missing heartbeat produces connection_lost, and reconnect

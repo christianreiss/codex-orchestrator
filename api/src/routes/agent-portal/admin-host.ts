@@ -27,6 +27,7 @@ import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 import { readFleetEngineState } from '../../services/engine-switch.js';
 import { createAgentMessagingService, messagingHostEligible } from '../../services/agent-messaging.js';
 import { WATCHDOG_FAILURES } from '../../services/watchdog-lifecycle.js';
+import { isInternalHost } from '../../services/internal-hosts.js';
 
 const BRIDGE_TOKEN_HEADER = 'x-agent-bridge-token';
 const JSON_OBJECT_SCHEMA = z.object({}).catchall(z.unknown());
@@ -199,7 +200,10 @@ export async function registerAgentPortalAdminHostRoutes(
     }
     const coordination = new AgentCoordination(ctx.db, ctx.env, ctx.keyring, messaging);
     let scopeContext: Record<string, unknown> | null = null;
-    if (messagingResult.enabled === true) {
+    // Server-owned hosts (the Fleet Advisor) are outside scope coordination. Any
+    // scope_context makes the wrapper prepend a claim-before-write instruction
+    // the session could never satisfy, so none is sent.
+    if (messagingResult.enabled === true && !isInternalHost(host)) {
       let coordinationEnabled: boolean | undefined;
       try {
         coordinationEnabled = await coordination.enabled();
