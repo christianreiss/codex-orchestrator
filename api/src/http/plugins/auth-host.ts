@@ -1,4 +1,4 @@
-import { assertHostNotExpired, recordHostContact, pruneHosts } from '../../services/host-lifecycle.js';
+import { assertHostNotExpired, recordHostContact } from '../../services/host-lifecycle.js';
 import fp from 'fastify-plugin';
 import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import { eq } from 'drizzle-orm';
@@ -36,18 +36,15 @@ export function makeAuthHostPlugin(db: Database) {
         return legacy[0] ?? null;
       });
 
-      app.addHook('onResponse', async (req, reply) => {
-        if (!req.authHost || req.method === 'DELETE' || reply.statusCode >= 400) return;
-        await pruneHosts(db);
-      });
-
+      // The retention worker already prunes hosts independently of traffic.
+      // A successful request must not scan the entire fleet on its way out.
       app.decorate('requireHost', async function requireHost(req: FastifyRequest) {
         const host = await app.resolveHostFromKey(req);
         if (!host) throw new UnauthorizedError('Invalid API key', 'invalid_api_key');
         if (host.status && host.status !== 'active') {
           throw new UnauthorizedError(`Host ${host.status}`, `host_${host.status}`);
         }
-        req.authHost = req.method === 'DELETE' ? host : await recordHostContact(db, host);
+        req.authHost = req.method === 'DELETE' ? host : await recordHostContact(db, host, new Date(), true);
       });
     },
     { name: 'auth-host' },

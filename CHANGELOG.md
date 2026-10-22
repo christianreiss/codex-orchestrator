@@ -1,5 +1,7 @@
 # 2026-10-22
 
+- **Keep fleet scans out of successful requests.** Host cleanup runs in the existing retention worker and explicit registration/admin passes, instead of scanning every host after each authenticated response. Expired credentials still reject immediately.
+
 - **Event-driven daemon offers.** Committed starts and resumptions wake the connected daemon immediately. Empty fallback checks run every 15 seconds and read only the operations queue; host authentication and locked admission still run before offering actual work. The existing heartbeat and expiry sweep retain their cadence.
 
 - **Less native-control heartbeat locking.** Valid idle polls use a fresh binding snapshot and checkpoint readiness every seven seconds instead of writing on every three-second poll. Stop requests and reports retain the existing locked path and the 15-second availability window.

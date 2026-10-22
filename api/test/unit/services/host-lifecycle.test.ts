@@ -87,17 +87,19 @@ describe('host lifecycle', () => {
     const db = setup([row({ apiCalls: 5, createdAt: '2026-08-01T00:00:00Z', lastContactAt: '2026-08-01T00:00:00Z', updatedAt: now.toISOString(), lastRefresh: now.toISOString() })]);
     expect(await pruneHosts(db as never, { getInt: async () => 30 } as unknown as SettingsService, now)).toBe(1);
   });
-  it('wires successful authenticated responses into pruning and rejects expired credentials', async () => {
+  it('rejects expired credentials immediately while leaving cleanup to the retention sweep', async () => {
     const db = setup([row({ createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), apiCalls: 1, apiKeyHash: hashApiKey('good'), expiresAt: new Date(Date.now()+60_000).toISOString() }), row({ id: 2, apiKeyHash: hashApiKey('expired'), expiresAt: '2020-01-01T00:00:00Z' }), row({ id: 3 })]);
     const app = Fastify(); await app.register(makeAuthHostPlugin(db as any));
     app.get('/probe', { preHandler: app.requireHost }, async () => ({ ok: true }));
     try {
       const response = await app.inject({ url: '/probe', headers: { 'x-api-key': 'good' } });
       expect(response.statusCode).toBe(200);
-      expect(db.tables.get(hosts)?.map(h => h.id)).toEqual([1]);
+      expect(db.tables.get(hosts)?.map(h => h.id)).toEqual([1, 2, 3]);
       const expiry = Date.parse(db.tables.get(hosts)![0]!.expiresAt as string);
       expect(expiry - Date.now()).toBeGreaterThan(7190_000);
       expect((await app.inject({ url: '/probe', headers: { 'x-api-key': 'expired' } })).statusCode).toBe(401);
+      await pruneHosts(db as never, settings);
+      expect(db.tables.get(hosts)?.map(h => h.id)).toEqual([1]);
     } finally { await app.close(); }
   });
 });

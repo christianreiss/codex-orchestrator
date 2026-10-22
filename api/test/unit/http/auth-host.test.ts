@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { makeAuthHostPlugin } from '../../../src/http/plugins/auth-host.js';
 import { createDbFake } from '../../helpers/db-fake.js';
@@ -31,6 +31,7 @@ function hostRow(overrides: Partial<Host> = {}): Host {
 
 interface Probe {
   app: FastifyInstance;
+  db: ReturnType<typeof createDbFake>;
   /** Errors escaping `requireHost`, captured so `instanceof` stays assertable. */
   errors: unknown[];
 }
@@ -55,7 +56,7 @@ async function buildProbe(rows: Host[]): Promise<Probe> {
     return reply.code(status).send({ code });
   });
   await app.ready();
-  return { app, errors };
+  return { app, errors, db };
 }
 
 async function resolvedId(
@@ -78,6 +79,14 @@ async function probe(
 const KEY = 'sk-codex-live-key';
 
 describe('auth-host key resolution', () => {
+  it('does not reread a recent admission row or scan the fleet after a successful request', async () => {
+    const { app, db } = await buildProbe([hostRow({ apiKeyHash: hashApiKey(KEY), lastContactAt: new Date().toISOString() })]);
+    const select = vi.spyOn(db, 'select');
+    try {
+      expect((await probe(app, { 'x-api-key': KEY })).statusCode).toBe(200);
+      expect(select).toHaveBeenCalledTimes(1);
+    } finally { select.mockRestore(); await app.close(); }
+  });
   it('resolves a host by api_key_hash and populates req.authHost', async () => {
     const { app } = await buildProbe([hostRow({ apiKeyHash: hashApiKey(KEY) })]);
 
