@@ -958,30 +958,23 @@ export class HostDaemonService {
   async sweep(hostId: number) {
     const config = await this.settings(hostId);
     const work = await this.db.select().from(sessions).where(eq(sessions.hostId, hostId));
-    for (const session of work) {
-      if (
-        ['closed', 'failed', 'unknown'].includes(session.status) &&
-        Date.now() - Date.parse(session.lastActivityAt) >
-          this.ctx.env.AGENT_PORTAL_RETENTION_HOURS * 3_600_000
-      ) {
-        await this.db
-          .update(operations)
-          .set({ promptEnc: '', resultEnc: null, claimId: null, status: 'retired' })
-          .where(
-            and(
-              eq(operations.sessionId, session.id),
-              inArray(operations.status, [
-                'completed',
-                'failed',
-                'unknown',
-                'stopped',
-                'canceled',
-                'expired',
-              ]),
-            ),
-          );
-      }
+    const expiredSessions = work.filter(session =>
+      ['closed', 'failed', 'unknown'].includes(session.status) &&
+      Date.now() - Date.parse(session.lastActivityAt) > this.ctx.env.AGENT_PORTAL_RETENTION_HOURS * 3_600_000,
+    ).map(session => session.id);
+    if (expiredSessions.length) {
+      const terminal = ['completed', 'failed', 'unknown', 'stopped', 'canceled', 'expired'];
+      // Already-retired tombstones must not produce one zero-row UPDATE per
+      // historical session on every daemon heartbeat. Keep IDs for retry safety.
+      const eligible = await this.db.select({ id: operations.id }).from(operations).where(and(
+        eq(operations.hostId, hostId), inArray(operations.sessionId, expiredSessions), inArray(operations.status, terminal),
+      )).orderBy(asc(operations.id)).limit(500);
+      if (eligible.length) await this.db.update(operations)
+        .set({ promptEnc: '', resultEnc: null, claimId: null, status: 'retired' })
+        .where(and(eq(operations.hostId, hostId), inArray(operations.id, eligible.map(operation => operation.id)), inArray(operations.status, terminal)));
+    }
 
+    for (const session of work) {
       if (session.status === 'queued') {
         await this.db.transaction(async (tx) => {
           await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, hostId)).for('update');

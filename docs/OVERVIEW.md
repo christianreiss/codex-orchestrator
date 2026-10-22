@@ -1,5 +1,10 @@
 # Overview
 
+Permanent-host contact timestamps are checkpointed every 30 seconds, with fresh
+database admission checks on every contact. Daemon cleanup batches eligible old
+operation content and preserves retry/outcome tombstones. Retired rows do not
+trigger repeated cleanup writes.
+
 Idle agent-relay delivery waits use message notifications and a two-second
 reconciliation fallback, avoiding a full database claim check every 400 ms.
 Credentials and delivery admission are revalidated on every attempt for all engines.

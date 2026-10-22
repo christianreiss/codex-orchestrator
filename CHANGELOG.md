@@ -1,5 +1,7 @@
 # 2026-10-22
 
+- **Less idle persistence.** Permanent hosts checkpoint contact at most once per 30 seconds while still checking current credentials/status on every contact; temporary-host expiry renewal is unchanged. Daemon retention scrubs eligible operations in batches and stops issuing repeated zero-row retirement writes for old tombstones.
+
 - **Relay polling CPU hotfix.** Idle relay long polls wait for message events with a two-second reconciliation fallback instead of rebuilding and executing the full claim query chain every 400 ms. Every retry still checks credentials, host/engine admission and delivery fences; host, daemon and address heartbeat events do not wake the loop.
 
 - **Claim renewal resilience (cxx 0.9.120).** Resource-claim renewal no longer lapses after one transient error, a slow sibling renewal or failed heartbeats; each held claim renews independently every 15 s, including claims taken by native child agents. Only a definitive non-active answer stops renewal.

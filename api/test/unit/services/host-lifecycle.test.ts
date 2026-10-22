@@ -16,6 +16,41 @@ function setup(rows: Host[]) {
   const db = createDbFake(); db.tables.set(hosts, rows as any); return db;
 }
 describe('host lifecycle', () => {
+  it('checkpoints permanent-host contact once per 30 seconds without caching admission', async () => {
+    const live = row({ apiCalls: 1 });
+    const db = setup([live]);
+    await recordHostContact(db as any, live, now);
+    const transactions = db.transactions.length;
+    for (let i = 1; i < 30; i++) await recordHostContact(db as any, live, new Date(now.getTime() + i * 1000));
+    expect(db.updates.filter(update => update.table === hosts)).toHaveLength(1);
+    expect(db.transactions).toHaveLength(transactions);
+    await recordHostContact(db as any, live, new Date(now.getTime() + 30_000));
+    expect(db.updates.filter(update => update.table === hosts)).toHaveLength(2);
+    db.tables.set(hosts, [row({ apiKeyHash: 'rotated', lastContactAt: now.toISOString() }) as any]);
+    await expect(recordHostContact(db as any, live, now)).rejects.toMatchObject({ code: 'invalid_api_key' });
+    db.tables.set(hosts, [row({ status: 'disabled', lastContactAt: now.toISOString() }) as any]);
+    await expect(recordHostContact(db as any, live, now)).rejects.toMatchObject({ code: 'host_disabled' });
+    db.tables.set(hosts, []);
+    await expect(recordHostContact(db as any, live, now)).rejects.toMatchObject({ code: 'invalid_api_key' });
+  });
+  it('rechecks checkpoint and key changes after acquiring the write lock', async () => {
+    const live = row({ apiCalls: 1 });
+    const db = setup([live]);
+    const transaction = db.transaction.bind(db);
+    vi.spyOn(db, 'transaction').mockImplementationOnce(async cb => {
+      db.tables.set(hosts, [{ ...live, lastContactAt: now.toISOString() } as any]);
+      return transaction(cb);
+    });
+    await recordHostContact(db as any, live, now);
+    expect(db.updates).toHaveLength(0);
+    db.tables.set(hosts, [live as any]);
+    vi.spyOn(db, 'transaction').mockImplementationOnce(async cb => {
+      db.tables.set(hosts, [{ ...live, apiKeyHash: 'rotated' } as any]);
+      return transaction(cb);
+    });
+    await expect(recordHostContact(db as any, live, now)).rejects.toMatchObject({ code: 'invalid_api_key' });
+    expect(db.updates).toHaveLength(0);
+  });
   it('prunes abandoned provisioning and expired hosts even when inactivity pruning is off', async () => {
     const db = setup([row(), row({ id: 2, apiCalls: 5, expiresAt: '2026-10-11T15:59:59Z' }), row({ id: 3, createdAt: '2026-10-11T15:31:00Z' })]);
     for (const table of [installTokens, hostUsers, hostAuthStates, hostAuthDigests]) db.tables.set(table, [{ hostId: 1 }, { hostId: 2 }, { hostId: 3 }]);

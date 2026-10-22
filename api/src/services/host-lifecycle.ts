@@ -8,6 +8,21 @@ import { SettingsService } from './settings.js';
 import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 
 export const TEMPORARY_HOST_IDLE_SECONDS = 7200;
+const CONTACT_CHECKPOINT_MS = 30_000;
+
+function contactCheckpointDue(host: Host, now: Date): boolean {
+  const age = now.getTime() - Date.parse(host.lastContactAt ?? '');
+  return Boolean(host.expiresAt) || !Number.isFinite(age) || age < 0 || age >= CONTACT_CHECKPOINT_MS;
+}
+
+function validateContact(current: Host | undefined, authenticated: Host, now: Date): asserts current is Host {
+  if (!current) throw new UnauthorizedError('Invalid API key', 'invalid_api_key');
+  if (current.status && current.status !== 'active') throw new UnauthorizedError(`Host ${current.status}`, `host_${current.status}`);
+  if (current.apiKeyHash !== authenticated.apiKeyHash || current.apiKey !== authenticated.apiKey) {
+    throw new UnauthorizedError('Host key changed', 'invalid_api_key');
+  }
+  assertHostNotExpired(current, now);
+}
 
 export function assertHostNotExpired(host: Host, now = new Date()): void {
   if (host.expiresAt && Date.parse(host.expiresAt) <= now.getTime()) {
@@ -70,14 +85,17 @@ export async function pruneHosts(db: Database, settings = new SettingsService(db
 
 /** A valid authenticated contact; it cannot resurrect an expired/deleted host. */
 export async function recordHostContact(db: Database, host: Host, now = new Date()): Promise<Host> {
+  // Revalidate against a fresh durable row, never an in-memory auth cache.
+  // Only a checkpoint that actually writes needs the contact/prune row lock.
+  if (!host.expiresAt) {
+    const [current] = await db.select().from(hosts).where(eq(hosts.id, host.id)).limit(1);
+    validateContact(current, host, now);
+    if (!contactCheckpointDue(current, now)) return { ...current };
+  }
   return db.transaction(async (tx) => {
     const [current] = await tx.select().from(hosts).where(eq(hosts.id, host.id)).limit(1).for('update');
-    if (!current) throw new UnauthorizedError('Invalid API key', 'invalid_api_key');
-    if (current.status && current.status !== 'active') throw new UnauthorizedError(`Host ${current.status}`, `host_${current.status}`);
-    if (current.apiKeyHash !== host.apiKeyHash || current.apiKey !== host.apiKey) {
-      throw new UnauthorizedError('Host key changed', 'invalid_api_key');
-    }
-    assertHostNotExpired(current, now);
+    validateContact(current, host, now);
+    if (!contactCheckpointDue(current, now)) return { ...current };
     const patch = {
       updatedAt: isoOffsetSeconds(0, now),
       lastContactAt: isoOffsetSeconds(0, now),

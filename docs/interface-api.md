@@ -3056,6 +3056,10 @@ push subscription is introduced.
 `GET /admin/hosts` and `GET /admin/hosts/{id}/detail` add `presence` (`online|offline`),
 `presence_heartbeat_at`, `presence_observed_at`, `presence_fresh_seconds` (45), and
 `last_contact_at`. Online requires a fresh bound agent heartbeat or connected communicator.
+Permanent-host authentication checkpoints `last_contact_at` at 30-second intervals;
+it is approximate contact history, not a per-request ledger. Current credentials,
+status and expiry are checked on every contact. Temporary-host sliding expiry still
+renews on every valid contact under the host lock.
 It is independent of provider authentication readiness. Administrative edits and provider
 refreshes never update `last_contact_at`; legacy timestamps remain for compatibility.
 Host inactivity pruning uses genuine contact, falling back to creation when unknown. An

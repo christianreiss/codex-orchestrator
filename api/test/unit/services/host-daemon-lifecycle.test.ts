@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyRequest } from 'fastify';
 import { registerHostDaemonRoutes } from '../../../src/routes/host-daemon.js';
 import { createAgentMessagingService } from '../../../src/services/agent-messaging.js';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HostDaemonService } from '../../../src/services/host-daemon/service.js';
 import { daemonSettingsSchema } from '../../../src/services/host-daemon/policy.js';
 import {
@@ -387,6 +387,9 @@ describe('host daemon service decisions', () => {
       claimId: null,
     });
     expect(row(hostDaemonOperations).clientKey).toBeTruthy();
+    const writes = fake.updates.filter(update => update.table === hostDaemonOperations).length;
+    for (let i = 0; i < 10; i++) await service.sweep(1);
+    expect(fake.updates.filter(update => update.table === hostDaemonOperations)).toHaveLength(writes);
   });
   it('preserves questions until their deadline', async () => {
     const op = await running();
@@ -401,6 +404,31 @@ describe('host daemon service decisions', () => {
     row(agentPrompts).createdAt = new Date(Date.now() - 86_401_000).toISOString();
     await service.sweep(1);
     expect((await service.session(op.session_id)).status).toBe('closed');
+  });
+  it('retires bounded batches without losing progress or touching active work', async () => {
+    fake.tables.set(hostDaemonSessions, [{ id: 'old', hostId: 1, status: 'closed', lastActivityAt: '2000-01-01T00:00:00Z' }]);
+    fake.tables.set(hostDaemonOperations, Array.from({ length: 501 }, (_, i) => ({
+      id: String(i).padStart(4, '0'), hostId: 1, sessionId: 'old', status: 'completed', promptEnc: 'content', resultEnc: 'result', claimId: 'claim',
+    })).concat([{ id: 'active', hostId: 1, sessionId: 'old', status: 'running', promptEnc: 'active', resultEnc: 'result', claimId: 'claim' }]));
+    await service.sweep(1);
+    expect(fake.tables.get(hostDaemonOperations)!.filter(op => op.status === 'retired')).toHaveLength(500);
+    await service.sweep(1);
+    expect(fake.tables.get(hostDaemonOperations)!.filter(op => op.status === 'retired')).toHaveLength(501);
+    expect(fake.tables.get(hostDaemonOperations)!.find(op => op.id === 'active')).toMatchObject({ status: 'running', promptEnc: 'active' });
+    const writes = fake.updates.length;
+    await service.sweep(1);
+    expect(fake.updates).toHaveLength(writes);
+  });
+  it('rechecks operation status before scrubbing a selected batch', async () => {
+    fake.tables.set(hostDaemonSessions, [{ id: 'old', hostId: 1, status: 'unknown', lastActivityAt: '2000-01-01T00:00:00Z' }]);
+    fake.tables.set(hostDaemonOperations, [{ id: 'op', hostId: 1, sessionId: 'old', status: 'unknown', promptEnc: 'preserve' }]);
+    const update = fake.update.bind(fake);
+    vi.spyOn(fake, 'update').mockImplementation(table => {
+      if (table === hostDaemonOperations) row(hostDaemonOperations).status = 'running';
+      return update(table);
+    });
+    await service.sweep(1);
+    expect(row(hostDaemonOperations)).toMatchObject({ status: 'running', promptEnc: 'preserve' });
   });
   it('binds peer resumes and ignores receipts for older turns', async () => {
     const op = await running();
