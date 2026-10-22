@@ -76,7 +76,8 @@ History is encrypted at rest. Chat is persisted and fan-out queued atomically un
 the bus gate; routine events are collected by a two-second dispatcher. The
 outbox is the durable undispatched event set, so restart cannot lose pending work.
 A background tick first observes all membership, host/engine eligibility, title,
-binding and active-claim inputs in one fresh database snapshot. While those inputs
+binding and active-claim inputs in one fresh database snapshot. Active-member session IDs
+are selected as a set, avoiding a dependent membership scan per historical session. While those inputs
 are unchanged and no event is due, it skips the locked reconciliation transaction.
 Fresh heartbeats and unexpired claim renewals do not themselves require a sweep;
 presence/claim expiry still changes the observed input. A certificate is remembered

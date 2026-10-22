@@ -58,9 +58,8 @@ export async function coordinationTickInput(
       'title', (SELECT ${agentEvents.payloadEnc} FROM ${agentEvents}
         WHERE ${sql.identifier('agent_events')}.${sql.identifier('session_id')} = ${sql.identifier('agent_sessions')}.${sql.identifier('id')} AND ${agentEvents.eventType} = 'session_named'
         ORDER BY ${agentEvents.id} DESC LIMIT 1)
-    )) FROM ${agentSessions} WHERE ${agentSessions.endedAt} IS NULL OR EXISTS (
-      SELECT 1 FROM ${agentScopeMembers} WHERE ${sql.identifier('agent_scope_members')}.${sql.identifier('session_id')} = ${sql.identifier('agent_sessions')}.${sql.identifier('id')}
-        AND ${agentScopeMembers.state} = 'active'))`,
+    )) FROM ${agentSessions} WHERE ${agentSessions.endedAt} IS NULL OR ${sql.identifier('agent_sessions')}.${sql.identifier('id')} IN (
+      SELECT ${agentScopeMembers.sessionId} FROM ${agentScopeMembers} WHERE ${agentScopeMembers.state} = 'active'))`,
       hosts: sql<unknown>`(SELECT JSON_ARRAYAGG(JSON_OBJECT(
       'id', ${hosts.id}, 'fqdn', ${hosts.fqdn}, 'status', ${hosts.status}, 'internalRole', ${hosts.internalRole},
       'engines', ${hosts.engines}, 'eligible', (${hosts.status} = 'active' AND

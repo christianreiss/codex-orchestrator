@@ -989,6 +989,24 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
     }
   });
 
+  it('observes ended active members but omits retired historical sessions', async () => {
+    const a = await register('grok');
+    await service.context(a.id, a.token);
+    await handle!.db.update(agentSessions).set({ endedAt: new Date().toISOString() })
+      .where(eq(agentSessions.id, a.id));
+    const before = await coordinationTickInput(handle!.db, env);
+    await handle!.db.update(agentSessions).set({ launchName: 'Ended active member' })
+      .where(eq(agentSessions.id, a.id));
+    const changed = await coordinationTickInput(handle!.db, env);
+    expect(changed!.fingerprint).not.toBe(before!.fingerprint);
+    await service.tick();
+    expect(await handle!.db.select().from(agentScopeMembers).where(and(eq(agentScopeMembers.sessionId, a.id), eq(agentScopeMembers.state, 'active')))).toHaveLength(0);
+    const retired = await coordinationTickInput(handle!.db, env);
+    await handle!.db.update(agentSessions).set({ launchName: 'Ignored historical member' })
+      .where(eq(agentSessions.id, a.id));
+    expect((await coordinationTickInput(handle!.db, env))!.fingerprint).toBe(retired!.fingerprint);
+  });
+
   it('uses the exact inclusive insecure-window boundary in the idle input proof', async () => {
     const deadline = Math.ceil(Date.now() / 1000) * 1000 + 5000;
     await handle!.db

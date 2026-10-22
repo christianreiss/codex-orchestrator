@@ -1,5 +1,7 @@
 # 2026-10-22
 
+- **Bound coordination snapshot scans.** Active membership IDs are selected as a set rather than rescanning all membership rows for each historical session. Ended sessions with active membership remain visible for cleanup.
+
 - **Shared relay idle checks.** Parallel long polls for the same credential share only an in-flight empty-queue check on a common two-second timer. Every new request authenticates independently; nonempty queues still use separate fenced claims and retain all execution slots.
 
 - **Skip unchanged coordination sweeps.** Background reconciliation observes its relevant inputs in one fresh database snapshot and skips the locked transaction while they are unchanged. Presence and claim deadlines, title/binding changes and undispatched events still trigger reconciliation. The remembered input comes only from a successfully committed reconciliation snapshot.
