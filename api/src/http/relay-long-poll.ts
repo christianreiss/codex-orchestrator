@@ -19,10 +19,11 @@ export async function relayLongPoll<T>(
   };
   connection?.on('close', disconnect);
   const unsubscribe = wsPublisher.subscribe(({ type }) => {
-    // Heartbeats/address telemetry are deliberately excluded: they are not work.
+    // Host/daemon/address telemetry is not work. Fleet heartbeats otherwise
+    // wake every relay and recreate the SQL polling amplification.
     if (
       type !== 'agent_messaging.message.changed' &&
-      !/^(settings\.|engine\.|host\.|agent_messaging\.state\.)/.test(type)
+      !/^(settings\.|engine\.|agent_messaging\.state\.)/.test(type)
     )
       return;
     revision++;

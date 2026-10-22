@@ -38,6 +38,8 @@ it('ignores routine heartbeat events and honors an exact deadline', async () => 
   const result = relayLongPoll(poll, Date.now() + 2500, () => false);
   await vi.advanceTimersByTimeAsync(100);
   wsPublisher.publish('agent_messaging.address.changed', {});
+  wsPublisher.publish('host.daemon.changed', { host_id: 1 });
+  wsPublisher.publish('host.updated', { id: 1, source: 'daemon_window' });
   await vi.advanceTimersByTimeAsync(100);
   expect(poll).toHaveBeenCalledTimes(1);
   await vi.advanceTimersByTimeAsync(2300);
