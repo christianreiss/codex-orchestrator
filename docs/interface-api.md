@@ -827,7 +827,20 @@ All three engine config GET/store routes share the revision contract: `revision`
   owner, admin, or fleet role.
   Registration takes its engine from MCP dispatch. When `username` is omitted,
   a unique fresh live address matching the host, engine and worktree directory
-  supplies it; missing or ambiguous matches remain unbound. Live bound sessions
+  supplies it; missing or ambiguous matches remain unbound. The address must also
+  match the worktree directory (session `workspace.git_root`/`cwd`), so an agent
+  that launched in the original checkout binds a linked worktree only after
+  `agent_context_update` moves its scope there. Registration replies carry
+  `agent_address_bound` (as in `git_list`) and, when false, a `binding_hint`
+  naming that repair. An unbound registration cannot have claims attributed to
+  it: when only live active claims block a merge and the worktree has no live
+  protocol-1 session, `git_merge_request`/`git_merge_status` still refuse with
+  `resource_claim_conflict` but say so (`reason: registration_unbound` or
+  `registration_session_unavailable` in the HTTP error extra; MCP tool replies
+  carry only the message text, which states it), telling the agent to re-register with
+  `username`, `engine` and current `head_sha` and retry the same
+  `client_request_id`. Uncertain or expired claims keep the generic
+  reserved/uncertain refusal. Live bound sessions
   survive registration TTL, while ended or stale sessions are reclaimed on
   sweep. `git_merge_status` also refreshes an active registration before sweeping;
   an expired merge lease still requires a new request.

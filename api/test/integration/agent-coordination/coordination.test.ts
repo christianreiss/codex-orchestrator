@@ -444,6 +444,92 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       reason: 'test completed',
     });
   });
+  it('names an unbound registration as the merge blocker and allows the same request after binding', async () => {
+    const launch = `/tmp/unbound-launch-${suffix}`,
+      worktreePath = `/tmp/unbound-wt-${suffix}`,
+      commonDir = launch + '/.git';
+    // Session started in the original checkout; the agent then works in a linked worktree.
+    const a = await register('codex', launch);
+    const db = handle!.db;
+    await db
+      .insert(versions)
+      .values({ name: 'git_director_enabled', version: '1', updatedAt: new Date().toISOString() })
+      .onDuplicateKeyUpdate({ set: { version: '1' } });
+    const director = new GitDirectorService({ db, settings: new SettingsService(db) });
+    const registration = {
+      worktree_path: worktreePath,
+      clone_dir: commonDir,
+      repo_root: launch,
+      username: a.id,
+      engine: 'codex',
+      branch: 'feature',
+      head_sha: 'b'.repeat(40),
+    };
+    const unbound = await director.register(registration, host);
+    expect(unbound).toMatchObject({ registered: true, agent_address_bound: false });
+    expect(String(unbound.binding_hint)).toContain('agent_context_update');
+    const claim = await service.claims.acquire(a.id, a.token, {
+      purpose: 'merge from unbound worktree',
+      client_request_id: randomUUID(),
+      resources: [
+        { kind: 'path', host_id: host.id, path: worktreePath },
+        { kind: 'git', host_id: host.id, common_dir: commonDir, branch: 'main' },
+      ],
+    });
+    expect(claim.state).toBe('active');
+    const args = {
+      worktree_path: worktreePath,
+      target_branch: 'main',
+      client_request_id: randomUUID(),
+      base_sha: 'a'.repeat(40),
+      head_sha: 'b'.repeat(40),
+      changed_paths: ['a.ts'],
+    };
+    const rejected = director.requestMerge(args, host);
+    await expect(rejected).rejects.toMatchObject({
+      code: 'resource_claim_conflict',
+      extra: { reason: 'registration_unbound', agent_address_bound: false, claim_ids: [claim.id] },
+    });
+    await expect(rejected).rejects.toThrow(/agent_address_bound=false.*git_register.*same client_request_id/);
+
+    // Supported repair: move the session scope to the worktree, re-register, retry the same request.
+    await service.update(a.id, a.token, {
+      workspace: {
+        cwd: worktreePath,
+        git_status: 'repository',
+        git_root: worktreePath,
+        git_common_dir: commonDir,
+        origin_url: `ssh://git@example.org/scopes-${suffix}.git`,
+      },
+    });
+    const bound = await director.register(registration, host);
+    expect(bound).toMatchObject({ rebound: true, agent_address_bound: true });
+    expect(bound).not.toHaveProperty('binding_hint');
+
+    // Binding does not weaken the guard: a genuinely foreign live claim still blocks generically.
+    const foreign = randomUUID(),
+      now = new Date().toISOString();
+    await db.execute(sql`INSERT INTO agent_resource_claims
+      (id,session_id,generation,request_id,purpose,resources,state,blockers,expires_at,created_at,updated_at)
+      VALUES (${foreign},${randomUUID()},1,${randomUUID()},'foreign hold',
+      ${JSON.stringify([{ kind: 'path', host_id: host.id, path: worktreePath + '/a.ts' }])},'active','[]',
+      ${new Date(Date.now() + 60000).toISOString()},${now},${now})`);
+    try {
+      await expect(director.requestMerge(args, host)).rejects.toThrow(
+        'Resources are reserved or uncertain; coordinate with owners before merging',
+      );
+    } finally {
+      await db.execute(sql`DELETE FROM agent_resource_claims WHERE id=${foreign}`);
+    }
+    const result = await director.requestMerge(args, host);
+    expect(result.verdict).toBe('allow');
+    await director.release({ worktree_path: worktreePath }, host);
+    await service.claims.release(a.id, a.token, {
+      claim_id: claim.id,
+      outcome: 'completed',
+      reason: 'test completed',
+    });
+  });
   it('reapplies migration 0078 safely through the canonical runner', async () => {
     const { mkdtemp, copyFile, rm } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');

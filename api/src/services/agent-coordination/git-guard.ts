@@ -61,6 +61,26 @@ export async function guardGitMutation(
         Date.parse(c.expiresAt) <= Date.now()) &&
       (c.resources as Resource[]).some((a) => resources.some((b) => overlaps(a, b))),
   );
+  // Without a live protocol-1 session the guard cannot attribute any claim, so
+  // the requester's own live claims count against it. Still block (an unbound
+  // registration must never pass a foreign reservation), but name the binding
+  // as the actionable condition. Only the message reaches MCP callers.
+  if (conflicts.length && !session && conflicts.every((c) => c.state === 'active' && Date.parse(c.expiresAt) > Date.now()))
+    throw new ConflictError(
+      (worktree.agentBusAddressId
+        ? 'This worktree registration is bound to an agent session that is no longer live (or lacks scope protocol 1)'
+        : 'This worktree registration is not bound to a live agent session (agent_address_bound=false)') +
+        ', so the overlapping resource claims cannot be attributed to you. Re-register this worktree_path with ' +
+        'git_register passing username, engine and the current head_sha (run agent_context_update with this ' +
+        'worktree as cwd/git_root first if your session started elsewhere), confirm agent_address_bound=true, then ' +
+        'retry the same client_request_id. If it stays blocked after binding, the claims belong to another owner.',
+      'resource_claim_conflict',
+      {
+        claim_ids: conflicts.map((c) => c.id),
+        reason: worktree.agentBusAddressId ? 'registration_session_unavailable' : 'registration_unbound',
+        agent_address_bound: Boolean(worktree.agentBusAddressId),
+      },
+    );
   if (conflicts.length)
     throw new ConflictError(
       'Resources are reserved or uncertain; coordinate with owners before merging',
