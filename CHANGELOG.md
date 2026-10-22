@@ -1,5 +1,7 @@
 # 2026-10-22
 
+- **Quiet scheduler ticks.** The Chatty scheduler (every second) and the schedule worker (every 10 seconds) first check with one plain read whether any run is queued, running or waiting, or whether any schedule is due or has an active run. Idle ticks no longer upsert the scheduler lock row or open a locked transaction per schedule.
+
 - **Hold empty receiver claims.** Each live session's automatic receiver polled `receiver/claim` about once a second, nearly always for nothing. The server now holds an empty claim for up to 8 seconds and answers again as soon as a message, portal or fleet-switch event arrives, so idle sessions make roughly one claim every nine seconds without slower delivery. Existing wrappers need no update.
 
 - **One-statement session schedule policy.** The schedule-policy poll each live session sends every 5 seconds reads credential, binding, host, flags, governing schedule, open prompt and active run in one statement instead of six to seven. Outcomes and response shapes are unchanged.

@@ -131,6 +131,14 @@ export class ChattyCoordinator {
     if (this.tickRunning) return;
     this.tickRunning = true;
     try {
+      // Every second, even with no chats: the claim transaction (scheduler lock upsert, locked run scans) and the
+      // expiry sweep change nothing unless some run is queued, running or waiting. One plain read decides that.
+      const [active] = await this.ctx.db
+        .select({ id: chattyRuns.id })
+        .from(chattyRuns)
+        .where(inArray(chattyRuns.status, ['queued', 'running', 'waiting_input', 'waiting_confirmation']))
+        .limit(1);
+      if (!active) return;
       const run = await this.store.claim();
       if (run) {
         const controller = new AbortController();

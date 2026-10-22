@@ -3,7 +3,7 @@ import { stopWatchdogLocked } from './watchdog-lifecycle.js';
 import { assertNoRebootRecovery } from './reboot-handoffs.js';
 import { recoveryDelaySeconds } from './schedules/recovery.js';
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../db/client.js';
 import {
@@ -321,10 +321,16 @@ export class SchedulesService {
     );
   }
   async tick(now = new Date()) {
+    // Only a due schedule or one with an active run can change below; a locked pass over any other schedule was a
+    // no-op, ten seconds apart, for every schedule in the fleet.
     const ids = await this.db
       .select({ id: agentSchedules.id })
       .from(agentSchedules)
-      .where(isNull(agentSchedules.deletedAt))
+      .where(and(isNull(agentSchedules.deletedAt), or(
+        and(eq(agentSchedules.enabled, 1), lte(agentSchedules.nextDueAt, now.toISOString())),
+        sql`EXISTS (SELECT 1 FROM ${agentScheduleRuns} WHERE ${agentScheduleRuns.scheduleId} = ${agentSchedules.id}
+          AND ${agentScheduleRuns.status} IN (${sql.join(activeStatuses.map((status) => sql`${status}`), sql`, `)}))`,
+      )))
       .orderBy(asc(agentSchedules.id));
     let changed = false;
     for (const { id } of ids)

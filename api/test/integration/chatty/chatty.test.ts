@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
 import { getTestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
@@ -209,6 +209,28 @@ describe.skipIf(!handle)('Chatty durable lifecycle (isolated MySQL)', () => {
       { timeout: 5000, interval: 20 },
     );
   }
+  it('ticks with one plain read and no scheduler transaction while nothing is queued, running or waiting', async () => {
+    const co = coordinator(tool, []);
+    const others = await db
+      .select({ id: chattyRuns.id })
+      .from(chattyRuns)
+      .where(inArray(chattyRuns.status, ['queued', 'running', 'waiting_input', 'waiting_confirmation']));
+    if (others.length) return; // another user's live run in this shared database: the peek correctly falls through
+    const claim = vi.spyOn(co.store, 'claim');
+    const transaction = vi.spyOn(db, 'transaction');
+    try {
+      await co.tick();
+      expect(claim).not.toHaveBeenCalled();
+      expect(transaction).not.toHaveBeenCalled();
+      const request = await store.submit(actor, input('Hallo'));
+      await co.tick();
+      expect(claim).toHaveBeenCalledTimes(1);
+      await waitFor(request.id, 'succeeded');
+    } finally {
+      claim.mockRestore();
+      transaction.mockRestore();
+    }
+  });
   it('requires a concrete confirmation and records the domain change with its receipt atomically', async () => {
     await db.delete(versions).where(eq(versions.name, prefix));
     const co = coordinator(tool, [{ kind: 'tool_call', name: tool.name, arguments: {} }]);
