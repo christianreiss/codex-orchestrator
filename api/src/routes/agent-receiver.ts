@@ -1,8 +1,10 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from './index.js';
 import { AgentReceiverService } from '../services/agent-receiver.js';
 import { UnauthorizedError } from '../http/errors.js';
+import { armWake } from '../http/idle-hold.js';
+import { clientGone } from '../http/long-poll.js';
 import { RECEIVER_CLAIM_GATES, RECEIVER_CLAIM_GATE_MAX_SECONDS } from '../services/agent-receiver-state.js';
 
 const generation = z.string().uuid();
@@ -11,12 +13,34 @@ const claimGate = z.object({
   state: z.enum(RECEIVER_CLAIM_GATES),
   seconds: z.number().int().min(0).max(RECEIVER_CLAIM_GATE_MAX_SECONDS),
 }).strict();
+/**
+ * Every live session polls receiver/claim about once a second and almost always gets nothing (2026-10-22: 11.5 of
+ * 24 HTTP requests/s). An empty claim is now held open for up to this long and answered again, once, as soon as a
+ * message, portal or fleet-switch event is published. Old wrappers keep working: their client allows 35 s and they
+ * still sleep one second between claims. Changes without an event (lease expiry, retry due) are seen on the next
+ * claim, i.e. within this hold plus that second.
+ */
+export const RECEIVER_IDLE_HOLD_MS = 8_000;
+
+function wakesReceiver(sessionId: string) {
+  return (type: string, payload: unknown) => {
+    if (type === 'agent_messaging.message.changed' || /^(settings\.|engine\.|agent_messaging\.state\.)/.test(type)) return true;
+    if (type !== 'agent_portal.sessions.changed') return false;
+    const target = (payload as { session_id?: unknown } | null)?.session_id;
+    return target === undefined || target === sessionId;
+  };
+}
+
+const emptyClaim = (result: unknown) =>
+  !!result && typeof result === 'object' && Object.keys(result).length === 1 &&
+  ((result as { delivery?: unknown }).delivery === null || (result as { message?: unknown }).message === null);
+
 export async function registerAgentReceiverRoutes(app: FastifyInstance, ctx: RouteContext) {
   const service = new AgentReceiverService(ctx.db, ctx.env, ctx.keyring);
   type Op = 'register' | 'heartbeat' | 'stop' | 'ack' | 'status' | 'claim';
   // One handler per op, registered under literal paths so the source-indexed
   // route checks (registered-routes.ts) can see every receiver route.
-  const handler = (op: Op) => async (req: FastifyRequest) => {
+  const handler = (op: Op) => async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const token = req.headers['x-agent-bridge-token'];
     if (typeof token !== 'string')
@@ -38,7 +62,21 @@ export async function registerAgentReceiverRoutes(app: FastifyInstance, ctx: Rou
       );
     if (op === 'claim') {
       const body = z.object({ generation, source, claim_id: z.string().uuid(), informational_only: z.boolean().optional() }).strict().parse(req.body);
-      return service.claim(id, token, body.generation, body.source, body.claim_id, body.informational_only);
+      const claim = () => service.claim(id, token, body.generation, body.source, body.claim_id, body.informational_only);
+      const wake = armWake(wakesReceiver(id));
+      let result: Awaited<ReturnType<typeof claim>>;
+      try {
+        result = await claim();
+      } catch (error) {
+        wake.stop();
+        throw error;
+      }
+      if (!emptyClaim(result)) {
+        wake.stop();
+        return result;
+      }
+      // An empty answer grants nothing; holding it changes only when the next durable check happens.
+      return (await wake.wait(RECEIVER_IDLE_HOLD_MS, () => clientGone(reply), reply.raw)) && !clientGone(reply) ? claim() : result;
     }
     const schema = z
       .object({

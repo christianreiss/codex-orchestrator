@@ -1810,6 +1810,7 @@ applicable peer/portal switch. No host credential is sent to the model process.
   and host-row locks only when that snapshot certifies a valid empty result.
   Pending/expired deliveries, waiting presence notices and uncertain or invalid
   admission retain the existing locked path, error handling and delivery fences.
+  An empty claim is held for up to 8 seconds and answered again, once, as soon as a message, this session's portal, or a fleet switch event is published; otherwise it returns empty when the hold ends. Changes without an event (lease expiry, retry due) are seen on the next claim.
 - `ack`: deprecated compatibility endpoint for already-delivered old probes. Requires
   a matching generation/source/nonce and delivered legacy probe on a healthy connection.
   Returns status without changing stored evidence, renewing health, or reviving a receiver.
