@@ -107,7 +107,15 @@ because nobody answered. If owners release, polling can grant the waiting claim.
 
 Leases last 60 seconds. The broker tracks explicitly acquired active claims and
 renews them on the wrapper heartbeat, independently of long model turns. It drops
-its renewal entry on release or an uncertain renewal. Check status before each
+its renewal entry on release or an uncertain renewal. Renewal is driven by the
+15-second heartbeat, not by tool activity, and is the same for cdx, clx and cgx.
+Native child agents (Codex subagents, Claude Task agents) share the parent's
+session and broker, so a claim any of them acquires or reads as active is renewed
+by that one broker; no per-child renewal is needed. Each claim renews concurrently
+with its own 5-second budget; only a definitive answer (non-active state,
+`claim_not_active`, stale binding, not found) drops it, while timeouts, transport
+errors and 5xx retry on the next tick, which does not back off while claims are
+held. An agent that renews explicitly keeps working the same way. Check status before each
 protected mutation. `resource_claim_release` reports completed, canceled or unknown
 with a reason. Unknown, expired lease, ended session or stale binding retain the
 resource as uncertain. They are never automatically reassigned or revived.
