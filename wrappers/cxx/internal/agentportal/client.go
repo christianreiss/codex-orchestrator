@@ -367,10 +367,12 @@ func (s *Session) startHeartbeat(parent context.Context, interval time.Duration)
 			}
 			heartbeatCtx, heartbeatCancel := context.WithTimeout(ctx, 6*time.Second)
 			err := s.Heartbeat(heartbeatCtx, "", "")
-			if err == nil {
-				s.renewActiveClaims(heartbeatCtx)
-			}
 			heartbeatCancel()
+			// Claim leases last 60 seconds: renew on every tick unless the
+			// bridge is terminally gone, with per-claim budgets of their own.
+			if err == nil || !isTerminalBridgeError(err) {
+				s.renewActiveClaims(ctx)
+			}
 			if ctx.Err() != nil || s.isInactive() || isTerminalBridgeError(err) {
 				return
 			}
@@ -384,7 +386,8 @@ func (s *Session) startHeartbeat(parent context.Context, interval time.Duration)
 				return
 			case <-timer.C:
 			}
-			if err != nil && delay < 4*interval {
+			// Backing off past the interval would let held claims expire.
+			if err != nil && delay < 4*interval && !s.hasActiveClaims() {
 				delay *= 2
 			}
 		}
