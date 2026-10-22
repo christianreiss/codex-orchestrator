@@ -701,5 +701,18 @@ describe.skipIf(!config)(
         code: 'agent_messaging_relay_unauthorized',
       });
     });
+
+    it('answers self from a consistent snapshot without waiting on the bus mutex', async () => {
+      const s = await register('self-snapshot', randomUUID());
+      const before = await service.self(s.sessionId, s.bridgeToken);
+      const lock = await holdFlagLock();
+      try {
+        expect(await settledWithin(service.self(s.sessionId, s.bridgeToken), SETTLE_MS)).toEqual({ value: before });
+      } finally {
+        await lock.release();
+      }
+      await setFlag('0');
+      await expect(service.self(s.sessionId, s.bridgeToken)).rejects.toMatchObject({ code: 'agent_messaging_disabled' });
+    });
   },
 );

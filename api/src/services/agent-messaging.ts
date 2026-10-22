@@ -1356,16 +1356,25 @@ export class AgentMessagingService {
 
   async self(sessionId: string, bridgeToken: string): Promise<Record<string, unknown>> {
     await this.authenticateBridge(sessionId, bridgeToken);
+    // A pure read, polled by every live receiver every 15 s. It used to take the bus mutex (versions FOR UPDATE) and
+    // host/session/address/name-lease row locks. One read-only repeatable-read transaction (its snapshot starts at the
+    // first read; drizzle cannot combine WITH CONSISTENT SNAPSHOT and READ ONLY) gives the same answer at one
+    // point in time without queuing behind, or blocking, writers. Checks, errors and the response are unchanged.
     return await this.db.transaction(async tx => {
-      await this.requireEnabledLocked(tx);
-      const session = await this.lockSessionHostFirst(tx, sessionId);
+      const [flag] = await tx.select({ version: versions.version }).from(versions).where(eq(versions.name, AGENT_MESSAGING_ENABLED_KEY)).limit(1);
+      if (!isTruthyFlagValue(flag?.version, false)) throw new ServiceUnavailableError('Agent Messaging is disabled', 'agent_messaging_disabled');
+      const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1);
       if (!session || session.endedAt || session.bridgeExpiresAt <= nowIso() || !session.agentBusAddressId)
         throw new ConflictError('Launch identity is unavailable', 'agent_identity_unavailable');
-      const address = await this.requireAddressLocked(tx, session.agentBusAddressId);
-      await this.assertAddressEligibleLocked(tx, address);
+      const [address] = await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, session.agentBusAddressId)).limit(1);
+      if (!address) throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
+      if (address.enabled !== 1 || address.archivedAt) throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
+      const [host] = await tx.select().from(hosts).where(eq(hosts.id, address.hostId)).limit(1);
+      if (!host || !messagingHostEligible(host) || !activeHostEngines(host.engines, await readFleetEngineState(this.db)).includes(address.engine as Engine))
+        throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
       if (address.currentSessionId !== session.id || address.bindingGeneration !== session.bindingGeneration || !session.launchName || address.launchName !== session.launchName)
         throw new ConflictError('Launch identity binding changed', 'agent_identity_unavailable');
-      const identity = await translateAgent(tx, session.launchName, true);
+      const identity = await translateAgent(tx, session.launchName, false);
       if (identity.uuid !== address.id || identity.session_id !== session.id || identity.status !== 'active')
         throw new ConflictError('Launch name lease changed', 'agent_identity_unavailable');
       const leases = await tx.selectDistinct({ name: agentNameLeases.name }).from(agentNameLeases).where(or(eq(agentNameLeases.addressId, address.id), eq(agentNameLeases.sessionId, session.id)));
@@ -1377,7 +1386,7 @@ export class AgentMessagingService {
         binding_generation: session.bindingGeneration, previous_names: [...new Set(leases.map(row => row.name))], task_title: taskTitle,
         role: (await activeRolesForAddresses(tx, [address.id])).get(address.id) ?? null,
         role_labels: await roleLabelsForAddress(tx, address.id) };
-    });
+    }, { isolationLevel: 'repeatable read', accessMode: 'read only' });
   }
 
   async setAddressAlias(addressId: string, displayAlias: string | null): Promise<Record<string, unknown>> {
