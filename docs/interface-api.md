@@ -1592,7 +1592,9 @@ username match and cannot acquire daemon semantics by adding the suffix.
   authenticated claim. Later iterations for the same relay and token can share
   only a still-running empty-queue check at a common timer boundary. Completed
   results are discarded; work and errors go through each waiter's own fenced
-  claim. Execution parallelism and the absolute long-poll deadline are unchanged.
+  claim. Ordinary future retries and accepted work do not require the locked
+  path; expiry, leases and notice cleanup still do. Execution parallelism and
+  the absolute long-poll deadline are unchanged.
 - `POST /host/agent-relays/{id}/deliveries/{messageId}/renew` — extend the
   relay-owned lease.
 - `POST /host/agent-relays/{id}/deliveries/{messageId}/reply` — atomically add

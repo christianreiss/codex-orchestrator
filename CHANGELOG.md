@@ -1,5 +1,7 @@
 # 2026-10-22
 
+- **Avoid relay retry spin.** Ordinary future retries and already accepted work no longer force an idle relay into a locked claim transaction. Expiry, lease replay/requeue and routine/presence-notice cleanup retain the existing locked path.
+
 - **One fresh communicator admission read.** Each frame reads its host, API kill switch and inherited reverse-DNS policy together. Compiled SQL plans reuse construction only; credentials and permissions are read again for every frame, with locked checkpoint revalidation retained.
 
 - **Bound coordination snapshot scans.** Active membership IDs are selected as a set rather than rescanning all membership rows for each historical session. Ended sessions with active membership remain visible for cleanup.

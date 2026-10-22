@@ -9,6 +9,10 @@ import { invalidateFleetEngineState } from '../../../src/services/engine-switch.
 import { ENGINES } from '../../../src/util/engine.js';
 import { readDbConfig } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
+import { relayLongPoll } from '../../../src/http/relay-long-poll.js';
+import { encrypt } from '../../../src/security/secret-box.js';
+import { sha256 } from '../../../src/security/hash.js';
+import { SERVER_ADDRESS_ID } from '../../../src/services/agent-messaging/groups.js';
 import { markPersistentHost, persistRelayUsers } from '../../helpers/persistent-host.js';
 
 // Every bus transaction starts with the exclusive row lock on the enable flag; production relays polled it ~50 times a
@@ -29,6 +33,7 @@ describe.skipIf(!config)(
     let host: typeof schema.hosts.$inferSelect;
     let priorFlag: string | undefined;
     const holders: mysql.Connection[] = [];
+    let createdServer = false;
 
     beforeAll(async () => {
       const now = new Date().toISOString();
@@ -94,6 +99,7 @@ describe.skipIf(!config)(
         await db.delete(schema.hosts).where(eq(schema.hosts.id, host.id));
       }
       if (priorFlag !== undefined) await setFlag(priorFlag);
+      if (createdServer) await db.delete(schema.agentBusAddresses).where(eq(schema.agentBusAddresses.id, SERVER_ADDRESS_ID));
       await pool.end();
     });
 
@@ -207,6 +213,97 @@ describe.skipIf(!config)(
       }
     });
 
+    it('does not lock or modify accepted ordinary work while polling for another delivery', async () => {
+      const source = await register('accepted-source');
+      const { target, relayId, token } = await offlineTargetWithRelay('accepted');
+      const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+        to: target.address, content: 'already accepted work', clientMessageId: randomUUID(),
+      });
+      const id = String((sent.message as Record<string, unknown>).id);
+      await db.update(schema.agentBusMessages).set({ status: 'accepted', acceptedAt: new Date().toISOString() })
+        .where(eq(schema.agentBusMessages.id, id));
+      const before = await messageRow(id);
+      const lock = await holdFlagLock();
+      const claim = service.claimForRelay(relayId, token, randomUUID());
+      let outcome: Awaited<ReturnType<typeof settledWithin>>;
+      try { outcome = await settledWithin(claim, SETTLE_MS); }
+      finally { await lock.release(); await claim; }
+      expect(outcome).toEqual({ value: null });
+      expect(await messageRow(id)).toEqual(before);
+    });
+
+    it('does not lock for an ordinary future retry but still expires it when due', async () => {
+      const source = await register('backoff-source');
+      const { target, relayId, token } = await offlineTargetWithRelay('backoff');
+      const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+        to: target.address, content: 'retry later', clientMessageId: randomUUID(),
+      });
+      const id = String((sent.message as Record<string, unknown>).id);
+      await db.update(schema.agentBusMessages).set({ nextAttemptAt: new Date(Date.now() + 60000).toISOString() })
+        .where(eq(schema.agentBusMessages.id, id));
+      const before = await messageRow(id);
+      const lock = await holdFlagLock();
+      const claim = service.claimForRelay(relayId, token, randomUUID());
+      let outcome: Awaited<ReturnType<typeof settledWithin>>;
+      try { outcome = await settledWithin(claim, SETTLE_MS); }
+      finally { await lock.release(); await claim; }
+      expect(outcome).toEqual({ value: null });
+      expect(await messageRow(id)).toEqual(before);
+      await db.update(schema.agentBusMessages).set({ expiresAt: '2000-01-01T00:00:00Z' })
+        .where(eq(schema.agentBusMessages.id, id));
+      expect(await service.claimForRelay(relayId, token, randomUUID())).toBeNull();
+      expect(await messageRow(id)).toMatchObject({ status: 'expired' });
+    });
+
+    it('still retires a server publication whose retry is in the future', async () => {
+      const source = await register('routine-source');
+      const { target, relayId, token } = await offlineTargetWithRelay('routine');
+      if (!(await db.select().from(schema.agentBusAddresses).where(eq(schema.agentBusAddresses.id, SERVER_ADDRESS_ID)))[0]) {
+        const now = new Date().toISOString();
+        await db.insert(schema.agentBusAddresses).values({ id: SERVER_ADDRESS_ID, address: `agent:${SERVER_ADDRESS_ID}`,
+          hostId: 0, engine: 'server', username: 'Server', cwd: '/', cwdHash: sha256('/'), continuity: 'server',
+          readiness: 'offline', lastSeenAt: now, createdAt: now, updatedAt: now });
+        createdServer = true;
+      }
+      const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+        to: target.address, content: 'placeholder', clientMessageId: randomUUID(),
+      });
+      const id = String((sent.message as Record<string, unknown>).id);
+      const content = 'ROLE-UPDATE/1 role=developer version=2 previous=1 sha=0123456789ab\nInformational; no reply required.';
+      await db.update(schema.agentBusMessages).set({ kind: 'publication', senderAddressId: SERVER_ADDRESS_ID,
+        senderSessionId: null, workKind: null, executionContractVersion: 1, contentEnc: encrypt(content, testKeyring()),
+        contentBytes: Buffer.byteLength(content), nextAttemptAt: new Date(Date.now() + 60000).toISOString() })
+        .where(eq(schema.agentBusMessages.id, id));
+      expect(await service.claimForRelay(relayId, token, randomUUID())).toBeNull();
+      expect(await messageRow(id)).toMatchObject({ status: 'canceled', lastErrorCode: 'routine_notice_retired' });
+    });
+
+    it('rechecks retry and expiry deadlines during a real long poll without notifications', async () => {
+      const source = await register('deadline-source');
+      for (const mode of ['retry', 'expiry']) {
+        const { target, relayId, token } = await offlineTargetWithRelay(`deadline-${mode}`);
+        const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+          to: target.address, content: mode, clientMessageId: randomUUID(),
+        });
+        const id = String((sent.message as Record<string, unknown>).id), start = Date.now();
+        await db.update(schema.agentBusMessages).set({
+          nextAttemptAt: new Date(start + (mode === 'retry' ? 600 : 60000)).toISOString(),
+          expiresAt: new Date(start + (mode === 'expiry' ? 600 : 60000)).toISOString(),
+        }).where(eq(schema.agentBusMessages.id, id));
+        const claimId = randomUUID();
+        const result = await relayLongPoll(() => service.claimForRelay(relayId, token, claimId),
+          start + (mode === 'retry' ? 5000 : 3200), () => false, undefined,
+          { key: `${relayId}:${sha256(token)}`, check: () => service.relayIdle(relayId, token) });
+        if (mode === 'retry') {
+          expect(result).toMatchObject({ message_id: id });
+          expect(Date.now() - start).toBeLessThan(4000);
+        } else {
+          expect(result).toBeNull();
+          expect(await messageRow(id)).toMatchObject({ status: 'expired' });
+        }
+      }
+    });
+
     it('still reports a disabled service to an idle poll', async () => {
       const { relayId, token } = await offlineTargetWithRelay('disabled');
       await setFlag('0');
@@ -304,7 +401,7 @@ describe.skipIf(!config)(
       });
     });
 
-    it('still discards an accepted presence notice whose session ended', async () => {
+    it.each(['accepted', 'batched'])('still discards a %s presence notice whose session ended', async status => {
       const source = await register('notice-source');
       const { target, relayId, token } = await offlineTargetWithRelay('notice');
       const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
@@ -315,7 +412,7 @@ describe.skipIf(!config)(
       const id = String((sent.message as Record<string, unknown>).id);
       await db
         .update(schema.agentBusMessages)
-        .set({ kind: 'presence_notice', status: 'accepted', targetSessionId: target.sessionId })
+        .set({ kind: 'presence_notice', status, targetSessionId: target.sessionId })
         .where(eq(schema.agentBusMessages.id, id));
       expect(await service.claimForRelay(relayId, token, randomUUID())).toBeNull();
       expect(await messageRow(id)).toMatchObject({

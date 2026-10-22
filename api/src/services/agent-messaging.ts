@@ -1050,15 +1050,25 @@ export class AgentMessagingService {
   }
 
   /**
-   * Plain-read peek for `claimDelivery`. It must cover every row the locked body can write: queued (claim, expiry),
-   * leased (requeue, dead-letter, replay) and presence notices (discarded in any of queued/leased/accepted).
-   * Over-matching only costs the locked path; under-matching would skip a state change.
+   * Cover every row the locked relay path can change: due/expired queued mail,
+   * every lease (including replay), and notice/publication/digest cleanup.
+   * Ordinary future retries and accepted work cannot change on this path.
    */
   private async hasPendingRelayWork(targetAddressIds: string[]): Promise<boolean> {
+    const now = nowIso();
     const rows = await this.db
       .select({ id: agentBusMessages.id })
       .from(agentBusMessages)
-      .where(and(inArray(agentBusMessages.targetAddressId, targetAddressIds), inArray(agentBusMessages.status, ['queued', 'leased', 'accepted'])))
+      .where(and(inArray(agentBusMessages.targetAddressId, targetAddressIds), or(
+        eq(agentBusMessages.status, 'leased'),
+        and(eq(agentBusMessages.status, 'queued'), or(
+          lte(agentBusMessages.nextAttemptAt, now),
+          lte(agentBusMessages.expiresAt, now),
+          // Routine retirement can act before a queued notice's retry time.
+          inArray(agentBusMessages.kind, ['presence_notice', 'publication', 'digest']),
+        )),
+        and(eq(agentBusMessages.kind, 'presence_notice'), inArray(agentBusMessages.status, ['accepted', 'batched'])),
+      )))
       .limit(1);
     return rows.length > 0;
   }
