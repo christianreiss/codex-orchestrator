@@ -70,7 +70,7 @@ const parsed = (value: unknown): unknown[] => {
 /**
  * Certify only a valid, idle relay poll, from ONE statement's MVCC snapshot (plus the cached immutable relay
  * identity, re-verified in that statement): relay credential, host, daemon gate,
- * fleet flags, candidate addresses, the host's daemon sessions and "no pending work for any candidate". A relay poll
+ * fleet flags, the host's daemon sessions and the candidate addresses that have pending work. A relay poll
  * used to read those in four to five statements. Anything uncertain, invalid or non-empty returns false, and the caller
  * runs the unchanged path with its admission errors, order and locked claim fences.
  */
@@ -79,9 +79,15 @@ export async function relayIdleProof(db: Database, relayId: string, rawToken: st
   const identity = await relayIdentity(db, relayId);
   if (!identity) return false;
   const now = nowIso();
+  const [row] = await relayProofQuery(db, relayId, identity, now);
+  return certifyRelayIdle(row, relayId, identity, rawToken, now);
+}
+
+/** The proof's statement; exported so performance work can EXPLAIN exactly what runs. */
+export function relayProofQuery(db: Database, relayId: string, identity: RelayIdentity, now: string) {
   const candidates = sql`${agentBusAddresses.hostId} = ${identity.hostId} AND ${agentBusAddresses.username} = ${identity.target}
     AND ${agentBusAddresses.enabled} = 1 AND ${agentBusAddresses.archivedAt} IS NULL AND ${agentBusAddresses.currentSessionId} IS NULL`;
-  const [row] = await db
+  return db
     .select({
       relay: {
         hostId: agentBusRelays.hostId, status: agentBusRelays.status, username: agentBusRelays.username, tokenHash: agentBusRelays.tokenHash,
@@ -97,19 +103,24 @@ export async function relayIdleProof(db: Database, relayId: string, rawToken: st
       codexDisabled: flag(ENGINE_DISABLED_FLAGS.codex),
       claudeDisabled: flag(ENGINE_DISABLED_FLAGS.claude),
       grokDisabled: flag(ENGINE_DISABLED_FLAGS.grok),
-      addresses: sql<unknown>`(SELECT JSON_ARRAYAGG(JSON_ARRAY(${agentBusAddresses.id}, ${agentBusAddresses.engine}))
-        FROM ${agentBusAddresses} WHERE ${candidates})`,
       remote: sql<unknown>`(SELECT JSON_ARRAYAGG(JSON_ARRAY(${hostDaemonSessions.addressId}, ${hostDaemonSessions.status}))
         FROM ${hostDaemonSessions} WHERE ${hostDaemonSessions.hostId} = ${identity.hostId} AND ${hostDaemonSessions.addressId} IS NOT NULL)`,
-      pending: sql<number>`EXISTS (SELECT 1 FROM ${agentBusMessages}
-        WHERE ${agentBusMessages.targetAddressId} IN (SELECT ${agentBusAddresses.id} FROM ${agentBusAddresses} WHERE ${candidates})
-          AND ${pendingRelayWork(db, now)})`,
+      // Only candidates WITH pending work: driven from the few pending rows, not from every dormant address
+      // (a single user had 1041 dormant addresses on one host on 2026-10-22).
+      pendingTargets: sql<unknown>`(SELECT JSON_ARRAYAGG(JSON_ARRAY(${agentBusAddresses.id}, ${agentBusAddresses.engine}))
+        FROM ${agentBusMessages} INNER JOIN ${agentBusAddresses} ON ${agentBusAddresses.id} = ${agentBusMessages.targetAddressId}
+        WHERE ${candidates} AND ${pendingRelayWork(db, now)})`,
     })
     .from(agentBusRelays)
     .innerJoin(hosts, eq(hosts.id, agentBusRelays.hostId))
     .leftJoin(hostDaemons, eq(hostDaemons.hostId, agentBusRelays.hostId))
     .where(eq(agentBusRelays.id, relayId))
     .limit(1);
+}
+
+type RelayProofRow = Awaited<ReturnType<typeof relayProofQuery>>[number];
+
+function certifyRelayIdle(row: RelayProofRow | undefined, relayId: string, identity: RelayIdentity, rawToken: string, now: string): boolean {
   if (!row) {
     relayIdentities.delete(relayId);
     return false;
@@ -136,11 +147,10 @@ export async function relayIdleProof(db: Database, relayId: string, rawToken: st
   const engines = activeHostEngines(host.engines, fleet);
   const remote = parsed(row.remote) as Array<[string, string]>;
   const remoteIds = new Set(remote.map(([address]) => address));
-  const eligible = (parsed(row.addresses) as Array<[string, string]>).filter(([id, engine]) =>
+  // Idle exactly when no address this relay may serve has work the locked path could change.
+  return !(parsed(row.pendingTargets) as Array<[string, string]>).some(([id, engine]) =>
     isEngine(engine) && engines.includes(engine) &&
     (daemonRelay
       ? remote.some(([address, status]) => address === id && (status === 'idle' || status === 'waiting'))
       : !remoteIds.has(id)));
-  if (eligible.length === 0) return true;
-  return !Number(row.pending);
 }
