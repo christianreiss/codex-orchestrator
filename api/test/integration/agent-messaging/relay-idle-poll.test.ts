@@ -323,5 +323,38 @@ describe.skipIf(!config)(
         lastErrorCode: 'presence_notice_session_ended',
       });
     });
+
+    it('shares only what relayIdle proves: idle exactly when a claim would be, lock-free, consuming nothing', async () => {
+      // Parallel daemon slots share a true answer from relayIdle; anything else must reach claimForRelay's own fences.
+      const source = await register('share-source');
+      const { target, relayId, token } = await offlineTargetWithRelay('share');
+      const lock = await holdFlagLock();
+      try {
+        expect(await settledWithin(service.relayIdle(relayId, token), SETTLE_MS)).toEqual({ value: true });
+      } finally {
+        await lock.release();
+      }
+      const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+        to: target.address,
+        content: 'shared wake',
+        clientMessageId: randomUUID(),
+      });
+      const id = String((sent.message as Record<string, unknown>).id);
+      expect(await service.relayIdle(relayId, token)).toBe(false);
+      expect(await messageRow(id)).toMatchObject({ status: 'queued', attempts: 0, leaseOwner: null });
+      await expect(service.claimForRelay(relayId, token, randomUUID())).resolves.toMatchObject({ message_id: id });
+      // A leased row can still need the locked path (expiry requeue), so it is never idle.
+      expect(await service.relayIdle(relayId, token)).toBe(false);
+
+      await service.stopRelay(relayId, token);
+      await expect(service.relayIdle(relayId, token)).rejects.toMatchObject({
+        code: 'agent_messaging_relay_unauthorized',
+      });
+      const other = await offlineTargetWithRelay('share-disabled');
+      await setFlag('0');
+      await expect(service.relayIdle(other.relayId, other.token)).rejects.toMatchObject({
+        code: 'agent_messaging_disabled',
+      });
+    });
   },
 );

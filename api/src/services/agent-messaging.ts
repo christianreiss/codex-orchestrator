@@ -1005,6 +1005,20 @@ export class AgentMessagingService {
   }
 
   async claimForRelay(relayId: string, rawToken: string, claimId: string): Promise<MessageDelivery | null> {
+    const targets = await this.relayClaimTargets(relayId, rawToken);
+    if (!targets) return null;
+    return await this.claimDelivery(targets.ids, `relay:${targets.relay.id}:${targets.relay.generation}`, claimId, targets.relay.generation, true);
+  }
+
+  /**
+   * True exactly when `claimForRelay` would return null before claimDelivery. Same admission and the same errors in
+   * the same order; it claims nothing, so concurrent waiters of one relay credential may share a true answer.
+   */
+  async relayIdle(relayId: string, rawToken: string): Promise<boolean> {
+    return (await this.relayClaimTargets(relayId, rawToken)) === null;
+  }
+
+  private async relayClaimTargets(relayId: string, rawToken: string): Promise<{ relay: AgentBusRelay; ids: string[] } | null> {
     const relay = await this.authenticateRelay(relayId, rawToken, true);
     const daemonRelay = jsonRecord(relay.capabilities)?.host_daemon === true;
     const targetUsername = daemonRelay ? relay.username.replace(/:daemon$/, '') : relay.username;
@@ -1032,7 +1046,7 @@ export class AgentMessagingService {
     // writers, pinning API pool connections while they waited. A poll that changes nothing needs no fence: with no
     // pending row it is indistinguishable from one that ran just before any concurrent send or disable.
     if (!(await this.hasPendingRelayWork(targetIds))) return null;
-    return await this.claimDelivery(targetIds, `relay:${relay.id}:${relay.generation}`, claimId, relay.generation, true);
+    return { relay, ids: targetIds };
   }
 
   /**

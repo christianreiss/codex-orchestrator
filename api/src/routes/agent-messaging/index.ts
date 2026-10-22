@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { ForbiddenError, ValidationError } from '../../http/errors.js';
 import { clientGone } from '../../http/long-poll.js';
 import { relayLongPoll } from '../../http/relay-long-poll.js';
+import { sha256 } from '../../security/hash.js';
 import { createAdminEventsService } from '../../services/admin-events.js';
 import {
   createAgentMessagingService,
@@ -568,6 +569,8 @@ export async function registerAgentMessagingRoutes(
       deadline,
       () => clientGone(reply),
       reply.raw,
+      // Daemon slots poll with one credential; only an idle answer for that exact credential is shared.
+      { key: `${id}:${sha256(token)}`, check: () => messaging.relayIdle(id, token) },
     );
     return { delivery };
   });
