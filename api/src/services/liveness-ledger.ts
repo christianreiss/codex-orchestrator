@@ -7,8 +7,10 @@ import type { Database } from '../db/client.js';
  * A heartbeat that changes nothing but timestamps used to be a locked
  * transaction of 10–15 statements that rewrote the same rows every 15 s per
  * session (2026-10-23: ~3 beats/s, the largest remaining statement family).
- * Such beats are now recorded here and written every `intervalMs` with one
- * statement per table for all of them.
+ * Such beats are now recorded here and written every `intervalMs`, one
+ * autocommit UPDATE per row. A multi-row UPDATE deadlocked against
+ * transactions that lock several sessions (production, 2026-10-23); a
+ * single-row statement holds no other lock while it waits, so it cannot.
  *
  * Readers keep reading the same columns. The persisted values lag by at most
  * one interval, far inside the 45–60 s freshness windows. Every write is
@@ -44,7 +46,6 @@ export interface LivenessLedgerStats {
   flushErrors: number;
 }
 
-const BATCH = 200;
 
 function later(a: string | undefined, b: string): string {
   return a !== undefined && a > b ? a : b;
@@ -143,19 +144,22 @@ export class LivenessLedger {
     this.relays.clear();
     if (!portal.length && !receivers.length && !relays.length) return;
     this.counters.flushes++;
-    try {
-      for (let i = 0; i < portal.length; i += BATCH) await this.writePortal(portal.slice(i, i + BATCH));
-      for (let i = 0; i < receivers.length; i += BATCH) await this.writeReceivers(receivers.slice(i, i + BATCH));
-      for (let i = 0; i < relays.length; i += BATCH) await this.writeRelays(relays.slice(i, i + BATCH));
-      this.counters.flushedRows += portal.length + receivers.length + relays.length;
-    } catch (err) {
-      // Keep what is still newest; a later beat for the same row supersedes it.
-      for (const [id, beat] of portal) if (!this.portal.has(id)) this.portal.set(id, beat);
-      for (const [id, beat] of receivers) if (!this.receivers.has(id)) this.receivers.set(id, beat);
-      for (const [id, beat] of relays) if (!this.relays.has(id)) this.relays.set(id, beat);
-      this.counters.flushErrors++;
-      this.onError(err);
-    }
+    // A failed row is kept for the next flush unless a newer beat replaced it.
+    const each = async <B>(rows: Array<[string, B]>, held: Map<string, B>, write: (rows: Array<[string, B]>) => Promise<void>) => {
+      for (const row of rows) {
+        try {
+          await write([row]);
+          this.counters.flushedRows++;
+        } catch (err) {
+          if (!held.has(row[0])) held.set(row[0], row[1]);
+          this.counters.flushErrors++;
+          this.onError(err);
+        }
+      }
+    };
+    await each(portal, this.portal, (rows) => this.writePortal(rows));
+    await each(receivers, this.receivers, (rows) => this.writeReceivers(rows));
+    await each(relays, this.relays, (rows) => this.writeRelays(rows));
   }
 
   private async writePortal(rows: Array<[string, PortalBeat]>) {
@@ -200,8 +204,12 @@ export class LivenessLedger {
   }
 }
 
-/** Persisted values lag by at most this much behind the newest beat. */
-export const LIVENESS_FLUSH_MS = 5000;
+/**
+ * Persisted values lag by at most this much behind the newest beat. With
+ * beats every 15–20 s a row is written about once per interval, and the
+ * stored value stays under 30 s old, inside the 45 s freshness windows.
+ */
+export const LIVENESS_FLUSH_MS = 10_000;
 
 let shared: LivenessLedger | undefined;
 
