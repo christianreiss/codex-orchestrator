@@ -128,10 +128,14 @@ func (r *autoReceiver) observeActivity(ctx context.Context, engine, nativeID, ge
 			}
 			return *v
 		}
-		if sent.IsZero() || a.State != last.State || reason(a.WaitReason) != reason(last.WaitReason) || time.Since(sent) >= 15*time.Second {
+		// Changes only: a receiver_bound observation stays current on the server
+		// while this receiver keeps heartbeating. Resending an unchanged state
+		// every 15 s was about 0.7 requests/s fleet-wide.
+		if sent.IsZero() || a.State != last.State || reason(a.WaitReason) != reason(last.WaitReason) {
 			seq++
 			body := map[string]any{"generation": generation, "binding_generation": binding, "native_session_id": nativeID,
-				"sequence": seq, "state": a.State, "wait_reason": a.WaitReason, "source": a.Source, "evidence_age_ms": a.EvidenceAgeMS}
+				"sequence": seq, "state": a.State, "wait_reason": a.WaitReason, "source": a.Source, "evidence_age_ms": a.EvidenceAgeMS,
+				"receiver_bound": true}
 			sendCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			var out map[string]any
 			err = r.client.sessionPost(sendCtx, "activity", body, &out)

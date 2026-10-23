@@ -13,6 +13,11 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 )
 
+// nativeControlPollEvery bounds how long a portal stop request waits for its
+// owned native process. A 3 s poll from every live session was about 1
+// request/s fleet-wide (2026-10-23) for requests that almost never exist.
+var nativeControlPollEvery = 10 * time.Second
+
 func (s *Session) withNativeControl(ctx context.Context) context.Context {
 	runCtx, cancelNative := context.WithCancel(ctx)
 	return nativeprocess.WithControl(runCtx, func(stop func() error) func() {
@@ -46,7 +51,7 @@ func (s *Session) withNativeControl(ctx context.Context) context.Context {
 		}
 		go func() {
 			defer close(done)
-			timer := time.NewTicker(3 * time.Second)
+			timer := time.NewTicker(nativeControlPollEvery)
 			defer timer.Stop()
 			for {
 				mu.Lock()

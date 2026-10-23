@@ -90,6 +90,10 @@ func (w *recordingTitleWriter) setSessionName(_ string, name string) error {
 }
 
 func TestSessionTitleCarriesTheActiveRoleLabel(t *testing.T) {
+	// Every beat re-reads identity here, so the role release shows at once.
+	previous := selfRefreshEvery
+	selfRefreshEvery = 0
+	t.Cleanup(func() { selfRefreshEvery = previous })
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 	write := func(name string) {
@@ -140,5 +144,42 @@ func TestSessionTitleCarriesTheActiveRoleLabel(t *testing.T) {
 	r.report(context.Background(), client, "codex", "native", writer)
 	if writer.names[len(writer.names)-1] != "(Sinja) Rollensystem planen" || posted[len(posted)-1] != "Rollensystem planen" {
 		t.Fatalf("label not removed: %v %v", writer.names, posted)
+	}
+}
+
+func TestUnchangedTitleDoesNotReReadIdentityEveryBeat(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	raw, _ := json.Marshal(map[string]string{"id": "native", "thread_name": "(Sinja) Plan"})
+	if err := os.WriteFile(filepath.Join(home, "session_index.jsonl"), append(raw, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	selfCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if filepath.Base(req.URL.Path) == "self" {
+			selfCalls++
+			_, _ = w.Write([]byte(`{"name":"Sinja","session_id":"wrapper","native_session_id":"native","engine":"codex"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	client := &sessionClient{id: "wrapper", http: &http.Client{Transport: rewriteTransport{server}}}
+	writer := &recordingTitleWriter{}
+	r := &sessionNameReporter{}
+	for i := 0; i < 5; i++ {
+		r.report(context.Background(), client, "codex", "native", writer)
+	}
+	if selfCalls != 1 || len(writer.names) != 0 {
+		t.Fatalf("self calls = %d, renames = %v", selfCalls, writer.names)
+	}
+	// A native rename is a change: identity is confirmed again.
+	raw, _ = json.Marshal(map[string]string{"id": "native", "thread_name": "Other"})
+	if err := os.WriteFile(filepath.Join(home, "session_index.jsonl"), append(raw, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r.report(context.Background(), client, "codex", "native", writer)
+	if selfCalls != 2 {
+		t.Fatalf("self calls after rename = %d", selfCalls)
 	}
 }

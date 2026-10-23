@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -107,7 +108,17 @@ type sessionNameReporter struct {
 	lastName    string
 	pendingID   string
 	pendingName string
+	// The last confirmed identity and the native title it produced. A beat
+	// whose native title is unchanged reuses it until selfRefreshEvery.
+	identity     *ownIdentity
+	identityAt   time.Time
+	identityName string
 }
+
+// selfRefreshEvery bounds how long a server-side rename or role change can take
+// to reach the native title. Re-reading identity on every 15 s receiver beat
+// cost about 0.6 requests/s fleet-wide for a value that almost never changes.
+var selfRefreshEvery = 2 * time.Minute
 
 type nativeSessionTitleWriter interface{ setSessionName(string, string) error }
 
@@ -223,10 +234,14 @@ func (r *sessionNameReporter) report(ctx context.Context, client *sessionClient,
 		}
 		name := nativeSessionName(home, engine, nativeID)
 		if len(writers) > 0 && writers[0] != nil {
-			var identity ownIdentity
-			if client.post(ctx, "self", map[string]any{}, &identity) != nil || identity.SessionID != client.id || identity.NativeID != nativeID || identity.Engine != engine || identity.Name == "" {
-				return
+			if r.identity == nil || name != r.identityName || time.Since(r.identityAt) >= selfRefreshEvery {
+				var fresh ownIdentity
+				if client.post(ctx, "self", map[string]any{}, &fresh) != nil || fresh.SessionID != client.id || fresh.NativeID != nativeID || fresh.Engine != engine || fresh.Name == "" {
+					return
+				}
+				r.identity, r.identityAt = &fresh, time.Now()
 			}
+			identity := *r.identity
 			task := bareSessionTitle(name, identity)
 			if task == "" {
 				task = bareSessionTitle(identity.TaskTitle, identity)
@@ -241,6 +256,7 @@ func (r *sessionNameReporter) report(ctx context.Context, client *sessionClient,
 			if name != named && writers[0].setSessionName(nativeID, named) != nil {
 				return
 			}
+			r.identityName = named
 			name = task
 		}
 		if name == "" || name == r.lastName {

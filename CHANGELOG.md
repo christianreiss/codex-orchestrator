@@ -1,6 +1,16 @@
 # 2026-10-23
 
-- **Serve hosts, versions and host daemons from RAM.** The API keeps plain reads of these three tables in memory: per-request host authentication, communicator frame admission, kill-switch and engine flags, and daemon settings. That removes about 45 statements per second at idle. It is not a time-based cache. Every write made by the API invalidates the affected rows at once, and a write inside a transaction invalidates again at commit or rollback. Plain reads inside transactions use the cache too, unless that transaction has written the table itself. Locking reads still go to MySQL. Edits from other processes (manual SQL, CLI tools) are detected by a per-row comparison and become visible within `DB_READ_CACHE_RESYNC_SECONDS` (default 15). Only rows whose content changed are re-read. `DB_READ_CACHE_ENABLED=0` turns the cache off; the API logs hit and miss counters every minute.
+- **Quieter idle wrappers (cxx 0.9.121).** An idle session or relay makes far fewer background requests. Sessions already running keep their old wrapper until they restart.
+  - A daemon relay holds one claim long poll instead of one per execution slot (8). Each claimed delivery opens one more slot, up to the configured parallelism, and a burst slot closes after its first empty claim.
+  - The schedule watch asks for its policy every 30 seconds while the last answer named no progress timeout, instead of every 5 seconds. With a timeout or termination request it still asks every 5 seconds.
+  - The receiver confirms its identity (`agent-messaging/self`) only when the native title changed or after 2 minutes, instead of on every 15-second beat.
+  - Activity is reported only when it changes, as a `receiver_bound` observation.
+  - Native stop requests are polled every 10 seconds instead of every 3.
+  - Account leases (5-minute TTL) are renewed every 90 seconds instead of every 30.
+  - The communicator re-runs a session's auth sync every 5 minutes instead of every 30 seconds between pushes. The server now also pushes `auth_changed` for quota usage and policy events, so the quota fields of `/auth` still arrive promptly.
+  - Includes the unpublished 0.9.120 claim-renewal change.
+
+- **Serve hosts, versions, host daemons and provider accounts from RAM.** The API keeps plain reads of these four tables in memory: per-request host authentication, communicator frame admission, kill-switch and engine flags, daemon settings and account leases. That removes about 45 statements per second at idle. It is not a time-based cache. Every write made by the API invalidates the affected rows at once, and a write inside a transaction invalidates again at commit or rollback. Plain reads inside transactions use the cache too, unless that transaction has written the table itself. Locking reads still go to MySQL. Edits from other processes (manual SQL, CLI tools) are detected by a per-row comparison and become visible within `DB_READ_CACHE_RESYNC_SECONDS` (default 15). Only rows whose content changed are re-read. `DB_READ_CACHE_ENABLED=0` turns the cache off; the API logs hit and miss counters every minute.
 
 - **Index the quota snapshot lookup.** Every `/auth` reads the latest Codex and Claude quota snapshot for one account. Without an account-first index, an account with no snapshots scanned the whole history: 10,000–14,000 rows per call, the largest single MySQL cost at idle. New indexes `idx_chatgpt_usage_account_fetched` and `idx_claude_usage_account_fetched` (migration 0091). Responses are unchanged.
 

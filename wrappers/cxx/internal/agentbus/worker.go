@@ -355,16 +355,40 @@ func (c *relayClient) pollParallel(ctx context.Context, configs map[string]*conf
 		}
 	}()
 
+	// Slots are elastic. An idle relay holds one long poll instead of `loops`
+	// identical ones, each of which the server re-checked on its idle grid.
+	// Every claimed delivery opens one more slot, up to `loops`; a burst slot
+	// closes again after its first empty claim.
 	loopErr := make(chan error, loops)
 	var loopsDone sync.WaitGroup
-	for i := 0; i < loops; i++ {
+	var slotsMu sync.Mutex
+	active := 0
+	var start func(primary bool)
+	start = func(primary bool) {
+		slotsMu.Lock()
+		if active >= loops {
+			slotsMu.Unlock()
+			return
+		}
+		active++
+		slotsMu.Unlock()
 		loopsDone.Add(1)
 		go func() {
 			defer loopsDone.Done()
-			loopErr <- c.claimLoop(pollCtx, configs, stderr)
-			cancel()
+			err := c.claimLoop(pollCtx, configs, stderr, primary, func() { start(false) })
+			slotsMu.Lock()
+			active--
+			slotsMu.Unlock()
+			if primary || err != nil {
+				select {
+				case loopErr <- err:
+				default:
+				}
+				cancel()
+			}
 		}()
 	}
+	start(true)
 	loopsDone.Wait()
 	close(loopErr)
 	for err := range loopErr {
@@ -375,13 +399,18 @@ func (c *relayClient) pollParallel(ctx context.Context, configs map[string]*conf
 	return resultErr
 }
 
-func (c *relayClient) claimLoop(pollCtx context.Context, configs map[string]*config.Config, stderr io.Writer) error {
+// claimLoop claims until the poll ends. A burst slot (keep false) returns after
+// its first empty claim; burst opens another slot before a delivery runs.
+func (c *relayClient) claimLoop(pollCtx context.Context, configs map[string]*config.Config, stderr io.Writer, keep bool, burst func()) error {
 	for pollCtx.Err() == nil {
 		finish := func() {}
 		if c.claimPermit != nil {
 			var allowed bool
 			finish, allowed = c.claimPermit()
 			if !allowed {
+				if !keep {
+					return nil
+				}
 				if !waitContext(pollCtx, time.Second) {
 					return pollCtx.Err()
 				}
@@ -396,7 +425,13 @@ func (c *relayClient) claimLoop(pollCtx context.Context, configs map[string]*con
 		}
 		if claim.Delivery == nil {
 			finish()
+			if !keep {
+				return nil
+			}
 			continue
+		}
+		if burst != nil {
+			burst()
 		}
 		if err := c.processDelivery(pollCtx, configs, claim.Delivery); err != nil {
 			fmt.Fprintln(stderr, "agent messaging delivery", opaqueID(claim.Delivery.MessageID)+":", sanitizedError(err))

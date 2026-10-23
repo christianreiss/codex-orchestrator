@@ -5,6 +5,7 @@ import (
 	"context"
 	"os/exec"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -197,5 +198,27 @@ func TestSiblingLeaderToolProtectsQuietTUI(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("finished leader tool blocked termination forever")
+	}
+}
+
+func TestNoTimeoutPolicyIsNotReReadEveryTick(t *testing.T) {
+	prior := pollInterval
+	pollInterval = 5 * time.Millisecond
+	defer func() { pollInterval = prior }()
+	var reads atomic.Int32
+	ctx := WithPolicy(context.Background(), func(context.Context) (Policy, error) {
+		reads.Add(1)
+		return Policy{}, nil
+	})
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cmd.Process.Kill()
+	stop := Start(ctx, cmd)
+	time.Sleep(100 * time.Millisecond)
+	stop()
+	if got := reads.Load(); got != 1 {
+		t.Fatalf("policy reads = %d over ~20 ticks, want 1", got)
 	}
 }

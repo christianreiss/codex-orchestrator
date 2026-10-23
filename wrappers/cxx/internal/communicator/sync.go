@@ -336,6 +336,11 @@ func (s *server) runSync(ctx context.Context, in SyncRequest) SyncResult {
 // control connection (connectWaitFirst), must give an answer well before this.
 const authWorkerTimeout = 15 * time.Second
 
+// authResyncEvery is the safety net between pushed auth_changed frames and
+// reconnects, which re-run an auth job at once. Every session's job ran every
+// 30 s (/auth, the costliest host route, about 0.5 requests/s, 2026-10-23).
+const authResyncEvery = 5 * time.Minute
+
 func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResult) {
 	s.mu.Lock()
 	state := s.stateLocked(in.Job)
@@ -650,7 +655,7 @@ func (s *server) syncLoop(ctx context.Context) {
 			// Schedule before dispatch; invalidations arriving during work reset this
 			// deadline and cause another pass, never disappear behind an in-flight flag.
 			if authDue {
-				state.nextAuth = time.Now().Add(30 * time.Second)
+				state.nextAuth = time.Now().Add(authResyncEvery)
 				state.lastFile = digest
 			}
 			if contentDue {

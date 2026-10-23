@@ -46,6 +46,9 @@ export interface ReadCacheStats {
   bypasses: number;
   invalidations: number;
   resyncFlushes: number;
+  /** SELECTs on cached tables that must reach MySQL, by reason. */
+  locking: number;
+  foreign: number;
   entries: number;
 }
 
@@ -115,7 +118,7 @@ export class ReadCache {
   private readonly writeSeq = new Map<string, number>();
   /** Writes issued but not yet committed or rolled back. */
   private readonly inFlight = new Map<string, number>();
-  private readonly counters = { hits: 0, misses: 0, bypasses: 0, invalidations: 0, resyncFlushes: 0 };
+  private readonly counters = { hits: 0, misses: 0, bypasses: 0, invalidations: 0, resyncFlushes: 0, locking: 0, foreign: 0 };
   private rowHashes = new Map<string, Map<string, string>>();
   private raw: ((arg: unknown, values?: unknown) => Promise<unknown>) | undefined;
   private resyncTimer: NodeJS.Timeout | undefined;
@@ -239,7 +242,15 @@ export class ReadCache {
 
   private async read(call: () => Promise<[unknown, unknown]>, arg: unknown, values: unknown, sql: string) {
     const { cacheable, other } = this.tablesIn(sql);
-    if (other || cacheable.length === 0 || NON_DETERMINISTIC.test(sql)) return call();
+    if (cacheable.length === 0) return call();
+    if (other) {
+      this.counters.foreign++;
+      return call();
+    }
+    if (NON_DETERMINISTIC.test(sql)) {
+      this.counters.locking++;
+      return call();
+    }
     const key = this.cacheKey(arg, values, sql);
     const hit = this.entries.get(key);
     if (hit) {

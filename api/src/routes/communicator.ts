@@ -240,7 +240,9 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           }
           return;
         }
-        if (/^(auth\.|accounts\.)/.test(event.type)) {
+        // Quota readings and policy ride the /auth response, so they invalidate it
+        // too. cxx 0.9.121 re-runs an unpushed auth job only every 5 minutes.
+        if (/^(auth\.|accounts\.|quota\.|chatgpt\.usage\.|claude\.usage\.)/.test(event.type)) {
           authDirty = true;
           return;
         }

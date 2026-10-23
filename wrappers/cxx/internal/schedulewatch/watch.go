@@ -22,6 +22,12 @@ type Policy struct {
 
 var pollInterval = 5 * time.Second
 
+// While the last answer named no timeout and no termination, the server is
+// asked again only this often. Every live session asked every 5 s (the largest
+// idle request stream, 2026-10-23); a schedule that adds a timeout is
+// enforced from the next read on, and absent policy never terminates.
+var idlePolicyEvery = 30 * time.Second
+
 type PolicyReader func(context.Context) (Policy, error)
 type key struct{}
 type activityKey struct{}
@@ -176,6 +182,8 @@ func Start(ctx context.Context, cmd *exec.Cmd) func() {
 		ticker := time.NewTicker(pollInterval)
 		defer ticker.Stop()
 		generation := 0
+		var known Policy
+		var knownAt time.Time
 		for {
 			select {
 			case <-childCtx.Done():
@@ -194,9 +202,15 @@ func Start(ctx context.Context, cmd *exec.Cmd) func() {
 					_ = w.report(request, progress, "")
 					c()
 				}
-				request, c := context.WithTimeout(childCtx, 4*time.Second)
-				policy, err := w.read(request)
-				c()
+				policy, err := known, error(nil)
+				if knownAt.IsZero() || known.TimeoutSeconds > 0 || known.TerminateRequested || time.Since(knownAt) >= idlePolicyEvery {
+					request, c := context.WithTimeout(childCtx, 4*time.Second)
+					policy, err = w.read(request)
+					c()
+					if err == nil {
+						known, knownAt = policy, time.Now()
+					}
+				}
 				if err != nil || policy.TimeoutSeconds <= 0 || !current.known {
 					reset(ctx)
 					generation = 0
@@ -218,7 +232,7 @@ func Start(ctx context.Context, cmd *exec.Cmd) func() {
 					ReportFailure(ctx, "hang")
 				}
 				// Fresh authorization immediately before TERM. Lost binding resets the clock.
-				request, c = context.WithTimeout(childCtx, 4*time.Second)
+				request, c := context.WithTimeout(childCtx, 4*time.Second)
 				fresh, err := w.read(request)
 				c()
 				if err != nil || fresh.TimeoutSeconds != policy.TimeoutSeconds || fresh.BindingGeneration != generation || (policy.TerminateRequested && !fresh.TerminateRequested) {

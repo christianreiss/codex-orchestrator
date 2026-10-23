@@ -17,6 +17,7 @@ export const READ_CACHE_TABLES = {
   hosts: { uniqueColumns: ['id', 'api_key_hash', 'api_key', 'fqdn'], rowKey: 'id' },
   versions: { uniqueColumns: ['name'], rowKey: 'name' },
   host_daemons: { uniqueColumns: ['host_id'], rowKey: 'host_id' },
+  provider_accounts: { uniqueColumns: ['id'], rowKey: 'id' },
 };
 
 export function createDb(env: Env, options: { readCache?: boolean } = {}) {

@@ -34,6 +34,9 @@ type binding struct {
 	AccountID int64 `json:"account_id"`
 }
 
+// leaseHeartbeatEvery renews a launch's account lease (server TTL 5 minutes).
+var leaseHeartbeatEvery = 90 * time.Second
+
 func Load(engine, authPath, baseURL string) *Context {
 	directory := filepath.Clean(filepath.Dir(authPath))
 	if real, err := filepath.EvalSymlinks(directory); err == nil {
@@ -230,7 +233,8 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(30 * time.Second)
+		// Three renewals per five-minute lease TTL; a missed one re-reserves on 404.
+		ticker := time.NewTicker(leaseHeartbeatEvery)
 		defer ticker.Stop()
 		for {
 			select {
