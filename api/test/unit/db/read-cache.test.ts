@@ -10,7 +10,6 @@ function fakePool() {
     { id: 2, name: 'two', meta: { tag: 'b' } },
   ];
   const calls: string[] = [];
-  let checksum = 'c1';
   let gate: Promise<void> | null = null;
   const fields = [{ name: 'id', orgName: 'id', table: 'hosts', orgTable: 'hosts' }, { name: 'name', orgName: 'name', table: 'hosts', orgTable: 'hosts' }];
   const run = async (arg: unknown, values?: unknown[]) => {
@@ -18,7 +17,6 @@ function fakePool() {
     const bound = (values ?? (arg as { values?: unknown[] }).values ?? []) as unknown[];
     calls.push(sql);
     if (gate) await gate;
-    if (/^checksum/i.test(sql)) return [[{ Table: 'db.hosts', Checksum: checksum }], []];
     if (/^update/i.test(sql)) {
       const id = Number(bound[bound.length - 1]);
       const row = rows.find((r) => r.id === id);
@@ -48,9 +46,6 @@ function fakePool() {
     pool: pool as unknown as Pool,
     calls,
     rows,
-    setChecksum(value: string) {
-      checksum = value;
-    },
     hold() {
       let open!: () => void;
       gate = new Promise<void>((resolve) => (open = resolve));
@@ -164,18 +159,22 @@ describe('db read cache', () => {
     expect(cache.stats().entries).toBe(0);
   });
 
-  it('flushes when CHECKSUM TABLE reports a write from another process', async () => {
+  it('invalidates exactly the rows another process changed', async () => {
     const fake = fakePool();
     const cache = installReadCache(fake.pool, { tables: { hosts: tables.hosts }, allTables, resyncMs: 0 });
     const resync = () => (cache as unknown as { resync(): Promise<void> }).resync();
     await resync();
     await fake.pool.query(byId, [1, 1]);
+    await fake.pool.query(byId, [2, 1]);
     await resync();
     await fake.pool.query(byId, [1, 1]);
     expect(cache.stats().hits).toBe(1);
-    fake.setChecksum('c2');
+    // Written behind the API's back: only host 1 is re-read.
+    fake.rows[0]!.name = 'external';
     await resync();
-    await fake.pool.query(byId, [1, 1]);
-    expect(cache.stats()).toMatchObject({ hits: 1, resyncFlushes: 1 });
+    const one = (await fake.pool.query(byId, [1, 1])) as unknown as [unknown[][]];
+    await fake.pool.query(byId, [2, 1]);
+    expect(one[0][0]![1]).toBe('external');
+    expect(cache.stats()).toMatchObject({ hits: 2, resyncFlushes: 1 });
   });
 });

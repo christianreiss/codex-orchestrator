@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Pool, PoolConnection } from 'mysql2/promise';
 
 /**
@@ -12,8 +13,10 @@ import type { Pool, PoolConnection } from 'mysql2/promise';
  *   and while it is open, reads of that table bypass the cache;
  * - a load is stored only if no write touched its tables while it ran.
  *
- * Writes from other processes are caught by a CHECKSUM TABLE poll
- * (`resyncMs`): manual SQL, CLI ops and migrations.
+ * Writes from other processes (manual SQL, CLI ops, migrations) are caught by
+ * a resync every `resyncMs`: it hashes each row and invalidates exactly the
+ * rows whose content changed, so this process's own frequent writes (contact
+ * times, call counters) do not flush the whole table.
  *
  * Only pool-level plain SELECTs are cached. Reads inside transactions,
  * locking reads and non-deterministic SQL always go to MySQL.
@@ -110,7 +113,8 @@ export class ReadCache {
   /** Writes issued but not yet committed or rolled back. */
   private readonly inFlight = new Map<string, number>();
   private readonly counters = { hits: 0, misses: 0, bypasses: 0, invalidations: 0, resyncFlushes: 0 };
-  private checksums = new Map<string, string>();
+  private rowHashes = new Map<string, Map<string, string>>();
+  private raw: ((arg: unknown, values?: unknown) => Promise<unknown>) | undefined;
   private resyncTimer: NodeJS.Timeout | undefined;
 
   constructor(private readonly pool: Pool, options: ReadCacheOptions) {
@@ -269,6 +273,7 @@ export class ReadCache {
     const pool = this.pool as unknown as Record<'query' | 'execute', (...args: unknown[]) => Promise<unknown>>;
     for (const method of ['query', 'execute'] as const) {
       const original = pool[method].bind(this.pool);
+      if (method === 'query') this.raw = original;
       pool[method] = (arg: unknown, values?: unknown) => {
         const sql = sqlText(arg);
         const kind = classify(sql);
@@ -327,25 +332,38 @@ export class ReadCache {
     };
   }
 
-  /** One statement for all tables; a changed checksum means a write this process did not see. */
+  /**
+   * Compares every row with the previous pass. A changed row is invalidated on
+   * its own; an added or removed row, or a table without a row key, flushes the
+   * table. Reads bypass the cache so the pass always sees MySQL.
+   */
   private async resync() {
-    const names = [...this.tables.keys()];
-    // CHECKSUM is classified 'other', so the wrapped query passes it straight through.
-    const [rows] = (await this.pool.query(`CHECKSUM TABLE ${names.map((n) => `\`${n}\``).join(', ')}`)) as unknown as [
-      Array<{ Table: string; Checksum: number | string | null }>,
-      unknown,
-    ];
-    const next = new Map<string, string>();
-    for (const row of rows) next.set(String(row.Table).split('.').pop()!.toLowerCase(), String(row.Checksum));
-    for (const name of names) {
-      const previous = this.checksums.get(name);
-      const current = next.get(name);
-      if (previous !== undefined && previous !== current) {
+    const raw = this.raw;
+    if (!raw) return;
+    for (const [name, config] of this.tables) {
+      const key = config.rowKey;
+      const [rows, fields] = (await raw({ sql: `SELECT * FROM \`${name}\`` })) as [unknown[], Array<{ name?: string }> | undefined];
+      const index = key && fields ? fields.findIndex((f) => f.name === key) : -1;
+      const next = new Map<string, string>();
+      for (const row of rows) {
+        const id = Array.isArray(row) ? row[index] : key ? (row as Record<string, unknown>)[key] : undefined;
+        next.set(String(id ?? next.size), createHash('sha1').update(JSON.stringify(row)).digest('base64'));
+      }
+      const previous = this.rowHashes.get(name);
+      this.rowHashes.set(name, next);
+      if (!previous) continue;
+      const reshaped = !key || previous.size !== next.size || [...next.keys()].some((id) => !previous.has(id));
+      if (reshaped) {
         this.counters.resyncFlushes++;
         this.invalidate(name, null);
+        continue;
+      }
+      for (const [id, hash] of next) {
+        if (previous.get(id) === hash) continue;
+        this.counters.resyncFlushes++;
+        this.invalidate(name, id);
       }
     }
-    this.checksums = next;
   }
 }
 
