@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { relayGridDelay, relayLongPoll } from '../../../src/http/relay-long-poll.js';
+import { relayGridDelay, relayLongPoll, relayLongPollConfig } from '../../../src/http/relay-long-poll.js';
+
+// The grid logic is period-independent; these cases were written against a 2 s grid.
+relayLongPollConfig.gridMs = 2000;
 import { wsPublisher } from '../../../src/ws/publisher.js';
 
 afterEach(() => vi.useRealTimers());

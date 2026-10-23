@@ -2,6 +2,14 @@ import { wsPublisher } from '../ws/publisher.js';
 
 const FALLBACK_MS = 2000;
 
+/**
+ * Grid period of a proven-idle relay credential. Work events wake waiters at
+ * once; the grid only notices time-based eligibility (retry, lease and expiry
+ * times), which no event announces. 2 s cost about 8 relay proofs per second
+ * for an idle fleet of 17 relays (2026-10-23).
+ */
+export const relayLongPollConfig = { gridMs: 10_000 };
+
 // Host/daemon/address telemetry is not work. Fleet heartbeats otherwise wake every relay and recreate the SQL polling
 // amplification.
 function wakesRelays(type: string): boolean {
@@ -41,11 +49,12 @@ function sharedIdle(key: string, check: () => Promise<boolean>): Promise<boolean
   return entry.idle.catch(() => false);
 }
 
-/** Milliseconds until the next grid point of `key`, in (0, FALLBACK_MS]; the phase is stable per credential. */
+/** Milliseconds until the next grid point of `key`, in (0, gridMs]; the phase is stable per credential. */
 export function relayGridDelay(key: string, now: number): number {
+  const period = relayLongPollConfig.gridMs;
   let phase = 0;
-  for (let i = 0; i < key.length; i++) phase = (phase * 31 + key.charCodeAt(i)) % FALLBACK_MS;
-  return (phase - (now % FALLBACK_MS) + FALLBACK_MS) % FALLBACK_MS || FALLBACK_MS;
+  for (let i = 0; i < key.length; i++) phase = (phase * 31 + key.charCodeAt(i)) % period;
+  return (phase - (now % period) + period) % period || period;
 }
 
 const gridTicks = new Map<string, { waiters: Set<() => void>; timer: ReturnType<typeof setTimeout> }>();

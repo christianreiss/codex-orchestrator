@@ -1284,6 +1284,7 @@ export const chatgptUsageSnapshots = mysqlTable(
   (t) => ({
     hostIdx: index('idx_chatgpt_usage_host').on(t.hostId),
     fetchedIdx: index('idx_chatgpt_usage_fetched').on(t.fetchedAt),
+    accountFetchedIdx: index('idx_chatgpt_usage_account_fetched').on(t.accountId, t.fetchedAt, t.id),
   }),
 );
 
@@ -1307,6 +1308,7 @@ export const claudeUsageSnapshots = mysqlTable(
   (t) => ({
     hostIdx: index('idx_claude_usage_host').on(t.hostId),
     fetchedIdx: index('idx_claude_usage_fetched').on(t.fetchedAt),
+    accountFetchedIdx: index('idx_claude_usage_account_fetched').on(t.accountId, t.fetchedAt, t.id),
   }),
 );
 

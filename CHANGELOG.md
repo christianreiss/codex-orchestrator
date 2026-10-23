@@ -1,3 +1,19 @@
+# 2026-10-23
+
+- **Serve hosts, versions and host daemons from RAM.** The API keeps plain reads of these three tables in memory: per-request host authentication, communicator frame admission, kill-switch and engine flags, and daemon settings. That removes about 45 statements per second at idle. It is not a time-based cache. Every write made by the API invalidates the affected rows at once, and a write inside a transaction invalidates again at commit or rollback. Reads inside transactions and locking reads still go to MySQL. Edits from other processes (manual SQL, CLI tools) are detected by a `CHECKSUM TABLE` poll and become visible within `DB_READ_CACHE_RESYNC_SECONDS` (default 15). `DB_READ_CACHE_ENABLED=0` turns the cache off; the API logs hit and miss counters every minute.
+
+- **Index the quota snapshot lookup.** Every `/auth` reads the latest Codex and Claude quota snapshot for one account. Without an account-first index, an account with no snapshots scanned the whole history: 10,000–14,000 rows per call, the largest single MySQL cost at idle. New indexes `idx_chatgpt_usage_account_fetched` and `idx_claude_usage_account_fetched` (migration 0091). Responses are unchanged.
+
+- **Fewer host contact writes.** Session and messaging heartbeats wrote `hosts.last_contact_at` twice per beat. They now write it at most every 30 seconds per host, the same cadence as host authentication. Presence still comes from session heartbeats; `last_contact_at` only feeds display and pruning.
+
+- **Slower idle relay grid.** An idle relay credential re-checks every 10 seconds instead of every 2. New messages, state changes and fleet switches still wake waiting relays immediately. The grid only catches retry, lease and expiry times, which no event announces.
+
+- **Longer empty receiver holds.** The server holds an empty `receiver/claim` for up to 20 seconds instead of 8, and answers at once when a message, portal or fleet-switch event arrives. Existing wrappers allow 35 seconds and keep their 15-second receiver heartbeat between claims.
+
+- **Receiver-bound activity.** An activity report may carry `receiver_bound: true`. It then stays current for as long as the same receiver keeps heartbeating, so the wrapper reports changes only, instead of resending an unchanged state every 15 seconds. Reports without the flag expire as before.
+
+- **Event-driven scope coordination.** Coordination reconciliation now runs about 2 seconds after an event that changes its input (sessions, hosts, settings, engines, claims, projects), plus every 10 seconds for presence and claim deadlines. It used to read a full input snapshot every 2 seconds.
+
 # 2026-10-22
 
 - **Lock-free identity reads.** `agent-messaging/self`, polled by every live receiver every 15 seconds, reads from one read-only snapshot instead of taking the bus-wide enable lock and four row locks. Answers and errors are unchanged.

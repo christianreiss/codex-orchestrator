@@ -18,9 +18,10 @@ const claimGate = z.object({
  * 24 HTTP requests/s). An empty claim is now held open for up to this long and answered again, once, as soon as a
  * message, portal or fleet-switch event is published. Old wrappers keep working: their client allows 35 s and they
  * still sleep one second between claims. Changes without an event (lease expiry, retry due) are seen on the next
- * claim, i.e. within this hold plus that second.
+ * claim, i.e. within this hold plus that second. 20 s (2026-10-23, was 8 s) keeps the receiver's own 15 s heartbeat,
+ * which runs between claims, well inside the 45 s freshness window.
  */
-export const RECEIVER_IDLE_HOLD_MS = 8_000;
+export const RECEIVER_IDLE_HOLD_MS = 20_000;
 
 function wakesReceiver(sessionId: string) {
   return (type: string, payload: unknown) => {

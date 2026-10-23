@@ -43,7 +43,7 @@ export async function buildServer() {
   // No-op unless OTEL_TRACES_ENABLED is set — with it unset no OpenTelemetry
   // package is even imported. Before anything worth tracing runs.
   await initTracing(env);
-  const { db, pool } = createDb(env);
+  const { db, pool, readCache } = createDb(env, { readCache: env.DB_READ_CACHE_ENABLED });
 
   // Schema first: the boot checks below probe tables that migrations create.
   await runBootMigrations(env, pool);
@@ -131,6 +131,16 @@ export async function buildServer() {
   app.addHook('onClose', async () => {
     await shutdownTracing();
   });
+
+  if (readCache) {
+    // Hit/miss counters make the cache's effect measurable instead of inferred.
+    const statsTimer = setInterval(() => app.log.info({ readCache: readCache.stats() }, 'db read cache'), 60_000);
+    statsTimer.unref();
+    app.addHook('onClose', async () => {
+      clearInterval(statsTimer);
+      readCache.close();
+    });
+  }
 
   attachShutdown(app, pool);
   return app;

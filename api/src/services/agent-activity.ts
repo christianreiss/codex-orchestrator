@@ -13,6 +13,10 @@ export const activityInputSchema = z
     wait_reason: z.enum(['approval', 'input']).nullable(),
     source: z.enum(['codex-thread', 'grok-session', 'claude-hooks']),
     evidence_age_ms: z.number().int().nonnegative().max(86_400_000),
+    // The observer reports changes only, so the observation stays current for
+    // as long as the same receiver keeps heartbeating. Without it (older
+    // wrappers), an observation expires on its own and must be resent.
+    receiver_bound: z.boolean().optional(),
   })
   .strict()
   .refine(
@@ -68,7 +72,7 @@ export function acceptActivity(
     previous.native_session_id === input.native_session_id &&
     previous.state === input.state &&
     previous.wait_reason === input.wait_reason &&
-    Date.parse(previous.expires_at) > now;
+    (previous.receiver_bound === true || Date.parse(previous.expires_at) > now);
   return {
     ...input,
     received_at: received,
@@ -90,7 +94,7 @@ export function activityView(session: Session, now = Date.now(), question = fals
     Date.parse(receiver.heartbeat_at) <= now &&
     Date.parse(receiver.heartbeat_at) > now - RECEIVER_FRESH_MS &&
     Date.parse(value.received_at) <= now &&
-    Date.parse(value.expires_at) > now;
+    (value.receiver_bound === true || Date.parse(value.expires_at) > now);
   const state = valid ? value.state : 'unknown';
   const portalWait = !session.endedAt && question && (state === 'idle' || state === 'unknown');
   return {
@@ -98,7 +102,12 @@ export function activityView(session: Session, now = Date.now(), question = fals
     wait_reason: portalWait ? 'input' : valid ? value.wait_reason : null,
     source: portalWait ? 'portal-question' : (value?.source ?? null),
     changed_at: value?.changed_at ?? null,
-    expires_at: portalWait ? null : (value?.expires_at ?? null),
+    // A receiver-bound observation lasts exactly as long as the receiver is fresh.
+    expires_at: portalWait
+      ? null
+      : value?.receiver_bound === true && receiver
+        ? new Date(Date.parse(receiver.heartbeat_at) + RECEIVER_FRESH_MS).toISOString()
+        : (value?.expires_at ?? null),
     reason:
       portalWait || (valid && state !== 'unknown') ? null : value ? 'expired_or_unavailable' : 'unsupported',
   };

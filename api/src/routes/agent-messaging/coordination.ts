@@ -5,6 +5,7 @@ import { UnauthorizedError } from '../../http/errors.js';
 import type { AgentMessagingService } from '../../services/agent-messaging.js';
 import { AgentCoordination } from '../../services/agent-coordination/index.js';
 import { createAdminEventsService } from '../../services/admin-events.js';
+import { wsPublisher } from '../../ws/publisher.js';
 
 export function registerCoordinationRoutes(
   app: FastifyInstance,
@@ -101,19 +102,52 @@ export function registerCoordinationRoutes(
     );
     return result;
   });
+  // Reconciliation follows the events that change its input. The fallback only
+  // catches time-based transitions: presence freshness, claim expiry, and the
+  // 2 s dispatch delay of a scope event that nobody announced. A blind 2 s
+  // interval cost one ~6,000-row input snapshot every tick (2026-10-23).
   let running: Promise<void> | undefined;
-  const timer = setInterval(() => {
-    if (running) return;
+  let again = false;
+  let soon: ReturnType<typeof setTimeout> | undefined;
+  const run = () => {
+    if (running) {
+      again = true;
+      return;
+    }
     running = service
       .tick()
       .catch((error) => app.log.error({ err: error }, 'Scope coordination tick failed'))
       .finally(() => {
         running = undefined;
+        if (again) {
+          again = false;
+          schedule();
+        }
       });
-  }, 2000);
+  };
+  const schedule = () => {
+    if (soon) return;
+    soon = setTimeout(() => {
+      soon = undefined;
+      run();
+    }, COORDINATION_EVENT_DELAY_MS);
+    soon.unref();
+  };
+  const unsubscribe = wsPublisher.subscribe(({ type }) => {
+    if (COORDINATION_INPUT_EVENTS.test(type)) schedule();
+  });
+  const timer = setInterval(run, COORDINATION_FALLBACK_MS);
   timer.unref();
   app.addHook('onClose', async () => {
+    unsubscribe();
     clearInterval(timer);
+    if (soon) clearTimeout(soon);
     await running;
   });
 }
+
+/** Just past the 2 s scope-event dispatch delay, so one tick sees the new event as due. */
+const COORDINATION_EVENT_DELAY_MS = 2100;
+const COORDINATION_FALLBACK_MS = 10_000;
+const COORDINATION_INPUT_EVENTS =
+  /^(agent_portal\.sessions\.|agent_coordination\.|agent_messaging\.(address|state|host|relay)\.|host\.|settings\.|engine\.|auth\.invalidated|apikey\.|project\.)/;

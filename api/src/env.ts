@@ -86,6 +86,11 @@ const schema = z
     DB_PASSWORD: z.string(),
     DB_CHARSET: z.string().default('utf8mb4'),
     DB_POOL_SIZE: intish(10),
+    // RAM read cache for hosts/versions/host_daemons (db/read-cache.ts). The
+    // resync period bounds how long an out-of-process edit (manual SQL, CLI)
+    // can stay invisible; writes made by the API itself invalidate at once.
+    DB_READ_CACHE_ENABLED: boolish.default(true),
+    DB_READ_CACHE_RESYNC_SECONDS: intish(15).pipe(z.number().int().min(0).max(3600)),
 
     // Encryption (kept compatible with legacy AUTH_ENCRYPTION_KEY / KEYS / ACTIVE_KID)
     ENCRYPTION_ACTIVE_KEY: z.string().optional(),

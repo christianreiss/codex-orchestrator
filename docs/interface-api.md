@@ -2775,8 +2775,8 @@ Body: `generation` (receiver UUID), `binding_generation`, `native_session_id`,
 `sequence` (positive safe integer increasing per receiver generation),
 `state` (`working|idle|waiting|unknown`), `wait_reason` (`approval|input` for waiting,
 otherwise null), `source` (`codex-thread|claude-hooks|grok-session`), and
-`evidence_age_ms` (0..86400000). Only the current bound engine, native session and
-fresh receiver may report. Stale ownership returns 409; duplicate or older sequence
+`evidence_age_ms` (0..86400000), and optional `receiver_bound` (boolean). Only the
+current bound engine, native session and fresh receiver may report. Stale ownership returns 409; duplicate or older sequence
 numbers return `{accepted:false}` without refreshing evidence. Successful writes
 return `{accepted:true}`. This endpoint does not renew liveness, mark work complete,
 change portal turn ownership, or act as watchdog progress.
@@ -2784,7 +2784,9 @@ change portal turn ownership, or act as watchdog progress.
 Session list/companion responses add `activity: {state, wait_reason, source,
 changed_at, expires_at, reason}`. The latest observation is durable JSON on
 `agent_sessions.activity`; expiry is server receipt time plus 45 seconds minus
-reported evidence age. Receiver failure, changed native binding and expired evidence
+reported evidence age. A `receiver_bound` observation (cxx 0.9.121+, which reports
+changes only) instead stays current while the same receiver generation is fresh, and
+its `expires_at` is that receiver's heartbeat plus 45 seconds. Receiver failure, changed native binding and expired evidence
 project Unknown. A still-open portal question supplies a `portal-question` input
 wait when native state is Idle/Unknown; fresh Working takes precedence. Activity
 transitions publish `agent_portal.sessions.changed`, without transcript events or

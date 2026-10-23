@@ -64,6 +64,7 @@ import { readFleetEngineState } from './engine-switch.js';
 import { releaseAgentMessagingBindingsLocked } from './agent-messaging.js';
 import { ABANDONED_SESSION_EVENT_ID, agentSessionFinishedError } from './agent-session-finished.js';
 import { finishSessionWatchdogsLocked, WATCHDOG_FAILURES, type WatchdogFailure } from './watchdog-lifecycle.js';
+import { hostContactWriteDue } from './host-contact.js';
 
 export const AGENT_PORTAL_ENABLED_KEY = 'agent_portal_enabled';
 export const AGENT_PORTAL_MESSAGE_MAX_BYTES = 32 * 1024;
@@ -441,7 +442,7 @@ export class AgentPortalService {
         bridgeToken,
         session.hostId,
       );
-      await tx.update(hosts).set({ lastContactAt: now }).where(eq(hosts.id, locked.hostId));
+      if (hostContactWriteDue(locked.hostId)) await tx.update(hosts).set({ lastContactAt: now }).where(eq(hosts.id, locked.hostId));
       const status = requested && LIVE_SESSION_STATE_SET.has(requested) ? requested : locked.status;
       const patch: Partial<typeof agentSessions.$inferInsert> = {
         heartbeatAt: now,

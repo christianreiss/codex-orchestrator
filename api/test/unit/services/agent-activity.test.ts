@@ -36,6 +36,17 @@ describe('native activity observation', () => {
     expect(activityView({ ...session, activity }, now + 44_999).state).toBe('working');
     expect(activityView({ ...session, activity }, now + 45_000).state).toBe('unknown');
   });
+  it('keeps a receiver-bound observation while its receiver is fresh', () => {
+    const activity = acceptActivity(session, { ...input, receiver_bound: true }, now);
+    expect(activityView({ ...session, activity }, now + 44_999).state).toBe('working');
+    const later = now + 600_000;
+    const beating = { ...session, receiver: { ...session.receiver, heartbeat_at: new Date(later - 1000).toISOString() } };
+    const view = activityView({ ...beating, activity }, later);
+    expect(view.state).toBe('working');
+    expect(view.expires_at).toBe(new Date(later - 1000 + 45_000).toISOString());
+    // A silent receiver still ends it.
+    expect(activityView({ ...session, activity }, later).state).toBe('unknown');
+  });
   it('does not refresh hook evidence or duplicate receipts', () => {
     const activity = acceptActivity(session, { ...input, evidence_age_ms: 40_000 }, now)!;
     expect(activity.expires_at).toBe(new Date(now + 5000).toISOString());

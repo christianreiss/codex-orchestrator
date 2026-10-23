@@ -6,9 +6,9 @@ import { isoOffsetSeconds } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { SettingsService } from './settings.js';
 import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
+import { CONTACT_CHECKPOINT_MS } from './host-contact.js';
 
 export const TEMPORARY_HOST_IDLE_SECONDS = 7200;
-const CONTACT_CHECKPOINT_MS = 30_000;
 
 function contactCheckpointDue(host: Host, now: Date): boolean {
   const age = now.getTime() - Date.parse(host.lastContactAt ?? '');
