@@ -18,8 +18,11 @@ import type { Pool, PoolConnection } from 'mysql2/promise';
  * rows whose content changed, so this process's own frequent writes (contact
  * times, call counters) do not flush the whole table.
  *
- * Only pool-level plain SELECTs are cached. Reads inside transactions,
- * locking reads and non-deterministic SQL always go to MySQL.
+ * Plain SELECTs are cached, including those inside transactions: for these
+ * config tables a value newer than the transaction's snapshot only makes
+ * revocation visible sooner, and a transaction holding its own uncommitted
+ * write to a table bypasses the cache for that table. Locking reads and
+ * non-deterministic SQL always go to MySQL.
  */
 
 export interface ReadCacheTable {
@@ -318,6 +321,7 @@ export class ReadCache {
             settle();
           }
         }
+        if (kind === 'read') return this.read(() => original(arg, values) as Promise<[unknown, unknown]>, arg, values, sql);
         if (kind !== 'write') return original(arg, values);
         if (!inTransaction) return this.write(() => original(arg, values), sql, values);
         pending.push(...this.beginWrite(sql, values));

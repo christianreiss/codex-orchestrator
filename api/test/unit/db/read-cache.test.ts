@@ -139,7 +139,7 @@ describe('db read cache', () => {
     expect(cache.stats().hits).toBe(0);
   });
 
-  it('never caches locking, non-deterministic, in-transaction or foreign-table reads', async () => {
+  it('never caches locking, non-deterministic or foreign-table reads', async () => {
     const fake = fakePool();
     const cache = installReadCache(fake.pool, { tables, allTables });
     for (const sql of [
@@ -151,12 +151,24 @@ describe('db read cache', () => {
       await fake.pool.query(sql, [1, 1]);
       await fake.pool.query(sql, [1, 1]);
     }
-    const conn = await fake.pool.getConnection();
-    await conn.query(byId, [1, 1]);
-    await conn.query(byId, [1, 1]);
-    conn.release();
     expect(cache.stats().hits).toBe(0);
     expect(cache.stats().entries).toBe(0);
+  });
+
+  it('serves transactional reads unless that transaction wrote the table', async () => {
+    const fake = fakePool();
+    const cache = installReadCache(fake.pool, { tables, allTables });
+    await fake.pool.query(byId, [1, 1]);
+    const conn = await fake.pool.getConnection();
+    await conn.query('begin');
+    await conn.query(byId, [1, 1]);
+    expect(cache.stats().hits).toBe(1);
+    await conn.query(rename, ['uno', 1]);
+    const own = (await conn.query(byId, [1, 1])) as unknown as [unknown[][]];
+    expect(own[0][0]![1]).toBe('uno');
+    expect(cache.stats().hits).toBe(1);
+    await conn.query('commit');
+    conn.release();
   });
 
   it('invalidates exactly the rows another process changed', async () => {
