@@ -7,6 +7,11 @@ Failed content confirmation blocks a new native launch. OAuth refresh remains
 server-owned and cached auth remains access-only; running native processes
 continue. Protocol-1 clients retain the older behavior described below.
 
+From cxx 0.9.123, a client checks the owner's cache capability before dispatch.
+An old owner can retain active sessions while the client obtains the same fresh
+proof directly over authenticated HTTPS. Missing receipts after dispatch never
+trigger a second admission attempt; see the linked cache contract.
+
 ## Workflow protocol v1 (cxx 0.9.111)
 
 The shared wrapper advertises `workflow_protocol_version: 1` and exposes the

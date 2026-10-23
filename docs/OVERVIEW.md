@@ -7,6 +7,10 @@ New protocol-2 launches fail closed on missing content/auth confirmation, while
 running native processes continue. See [communicator.md](communicator.md) for
 scope, expiry, compatibility and failure handling.
 
+From cxx 0.9.123, a client encountering an older busy owner obtains the same
+verified proof directly over authenticated HTTPS before application dispatch.
+Existing owner sessions continue; dispatched admission is never replayed.
+
 Daemon starts and resumptions wake the connected transport after their queue
 transaction commits. Idle offer checks use a small queue peek every 15 seconds;
 actual offers retain fresh authentication and locked admission.

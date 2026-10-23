@@ -412,7 +412,10 @@ func (s *server) cacheExchange(ctx context.Context, f frame) (frame, bool, error
 		}
 	}
 	// A reachable HTTPS server can still give a fresh proof while WS reconnects.
-	cfg := s.configSnapshot()
+	return cacheHTTPS(ctx, s.configSnapshot(), f)
+}
+
+func cacheHTTPS(ctx context.Context, cfg *config.Config, f frame) (frame, bool, error) {
 	transport, err := directTransport(cfg)
 	if err != nil {
 		return frame{}, false, err

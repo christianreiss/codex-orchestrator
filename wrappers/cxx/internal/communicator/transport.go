@@ -43,6 +43,7 @@ type endpoint struct {
 	runtimeOnly        bool
 	base, path, socket string
 	once               sync.Once
+	legacyCache        validatedRAM
 	leaseCancel        context.CancelFunc
 	setupErr           error
 	anchor             *config.Config
@@ -237,14 +238,39 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	ep.once.Do(func() { go ep.lease(processContext) })
-	local := req.Clone(req.Context())
 	ep.mu.Lock()
-	strictCache := ep.anchor != nil && ep.anchor.Orchestrator.CommunicatorCacheProtocol == ValidatedCacheProtocol
+	cfg := ep.anchor
+	strictCache := StrictCache(cfg)
 	ep.mu.Unlock()
+	original, _ := url.Parse(ep.base)
+	path := *req.URL
+	path.Path = strings.TrimPrefix(req.URL.Path, strings.TrimRight(original.Path, "/"))
+	var candidate frame
+	selected := false
+	if strictCache {
+		var err error
+		candidate, err = cacheRequestFrame(req, path.RequestURI())
+		if err != nil {
+			if req.Body != nil {
+				req.Body.Close()
+			}
+			return cacheBridgeFailure(req, false, err), nil
+		}
+		selected = cacheCandidate(candidate)
+		if selected {
+			// Decide before sending application work. An old owner may have
+			// active native leases indefinitely; it must neither serve these
+			// reads nor execute admission once before a second direct attempt.
+			owner, ok := OwnerStatus(req.Context(), ep.base)
+			if !ok || owner.Cache.Protocol != ValidatedCacheProtocol {
+				return ep.bridgeCache(req, cfg, candidate), nil
+			}
+		}
+	}
+	local := req.Clone(req.Context())
 	if strictCache {
 		local.Header.Set("X-Cxx-Cache-Protocol", "2")
 	}
-	original, _ := url.Parse(ep.base)
 	local.URL.Scheme = "http"
 	local.URL.Host = "communicator.local"
 	local.URL.Path = strings.TrimPrefix(req.URL.Path, strings.TrimRight(original.Path, "/"))
@@ -256,15 +282,8 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil && req.Method != "GET" && req.Method != "HEAD" {
 		return &http.Response{StatusCode: 409, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: responseBody([]byte(`{"error":{"code":"communicator_outcome_unknown","message":"Local communicator disconnected; request outcome unknown"}}`)), Request: req}, nil
 	}
-	if err == nil && strictCache && res.StatusCode < 400 {
-		candidate := frame{Method: req.Method, Path: local.URL.RequestURI()}
-		if req.GetBody != nil {
-			if body, e := req.GetBody(); e == nil {
-				candidate.Body, _ = io.ReadAll(io.LimitReader(body, maxFrameBody+1))
-				body.Close()
-			}
-		}
-		if cacheCandidate(candidate) && res.Header.Get("X-Cxx-Cache-Protocol") != "2" {
+	if err == nil && selected && res.StatusCode < 400 {
+		if res.Header.Get("X-Cxx-Cache-Protocol") != "2" {
 			res.Body.Close()
 			return &http.Response{StatusCode: 409, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: responseBody([]byte(`{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}`)), Request: req}, nil
 		}

@@ -49,8 +49,21 @@ bytes, entries, hits, misses and confirmations without resource bodies.
 New protocol-2 native launches refuse failed or skipped content/auth checks,
 including the former offline-credential fallback. Existing native processes
 are not terminated. An older owner cannot silently satisfy protocol 2: clients
-require the owner's confirmation header on successful selected reads. Replace
-that old owner through the existing safe owner-update lifecycle. A reachable
+require the owner's confirmation header on successful selected reads.
+
+From cxx 0.9.123, clients inspect `/_comm/status.cache.protocol` before sending
+a selected request. If the owner cannot advertise protocol 2, the client obtains
+the same correlated proof directly over authenticated HTTPS and reconstructs
+the reply with the same hash and expiry checks. This temporary path has its own
+bounded, process-local RAM cache. It lets an old owner keep serving existing
+native sessions until its normal safe retirement. Writes outside the selected
+read set continue through that owner with their original bodies. Non-rewindable
+request bodies are classified before dispatch too. A missing receipt after an
+application request has already been dispatched is still refused and never
+replayed through the direct path. On 0.9.122, an old owner instead needs the
+existing owner-update lifecycle before a protocol-2 launch can succeed.
+
+A reachable
 HTTPS server may still confirm a read during a WebSocket outage; an unreachable
 server cannot. Freshness means the server snapshot used for this request,
 not a promise that no change can occur after the snapshot.

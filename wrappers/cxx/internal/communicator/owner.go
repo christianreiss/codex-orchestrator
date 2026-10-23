@@ -18,6 +18,9 @@ type Owner struct {
 	Version string `json:"version"`
 	PID     int    `json:"pid"`
 	Mode    string `json:"mode"`
+	Cache   struct {
+		Protocol int `json:"protocol"`
+	} `json:"cache"`
 }
 
 // OwnerStatus reads the status of the owner already serving base. It never
