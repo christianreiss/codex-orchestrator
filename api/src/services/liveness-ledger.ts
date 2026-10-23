@@ -31,6 +31,10 @@ interface ReceiverBeat {
   claimGate: unknown;
   addressId: string | null;
 }
+interface AddressSeen {
+  sessionId: string;
+  lastSeenAt: string;
+}
 interface RelayBeat {
   generation: number;
   heartbeatAt: string;
@@ -39,6 +43,7 @@ interface RelayBeat {
 
 export interface LivenessLedgerStats {
   portalFast: number;
+  messagingFast: number;
   receiverFast: number;
   relayFast: number;
   flushes: number;
@@ -60,9 +65,10 @@ export class LivenessLedger {
   private portal = new Map<string, PortalBeat>();
   private receivers = new Map<string, ReceiverBeat>();
   private relays = new Map<string, RelayBeat>();
+  private addresses = new Map<string, AddressSeen>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private flushing: Promise<void> | undefined;
-  private readonly counters: LivenessLedgerStats = { portalFast: 0, receiverFast: 0, relayFast: 0, flushes: 0, flushedRows: 0, flushErrors: 0 };
+  private readonly counters: LivenessLedgerStats = { portalFast: 0, messagingFast: 0, receiverFast: 0, relayFast: 0, flushes: 0, flushedRows: 0, flushErrors: 0 };
 
   constructor(
     private readonly db: Database,
@@ -88,7 +94,7 @@ export class LivenessLedger {
   }
 
   stats(): LivenessLedgerStats & { pending: number } {
-    return { ...this.counters, pending: this.portal.size + this.receivers.size + this.relays.size };
+    return { ...this.counters, pending: this.portal.size + this.receivers.size + this.relays.size + this.addresses.size };
   }
 
   /** Latest heartbeat held for a session, newer than the stored one until flushed. */
@@ -108,6 +114,15 @@ export class LivenessLedger {
       bridgeExpiresAt: later(previous?.bridgeExpiresAt, bridgeExpiresAt),
     });
     this.counters.portalFast++;
+  }
+
+  /** The messaging half of the shared beat: the address was seen through this session. */
+  noteAddressSeen(addressId: string, sessionId: string, lastSeenAt: string) {
+    const previous = this.addresses.get(addressId);
+    this.addresses.set(addressId, previous?.sessionId === sessionId
+      ? { sessionId, lastSeenAt: later(previous.lastSeenAt, lastSeenAt) }
+      : { sessionId, lastSeenAt });
+    this.counters.messagingFast++;
   }
 
   noteReceiver(sessionId: string, beat: ReceiverBeat) {
@@ -139,10 +154,12 @@ export class LivenessLedger {
     const portal = [...this.portal];
     const receivers = [...this.receivers];
     const relays = [...this.relays];
+    const addresses = [...this.addresses];
     this.portal.clear();
     this.receivers.clear();
     this.relays.clear();
-    if (!portal.length && !receivers.length && !relays.length) return;
+    this.addresses.clear();
+    if (!portal.length && !receivers.length && !relays.length && !addresses.length) return;
     this.counters.flushes++;
     // A failed row is kept for the next flush unless a newer beat replaced it.
     const each = async <B>(rows: Array<[string, B]>, held: Map<string, B>, write: (rows: Array<[string, B]>) => Promise<void>) => {
@@ -160,6 +177,13 @@ export class LivenessLedger {
     await each(portal, this.portal, (rows) => this.writePortal(rows));
     await each(receivers, this.receivers, (rows) => this.writeReceivers(rows));
     await each(relays, this.relays, (rows) => this.writeRelays(rows));
+    await each(addresses, this.addresses, (rows) => this.writeAddressSeen(rows));
+  }
+
+  private async writeAddressSeen(rows: Array<[string, AddressSeen]>) {
+    for (const [id, seen] of rows)
+      await this.db.execute(sql`UPDATE agent_bus_addresses SET last_seen_at = GREATEST(last_seen_at, ${seen.lastSeenAt})
+        WHERE id = ${id} AND current_session_id = ${seen.sessionId}`);
   }
 
   private async writePortal(rows: Array<[string, PortalBeat]>) {

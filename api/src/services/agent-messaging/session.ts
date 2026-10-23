@@ -2,6 +2,8 @@ import { agentScopeMembers, agentScopes, versions } from '../../db/schema.js';
 import { visibleHost } from '../internal-hosts.js';
 import { beginRebootBinding, completeRebootBinding, plannedRebootForSession } from '../reboot-handoffs.js';
 import { assertHousekeepingAvailable } from '../session-housekeeping.js';
+import { livenessLedger } from '../liveness-ledger.js';
+import { isFreshPresenceTimestamp } from '../agent-presence.js';
 import { markWaitingForPresence, discardPresenceNotices } from './presence-feedback.js';
 import { pageAgentAddresses, type AgentDiscoveryFilters } from './discovery.js';
 import { normalizeWorkspace, readWorkspace, workspaceCoverage, workspaceMatch } from './workspace.js';
@@ -32,6 +34,7 @@ import {
   agentFreshStartGrants,
   agentSessions,
   hosts,
+  sessionHousekeepingReservations,
   type AgentBusAddress,
   type AgentSession,
   type Host,
@@ -53,7 +56,7 @@ import {
 } from '../agent-presence.js';
 import { activeHostEngines, assertHostEngineEnabled } from '../host-engine-policy.js';
 import { readFleetEngineState } from '../engine-switch.js';
-import { messagingHostEligibleSql } from './eligibility.js';
+import { messagingHostEligible, messagingHostEligibleSql } from './eligibility.js';
 import { hostAuthFingerprint, safeHashEqual } from './internals.js';
 import {
   jsonRecord,
@@ -386,6 +389,8 @@ export class SessionRegistry {
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
     const now = nowIso();
     const expiresAt = isoOffsetSeconds(this.core.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS);
+    const quick = await this.timestampOnlyBeat(authenticated, input, now, expiresAt);
+    if (quick) return quick;
     const result = await this.core.db.transaction(async (tx) => {
       await this.core.requireEnabledLocked(tx);
       await assertHousekeepingAvailable(tx, authenticated.host.id, authenticated.session.engine);
@@ -462,6 +467,44 @@ export class SessionRegistry {
       status: result.status,
       address: publicAddress(result.address),
     };
+  }
+
+  /**
+   * The shared liveness beat with no identity, capability, receive, binding or
+   * status change only moves heartbeat_at, bridge_expires_at and the address's
+   * last_seen_at. With presence still fresh it is answered from plain reads and
+   * persisted by the liveness ledger. Anything the transaction would change or
+   * refuse (unbound, disabled or rebound address, ineligible host or engine,
+   * housekeeping) returns null and takes the transactional path, with its errors.
+   */
+  private async timestampOnlyBeat(
+    authenticated: { session: AgentSession; host: Host },
+    input: { status?: string; upstreamSessionId?: string | null; adapterProtocol?: string | null; adapterCapabilities?: Record<string, unknown> | null; receiveCapable?: boolean; expectedBindingGeneration?: number | null; continuity?: 'native' | 'reset' },
+    now: string,
+    expiresAt: string,
+  ): Promise<Record<string, unknown> | null> {
+    const ledger = livenessLedger(this.core.db);
+    const { session, host } = authenticated;
+    if (!ledger.active || !session.agentBusAddressId) return null;
+    if (input.upstreamSessionId !== undefined || input.adapterProtocol !== undefined || input.adapterCapabilities !== undefined ||
+      input.receiveCapable !== undefined || input.expectedBindingGeneration != null || input.continuity !== undefined) return null;
+    const status = normalizeSessionStatus(input.status) ?? session.status;
+    if (status !== session.status) return null;
+    const freshSince = Date.now() - this.core.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000;
+    const held = ledger.portalHeartbeat(session.id);
+    const stored = held && (!session.heartbeatAt || held > session.heartbeatAt) ? held : session.heartbeatAt;
+    if (!isFreshPresenceTimestamp(stored, freshSince, Date.now())) return null;
+    const [reserved] = await this.core.db.select({ hostId: sessionHousekeepingReservations.hostId }).from(sessionHousekeepingReservations)
+      .where(and(eq(sessionHousekeepingReservations.hostId, host.id), eq(sessionHousekeepingReservations.engine, session.engine))).limit(1);
+    if (reserved) return null;
+    const [address] = await this.core.db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, session.agentBusAddressId)).limit(1);
+    if (!address || address.archivedAt || address.enabled !== 1 || address.currentSessionId !== session.id) return null;
+    if (!isFreshPresenceTimestamp(address.lastSeenAt, freshSince, Date.now())) return null;
+    if (!messagingHostEligible(host) || !activeHostEngines(host.engines, await readFleetEngineState(this.core.db)).includes(address.engine as Engine)) return null;
+    if (hostContactWriteDue(session.hostId)) await this.core.db.update(hosts).set({ lastContactAt: now }).where(eq(hosts.id, session.hostId));
+    ledger.notePortal(session.id, now, expiresAt);
+    ledger.noteAddressSeen(address.id, session.id, now);
+    return { enabled: true, expires_at: expiresAt, status, address: publicAddress(address) };
   }
 
   async finishSession(sessionId: string, bridgeToken: string, status: 'completed' | 'failed', watchdogFailure?: WatchdogFailure): Promise<Record<string, unknown>> {

@@ -1,7 +1,8 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { agentBusRelays, agentSessions, hosts } from '../../../src/db/schema.js';
+import { agentBusAddresses, agentBusRelays, agentSessions, hosts } from '../../../src/db/schema.js';
+import { AgentMessagingService } from '../../../src/services/agent-messaging.js';
 import { AgentPortalService, type RegisterAgentInput } from '../../../src/services/agent-portal.js';
 import { LivenessLedger, setLivenessLedger } from '../../../src/services/liveness-ledger.js';
 import { getTestDb } from '../../helpers/test-db.js';
@@ -115,6 +116,46 @@ describe.skipIf(!handle)('liveness ledger against MySQL', () => {
     const unchanged = (typeof row.receiver === 'string' ? JSON.parse(row.receiver) : row.receiver) as Record<string, unknown>;
     expect(unchanged.heartbeat_at).toBe(beat);
     expect(row.receiveHeartbeatAt).toBe(beat);
+  });
+
+  it('answers the messaging half of a liveness beat from RAM and keeps the binding guard', async () => {
+    await exec(`INSERT INTO versions (name, version, updated_at) VALUES ('agent_messaging_enabled', '1', '${iso(0)}')
+      ON DUPLICATE KEY UPDATE version = '1'`);
+    await db!.update(hosts).set({ agentMessagingEnabled: 1 }).where(eq(hosts.id, host.id));
+    host = (await db!.select().from(hosts).where(eq(hosts.id, host.id)))[0]!;
+    const env = { ...loadTestEnv(), AGENT_PORTAL_BRIDGE_TTL_SECONDS: 900, AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS: 45 };
+    const messaging = new AgentMessagingService(db!, env, testKeyring());
+    const sessionId = randomUUID();
+    const bridgeToken = randomBytes(32).toString('base64url');
+    const registered = await messaging.registerSession(host, {
+      engine: 'codex', username: 'ledger-messaging', cwd: '/tmp/ledger-messaging', invocationKind: 'interactive',
+      sessionId, bridgeToken, adapterProtocol: 'test-live-v1', adapterCapabilities: { test: true, execution_contract_version: 2 },
+    });
+    const addressId = String((registered.address as Record<string, unknown>).id);
+    const seenBefore = (await db!.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, addressId)))[0]!.lastSeenAt;
+    ledger.start();
+    setLivenessLedger(ledger);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      const fast = ledger.stats().messagingFast;
+      const answer = await messaging.heartbeatSession(sessionId, bridgeToken, { skipIfUnbound: true });
+      expect(answer).toMatchObject({ enabled: true });
+      expect(ledger.stats().messagingFast).toBe(fast + 1);
+      expect((await db!.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, addressId)))[0]!.lastSeenAt).toBe(seenBefore);
+      await ledger.flush();
+      const seen = (await db!.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, addressId)))[0]!.lastSeenAt;
+      expect(seen! > seenBefore!).toBe(true);
+      // A beat that names a capability change stays transactional.
+      await messaging.heartbeatSession(sessionId, bridgeToken, { adapterCapabilities: { test: true, execution_contract_version: 2 } });
+      expect(ledger.stats().messagingFast).toBe(fast + 1);
+      // Rebound away: the held write does not touch the new binding.
+      ledger.noteAddressSeen(addressId, randomUUID(), iso(60_000));
+      await ledger.flush();
+      expect((await db!.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, addressId)))[0]!.lastSeenAt! <= iso(30_000)).toBe(true);
+    } finally {
+      setLivenessLedger(undefined);
+      await exec(`DELETE FROM agent_bus_addresses WHERE host_id = ${host.id}`);
+    }
   });
 
   it('extends a relay token only for the live generation', async () => {
