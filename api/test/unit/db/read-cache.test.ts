@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Pool } from 'mysql2/promise';
 import { installReadCache } from '../../../src/db/read-cache.js';
+import { authoritativeReads } from '../../../src/db/fresh-read.js';
 
 type Row = { id: number; name: string; meta: { tag: string } };
 
@@ -64,6 +65,16 @@ const tables = { hosts: { uniqueColumns: ['id'], rowKey: 'id' }, versions: { uni
 const allTables = ['hosts', 'versions', 'agent_sessions'];
 
 describe('db read cache', () => {
+  it('never proves freshness from a cached row, including out-of-process edits', async () => {
+    const fake = fakePool();
+    installReadCache(fake.pool, { tables, allTables });
+    await fake.pool.query({ sql: byId, rowsAsArray: true } as never, [1, 1]);
+    fake.rows[0]!.name = 'outside writer';
+    const stale = await fake.pool.query({ sql: byId, rowsAsArray: true } as never, [1, 1]);
+    const fresh = await authoritativeReads(async () => await fake.pool.query({ sql: byId, rowsAsArray: true } as never, [1, 1]));
+    expect((stale[0] as unknown[][])[0]?.[1]).toBe('one');
+    expect((fresh[0] as unknown[][])[0]?.[1]).toBe('outside writer');
+  });
   it('serves a repeated pool-level select from memory, as an isolated copy', async () => {
     const fake = fakePool();
     installReadCache(fake.pool, { tables, allTables });

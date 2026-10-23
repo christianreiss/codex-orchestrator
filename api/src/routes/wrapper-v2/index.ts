@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import type { RouteContext } from '../index.js';
 import { isEngine, parseEngine, ENGINE_COMMANDS, type Engine } from '../../util/engine.js';
 import { resolveWrapperPlatform } from '../../util/wrapper-platform.js';
+import { hostWithCallerWrapper } from '../../services/host-wrapper-capabilities.js';
 import { ServiceUnavailableError, NotFoundError, ValidationError } from '../../http/errors.js';
 import {
   createWrapperBinRegistry,
@@ -197,7 +198,7 @@ export async function registerWrapperV2Routes(
 
         let result;
         try {
-          result = await configService.bakeForHost(host, engine, baseUrl, platform);
+          result = await configService.bakeForHost(hostWithCallerWrapper(host, engine, req.headers['x-wrapper-version']), engine, baseUrl, platform);
         } catch (err) {
           if (err instanceof WrapperSigningUnavailableError) {
             throw new ServiceUnavailableError(
@@ -296,7 +297,7 @@ export async function registerWrapperV2Routes(
 
     let result;
     try {
-      result = await configService.bakeForHost(host, engine, baseUrl, platform);
+      result = await configService.bakeForHost(hostWithCallerWrapper(host, engine, req.headers['x-wrapper-version']), engine, baseUrl, platform);
     } catch (err) {
       if (err instanceof WrapperSigningUnavailableError) {
         throw new ServiceUnavailableError(

@@ -86,6 +86,8 @@ type profAPI struct {
 	frameOut chan frame
 	// contentless counts bootstraps that asked for include_content:false.
 	contentless int
+
+	cacheFailure bool
 }
 
 func profDigest(s string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(s))) }
@@ -194,6 +196,14 @@ func (a *profAPI) handle(method, path string, body []byte) (int, []byte) {
 		time.Sleep(delay)
 	}
 	switch route {
+	case "/sync/cache":
+		a.mu.Lock()
+		failed := a.cacheFailure
+		a.mu.Unlock()
+		if failed {
+			return 503, []byte(`{"code":"test_cache_offline"}`)
+		}
+		return profCacheReply(a, body)
 	case "/wrapper/v2/config":
 		u, _ := url.Parse(path)
 		raw, err := os.ReadFile(filepath.Join(a.root, u.Query().Get("engine")+".json"))

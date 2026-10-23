@@ -202,6 +202,9 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	}
 
 	cfg := opts.Config
+	if communicator.StrictCache(cfg) && !opts.SyncOnly && (opts.SkipAuthSync || opts.SkipCredentialExchange) {
+		return 1, errors.New("cache protocol 2 requires fresh content and auth confirmation before a new launch")
+	}
 	ctx = communicator.WithSyncConfig(ctx, cfg)
 	if opts.SyncOnly {
 		// An explicit sync converges content now; it never trusts a primed scope.
@@ -512,6 +515,15 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			if !communicator.SyncManaged(client.BaseURL) {
 				skillsSync = combineResourceSync(skillsSync, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
 			}
+		}
+	}
+
+	if communicator.StrictCache(cfg) && !opts.SyncOnly {
+		if err := errors.Join(authErr, agentsSync.Err, configSync.Err, skillsSync.Err); err != nil {
+			return 1, fmt.Errorf("fresh cache confirmation failed: %w", err)
+		}
+		if concurrent || authResp == nil || strings.EqualFold(dec.Status, "offline") {
+			return 1, errors.New("new launch requires fresh server confirmation; cached credentials cannot authorize it")
 		}
 	}
 

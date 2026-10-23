@@ -6,6 +6,55 @@ Provider inference still uses each native client's original network path.
 
 ## Warm-cache launches (cxx 0.9.81)
 
+### Server-confirmed RAM cache (cxx 0.9.122, protocol 2)
+
+Signed configs for reported cxx releases >=0.9.122 select
+`orchestrator.communicator_cache_protocol: 2`; older callers keep protocol 1.
+The protocol-1 description below applies only to those older callers.
+
+Protocol 2 never treats `primed`, a connected socket, a push UUID or a TTL as
+permission to serve bytes. Each selected content/auth/Skill read sends
+`POST /sync/cache` with a fresh UUID and its known resource revisions. The server
+runs the original authorization and read paths, using authoritative database
+reads. Content work runs in a repeatable-read consistent snapshot, shared by
+the existing renderers through an async-scoped database handle. Credential
+exchange and account admission retain their existing transactions and refresh
+owners, outside the content snapshot. A bootstrap carries its auth candidate
+only once; failure to deliver the subsequent result is an unknown outcome.
+
+The response contains fresh status, quota, account metadata and RPC IDs, plus
+resource paths, SHA-256 revisions, expiry bounds and only changed bytes. The
+owner reconstructs the response from its private RAM only after verifying this
+request's confirmation and every resource digest. Identical bytes do not imply
+identical authorization: the server authorizes every read. Requests retain
+their credential, engine, account, home and render-context boundaries.
+
+Confirmations apply to one request, with a maximum 30-second processing budget;
+they are never reused as read leases. Network time consumes that budget using
+the client's monotonic clock, and explicitly expiring auth further shortens
+it. The deadline is checked again immediately before responding. OAuth bytes
+need verified metadata and an explicit future access expiry; opaque/API-key
+credentials travel fresh and are not retained. Insecure hosts retain no cached
+resource bytes. Skill MCP caching is limited to `skill_list`, `skill_retrieve`,
+`resource_read` of `skill://` URIs and native `resources/read` of those URIs;
+arbitrary MCP results, writes and auth uploads are never replayed.
+
+The RAM cache is bounded to 64 MiB and 256 request scopes, starts empty on owner
+restart, and stores no new files. Existing native auth/content writers still
+maintain their normal files. Push invalidations continue to schedule content
+passes, but a lost push cannot authorize stale content. A late response cannot
+replace the cache from a newer request. `/_comm/status.cache` reports protocol,
+bytes, entries, hits, misses and confirmations without resource bodies.
+
+New protocol-2 native launches refuse failed or skipped content/auth checks,
+including the former offline-credential fallback. Existing native processes
+are not terminated. An older owner cannot silently satisfy protocol 2: clients
+require the owner's confirmation header on successful selected reads. Replace
+that old owner through the existing safe owner-update lifecycle. A reachable
+HTTPS server may still confirm a read during a WebSocket outage; an unreachable
+server cannot. Freshness means the server snapshot used for this request,
+not a promise that no change can occur after the snapshot.
+
 Warm-cache launches have no switch of their own: whenever the transport and
 central sync are on, the signed config carries
 `orchestrator.communicator_cache_protocol: 1`. (`CXX_COMMUNICATOR_CACHE_ENABLED`

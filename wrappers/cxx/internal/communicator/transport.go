@@ -238,6 +238,12 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	ep.once.Do(func() { go ep.lease(processContext) })
 	local := req.Clone(req.Context())
+	ep.mu.Lock()
+	strictCache := ep.anchor != nil && ep.anchor.Orchestrator.CommunicatorCacheProtocol == ValidatedCacheProtocol
+	ep.mu.Unlock()
+	if strictCache {
+		local.Header.Set("X-Cxx-Cache-Protocol", "2")
+	}
 	original, _ := url.Parse(ep.base)
 	local.URL.Scheme = "http"
 	local.URL.Host = "communicator.local"
@@ -249,6 +255,19 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	if err != nil && req.Method != "GET" && req.Method != "HEAD" {
 		return &http.Response{StatusCode: 409, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: responseBody([]byte(`{"error":{"code":"communicator_outcome_unknown","message":"Local communicator disconnected; request outcome unknown"}}`)), Request: req}, nil
+	}
+	if err == nil && strictCache && res.StatusCode < 400 {
+		candidate := frame{Method: req.Method, Path: local.URL.RequestURI()}
+		if req.GetBody != nil {
+			if body, e := req.GetBody(); e == nil {
+				candidate.Body, _ = io.ReadAll(io.LimitReader(body, maxFrameBody+1))
+				body.Close()
+			}
+		}
+		if cacheCandidate(candidate) && res.Header.Get("X-Cxx-Cache-Protocol") != "2" {
+			res.Body.Close()
+			return &http.Response{StatusCode: 409, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: responseBody([]byte(`{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}`)), Request: req}, nil
+		}
 	}
 	return res, err
 }

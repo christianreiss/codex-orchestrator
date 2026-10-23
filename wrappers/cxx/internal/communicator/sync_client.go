@@ -229,6 +229,19 @@ func CacheEnabled(ctx context.Context, base string) bool {
 // synchronized, answers false. Any failure, including an older owner that does
 // not know the operation, is "not primed": the launch then bootstraps as before.
 func Primed(ctx context.Context, base, engine, authPath string) bool {
+	// Protocol 2 always asks for a server-confirmed bundle. Primed remains a
+	// scheduler hint for old clients, never evidence for a strict launch.
+	if cfg, ok := ctx.Value(configContextKey{}).(*config.Config); ok && cfg != nil && cfg.Orchestrator.CommunicatorCacheProtocol == ValidatedCacheProtocol {
+		return false
+	}
+	if ep := endpointFor(base); ep != nil {
+		ep.mu.Lock()
+		strict := ep.anchor != nil && ep.anchor.Orchestrator.CommunicatorCacheProtocol == ValidatedCacheProtocol
+		ep.mu.Unlock()
+		if strict {
+			return false
+		}
+	}
 	if ExplicitContent(ctx) || !CacheEnabled(ctx, base) {
 		return false
 	}

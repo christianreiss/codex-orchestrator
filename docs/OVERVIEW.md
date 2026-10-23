@@ -1,5 +1,12 @@
 # Overview
 
+The communicator's cache protocol 2 (cxx 0.9.122+) stores managed content and
+verified, explicitly expiring OAuth bytes in bounded RAM. Every use is confirmed
+by a fresh server read; push preloads changes but grants no freshness lease.
+New protocol-2 launches fail closed on missing content/auth confirmation, while
+running native processes continue. See [communicator.md](communicator.md) for
+scope, expiry, compatibility and failure handling.
+
 Daemon starts and resumptions wake the connected transport after their queue
 transaction commits. Idle offer checks use a small queue peek every 15 seconds;
 actual offers retain fresh authentication and locked admission.

@@ -1,5 +1,12 @@
 # `clx` Wrapper Interface
 
+From cxx 0.9.122, signed `communicator_cache_protocol:2` enables the
+[server-confirmed RAM cache](communicator.md#server-confirmed-ram-cache-cxx-09122-protocol-2).
+Every selected read obtains a fresh server confirmation. New native launches
+require successful content/auth checks and cannot use offline credentials or
+skip those checks. Running native sessions continue; protocol-1 clients retain
+the older behavior described below.
+
 ## Workflow protocol v1 (cxx 0.9.111)
 
 The shared wrapper advertises `workflow_protocol_version: 1` and exposes the

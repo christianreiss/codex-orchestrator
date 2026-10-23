@@ -4,6 +4,7 @@ import { MySqlTable } from 'drizzle-orm/mysql-core';
 import mysql from 'mysql2/promise';
 import type { Env } from '../env.js';
 import { installReadCache, type ReadCache } from './read-cache.js';
+import { scopedDatabase } from './fresh-read.js';
 import * as schema from './schema.js';
 
 export type Database = ReturnType<typeof createDb>['db'];
@@ -53,7 +54,7 @@ export function createDb(env: Env, options: { readCache?: boolean } = {}) {
     });
   }
 
-  const db = drizzle(pool, { schema, mode: 'default' });
+  const db = scopedDatabase(drizzle(pool, { schema, mode: 'default' }));
 
   return { db, pool, readCache };
 }

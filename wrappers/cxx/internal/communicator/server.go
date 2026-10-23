@@ -32,6 +32,7 @@ type sharedCall struct {
 	err      error
 }
 type server struct {
+	validatedCache   validatedRAM
 	jobRefs          map[string]int
 	scopes           map[string]*scopeState
 	syncCalls        map[string]*syncCall
@@ -439,6 +440,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			status["executable_replaced"] = true
 		}
 		s.mu.Unlock()
+		status["cache"] = s.validatedCache.status()
 		for key, value := range residentView {
 			status[key] = value
 		}
@@ -563,6 +565,26 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	if binary {
 		s.forwardTransfer(w, r, r.Body, r.ContentLength)
+		return
+	}
+	requestFrame := frame{Method: r.Method, Path: r.URL.RequestURI(), Headers: headers(r.Header), Body: body}
+	if r.Header.Get("X-Cxx-Cache-Protocol") == "2" && cacheCandidate(requestFrame) {
+		result, unknown, cacheErr := s.validatedCache.read(r.Context(), requestFrame, s.cacheExchange)
+		if cacheErr != nil {
+			// Never turn an unconfirmed read into an offline-credential launch.
+			// A bootstrap/session admission may already have committed.
+			s.writeUnavailable(w, unknown)
+			return
+		}
+		for key, value := range result.Headers {
+			w.Header().Set(key, value)
+		}
+		if !result.cacheDeadline.IsZero() && !cacheBefore(result.cacheDeadline) {
+			s.writeUnavailable(w, false)
+			return
+		}
+		w.WriteHeader(result.Status)
+		_, _ = w.Write(result.Body)
 		return
 	}
 	if fallback || r.URL.Path == "/wrapper/v2/config" && !connected {

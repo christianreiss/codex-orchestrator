@@ -276,6 +276,16 @@ beforeAll(async () => {
 });
 
 describe('wrapper-config', () => {
+  it.each(['codex', 'claude', 'grok'] as const)('negotiates strict cache only with capable %s wrappers', async engine => {
+    const { privateKey } = generateKeyPairSync('ed25519');
+    const signer: WrapperSigner = { kid: '1', fingerprint: FAKE_FINGERPRINT, publicKey: 'pk', sign: payload => cryptoSign(null, Buffer.from(payload), privateKey) };
+    for (const version of ['0.9.121', '0.9.122', '0.9.123', '2025.11.03', 'dev']) {
+      const host = fakeHost({ engines: 'codex,claude,grok', wrapperVersion: version, claudeWrapperVersion: version, grokWrapperVersion: version });
+      const svc = createWrapperConfigService({ db: makeFakeDb({ hosts: [host], agents: [], agentsState: [], clientConfigs: [], skills: [], updates: [] }), keyring: makeKeyring(), binaries: fakeBinaries(), signing: makeSigningService(signer), installationId: 'strict-cache', communicatorEnabled: true, communicatorSyncEnabled: true });
+      const { payload } = await svc.bakeForHost(host, engine, 'https://co.example');
+      expect(payload.orchestrator.communicator_cache_protocol).toBe(['0.9.122', '0.9.123'].includes(version) ? 2 : 1);
+    }
+  });
   it.each(['codex', 'claude', 'grok'] as const)('signs the independent resident capability for %s only when enabled', async (engine) => {
     const { privateKey } = generateKeyPairSync('ed25519');
     const signer: WrapperSigner = { kid:'1', fingerprint:FAKE_FINGERPRINT, publicKey:'pk', sign:payload => cryptoSign(null,Buffer.from(payload),privateKey) };

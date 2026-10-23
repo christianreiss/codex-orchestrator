@@ -4,6 +4,7 @@ import { registerAuthRoutes } from '../auth/index.js';
 import { registerHostRoutes } from '../host/index.js';
 import { registerInstallRoutes } from '../install/index.js';
 import { registerCliAuthRoutes } from '../cli-auth/index.js';
+import { registerSyncCacheRoutes } from '../sync-cache.js';
 
 /**
  * Single entrypoint for the host-api worktree (Phase 2.1 of BACKEND-redo).
@@ -16,4 +17,5 @@ export async function registerHostApiRoutes(app: FastifyInstance, ctx: RouteCont
   await registerHostRoutes(app, ctx);
   await registerInstallRoutes(app, ctx);
   await registerCliAuthRoutes(app, ctx);
+  await registerSyncCacheRoutes(app, ctx);
 }

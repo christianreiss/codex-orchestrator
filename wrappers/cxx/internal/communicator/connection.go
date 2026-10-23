@@ -22,6 +22,8 @@ import (
 )
 
 type frame struct {
+	cacheDeadline time.Time
+
 	Engine     string            `json:"engine,omitempty"`
 	AccountID  int64             `json:"account_id,omitempty"`
 	Generation int64             `json:"generation,omitempty"`

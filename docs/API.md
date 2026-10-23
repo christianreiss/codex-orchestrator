@@ -1,5 +1,7 @@
 # Codex Auth Central API
 
+- `POST /sync/cache` — communicator cache protocol 2 (cxx 0.9.122+). Authenticates each selected read and confirms resource hashes from authoritative server state; only changed bytes are returned. Content uses a consistent DB snapshot. Auth admission, quota and RPC IDs remain live. Expired or unconfirmed RAM contents cannot authorize a new launch. See [the protocol contract](interface-api.md#communicator-cache-protocol-2-cxx-09122).
+
 - `POST /host/agent-sessions/{id}/agent-messaging/digest` — bridge-authenticated original retrieval for a negotiated smart-queue digest. Body: `digest_id`, optional `after` dispatch cursor and `limit` (1–20). Returns `messages` and `next_after`; grouping is never a read receipt. See [Smart queue](smart-queue.md).
 
 Base URL: `https://codex-auth.example.com` (all examples omit the host). Responses are JSON unless noted; request bodies are `application/json`.

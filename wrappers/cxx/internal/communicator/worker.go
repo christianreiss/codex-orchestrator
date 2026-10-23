@@ -76,7 +76,11 @@ func WorkerCommand(ctx context.Context, in io.Reader, out io.Writer, dispatch fu
 	// Configure normally discovers all installed engines. The worker's explicit
 	// signed path is authoritative even for --config and isolated test users.
 	base := strings.TrimRight(cfg.Orchestrator.BaseURL, "/")
-	registry.LoadOrStore(base, &endpoint{base: base, path: req.Job.Config, socket: socket, syncProtocol: cfg.Orchestrator.CommunicatorSyncProtocol})
+	value, _ := registry.LoadOrStore(base, &endpoint{base: base, path: req.Job.Config, socket: socket, syncProtocol: cfg.Orchestrator.CommunicatorSyncProtocol})
+	ep := value.(*endpoint)
+	ep.mu.Lock()
+	ep.anchor, ep.path = cfg, req.Job.Config
+	ep.mu.Unlock()
 	os.Setenv("CXX_PROVIDER_ACCOUNT_ID", fmt.Sprint(req.Job.AccountID))
 	os.Setenv("CXX_PROVIDER_SESSION_ID", req.Job.SessionID)
 	// Persist only a digest before an auth-capable transaction. A killed worker

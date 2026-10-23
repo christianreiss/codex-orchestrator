@@ -48,6 +48,15 @@ func runSyncOnly(t *testing.T, cfg *config.Config) (int, error) {
 	return Run(context.Background(), Options{Config: cfg, SyncOnly: true, Headless: true, SkipBoot: true, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 }
 
+func TestStrictCacheRefusesNewLaunchWithFreshLocalAuthButOfflineServer(t *testing.T) {
+	cfg := engineSwitchHost(t, nil)
+	cfg.Orchestrator.CommunicatorCacheProtocol = 2
+	exit, err := Run(context.Background(), Options{Config: cfg, Headless: true, SkipBoot: true, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if exit == 0 || err == nil || !strings.Contains(err.Error(), "fresh cache confirmation") {
+		t.Fatalf("offline strict launch: exit=%d err=%v", exit, err)
+	}
+}
+
 func TestFleetSwitchRefusesLaunchEvenWithFreshCachedAuth(t *testing.T) {
 	cfg := engineSwitchHost(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

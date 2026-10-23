@@ -608,6 +608,9 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		sync, syncErr = syncMeasuredManagedWith(ctx, cfg, client, true)
 	}
 	if syncErr != nil {
+		if communicator.StrictCache(cfg) {
+			return 1, fmt.Errorf("fresh cache confirmation failed: %w", syncErr)
+		}
 		if !errors.Is(syncErr, ipc.ErrHeld) {
 			if refusal := launchRefusal(cfg, syncErr); refusal != nil {
 				return 1, refusal

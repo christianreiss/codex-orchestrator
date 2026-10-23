@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { requiresAuthoritativeReads } from './fresh-read.js';
 import type { Pool, PoolConnection } from 'mysql2/promise';
 
 /**
@@ -241,6 +242,10 @@ export class ReadCache {
   }
 
   private async read(call: () => Promise<[unknown, unknown]>, arg: unknown, values: unknown, sql: string) {
+    if (requiresAuthoritativeReads()) {
+      this.counters.bypasses++;
+      return call();
+    }
     const { cacheable, other } = this.tablesIn(sql);
     if (cacheable.length === 0) return call();
     if (other) {

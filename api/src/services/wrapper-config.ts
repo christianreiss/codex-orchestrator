@@ -20,6 +20,7 @@ import {
   type WrapperBinRegistry,
 } from './wrapper-bin-registry.js';
 import {
+  compareWrapperVersions,
   hostRunningWrapperVersion,
   resolveHostWrapperTarget,
   type WrapperRolloutState,
@@ -505,11 +506,12 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         ...(deps.communicatorEnabled ? { communicator_protocol: 1 } : {}),
         ...(deps.communicatorEnabled && deps.communicatorSyncEnabled ? { communicator_sync_protocol: 1 } : {}),
         ...(deps.communicatorRuntimeEnabled ? { communicator_runtime_protocol: 1 } : {}),
-        // Warm-cache launches are part of central sync, not a separate rollout:
-        // the owner fetches everything when it starts and pushed invalidations
-        // keep it current, so a launch only needs what it cannot start without.
-        // The updater needs the transport for its push trigger.
-        ...(deps.communicatorEnabled && deps.communicatorSyncEnabled ? { communicator_cache_protocol: 1 } : {}),
+        // Old callers keep their warm-launch protocol; capable callers require
+        // a server confirmation for every use of the owner's RAM content.
+        ...(deps.communicatorEnabled && deps.communicatorSyncEnabled ? {
+          communicator_cache_protocol: /^v?\d{1,2}\.\d+\.\d+(?:[-+].*)?$/.test(reportedWrapperVersion(host, engine) ?? '')
+            && compareWrapperVersions(reportedWrapperVersion(host, engine)!, '0.9.122') >= 0 ? 2 : 1,
+        } : {}),
         ...(deps.communicatorEnabled && deps.communicatorUpdateEnabled ? { communicator_update_protocol: 1 } : {}),
       },
       host: {
