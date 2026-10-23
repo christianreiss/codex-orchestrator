@@ -42,7 +42,9 @@ export function cacheManifest(
       expiry = identity?.accessExpiresAt ?? null;
       // Opaque/API-key credentials have no provable expiry: deliver fresh, never retain.
       cacheable = secure && expiry !== null && Date.parse(expiry) > checkedAt;
-      if (expiry !== null) validForMs = Math.min(validForMs, Date.parse(expiry) - checkedAt);
+      // Only retained bytes can shorten the proof budget. An uncached native
+      // refresh package is fresh inline data, even when its access token expired.
+      if (cacheable) validForMs = Math.min(validForMs, Date.parse(expiry!) - checkedAt);
     }
     if (cacheable) {
       const raw = Buffer.from(JSON.stringify(value));

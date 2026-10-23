@@ -32,10 +32,13 @@ their credential, engine, account, home and render-context boundaries.
 Confirmations apply to one request, with a maximum 30-second processing budget;
 they are never reused as read leases. Network time consumes that budget using
 the client's monotonic clock, and explicitly expiring auth further shortens
-it. The deadline is checked again immediately before responding. OAuth bytes
+it when those bytes are retained as resources. The deadline is checked again immediately before responding. OAuth bytes
 need verified metadata and an explicit future access expiry; opaque/API-key
 credentials travel fresh and are not retained. Insecure hosts retain no cached
-resource bytes. Skill MCP caching is limited to `skill_list`, `skill_retrieve`,
+resource bytes. A verified native refresh package with expired access is fresh
+inline response data, never a cache resource. Its expired access timestamp does
+not invalidate the live read/admission proof; the existing engine refresh owner
+and auth writers still govern its use. Skill MCP caching is limited to `skill_list`, `skill_retrieve`,
 `resource_read` of `skill://` URIs and native `resources/read` of those URIs;
 arbitrary MCP results, writes and auth uploads are never replayed.
 

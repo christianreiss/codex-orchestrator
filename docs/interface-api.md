@@ -2,6 +2,11 @@
 
 ## Communicator cache protocol 2 (cxx 0.9.122)
 
+Only actually retained, future-valid OAuth resources shorten the confirmation
+budget. A verified native refresh package with expired access remains inline in
+the fresh authorized response and is never reused from cache. Its access expiry
+does not zero the live admission proof; engine refresh ownership is unchanged.
+
 - `POST /sync/cache` — authenticated, server-confirmed resource read. Requires communicator transport and sync enabled. Body: `protocol:2`, UUID `request_id`, original `method`, allow-listed relative `path`, original JSON `body`, allow-listed `headers`, and `known:{<JSON resource path>:<sha256>}`. Host key and client IP are pinned by the outer request; MCP bearers must belong to that host. Arbitrary paths, forwarding headers, writes and MCP tools are refused.
 - Supported sources: content bootstrap, agents/config retrieval, Skill list/retrieval, selected Skill MCP/resource reads, auth retrieve and account-session acquisition. Admission and credential exchange still execute each time; their results are not memoized. Bootstrap sends a candidate once, then reads content in a separate consistent transaction. Post-dispatch failures retain `409 communicator_outcome_unknown` semantics.
 - Success: standard `{status:"ok",data:{protocol,request_id,checked_at,valid_for_ms,status,headers,body,resources}}`. Each resource has `path:string[]`, `revision`, `sha256`, nullable `valid_until`, and base64 JSON `content` only when not already known. `body` contains null placeholders at those paths. Status, authorization, quota and RPC IDs remain fresh. Full resource inventories preserve deletions. Each confirmation is usable only for this request, for at most 30 seconds including transport time and less when an OAuth access expiry requires it. Unknown expiry credentials and insecure-host content are not cached.

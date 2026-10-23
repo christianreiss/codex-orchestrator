@@ -56,9 +56,34 @@ describe('communicator cache manifests', () => {
         now,
       ).resources,
     ).toHaveLength(0);
-    expect(
-      cacheManifest({ verification_state: 'verified', auth }, {}, 'claude', true, now + 12_000).valid_for_ms,
-    ).toBe(0);
+    const expired = cacheManifest(
+      { verification_state: 'verified', auth },
+      { [JSON.stringify(reply.resources[0]!.path)]: reply.resources[0]!.revision },
+      'claude',
+      true,
+      now + 12_000,
+    );
+    // The native refresh package comes from this live read, never old RAM.
+    expect(expired.resources).toEqual([]);
+    expect(expired.body).toEqual({ verification_state: 'verified', auth });
+    expect(expired.valid_for_ms).toBe(30_000);
+    expect(cacheManifest({ verification_state: 'verified', auth }, {}, 'claude', false, now).valid_for_ms)
+      .toBe(30_000);
+  });
+
+  it('keeps a live admission and content proof usable when OAuth access needs native refresh', () => {
+    const now = Date.now();
+    const auth = { claudeAiOauth: { accessToken: 'expired', refreshToken: 'native-refresh', expiresAt: now - 1 } };
+    const admission = { account_id: 1, session_id: 'one-admission', verification_state: 'verified', auth };
+    const input = { ...admission, data: admission, config: { content: 'current managed config' } };
+    const first = cacheManifest(input, {}, 'claude', true, now);
+    expect(first.valid_for_ms).toBe(30_000);
+    expect(first.resources.map((resource) => resource.path)).toEqual([['config', 'content']]);
+    const resource = first.resources[0]!;
+    const second = cacheManifest(input, { [JSON.stringify(resource.path)]: resource.sha256 }, 'claude', true, now);
+    expect(second.resources[0]?.content).toBeUndefined();
+    expect(second.body).toEqual({ ...admission, data: admission, config: { content: null } });
+    expect(second.valid_for_ms).toBe(30_000);
   });
 
   it('caches only selected skill reads, keeping RPC IDs outside the result', () => {

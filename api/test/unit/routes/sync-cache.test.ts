@@ -40,7 +40,7 @@ afterEach(async () => {
   await app?.close();
 });
 
-async function setup() {
+async function setup(admissionAuth?: Record<string, unknown>) {
   app = await buildRouteApp();
   const seen: Array<{ path: string; body: unknown; snapshot: boolean }> = [];
   const base = {
@@ -58,6 +58,8 @@ async function setup() {
       expect(requiresAuthoritativeReads()).toBe(true);
       seen.push({ path, body: req.body, snapshot: db.tag() });
       const input = req.body as Record<string, unknown>;
+      if (path === '/auth/sessions' && admissionAuth)
+        return { account_id: 1, session_id: input.session_id, verification_state: 'verified', auth: admissionAuth };
       if (path === '/sync/bootstrap' && input.include_content === false)
         return {
           status: 'update',
@@ -85,6 +87,26 @@ function input(path = '/config/retrieve', body: Record<string, unknown> = {}) {
 }
 
 describe('strict communicator cache route', () => {
+  it('confirms one live admission with an uncached native refresh package', async () => {
+    const auth = { claudeAiOauth: { accessToken: 'expired', refreshToken: 'native-refresh', expiresAt: Date.now() - 1_000 } };
+    const { seen } = await setup(auth);
+    const reply = await app.inject({
+      method: 'POST', url: '/sync/cache',
+      payload: input('/auth/sessions', { engine: 'claude', scope_id: 'native-home', session_id: 'one-admission' }),
+    });
+    expect(reply.statusCode).toBe(200);
+    expect(seen).toEqual([{
+      path: '/auth/sessions', snapshot: false,
+      body: { engine: 'claude', scope_id: 'native-home', session_id: 'one-admission' },
+    }]);
+    const proof = reply.json().data;
+    expect(proof.valid_for_ms).toBe(30_000);
+    expect(proof.resources).toEqual([]);
+    expect(proof.body.auth).toEqual(auth);
+    expect(proof.body.data.auth).toEqual(auth);
+    expect(proof.body.session_id).toBe('one-admission');
+  });
+
   it('checks every read, enters a consistent snapshot and confirms unchanged bytes', async () => {
     const { seen } = await setup();
     const first = await app.inject({
