@@ -30,4 +30,34 @@ was clean. Targeted Go proof validation/expiry refusal checks passed. No schema
 change was made and the full real-database suite was not run for this correction.
 
 Fleet feedback: `d3b998b3-9681-432b-9fa0-4d220ee99a21`.
-Deployment and final verification are recorded after the tested correction ships.
+
+## Deployed and verified
+
+Production main was fast-forwarded under a bound Director lease to
+`91ced1b973426eb7fd86d2a8cf44d943a6cda146`. The API-only supervised rollout
+(`scripts/deploy.sh --skip-git --service api --skip-wrappers --no-cleanup`)
+completed at `2026-10-23T16:03:03.179Z`. The established HOME/Git context was
+preserved, and the running image embeds the correct full commit.
+
+- Image: `sha256:0dd2a0d233e32271374d1774f2ea9b93fbcaf47431a1ac99c5d40c03a1dd43f2`.
+- Container started at `16:02:55.114 UTC`, healthy; public health check 200.
+- At `16:03:40.361 UTC`, the same live read still contained the expired access
+  package inline with zero cache resources, but now confirmed `valid_for_ms:
+  30000`. This verifies the correction before native refresh changed the data.
+- A real interactive `clx --minimal` launch on biest passed account admission
+  and reported API/auth/skills/config/runner OK. Claude Code 2.1.309 opened its
+  actual Sonnet 5.5 interface and input prompt in the private probe directory.
+  No prompt was submitted. The probe was ended normally with Ctrl-C; wrapper
+  exit was 0 after 31 seconds, with `auth=uploaded`.
+- The native Claude refresh path updated access expiry to
+  `2026-10-24T00:03:48.686Z`. No credential was manually refreshed, injected or
+  replayed by the diagnostic code.
+
+Wrapper version remains 0.9.123; neither client binary nor owner replacement
+is required for this server correction. Existing stale quota telemetry and
+host-daemon update notices were warnings and did not block the real launch.
+
+Rollback image `codex-orchestrator-api:rollback-20261023-pre-admission91ced1b9`
+retains the preceding image
+`sha256:1fb03840c17e802fcb71ecc5ad2d05ee596a54caf8187cef7f760c81f96ee1fa`.
+No database/schema restore is needed; preserve newly refreshed canonical auth.
