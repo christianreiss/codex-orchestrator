@@ -59,7 +59,11 @@ async function setup() {
       seen.push({ path, body: req.body, snapshot: db.tag() });
       const input = req.body as Record<string, unknown>;
       if (path === '/sync/bootstrap' && input.include_content === false)
-        return { auth: { status: 'valid', verification_state: 'verified', account_id: 4 } };
+        return {
+          status: 'update',
+          reasons: ['auth_stored'],
+          auth: { status: 'valid', verification_state: 'verified', account_id: 4 },
+        };
       if (path === '/mcp')
         return { jsonrpc: '2.0', id: input.id, result: { content: [{ type: 'text', text: 'skill body' }] } };
       return { config: { content: 'current config' }, config_seen_digest: input.config ?? null };
@@ -122,6 +126,9 @@ describe('strict communicator cache route', () => {
     expect(seen[1]?.body).not.toHaveProperty('auth_candidate');
     expect(seen[1]?.body).not.toHaveProperty('session_id');
     expect(reply.json().data.body.auth.account_id).toBe(4);
+    expect(reply.json().data.body.status).toBe('update');
+    expect(reply.json().data.body.reasons).toEqual(['auth_stored']);
+    expect(reply.json().data.body.data.reasons).toEqual(['auth_stored']);
   });
 
   it('pins MCP credentials, validates engine gates and refuses arbitrary tools/forwarding', async () => {

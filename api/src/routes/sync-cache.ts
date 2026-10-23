@@ -48,6 +48,22 @@ function object(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function mergeBootstrap(content: Record<string, unknown>, auth: Record<string, unknown>) {
+  const reasons = [
+    ...new Set([
+      ...(Array.isArray(content.reasons) ? content.reasons : []),
+      ...(Array.isArray(auth.reasons) ? auth.reasons : []),
+    ]),
+  ];
+  return {
+    ...content,
+    ...(auth.auth !== undefined ? { auth: auth.auth } : {}),
+    reasons,
+    status:
+      reasons.length || content.status === 'update' || auth.status === 'update' ? 'update' : content.status,
+  };
+}
+
 export async function registerSyncCacheRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const auth = createHostAuthService(ctx);
   const sessions = new McpSessionService(ctx.db);
@@ -96,6 +112,8 @@ export async function registerSyncCacheRoutes(app: FastifyInstance, ctx: RouteCo
           ...(input.method === 'POST' ? { payload: body } : {}),
         });
       };
+      // Timestamp the beginning of this check, not the completion of rendering.
+      const checkedAt = Date.now();
       try {
         // Always obtain canonical bytes, including when the native disk already has them.
         const contentBody = { ...input.body };
@@ -124,13 +142,13 @@ export async function registerSyncCacheRoutes(app: FastifyInstance, ctx: RouteCo
           if (response.statusCode >= 400 && unsafeDispatched)
             throw new Error('Content read failed after credential exchange');
           const content = object(response.json());
-          body = { ...content, ...(authBody.auth !== undefined ? { auth: authBody.auth } : {}) };
+          body = mergeBootstrap(content, authBody);
           // Standard envelopes duplicate fields under data. Keep both projections identical.
           if (content.data)
-            (body as Record<string, unknown>).data = {
-              ...object(content.data),
-              ...(authBody.auth !== undefined ? { auth: authBody.auth } : {}),
-            };
+            (body as Record<string, unknown>).data = mergeBootstrap(
+              object(content.data),
+              object(authBody.data),
+            );
         } else if (pathname === '/auth' || pathname === '/auth/sessions') {
           response = await dispatch(input.body);
           body = response.json();
@@ -140,7 +158,6 @@ export async function registerSyncCacheRoutes(app: FastifyInstance, ctx: RouteCo
         }
         if (response.statusCode >= 400)
           return reply.code(response.statusCode).type('application/json').send(response.rawPayload);
-        const checkedAt = Date.now();
         const manifest = cacheManifest(body, input.known, engine, host.secure === 1, checkedAt);
         const responseHeaders: Record<string, string> = {};
         for (const key of ['content-type', 'x-request-id', 'mcp-session-id', 'mcp-protocol-version']) {
