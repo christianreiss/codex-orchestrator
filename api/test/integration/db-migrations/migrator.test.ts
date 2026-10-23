@@ -155,7 +155,9 @@ describe.skipIf(!handle)('migration runner against a real database', { timeout: 
   });
 
   it('reports drift without silently re-running the edited file', async () => {
-    const [first] = await loadMigrations();
+    // Not 0001: re-running it drops tables (claude_usage_snapshots) that only a
+    // full run recreates, and later cases apply just the newest migration.
+    const first = (await loadMigrations()).find((file) => file.version === '0002');
     await pool.query(`UPDATE ${LEDGER_TABLE} SET checksum = ? WHERE version = ?`, [
       'f'.repeat(64),
       first!.version,

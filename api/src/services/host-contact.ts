@@ -14,3 +14,8 @@ export function hostContactWriteDue(hostId: number, nowMs = Date.now()): boolean
   contactWrittenAt.set(hostId, nowMs);
   return true;
 }
+
+/** Tests that rewrite last_contact_at behind this process's back reset the gate. */
+export function resetHostContactWritesForTests() {
+  contactWrittenAt.clear();
+}

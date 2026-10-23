@@ -150,4 +150,4 @@ export function registerCoordinationRoutes(
 const COORDINATION_EVENT_DELAY_MS = 2100;
 const COORDINATION_FALLBACK_MS = 10_000;
 const COORDINATION_INPUT_EVENTS =
-  /^(agent_portal\.sessions\.|agent_coordination\.|agent_messaging\.(address|state|host|relay)\.|host\.|settings\.|engine\.|auth\.invalidated|apikey\.|project\.)/;
+  /^(agent_portal\.sessions\.|agent_coordination\.|agent_messaging\.(address|state|host|relay)\.|host\.(?!daemon\.)|settings\.|engine\.|auth\.invalidated|apikey\.|project\.)/;

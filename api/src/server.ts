@@ -6,6 +6,7 @@ import multipart from '@fastify/multipart';
 import { loadEnv } from './env.js';
 import { loggerOptions } from './util/log.js';
 import { createDb } from './db/client.js';
+import { LIVENESS_FLUSH_MS, LivenessLedger, setLivenessLedger } from './services/liveness-ledger.js';
 import { Keyring } from './security/keyring.js';
 import { runBootMigrations } from './ops/boot-migrations.js';
 import { runBootChecks } from './ops/boot-checks.js';
@@ -132,15 +133,25 @@ export async function buildServer() {
     await shutdownTracing();
   });
 
-  if (readCache) {
-    // Hit/miss counters make the cache's effect measurable instead of inferred.
-    const statsTimer = setInterval(() => app.log.info({ readCache: readCache.stats() }, 'db read cache'), 60_000);
-    statsTimer.unref();
-    app.addHook('onClose', async () => {
-      clearInterval(statsTimer);
-      readCache.close();
-    });
-  }
+  // Liveness-only heartbeats are persisted in batches; the last batch is
+  // written on shutdown so a deploy loses no beat.
+  const ledger = new LivenessLedger(db, LIVENESS_FLUSH_MS, (err) => app.log.warn({ err }, 'liveness ledger flush failed'));
+  setLivenessLedger(ledger);
+  ledger.start();
+  app.addHook('onClose', async () => {
+    await ledger.stop();
+  });
+
+  // Counters make the RAM layers' effect measurable instead of inferred.
+  const statsTimer = setInterval(
+    () => app.log.info({ readCache: readCache?.stats(), liveness: ledger.stats() }, 'db read cache'),
+    60_000,
+  );
+  statsTimer.unref();
+  app.addHook('onClose', async () => {
+    clearInterval(statsTimer);
+    readCache?.close();
+  });
 
   attachShutdown(app, pool);
   return app;

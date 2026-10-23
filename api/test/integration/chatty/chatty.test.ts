@@ -222,7 +222,8 @@ describe.skipIf(!handle)('Chatty durable lifecycle (isolated MySQL)', () => {
       await co.tick();
       expect(claim).not.toHaveBeenCalled();
       expect(transaction).not.toHaveBeenCalled();
-      const request = await store.submit(actor, input('Hallo'));
+      // Submitting through the coordinator's store wakes the idle scheduler at once.
+      const request = await co.store.submit(actor, input('Hallo'));
       await co.tick();
       expect(claim).toHaveBeenCalledTimes(1);
       await waitFor(request.id, 'succeeded');

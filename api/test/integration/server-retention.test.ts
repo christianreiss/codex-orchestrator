@@ -13,6 +13,7 @@ import { recordHostContact } from '../../src/services/host-lifecycle.js';
 import { ServerRetentionService } from '../../src/services/server-retention/index.js';
 import { getTestDb } from '../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../helpers/test-keyring.js';
+import { resetHostContactWritesForTests } from '../../src/services/host-contact.js';
 
 const handle = await getTestDb();
 const instant = new Date();
@@ -249,9 +250,12 @@ describe.skipIf(!handle)('24h server history retention', { timeout: 120_000 }, (
     expect(Date.parse(host.lastContactAt!)).toBe(Math.floor(instant.getTime()/1000)*1000);
     const a = await agent('grok');
     await db!.update(hosts).set({ lastContactAt: old }).where(eq(hosts.id, host.id));
+    // Beats persist host contact once per 30 s per host, remembered in-process.
+    resetHostContactWritesForTests();
     await portal.heartbeatAgent(a.id, a.bridgeToken, {});
     expect(Date.parse((await db!.select().from(hosts).where(eq(hosts.id, host.id)))[0]!.lastContactAt!)).toBeGreaterThan(Date.parse(old));
     await db!.update(hosts).set({ lastContactAt: old }).where(eq(hosts.id, host.id));
+    resetHostContactWritesForTests();
     await bus.heartbeatSession(a.id, a.bridgeToken, {});
     expect(Date.parse((await db!.select().from(hosts).where(eq(hosts.id, host.id)))[0]!.lastContactAt!)).toBeGreaterThan(Date.parse(old));
     expect((await hostPresenceViews(db!, [host])).get(host.id)?.presence).toBe('online');

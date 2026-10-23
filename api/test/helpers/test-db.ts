@@ -3,6 +3,8 @@ import { drizzle } from 'drizzle-orm/mysql2';
 import * as schema from '../../src/db/schema.js';
 import { loadTestEnv } from './test-keyring.js';
 import type { Database } from '../../src/db/client.js';
+import { READ_CACHE_TABLES, schemaTableNames } from '../../src/db/client.js';
+import { installReadCache } from '../../src/db/read-cache.js';
 
 /**
  * Lazy holder for a singleton test Drizzle client. Tests opt-in by calling
@@ -88,6 +90,15 @@ export async function getTestDb(): Promise<TestDbHandle | null> {
     return null;
   }
   const pool = mysql.createPool(cfg);
+  // TEST_READ_CACHE=1 runs the suites through the API's RAM read cache;
+  // TEST_READ_CACHE_TABLES=a,b limits it to those tables.
+  if (process.env.TEST_READ_CACHE === '1')
+    installReadCache(pool, {
+      tables: Object.fromEntries(
+        Object.entries(READ_CACHE_TABLES).filter(([name]) => !process.env.TEST_READ_CACHE_TABLES || process.env.TEST_READ_CACHE_TABLES.split(',').includes(name)),
+      ),
+      allTables: schemaTableNames(),
+    });
   const db = drizzle(pool, { schema, mode: 'default' }) as TestDb;
   cached = { db, pool };
   return cached;

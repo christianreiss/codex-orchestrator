@@ -65,6 +65,8 @@ function bounded(value: unknown, limit = 16000) {
         instruction: 'Request a narrower read. This is not a complete document.',
       };
 }
+
+const CHATTY_IDLE_RECHECK_MS = 30_000;
 export class ChattyCoordinator {
   readonly store: ChattyStore;
   readonly inference: ChattyInference;
@@ -72,11 +74,13 @@ export class ChattyCoordinator {
   readonly knowledge: KnowledgeBundle;
   private active = new Map<string, AbortController>();
   private tickRunning = false;
+  /** After an empty check, ticks skip the read until this time unless a submit wakes them. */
+  private idleUntil = 0;
   constructor(
     readonly ctx: RouteContext,
     options: { inference?: ChattyInference; tools?: ChattyTool[]; knowledge?: KnowledgeBundle } = {},
   ) {
-    this.store = new ChattyStore(ctx.db, ctx.keyring);
+    this.store = new ChattyStore(ctx.db, ctx.keyring, () => this.wake());
     this.inference = options.inference ?? new ChattyInference(ctx);
     this.tools = options.tools ?? administrationTools();
     this.knowledge = options.knowledge ?? loadKnowledge();
@@ -127,8 +131,13 @@ export class ChattyCoordinator {
       .set({ selection, updatedAt: now() })
       .where(eq(chattySessions.userId, userId));
   }
+  /** A run was submitted in this process: the next tick checks at once. */
+  wake() {
+    this.idleUntil = 0;
+  }
+
   async tick() {
-    if (this.tickRunning) return;
+    if (this.tickRunning || Date.now() < this.idleUntil) return;
     this.tickRunning = true;
     try {
       // Every second, even with no chats: the claim transaction (scheduler lock upsert, locked run scans) and the
@@ -138,7 +147,12 @@ export class ChattyCoordinator {
         .from(chattyRuns)
         .where(inArray(chattyRuns.status, ['queued', 'running', 'waiting_input', 'waiting_confirmation']))
         .limit(1);
-      if (!active) return;
+      // Runs are only submitted through this process, which wakes the tick, so
+      // an idle scheduler re-checks every 30 s instead of every second.
+      if (!active) {
+        this.idleUntil = Date.now() + CHATTY_IDLE_RECHECK_MS;
+        return;
+      }
       const run = await this.store.claim();
       if (run) {
         const controller = new AbortController();

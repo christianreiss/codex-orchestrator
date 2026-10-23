@@ -46,6 +46,8 @@ export class ChattyStore {
   constructor(
     readonly db: Database,
     readonly keyring: Keyring,
+    /** Told after every submit, so a sleeping scheduler checks at once. */
+    private readonly submitted: () => void = () => {},
   ) {}
   seal(value: unknown) {
     return encrypt(JSON.stringify(value), this.keyring);
@@ -147,6 +149,15 @@ export class ChattyStore {
     );
   }
   async submit(
+    actor: ChattyActor,
+    input: { client_message_id: string; generation: number; text: string; context?: unknown },
+  ) {
+    const result = await this.submitOnce(actor, input);
+    this.submitted();
+    return result;
+  }
+
+  private async submitOnce(
     actor: ChattyActor,
     input: { client_message_id: string; generation: number; text: string; context?: unknown },
   ) {

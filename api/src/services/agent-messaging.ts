@@ -15,6 +15,7 @@ import { discardPresenceNotices, queuePresenceNotices, recipientSnapshot } from 
 import { retireRoutineNotice, retireRoutineNotices } from './agent-messaging/routine-notices.js';
 import { strictFifoDeliveryReady } from './agent-messaging/delivery-readiness.js';
 import { pendingRelayWork, relayIdleProof } from './agent-messaging/relay-idle.js';
+import { livenessLedger } from './liveness-ledger.js';
 import { relayDigestRecoveryTargets, restoreRelayDigests } from './agent-messaging/relay-digests.js';
 import { idleSessionPoll } from './agent-messaging/idle-session.js';
 import { type AgentDiscoveryFilters } from './agent-messaging/discovery.js';
@@ -989,6 +990,13 @@ export class AgentMessagingService {
     const relay = await this.authenticateRelay(relayId, rawToken, true);
     const now = nowIso();
     const expiresAt = isoOffsetSeconds(AGENT_MESSAGING_RELAY_TOKEN_SECONDS);
+    // The stored token still has well over a ledger interval to run (15 min
+    // TTL, a beat every 20 s), so the extension is persisted in the next batch.
+    const ledger = livenessLedger(this.db);
+    if (ledger.active && relay.tokenExpiresAt && relay.tokenExpiresAt > isoOffsetSeconds(60)) {
+      ledger.noteRelay(relay.id, { generation: relay.generation, heartbeatAt: now, tokenExpiresAt: expiresAt });
+      return { enabled: true, generation: relay.generation, expires_at: expiresAt, stop_requested: false };
+    }
     await this.db
       .update(agentBusRelays)
       .set({ heartbeatAt: now, tokenExpiresAt: expiresAt, updatedAt: now })

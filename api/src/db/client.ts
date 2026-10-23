@@ -20,6 +20,13 @@ export const READ_CACHE_TABLES = {
   provider_accounts: { uniqueColumns: ['id'], rowKey: 'id' },
 };
 
+/** Every table name in the schema, so the read cache can refuse statements naming any other table. */
+export function schemaTableNames(): string[] {
+  return Object.values(schema)
+    .filter((value) => is(value, MySqlTable))
+    .map((table) => getTableName(table as MySqlTable));
+}
+
 export function createDb(env: Env, options: { readCache?: boolean } = {}) {
   const pool = mysql.createPool({
     host: env.DB_HOST,
@@ -39,12 +46,9 @@ export function createDb(env: Env, options: { readCache?: boolean } = {}) {
 
   let readCache: ReadCache | undefined;
   if (options.readCache) {
-    const allTables = Object.values(schema)
-      .filter((value) => is(value, MySqlTable))
-      .map((table) => getTableName(table as MySqlTable));
     readCache = installReadCache(pool, {
       tables: READ_CACHE_TABLES,
-      allTables,
+      allTables: schemaTableNames(),
       resyncMs: (env.DB_READ_CACHE_RESYNC_SECONDS ?? 15) * 1000,
     });
   }

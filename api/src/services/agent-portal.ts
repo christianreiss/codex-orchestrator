@@ -65,6 +65,7 @@ import { releaseAgentMessagingBindingsLocked } from './agent-messaging.js';
 import { ABANDONED_SESSION_EVENT_ID, agentSessionFinishedError } from './agent-session-finished.js';
 import { finishSessionWatchdogsLocked, WATCHDOG_FAILURES, type WatchdogFailure } from './watchdog-lifecycle.js';
 import { hostContactWriteDue } from './host-contact.js';
+import { livenessLedger } from './liveness-ledger.js';
 
 export const AGENT_PORTAL_ENABLED_KEY = 'agent_portal_enabled';
 export const AGENT_PORTAL_MESSAGE_MAX_BYTES = 32 * 1024;
@@ -434,6 +435,23 @@ export class AgentPortalService {
     const now = nowIso();
     const expiresAt = isoOffsetSeconds(this.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS);
     const requested = input.status?.trim().toLowerCase();
+    // A liveness-only beat (no status, turn or relay change, presence already
+    // fresh) changes nothing a reader acts on: answer it from the authenticated
+    // row and let the liveness ledger persist the timestamps.
+    const ledger = livenessLedger(this.db);
+    const held = ledger.portalHeartbeat(sessionId);
+    const stored = held && (!session.heartbeatAt || held > session.heartbeatAt) ? held : session.heartbeatAt;
+    if (
+      ledger.active &&
+      input.relayAction === undefined &&
+      input.activeTurnId === undefined &&
+      (!requested || !LIVE_SESSION_STATE_SET.has(requested) || requested === session.status) &&
+      isFreshPresenceTimestamp(stored, Date.now() - this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000, Date.now())
+    ) {
+      if (hostContactWriteDue(session.hostId)) await this.db.update(hosts).set({ lastContactAt: now }).where(eq(hosts.id, session.hostId));
+      ledger.notePortal(sessionId, now, expiresAt);
+      return { enabled: true, expires_at: expiresAt, status: session.status, relay_active: session.relayEnabled === 1 };
+    }
     const result = await this.db.transaction(async (tx) => {
       await this.requirePortalEnabledLocked(tx);
       const locked = await this.requireBridgeSessionLocked(

@@ -30,7 +30,8 @@ describe('daemon idle transport ticks', () => {
     auth.mockClear();
     const select = vi.spyOn(db, 'select');
     const transaction = vi.spyOn(db, 'transaction');
-    await vi.advanceTimersByTimeAsync(45000);
+    // Three 60 s reconciliation ticks.
+    await vi.advanceTimersByTimeAsync(180000);
     expect(select).toHaveBeenCalledTimes(3);
     expect(transaction).not.toHaveBeenCalled();
     expect(auth).not.toHaveBeenCalled();
@@ -45,7 +46,7 @@ describe('daemon idle transport ticks', () => {
     socket.emit('close');
     const reads = select.mock.calls.length;
     wsPublisher.publish('host.daemon.operation.queued', { host_id: 1 });
-    await vi.advanceTimersByTimeAsync(30000);
+    await vi.advanceTimersByTimeAsync(120000);
     expect(select).toHaveBeenCalledTimes(reads);
   });
 

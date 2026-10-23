@@ -14,6 +14,7 @@ import { bindNativeMessagingIdentityLocked } from './agent-messaging/native-iden
 import { wsPublisher } from '../ws/publisher.js';
 import { z } from 'zod';
 import { idleSessionPoll } from './agent-messaging/idle-session.js';
+import { livenessLedger } from './liveness-ledger.js';
 import {
   receiverReady,
   receiverState,
@@ -153,6 +154,13 @@ export class AgentReceiverService {
     const auth = await this.authenticate(id, token, input.source);
     const peerEnabled = await this.messaging.isEnabled();
     const portalEnabled = await this.portal.isEnabled();
+    if (operation === 'heartbeat') {
+      const beat = await this.timestampOnlyBeat(auth, generation, input.claim_gate, peerEnabled, portalEnabled);
+      if (beat) {
+        if (peerEnabled) await this.messaging.notifyPresenceReturn(id);
+        return { receiver: beat };
+      }
+    }
     const result = await this.db.transaction(async (tx) => {
       await this.lockAhead(tx, auth);
       const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, id)).for('update');
@@ -226,6 +234,55 @@ export class AgentReceiverService {
     if (peerEnabled && operation !== 'stop') await this.messaging.notifyPresenceReturn(id);
     if (operation !== 'heartbeat') this.changed(id);
     return { receiver: result };
+  }
+
+  /**
+   * A beat from a fresh, unchanged receiver only moves timestamps and claim
+   * telemetry. It is answered without the locked transaction and persisted by
+   * the liveness ledger. Anything the transaction would change or refuse
+   * (generation, failure, expiry, readiness, enabled sources, queue mode,
+   * binding) returns null and takes the transactional path, with its errors.
+   */
+  private async timestampOnlyBeat(
+    session: Awaited<ReturnType<AgentReceiverService['authenticate']>>,
+    generation: string,
+    claimGate: ReceiverClaimGate | undefined,
+    peerEnabled: boolean,
+    portalEnabled: boolean,
+  ) {
+    const ledger = livenessLedger(this.db);
+    const state = receiverState(session.receiver);
+    if (!ledger.active || session.endedAt || !state || state.generation !== generation || state.failure) return null;
+    if (claimGate && !state.claim_gate_v1) return null;
+    const now = Date.now();
+    const held = ledger.receiverHeartbeat(session.id, generation);
+    const stored = held && held > state.heartbeat_at ? held : state.heartbeat_at;
+    if (!(Date.parse(stored) > now - RECEIVER_FRESH_MS)) return null;
+    if (smartQueueAllowed(this.env, session.hostId, state) !== state.queue_delivery_v1) return null;
+    if ((!peerEnabled && state.probes.peer) || (!portalEnabled && state.probes.portal)) return null;
+    const heartbeatAt = new Date(now).toISOString();
+    const next: ReceiverState = { ...state, heartbeat_at: heartbeatAt };
+    if (claimGate) next.claim_gate = { ...claimGate, observed_at: heartbeatAt };
+    else delete next.claim_gate;
+    const peer = receiverReady(next, 'peer', now);
+    const portal = receiverReady(next, 'portal', now);
+    if (peer !== (session.receiveHeartbeatAt !== null) || portal !== (session.relayEnabled === 1)) return null;
+    const bound = Boolean(session.agentBusAddressId && state.probes.peer);
+    if (bound) {
+      const [address] = await this.db
+        .select({ currentSessionId: agentBusAddresses.currentSessionId })
+        .from(agentBusAddresses)
+        .where(eq(agentBusAddresses.id, session.agentBusAddressId!))
+        .limit(1);
+      if (address?.currentSessionId !== session.id) return null;
+    }
+    ledger.noteReceiver(session.id, {
+      generation,
+      heartbeatAt,
+      claimGate: next.claim_gate,
+      addressId: bound && peer ? session.agentBusAddressId : null,
+    });
+    return receiverView(next);
   }
 
   async status(id: string, token: string) {

@@ -198,7 +198,9 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
         }
       })
       .catch((err) => app.log.warn({ err }, 'daemon sweep failed'));
-  }, 15_000);
+    // Sweeps enforce 10-minute queue and hour-scale retention deadlines; every
+    // 15 s they re-read every daemon's sessions for nothing (2026-10-23).
+  }, 60_000);
   timer.unref();
   app.addHook('onClose', async () => {
     clearInterval(timer);
@@ -253,7 +255,8 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
         if (type === 'host.daemon.operation.queued' && payload && typeof payload === 'object' &&
           'host_id' in payload && payload.host_id === hostID) poll();
       });
-      const timer = setInterval(poll, 15_000);
+      // Queue events wake the poll at once; this only reconciles a lost event.
+      const timer = setInterval(poll, 60_000);
       socket.on('message', (raw: { toString(): string }) => {
         chain = chain
           .then(async () => {

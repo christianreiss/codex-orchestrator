@@ -1,5 +1,11 @@
 # 2026-10-23
 
+- **Liveness in RAM, persisted in batches.** A session, receiver or relay heartbeat that only moves timestamps no longer opens a locked transaction of 10–15 statements. The API answers it from the authenticated row, keeps the new timestamps in memory, and writes them for all sessions every 5 seconds, one statement per table. Readers keep reading the same columns, which lag by at most 5 seconds, inside their 45–60-second freshness windows. Writes never move a timestamp backwards, never touch ended sessions, and apply only to the same receiver generation, address binding or relay generation. Beats that change state, or arrive after presence went stale, keep the transactional path. Works for existing wrappers without an update. The last batch is written on shutdown.
+
+- **Slower daemon sweeps.** Host daemon sweeps (10-minute queue expiry, hour-scale retention) and the per-connection operation reconciliation run every 60 seconds instead of every 15. Queue events still offer new operations at once. Daemon events no longer trigger scope coordination.
+
+- **Sleeping Chatty scheduler.** With no run queued, running or waiting, the Chatty scheduler checks every 30 seconds instead of every second. A submitted message wakes it at once.
+
 - **Quieter idle wrappers (cxx 0.9.121).** An idle session or relay makes far fewer background requests. Sessions already running keep their old wrapper until they restart.
   - A daemon relay holds one claim long poll instead of one per execution slot (8). Each claimed delivery opens one more slot, up to the configured parallelism, and a burst slot closes after its first empty claim.
   - The schedule watch asks for its policy every 30 seconds while the last answer named no progress timeout, instead of every 5 seconds. With a timeout or termination request it still asks every 5 seconds.
