@@ -1,8 +1,10 @@
 # Communicator cache verification — 2026-10-23
 
-Protocol 2 is deployed on `docker01.uggs.io` with cxx **0.9.122**. The production
-source is `7f9818cea6bb9cdc42f0a57393d46eb3a74660b8`, including implementation
-`091dc6c1` and the bootstrap auth-outcome correction `7f9818ce`.
+The initial protocol-2 rollout on `docker01.uggs.io` used cxx **0.9.122** and
+source `7f9818cea6bb9cdc42f0a57393d46eb3a74660b8`, including implementation
+`091dc6c1` and the bootstrap auth-outcome correction `7f9818ce`. The subsequently
+published **0.9.123** startup fix and current rollout evidence are recorded in
+[the transition verification](communicator-cache-transition-2026-10-23.md).
 
 ## Verified
 
@@ -29,7 +31,7 @@ source is `7f9818cea6bb9cdc42f0a57393d46eb3a74660b8`, including implementation
 
 The full database coverage suite and live provider inference were not run.
 
-## Production proof
+## Production proof for the initial 0.9.122 rollout
 
 The approved temporary deployment agent fast-forwarded production `main` from
 `1807eb5f` to `7f9818ce` under Git Director coordination. No remote push was made.
