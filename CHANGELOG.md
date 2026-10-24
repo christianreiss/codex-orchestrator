@@ -1,5 +1,7 @@
 # 2026-10-24
 
+- Materialize message dependency IDs and rank quota-history snapshots once during hydration, preserving referenced work, latest readings and weekly baselines without repeated correlated history scans.
+
 - Support existing mixed MySQL collations when hydrating UUID ownership/history joins and combining retention timestamps. Preserve original owners, exclusions and future cleanup deadlines during startup.
 
 - Restrict the retired quota-writer entrypoint guard to its own filename so the bundled API starts through its default container command.

@@ -289,11 +289,29 @@ export function workingSetPredicate(name: OwnedTableName): SQL | undefined {
           eq(schema.agentBusMessages.status, 'expired'),
           sql`${schema.agentBusMessages.expiredAt} > ${new Date(Date.now() - AGENT_MESSAGING_MISSED_WINDOW_SECONDS * 1000).toISOString()}`,
         ),
-        sql`EXISTS (SELECT 1 FROM agent_bus_messages child WHERE BINARY child.digest_id = BINARY ${schema.agentBusMessages.id} AND child.status = 'batched')`,
-        sql`EXISTS (SELECT 1 FROM agent_bus_messages reply WHERE BINARY reply.reply_to_message_id = BINARY ${schema.agentBusMessages.id} AND reply.status NOT IN ('completed','delivered','digested','dead','expired','canceled','superseded'))`,
-        sql`EXISTS (SELECT 1 FROM agent_schedule_runs r WHERE BINARY r.message_id = BINARY ${schema.agentBusMessages.id} AND r.status IN ('waiting','queued','leased','accepted','recovering','capacity_wait'))`,
-        sql`EXISTS (SELECT 1 FROM agent_watchdogs w WHERE BINARY w.message_id = BINARY ${schema.agentBusMessages.id} AND w.status IN ('watching','recovering','capacity_wait'))`,
-        sql`${schema.agentBusMessages.presenceNoticeKey} IS NOT NULL AND EXISTS (SELECT 1 FROM agent_sessions recipient WHERE BINARY recipient.id = BINARY SUBSTRING_INDEX(${schema.agentBusMessages.presenceNoticeKey}, ':', 1) AND recipient.ended_at IS NULL) AND EXISTS (SELECT 1 FROM agent_sessions sender WHERE BINARY sender.id = BINARY ${schema.agentBusMessages.targetSessionId} AND sender.ended_at IS NULL)`,
+        // UNION prevents derived-table merging: compute dependency IDs once,
+        // rather than executing each correlated lookup for every history row.
+        sql`BINARY ${schema.agentBusMessages.id} IN (
+          SELECT id FROM (
+            SELECT BINARY child.digest_id AS id FROM agent_bus_messages child
+              WHERE child.digest_id IS NOT NULL AND child.status = 'batched'
+            UNION
+            SELECT BINARY reply.reply_to_message_id FROM agent_bus_messages reply
+              WHERE reply.reply_to_message_id IS NOT NULL
+                AND reply.status NOT IN ('completed','delivered','digested','dead','expired','canceled','superseded')
+            UNION
+            SELECT BINARY r.message_id FROM agent_schedule_runs r
+              WHERE r.message_id IS NOT NULL AND r.status IN ('waiting','queued','leased','accepted','recovering','capacity_wait')
+            UNION
+            SELECT BINARY w.message_id FROM agent_watchdogs w
+              WHERE w.message_id IS NOT NULL AND w.status IN ('watching','recovering','capacity_wait')
+            UNION
+            SELECT BINARY notice.id FROM agent_bus_messages notice
+              JOIN agent_sessions recipient ON recipient.id = BINARY SUBSTRING_INDEX(notice.presence_notice_key, ':', 1)
+              JOIN agent_sessions sender ON sender.id = BINARY notice.target_session_id
+              WHERE notice.presence_notice_key IS NOT NULL AND recipient.ended_at IS NULL AND sender.ended_at IS NULL
+          ) retained_message_ids
+        )`,
         notInArray(schema.agentBusMessages.status, [
           'completed',
           'delivered',
@@ -312,7 +330,14 @@ export function workingSetPredicate(name: OwnedTableName): SQL | undefined {
             'canceled',
             'ambiguous',
           ]),
-          sql`EXISTS (SELECT 1 FROM agent_room_deliveries d JOIN agent_room_events e ON BINARY e.id = BINARY d.event_id JOIN agent_bus_conferences c ON BINARY c.id = BINARY e.room_id WHERE BINARY d.message_id = BINARY ${schema.agentBusMessages.id} AND c.status <> 'adjourned')`,
+          sql`BINARY ${schema.agentBusMessages.id} IN (
+            SELECT id FROM (
+              SELECT DISTINCT BINARY d.message_id AS id FROM agent_room_deliveries d
+                JOIN agent_room_events e ON e.id = BINARY d.event_id
+                JOIN agent_bus_conferences c ON c.id = BINARY e.room_id
+                WHERE d.message_id IS NOT NULL AND c.status <> 'adjourned'
+            ) conference_message_ids
+          )`,
         ),
       );
     case 'agentRoomEvents':
@@ -320,20 +345,41 @@ export function workingSetPredicate(name: OwnedTableName): SQL | undefined {
     case 'agentRoomDeliveries':
       return sql`EXISTS (SELECT 1 FROM agent_room_events e JOIN agent_bus_conferences c ON BINARY c.id = BINARY e.room_id JOIN agent_bus_messages m ON BINARY m.id = BINARY ${schema.agentRoomDeliveries.messageId} WHERE BINARY e.id = BINARY ${schema.agentRoomDeliveries.eventId} AND c.status <> 'adjourned' AND m.sender_address_id = '00000000-0000-4000-8000-000000000001' AND m.status NOT IN ('completed','dead','expired','canceled','ambiguous'))`;
     case 'chatgptUsageSnapshots':
-      return or(
-        sql`${schema.chatgptUsageSnapshots.fetchedAt} >= DATE_FORMAT(UTC_DATE(), '%Y-%m-%dT00:00:00.000Z') AND ${schema.chatgptUsageSnapshots.status} IN ('ok','rate_limited') AND ((${schema.chatgptUsageSnapshots.primaryLimitSeconds} = 604800 AND ${schema.chatgptUsageSnapshots.primaryUsedPercent} IS NOT NULL) OR (${schema.chatgptUsageSnapshots.secondaryLimitSeconds} = 604800 AND ${schema.chatgptUsageSnapshots.secondaryUsedPercent} IS NOT NULL)) AND NOT EXISTS (SELECT 1 FROM chatgpt_usage_snapshots n WHERE n.account_id <=> ${schema.chatgptUsageSnapshots.accountId} AND n.fetched_at >= DATE_FORMAT(UTC_DATE(), '%Y-%m-%dT00:00:00.000Z') AND n.status IN ('ok','rate_limited') AND ((n.primary_limit_seconds = 604800 AND n.primary_used_percent IS NOT NULL) OR (n.secondary_limit_seconds = 604800 AND n.secondary_used_percent IS NOT NULL)) AND (n.fetched_at < ${schema.chatgptUsageSnapshots.fetchedAt} OR (n.fetched_at = ${schema.chatgptUsageSnapshots.fetchedAt} AND n.id < ${schema.chatgptUsageSnapshots.id})))`,
-        sql`NOT EXISTS (SELECT 1 FROM chatgpt_usage_snapshots n WHERE n.account_id <=> ${schema.chatgptUsageSnapshots.accountId} AND n.id > ${schema.chatgptUsageSnapshots.id})`,
-        sql`NOT EXISTS (SELECT 1 FROM chatgpt_usage_snapshots n WHERE n.account_id <=> ${schema.chatgptUsageSnapshots.accountId} AND (n.fetched_at > ${schema.chatgptUsageSnapshots.fetchedAt} OR (n.fetched_at = ${schema.chatgptUsageSnapshots.fetchedAt} AND n.id > ${schema.chatgptUsageSnapshots.id})))`,
-        and(
-          sql`${schema.chatgptUsageSnapshots.status} IN ('ok','rate_limited')`,
-          sql`NOT EXISTS (SELECT 1 FROM chatgpt_usage_snapshots n WHERE n.account_id <=> ${schema.chatgptUsageSnapshots.accountId} AND n.status IN ('ok','rate_limited') AND (n.fetched_at > ${schema.chatgptUsageSnapshots.fetchedAt} OR (n.fetched_at = ${schema.chatgptUsageSnapshots.fetchedAt} AND n.id > ${schema.chatgptUsageSnapshots.id})))`,
-        ),
-      );
+      // Rank each account (including NULL) once per required ordering, rather
+      // than re-scanning its entire history for every candidate snapshot.
+      return sql`${schema.chatgptUsageSnapshots.id} IN (
+        SELECT id FROM (
+        SELECT id FROM (
+          SELECT id,
+            ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY id DESC) AS by_id,
+            ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY fetched_at DESC, id DESC) AS by_fetched
+          FROM chatgpt_usage_snapshots
+        ) latest WHERE by_id = 1 OR by_fetched = 1
+        UNION
+        SELECT id FROM (
+          SELECT id, ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY fetched_at DESC, id DESC) AS position
+          FROM chatgpt_usage_snapshots WHERE status IN ('ok','rate_limited')
+        ) usable WHERE position = 1
+        UNION
+        SELECT id FROM (
+          SELECT id, ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY fetched_at ASC, id ASC) AS position
+          FROM chatgpt_usage_snapshots
+          WHERE fetched_at >= DATE_FORMAT(UTC_DATE(), '%Y-%m-%dT00:00:00.000Z')
+            AND status IN ('ok','rate_limited')
+            AND ((primary_limit_seconds = 604800 AND primary_used_percent IS NOT NULL)
+              OR (secondary_limit_seconds = 604800 AND secondary_used_percent IS NOT NULL))
+        ) daily WHERE position = 1
+        ) selected_ids
+      )`;
     case 'claudeUsageSnapshots':
-      return or(
-        sql`NOT EXISTS (SELECT 1 FROM claude_usage_snapshots n WHERE n.account_id <=> ${schema.claudeUsageSnapshots.accountId} AND n.id > ${schema.claudeUsageSnapshots.id})`,
-        sql`NOT EXISTS (SELECT 1 FROM claude_usage_snapshots n WHERE n.account_id <=> ${schema.claudeUsageSnapshots.accountId} AND (n.fetched_at > ${schema.claudeUsageSnapshots.fetchedAt} OR (n.fetched_at = ${schema.claudeUsageSnapshots.fetchedAt} AND n.id > ${schema.claudeUsageSnapshots.id})))`,
-      );
+      return sql`${schema.claudeUsageSnapshots.id} IN (
+        SELECT id FROM (
+          SELECT id,
+            ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY id DESC) AS by_id,
+            ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY fetched_at DESC, id DESC) AS by_fetched
+          FROM claude_usage_snapshots
+        ) latest WHERE by_id = 1 OR by_fetched = 1
+      )`;
     case 'controlPlaneOutbox':
       return isNull(schema.controlPlaneOutbox.completedAt);
     case 'agentScopeEvents':
