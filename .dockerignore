@@ -19,6 +19,8 @@ frontend/.svelte-kit
 .owner-checkpoints
 .playwright
 .npm-cache
+cutovers
+backups
 frontend/test-results
 frontend/playwright-report
 

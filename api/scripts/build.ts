@@ -103,6 +103,12 @@ await esbuild.build({
   outfile: resolve(dist, 'rotate-signing-key.js'),
 });
 
+// TypeScript checks source semantics; verify the emitted modules with the same
+// Node runtime that will start them. Async import cycles can expose bundler bugs.
+for (const file of ['server.js', 'chatgpt-usage-worker.js', 'migrate.js', 'setup-signing-key.js', 'rotate-signing-key.js']) {
+  execFileSync(process.execPath, ['--check', resolve(dist, file)], { stdio: 'inherit' });
+}
+
 // The migration runner reads its SQL from `migrations/` next to the bundle —
 // `src/db/migrations` under tsx, `dist/migrations` in the image. Copy by
 // directory listing, never by an enumerated list: a migration that gets left

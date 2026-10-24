@@ -1,7 +1,7 @@
 import { posix } from 'node:path';
 import { z } from 'zod';
 import { sha256 } from '../../security/hash.js';
-import { normalizeRemote } from '../git-director.js';
+import { normalizeRemote } from '../git-director/remote-normalization.js';
 
 const path = z
   .string()

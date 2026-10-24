@@ -27,9 +27,15 @@ def run(command):
 
 
 def stop_writers(args):
+    images = Path(args.journal, 'previous-images.tsv')
+    media = {row.split('\t')[1] for row in images.read_text().splitlines()
+             if row.startswith('media-worker\t')} if images.exists() else set()
     for container in Path(args.writers).read_text().splitlines():
         if container:
-            run(['docker', 'stop', '--timeout', '120', container])
+            # Python installs a SIGINT handler; a Python PID 1 can ignore the
+            # default SIGTERM and otherwise stalls a cutover for 120 seconds.
+            signal_args = ['--signal', 'SIGINT'] if container in media else []
+            run(['docker', 'stop', *signal_args, '--timeout', '120', container])
     for service in ['api', 'quota-cron', 'media-worker']:
         if run(['docker', 'ps', '-q', '--filter', f'label=com.docker.compose.project={args.project}',
                 '--filter', f'label=com.docker.compose.service={service}']):

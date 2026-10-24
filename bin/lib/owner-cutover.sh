@@ -136,10 +136,18 @@ if os.path.realpath(expected) != os.path.realpath(actual) or any(str(env.get(key
     api_user="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["services"]["api"].get("user") or "10001:10001")' "$OWNER_CUTOVER_DIR/compose.json")"
     owner_cutover_storage_lock "$store" "$api_user"
     owner_cutover_phase quiescing
-    python3 "$(dirname "${BASH_SOURCE[0]}")/owner-drain-cutover.py" \
+    local -a capture_command=(python3 "$(dirname "${BASH_SOURCE[0]}")/owner-drain-cutover.py") capture_compose=("${INSTANCE_COMPOSE[@]}")
+    if [[ "${capture_compose[0]}" == env ]]; then
+      local compose_start=1
+      while [[ "${capture_compose[$compose_start]}" == *=* ]]; do compose_start=$((compose_start + 1)); done
+      # Keep credentials in the capture process environment, not its long-lived argv.
+      capture_command=("${capture_compose[@]:0:$compose_start}" "${capture_command[@]}")
+      capture_compose=("${capture_compose[@]:$compose_start}")
+    fi
+    "${capture_command[@]}" \
       --store "$store" --writers "$OWNER_CUTOVER_DIR/running-writers.txt" \
       --project "$project" --user "$api_user" --journal "$OWNER_CUTOVER_DIR" \
-      -- "${INSTANCE_COMPOSE[@]}"
+      -- "${capture_compose[@]}"
     if [[ "$no_backup" == 0 ]]; then
     owner_cutover_phase snapshotting
     # Root owns the complete dump; MYSQL_PWD is process-scoped, never an argv value.
