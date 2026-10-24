@@ -185,7 +185,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     quota = await readQuotaControls(ctx, host.vip === 1, engine, lease.account.id);
     if (engine === ENGINE_GROK) {
       try {
-        const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({ accountId: lease.account.id, sourceHostId: host.id, sessionId });
+        const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({ accountId: lease.account.id, sourceHostId: host.id, sessionId, bootstrapSession: true });
         return { account_id: lease.account.id, account_label: lease.account.label, session_id: sessionId, expires_at: lease.expires_at, access_expires_at: snapshot.expires_at, auth: snapshot.auth, canonical_digest: snapshot.digest, canonical_last_refresh: snapshot.last_refresh, canonical_generation: snapshot.canonical_generation, access_token_digest: snapshot.access_token_digest, verification_state: 'verified', refresh_state: snapshot.refresh_state, usage: { supported: false }, ...quota };
       } catch (error) { await accounts.release(host.id, engine, sessionId); throw error; }
     }

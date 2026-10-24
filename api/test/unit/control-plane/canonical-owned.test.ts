@@ -16,8 +16,11 @@ import { testKeyring } from '../../helpers/test-keyring.js';
 import { createCanonicalAuthStoreService } from '../../../src/services/canonical-auth-store.js';
 import { createRunnerValidationService } from '../../../src/services/runner-validation.js';
 import { withGrokAccountLock } from '../../../src/services/grok-auth-lock.js';
+import { createGrokAuthOwner } from '../../../src/services/grok-auth-owner.js';
+import { bindOwnerPresence, ConnectionPresence } from '../../../src/control-plane/presence.js';
+import { GROK_AUTH_SCOPE, GROK_OIDC_CLIENT_ID, GROK_OIDC_ISSUER } from '../../../src/services/grok-auth.js';
 
-function fixture() {
+function fixture(extra: StateSeed = {}) {
   const seed = {
     providerAccounts: [
       {
@@ -32,8 +35,11 @@ function fixture() {
         updatedAt: new Date().toISOString(),
       },
     ],
+    ...extra,
   };
-  const db = createDbFake(new Map([[schema.providerAccounts, structuredClone(seed.providerAccounts)]]));
+  const db = createDbFake(new Map(Object.entries(seed).map(([name, rows]) => [
+    (schema as unknown as Record<string, unknown>)[name], structuredClone([...rows]) as Record<string, unknown>[],
+  ])));
   const state = new OwnerStateStore(
     new OwnerStateSnapshot({ epoch: randomUUID(), sequence: 0n }, seed as unknown as StateSeed),
   );
@@ -67,6 +73,7 @@ function fixture() {
     execute: (command) => executor.execute(command),
   };
   bindOwnerRuntime(db, runtime);
+  bindOwnerPresence(runtime, new ConnectionPresence((error) => { throw error; }));
   return { db: db as never, state, runtime, close: () => deadlines.close() };
 }
 const candidate = {
@@ -80,6 +87,38 @@ const candidate = {
   },
 };
 describe('canonical credentials under one owner', () => {
+  it('returns initial Grok auth before its provider stream exists, without relaxing later renewals', async () => {
+    const h = fixture({
+      providerAccounts: [{ id: 1, engine: 'grok', label: 'fixture', state: 'enabled', payloadId: null, generation: 0 } as never],
+      providerAccountSessions: [{ id: 'bootstrap', hostId: 7, engine: 'grok', accountId: 1, scopeId: 'fixture', ownershipMode: 'connection', expiresAt: new Date(Date.now() + 300000).toISOString(), createdAt: new Date().toISOString() }],
+    });
+    try {
+      const keyring = testKeyring();
+      const runner = {
+        isConfigured: () => true,
+        verify: async () => ({ ok: true, status: 'ok' as const, reachable: true, definitive: true }),
+        verifyClaude: async () => ({ ok: true, status: 'ok' as const, reachable: true, definitive: true }),
+        verifyGrok: async () => ({ ok: true, status: 'ok' as const, reachable: true, definitive: true }),
+      };
+      const store = createCanonicalAuthStoreService({ db: h.db, keyring, runnerValidation: createRunnerValidationService({ db: h.db, keyring }), runner });
+      await store.storeCandidate({ engine: 'grok', accountId: 1, sourceHostId: null, requireLastRefresh: false, logAction: 'owner.test', auth: {
+        [GROK_AUTH_SCOPE]: { auth_mode: 'oidc', key: 'fixture-grok-access-token-123456789', refresh_token: 'fixture-grok-refresh-token-123456789', create_time: new Date().toISOString(), expires_at: new Date(Date.now() + 7200000).toISOString(), oidc_issuer: GROK_OIDC_ISSUER, oidc_client_id: GROK_OIDC_CLIENT_ID, user_id: 'fixture-user' },
+      } });
+      const owner = createGrokAuthOwner({ db: h.db, keyring, runner });
+      const input = { accountId: 1, sourceHostId: 7, sessionId: 'bootstrap' };
+      await expect(owner.ensureFresh(input)).rejects.toMatchObject({ status: 404 });
+      const result = await owner.ensureFresh({ ...input, bootstrapSession: true });
+      expect(JSON.stringify(result.auth)).toContain('fixture-grok-access-token');
+      expect(JSON.stringify(result.auth)).not.toContain('fixture-grok-refresh-token');
+      await expect(owner.ensureFresh({ ...input, sourceHostId: 8, bootstrapSession: true })).rejects.toMatchObject({ status: 404 });
+      await expect(owner.ensureFresh({ ...input, bootstrapSession: true, refreshIfGeneration: result.canonical_generation })).rejects.toMatchObject({ status: 404 });
+      const draft = h.state.begin();
+      draft.upsert('providerAccountSessions', { ...draft.table('providerAccountSessions').get('bootstrap')!, expiresAt: new Date(Date.now() - 1).toISOString() });
+      h.state.publish(draft.seal({ ...h.state.revision(), sequence: h.state.revision().sequence + 1n }));
+      await expect(owner.ensureFresh({ ...input, bootstrapSession: true })).rejects.toMatchObject({ status: 404 });
+    } finally { h.close(); }
+  });
+
   it('publishes verified generation, account and head atomically without retaining credential bytes', async () => {
     const h = fixture();
     try {

@@ -34,6 +34,11 @@ and observed runner state, rather than querying or probing on each request.
 
 ## Runtime metadata budget
 
+Owner-state reads reuse deeply frozen plain objects and arrays. Values with mutable
+internal slots, including Dates, Maps and binary views, are copied on every read;
+callers cannot mutate a published snapshot through them. Projection and metadata
+budget validation continue to run when rows enter the store.
+
 The hydrated store carries its configured limits into command validation:
 100,000 rows per table, 500,000 total rows, and 256 MiB of projected metadata by
 default. New and changed rows are projected first, including credential-proof

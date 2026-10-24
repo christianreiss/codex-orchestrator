@@ -82,6 +82,8 @@ const requestSchema = z
   .object({
     id: z.string().uuid(),
     type: z.literal('request'),
+    // cxx 0.9.125 embeds an empty state-stream identifier in ordinary requests.
+    stream_id: z.literal('').optional(),
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']),
     path: z.string().max(8192).refine(communicatorPathAllowed),
     headers: z.record(z.string().max(16384)).default({}),

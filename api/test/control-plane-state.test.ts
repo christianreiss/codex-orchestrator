@@ -37,6 +37,41 @@ function hydrationDb(rows: unknown[] = []) {
   return { db: { select } as unknown as Pick<Database, 'select'>, select, limit };
 }
 describe('authoritative owner state', () => {
+  it('reads deeply immutable metadata without cloning it again', () => {
+    const snapshot = new OwnerStateSnapshot(initial, { versions: [setting('api_disabled', '0')] });
+    const clone = vi.spyOn(globalThis, 'structuredClone');
+    try {
+      const row = snapshot.settings.get('api_disabled')!;
+      for (let i = 0; i < 20; i++) {
+        expect(snapshot.settings.get('api_disabled')).toBe(row);
+        expect(snapshot.settings.by('name', 'api_disabled')[0]).toBe(row);
+        expect(snapshot.settings.all()[0]).toBe(row);
+      }
+      expect(clone).not.toHaveBeenCalled();
+      expect(() => { (row as { version: string }).version = 'changed'; }).toThrow();
+    } finally {
+      clone.mockRestore();
+    }
+  });
+
+  it('keeps mutable metadata leaves isolated in indexed and whole-table reads', () => {
+    const snapshot = new OwnerStateSnapshot(initial, {
+      agentBusAddresses: [{
+        id: 'address', hostId: 1,
+        adapterCapabilities: { bytes: new Uint8Array([1, 2]), date: new Date(123) },
+      } as unknown as StateRow<'agentBusAddresses'>],
+    });
+    const table = snapshot.addresses;
+    for (const rows of [table.by('hostId', 1), table.all()]) {
+      const metadata = rows[0]!.adapterCapabilities as { bytes: Uint8Array; date: Date };
+      metadata.bytes[0] = 9;
+      metadata.date.setTime(999);
+      const current = table.get('address')!.adapterCapabilities as { bytes: Uint8Array; date: Date };
+      expect(current.bytes[0]).toBe(1);
+      expect(current.date.getTime()).toBe(123);
+    }
+  });
+
   it('classifies every schema table and never selects payloads', () => {
     assertSchemaCoverage();
     for (const name of OWNED_TABLE_NAMES) {

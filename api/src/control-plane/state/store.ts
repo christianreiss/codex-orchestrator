@@ -80,7 +80,21 @@ function freeze<T>(value: T): T {
   return value;
 }
 function copy<T>(value: T): T {
-  return freeze(structuredClone(value));
+  const result = freeze(structuredClone(value));
+  if (result !== null && typeof result === 'object' && shareable(result)) immutableReadRows.add(result);
+  return result;
+}
+const immutableReadRows = new WeakSet<object>();
+/** Frozen JSON metadata has no mutable internal slots. Dates, Maps and binary
+ * views retain defensive copies, even when their containing object is frozen. */
+function shareable(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return true;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null && prototype !== Array.prototype) return false;
+  return Object.isFrozen(value) && Object.values(value).every(shareable);
+}
+function readRow<T>(value: T): T {
+  return value !== null && typeof value === 'object' && immutableReadRows.has(value) ? value : copy(value);
 }
 function scalarKey(value: unknown): string {
   if (value instanceof Date) return `date:${value.toISOString()}`;
@@ -288,13 +302,13 @@ export class EntityView<K extends OwnedTableName> {
   }
   get(key: Key): Readonly<StateRow<K>> | undefined {
     const value = this.#rows.get(keyOf(key));
-    return value === undefined ? undefined : copy(value);
+    return value === undefined ? undefined : readRow(value);
   }
   has(key: Key): boolean {
     return this.#rows.has(keyOf(key));
   }
   all(): readonly Readonly<StateRow<K>>[] {
-    return Object.freeze([...this.#rows.values()].map(copy));
+    return Object.freeze([...this.#rows.values()].map(readRow));
   }
   by<F extends keyof StateRow<K> & string>(
     field: F,
@@ -302,7 +316,7 @@ export class EntityView<K extends OwnedTableName> {
   ): readonly Readonly<StateRow<K>>[] {
     const index = this.#indexes.get(field);
     if (!index) throw new Error(`No owner index ${this.name}.${field}`);
-    return Object.freeze((index.get(scalarKey(value)) ?? []).map((key) => copy(this.#rows.get(key)!)));
+    return Object.freeze((index.get(scalarKey(value)) ?? []).map((key) => readRow(this.#rows.get(key)!)));
   }
 }
 

@@ -1,5 +1,11 @@
 # Overview
 
+Managed launch bootstrap accepts the empty state-stream field emitted by cxx
+0.9.125 ordinary requests. A newly acquired Grok account lease may obtain its
+initial access projection before its provider connection exists; later reactive
+renewals retain connection checks. Owner-state reads share deeply immutable JSON
+metadata and defensively copy Dates and binary values.
+
 Both API images keep runtime artifacts root-owned and run as an unprivileged
 user. Their runtime stage normalizes read/traverse permissions so a restrictive
 checkout umask cannot hide SQL migrations or browser assets. It grants no write

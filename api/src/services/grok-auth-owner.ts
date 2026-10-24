@@ -24,6 +24,8 @@ export interface GrokAuthFreshInput {
   accountId?: number;
   sourceHostId?: number;
   sessionId?: string;
+  /** Server-side launch path only: the just-acquired lease precedes attachment. */
+  bootstrapSession?: boolean;
   refreshIfGeneration?: number;
   minValiditySeconds?: number;
   deadlineMs?: number;
@@ -228,7 +230,15 @@ export function createGrokAuthOwner(deps: GrokAuthOwnerDeps) {
 async function assertSession(db: Database, input: GrokAuthFreshInput, accountId: number) {
   if (!input.sourceHostId || !input.sessionId) throw new ConflictError('Grok account session is required', 'grok_session_required');
   const runtime=ownerRuntimeFor(db);
-  if(runtime){const lease=ownedProviderSession(runtime,input.sourceHostId,'grok',input.sessionId);if(lease.accountId!==accountId||lease.ownershipMode==='connection'&&!ownerPresence(runtime).hasProvider(lease.id))throw new NotFoundError('Account session not found');return;}
+  if (runtime) {
+    const lease = ownedProviderSession(runtime, input.sourceHostId, 'grok', input.sessionId);
+    const bootstrap = input.bootstrapSession === true && input.refreshIfGeneration === undefined &&
+      Date.parse(lease.expiresAt) > Date.now();
+    if (lease.accountId !== accountId ||
+      (lease.ownershipMode === 'connection' && !ownerPresence(runtime).hasProvider(lease.id) && !bootstrap))
+      throw new NotFoundError('Account session not found');
+    return;
+  }
   const rows = await db.select().from(providerAccountSessions).where(and(eq(providerAccountSessions.id, input.sessionId), eq(providerAccountSessions.hostId, input.sourceHostId), eq(providerAccountSessions.engine, 'grok'), eq(providerAccountSessions.accountId, accountId), gt(providerAccountSessions.expiresAt, nowIso()))).limit(1);
   if (!rows.length) throw new NotFoundError('Account session not found');
 }

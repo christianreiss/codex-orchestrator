@@ -122,6 +122,16 @@ describe('communicator transport', () => {
     expect(auth.policies.every(policy => JSON.stringify(policy) === '{"checkApiDisabled":true}')).toBe(true);
     ws.close();
   });
+  it('accepts the empty state field from cxx 0.9.125 without accepting arbitrary stream IDs', async () => {
+    await setup();
+    const ws = await open();
+    for (const [streamId, expected] of [['', 200], ['not-an-http-stream', 400]] as const) {
+      const reply = new Promise<string>(resolve => ws.once('message', (data: unknown) => resolve(String(data))));
+      ws.send(JSON.stringify({ id: randomUUID(), type: 'request', method: 'POST', path: '/host/echo', headers: {}, body: '', stream_id: streamId }));
+      expect(JSON.parse(await reply).status).toBe(expected);
+    }
+    ws.close();
+  });
   it('restricts oversized reply retries to known content reads', () => {
     const request = (path: string, body: string) => ({method:'POST', path, body:Buffer.from(body).toString('base64')});
     expect(communicatorResponseMayRepeat(request('/sync/bootstrap/', '{"include_auth":false}'))).toBe(true);
