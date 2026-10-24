@@ -1,4 +1,6 @@
 import { AdvisorService } from '../../../src/services/advisor.js';
+import { relayLongPoll } from '../../../src/http/relay-long-poll.js';
+import { ownerReadResponseGuard, withOwnerRequestScope } from '../../../src/control-plane/state/runtime.js';
 import { GrokUsageService } from '../../../src/services/grok-usage.js';
 import { ChatGptUsageService } from '../../../src/services/chatgpt-usage.js';
 import {
@@ -129,6 +131,50 @@ function harness(extra: Record<string, Record<string, unknown>[]> = {}) {
   return { state, runtime, presence, fake, ctx, service };
 }
 describe('connection-owned daemon commands', () => {
+  it.each([undefined, 0])('parks unattached legacy protocol %s without reads, writes, presence or queued deliveries', async (protocol) => {
+    const h = harness({ agentBusMessages: [{ id: 'queued', status: 'queued', targetAddressId: 'target' }], agentBusAddresses: [{ id: 'target', hostId: 1, username: 'user', engine: 'codex', enabled: 1, archivedAt: null, currentSessionId: null }] });
+    const host = h.fake.tables.get(schema.hosts)![0] as typeof schema.hosts.$inferSelect;
+    const registered = await registerOwnedRelay(h.runtime, host, { username: 'user', instanceId: randomUUID(), wrapperVersion: 'old', capabilities: protocol === undefined ? null : { control_state_protocol: protocol } });
+    const id = String(registered.relay_id), token = String(registered.relay_token);
+    const select = vi.spyOn(h.fake, 'select'), update = vi.spyOn(h.fake, 'update'), insert = vi.spyOn(h.fake, 'insert');
+    const revision = h.state.revision();
+    vi.useFakeTimers();
+    let complete = false;
+    const poll = vi.fn(async () => ownedRelayTargets(h.runtime, id, token));
+    const result = relayLongPoll(poll, Date.now() + 25_000, () => false, undefined, { key: id, check: async () => ownedRelayTargets(h.runtime, id, token) === null }).then((value) => { complete = true; return value; });
+    await vi.advanceTimersByTimeAsync(24_999);
+    expect(complete).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toBeNull();
+    expect(h.state.revision()).toEqual(revision);
+    expect(h.state.snapshot().messages.get('queued')?.status).toBe('queued');
+    expect(h.presence.all()).toEqual([]);
+    expect(select).not.toHaveBeenCalled(); expect(update).not.toHaveBeenCalled(); expect(insert).not.toHaveBeenCalled();
+    expect(() => ownedRelayTargets(h.runtime, id, 'wrong')).toThrow('Invalid agent relay credential');
+  });
+  it.each(['generation', 'instance', 'fingerprint', 'expired', 'revoked', 'modern', 'host_deadline'])('revalidates legacy empty responses after %s changes', async (change) => {
+    const h = harness();
+    const host = h.fake.tables.get(schema.hosts)![0] as typeof schema.hosts.$inferSelect;
+    const registered = await registerOwnedRelay(h.runtime, host, { username: 'user', instanceId: randomUUID(), wrapperVersion: 'old' });
+    const id = String(registered.relay_id), token = String(registered.relay_token);
+    withOwnerRequestScope(() => {
+      expect(ownedRelayTargets(h.runtime, id, token)).toBeNull();
+      const guard = ownerReadResponseGuard(h.runtime), draft = h.state.begin();
+      const relay = draft.table('agentBusRelays').get(id)!;
+      if (change === 'host_deadline') draft.upsert('hosts', { ...draft.table('hosts').get(1)!, secure: 0, insecureEnabledUntil: new Date('2000-01-01T00:00:00.000Z') });
+      draft.upsert('agentBusRelays', { ...relay,
+        ...(change === 'generation' ? { generation: relay.generation + 1 } : {}),
+        ...(change === 'instance' ? { instanceId: randomUUID() } : {}),
+        ...(change === 'fingerprint' ? { hostAuthFingerprint: 'revoked' } : {}),
+        ...(change === 'expired' ? { tokenExpiresAt: '2000-01-01T00:00:00.000Z' } : {}),
+        ...(change === 'revoked' ? { status: 'stopped' } : {}),
+        ...(change === 'modern' ? { capabilities: { control_state_protocol: 1 } } : {}),
+      });
+      h.state.publish(draft.seal({ ...h.state.revision(), sequence: h.state.revision().sequence + 1n }));
+      expect(guard).toThrow();
+      if (change !== 'generation' && change !== 'instance') expect(() => ownedRelayTargets(h.runtime, id, token)).toThrow();
+    });
+  });
   it('does not persist unchanged heartbeat metadata and retains accepted work on disconnect', async () => {
     const h = harness(),
       instance = randomUUID();
@@ -195,6 +241,7 @@ describe('connection-owned daemon commands', () => {
       username: 'user',
       instanceId: instance,
       wrapperVersion: 'test',
+      capabilities: { control_state_protocol: 1 },
     });
     const id = String(registration.relay_id),
       token = String(registration.relay_token),

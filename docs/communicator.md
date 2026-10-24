@@ -820,6 +820,12 @@ Native-session process stop is a separate session-bridge protocol, not a communi
 
 ### Coordinated owner cutover: active legacy processes
 
+From cxx 0.9.126, relay registration advertises `control_state_protocol: 1`
+when the signed communicator configuration enables it. Such relays require the
+state stream and do not fall back to HTTP polling when the local endpoint fails.
+Older detached relays can make authenticated empty waits, without discovering
+or claiming work, so reconnect errors do not cause repeated registration writes.
+
 A coordinated owner cutover preserves already running native processes. The new owner captures an explicit boot manifest of their existing session, native instance, receiver, and already accepted claim identities. Legacy heartbeats renew only volatile drain credentials for those captured identities. They do not create WebSocket presence, replace a native instance, accept an old unaccepted offer, or acquire new work. A receiver may reconnect only for the same captured native transcript and binding. Security policy, host credential, engine eligibility, fixed session expiry, explicit exit, and revocation continue to fence the drain. An expired bootstrap credential requires authenticated host recovery for that same lifecycle.
 
 Pre-cutover timed provider account leases are a bounded compatibility exception: their old processes continue the existing durable expiry renewal until release or expiry. They are not silently upgraded, and historical expired rows are never revived. The owner drain diagnostic `legacy_timed_provider` counts the unexpired timed cohort; `legacy_sessions` and `legacy_relays` count captured lifecycle records. Report legacy traffic separately from the negotiated protocol cohort. Universal zero idle SQL cannot be claimed while timed legacy provider renewals remain; negotiated connection-owned Codex, Claude, and Grok idle traffic must independently produce zero SQL.

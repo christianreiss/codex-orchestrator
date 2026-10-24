@@ -239,6 +239,17 @@ export function ownedRelayTargets(owner: OwnerRuntime, id: string, token: string
   const s = owner.state.snapshot(),
     { relay, host } = ownedRelay(s, id, token);
   gate(s, host.id, relay.username, relay.capabilities, true);
+  const legacyProtocol = (capabilities: unknown) => {
+    const protocol = jsonRecord(capabilities)?.control_state_protocol;
+    return protocol === undefined || protocol === 0;
+  };
+  const attached = (instanceId: string, generation: number) => ownerPresence(owner).all().some(
+    (a) => a.scope.topic === 'relay' && a.scope.relay_id === id &&
+      a.scope.native_instance_id === instanceId && a.scope.binding_generation === generation,
+  );
+  // Old wrappers retry registration immediately on detached errors. A valid
+  // legacy credential may wait empty, but cannot discover or claim any work.
+  const legacyIdle = legacyProtocol(relay.capabilities) && !attached(relay.instanceId, relay.generation);
   setOwnerRequestPrincipal({
     principal: `relay:${id}:${relay.generation}`,
     revalidate(snapshot) {
@@ -246,20 +257,13 @@ export function ownedRelayTargets(owner: OwnerRuntime, id: string, token: string
       if (
         current.instanceId !== relay.instanceId ||
         current.generation !== relay.generation ||
-        !ownerPresence(owner)
-          .all()
-          .some(
-            (a) =>
-              a.scope.topic === 'relay' &&
-              a.scope.relay_id === id &&
-              a.scope.native_instance_id === current.instanceId &&
-              a.scope.binding_generation === current.generation,
-          )
+        ((!legacyIdle || !legacyProtocol(current.capabilities)) && !attached(current.instanceId, current.generation))
       )
         throw new ConflictError('Relay instance changed', 'agent_messaging_relay_detached');
       gate(snapshot, current.hostId, current.username, current.capabilities, true);
     },
   });
+  if (legacyIdle) return null;
   if (
     !ownerPresence(owner)
       .all()

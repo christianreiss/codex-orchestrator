@@ -71,6 +71,7 @@ type relayDelivery struct {
 
 type relayClient struct {
 	connectionOwned      atomic.Bool
+	stateProtocol        int
 	daemon               bool
 	claimPermit          func() (func(), bool)
 	beforeDelivery       func(context.Context, *relayDelivery) (context.Context, func())
@@ -289,15 +290,20 @@ func newRelayClient(cfg *config.Config) (*relayClient, error) {
 	transport := &http.Transport{DialContext: ipv4.PreferDialContext(), TLSClientConfig: tlsConfig, MaxIdleConns: 4, IdleConnTimeout: 45 * time.Second, ResponseHeaderTimeout: 35 * time.Second}
 	return &relayClient{
 		baseURL: strings.TrimRight(cfg.Orchestrator.BaseURL, "/"), apiKey: cfg.Orchestrator.APIKey,
-		http: &http.Client{Transport: communicator.Wrap(transport), Timeout: 40 * time.Second},
+		stateProtocol: cfg.Orchestrator.CommunicatorStateProtocol,
+		http:          &http.Client{Transport: communicator.Wrap(transport), Timeout: 40 * time.Second},
 	}, nil
 }
 
 func (c *relayClient) register(ctx context.Context, username, instanceID, version string) (*relayRegistration, error) {
 	var out relayRegistration
+	capabilities := map[string]any{"host_daemon": c.daemon, "execution_contract_version": 2, "watchdog_protocol_version": 1, "headless": true, "codex_exec_resume": true, "claude_print_resume": true, "grok_json_resume": true}
+	if c.stateProtocol == 1 {
+		capabilities["control_state_protocol"] = 1
+	}
 	err := doJSON(ctx, c.http, c.baseURL, http.MethodPost, "/host/agent-relays/register", map[string]any{
 		"username": username, "instance_id": instanceID, "wrapper_version": version,
-		"capabilities": map[string]any{"host_daemon": c.daemon, "execution_contract_version": 2, "watchdog_protocol_version": 1, "headless": true, "codex_exec_resume": true, "claude_print_resume": true, "grok_json_resume": true},
+		"capabilities": capabilities,
 	}, map[string]string{"X-API-Key": c.apiKey}, &out)
 	if err != nil {
 		return nil, err
@@ -325,7 +331,7 @@ func (c *relayClient) pollParallel(ctx context.Context, configs map[string]*conf
 		c.connectionOwned.Store(true)
 		return c.pollState(ctx, configs, stderr, loops, state)
 	}
-	if c.connectionOwned.Load() || communicator.StateRequired(c.baseURL) {
+	if c.connectionOwned.Load() || c.stateProtocol == 1 || communicator.StateRequired(c.baseURL) {
 		return stateErr
 	}
 	pollCtx, cancel := context.WithCancel(ctx)

@@ -1,4 +1,4 @@
-import type { OwnedTableName } from '../../control-plane/state/catalog.js';
+import type { OwnedTableName, StateRow } from '../../control-plane/state/catalog.js';
 import type { Database } from '../../db/client.js';
 import type { Env } from '../../env.js';
 import type { PersistenceTransaction } from '../../control-plane/persistence.js';
@@ -14,6 +14,8 @@ import {
 import { RetentionProjection } from './projection.js';
 import { ServerRetentionService } from './index.js';
 import { wsPublisher } from '../../ws/publisher.js';
+import { SERVER_RETENTION_SECONDS } from './guards.js';
+import type { EntityView } from '../../control-plane/state/store.js';
 
 const bindings = new WeakMap<OwnerRuntime, RetentionDeadlineIndex>();
 export async function hydrateRetentionIndex(
@@ -49,25 +51,96 @@ export function bindOwnerRetention(runtime: OwnerRuntime, index: RetentionDeadli
     'advisorSessions',
     'workflowRuns',
     'agentChatNotices',
+    'hosts',
+    'agentBusConversations',
+    'agentBusGroups',
+    'agentScopes',
+    'agentRoomDeliveries',
+    'agentRoomEvents',
+    'agentScopeEvents',
+    'agentChatAttachments',
+    'chattyRuns',
+    'chattyActions',
   ] as const satisfies readonly OwnedTableName[];
-  let views = dependencies.map((table) => runtime.state.snapshot().table(table));
-  let chatty = runtime.state.snapshot().table('chattySessions');
-  runtime.state.subscribe((snapshot) => {
-    const next = snapshot.table('chattySessions');
-    if (next === chatty) return;
-    for (const row of next.all()) {
-      const previous = chatty.get(row.userId);
-      if (previous?.eventCursor !== row.eventCursor || previous?.updatedAt !== row.updatedAt)
-        index.stage('chatty', Date.now() + 86_400_000);
+  // Only fields used by retention eligibility can unpark protected history.
+  // Receiver/heartbeat/activity updates do not release durable protection.
+  const fields: { [K in OwnedTableName]?: readonly (keyof StateRow<K> & string)[] } = {
+    agentSessions: ['agentBusAddressId', 'endedAt', 'status', 'activeTurnId', 'bindingGeneration'],
+    agentBusAddresses: ['hostId', 'currentSessionId', 'archivedAt', 'enabled'],
+    agentSchedules: ['targetAddressId', 'deletedAt'],
+    agentWatchdogs: ['targetAddressId', 'status'],
+    agentRebootHandoffs: ['addressId', 'oldSessionId', 'newSessionId', 'status'],
+    agentRoleProposals: ['authorAddressId', 'reviewerAddressId', 'status'],
+    agentBusMessages: ['senderAddressId', 'targetAddressId', 'conversationId', 'status', 'leaseOwner'],
+    agentBusSubscriptions: ['subscriberAddressId', 'topic'],
+    agentBusConferenceMembers: ['conferenceId', 'addressId', 'conversationId'],
+    agentBusConferences: ['ownerAddressId', 'status'],
+    agentScopeMembers: ['scopeId', 'sessionId'],
+    agentResourceClaims: ['sessionId', 'state'],
+    agentMessages: ['sessionId', 'status'],
+    hostDaemonOperations: ['sessionId', 'status'],
+    hostDaemonSessions: ['addressId', 'sessionId', 'status'],
+    advisorSessions: ['conversationId', 'status'],
+    workflowRuns: ['status'],
+    agentChatNotices: ['sessionId', 'resolvedAt'],
+    chattySessions: ['generation'],
+    hosts: ['internalRole'],
+    agentBusConversations: ['addressAId', 'addressBId'],
+    agentBusGroups: ['slug'],
+    agentScopes: [],
+    agentRoomDeliveries: ['eventId', 'messageId'],
+    agentRoomEvents: ['roomId'],
+    agentScopeEvents: ['scopeId', 'dispatched'],
+    agentChatAttachments: ['sessionId', 'status'],
+    chattyRuns: ['userId', 'status'],
+    chattyActions: ['userId', 'status'],
+  };
+  const day = SERVER_RETENTION_SECONDS * 1000;
+  type Clock<K extends OwnedTableName> = { field: keyof StateRow<K> & string; family?: RetentionFamily; delay: number };
+  const clocks: { [K in OwnedTableName]?: readonly Clock<K>[] } = {
+    agentSessions: [{ field: 'heartbeatAt', delay: day }, { field: 'expiresAt', family: 'portal', delay: 0 }],
+    agentBusAddresses: [{ field: 'lastSeenAt', delay: day }, { field: 'lastSeenAt', family: 'addresses', delay: day }],
+    hostDaemonSessions: [{ field: 'lastActivityAt', family: 'daemons', delay: day }],
+    agentBusConferences: [{ field: 'createdAt', family: 'rooms', delay: day }, { field: 'adjournedAt', family: 'rooms', delay: day }],
+    agentChatNotices: [{ field: 'createdAt', family: 'portal', delay: day }],
+    chattySessions: [{ field: 'updatedAt', family: 'chatty', delay: day }],
+    chattyRuns: [{ field: 'updatedAt', family: 'chatty', delay: day }, { field: 'leaseUntil', family: 'chatty', delay: day }],
+    agentBusConversations: [{ field: 'lastActivityAt', family: 'conversations', delay: day }],
+    agentRoomEvents: [{ field: 'createdAt', family: 'rooms', delay: day }],
+    agentScopeEvents: [{ field: 'createdAt', family: 'rooms', delay: day }],
+    agentChatAttachments: [{ field: 'updatedAt', family: 'rooms', delay: day }, { field: 'updatedAt', family: 'attachments', delay: day + 1 }],
+  };
+  const selected = [...dependencies, 'chattySessions'] as const;
+  const project = (view: EntityView<OwnedTableName>) => new Map(view.all().map(row => {
+    const value = row as unknown as Record<string, unknown>;
+    return [view.keyFor(row), {
+      guard: JSON.stringify((fields[view.name] ?? []).map(field => value[field])),
+      clocks: (clocks[view.name] ?? []).map(clock => typeof value[clock.field] === 'string' ? Date.parse(value[clock.field] as string) + clock.delay : NaN),
+    }];
+  }));
+  let views = selected.map(table => runtime.state.snapshot().table(table));
+  const projections = views.map(project);
+  runtime.state.subscribe(snapshot => {
+    const next = selected.map(table => snapshot.table(table));
+    for (let i = 0; i < selected.length; i++) {
+      if (next[i] === views[i]) continue;
+      const table = selected[i]!, before = projections[i]!, after = project(next[i]!);
+      const families = ['chattySessions', 'chattyRuns', 'chattyActions'].includes(table) ? ['chatty'] as const : RETENTION_FAMILIES;
+      if (before.size !== after.size || [...after].some(([key, value]) => before.get(key)?.guard !== value.guard))
+        index.invalidate(families);
+      for (const [key, value] of after) {
+        const previous = before.get(key);
+        value.clocks.forEach((dueAt, position) => {
+          if (!Number.isFinite(dueAt) || dueAt === previous?.clocks[position]) return;
+          const clock = clocks[table]![position]!;
+          if (clock.family) index.stage(clock.family, dueAt);
+          else if (dueAt > Date.now()) index.stageGuard(dueAt);
+          else index.invalidate(); // A contact correction can remove age protection.
+        });
+      }
+      projections[i] = after;
     }
-    chatty = next;
-    index.invalidate(['chatty']);
-  });
-  runtime.state.subscribe((snapshot) => {
-    const next = dependencies.map((table) => snapshot.table(table));
-    if (next.every((view, i) => view === views[i])) return;
     views = next;
-    index.invalidate();
   });
 }
 export function ownerRetention(runtime: OwnerRuntime): RetentionDeadlineIndex {

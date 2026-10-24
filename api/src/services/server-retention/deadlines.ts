@@ -146,13 +146,24 @@ export class RetentionDeadlineIndex {
     this.assertReady();
     if (!Number.isFinite(dueAt)) throw new Error('Invalid cold append retention deadline');
     const clock = this.clocks.get(family)!;
-    clock.next = clock.next === null ? dueAt : Math.min(clock.next, dueAt);
+    const next = clock.next === null ? dueAt : Math.min(clock.next, dueAt);
+    const past = clock.past || dueAt <= now;
+    const dirty = clock.dirty || dueAt <= now;
+    if (next === clock.next && past === clock.past && dirty === clock.dirty) return;
+    clock.next = next;
     if (dueAt <= now) {
       clock.past = true;
       clock.dirty = true;
     }
     clock.version++;
     this.emit();
+  }
+  /** Contact age is a future eligibility guard, not a new past candidate. */
+  stageGuard(dueAt: number, now = Date.now()): void {
+    this.assertReady();
+    if (!Number.isFinite(dueAt) || dueAt <= now) throw new Error('Invalid future retention guard');
+    for (const [family, clock] of this.clocks)
+      if (family !== 'turns' && clock.past) this.stage(family, dueAt, now);
   }
   invalidate(families: readonly RetentionFamily[] = RETENTION_FAMILIES): void {
     this.assertReady();

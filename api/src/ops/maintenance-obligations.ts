@@ -35,7 +35,9 @@ export function messagingMaintenanceObligations(
   facts: MessagingMaintenanceFacts,
 ): OwnerWorkObligation[] {
   const work: OwnerWorkObligation[] = [];
-  for (const message of snapshot.messages.all()) {
+  for (const message of ['queued', 'batched', 'leased', 'accepted'].flatMap((status) =>
+    snapshot.messages.by('status', status),
+  )) {
     if (
       ['queued', 'batched'].includes(message.status) ||
       (message.status === 'leased' && message.ownershipMode !== 'connection')

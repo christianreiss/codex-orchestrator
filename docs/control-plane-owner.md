@@ -77,6 +77,13 @@ means no timer. Wrapper publication and media-job discovery use filesystem
 events; media retries have finite individual retry deadlines. Event-stream
 failure is surfaced instead of silently falling back to directory polling.
 
+Retention wakes on eligibility changes and actual age deadlines. Contact-only
+updates do not repeatedly reopen already protected history. Messaging maintenance
+uses status indexes for actionable work rather than traversing retained messages.
+An authenticated detached legacy relay can wait for an empty response, with
+identity and authorization rechecked before delivery. It cannot discover or claim
+new work through that compatibility path; modern relays still require attachment.
+
 ## Buffered telemetry and files
 
 Gateway API-key usage counters coalesce for 30 seconds and flush during orderly
