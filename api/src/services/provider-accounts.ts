@@ -398,9 +398,10 @@ export class ProviderAccountsService {
     sessionId: string,
     threshold: number,
     preferred?: number,
+    ownershipMode: 'timed' | 'connection' = 'connection',
   ) {
     const owner = ownerRuntimeFor(this.db);
-    if (owner) { await drainOwnedProviders(owner); return acquireOwnedProvider(owner,hostId,engine,scopeId,sessionId,threshold,preferred); }
+    if (owner) { await drainOwnedProviders(owner); return acquireOwnedProvider(owner,hostId,engine,scopeId,sessionId,threshold,preferred,ownershipMode); }
     if (preferred !== undefined) preferred = await this.canonicalId(preferred, engine);
     await this.drainRemoved();
     return this.db.transaction(async (tx) => {

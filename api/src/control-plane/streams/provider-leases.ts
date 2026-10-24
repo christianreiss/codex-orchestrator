@@ -84,10 +84,11 @@ export async function acquireOwnedProvider(
   sessionId: string,
   threshold: number,
   preferred?: number,
+  ownershipMode: 'timed' | 'connection' = 'connection',
 ) {
   return (await mutateOwnerState(owner, {
     kind: 'provider.session.acquire',
-    payload: { hostId, engine, scopeId, sessionId, threshold, preferred: preferred ?? null },
+    payload: { hostId, engine, scopeId, sessionId, threshold, preferred: preferred ?? null, ownershipMode },
     prepare({ snapshot: s, draft, write }) {
       const now = new Date().toISOString();
       const sessions = s
@@ -127,7 +128,7 @@ export async function acquireOwnedProvider(
         throw new ServiceUnavailableError('No verified provider account available', 'account_unavailable');
       // A previously timed grant is never silently upgraded by a connection.
       // A new acquire after expiration is an ordinary new durable grant.
-      const mode = previous?.ownershipMode ?? 'connection';
+      const mode = previous?.ownershipMode ?? ownershipMode;
       const expiresAt = previous?.expiresAt ?? new Date(Date.now() + 300000).toISOString();
       const lease = {
         id: sessionId,

@@ -19,6 +19,7 @@ import { withGrokAccountLock } from '../../../src/services/grok-auth-lock.js';
 import { createGrokAuthOwner } from '../../../src/services/grok-auth-owner.js';
 import { bindOwnerPresence, ConnectionPresence } from '../../../src/control-plane/presence.js';
 import { GROK_AUTH_SCOPE, GROK_OIDC_CLIENT_ID, GROK_OIDC_ISSUER } from '../../../src/services/grok-auth.js';
+import { ProviderAccountsService } from '../../../src/services/provider-accounts.js';
 
 function fixture(extra: StateSeed = {}) {
   const seed = {
@@ -87,6 +88,24 @@ const candidate = {
   },
 };
 describe('canonical credentials under one owner', () => {
+  it('keeps renewable timed grants for legacy clients and preserves ownership on retries', async () => {
+    const h = fixture({
+      providerAccounts: [{ id: 1, engine: 'grok', label: 'fixture', state: 'enabled', payloadId: 2, generation: 1 } as never],
+      authPayloads: [{ id: 2, accountId: 1, engine: 'grok', verificationState: 'verified' } as never],
+    });
+    try {
+      const accounts = new ProviderAccountsService(h.db, testKeyring());
+      await accounts.acquire(7, 'grok', 'scope', 'legacy-session', 95, 1, 'timed');
+      expect(h.state.snapshot().table('providerAccountSessions').get('legacy-session')?.ownershipMode).toBe('timed');
+      await expect(accounts.heartbeat(7, 'grok', 'legacy-session')).resolves.toMatchObject({ account_id: 1 });
+      await accounts.acquire(7, 'grok', 'scope', 'legacy-session', 95, 1, 'connection');
+      expect(h.state.snapshot().table('providerAccountSessions').get('legacy-session')?.ownershipMode).toBe('timed');
+      await accounts.acquire(7, 'grok', 'scope', 'modern-session', 95, 1, 'connection');
+      await accounts.acquire(7, 'grok', 'scope', 'modern-session', 95, 1, 'timed');
+      expect(h.state.snapshot().table('providerAccountSessions').get('modern-session')?.ownershipMode).toBe('connection');
+    } finally { h.close(); }
+  });
+
   it('returns initial Grok auth before its provider stream exists, without relaxing later renewals', async () => {
     const h = fixture({
       providerAccounts: [{ id: 1, engine: 'grok', label: 'fixture', state: 'enabled', payloadId: null, generation: 0 } as never],

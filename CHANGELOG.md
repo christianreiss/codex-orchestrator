@@ -1,5 +1,7 @@
 # 2026-10-24
 
+- Negotiate provider connection ownership explicitly. Older wrappers keep renewable timed grants, preventing successful Grok startup from being canceled by its immediate auth-confirmation request. Preserve each existing grant's ownership mode on retries.
+
 - Repair managed startup with cxx 0.9.125 request frames and permit a just-acquired Grok lease to obtain its initial access projection before attaching its provider stream. Reactive renewals still require the live attachment. Reuse deeply frozen metadata on owner-state reads while retaining defensive copies for Dates and binary values.
 
 - Reject receiver registrations lacking both a current session connection and valid captured drain identity before writing. Preserve captured receiver rebinds. Skip unchanged canonical auth identity writes; use active-status indexes for quota and Git maintenance. Handle remaining mixed-collation UUID joins in history cleanup.

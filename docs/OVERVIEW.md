@@ -6,6 +6,10 @@ initial access projection before its provider connection exists; later reactive
 renewals retain connection checks. Owner-state reads share deeply immutable JSON
 metadata and defensively copy Dates and binary values.
 
+Provider leases default to renewable timed ownership for older wrappers. Clients
+that can establish provider streams explicitly request `ownership_mode: connection`;
+retries preserve the ownership mode of an existing grant.
+
 Both API images keep runtime artifacts root-owned and run as an unprivileged
 user. Their runtime stage normalizes read/traverse permissions so a restrictive
 checkout umask cannot hide SQL migrations or browser assets. It grants no write

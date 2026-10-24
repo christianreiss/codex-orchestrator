@@ -174,6 +174,11 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const sessionId = opaqueId(payload.session_id, 'session_id');
     let quota = await readQuotaControls(ctx, host.vip === 1, engine);
     const preferred = accountIdFrom(payload.account_id);
+    if (payload.ownership_mode !== undefined && payload.ownership_mode !== 'timed' && payload.ownership_mode !== 'connection')
+      throw new ValidationError('ownership_mode must be timed or connection', { param: 'ownership_mode' });
+    // Old wrappers cannot establish a provider attachment before their first
+    // auth confirmation. Connection ownership requires explicit negotiation.
+    const ownershipMode = payload.ownership_mode === 'connection' ? 'connection' : 'timed';
     const lease = await accounts.acquire(
       host.id,
       engine,
@@ -181,12 +186,13 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       sessionId,
       quota.quota_limit_percent,
       preferred,
+      ownershipMode,
     );
     quota = await readQuotaControls(ctx, host.vip === 1, engine, lease.account.id);
     if (engine === ENGINE_GROK) {
       try {
         const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({ accountId: lease.account.id, sourceHostId: host.id, sessionId, bootstrapSession: true });
-        return { account_id: lease.account.id, account_label: lease.account.label, session_id: sessionId, expires_at: lease.expires_at, access_expires_at: snapshot.expires_at, auth: snapshot.auth, canonical_digest: snapshot.digest, canonical_last_refresh: snapshot.last_refresh, canonical_generation: snapshot.canonical_generation, access_token_digest: snapshot.access_token_digest, verification_state: 'verified', refresh_state: snapshot.refresh_state, usage: { supported: false }, ...quota };
+        return { account_id: lease.account.id, account_label: lease.account.label, session_id: sessionId, ownership_mode: 'ownership_mode' in lease ? lease.ownership_mode : 'timed', expires_at: lease.expires_at, access_expires_at: snapshot.expires_at, auth: snapshot.auth, canonical_digest: snapshot.digest, canonical_last_refresh: snapshot.last_refresh, canonical_generation: snapshot.canonical_generation, access_token_digest: snapshot.access_token_digest, verification_state: 'verified', refresh_state: snapshot.refresh_state, usage: { supported: false }, ...quota };
       } catch (error) { await accounts.release(host.id, engine, sessionId); throw error; }
     }
     const row = await runnerValidation.resolveCanonicalPayload(engine, lease.account.id);
@@ -199,6 +205,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       account_id: lease.account.id,
       account_label: lease.account.label,
       session_id: sessionId,
+      ownership_mode: 'ownership_mode' in lease ? lease.ownership_mode : 'timed',
       expires_at: lease.expires_at,
       auth,
       canonical_digest: row.sha256,
