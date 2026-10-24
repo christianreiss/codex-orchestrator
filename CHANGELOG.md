@@ -1,5 +1,7 @@
 # 2026-10-24
 
+- Keep insecure-host cache confirmations valid across ordinary sliding-window extensions. Revocation, shorter windows, key rotation and IP/policy changes still invalidate pending responses.
+
 - Negotiate provider connection ownership explicitly. Older wrappers keep renewable timed grants, preventing successful Grok startup from being canceled by its immediate auth-confirmation request. Preserve each existing grant's ownership mode on retries.
 
 - Repair managed startup with cxx 0.9.125 request frames and permit a just-acquired Grok lease to obtain its initial access projection before attaching its provider stream. Reactive renewals still require the live attachment. Reuse deeply frozen metadata on owner-state reads while retaining defensive copies for Dates and binary values.

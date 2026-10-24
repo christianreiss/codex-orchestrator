@@ -2,6 +2,10 @@
 
 ## Current owner-mode contract
 
+Response authorization accepts ordinary extensions of an already admitted
+insecure-host window. Shortening or closing the window, rotating credentials,
+or changing host IP policy still invalidates pending responses.
+
 The running API is the single owner of bounded current-state metadata in RAM.
 It hydrates once under exclusive database ownership; production also holds the
 shared-storage kernel lock before bootstrap. Durable commands commit state,

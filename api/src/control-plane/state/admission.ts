@@ -50,8 +50,6 @@ export function bindOwnerHostPrincipal(
       | 'reverseDnsMode'
       | 'ip4'
       | 'ip6'
-      | 'insecureEnabledUntil'
-      | 'insecureGraceUntil'
     >,
   ) =>
     JSON.stringify([
@@ -60,10 +58,14 @@ export function bindOwnerHostPrincipal(
       host.reverseDnsMode,
       host.ip4,
       host.ip6,
-      host.insecureEnabledUntil,
-      host.insecureGraceUntil,
     ]);
   const expectedPolicy = policy(authenticated);
+  // Sliding an admitted insecure window preserves authority. Closing or
+  // shortening it must still invalidate an already queued request.
+  const sameOrExtended = (current: Date | null, admitted: Date | null) =>
+    current === null || admitted === null
+      ? current === admitted
+      : Number.isFinite(admitted.getTime()) && current.getTime() >= admitted.getTime();
   const check = (snapshot: ReturnType<typeof owner.state.snapshot>) => {
     const current = snapshot.hosts.get(authenticated.id);
     if (
@@ -72,6 +74,8 @@ export function bindOwnerHostPrincipal(
       current.status !== 'active' ||
       (current.expiresAt && Date.parse(current.expiresAt) <= Date.now()) ||
       policy(current) !== expectedPolicy ||
+      !sameOrExtended(current.insecureEnabledUntil, authenticated.insecureEnabledUntil) ||
+      !sameOrExtended(current.insecureGraceUntil, authenticated.insecureGraceUntil) ||
       current.engines !== authenticated.engines ||
       (requireInsecureWindow &&
         current.secure !== 1 &&

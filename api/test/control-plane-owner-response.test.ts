@@ -422,6 +422,38 @@ describe('protected response completion', () => {
   });
 });
 
+it.each(['extend', 'shorten', 'close', 'change-ip'] as const)(
+  'revalidates insecure-host responses when windows %s', async (change) => {
+    const f = await setup();
+    const until = new Date(Date.now() + 600_000);
+    const updateHost = (patch: Partial<Host>) => mutateOwnerState(f.runtime, {
+      kind: 'test.host.window', payload: {}, prepare(c) {
+        c.draft.upsert('hosts', { ...c.snapshot.hosts.get(1)!, ...patch });
+        return null;
+      },
+    });
+    try {
+      await updateHost({ secure: 0, insecureEnabledUntil: until, insecureGraceUntil: until });
+      f.app.get('/host-window', {
+        preHandler: async () => bindOwnerHostPrincipal(
+          f.db, requestHost(f.runtime.state.snapshot().hosts.get(1)!, 'host-key'), true,
+        ),
+      }, async () => {
+        await withOwnerBackgroundScope(() => updateHost(
+          change === 'change-ip' ? { ip4: '192.0.2.1' } : {
+            insecureEnabledUntil: change === 'close' ? null : new Date(until.getTime() + (change === 'extend' ? 60_000 : -60_000)),
+            insecureGraceUntil: change === 'close' ? null : new Date(until.getTime() + (change === 'extend' ? 60_000 : -60_000)),
+          },
+        ));
+        return { secret: 'ADMITTED_WINDOW_RESPONSE' };
+      });
+      const response = await f.app.inject({ method: 'GET', url: '/host-window', headers: f.headers });
+      expect(response.statusCode).toBe(change === 'extend' ? 200 : 401);
+      expect(response.body.includes('ADMITTED_WINDOW_RESPONSE')).toBe(change === 'extend');
+    } finally { await f.close(); }
+  },
+);
+
 it('denies a host cold file after key rotation and delivers the explicit rotating action ACK', async () => {
   const f = await setup(),
     entered = deferred(),
