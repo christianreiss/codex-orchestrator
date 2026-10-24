@@ -44,7 +44,7 @@ export function startQuotaWorker(app: FastifyInstance, db: Database, _env: Env, 
     subscribe: wake => commands.subscribeFacts(wake),
     select(snapshot) {
       const revision = `${dependencyRevision(snapshot, tables)}:${commands.facts.revision()}`;
-      return snapshot.sessions.all().filter(session => !session.endedAt && session.status === 'active' && session.providerAccountId && session.agentBusAddressId)
+      return snapshot.sessions.by('status', 'active').filter(session => !session.endedAt && session.providerAccountId && session.agentBusAddressId)
         .map(session => ({ key: session.id, revision, dueAt: 0 }));
     },
     run: work => commands.run('quota-notices', work),

@@ -207,6 +207,9 @@ export async function registerOwnedReceiver(
         bindingGeneration: auth.bindingGeneration,
       }),
       old = receiverState(session.receiver);
+    if (!ownerPresence(runtime).hasSession(id, session.bindingGeneration) &&
+        !drain?.session(id, session.bindingGeneration))
+      throw new ConflictError('Receiver connection unavailable', 'receiver_expired');
     if (
       old?.generation === input.generation &&
       (old.protocol !== input.protocol || old.native_session_id !== input.native_session_id)

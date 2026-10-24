@@ -1,4 +1,6 @@
 import { AdvisorService } from '../../../src/services/advisor.js';
+import { touchHostAuthFields, touchHostAuthState } from '../../../src/services/canonical-auth-store.js';
+import { ENGINE_HOST_FIELDS } from '../../../src/util/engine.js';
 import { relayLongPoll } from '../../../src/http/relay-long-poll.js';
 import { ownerReadResponseGuard, withOwnerRequestScope } from '../../../src/control-plane/state/runtime.js';
 import { GrokUsageService } from '../../../src/services/grok-usage.js';
@@ -131,6 +133,25 @@ function harness(extra: Record<string, Record<string, unknown>[]> = {}) {
   return { state, runtime, presence, fake, ctx, service };
 }
 describe('connection-owned daemon commands', () => {
+  it.each(['codex', 'claude', 'grok'] as const)('persists %s canonical identity changes but not repeated auth contact', async (engine) => {
+    const h = harness(), stamp = '2026-10-24T10:00:00Z', digest = 'a'.repeat(64);
+    await touchHostAuthState(h.ctx.db, 1, 11, digest, engine);
+    await touchHostAuthFields(h.ctx.db, 1, stamp, digest, engine);
+    const execute = vi.spyOn(h.runtime, 'execute'), select = vi.spyOn(h.fake, 'select'), update = vi.spyOn(h.fake, 'update'), insert = vi.spyOn(h.fake, 'insert');
+    const revision = h.state.revision(), before = h.state.snapshot().table('hostAuthStates').get([1, engine]);
+    for (let i = 0; i < 20; i++) {
+      await touchHostAuthState(h.ctx.db, 1, 11, digest, engine);
+      await touchHostAuthFields(h.ctx.db, 1, stamp, digest, engine);
+    }
+    expect(execute).not.toHaveBeenCalled(); expect(select).not.toHaveBeenCalled(); expect(update).not.toHaveBeenCalled(); expect(insert).not.toHaveBeenCalled();
+    expect(h.state.revision()).toEqual(revision);
+    expect(h.state.snapshot().table('hostAuthStates').get([1, engine])).toEqual(before);
+    await touchHostAuthState(h.ctx.db, 1, 12, digest, engine);
+    await touchHostAuthFields(h.ctx.db, 1, stamp, 'b'.repeat(64), engine);
+    expect(h.state.snapshot().table('hostAuthStates').get([1, engine])?.payloadId).toBe(12);
+    expect(h.state.snapshot().hosts.get(1)?.[ENGINE_HOST_FIELDS[engine].authDigest]).toBe('b'.repeat(64));
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
   it.each([undefined, 0])('parks unattached legacy protocol %s without reads, writes, presence or queued deliveries', async (protocol) => {
     const h = harness({ agentBusMessages: [{ id: 'queued', status: 'queued', targetAddressId: 'target' }], agentBusAddresses: [{ id: 'target', hostId: 1, username: 'user', engine: 'codex', enabled: 1, archivedAt: null, currentSessionId: null }] });
     const host = h.fake.tables.get(schema.hosts)![0] as typeof schema.hosts.$inferSelect;
@@ -344,6 +365,12 @@ describe('connection-owned daemon commands', () => {
         native_session_id: native,
         capabilities: { claim_gate_v1: true },
       };
+      const execute = vi.spyOn(h.runtime, 'execute');
+      const initialRevision = h.state.revision();
+      for (let i = 0; i < 3; i++) await expect(registerOwnedReceiver(h.runtime, h.ctx.env, id, token, { ...input, generation: randomUUID() })).rejects.toThrow('Receiver connection unavailable');
+      expect(execute).not.toHaveBeenCalled();
+      expect(h.state.revision()).toEqual(initialRevision);
+      h.presence.attach({ connectionId: 'session', hostId: 1, username: 'user', scope: { topic: 'session', session_id: id, binding_generation: 1 } });
       const registered = await registerOwnedReceiver(h.runtime, h.ctx.env, id, token, input);
       expect(registered.capabilities.control_state_protocol).toBe(1);
       expect(ownedReceiverReady(h.runtime, h.state.snapshot().sessions.get(id)!, 'peer')).toBe(false);
@@ -494,6 +521,9 @@ describe('explicit legacy process drain', () => {
       native_session_id: native,
     });
     expect(registry.receiver(id, 1, replacement)).toBe(true);
+    const reboundRevision = h.state.revision();
+    for (let i = 0; i < 5; i++) await updateOwnedReceiver(h.runtime, id, token, replacement, 'heartbeat', {});
+    expect(h.state.revision()).toEqual(reboundRevision);
     await expect(
       registerOwnedReceiver(h.runtime, h.ctx.env, id, token, {
         generation: randomUUID(),

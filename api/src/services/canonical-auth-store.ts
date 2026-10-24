@@ -1393,8 +1393,12 @@ export async function touchHostAuthFields(
   const now = nowIso();
   const patch={ [ENGINE_HOST_FIELDS[engine].lastRefresh]:lastRefresh,[ENGINE_HOST_FIELDS[engine].authDigest]:digest,updatedAt:now };
   const c=canonicalContext(), owner=ownerRuntimeFor(db);
+  owner?.assertOwner();
+  const previous = c?.draft.table('hosts').get(hostId) ?? owner?.state.snapshot().hosts.get(hostId);
+  const fields = ENGINE_HOST_FIELDS[engine];
+  if (previous?.[fields.lastRefresh] === lastRefresh && previous[fields.authDigest] === digest) return;
   if(c){const host=c.draft.table('hosts').get(hostId);if(!host)throw new ConflictError('Host removed');await db.update(hostsTable).set(patch).where(eq(hostsTable.id,hostId));c.draft.upsert('hosts',{...host,...patch});return;}
-  if(owner){await mutateOwnerState(owner,{kind:'auth.host.canonical-fields',payload:{hostId,engine,digest,lastRefresh},prepare(c){stageUpdate(c,'hosts',hostId,patch);return null;}});return;}
+  if(owner){await mutateOwnerState(owner,{kind:'auth.host.canonical-fields',payload:{hostId,engine,digest,lastRefresh},prepare(c){const current=c.draft.table('hosts').get(hostId);if(current?.[fields.lastRefresh]===lastRefresh&&current[fields.authDigest]===digest)return null;stageUpdate(c,'hosts',hostId,patch);return null;}});return;}
   await db
     .update(hostsTable)
     .set(
@@ -1413,8 +1417,11 @@ export async function touchHostAuthState(
   const now = nowIso();
   const value={hostId,payloadId,seenDigest:digest,seenAt:now,engine};
   const c=canonicalContext(),owner=ownerRuntimeFor(db);
+  owner?.assertOwner();
+  const previous = c?.draft.table('hostAuthStates').get([hostId, engine]) ?? owner?.state.snapshot().table('hostAuthStates').get([hostId, engine]);
+  if (previous?.payloadId === payloadId && previous.seenDigest === digest) return;
   if(c){await db.insert(hostAuthStates).values(value).onDuplicateKeyUpdate({set:{payloadId,seenDigest:digest,seenAt:now}});c.draft.upsert('hostAuthStates',value);return;}
-  if(owner){await mutateOwnerState(owner,{kind:'auth.host.canonical-state',payload:{hostId,payloadId,digest,engine},prepare(c){c.draft.upsert('hostAuthStates',value);c.write(tx=>tx.insert(hostAuthStates).values(value).onDuplicateKeyUpdate({set:{payloadId,seenDigest:digest,seenAt:now}}));return null;}});return;}
+  if(owner){await mutateOwnerState(owner,{kind:'auth.host.canonical-state',payload:{hostId,payloadId,digest,engine},prepare(c){const current=c.draft.table('hostAuthStates').get([hostId,engine]);if(current?.payloadId===payloadId&&current.seenDigest===digest)return null;c.draft.upsert('hostAuthStates',value);c.write(tx=>tx.insert(hostAuthStates).values(value).onDuplicateKeyUpdate({set:{payloadId,seenDigest:digest,seenAt:now}}));return null;}});return;}
   await db
     .insert(hostAuthStates)
     .values({ hostId, payloadId, seenDigest: digest, seenAt: now, engine })

@@ -113,9 +113,9 @@ export class ServerRetentionService {
         WHERE c.last_activity_at <= ${cutoff}
         AND NOT ${protectedAddress(sql`c.address_a_id`)} AND NOT ${protectedAddress(sql`c.address_b_id`)}
         AND NOT ${this.activeAddress(sql`c.address_a_id`, cutoff)} AND NOT ${this.activeAddress(sql`c.address_b_id`, cutoff)}
-        AND NOT EXISTS (SELECT 1 FROM advisor_sessions v WHERE v.conversation_id = c.id AND v.status = 'open')
-        AND NOT EXISTS (SELECT 1 FROM agent_bus_conference_members m JOIN agent_bus_conferences f ON f.id = m.conference_id
-          WHERE m.conversation_id = c.id AND f.status <> 'adjourned')
+        AND NOT EXISTS (SELECT 1 FROM advisor_sessions v WHERE v.conversation_id = BINARY c.id AND v.status = 'open')
+        AND NOT EXISTS (SELECT 1 FROM agent_bus_conference_members m JOIN agent_bus_conferences f ON f.id = BINARY m.conference_id
+          WHERE m.conversation_id = BINARY c.id AND f.status <> 'adjourned')
         ORDER BY c.last_activity_at LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       let conversations = 0, deletedMessages = 0;
       for (const { id } of candidates) {
@@ -163,7 +163,7 @@ export class ServerRetentionService {
       const disconnected = await rows(tx, sql`SELECT d.id FROM host_daemon_sessions d
         WHERE d.last_activity_at <= ${cutoff} AND d.status IN ('queued','running','idle','waiting')
         AND NOT ${protectedAddress(sql`d.address_id`)} AND NOT ${this.activeAddress(sql`d.address_id`, cutoff)}
-        AND NOT EXISTS (SELECT 1 FROM agent_sessions s WHERE s.id = d.session_id AND s.heartbeat_at > ${cutoff})
+        AND NOT EXISTS (SELECT 1 FROM agent_sessions s WHERE s.id = BINARY d.session_id AND s.heartbeat_at > ${cutoff})
         LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       for (const { id } of disconnected) {
         if (await contactsActive(tx, sql`SELECT address_id FROM host_daemon_sessions WHERE id = ${id}`, cutoff, this.presence)) continue;
@@ -180,7 +180,7 @@ export class ServerRetentionService {
       const candidates = await rows(tx, sql`SELECT d.id FROM host_daemon_sessions d WHERE d.last_activity_at <= ${cutoff}
         AND d.status IN ('closed','failed','unknown') AND NOT ${protectedAddress(sql`d.address_id`)}
         AND NOT ${this.activeAddress(sql`d.address_id`, cutoff)}
-        AND NOT EXISTS (SELECT 1 FROM host_daemon_operations o WHERE o.session_id = d.id AND o.status IN ('queued','offered','accepted','running'))
+        AND NOT EXISTS (SELECT 1 FROM host_daemon_operations o WHERE o.session_id = BINARY d.id AND o.status IN ('queued','offered','accepted','running'))
         ORDER BY d.last_activity_at LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       let purged = 0;
       for (const { id } of candidates) {
@@ -243,22 +243,22 @@ export class ServerRetentionService {
       await tx.execute(sql`SELECT name FROM versions WHERE name = 'agent_messaging_enabled' FOR UPDATE`);
       const candidates = await rows<Row & {roomId:string;actor:string;createdAt:string}>(tx, sql`SELECT e.id, e.room_id AS roomId, e.actor, e.created_at AS createdAt FROM agent_room_events e WHERE e.created_at <= ${cutoff}
         AND NOT EXISTS (SELECT 1 FROM agent_room_events n WHERE n.room_id = e.room_id AND n.created_at > ${cutoff})
-        AND NOT EXISTS (SELECT 1 FROM agent_bus_subscriptions b WHERE b.topic = (SELECT CONCAT('group:', g.slug) FROM agent_bus_groups g WHERE g.id = e.room_id)
+        AND NOT EXISTS (SELECT 1 FROM agent_bus_subscriptions b WHERE b.topic COLLATE utf8mb4_unicode_ci = (SELECT CONCAT('group:', g.slug) FROM agent_bus_groups g WHERE g.id = BINARY e.room_id)
           AND (${protectedAddress(sql`b.subscriber_address_id`)} OR ${this.activeAddress(sql`b.subscriber_address_id`, cutoff)}))
-        AND NOT EXISTS (SELECT 1 FROM agent_bus_conference_members b WHERE b.conference_id = e.room_id
+        AND NOT EXISTS (SELECT 1 FROM agent_bus_conference_members b WHERE b.conference_id = BINARY e.room_id
           AND (${protectedAddress(sql`b.address_id`)} OR ${this.activeAddress(sql`b.address_id`, cutoff)}))
-        AND NOT EXISTS (SELECT 1 FROM agent_scope_members b JOIN agent_sessions s ON s.id = b.session_id WHERE b.scope_id = e.room_id AND s.heartbeat_at > ${cutoff})
-        AND NOT EXISTS (SELECT 1 FROM agent_room_deliveries d JOIN agent_bus_messages m ON m.id = d.message_id
-          WHERE d.event_id = e.id AND m.status IN ('queued','leased','accepted','reboot_hold','batched'))
+        AND NOT EXISTS (SELECT 1 FROM agent_scope_members b JOIN agent_sessions s ON s.id = BINARY b.session_id WHERE b.scope_id = BINARY e.room_id AND s.heartbeat_at > ${cutoff})
+        AND NOT EXISTS (SELECT 1 FROM agent_room_deliveries d JOIN agent_bus_messages m ON m.id = BINARY d.message_id
+          WHERE d.event_id = BINARY e.id AND m.status IN ('queued','leased','accepted','reboot_hold','batched'))
         ORDER BY e.created_at LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       const events: Array<Row & {roomId:string;actor:string;createdAt:string}> = [];
       for (const event of candidates) {
         const active = await contactsActive(tx, sql`
-          SELECT b.subscriber_address_id FROM agent_bus_subscriptions b JOIN agent_bus_groups g ON b.topic = CONCAT('group:', g.slug)
-            JOIN agent_room_events e ON e.room_id = g.id WHERE e.id = ${event.id}
-          UNION SELECT b.address_id FROM agent_bus_conference_members b JOIN agent_room_events e ON e.room_id = b.conference_id WHERE e.id = ${event.id}
-          UNION SELECT s.agent_bus_address_id FROM agent_scope_members m JOIN agent_sessions s ON s.id = m.session_id
-            JOIN agent_room_events e ON e.room_id = m.scope_id WHERE e.id = ${event.id}`, cutoff, this.presence);
+          SELECT BINARY b.subscriber_address_id FROM agent_bus_subscriptions b JOIN agent_bus_groups g ON b.topic COLLATE utf8mb4_unicode_ci = CONCAT('group:', g.slug)
+            JOIN agent_room_events e ON e.room_id = BINARY g.id WHERE e.id = ${event.id}
+          UNION SELECT BINARY b.address_id FROM agent_bus_conference_members b JOIN agent_room_events e ON e.room_id = BINARY b.conference_id WHERE e.id = ${event.id}
+          UNION SELECT BINARY s.agent_bus_address_id FROM agent_scope_members m JOIN agent_sessions s ON s.id = BINARY m.session_id
+            JOIN agent_room_events e ON e.room_id = BINARY m.scope_id WHERE e.id = ${event.id}`, cutoff, this.presence);
         if (!active) events.push(event);
       }
       if (events.length) {
@@ -277,9 +277,9 @@ export class ServerRetentionService {
       const conferences = await rows(tx, sql`SELECT f.id FROM agent_bus_conferences f WHERE f.status = 'adjourned'
         AND COALESCE(f.adjourned_at, f.created_at) <= ${cutoff}
         AND NOT ${protectedAddress(sql`f.owner_address_id`)} AND NOT ${this.activeAddress(sql`f.owner_address_id`, cutoff)}
-        AND NOT EXISTS (SELECT 1 FROM agent_bus_conference_members m WHERE m.conference_id = f.id
+        AND NOT EXISTS (SELECT 1 FROM agent_bus_conference_members m WHERE m.conference_id = BINARY f.id
           AND (${protectedAddress(sql`m.address_id`)} OR ${this.activeAddress(sql`m.address_id`, cutoff)}))
-        AND NOT EXISTS (SELECT 1 FROM agent_room_events e WHERE e.room_id = f.id)
+        AND NOT EXISTS (SELECT 1 FROM agent_room_events e WHERE e.room_id = BINARY f.id)
         LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       let purgedConferences = 0;
       for (const { id } of conferences) {
@@ -296,16 +296,16 @@ export class ServerRetentionService {
       }
       // Persistent room definitions remain; only their empty history loses files/read markers.
       const attachments = await rows(tx, sql`SELECT a.id FROM agent_chat_attachments a WHERE a.status <> 'retired' AND a.updated_at <= ${cutoff}
-        AND (EXISTS (SELECT 1 FROM agent_bus_groups g WHERE g.id = a.session_id) OR EXISTS (SELECT 1 FROM agent_scopes s WHERE s.id = a.session_id))
-        AND NOT EXISTS (SELECT 1 FROM agent_room_events e WHERE e.room_id = a.session_id) LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
+        AND (EXISTS (SELECT 1 FROM agent_bus_groups g WHERE g.id = BINARY a.session_id) OR EXISTS (SELECT 1 FROM agent_scopes s WHERE s.id = BINARY a.session_id))
+        AND NOT EXISTS (SELECT 1 FROM agent_room_events e WHERE e.room_id = BINARY a.session_id) LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       if (attachments.length) {
         await tx.execute(sql`UPDATE agent_chat_attachments SET status = 'retired' WHERE id IN (${sql.join(attachments.map(row => sql`${row.id}`), sql`,`)})`);
         const ids = new Set(attachments.map(row => row.id));
         this.projection?.patchWhere('agentChatAttachments', row => ids.has(row.id), { status: 'retired' });
       }
       const scopeCandidates = await rows(tx, sql`SELECT id FROM agent_scope_events WHERE created_at <= ${cutoff} AND dispatched = 1
-        AND NOT EXISTS (SELECT 1 FROM agent_scope_members m JOIN agent_sessions s ON s.id = m.session_id
-          WHERE m.scope_id = agent_scope_events.scope_id AND (${this.activeAddress(sql`s.agent_bus_address_id`, cutoff)} OR s.heartbeat_at > ${cutoff} OR ${protectedAddress(sql`s.agent_bus_address_id`)}))
+        AND NOT EXISTS (SELECT 1 FROM agent_scope_members m JOIN agent_sessions s ON s.id = BINARY m.session_id
+          WHERE m.scope_id = BINARY agent_scope_events.scope_id AND (${this.activeAddress(sql`s.agent_bus_address_id`, cutoff)} OR s.heartbeat_at > ${cutoff} OR ${protectedAddress(sql`s.agent_bus_address_id`)}))
         LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       if (scopeCandidates.length) {
         await tx.execute(sql`DELETE FROM agent_scope_events WHERE id IN (${sql.join(scopeCandidates.map(row => sql`${row.id}`), sql`,`)})`);
@@ -314,7 +314,7 @@ export class ServerRetentionService {
       }
       const scopeEvents = scopeCandidates.length;
       const reads = await rows(tx, sql`SELECT room_id AS id, admin_id FROM agent_room_reads WHERE read_at <= ${cutoff}
-        AND NOT EXISTS (SELECT 1 FROM agent_room_events e WHERE e.room_id = agent_room_reads.room_id) LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
+        AND NOT EXISTS (SELECT 1 FROM agent_room_events e WHERE e.room_id = BINARY agent_room_reads.room_id) LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       for (const row of reads as Array<Row & { admin_id: number }>) {
         await tx.execute(sql`DELETE FROM agent_room_reads WHERE room_id = ${row.id} AND admin_id = ${row.admin_id}`);
         this.projection?.removeWhere('agentRoomReads', item => item.roomId === row.id && item.adminId === row.admin_id);
@@ -335,11 +335,11 @@ export class ServerRetentionService {
       const candidates = await rows(tx, sql`SELECT a.id FROM agent_bus_addresses a WHERE a.last_seen_at <= ${cutoff}
         AND NOT ${protectedAddress(sql`a.id`)} AND NOT ${this.activeAddress(sql`a.id`, cutoff)}
         AND NOT EXISTS (SELECT 1 FROM hosts h WHERE h.id = a.host_id AND h.internal_role IS NOT NULL)
-        AND NOT EXISTS (SELECT 1 FROM agent_sessions s WHERE s.agent_bus_address_id = a.id)
-        AND NOT EXISTS (SELECT 1 FROM agent_bus_conversations c WHERE c.address_a_id = a.id OR c.address_b_id = a.id)
-        AND NOT EXISTS (SELECT 1 FROM agent_bus_conferences f WHERE f.owner_address_id = a.id)
-        AND NOT EXISTS (SELECT 1 FROM agent_bus_conference_members m WHERE m.address_id = a.id)
-        AND NOT EXISTS (SELECT 1 FROM host_daemon_sessions d WHERE d.address_id = a.id)
+        AND NOT EXISTS (SELECT 1 FROM agent_sessions s WHERE s.agent_bus_address_id = BINARY a.id)
+        AND NOT EXISTS (SELECT 1 FROM agent_bus_conversations c WHERE c.address_a_id = BINARY a.id OR c.address_b_id = BINARY a.id)
+        AND NOT EXISTS (SELECT 1 FROM agent_bus_conferences f WHERE f.owner_address_id = BINARY a.id)
+        AND NOT EXISTS (SELECT 1 FROM agent_bus_conference_members m WHERE m.address_id = BINARY a.id)
+        AND NOT EXISTS (SELECT 1 FROM host_daemon_sessions d WHERE d.address_id = BINARY a.id)
         ORDER BY a.last_seen_at LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       for (const { id } of candidates) {
         await tx.execute(sql`DELETE FROM agent_bus_subscriptions WHERE subscriber_address_id = ${id} OR topic = CONCAT('agent:', ${id})`);

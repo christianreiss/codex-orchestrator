@@ -599,8 +599,8 @@ export class GitDirectorService {
   private async sweepExpired(db: GitDirectorDb, now: string, apply = true): Promise<boolean> {
     const snapshot = this.snapshot(db);
     if (snapshot) {
-      const uncertain = snapshot.table('gitWorktrees').all().filter(row => row.status === 'active' && !this.registrationProof(row, snapshot));
-      const expired = snapshot.table('gitMergeRequests').all().filter(row => row.verdict === 'allow' && !row.completedAt && isExpired(row.leaseExpiresAt, now));
+      const uncertain = snapshot.table('gitWorktrees').by('status', 'active').filter(row => !this.registrationProof(row, snapshot));
+      const expired = snapshot.table('gitMergeRequests').by('verdict', 'allow').filter(row => !row.completedAt && isExpired(row.leaseExpiresAt, now));
       if (!apply) return Boolean(uncertain.length || expired.length);
       for (const row of uncertain) {
         await this.updateRows(db, 'gitWorktrees', [row.id], { status: 'uncertain', uncertaintyReason: 'disconnected', updatedAt: now });
