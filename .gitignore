@@ -41,3 +41,4 @@ __pycache__/
 
 # Deployment dumps and detached-supervisor results are local runtime evidence.
 /backups/
+/cutovers/

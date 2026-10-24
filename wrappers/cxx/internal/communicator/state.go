@@ -36,7 +36,7 @@ type StateAuth struct {
 type StateFrame struct {
 	Type       string          `json:"type"`
 	Protocol   int             `json:"protocol"`
-	StreamID   string          `json:"stream_id"`
+	StreamID   string          `json:"stream_id,omitempty"`
 	OwnerEpoch string          `json:"owner_epoch,omitempty"`
 	Revision   string          `json:"revision,omitempty"`
 	Scope      *StateScope     `json:"scope,omitempty"`

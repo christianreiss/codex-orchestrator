@@ -2,6 +2,12 @@
 
 ## Current owner-mode contract
 
+Routine HTTP request/completion logs are disabled; request errors remain logged.
+The audit stream omits successful version-report and message-delivery copies
+(`cron.update_reported`, `cron.update_available`, `agent_message.delivery`,
+`agent_message.completed`). Canonical host/message records, authentication
+changes, administrative actions and failed/ambiguous audit events remain.
+
 Response authorization accepts ordinary extensions of an already admitted
 insecure-host window. Shortening or closing the window, rotating credentials,
 or changing host IP policy still invalidates pending responses.

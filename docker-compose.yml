@@ -1,7 +1,14 @@
 name: codex-orchestrator
 
+x-bounded-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   api:
+    logging: *bounded-logging
     build:
       context: .
       args:
@@ -99,7 +106,8 @@ services:
 
   mysql:
     image: mysql:8.4
-    command: ["--mysql-native-password=ON"]
+    command: ["--mysql-native-password=ON", "--skip-log-bin"]
+    logging: *bounded-logging
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root-pass}
       MYSQL_DATABASE: ${DB_DATABASE:-codex_auth}

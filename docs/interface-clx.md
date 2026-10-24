@@ -2277,3 +2277,9 @@ reported with `git_release(request_id: "<request>", worktree_path: "<path>", out
 All engines expose `agent_git_remote` and support `remote` FQDN/service resources as documented in [scope coordination](agent-coordination.md). The host BrowserOS toggle injects its local `http://127.0.0.1:9000/mcp` entry independently of fleet credentials for Codex, Claude and Grok.
 
 A new wrapper advertises `suspend_recovery_version:1`. For interactive sessions only, the server leaves an expired bridge nonterminal for up to 24 hours since its last heartbeat. Authentication and receives still refuse the expired bridge; active claims become uncertain normally. The intact supervising wrapper may re-register with its original host authentication and session credential, subject to current engine, address and binding checks. This never revives a finished session, transfers a foreign binding or extends a mutation claim. Older wrappers and explicit finishes keep the prior terminal contract. Sessions already finalized before the update require the usual new managed launch of the same native conversation.
+## Provider grant compatibility (cxx 0.9.127)
+
+Signed connection-state configurations explicitly request connection ownership
+when reserving a provider account. Legacy configurations retain renewable timed
+grants. See [communicator.md](communicator.md) for attachment and compatibility
+rules shared by all three engines.

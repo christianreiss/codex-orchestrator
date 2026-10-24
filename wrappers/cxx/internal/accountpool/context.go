@@ -195,6 +195,10 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 	}
 	id := hex.EncodeToString(rawID)
 	body := map[string]any{"engine": c.Engine, "scope_id": c.ScopeID, "session_id": id}
+	stateRequired := communicator.StateRequired(c.baseURL)
+	if stateRequired {
+		body["ownership_mode"] = "connection"
+	}
 	if localActive && current > 0 {
 		body["account_id"] = current
 	}
@@ -238,7 +242,7 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 		return nil, nil, fmt.Errorf("save account binding: %w", err)
 	}
 	var initialState *communicator.StateClient
-	if communicator.StateRequired(c.baseURL) {
+	if stateRequired {
 		var stateErr error
 		initialState, stateErr = communicator.DialState(ctx, c.baseURL, communicator.StateScope{Topic: "provider", ProviderSessionID: id, Engine: c.Engine}, communicator.StateAuth{})
 		if stateErr != nil {

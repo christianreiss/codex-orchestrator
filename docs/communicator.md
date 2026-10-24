@@ -4,6 +4,14 @@ cxx 0.9.72 introduces one local communicator per OS user and orchestrator base U
 It is started lazily by a managed request and shared by Codex, Claude and Grok.
 Provider inference still uses each native client's original network path.
 
+cxx 0.9.127 sends `ownership_mode: "connection"` when signed configuration
+requires a provider attachment. Older configurations retain timed provider
+grants. Ordinary HTTP request frames omit unset `stream_id`; the API also
+accepts the empty field emitted by cxx 0.9.125.
+Server response authorization permits ordinary extensions of an already
+admitted insecure-host window, while still rejecting shorter or closed windows
+and changed host credentials or IP policy.
+
 ## Warm-cache launches (cxx 0.9.81)
 
 ### Server-confirmed RAM cache (cxx 0.9.122, protocol 2)

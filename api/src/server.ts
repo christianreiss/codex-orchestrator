@@ -99,7 +99,7 @@ export async function buildServer() {
   const app: FastifyInstance = Fastify({
     logger: loggerOptions(env),
     trustProxy: env.TRUST_X_FORWARDED,
-    disableRequestLogging: false,
+    disableRequestLogging: true,
     bodyLimit: 32 * 1024 * 1024,
     ignoreTrailingSlash: true,
     caseSensitive: true,

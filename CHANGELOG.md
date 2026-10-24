@@ -1,5 +1,9 @@
 # 2026-10-24
 
+- Stop routine HTTP request logs and redundant successful version/delivery audit copies; retain errors, auth changes, administrative actions and ambiguous work records. Bound API/MySQL Docker logs to three 10 MB files. Disable unused MySQL binary logging in the single-server Compose stack. Deployments create DB/storage archives only with explicit `--backup`.
+
+- cxx 0.9.127 omits state-stream fields from ordinary request frames, explicitly requests provider connection ownership when its signed configuration requires an attachment, and skips legacy user-unit cleanup beneath non-directory system-account homes such as `/dev/null`.
+
 - Keep insecure-host cache confirmations valid across ordinary sliding-window extensions. Revocation, shorter windows, key rotation and IP/policy changes still invalidate pending responses.
 
 - Negotiate provider connection ownership explicitly. Older wrappers keep renewable timed grants, preventing successful Grok startup from being canceled by its immediate auth-confirmation request. Preserve each existing grant's ownership mode on retries.

@@ -32,10 +32,9 @@ Usage: scripts/deploy.sh [options]
 Build, restart, and verify the codex-orchestrator Docker stack.
 
 Options:
-  --backup             Also snapshot when deploying a subset without api.
-                       API deployments take a quiescent rollback bundle by default.
+  --backup             Explicitly create a quiescent DB/storage rollback bundle.
   --no-backup          Quiesce without DB/storage archives or credential copies.
-                       No database/storage rollback copy is created.
+                       Default: no database/storage rollback copy is created.
   --no-cleanup         Skip Docker image/builder pruning after deploy.
   --pull-rebase        Run git pull --rebase before deploying.
   --skip-git           Skip clean-worktree and git pull checks.
@@ -119,6 +118,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 (( backup == 0 || no_backup == 0 )) || fail "--backup and --no-backup are mutually exclusive"
+(( backup != 0 )) || no_backup=1
 export OWNER_CUTOVER_NO_BACKUP="$no_backup"
 
 cd "${repo_root}"

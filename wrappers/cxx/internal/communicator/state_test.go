@@ -14,6 +14,28 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+func TestRequestFrameOmitsStateStreamID(t *testing.T) {
+	raw, err := json.Marshal(frame{Type: "request"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := fields["stream_id"]; present {
+		t.Fatalf("HTTP frame contains a state-stream field: %s", raw)
+	}
+	raw, err = json.Marshal(StateFrame{Type: "state_open", StreamID: "live-stream"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roundtrip StateFrame
+	if err := json.Unmarshal(raw, &roundtrip); err != nil || roundtrip.StreamID != "live-stream" {
+		t.Fatalf("state stream lost its identity: %s, %v", raw, err)
+	}
+}
+
 func stateTestSocket(t *testing.T, handle func(*websocket.Conn, StateFrame)) string {
 	t.Helper()
 	socket := filepath.Join(t.TempDir(), "state.sock")

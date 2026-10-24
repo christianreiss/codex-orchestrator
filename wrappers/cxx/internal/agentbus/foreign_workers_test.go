@@ -20,6 +20,16 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 )
 
+func TestLegacyUnitRetirementSkipsNonDirectoryHome(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "not-a-home")
+	if err := os.WriteFile(home, []byte("system account"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := removeLegacyUserUnit(home); removed || err != nil {
+		t.Fatalf("non-directory home: removed=%v err=%v", removed, err)
+	}
+}
+
 // Feedback 845ba7f6: an unreadable (root-owned layout) or expired config is a
 // stale config, not an unknown to wait out forever.
 func TestUnusableConfigIsStaleNotUnknown(t *testing.T) {

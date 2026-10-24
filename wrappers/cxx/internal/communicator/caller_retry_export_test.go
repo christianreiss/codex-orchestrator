@@ -18,6 +18,16 @@ import (
 // and lease maintenance are bypassed; HTTP, Unix transport and WS are real.
 type CallerRetryFrame = frame
 
+func SetCallerStateRequired(t *testing.T, base string) {
+	t.Helper()
+	ep := endpointFor(base)
+	ep.mu.Lock()
+	previous := ep.anchor
+	ep.anchor = &config.Config{Orchestrator: config.Orchestrator{CommunicatorStateProtocol: 1}}
+	ep.mu.Unlock()
+	t.Cleanup(func() { ep.mu.Lock(); ep.anchor = previous; ep.mu.Unlock() })
+}
+
 func NewCallerRetryOwner(t *testing.T, remote func(*websocket.Conn, CallerRetryFrame), transfer http.Handler, loseLocal bool) (string, *atomic.Int32, func()) {
 	t.Helper()
 	upstream := httptest.NewServer(transfer)

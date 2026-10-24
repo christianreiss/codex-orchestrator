@@ -105,7 +105,7 @@ func removeLegacyUserUnit(home string) (bool, error) {
 	dir := filepath.Join(home, ".config", "systemd", "user")
 	unit := filepath.Join(dir, serviceName+".service")
 	info, err := os.Lstat(unit)
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 		return false, nil
 	}
 	if err != nil {

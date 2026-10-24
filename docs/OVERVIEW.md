@@ -1,5 +1,18 @@
 # Overview
 
+Routine HTTP access logging is disabled. Audit history retains authentication,
+administrative changes and failed/ambiguous work; successful version reports and
+delivery copies are omitted because their current facts live in host/message
+records. API/MySQL container logs rotate at three 10 MB files. The single-server
+Compose MySQL disables binary logging; deployments omit DB/storage archives
+unless `--backup` is explicitly supplied. External backups own recovery history.
+
+cxx 0.9.127 explicitly negotiates provider connection ownership for signed
+configurations requiring a live attachment. Legacy configurations retain timed
+grants; system accounts with non-directory homes are skipped during old user-unit
+cleanup. Sliding insecure-host windows no longer invalidate their own cache
+confirmations.
+
 Managed launch bootstrap accepts the empty state-stream field emitted by cxx
 0.9.125 ordinary requests. A newly acquired Grok account lease may obtain its
 initial access projection before its provider connection exists; later reactive
