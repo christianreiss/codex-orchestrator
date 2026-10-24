@@ -1,5 +1,10 @@
 # Overview
 
+Both API images keep runtime artifacts root-owned and run as an unprivileged
+user. Their runtime stage normalizes read/traverse permissions so a restrictive
+checkout umask cannot hide SQL migrations or browser assets. It grants no write
+access to the application user.
+
 The communicator's cache protocol 2 (cxx 0.9.122+) stores managed content and
 verified, explicitly expiring OAuth bytes in bounded RAM. Every use is confirmed
 by a fresh server read; push preloads changes but grants no freshness lease.

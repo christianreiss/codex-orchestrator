@@ -50,6 +50,9 @@ WORKDIR /app/api/dist
 COPY --from=build --chown=root:root /app/api/dist ./
 COPY --from=prod-deps --chown=root:root /app/node_modules ./node_modules
 COPY --chown=root:root public /app/public
+# Restricted checkout umasks must not hide immutable runtime artifacts.
+# Preserve ownership and write protection; grant only read/traverse access.
+RUN chmod -R a+rX /app/api/dist /app/public
 ENV STATIC_ROOT=/app/public/admin
 ENV LISTEN_HOST=0.0.0.0
 ENV LISTEN_PORT=8080

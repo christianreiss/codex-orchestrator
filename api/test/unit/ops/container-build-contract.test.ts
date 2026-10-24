@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, chmodSync, statSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../..');
@@ -14,6 +16,32 @@ const REPO_ROOT = resolve(import.meta.dirname, '../../../..');
  */
 const DOCKERFILES = ['Dockerfile', 'api/Dockerfile', 'runner/Dockerfile'] as const;
 const NODE_DOCKERFILES = ['Dockerfile', 'api/Dockerfile'] as const;
+
+describe('runtime artifacts from restricted checkouts', () => {
+  it.each(NODE_DOCKERFILES)('%s makes mode-0600 migrations/assets readable without granting write access', (rel) => {
+    const lines = instructions(read(rel));
+    const user = lines.findLastIndex((line) => /^USER /.test(line));
+    const normalize = lines.findIndex((line) => line.startsWith('RUN chmod -R a+rX '));
+    expect(normalize).toBeGreaterThan(lines.findLastIndex((line) => /^COPY /.test(line)));
+    expect(normalize).toBeLessThan(user);
+    const directory = mkdtempSync(resolve(tmpdir(), 'cxx-artifact-modes-'));
+    try {
+      const args = lines[normalize]!.slice('RUN '.length).split(' ');
+      const paths = args.slice(3).map((path) => resolve(directory, path.slice(1)));
+      for (const path of paths) {
+        mkdirSync(path, { recursive: true });
+        chmodSync(path, 0o700);
+        writeFileSync(resolve(path, 'artifact.sql'), 'SELECT 1;', { mode: 0o600 });
+      }
+      execFileSync(args[0]!, [...args.slice(1, 3), ...paths]);
+      for (const path of paths) {
+        expect(statSync(path).mode & 0o777).toBe(0o755);
+        expect(statSync(resolve(path, 'artifact.sql')).mode & 0o777).toBe(0o644);
+        expect(readFileSync(resolve(path, 'artifact.sql'), 'utf8')).toBe('SELECT 1;');
+      }
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+});
 
 function read(rel: string): string {
   return readFileSync(resolve(REPO_ROOT, rel), 'utf8');

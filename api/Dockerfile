@@ -29,6 +29,7 @@ RUN apk add --no-cache tini libc6-compat \
 WORKDIR /app/dist
 COPY --from=build --chown=root:root /app/dist ./
 COPY --from=prod-deps --chown=root:root /app/runtime/node_modules ./node_modules
+RUN chmod -R a+rX /app/dist
 ENV LISTEN_HOST=0.0.0.0
 ENV LISTEN_PORT=8080
 USER 10001:10001
