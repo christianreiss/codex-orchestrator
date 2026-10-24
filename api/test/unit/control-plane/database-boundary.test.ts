@@ -15,7 +15,7 @@ describe('owner database boundary', () => {
         expect(() => Reflect.get(handle, method)).toThrow('Owner database boundary');
       expect(await executeColdRead(handle as unknown as Database, sql`SELECT 1`)).toBe('cold snapshot');
     });
-    expect(raw.transaction.mock.calls[0][1]).toEqual({ isolationLevel: 'repeatable read', accessMode: 'read only' });
+    expect(raw.transaction.mock.calls[0]?.[1]).toEqual({ isolationLevel: 'repeatable read', accessMode: 'read only' });
     expect(raw.execute).not.toHaveBeenCalled();
     expect(handle.select()).toBe('pool');
   });
