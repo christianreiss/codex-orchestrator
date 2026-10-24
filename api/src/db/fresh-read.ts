@@ -16,7 +16,7 @@ export function protectOwnerReadHandle(handle: object): void {
 /** Explicit reviewed raw SELECT surface for content search/analytics. This does
  * not interpret SQL or project rows into state; current metadata uses the owner. */
 export function executeColdRead(db: Database, query: Parameters<Database['execute']>[0]): ReturnType<Database['execute']> {
-  const raw = (rawHandles.get(db) ?? db) as Database;
+  const raw = (snapshots.getStore()?.get(db) ?? rawHandles.get(db) ?? db) as Database;
   return raw.execute(query);
 }
 
@@ -48,8 +48,12 @@ export function scopedDatabase<T extends object>(db: T): T {
 }
 
 export async function authoritativeSnapshot<T>(db: Database, run: () => Promise<T>): Promise<T> {
+  const protectedOwner = ownerReadHandles.has(db);
+  // Only this reviewed read-only entrypoint borrows the underlying pool. The
+  // public proxy remains protected throughout the callback, including raw SQL.
+  const source = (protectedOwner ? rawHandles.get(db)! : db) as Database;
   return authoritativeReads(() =>
-    db.transaction(
+    source.transaction(
       async (tx) => {
         const bindings = new Map(snapshots.getStore());
         bindings.set(db, tx);
@@ -57,7 +61,10 @@ export async function authoritativeSnapshot<T>(db: Database, run: () => Promise<
         // otherwise its request starts only after AsyncLocalStorage.run has exited.
         return snapshots.run(bindings, async () => await run());
       },
-      { isolationLevel: 'repeatable read', withConsistentSnapshot: true },
+      // Drizzle cannot combine WITH CONSISTENT SNAPSHOT and READ ONLY (it
+      // omits MySQL's required comma). Repeatable-read establishes the same
+      // stable content snapshot on its first SELECT.
+      { isolationLevel: 'repeatable read', ...(protectedOwner ? { accessMode: 'read only' as const } : { withConsistentSnapshot: true }) },
     ),
   );
 }

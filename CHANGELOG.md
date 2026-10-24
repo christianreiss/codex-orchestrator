@@ -1,5 +1,7 @@
 # 2026-10-24
 
+- Keep communicator bootstrap and skill reads inside an explicit read-only snapshot without opening the public owner write boundary. Track background-work dependencies by immutable table generations instead of cloning and hashing complete metadata tables on each wakeup.
+
 - Materialize message dependency IDs and rank quota-history snapshots once during hydration, preserving referenced work, latest readings and weekly baselines without repeated correlated history scans.
 
 - Support existing mixed MySQL collations when hydrating UUID ownership/history joins and combining retention timestamps. Preserve original owners, exclusions and future cleanup deadlines during startup.

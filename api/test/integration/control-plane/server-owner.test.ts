@@ -5,6 +5,7 @@ import { HostSpawnService } from '../../../src/services/host-spawn.js';
 import { HostManagementService } from '../../../src/services/host-management.js';
 import { makeAdminEventsWriter } from '../../../src/services/admin-events-writer.js';
 import { SettingsService } from '../../../src/services/settings.js';
+import { ClientConfigService } from '../../../src/services/client-config.js';
 import { withOwnerActionIdentity } from '../../../src/control-plane/state/runtime.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -64,6 +65,8 @@ describe.skipIf(!handle)('complete owner server composition', () => {
       AUTH_RUNNER_SHARED_SECRET: '',
       PUBLIC_BASE_URL: 'https://owner.fixture.test',
       RUN_MIGRATIONS_ON_BOOT: '1',
+      CXX_COMMUNICATOR_ENABLED: '1',
+      CXX_COMMUNICATOR_SYNC_ENABLED: '1',
       MIGRATIONS_DIR: join(process.cwd(), 'src/db/migrations'),
     }))
       vi.stubEnv(name, value);
@@ -182,7 +185,21 @@ describe.skipIf(!handle)('complete owner server composition', () => {
         fqdn: 'spawn-source.fixture.test',
         engines: ['codex'],
         vip: true,
+        secure: true,
+        reverse_dns_mode: 'disabled',
       });
+      await new ClientConfigService(app.db).store({ settings: { orchestrator_mcp_enabled: true, mcp_servers: [] } });
+      const syncHeaders = { 'x-api-key': source.apiKeyPlain, 'x-engine': 'codex' };
+      for (const request of [
+        { method: 'GET' as const, path: '/skills', body: {} },
+        { method: 'POST' as const, path: '/sync/bootstrap', body: { engine: 'codex', include_auth: false } },
+      ]) {
+        const direct = await app.inject({ method: request.method, url: request.path, headers: syncHeaders, ...(request.method === 'POST' ? { payload: request.body } : {}) });
+        expect(direct.statusCode, direct.body).toBe(200);
+        const cached = await app.inject({ method: 'POST', url: '/sync/cache', headers: syncHeaders, payload: { protocol: 2, request_id: randomUUID(), ...request, known: {} } });
+        expect(cached.statusCode, cached.body).toBe(200);
+        expect(cached.json().data.status).toBe(200);
+      }
       await new SettingsService(app.db).set('host_spawn_enabled', '1');
       await new SettingsService(app.db).set('agent_messaging_enabled', '1');
       const spawn = new HostSpawnService({ db: app.db, keyring: app.keyring, env: app.env } as RouteContext);

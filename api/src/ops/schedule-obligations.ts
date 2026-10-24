@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { OwnerStateSnapshot } from '../control-plane/state/store.js';
+import type { EntityView, OwnerStateSnapshot } from '../control-plane/state/store.js';
 import type { OwnedTableName } from '../control-plane/state/catalog.js';
 import type { OwnerWorkObligation } from './owner-worker.js';
 import { SCHEDULE_TARGET_GRACE_SECONDS } from '../services/schedules/staleness.js';
@@ -21,9 +21,25 @@ export const SCHEDULE_TABLES = [
   'grokUsageSnapshots',
 ] as const satisfies readonly OwnedTableName[];
 const active = new Set(['waiting', 'queued', 'leased', 'accepted', 'recovering', 'capacity_wait']);
+const dependencyViewTokens = new WeakMap<EntityView<OwnedTableName>, string>();
+let nextDependencyViewToken = 0n;
+/** Views are immutable and reused across commits until their table changes.
+ * These process-local tokens are invalidation hints, not content digests. Include
+ * the owner epoch so durable command IDs derived from them cannot replay a prior
+ * owner's result after restart. An identical replacement may conservatively wake
+ * work again; unrelated table commits do not change its dependency revision. */
 export function dependencyRevision(snapshot: OwnerStateSnapshot, tables: readonly OwnedTableName[]): string {
+  const tokens = tables.map((table) => {
+    const view = snapshot.table(table);
+    let token = dependencyViewTokens.get(view);
+    if (token === undefined) {
+      token = (++nextDependencyViewToken).toString(10);
+      dependencyViewTokens.set(view, token);
+    }
+    return [table, token];
+  });
   return createHash('sha256')
-    .update(JSON.stringify(tables.map((table) => snapshot.table(table).all())))
+    .update(JSON.stringify([snapshot.revision.epoch, tokens]))
     .digest('hex');
 }
 /** Input changes and business deadlines are separate obligations: observing an input
