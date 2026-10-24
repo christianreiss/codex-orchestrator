@@ -95,7 +95,7 @@ describe.skipIf(!config)('retention policy on MySQL', () => {
       hostId=host!.id;
       const [user]=await db.insert(schema.adminUsers).values({name:'retention fixture',username:randomUUID(),email:randomUUID()+'@test.invalid',passwordHash:'unused',accessLevel:'owner',createdAt:old,updatedAt:old}).$returningId();
       userId=user!.id;
-      await db.insert(schema.providerAccountSessions).values(ids.map((id,i)=>({id,hostId:999999,engine:'grok',scopeId:randomUUID(),accountId:999999,ownershipMode:i===0?'connection':'timed',expiresAt:old,createdAt:old})));
+      await db.insert(schema.providerAccountSessions).values(ids.map((id,i)=>({id,hostId:999999,engine:'grok',scopeId:randomUUID(),accountId:999999,ownershipMode:i===0?'connection' as const:'timed' as const,expiresAt:old,createdAt:old})));
       await db.insert(schema.chattySessions).values({userId,generation:1,selection:{engine:'grok',model:null},updatedAt:old});
       await db.insert(schema.chattyRuns).values({id:run,userId,adminSessionId:999999,generation:1,clientMessageId:randomUUID(),requestHash:'0'.repeat(64),status:'queued',inputEnc:'unused',stateEnc:'unused',createdAt:old,updatedAt:old});
       await db.insert(schema.hostDaemonSessions).values({id:daemon,hostId,owner:'test',engine:'grok',username:'test',cwd:'/fixture',title:'unknown',status:'unknown',lastActivityAt:old,createdAt:old});
