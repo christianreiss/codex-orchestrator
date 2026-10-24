@@ -439,7 +439,7 @@ Generic MCP access telemetry was removed by migration `0092_remove_mcp_access_lo
 ## Control-plane ownership and durable execution (0093–0101)
 
 - **control_plane_owner** — `id` TINYINT UNSIGNED PRIMARY KEY (singleton 1), `epoch` CHAR(36) NOT NULL, `sequence` BIGINT UNSIGNED NOT NULL DEFAULT 0, `started_at` VARCHAR(100) NOT NULL. The database-specific MySQL named lock on the owner's dedicated connection provides exclusivity; this row records the epoch and committed sequence and cannot prove a process is alive.
-- **control_plane_command_receipts** — `principal` VARCHAR(191) NOT NULL, `request_id` VARCHAR(64) NOT NULL, `kind` VARCHAR(191) NOT NULL, `request_digest` CHAR(64) NOT NULL, `owner_epoch` CHAR(36) NOT NULL, `sequence` BIGINT UNSIGNED NOT NULL, `result_enc` LONGTEXT NOT NULL, `created_at` VARCHAR(100) NOT NULL. Binary-collated composite primary key `(principal, request_id)` makes retries replay the encrypted committed result; reuse with a different command digest conflicts.
+- **control_plane_command_receipts** — `principal` VARCHAR(191) NOT NULL, `request_id` VARCHAR(64) NOT NULL, `kind` VARCHAR(191) NOT NULL, `request_digest` CHAR(64) NOT NULL, `owner_epoch` CHAR(36) NOT NULL, `sequence` BIGINT UNSIGNED NOT NULL, `result_enc` LONGTEXT NULL, `replay_class` VARCHAR(16) NOT NULL DEFAULT `legacy`, `result_state` VARCHAR(16) NOT NULL DEFAULT `available`, `created_at` VARCHAR(100) NOT NULL. Migration `0103` adds the created-at index and compatible result compaction metadata. The binary-collated `(principal, request_id)` primary key remains after external result expiry. Matching expired retries return 410; differing payloads conflict. Only explicitly generated internal IDs may be deleted after seven days, with open-effect protection.
 - **control_plane_outbox** — `id` CHAR(36) PRIMARY KEY, `principal` VARCHAR(191) NOT NULL, `request_id` VARCHAR(64) NOT NULL, `kind` VARCHAR(191) NOT NULL, `target` VARCHAR(255) NOT NULL, `payload_enc` LONGTEXT NOT NULL, `status` VARCHAR(32) NOT NULL DEFAULT `pending`, `attempts` INT UNSIGNED NOT NULL DEFAULT 0, `available_at` VARCHAR(100) NOT NULL, `created_at` VARCHAR(100) NOT NULL, `completed_at` VARCHAR(100) NULL. The due index covers status and availability. Effects are stored in the domain transaction; dispatch happens after publication. Only explicitly idempotent effect kinds can replay after an uncertain dispatch.
 
 Connection ownership fields default to `timed` for historical rows. New native
@@ -450,3 +450,16 @@ receipt or explicit operator resolution. See [owner architecture](control-plane-
 and [cutover procedure](owner-cutover.md). Cold payloads and private credentials
 are excluded from the bounded RAM metadata projection. Retained message totals
 are hydrated once and updated transactionally, including history retention.
+
+## Server retention policy
+
+`server_retention_policy_v1` in versions stores validated `audit_days` (14),
+`history_hours` (seeded from the existing portal environment, normally 24),
+`quota_days` (7), and `armed` (false until compatible code is deployed).
+`server_retention_run_v1` retains one run/status record, not a growing run history.
+The deadline index is refreshed on policy changes; no background polling discovers
+old rows. Audit/admin-event deletion preserves engine actors and the admin-event
+high-water mark in versions. Operational guards retain pending, ambiguous and
+unknown outcomes, native lifecycles, claims, paused wakes and referenced data.
+Grok quota storage is one current snapshot per account and is not historical data.
+Superseded auth-generation retention and local session policies remain separate.

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { ApiError, ConflictError } from '../http/errors.js';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export interface Revision {
@@ -12,6 +13,8 @@ export interface CommandReceipt {
   digest: string;
   revision: Revision;
   result: Json;
+  replayClass?: 'internal' | 'external' | 'legacy';
+  resultState?: 'available' | 'expired';
 }
 export interface OutboxIntent {
   id: string;
@@ -37,6 +40,7 @@ export interface Command<Snapshot, Tx, Prepared> {
   id: string;
   kind: string;
   payload: Json;
+  replayClass?: 'internal' | 'external';
   /** Must use current authority, including when returning a stored result. */
   authorize(snapshot: Snapshot): void;
   prepare(
@@ -57,7 +61,12 @@ export class CommitUncertainError extends Error {
     super('Commit outcome is unknown; owner reconstruction required', { cause });
   }
 }
-export class CommandConflictError extends Error {}
+export class CommandConflictError extends ConflictError {
+  constructor(message: string) { super(message, 'command_id_conflict'); }
+}
+export class CommandResultExpiredError extends ApiError {
+  constructor() { super('The command was already committed; its retained result has expired', { status: 410, code: 'command_result_expired' }); }
+}
 export class OwnerUnavailableError extends Error {}
 
 /** Canonical JSON rejects values JSON.stringify would silently alter. */
@@ -153,6 +162,7 @@ export class CommandExecutor<Snapshot, Tx, Prepared> {
     if (existing) {
       if (existing.digest !== digest)
         throw new CommandConflictError('Command ID reused with a different payload');
+      if (existing.resultState === 'expired') throw new CommandResultExpiredError();
       return structuredClone(existing.result);
     }
     const previous = o.state.revision();
@@ -169,6 +179,8 @@ export class CommandExecutor<Snapshot, Tx, Prepared> {
       digest,
       revision,
       result: null,
+      replayClass: command.replayClass ?? 'external',
+      resultState: 'available',
     };
     let outbox: readonly OutboxIntent[] = [];
     try {

@@ -154,6 +154,11 @@ export function fixture(pathname: string): Record<string, unknown> {
     return { slug, meta: {}, body: source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "") };
   }
   switch (pathname) {
+    case "/admin/server-retention": return {
+      policy:{audit_days:14,history_hours:24,quota_days:7,armed:true}, revision:"retention-fixture-v1", observed_at:"2026-10-24T20:00:00Z",run:null,obligations:[],
+      limits:{audit_days:[1,3650],history_hours:[1,87600],quota_days:[1,3650]},
+      fixed:{receipt_result_days:14,internal_receipt_days:7,docker_max_files:3,docker_file_mb:10,docker_age_limit:false},
+    };
     case "/admin/api/state": return { disabled: false };
     case "/admin/claude/settings": return { default_model: "claude-sonnet-5", max_tokens: 8192 };
     case "/admin/api/surfaces": return {

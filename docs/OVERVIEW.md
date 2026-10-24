@@ -1,5 +1,7 @@
 # Overview
 
+Server history settings at `/admin/settings#retention` control actual deadline-driven cleanup: audit 14 days, inactive history 24 hours and optional quota history seven days. Current quotas and unresolved work remain protected. The same page keeps local engine housekeeping separate, including all existing host overrides. Docker diagnostics are size-bounded rather than age-bounded. New deployments first install compatible receipt readers, then explicitly arm cold cleanup without creating backups.
+
 Routine HTTP access logging is disabled. Audit history retains authentication,
 administrative changes and failed/ambiguous work; successful version reports and
 delivery copies are omitted because their current facts live in host/message

@@ -3,6 +3,8 @@ vendor
 storage/*.sqlite
 storage/*.db
 .env
+.env.*
+!.env.example
 
 # The build stage installs its own dependencies and copies them in from `deps`
 # (Dockerfile:14). Letting the context's copy through means the very next

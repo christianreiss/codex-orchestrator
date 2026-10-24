@@ -17,6 +17,7 @@ describe('retention lifecycle invalidation',()=>{
     const state=new OwnerStateStore(new OwnerStateSnapshot({epoch:randomUUID(),sequence:0n},{
       agentSessions:[{id,agentBusAddressId:null,status:'active',endedAt:null,activeTurnId:null,bindingGeneration:1,heartbeatAt:new Date(now).toISOString(),expiresAt:new Date(now-1000).toISOString()}, {id:randomUUID(),agentBusAddressId:null,status:'ended',endedAt:new Date(now-2000).toISOString(),expiresAt:new Date(now-1000).toISOString(),bindingGeneration:1}],
       agentResourceClaims:[{id:claim,sessionId:id,state:'active'}],
+      agentChatAttachments:[{id:randomUUID(),sessionId:id,status:'ready',updatedAt:new Date(now-172800000).toISOString()}],
     } as unknown as StateSeed));
     const index=new RetentionDeadlineIndex();
     const read=vi.fn(async()=>({past:true,next:null})); await index.hydrate(read);

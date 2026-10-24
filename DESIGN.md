@@ -243,7 +243,7 @@ This is a source audit, not a live visual acceptance report. All 39 `+page.svelt
 | `/admin/people` | Manage admin users; list | `PageShell`, people section, wipe-all danger zone | Role/permission denial, last-owner protection, wipe confirmation |
 | `/admin/api-keys` | Issue and revoke gateway keys; list + configuration | `PageShell`, API-key section, Configure panel | Reveal/copy, revoke, disabled surface/backend, legacy anchors |
 | `/admin/secrets` | Manage agent-readable credentials; list | `PageShell`, secrets section, secret dialog | Reveal/copy, store switch off/empty, permission denial |
-| `/admin/settings` | Set fleet behavior; settings | Narrow `PageShell`, `Section`, policy/session/retention controls and Agent coordination | Immediate-save truth, read-only/stale states, scope clarity; reconcile coordination state before retrying an ambiguous save |
+| `/admin/settings` | Set fleet behavior, server retention and local housekeeping; settings | Narrow `PageShell`, `Section`, policy/session/retention controls and Agent coordination | Immediate-save truth, read-only/stale states, scope clarity; reconcile coordination state before retrying an ambiguous save |
 | `/admin/account` | Manage own identity/security; settings | `PageShell`, `Section`, profile/password/passkey/theme/device components | Device pairing, recovery, all theme modes |
 | `/admin/manual` | Find help; help index | `PageShell`, `Section`, `StateBlock`, `ManualSidebar` | Findability and missing content |
 | `/admin/manual/[slug]` | Read help; article | `PageShell`, `ManualSidebar`, `ArticleView` | Heading structure, code, long links, unknown slug |
@@ -337,3 +337,13 @@ No design exceptions were approved at adoption; EX-1 was added 2026-10-19. The b
 | Exception ID | Rule | Exact surface | User need / alternative | Verification | Owner / decision date | Review or removal condition |
 | --- | --- | --- | --- | --- | --- | --- |
 | EX-1 | VIS-5 | Overview (`/admin/dashboard`) host and stored-account count tiles (`StatStrip variant="tiles"`) | Operators open the console to see fleet size first; each tile links to its owner page (Hosts, Accounts) and the per-engine split is shown inline. Alternative: the inline strip. | Visual check in both themes; `admin-design.spec.ts` sweep | Christian Reiß / 2026-10-19 | Remove (back to the inline strip) if the counts stop answering an operator question or no longer link to their owning page |
+
+### Server-retention settings slice (2026-10-24)
+
+The existing retention home includes a Server history form, saved-policy preview,
+explicit deletion confirmation and pushed run status. Local engine housekeeping
+stays in the same section with independent rules. Applicable rules: NAV-1/3,
+INT-2/3/4/5/6/7, ACC-1/3/4 and PERF-1. Shared inputs/buttons/dialogs, retained
+drafts, policy-revision conflicts and size-versus-age wording are mandatory.
+No new design exception. Browser evidence and remaining manual-review limits
+must be recorded with delivery; this inventory entry is not a usability claim.

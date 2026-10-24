@@ -69,6 +69,19 @@ function fixture() {
 }
 
 describe('authoritative command path', () => {
+  it('keeps a compact receipt as a fail-closed duplicate-execution fence', async () => {
+    const f = fixture(), command = f.command('expired');
+    const prepare = vi.spyOn(command, 'prepare');
+    await f.executor.execute(command);
+    const receipt = f.durable.get('alice:expired')!;
+    receipt.resultState = 'expired'; receipt.result = null;
+    await expect(f.executor.execute(command)).rejects.toMatchObject({ status: 410, code: 'command_result_expired' });
+    expect(prepare).toHaveBeenCalledTimes(1);
+    await expect(f.executor.execute({ ...command, payload: { changed: true } })).rejects.toThrow('different payload');
+    command.authorize = () => { throw new Error('revoked'); };
+    await expect(f.executor.execute(command)).rejects.toThrow('revoked');
+    expect(f.state().value).toBe(1);
+  });
   it('serializes concurrent mutations and acknowledges only published commits', async () => {
     const f = fixture();
     await Promise.all(Array.from({ length: 20 }, (_, i) => f.executor.execute(f.command(String(i)))));

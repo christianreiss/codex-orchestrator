@@ -15,7 +15,7 @@ describe('retired log retention compatibility', () => {
         const reply = await app.inject({ method, url: '/admin/log-retention',
           ...(method === 'POST' ? { payload: { enabled: true, days_logs: 1, days_mcp: 1 } } : {}) });
         expect(reply.statusCode).toBe(200);
-        expect(reply.json()).toMatchObject({ data: { enabled: false, supported: false, reason: 'retired_no_worker' } });
+        expect(reply.json()).toMatchObject({ data: { enabled: false, supported: false, reason: 'use_server_retention_api', replacement: '/admin/server-retention' } });
       }
       expect(db.inserts).toEqual([]);
       expect(db.updates).toEqual([]);

@@ -423,7 +423,7 @@ export async function registerAdminSettingsRoutes(
 
   // Compatibility for old clients: these settings never had a cleanup worker.
   // Do not persist or claim to enable a policy that cannot take effect.
-  const retiredRetention = { enabled: false, supported: false, reason: 'retired_no_worker' };
+  const retiredRetention = { enabled: false, supported: false, reason: 'use_server_retention_api', replacement: '/admin/server-retention' };
   app.get('/admin/log-retention', { preHandler: app.requireAdmin }, async () => ok(retiredRetention));
   app.post('/admin/log-retention', { preHandler: app.requireAdmin }, async () => ok(retiredRetention));
 

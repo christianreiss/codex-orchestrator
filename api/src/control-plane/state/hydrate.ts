@@ -487,7 +487,7 @@ export async function hydrateOwnerState(
   if (latestAudit) {
     const pointer = {
       name: 'owner_admin_event_id',
-      version: String(latestAudit.id),
+      version: String(Math.max(Number(latestAudit.id), Number((seed.versions as Array<{ name: string; version: string }> | undefined)?.find(row => row.name === 'owner_admin_event_id')?.version ?? 0))),
       updatedAt: latestAudit.createdAt,
     };
     seed.versions = [

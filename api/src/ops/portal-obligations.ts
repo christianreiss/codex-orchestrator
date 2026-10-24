@@ -93,8 +93,8 @@ export function portalObligations(
   }
   for (const file of snapshot.table('agentChatAttachments').all()) {
     if (file.status === 'retired') add(`attachment:${file.id}`, 0);
-    else if (['uploading', 'ready'].includes(file.status))
-      add(`attachment:${file.id}`, Date.parse(file.updatedAt) + 86_400_001);
+    // Age-based upload cleanup uses the policy-aware retention index. A
+    // per-file obligation would retry protected uploads on every heartbeat.
     // Scope removal can orphan even a previously published attachment.
     const exists =
       snapshot.sessions.get(file.sessionId) ||

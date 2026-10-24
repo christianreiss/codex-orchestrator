@@ -1,10 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   RetentionDeadlineIndex,
   RETENTION_FAMILIES,
 } from '../../../src/services/server-retention/deadlines.js';
 
 describe('cold retention deadline index', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(1000); });
+  afterEach(() => vi.useRealTimers());
   it('requires complete hydration and schedules nothing for empty history', async () => {
     const index = new RetentionDeadlineIndex();
     expect(() => index.obligations()).toThrow('hydrate');
@@ -34,7 +36,7 @@ describe('cold retention deadline index', () => {
     const unsubscribe = index.subscribe(wake);
     index.stage('conversations', 900, 1000);
     index.publishSweep('conversations', { past: true, next: 8000 }, 100);
-    expect(index.obligations()[0]?.dueAt).toBe(0);
+    expect(index.obligations()[0]?.dueAt).toBeGreaterThan(Date.now());
     index.publishSweep('conversations', { past: false, next: 8000 }, 7);
     expect(index.obligations()[0]?.dueAt).toBe(8000);
     index.stage('conversations', 4000, 1000);

@@ -703,20 +703,21 @@ describe('cron report content invalidation', () => {
     ['codex', 'clientVersion', 'wrapperVersion'],
     ['claude', 'claudeClientVersion', 'claudeWrapperVersion'],
     ['grok', 'grokClientVersion', 'grokWrapperVersion'],
-  ])('logs only actual %s version transitions', async (engine, clientField, wrapperField) => {
+  ])('stores %s version transitions without routine audit copies', async (engine, clientField, wrapperField) => {
     const db = createDbFake();
     const apiKey = 'sk-cron-transition-test';
     db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: engine, [clientField]: '1.0.0', [wrapperField]: '0.9.123' }]);
     const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
     try {
-      for (const [client, wrapper, count] of [
+      for (const [client, wrapper] of [
         ['1.0.0', '0.9.123', 0], ['1.0.1', '0.9.123', 1],
         ['1.0.1', '0.9.123', 1], ['1.0.1', '0.9.124', 2], ['1.0.1', '0.9.124', 2],
       ] as const) {
         const response = await app.inject({ method: 'POST', url: '/cron/report',
           headers: { authorization: `Bearer ${apiKey}` }, payload: { engine, client_version: client, wrapper_version: wrapper } });
         expect(response.statusCode).toBe(200);
-        expect((db.tables.get(logsTable) ?? []).filter((r) => r.action === 'cron.update_reported')).toHaveLength(count);
+        expect((db.tables.get(logsTable) ?? []).filter((r) => r.action === 'cron.update_reported')).toHaveLength(0);
+        expect(db.tables.get(hostsTable)?.[0]).toMatchObject({ [clientField]: client, [wrapperField]: wrapper });
       }
     } finally { await app.close(); }
   });

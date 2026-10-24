@@ -83,6 +83,8 @@ await esbuild.build({
   outfile: resolve(dist, 'chatgpt-usage-worker.js'),
 });
 
+await esbuild.build({ ...sharedBuildOptions, entryPoints: [resolve(root, 'src/ops/retention-maintenance.ts')], outfile: resolve(dist, 'retention-maintenance.js') });
+
 await esbuild.build({
   ...sharedBuildOptions,
   entryPoints: [resolve(root, 'src/db/migrate-cli.ts')],

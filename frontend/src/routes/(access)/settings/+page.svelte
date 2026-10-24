@@ -6,6 +6,7 @@
   import AuthorizationPolicy from "$lib/components/policies/AuthorizationPolicy.svelte";
   import CleanupPolicy from "$lib/components/policies/CleanupPolicy.svelte";
   import SessionHousekeeping from "$lib/components/policies/SessionHousekeeping.svelte";
+  import ServerRetention from "$lib/components/policies/ServerRetention.svelte";
   import WrapperRolloutSection from "$lib/components/settings/WrapperRolloutSection.svelte";
   import ChattySettings from "$lib/components/chatty/ChattySettings.svelte";
   import AgentCoordinationSettings from "$lib/components/settings/AgentCoordinationSettings.svelte";
@@ -46,8 +47,9 @@
 
     <ChattySettings />
 
-    <Section id="retention" title="Data retention" description="Configure local agent-session cleanup.">
+    <Section id="retention" title="Data retention" description="Manage server history and local agent-session storage. Active work stays protected.">
       <div class="divide-y border-y">
+        <ServerRetention />
         <SessionHousekeeping />
       </div>
     </Section>

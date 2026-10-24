@@ -1,3 +1,4 @@
+import { historyRetentionHours } from './server-retention/policy.js';
 import { OwnedPortal, visiblePortalSession } from './agent-portal/owned.js';
 import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { runOwnerPortalRetention } from './server-retention/portal-owner.js';
@@ -277,7 +278,7 @@ export class AgentPortalService {
       heartbeat_fresh_seconds: this.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,
       relay_fresh_seconds: this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS,
       working_fresh_seconds: this.workingMaxSeconds(),
-      retention_hours: this.env.AGENT_PORTAL_RETENTION_HOURS,
+      retention_hours: historyRetentionHours(ownerRuntimeFor(this.db)?.state.snapshot(), this.env.AGENT_PORTAL_RETENTION_HOURS),
     };
   }
 
@@ -545,7 +546,7 @@ export class AgentPortalService {
 
   async finishAgent(sessionId: string, bridgeToken: string, input: { status: 'completed' | 'failed'; summary?: string; watchdog_failure?: WatchdogFailure }, hostId?: number): Promise<Record<string, unknown>> {
     const session = await this.authenticateBridge(sessionId, bridgeToken, hostId, true);
-    const expiresAt = isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600);
+    const expiresAt = isoOffsetSeconds(historyRetentionHours(ownerRuntimeFor(this.db)?.state.snapshot(), this.env.AGENT_PORTAL_RETENTION_HOURS) * 3600);
     const event = await this.addEventInternal(session.id, {
       clientEventId: `server:${input.status}`,
       type: input.status,
@@ -1094,7 +1095,7 @@ export class AgentPortalService {
     const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
     const eventId = `portal:close-force:${clientMessageId}`;
     const now = nowIso();
-    const expiresAt = isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600);
+    const expiresAt = isoOffsetSeconds(historyRetentionHours(ownerRuntimeFor(this.db)?.state.snapshot(), this.env.AGENT_PORTAL_RETENTION_HOURS) * 3600);
     const result = await this.db.transaction(async (tx) => {
       await this.requirePortalEnabledLocked(tx);
       const user = await this.requireActorLocked(tx, actor, now);
@@ -1522,10 +1523,10 @@ export class AgentPortalService {
         const files = new ChatAttachments(this.db, this.keyring, this.env.DATA_ROOT ?? 'storage');
         if (!target || await files.conversationKey(target.sessionId, tx) !== await files.conversationKey(sessionId, tx)) throw new NotFoundError('Notice not found');
         await tx.update(agentChatNotices).set({ resolvedAt: now }).where(eq(agentChatNotices.id,target.id));
-        await tx.update(agentSessions).set({ expiresAt: isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600, new Date(now)) }).where(and(eq(agentSessions.id,target.sessionId),lt(agentSessions.expiresAt,now)));
+        await tx.update(agentSessions).set({ expiresAt: isoOffsetSeconds(historyRetentionHours(ownerRuntimeFor(this.db)?.state.snapshot(), this.env.AGENT_PORTAL_RETENTION_HOURS) * 3600, new Date(now)) }).where(and(eq(agentSessions.id,target.sessionId),lt(agentSessions.expiresAt,now)));
         // Start the existing retention window after resolving a retained notice.
         // This also keeps an acknowledgement retry visible after the last notice closes.
-        if (session.expiresAt && session.expiresAt <= now) await tx.update(agentSessions).set({ expiresAt: isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600, new Date(now)) }).where(eq(agentSessions.id, sessionId));
+        if (session.expiresAt && session.expiresAt <= now) await tx.update(agentSessions).set({ expiresAt: isoOffsetSeconds(historyRetentionHours(ownerRuntimeFor(this.db)?.state.snapshot(), this.env.AGENT_PORTAL_RETENTION_HOURS) * 3600, new Date(now)) }).where(eq(agentSessions.id, sessionId));
       }
       if (normalized.prompt) {
         await tx.update(agentPrompts).set({ eventId: row.id }).where(eq(agentPrompts.id, normalized.prompt.id));
@@ -1676,7 +1677,7 @@ export class AgentPortalService {
           tx,
           session.id,
           'failed',
-          isoOffsetSeconds(this.env.AGENT_PORTAL_RETENTION_HOURS * 3600, new Date(session.heartbeatAt)),
+          isoOffsetSeconds(historyRetentionHours(ownerRuntimeFor(this.db)?.state.snapshot(), this.env.AGENT_PORTAL_RETENTION_HOURS) * 3600, new Date(session.heartbeatAt)),
           now,
         );
         return true;

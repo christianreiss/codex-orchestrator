@@ -1,3 +1,5 @@
+import { portalHistoryWhere } from './selectors.js';
+import { serverRetentionPolicy, historyRetentionHours } from './policy.js';
 import { legacyDrainFor } from '../../control-plane/legacy-drain.js';
 import { eq, sql } from 'drizzle-orm';
 import { rm } from 'node:fs/promises';
@@ -10,9 +12,8 @@ import { mutateOwnerState } from '../../control-plane/state/runtime.js';
 import { stageDelete, stageUpdate } from '../../control-plane/state/rows.js';
 import { ownerPresence } from '../../control-plane/presence.js';
 import { receiverState, RECEIVER_FRESH_MS } from '../agent-receiver-state.js';
-import { protectedSession } from './guards.js';
 import { RetentionProjection } from './projection.js';
-import { ownerRetention, retentionFamily, runOwnerHistoryRetention } from './owner.js';
+import { ownerRetention, retentionFamily, runOwnerHistoryRetention, recordRetentionSweep, finishRetentionRun } from './owner.js';
 import { readRetentionClock, type RetentionClockSnapshot } from './deadlines.js';
 import { pruneHosts } from '../host-lifecycle.js';
 import { wsPublisher } from '../../ws/publisher.js';
@@ -59,11 +60,9 @@ async function purgePortalFamily(runtime: OwnerRuntime, env: Env, family: 'porta
             changed++;
           }
         } else {
-          const cutoff = new Date(Date.parse(now) - 86_400_000).toISOString();
+          const cutoff = new Date(Date.parse(now) - serverRetentionPolicy(context.snapshot).history_hours * 3600000).toISOString();
           const [rows] =
-            await tx.execute(sql`SELECT id FROM agent_sessions WHERE expires_at <= ${now} AND ended_at IS NOT NULL
-            AND NOT ${protectedSession(sql`agent_sessions.id`, sql`agent_sessions.agent_bus_address_id`)}
-            AND NOT EXISTS (SELECT 1 FROM agent_chat_notices n WHERE n.session_id = agent_sessions.id COLLATE utf8mb4_unicode_ci AND n.resolved_at IS NULL AND n.created_at > ${cutoff})
+            await tx.execute(sql`SELECT id FROM agent_sessions WHERE ${portalHistoryWhere(now, cutoff, context.snapshot.sessions.all().filter(s=>ownerPresence(runtime).hasSession(s.id,s.bindingGeneration)).map(s=>s.id))}
             ORDER BY expires_at LIMIT 100 FOR UPDATE`);
           const ids = (rows as unknown as Array<{ id: string }>).map((row) => row.id);
           if (ids.length) {
@@ -152,7 +151,9 @@ async function purgePortalFamily(runtime: OwnerRuntime, env: Env, family: 'porta
           family,
           Date.parse(now),
           env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 10_000,
+          serverRetentionPolicy(context.snapshot),
         );
+        await recordRetentionSweep(context, tx, family, changed);
       });
       return () => ({ changed });
     },
@@ -245,6 +246,8 @@ export async function runOwnerPortalRetention(
   if (family === 'portal' || family === 'turns') await purgePortalFamily(runtime, env, family);
   else if (family === 'attachments') await purgeAttachments(runtime, env);
   else await runOwnerHistoryRetention(db, runtime, family, env);
+  wsPublisher.publish('settings.changed', { key: 'server_retention_run_v1' });
+  await finishRetentionRun(runtime);
 }
 
 export async function purgeAttachments(runtime: OwnerRuntime, env: Env): Promise<void> {
@@ -254,6 +257,10 @@ export async function purgeAttachments(runtime: OwnerRuntime, env: Env): Promise
     file: import('../../control-plane/state/catalog.js').StateRow<'agentChatAttachments'>,
   ) => {
     if (file.status === 'retired') return true;
+    const native = view.sessions.get(file.sessionId);
+    if (native && !native.endedAt) return false;
+    const daemon = view.table('hostDaemonSessions').get(file.sessionId);
+    if (daemon && !['completed','failed','canceled'].includes(daemon.status)) return false;
     const scopeExists =
       view.sessions.has(file.sessionId) ||
       view.table('hostDaemonSessions').has(file.sessionId) ||
@@ -267,7 +274,7 @@ export async function purgeAttachments(runtime: OwnerRuntime, env: Env): Promise
     if (!scopeExists) return true;
     return (
       ['uploading', 'ready'].includes(file.status) &&
-      Date.parse(file.updatedAt) < Date.now() - 86_400_000 &&
+      Date.parse(file.updatedAt) < Date.now() - historyRetentionHours(view) * 3600000 &&
       !view
         .table('workflowRuns')
         .all()
@@ -315,7 +322,8 @@ export async function purgeAttachments(runtime: OwnerRuntime, env: Env): Promise
         stageDelete(context, 'agentChatAttachments', file.id);
       }
       context.write(async (tx) => {
-        clock = await readRetentionClock(tx, 'attachments', Date.now());
+        clock = await readRetentionClock(tx, 'attachments', Date.now(), 900000, serverRetentionPolicy(context.snapshot));
+        await recordRetentionSweep(context, tx, 'attachments', retired.length);
       });
       return null;
     },

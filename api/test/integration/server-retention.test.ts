@@ -81,7 +81,7 @@ describe.skipIf(!handle)('24h server history retention', { timeout: 120_000 }, (
     await db!.delete(agentBusRelays).where(eq(agentBusRelays.id, valid));
   });
   it('bounds credential catch-up batches and resumes on the next tick', async () => {
-    await db!.insert(mcpSessionTokens).values(Array.from({ length: 1002 }, () => ({ token: randomBytes(32).toString('hex'), hostId: host.id, expiresAt: old, createdAt: old, updatedAt: old })));
+    await db!.insert(mcpSessionTokens).values(Array.from({ length: 102 }, () => ({ token: randomBytes(32).toString('hex'), hostId: host.id, expiresAt: old, createdAt: old, updatedAt: old })));
     await retention.purge(instant);
     expect(await db!.select().from(mcpSessionTokens).where(eq(mcpSessionTokens.hostId, host.id))).toHaveLength(2);
     await retention.purge(instant);
@@ -214,6 +214,12 @@ describe.skipIf(!handle)('24h server history retention', { timeout: 120_000 }, (
     expect(await exists('host_daemon_sessions', remote)).toBe(true);
     await end(a);
     await portal.purgeExpired();
+    await retention.purge(instant);
+    expect(await exists('host_daemon_sessions', remote)).toBe(true);
+    expect((await db!.select().from(hostDaemonOperations).where(eq(hostDaemonOperations.id, operation)))[0]?.status).toBe('unknown');
+    // A missing daemon cannot prove an accepted operation finished.
+    await db!.update(hostDaemonOperations).set({ status: 'completed' }).where(eq(hostDaemonOperations.id, operation));
+    await db!.update(hostDaemonSessions).set({ status: 'closed' }).where(eq(hostDaemonSessions.id, remote));
     await retention.purge(instant);
     expect(await exists('host_daemon_sessions', remote)).toBe(false);
     expect(await exists('host_daemon_operations', operation)).toBe(false);

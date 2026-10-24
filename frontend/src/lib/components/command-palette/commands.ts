@@ -137,7 +137,7 @@ export const DEEP_NAV: DeepNavEntry[] = [
   { href: "/library?type=output-styles", label: "Library / Reply styles", icon: Library, description: "How Claude words its replies (output styles)", keywords: ["output styles", "claude"] },
   { href: "/settings#hosts", label: "Settings / Hosts", icon: Server, description: "Fleet-wide host behavior: auto-update, DNS, temporary access", keywords: ["policies", "auto-update", "insecure", "dns"] },
   { href: "/settings#agent-coordination", label: "Settings / Agent coordination", icon: Network, description: "Fleet-wide project and host rooms and resource claims", keywords: ["coordination", "project rooms", "host rooms", "resource claims", "enable"] },
-  { href: "/settings#retention", label: "Settings / Data retention", icon: Activity, description: "How long logs and idle hosts are kept", keywords: ["prune", "logs", "retention"] },
+  { href: "/settings#retention", label: "Settings / Data retention", icon: Activity, description: "Server history, audit retention and local session cleanup", keywords: ["prune", "logs", "retention", "cleanup"] },
   { href: "/account#security", label: "Account / Password & passkeys", icon: Lock, description: "Change your password or manage passkeys", keywords: ["password", "passkeys", "webauthn", "security"] },
   { href: "/account#appearance", label: "Account / Appearance", icon: Palette, description: "Light, dark or system theme", keywords: ["theme", "dark", "light"] },
   { href: "/account#devices", label: "Account / Android devices", icon: Smartphone, description: "Pair or revoke the Android companion app", keywords: ["phone", "companion", "pair"] },

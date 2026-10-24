@@ -109,8 +109,8 @@ export async function createOwnedControlPlane(options: {
           ),
         );
       await reconcileWorkflowOwnership(db);
-      const state = await hydrateOwnerState(db, { epoch, sequence: 0n }, { keyring: options.keyring });
       const retention = await hydrateRetentionIndex(db, options.env);
+      const state = await hydrateOwnerState(db, { epoch, sequence: 0n }, { keyring: options.keyring });
       return {
         ...state,
         retention,

@@ -1,4 +1,4 @@
-import { existsSync, watch } from 'node:fs';
+import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { dirname, resolve, sep } from 'node:path';
 import { wsPublisher } from '../ws/publisher.js';
 import { CXX_ARTIFACT, SUPPORTED_WRAPPER_PLATFORMS, type WrapperBinRegistry } from './wrapper-bin-registry.js';
@@ -34,14 +34,25 @@ export function startWrapperPublishWatch(binaries: WrapperBinRegistry, options: 
   let stop:()=>void;
   if(options.subscribe)stop=options.subscribe(changed);
   else {
-    const target=resolve(options.binRoot);let root=target;
-    while(!existsSync(root)&&dirname(root)!==root)root=dirname(root);
-    const watcher=watch(root,{recursive:true,persistent:false},(_kind,name)=>{
-      if(!name){changed();return;}
-      const path=resolve(root,String(name));
-      if(path===target||path.startsWith(target+sep)||target.startsWith(path+sep))changed();
-    });
-    watcher.on('error',options.error);stop=()=>watcher.close();
+    const target=resolve(options.binRoot);
+    let watcher: FSWatcher | undefined;
+    const attach=()=>{
+      let root=target;
+      while(!existsSync(root)&&dirname(root)!==root)root=dirname(root);
+      watcher?.close();
+      // Missing trees need only their next path component watched. Never
+      // recursively enumerate an unrelated ancestor (possibly the host root).
+      watcher=watch(root,{recursive:root===target,persistent:false},(_kind,name)=>{
+        if(closed)return;
+        const path=name?resolve(root,String(name)):root;
+        if(!name||path===target||path.startsWith(target+sep)||target.startsWith(path+sep)){
+          if(root!==target||!existsSync(target))attach();
+          changed();
+        }
+      });
+      watcher.on('error',options.error);
+    };
+    attach();stop=()=>watcher?.close();
   }
   changed();
   return ()=>{closed=true;stop();};

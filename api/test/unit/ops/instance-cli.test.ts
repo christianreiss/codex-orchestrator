@@ -59,6 +59,11 @@ elif 'ps' in a and '--format' in a:
     else:
         for row in rows: print(json.dumps(row))
 elif 'exec' in a and 'mysql' in a:
+    if '--unbuffered' in a[-1]:
+        for line in sys.stdin:
+            if 'JSON_OBJECT' in line: print(json.dumps({'database': os.environ.get('DB_DATABASE','codex_auth'), 'tables': 0}), flush=True)
+            elif 'DATE_FORMAT' in line: print('2026-10-24T00:00:00.000Z', flush=True)
+        sys.exit(0)
     if 'information_schema.tables' in a[-1]: print('4096'); sys.exit(0)
     if os.environ.get('DUMP_EXIT'): sys.exit(int(os.environ['DUMP_EXIT']))
     print('-- fixture SQL')

@@ -1,3 +1,7 @@
+import { eq } from 'drizzle-orm';
+import { versions } from '../../db/schema.js';
+import { DEFAULT_SERVER_RETENTION, parseServerRetention, serverRetentionPolicy, RETENTION_POLICY_KEY, RETENTION_RUN_KEY } from './policy.js';
+import { isColdFamily, purgeCold } from './cold.js';
 import type { OwnedTableName, StateRow } from '../../control-plane/state/catalog.js';
 import type { Database } from '../../db/client.js';
 import type { Env } from '../../env.js';
@@ -23,8 +27,11 @@ export async function hydrateRetentionIndex(
   env: Env,
 ): Promise<RetentionDeadlineIndex> {
   const index = new RetentionDeadlineIndex();
+  const [stored] = await tx.select().from(versions).where(eq(versions.name, RETENTION_POLICY_KEY));
+  const policy = stored ? parseServerRetention(stored.version) : { ...DEFAULT_SERVER_RETENTION, history_hours: env.AGENT_PORTAL_RETENTION_HOURS };
+  if (!stored) await tx.insert(versions).values({ name: RETENTION_POLICY_KEY, version: JSON.stringify(policy), updatedAt: new Date().toISOString() });
   await index.hydrate((family, now) =>
-    readRetentionClock(tx, family, now, env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 10_000),
+    readRetentionClock(tx, family, now, env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 10_000, policy),
   );
   return index;
 }
@@ -32,7 +39,10 @@ export function bindOwnerRetention(runtime: OwnerRuntime, index: RetentionDeadli
   if (bindings.has(runtime)) throw new Error('Owner retention already bound');
   index.obligations();
   bindings.set(runtime, index);
+  const pendingRun = JSON.parse(runtime.state.snapshot().setting(RETENTION_RUN_KEY) ?? '{}') as { status?: string };
+  if (pendingRun.status === 'running') index.force(RETENTION_FAMILIES.filter(f => !['turns','credentials'].includes(f)));
   const dependencies = [
+    'controlPlaneOutbox',
     'agentBusAddresses',
     'agentSessions',
     'agentSchedules',
@@ -65,13 +75,14 @@ export function bindOwnerRetention(runtime: OwnerRuntime, index: RetentionDeadli
   // Only fields used by retention eligibility can unpark protected history.
   // Receiver/heartbeat/activity updates do not release durable protection.
   const fields: { [K in OwnedTableName]?: readonly (keyof StateRow<K> & string)[] } = {
+    controlPlaneOutbox: ['status','completedAt'],
     agentSessions: ['agentBusAddressId', 'endedAt', 'status', 'activeTurnId', 'bindingGeneration'],
     agentBusAddresses: ['hostId', 'currentSessionId', 'archivedAt', 'enabled'],
     agentSchedules: ['targetAddressId', 'deletedAt'],
     agentWatchdogs: ['targetAddressId', 'status'],
     agentRebootHandoffs: ['addressId', 'oldSessionId', 'newSessionId', 'status'],
     agentRoleProposals: ['authorAddressId', 'reviewerAddressId', 'status'],
-    agentBusMessages: ['senderAddressId', 'targetAddressId', 'conversationId', 'status', 'leaseOwner'],
+    agentBusMessages: ['senderAddressId', 'targetAddressId', 'conversationId', 'status', 'taskResultStatus', 'leaseOwner'],
     agentBusSubscriptions: ['subscriberAddressId', 'topic'],
     agentBusConferenceMembers: ['conferenceId', 'addressId', 'conversationId'],
     agentBusConferences: ['ownerAddressId', 'status'],
@@ -115,19 +126,36 @@ export function bindOwnerRetention(runtime: OwnerRuntime, index: RetentionDeadli
     const value = row as unknown as Record<string, unknown>;
     return [view.keyFor(row), {
       guard: JSON.stringify((fields[view.name] ?? []).map(field => value[field])),
-      clocks: (clocks[view.name] ?? []).map(clock => typeof value[clock.field] === 'string' ? Date.parse(value[clock.field] as string) + clock.delay : NaN),
+      clocks: (clocks[view.name] ?? []).map(clock => typeof value[clock.field] === 'string' ? Date.parse(value[clock.field] as string) + (clock.delay === day || clock.delay === day + 1 ? serverRetentionPolicy(runtime.state.snapshot()).history_hours * 3600000 + (clock.delay - day) : clock.delay) : NaN),
     }];
   }));
   let views = selected.map(table => runtime.state.snapshot().table(table));
   const projections = views.map(project);
+  let quotaViews = [runtime.state.snapshot().table('chatgptUsageSnapshots'), runtime.state.snapshot().table('claudeUsageSnapshots')];
+  let policyRaw = runtime.state.snapshot().setting(RETENTION_POLICY_KEY);
+  let auditHead = runtime.state.snapshot().setting('owner_latest_log_at');
+  let adminHead = runtime.state.snapshot().setting('owner_admin_event_id');
   runtime.state.subscribe(snapshot => {
+    const policy = serverRetentionPolicy(snapshot);
+    const nextPolicy = snapshot.setting(RETENTION_POLICY_KEY);
+    if (nextPolicy !== policyRaw) { policyRaw = nextPolicy; index.force(RETENTION_FAMILIES.filter(f => !['turns','credentials'].includes(f))); }
+    if (policy.armed) {
+      index.stage('receipts', Date.now() + 7 * 86400000);
+      const audit = snapshot.setting('owner_latest_log_at'), admin = snapshot.setting('owner_admin_event_id');
+      if (audit !== auditHead && audit) index.stage('auditlogs', Date.parse(audit) + policy.audit_days * 86400000);
+      if (admin !== adminHead) index.stage('adminaudit', Date.now() + policy.audit_days * 86400000);
+      const nextQuota = [snapshot.table('chatgptUsageSnapshots'), snapshot.table('claudeUsageSnapshots')];
+      if (nextQuota.some((v,i) => v !== quotaViews[i])) { index.invalidate(['quota']); index.stage('quota', Date.now() + policy.quota_days * 86400000); }
+      quotaViews = nextQuota;
+      auditHead = audit; adminHead = admin;
+    }
     const next = selected.map(table => snapshot.table(table));
     for (let i = 0; i < selected.length; i++) {
       if (next[i] === views[i]) continue;
       const table = selected[i]!, before = projections[i]!, after = project(next[i]!);
-      const families = ['chattySessions', 'chattyRuns', 'chattyActions'].includes(table) ? ['chatty'] as const : RETENTION_FAMILIES;
+      const families = ['chattySessions', 'chattyRuns', 'chattyActions'].includes(table) ? ['chatty'] as const : RETENTION_FAMILIES.filter(family => !isColdFamily(family));
       if (before.size !== after.size || [...after].some(([key, value]) => before.get(key)?.guard !== value.guard))
-        index.invalidate(families);
+        { index.invalidate(families); if (['controlPlaneOutbox','agentBusMessages','agentMessages','chattyActions'].includes(table)) index.invalidate(['receipts']); }
       for (const [key, value] of after) {
         const previous = before.get(key);
         value.clocks.forEach((dueAt, position) => {
@@ -172,19 +200,23 @@ export async function runOwnerHistoryRetention(
     prepare(context) {
       const now = new Date();
       context.write(async (tx) => {
+        const policy = serverRetentionPolicy(context.snapshot);
         const service = new ServerRetentionService(
           db,
           new RetentionProjection(context.draft),
           tx as unknown as Parameters<Parameters<Database['transaction']>[0]>[0],
           ownerPresence(runtime),
+          policy,
         );
-        changed = await service.purgeFamily(family, now);
+        changed = isColdFamily(family) ? await purgeCold(context, tx, family, policy, now.getTime()) : await service.purgeFamily(family, now);
         next = await readRetentionClock(
           tx,
           family,
           now.getTime(),
           env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 10_000,
+          policy,
         );
+        await recordRetentionSweep(context, tx, family, changed);
       });
       return () => ({ changed });
     },
@@ -200,4 +232,34 @@ export async function runOwnerHistoryRetention(
     wsPublisher.publish('chatty.changed', { retention: family });
   }
   return changed;
+}
+
+/** One bounded status record; no history-of-cleanup log or autonomous timer. */
+export async function recordRetentionSweep(context: import('../../control-plane/state/runtime.js').OwnerMutationContext, tx: PersistenceTransaction, family: RetentionFamily, changed: number): Promise<void> {
+  const previous = JSON.parse(context.draft.table('versions').get(RETENTION_RUN_KEY)?.version ?? '{}') as { id?: string; status?: string; started_at?: string; completed_at?: string; counts?: Record<string, number>; families?: Record<string, { at: string; changed: number }> };
+  const at = new Date().toISOString();
+  const families = { ...previous.families, [family]: { at, changed } };
+  const counts = { ...previous.counts };
+  if (previous.status === 'running') counts[family] = (counts[family] ?? 0) + changed;
+  const status = { ...previous, families, counts };
+  const row = { name: RETENTION_RUN_KEY, version: JSON.stringify(status), updatedAt: at };
+  context.draft.upsert('versions', row);
+  await tx.insert(versions).values(row).onDuplicateKeyUpdate({ set: { version: row.version, updatedAt: at } });
+}
+
+export async function finishRetentionRun(runtime: OwnerRuntime): Promise<void> {
+  const current = JSON.parse(runtime.state.snapshot().setting(RETENTION_RUN_KEY) ?? '{}') as { id?: string; status?: string; started_at?: string; families?: Record<string, {at: string}> };
+  if (current.status !== 'running' || !current.started_at) return;
+  const families = RETENTION_FAMILIES.filter(f => !['turns','credentials'].includes(f));
+  if (families.some(f => !current.families?.[f] || current.families[f]!.at < current.started_at!)) return;
+  if (ownerRetention(runtime).obligations().some(v => families.includes(retentionFamily(v.key)) && v.dueAt <= Date.now()+1000)) return;
+  await mutateOwnerState(runtime, { kind:'retention.run.complete', payload:{id:current.id??null}, prepare(context) {
+    const run = JSON.parse(context.snapshot.setting(RETENTION_RUN_KEY) ?? '{}') as typeof current;
+    if (run.id !== current.id || run.status !== 'running') return null;
+    const at = new Date().toISOString(), row = {name:RETENTION_RUN_KEY, version:JSON.stringify({...run,status:'completed',completed_at:at}),updatedAt:at};
+    context.draft.upsert('versions',row);
+    context.write(tx=>tx.insert(versions).values(row).onDuplicateKeyUpdate({set:{version:row.version,updatedAt:at}}));
+    return null;
+  }});
+  wsPublisher.publish('settings.changed', { key: RETENTION_RUN_KEY });
 }

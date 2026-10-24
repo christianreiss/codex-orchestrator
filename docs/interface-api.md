@@ -668,7 +668,7 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default). The Svelte console renders `auto`/`light`/`dark` as neutral system/light/dark modes; historical `auto-pink`, `bright-pink`, and `dark-pink` values remain accepted for compatibility and are normalized client-side. The selected value also rides along in the `/auth` `versions` block as `admin_theme`.
 - `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean). Per-host `/admin/hosts/{id}/auto-update` overrides win over it.
 - `GET /admin/authorization` / `POST /admin/authorization` — read/set how the capability matrix is enforced. Body `{mode: "compatible"|"strict"}`. The GET returns `{mode, updated_at, would_deny}`, where `would_deny` lists the distinct `{role, capability, route, first_seen, last_seen}` triples this installation served under `compatible` that `strict` would refuse — the answer to "what breaks if I switch", drawn from the fleet's own traffic over the last 30 days. Requires `security.manage_authorization`, which is enforced under **both** modes: `compatible` grants `settings.manage` to every role, so a posture any account could change would not be one. Migration `0022` sets `compatible` on installations that already had users and `strict` on fresh ones; see [ADMIN.md](ADMIN.md#roles--capabilities).
-- `GET /admin/log-retention` / `POST /admin/log-retention` — retired compatibility endpoint: always returns `{enabled:false,supported:false,reason:"retired_no_worker"}`. Old durations are ignored and no setting is persisted.
+- `GET /admin/log-retention` / `POST /admin/log-retention` — retired compatibility endpoint: always returns `{enabled:false,supported:false,reason:"use_server_retention_api",replacement:"/admin/server-retention"}`. Old durations are ignored and no setting is persisted.
 - `GET /admin/scaling` / `POST /admin/scaling` — read the scaling status and store the scaling rules; invalid rules return `422 validation_failed` with per-rule errors. Hosts flagged `scaling_exempt` through `/admin/hosts/{id}/scaling-exempt` are excluded.
 - `POST /admin/prune-policy` — set host inactivity pruning window. Body `{inactivity_days: 0..60}`.
 - `POST /admin/codex-version` — set the fleet Codex CLI version policy. Body: `{selection: "latest"|"<x.y.z>"}`. `latest` keeps the GitHub-latest flow; explicit versions below the internal minimum `0.125.0` are coerced upward to `0.125.0`. Exact downgrade behavior only applies when `client_version_enforce_exact=true` (that is, the fleet pin is above the floor).
@@ -3359,3 +3359,43 @@ Claim-status reads/renewals in cxx 0.9.124 retry transient communicator 502/504 
 ## Authoritative control-plane owner
 
 Current runtime state and command/receipt semantics are specified in [control-plane-owner.md](control-plane-owner.md). `/readyz` reads the hydrated migration ledger and last observed runner health; it does not perform a new SQL or runner probe. Gateway key use counts are approximate, buffered for up to 30 seconds, and flushed on orderly shutdown. Signing-key mutations and mutating migration CLI operations require exclusive ownership while the API is stopped.
+
+## Server history retention
+
+`GET /admin/server-retention` (`settings.read`) returns effective policy, opaque
+revision, validation limits, bounded run status, deadline obligations and fixed
+receipt/Docker-log retention facts. Policy writes use
+`POST /admin/server-retention` (`settings.manage`), with `{policy,expected_revision}`.
+Allowed policy fields are `audit_days` and `quota_days` (integers 1–3650),
+`history_hours` (1–87600), and `armed` (boolean). A stale revision returns 409
+`retention_policy_changed`. The migration leaves additional cold cleanup unarmed;
+existing lifecycle cleanup continues. The first exclusive bootstrap preserves
+an existing portal retention environment value when seeding a missing policy.
+
+`POST /admin/server-retention/preview` (`settings.read`) reads a consistent cold
+snapshot and returns candidate/retained counts for audit, quota, command receipts,
+ended portal sessions and conversations. Retained includes young and protected
+rows. Rooms, identities and attachment children are checked by lifecycle batches;
+previews are observations, not promises of deletion. No response contains bodies.
+
+`POST /admin/server-retention/run` (`settings.manage`) requires
+`{client_request_id:UUID,expected_revision}` and an armed policy; returns 202 with
+the bounded run status. The stable request ID makes retries idempotent. A second
+concurrent run returns 409. `GET /admin/server-retention/runs/:id` returns the
+current retained run or 404 if its status slot was replaced. Progress is published
+through existing settings/owner state events. Completion means the guarded pass
+finished, not that protected data was removed.
+
+External/legacy command results become compact fences after 14 days unless an
+open effect/work binding needs them. A repeated matching command returns
+`410 command_result_expired`; it is never prepared or executed again. A different
+payload conflicts with 409, and current authorization is checked first. Explicit
+internal IDs expire after seven days once unreferenced. No retry-window protocol
+change or new client ID generation is introduced.
+
+`node retention-maintenance.js --activate --no-backup` and
+`--compact --no-backup` require exclusive offline database ownership. Compaction
+uses a fixed table allowlist and only recorded families with actual deletions from
+a completed run. `--preview` is read-only. These operations never create dumps,
+volume snapshots or storage archives. Older images that do not understand compact
+receipts are not a supported rollback after compaction; pin compatible code first.

@@ -21,7 +21,7 @@ describe.skipIf(!handle)('mixed UUID collations in retention guards', () => {
           id CHAR(36), agent_bus_address_id CHAR(36), session_id CHAR(36), target_address_id CHAR(36),
           address_id CHAR(36), old_session_id CHAR(36), new_session_id CHAR(36), author_address_id CHAR(36),
           reviewer_address_id CHAR(36), sender_address_id CHAR(36), status VARCHAR(32), deleted_at VARCHAR(100),
-          last_seen_at VARCHAR(100), heartbeat_at VARCHAR(100)) CHARACTER SET utf8mb4 COLLATE ${table === 'agent_sessions' ? 'utf8mb4_unicode_ci' : 'utf8mb4_0900_ai_ci'}`);
+          last_seen_at VARCHAR(100), heartbeat_at VARCHAR(100), ended_at VARCHAR(100), task_result_status VARCHAR(32)) CHARACTER SET utf8mb4 COLLATE ${table === 'agent_sessions' ? 'utf8mb4_unicode_ci' : 'utf8mb4_0900_ai_ci'}`);
       }
       await connection.query(`INSERT INTO ${prefix}agent_sessions (id, agent_bus_address_id, heartbeat_at) VALUES (?, ?, '2026-10-24T10:00:00Z')`, [id, address]);
       await connection.query(`INSERT INTO ${prefix}agent_bus_addresses (id) VALUES (?)`, [address]);

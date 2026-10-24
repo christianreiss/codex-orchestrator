@@ -552,3 +552,19 @@ The wizard's credentials step is also reachable afterwards from Hosts → More �
   internal CIDRs only.
 - The API does not meter request rates. Put traffic shaping at the proxy when
   the deployment requires it.
+
+## Retention maintenance without an additional backup
+
+Deploy the API with `scripts/deploy.sh --service api --skip-wrappers --no-backup`.
+Keep the newly deployed, receipt-compatible image pinned before arming cleanup.
+Use Settings → Data retention to preview and start a guarded history cleanup;
+local engine transcripts and host overrides are separate policies.
+For initial operator maintenance, the offline command
+`node retention-maintenance.js --activate --no-backup` activates the saved policy
+and records a resumable guarded run for the next API owner. Repeating it while a
+run is active preserves the same run. It also refuses an active API.
+For physical table compaction, quiesce the API/worker with the supported cutover
+helper, then run `node retention-maintenance.js --compact --no-backup` in the API
+image against the same configured database. The offline ownership guard refuses
+an active API. Restart the API/worker and check health and auth after maintenance.
+No archive is created; deleted history requires existing external backup recovery.

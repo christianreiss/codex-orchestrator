@@ -1,3 +1,5 @@
+import { activeHistoryAddress, conversationHistoryWhere } from './selectors.js';
+import { DEFAULT_SERVER_RETENTION, type ServerRetentionPolicy } from './policy.js';
 import { projectRoomEventDeletion } from '../../control-plane/state/room-heads.js';
 import { sql, type SQL } from 'drizzle-orm';
 import type { RetentionProjection } from './projection.js';
@@ -5,7 +7,7 @@ import type { ConnectionPresence } from '../../control-plane/presence.js';
 import type { RetentionFamily } from './deadlines.js';
 import type { Database } from '../../db/client.js';
 import { wsPublisher } from '../../ws/publisher.js';
-import { addressActiveSince, protectedAddress, RETENTION_BATCH_SIZE, SERVER_RETENTION_SECONDS } from './guards.js';
+import { protectedAddress, RETENTION_BATCH_SIZE } from './guards.js';
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 type Row = { id: string };
@@ -30,15 +32,15 @@ async function contactsActive(tx: Tx, addresses: SQL, cutoff: string, presence?:
 
 /** Bounded, periodic cleanup; independent of feature switches and host traffic. */
 export class ServerRetentionService {
-  constructor(private readonly db: Database, private readonly projection?: RetentionProjection, private readonly ownerTx?: Tx, private readonly presence?: ConnectionPresence) {}
+  constructor(private readonly db: Database, private readonly projection?: RetentionProjection, private readonly ownerTx?: Tx, private readonly presence?: ConnectionPresence, private readonly policy: ServerRetentionPolicy = { ...DEFAULT_SERVER_RETENTION }) {}
   private activeAddress(id: SQL, cutoff: string): SQL {
     const addresses = this.projection?.draft.table('agentSessions').all().filter(session => this.presence?.hasSession(session.id, session.bindingGeneration)).map(session => session.agentBusAddressId).filter((value): value is string => !!value) ?? [];
-    return addresses.length ? sql`(${addressActiveSince(id, cutoff)} OR ${id} IN (${sql.join(addresses.map(address => sql`${address}`), sql`, `)}))` : addressActiveSince(id, cutoff);
+    return activeHistoryAddress(id, cutoff, addresses);
   }
   private transaction<T>(run: (tx: Tx) => Promise<T>): Promise<T> { return this.ownerTx ? run(this.ownerTx) : this.db.transaction(run); }
   /** Called inside one serialized owner transaction; publication is caller-owned. */
   async purgeFamily(family: RetentionFamily, now = new Date()): Promise<number> {
-    const cutoff = new Date(now.getTime() - SERVER_RETENTION_SECONDS * 1000).toISOString();
+    const cutoff = new Date(now.getTime() - this.policy.history_hours * 3600000).toISOString();
     switch (family) {
       case 'credentials': return this.credentials(now.toISOString());
       case 'relays': return this.relays(cutoff, now.toISOString());
@@ -52,7 +54,7 @@ export class ServerRetentionService {
   }
 
   async purge(now = new Date()): Promise<Record<string, number>> {
-    const cutoff = new Date(now.getTime() - SERVER_RETENTION_SECONDS * 1000).toISOString();
+    const cutoff = new Date(now.getTime() - this.policy.history_hours * 3600000).toISOString();
     const timestamp = now.toISOString();
     const changed: Record<string, number> = {};
     // Each family commits separately. A crash retries only unfinished batches.
@@ -79,7 +81,8 @@ export class ServerRetentionService {
     return this.transaction(async tx => {
       let count = 0;
       for (const table of ['mcp_session_tokens', 'admin_sessions', 'provider_account_sessions'] as const) {
-        const ids = await rows(tx, sql`SELECT id FROM ${sql.identifier(table)} WHERE expires_at <= ${now} ORDER BY expires_at LIMIT 1000 FOR UPDATE`);
+        const ownership = table === 'provider_account_sessions' ? sql`AND ownership_mode = 'timed'` : sql``;
+        const ids = await rows(tx, sql`SELECT id FROM ${sql.identifier(table)} WHERE expires_at <= ${now} ${ownership} ORDER BY expires_at LIMIT 100 FOR UPDATE`);
         if (ids.length) await tx.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE id IN (${sql.join(ids.map(r => sql`${r.id}`), sql`,`)})`);
         const names = { mcp_session_tokens: 'mcpSessionTokens', admin_sessions: 'adminSessions', provider_account_sessions: 'providerAccountSessions' } as const;
         const removed = new Set(ids.map(row => String(row.id)));
@@ -110,19 +113,14 @@ export class ServerRetentionService {
       // All send/register/conference/schedule paths take this gate first.
       await tx.execute(sql`SELECT name FROM versions WHERE name = 'agent_messaging_enabled' FOR UPDATE`);
       const candidates = await rows(tx, sql`SELECT c.id FROM agent_bus_conversations c
-        WHERE c.last_activity_at <= ${cutoff}
-        AND NOT ${protectedAddress(sql`c.address_a_id`)} AND NOT ${protectedAddress(sql`c.address_b_id`)}
-        AND NOT ${this.activeAddress(sql`c.address_a_id`, cutoff)} AND NOT ${this.activeAddress(sql`c.address_b_id`, cutoff)}
-        AND NOT EXISTS (SELECT 1 FROM advisor_sessions v WHERE v.conversation_id = BINARY c.id AND v.status = 'open')
-        AND NOT EXISTS (SELECT 1 FROM agent_bus_conference_members m JOIN agent_bus_conferences f ON f.id = BINARY m.conference_id
-          WHERE m.conversation_id = BINARY c.id AND f.status <> 'adjourned')
-        ORDER BY c.last_activity_at LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
+        WHERE ${conversationHistoryWhere(cutoff, this.projection?.draft.table('agentSessions').all().filter(s=>this.presence?.hasSession(s.id,s.bindingGeneration)).map(s=>s.agentBusAddressId).filter((id): id is string=>!!id) ?? [])}
+        ORDER BY c.last_activity_at LIMIT 1 FOR UPDATE`);
       let conversations = 0, deletedMessages = 0;
       for (const { id } of candidates) {
         if (await contactsActive(tx, sql`SELECT address_a_id FROM agent_bus_conversations WHERE id = ${id}
           UNION SELECT address_b_id FROM agent_bus_conversations WHERE id = ${id}`, cutoff, this.presence)) continue;
         // Large threads drain a bounded message batch before their parent goes.
-        const messages = await rows<{id:string;source_engine:string;target_engine:string;status:string}>(tx, sql`SELECT id,source_engine,target_engine,status FROM agent_bus_messages WHERE conversation_id = ${id} LIMIT 500 FOR UPDATE`);
+        const messages = await rows<{id:string;source_engine:string;target_engine:string;status:string}>(tx, sql`SELECT id,source_engine,target_engine,status FROM agent_bus_messages WHERE conversation_id = ${id} LIMIT 100 FOR UPDATE`);
         if (messages.length) {
           const ids = sql.join(messages.map(r => sql`${r.id}`), sql`,`);
           await tx.execute(sql`DELETE FROM agent_task_results WHERE message_id IN (${ids})`);
@@ -161,7 +159,7 @@ export class ServerRetentionService {
     return this.transaction(async tx => {
       await tx.execute(sql`SELECT name FROM versions WHERE name = 'agent_messaging_enabled' FOR UPDATE`);
       const disconnected = await rows(tx, sql`SELECT d.id FROM host_daemon_sessions d
-        WHERE d.last_activity_at <= ${cutoff} AND d.status IN ('queued','running','idle','waiting')
+        WHERE ${!this.projection} AND d.last_activity_at <= ${cutoff} AND d.status IN ('queued','running','idle','waiting')
         AND NOT ${protectedAddress(sql`d.address_id`)} AND NOT ${this.activeAddress(sql`d.address_id`, cutoff)}
         AND NOT EXISTS (SELECT 1 FROM agent_sessions s WHERE s.id = BINARY d.session_id AND s.heartbeat_at > ${cutoff})
         LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
@@ -178,9 +176,9 @@ export class ServerRetentionService {
         this.projection?.patchWhere('hostDaemonSessions', row => row.id === id, { status: 'unknown' });
       }
       const candidates = await rows(tx, sql`SELECT d.id FROM host_daemon_sessions d WHERE d.last_activity_at <= ${cutoff}
-        AND d.status IN ('closed','failed','unknown') AND NOT ${protectedAddress(sql`d.address_id`)}
+        AND d.status IN ('closed','failed') AND NOT ${protectedAddress(sql`d.address_id`)}
         AND NOT ${this.activeAddress(sql`d.address_id`, cutoff)}
-        AND NOT EXISTS (SELECT 1 FROM host_daemon_operations o WHERE o.session_id = BINARY d.id AND o.status IN ('queued','offered','accepted','running'))
+        AND NOT EXISTS (SELECT 1 FROM host_daemon_operations o WHERE o.session_id = BINARY d.id AND o.status IN ('queued','offered','accepted','running','unknown'))
         ORDER BY d.last_activity_at LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       let purged = 0;
       for (const { id } of candidates) {
@@ -208,7 +206,7 @@ export class ServerRetentionService {
       // The scheduler uses the same unknown-on-lost-lease rule. This runs even
       // with Chatty disabled and keeps old claims from pinning history forever.
       let changed = 0;
-      for (const [oldStatus, status] of (this.projection ? [['queued', 'cancelled']] : [['running', 'unknown'], ['queued', 'cancelled']]) as Array<[string,string]>) {
+      for (const [oldStatus, status] of (this.projection ? [] : [['running', 'unknown'], ['queued', 'cancelled']]) as Array<[string,string]>) {
         const candidates = await rows(tx, sql`SELECT id FROM chatty_runs WHERE status = ${oldStatus} AND updated_at <= ${cutoff}
           AND (${oldStatus} <> 'running' OR lease_until IS NULL OR lease_until <= ${cutoff}) LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
         if (!candidates.length) continue;
@@ -249,7 +247,7 @@ export class ServerRetentionService {
           AND (${protectedAddress(sql`b.address_id`)} OR ${this.activeAddress(sql`b.address_id`, cutoff)}))
         AND NOT EXISTS (SELECT 1 FROM agent_scope_members b JOIN agent_sessions s ON s.id = BINARY b.session_id WHERE b.scope_id = BINARY e.room_id AND s.heartbeat_at > ${cutoff})
         AND NOT EXISTS (SELECT 1 FROM agent_room_deliveries d JOIN agent_bus_messages m ON m.id = BINARY d.message_id
-          WHERE d.event_id = BINARY e.id AND m.status IN ('queued','leased','accepted','reboot_hold','batched'))
+          WHERE d.event_id = BINARY e.id AND (m.status IN ('queued','leased','accepted','reboot_hold','batched','ambiguous') OR m.task_result_status='unknown'))
         ORDER BY e.created_at LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       const events: Array<Row & {roomId:string;actor:string;createdAt:string}> = [];
       for (const event of candidates) {

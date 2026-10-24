@@ -1,5 +1,9 @@
 # 2026-10-24
 
+- Watch missing wrapper publication directories through non-recursive ancestor watches; attach recursively only to the actual binary tree. Avoid filesystem-wide scans when a configured path does not exist.
+
+- Add effective server-history retention settings, guarded previews and bounded cleanup status to Settings. Retain 14 days of audit, 24 hours of inactive communication and seven days of optional quota history. Compact old external command results into permanent duplicate-execution fences; prune unreferenced internal receipts after seven days. Offline activation and table compaction require an explicit no-backup operation. Preserve native housekeeping overrides and authorization/liveness deadlines.
+
 - Stop routine HTTP request logs and redundant successful version/delivery audit copies; retain errors, auth changes, administrative actions and ambiguous work records. Bound API/MySQL Docker logs to three 10 MB files. Disable unused MySQL binary logging in the single-server Compose stack. Deployments create DB/storage archives only with explicit `--backup`.
 
 - cxx 0.9.127 omits state-stream fields from ordinary request frames, explicitly requests provider connection ownership when its signed configuration requires an attachment, and skips legacy user-unit cleanup beneath non-directory system-account homes such as `/dev/null`.

@@ -1,3 +1,5 @@
+import { coldClock, isColdFamily } from './cold.js';
+import { DEFAULT_SERVER_RETENTION, type ServerRetentionPolicy } from './policy.js';
 import { sql, type SQL } from 'drizzle-orm';
 import type { PersistenceTransaction } from '../../control-plane/persistence.js';
 import type { OwnerWorkObligation } from '../../ops/owner-worker.js';
@@ -7,6 +9,7 @@ const DAY = SERVER_RETENTION_SECONDS * 1000;
 /** Each input is an overapproximation of a real retention branch. Eligibility
  * guards stay in the deletion command; this index never grants deletion authority. */
 export const RETENTION_CLOCKS = {
+  auditlogs: [], adminaudit: [], quota: [], receipts: [],
   turns: [],
   credentials: [
     { table: 'mcp_session_tokens', column: 'expires_at', delay: 0 },
@@ -59,7 +62,9 @@ export async function readRetentionClock(
   family: RetentionFamily,
   now: number,
   workingTurnMs = 900_000,
+  policy: ServerRetentionPolicy = { ...DEFAULT_SERVER_RETENTION },
 ): Promise<RetentionClockSnapshot> {
+  if (isColdFamily(family)) return coldClock(tx, family, now, policy);
   if (family === 'turns') {
     const cutoff = new Date(now - workingTurnMs).toISOString();
     const [rows] =
@@ -80,13 +85,15 @@ export async function readRetentionClock(
     { table: 'agent_sessions', column: 'heartbeat_at', delay: DAY, guard: true },
     { table: 'agent_bus_addresses', column: 'last_seen_at', delay: DAY, guard: true },
   ];
-  const queries: SQL[] = clocks.map((clock) => {
+  const queries: SQL[] = clocks.map((original) => {
+    const clock = { ...original, delay: original.delay === DAY || original.delay === DAY + 1 ? policy.history_hours * 3600000 + (original.delay - DAY) : original.delay };
     const threshold = new Date(now - clock.delay).toISOString();
     const table = sql.identifier(clock.table),
       column = sql.identifier(clock.column);
     return sql`SELECT MAX(CASE WHEN ${column} <= ${threshold} THEN 1 ELSE 0 END) AS has_past,
       CONVERT(MIN(CASE WHEN ${column} > ${threshold} THEN ${column} ELSE NULL END) USING utf8mb4) COLLATE utf8mb4_bin AS next_stamp,
-      ${clock.delay} AS delay_ms, ${clock.guard ? 1 : 0} AS is_guard FROM ${table}`;
+      ${clock.delay} AS delay_ms, ${clock.guard ? 1 : 0} AS is_guard FROM ${table}
+      ${clock.table === 'provider_account_sessions' ? sql`WHERE ownership_mode = 'timed'` : sql``}`;
   });
   const [rows] = await tx.execute(sql.join(queries, sql` UNION ALL `));
   let past = false,
@@ -117,10 +124,11 @@ export async function readRetentionClock(
 export class RetentionDeadlineIndex {
   private readonly clocks = new Map<
     RetentionFamily,
-    { next: number | null; past: boolean; dirty: boolean; version: number }
+    { next: number | null; past: boolean; dirty: boolean; version: number; notBefore?: number }
   >();
   private readonly listeners = new Set<() => void>();
   private ready = false;
+  private nextBatchAt = 0;
   async hydrate(read: RetentionClockReader, now = Date.now()): Promise<void> {
     if (this.ready) throw new Error('Retention index already hydrated');
     const values: Array<[RetentionFamily, RetentionClockSnapshot]> = [];
@@ -128,6 +136,11 @@ export class RetentionDeadlineIndex {
     for (const [family, clock] of values)
       this.clocks.set(family, { ...clock, dirty: clock.past, version: 1 });
     this.ready = true;
+  }
+  force(families: readonly RetentionFamily[] = RETENTION_FAMILIES): void {
+    this.assertReady();
+    for (const family of families) { const clock = this.clocks.get(family)!; clock.dirty = true; clock.notBefore = 0; clock.version++; }
+    this.emit();
   }
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -138,7 +151,8 @@ export class RetentionDeadlineIndex {
   obligations(): OwnerWorkObligation[] {
     this.assertReady();
     return [...this.clocks].flatMap(([family, clock]) => {
-      const dueAt = clock.dirty ? 0 : clock.next;
+      const candidate = clock.dirty ? (clock.notBefore ?? 0) : clock.next;
+      const dueAt = candidate === null ? null : Math.max(candidate, family === 'turns' || family === 'credentials' ? 0 : this.nextBatchAt);
       return dueAt === null ? [] : [{ key: `history:${family}`, dueAt, revision: String(clock.version) }];
     });
   }
@@ -184,7 +198,8 @@ export class RetentionDeadlineIndex {
   publishSweep(family: RetentionFamily, value: RetentionClockSnapshot, changed: number): void {
     this.assertReady();
     const clock = this.clocks.get(family)!;
-    this.clocks.set(family, { ...value, dirty: value.past && changed > 0, version: clock.version + 1 });
+    if (changed > 0 && !['turns','credentials'].includes(family)) this.nextBatchAt = Date.now() + 1000;
+    this.clocks.set(family, { ...value, dirty: value.past && changed > 0, notBefore: changed > 0 ? Date.now() + 1000 : 0, version: clock.version + 1 });
     this.emit();
   }
   private assertReady() {

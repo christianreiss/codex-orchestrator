@@ -1361,3 +1361,17 @@ Responses include canonical IDs, versions and an authenticated `report_url`; cla
 - `git_release` accepts `correction_id` (stable UUID) and `correction_reason` with a completed merged request and replacement full `target_head_sha`. This appends `git_director.outcome_correction` to the audit; the original report and ended lease remain unchanged. Corrections cannot deregister or release other work.
 - `api_disabled` is admitted globally before authentication and handler work. Only the actual `/admin/api/state` route is exempt, including its supported trailing slash; SPA lookalikes remain disabled.
 - `/auth` selects alternative quota advice from an enabled verified account of the correct engine (most recently selected first). Current-engine telemetry stays bound to its requested account; disabled/unlimited advice skips alternative history reads. No provider refresh or account lease is acquired for advice.
+
+## Server retention
+
+- `GET /admin/server-retention` — effective server-history policy, revision and bounded cleanup status.
+- `POST /admin/server-retention` — save validated policy with expected revision (`settings.manage`).
+- `POST /admin/server-retention/preview` — read-only saved-policy eligibility observation (`settings.read`).
+- `POST /admin/server-retention/run` — request an idempotent guarded cleanup using a client UUID and expected revision.
+- `GET /admin/server-retention/runs/:id` — current retained run status, or 404 after replacement.
+
+Defaults: audit 14 days, inactive history 24 hours, optional quota history seven
+days. Open work and necessary baselines stay protected. External command results
+expire to compact duplicate-execution fences after 14 days. Explicit internal
+receipts expire after seven days when unreferenced. See interface-api.md for
+activation, compatibility, protection and no-backup offline maintenance.

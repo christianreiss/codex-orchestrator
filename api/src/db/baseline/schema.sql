@@ -1376,9 +1376,12 @@ CREATE TABLE `control_plane_command_receipts` (
 	`request_digest` char(64) NOT NULL,
 	`owner_epoch` char(36) NOT NULL,
 	`sequence` bigint unsigned NOT NULL,
-	`result_enc` longtext NOT NULL,
+	`result_enc` longtext,
+	`replay_class` varchar(16) NOT NULL DEFAULT 'legacy',
+	`result_state` varchar(16) NOT NULL DEFAULT 'available',
 	`created_at` varchar(100) NOT NULL,
-	CONSTRAINT `control_plane_command_receipts_principal_request_id_pk` PRIMARY KEY(`principal`,`request_id`)
+	CONSTRAINT `control_plane_command_receipts_principal_request_id_pk` PRIMARY KEY(`principal`,`request_id`),
+	KEY `command_receipts_retention` (`created_at`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
 
 CREATE TABLE `control_plane_outbox` (

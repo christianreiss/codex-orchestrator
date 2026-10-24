@@ -19,7 +19,7 @@ export class DashboardStatsService {
     return this.db.select().from(logs).orderBy(desc(logs.createdAt)).limit(safe);
   }
 
-  async latestLogAt():Promise<string|null>{const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return owner.state.snapshot().setting(LATEST_LOG_HEAD);}return (await this.latestLog())?.createdAt??null;}
+  async latestLogAt():Promise<string|null>{const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return owner.state.snapshot().setting(LATEST_LOG_HEAD) || null;}return (await this.latestLog())?.createdAt??null;}
 
   async latestLog(): Promise<typeof logs.$inferSelect | null> {
     const rows = await this.db.select().from(logs).orderBy(desc(logs.createdAt)).limit(1);

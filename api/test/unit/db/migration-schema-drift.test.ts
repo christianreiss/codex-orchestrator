@@ -401,6 +401,8 @@ describe('migrations against the test baseline', () => {
       'workflow_runs.coordinator_native_instance_id',
       'workflow_run_tasks.claim_ownership_mode',
       'workflow_run_tasks.claim_native_instance_id',
+      'control_plane_command_receipts.replay_class',
+      'control_plane_command_receipts.result_state',
     ]);
   });
 

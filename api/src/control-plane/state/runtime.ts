@@ -249,6 +249,7 @@ export async function mutateOwnerState(runtime: OwnerRuntime, mutation: OwnerMut
   const outcome = await runtime.execute({
     principal: commandPrincipal,
     id: commandId,
+    replayClass: action || mutation.id ? 'external' : 'internal',
     kind: mutation.kind,
     payload: mutation.payload,
     authorize(snapshot) {

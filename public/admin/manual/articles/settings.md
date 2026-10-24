@@ -423,3 +423,27 @@ The following variables are read from the process environment at startup. They c
 **Settings → Data retention → Session housekeeping** (`/settings#retention`) sets retention and disk budgets separately for Codex, Claude and Grok. Defaults are automatic removal enabled, 30 days retention, 5 GiB per engine/local user and a minimum of 7 days inactivity when under budget pressure. A host's detail page can inherit the fleet rule or save a full override. Disabling removal preserves configured values.
 
 cxx performs deletion locally during idle maintenance, including associated session history and search indexes. Active sessions, pins, open goals, queued work and fleet resume/wake bindings remain protected. Protected or young sessions can exceed the budget. Removed sessions cannot be resumed. Preview with `cxx housekeeping run --dry-run`; use `cxx housekeeping pin UUID --engine ENGINE` for sessions you want to retain.
+
+### Server history retention (2026-10-24)
+
+**Settings → Data retention → Server history** controls database history separately
+from local engine transcripts. Defaults are 14 audit days, 24 hours of inactive
+communication history and seven days of optional quota history. Current quota
+readings and necessary calculation baselines remain protected.
+
+Save changes before previewing. The preview distinguishes eligible and retained
+records; retained includes younger data and protected work. Deletion rechecks the
+current state in bounded batches. Active native sessions, paused wakes, pending
+work, claims and unresolved outcomes stay protected even when older than the
+chosen interval. A completed cleanup means the guarded pass finished.
+
+External command results expire after 14 days, but compact request IDs and
+checksums remain to prevent duplicate execution. Old repeats return an explicit
+expired-result error rather than running again. Unreferenced internal receipts
+expire after seven days. Account credentials, auth-generation protection,
+library version limits and host-specific transcript rules are separate.
+
+API/MySQL diagnostic logs rotate at three 10 MB files per container. This is a
+size limit, not a seven-day age guarantee. Routine success/access logs stay off.
+Database cleanup creates no additional dump, storage archive or volume snapshot.
+Deleted history requires existing external backups for recovery.

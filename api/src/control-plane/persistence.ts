@@ -28,7 +28,7 @@ export class OwnerPersistence implements CommandPersistence<PersistenceTransacti
       .heldConnection()
       .execute<
         RowDataPacket[]
-      >('SELECT kind, request_digest, owner_epoch, CAST(sequence AS CHAR) AS sequence, result_enc FROM control_plane_command_receipts WHERE principal = ? AND request_id = ?', [principal, id]);
+      >('SELECT kind, request_digest, owner_epoch, CAST(sequence AS CHAR) AS sequence, result_enc, replay_class, result_state FROM control_plane_command_receipts WHERE principal = ? AND request_id = ?', [principal, id]);
     const row = rows[0];
     if (!row) return undefined;
     return {
@@ -37,7 +37,9 @@ export class OwnerPersistence implements CommandPersistence<PersistenceTransacti
       kind: String(row.kind),
       digest: String(row.request_digest),
       revision: { epoch: String(row.owner_epoch), sequence: BigInt(row.sequence as string) },
-      result: JSON.parse(decrypt(String(row.result_enc), this.keyring)) as Json,
+      result: row.result_state === 'expired' ? null : JSON.parse(decrypt(String(row.result_enc), this.keyring)) as Json,
+      replayClass: row.replay_class as CommandReceipt['replayClass'],
+      resultState: row.result_state as CommandReceipt['resultState'],
     };
   }
 
@@ -78,7 +80,7 @@ export class OwnerPersistence implements CommandPersistence<PersistenceTransacti
     if (!connection) throw new Error('Receipt must be recorded inside its owner transaction');
     const now = new Date().toISOString();
     await connection.execute(
-      'INSERT INTO control_plane_command_receipts (principal, request_id, kind, request_digest, owner_epoch, sequence, result_enc, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO control_plane_command_receipts (principal, request_id, kind, request_digest, owner_epoch, sequence, result_enc, created_at, replay_class, result_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         receipt.principal,
         receipt.id,
@@ -88,6 +90,8 @@ export class OwnerPersistence implements CommandPersistence<PersistenceTransacti
         receipt.revision.sequence.toString(),
         encrypt(canonicalCommand(receipt.result), this.keyring),
         now,
+        receipt.replayClass ?? 'external',
+        'available',
       ],
     );
     for (const intent of outbox) {
