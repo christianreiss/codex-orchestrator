@@ -110,11 +110,46 @@ function classify(sql: string): Kind {
   }
 }
 
+/** Narrow recognition of a joined UPDATE with one qualified assignment.
+ * Unknown syntax or multiple assignments keeps conservative invalidation.
+ */
+function joinedUpdateTarget(sql: string): string | undefined {
+  if (!/^\s*update\s/i.test(sql)) return;
+  const set = /\bset\s+`([a-z_][a-z0-9_]*)`\.`[a-z_][a-z0-9_]*`\s*=/i.exec(sql);
+  if (!set || /['"();]|--|\/\*/.test(sql.slice(0, set.index))) return;
+  // A qualifier can be an alias of a different table. Only recognize an
+  // explicitly named, unaliased target in the joined table list.
+  const named = new RegExp('(?:^\\s*update|\\b(?:straight_join|join))\\s+`' + set[1] +
+    '`(?=\\s+(?:on\\b|straight_join\\b|left\\b|right\\b|inner\\b|join\\b|set\\b))', 'i');
+  if (!named.test(sql.slice(0, set.index + 3))) return;
+  let depth = 0, quote = '';
+  for (let i = set.index + set[0].length; i < sql.length; i++) {
+    const ch = sql[i]!;
+    if (quote) {
+      if (ch === '\\') i++;
+      else if (ch === quote) {
+        if (sql[i + 1] === quote) i++;
+        else quote = '';
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') { quote = ch; continue; }
+    if (ch === ';' || sql.slice(i, i + 2) === '--' || sql.slice(i, i + 2) === '/*') return;
+    if (ch === '(') depth++;
+    if (ch === ')' && --depth < 0) return;
+    if (depth === 0 && ch === ',') return;
+    if (depth === 0 && /\s/.test(ch) && /^\s+where\b/i.test(sql.slice(i))) return set[1]!.toLowerCase();
+  }
+  if (!quote && depth === 0) return set[1]!.toLowerCase();
+}
+
 export class ReadCache {
   private readonly tables: Map<string, ReadCacheTable>;
   private readonly known: Set<string>;
   private readonly maxEntries: number;
   private readonly entries = new Map<string, Entry>();
+  /** SQL text is stable across bind values; parse dependencies once per shape. */
+  private readonly dependencies = new Map<string, { cacheable: string[]; other: boolean }>();
   /** Bumped by every write touching the table; a load stores only if unchanged. */
   private readonly writeSeq = new Map<string, number>();
   /** Writes issued but not yet committed or rolled back. */
@@ -148,6 +183,7 @@ export class ReadCache {
     if (this.resyncTimer) clearInterval(this.resyncTimer);
     this.resyncTimer = undefined;
     this.entries.clear();
+    this.dependencies.clear();
   }
 
   flushAll() {
@@ -156,6 +192,8 @@ export class ReadCache {
 
   /** Cacheable tables a statement names, plus whether it names any other table. */
   private tablesIn(sql: string): { cacheable: string[]; other: boolean } {
+    const known = this.dependencies.get(sql);
+    if (known) return known;
     const cacheable = new Set<string>();
     let other = false;
     for (const match of sql.matchAll(/`([^`]+)`|\b([a-z_][a-z0-9_]*)\b/gi)) {
@@ -164,7 +202,12 @@ export class ReadCache {
       if (this.tables.has(word)) cacheable.add(word);
       else other = true;
     }
-    return { cacheable: [...cacheable], other };
+    const result = { cacheable: [...cacheable], other };
+    if (sql.length <= 65_536) {
+      if (this.dependencies.size >= 1024) this.dependencies.delete(this.dependencies.keys().next().value!);
+      this.dependencies.set(sql, result);
+    }
+    return result;
   }
 
   /** `update `t` set ... where `t`.`key` = ?` (Drizzle's shape): the key is the last bind value. */
@@ -194,10 +237,17 @@ export class ReadCache {
 
   private beginWrite(sql: string, values: unknown): Array<{ table: string; row: string | null }> {
     const { cacheable } = this.tablesIn(sql);
+    // A simple single-target UPDATE can read other tables in a guard without
+    // changing them. Invalidating those dependencies made every fenced daemon
+    // heartbeat evict host authorization/configuration reads for the fleet.
+    // JOIN/multi-target/unknown syntax keeps the conservative attribution.
+    const updated = /^\s*update\s+(?:`([a-z_][a-z0-9_]*)`|([a-z_][a-z0-9_]*))\s+set\s/i.exec(sql);
+    const target = (updated?.[1] ?? updated?.[2])?.toLowerCase() ?? joinedUpdateTarget(sql);
+    const written = target && this.known.has(target) ? (this.tables.has(target) ? [target] : []) : cacheable;
     // DDL or a statement we cannot attribute: drop everything.
     const targets = /^\s*(alter|create|drop|truncate|rename)\b/i.test(sql)
       ? [...this.tables.keys()].map((table) => ({ table, row: null }))
-      : cacheable.map((table) => ({ table, row: this.rowTarget(sql, values, table) }));
+      : written.map((table) => ({ table, row: this.rowTarget(sql, values, table) }));
     for (const { table, row } of targets) {
       this.inFlight.set(table, (this.inFlight.get(table) ?? 0) + 1);
       this.invalidate(table, row);

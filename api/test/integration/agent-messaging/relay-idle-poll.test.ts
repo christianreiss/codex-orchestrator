@@ -11,7 +11,7 @@ import { ENGINES } from '../../../src/util/engine.js';
 import { readDbConfig } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 import { preparePeerBatch } from '../../../src/services/agent-messaging/peer-batch.js';
-import { relayLongPoll } from '../../../src/http/relay-long-poll.js';
+import { relayLongPoll, relayLongPollConfig } from '../../../src/http/relay-long-poll.js';
 import { encrypt } from '../../../src/security/secret-box.js';
 import { sha256 } from '../../../src/security/hash.js';
 import { SERVER_ADDRESS_ID } from '../../../src/services/agent-messaging/groups.js';
@@ -462,6 +462,11 @@ describe.skipIf(!config)(
     });
 
     it('rechecks retry and expiry deadlines during a real long poll without notifications', async () => {
+      const originalGrid = relayLongPollConfig.gridMs;
+      // Exercise real MySQL deadline transitions with a short test grid. The
+      // HTTP unit suite separately pins production's 10-second tail behavior.
+      relayLongPollConfig.gridMs = 2000;
+      try {
       const source = await register('deadline-source');
       for (const mode of ['retry', 'expiry']) {
         const { target, relayId, token } = await offlineTargetWithRelay(`deadline-${mode}`);
@@ -485,6 +490,7 @@ describe.skipIf(!config)(
           expect(await messageRow(id)).toMatchObject({ status: 'expired' });
         }
       }
+      } finally { relayLongPollConfig.gridMs = originalGrid; }
     });
 
     it('still reports a disabled service to an idle poll', async () => {

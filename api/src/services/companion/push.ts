@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, gt, isNull, lt, lte } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, lt, lte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../../routes/index.js';
 import {
@@ -35,13 +35,32 @@ export function notificationKind(type: string, followed: boolean, payload: Recor
 /** Replay durable source rows into a unique per-device outbox. No WS dependency. */
 export class CompanionPush {
   readonly transport: FcmTransport;
+  private cleanedAt = 0;
   constructor(private readonly ctx: RouteContext) {
     this.transport = new FcmTransport(ctx.env);
   }
   async tick() {
-    await this.ctx.db.delete(companionPairings).where(lt(companionPairings.expiresAt, nowIso()));
+    if (Date.now() - this.cleanedAt >= 60_000) {
+      await this.ctx.db.delete(companionPairings).where(lt(companionPairings.expiresAt, nowIso()));
+      await this.ctx.db.delete(companionNotifications).where(lt(companionNotifications.expiresAt, isoOffsetSeconds(-86400)));
+      this.cleanedAt = Date.now();
+    }
     if (!this.transport.configured) return;
     const { db, env, keyring } = this.ctx;
+    // Durable cursors/outbox are the wake source. An empty tick must not build
+    // the whole agent roster or lock every device just to find no new events.
+    // Over-matching is harmless: authorization and delivery stay in the body.
+    const [work] = await db.select({ needed: sql<number>`
+      EXISTS (SELECT 1 FROM ${companionNotifications}
+        WHERE ${companionNotifications.state} = 'pending' AND ${companionNotifications.nextAttemptAt} <= ${nowIso()})
+      OR EXISTS (SELECT 1 FROM ${companionDevices}
+        WHERE ${companionDevices.revokedAt} IS NULL AND ${companionDevices.expiresAt} > ${nowIso()}
+          AND ${companionDevices.notifications} = 1 AND ${companionDevices.fcmTokenEnc} IS NOT NULL
+          AND (${companionDevices.eventCursor} < (SELECT MAX(${agentEvents.id}) FROM ${agentEvents})
+            OR EXISTS (SELECT 1 FROM ${insecureAuthRequests}
+              WHERE ${insecureAuthRequests.status} = 'pending')))` })
+      .from(sql`(SELECT 1) AS push_work`).limit(1);
+    if (!work?.needed) return;
     const portal = createAgentPortalService(db, env, keyring);
     const enabled = await portal.isEnabled();
     const fleet = await readFleetEngineState(db);
@@ -296,9 +315,6 @@ export class CompanionPush {
           .where(eq(companionNotifications.id, job.id));
       }
     }
-    await db
-      .delete(companionNotifications)
-      .where(lt(companionNotifications.expiresAt, isoOffsetSeconds(-86400)));
   }
 }
 

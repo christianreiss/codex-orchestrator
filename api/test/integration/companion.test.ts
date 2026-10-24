@@ -353,6 +353,19 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
         .fcmTokenEnc,
     ).toBeNull();
   });
+  it('skips roster construction and device locks when no notification work exists', async () => {
+    await db.delete(companionNotifications).where(eq(companionNotifications.deviceId, connection.device_id));
+    await db.update(companionDevices).set({ fcmTokenEnc: null }).where(eq(companionDevices.id, connection.device_id));
+    const worker = new CompanionPush(ctx);
+    await worker.tick();
+    const query = vi.spyOn(handle!.pool, 'query');
+    const transaction = vi.spyOn(handle!.pool, 'getConnection');
+    try {
+      await worker.tick();
+      expect(transaction).not.toHaveBeenCalled();
+      expect(query).toHaveBeenCalledTimes(1);
+    } finally { query.mockRestore(); transaction.mockRestore(); }
+  });
   it('deduplicates urgency pushes by notice and severity and cancels resolved notices', async () => {
     await db.update(companionDevices).set({fcmTokenEnc:encrypt('test-token',ctx.keyring)}).where(eq(companionDevices.id,connection.device_id));
     const worker=new CompanionPush(ctx);const send=vi.spyOn(worker.transport,'send').mockResolvedValue('sent');

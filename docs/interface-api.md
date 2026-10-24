@@ -1716,6 +1716,31 @@ history are retained; there is no automatic Agent Messaging history purge.
 
 An idle relay uses the same strict FIFO readiness predicate as its authoritative claim. A due queued follower behind an earlier queued message or accepted/leased/reboot-held work does not start an empty claim transaction. Completion or the head becoming due makes normal delivery eligible on the next observation. Expired messages, lease reconciliation, routine-notice retirement and safe digest recovery still enter their existing locked paths. This observation caches no authorization or queue results.
 
+Waiters sharing one credential join only an in-flight idle check on a 10-second
+grid. After the last grid point before the request deadline they wait for that
+deadline or a work event; they do not revert to faster polling. Every new request
+performs its own admission check, and committed work wakes parked requests.
+
+### Idle coordination maintenance
+
+An active resource claim owned by the current, present binding can be read or
+renewed inside the existing bus transaction without reconciling every fleet
+member. Waiting, expired, uncertain, foreign and conflict-response paths still
+reconcile. The background reconciler continues to enforce expiry and membership.
+
+An unchanged secure daemon heartbeat checkpoints its timestamp with generation,
+connection, metadata and secure-host predicates. A raced predicate falls back to
+the locked path; insecure-window renewal and changed metadata remain transactional.
+Daemon retention, queue expiry and idle/question timeouts run on the shared
+60-second sweep, rather than also scanning on each heartbeat. Beats do not count
+as session activity. Timeouts can therefore be applied up to one sweep later.
+
+The companion push worker checks durable pending outbox deadlines and device
+event cursors before constructing session rosters. Its five-second tick still
+observes new events, approvals and retry deadlines; authorization and notification
+deduplication remain in the original delivery path. Pairing and notification
+retention run once per minute independently of whether notification work exists.
+
 
 ## Agent sessions
 
@@ -2864,7 +2889,7 @@ contracts. See [communicator protocol, lifecycle and rollout](communicator.md).
 
 Native process controls (cxx 0.9.85):
 
-- `POST /host/agent-sessions/{id}/native-control` uses the session bridge credential and body `{protocol:1, instance_id:<uuid>, report?:{request_id:<uuid>, status:"accepted"|"exited"|"refused"}}`. The owning wrapper polls every three seconds only after starting its child. Registration pins the process instance and current binding generation. A replacement binding is refused. `exited` is sent only after the wrapper observes Wait complete; an accepted request is not an exit receipt. Legacy servers return 404 and the wrapper stops capability polling.
+- `POST /host/agent-sessions/{id}/native-control` uses the session bridge credential and body `{protocol:1, instance_id:<uuid>, report?:{request_id:<uuid>, status:"accepted"|"exited"|"refused"}}`. From cxx 0.9.121 the owning wrapper polls every ten seconds only after starting its child (older wrappers use three seconds). Registration pins the process instance and current binding generation. Timestamp-only checkpoints recheck the live session/address binding, ready status and absent request in the conditional write; a racing change enters the locked path. A replacement binding is refused. `exited` is sent only after the wrapper observes Wait complete; an accepted request is not an exit receipt. Legacy servers return 404 and the wrapper stops capability polling.
 - `POST /admin/agent-sessions/{id}/stop` requires `agent_portal.manage`, enabled portal/engine and body `{client_message_id:<uuid>, expect:{instance_id:<uuid>, binding_generation:<integer>}}`. A fresh capability is required (15 seconds); otherwise 404/409. Concurrent identical requests share one durable request; a changed key or actor cannot supersede it. The bound watchdog is disabled, and recovery for the current scheduled execution is canceled. Future ordinary schedule ticks remain configured. Audited as `agent_session.native_stop`.
 - `GET /admin/agent-sessions/{id}/stop` requires `agent_portal.read`; returns the retained control view or null. Fields: `instance_id`, `binding_generation`, `request_id`, `available`, `updated_at`, and `status` (`ready`, `requested`, `accepted`, `exited`, `refused`, or derived `unknown`). A pending receipt older than 15 seconds is unknown; a delayed matching exit receipt can settle it. Receipts survive session completion until session retention removes the row.
 - `GET /admin/topology` adds nullable `agents[].native_control` with that view. It is independent of communicator parentage. Daemon launches retain their existing daemon stop contract; the native endpoint refuses them with `409 native_stop_daemon_managed`. Other managed launches use native stop when available; record-only close remains separate.

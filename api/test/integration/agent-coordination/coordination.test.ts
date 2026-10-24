@@ -321,6 +321,15 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       waiter = x.state === 'active' ? b! : a!;
     const held = x.state === 'active' ? x : y,
       waiting = x.state === 'active' ? y : x;
+    const reconcile = vi.spyOn(service, 'reconcile');
+    try {
+      const renewed = await service.claims.status(owner.id, owner.token, { claim_id: held.id, renew: true });
+      expect(renewed).toMatchObject({ state: 'active', session_id: owner.id, generation: held.generation });
+      expect(Date.parse(renewed.expires_at)).toBeGreaterThanOrEqual(Date.parse(held.expires_at));
+      expect(reconcile).not.toHaveBeenCalled();
+      await expect(service.claims.status(waiter.id, waiter.token, { claim_id: held.id, renew: true }))
+        .rejects.toThrow('another session');
+    } finally { reconcile.mockRestore(); }
     const ownerMail = await handle!.db.select().from(agentBusMessages)
       .where(eq(agentBusMessages.targetSessionId, owner.id));
     const conflictNotices = ownerMail.filter((m) => decrypt(m.contentEnc, keyring).startsWith('CLAIM/1\n'));

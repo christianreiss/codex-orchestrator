@@ -357,8 +357,35 @@ export class HostDaemonService {
     });
   }
   async heartbeat(id: number, generation: string, engines: string[], error: string | null, activeSessions: string[] = []) {
-    await this.eligible(id, undefined, true);
-    await this.sweep(id);
+    const config = await this.eligible(id, undefined, true);
+    // Retention and idle deadlines are handled by the shared 60-second sweep.
+    // Repeating that scan on every transport beat reread all historical work.
+    const host = await this.host(id);
+    const runtime = config.runtime;
+    const age = Date.now() - Date.parse(runtime?.heartbeat_at ?? '');
+    if (host.secure === 1 && runtime?.generation === generation && runtime.connected &&
+      runtime.error === error && JSON.stringify(runtime.engines) === JSON.stringify(engines) &&
+      age >= 0 && age < 45_000) {
+      // No access-window renewal or state transition: checkpoint one field.
+      // Generation fencing and JSON_SET preserve concurrent runtime changes.
+      // Join in the existing host -> daemon lock order. A child UPDATE with
+      // an EXISTS host guard locks them backwards and can deadlock configure.
+      const [written] = await this.db.execute(sql`UPDATE ${hosts}
+        STRAIGHT_JOIN ${hostDaemons} ON ${hostDaemons.hostId} = ${hosts.id}
+        SET ${hostDaemons.runtime} = JSON_SET(${hostDaemons.runtime}, '$.heartbeat_at',
+          GREATEST(JSON_UNQUOTE(JSON_EXTRACT(${hostDaemons.runtime}, '$.heartbeat_at')), ${now()}))
+        WHERE ${hosts.id} = ${id} AND ${hosts.secure} = 1
+          AND JSON_UNQUOTE(JSON_EXTRACT(${hostDaemons.runtime}, '$.generation')) = ${generation}
+          AND JSON_EXTRACT(${hostDaemons.runtime}, '$.connected') = TRUE
+          AND JSON_EXTRACT(${hostDaemons.runtime}, '$.engines') = CAST(${JSON.stringify(engines)} AS JSON)
+          AND JSON_EXTRACT(${hostDaemons.runtime}, '$.error') = CAST(${JSON.stringify(error)} AS JSON)`);
+      if (written.affectedRows) {
+        const work = await this.db.select({ id: sessions.id }).from(sessions)
+          .where(and(eq(sessions.hostId, id), eq(sessions.status, 'stopping')));
+        this.changed(id);
+        return { settings: { ...config.settings, enabled: daemonAccepting(config.settings) }, stop: work.map((s) => s.id) };
+      }
+    }
     let renewed = false;
     await this.db.transaction(async (tx) => {
       await tx.select().from(hosts).where(eq(hosts.id, id)).for('update');

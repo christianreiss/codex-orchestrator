@@ -121,6 +121,33 @@ describe('db read cache', () => {
     expect(fake.calls.filter((c) => c === byId)).toHaveLength(4);
   });
 
+  it('retains a guard table but invalidates the written table in a conditional update', async () => {
+    const fake = fakePool();
+    installReadCache(fake.pool, { tables, allTables });
+    const version = 'select `version` from `versions`';
+    await fake.pool.query(byId, [1, 1]);
+    await fake.pool.query(version);
+    await fake.pool.query('update `versions` set `version` = ? where exists (select 1 from `hosts` where `id` = ?)', ['next', 99]);
+    await fake.pool.query(byId, [1, 1]);
+    await fake.pool.query(version);
+    expect(fake.calls.filter(c => c === byId)).toHaveLength(1);
+    expect(fake.calls.filter(c => c === version)).toHaveLength(2);
+    // Multi-target updates retain conservative invalidation of both tables.
+    await fake.pool.query('update `versions` join `hosts` on `hosts`.`id` = 1 set `versions`.`version` = ?, `hosts`.`name` = ?', ['x', 'y']);
+    await fake.pool.query(byId, [1, 1]);
+    await fake.pool.query(version);
+    expect(fake.calls.filter(c => c === byId)).toHaveLength(2);
+    expect(fake.calls.filter(c => c === version)).toHaveLength(3);
+    await fake.pool.query("UPDATE `hosts` STRAIGHT_JOIN `versions` ON `hosts`.`id` = 1 SET `versions`.`version` = JSON_SET('{}', '$.v', ?) WHERE `hosts`.`id` = ?", ['x', 99]);
+    await fake.pool.query(byId, [1, 1]);
+    await fake.pool.query(version);
+    expect(fake.calls.filter(c => c === byId)).toHaveLength(2);
+    expect(fake.calls.filter(c => c === version)).toHaveLength(4);
+    await fake.pool.query('UPDATE `hosts` AS `versions` SET `versions`.`name` = ? WHERE `versions`.`id` = ?', ['x', 99]);
+    await fake.pool.query(byId, [1, 1]);
+    expect(fake.calls.filter(c => c === byId)).toHaveLength(3);
+  });
+
   it('settles a rolled back or abandoned transaction', async () => {
     const fake = fakePool();
     const cache = installReadCache(fake.pool, { tables, allTables });

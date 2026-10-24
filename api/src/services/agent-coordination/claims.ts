@@ -220,12 +220,21 @@ export class ResourceClaims {
       id,
       token,
       async (tx, session) => {
-        await this.core.reconcile(tx);
-        const [claim] = await tx
+        let [claim] = await tx
           .select()
           .from(agentResourceClaims)
           .where(eq(agentResourceClaims.id, body.claim_id));
         if (!claim) throw new NotFoundError('Claim not found');
+        // The bus transaction already fences the caller's current binding.
+        // An unchanged live lease only needs its owner and deadline, not a
+        // reconciliation of every session, title, membership and claim.
+        // Waiting, stale and third-party responses retain that reconciliation.
+        if (body.response || claim.sessionId !== id || claim.generation !== session!.bindingGeneration ||
+          claim.state !== 'active' || Date.parse(claim.expiresAt) <= Date.now() || !this.core.present(session!)) {
+          await this.core.reconcile(tx);
+          [claim] = await tx.select().from(agentResourceClaims).where(eq(agentResourceClaims.id, body.claim_id));
+          if (!claim) throw new NotFoundError('Claim not found');
+        }
         if (body.response) {
           if (!(claim.blockers as Array<{ session_id: string }>).some((b) => b.session_id === id))
             throw new ForbiddenError('Only a conflicting owner may answer');

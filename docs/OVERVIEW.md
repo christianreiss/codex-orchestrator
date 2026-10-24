@@ -156,6 +156,15 @@ authorization or queue results. Scope reconciliation batches scope and binding
 lookups within its transaction instead of rereading them for each session.
 See [startup measurements and verification](archive/startup-performance-2026-10-15.md).
 
+Idle coordination avoids repeating fleet work for each transport beat: active
+claim renewals keep their locked ownership checks without reconciling unrelated
+memberships, daemon retention runs on one shared 60-second sweep, and companion
+push builds snapshots only when its durable cursor or outbox shows work. Relay
+long polls retain their 10-second grid until timeout and still wake on committed
+work. Timestamp-only native and secure-daemon checkpoints use conditional writes;
+generation changes and work transitions retain the transactional paths. These
+reductions work with existing wrappers and do not extend presence deadlines.
+
 Fleet installation, update/sync and successful managed launches prepare the native
 `codex`, `claude` and `grok` command names for assigned engines. Per-user scripts
 under `~/.cxx/native-bin` invoke `cxx native <engine> -- <native arguments>`;

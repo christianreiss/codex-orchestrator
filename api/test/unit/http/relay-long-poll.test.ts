@@ -104,6 +104,28 @@ describe('shared idle checks across waiters of one relay credential', () => {
   // A database check takes time; resolving in a microtask would hide whether a sibling joined the one in flight.
   const io = <T>(value: T, ms = 10) => () => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
 
+  it('does not fall back to two-second polling in the tail of a ten-second grid', async () => {
+    vi.useFakeTimers();
+    relayLongPollConfig.gridMs = 10_000;
+    try {
+      const k = key();
+      const first = relayGridDelay(k, Date.now());
+      const check = vi.fn(async () => true);
+      const poll = vi.fn(async () => null);
+      const result = relayLongPoll(poll, Date.now() + first + 9000, () => false, undefined, { key: k, check });
+      await vi.advanceTimersByTimeAsync(first + 8000);
+      expect(check).toHaveBeenCalledTimes(1);
+      // A committed work event still wakes this final, longer wait promptly.
+      wsPublisher.publish('agent_messaging.message.changed', {});
+      await vi.advanceTimersByTimeAsync(0);
+      expect(check).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(await result).toBeNull();
+      expect(poll).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { relayLongPollConfig.gridMs = 2000; }
+  });
+
   it('gives every new request its own first poll, then one shared check per grid point', async () => {
     vi.useFakeTimers();
     const k = key();

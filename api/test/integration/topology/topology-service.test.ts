@@ -1,5 +1,5 @@
 import { NativeStopService } from '../../../src/services/native-stop.js';
-import { agentNativeControls, agentSessions, agentWatchdogs, agentSchedules } from '../../../src/db/schema.js';
+import { agentBusAddresses, agentNativeControls, agentSessions, agentWatchdogs, agentSchedules } from '../../../src/db/schema.js';
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -185,8 +185,9 @@ describe.skipIf(!handle)('topology service against MySQL', () => {
       expect((await control.get(a.session_id))?.updated_at).toBe(before?.updated_at);
       await db!.update(agentNativeControls).set({ updatedAt: new Date(Date.now() - 8000).toISOString() }).where(eq(agentNativeControls.sessionId, a.session_id));
       await control.poll(a.session_id, instance);
-      expect(connection).toHaveBeenCalledTimes(1);
+      expect(connection).not.toHaveBeenCalled();
       expect(Date.now() - Date.parse((await control.get(a.session_id))!.updated_at)).toBeLessThan(2000);
+      expect((await control.get(a.session_id))?.available).toBe(true);
     } finally { connection.mockRestore(); }
     await expect(control.poll(a.session_id, randomUUID())).rejects.toThrow('binding changed');
   });
@@ -210,6 +211,85 @@ describe.skipIf(!handle)('topology service against MySQL', () => {
     expect((await control.get(a.session_id))?.status).toBe('exited');
     await db!.update(agentNativeControls).set({ updatedAt: '2000-01-01T00:00:00Z' }).where(eq(agentNativeControls.sessionId, a.session_id));
     expect((await control.get(a.session_id))?.status).toBe('exited');
+  });
+
+  it('fences a binding change or stop arriving between the idle read and checkpoint', async () => {
+    for (const change of ['binding', 'stop']) {
+      const a = await live(host, 'codex');
+      const control = new NativeStopService(db!);
+      const instance = randomUUID();
+      const initial = await control.poll(a.session_id, instance);
+      await db!.update(agentNativeControls).set({ updatedAt: new Date(Date.now() - 8000).toISOString() })
+        .where(eq(agentNativeControls.sessionId, a.session_id));
+      const query = handle!.pool.query.bind(handle!.pool);
+      const hook = vi.spyOn(handle!.pool, 'query');
+      let requestId: string | null = null;
+      let changed = false;
+      hook.mockImplementation(async (options, values) => {
+        const result = await query(options, values);
+        const text = typeof options === 'string' ? options : options.sql;
+        if (text.startsWith('select ') && text.includes('from `agent_native_controls`') && text.includes('inner join')) {
+          hook.mockRestore();
+          changed = true;
+          if (change === 'binding') {
+            await db!.update(agentSessions).set({ bindingGeneration: initial.binding_generation + 1 })
+              .where(eq(agentSessions.id, a.session_id));
+          } else {
+            requestId = (await control.request(a.session_id, randomUUID(), initial, 1)).request_id;
+          }
+        }
+        return result;
+      });
+      try {
+        if (change === 'binding') await expect(control.poll(a.session_id, instance)).rejects.toThrow('binding changed');
+        else expect((await control.poll(a.session_id, instance)).request_id).toBe(requestId);
+        expect(changed).toBe(true);
+      } finally { hook.mockRestore(); }
+    }
+  });
+
+  it.each(['session', 'address'])('takes the %s lock before the control checkpoint and rechecks a blocked binding', async (held) => {
+    const a = await live(host, 'codex');
+    const addressId = randomUUID(), now = new Date().toISOString();
+    await db!.insert(agentBusAddresses).values({ id: addressId, address: `agent:${addressId}`, hostId: host.id,
+      engine: 'codex', username: 'topo', cwd: '/srv/codex', cwdHash: addressId.replaceAll('-', '').repeat(2),
+      currentSessionId: a.session_id, bindingGeneration: 0, lastSeenAt: now, createdAt: now, updatedAt: now });
+    await db!.update(agentSessions).set({ agentBusAddressId: addressId }).where(eq(agentSessions.id, a.session_id));
+    const control = new NativeStopService(db!);
+    const instance = randomUUID();
+    await control.poll(a.session_id, instance);
+    await db!.update(agentNativeControls).set({ updatedAt: new Date(Date.now() - 8000).toISOString() })
+      .where(eq(agentNativeControls.sessionId, a.session_id));
+    const parent = await handle!.pool.getConnection();
+    const query = handle!.pool.query.bind(handle!.pool);
+    let issued!: () => void;
+    const writing = new Promise<void>(resolve => { issued = resolve; });
+    const hook = vi.spyOn(handle!.pool, 'query').mockImplementation((options, values) => {
+      const text = typeof options === 'string' ? options : options.sql;
+      if (/^update /i.test(text) && text.includes('agent_native_controls')) issued();
+      return query(options, values);
+    });
+    let poll: Promise<unknown> | undefined;
+    try {
+      await parent.beginTransaction();
+      if (held === 'session') await parent.query('SELECT id FROM agent_sessions WHERE id = ? FOR UPDATE', [a.session_id]);
+      else await parent.query('SELECT id FROM agent_bus_addresses WHERE id = ? FOR UPDATE', [addressId]);
+      poll = control.poll(a.session_id, instance);
+      void poll.catch(() => {});
+      await writing;
+      await new Promise(resolve => setTimeout(resolve, 100));
+      await parent.query('SELECT session_id FROM agent_native_controls WHERE session_id = ? FOR UPDATE', [a.session_id]);
+      if (held === 'address') {
+        await parent.query('UPDATE agent_bus_addresses SET current_session_id = NULL WHERE id = ?', [addressId]);
+        await parent.commit();
+        await expect(poll).rejects.toThrow('binding changed');
+      } else {
+        await parent.rollback();
+        await expect(poll).resolves.toMatchObject({ request_id: null });
+      }
+    } finally { hook.mockRestore(); await parent.rollback(); parent.release(); await poll?.catch(() => {});
+      await db!.update(agentSessions).set({ agentBusAddressId: null }).where(eq(agentSessions.id, a.session_id));
+      await db!.delete(agentBusAddresses).where(eq(agentBusAddresses.id, addressId)); }
   });
 
   it('refuses stale and changed native bindings without queuing a stop', async () => {

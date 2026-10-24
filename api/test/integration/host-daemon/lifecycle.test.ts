@@ -75,6 +75,21 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
     prompt: 'Return hello',
     client_message_id: randomUUID(),
   });
+  it('checkpoints unchanged secure daemon beats without a transaction or retention scan', async () => {
+    const connection = vi.spyOn(handle!.pool, 'getConnection');
+    const sweep = vi.spyOn(service, 'sweep');
+    try {
+      const result = await service.heartbeat(id, generation, ['codex', 'claude', 'grok'], null);
+      expect(result).toMatchObject({ settings: { enabled: true }, stop: [] });
+      expect(connection).not.toHaveBeenCalled();
+      expect(sweep).not.toHaveBeenCalled();
+      const runtime = (await service.settings(id)).runtime;
+      expect(runtime?.generation).toBe(generation);
+      expect(Date.now() - Date.parse(runtime!.heartbeat_at)).toBeLessThan(2000);
+      await expect(service.heartbeat(id, randomUUID(), ['codex'], null)).rejects.toThrow('generation changed');
+      expect((await service.settings(id)).runtime?.generation).toBe(generation);
+    } finally { connection.mockRestore(); sweep.mockRestore(); }
+  });
   it('peeks an empty offer without a transaction and wakes only after queued work commits', async () => {
     const connection = vi.spyOn(handle!.pool, 'getConnection');
     try {
@@ -91,6 +106,61 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
       expect(await Promise.all(observed)).toEqual([true]);
       expect(await service.offer(id, generation)).toMatchObject({ operation_id: started.operation_id });
     } finally { unsubscribe(); }
+  });
+
+  it('revalidates a replacement generation arriving before the heartbeat write', async () => {
+    const query = handle!.pool.query.bind(handle!.pool);
+    const hook = vi.spyOn(handle!.pool, 'query');
+    const replacement = randomUUID();
+    let changed = false;
+    hook.mockImplementation(async (options, values) => {
+      const text = typeof options === 'string' ? options : options.sql;
+      if (text.startsWith('UPDATE `hosts`') && text.includes('JSON_SET')) {
+        hook.mockRestore();
+        changed = true;
+        const runtime = (await service.settings(id)).runtime!;
+        await handle!.db.update(hostDaemons).set({ runtime: { ...runtime, generation: replacement } })
+          .where(eq(hostDaemons.hostId, id));
+      }
+      return query(options, values);
+    });
+    try {
+      await expect(service.heartbeat(id, generation, ['codex', 'claude', 'grok'], null))
+        .rejects.toThrow('generation changed');
+      expect(changed).toBe(true);
+      expect((await service.settings(id)).runtime?.generation).toBe(replacement);
+    } finally { hook.mockRestore(); }
+  });
+
+  it.each([false, true])('takes the host lock before the daemon checkpoint and rechecks replacement=%s', async (replace) => {
+    const parent = await handle!.pool.getConnection();
+    const query = handle!.pool.query.bind(handle!.pool);
+    let issued!: () => void;
+    const writing = new Promise<void>(resolve => { issued = resolve; });
+    const hook = vi.spyOn(handle!.pool, 'query').mockImplementation((options, values) => {
+      const text = typeof options === 'string' ? options : options.sql;
+      if (/^update /i.test(text) && text.includes('JSON_SET')) issued();
+      return query(options, values);
+    });
+    let beat: Promise<unknown> | undefined;
+    try {
+      await parent.beginTransaction();
+      await parent.query('SELECT id FROM hosts WHERE id = ? FOR UPDATE', [id]);
+      beat = service.heartbeat(id, generation, ['codex', 'claude', 'grok'], null);
+      void beat.catch(() => {});
+      await writing;
+      await new Promise(resolve => setTimeout(resolve, 100));
+      // A child-first UPDATE with EXISTS(host) deadlocks this lock request.
+      await parent.query('SELECT host_id FROM host_daemons WHERE host_id = ? FOR UPDATE', [id]);
+      if (replace) {
+        await parent.query("UPDATE host_daemons SET runtime = JSON_SET(runtime, '$.generation', ?) WHERE host_id = ?", [randomUUID(), id]);
+        await parent.commit();
+        await expect(beat).rejects.toThrow('generation changed');
+      } else {
+        await parent.rollback();
+        await expect(beat).resolves.toMatchObject({ stop: [] });
+      }
+    } finally { hook.mockRestore(); await parent.rollback(); parent.release(); await beat?.catch(() => {}); }
   });
   it('upserts enablement while preserving existing daemon settings', async () => {
     const custom = daemonSettingsSchema.parse({ enabled: true, username: 'worker', default_cwd: '/srv/work', max_parallel: 3, idle_minutes: 25, question_minutes: 120 });
@@ -173,6 +243,10 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
       .set({ lastActivityAt: new Date(Date.now() - 3600_001).toISOString() })
       .where(eq(hostDaemonSessions.id, start.session_id));
     await service.heartbeat(id, generation, ['codex'], null);
+    // Heartbeats are transport liveness, not retention jobs. The route's
+    // shared 60 s sweep owns idle deadlines and does not count beats as work.
+    expect((await service.session(start.session_id)).status).toBe('idle');
+    await service.sweep(id);
     expect((await service.session(start.session_id)).status).toBe('closed');
   });
   it('disable cancels pending starts but lets accepted work finish', async () => {

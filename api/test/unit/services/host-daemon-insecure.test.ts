@@ -121,6 +121,7 @@ describe('insecure persistent daemon', () => {
     const before = row(hosts).insecureEnabledUntil;
     await svc.heartbeat(1, generation, ['codex'], null);
     expect(row(hosts).insecureEnabledUntil).toEqual(before);
+    await svc.sweep(1);
     expect(row(hostDaemonSessions).status).toBe('closed');
   });
   it('does not renew queued work, forged IDs, stale generations, stale heartbeats or expired windows', async () => {

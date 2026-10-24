@@ -131,7 +131,10 @@ export async function relayLongPoll<T>(
         if (idle && relayGridDelay(idle.key, Date.now()) < remaining) {
           cancel = onGrid(idle.key, done);
         } else {
-          const timer = setTimeout(done, Math.min(FALLBACK_MS, remaining));
+          // A proven-idle waiter beyond its last grid point only needs its
+          // deadline (or a work event). Falling back to 2 s here silently
+          // recreated rapid polling in the tail of every 25 s request.
+          const timer = setTimeout(done, idle ? remaining : Math.min(FALLBACK_MS, remaining));
           cancel = () => clearTimeout(timer);
         }
         wake = done;
