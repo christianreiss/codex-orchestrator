@@ -18,6 +18,8 @@ import type { RouteContext } from './index.js';
 import { join, resolve } from 'node:path';
 import { createWrapperBinRegistry } from '../services/wrapper-bin-registry.js';
 import { startWrapperPublishWatch } from '../services/wrapper-publish-watch.js';
+import { createAgentPortalService } from '../services/agent-portal.js';
+import { openNativeControlStream } from '../services/native-control-stream.js';
 
 export type { CommunicatorView };
 
@@ -148,6 +150,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
     app.addHook('onClose', async () => stopWatch());
   }
   const auth = createHostAuthService(ctx);
+  const portal = createAgentPortalService(ctx.db, ctx.env, ctx.keyring);
   const mcpSessions = new McpSessionService(ctx.db);
   const authorize = async (req: FastifyRequest) => {
     if (!ctx.env.CXX_COMMUNICATOR_ENABLED)
@@ -169,6 +172,8 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
     },
     (socket, req) => {
       const connectionID = randomUUID();
+      const nativeStreams = new Map<string, () => void>();
+      let lastFrameAt = Date.now();
       let closed = false,
         inFlight = 0,
         greeted = false,
@@ -348,12 +353,37 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             send({
               type: 'ready',
               protocol: 1,
-              control: ['terminate', 'owner_identity', 'resident_runtime', ...(updateEnabled ? ['wrapper_update'] : [])],
+              control: ['terminate', 'owner_identity', 'resident_runtime', 'native_control_events', ...(updateEnabled ? ['wrapper_update'] : [])],
             });
             return;
           }
           if (!greeted) throw new Error('Handshake required');
           communicatorRegistry.touch(connectionID);
+          lastFrameAt = Date.now();
+          if (parsed.type === 'native_control_unsubscribe') {
+            const frame = z.object({ type: z.literal('native_control_unsubscribe'), id: z.string().uuid() }).strict().parse(parsed);
+            nativeStreams.get(frame.id)?.();
+            nativeStreams.delete(frame.id);
+            return;
+          }
+          if (parsed.type === 'native_control_subscribe') {
+            const frame = z.object({
+              type: z.literal('native_control_subscribe'), id: z.string().uuid(),
+              session_id: z.string().uuid(), instance_id: z.string().uuid(),
+              bridge_token: z.string().min(1).max(1024),
+            }).strict().parse(parsed);
+            if (nativeStreams.has(frame.id) || nativeStreams.size >= 256) throw new Error('Native stream limit');
+            nativeStreams.set(frame.id, openNativeControlStream({
+              db: ctx.db, sessionId: frame.session_id, instanceId: frame.instance_id,
+              alive: () => !closed && Date.now() - lastFrameAt < 45_000,
+              authenticate: async () => {
+                const host = await authorize(req);
+                await portal.authenticateBridge(frame.session_id, frame.bridge_token, host.id);
+              },
+              send: (status, payload) => send({ type: 'native_control', id: frame.id, status, payload }),
+            }));
+            return;
+          }
           if (parsed.type === 'capabilities') {
             const caps = z
               .object({
@@ -638,6 +668,8 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
       });
       socket.on('close', () => {
         closed = true;
+        for (const stop of nativeStreams.values()) stop();
+        nativeStreams.clear();
         clearInterval(timer);
         clearInterval(invalidationTimer);
         unsubscribe();

@@ -6,11 +6,12 @@ import type { Database } from '../db/client.js';
 import { agentNativeControls, agentSessions, hostDaemonPortalBindings, agentBusAddresses, agentWatchdogs, agentScheduleRuns, agentBusMessages } from '../db/schema.js';
 import { ConflictError, NotFoundError } from '../http/errors.js';
 import { stopWatchdogLocked, WATCHDOG_LIVE } from './watchdog-lifecycle.js';
+import { nativeControlConnections } from './native-control-connections.js';
 
 export type NativeControl = typeof agentNativeControls.$inferSelect;
-export function controlView(row: NativeControl | undefined, now = Date.now()) {
+export function controlView(row: NativeControl | undefined, now = Date.now(), connected = false) {
   if (!row) return null;
-  const fresh = now - Date.parse(row.updatedAt) < 15_000;
+  const fresh = connected || now - Date.parse(row.updatedAt) < 15_000;
   return { instance_id: row.instanceId, binding_generation: row.bindingGeneration,
     status: row.requestId && !fresh && ['requested', 'accepted'].includes(row.status) ? 'unknown' : row.status,
     request_id: row.requestId, available: fresh && row.status === 'ready', updated_at: row.updatedAt };
@@ -21,7 +22,7 @@ export class NativeStopService {
   constructor(private readonly db: Database) {}
   async get(sessionId: string) {
     const [row] = await this.db.select().from(agentNativeControls).where(eq(agentNativeControls.sessionId, sessionId));
-    return controlView(row);
+    return controlView(row, Date.now(), row ? nativeControlConnections(this.db).connected(row) : false);
   }
   async poll(sessionId: string, instanceId: string, report?: { request_id: string; status: 'accepted' | 'exited' | 'refused' }) {
     if (!report) {
@@ -106,7 +107,7 @@ export class NativeStopService {
     });
   }
   async request(sessionId: string, key: string, expected: { instance_id: string; binding_generation: number }, actor: number) {
-    return this.db.transaction(async tx => {
+    const result = await this.db.transaction(async tx => {
       const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).for('update');
       const [row] = await tx.select().from(agentNativeControls).where(eq(agentNativeControls.sessionId, sessionId)).for('update');
       if (!session || !row) throw new NotFoundError('Native stop is unavailable');
@@ -117,7 +118,7 @@ export class NativeStopService {
         if (row.clientMessageId !== key || row.actorId !== actor) throw new ConflictError('A stop already exists', 'native_stop_in_progress');
         return { ...controlView(row)!, replayed: true };
       }
-      if (session.endedAt || !controlView(row)?.available) throw new ConflictError('Refresh session status before stopping', 'native_stop_unavailable');
+      if (session.endedAt || !controlView(row, Date.now(), nativeControlConnections(this.db).connected(row))?.available) throw new ConflictError('Refresh session status before stopping', 'native_stop_unavailable');
       if (session.agentBusAddressId) {
         const [address] = await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, session.agentBusAddressId)).for('update');
         if (address?.currentSessionId !== sessionId || address.bindingGeneration !== expected.binding_generation)
@@ -135,5 +136,8 @@ export class NativeStopService {
       await tx.update(agentNativeControls).set(next).where(eq(agentNativeControls.sessionId, sessionId));
       return { ...controlView(next)!, replayed: false };
     });
+    // Notification follows COMMIT, including idempotent retries after a lost reply.
+    nativeControlConnections(this.db).changed(sessionId);
+    return result;
   }
 }

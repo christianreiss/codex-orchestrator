@@ -1,5 +1,6 @@
 import { visibleHost } from '../internal-hosts.js';
 import { controlView } from '../native-stop.js';
+import { nativeControlConnections } from '../native-control-connections.js';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
 import { agentNativeControls, agentBusAddresses, hostDaemonPortalBindings, hostDaemonSessions, hosts } from '../../db/schema.js';
@@ -148,7 +149,7 @@ export class TopologyService {
       daemonBySession,
       tombstones: this.registry.tombstones(now),
     });
-    const nativeBySession = new Map(nativeControls.map(row => [row.sessionId, controlView(row)]));
+    const nativeBySession = new Map(nativeControls.map(row => [row.sessionId, controlView(row, now, nativeControlConnections(db).connected(row))]));
     for (const agent of value.agents) agent.native_control = agent.daemon ? null : nativeBySession.get(agent.id) ?? null;
     this.cached = { at: Date.now(), value };
     return value;
