@@ -65,7 +65,7 @@ export async function readRetentionClock(
     const [rows] =
       await tx.execute(sql`SELECT MAX(CASE WHEN started_at <= ${cutoff} THEN 1 ELSE 0 END) AS has_past,
       MIN(CASE WHEN started_at > ${cutoff} THEN started_at ELSE NULL END) AS next_stamp
-      FROM (SELECT COALESCE((SELECT MAX(e.created_at) FROM agent_events e WHERE e.session_id = s.id AND e.event_type = 'message_accepted'), '1970-01-01T00:00:00.000Z') AS started_at
+      FROM (SELECT COALESCE((SELECT MAX(e.created_at) FROM agent_events e WHERE BINARY e.session_id = BINARY s.id AND e.event_type = 'message_accepted'), '1970-01-01T00:00:00.000Z') AS started_at
         FROM agent_sessions s WHERE s.ended_at IS NULL AND s.active_turn_id IS NOT NULL) active_turns`);
     const row = (rows as unknown as Array<{ has_past: number | null; next_stamp: string | null }>)[0];
     return {
@@ -85,7 +85,7 @@ export async function readRetentionClock(
     const table = sql.identifier(clock.table),
       column = sql.identifier(clock.column);
     return sql`SELECT MAX(CASE WHEN ${column} <= ${threshold} THEN 1 ELSE 0 END) AS has_past,
-      MIN(CASE WHEN ${column} > ${threshold} THEN ${column} ELSE NULL END) AS next_stamp,
+      CONVERT(MIN(CASE WHEN ${column} > ${threshold} THEN ${column} ELSE NULL END) USING utf8mb4) COLLATE utf8mb4_bin AS next_stamp,
       ${clock.delay} AS delay_ms, ${clock.guard ? 1 : 0} AS is_guard FROM ${table}`;
   });
   const [rows] = await tx.execute(sql.join(queries, sql` UNION ALL `));

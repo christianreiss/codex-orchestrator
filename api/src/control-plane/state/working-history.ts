@@ -5,8 +5,8 @@ import type { OwnerStateDraft } from './store.js';
 const CLOSED_FEEDBACK = new Set(['resolved', 'dismissed', 'duplicate']);
 const TERMINAL_RUNS = new Set(['completed', 'blocked', 'dead', 'canceled']);
 const LIVE_WATCHDOGS = new Set(['watching', 'recovering', 'capacity_wait']);
-const feedbackLive = `(f.status NOT IN ('resolved','dismissed','duplicate') OR EXISTS (SELECT 1 FROM feedback_pipeline p WHERE p.feedback_id=f.id AND (p.next_attempt_at IS NOT NULL OR p.lease_token IS NOT NULL OR p.delivery_state='uncertain')))`;
-const scheduleLive = `((s.deleted_at IS NULL AND (NOT EXISTS (SELECT 1 FROM agent_watchdogs w WHERE w.schedule_id=s.id) OR EXISTS (SELECT 1 FROM agent_watchdogs w WHERE w.schedule_id=s.id AND NOT EXISTS (SELECT 1 FROM agent_watchdogs newer WHERE newer.target_address_id=w.target_address_id AND (newer.created_at>w.created_at OR (newer.created_at=w.created_at AND newer.id>w.id)))))) OR EXISTS (SELECT 1 FROM agent_schedule_runs r WHERE r.schedule_id=s.id AND r.status NOT IN ('completed','blocked','dead','canceled')) OR EXISTS (SELECT 1 FROM agent_watchdogs w WHERE w.schedule_id=s.id AND w.status IN ('watching','recovering','capacity_wait')))`;
+const feedbackLive = `(f.status NOT IN ('resolved','dismissed','duplicate') OR EXISTS (SELECT 1 FROM feedback_pipeline p WHERE BINARY p.feedback_id=BINARY f.id AND (p.next_attempt_at IS NOT NULL OR p.lease_token IS NOT NULL OR p.delivery_state='uncertain')))`;
+const scheduleLive = `((s.deleted_at IS NULL AND (NOT EXISTS (SELECT 1 FROM agent_watchdogs w WHERE BINARY w.schedule_id=BINARY s.id) OR EXISTS (SELECT 1 FROM agent_watchdogs w WHERE BINARY w.schedule_id=BINARY s.id AND NOT EXISTS (SELECT 1 FROM agent_watchdogs newer WHERE newer.target_address_id=w.target_address_id AND (newer.created_at>w.created_at OR (newer.created_at=w.created_at AND newer.id>w.id)))))) OR EXISTS (SELECT 1 FROM agent_schedule_runs r WHERE BINARY r.schedule_id=BINARY s.id AND r.status NOT IN ('completed','blocked','dead','canceled')) OR EXISTS (SELECT 1 FROM agent_watchdogs w WHERE BINARY w.schedule_id=BINARY s.id AND w.status IN ('watching','recovering','capacity_wait')))`;
 /** SQL boot projection and the runtime projection below deliberately use the same
  * terminal sets. Unknown outcomes are retained; no age can make them terminal. */
 export function domainHistoryPredicate(name: OwnedTableName): SQL | undefined {
@@ -17,7 +17,7 @@ export function domainHistoryPredicate(name: OwnedTableName): SQL | undefined {
       );
     case 'feedbackPipeline':
       return sql.raw(
-        `EXISTS (SELECT 1 FROM feedback_items f WHERE f.id=feedback_pipeline.feedback_id AND ${feedbackLive})`,
+        `EXISTS (SELECT 1 FROM feedback_items f WHERE BINARY f.id=BINARY feedback_pipeline.feedback_id AND ${feedbackLive})`,
       );
     case 'agentSchedules':
       return sql.raw(
@@ -25,11 +25,11 @@ export function domainHistoryPredicate(name: OwnedTableName): SQL | undefined {
       );
     case 'agentScheduleRuns':
       return sql.raw(
-        `agent_schedule_runs.status NOT IN ('completed','blocked','dead','canceled') OR (EXISTS (SELECT 1 FROM agent_schedules s WHERE s.id=agent_schedule_runs.schedule_id AND ${scheduleLive}) AND NOT EXISTS (SELECT 1 FROM agent_schedule_runs newer WHERE newer.schedule_id=agent_schedule_runs.schedule_id AND (newer.created_at>agent_schedule_runs.created_at OR (newer.created_at=agent_schedule_runs.created_at AND newer.id>agent_schedule_runs.id))))`,
+        `agent_schedule_runs.status NOT IN ('completed','blocked','dead','canceled') OR (EXISTS (SELECT 1 FROM agent_schedules s WHERE BINARY s.id=BINARY agent_schedule_runs.schedule_id AND ${scheduleLive}) AND NOT EXISTS (SELECT 1 FROM agent_schedule_runs newer WHERE newer.schedule_id=agent_schedule_runs.schedule_id AND (newer.created_at>agent_schedule_runs.created_at OR (newer.created_at=agent_schedule_runs.created_at AND newer.id>agent_schedule_runs.id))))`,
       );
     case 'agentWatchdogs':
       return sql.raw(
-        `agent_watchdogs.status IN ('watching','recovering','capacity_wait') OR NOT EXISTS (SELECT 1 FROM agent_watchdogs newer WHERE newer.target_address_id=agent_watchdogs.target_address_id AND (newer.created_at>agent_watchdogs.created_at OR (newer.created_at=agent_watchdogs.created_at AND newer.id>agent_watchdogs.id))) OR EXISTS (SELECT 1 FROM agent_schedule_runs r WHERE r.schedule_id=agent_watchdogs.schedule_id AND r.status NOT IN ('completed','blocked','dead','canceled'))`,
+        `agent_watchdogs.status IN ('watching','recovering','capacity_wait') OR NOT EXISTS (SELECT 1 FROM agent_watchdogs newer WHERE newer.target_address_id=agent_watchdogs.target_address_id AND (newer.created_at>agent_watchdogs.created_at OR (newer.created_at=agent_watchdogs.created_at AND newer.id>agent_watchdogs.id))) OR EXISTS (SELECT 1 FROM agent_schedule_runs r WHERE BINARY r.schedule_id=BINARY agent_watchdogs.schedule_id AND r.status NOT IN ('completed','blocked','dead','canceled'))`,
       );
     default:
       return undefined;

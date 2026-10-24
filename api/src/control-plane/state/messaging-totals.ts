@@ -1,4 +1,4 @@
-import { and, count, eq, inArray } from 'drizzle-orm';
+import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import * as schema from '../../db/schema.js';
 import type { Database } from '../../db/client.js';
 import type { StateSeed } from './catalog.js';
@@ -85,12 +85,12 @@ export async function hydrateMessagingTotals(db: Pick<Database, 'select'>): Prom
   const portal = await db
     .select({ engine: schema.agentSessions.engine, status: schema.agentMessages.status, count: count() })
     .from(schema.agentMessages)
-    .innerJoin(schema.agentSessions, eq(schema.agentSessions.id, schema.agentMessages.sessionId))
+    .innerJoin(schema.agentSessions, sql`BINARY ${schema.agentSessions.id} = BINARY ${schema.agentMessages.sessionId}`)
     .groupBy(schema.agentSessions.engine, schema.agentMessages.status);
   const responses = await db
     .select({ engine: schema.agentSessions.engine, count: count() })
     .from(schema.agentEvents)
-    .innerJoin(schema.agentSessions, eq(schema.agentSessions.id, schema.agentEvents.sessionId))
+    .innerJoin(schema.agentSessions, sql`BINARY ${schema.agentSessions.id} = BINARY ${schema.agentEvents.sessionId}`)
     .where(
       and(
         eq(schema.agentEvents.eventType, 'assistant_message'),

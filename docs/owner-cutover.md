@@ -138,6 +138,8 @@ failures as application regressions.
 Before stopping production, boot the exact image against an isolated database
 with its default Docker command and verify HTTP health. Importing `buildServer`
 is insufficient: bundled standalone-entrypoint guards also depend on `argv`.
+Match existing table definitions and collations in that isolated schema; a new
+baseline alone does not cover older installations' mixed-collation joins.
 
 The real 10-minute idle matrix remains a separate gate: 1/20/200 communicators,
 Codex/Claude/Grok, and 0/1/5 admin tabs. Record SQL statement families and driver

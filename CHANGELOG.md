@@ -1,5 +1,7 @@
 # 2026-10-24
 
+- Support existing mixed MySQL collations when hydrating UUID ownership/history joins and combining retention timestamps. Preserve original owners, exclusions and future cleanup deadlines during startup.
+
 - Restrict the retired quota-writer entrypoint guard to its own filename so the bundled API starts through its default container command.
 
 - Break a workspace/Git service import cycle that produced invalid bundled JavaScript; check every emitted entrypoint with Node before publishing an image. Stop Python media workers with SIGINT during cutover and keep capture credentials in the process environment.

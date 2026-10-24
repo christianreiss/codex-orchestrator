@@ -149,7 +149,7 @@ export async function hydrateOwnerState(
       .select({
         roomId: r.roomId,
         adminId: r.adminId,
-        unreadCount: sql<number>`(SELECT COUNT(*) FROM agent_room_events e WHERE e.room_id=${r.roomId} AND e.created_at>${r.readAt} AND e.actor<>CONCAT('admin:',${r.adminId}))`,
+        unreadCount: sql<number>`(SELECT COUNT(*) FROM agent_room_events e WHERE BINARY e.room_id=BINARY ${r.roomId} AND e.created_at>${r.readAt} AND e.actor<>CONCAT('admin:',${r.adminId}))`,
       })
       .from(r)
       .limit(limits.rowsPerTable + 1);
