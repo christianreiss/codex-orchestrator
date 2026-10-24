@@ -1,5 +1,7 @@
 # 2026-10-24
 
+- Restrict the retired quota-writer entrypoint guard to its own filename so the bundled API starts through its default container command.
+
 - Break a workspace/Git service import cycle that produced invalid bundled JavaScript; check every emitted entrypoint with Node before publishing an image. Stop Python media workers with SIGINT during cutover and keep capture credentials in the process environment.
 
 - Preserve existing legacy resource/Git grants through a quiescent cutover using exact captured identities and fresh native proof; healthy renewals remain in RAM. Add explicit deployment `--no-backup`, retaining writer shutdown and image rollback tags while omitting database/storage archives and credential copies.

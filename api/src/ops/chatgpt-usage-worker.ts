@@ -148,7 +148,9 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-const isMain = import.meta.url === `file://${process.argv[1]}`;
+// Bundling gives imported modules the server URL too; bind this retired CLI to its own name.
+const isMain = import.meta.url === `file://${process.argv[1]}` &&
+  /(?:^|[/\\])chatgpt-usage-worker\.(?:js|ts)$/.test(process.argv[1] ?? '');
 if (isMain) {
   throw new Error('Standalone quota writer retired; startChatGptUsageWorker must run inside the sole API owner');
 }

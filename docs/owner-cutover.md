@@ -135,6 +135,10 @@ migrations and runs `npm run test:coverage`. Use the actual CI system dependenci
 (Python, process utilities, Git, curl), rather than treating missing executable
 failures as application regressions.
 
+Before stopping production, boot the exact image against an isolated database
+with its default Docker command and verify HTTP health. Importing `buildServer`
+is insufficient: bundled standalone-entrypoint guards also depend on `argv`.
+
 The real 10-minute idle matrix remains a separate gate: 1/20/200 communicators,
 Codex/Claude/Grok, and 0/1/5 admin tabs. Record SQL statement families and driver
 counts, HTTP mix, API cgroup CPU, and incremental MySQL CPU. Quiet active native
