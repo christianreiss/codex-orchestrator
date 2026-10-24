@@ -1,3 +1,4 @@
+import { ownerRuntimeFor, resolveOwnerHost } from '../control-plane/state/admission.js';
 import { eq, getTableColumns, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { hosts, versions } from '../db/schema.js';
@@ -23,6 +24,14 @@ const plans = new WeakMap<Database, Map<'hash' | 'legacy', Plan>>();
 
 /** Reuse SQL construction only: every execution reads current rows and flags. */
 export async function readTransportAdmission(db: Database, hash: string, key: string) {
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    owner.assertOwner();
+    const snapshot = owner.state.snapshot();
+    const host = resolveOwnerHost(db, hash, key);
+    if (!host) return null;
+    return { host, apiDisabled: snapshot.setting('api_disabled') === '1', reverseDnsDefault: isTruthyFlagValue(snapshot.setting('reverse_dns_enabled'), false) };
+  }
   let variants = plans.get(db);
   if (!variants) {
     variants = new Map();

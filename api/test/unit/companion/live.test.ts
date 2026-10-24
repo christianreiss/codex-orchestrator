@@ -29,9 +29,11 @@ class Socket implements CompanionSocket {
 describe('companion live invalidations', () => {
   let hub: CompanionLive;
   let sources: CompanionLiveSources;
+  let wake: () => void;
   beforeEach(() => {
     vi.useFakeTimers();
     sources = {
+      subscribe: (listener) => { wake = listener; return () => {}; },
       authorize: vi.fn().mockResolvedValue(['agent_portal.read', 'hosts.activate_insecure']),
       revisions: vi.fn().mockResolvedValue({ agents: 'initial', approvals: 'initial' }),
     };
@@ -62,11 +64,11 @@ describe('companion live invalidations', () => {
     expect(JSON.stringify(first.frames)).not.toMatch(/private-session|secret/);
     expect(first.frames).toEqual(second.frames);
   });
-  it('reconciles expiry and missed events without client polling', async () => {
+  it('reconciles owner source changes without client polling', async () => {
     const socket = await connect();
     vi.mocked(sources.revisions).mockResolvedValue({ agents: 'offline', approvals: 'expired' });
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(socket.frames.at(-1)).toMatchObject({ type: 'changed', scopes: ['agents', 'approvals'] });
+    wake(); await vi.advanceTimersByTimeAsync(60);
+    expect(socket.frames.at(-1)).toMatchObject({ type: 'changed', scopes: ['me', 'agents', 'approvals'] });
   });
   it.each([false, true])('refreshes remote conversation presence when only daemon health changes (host access %s)', async (hostAccess) => {
     vi.mocked(sources.authorize).mockResolvedValue(['agent_portal.read', ...(hostAccess ? ['admin.read'] : [])]);
@@ -76,7 +78,7 @@ describe('companion live invalidations', () => {
     // An unbound queued/running daemon session has no Portal row whose own
     // presence changes. Its projected card still depends on daemon freshness.
     vi.mocked(sources.revisions).mockResolvedValue({ agents: 'unchanged', approvals: 'unchanged', hosts: 'offline' });
-    await vi.advanceTimersByTimeAsync(5000);
+    wake(); await vi.advanceTimersByTimeAsync(60);
     expect(socket.frames.at(-1)?.scopes).toContain('agents');
     expect(socket.frames.at(-1)?.scopes?.includes('hosts')).toBe(hostAccess);
   });
@@ -85,10 +87,10 @@ describe('companion live invalidations', () => {
     const socket = await connect();
     expect(socket.frames.at(-1)?.scopes).toEqual(['me', 'approvals']);
     vi.mocked(sources.authorize).mockResolvedValue([]);
-    await vi.advanceTimersByTimeAsync(5000);
+    wake(); await vi.advanceTimersByTimeAsync(60);
     expect(socket.frames.at(-1)?.scopes).toEqual(['me']);
     vi.mocked(sources.authorize).mockRejectedValue(new UnauthorizedError());
-    await vi.advanceTimersByTimeAsync(5000);
+    wake(); await vi.advanceTimersByTimeAsync(60);
     expect(socket.code).toBe(4001);
   });
   it('refreshes access windows on host changes even without admin.read', async () => {
@@ -106,8 +108,8 @@ describe('companion live invalidations', () => {
     for (const revision of ['host-extended', 'host-expired', 'fleet-opened', 'fleet-closed']) {
       socket.frames = [];
       vi.mocked(sources.revisions).mockResolvedValue({ agents: 'initial', approvals: revision });
-      await vi.advanceTimersByTimeAsync(5000);
-      expect(socket.frames.find((frame) => frame.type === 'changed')).toMatchObject({ type: 'changed', scopes: ['approvals'] });
+      wake(); await vi.advanceTimersByTimeAsync(60);
+      expect(socket.frames.find((frame) => frame.type === 'changed')).toMatchObject({ type: 'changed', scopes: ['me', 'approvals'] });
     }
   });
   it('invalidates rooms only for authorized devices and never sends message bodies', async () => {
@@ -136,7 +138,7 @@ describe('companion live invalidations', () => {
     expect(socket.frames.at(-1)).toMatchObject({ type: 'changed', scopes: ['hosts'] });
     expect(JSON.stringify(socket.frames)).not.toMatch(/host_id|private/);
     vi.mocked(sources.authorize).mockResolvedValue([]);
-    await vi.advanceTimersByTimeAsync(5000);
+    wake(); await vi.advanceTimersByTimeAsync(60);
     wsPublisher.publish('host.daemon.changed', {});
     await vi.advanceTimersByTimeAsync(60);
     expect(socket.frames.at(-1)?.scopes).toEqual(['me']);
@@ -144,8 +146,22 @@ describe('companion live invalidations', () => {
   it('fails closed on an unavailable or hung authority', async () => {
     const socket = await connect();
     vi.mocked(sources.authorize).mockImplementation(() => new Promise(() => {}));
+    wake();
     await vi.advanceTimersByTimeAsync(15_100);
     expect(socket.code).toBe(1013);
+  });
+  it('does no authority reads during ten quiet minutes while transport pings continue', async () => {
+    const socket = await connect();
+    vi.mocked(sources.authorize).mockClear(); vi.mocked(sources.revisions).mockClear();
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(sources.authorize).not.toHaveBeenCalled(); expect(sources.revisions).not.toHaveBeenCalled();
+    expect(socket.frames.at(-1)?.type).toBe('ping');
+  });
+  it('closes exactly at credential expiry without waiting for a domain event', async () => {
+    vi.mocked(sources.authorize).mockResolvedValue({ capabilities: ['agent_portal.read'], expiresAt: new Date(Date.now() + 1000).toISOString() });
+    const socket = await connect();
+    await vi.advanceTimersByTimeAsync(940);
+    expect(socket.code).toBe(4001);
   });
   it('disconnects a slow reader and detaches all callbacks at shutdown', async () => {
     const socket = await connect();

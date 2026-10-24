@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { registerOwnedReceiver, updateOwnedReceiver, statusOwnedReceiver, assertOwnedReceiverClaim, retryOwnedReceiver } from '../control-plane/streams/receiver.js';
 import { smartQueueAllowed, peerBatchAllowed } from './agent-messaging/smart-queue.js';
 import { markWaitingForPresence } from './agent-messaging/presence-feedback.js';
 import { randomUUID } from 'node:crypto';
@@ -70,6 +72,7 @@ export class AgentReceiverService {
     token: string,
     input: { generation: string; protocol: ReceiverState['protocol']; native_session_id: string; capabilities?: { queue_delivery_v1?: boolean; peer_batch_v1?: boolean; claim_gate_v1?: boolean } },
   ) {
+    const owner=ownerRuntimeFor(this.db);if(owner){const result=await registerOwnedReceiver(owner,this.env,id,token,input);this.changed(id);return result;}
     const auth = await this.authenticate(id, token);
     if ({ codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' }[auth.engine] !== input.protocol)
       throw new ForbiddenError('Receiver engine mismatch', 'receiver_engine_mismatch');
@@ -151,6 +154,7 @@ export class AgentReceiverService {
     operation: 'heartbeat' | 'stop' | 'ack',
     input: { source?: ReceiverSource; nonce?: string; failure?: string; claim_gate?: ReceiverClaimGate },
   ) {
+    const owner=ownerRuntimeFor(this.db);if(owner){const result=await updateOwnedReceiver(owner,id,token,generation,operation,input);if(operation!=='heartbeat')this.changed(id);return result;}
     const auth = await this.authenticate(id, token, input.source);
     const peerEnabled = await this.messaging.isEnabled();
     const portalEnabled = await this.portal.isEnabled();
@@ -286,10 +290,12 @@ export class AgentReceiverService {
   }
 
   async status(id: string, token: string) {
+    const owner=ownerRuntimeFor(this.db);if(owner)return statusOwnedReceiver(owner,id,token);
     return { receiver: receiverView((await this.authenticate(id, token)).receiver) };
   }
 
   async claim(id: string, token: string, generation: string, source: ReceiverSource, claimId: string, informationalOnly = false) {
+    const owner=ownerRuntimeFor(this.db);if(owner){assertOwnedReceiverClaim(owner,id,token,generation,source);if(source==='peer'){await this.messaging.notifyPresenceReturn(id);return{delivery:await this.messaging.claimForSession(id,token,claimId,generation,informationalOnly)};}return{message:await this.portal.claimMessage(id,token,claimId,undefined,generation)};}
     if (z.string().uuid().safeParse(id).success && z.string().uuid().safeParse(claimId).success &&
       await idleSessionPoll(this.db, id, this.env, { bridgeToken: token, receiverGeneration: generation, requireReceiver: true, source })) {
       return source === 'peer' ? { delivery: null } : { message: null };
@@ -319,6 +325,7 @@ export class AgentReceiverService {
   }
 
   async retry(id: string) {
+    const owner=ownerRuntimeFor(this.db);if(owner){const result=await retryOwnedReceiver(owner,id);this.changed(id);return result;}
     await this.db.transaction(async (tx) => {
       const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, id)).for('update');
       const state = receiverState(session?.receiver);

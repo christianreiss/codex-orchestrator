@@ -154,7 +154,7 @@ describe("createRunnerStateQuery", () => {
   });
 
   it("polls every 15 s", () => {
-    assert.equal(asQuery(runner.createRunnerStateQuery()).refetchInterval, 15_000);
+    assert.equal(asQuery(runner.createRunnerStateQuery()).refetchInterval, undefined);
   });
 });
 
@@ -179,15 +179,8 @@ describe("run mutations", () => {
   }
 });
 
-describe("polling is the only refresh trigger", () => {
-  it("has no runner WebSocket event to invalidate the state key", () => {
-    // The card's 15 s poll (and the docstring saying so) only holds while the
-    // backend publishes nothing under `runner.`; the day an event lands here it
-    // should invalidate `runnerKeys.state()` instead of being ignored.
-    assert.deepEqual(
-      Object.keys(DEFAULT_INVALIDATIONS).filter((type) => type.startsWith("runner.")),
-      [],
-      "a runner.* WS event exists — wire it to runnerKeys.state() and drop the polling claim",
-    );
+describe("runner owner events", () => {
+  it("invalidates runner queries when the observed state changes", () => {
+    assert.deepEqual(DEFAULT_INVALIDATIONS["runner.state.changed"], [["runner"]]);
   });
 });

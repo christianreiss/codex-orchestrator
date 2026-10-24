@@ -1,3 +1,4 @@
+import {ownerRuntimeFor,ownerReadResponseGuard} from '../../control-plane/state/runtime.js';
 /**
  * Anthropic Server-Sent-Events emitter.
  *
@@ -116,6 +117,7 @@ export async function writeSseResponse(
   reply.status(200);
 
   // Force Fastify to commit headers + own the body.
+  const runtime=reply.server.db?ownerRuntimeFor(reply.server.db):undefined;if(runtime)ownerReadResponseGuard(runtime)();
   reply.hijack();
   const raw = reply.raw;
   // Headers are written lazily by hijack(); ensure they go out now.

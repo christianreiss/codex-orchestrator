@@ -1,3 +1,4 @@
+import type { ManagedHost } from '../../../src/control-plane/state/host-registration.js';
 import { randomUUID } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -59,7 +60,7 @@ describe.skipIf(!handle)('host lifecycle and installer transactions on MySQL', (
     const db = handle!.db; const host = await seed({ engines: 'codex', apiCalls: 1 });
     const transaction = db.transaction.bind(db);
     let signal!: () => void; const started = new Promise<void>(resolve => { signal = resolve; });
-    let change!: Promise<Host>;
+    let change!: Promise<ManagedHost>;
     await transaction(async tx => {
       await tx.select().from(hosts).where(eq(hosts.id, host.id)).for('update');
       vi.spyOn(db, 'transaction').mockImplementationOnce(async (...args) => { signal(); return transaction(...args); });

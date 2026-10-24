@@ -1,3 +1,4 @@
+import { installOwnerUpdates } from "./owner-stream";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import type { ResidentRuntimeReport, Topology, TopologyAgent, TopologyCommunicator } from "../src/lib/api/topology";
@@ -356,6 +357,7 @@ test("filters, collapses and persists preferences without inventing runtime mode
 
 test("native stop keeps its target and waits for an exit receipt", async ({ page }) => {
   const state = await fixtures(page);
+  const publish = await installOwnerUpdates(page);
   state.topology.agents[0].native_control = { instance_id: C2, binding_generation: 3, status: 'ready', request_id: null, available: true, updated_at: new Date().toISOString() };
   let status = 'requested';
   await page.route(`**/admin/agent-sessions/${A1}/stop`, async route => {
@@ -369,13 +371,16 @@ test("native stop keeps its target and waits for an exit receipt", async ({ page
   await expect(page.getByText('Process stop requested', { exact: true })).toBeVisible();
   expect(state.posts[0].body).toMatchObject({ expect: { instance_id: C2, binding_generation: 3 } });
   status = 'unknown';
+  await publish('agent_session.native_stop', { session_id: A1 });
   await expect(page.getByText('Stop outcome unknown', { exact: true })).toBeVisible();
   status = 'exited';
+  await publish('agent_session.native_stop', { session_id: A1 });
   await expect(page.getByText('Process exited', { exact: true })).toBeVisible();
 });
 
 test("embedded chat preserves drafts and spawn preselects the communicator host", async ({ page }) => {
   const state = await fixtures(page, ['hosts.read','agent_portal.read','agent_portal.manage','agent_portal.reveal_transcript','agent_messaging.manage']);
+  await installOwnerUpdates(page);
   const stamp = () => new Date().toISOString();
   const sessions = state.topology.agents.map(a => ({ ...a, launch_name: a.name, read_only: false, ended_at: null, pending_prompt: null, attention: null, active_turn_id: null, close_requested_at: null, relay_enabled: true, relay_heartbeat_at: stamp(), last_event_at: stamp(), work: { task: 'Topology fixture', declared_paths: [], address: a.address } }));
   await page.route('**/admin/agent-sessions', route => route.fulfill({ json: { enabled: true, generated_at: stamp(), timings: { heartbeat_fresh_seconds: 45, relay_fresh_seconds: 60 }, sessions } }));

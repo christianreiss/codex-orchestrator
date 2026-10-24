@@ -15,7 +15,7 @@ export async function writeCoordinationState(enabled: boolean): Promise<Coordina
   return checkedState(await api.post<CoordinationState>(`${scopeBase}/state`, { enabled }));
 }
 export function coordinationStateQuery() {
-  return createQuery(derived(authStore, auth => ({ queryKey: coordinationStateKey, queryFn: readCoordinationState, enabled: auth.can('agent_messaging.read'), retry: false, refetchInterval: 15000 })));
+  return createQuery(derived(authStore, auth => ({ queryKey: coordinationStateKey, queryFn: readCoordinationState, enabled: auth.can('agent_messaging.read'), retry: false })));
 }
 export interface ScopeMember { session_id: string; agent_id: string | null; name: string | null; engine: string; host_id: number; host: string; cwd: string; coordinated: boolean; workspace: { git_root: string | null; git_common_dir: string | null; branch?: string | null; head_sha?: string | null } | null }
 export interface ScopeRoom { id: string; key: string; kind: 'project' | 'host'; title: string; cursor: number; member_count: number; members: ScopeMember[]; next_member_offset: number | null }
@@ -35,5 +35,5 @@ export function coordinationQuery() {
       }
     }
     return snapshot;
-  }, refetchInterval: 15000 });
+  } });
 }

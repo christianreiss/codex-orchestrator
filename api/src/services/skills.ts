@@ -1,3 +1,6 @@
+import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
+import { adminAudit } from '../control-plane/state/admin.js';
 /**
  * Skills domain service. Port of src/Services/SkillService.php (admin slice).
  *
@@ -211,6 +214,26 @@ export class SkillsService {
       }
     }
 
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){
+      const result=await mutateOwnerState(owner,{kind:'skill.store',payload:{slug,sha256:computedSha,displayName,description:description??null,engine},prepare:ctx=>{
+        const existing=ctx.snapshot.table('skills').by('slug',slug)[0];
+        if(existing&&isSourceOwnedSkill(existing))throw new ConflictError('source-managed skill cannot be stored directly','managed_skill');
+        const now=nowIso(),persistedDescription=description===undefined?existing?.description??null:description;
+        const status=!existing?'created':existing.sha256===computedSha&&existing.displayName===displayName&&existing.description===persistedDescription&&existing.engine===engine?'unchanged':'updated';
+        const timestamp=status==='unchanged'?existing!.updatedAt:now;
+        if(status!=='unchanged'){
+          const values={slug,sha256:computedSha,displayName,description:persistedDescription,manifest,sourceHostId,engine,updatedAt:now,deletedAt:null};
+          if(existing)stageUpdate(ctx,'skills',existing.id,values);
+          else{const row={...values,sourceType:null,sourceRepository:null,sourcePath:null,sourceRevision:null,sourceLicense:null,bundleSha256:null,createdAt:now};ctx.write(async tx=>{const inserted=await tx.insert(skills).values(row);ctx.draft.upsert('skills',{id:Number(inserted[0].insertId),...row});});}
+          adminAudit(ctx,'skill.stored',{slug,status,sha256:computedSha});
+        }
+        return {status,slug,uri:canonicalSkillUri(slug),canonical_uri:canonicalSkillUri(slug),sha256:computedSha,updated_at:timestamp,managed:false};
+      }}) as unknown as StoreSkillResult;
+      if(result.status!=='unchanged'){wsPublisher.publish('skill.stored',{slug,status:result.status});wsPublisher.publish('skill.updated',{slug});}
+      return result;
+    }
+
     // The unique slug lookup is a locking read. Under REPEATABLE READ it locks
     // either the existing row or the unique-index gap, so source promotion
     // cannot change ownership between this check and the write.
@@ -317,6 +340,12 @@ export class SkillsService {
         throw new ConflictError('managed skill cannot be deleted directly', 'managed_skill');
       }
     }
+
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){const result=await mutateOwnerState(owner,{kind:'skill.delete',payload:{slug},prepare:ctx=>{
+      const existing=ctx.snapshot.table('skills').by('slug',slug)[0];if(existing&&isSourceOwnedSkill(existing))throw new ConflictError('source-managed skill cannot be deleted directly','managed_skill');
+      if(!existing||existing.deletedAt)return false;const now=nowIso();stageUpdate(ctx,'skills',existing.id,{deletedAt:now,updatedAt:now});adminAudit(ctx,'skill.deleted',{slug});return true;
+    }});if(result)wsPublisher.publish('skill.deleted',{slug});return Boolean(result);}
 
     const deleted = await this.db.transaction(async (tx) => {
       const rows = await tx

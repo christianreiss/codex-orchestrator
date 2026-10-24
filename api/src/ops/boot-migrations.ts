@@ -11,12 +11,11 @@
 
 import { hostname } from 'node:os';
 import pino from 'pino';
-import type { Pool } from 'mysql2/promise';
 import type { Env } from '../env.js';
 import { loggerOptions } from '../util/log.js';
-import { migrationStatus, runMigrations } from '../db/migrator.js';
+import { migrationStatus, runMigrations, type MigrationPool } from '../db/migrator.js';
 
-export async function runBootMigrations(env: Env, pool: Pool): Promise<void> {
+export async function runBootMigrations(env: Env, pool: MigrationPool): Promise<void> {
   // Fastify (and its logger) does not exist yet at this point in boot, so the
   // migrator gets its own pino writing the same shape to the same stream.
   const logger = pino({ ...loggerOptions(env), base: { app: 'codex-orchestrator-api', env: env.APP_ENV, phase: 'migrate' } });
@@ -35,7 +34,7 @@ export async function runBootMigrations(env: Env, pool: Pool): Promise<void> {
   }
 }
 
-async function migrate(env: Env, pool: Pool, logger: pino.Logger): Promise<void> {
+async function migrate(env: Env, pool: MigrationPool, logger: pino.Logger): Promise<void> {
   if (!env.RUN_MIGRATIONS_ON_BOOT) {
     const pending = (await migrationStatus(pool, env.MIGRATIONS_DIR)).filter(
       (state) => state.status === 'pending',

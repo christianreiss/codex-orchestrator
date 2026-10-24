@@ -1,3 +1,5 @@
+import {workflowState} from './workflows/owner.js';
+import type {OwnerStateSnapshot} from '../control-plane/state/store.js';
 import { and, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { workflowRuns, workflowRunMembers, agentBusAddresses } from '../db/schema.js';
@@ -6,7 +8,9 @@ import type { AgentSession } from '../db/schema.js';
 
 type ReadDb = Pick<Database, 'select'>;
 /** Shared resolver for bus groups, room chat and upload paths. Membership never comes from subscriptions. */
+export function ownedWorkflowRunGroup(state:OwnerStateSnapshot,groupId:string){const run=state.table('workflowRuns').all().find(r=>r.communicationGroupId===groupId);if(!run)return null;return{run,members:state.table('workflowRunMembers').by('runId',run.id),closed:run.status==='completed'};}
 export async function resolveWorkflowRunGroup(db: ReadDb, groupId: string, lock = false) {
+  const state=workflowState(db as Database);if(state)return ownedWorkflowRunGroup(state,groupId);
   const query = db.select().from(workflowRuns).where(eq(workflowRuns.communicationGroupId, groupId)).limit(1);
   const [run] = lock ? await query.for('update') : await query;
   if (!run) return null;
@@ -22,7 +26,8 @@ export async function assertWorkflowGroupAccess(db: ReadDb, groupId: string, ses
     if (!member || (write && (member.status !== 'active' || member.sessionId !== session.id || member.bindingGeneration !== session.bindingGeneration)))
       throw new ForbiddenError(write ? 'Active workflow run membership and binding required' : 'Workflow participant history required', 'workflow_member_required');
     if (write) {
-      const [address] = await db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, session.agentBusAddressId!)).limit(1);
+      const state=workflowState(db as Database);
+      const address=state?state.addresses.get(session.agentBusAddressId!):(await db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id,session.agentBusAddressId!)).limit(1))[0];
       if (!address || address.currentSessionId !== session.id || address.bindingGeneration !== member.bindingGeneration)
         throw new ForbiddenError('Workflow participant binding is stale', 'workflow_member_required');
     }
@@ -37,6 +42,8 @@ export async function rejectManagedWorkflowGroupMutation(db: ReadDb, groupId: st
 
 /** Upload writes recheck membership under the bus lock, closing the access-check/finish race. */
 export async function assertWorkflowAttachmentWrite(db: Pick<Database, 'select'>, roomId: string, owner: string) {
+  const state=workflowState(db as Database);
+  if(state){const managed=ownedWorkflowRunGroup(state,roomId);if(!managed)return;if(managed.closed)throw new ConflictError('Workflow run communication is closed','workflow_group_closed');if(owner.startsWith('room:agent:')){const id=owner.slice('room:agent:'.length),member=managed.members.find(m=>m.agentAddressId===id&&m.status==='active'),session=member?state.sessions.get(member.sessionId):undefined,address=state.addresses.get(id);if(!session||session.endedAt||session.bindingGeneration!==member?.bindingGeneration||session.agentBusAddressId!==id||!address||address.currentSessionId!==session.id||address.bindingGeneration!==member?.bindingGeneration)throw new ForbiddenError('Active workflow run membership required','workflow_member_required');}else if(!owner.startsWith('room:admin:'))throw new ForbiddenError('Workflow uploads require room access','workflow_member_required');return;}
   // Look up only to avoid changing locking behavior of ordinary conversations.
   if (!(await resolveWorkflowRunGroup(db, roomId))) return;
   const { versions, agentSessions, agentBusAddresses } = await import('../db/schema.js');

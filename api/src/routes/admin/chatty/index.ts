@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../../../control-plane/state/runtime.js';
+import { startOwnedChatty } from '../../../services/chatty/owner-worker.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../../index.js';
@@ -23,7 +25,9 @@ export async function registerAdminChattyRoutes(app: FastifyInstance, ctx: Route
   const chatty = new ChattyCoordinator(ctx);
   const streams = new Set<() => void>();
   let worker: ReturnType<typeof setInterval> | undefined;
+  let ownedWorker: ReturnType<typeof startOwnedChatty> | undefined;
   app.addHook('onReady', async () => {
+    if (ownerRuntimeFor(ctx.db)) { ownedWorker = startOwnedChatty(chatty, error => app.log.error({err:error}, 'Chatty scheduler failed')); return; }
     worker = setInterval(() => {
       void chatty.tick().catch(() => app.log.warn('Chatty scheduler failed'));
     }, 1000);
@@ -31,6 +35,7 @@ export async function registerAdminChattyRoutes(app: FastifyInstance, ctx: Route
   });
   app.addHook('preClose', async () => {
     if (worker) clearInterval(worker);
+    await ownedWorker?.close();
     chatty.stop();
     for (const close of streams) close();
   });
@@ -117,6 +122,26 @@ export async function registerAdminChattyRoutes(app: FastifyInstance, ctx: Route
       'X-Accel-Buffering': 'no',
     });
     reply.raw.write('retry: 3000\n\n');
+    const runtime = ownerRuntimeFor(ctx.db);
+    if (runtime) {
+      let closed = false, last = '';
+      const close = () => { if (closed) return; closed = true; unsubscribe(); clearInterval(keepalive); clearTimeout(expiry); streams.delete(close); perUser.set(owner.userId, Math.max(0, (perUser.get(owner.userId) ?? 1) - 1)); reply.raw.end(); };
+      const notify = () => {
+        if (closed) return;
+        try {
+          runtime.assertOwner(); chatty.store.owned!.authorize(owner);
+          const snapshot = runtime.state.snapshot(), session = snapshot.table('chattySessions').get(owner.userId);
+          const next = JSON.stringify([session?.generation, session?.eventCursor, session?.selection, chatty.store.owned!.active(owner.userId)]);
+          if (next !== last) { last = next; if (!reply.raw.write(`event: changed\ndata: ${JSON.stringify({generation:session?.generation})}\n\n`)) close(); }
+        } catch { close(); }
+      };
+      const unsubscribe = runtime.state.subscribe(notify);
+      const keepalive = setInterval(() => { if (!closed && !reply.raw.write(': keepalive\n\n')) close(); }, 15_000); keepalive.unref();
+      const expiresAt = runtime.state.snapshot().table('adminSessions').get(owner.sessionId)?.expiresAt;
+      const expiry = setTimeout(close, Math.min(2_147_483_647, Math.max(0, Date.parse(expiresAt ?? '') - Date.now()))); expiry.unref();
+      streams.add(close); reply.raw.once('close',close); notify(); return;
+    }
+
     let closed = false;
     let busy = false;
     let fingerprint = '';

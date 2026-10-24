@@ -1,3 +1,4 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { versions } from '../db/schema.js';
@@ -5,7 +6,8 @@ import { ApiError } from '../http/errors.js';
 import { isTruthyFlagValue } from './settings.js';
 
 /**
- * Reads the `versions` table for the `openai_api_disabled` row. When the value
+ * Reads owned `versions` metadata for the `openai_api_disabled` row, or the
+ * database in legacy fixtures. Owner loss always fails closed. When the value
  * is truthy (see `isTruthyFlagValue`) all `/v1/*` non-OPTIONS routes refuse to
  * run with an OpenAI-shape 503.
  *
@@ -24,6 +26,11 @@ export interface KillSwitch {
 export function makeOpenAiKillSwitch(db: Database, flagName = FLAG_NAME, label = 'OpenAI'): KillSwitch {
   return {
     async isDisabled() {
+      const owner = ownerRuntimeFor(db);
+      if (owner) {
+        owner.assertOwner();
+        return isTruthyFlagValue(owner.state.snapshot().table('versions').get(flagName)?.version);
+      }
       try {
         const rows = await db
           .select({ value: versions.version })

@@ -151,7 +151,8 @@ export function publicAddress(address: AgentBusAddress, fqdn?: string, presence?
   };
 }
 
-export function messageMetadata(message: AgentBusMessage, sender?: AgentBusAddress, target?: AgentBusAddress): Record<string, unknown> {
+export type MessageViewRow = Omit<AgentBusMessage, 'contentEnc' | 'lastErrorEnc'>;
+export function messageMetadata(message: MessageViewRow, sender?: AgentBusAddress, target?: AgentBusAddress): Record<string, unknown> {
   return {
     id: message.id,
     conversation_id: message.conversationId,
@@ -195,11 +196,11 @@ export function messageMetadata(message: AgentBusMessage, sender?: AgentBusAddre
   };
 }
 
-export function messageForParticipant(message: AgentBusMessage, content: string, sender: AgentBusAddress, target: AgentBusAddress): Record<string, unknown> {
+export function messageForParticipant(message: MessageViewRow, content: string, sender: AgentBusAddress, target: AgentBusAddress): Record<string, unknown> {
   return { ...messageMetadata(message, sender, target), content };
 }
 
-export function deliveryView(message: AgentBusMessage, content: string, sender: AgentBusAddress, target: AgentBusAddress): MessageDelivery {
+export function deliveryView(message: MessageViewRow, content: string, sender: AgentBusAddress, target: AgentBusAddress): MessageDelivery {
   return {
     message_id: message.id,
     conversation_id: message.conversationId,
@@ -229,7 +230,8 @@ export function deliveryView(message: AgentBusMessage, content: string, sender: 
     attempts: message.attempts,
     claim_id: message.claimId!,
     lease_owner: message.leaseOwner!,
-    lease_until: message.leaseUntil!,
+    lease_until: message.leaseUntil,
+    ownership_mode: message.ownershipMode,
     expires_at: message.expiresAt,
   };
 }

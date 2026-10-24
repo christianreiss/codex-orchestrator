@@ -1,0 +1,26 @@
+-- Card ownership retains exclusion across disconnect/restart; explicit release ends it.
+SET @board_column_exists=(SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='coord_project_cards' AND column_name='claim_ownership_mode');
+SET @board_column_ddl=IF(@board_column_exists=0,'ALTER TABLE coord_project_cards ADD COLUMN claim_ownership_mode VARCHAR(16) NOT NULL DEFAULT ''timed''','SELECT 1');
+PREPARE board_column_stmt FROM @board_column_ddl;
+EXECUTE board_column_stmt;
+DEALLOCATE PREPARE board_column_stmt;
+SET @board_column_exists=(SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='coord_project_cards' AND column_name='claim_session_id');
+SET @board_column_ddl=IF(@board_column_exists=0,'ALTER TABLE coord_project_cards ADD COLUMN claim_session_id CHAR(36) NULL','SELECT 1');
+PREPARE board_column_stmt FROM @board_column_ddl;
+EXECUTE board_column_stmt;
+DEALLOCATE PREPARE board_column_stmt;
+SET @board_column_exists=(SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='coord_project_cards' AND column_name='claim_binding_generation');
+SET @board_column_ddl=IF(@board_column_exists=0,'ALTER TABLE coord_project_cards ADD COLUMN claim_binding_generation INT NULL','SELECT 1');
+PREPARE board_column_stmt FROM @board_column_ddl;
+EXECUTE board_column_stmt;
+DEALLOCATE PREPARE board_column_stmt;
+SET @board_column_exists=(SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='coord_project_cards' AND column_name='claim_native_instance_id');
+SET @board_column_ddl=IF(@board_column_exists=0,'ALTER TABLE coord_project_cards ADD COLUMN claim_native_instance_id CHAR(36) NULL','SELECT 1');
+PREPARE board_column_stmt FROM @board_column_ddl;
+EXECUTE board_column_stmt;
+DEALLOCATE PREPARE board_column_stmt;
+SET @board_column_exists=(SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='coord_project_cards' AND column_name='claim_uncertainty_reason');
+SET @board_column_ddl=IF(@board_column_exists=0,'ALTER TABLE coord_project_cards ADD COLUMN claim_uncertainty_reason VARCHAR(32) NULL','SELECT 1');
+PREPARE board_column_stmt FROM @board_column_ddl;
+EXECUTE board_column_stmt;
+DEALLOCATE PREPARE board_column_stmt;

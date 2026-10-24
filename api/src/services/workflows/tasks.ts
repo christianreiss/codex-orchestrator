@@ -1,3 +1,4 @@
+import {workflowState,workflowInsert,patchWorkflowRow} from './owner.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { workflowTaskAttempts } from '../../db/schema.js';
@@ -56,6 +57,7 @@ async function finishAttempt(
   t: Task,
   patch: Partial<typeof workflowTaskAttempts.$inferSelect>,
 ) {
+  for(const attempt of workflowState()?.table('workflowTaskAttempts').by('runId',run.id)??[])if(attempt.taskId===t.taskId&&attempt.attemptNo===t.attemptNo)patchWorkflowRow('workflowTaskAttempts',attempt.id,patch);
   await ctx.tx
     .update(workflowTaskAttempts)
     .set(patch)
@@ -87,7 +89,7 @@ export async function taskClaim(ctx: Session, run: Run, input: MutationInput<'ta
     const claim = newClaim(ctx, t);
     token = claim.token;
     await patchTask(ctx, t, { ...claim.patch, status: 'running', attemptNo: t.attemptNo + 1 });
-    await ctx.tx.insert(workflowTaskAttempts).values({
+    await workflowInsert(ctx.tx,'workflowTaskAttempts',{
       id: randomUUID(),
       runId: run.id,
       taskId: t.taskId,
@@ -98,6 +100,7 @@ export async function taskClaim(ctx: Session, run: Run, input: MutationInput<'ta
     });
   } else if (input.action === 'renew') {
     checkClaim(ctx, t, input.claim_token, input.claim_generation, !!t.claimRecovery);
+    if(t.claimOwnershipMode==='connection')return taskView(t,ctx.now);
     await patchTask(ctx, t, { claimLeaseUntil: leaseUntil(ctx.now) });
   } else if (input.action === 'release') {
     checkClaim(ctx, t, input.claim_token, input.claim_generation, !!t.claimRecovery);

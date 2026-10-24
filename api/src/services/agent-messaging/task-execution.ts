@@ -1,3 +1,8 @@
+import { ownerRuntimeFor, mutateOwnerState, type OwnerRuntime } from '../../control-plane/state/runtime.js';
+import { stageUpdate } from '../../control-plane/state/rows.js';
+import { requireOwnedMessaging, ownedAddress } from '../../control-plane/state/messaging.js';
+import { nowIso } from '../../util/timestamp.js';
+import { NotFoundError } from '../../http/errors.js';
 /** Durable domain results and one-use native replacement authorization. */
 import { newQueuedMessage } from './views.js';
 import { AGENT_MESSAGING_DEFAULT_TTL_SECONDS } from './constants.js';
@@ -87,6 +92,90 @@ export async function storeTaskResult(
   return result;
 }
 
+export async function approveOwnedFreshStart(
+  runtime: OwnerRuntime,
+  messageId: string,
+  version: number,
+  reason: string,
+  actor: string,
+) {
+  return mutateOwnerState(runtime, {
+    kind: 'message.fresh_start_approve',
+    payload: { messageId, version, reason, actor },
+    authorize: requireOwnedMessaging,
+    prepare: (context) => {
+      const message = context.draft.table('agentBusMessages').get(messageId);
+      if (!message) throw new NotFoundError('Message not found', 'agent_messaging_message_not_found');
+      const target = ownedAddress(context.draft.view(), message.targetAddressId),
+        existing = context.draft.table('agentFreshStartGrants').get(message.id);
+      if (message.kind === 'schedule' || !message.workKind)
+        throw new ValidationError('Fresh-start grants apply only to ordinary work');
+      if (
+        existing?.executionVersion === version + 1 &&
+        message.executionVersion === version + 1 &&
+        existing.reason === reason &&
+        existing.approvedBy === actor
+      )
+        return { grant: existing, hostId: target.hostId, engine: target.engine };
+      if (message.executionVersion !== version)
+        throw new ConflictError('Message changed; retrieve it again', 'agent_execution_version_conflict');
+      if (
+        !['dead', 'ambiguous'].includes(message.status) ||
+        message.lastErrorCode !== 'native_transcript_missing'
+      )
+        throw new ConflictError(
+          'A missing native transcript must be confirmed first',
+          'agent_fresh_start_not_blocked',
+        );
+      if (existing)
+        throw new ConflictError(
+          'This message already used its replacement grant',
+          'agent_fresh_start_already_granted',
+        );
+      const now = nowIso(),
+        grant = {
+          messageId: message.id,
+          targetAddressId: target.id,
+          bindingGeneration: target.bindingGeneration,
+          executionVersion: version + 1,
+          reason,
+          approvedBy: actor,
+          consumedClaimId: null,
+          createdAt: now,
+          consumedAt: null,
+        };
+      context.draft.upsert('agentFreshStartGrants', grant);
+      context.write(async (tx) => {
+        await tx.insert(agentFreshStartGrants).values(grant);
+      });
+      stageUpdate(context, 'agentBusMessages', message.id, {
+        executionContractVersion: 2,
+        executionVersion: version + 1,
+        status: 'queued',
+        attempts: 0,
+        expiresAt: new Date(Date.parse(now) + AGENT_MESSAGING_DEFAULT_TTL_SECONDS * 1000).toISOString(),
+        nextAttemptAt: now,
+        leaseOwner: null,
+        leaseUntil: null,
+        claimId: null,
+        relayGeneration: null,
+        ownerInstanceId: null,
+        deliverySessionId: null,
+        acceptedAt: null,
+        completedAt: null,
+        deadAt: null,
+        ambiguousAt: null,
+        expiredAt: null,
+        canceledAt: null,
+        taskResultStatus: null,
+        lastErrorCode: null,
+        updatedAt: now,
+      });
+      return { grant, hostId: target.hostId, engine: target.engine };
+    },
+  });
+}
+
 export async function approveFreshStart(
   tx: Tx,
   message: AgentBusMessage,
@@ -171,6 +260,18 @@ export async function freshStartAllowed(
   target: AgentBusAddress,
 ): Promise<boolean> {
   if (message.kind === 'schedule' || !message.workKind) return false;
+  const runtime = ownerRuntimeFor(tx);
+  if (runtime) {
+    runtime.assertOwner();
+    const grant = runtime.state.snapshot().table('agentFreshStartGrants').get(message.id);
+    return (
+      !!grant &&
+      grant.targetAddressId === target.id &&
+      grant.bindingGeneration === target.bindingGeneration &&
+      grant.executionVersion === message.executionVersion &&
+      !grant.consumedAt
+    );
+  }
   const [grant] = await tx
     .select()
     .from(agentFreshStartGrants)
@@ -219,25 +320,24 @@ export async function queueTaskResultReply(
   const target = await core.requireAddressLocked(tx, message.senderAddressId);
   if (conversation.status !== 'open' || target.archivedAt || !target.enabled) return;
   const id = randomUUID();
-  await tx
-    .insert(agentBusMessages)
-    .values({
-      ...newQueuedMessage({
-        id,
-        conversationId: message.conversationId,
-        sequence: Number(conversation.nextSequence),
-        sender,
-        senderSessionId: message.deliverySessionId,
-        target,
-        kind: 'reply', deliveryClass: 'coordination',
-        content: report.summary,
-        contentEnc: encrypt(report.summary, keyring),
-        clientMessageId: randomUUID(),
-        expiresAt: new Date(Date.parse(now) + AGENT_MESSAGING_DEFAULT_TTL_SECONDS * 1000).toISOString(),
-        now,
-      }),
-      replyToMessageId: message.id,
-    });
+  await tx.insert(agentBusMessages).values({
+    ...newQueuedMessage({
+      id,
+      conversationId: message.conversationId,
+      sequence: Number(conversation.nextSequence),
+      sender,
+      senderSessionId: message.deliverySessionId,
+      target,
+      kind: 'reply',
+      deliveryClass: 'coordination',
+      content: report.summary,
+      contentEnc: encrypt(report.summary, keyring),
+      clientMessageId: randomUUID(),
+      expiresAt: new Date(Date.parse(now) + AGENT_MESSAGING_DEFAULT_TTL_SECONDS * 1000).toISOString(),
+      now,
+    }),
+    replyToMessageId: message.id,
+  });
   await tx
     .update(agentBusConversations)
     .set({ nextSequence: Number(conversation.nextSequence) + 1, lastActivityAt: now, updatedAt: now })

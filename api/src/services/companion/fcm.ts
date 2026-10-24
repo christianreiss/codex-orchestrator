@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { createSign } from 'node:crypto';
 import type { Env } from '../../env.js';
 
+export class FcmSendError extends Error { constructor(message: string, readonly definitelyNotSent: boolean) { super(message); } }
+
 /** Minimal FCM HTTP v1 transport. Credentials never travel to the app or logs. */
 export class FcmTransport {
   private access: { token: string; until: number } | undefined;
@@ -37,12 +39,14 @@ export class FcmTransport {
     this.access = { token: result.access_token, until: Date.now() + (result.expires_in - 60) * 1000 };
     return result.access_token;
   }
-  async send(token: string, data: Record<string, string>, ttl: number): Promise<'sent' | 'invalid'> {
+  async send(token: string, data: Record<string, string>, ttl: number, beforeSend?: () => void): Promise<'sent' | 'invalid'> {
+    let bearer: string;
+    try { bearer = await this.bearer(); beforeSend?.(); } catch { throw new FcmSendError('FCM preparation failed before send', true); }
     const response = await fetch(
       `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(this.projectId!)}/messages:send`,
       {
         method: 'POST',
-        headers: { Authorization: `Bearer ${await this.bearer()}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: { token, data, android: { priority: 'HIGH', ttl: `${Math.max(0, ttl)}s` } },
         }),
@@ -55,6 +59,6 @@ export class FcmTransport {
     };
     if (body.error?.details?.some((d) => d.errorCode === 'UNREGISTERED')) return 'invalid';
     if (response.status === 401) this.access = undefined;
-    throw new Error(`FCM send HTTP ${response.status}`);
+    throw new FcmSendError(`FCM send HTTP ${response.status}`, [400, 401, 403, 404, 429].includes(response.status));
   }
 }

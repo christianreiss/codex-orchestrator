@@ -1,13 +1,13 @@
-import { and, eq } from 'drizzle-orm';
-import { providerAccounts } from '../db/schema.js';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { createDb } from '../db/client.js';
-import { loadEnv } from '../env.js';
-import { Keyring } from '../security/keyring.js';
+import type { Database } from '../db/client.js';
+import type { Env } from '../env.js';
+import type { FastifyInstance } from 'fastify';
+import { startOwnerWorker } from './owner-worker.js';
+import { requireOwnerMaintenanceCommands } from './owner-maintenance.js';
+import { chatGptUsageObligations } from './provider-obligations.js';
 import { ChatGptUsageService, type FetchResult } from '../services/chatgpt-usage.js';
 import { nowIso } from '../util/timestamp.js';
-import { readFleetEngineState } from '../services/engine-switch.js';
 
 type WorkerLog = {
   info: (...args: unknown[]) => void;
@@ -132,95 +132,16 @@ export function createChatGptUsageWorkerLifecycle(deps: {
   };
 }
 
-async function main(): Promise<void> {
-  const env = loadEnv();
-  const { db, pool } = createDb(env);
-  const log = workerLog();
-  const usage = new ChatGptUsageService(db, log, {
-    env,
-    keyring: Keyring.fromEnv(env),
+/** Provider refresh belongs to the sole API owner; no independent database writer. */
+export function startChatGptUsageWorker(app: FastifyInstance, db: Database, env: Env): void {
+  const commands = requireOwnerMaintenanceCommands(db);
+  const intervalMs = resolveChatGptUsageWorkerIntervalSeconds(env.CHATGPT_USAGE_CRON_INTERVAL) * 1000;
+  startOwnerWorker(app, db, {
+    name: 'chatgpt-usage', tables: ['versions', 'providerAccounts', 'authCanonicalHeads', 'chatgptUsageSnapshots'],
+    select: snapshot => chatGptUsageObligations(snapshot, intervalMs),
+    run: obligation => commands.run('chatgpt-usage', obligation),
+    error: error => app.log.warn({ err: error }, 'owner ChatGPT usage request failed'),
   });
-  const intervalSeconds = resolveChatGptUsageWorkerIntervalSeconds(env.CHATGPT_USAGE_CRON_INTERVAL);
-  const worker = createChatGptUsageWorkerLifecycle({
-    intervalMs: intervalSeconds * 1000,
-    close: () => pool.end(),
-    log,
-    tick: async (signal) => {
-      await runChatGptUsageWorkerTick({
-        signal,
-        usage: {
-          async fetchLatest(force, signal) {
-            const accounts = await db
-              .select()
-              .from(providerAccounts)
-              .where(and(eq(providerAccounts.engine, 'codex'), eq(providerAccounts.state, 'enabled')));
-            signal?.throwIfAborted();
-            if (!accounts.length) return usage.fetchLatest(force, signal);
-            const results: FetchResult[] = [];
-            for (const account of accounts) {
-              signal?.throwIfAborted();
-              try {
-                results.push(
-                  await new ChatGptUsageService(db, log, {
-                    env,
-                    keyring: Keyring.fromEnv(env),
-                    accountId: account.id,
-                  }).fetchLatest(force, signal),
-                );
-              } catch (err) {
-                signal?.throwIfAborted();
-                log.warn(
-                  { account_id: account.id, error: errorMessage(err) },
-                  'account quota refresh failed',
-                );
-              }
-            }
-            return (
-              results.find((r) => r.status === 'ok') ??
-              results[0] ?? { status: 'unavailable', snapshot: null, cached: false, next_eligible_at: null }
-            );
-          },
-        },
-        healthPath: env.CHATGPT_USAGE_HEALTH_PATH,
-        log,
-        codexEnabled: async () => (await readFleetEngineState(db, { fresh: true })).codex,
-      });
-    },
-  });
-
-  const shutdown = async (signal: string): Promise<void> => {
-    log.info({ signal }, 'chatgpt usage worker shutdown requested');
-    try {
-      await worker.stop();
-    } catch (err) {
-      log.error({ err: errorMessage(err) }, 'chatgpt usage worker database shutdown failed');
-      process.exitCode = 1;
-    }
-  };
-  process.once('SIGINT', () => void shutdown('SIGINT'));
-  process.once('SIGTERM', () => void shutdown('SIGTERM'));
-  await worker.start();
-}
-
-function workerLog(): WorkerLog {
-  const write = (level: 'info' | 'warn' | 'error', data: Record<string, unknown>, message: string) => {
-    process.stdout.write(`${JSON.stringify({ level, msg: message, time: nowIso(), ...data })}\n`);
-  };
-  return {
-    info: (data, message) => write('info', logData(data), logMessage(message)),
-    warn: (data, message) => write('warn', logData(data), logMessage(message)),
-    error: (data, message) => write('error', logData(data), logMessage(message)),
-  };
-}
-
-function logData(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : { detail: value ?? null };
-}
-
-function logMessage(value: unknown): string {
-  return typeof value === 'string' ? value : String(value ?? '');
 }
 
 function errorMessage(err: unknown): string {
@@ -229,5 +150,5 @@ function errorMessage(err: unknown): string {
 
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
-  await main();
+  throw new Error('Standalone quota writer retired; startChatGptUsageWorker must run inside the sole API owner');
 }

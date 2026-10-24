@@ -1,3 +1,6 @@
+import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { resolveOwnerAdmin } from '../control-plane/state/admission.js';
+import { adminAudit, credentialDigest, expireUserResetTokens, patchAdminUser, requireCurrentUser, revokeUserSessions, type PasskeyPrincipal } from '../control-plane/state/admin.js';
 import { and, count, eq, gt, ne, sql } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Database } from '../db/client.js';
@@ -101,7 +104,7 @@ export class AdminAuthService {
     return (VALID_ACCESS_LEVELS as readonly string[]).includes(role);
   }
 
-  sanitizeUser(row: AdminUser): SanitizedAdminUser {
+  sanitizeUser(row: Omit<AdminUser, 'passwordHash'>): SanitizedAdminUser {
     return {
       id: row.id,
       name: row.name,
@@ -130,11 +133,18 @@ export class AdminAuthService {
   // ---------- queries ----------
 
   async countUsers(): Promise<number> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); return owner.state.snapshot().table('adminUsers').size; }
     const rows = await this.db.select({ c: count() }).from(adminUsers);
     return Number(rows[0]?.c ?? 0);
   }
 
   async countAdmins(onlyActive = true): Promise<number> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      return owner.state.snapshot().table('adminUsers').all().filter(user => (user.accessLevel === ROLE_OWNER || user.accessLevel === ROLE_ADMIN) && (!onlyActive || user.active === 1)).length;
+    }
     const clauses = [eq(adminUsers.accessLevel, ROLE_OWNER)];
     if (onlyActive) clauses.push(eq(adminUsers.active, 1));
     const rows = await this.db
@@ -161,6 +171,12 @@ export class AdminAuthService {
   async findUserByUsername(username: string): Promise<AdminUser | null> {
     const normalized = username.trim().toLowerCase();
     if (!normalized) return null;
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const user = owner.state.snapshot().table('adminUsers').by('username', normalized)[0];
+      return user ? this.findUserById(user.id) : null;
+    }
     const rows = await this.db
       .select()
       .from(adminUsers)
@@ -171,12 +187,25 @@ export class AdminAuthService {
 
   async findUserById(id: number): Promise<AdminUser | null> {
     if (!Number.isFinite(id) || id <= 0) return null;
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const user = owner.state.snapshot().table('adminUsers').get(id);
+      if (!user) return null;
+      // Password verifiers are cold sensitive content, loaded only for explicit
+      // authentication/password operations; ordinary admission uses metadata.
+      const [secret] = await this.db.select({ passwordHash: adminUsers.passwordHash }).from(adminUsers).where(eq(adminUsers.id, id)).limit(1);
+      if (!secret || credentialDigest(secret.passwordHash) !== user.credentialDigest) throw new UnauthorizedError('Credentials changed', 'invalid_credentials');
+      return { ...user, passwordHash: secret.passwordHash };
+    }
     const rows = await this.db.select().from(adminUsers).where(eq(adminUsers.id, id)).limit(1);
     return rows[0] ?? null;
   }
 
   async hasPasskey(userId: number): Promise<boolean> {
     if (!userId) return false;
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); return owner.state.snapshot().table('adminPasskeys').by('userId', userId).length > 0; }
     const rows = await this.db
       .select({ c: count() })
       .from(adminPasskeys)
@@ -185,6 +214,8 @@ export class AdminAuthService {
   }
 
   async anyPasskeyRegistered(): Promise<boolean> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); return owner.state.snapshot().table('adminPasskeys').size > 0; }
     const rows = await this.db.select({ c: count() }).from(adminPasskeys);
     return Number(rows[0]?.c ?? 0) > 0;
   }
@@ -216,23 +247,34 @@ export class AdminAuthService {
     let updatedHash = user.passwordHash;
     if (verifyResult.rehash) {
       updatedHash = verifyResult.rehash;
-      await this.db
-        .update(adminUsers)
-        .set({ passwordHash: updatedHash, updatedAt: nowIso() })
-        .where(eq(adminUsers.id, user.id));
+      const owner = ownerRuntimeFor(this.db);
+      if (owner) await mutateOwnerState(owner, {
+        kind: 'admin.password.rehash', payload: { userId: user.id, credentialDigest: credentialDigest(updatedHash) },
+        prepare(ctx) {
+          requireCurrentUser(ctx, user.id, credentialDigest(user.passwordHash));
+          patchAdminUser(ctx, user.id, { passwordHash: updatedHash, updatedAt: nowIso() });
+          return null;
+        },
+      });
+      else await this.db.update(adminUsers).set({ passwordHash: updatedHash, updatedAt: nowIso() }).where(eq(adminUsers.id, user.id));
     }
 
     return this.createSession({ ...user, passwordHash: updatedHash }, ip, userAgent, 'admin.auth.login');
   }
 
   async resolveLoginMethod(username: string): Promise<'password' | 'passkey'> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner(); const user = owner.state.snapshot().table('adminUsers').by('username', username.trim().toLowerCase())[0];
+      return user && owner.state.snapshot().table('adminPasskeys').by('userId', user.id).length ? 'passkey' : 'password';
+    }
     const user = await this.findUserByUsername(username);
     if (!user) return 'password';
     return (await this.hasPasskey(user.id)) ? 'passkey' : 'password';
   }
 
   async createSession(
-    user: AdminUser,
+    user: AdminUser | PasskeyPrincipal,
     ip: string | null,
     userAgent: string | null,
     eventType: string,
@@ -242,6 +284,32 @@ export class AdminAuthService {
     const expiresAt = isoOffsetSeconds(this.sessionTtlSeconds());
     const created = nowIso();
 
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, {
+        kind: 'admin.session.create', payload: { userId: user.id, tokenHash, eventType },
+        prepare(ctx) {
+          const verifiedDigest = 'passwordHash' in user ? credentialDigest(user.passwordHash) : user.credentialDigest;
+          const current = requireCurrentUser(ctx, user.id, verifiedDigest);
+          if ('passkeyProof' in user) {
+            const passkey = ctx.draft.table('adminPasskeys').get(user.passkeyProof.id);
+            if (!passkey || passkey.userId !== user.id || passkey.credentialIdHash !== user.passkeyProof.credentialIdHash) throw new UnauthorizedError('Passkey revoked', 'invalid_credentials');
+          }
+          if (eventType === 'admin.auth.login' && ctx.draft.table('adminPasskeys').by('userId', user.id).length) throw new ForbiddenError('Passkey login required for this user', 'passkey_required');
+          const values = { userId: user.id, tokenHash, ip, userAgent: userAgent ? userAgent.slice(0, 255) : null, createdAt: created, lastSeenAt: created, expiresAt };
+          ctx.write(async tx => {
+            const result = await tx.insert(adminSessions).values(values);
+            const id = Number(result[0]?.insertId);
+            if (!Number.isSafeInteger(id) || id < 1) throw new Error('Admin session insert returned no identity');
+            ctx.draft.upsert('adminSessions', { ...values, id });
+          });
+          patchAdminUser(ctx, user.id, { lastLoginAt: created, updatedAt: created });
+          adminAudit(ctx, eventType, { user_id: user.id, username: current.username }, created);
+          return null;
+        },
+      });
+      return { token, expires_at: expiresAt, user: this.sanitizeUser({ ...user, lastLoginAt: created }) };
+    }
     await this.db.insert(adminSessions).values({
       userId: user.id,
       tokenHash,
@@ -274,6 +342,19 @@ export class AdminAuthService {
   async logoutByToken(token: string | null | undefined): Promise<void> {
     if (!token) return;
     const tokenHash = sha256(token);
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, {
+        kind: 'admin.session.logout', responseAuthorization:'commit', payload: { tokenHash },
+        prepare(ctx) {
+          for (const session of ctx.draft.table('adminSessions').by('tokenHash', tokenHash)) ctx.draft.remove('adminSessions', session.id);
+          ctx.write(async tx => tx.delete(adminSessions).where(eq(adminSessions.tokenHash, tokenHash)));
+          adminAudit(ctx, 'admin.auth.logout', {});
+          return null;
+        },
+      });
+      return;
+    }
     await this.db.delete(adminSessions).where(eq(adminSessions.tokenHash, tokenHash));
     await this.db.insert(adminEvents).values({
       type: 'admin.auth.logout',
@@ -318,6 +399,11 @@ export class AdminAuthService {
   // ---------- session invalidation on password change ----------
 
   async deleteSessionsForUserExcept(userId: number, keepTokenHash: string | null): Promise<void> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'admin.sessions.revoke', responseAuthorization:'commit', payload: { userId, keepTokenHash }, prepare(ctx) { revokeUserSessions(ctx, userId, keepTokenHash); return null; } });
+      return;
+    }
     if (keepTokenHash) {
       await this.db
         .delete(adminSessions)
@@ -330,10 +416,16 @@ export class AdminAuthService {
   }
 
   async deleteAllSessionsForUser(userId: number): Promise<void> {
+    if (ownerRuntimeFor(this.db)) return this.deleteSessionsForUserExcept(userId, null);
     await this.db.delete(adminSessions).where(eq(adminSessions.userId, userId));
   }
 
   async expireResetTokensForUser(userId: number): Promise<void> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'admin.resets.expire', payload: { userId }, prepare(ctx) { expireUserResetTokens(ctx, userId, nowIso()); return null; } });
+      return;
+    }
     const now = nowIso();
     await this.db
       .update(adminPasswordResets)
@@ -344,6 +436,18 @@ export class AdminAuthService {
   }
 
   async purgeExpiredSessions(): Promise<void> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const now = nowIso();
+      if (!owner.state.snapshot().adminSessions.all().some(row => row.expiresAt <= now)) return;
+      await mutateOwnerState(owner, { kind: 'admin.sessions.purge', payload: { now }, prepare(ctx) {
+        for (const row of ctx.draft.table('adminSessions').all()) if (row.expiresAt <= now) ctx.draft.remove('adminSessions', row.id);
+        ctx.write(async tx => tx.delete(adminSessions).where(sql`${adminSessions.expiresAt} <= ${now}`));
+        return null;
+      } });
+      return;
+    }
     const now = nowIso();
     await this.db.delete(adminSessions).where(sql`${adminSessions.expiresAt} <= ${now}`);
   }
@@ -352,9 +456,10 @@ export class AdminAuthService {
 
   async resolveSession(
     token: string | null | undefined,
-  ): Promise<{ session: AdminSession; user: AdminUser } | null> {
+  ): Promise<{ session: AdminSession; user: Omit<AdminUser, 'passwordHash'> } | null> {
     if (!token) return null;
     const tokenHash = sha256(token);
+    if (ownerRuntimeFor(this.db)) return resolveOwnerAdmin(this.db, tokenHash);
     const now = nowIso();
     const rows = await this.db
       .select({ session: adminSessions, user: adminUsers })

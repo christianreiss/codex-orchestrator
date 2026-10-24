@@ -2,8 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import type { SkillSourceState } from '../services/mattpocock-skills.js';
 
 export const MATTPOCOCK_SKILLS_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
-const WORKER_POLL_INTERVAL_MS = 30 * 60 * 1000;
-const STARTUP_DELAY_MS = 10_000;
+import type { Database } from '../db/client.js';
+import { startOwnerWorker } from './owner-worker.js';
+import { requireOwnerMaintenanceCommands } from './owner-maintenance.js';
+import { skillSourceObligations } from './provider-obligations.js';
 
 export interface MattPocockSkillsWorkerService {
   getState(): Promise<SkillSourceState>;
@@ -36,32 +38,13 @@ export async function runMattPocockSkillsWorkerTick(
 
 export function startMattPocockSkillsWorker(
   app: FastifyInstance,
-  service: MattPocockSkillsWorkerService,
+  _service: MattPocockSkillsWorkerService,
+  db: Database,
 ): void {
-  let running = false;
-  let stopped = false;
-  const run = async (): Promise<void> => {
-    if (running || stopped) return;
-    running = true;
-    try {
-      const result = await runMattPocockSkillsWorkerTick({ service });
-      if (result === 'refreshed') app.log.info('mattpocock skill source refreshed');
-    } catch (err) {
-      // Last-known-good rows remain live; a source outage must not make the API
-      // unhealthy or block host sync.
-      app.log.warn({ err }, 'mattpocock skill source refresh failed');
-    } finally {
-      running = false;
-    }
-  };
-
-  const first = setTimeout(() => void run(), STARTUP_DELAY_MS);
-  first.unref?.();
-  const timer = setInterval(() => void run(), WORKER_POLL_INTERVAL_MS);
-  timer.unref?.();
-  app.addHook('onClose', async () => {
-    stopped = true;
-    clearTimeout(first);
-    clearInterval(timer);
+  const commands = requireOwnerMaintenanceCommands(db);
+  startOwnerWorker(app, db, {
+    name: 'skill-source', tables: ['versions'], select: skillSourceObligations,
+    run: obligation => commands.run('skill-source', obligation),
+    error: error => app.log.warn({ err: error }, 'owner skill source refresh failed'),
   });
 }

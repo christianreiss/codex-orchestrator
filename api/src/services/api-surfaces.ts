@@ -1,3 +1,4 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 /**
  * Exposed API surfaces and which backend engine serves each one.
  *
@@ -98,7 +99,8 @@ export const identityRouting: SurfaceRouting = {
 };
 
 /**
- * DB-backed routing, read per request so an admin change applies without a
+ * Owner-backed routing reads current committed metadata without SQL or a TTL.
+ * Legacy fixture routing is DB-backed, read per request so an admin change applies without a
  * restart. A 1 s TTL keeps the hot path off the DB; a failed read serves the
  * last value seen, or the identity backend if there is none — refusing traffic
  * because the metadata table glitched is worse than serving it.
@@ -107,6 +109,14 @@ export function createSurfaceRouting(db: Database, ttlMs = 1_000): SurfaceRoutin
   const cache = new Map<ApiSurfaceId, { value: Engine; ts: number }>();
   return {
     async backendFor(surface) {
+      const owner = ownerRuntimeFor(db);
+      if (owner) {
+        owner.assertOwner();
+        return storedBackend(
+          owner.state.snapshot().table('versions').get(API_SURFACES[surface].backendFlag)?.version,
+          surface,
+        );
+      }
       const hit = cache.get(surface);
       if (hit && Date.now() - hit.ts < ttlMs) return hit.value;
       try {
@@ -141,10 +151,24 @@ export interface ApiSurfaceRow {
 export async function listApiSurfaces(db: Database): Promise<ApiSurfaceRow[]> {
   const surfaces = API_SURFACE_IDS.map((id) => API_SURFACES[id]);
   const flagNames = surfaces.flatMap((s) => [s.backendFlag, s.disabledFlag]);
-  const [flagRows, keyRows] = await Promise.all([
-    db.select({ name: versions.name, version: versions.version }).from(versions).where(inArray(versions.name, flagNames)),
-    db.select({ engine: openaiApiKeys.engine }).from(openaiApiKeys).where(eq(openaiApiKeys.isActive, 1)),
-  ]);
+  const owner = ownerRuntimeFor(db);
+  owner?.assertOwner();
+  const snapshot = owner?.state.snapshot();
+  const [flagRows, keyRows] = snapshot
+    ? ([
+        snapshot.table('versions').all(),
+        snapshot
+          .table('openaiApiKeys')
+          .all()
+          .filter((row) => row.isActive === 1),
+      ] as const)
+    : await Promise.all([
+        db
+          .select({ name: versions.name, version: versions.version })
+          .from(versions)
+          .where(inArray(versions.name, flagNames)),
+        db.select({ engine: openaiApiKeys.engine }).from(openaiApiKeys).where(eq(openaiApiKeys.isActive, 1)),
+      ]);
   const flags = new Map(flagRows.map((r) => [r.name, r.version]));
   const keys = new Map<string, number>();
   for (const { engine } of keyRows) keys.set(engine, (keys.get(engine) ?? 0) + 1);

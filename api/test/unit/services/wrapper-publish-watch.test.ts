@@ -14,14 +14,17 @@ describe('wrapper publish watch', () => {
     const unsubscribe = wsPublisher.subscribe((e) => events.push(e.type));
     vi.useFakeTimers();
     try {
-      const stop = startWrapperPublishWatch(registry, 1000);
+      let changed=()=>{};
+      const stop = startWrapperPublishWatch(registry, {binRoot:'/fixture',error:err=>{throw err;},subscribe:callback=>{changed=callback;return ()=>{};}});
       await vi.advanceTimersByTimeAsync(1100);
       expect(events).not.toContain('version.wrapper_published');
       current = '0.9.82';
+      changed();
       await vi.advanceTimersByTimeAsync(1100);
       expect(events.filter((t) => t === 'version.wrapper_published')).toHaveLength(1);
       await vi.advanceTimersByTimeAsync(1100);
       expect(events.filter((t) => t === 'version.wrapper_published')).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
       stop();
     } finally {
       vi.useRealTimers();

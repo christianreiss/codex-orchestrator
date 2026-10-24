@@ -38,8 +38,13 @@ export function safeHashEqual(a: string, b: string): boolean {
   return left.length === right.length && left.length > 0 && timingSafeEqual(left, right);
 }
 
-export function hostAuthFingerprint(host: Pick<Host, 'apiKey' | 'apiKeyHash'>): string {
-  return sha256(host.apiKeyHash || host.apiKey);
+export function hostAuthFingerprint(host: Pick<Host, 'apiKeyHash'> & { apiKey?: string; authFingerprint?: string }): string {
+  // Owner admission deliberately omits cold credentials. Its fingerprint was
+  // derived during hydration or the key-rotation command, before publication.
+  if (host.authFingerprint) return host.authFingerprint;
+  const credential = host.apiKeyHash || host.apiKey;
+  if (!credential) throw new Error('Host credential fingerprint is unavailable');
+  return sha256(credential);
 }
 
 export function isDuplicateKeyError(error: unknown): boolean {

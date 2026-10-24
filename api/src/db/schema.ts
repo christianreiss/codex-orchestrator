@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import type { WorkflowPreparation } from '../services/workflows/contract.js';
 /**
  * Drizzle schema mirror of the cumulative MySQL schema produced by the legacy
@@ -219,6 +220,7 @@ export const providerAccountSessions = mysqlTable(
     engine: varchar('engine', { length: 16 }).notNull(),
     scopeId: varchar('scope_id', { length: 64 }).notNull(),
     accountId: bigint('account_id', { mode: 'number', unsigned: true }).notNull(),
+    ownershipMode: varchar('ownership_mode', { length: 16 }).$type<'timed' | 'connection'>().notNull().default('timed'),
     expiresAt: varchar('expires_at', { length: 100 }).notNull(),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
   },
@@ -913,6 +915,11 @@ export const coordProjectCards = mysqlTable(
     claimedWorktreeHash: char('claimed_worktree_hash', { length: 64 }),
     claimedAgentBusAddressId: char('claimed_agent_bus_address_id', { length: 36 }),
     claimClientRequestId: varchar('claim_client_request_id', { length: 191 }),
+    claimOwnershipMode: varchar('claim_ownership_mode', { length: 16 }).notNull().default('timed'),
+    claimSessionId: char('claim_session_id', { length: 36 }),
+    claimBindingGeneration: int('claim_binding_generation'),
+    claimNativeInstanceId: char('claim_native_instance_id', { length: 36 }),
+    claimUncertaintyReason: varchar('claim_uncertainty_reason', { length: 32 }),
     claimedAt: varchar('claimed_at', { length: 100 }),
     claimExpiresAt: varchar('claim_expires_at', { length: 100 }),
     claimReleasedAt: varchar('claim_released_at', { length: 100 }),
@@ -1603,6 +1610,9 @@ export const agentMessages = mysqlTable(
     contentEnc: longtext('content_enc').notNull(),
     metadataEnc: longtext('metadata_enc'),
     status: varchar('status', { length: 16 }).notNull().default('queued'),
+    ownershipMode: varchar('ownership_mode', { length: 16 }).notNull().default('timed'),
+    ownerInstanceId: char('owner_instance_id', { length: 36 }),
+    ownerBindingGeneration: int('owner_binding_generation', { unsigned: true }),
     attempts: int('attempts', { unsigned: true }).notNull().default(0),
     nextAttemptAt: varchar('next_attempt_at', { length: 100 }).notNull(),
     leaseOwner: varchar('lease_owner', { length: 191 }),
@@ -1839,6 +1849,8 @@ export const agentBusMessages = mysqlTable(
     leaseOwner: varchar('lease_owner', { length: 191 }),
     leaseUntil: varchar('lease_until', { length: 100 }),
     claimId: char('claim_id', { length: 36 }),
+    ownershipMode: varchar('ownership_mode', { length: 16 }).notNull().default('timed'),
+    ownerInstanceId: char('owner_instance_id', { length: 36 }),
     relayGeneration: int('relay_generation', { unsigned: true }),
     targetBindingGeneration: int('target_binding_generation', { unsigned: true }),
     deliverySessionId: char('delivery_session_id', { length: 36 }),
@@ -1958,6 +1970,9 @@ export const gitClones = mysqlTable(
 export const gitWorktrees = mysqlTable(
   'git_worktrees',
   {
+    nativeInstanceId: char('native_instance_id', { length: 36 }),
+    ownershipMode: varchar('ownership_mode', { length: 16 }).notNull().default('timed'),
+    uncertaintyReason: varchar('uncertainty_reason', { length: 32 }),
     id: char('id', { length: 36 }).primaryKey(),
     cloneId: char('clone_id', { length: 36 }).notNull(),
     hostId: bigint('host_id', { mode: 'number', unsigned: true }).notNull(),
@@ -2644,6 +2659,9 @@ export const agentScopeEvents = mysqlTable('agent_scope_events', {
 }, t => ({ sequenceUnique: uniqueIndex('uq_scope_event_seq').on(t.scopeId, t.sequence), requestUnique: uniqueIndex('uq_scope_event_request').on(t.scopeId, t.actor, t.requestId), pendingIdx: index('idx_scope_event_pending').on(t.dispatched, t.createdAt) }));
 
 export const agentResourceClaims = mysqlTable('agent_resource_claims', {
+  nativeInstanceId: char('native_instance_id', { length: 36 }),
+  ownershipMode: varchar('ownership_mode', { length: 16 }).notNull().default('timed'),
+  uncertaintyReason: varchar('uncertainty_reason', { length: 32 }),
   id: char('id', { length: 36 }).primaryKey(),
   // Migration 0089 matches agent_sessions.id's installed charset/collation.
   sessionId: char('session_id', { length: 36 }).notNull(),
@@ -2852,6 +2870,8 @@ export const workflowRuns = mysqlTable('workflow_runs', {
   version: int('version').notNull().default(1), eventSequence: int('event_sequence').notNull().default(0),
   coordinatorAddressId: char('coordinator_address_id', { length: 36 }), coordinatorGeneration: int('coordinator_generation').notNull().default(0),
   coordinatorLeaseUntil: varchar('coordinator_lease_until', { length: 100 }),
+  coordinatorOwnershipMode: varchar('coordinator_ownership_mode',{length:16}).notNull().default('timed'),
+  coordinatorSessionId: char('coordinator_session_id',{length:36}), coordinatorBindingGeneration:int('coordinator_binding_generation'), coordinatorNativeInstanceId:char('coordinator_native_instance_id',{length:36}),
   cancelRequested: tinyint('cancel_requested').notNull().default(0),
   communicationGroupId: char('communication_group_id', { length: 36 }), communication: json('communication').$type<Record<string, unknown>>(),
   summary: text('summary'), criteria: json('criteria').$type<unknown[]>(), results: json('results').$type<Record<string, unknown>>(),
@@ -2889,6 +2909,7 @@ export const workflowRunTasks = mysqlTable('workflow_run_tasks', {
   claimOwnerAddressId: char('claim_owner_address_id', { length: 36 }), claimSessionId: char('claim_session_id', { length: 36 }),
   claimBindingGeneration: int('claim_binding_generation'), claimGeneration: int('claim_generation').notNull().default(0),
   claimTokenHash: char('claim_token_hash', { length: 64 }), claimLeaseUntil: varchar('claim_lease_until', { length: 100 }),
+  claimOwnershipMode:varchar('claim_ownership_mode',{length:16}).notNull().default('timed'), claimNativeInstanceId:char('claim_native_instance_id',{length:36}),
   claimRecovery: tinyint('claim_recovery').notNull().default(0), skipReason: varchar('skip_reason', { length: 32 }),
   reason: text('reason'), outputs: json('outputs').$type<Record<string, unknown>>(), evidence: json('evidence').$type<unknown[]>(),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
@@ -2932,3 +2953,33 @@ export type WorkflowTaskAttemptRow = typeof workflowTaskAttempts.$inferSelect;
 export type WorkflowRunEventRow = typeof workflowRunEvents.$inferSelect;
 export type WorkflowRunEvaluationRow = typeof workflowRunEvaluations.$inferSelect;
 export type WorkflowMutationRow = typeof workflowMutations.$inferSelect;
+
+export const controlPlaneOwner = mysqlTable('control_plane_owner', {
+  id: tinyint('id', { unsigned: true }).primaryKey(),
+  epoch: char('epoch', { length: 36 }).notNull(),
+  sequence: bigint('sequence', { mode: 'bigint', unsigned: true }).notNull().default(sql`0`),
+  startedAt: varchar('started_at', { length: 100 }).notNull(),
+});
+export const controlPlaneCommandReceipts = mysqlTable('control_plane_command_receipts', {
+  principal: varchar('principal', { length: 191 }).notNull(),
+  requestId: varchar('request_id', { length: 64 }).notNull(),
+  kind: varchar('kind', { length: 191 }).notNull(),
+  requestDigest: char('request_digest', { length: 64 }).notNull(),
+  ownerEpoch: char('owner_epoch', { length: 36 }).notNull(),
+  sequence: bigint('sequence', { mode: 'bigint', unsigned: true }).notNull(),
+  resultEnc: longtext('result_enc').notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, (t) => ({ pk: primaryKey({ columns: [t.principal, t.requestId] }) }));
+export const controlPlaneOutbox = mysqlTable('control_plane_outbox', {
+  id: char('id', { length: 36 }).primaryKey(),
+  principal: varchar('principal', { length: 191 }).notNull(),
+  requestId: varchar('request_id', { length: 64 }).notNull(),
+  kind: varchar('kind', { length: 191 }).notNull(),
+  target: varchar('target', { length: 255 }).notNull(),
+  payloadEnc: longtext('payload_enc').notNull(),
+  status: varchar('status', { length: 32 }).notNull().default('pending'),
+  attempts: int('attempts', { unsigned: true }).notNull().default(0),
+  availableAt: varchar('available_at', { length: 100 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  completedAt: varchar('completed_at', { length: 100 }),
+}, (t) => ({ due: index('control_plane_outbox_due').on(t.status, t.availableAt) }));

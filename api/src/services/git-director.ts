@@ -1,3 +1,18 @@
+import { legacyDrainFor } from '../control-plane/legacy-drain.js';
+import { currentNativePrincipal, withNativePrincipal } from '../control-plane/state/native-principal.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { getTableColumns } from 'drizzle-orm';
+import type { AnyMySqlTable, AnyMySqlColumn } from 'drizzle-orm/mysql-core';
+import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/state/runtime.js';
+import type { OwnerStateSnapshot } from '../control-plane/state/store.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
+import { nativeClaimAttachment } from '../control-plane/state/resource-claims.js';
+import { activeHostEngines } from './host-engine-policy.js';
+import { ownedMessagingHost, ownedEngineState, ownedBridge } from '../control-plane/state/messaging.js';
+import type { Json } from '../control-plane/commands.js';
+import { adminAudit } from '../control-plane/state/admin.js';
+import { versions } from '../db/schema.js';
+import type { ManagedHost as Host } from '../control-plane/state/host-registration.js';
 import { remoteGitOwner, remoteAddress, type GitProvenance } from './git-director/remote.js';
 import { GitDirectorNotifications, type DirectorEvent } from './git-director/notifications.js';
 import { readWorkspace } from './agent-messaging/workspace.js';
@@ -42,7 +57,6 @@ import {
   type GitClone,
   type GitMergeRequest,
   type GitWorktree,
-  type Host,
 } from '../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js';
 import { AGENT_PRESENCE_FRESH_SECONDS, deriveAddressPresence, isPresent } from './agent-presence.js';
@@ -338,6 +352,7 @@ export function summarizeCloneEntry(entry: Record<string, unknown>): Record<stri
       task: clip(w['task']),
       target_branch: w['target_branch'],
       heartbeat_at: w['heartbeat_at'],
+      status: w['status'], ownership_mode: w['ownership_mode'], uncertainty_reason: w['uncertainty_reason'], presence_source: w['presence_source'], expires_at: w['expires_at'],
     })),
     worktrees_truncated: worktrees.length > LIST_SUMMARY_WORKTREE_CAP,
     lease_count: leases.length,
@@ -376,16 +391,107 @@ export interface GitDirectorModuleState {
   updated_at: string | null;
 }
 
+const ownedGitTables = { gitClones, gitWorktrees, gitMergeRequests };
+type GitTableName=keyof typeof ownedGitTables;
+type GitRow<K extends GitTableName>=(typeof ownedGitTables)[K]['$inferSelect'];
 export class GitDirectorService {
   private readonly now: () => string;
+  private readonly evaluatedWaits = new Map<string,string>();
 
   constructor(private readonly deps: GitDirectorServiceDeps) {
     this.now = deps.now ?? nowIso;
   }
 
+  private readonly ownedContext = new AsyncLocalStorage<{ctx:OwnerMutationContext;checks:Array<(snapshot:OwnerStateSnapshot)=>void>}>();
+  private snapshot(db: GitDirectorDb = this.deps.db): OwnerStateSnapshot | undefined {
+    const owner=ownerRuntimeFor(db);if(!owner)return undefined;owner.assertOwner();
+    return this.ownedContext.getStore()?.ctx.draft.view()??owner.state.snapshot();
+  }
+  private rows<K extends GitTableName>(db:GitDirectorDb,name:K): GitRow<K>[] | undefined {
+    const snapshot=this.snapshot(db);return snapshot?[...snapshot.table(name).all()] as unknown as GitRow<K>[]:undefined;
+  }
+  private async updateRows<K extends GitTableName>(db:GitDirectorDb,name:K,ids:readonly string[],patch:Partial<GitRow<K>>):Promise<void>{
+    if(!ids.length)return;
+    if(ownerRuntimeFor(db)){
+      const context=this.ownedContext.getStore()?.ctx;if(!context)throw new Error('Git mutation requires an owner command');
+      for(const id of ids)stageUpdate(context,name,id,patch);
+      return;
+    }
+    const table=ownedGitTables[name] as AnyMySqlTable,columns=getTableColumns(table) as Record<string,AnyMySqlColumn>;
+    await db.update(table).set(patch).where(inArray(columns.id!,[...ids]));
+  }
+  private async insertRow<K extends GitTableName>(db:GitDirectorDb,name:K,values:(typeof ownedGitTables)[K]['$inferInsert']):Promise<void>{
+    if(ownerRuntimeFor(db)){
+      const context=this.ownedContext.getStore()?.ctx;if(!context)throw new Error('Git mutation requires an owner command');
+      const full:Record<string,unknown>={};
+      for(const [key,column]of Object.entries(getTableColumns(ownedGitTables[name]))){
+        const value=(values as Record<string,unknown>)[key];
+        if(value!==undefined)full[key]=value;
+        else if(column.default!==undefined&&(column.default===null||typeof column.default!=='object'))full[key]=column.default;
+        else if(!column.notNull)full[key]=null;
+        else throw new Error(`Missing explicit Git ${name}.${key}`);
+      }
+      context.draft.upsert(name,full as GitRow<K>);
+      context.write(async tx=>tx.insert(ownedGitTables[name] as AnyMySqlTable).values(values));return;
+    }
+    await db.insert(ownedGitTables[name] as AnyMySqlTable).values(values);
+  }
+
+  private registrationProof(row: GitWorktree, snapshot = this.snapshot()): boolean {
+    const owner = ownerRuntimeFor(this.deps.db);
+    if (!owner || !snapshot || !row.agentSessionId) return false;
+    const session = snapshot.sessions.get(row.agentSessionId);
+    if (!session || session.endedAt || session.bindingGeneration !== row.agentBindingGeneration || session.agentBusAddressId !== row.agentBusAddressId) return false;
+    try { const host=ownedMessagingHost(snapshot, session.hostId); if (host.authFingerprint !== session.hostAuthFingerprint || !isEngine(session.engine) || !activeHostEngines(host.engines,ownedEngineState(snapshot)).includes(session.engine)) return false; } catch { return false; }
+    if (row.ownershipMode === 'timed') return Boolean(legacyDrainFor(owner)?.gitRegistration(row.id, session.id, session.bindingGeneration));
+    return Boolean(row.nativeInstanceId && nativeClaimAttachment(owner, session, row.nativeInstanceId));
+  }
+  private registrationExpiresAt(row: GitWorktree): string | null {
+    if (row.ownershipMode === 'connection') return null;
+    const owner = ownerRuntimeFor(this.deps.db);
+    const drain = owner && legacyDrainFor(owner);
+    const deadline = drain && row.agentSessionId && row.agentBindingGeneration !== null &&
+      drain.gitRegistration(row.id, row.agentSessionId, row.agentBindingGeneration)
+      ? drain.protectedDeadline(row.agentSessionId, row.agentBindingGeneration) : null;
+    return deadline === null ? row.expiresAt : new Date(deadline).toISOString();
+  }
+  private requireRegistrationProof(row: GitWorktree, requireCaller = false): void {
+    const principal = currentNativePrincipal();
+    const check = (snapshot = this.snapshot()) => {
+      if (!snapshot || !this.registrationProof(row,snapshot)) throw new ConflictError('The original native instance must reattach; this registration retains exclusion.', 'git_director_owner_uncertain');
+      if (row.ownershipMode === 'timed' && (principal || requireCaller)) {
+        if (!principal) throw new ConflictError('Authenticated original session required for legacy registration changes', 'git_director_owner_required');
+        const {session} = ownedBridge(snapshot,principal.sessionId,principal.bridgeToken);
+        if (session.id !== row.agentSessionId || session.bindingGeneration !== row.agentBindingGeneration)
+          throw new ConflictError('Legacy registration belongs to another session binding','git_director_owner_uncertain');
+      }
+    };
+    check();
+    this.ownedContext.getStore()?.checks.push(check);
+  }
   private readonly broadcasts = new WeakMap<object, Array<{ type: string; payload: Record<string, unknown> }>>();
 
   private async transaction<T>(action: (tx: GitDirectorDb) => Promise<T>): Promise<T> {
+    const owner=ownerRuntimeFor(this.deps.db);
+    if(owner){
+      if(this.ownedContext.getStore())throw new Error('Nested Git owner transaction');
+      const principal=currentNativePrincipal();
+      let result!:T;const events:Array<{type:string;payload:Record<string,unknown>}>=[],checks:Array<(snapshot:OwnerStateSnapshot)=>void>=[];
+      await mutateOwnerState(owner,{kind:'git.command',payload:{},authorize:snapshot=>{for(const check of checks)check(snapshot);},prepare:async ctx=>{
+        this.broadcasts.set(this.deps.db,events);
+        try{result=await this.ownedContext.run({ctx,checks},()=>principal?withNativePrincipal(principal,()=>action(this.deps.db)):action(this.deps.db));}
+        finally{this.broadcasts.delete(this.deps.db);}
+        // Keep the same finite recent-decision projection as bootstrap; history
+        // remains durable and is read explicitly by request ID when requested.
+        for (const clone of ctx.draft.table('gitClones').all()) {
+          const rows=[...ctx.draft.table('gitMergeRequests').by('cloneId',clone.id)].sort((a,b)=>b.requestedAt.localeCompare(a.requestedAt)||b.id.localeCompare(a.id));
+          for(const row of rows.slice(25))if(row.completedAt){ctx.draft.remove('gitMergeRequests',row.id);this.evaluatedWaits.delete(row.id);}
+        }
+        return ()=>JSON.parse(JSON.stringify(result??null)) as Json;
+      }});
+      for(const event of events)wsPublisher.publish(event.type,event.payload);
+      return result;
+    }
     const events: Array<{ type: string; payload: Record<string, unknown> }> = [];
     const result = await this.deps.db.transaction(async (tx) => {
       await lockClaimGate(tx);
@@ -406,11 +512,18 @@ export class GitDirectorService {
   }
 
   private async notify(tx: GitDirectorDb, event: DirectorEvent) {
+    const context=this.ownedContext.getStore()?.ctx;
+    if(context){
+      const ids=this.deps.notifications?.enqueueOwned(context,ownerRuntimeFor(this.deps.db)!,event,this.now())??[];
+      for(const id of ids)this.broadcasts.get(tx)?.push({type:'agent_messaging.message.changed',payload:{message_id:id,status:'queued'}});
+      return;
+    }
     const ids = await this.deps.notifications?.enqueue(tx, event, this.now()) ?? [];
     for (const id of ids) this.broadcasts.get(tx)?.push({ type: 'agent_messaging.message.changed', payload: { message_id: id, status: 'queued' } });
   }
 
   private async notificationRevision(db: GitDirectorDb = this.deps.db): Promise<number> {
+    const snapshot=this.snapshot(db);if(snapshot)return Number(snapshot.setting('owner_admin_event_id')??0);
     const [row] = await db.select({ id: adminEvents.id }).from(adminEvents)
       .where(eq(adminEvents.type, 'git_director.notifications')).orderBy(desc(adminEvents.id)).limit(1);
     return row?.id ?? 0;
@@ -429,8 +542,8 @@ export class GitDirectorService {
 
   async adminState(): Promise<GitDirectorModuleState> {
     const meta = await this.deps.settings.getWithMeta(GIT_DIRECTOR_ENABLED_FLAG);
-    const cloneRows = await this.deps.db.select({ id: gitClones.id }).from(gitClones).where(isNull(gitClones.archivedAt));
-    const worktreeRows = await this.deps.db
+    const cloneRows = this.rows(this.deps.db,'gitClones')?.filter(row=>!row.archivedAt) ?? await this.deps.db.select({ id: gitClones.id }).from(gitClones).where(isNull(gitClones.archivedAt));
+    const worktreeRows = this.rows(this.deps.db,'gitWorktrees') ?? await this.deps.db
       .select({ id: gitWorktrees.id, status: gitWorktrees.status })
       .from(gitWorktrees)
       .where(eq(gitWorktrees.status, 'active'));
@@ -448,7 +561,9 @@ export class GitDirectorService {
       await lockClaimGate(tx);
       const settings = new SettingsService(tx as Database);
       const previous = await settings.getFlag(GIT_DIRECTOR_ENABLED_FLAG, false);
-      await settings.setFlag(GIT_DIRECTOR_ENABLED_FLAG, enabled, { publish: false });
+      const context = this.ownedContext.getStore()?.ctx;
+      if (context) { const row = {name:GIT_DIRECTOR_ENABLED_FLAG,version:enabled?'1':'0',updatedAt:this.now()}; context.draft.upsert('versions',row); context.write(async db => db.insert(versions).values(row).onDuplicateKeyUpdate({set:{version:row.version,updatedAt:row.updatedAt}})); }
+      else await settings.setFlag(GIT_DIRECTOR_ENABLED_FLAG, enabled, { publish: false });
       if (previous !== enabled) await this.notify(tx, { kind: 'module_toggled', audience: 'active', includeActor: true, detail: { enabled, registrations_retained: true, leases_revoked: false, recheck_required: enabled } });
       this.broadcasts.get(tx)?.push({ type: 'settings.changed', payload: { kind: 'git_director', enabled } });
       this.publish(tx, 'state');
@@ -458,7 +573,7 @@ export class GitDirectorService {
 
   /** How many live clones this host can see. Used by the AGENTS.md renderer. */
   async availableCount(host: Host | null): Promise<number> {
-    const rows = await this.deps.db
+    const rows = this.rows(this.deps.db, 'gitClones') ?? await this.deps.db
       .select({ id: gitClones.id, hostId: gitClones.hostId, archivedAt: gitClones.archivedAt })
       .from(gitClones);
     return rows.filter((row) => !row.archivedAt && (host === null || row.hostId === host.id)).length;
@@ -501,6 +616,14 @@ export class GitDirectorService {
    * seen; a registration that silently disappeared would read as an empty clone,
    * which is a worse lie than a stale one.
    */
+  async reconcileOwned(): Promise<void> {
+    if (!this.snapshot()) return;
+    await this.sweepForRead(this.now());
+  }
+  private waitInputs(request: GitMergeRequest): string {
+    const snapshot=this.snapshot()!;
+    return JSON.stringify([snapshot.table('gitWorktrees').by('cloneId',request.cloneId),snapshot.table('gitMergeRequests').by('cloneId',request.cloneId),snapshot.table('agentResourceClaims').all()]);
+  }
   private async sweepForRead(now: string): Promise<void> {
     if (await this.sweepExpired(this.deps.db, now, false)) {
       await this.transaction(tx => this.sweepExpired(tx, now));
@@ -508,6 +631,22 @@ export class GitDirectorService {
   }
 
   private async sweepExpired(db: GitDirectorDb, now: string, apply = true): Promise<boolean> {
+    const snapshot = this.snapshot(db);
+    if (snapshot) {
+      const uncertain = snapshot.table('gitWorktrees').all().filter(row => row.status === 'active' && !this.registrationProof(row, snapshot));
+      const expired = snapshot.table('gitMergeRequests').all().filter(row => row.verdict === 'allow' && !row.completedAt && isExpired(row.leaseExpiresAt, now));
+      if (!apply) return Boolean(uncertain.length || expired.length);
+      for (const row of uncertain) {
+        await this.updateRows(db, 'gitWorktrees', [row.id], { status: 'uncertain', uncertaintyReason: 'disconnected', updatedAt: now });
+        this.publish(db, 'worktree', row.cloneId);
+      }
+      for (const row of expired) {
+        await this.updateRows(db, 'gitMergeRequests', [row.id], { verdict: 'expired', completedAt: now, updatedAt: now });
+        await this.notify(db, { kind: 'lease_expired', clone: snapshot.table('gitClones').get(row.cloneId), requestId: row.id, targetBranch: row.targetBranch, audience: 'branch' });
+        this.publish(db, 'lease', row.cloneId);
+      }
+      return Boolean(uncertain.length || expired.length);
+    }
     const active = (
       await db
         .select()
@@ -550,48 +689,36 @@ export class GitDirectorService {
     const changed = abandoned.length + timedOut.length + orphaned.length + staleLeases.length > 0;
     if (!apply) return changed;
     if (abandoned.length > 0) {
-      await db
-        .update(gitWorktrees)
-        .set({ status: 'abandoned', releasedAt: now, updatedAt: now })
-        .where(inArray(gitWorktrees.id, abandoned.map((row) => row.id)));
+      await this.updateRows(db, 'gitWorktrees', abandoned.map((row) => row.id), { status: 'abandoned', releasedAt: now, updatedAt: now });
     }
     if (timedOut.length > 0) {
-      await db
-        .update(gitWorktrees)
-        .set({ status: 'expired', releasedAt: now, updatedAt: now })
-        .where(inArray(gitWorktrees.id, timedOut.map((row) => row.id)));
+      await this.updateRows(db, 'gitWorktrees', timedOut.map((row) => row.id), { status: 'expired', releasedAt: now, updatedAt: now });
     }
 
     if (orphaned.length > 0) {
-      await db
-        .update(gitMergeRequests)
-        .set({
+      await this.updateRows(db, 'gitMergeRequests', orphaned.map((row) => row.id), {
           verdict: 'expired',
           completedAt: now,
           reason: 'Lease reclaimed: the holding agent is no longer registered in this clone.',
           updatedAt: now,
-        })
-        .where(inArray(gitMergeRequests.id, orphaned.map((row) => row.id)));
+        });
     }
     if (staleLeases.length > 0) {
-      await db
-        .update(gitMergeRequests)
-        .set({
+      await this.updateRows(db, 'gitMergeRequests', staleLeases.map((row) => row.id), {
           verdict: 'expired',
           completedAt: now,
           reason: 'Lease expired: it was never renewed with git_merge_status and never released.',
           updatedAt: now,
-        })
-        .where(inArray(gitMergeRequests.id, staleLeases.map((row) => row.id)));
+        });
     }
     for (const worktree of [...abandoned, ...timedOut]) {
-      const [clone] = await db.select().from(gitClones).where(eq(gitClones.id, worktree.cloneId));
+      const [clone] = (this.rows(db, 'gitClones')?.filter(row => row.id === worktree.cloneId) ?? await db.select().from(gitClones).where(eq(gitClones.id, worktree.cloneId)));
       this.publish(db, 'expiry', worktree.cloneId);
       await this.notify(db, { kind: abandoned.includes(worktree) ? 'registration_abandoned' : 'registration_expired', clone, worktree, audience: 'branch', includeActor: true, detail: { recheck_required: true } });
     }
     for (const request of [...orphaned, ...staleLeases]) {
-      const [clone] = await db.select().from(gitClones).where(eq(gitClones.id, request.cloneId));
-      const [worktree] = await db.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId));
+      const [clone] = (this.rows(db, 'gitClones')?.filter(row => row.id === request.cloneId) ?? await db.select().from(gitClones).where(eq(gitClones.id, request.cloneId)));
+      const [worktree] = (this.rows(db, 'gitWorktrees')?.filter(row => row.id === request.worktreeId) ?? await db.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId)));
       this.publish(db, 'expiry', request.cloneId);
       await this.notify(db, { kind: 'lease_expired', clone, worktree, targetBranch: request.targetBranch, requestId: request.id, audience: 'branch', includeActor: true, detail: { recheck_required: true } });
     }
@@ -708,12 +835,13 @@ export class GitDirectorService {
       await lockClaimGate(tx);
       await this.sweepExpired(tx, now);
       // Serialize path reassignment across different clones on the same host.
-      await tx.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, host.id)).for('update');
+      if (!this.snapshot(tx)) await tx.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, host.id)).for('update');
 
       // A refresh may omit clone_dir. Preserve the existing canonical mapping;
       // the server cannot discover a remote checkout's common directory itself.
       if (args.clone_dir === undefined) {
-        const mappings = await tx.select({ clone: gitClones }).from(gitWorktrees)
+        const view = this.snapshot(tx);
+        const mappings = view ? view.table('gitWorktrees').all().filter(row => row.hostId === host.id && row.worktreeHash === worktreeHash && row.status !== 'superseded').flatMap(row => { const clone = view.table('gitClones').get(row.cloneId); return clone && !clone.archivedAt ? [{clone}] : []; }) : await tx.select({ clone: gitClones }).from(gitWorktrees)
           .innerJoin(gitClones, eq(gitWorktrees.cloneId, gitClones.id))
           .where(and(eq(gitWorktrees.hostId, host.id), eq(gitWorktrees.worktreeHash, worktreeHash),
             ne(gitWorktrees.status, 'superseded'), isNull(gitClones.archivedAt)));
@@ -732,7 +860,7 @@ export class GitDirectorService {
       });
 
       const registrations = (
-        await tx
+        this.rows(tx, 'gitWorktrees') ?? await tx
           .select()
           .from(gitWorktrees)
           .where(and(eq(gitWorktrees.hostId, host.id), eq(gitWorktrees.worktreeHash, worktreeHash)))
@@ -740,6 +868,7 @@ export class GitDirectorService {
       ).filter((row) => row.hostId === host.id && row.worktreeHash === worktreeHash);
       const superseded = registrations.filter((row) => row.cloneId !== clone.id && row.status !== 'superseded');
       for (const row of superseded) {
+        if (this.snapshot(tx) && ['active','uncertain'].includes(row.status)) throw new ConflictError('Existing clone mapping retains exclusion; unregister it explicitly first', 'git_director_owner_uncertain');
         if (await this.liveLeaseForWorktree(tx, row.id, now)) {
           throw new ConflictError(
             'This path is registered under another clone with a live merge lease; release that lease first.',
@@ -751,31 +880,23 @@ export class GitDirectorService {
       for (const row of superseded) {
         const pending = await this.liveRequestsForWorktree(tx, row.id, now);
         if (pending.length)
-          await tx
-            .update(gitMergeRequests)
-            .set({ verdict: 'withdrawn', reason: 'Withdrawn by git_release or superseding registration; merge outcome is unknown.', completedAt: now, updatedAt: now })
-            .where(
-              inArray(
-                gitMergeRequests.id,
-                pending.map((request) => request.id),
-              ),
-            );
-        await tx
-          .update(gitWorktrees)
-          .set({ status: 'superseded', releasedAt: now, updatedAt: now })
-          .where(eq(gitWorktrees.id, row.id));
+          await this.updateRows(tx, 'gitMergeRequests', pending.map((request) => request.id), { verdict: 'withdrawn', reason: 'Withdrawn by git_release or superseding registration; merge outcome is unknown.', completedAt: now, updatedAt: now });
+        await this.updateRows(tx, 'gitWorktrees', [row.id], { status: 'superseded', releasedAt: now, updatedAt: now });
         supersededRegistrations.push({ worktree_id: row.id, withdrawn_request_ids: pending.map(r => r.id) });
         this.publish(tx, 'worktree', row.cloneId);
-        const [previousClone] = await tx.select().from(gitClones).where(eq(gitClones.id, row.cloneId));
+        const previousClone = this.snapshot(tx) ? this.snapshot(tx)!.table('gitClones').get(row.cloneId) : (await tx.select().from(gitClones).where(eq(gitClones.id,row.cloneId)))[0];
         await this.notify(tx, { kind: 'registration_superseded', clone: previousClone, worktree: row, audience: 'branch', includeActor: true, detail: { withdrawn_requests: pending.map(r => r.id) } });
       }
 
       const address = provenance
-        ? remoteAddress((await remoteGitOwner(tx, provenance)).session)
+        ? remoteAddress((await remoteGitOwner(tx, provenance, this.snapshot(tx))).session)
         : await this.resolveAddress(tx, host, requestedUsername, engine, worktreePath, now);
       const username = requestedUsername ?? address?.username ?? 'unknown';
+      const owner = ownerRuntimeFor(tx), state = this.snapshot(tx);
+      const session = address ? state?.sessions.get(address.sessionId) : undefined;
+      const attachment = owner && session ? nativeClaimAttachment(owner, session) : undefined;
       const existing = (
-        await tx
+        this.rows(tx, 'gitWorktrees') ?? await tx
           .select()
           .from(gitWorktrees)
           .where(and(eq(gitWorktrees.cloneId, clone.id), eq(gitWorktrees.worktreeHash, worktreeHash)))
@@ -783,11 +904,34 @@ export class GitDirectorService {
           .for('update')
       ).find((row) => row.cloneId === clone.id && row.worktreeHash === worktreeHash);
 
+      if (owner && existing?.ownershipMode === 'timed' && ['active','uncertain'].includes(existing.status)) {
+        if (!session || existing.agentSessionId !== session.id || existing.agentBindingGeneration !== session.bindingGeneration ||
+            !['active', 'uncertain'].includes(existing.status) ||
+            (existing.status === 'uncertain' && !['owner_restart', 'disconnected'].includes(existing.uncertaintyReason ?? ''))) {
+          throw new ConflictError('Only the captured pre-cutover owner may report this registration', 'git_director_owner_uncertain');
+        }
+        this.requireRegistrationProof(existing);
+        const patch = { branch: branch ?? existing.branch, headSha: headSha ?? existing.headSha,
+          headObservedAt: headSha ? now : existing.headObservedAt, status: 'active', uncertaintyReason: null };
+        if (patch.branch !== existing.branch || patch.headSha !== existing.headSha || existing.status !== 'active') {
+          await this.updateRows(tx, 'gitWorktrees', [existing.id], { ...patch, updatedAt: now });
+          this.publish(tx, 'worktree', clone.id);
+        }
+        return { registered: true, superseded_registrations: supersededRegistrations, rebound: false,
+          clone: this.cloneWire(clone,host), worktree_id: existing.id, worktree_path: worktreePath,
+          ...bindingWire(address), expires_at: this.registrationExpiresAt(existing), ownership_mode: 'timed',
+          presence_source: 'legacy_drain', peers: await this.peerWire(tx,clone.id,existing.id,now) };
+      }
+      if (owner && (!session || !attachment)) throw new ConflictError('A current native instance attachment is required for registration', 'git_director_owner_required');
+      if (owner && session && attachment) this.ownedContext.getStore()!.checks.push(snapshot => { const current=snapshot.sessions.get(session.id); if (!current || current.endedAt || current.bindingGeneration!==session.bindingGeneration || !nativeClaimAttachment(owner,current,attachment.scope.native_instance_id)) throw new ConflictError('Native instance disconnected before registration commit','git_director_owner_uncertain'); });
+      const ownership = owner ? { ownershipMode: 'connection', nativeInstanceId: attachment!.scope.native_instance_id!, uncertaintyReason: null } : {};
+
       const expiresAt = isoOffsetSeconds(REGISTRATION_TTL_SECONDS, new Date(now));
       if (!existing) {
         const id = randomUUID();
-        await tx.insert(gitWorktrees).values({
+        await this.insertRow(tx, 'gitWorktrees', {
           id,
+          ...ownership,
           cloneId: clone.id,
           hostId: host.id,
           worktreePath,
@@ -820,11 +964,12 @@ export class GitDirectorService {
           worktree_id: id,
           worktree_path: worktreePath,
           ...bindingWire(address),
-          expires_at: expiresAt,
+          expires_at: owner ? null : expiresAt, ownership_mode: owner ? 'connection' : 'timed', presence_source: 'connection',
           peers: await this.peerWire(tx, clone.id, id, now),
         };
       }
 
+      if (owner && existing && ['active','uncertain'].includes(existing.status) && (existing.agentSessionId !== session!.id || existing.agentBindingGeneration !== session!.bindingGeneration || existing.nativeInstanceId !== attachment!.scope.native_instance_id)) throw new ConflictError('Existing registration retains exclusion until its original owner releases it', 'git_director_owner_uncertain');
       const rebound =
         existing.username !== username ||
         (address?.id ?? null) !== (existing.agentBusAddressId ?? null) ||
@@ -842,12 +987,9 @@ export class GitDirectorService {
       }
 
       const reboundRequests = rebound ? await this.liveRequestsForWorktree(tx, existing.id, now) : [];
-      if (reboundRequests.length) await tx.update(gitMergeRequests)
-        .set({ verdict: 'withdrawn', reason: 'Withdrawn: registration owner binding changed.', completedAt: now, updatedAt: now })
-        .where(inArray(gitMergeRequests.id, reboundRequests.map(r => r.id)));
-      await tx
-        .update(gitWorktrees)
-        .set({
+      if (reboundRequests.length) await this.updateRows(tx, 'gitMergeRequests', reboundRequests.map(r => r.id), { verdict: 'withdrawn', reason: 'Withdrawn: registration owner binding changed.', completedAt: now, updatedAt: now });
+      await this.updateRows(tx, 'gitWorktrees', [existing.id], {
+          ...ownership,
           username,
           engine,
           agentBusAddressId: address?.id ?? null,
@@ -862,8 +1004,7 @@ export class GitDirectorService {
           expiresAt,
           releasedAt: null,
           updatedAt: now,
-        })
-        .where(eq(gitWorktrees.id, existing.id));
+        });
       this.publish(tx, 'worktree', clone.id);
       if (rebound) await this.notify(tx, { kind: 'registration_rebound', clone, worktree: existing, audience: 'owners', includeActor: true, detail: { withdrawn_request_ids: reboundRequests.map(r => r.id) } });
       return {
@@ -875,7 +1016,7 @@ export class GitDirectorService {
         worktree_id: existing.id,
         worktree_path: worktreePath,
         ...bindingWire(address),
-        expires_at: expiresAt,
+        expires_at: owner ? null : expiresAt, ownership_mode: owner ? 'connection' : 'timed', presence_source: 'connection',
         peers: await this.peerWire(tx, clone.id, existing.id, now),
       };
     });
@@ -898,18 +1039,14 @@ export class GitDirectorService {
       await this.sweepExpired(tx, now);
       const { clone, worktree } = await this.requireWorktree(tx, host, worktreePath, now);
       const expiresAt = isoOffsetSeconds(REGISTRATION_TTL_SECONDS, new Date(now));
-      await tx
-        .update(gitWorktrees)
-        .set({
+      await this.updateRows(tx, 'gitWorktrees', [worktree.id], {
           task: task ?? worktree.task,
           targetBranch: targetBranch ?? worktree.targetBranch,
           declaredPaths: paths ?? worktree.declaredPaths,
           status: 'active',
-          heartbeatAt: now,
-          expiresAt,
+          ...(this.snapshot(tx) ? {} : { heartbeatAt: now, expiresAt }),
           updatedAt: now,
-        })
-        .where(eq(gitWorktrees.id, worktree.id));
+        });
       this.publish(tx, 'worktree', clone.id);
       const previousPaths = readPaths(worktree.declaredPaths).sort();
       const nextPaths = [...(paths ?? previousPaths)].sort();
@@ -927,7 +1064,7 @@ export class GitDirectorService {
         task: task ?? worktree.task,
         target_branch: targetBranch ?? worktree.targetBranch,
         declared_paths: paths ?? readPaths(worktree.declaredPaths),
-        expires_at: expiresAt,
+        expires_at: this.snapshot(tx) ? this.registrationExpiresAt(worktree) : expiresAt,
         peers: await this.peerWire(tx, clone.id, worktree.id, now),
       };
     });
@@ -961,21 +1098,18 @@ export class GitDirectorService {
     // lose a race with the reaper it is meant to outrun. Any scope: an agent
     // asking a fleet-wide question is no less present than one asking about its
     // own clone.
-    if (worktreePath) {
+    if (worktreePath && (!this.snapshot() || reportedHead || reportedBranch)) {
       const normalized = normalizePath(worktreePath);
       try {
         await this.transaction(async (tx) => {
       await lockClaimGate(tx);
           const { clone, worktree } = await this.requireWorktree(tx, host, normalized, now);
           if (reportedHead || reportedBranch) {
-            await tx
-              .update(gitWorktrees)
-              .set({
+            await this.updateRows(tx, 'gitWorktrees', [worktree.id], {
                 ...(reportedHead ? { headSha: reportedHead, headObservedAt: now } : {}),
                 ...(reportedBranch ? { branch: reportedBranch } : {}),
                 updatedAt: now,
-              })
-              .where(eq(gitWorktrees.id, worktree.id));
+              });
             if (reportedBranch && reportedBranch !== worktree.branch) this.publish(tx, 'worktree', clone.id);
           }
         });
@@ -989,8 +1123,8 @@ export class GitDirectorService {
 
     await this.sweepForRead(now);
 
-    const allClones = await this.deps.db.select().from(gitClones);
-    const hostRows = await this.deps.db.select({ id: hosts.id, fqdn: hosts.fqdn }).from(hosts);
+    const allClones = this.rows(this.deps.db, 'gitClones') ?? await this.deps.db.select().from(gitClones);
+    const hostRows = this.snapshot()?.hosts.all() ?? await this.deps.db.select({ id: hosts.id, fqdn: hosts.fqdn }).from(hosts);
     const fqdnById = new Map(hostRows.map((row) => [row.id, row.fqdn]));
 
     let clones = allClones.filter((row) => !row.archivedAt);
@@ -1113,14 +1247,15 @@ export class GitDirectorService {
       if (observedRequest && (observedRequest.completedAt || observedRequest.verdict !== 'wait'))
         return { request: observedRequest, replayed: true as const, brief: null };
       const { clone, worktree } = await this.requireWorktree(tx, host, worktreePath, now);
-      await guardGitMutation(tx, clone, worktree, targetBranch, changedPaths);
+      await guardGitMutation(tx, clone, worktree, targetBranch, changedPaths, this.snapshot(tx));
+      if (this.snapshot(tx)) this.requireRegistrationProof(worktree);
 
       // Skipped when re-deciding: the row we are about to update carries this
       // very `client_request_id`, so the retry guard would find itself and
       // short-circuit into "replayed" — a poll that could never change its own
       // verdict.
-      const replay = updateRequestId !== null ? undefined : (
-        await tx
+      let replay = updateRequestId !== null ? undefined : (
+        this.rows(tx, 'gitMergeRequests') ?? await tx
           .select()
           .from(gitMergeRequests)
           .where(
@@ -1133,6 +1268,7 @@ export class GitDirectorService {
       ).find(
         (row) => row.worktreeId === worktree.id && row.clientRequestId === clientRequestId,
       );
+      if (!replay && updateRequestId === null && this.snapshot(tx)) replay = (await this.deps.db.select().from(gitMergeRequests).where(and(eq(gitMergeRequests.worktreeId,worktree.id),eq(gitMergeRequests.clientRequestId,clientRequestId))).limit(1))[0];
       if (replay) {
         return { clone, worktree, request: replay, replayed: true as const, brief: null as MergeBrief | null };
       }
@@ -1140,12 +1276,12 @@ export class GitDirectorService {
       // Lock the clone row: this is what makes the lease exclusive. MySQL has no
       // partial unique index, and this codebase uses row locks rather than
       // advisory locks everywhere else.
-      await tx.select().from(gitClones).where(eq(gitClones.id, clone.id)).limit(1).for('update');
+      if (!this.snapshot(tx)) await tx.select().from(gitClones).where(eq(gitClones.id, clone.id)).limit(1).for('update');
 
       const holderRow = await this.liveLeaseForClone(tx, clone.id, targetBranch, now);
       const queued = await this.queuedForClone(tx, clone.id, targetBranch, now, updateRequestId);
       const holderWorktree = holderRow
-        ? (await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, holderRow.worktreeId)).limit(1)).find(
+        ? ((this.rows(tx, 'gitWorktrees')?.filter(row => row.id === holderRow.worktreeId) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, holderRow.worktreeId)).limit(1))).find(
             (row) => row.id === holderRow.worktreeId,
           ) ?? null
         : null;
@@ -1209,11 +1345,11 @@ export class GitDirectorService {
     return await this.transaction(async (tx) => {
       await lockClaimGate(tx);
       const now2 = this.now();
-      const [clone] = await tx.select().from(gitClones).where(eq(gitClones.id, decision.clone.id)).limit(1).for('update');
+      const [clone] = (this.rows(tx, 'gitClones')?.filter(row => row.id === decision.clone.id) ?? await tx.select().from(gitClones).where(eq(gitClones.id, decision.clone.id)).limit(1).for('update'));
       if (!clone || clone.archivedAt || clone.hostId !== host.id || clone.cloneDir !== decision.clone.cloneDir)
         throw new ConflictError('Clone changed while the merge was being judged', 'git_director_clone_changed');
       const existing = updateRequestId === null
-        ? (await tx.select().from(gitMergeRequests).where(and(
+        ? (this.rows(tx, 'gitMergeRequests') ?? await tx.select().from(gitMergeRequests).where(and(
           eq(gitMergeRequests.worktreeId, decision.worktree.id),
           eq(gitMergeRequests.clientRequestId, clientRequestId),
         )).limit(1)).find((row) => row.worktreeId === decision.worktree.id && row.clientRequestId === clientRequestId) ?? null
@@ -1222,21 +1358,22 @@ export class GitDirectorService {
       // a nonterminal operator allow/wait), or renew a retried grant by accident.
       if (existing && (updateRequestId === null || JSON.stringify(existing) !== JSON.stringify(decision.observedRequest)))
         return this.requestWire(existing, { replayed: true }, tx);
-      const [worktree] = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, decision.worktree.id));
+      const [worktree] = (this.rows(tx, 'gitWorktrees')?.filter(row => row.id === decision.worktree.id) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, decision.worktree.id)));
       if (!worktree || worktree.status !== 'active' || worktree.cloneId !== clone.id || worktree.worktreePath !== worktreePath ||
-        !(Date.parse(worktree.expiresAt) > Date.parse(now2)) ||
+        (this.snapshot(tx) ? !this.registrationProof(worktree) : !(Date.parse(worktree.expiresAt) > Date.parse(now2))) ||
         worktree.username !== decision.worktree.username || worktree.engine !== decision.worktree.engine ||
         worktree.agentBusAddressId !== decision.worktree.agentBusAddressId ||
         worktree.agentSessionId !== decision.worktree.agentSessionId ||
         worktree.agentBindingGeneration !== decision.worktree.agentBindingGeneration)
         throw new ConflictError('Worktree changed while the merge was being judged', 'git_director_worktree_changed');
-      await guardGitMutation(tx, clone, worktree, targetBranch, changedPaths);
+      await guardGitMutation(tx, clone, worktree, targetBranch, changedPaths, this.snapshot(tx));
+      if (this.snapshot(tx)) this.requireRegistrationProof(worktree);
 
       // Re-read under the lock: the holder may have released while the judge ran.
       const holderRow = await this.liveLeaseForClone(tx, clone.id, targetBranch, now2);
       const queued = await this.queuedForClone(tx, clone.id, targetBranch, now2, updateRequestId);
       const holderWorktree = holderRow
-        ? (await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, holderRow.worktreeId)).limit(1)).find(
+        ? ((this.rows(tx, 'gitWorktrees')?.filter(row => row.id === holderRow.worktreeId) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, holderRow.worktreeId)).limit(1))).find(
             (row) => row.id === holderRow.worktreeId,
           ) ?? null
         : null;
@@ -1285,7 +1422,7 @@ export class GitDirectorService {
         requestedAt: existing?.requestedAt ?? now2,
         decidedAt: now2,
         renewedAt: updateRequestId === null ? null : now2,
-        completedAt: null,
+        completedAt: resolved.verdict === 'deny' ? now2 : null,
         createdAt: existing?.createdAt ?? now2,
         updatedAt: now2,
       };
@@ -1293,9 +1430,7 @@ export class GitDirectorService {
         // Re-decide in place. `requestedAt` is deliberately preserved: it is when
         // the caller first asked, which is what queue order and "how long has
         // this been waiting" both depend on.
-        await tx
-          .update(gitMergeRequests)
-          .set({
+        await this.updateRows(tx, 'gitMergeRequests', [updateRequestId], {
             verdict: resolved.verdict,
             decidedBy: resolved.decidedBy,
             reason: resolved.reason,
@@ -1305,13 +1440,10 @@ export class GitDirectorService {
             leaseExpiresAt,
             decidedAt: now2,
             renewedAt: now2,
+            completedAt: resolved.verdict === 'deny' ? now2 : null,
             updatedAt: now2,
-          })
-          .where(eq(gitMergeRequests.id, updateRequestId));
-        await tx
-          .update(gitWorktrees)
-          .set({ heartbeatAt: now2, updatedAt: now2 })
-          .where(eq(gitWorktrees.id, worktree.id));
+          });
+        await this.updateRows(tx, 'gitWorktrees', [worktree.id], { heartbeatAt: now2, updatedAt: now2 });
         this.publish(tx, 'merge_request', clone.id);
         if (existing?.verdict !== resolved.verdict || existing?.holderWorktreeId !== (holderRow?.worktreeId ?? null) || JSON.stringify(readPaths(existing?.overlap)) !== JSON.stringify(overlap)) await this.notify(tx, { kind: 'merge_decision_changed', clone, worktree, targetBranch, requestId: id, audience: 'branch', ownerWorktrees: holderWorktree ? [holderWorktree] : [], detail: { verdict: resolved.verdict, peer_overlap: peerOverlap } });
         return this.requestWire(row as unknown as GitMergeRequest, {
@@ -1322,7 +1454,7 @@ export class GitDirectorService {
         }, tx);
       }
       try {
-        await tx.insert(gitMergeRequests).values(row);
+        await this.insertRow(tx, 'gitMergeRequests', row);
       } catch {
         // Lost the idempotency race with a concurrent retry: return theirs.
         const winner = (
@@ -1341,13 +1473,10 @@ export class GitDirectorService {
         throw new ConflictError('Merge request could not be recorded', 'git_director_conflict');
       }
 
-      await tx
-        .update(gitWorktrees)
-        .set({ targetBranch, heartbeatAt: now2, updatedAt: now2 })
-        .where(eq(gitWorktrees.id, worktree.id));
+      await this.updateRows(tx, 'gitWorktrees', [worktree.id], { targetBranch, heartbeatAt: now2, updatedAt: now2 });
       this.publish(tx, 'merge_request', clone.id);
       const overlapIds = peerOverlap.map(peer => peer.worktree_id);
-      const overlappingPeers = overlapIds.length ? await tx.select().from(gitWorktrees).where(inArray(gitWorktrees.id, overlapIds)) : [];
+      const overlappingPeers = overlapIds.length ? this.rows(tx, 'gitWorktrees')?.filter(row => overlapIds.includes(row.id)) ?? await tx.select().from(gitWorktrees).where(inArray(gitWorktrees.id, overlapIds)) : [];
       await this.notify(tx, { kind: 'merge_requested', clone, worktree, targetBranch, requestId: id, audience: 'owners', ownerWorktrees: [...(holderWorktree ? [holderWorktree] : []), ...overlappingPeers], detail: { verdict: resolved.verdict, peer_overlap: peerOverlap } });
 
       return this.requestWire(row as unknown as GitMergeRequest, {
@@ -1369,6 +1498,18 @@ export class GitDirectorService {
   async mergeStatus(args: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {
     const requestId = requiredString(args, 'request_id', 36);
     const now = this.now();
+
+    if (this.snapshot()) {
+      await this.sweepForRead(now);
+      const request=await this.requireRequest(this.deps.db,requestId,host);
+      if(request.verdict!=='wait'||request.completedAt)return this.requestWire(request,{renewed:false});
+      const inputs=this.waitInputs(request);
+      if(this.evaluatedWaits.get(request.id)===inputs)return this.requestWire(request,{renewed:false});
+      const worktree=this.snapshot()!.table('gitWorktrees').get(request.worktreeId);
+      if(!worktree||!this.registrationProof(worktree))return this.requestWire(request,{renewed:false});
+      const result=await this.decideAndRecord({host,now,worktreePath:worktree.worktreePath,targetBranch:request.targetBranch,clientRequestId:request.clientRequestId,baseSha:request.baseSha,headSha:request.headSha,changedPaths:readPaths(request.changedPaths),updateRequestId:request.id});
+      this.evaluatedWaits.set(request.id,this.waitInputs(request));return result;
+    }
 
     const current = await this.transaction(async (tx) => {
       await lockClaimGate(tx);
@@ -1393,14 +1534,11 @@ export class GitDirectorService {
       await this.sweepExpired(tx, now);
       const request = await this.requireRequest(tx, requestId, host);
       if (request.verdict === 'allow' && !request.completedAt) {
-        const [wt] = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId));
-        const [clone] = await tx.select().from(gitClones).where(eq(gitClones.id, request.cloneId));
+        const [wt] = (this.rows(tx, 'gitWorktrees')?.filter(row => row.id === request.worktreeId) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId)));
+        const [clone] = (this.rows(tx, 'gitClones')?.filter(row => row.id === request.cloneId) ?? await tx.select().from(gitClones).where(eq(gitClones.id, request.cloneId)));
         if (wt && clone) await guardGitMutation(tx, clone, wt, request.targetBranch, readPaths(request.changedPaths));
         const leaseExpiresAt = isoOffsetSeconds(LEASE_TTL_SECONDS, new Date(now));
-        await tx
-          .update(gitMergeRequests)
-          .set({ leaseExpiresAt, renewedAt: now, updatedAt: now })
-          .where(eq(gitMergeRequests.id, request.id));
+        await this.updateRows(tx, 'gitMergeRequests', [request.id], { leaseExpiresAt, renewedAt: now, updatedAt: now });
         return { ...request, leaseExpiresAt, renewedAt: now, renewed: true };
       }
       return { ...request, renewed: false };
@@ -1462,9 +1600,10 @@ export class GitDirectorService {
 
       if (requestId) {
         const request = await this.requireRequest(tx, requestId, host);
+        if (this.snapshot(tx)) { const registration=this.snapshot(tx)!.table('gitWorktrees').get(request.worktreeId); if(!registration) throw new ConflictError('Registration missing','git_director_owner_uncertain'); this.requireRegistrationProof(registration); }
         cloneId = request.cloneId;
         if (args.outcome !== undefined) {
-          const [owner] = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId));
+          const [owner] = (this.rows(tx, 'gitWorktrees')?.filter(row => row.id === request.worktreeId) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId)));
           if (!owner || owner.worktreePath !== normalizePath(worktreePath!)) throw new ValidationError('worktree_path does not match the reported request');
           if (outcome === 'merged' && !request.leaseExpiresAt) throw new ValidationError('A merged report requires a request that held a lease');
           if (correctionReason) {
@@ -1478,7 +1617,7 @@ export class GitDirectorService {
               corrected_target_head_sha: targetHeadSha, reason: correctionReason, evidence: 'agent_reported', verified: false };
             if (existing && Object.entries(correction).some(([key, value]) => (existing.payload as Record<string, unknown>)?.[key] !== value))
               throw new ConflictError('Correction ID reused with different evidence', 'git_director_outcome_conflict');
-            if (!existing) await tx.insert(adminEvents).values({ type: 'git_director.outcome_correction', hostId: host.id, payload: correction, createdAt: now });
+            if (!existing) { const context=this.ownedContext.getStore()?.ctx; if(context) adminAudit(context,'git_director.outcome_correction',correction,now,host.id); else await tx.insert(adminEvents).values({ type: 'git_director.outcome_correction', hostId: host.id, payload: correction, createdAt: now }); }
             return { released: 0, deregistered: false, corrected: true, replayed: Boolean(existing), correction };
           }
           const refinement = request.reportedOutcome === 'unknown' && outcome !== 'unknown';
@@ -1486,15 +1625,12 @@ export class GitDirectorService {
             throw new ConflictError('A different outcome was already reported for this request', 'git_director_outcome_conflict');
           }
           if (request.reportedOutcome == null || refinement) {
-            await tx.update(gitMergeRequests).set({ reportedOutcome: outcome, reportedTargetHeadSha: targetHeadSha, outcomeReportedAt: now, updatedAt: now }).where(eq(gitMergeRequests.id, request.id));
+            await this.updateRows(tx, 'gitMergeRequests', [request.id], { reportedOutcome: outcome, reportedTargetHeadSha: targetHeadSha, outcomeReportedAt: now, updatedAt: now });
             reported = request;
           }
         }
         if (!request.completedAt) {
-          await tx
-            .update(gitMergeRequests)
-            .set({ verdict: 'withdrawn', reason: 'Withdrawn by git_release or superseding registration; merge outcome is unknown.', completedAt: now, updatedAt: now })
-            .where(eq(gitMergeRequests.id, request.id));
+          await this.updateRows(tx, 'gitMergeRequests', [request.id], { verdict: 'withdrawn', reason: 'Withdrawn by git_release or superseding registration; merge outcome is unknown.', completedAt: now, updatedAt: now });
           released += 1;
           releasedRequests.push(request);
         }
@@ -1504,32 +1640,27 @@ export class GitDirectorService {
         const worktree = await this.worktreeForPath(tx, host, normalizePath(worktreePath));
         const clone = await this.cloneForWorktree(tx, host, normalizePath(worktreePath));
         if (!worktree || !clone) throw new NotFoundError('Worktree not registered', 'git_director_worktree_not_found');
+        if (this.snapshot(tx)) this.requireRegistrationProof(worktree);
         cloneId = clone.id;
         const live = args.outcome !== undefined && requestId && !deregister ? [] : await this.liveRequestsForWorktree(tx, worktree.id, now);
         if (live.length > 0) {
-          await tx
-            .update(gitMergeRequests)
-            .set({ verdict: 'withdrawn', reason: 'Withdrawn by git_release or superseding registration; merge outcome is unknown.', completedAt: now, updatedAt: now })
-            .where(inArray(gitMergeRequests.id, live.map((row) => row.id)));
+          await this.updateRows(tx, 'gitMergeRequests', live.map((row) => row.id), { verdict: 'withdrawn', reason: 'Withdrawn by git_release or superseding registration; merge outcome is unknown.', completedAt: now, updatedAt: now });
           released += live.length;
           releasedRequests.push(...live);
         }
         if (deregister) {
-          await tx
-            .update(gitWorktrees)
-            .set({ status: 'released', releasedAt: now, updatedAt: now })
-            .where(eq(gitWorktrees.id, worktree.id));
+          await this.updateRows(tx, 'gitWorktrees', [worktree.id], { status: 'released', releasedAt: now, updatedAt: now });
         }
       }
 
       for (const request of releasedRequests) {
-        const [clone] = await tx.select().from(gitClones).where(eq(gitClones.id, request.cloneId));
-        const [worktree] = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId));
+        const [clone] = (this.rows(tx, 'gitClones')?.filter(row => row.id === request.cloneId) ?? await tx.select().from(gitClones).where(eq(gitClones.id, request.cloneId)));
+        const [worktree] = (this.rows(tx, 'gitWorktrees')?.filter(row => row.id === request.worktreeId) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId)));
         if (reported?.id !== request.id) await this.notify(tx, { kind: 'merge_released', clone, worktree, targetBranch: request.targetBranch, requestId: request.id, audience: 'branch', detail: { recheck_required: true, merge_outcome: 'unknown' } });
       }
       if (reported) {
-        const [clone] = await tx.select().from(gitClones).where(eq(gitClones.id, reported.cloneId));
-        const [worktree] = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, reported.worktreeId));
+        const [clone] = (this.rows(tx, 'gitClones')?.filter(row => row.id === reported.cloneId) ?? await tx.select().from(gitClones).where(eq(gitClones.id, reported.cloneId)));
+        const [worktree] = (this.rows(tx, 'gitWorktrees')?.filter(row => row.id === reported.worktreeId) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, reported.worktreeId)));
         await this.notify(tx, { kind: 'merge_reported', clone, worktree, targetBranch: reported.targetBranch, requestId: reported.id, audience: outcome === 'merged' ? 'repository' : 'branch', detail: { recheck_required: true, merge_outcome: outcome, target_head_sha: targetHeadSha, evidence: 'agent_reported', verified: false } });
       }
       if (cloneId) this.publish(tx, 'release', cloneId);
@@ -1552,6 +1683,11 @@ export class GitDirectorService {
     const db = this.deps.db;
     const now = this.now();
     await this.sweepForRead(now);
+    const snapshot = this.snapshot(db);
+    if (snapshot) {
+      const clones = snapshot.table('gitClones').all().filter(row => !row.archivedAt).sort((a,b)=>b.lastSeenAt.localeCompare(a.lastSeenAt));
+      return Promise.all(clones.map(async clone => ({...this.cloneWire(clone,null), fqdn:snapshot.hosts.get(clone.hostId)?.fqdn??null, worktrees:await this.worktreeWire(db,clone.id,now), leases:await this.leaseWire(db,clone.id,now), stale:await this.staleWire(db,clone.id,now), recent:await this.recentWire(db,clone.id)})));
+    }
     const clones = await db.select().from(gitClones).where(isNull(gitClones.archivedAt));
     if (clones.length === 0) return [];
     clones.sort((a, b) => (a.lastSeenAt < b.lastSeenAt ? 1 : -1));
@@ -1602,26 +1738,25 @@ export class GitDirectorService {
       await lockClaimGate(tx);
       const now = this.now();
       await this.sweepExpired(tx, now);
-      const rows = await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.id, requestId)).limit(1).for('update');
+      const rows = this.rows(tx, 'gitMergeRequests') ?? (this.rows(tx, 'gitMergeRequests')?.filter(row => row.id === requestId) ?? await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.id, requestId)).limit(1).for('update'));
       const request = rows.find((row) => row.id === requestId);
       if (!request) throw new NotFoundError('Merge request not found', 'git_director_request_not_found');
       if (request.completedAt || !['allow', 'wait'].includes(request.verdict))
         throw new ConflictError('Completed merge requests cannot be overridden', 'git_director_request_completed');
-      const [clone] = await tx.select().from(gitClones).where(eq(gitClones.id, request.cloneId)).limit(1).for('update');
-      const [worktree] = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId));
+      const [clone] = (this.rows(tx, 'gitClones')?.filter(row => row.id === request.cloneId) ?? await tx.select().from(gitClones).where(eq(gitClones.id, request.cloneId)).limit(1).for('update'));
+      const [worktree] = (this.rows(tx, 'gitWorktrees')?.filter(row => row.id === request.worktreeId) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId)));
       if (verdict === 'allow') {
         if (!clone || clone.archivedAt || !worktree || worktree.status !== 'active' || worktree.cloneId !== clone.id)
           throw new ConflictError('An active worktree is required for a merge lease', 'git_director_worktree_inactive');
-        await guardGitMutation(tx, clone, worktree, request.targetBranch, readPaths(request.changedPaths));
+        await guardGitMutation(tx, clone, worktree, request.targetBranch, readPaths(request.changedPaths), this.snapshot(tx));
+        if(this.snapshot(tx))this.requireRegistrationProof(worktree);
         if (await this.liveLeaseForClone(tx, clone.id, request.targetBranch, now, request.id))
           throw new ConflictError('Another request holds the lease on this branch', 'git_director_lease_held');
       }
       const leaseExpiresAt = verdict === 'allow'
         ? request.verdict === 'allow' ? request.leaseExpiresAt : isoOffsetSeconds(LEASE_TTL_SECONDS, new Date(now))
         : null;
-      await tx
-        .update(gitMergeRequests)
-        .set({
+      await this.updateRows(tx, 'gitMergeRequests', [requestId], {
           verdict,
           decidedBy: 'operator',
           reason: reason?.trim() || `Forced ${verdict} by an operator from the console.`,
@@ -1629,16 +1764,15 @@ export class GitDirectorService {
           decidedAt: now,
           completedAt: verdict === 'deny' ? now : null,
           updatedAt: now,
-        })
-        .where(eq(gitMergeRequests.id, requestId));
+        });
       this.publish(tx, 'decision', request.cloneId);
       if (request.verdict !== verdict || request.decidedBy !== 'operator' || request.reason !== (reason?.trim() || `Forced ${verdict} by an operator from the console.`)) {
-        const grants = await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.cloneId, request.cloneId));
+        const grants = (this.rows(tx, 'gitMergeRequests')?.filter(row => row.cloneId === request.cloneId) ?? await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.cloneId, request.cloneId)));
         const holderIds = grants.filter(r => r.verdict === 'allow' && !r.completedAt && r.targetBranch === request.targetBranch && !isExpired(r.leaseExpiresAt, now)).map(r => r.worktreeId);
-        const holders = holderIds.length ? await tx.select().from(gitWorktrees).where(inArray(gitWorktrees.id, holderIds)) : [];
+        const holders = holderIds.length ? this.rows(tx, 'gitWorktrees')?.filter(row => holderIds.includes(row.id)) ?? await tx.select().from(gitWorktrees).where(inArray(gitWorktrees.id, holderIds)) : [];
         await this.notify(tx, { kind: 'operator_decision', clone, worktree, targetBranch: request.targetBranch, requestId, audience: 'branch', includeActor: true, ownerWorktrees: holders, detail: { verdict, recheck_required: true, other_leases_revoked: false } });
       }
-      const updated = (await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.id, requestId)).limit(1)).find(
+      const updated = ((this.rows(tx, 'gitMergeRequests')?.filter(row => row.id === requestId) ?? await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.id, requestId)).limit(1))).find(
         (row) => row.id === requestId,
       );
       return this.requestWire(updated ?? request, {}, tx);
@@ -1662,29 +1796,23 @@ export class GitDirectorService {
     const now = this.now();
     return await this.transaction(async (tx) => {
       await lockClaimGate(tx);
-      const rows = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, worktreeId)).limit(1).for('update');
+      const rows = (this.rows(tx, 'gitWorktrees')?.filter(row => row.id === worktreeId) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, worktreeId)).limit(1).for('update'));
       const worktree = rows.find((row) => row.id === worktreeId);
       if (!worktree) throw new NotFoundError('Worktree not found', 'git_director_worktree_not_found');
 
       const live = await this.liveRequestsForWorktree(tx, worktree.id, now);
       if (live.length > 0) {
-        await tx
-          .update(gitMergeRequests)
-          .set({
+        await this.updateRows(tx, 'gitMergeRequests', live.map((row) => row.id), {
             verdict: 'withdrawn',
             completedAt: now,
             reason: 'Withdrawn: an operator evicted the holding registration from the console.',
             updatedAt: now,
-          })
-          .where(inArray(gitMergeRequests.id, live.map((row) => row.id)));
+          });
       }
-      await tx
-        .update(gitWorktrees)
-        .set({ status: 'released', releasedAt: now, updatedAt: now })
-        .where(eq(gitWorktrees.id, worktree.id));
+      await this.updateRows(tx, 'gitWorktrees', [worktree.id], { status: 'released', releasedAt: now, updatedAt: now });
       this.publish(tx, 'evict', worktree.cloneId);
-      if (worktree.status === 'active' || live.length) {
-        const [clone] = await tx.select().from(gitClones).where(eq(gitClones.id, worktree.cloneId));
+      if (['active','uncertain'].includes(worktree.status) || live.length) {
+        const [clone] = (this.rows(tx, 'gitClones')?.filter(row => row.id === worktree.cloneId) ?? await tx.select().from(gitClones).where(eq(gitClones.id, worktree.cloneId)));
         await this.notify(tx, { kind: 'operator_eviction', clone, worktree, audience: 'branch', includeActor: true, detail: { recheck_required: true, withdrawn_requests: live.map(r => r.id) } });
       }
       return { evicted: true, worktree_id: worktree.id, released: live.length };
@@ -1705,7 +1833,7 @@ export class GitDirectorService {
       now: string;
     },
   ): Promise<GitClone> {
-    const rows = await tx
+    const rows = this.rows(tx, 'gitClones') ?? await tx
       .select()
       .from(gitClones)
       .where(and(eq(gitClones.hostId, input.host.id), eq(gitClones.cloneKey, input.cloneKey)))
@@ -1715,17 +1843,14 @@ export class GitDirectorService {
       (row) => row.hostId === input.host.id && row.cloneKey === input.cloneKey,
     );
     if (existing) {
-      await tx
-        .update(gitClones)
-        .set({
+      await this.updateRows(tx, 'gitClones', [existing.id], {
           repoRoot: input.repoRoot,
           remoteUrl: input.remoteUrl ?? existing.remoteUrl,
           remoteKey: input.remoteKey ?? existing.remoteKey,
           lastSeenAt: input.now,
           archivedAt: null,
           updatedAt: input.now,
-        })
-        .where(eq(gitClones.id, existing.id));
+        });
       return {
         ...existing,
         repoRoot: input.repoRoot,
@@ -1750,7 +1875,7 @@ export class GitDirectorService {
       createdAt: input.now,
       updatedAt: input.now,
     };
-    await tx.insert(gitClones).values(clone);
+    await this.insertRow(tx, 'gitClones', clone);
     this.publish(tx, 'clone', clone.id);
     return clone;
   }
@@ -1770,6 +1895,17 @@ export class GitDirectorService {
   ): Promise<{ id: string; username: string; sessionId: string; generation: number } | null> {
     if (!engine) return null;
     const cwdHash = sha256(worktreePath);
+    const snapshot = this.snapshot(tx), owner = ownerRuntimeFor(tx);
+    if(snapshot&&owner){
+      const principal=currentNativePrincipal();if(!principal)throw new ConflictError('Authenticated native session required for registration','git_director_owner_required');
+      const {session}=ownedBridge(snapshot,principal.sessionId,principal.bridgeToken),workspace=readWorkspace(session.workspace);
+      if(session.hostId!==host.id||session.engine!==engine||username&&session.username!==username||(workspace?.git_root??workspace?.cwd??session.cwd)!==worktreePath)throw new ConflictError('Registration differs from authenticated native session','git_director_owner_required');
+      const attachment=nativeClaimAttachment(owner,session),address=session.agentBusAddressId?snapshot.addresses.get(session.agentBusAddressId):undefined;
+      if((!attachment&&!legacyDrainFor(owner)?.session(session.id,session.bindingGeneration))||address?.currentSessionId!==session.id||address.bindingGeneration!==session.bindingGeneration)return null;
+      this.ownedContext.getStore()?.checks.push(current=>{const checked=ownedBridge(current,principal.sessionId,principal.bridgeToken).session;if(checked.bindingGeneration!==session.bindingGeneration)throw new ConflictError('Native binding changed','git_director_owner_uncertain');});
+      return {id:address.id,username:session.username,sessionId:session.id,generation:session.bindingGeneration};
+    }
+
     try {
       const rows = await tx
         .select({
@@ -1826,7 +1962,7 @@ export class GitDirectorService {
   ): Promise<GitWorktree | null> {
     const worktreeHash = sha256(worktreePath);
     const rows = (
-      await tx
+      this.rows(tx, 'gitWorktrees') ?? await tx
         .select()
         .from(gitWorktrees)
         .where(and(eq(gitWorktrees.hostId, host.id), eq(gitWorktrees.worktreeHash, worktreeHash)))
@@ -1848,7 +1984,7 @@ export class GitDirectorService {
   ): Promise<GitClone | null> {
     const worktree = await this.worktreeForPath(tx, host, worktreePath);
     if (!worktree) return null;
-    const clones = await tx.select().from(gitClones).where(eq(gitClones.id, worktree.cloneId)).limit(1);
+    const clones = this.rows(tx, 'gitClones') ?? (this.rows(tx, 'gitClones')?.filter(row => row.id === worktree.cloneId) ?? await tx.select().from(gitClones).where(eq(gitClones.id, worktree.cloneId)).limit(1));
     return clones.find((row) => row.id === worktree.cloneId) ?? null;
   }
 
@@ -1874,7 +2010,7 @@ export class GitDirectorService {
     worktreePath: string,
     now: string,
   ): Promise<{ clone: GitClone; worktree: GitWorktree }> {
-    await tx.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, host.id)).for('update');
+    if (!this.snapshot(tx)) await tx.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, host.id)).for('update');
     const worktree = await this.worktreeForPath(tx, host, worktreePath);
     if (!worktree) {
       throw new NotFoundError(
@@ -1882,15 +2018,13 @@ export class GitDirectorService {
         'git_director_worktree_not_found',
       );
     }
-    const clones = await tx.select().from(gitClones).where(eq(gitClones.id, worktree.cloneId)).limit(1);
+    const clones = this.rows(tx, 'gitClones') ?? (this.rows(tx, 'gitClones')?.filter(row => row.id === worktree.cloneId) ?? await tx.select().from(gitClones).where(eq(gitClones.id, worktree.cloneId)).limit(1));
     const clone = clones.find((row) => row.id === worktree.cloneId);
     if (!clone) throw new NotFoundError('Clone not found', 'git_director_clone_not_found');
 
+    if (this.snapshot(tx)) { this.requireRegistrationProof(worktree, true); return { clone, worktree }; }
     const expiresAt = isoOffsetSeconds(REGISTRATION_TTL_SECONDS, new Date(now));
-    await tx
-      .update(gitWorktrees)
-      .set({ status: 'active', heartbeatAt: now, expiresAt, releasedAt: null, updatedAt: now })
-      .where(eq(gitWorktrees.id, worktree.id));
+    await this.updateRows(tx, 'gitWorktrees', [worktree.id], { status: 'active', heartbeatAt: now, expiresAt, releasedAt: null, updatedAt: now });
     return {
       clone,
       worktree: { ...worktree, status: 'active', heartbeatAt: now, expiresAt, releasedAt: null },
@@ -1898,10 +2032,15 @@ export class GitDirectorService {
   }
 
   private async requireRequest(tx: GitDirectorDb, requestId: string, host: Host): Promise<GitMergeRequest> {
-    const rows = await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.id, requestId)).limit(1);
-    const request = rows.find((row) => row.id === requestId);
+    const rows = this.rows(tx, 'gitMergeRequests') ?? (this.rows(tx, 'gitMergeRequests')?.filter(row => row.id === requestId) ?? await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.id, requestId)).limit(1));
+    let request = rows.find((row) => row.id === requestId);
+    if (!request && this.snapshot(tx)) {
+      request=(await this.deps.db.select().from(gitMergeRequests).where(eq(gitMergeRequests.id,requestId)).limit(1))[0];
+      if (request && !request.completedAt) throw new Error('Unresolved Git request missing from authoritative working set');
+      if(request)this.ownedContext.getStore()?.ctx.draft.upsert('gitMergeRequests',request);
+    }
     if (!request) throw new NotFoundError('Merge request not found', 'git_director_request_not_found');
-    const clones = await tx.select().from(gitClones).where(eq(gitClones.id, request.cloneId)).limit(1);
+    const clones = this.rows(tx, 'gitClones') ?? (this.rows(tx, 'gitClones')?.filter(row => row.id === request.cloneId) ?? await tx.select().from(gitClones).where(eq(gitClones.id, request.cloneId)).limit(1));
     const clone = clones.find((row) => row.id === request.cloneId);
     if (!clone || clone.hostId !== host.id) {
       throw new NotFoundError('Merge request not found', 'git_director_request_not_found');
@@ -1916,7 +2055,7 @@ export class GitDirectorService {
     now: string,
     excludeRequestId?: string,
   ): Promise<GitMergeRequest | null> {
-    const rows = await tx
+    const rows = this.rows(tx, 'gitMergeRequests') ?? await tx
       .select()
       .from(gitMergeRequests)
       .where(and(
@@ -1954,7 +2093,7 @@ export class GitDirectorService {
   ): Promise<
     Array<{ worktree_id: string; worktree_path: string; username: string; branch: string | null; declared_paths: string[] }>
   > {
-    const rows = await tx
+    const rows = this.rows(tx, 'gitWorktrees') ?? await tx
       .select()
       .from(gitWorktrees)
       .where(and(eq(gitWorktrees.cloneId, cloneId), eq(gitWorktrees.status, 'active')))
@@ -1963,8 +2102,8 @@ export class GitDirectorService {
       .filter(
         (row) =>
           row.cloneId === cloneId &&
-          row.status === 'active' &&
-          !isExpired(row.expiresAt, now) &&
+          (row.status === 'active' || row.status === 'uncertain') &&
+          (this.snapshot(tx) !== undefined || !isExpired(row.expiresAt, now)) &&
           !excludeWorktreeIds.includes(row.id) &&
           (row.targetBranch === null || row.targetBranch === targetBranch),
       )
@@ -1984,7 +2123,7 @@ export class GitDirectorService {
     worktreeId: string,
     now: string,
   ): Promise<GitMergeRequest | null> {
-    const rows = await tx
+    const rows = this.rows(tx, 'gitMergeRequests') ?? await tx
       .select()
       .from(gitMergeRequests)
       .where(and(eq(gitMergeRequests.worktreeId, worktreeId), eq(gitMergeRequests.verdict, 'allow')))
@@ -2006,7 +2145,7 @@ export class GitDirectorService {
     now: string,
   ): Promise<GitMergeRequest[]> {
     void now;
-    const rows = await tx
+    const rows = this.rows(tx, 'gitMergeRequests') ?? await tx
       .select()
       .from(gitMergeRequests)
       .where(eq(gitMergeRequests.worktreeId, worktreeId))
@@ -2034,7 +2173,7 @@ export class GitDirectorService {
     excludeRequestId: string | null = null,
   ): Promise<GitMergeRequest[]> {
     void now;
-    const rows = await tx
+    const rows = this.rows(tx, 'gitMergeRequests') ?? await tx
       .select()
       .from(gitMergeRequests)
       .where(and(eq(gitMergeRequests.cloneId, cloneId), eq(gitMergeRequests.verdict, 'wait')))
@@ -2062,11 +2201,11 @@ export class GitDirectorService {
   }
 
   private async worktreeWire(tx: GitDirectorDb, cloneId: string, now: string): Promise<Array<Record<string, unknown>>> {
-    return this.worktreeWireRows(await tx.select().from(gitWorktrees).where(eq(gitWorktrees.cloneId, cloneId)).limit(200), now);
+    return this.worktreeWireRows(this.rows(tx, 'gitWorktrees')?.filter(row => row.cloneId === cloneId) ?? (this.rows(tx, 'gitWorktrees')?.filter(row => row.cloneId === cloneId) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.cloneId, cloneId)).limit(200)), now);
   }
 
   private worktreeWireRows(all: GitWorktree[], now: string): Array<Record<string, unknown>> {
-    const rows = all.filter((row) => row.status === 'active' && !isExpired(row.expiresAt, now));
+    const rows = all.filter((row) => this.snapshot() ? ['active','uncertain'].includes(row.status) : row.status === 'active' && !isExpired(row.expiresAt, now));
     rows.sort((a, b) => (a.worktreePath < b.worktreePath ? -1 : 1));
     return rows.map((row) => ({
       worktree_id: row.id,
@@ -2082,7 +2221,8 @@ export class GitDirectorService {
       target_branch: row.targetBranch,
       agent_address_bound: Boolean(row.agentBusAddressId),
       heartbeat_at: row.heartbeatAt,
-      expires_at: row.expiresAt,
+      status: row.status, ownership_mode: row.ownershipMode, uncertainty_reason: row.uncertaintyReason, presence_source: row.ownershipMode === 'connection' ? 'connection' : 'legacy_drain',
+      expires_at: this.registrationExpiresAt(row),
     }));
   }
 
@@ -2097,7 +2237,7 @@ export class GitDirectorService {
    */
   private async staleWire(tx: GitDirectorDb, cloneId: string, now: string): Promise<Array<Record<string, unknown>>> {
     void now;
-    return this.staleWireRows(await tx.select().from(gitWorktrees).where(eq(gitWorktrees.cloneId, cloneId)).limit(200));
+    return this.staleWireRows(this.rows(tx, 'gitWorktrees')?.filter(row => row.cloneId === cloneId) ?? (this.rows(tx, 'gitWorktrees')?.filter(row => row.cloneId === cloneId) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.cloneId, cloneId)).limit(200)));
   }
 
   private staleWireRows(all: GitWorktree[]): Array<Record<string, unknown>> {
@@ -2129,7 +2269,7 @@ export class GitDirectorService {
   }
 
   private async leaseWire(tx: GitDirectorDb, cloneId: string, now: string): Promise<Array<Record<string, unknown>>> {
-    return this.leaseWireRows(await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.cloneId, cloneId)).limit(200), now);
+    return this.leaseWireRows(this.rows(tx, 'gitMergeRequests')?.filter(row => row.cloneId === cloneId) ?? (this.rows(tx, 'gitMergeRequests')?.filter(row => row.cloneId === cloneId) ?? await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.cloneId, cloneId)).limit(200)), now);
   }
 
   private leaseWireRows(all: GitMergeRequest[], now: string): Array<Record<string, unknown>> {
@@ -2151,7 +2291,7 @@ export class GitDirectorService {
 
   private async recentWire(tx: GitDirectorDb, cloneId: string): Promise<Array<Record<string, unknown>>> {
     return this.recentWireRows(
-      await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.cloneId, cloneId)).orderBy(desc(gitMergeRequests.requestedAt)).limit(25),
+      this.rows(tx, 'gitMergeRequests')?.filter(row => row.cloneId === cloneId) ?? await tx.select().from(gitMergeRequests).where(eq(gitMergeRequests.cloneId, cloneId)).orderBy(desc(gitMergeRequests.requestedAt)).limit(25),
     );
   }
 

@@ -1,3 +1,7 @@
+import { withNativePrincipal } from '../../control-plane/state/native-principal.js';
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { ownerPresence } from '../../control-plane/presence.js';
+import { GitDirectorNotifications } from '../../services/git-director/notifications.js';
 import { normalizePath } from '../../services/git-director.js';
 import { SettingsService } from '../../services/settings.js';
 import { and, eq } from 'drizzle-orm';
@@ -21,7 +25,7 @@ export function registerCoordinationRoutes(
 ) {
   const service = new AgentCoordination(ctx.db, ctx.env, ctx.keyring, messaging);
   const audit = createAdminEventsService(ctx.db);
-  const director = new GitDirectorService({ db: ctx.db, settings: new SettingsService(ctx.db) });
+  const director = new GitDirectorService({ db: ctx.db, settings: new SettingsService(ctx.db), notifications: new GitDirectorNotifications(messaging) });
   const bridge = (req: FastifyRequest) => {
     const token = req.headers['x-agent-bridge-token'];
     if (typeof token !== 'string' || !token) throw new UnauthorizedError('Bridge credential required');
@@ -72,20 +76,22 @@ export function registerCoordinationRoutes(
     const args = { ...input.args, clone_dir: input.common_dir, engine: session.engine, username: session.username };
     // Only this bridge-authenticated route can supply private provenance. A
     // remote host key cannot impersonate the originating managed session.
-    if (input.operation === 'register') return director.register(args, host, proof);
-    const [registration] = await ctx.db.select({ worktree: gitWorktrees, clone: gitClones }).from(gitWorktrees)
-      .innerJoin(gitClones, eq(gitWorktrees.cloneId, gitClones.id))
-      .where(and(eq(gitWorktrees.hostId, host.id), eq(gitWorktrees.worktreePath, input.args.worktree_path),
-        eq(gitClones.cloneDir, input.common_dir), eq(gitWorktrees.status, 'active'))).limit(1);
+    if (input.operation === 'register') return withNativePrincipal({ sessionId: id, bridgeToken: token }, () => director.register(args, host, proof));
+    const runtime=ownerRuntimeFor(ctx.db),snapshot=runtime?.state.snapshot();
+    const registration=snapshot?snapshot.table('gitWorktrees').by('hostId',host.id).flatMap(worktree=>{
+      const clone=snapshot.table('gitClones').get(worktree.cloneId);
+      return clone&&worktree.worktreePath===input.args.worktree_path&&clone.cloneDir===input.common_dir&&worktree.status==='active'?[{worktree,clone}]:[];
+    })[0]:(await ctx.db.select({worktree:gitWorktrees,clone:gitClones}).from(gitWorktrees).innerJoin(gitClones,eq(gitWorktrees.cloneId,gitClones.id)).where(and(eq(gitWorktrees.hostId,host.id),eq(gitWorktrees.worktreePath,input.args.worktree_path),eq(gitClones.cloneDir,input.common_dir),eq(gitWorktrees.status,'active'))).limit(1))[0];
     if (!registration || registration.worktree.agentSessionId !== id || registration.worktree.agentBindingGeneration !== session.bindingGeneration)
       throw new ForbiddenError('Remote registration belongs to another session binding', 'git_remote_binding_stale');
     if (typeof input.args.request_id === 'string') {
-      const [request] = await ctx.db.select().from(gitMergeRequests).where(eq(gitMergeRequests.id, input.args.request_id));
+      const request=snapshot?snapshot.table('gitMergeRequests').get(input.args.request_id):(await ctx.db.select().from(gitMergeRequests).where(eq(gitMergeRequests.id,input.args.request_id)))[0];
       if (!request || request.worktreeId !== registration.worktree.id)
         throw new ForbiddenError('Remote request belongs to another worktree', 'git_remote_scope_mismatch');
     }
     const methods = { join: 'join', list: 'list', merge_request: 'requestMerge', merge_status: 'mergeStatus', release: 'release' } as const;
-    return director[methods[input.operation]](args, host);
+    const method = methods[input.operation];
+    return withNativePrincipal({ sessionId: id, bridgeToken: token }, () => director[method](args, host));
   });
   app.post('/host/agent-sessions/:id/agent-messaging/claims/acquire', (req) => invoke('claims/acquire', req));
   app.post('/host/agent-sessions/:id/agent-messaging/claims/status', (req) => invoke('claims/status', req));
@@ -131,7 +137,7 @@ export function registerCoordinationRoutes(
   );
   app.post('/admin/agent-messaging/scopes/resolve', { preHandler: app.requireAdmin }, async (req) => {
     const result = await service.claims.release(null, null, req.body, req.admin!.user.id);
-    await audit.record(
+    if (!ownerRuntimeFor(ctx.db)) await audit.record(
       {
         type: 'agent_coordination.resolved',
         payload: {
@@ -145,6 +151,45 @@ export function registerCoordinationRoutes(
     );
     return result;
   });
+  const owner = ownerRuntimeFor(ctx.db);
+  if (owner) {
+    const key = 'coordination:event', pendingKey = 'coordination:pending', gitKey='coordination:git-expiry';
+    let closed = false, running: Promise<void> | undefined, again = false;
+    const armPending = () => {
+      const snapshot=owner.state.snapshot();
+      owner.deadlines.cancel(gitKey);
+      const leases=snapshot.table('gitMergeRequests').all().filter(row=>row.verdict==='allow'&&!row.completedAt&&row.leaseExpiresAt).map(row=>Date.parse(row.leaseExpiresAt!)).filter(Number.isFinite);
+      if(leases.length)owner.deadlines.schedule(gitKey,Math.max(Date.now()+1,Math.min(...leases)),run);
+      if(snapshot.setting('agent_coordination_enabled')!=='1'||snapshot.setting('agent_messaging_enabled')!=='1'){owner.deadlines.cancel(pendingKey);return;}
+      const due = owner.state.snapshot().table('agentScopeEvents').all().filter(row => row.dispatched === 0).map(row => Date.parse(row.createdAt)+2000).filter(Number.isFinite);
+      owner.deadlines.cancel(pendingKey);
+      if (due.length) owner.deadlines.schedule(pendingKey, Math.max(Date.now()+1,Math.min(...due)), run);
+    };
+    const run = () => {
+      if (closed) return;
+      if (running) { again=true; return; }
+      let failed=false;
+      running=service.tick().then(()=>director.reconcileOwned()).catch(error=>{
+        failed=true;
+        app.log.error({err:error},'Scope coordination event failed');
+        if (!closed) owner.deadlines.schedule(key,Date.now()+5000,run);
+      }).finally(()=>{
+        running=undefined;
+        if (!closed) { if(!failed)armPending(); if(again){again=false; schedule();} }
+      });
+    };
+    const schedule=()=>{if(!closed)owner.deadlines.schedule(key,Date.now(),run);};
+    let observed = owner.state.snapshot();
+    const unsubscribeState=owner.state.subscribe(snapshot=>{
+      const relevant=['agentSessions','hosts','versions','agentScopeBindings','agentResourceClaims','agentScopeEvents','gitWorktrees','gitMergeRequests'] as const;
+      const changed=relevant.some(table=>observed.table(table)!==snapshot.table(table)); observed=snapshot;
+      if(changed)schedule();
+    });
+    const unsubscribePresence=ownerPresence(owner).subscribe(schedule);
+    schedule();
+    app.addHook('onClose',async()=>{closed=true;unsubscribeState();unsubscribePresence();owner.deadlines.cancel(key);owner.deadlines.cancel(pendingKey);owner.deadlines.cancel(gitKey);await running;});
+    return;
+  }
   // Reconciliation follows the events that change its input. The fallback only
   // catches time-based transitions: presence freshness, claim expiry, and the
   // 2 s dispatch delay of a scope event that nobody announced. A blind 2 s

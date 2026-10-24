@@ -28,6 +28,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { agentBusAddresses, gitWorktrees } from '../db/schema.js';
 import { normalizePath, sha256 } from './git-director.js';
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 
 export interface SessionWork {
   /** Free text the agent declared through `git_join`. */
@@ -97,6 +98,9 @@ export async function loadSessionWork(
   sessions: readonly SessionWorkInput[],
 ): Promise<Map<string, SessionWork>> {
   const resolved = new Map<string, SessionWork>();
+  const owner = ownerRuntimeFor(db);
+  owner?.assertOwner();
+  const state = owner?.state.snapshot();
   if (sessions.length === 0) return resolved;
 
   const lineages = new Map<string, string[]>();
@@ -107,7 +111,7 @@ export async function loadSessionWork(
     for (const path of lineage) hashes.add(sha256(path));
   }
 
-  const worktrees = hashes.size
+  const worktrees = state ? state.table('gitWorktrees').all().filter(row => row.status === 'active' && hashes.has(row.worktreeHash)) : hashes.size
     ? await db
         .select({
           hostId: gitWorktrees.hostId,
@@ -127,7 +131,8 @@ export async function loadSessionWork(
   for (const row of worktrees) byHostHash.set(`${row.hostId}:${row.worktreeHash}`, row);
 
   const sessionIds = sessions.map((session) => session.id);
-  const addresses = await db
+  const addresses = state ? state.addresses.all().filter(row => row.currentSessionId && sessionIds.includes(row.currentSessionId))
+    .map(row => ({ sessionId: row.currentSessionId, address: row.address, displayAlias: row.displayAlias })) : await db
     .select({
       sessionId: agentBusAddresses.currentSessionId,
       address: agentBusAddresses.address,

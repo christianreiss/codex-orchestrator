@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { OwnedChattyStore } from './owner-store.js';
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, gt, inArray, lt } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
@@ -49,6 +51,7 @@ export class ChattyStore {
     /** Told after every submit, so a sleeping scheduler checks at once. */
     private readonly submitted: () => void = () => {},
   ) {}
+  get owned(): OwnedChattyStore | undefined { return ownerRuntimeFor(this.db) ? new OwnedChattyStore(this) : undefined; }
   seal(value: unknown) {
     return encrypt(JSON.stringify(value), this.keyring);
   }
@@ -56,12 +59,14 @@ export class ChattyStore {
     return JSON.parse(decrypt(value, this.keyring)) as T;
   }
   async settings() {
+    if (this.owned) return this.owned.settings();
     const killed = (await this.db.select().from(versions).where(eq(versions.name, 'api_disabled')))[0];
     const row = (await this.db.select().from(versions).where(eq(versions.name, 'chatty_settings')))[0];
     if (killed?.version === '1') return { ...DEFAULT_SETTINGS, enabled: false };
     return row?.version ? settingsSchema.parse(JSON.parse(row.version)) : DEFAULT_SETTINGS;
   }
   async session(userId: number, db = this.db): Promise<Session> {
+    if (this.owned) return this.owned.session(userId);
     await db
       .insert(chattySessions)
       .values({ userId, generation: 1, selection: { engine: null, model: null }, updatedAt: now() })
@@ -69,6 +74,7 @@ export class ChattyStore {
     return (await db.select().from(chattySessions).where(eq(chattySessions.userId, userId)))[0]!;
   }
   async lockSession(userId: number, db: Database) {
+    if (this.owned) return this.owned.sessionRow(userId);
     const row = (
       await db.select().from(chattySessions).where(eq(chattySessions.userId, userId)).for('update')
     )[0];
@@ -76,6 +82,7 @@ export class ChattyStore {
     return row;
   }
   async authorize(actor: ChattyActor, db = this.db) {
+    if (this.owned) return this.owned.authorize(actor);
     const row = (
       await db
         .select({ user: adminUsers })
@@ -128,6 +135,7 @@ export class ChattyStore {
       .map(({ bodyEnc, ...row }) => ({ ...row, body: this.open<Record<string, unknown>>(bodyEnc) }));
   }
   async active(userId: number) {
+    if (this.owned) return this.owned.active(userId);
     const r = (
       await this.db
         .select()
@@ -152,7 +160,7 @@ export class ChattyStore {
     actor: ChattyActor,
     input: { client_message_id: string; generation: number; text: string; context?: unknown },
   ) {
-    const result = await this.submitOnce(actor, input);
+    const result = this.owned ? await this.owned.submit(actor, input) : await this.submitOnce(actor, input);
     this.submitted();
     return result;
   }
@@ -222,6 +230,7 @@ export class ChattyStore {
     await db.select().from(versions).where(eq(versions.name, 'chatty_scheduler')).for('update');
   }
   async claim(): Promise<Run | null> {
+    if (this.owned) return this.owned.claim();
     const settings = await this.settings();
     if (!settings.enabled) return null;
     return this.db.transaction(async (tx) => {
@@ -277,6 +286,7 @@ export class ChattyStore {
     });
   }
   async current(run: Run, db = this.db) {
+    if (this.owned) return this.owned.current(run);
     await this.authorize({ userId: run.userId, sessionId: run.adminSessionId }, db);
     const s = (await db.select().from(chattySessions).where(eq(chattySessions.userId, run.userId)))[0];
     const query = db.select().from(chattyRuns).where(eq(chattyRuns.id, run.id));
@@ -293,6 +303,7 @@ export class ChattyStore {
     return r;
   }
   async heartbeat(run: Run) {
+    if (this.owned) { this.owned.current(run); return; }
     await this.current(run);
     await this.db
       .update(chattyRuns)
@@ -312,6 +323,7 @@ export class ChattyStore {
     elapsed: number,
     body?: { kind: EventKind; data: unknown },
   ) {
+    if (this.owned) return this.owned.update(run, state, status, elapsed, body);
     await this.db.transaction(async (tx) => {
       const db = tx as unknown as Database;
       await this.lockSession(run.userId, db);
@@ -346,6 +358,7 @@ export class ChattyStore {
     });
   }
   async cancel(userId: number, id: string) {
+    if (this.owned) return this.owned.cancel(userId, id);
     await this.db.transaction(async (tx) => {
       const db = tx as unknown as Database;
       const session = await this.lockSession(userId, db);
@@ -372,6 +385,7 @@ export class ChattyStore {
     });
   }
   async clear(userId: number) {
+    if (this.owned) return this.owned.clear(userId);
     return this.db.transaction(async (tx) => {
       const db = tx as unknown as Database;
       const session = await this.lockSession(userId, db);
@@ -398,6 +412,7 @@ export class ChattyStore {
     });
   }
   async answer(actor: ChattyActor, id: string, text: string, generation: number) {
+    if (this.owned) return this.owned.answer(actor, id, text, generation);
     await this.db.transaction(async (tx) => {
       const db = tx as unknown as Database;
       const session = await this.lockSession(actor.userId, db);

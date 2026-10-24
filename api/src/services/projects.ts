@@ -1,3 +1,7 @@
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { stageDelete, stageUpdate } from '../control-plane/state/rows.js';
+import { stageProjectEvent } from '../control-plane/state/projects.js';
+import { adminAudit } from '../control-plane/state/admin.js';
 /**
  * Projects domain service. CRUD on `coord_projects` + cascades.
  *
@@ -151,8 +155,11 @@ export class ProjectsService {
   /**
    * Read the projects_module_enabled flag from the `versions` table.
    */
+  private snapshot(){const owner=ownerRuntimeFor(this.db);owner?.assertOwner();return owner?.state.snapshot();}
+
   async getEnabled(): Promise<boolean> {
-    const rows = await this.db
+    const state=this.snapshot();if(state)return state.setting(PROJECTS_ENABLED_FLAG)==='1';
+    const rows = this.snapshot()?.settings.all().filter(row=>row.name===PROJECTS_ENABLED_FLAG) ?? await this.db
       .select()
       .from(versions)
       .where(eq(versions.name, PROJECTS_ENABLED_FLAG))
@@ -161,7 +168,7 @@ export class ProjectsService {
   }
 
   async adminState(): Promise<{ enabled: boolean; updated_at: string | null; managed_skill: { slug: string; uri: string } }> {
-    const rows = await this.db
+    const rows = this.snapshot()?.settings.all().filter(row=>row.name===PROJECTS_ENABLED_FLAG) ?? await this.db
       .select()
       .from(versions)
       .where(eq(versions.name, PROJECTS_ENABLED_FLAG))
@@ -177,6 +184,7 @@ export class ProjectsService {
   }
 
   async setEnabled(enabled: boolean): Promise<{ enabled: boolean; updated_at: string | null; managed_skill: { slug: string; uri: string } }> {
+    const owner=ownerRuntimeFor(this.db);if(owner){await mutateOwnerState(owner,{kind:'projects.enabled',payload:{enabled},prepare:ctx=>{const row={name:PROJECTS_ENABLED_FLAG,version:enabled?'1':'0',updatedAt:nowIso()};ctx.draft.upsert('versions',row);ctx.write(async tx=>tx.insert(versions).values(row).onDuplicateKeyUpdate({set:{version:row.version,updatedAt:row.updatedAt}}));adminAudit(ctx,'projects.enabled',{enabled});return null;}});wsPublisher.publish('settings.changed',{kind:'projects_module',enabled});return this.adminState();}
     const nowTs = nowIso();
     const existing = await this.db
       .select()
@@ -198,6 +206,7 @@ export class ProjectsService {
   }
 
   async list(): Promise<{ projects: ProjectSummary[] }> {
+    const state=this.snapshot();if(state)return {projects:[...state.table('coordProjects').all()].sort((a,b)=>a.slug.localeCompare(b.slug)).map(buildSummary)};
     const rows = await this.db
       .select()
       .from(coordProjects)
@@ -207,6 +216,7 @@ export class ProjectsService {
 
   private async requireProject(rawSlug: string): Promise<typeof coordProjects.$inferSelect> {
     const slug = normalizeSlug(rawSlug);
+    const state=this.snapshot();if(state){const row=state.table('coordProjects').by('slug',slug)[0];if(!row)throw new NotFoundError('Project not found','project_not_found');return row;}
     const rows = await this.db
       .select()
       .from(coordProjects)
@@ -270,6 +280,10 @@ export class ProjectsService {
     const slug = normalizeSlug(payload.slug);
     const about = normalizeAbout(payload.about);
     const roster = normalizeRoster(payload.roster_markdown ?? payload.agents_markdown);
+    const owner=ownerRuntimeFor(this.db);if(owner){let id=0;await mutateOwnerState(owner,{kind:'project.create',payload:{slug},prepare:ctx=>{
+      if(ctx.snapshot.table('coordProjects').by('slug',slug).length)throw new ConflictError('slug already exists','project_slug_taken');const now=nowIso(),row={slug,aboutJson:about,rosterMarkdown:roster,latestEventSeq:0,createdAt:now,updatedAt:now,archivedAt:null};
+      ctx.write(async tx=>{const result=await tx.insert(coordProjects).values(row);id=Number(result[0].insertId);ctx.draft.upsert('coordProjects',{id,...row});stageProjectEvent(ctx,id,'project','create','project',id,{slug,about},sourceHostId);});return ()=>({id});
+    }});wsPublisher.publish('project.created',{slug,id});wsPublisher.publish('project.changed',{slug});return this.detail(slug);}
 
     const existing = await this.db
       .select({ id: coordProjects.id })
@@ -303,6 +317,11 @@ export class ProjectsService {
   }
 
   async deleteBySlug(rawSlug: string, _sourceHostId: number | null = null): Promise<{ deleted: string }> {
+    const owner=ownerRuntimeFor(this.db);if(owner){const slug=normalizeSlug(rawSlug);await mutateOwnerState(owner,{kind:'project.delete',payload:{slug},prepare:ctx=>{
+      const project=ctx.snapshot.table('coordProjects').by('slug',slug)[0];if(!project)throw new NotFoundError('Project not found','project_not_found');
+      for(const table of ['coordProjectCardDeps','coordProjectCards','coordProjectBoardColumns','coordProjectBoards','coordProjectNotes','coordProjectTodos','coordProjectFiles','coordProjectFeedback','coordProjectMemories'] as const)for(const row of ctx.draft.table(table).by('projectId',project.id)){ctx.draft.removeRow(table,row);}
+      ctx.write(async tx=>{await tx.delete(coordProjectCardDeps).where(eq(coordProjectCardDeps.projectId,project.id));await tx.delete(coordProjectCards).where(eq(coordProjectCards.projectId,project.id));await tx.delete(coordProjectBoardColumns).where(eq(coordProjectBoardColumns.projectId,project.id));await tx.delete(coordProjectBoards).where(eq(coordProjectBoards.projectId,project.id));await tx.delete(coordProjectNotes).where(eq(coordProjectNotes.projectId,project.id));await tx.delete(coordProjectTodos).where(eq(coordProjectTodos.projectId,project.id));await tx.delete(coordProjectFiles).where(eq(coordProjectFiles.projectId,project.id));await tx.delete(coordProjectFeedback).where(eq(coordProjectFeedback.projectId,project.id));await tx.delete(coordProjectMemories).where(eq(coordProjectMemories.projectId,project.id));await tx.delete(coordProjectEvents).where(eq(coordProjectEvents.projectId,project.id));});stageDelete(ctx,'coordProjects',project.id);adminAudit(ctx,'project.deleted',{slug,project_id:project.id});return null;
+    }});wsPublisher.publish('project.deleted',{slug});wsPublisher.publish('project.changed',{slug});return {deleted:slug};}
     const project = await this.requireProject(rawSlug);
     // Cascades: notes, todos, files, feedback, memories, events are FK-attached;
     // delete in dependency order, all-or-nothing. The board tables declare no
@@ -446,11 +465,13 @@ export class ProjectsService {
     const project = await this.requireProject(rawSlug);
     const about = normalizeAbout('about' in payload && payload.about !== undefined ? (payload as { about: unknown }).about : payload);
     const nowTs = nowIso();
+    const owner=ownerRuntimeFor(this.db);if(owner){await mutateOwnerState(owner,{kind:'project.updateAbout',payload:{slug:project.slug},prepare:ctx=>{stageUpdate(ctx,'coordProjects',project.id,{aboutJson:about});stageProjectEvent(ctx,project.id,'about','update','project',project.id,{about},sourceHostId);return null;}});}else{
     await this.db
       .update(coordProjects)
       .set({ aboutJson: about as unknown as Record<string, unknown> | null, updatedAt: nowTs })
       .where(eq(coordProjects.id, project.id));
     await this.recordEvent(project.id, 'about', 'update', 'project', project.id, { about }, sourceHostId);
+    }
 
     wsPublisher.publish('project.updated', { slug: project.slug, id: project.id });
     wsPublisher.publish('project.changed', { slug: project.slug });
@@ -472,11 +493,13 @@ export class ProjectsService {
     }
     const nowTs = nowIso();
     const archivedAt = archived ? nowTs : null;
+    const owner=ownerRuntimeFor(this.db);if(owner){await mutateOwnerState(owner,{kind:'project.setArchived',payload:{slug:project.slug},prepare:ctx=>{stageUpdate(ctx,'coordProjects',project.id,{archivedAt});stageProjectEvent(ctx,project.id,'project',archived?'archive':'unarchive','project',project.id,{archived_at:archivedAt},sourceHostId);return null;}});}else{
     await this.db
       .update(coordProjects)
       .set({ archivedAt, updatedAt: nowTs })
       .where(eq(coordProjects.id, project.id));
     await this.recordEvent(project.id, 'project', archived ? 'archive' : 'unarchive', 'project', project.id, { archived_at: archivedAt }, sourceHostId);
+    }
 
     wsPublisher.publish(archived ? 'project.archived' : 'project.unarchived', { slug: project.slug, id: project.id });
     wsPublisher.publish('project.updated', { slug: project.slug, id: project.id });
@@ -490,11 +513,13 @@ export class ProjectsService {
     const project = await this.requireProject(rawSlug);
     const roster = normalizeRoster(payload.roster_markdown ?? payload.markdown ?? '');
     const nowTs = nowIso();
+    const owner=ownerRuntimeFor(this.db);if(owner){await mutateOwnerState(owner,{kind:'project.updateRoster',payload:{slug:project.slug},prepare:ctx=>{stageUpdate(ctx,'coordProjects',project.id,{rosterMarkdown:roster});stageProjectEvent(ctx,project.id,'roster','update','project',project.id,{roster_markdown:roster},sourceHostId);return null;}});}else{
     await this.db
       .update(coordProjects)
       .set({ rosterMarkdown: roster, updatedAt: nowTs })
       .where(eq(coordProjects.id, project.id));
     await this.recordEvent(project.id, 'roster', 'update', 'project', project.id, { roster_markdown: roster }, sourceHostId);
+    }
 
     wsPublisher.publish('project.updated', { slug: project.slug, id: project.id });
     wsPublisher.publish('project.changed', { slug: project.slug });
@@ -506,6 +531,7 @@ export class ProjectsService {
   async listChanges(rawSlug: string, since = 0): Promise<{ project: string; since: number; latest_seq: number; changes: typeof coordProjectEvents.$inferSelect[] }> {
     const project = await this.requireProject(rawSlug);
     const safeSince = Math.max(0, since);
+    if(this.snapshot()&&safeSince>=project.latestEventSeq)return {project:project.slug,since:safeSince,latest_seq:project.latestEventSeq,changes:[]};
     const rows = safeSince === 0
       ? await this.db
           .select()

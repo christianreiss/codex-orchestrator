@@ -1,4 +1,8 @@
+import { projectRoomEventDeletion } from '../../control-plane/state/room-heads.js';
 import { sql, type SQL } from 'drizzle-orm';
+import type { RetentionProjection } from './projection.js';
+import type { ConnectionPresence } from '../../control-plane/presence.js';
+import type { RetentionFamily } from './deadlines.js';
 import type { Database } from '../../db/client.js';
 import { wsPublisher } from '../../ws/publisher.js';
 import { addressActiveSince, protectedAddress, RETENTION_BATCH_SIZE, SERVER_RETENTION_SECONDS } from './guards.js';
@@ -6,9 +10,9 @@ import { addressActiveSince, protectedAddress, RETENTION_BATCH_SIZE, SERVER_RETE
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 type Row = { id: string };
 
-async function rows(tx: Tx, query: SQL): Promise<Row[]> {
+async function rows<R extends Row = Row>(tx: Tx, query: SQL): Promise<R[]> {
   const [result] = await tx.execute(query);
-  return result as unknown as Row[];
+  return result as unknown as R[];
 }
 
 async function remove(tx: Tx, query: SQL): Promise<number> {
@@ -18,15 +22,34 @@ async function remove(tx: Tx, query: SQL): Promise<number> {
 
 /** Lock current heartbeat evidence, so a concurrent reconnect wins or follows
  * the purge transaction; an earlier consistent-read snapshot is insufficient. */
-async function contactsActive(tx: Tx, addresses: SQL, cutoff: string): Promise<boolean> {
-  const [result] = await tx.execute(sql`SELECT heartbeat_at FROM agent_sessions
+async function contactsActive(tx: Tx, addresses: SQL, cutoff: string, presence?: ConnectionPresence): Promise<boolean> {
+  const [result] = await tx.execute(sql`SELECT id, binding_generation, heartbeat_at FROM agent_sessions
     WHERE agent_bus_address_id IN (${addresses}) FOR UPDATE`);
-  return (result as unknown as Array<{ heartbeat_at: string }>).some(s => Date.parse(s.heartbeat_at) > Date.parse(cutoff));
+  return (result as unknown as Array<{ id: string; binding_generation: number; heartbeat_at: string }>).some(s => presence?.hasSession(s.id, s.binding_generation) || Date.parse(s.heartbeat_at) > Date.parse(cutoff));
 }
 
 /** Bounded, periodic cleanup; independent of feature switches and host traffic. */
 export class ServerRetentionService {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: Database, private readonly projection?: RetentionProjection, private readonly ownerTx?: Tx, private readonly presence?: ConnectionPresence) {}
+  private activeAddress(id: SQL, cutoff: string): SQL {
+    const addresses = this.projection?.draft.table('agentSessions').all().filter(session => this.presence?.hasSession(session.id, session.bindingGeneration)).map(session => session.agentBusAddressId).filter((value): value is string => !!value) ?? [];
+    return addresses.length ? sql`(${addressActiveSince(id, cutoff)} OR ${id} IN (${sql.join(addresses.map(address => sql`${address}`), sql`, `)}))` : addressActiveSince(id, cutoff);
+  }
+  private transaction<T>(run: (tx: Tx) => Promise<T>): Promise<T> { return this.ownerTx ? run(this.ownerTx) : this.db.transaction(run); }
+  /** Called inside one serialized owner transaction; publication is caller-owned. */
+  async purgeFamily(family: RetentionFamily, now = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - SERVER_RETENTION_SECONDS * 1000).toISOString();
+    switch (family) {
+      case 'credentials': return this.credentials(now.toISOString());
+      case 'relays': return this.relays(cutoff, now.toISOString());
+      case 'conversations': { const result = await this.bus(cutoff); return result.conversations + result.messages; }
+      case 'daemons': return this.daemons(cutoff);
+      case 'chatty': return this.chatty(cutoff);
+      case 'rooms': return this.rooms(cutoff);
+      case 'addresses': return this.addresses(cutoff);
+      default: throw new Error(`Portal retention family ${family} requires its portal handler`);
+    }
+  }
 
   async purge(now = new Date()): Promise<Record<string, number>> {
     const cutoff = new Date(now.getTime() - SERVER_RETENTION_SECONDS * 1000).toISOString();
@@ -53,11 +76,14 @@ export class ServerRetentionService {
   }
 
   private async credentials(now: string) {
-    return this.db.transaction(async tx => {
+    return this.transaction(async tx => {
       let count = 0;
       for (const table of ['mcp_session_tokens', 'admin_sessions', 'provider_account_sessions'] as const) {
         const ids = await rows(tx, sql`SELECT id FROM ${sql.identifier(table)} WHERE expires_at <= ${now} ORDER BY expires_at LIMIT 1000 FOR UPDATE`);
         if (ids.length) await tx.execute(sql`DELETE FROM ${sql.identifier(table)} WHERE id IN (${sql.join(ids.map(r => sql`${r.id}`), sql`,`)})`);
+        const names = { mcp_session_tokens: 'mcpSessionTokens', admin_sessions: 'adminSessions', provider_account_sessions: 'providerAccountSessions' } as const;
+        const removed = new Set(ids.map(row => String(row.id)));
+        this.projection?.removeWhere(names[table], row => removed.has(String(row.id)));
         count += ids.length;
       }
       return count;
@@ -65,25 +91,28 @@ export class ServerRetentionService {
   }
 
   private async relays(cutoff: string, now: string) {
-    return this.db.transaction(async tx => {
+    return this.transaction(async tx => {
       const expired = await rows(tx, sql`SELECT r.id FROM agent_bus_relays r WHERE r.heartbeat_at <= ${cutoff}
         AND (r.token_expires_at IS NULL OR r.token_expires_at <= ${now})
         AND NOT EXISTS (SELECT 1 FROM agent_bus_messages m WHERE m.lease_owner LIKE CONCAT('relay:',r.id,':%')
           AND m.status IN ('leased','accepted','reboot_hold'))
         ORDER BY r.heartbeat_at LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
-      if (expired.length) await tx.execute(sql`DELETE FROM agent_bus_relays WHERE id IN (${sql.join(expired.map(r => sql`${r.id}`), sql`,`)})`);
-      return expired.length;
+      const deletable = expired.filter(row => !this.presence?.hasRelay(row.id));
+      if (deletable.length) await tx.execute(sql`DELETE FROM agent_bus_relays WHERE id IN (${sql.join(deletable.map(r => sql`${r.id}`), sql`,`)})`);
+      const removed = new Set(deletable.map(row => row.id));
+      this.projection?.removeWhere('agentBusRelays', row => removed.has(row.id));
+      return deletable.length;
     });
   }
 
   private async bus(cutoff: string) {
-    return this.db.transaction(async tx => {
+    return this.transaction(async tx => {
       // All send/register/conference/schedule paths take this gate first.
       await tx.execute(sql`SELECT name FROM versions WHERE name = 'agent_messaging_enabled' FOR UPDATE`);
       const candidates = await rows(tx, sql`SELECT c.id FROM agent_bus_conversations c
         WHERE c.last_activity_at <= ${cutoff}
         AND NOT ${protectedAddress(sql`c.address_a_id`)} AND NOT ${protectedAddress(sql`c.address_b_id`)}
-        AND NOT ${addressActiveSince(sql`c.address_a_id`, cutoff)} AND NOT ${addressActiveSince(sql`c.address_b_id`, cutoff)}
+        AND NOT ${this.activeAddress(sql`c.address_a_id`, cutoff)} AND NOT ${this.activeAddress(sql`c.address_b_id`, cutoff)}
         AND NOT EXISTS (SELECT 1 FROM advisor_sessions v WHERE v.conversation_id = c.id AND v.status = 'open')
         AND NOT EXISTS (SELECT 1 FROM agent_bus_conference_members m JOIN agent_bus_conferences f ON f.id = m.conference_id
           WHERE m.conversation_id = c.id AND f.status <> 'adjourned')
@@ -91,9 +120,9 @@ export class ServerRetentionService {
       let conversations = 0, deletedMessages = 0;
       for (const { id } of candidates) {
         if (await contactsActive(tx, sql`SELECT address_a_id FROM agent_bus_conversations WHERE id = ${id}
-          UNION SELECT address_b_id FROM agent_bus_conversations WHERE id = ${id}`, cutoff)) continue;
+          UNION SELECT address_b_id FROM agent_bus_conversations WHERE id = ${id}`, cutoff, this.presence)) continue;
         // Large threads drain a bounded message batch before their parent goes.
-        const messages = await rows(tx, sql`SELECT id FROM agent_bus_messages WHERE conversation_id = ${id} LIMIT 500 FOR UPDATE`);
+        const messages = await rows<{id:string;source_engine:string;target_engine:string;status:string}>(tx, sql`SELECT id,source_engine,target_engine,status FROM agent_bus_messages WHERE conversation_id = ${id} LIMIT 500 FOR UPDATE`);
         if (messages.length) {
           const ids = sql.join(messages.map(r => sql`${r.id}`), sql`,`);
           await tx.execute(sql`DELETE FROM agent_task_results WHERE message_id IN (${ids})`);
@@ -101,66 +130,98 @@ export class ServerRetentionService {
           await tx.execute(sql`DELETE FROM agent_schedule_runs WHERE message_id IN (${ids})`);
           await tx.execute(sql`DELETE FROM agent_room_deliveries WHERE message_id IN (${ids})`);
           await tx.execute(sql`UPDATE agent_bus_conference_members SET dispatch_message_id = NULL WHERE dispatch_message_id IN (${ids})`);
+          const removedIds = new Set(messages.map(row => row.id));
+          this.projection?.removeWhere('agentTaskResults', row => removedIds.has(row.messageId));
+          this.projection?.removeWhere('agentFreshStartGrants', row => removedIds.has(row.messageId));
+          this.projection?.removeWhere('agentScheduleRuns', row => !!row.messageId && removedIds.has(row.messageId));
+          this.projection?.removeWhere('agentRoomDeliveries', row => !!row.messageId && removedIds.has(row.messageId));
+          this.projection?.patchWhere('agentBusConferenceMembers', row => !!row.dispatchMessageId && removedIds.has(row.dispatchMessageId), { dispatchMessageId: null });
+          this.projection?.draft.adjustMessagingTotals({bus:messages.map(row=>({sourceEngine:row.source_engine,targetEngine:row.target_engine,status:row.status,count:-1}))});
+          this.projection?.removeWhere('agentBusMessages', row => removedIds.has(row.id));
           deletedMessages += await remove(tx, sql`DELETE FROM agent_bus_messages WHERE id IN (${ids})`);
         }
         await tx.execute(sql`UPDATE agent_bus_conference_members SET conversation_id = NULL WHERE conversation_id = ${id}
           AND NOT EXISTS (SELECT 1 FROM agent_bus_messages WHERE conversation_id = ${id})`);
         await tx.execute(sql`UPDATE advisor_sessions SET conversation_id = NULL WHERE conversation_id = ${id}
           AND NOT EXISTS (SELECT 1 FROM agent_bus_messages WHERE conversation_id = ${id})`);
-        conversations += await remove(tx, sql`DELETE FROM agent_bus_conversations WHERE id = ${id}
+        const removedConversation = await remove(tx, sql`DELETE FROM agent_bus_conversations WHERE id = ${id}
           AND NOT EXISTS (SELECT 1 FROM agent_bus_messages WHERE conversation_id = ${id})`);
+        conversations += removedConversation;
+        if (removedConversation) {
+          this.projection?.patchWhere('agentBusConferenceMembers', row => row.conversationId === id, { conversationId: null });
+          this.projection?.patchWhere('advisorSessions', row => row.conversationId === id, { conversationId: null });
+          this.projection?.removeWhere('agentBusConversations', row => row.id === id);
+        }
       }
       return { conversations, messages: deletedMessages };
     });
   }
 
   private async daemons(cutoff: string) {
-    return this.db.transaction(async tx => {
+    return this.transaction(async tx => {
       await tx.execute(sql`SELECT name FROM versions WHERE name = 'agent_messaging_enabled' FOR UPDATE`);
       const disconnected = await rows(tx, sql`SELECT d.id FROM host_daemon_sessions d
         WHERE d.last_activity_at <= ${cutoff} AND d.status IN ('queued','running','idle','waiting')
-        AND NOT ${protectedAddress(sql`d.address_id`)} AND NOT ${addressActiveSince(sql`d.address_id`, cutoff)}
+        AND NOT ${protectedAddress(sql`d.address_id`)} AND NOT ${this.activeAddress(sql`d.address_id`, cutoff)}
         AND NOT EXISTS (SELECT 1 FROM agent_sessions s WHERE s.id = d.session_id AND s.heartbeat_at > ${cutoff})
         LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       for (const { id } of disconnected) {
-        if (await contactsActive(tx, sql`SELECT address_id FROM host_daemon_sessions WHERE id = ${id}`, cutoff)) continue;
+        if (await contactsActive(tx, sql`SELECT address_id FROM host_daemon_sessions WHERE id = ${id}`, cutoff, this.presence)) continue;
         // Loss of contact cannot prove a result. Never requeue accepted effects.
         await tx.execute(sql`UPDATE host_daemon_operations SET status = 'unknown', claim_id = NULL
           WHERE session_id = ${id} AND status IN ('accepted','running')`);
         await tx.execute(sql`UPDATE host_daemon_operations SET status = 'expired', claim_id = NULL
           WHERE session_id = ${id} AND status IN ('queued','offered')`);
         await tx.execute(sql`UPDATE host_daemon_sessions SET status = 'unknown' WHERE id = ${id}`);
+        this.projection?.patchWhere('hostDaemonOperations', row => row.sessionId === id && ['accepted', 'running'].includes(row.status), { status: 'unknown', claimId: null });
+        this.projection?.patchWhere('hostDaemonOperations', row => row.sessionId === id && ['queued', 'offered'].includes(row.status), { status: 'expired', claimId: null });
+        this.projection?.patchWhere('hostDaemonSessions', row => row.id === id, { status: 'unknown' });
       }
       const candidates = await rows(tx, sql`SELECT d.id FROM host_daemon_sessions d WHERE d.last_activity_at <= ${cutoff}
         AND d.status IN ('closed','failed','unknown') AND NOT ${protectedAddress(sql`d.address_id`)}
-        AND NOT ${addressActiveSince(sql`d.address_id`, cutoff)}
+        AND NOT ${this.activeAddress(sql`d.address_id`, cutoff)}
         AND NOT EXISTS (SELECT 1 FROM host_daemon_operations o WHERE o.session_id = d.id AND o.status IN ('queued','offered','accepted','running'))
         ORDER BY d.last_activity_at LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       let purged = 0;
       for (const { id } of candidates) {
-        if (await contactsActive(tx, sql`SELECT address_id FROM host_daemon_sessions WHERE id = ${id}`, cutoff)) continue;
+        if (await contactsActive(tx, sql`SELECT address_id FROM host_daemon_sessions WHERE id = ${id}`, cutoff, this.presence)) continue;
         await tx.execute(sql`UPDATE agent_chat_attachments SET status = 'retired' WHERE session_id = ${id}`);
         await tx.execute(sql`DELETE FROM advisor_sessions WHERE daemon_session_id = ${id}`);
         await tx.execute(sql`DELETE FROM companion_daemon_follows WHERE daemon_session_id = ${id}`);
         await tx.execute(sql`DELETE FROM host_daemon_portal_bindings WHERE daemon_session_id = ${id}`);
         await tx.execute(sql`DELETE FROM host_daemon_operations WHERE session_id = ${id}`);
         purged += await remove(tx, sql`DELETE FROM host_daemon_sessions WHERE id = ${id}`);
+        this.projection?.patchWhere('agentChatAttachments', row => row.sessionId === id, { status: 'retired' });
+        this.projection?.removeWhere('advisorSessions', row => row.daemonSessionId === id);
+        this.projection?.removeWhere('companionDaemonFollows', row => row.daemonSessionId === id);
+        this.projection?.removeWhere('hostDaemonPortalBindings', row => row.daemonSessionId === id);
+        this.projection?.removeWhere('hostDaemonOperations', row => row.sessionId === id);
+        this.projection?.removeWhere('hostDaemonSessions', row => row.id === id);
       }
       return purged;
     });
   }
 
   private async chatty(cutoff: string) {
-    return this.db.transaction(async tx => {
+    return this.transaction(async tx => {
       await tx.execute(sql`SELECT name FROM versions WHERE name = 'chatty_scheduler' FOR UPDATE`);
       // The scheduler uses the same unknown-on-lost-lease rule. This runs even
       // with Chatty disabled and keeps old claims from pinning history forever.
-      await tx.execute(sql`UPDATE chatty_runs SET status = 'unknown', claim_id = NULL, lease_until = NULL
-        WHERE status = 'running' AND updated_at <= ${cutoff} AND (lease_until IS NULL OR lease_until <= ${cutoff}) LIMIT ${RETENTION_BATCH_SIZE}`);
-      await tx.execute(sql`UPDATE chatty_runs SET status = 'cancelled' WHERE status = 'queued' AND updated_at <= ${cutoff} LIMIT ${RETENTION_BATCH_SIZE}`);
+      let changed = 0;
+      for (const [oldStatus, status] of (this.projection ? [['queued', 'cancelled']] : [['running', 'unknown'], ['queued', 'cancelled']]) as Array<[string,string]>) {
+        const candidates = await rows(tx, sql`SELECT id FROM chatty_runs WHERE status = ${oldStatus} AND updated_at <= ${cutoff}
+          AND (${oldStatus} <> 'running' OR lease_until IS NULL OR lease_until <= ${cutoff}) LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
+        if (!candidates.length) continue;
+        const ids = sql.join(candidates.map(row => sql`${row.id}`), sql`,`);
+        await tx.execute(sql`UPDATE chatty_runs SET status = ${status}, claim_id = NULL, lease_until = NULL WHERE id IN (${ids})`);
+        const removed = new Set(candidates.map(row => row.id));
+        this.projection?.patchWhere('chattyRuns', row => removed.has(row.id), { status, claimId: null, leaseUntil: null });
+        changed += candidates.length;
+      }
       const sessions = await rows(tx, sql`SELECT user_id AS id FROM chatty_sessions s WHERE s.updated_at <= ${cutoff}
         AND (s.summary_enc IS NOT NULL OR EXISTS (SELECT 1 FROM chatty_runs x WHERE x.user_id = s.user_id) OR EXISTS (SELECT 1 FROM chatty_events x WHERE x.user_id = s.user_id))
-        AND NOT EXISTS (SELECT 1 FROM chatty_runs r WHERE r.user_id = s.user_id AND (r.updated_at > ${cutoff} OR r.status IN ('queued','running')))
+        AND NOT EXISTS (SELECT 1 FROM chatty_runs r WHERE r.user_id = s.user_id AND (r.updated_at > ${cutoff} OR r.status IN ('queued','running','unknown')))
+        AND NOT EXISTS (SELECT 1 FROM chatty_actions a WHERE a.user_id = s.user_id AND a.status IN ('executing','unknown'))
         AND NOT EXISTS (SELECT 1 FROM chatty_events e WHERE e.user_id = s.user_id AND e.created_at > ${cutoff})
         LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       for (const { id } of sessions) {
@@ -169,75 +230,110 @@ export class ServerRetentionService {
         await tx.execute(sql`DELETE FROM chatty_events WHERE user_id = ${id}`);
         await tx.execute(sql`DELETE FROM chatty_runs WHERE user_id = ${id}`);
         await tx.execute(sql`UPDATE chatty_sessions SET generation = generation + 1, summary_enc = NULL WHERE user_id = ${id}`);
+        this.projection?.removeWhere('chattyActions', row => String(row.userId) === String(id));
+        this.projection?.removeWhere('chattyRuns', row => String(row.userId) === String(id));
+        this.projection?.patchWhere('chattySessions', row => String(row.userId) === String(id), row => ({ generation: row.generation + 1, eventCursor: 0 }));
       }
-      return sessions.length;
+      return sessions.length + changed;
     });
   }
 
   private async rooms(cutoff: string) {
-    return this.db.transaction(async tx => {
+    return this.transaction(async tx => {
       await tx.execute(sql`SELECT name FROM versions WHERE name = 'agent_messaging_enabled' FOR UPDATE`);
-      const candidates = await rows(tx, sql`SELECT e.id FROM agent_room_events e WHERE e.created_at <= ${cutoff}
+      const candidates = await rows<Row & {roomId:string;actor:string;createdAt:string}>(tx, sql`SELECT e.id, e.room_id AS roomId, e.actor, e.created_at AS createdAt FROM agent_room_events e WHERE e.created_at <= ${cutoff}
         AND NOT EXISTS (SELECT 1 FROM agent_room_events n WHERE n.room_id = e.room_id AND n.created_at > ${cutoff})
         AND NOT EXISTS (SELECT 1 FROM agent_bus_subscriptions b WHERE b.topic = (SELECT CONCAT('group:', g.slug) FROM agent_bus_groups g WHERE g.id = e.room_id)
-          AND (${protectedAddress(sql`b.subscriber_address_id`)} OR ${addressActiveSince(sql`b.subscriber_address_id`, cutoff)}))
+          AND (${protectedAddress(sql`b.subscriber_address_id`)} OR ${this.activeAddress(sql`b.subscriber_address_id`, cutoff)}))
         AND NOT EXISTS (SELECT 1 FROM agent_bus_conference_members b WHERE b.conference_id = e.room_id
-          AND (${protectedAddress(sql`b.address_id`)} OR ${addressActiveSince(sql`b.address_id`, cutoff)}))
+          AND (${protectedAddress(sql`b.address_id`)} OR ${this.activeAddress(sql`b.address_id`, cutoff)}))
         AND NOT EXISTS (SELECT 1 FROM agent_scope_members b JOIN agent_sessions s ON s.id = b.session_id WHERE b.scope_id = e.room_id AND s.heartbeat_at > ${cutoff})
         AND NOT EXISTS (SELECT 1 FROM agent_room_deliveries d JOIN agent_bus_messages m ON m.id = d.message_id
           WHERE d.event_id = e.id AND m.status IN ('queued','leased','accepted','reboot_hold','batched'))
         ORDER BY e.created_at LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
-      const events: Row[] = [];
+      const events: Array<Row & {roomId:string;actor:string;createdAt:string}> = [];
       for (const event of candidates) {
         const active = await contactsActive(tx, sql`
           SELECT b.subscriber_address_id FROM agent_bus_subscriptions b JOIN agent_bus_groups g ON b.topic = CONCAT('group:', g.slug)
             JOIN agent_room_events e ON e.room_id = g.id WHERE e.id = ${event.id}
           UNION SELECT b.address_id FROM agent_bus_conference_members b JOIN agent_room_events e ON e.room_id = b.conference_id WHERE e.id = ${event.id}
           UNION SELECT s.agent_bus_address_id FROM agent_scope_members m JOIN agent_sessions s ON s.id = m.session_id
-            JOIN agent_room_events e ON e.room_id = m.scope_id WHERE e.id = ${event.id}`, cutoff);
+            JOIN agent_room_events e ON e.room_id = m.scope_id WHERE e.id = ${event.id}`, cutoff, this.presence);
         if (!active) events.push(event);
       }
       if (events.length) {
         const ids = sql.join(events.map(r => sql`${r.id}`), sql`,`);
         await tx.execute(sql`DELETE FROM agent_room_deliveries WHERE event_id IN (${ids})`);
         await tx.execute(sql`DELETE FROM agent_room_events WHERE id IN (${ids})`);
+        const removed = new Set(events.map(row => String(row.id)));
+        this.projection?.removeWhere('agentRoomDeliveries', row => removed.has(String(row.eventId)));
+        if (this.projection) {
+          const roomIds = sql.join([...new Set(events.map(event => event.roomId))].map(id => sql`${id}`), sql`,`);
+          const [remaining] = await tx.execute(sql`SELECT room_id AS roomId, MAX(created_at) AS lastAt FROM agent_room_events WHERE room_id IN (${roomIds}) GROUP BY room_id`);
+          const last = new Map((remaining as unknown as Array<{roomId:string;lastAt:string|null}>).map(row => [row.roomId,row.lastAt]));
+          for (const event of events) projectRoomEventDeletion(this.projection.draft,event,last.get(event.roomId) ?? null);
+        }
       }
       const conferences = await rows(tx, sql`SELECT f.id FROM agent_bus_conferences f WHERE f.status = 'adjourned'
         AND COALESCE(f.adjourned_at, f.created_at) <= ${cutoff}
-        AND NOT ${protectedAddress(sql`f.owner_address_id`)} AND NOT ${addressActiveSince(sql`f.owner_address_id`, cutoff)}
+        AND NOT ${protectedAddress(sql`f.owner_address_id`)} AND NOT ${this.activeAddress(sql`f.owner_address_id`, cutoff)}
         AND NOT EXISTS (SELECT 1 FROM agent_bus_conference_members m WHERE m.conference_id = f.id
-          AND (${protectedAddress(sql`m.address_id`)} OR ${addressActiveSince(sql`m.address_id`, cutoff)}))
+          AND (${protectedAddress(sql`m.address_id`)} OR ${this.activeAddress(sql`m.address_id`, cutoff)}))
         AND NOT EXISTS (SELECT 1 FROM agent_room_events e WHERE e.room_id = f.id)
         LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
       let purgedConferences = 0;
       for (const { id } of conferences) {
         if (await contactsActive(tx, sql`SELECT owner_address_id FROM agent_bus_conferences WHERE id = ${id}
-          UNION SELECT address_id FROM agent_bus_conference_members WHERE conference_id = ${id}`, cutoff)) continue;
+          UNION SELECT address_id FROM agent_bus_conference_members WHERE conference_id = ${id}`, cutoff, this.presence)) continue;
         await tx.execute(sql`UPDATE agent_chat_attachments SET status = 'retired' WHERE session_id = ${id}`);
         await tx.execute(sql`DELETE FROM agent_room_reads WHERE room_id = ${id}`);
         await tx.execute(sql`DELETE FROM agent_bus_conference_members WHERE conference_id = ${id}`);
         purgedConferences += await remove(tx, sql`DELETE FROM agent_bus_conferences WHERE id = ${id}`);
+        this.projection?.patchWhere('agentChatAttachments', row => row.sessionId === id, { status: 'retired' });
+        this.projection?.removeWhere('agentRoomReads', row => row.roomId === id);
+        this.projection?.removeWhere('agentBusConferenceMembers', row => row.conferenceId === id);
+        this.projection?.removeWhere('agentBusConferences', row => row.id === id);
       }
       // Persistent room definitions remain; only their empty history loses files/read markers.
-      await tx.execute(sql`UPDATE agent_chat_attachments a SET status = 'retired' WHERE a.updated_at <= ${cutoff}
+      const attachments = await rows(tx, sql`SELECT a.id FROM agent_chat_attachments a WHERE a.status <> 'retired' AND a.updated_at <= ${cutoff}
         AND (EXISTS (SELECT 1 FROM agent_bus_groups g WHERE g.id = a.session_id) OR EXISTS (SELECT 1 FROM agent_scopes s WHERE s.id = a.session_id))
-        AND NOT EXISTS (SELECT 1 FROM agent_room_events e WHERE e.room_id = a.session_id)`);
-      await tx.execute(sql`DELETE FROM agent_scope_events WHERE created_at <= ${cutoff} AND dispatched = 1
+        AND NOT EXISTS (SELECT 1 FROM agent_room_events e WHERE e.room_id = a.session_id) LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
+      if (attachments.length) {
+        await tx.execute(sql`UPDATE agent_chat_attachments SET status = 'retired' WHERE id IN (${sql.join(attachments.map(row => sql`${row.id}`), sql`,`)})`);
+        const ids = new Set(attachments.map(row => row.id));
+        this.projection?.patchWhere('agentChatAttachments', row => ids.has(row.id), { status: 'retired' });
+      }
+      const scopeCandidates = await rows(tx, sql`SELECT id FROM agent_scope_events WHERE created_at <= ${cutoff} AND dispatched = 1
         AND NOT EXISTS (SELECT 1 FROM agent_scope_members m JOIN agent_sessions s ON s.id = m.session_id
-          WHERE m.scope_id = agent_scope_events.scope_id AND (s.heartbeat_at > ${cutoff} OR ${protectedAddress(sql`s.agent_bus_address_id`)}))
-        LIMIT ${RETENTION_BATCH_SIZE}`);
-      await tx.execute(sql`DELETE FROM agent_room_reads WHERE read_at <= ${cutoff}
-        AND NOT EXISTS (SELECT 1 FROM agent_room_events e WHERE e.room_id = agent_room_reads.room_id) LIMIT ${RETENTION_BATCH_SIZE}`);
-      await tx.execute(sql`DELETE FROM agent_room_operations WHERE created_at <= ${cutoff} LIMIT ${RETENTION_BATCH_SIZE}`);
-      return events.length + purgedConferences;
+          WHERE m.scope_id = agent_scope_events.scope_id AND (${this.activeAddress(sql`s.agent_bus_address_id`, cutoff)} OR s.heartbeat_at > ${cutoff} OR ${protectedAddress(sql`s.agent_bus_address_id`)}))
+        LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
+      if (scopeCandidates.length) {
+        await tx.execute(sql`DELETE FROM agent_scope_events WHERE id IN (${sql.join(scopeCandidates.map(row => sql`${row.id}`), sql`,`)})`);
+        const ids = new Set(scopeCandidates.map(row => String(row.id)));
+        this.projection?.removeWhere('agentScopeEvents', row => ids.has(String(row.id)));
+      }
+      const scopeEvents = scopeCandidates.length;
+      const reads = await rows(tx, sql`SELECT room_id AS id, admin_id FROM agent_room_reads WHERE read_at <= ${cutoff}
+        AND NOT EXISTS (SELECT 1 FROM agent_room_events e WHERE e.room_id = agent_room_reads.room_id) LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
+      for (const row of reads as Array<Row & { admin_id: number }>) {
+        await tx.execute(sql`DELETE FROM agent_room_reads WHERE room_id = ${row.id} AND admin_id = ${row.admin_id}`);
+        this.projection?.removeWhere('agentRoomReads', item => item.roomId === row.id && item.adminId === row.admin_id);
+      }
+      const operations = await rows(tx, sql`SELECT id FROM agent_room_operations WHERE created_at <= ${cutoff} LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
+      if (operations.length) {
+        await tx.execute(sql`DELETE FROM agent_room_operations WHERE id IN (${sql.join(operations.map(row => sql`${row.id}`), sql`,`)})`);
+        const ids = new Set(operations.map(row => row.id));
+        this.projection?.removeWhere('agentRoomOperations', row => ids.has(row.id));
+      }
+      return events.length + purgedConferences + attachments.length + scopeEvents + reads.length + operations.length;
     });
   }
 
   private async addresses(cutoff: string) {
-    return this.db.transaction(async tx => {
+    return this.transaction(async tx => {
       await tx.execute(sql`SELECT name FROM versions WHERE name = 'agent_messaging_enabled' FOR UPDATE`);
       const candidates = await rows(tx, sql`SELECT a.id FROM agent_bus_addresses a WHERE a.last_seen_at <= ${cutoff}
-        AND NOT ${protectedAddress(sql`a.id`)} AND NOT ${addressActiveSince(sql`a.id`, cutoff)}
+        AND NOT ${protectedAddress(sql`a.id`)} AND NOT ${this.activeAddress(sql`a.id`, cutoff)}
         AND NOT EXISTS (SELECT 1 FROM hosts h WHERE h.id = a.host_id AND h.internal_role IS NOT NULL)
         AND NOT EXISTS (SELECT 1 FROM agent_sessions s WHERE s.agent_bus_address_id = a.id)
         AND NOT EXISTS (SELECT 1 FROM agent_bus_conversations c WHERE c.address_a_id = a.id OR c.address_b_id = a.id)
@@ -252,9 +348,20 @@ export class ServerRetentionService {
         await tx.execute(sql`UPDATE agent_role_assignments SET status = 'ended', active_address_id = NULL, ended_at = ${cutoff}, end_reason = 'retention' WHERE address_id = ${id} AND status = 'active'`);
         await tx.execute(sql`UPDATE git_worktrees SET agent_bus_address_id = NULL WHERE agent_bus_address_id = ${id}`);
         await tx.execute(sql`DELETE FROM agent_bus_addresses WHERE id = ${id}`);
+        this.projection?.removeWhere('agentBusSubscriptions', row => row.subscriberAddressId === id || row.topic === `agent:${id}`);
+        this.projection?.removeWhere('agentBusPublications', row => row.senderAddressId === id);
+        this.projection?.removeWhere('agentNameLeases', row => row.addressId === id);
+        this.projection?.patchWhere('agentRoleAssignments', row => row.addressId === id && row.status === 'active', { status: 'ended', activeAddressId: null, endedAt: cutoff, endReason: 'retention' });
+        this.projection?.patchWhere('gitWorktrees', row => row.agentBusAddressId === id, { agentBusAddressId: null });
+        this.projection?.removeWhere('agentBusAddresses', row => row.id === id);
       }
-      await tx.execute(sql`DELETE FROM agent_bus_publications WHERE created_at <= ${cutoff} LIMIT ${RETENTION_BATCH_SIZE}`);
-      return candidates.length;
+      const publications = await rows(tx, sql`SELECT id FROM agent_bus_publications WHERE created_at <= ${cutoff} LIMIT ${RETENTION_BATCH_SIZE} FOR UPDATE`);
+      if (publications.length) {
+        await tx.execute(sql`DELETE FROM agent_bus_publications WHERE id IN (${sql.join(publications.map(row => sql`${row.id}`), sql`,`)})`);
+        const ids = new Set(publications.map(row => row.id));
+        this.projection?.removeWhere('agentBusPublications', row => ids.has(row.id));
+      }
+      return candidates.length + publications.length;
     });
   }
 }

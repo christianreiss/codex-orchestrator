@@ -44,7 +44,7 @@ function versionReason(installed: string | null, target: string | null, exact: b
 }
 
 /** Auth existence is engine-local. Insecure hosts intentionally skip auth checks. */
-export function hostEngineReadiness(host: Host, snapshots: Record<Engine, VersionSnapshot>): Record<Engine, HostEngineReadiness> {
+export function hostEngineReadiness(host: Omit<Host,'apiKey'|'apiKeyEnc'>, snapshots: Record<Engine, VersionSnapshot>): Record<Engine, HostEngineReadiness> {
   const assigned = hostEnginesList(host.engines);
   return Object.fromEntries(ENGINES.map((engine) => {
     const fields = ENGINE_HOST_FIELDS[engine];

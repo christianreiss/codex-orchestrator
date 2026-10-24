@@ -294,6 +294,10 @@ The Svelte SPA is built from `frontend/` into committed `public/admin/`. Browser
 
 Legacy pink theme preferences continue to normalize to the neutral light/dark/system family; this design standard does not remove compatibility inputs. Server state remains in TanStack Query and shared WebSocket invalidation. Pages must not establish competing listeners or duplicated settings ownership to achieve a new appearance.
 
+### Live state transport
+
+Owner-managed live views update on state transitions. A quiet view MUST NOT poll for unchanged server state. Reconnection or an owner epoch/sequence gap MUST resnapshot active queries; changes arriving during an in-flight snapshot require a trailing refresh. Connection-owned presence MUST NOT expire merely because a persisted heartbeat timestamp has aged; actual activity deadlines remain distinct. When the live transport is disconnected or disabled, the console MUST indicate that displayed information may be stale (INT-6/INT-7). Transport connectivity alone MUST NOT establish native work progress or a completed mutation (INT-3/INT-8).
+
 ## 9. Acceptance and step-2 checklist
 
 ### Existing checks (source-inspected; not executed for documentation adoption)

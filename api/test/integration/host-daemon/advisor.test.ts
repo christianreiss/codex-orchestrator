@@ -9,6 +9,7 @@ import {
   agentSessions,
   hostDaemonSessions,
   hosts,
+  type Host,
   versions,
 } from '../../../src/db/schema.js';
 import { HostDaemonService } from '../../../src/services/host-daemon/service.js';
@@ -109,7 +110,7 @@ describe.skipIf(!handle)('Fleet Advisor over the host daemon', () => {
     daemon = new HostDaemonService(ctx);
     advisor = new AdvisorService(ctx);
     callerAddress = await insertAddress('Caller', callerHostId);
-    caller = { session: await insertNative(callerAddress, callerHostId), host: await daemon.host(callerHostId) };
+    caller = { session: await insertNative(callerAddress, callerHostId), host: await daemon.host(callerHostId) as Host };
   });
   afterAll(async () => {
     // Other suites count bus rows globally (master-off cancel totals); leave none behind.

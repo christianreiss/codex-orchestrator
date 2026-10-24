@@ -325,7 +325,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
     try {
       const renewed = await service.claims.status(owner.id, owner.token, { claim_id: held.id, renew: true });
       expect(renewed).toMatchObject({ state: 'active', session_id: owner.id, generation: held.generation });
-      expect(Date.parse(renewed.expires_at)).toBeGreaterThanOrEqual(Date.parse(held.expires_at));
+      expect(Date.parse(String(renewed.expires_at))).toBeGreaterThanOrEqual(Date.parse(String(held.expires_at)));
       expect(reconcile).not.toHaveBeenCalled();
       await expect(service.claims.status(waiter.id, waiter.token, { claim_id: held.id, renew: true }))
         .rejects.toThrow('another session');
@@ -334,7 +334,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       .where(eq(agentBusMessages.targetSessionId, owner.id));
     const conflictNotices = ownerMail.filter((m) => decrypt(m.contentEnc, keyring).startsWith('CLAIM/1\n'));
     expect(conflictNotices).toHaveLength(1);
-    expect(Date.parse(waiting.expires_at) - Date.parse(waiting.created_at)).toBeGreaterThanOrEqual(180000);
+    expect(Date.parse(String(waiting.expires_at)) - Date.parse(waiting.created_at)).toBeGreaterThanOrEqual(180000);
     expect(await service.claims.status(waiter.id, waiter.token, { claim_id: waiting.id, renew: true })).toMatchObject({ state: 'waiting' });
     expect(waiting.blockers).toEqual(expect.arrayContaining([expect.objectContaining({ id: held.id, purpose: expect.any(String), owner_address: expect.stringMatching(/^agent:/), resources })]));
     expect(decrypt(conflictNotices[0]!.contentEnc, keyring)).toContain(waiting.id);

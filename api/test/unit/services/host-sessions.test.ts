@@ -1,3 +1,4 @@
+import { bindOwnerRuntime, type OwnerRuntime } from '../../../src/control-plane/state/runtime.js';
 /** Query-boundary checks; actual aggregate correctness lives in the MySQL suite. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SQL } from 'drizzle-orm';
@@ -11,6 +12,14 @@ function createDb(rows: Array<Record<string, unknown>> = []) {
 }
 
 describe('HostSessionsService.fleetCounts', () => {
+  it('does not query the retired sync signal in owner mode', async () => {
+    const { db, execute } = createDb();
+    const assertOwner = vi.fn();
+    bindOwnerRuntime(db, { assertOwner } as unknown as OwnerRuntime);
+    expect(await new HostSessionsService(db).fleetCounts()).toEqual({ now: 0, today: 0, month: 0 });
+    expect(assertOwner).toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
   afterEach(() => {
     vi.useRealTimers();
   });

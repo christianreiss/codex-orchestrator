@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { createOwnedCliAuthService } from './cli-auth-owned.js';
 import { randomBytes } from 'node:crypto';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import { cliAuthRequests } from '../db/schema.js';
@@ -57,6 +59,7 @@ export interface CliAuthDeps {
 
 export function createCliAuthService(deps: CliAuthDeps): CliAuthService {
   const { db, keyring, registration } = deps;
+  if (ownerRuntimeFor(db)) return createOwnedCliAuthService(deps, generateUserCode);
 
   return {
     async start({ fqdn, secure, ip, userAgent }) {

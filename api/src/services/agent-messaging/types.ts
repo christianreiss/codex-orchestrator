@@ -5,9 +5,12 @@
  * `AgentMessagingService` facade in `../agent-messaging.ts`.
  */
 
+import type { Host } from '../../db/schema.js';
 import type { Database } from '../../db/client.js';
 import type { Engine } from '../../util/engine.js';
 import type { WorkspaceInput } from './workspace.js';
+
+export type MessagingHost = Omit<Host, 'apiKey' | 'apiKeyEnc'> & { authFingerprint?: string };
 
 export type AgentMessagingDb = Pick<Database, 'insert' | 'update' | 'select' | 'delete'>;
 
@@ -60,6 +63,7 @@ export interface MessageDelivery {
   attempts: number;
   claim_id: string;
   lease_owner: string;
-  lease_until: string;
+  lease_until: string | null;
+  ownership_mode?: string;
   expires_at: string;
 }

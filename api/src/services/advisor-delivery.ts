@@ -1,3 +1,4 @@
+import { stageQueuedMessage } from '../control-plane/state/messages.js';
 /**
  * Fleet Advisor delivery hooks.
  *
@@ -22,6 +23,9 @@ import type { Keyring } from '../security/keyring.js';
 import { newQueuedMessage } from './agent-messaging/views.js';
 import { AGENT_MESSAGING_DEFAULT_TTL_SECONDS } from './agent-messaging/constants.js';
 import type { DaemonDb } from './host-daemon/access.js';
+import type { OwnerMutationContext } from '../control-plane/state/runtime.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
+import type { StateRow } from '../control-plane/state/catalog.js';
 
 export const ADVISOR_KINDS = ['verify', 'tier_check', 'classify', 'general'] as const;
 export type AdvisorKind = (typeof ADVISOR_KINDS)[number];
@@ -218,4 +222,37 @@ The Fleet Advisor session closed after its idle timeout. Open a new one with adv
     .update(advisorSessions)
     .set({ status: 'closed', closeReason: row.closeReason ?? reason, closedAt: now, updatedAt: now })
     .where(and(eq(advisorSessions.id, row.id), eq(advisorSessions.status, row.status)));
+}
+
+function stageAdvisorDelivery(c:OwnerMutationContext,keyring:Keyring,row:StateRow<'advisorSessions'>,advisorAddressId:string|null,content:string,deliveryClass:'coordination'|'notice'){
+  const caller=c.draft.table('agentBusAddresses').get(row.callerAddressId),sender=advisorAddressId?c.draft.table('agentBusAddresses').get(advisorAddressId):undefined;
+  if(!caller||caller.archivedAt||caller.enabled!==1||!sender)return null;
+  const at=new Date().toISOString();let conversationId=row.conversationId,sequence=1;
+  const existing=conversationId?c.draft.table('agentBusConversations').get(conversationId):undefined;
+  if(existing?.status==='open')sequence=Number(existing.nextSequence);
+  else{
+    conversationId=randomUUID();const conversation={id:conversationId,addressAId:sender.id,addressBId:caller.id,createdByAddressId:sender.id,nextSequence:1,status:'open',lastActivityAt:at,createdAt:at,updatedAt:at,canceledBy:null,cancelReason:null,canceledAt:null};
+    c.draft.upsert('agentBusConversations',conversation);c.write(tx=>tx.insert(agentBusConversations).values(conversation));
+  }
+  const messageId=randomUUID();
+  const message=newQueuedMessage({id:messageId,conversationId:conversationId!,sequence,sender,senderSessionId:sender.currentSessionId,target:caller,kind:'message',deliveryClass,content,contentEnc:encrypt(content,keyring),clientMessageId:randomUUID(),expiresAt:new Date(Date.parse(at)+AGENT_MESSAGING_DEFAULT_TTL_SECONDS*1000).toISOString(),now:at});
+  stageQueuedMessage(c,message);
+  stageUpdate(c,'agentBusConversations',conversationId!,{nextSequence:sequence+1,lastActivityAt:at,updatedAt:at});return {conversationId:conversationId!,messageId};
+}
+
+/** Same completion contract, composed into the owning daemon command. */
+export function stageAdvisorTurnCompleted(c:OwnerMutationContext,keyring:Keyring,session:DaemonSession,result:{status:string;reply:string},nextStatus:string,idleMinutes:number){
+  const row=c.draft.table('advisorSessions').by('daemonSessionId',session.id)[0];if(!row||row.status==='closed')return;
+  const turn=row.turns+1;
+  const body=result.status==='completed'&&result.reply.trim()?result.reply:`The advisor turn ended with status "${result.status}".${result.reply.trim()?`\n\n${result.reply.trim()}`:' No answer was returned.'}\n\nCheck advisor_status; open a new advisor if this session ended, or close it.`;
+  const delivered=stageAdvisorDelivery(c,keyring,row,session.addressId,advisorEnvelope(row.id,turn,row.kind,body,idleMinutes),'coordination');
+  const verdict=result.status==='completed'?parseAdvisorVerdict(result.reply):null,at=new Date().toISOString(),ended=!['idle','waiting'].includes(nextStatus);
+  stageUpdate(c,'advisorSessions',row.id,{turns:turn,status:ended?(nextStatus==='closed'?'closed':'failed'):'open',...(ended?{closedAt:at,closeReason:row.closeReason??(nextStatus==='closed'?'stopped':'error')}:{}),...(delivered?{conversationId:delivered.conversationId}:{}),verdictEnc:verdict?encrypt(JSON.stringify(verdict),keyring):null,updatedAt:at});
+}
+export function stageAdvisorSessionStopped(c:OwnerMutationContext,keyring:Keyring,session:DaemonSession,actor:string){
+  const row=c.draft.table('advisorSessions').by('daemonSessionId',session.id)[0];if(!row||row.status==='closed')return;
+  const reason=actor==='timeout'?'idle':actor.startsWith('advisor:')?'done':'stopped',at=new Date().toISOString();
+  if(reason==='idle')stageAdvisorDelivery(c,keyring,row,session.addressId,`ADVISOR/1 advisor_session_id=${row.id} closed reason=idle
+The Fleet Advisor session closed after its idle timeout. Open a new one with advisor_ask if you still need advice. No reply required; finish with agent_listen once and yield.`,'notice');
+  stageUpdate(c,'advisorSessions',row.id,{status:'closed',closeReason:row.closeReason??reason,closedAt:at,updatedAt:at});
 }

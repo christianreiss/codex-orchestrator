@@ -1,3 +1,12 @@
+import {
+  ownerRuntimeFor,
+  mutateOwnerState,
+  type OwnerMutationContext,
+} from '../control-plane/state/runtime.js';
+import type { StateRow } from '../control-plane/state/catalog.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
+import { DaemonOperations } from '../control-plane/streams/daemon-operations.js';
+import { wsPublisher } from '../ws/publisher.js';
 /**
  * Fleet Advisor: a server-hosted second opinion any agent can consult.
  *
@@ -101,8 +110,13 @@ export async function advisorConfigured(db: Database): Promise<{ enabled: boolea
   if (!host) return { enabled: false, reason: 'advisor_host_missing' };
   if (!(await new SettingsService(db).getFlag(AGENT_MESSAGING_ENABLED_KEY, false)))
     return { enabled: false, reason: 'agent_messaging_disabled' };
-  const [daemon] = await db.select().from(hostDaemons).where(eq(hostDaemons.hostId, host.id)).limit(1);
-  if (!daemon || !daemonAccepting(daemon.settings)) return { enabled: false, reason: 'advisor_daemon_disabled' };
+  const owner = ownerRuntimeFor(db);
+  owner?.assertOwner();
+  const daemon = owner
+    ? owner.state.snapshot().daemons.get(host.id)
+    : (await db.select().from(hostDaemons).where(eq(hostDaemons.hostId, host.id)).limit(1))[0];
+  if (!daemon || !daemonAccepting(daemon.settings))
+    return { enabled: false, reason: 'advisor_daemon_disabled' };
   if (!activeHostEngines(host.engines, await readFleetEngineState(db)).length)
     return { enabled: false, reason: 'advisor_engine_unavailable' };
   return { enabled: true, reason: 'ok' };
@@ -110,7 +124,7 @@ export async function advisorConfigured(db: Database): Promise<{ enabled: boolea
 
 export interface AdvisorCaller {
   session: AgentSession;
-  host: Host;
+  host: Omit<Host, 'apiKey' | 'apiKeyEnc'>;
 }
 
 const now = () => new Date().toISOString();
@@ -180,7 +194,12 @@ export class AdvisorService {
    * same list the managed Model Class Check offers.
    */
   async availability(): Promise<AdvisorAvailability & { host_id: number | null }> {
-    const result = (enabled: boolean, reason: string, extra: Partial<AdvisorAvailability> = {}, hostId: number | null = null) => ({
+    const result = (
+      enabled: boolean,
+      reason: string,
+      extra: Partial<AdvisorAvailability> = {},
+      hostId: number | null = null,
+    ) => ({
       enabled,
       reason,
       engines: [],
@@ -203,29 +222,43 @@ export class AdvisorService {
     const byEngine: Partial<Record<Engine, string[]>> = {};
     for (const engine of engines) {
       const policy = await readModelPolicy(this.ctx.db, engine);
-      byEngine[engine] = policy.latest_models.filter((model) => !(policy.disabled_models ?? []).includes(model));
+      byEngine[engine] = policy.latest_models.filter(
+        (model) => !(policy.disabled_models ?? []).includes(model),
+      );
       for (const model of byEngine[engine]!) models.push({ engine, model, tier: modelTier(engine, model) });
     }
     const strongest = buildModelTierTable(engines, byEngine).at(-1)?.models[0] ?? null;
     if (!strongest) return result(false, 'advisor_model_unavailable', {}, host.id);
-    return result(true, 'ok', { engines: engines.filter((engine) => byEngine[engine]!.length > 0), models, default: strongest }, host.id);
+    return result(
+      true,
+      'ok',
+      { engines: engines.filter((engine) => byEngine[engine]!.length > 0), models, default: strongest },
+      host.id,
+    );
   }
 
   /** The caller's engine/model, or the strongest available; refuses anything outside the allowed set. */
   private choose(availability: AdvisorAvailability, input: AdvisorAsk): { engine: Engine; model: string } {
     const unavailable = (what: string) =>
-      new ApiError(`${what} is not available to the Fleet Advisor; allowed: ${availability.models.map((m) => `${m.engine}/${m.model}`).join(', ')}`, {
-        status: 409,
-        code: 'advisor_model_unavailable',
-      });
+      new ApiError(
+        `${what} is not available to the Fleet Advisor; allowed: ${availability.models.map((m) => `${m.engine}/${m.model}`).join(', ')}`,
+        {
+          status: 409,
+          code: 'advisor_model_unavailable',
+        },
+      );
     if (!input.engine && !input.model) return availability.default!;
     const engine = input.engine ?? availability.models.find((m) => m.model === input.model)?.engine;
-    if (!engine || !availability.engines.includes(engine)) throw unavailable(`Engine ${input.engine ?? 'for that model'}`);
+    if (!engine || !availability.engines.includes(engine))
+      throw unavailable(`Engine ${input.engine ?? 'for that model'}`);
     if (!input.model) {
-      const table = buildModelTierTable([engine], { [engine]: availability.models.filter((m) => m.engine === engine).map((m) => m.model) });
+      const table = buildModelTierTable([engine], {
+        [engine]: availability.models.filter((m) => m.engine === engine).map((m) => m.model),
+      });
       return table.at(-1)!.models[0]!;
     }
-    if (!availability.models.some((m) => m.engine === engine && m.model === input.model)) throw unavailable(`Model ${engine}/${input.model}`);
+    if (!availability.models.some((m) => m.engine === engine && m.model === input.model))
+      throw unavailable(`Model ${engine}/${input.model}`);
     return { engine, model: input.model };
   }
 
@@ -241,11 +274,19 @@ export class AdvisorService {
   }
 
   private async open(caller: AdvisorCaller, callerId: string, input: AdvisorAsk) {
+    if (ownerRuntimeFor(this.ctx.db)) return this.openOwned(caller, callerId, input);
     const clientKey = `${callerId}:${input.client_message_id}`;
-    const [prior] = await this.ctx.db.select().from(advisorSessions).where(eq(advisorSessions.clientKey, clientKey));
+    const [prior] = await this.ctx.db
+      .select()
+      .from(advisorSessions)
+      .where(eq(advisorSessions.clientKey, clientKey));
     if (prior) return this.view(prior);
     const availability = await this.availability();
-    if (!availability.enabled) throw new ForbiddenError(`Fleet Advisor is unavailable (${availability.reason})`, 'advisor_unavailable');
+    if (!availability.enabled)
+      throw new ForbiddenError(
+        `Fleet Advisor is unavailable (${availability.reason})`,
+        'advisor_unavailable',
+      );
     const hostId = availability.host_id!;
     const choice = this.choose(availability, input);
     const [self] = await this.ctx.db
@@ -258,10 +299,18 @@ export class AdvisorService {
     const busy = await this.ctx.db
       .select({ id: hostDaemonSessions.id })
       .from(hostDaemonSessions)
-      .where(and(eq(hostDaemonSessions.hostId, hostId), inArray(hostDaemonSessions.status, ['queued', 'running', 'stopping'])));
+      .where(
+        and(
+          eq(hostDaemonSessions.hostId, hostId),
+          inArray(hostDaemonSessions.status, ['queued', 'running', 'stopping']),
+        ),
+      );
     if (busy.length >= config.settings.max_parallel)
       throw new ConflictError('All advisor slots are busy; retry shortly', 'advisor_busy');
-    const [address] = await this.ctx.db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, callerId));
+    const [address] = await this.ctx.db
+      .select()
+      .from(agentBusAddresses)
+      .where(eq(agentBusAddresses.id, callerId));
     const callerName = address?.launchName ?? `agent:${callerId}`;
     const started = await this.daemon.start(
       {
@@ -301,14 +350,177 @@ export class AdvisorService {
         updatedAt: now(),
       })
       .onDuplicateKeyUpdate({ set: { clientKey } });
-    const [row] = await this.ctx.db.select().from(advisorSessions).where(eq(advisorSessions.clientKey, clientKey));
+    const [row] = await this.ctx.db
+      .select()
+      .from(advisorSessions)
+      .where(eq(advisorSessions.clientKey, clientKey));
     return this.view(row!);
   }
 
+  private async openOwned(
+    caller: AdvisorCaller,
+    callerId: string,
+    input: AdvisorAsk,
+  ) {
+    const owner = ownerRuntimeFor(this.ctx.db)!;
+    owner.assertOwner();
+    const clientKey = `${callerId}:${input.client_message_id}`;
+    const prior = owner.state
+      .snapshot()
+      .table('advisorSessions')
+      .all()
+      .find((row) => row.clientKey === clientKey);
+    if (prior) return this.view(prior);
+    const proof = owner.state.snapshot(),
+      availability = await this.availability();
+    if (!availability.enabled)
+      throw new ForbiddenError(
+        `Fleet Advisor is unavailable (${availability.reason})`,
+        'advisor_unavailable',
+      );
+    const hostId = availability.host_id!,
+      choice = this.choose(availability, input);
+    const result = (await mutateOwnerState(owner, {
+      kind: 'advisor.open',
+      payload: { callerId, input, hostId, choice },
+      prepare: (c) => {
+        const existing = c.draft
+          .table('advisorSessions')
+          .all()
+          .find((row) => row.clientKey === clientKey);
+        if (existing) return { id: existing.id };
+        if (c.snapshot.table('versions') !== proof.table('versions'))
+          throw new ConflictError('Advisor policy changed; retry the same request', 'advisor_policy_changed');
+        const sessions = c.draft.table('hostDaemonSessions').by('hostId', hostId),
+          daemon = c.snapshot.daemons.get(hostId);
+        if (sessions.some((row) => row.addressId === callerId))
+          throw new ForbiddenError('An advisor cannot open another advisor', 'advisor_recursion');
+        if (!daemon) throw new ForbiddenError('Advisor daemon unavailable', 'advisor_unavailable');
+        if (
+          sessions.filter((row) => ['queued', 'running', 'stopping'].includes(row.status)).length >=
+          daemon.settings.max_parallel
+        )
+          throw new ConflictError('All advisor slots are busy; retry shortly', 'advisor_busy');
+        const address = c.draft.table('agentBusAddresses').get(callerId);
+        if (!address) throw new ForbiddenError('Agent identity required');
+        const callerName = address.launchName ?? `agent:${callerId}`;
+        const started = new DaemonOperations(this.ctx, owner).stageStart(
+          c,
+          {
+            host_id: hostId,
+            engine: choice.engine,
+            title: `Advisor (${input.kind}) for ${callerName}`.slice(0, 160),
+            prompt: rolePrompt({
+              callerName,
+              callerAddress: `agent:${callerId}`,
+              callerEngine: address.engine,
+              callerHost: caller.host.fqdn,
+              advisorEngine: choice.engine,
+              advisorModel: choice.model,
+              models: availability.models,
+              kind: input.kind,
+              question: input.question,
+              transferIds: input.transfer_ids ?? [],
+            }),
+            client_message_id: input.client_message_id,
+          },
+          `agent:${callerId}`,
+          undefined,
+          { internal: true, model: choice.model },
+        );
+        const at = now(),
+          row = {
+            id: randomUUID(),
+            callerAddressId: callerId,
+            clientKey,
+            daemonSessionId: started.session_id,
+            hostId,
+            kind: input.kind,
+            status: 'starting',
+            turns: 0,
+            conversationId: null,
+            verdictEnc: null,
+            closeReason: null,
+            closedAt: null,
+            createdAt: at,
+            updatedAt: at,
+          };
+        c.draft.upsert('advisorSessions', row);
+        c.write(async (tx) => {
+          await tx.insert(advisorSessions).values(row);
+        });
+        return { id: row.id };
+      },
+    })) as { id: string };
+    wsPublisher.publish('host.daemon.operation.queued', { host_id: hostId });
+    return this.view(await this.owned(callerId, result.id));
+  }
+  private async viewOwned(row: StateRow<'advisorSessions'>) {
+    const owner = ownerRuntimeFor(this.ctx.db)!;
+    owner.assertOwner();
+    const snapshot = owner.state.snapshot(),
+      daemon = snapshot.table('hostDaemonSessions').get(row.daemonSessionId);
+    const ended = !daemon || ['closed', 'failed', 'unknown'].includes(daemon.status),
+      status =
+        row.status !== 'closed' && row.status !== 'failed' && ended
+          ? daemon?.status === 'closed'
+            ? 'closed'
+            : 'failed'
+          : row.status;
+    let diagnostic: ReturnType<typeof advisorFailureDiagnostic> = null,
+      verdict: unknown = null;
+    if (row.turns > 0) {
+      const [cold] = await this.ctx.db
+        .select({ verdictEnc: advisorSessions.verdictEnc })
+        .from(advisorSessions)
+        .where(eq(advisorSessions.id, row.id));
+      if (cold?.verdictEnc) verdict = JSON.parse(decrypt(cold.verdictEnc, this.ctx.keyring));
+    }
+    if (status === 'failed' || status === 'closed') {
+      const [op, previous] = [...snapshot.table('hostDaemonOperations').by('sessionId', row.daemonSessionId)]
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, 2);
+      if (op && (!previous || previous.createdAt !== op.createdAt)) {
+        const [cold] = await this.ctx.db
+          .select({ resultEnc: hostDaemonOperations.resultEnc })
+          .from(hostDaemonOperations)
+          .where(eq(hostDaemonOperations.id, op.id));
+        if (cold?.resultEnc)
+          try {
+            diagnostic = advisorFailureDiagnostic(JSON.parse(decrypt(cold.resultEnc, this.ctx.keyring)));
+          } catch { /* Malformed historical diagnostics do not change advisor state. */ }
+      }
+    }
+    return {
+      advisor_session_id: row.id,
+      kind: row.kind,
+      status,
+      busy: daemon ? ['queued', 'running', 'stopping'].includes(daemon.status) : false,
+      turns: row.turns,
+      advisor_address: daemon?.addressId ? `agent:${daemon.addressId}` : null,
+      conversation_id: row.conversationId,
+      verdict,
+      close_reason: row.closeReason,
+      diagnostic,
+      created_at: row.createdAt,
+      closed_at: row.closedAt,
+    };
+  }
+
   private async owned(callerId: string, id: string) {
+    const owner = ownerRuntimeFor(this.ctx.db);
+    if (owner) {
+      owner.assertOwner();
+      const row = owner.state.snapshot().table('advisorSessions').get(id);
+      if (!row) throw new NotFoundError('Advisor session not found');
+      if (row.callerAddressId !== callerId)
+        throw new ForbiddenError('Only the agent that opened this advisor may use it');
+      return row;
+    }
     const [row] = await this.ctx.db.select().from(advisorSessions).where(eq(advisorSessions.id, id));
     if (!row) throw new NotFoundError('Advisor session not found');
-    if (row.callerAddressId !== callerId) throw new ForbiddenError('Only the agent that opened this advisor may use it');
+    if (row.callerAddressId !== callerId)
+      throw new ForbiddenError('Only the agent that opened this advisor may use it');
     return row;
   }
 
@@ -317,12 +529,30 @@ export class AdvisorService {
     if (['closed', 'failed'].includes(row.status))
       throw new ConflictError('Advisor session is closed; open a new one', 'advisor_closed');
     try {
-      const turn = await this.daemon.turn(
-        row.daemonSessionId,
-        followUpPrompt(row.turns + 1, row.kind, input.question, input.transfer_ids ?? []),
-        input.client_message_id,
-        `agent:${callerId}`,
-      );
+      const owner = ownerRuntimeFor(this.ctx.db);
+      const turn = owner
+        ? await new DaemonOperations(this.ctx, owner).turn(
+            row.daemonSessionId,
+            followUpPrompt(row.turns + 1, row.kind, input.question, input.transfer_ids ?? []),
+            input.client_message_id,
+            `agent:${callerId}`,
+            undefined,
+            (c) => {
+              const current = c.draft.table('advisorSessions').get(row.id);
+              if (
+                !current ||
+                current.callerAddressId !== callerId ||
+                ['closed', 'failed'].includes(current.status)
+              )
+                throw new ConflictError('Advisor session is closed; open a new one', 'advisor_closed');
+            },
+          )
+        : await this.daemon.turn(
+            row.daemonSessionId,
+            followUpPrompt(row.turns + 1, row.kind, input.question, input.transfer_ids ?? []),
+            input.client_message_id,
+            `agent:${callerId}`,
+          );
       return { ...(await this.view(row)), operation_id: turn.operation_id, asked: true };
     } catch (error) {
       if (error instanceof ConflictError && /busy/i.test(error.message))
@@ -335,6 +565,31 @@ export class AdvisorService {
     const input = z.object({ advisor_session_id: z.string().uuid() }).strict().parse(body);
     const callerId = this.callerAddress(caller);
     const row = await this.owned(callerId, input.advisor_session_id);
+    const owner = ownerRuntimeFor(this.ctx.db);
+    if (owner) {
+      await mutateOwnerState(owner, {
+        kind: 'advisor.close',
+        payload: { id: row.id, callerId },
+        prepare: (c) => {
+          const current = c.draft.table('advisorSessions').get(row.id);
+          if (!current || current.callerAddressId !== callerId)
+            throw new ForbiddenError('Only the agent that opened this advisor may use it');
+          if (current.status === 'closed') return null;
+          stageUpdate(c, 'advisorSessions', row.id, { closeReason: 'done', updatedAt: now() });
+          new DaemonOperations(this.ctx, owner).stageStop(
+            c,
+            row.daemonSessionId,
+            `agent:${callerId}`,
+            undefined,
+            `advisor:${row.id}`,
+          );
+          stageUpdate(c, 'advisorSessions', row.id, { status: 'closed', closedAt: now(), updatedAt: now() });
+          return null;
+        },
+      });
+      wsPublisher.publish('host.daemon.changed', { host_id: row.hostId });
+      return { ...(await this.view(await this.owned(callerId, row.id))), closed: true };
+    }
     if (row.status !== 'closed') {
       await this.ctx.db
         .update(advisorSessions)
@@ -345,40 +600,78 @@ export class AdvisorService {
       await this.ctx.db
         .update(advisorSessions)
         .set({ status: 'closed', closedAt: now(), updatedAt: now() })
-        .where(and(eq(advisorSessions.id, row.id), inArray(advisorSessions.status, ['starting', 'open', 'failed'])));
+        .where(
+          and(
+            eq(advisorSessions.id, row.id),
+            inArray(advisorSessions.status, ['starting', 'open', 'failed']),
+          ),
+        );
     }
     const [closed] = await this.ctx.db.select().from(advisorSessions).where(eq(advisorSessions.id, row.id));
     return { ...(await this.view(closed!)), closed: true };
   }
 
   async status(caller: AdvisorCaller, body: unknown) {
-    const input = z.object({ advisor_session_id: z.string().uuid().optional() }).strict().parse(body ?? {});
+    const input = z
+      .object({ advisor_session_id: z.string().uuid().optional() })
+      .strict()
+      .parse(body ?? {});
     const callerId = this.callerAddress(caller);
     if (input.advisor_session_id) return this.view(await this.owned(callerId, input.advisor_session_id));
-    const rows = await this.ctx.db
-      .select()
-      .from(advisorSessions)
-      .where(eq(advisorSessions.callerAddressId, callerId))
-      .orderBy(desc(advisorSessions.createdAt))
-      .limit(20);
-    return { availability: await this.availability(), advisors: await Promise.all(rows.map((row) => this.view(row))) };
+    const owner = ownerRuntimeFor(this.ctx.db);
+    owner?.assertOwner();
+    const rows = owner
+      ? owner.state
+          .snapshot()
+          .table('advisorSessions')
+          .all()
+          .filter((row) => row.callerAddressId === callerId)
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          .slice(0, 20)
+      : await this.ctx.db
+          .select()
+          .from(advisorSessions)
+          .where(eq(advisorSessions.callerAddressId, callerId))
+          .orderBy(desc(advisorSessions.createdAt))
+          .limit(20);
+    return {
+      availability: await this.availability(),
+      advisors: await Promise.all(rows.map((row) => this.view(row))),
+    };
   }
 
-  private async view(row: typeof advisorSessions.$inferSelect) {
-    const [daemon] = await this.ctx.db.select().from(hostDaemonSessions).where(eq(hostDaemonSessions.id, row.daemonSessionId));
+  private async view(row: typeof advisorSessions.$inferSelect | StateRow<'advisorSessions'>) {
+    const owner = ownerRuntimeFor(this.ctx.db);
+    if (owner) return this.viewOwned(row);
+    const legacy = row as typeof advisorSessions.$inferSelect;
+    const [daemon] = await this.ctx.db
+      .select()
+      .from(hostDaemonSessions)
+      .where(eq(hostDaemonSessions.id, row.daemonSessionId));
     // The daemon may end a session the advisor row never heard about (an
     // offer that expired before any host accepted it); report the effective state.
     const ended = !daemon || ['closed', 'failed', 'unknown'].includes(daemon.status);
-    const status = row.status !== 'closed' && row.status !== 'failed' && ended ? (daemon?.status === 'closed' ? 'closed' : 'failed') : row.status;
+    const status =
+      row.status !== 'closed' && row.status !== 'failed' && ended
+        ? daemon?.status === 'closed'
+          ? 'closed'
+          : 'failed'
+        : row.status;
     let diagnostic: ReturnType<typeof advisorFailureDiagnostic> = null;
     if (status === 'failed' || status === 'closed') {
-      const [operation, previous] = await this.ctx.db.select({ resultEnc: hostDaemonOperations.resultEnc, createdAt: hostDaemonOperations.createdAt })
-        .from(hostDaemonOperations).where(eq(hostDaemonOperations.sessionId, row.daemonSessionId))
-        .orderBy(desc(hostDaemonOperations.createdAt)).limit(2);
+      const [operation, previous] = await this.ctx.db
+        .select({ resultEnc: hostDaemonOperations.resultEnc, createdAt: hostDaemonOperations.createdAt })
+        .from(hostDaemonOperations)
+        .where(eq(hostDaemonOperations.sessionId, row.daemonSessionId))
+        .orderBy(desc(hostDaemonOperations.createdAt))
+        .limit(2);
       // UUID order cannot establish which turn was last at a tied timestamp.
       if (operation?.resultEnc && (!previous || previous.createdAt !== operation.createdAt)) {
-        try { diagnostic = advisorFailureDiagnostic(JSON.parse(decrypt(operation.resultEnc, this.ctx.keyring))); }
-        catch { /* Missing or legacy evidence never becomes a fabricated diagnostic. */ }
+        try {
+          diagnostic = advisorFailureDiagnostic(JSON.parse(decrypt(operation.resultEnc, this.ctx.keyring)));
+        } catch {
+          /* Missing or legacy evidence never becomes a fabricated diagnostic. */
+        }
       }
     }
     return {
@@ -389,7 +682,9 @@ export class AdvisorService {
       turns: row.turns,
       advisor_address: daemon?.addressId ? `agent:${daemon.addressId}` : null,
       conversation_id: row.conversationId,
-      verdict: row.verdictEnc ? (JSON.parse(decrypt(row.verdictEnc, this.ctx.keyring)) as unknown) : null,
+      verdict: legacy.verdictEnc
+        ? (JSON.parse(decrypt(legacy.verdictEnc, this.ctx.keyring)) as unknown)
+        : null,
       close_reason: row.closeReason,
       diagnostic,
       created_at: row.createdAt,

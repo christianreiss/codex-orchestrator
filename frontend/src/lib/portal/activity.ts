@@ -10,10 +10,10 @@ export function liveActivity(agent: Agent, now: number): ActivityState | null {
   if (
     receiver &&
     (receiver.failure ||
-      !(
+      !(agent.presence_source === "connection" || (
         Date.parse(receiver.heartbeat_at) <= now &&
         Date.parse(receiver.heartbeat_at) > now - 45_000
-      ))
+      )))
   )
     return "unknown";
   return ["working", "idle", "waiting", "unknown"].includes(a.state)

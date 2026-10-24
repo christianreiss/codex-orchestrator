@@ -1,3 +1,6 @@
+import {persistAuditLog} from './audit-log.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { ownedAccount, ownedProviderSession, acquireOwnedProvider, releaseOwnedProvider, drainOwnedProviders } from '../control-plane/streams/provider-leases.js';
 import { readQuotaPolicy } from './quota-policy.js';
 import { createHash } from 'node:crypto';
 import { and, asc, count, desc, eq, gt, inArray, lte } from 'drizzle-orm';
@@ -10,7 +13,6 @@ import {
   providerAccountSessions,
   chatgptUsageSnapshots,
   claudeUsageSnapshots,
-  logs,
   grokAuthRefreshState,
 } from '../db/schema.js';
 import type { Keyring } from '../security/keyring.js';
@@ -45,13 +47,15 @@ export class ProviderAccountsService {
   ) {}
 
   async get(id: number, engine?: Engine): Promise<Account> {
-    const account = await resolveProviderAccount(this.db, id, engine);
+    const owner = ownerRuntimeFor(this.db);
+    const account = owner ? (owner.assertOwner(), ownedAccount(owner.state.snapshot(), id, engine)) : await resolveProviderAccount(this.db, id, engine);
     if (!account) throw new NotFoundError('Provider account not found');
     return account;
   }
 
   async canonicalId(id: number, engine: Engine): Promise<number> {
-    return (await resolveProviderAccount(this.db, id, engine))?.id ?? id;
+    const owner = ownerRuntimeFor(this.db);
+    return (owner ? (owner.assertOwner(), ownedAccount(owner.state.snapshot(), id, engine)) : await resolveProviderAccount(this.db, id, engine))?.id ?? id;
   }
 
   async resolveCandidate(
@@ -62,11 +66,12 @@ export class ProviderAccountsService {
     targetIsHint = false,
     enrollAccount = false,
   ): Promise<Account> {
+    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
     const identity = inspectCredential(auth, engine);
     if (!identity) throw new ValidationError('payload contains no usable auth tokens');
     const identityKey = providerIdentity(auth, engine);
     let accounts = (
-      await this.db.select().from(providerAccounts).where(eq(providerAccounts.engine, engine))
+      owner ? owner.state.snapshot().accounts.by('engine',engine) : await this.db.select().from(providerAccounts).where(eq(providerAccounts.engine, engine))
     ).filter((a) => !a.mergedIntoAccountId);
     // A legacy head can be backfilled after schema migration on fresh installs.
     if (!accounts.length) {
@@ -76,6 +81,10 @@ export class ProviderAccountsService {
       }).resolveCanonicalPayload(engine);
       if (legacy && !legacy.accountId) {
         const now = nowIso();
+        if(owner){
+          await this.createOwnedAccount(engine,null,legacy.id,legacy.generation??null,`${PROVIDER_LABELS[engine]} 1`);
+          accounts=owner.state.snapshot().accounts.by('engine',engine).filter(a=>!a.mergedIntoAccountId);
+        } else {
         await this.db.insert(providerAccounts).values({
           engine,
           state: 'enabled',
@@ -98,9 +107,13 @@ export class ProviderAccountsService {
           await this.db
             .insert(authCanonicalHeads)
             .values({ engine, payloadId: legacy.id, generation: legacy.generation ?? 0, updatedAt: now });
+        }
       }
     }
-    const history = await this.db.select().from(authPayloads).where(eq(authPayloads.engine, engine));
+    const metadataRows=owner?.state.snapshot().table('authPayloads').by('engine',engine);
+    // Credential material is cold, read only for this explicit credential mutation.
+    const bodies=owner ? await this.db.select({id:authPayloads.id,body:authPayloads.body}).from(authPayloads).where(eq(authPayloads.engine,engine)) : null;
+    const history=metadataRows ? metadataRows.map(row=>({...row,body:bodies?.find(b=>b.id===row.id)?.body??null})) : await this.db.select().from(authPayloads).where(eq(authPayloads.engine,engine));
     const accountIdentity = (a: Account): string | null => {
       if (a.identityKey && !a.identityKey.startsWith('credential:')) return a.identityKey;
       const head = history.find((r) => r.id === a.payloadId);
@@ -180,7 +193,7 @@ export class ProviderAccountsService {
         const live =
           sourceHostId == null
             ? []
-            : await this.db
+            : owner ? owner.state.snapshot().table('providerAccountSessions').by('accountId',account.id).filter(r=>r.hostId===sourceHostId&&(r.ownershipMode==='connection'||r.expiresAt>nowIso())) : await this.db
                 .select()
                 .from(providerAccountSessions)
                 .where(
@@ -193,13 +206,15 @@ export class ProviderAccountsService {
         if (!live.length) throw new ConflictError('Account is retired', 'account_removed');
       }
       if (identityKey && (!account.identityKey || account.identityKey.startsWith('credential:'))) {
-        await this.db
-          .update(providerAccounts)
-          .set({ identityKey, updatedAt: nowIso() })
-          .where(eq(providerAccounts.id, account.id));
+        if(owner){const id=account.id;await mutateOwnerState(owner,{kind:'provider.account.identify',payload:{id,identityKey},prepare({snapshot,draft,write}){
+          const current=snapshot.accounts.get(id);if(!current||current.state==='removed')throw new ConflictError('Account is retired','account_removed');
+          if(current.identityKey&&!current.identityKey.startsWith('credential:')&&current.identityKey!==identityKey)throw new ConflictError('Account identity changed','account_identity_mismatch');
+          const updatedAt=nowIso();draft.upsert('providerAccounts',{...current,identityKey,updatedAt});write(tx=>tx.update(providerAccounts).set({identityKey,updatedAt}).where(eq(providerAccounts.id,id)));return null;
+        }});}else await this.db.update(providerAccounts).set({identityKey,updatedAt:nowIso()}).where(eq(providerAccounts.id,account.id));
       }
       return account;
     }
+    if(owner)return this.createOwnedAccount(engine,key,null,null,`${PROVIDER_LABELS[engine]} account`);
     const now = nowIso();
     await this.db
       .insert(providerAccounts)
@@ -225,15 +240,34 @@ export class ProviderAccountsService {
     return created;
   }
 
+  private async createOwnedAccount(engine:Engine,identityKey:string|null,payloadId:number|null,generation:number|null,label:string):Promise<Account>{
+    const owner=ownerRuntimeFor(this.db)!;
+    const result=await mutateOwnerState(owner,{kind:'provider.account.enroll',payload:{engine,identityKey,payloadId,generation,label},prepare({snapshot,draft,write}){
+      const duplicate=snapshot.accounts.by('engine',engine).find(a=>identityKey?a.identityKey===identityKey:!a.mergedIntoAccountId);
+      if(duplicate){if(['removed','removing'].includes(duplicate.state))throw new ConflictError('Account is retired','account_removed');return {id:duplicate.id};}
+      const now=nowIso();const values={engine,label,identityKey,mergedIntoAccountId:null,state:'enabled',payloadId,generation,lastSelectedAt:null,createdAt:now,updatedAt:now};
+      let id=0;write(async tx=>{
+        const inserted=await tx.insert(providerAccounts).values(values).$returningId();id=Number(inserted[0]?.id);if(!id)throw new Error('Account insert returned no identity');draft.upsert('providerAccounts',{...values,id});
+        if(payloadId!==null){
+          const payload=snapshot.table('authPayloads').get(payloadId);if(!payload||payload.engine!==engine||payload.accountId!==null)throw new ConflictError('Legacy credential changed');
+          await tx.update(authPayloads).set({accountId:id}).where(eq(authPayloads.id,payloadId));draft.upsert('authPayloads',{...payload,accountId:id});
+          if(!snapshot.table('authCanonicalHeads').has(engine)){const head={engine,payloadId,generation:generation??0,updatedAt:now};await tx.insert(authCanonicalHeads).values(head);draft.upsert('authCanonicalHeads',head);}
+        }
+      });return ()=>({id});
+    }});
+    return this.get((result as {id:number}).id,engine);
+  }
+
   async list(engine?: Engine) {
     await this.drainRemoved();
-    const accounts = await this.db
+    const owner=ownerRuntimeFor(this.db); owner?.assertOwner();
+    const accounts = owner ? owner.state.snapshot().accounts.all().filter(a=>!engine||a.engine===engine).sort((a,b)=>a.id-b.id) : await this.db
       .select()
       .from(providerAccounts)
       .where(engine ? eq(providerAccounts.engine, engine) : undefined)
       .orderBy(asc(providerAccounts.id));
     const now = nowIso();
-    const sessions = await this.db
+    const sessions = owner ? owner.state.snapshot().table('providerAccountSessions').all().filter(r=>r.ownershipMode==='connection'||r.expiresAt>now) : await this.db
       .select()
       .from(providerAccountSessions)
       .where(gt(providerAccountSessions.expiresAt, now));
@@ -241,7 +275,7 @@ export class ProviderAccountsService {
       accounts
         .filter((a) => a.state !== 'removed')
         .map(async (a) => {
-          const payload = a.payloadId
+          const payload = owner ? (a.payloadId ? owner.state.snapshot().table('authPayloads').get(a.payloadId) : [...owner.state.snapshot().table('authPayloads').by('accountId',a.id)].sort((a,b)=>b.id-a.id)[0]) : a.payloadId
             ? (await this.db.select().from(authPayloads).where(eq(authPayloads.id, a.payloadId)))[0]
             : (
                 await this.db
@@ -253,12 +287,13 @@ export class ProviderAccountsService {
               )[0];
           const usage = await this.usage(a.id, a.engine as Engine);
           let plan = 'plan' in usage ? usage.plan : providerPlan(null, 'claude_login', null);
-          if (a.engine === 'claude' && payload?.verificationState === 'verified' && payload.body) {
+          const body = a.engine === 'claude' && payload?.verificationState === 'verified' ? owner ? (await this.db.select({body:authPayloads.body}).from(authPayloads).where(eq(authPayloads.id,payload.id)))[0]?.body : ('body' in payload ? payload.body : null) : null;
+          if (a.engine === 'claude' && payload?.verificationState === 'verified' && typeof body === 'string' && body) {
             try {
-              plan = providerPlan(claudePlanName(JSON.parse(decrypt(payload.body, this.keyring))), 'claude_login', payload.createdAt);
+              plan = providerPlan(claudePlanName(JSON.parse(decrypt(body, this.keyring))), 'claude_login', payload.createdAt);
             } catch { /* Unreadable metadata stays unavailable; account listing still works. */ }
           }
-          const refresh = a.engine === 'grok' ? (await this.db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, a.id)))[0] : null;
+          const refresh = a.engine === 'grok' ? owner ? owner.state.snapshot().table('grokAuthRefreshState').get(a.id) : (await this.db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, a.id)))[0] : null;
           return {
             id: a.id,
             engine: a.engine,
@@ -285,9 +320,10 @@ export class ProviderAccountsService {
 
   async usage(accountId: number, engine: Engine, reader: Pick<Database, 'select'> = this.db) {
     const now = Date.now();
+    const owner = ownerRuntimeFor(reader); owner?.assertOwner();
     if (engine === 'grok') return readGrokUsage(reader, accountId);
     if (engine === 'claude') {
-      const rows = await reader
+      const rows = owner ? [...owner.state.snapshot().table('claudeUsageSnapshots').by('accountId',accountId)].sort((a,b)=>b.id-a.id).slice(0,1) : await reader
         .select()
         .from(claudeUsageSnapshots)
         .where(eq(claudeUsageSnapshots.accountId, accountId))
@@ -305,7 +341,7 @@ export class ProviderAccountsService {
         weekly_limit_seconds: r?.sevenDayUsedPercent != null ? 604800 : null,
       };
     }
-    const rows = await reader
+    const rows = owner ? [...owner.state.snapshot().table('chatgptUsageSnapshots').by('accountId',accountId)].filter(r=>r.status==='ok').sort((a,b)=>b.id-a.id).slice(0,1) : await reader
       .select()
       .from(chatgptUsageSnapshots)
       .where(and(eq(chatgptUsageSnapshots.accountId, accountId), eq(chatgptUsageSnapshots.status, 'ok')))
@@ -339,6 +375,8 @@ export class ProviderAccountsService {
    * Quota only ranks those candidates, it never empties the set.
    */
   async countLeasable(engine: Engine): Promise<number> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); const s=owner.state.snapshot(); return s.accounts.by('engine',engine).filter(a=>a.state==='enabled'&&a.payloadId&&s.table('authPayloads').get(a.payloadId)?.verificationState==='verified').length; }
     const [row] = await this.db
       .select({ leasable: count() })
       .from(providerAccounts)
@@ -361,6 +399,8 @@ export class ProviderAccountsService {
     threshold: number,
     preferred?: number,
   ) {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { await drainOwnedProviders(owner); return acquireOwnedProvider(owner,hostId,engine,scopeId,sessionId,threshold,preferred); }
     if (preferred !== undefined) preferred = await this.canonicalId(preferred, engine);
     await this.drainRemoved();
     return this.db.transaction(async (tx) => {
@@ -431,6 +471,7 @@ export class ProviderAccountsService {
   }
 
   async session(hostId: number, engine: Engine, id: string) {
+    const owner = ownerRuntimeFor(this.db); if(owner)return ownedProviderSession(owner,hostId,engine,id);
     const row = (
       await this.db
         .select()
@@ -451,7 +492,16 @@ export class ProviderAccountsService {
     const session = await this.session(hostId, engine, id);
     const account = await this.get(session.accountId, engine);
     if (account.state === 'removed') throw new ConflictError('Account removed');
+    const owner = ownerRuntimeFor(this.db);
+    if(owner && session.ownershipMode==='connection')return {account_id:session.accountId,expires_at:session.expiresAt};
     const expiresAt = new Date(Date.now() + 300_000).toISOString();
+    if(owner){
+      await mutateOwnerState(owner,{kind:'provider.session.renew',payload:{hostId,engine,id},prepare({snapshot,draft,write}){
+        const current=snapshot.table('providerAccountSessions').get(id);
+        if(!current||current.hostId!==hostId||current.engine!==engine||Date.parse(current.expiresAt)<=Date.now())throw new NotFoundError('Account session not found');
+        draft.upsert('providerAccountSessions',{...current,expiresAt});write(tx=>tx.update(providerAccountSessions).set({expiresAt}).where(eq(providerAccountSessions.id,id)));return null;
+      }});return {account_id:session.accountId,expires_at:expiresAt};
+    }
     await this.db
       .update(providerAccountSessions)
       .set({ expiresAt })
@@ -461,6 +511,7 @@ export class ProviderAccountsService {
   }
 
   async release(hostId: number, engine: Engine, id: string) {
+    const owner=ownerRuntimeFor(this.db);if(owner){await releaseOwnedProvider(owner,hostId,engine,id);await drainOwnedProviders(owner);return;}
     await this.db
       .delete(providerAccountSessions)
       .where(
@@ -474,6 +525,15 @@ export class ProviderAccountsService {
   }
 
   async update(id: number, changes: { label?: string; state?: 'enabled' | 'paused' | 'removing' }) {
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){
+      await mutateOwnerState(owner,{kind:'provider.account.update',payload:{id,...changes},prepare({snapshot,draft,write}){
+        const account=ownedAccount(snapshot,id);if(!account)throw new NotFoundError('Provider account not found');
+        if(account.state==='removed'||account.state==='removing')throw new ConflictError('Account is being removed');
+        const now=nowIso();draft.upsert('providerAccounts',{...account,...changes,updatedAt:now});
+        write(async tx=>{await tx.update(providerAccounts).set({...changes,updatedAt:now}).where(eq(providerAccounts.id,account.id));await persistAuditLog(tx, {action:'account.updated',details:JSON.stringify({account_id:account.id,...changes}),createdAt:now});});return null;
+      }});await this.drainRemoved();wsPublisher.publish('accounts.updated',{account_id:id});return;
+    }
     const account = await this.get(id);
     if (account.state === 'removed' || account.state === 'removing')
       throw new ConflictError('Account is being removed');
@@ -481,7 +541,7 @@ export class ProviderAccountsService {
       .update(providerAccounts)
       .set({ ...changes, updatedAt: nowIso() })
       .where(eq(providerAccounts.id, id));
-    await this.db.insert(logs).values({
+    await persistAuditLog(this.db, {
       action: 'account.updated',
       details: JSON.stringify({ account_id: id, ...changes }),
       createdAt: nowIso(),
@@ -491,9 +551,10 @@ export class ProviderAccountsService {
   }
 
   async drainRemoved() {
+    const owner=ownerRuntimeFor(this.db);if(owner)return drainOwnedProviders(owner);
     // Expiration cleanup must finish before taking any account row lock. The
     // reverse order deadlocks with concurrent account->session reservations.
-    await this.db.delete(providerAccountSessions).where(lte(providerAccountSessions.expiresAt, nowIso()));
+    await this.db.delete(providerAccountSessions).where(and(eq(providerAccountSessions.ownershipMode, 'timed'), lte(providerAccountSessions.expiresAt, nowIso())));
     const candidates = await this.db
       .select()
       .from(providerAccounts)

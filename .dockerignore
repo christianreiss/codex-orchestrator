@@ -16,6 +16,11 @@ api/dist
 api/coverage
 frontend/build
 frontend/.svelte-kit
+.owner-checkpoints
+.playwright
+.npm-cache
+frontend/test-results
+frontend/playwright-report
 
 # `public/` is deliberately NOT excluded: `public/admin` is the committed,
 # prebuilt admin SPA and the image serves it straight from there.

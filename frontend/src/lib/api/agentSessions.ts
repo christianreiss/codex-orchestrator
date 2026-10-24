@@ -6,9 +6,9 @@
  * one contract serves both apps, and the presence ladder both render is the
  * tested one in `$lib/portal/presence`.
  *
- * Presence uses15s polling and the selected timeline uses scoped SSE with a
- * polling fallback. Shared WebSocket invalidation refreshes administrative
- * metadata changes and reconnects; transport state never proves client liveness.
+ * Owner events refresh presence and metadata; scoped SSE refreshes the selected
+ * timeline. Reconnection resnapshots active queries. Browser transport state
+ * never proves native client liveness.
  */
 import { createMutation, createQuery, useQueryClient, type CreateMutationOptions } from "@tanstack/svelte-query";
 import { get, toStore } from "svelte/store";
@@ -78,8 +78,6 @@ export function agentSessionsQuery() {
   return createQuery<AgentSessionsResponse>({
     queryKey: agentSessionKeys.list,
     queryFn: ({ signal }) => boundedGet<AgentSessionsResponse>("/admin/agent-sessions", signal),
-    // Heartbeats land every 15s, so anything faster reports the same rows back.
-    refetchInterval: 15_000,
     retry: 1,
   });
 }
@@ -100,8 +98,6 @@ export function sessionEventsQuery(sessionId: () => string | null) {
         `/admin/agent-sessions/${encodeURIComponent(String(queryKey[2]))}/events?tail=true&limit=250`,
         signal,
       ),
-    // Keep the selected timeline moving when SSE is blocked or reconnecting.
-    refetchInterval: 15_000,
     retry: 1,
   })));
 }

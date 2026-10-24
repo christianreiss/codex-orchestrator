@@ -1,3 +1,6 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { ownerRuntimeFor, mutateOwnerState, type OwnerMutationContext } from '../control-plane/state/runtime.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { and, asc, eq, inArray, lt, lte, like, or, sql } from 'drizzle-orm';
@@ -22,12 +25,13 @@ type Item = typeof feedbackItems.$inferSelect;
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const clearedClaim = { claimOwner: null, claimRequestKey: null, claimTokenHash: null, claimTokenEnc: null, claimExpiresAt: null };
+const ownedFeedback = new AsyncLocalStorage<OwnerMutationContext>();
 const system: FeedbackActor = { host_id: null, engine: null, kind: 'system' };
 const scope = (actor: FeedbackActor) => `${actor.host_id ?? 'admin'}:${actor.engine ?? ''}:${actor.admin_user_id ?? ''}`;
 const terminal = (status: string) => (FEEDBACK_CLOSED_STATUSES as readonly string[]).includes(status);
 
 /** Token material never leaves claim responses; read APIs and events use this projection. */
-export function feedbackView(row: Item, full = true) {
+export function feedbackView(row: Omit<Item, 'claimTokenEnc'>, full = true) {
   return {
     id: row.id, type: row.type, title: row.title, component: row.component,
     priority: row.priority, status: row.status, source: row.source,
@@ -45,6 +49,16 @@ export class FeedbackService {
     this.settings = new SettingsService(db);
   }
 
+  private async transaction<T>(run: (tx: Tx) => Promise<T>): Promise<T> {
+    const owner = ownerRuntimeFor(this.db);
+    if (!owner) return this.db.transaction(run);
+    let result: T;
+    await mutateOwnerState(owner, { kind: 'feedback.mutation', payload: {}, prepare(context) {
+      context.write(async tx => { result = await ownedFeedback.run(context, () => run(tx as unknown as Tx)); });
+      return null;
+    } });
+    return result!;
+  }
   async getEnabled(): Promise<boolean> { return this.settings.getFlag(FEEDBACK_ENABLED_KEY, false); }
   async setEnabled(enabled: boolean) {
     await this.settings.setFlag(FEEDBACK_ENABLED_KEY, enabled);
@@ -58,16 +72,31 @@ export class FeedbackService {
     }
   }
   private async row(tx: Tx, id: string): Promise<Item> {
-    const [row] = await tx.select().from(feedbackItems).where(eq(feedbackItems.id, id)).for('update');
+    const context = ownedFeedback.getStore();
+    let row = context ? context.draft.table('feedbackItems').get(id) as Item | undefined : (await tx.select().from(feedbackItems).where(eq(feedbackItems.id, id)).for('update'))[0];
+    if (!row && context) {
+      row = (await tx.select().from(feedbackItems).where(eq(feedbackItems.id, id)))[0];
+      if (row) {
+        if (!terminal(row.status)) throw new Error('Active feedback missing from owner projection');
+        context.draft.upsert('feedbackItems', row);
+        const pipeline = (await tx.select().from(feedbackPipeline).where(eq(feedbackPipeline.feedbackId, id)))[0];
+        if (pipeline) context.draft.upsert('feedbackPipeline', pipeline);
+      }
+    }
     if (!row) throw new NotFoundError('Feedback not found');
     return row;
   }
   private async event(tx: Tx, row: Item, action: string, actor: FeedbackActor, detail: Record<string, unknown>) {
-    await tx.insert(feedbackEvents).values({ id: randomUUID(), feedbackId: row.id, version: row.version, action, actor, detail, createdAt: row.updatedAt });
+    const values = { id: randomUUID(), feedbackId: row.id, version: row.version, action, actor, detail, createdAt: row.updatedAt };
+    const context = ownedFeedback.getStore();
+    if (context) context.write(async ownedTx => { await ownedTx.insert(feedbackEvents).values(values); });
+    else await tx.insert(feedbackEvents).values(values);
   }
   private async change(tx: Tx, row: Item, patch: Partial<Item>, action: string, actor: FeedbackActor, detail: Record<string, unknown>): Promise<Item> {
     const next = { ...row, ...patch, version: row.version + 1, updatedAt: new Date().toISOString() };
-    await tx.update(feedbackItems).set({ ...patch, version: next.version, updatedAt: next.updatedAt }).where(eq(feedbackItems.id, row.id));
+    const context = ownedFeedback.getStore();
+    if (context) stageUpdate(context, 'feedbackItems', row.id, { ...patch, version: next.version, updatedAt: next.updatedAt });
+    else await tx.update(feedbackItems).set({ ...patch, version: next.version, updatedAt: next.updatedAt }).where(eq(feedbackItems.id, row.id));
     await this.event(tx, next, action, actor, detail);
     return next;
   }
@@ -94,15 +123,22 @@ export class FeedbackService {
 
   private async withPipeline<T extends { id: string }>(items: T[]) {
     if (!items.length) return items;
-    const rows = await this.db.select().from(feedbackPipeline).where(inArray(feedbackPipeline.feedbackId, items.map((i) => i.id)));
+    const owner = ownerRuntimeFor(this.db);
+    const rows = owner ? [...owner.state.snapshot().table('feedbackPipeline').all()].filter(row => items.some(item => item.id === row.feedbackId)) : await this.db.select().from(feedbackPipeline).where(inArray(feedbackPipeline.feedbackId, items.map((i) => i.id)));
+    if (owner) { const cold = items.filter(item => !owner.state.snapshot().table('feedbackItems').has(item.id)); if (cold.length) rows.push(...await this.db.select().from(feedbackPipeline).where(inArray(feedbackPipeline.feedbackId, cold.map(item => item.id)))); }
     const lookup = new Map(rows.map((r) => [r.feedbackId, r]));
     return items.map((item) => ({ ...item, ...(lookup.has(item.id) ? { pipeline: pipelineView(lookup.get(item.id)!) } : {}) }));
   }
 
+  async expireClaims(id?: string): Promise<void> { return this.expire(id); }
+
   private async expire(id?: string): Promise<void> {
-    const expired = await this.db.transaction(async (tx) => {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner && !owner.state.snapshot().table('feedbackItems').all().some(row => row.status === 'in_progress' && row.claimExpiresAt && row.claimExpiresAt <= new Date().toISOString() && (!id || row.id === id))) return;
+    const expired = await this.transaction(async (tx) => {
       const now = new Date().toISOString();
-      const rows = await tx.select().from(feedbackItems).where(and(
+      const context = ownedFeedback.getStore();
+      const rows = context ? context.draft.table('feedbackItems').all().filter(row => row.status === 'in_progress' && row.claimExpiresAt && row.claimExpiresAt <= now && (!id || row.id === id)) as Item[] : await tx.select().from(feedbackItems).where(and(
         eq(feedbackItems.status, 'in_progress'), lte(feedbackItems.claimExpiresAt, now),
         id ? eq(feedbackItems.id, id) : undefined,
       )).orderBy(asc(feedbackItems.id)).for('update');
@@ -120,8 +156,29 @@ export class FeedbackService {
     const requestKey = hash(`${scope(actor)}:${client_request_id.toLowerCase()}`);
     const requestDigest = hash(JSON.stringify({ ...report, agent_uuid: agent_uuid ?? null }));
     const id = randomUUID();
-    const result = await this.db.transaction(async (tx) => {
+    const result = await this.transaction(async (tx) => {
       const now = new Date().toISOString();
+      const context = ownedFeedback.getStore();
+      if (context) {
+        const previous = context.draft.table('feedbackItems').all().find(row => row.requestKey === requestKey) ?? (await tx.select().from(feedbackItems).where(eq(feedbackItems.requestKey, requestKey)))[0];
+        if (previous) {
+          if (previous.requestDigest !== requestDigest) throw new ConflictError('Request ID already used for different feedback');
+          return { feedback: feedbackView(previous), replayed: true };
+        }
+        const row: Item = { id, requestKey, requestDigest, type: report.type, title: report.title, component: report.component, priority: report.priority,
+          report, source: { ...actor, ...(agent_uuid ? { agent_uuid } : {}) }, status: 'open', result: null, deployment: 'unknown', deploymentRef: null, duplicateOf: null,
+          ...clearedClaim, version: 1, createdAt: now, updatedAt: now };
+        context.draft.upsert('feedbackItems', row);
+        context.write(async ownedTx => { await ownedTx.insert(feedbackItems).values(row); });
+        await this.event(tx, row, 'submitted', actor, { report });
+        if (userMode) {
+          const pipeline: typeof feedbackPipeline.$inferSelect = { feedbackId: id, createdCommit: buildIdentity().commit, versionState: 'unknown', reviewState: 'pending', deliveryState: 'local', testedCommit: null, upstreamCommit: null,
+            evidence: data.retest ? { probe: data.retest } : {}, githubIssueNumber: null, githubUrl: null, reason: null, leaseToken: null, leaseExpiresAt: null, nextAttemptAt: now, attempts: 0, updatedAt: now };
+          context.draft.upsert('feedbackPipeline', pipeline);
+          context.write(async ownedTx => { await ownedTx.insert(feedbackPipeline).values(pipeline); });
+        }
+        return { feedback: feedbackView(row), replayed: false };
+      }
       await tx.insert(feedbackItems).values({
         id, requestKey, requestDigest, type: report.type, title: report.title,
         component: report.component, priority: report.priority, report,
@@ -148,6 +205,11 @@ export class FeedbackService {
   async summary(actor: FeedbackActor) {
     await this.available(actor);
     await this.expire();
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const rows = owner.state.snapshot().table('feedbackItems').all();
+      return { open: rows.filter(row => row.status === 'open').length, in_progress: rows.filter(row => row.status === 'in_progress').length, blocked: rows.filter(row => row.status === 'blocked').length };
+    }
     const rows = await this.db
       .select({ status: feedbackItems.status, count: sql<number>`count(*)` })
       .from(feedbackItems)
@@ -161,6 +223,17 @@ export class FeedbackService {
     await this.available(actor);
     const args = parseFeedback(feedbackListSchema, input);
     await this.expire();
+    const owner = ownerRuntimeFor(this.db);
+    if (owner && args.status && !terminal(args.status)) {
+      const snapshot = owner.state.snapshot(), priority = ['critical', 'high', 'normal', 'low'];
+      const rows = snapshot.table('feedbackItems').all().filter(row => {
+        const pipeline = snapshot.table('feedbackPipeline').get(row.id);
+        return (!args.status || row.status === args.status) && (!args.type || row.type === args.type) && (!args.component || row.component === args.component) && (!args.priority || row.priority === args.priority)
+          && (!args.version_state || pipeline?.versionState === args.version_state) && (!args.review_state || pipeline?.reviewState === args.review_state) && (!args.delivery_state || pipeline?.deliveryState === args.delivery_state)
+          && (!args.query || row.title.toLowerCase().includes(args.query.toLowerCase()) || String(row.report.description ?? '').toLowerCase().includes(args.query.toLowerCase()));
+      }).sort((a,b) => priority.indexOf(a.priority) - priority.indexOf(b.priority) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).slice(args.offset, args.offset + args.limit + 1);
+      return { feedback: await this.withPipeline(rows.slice(0, args.limit).map(row => feedbackView(row, false))), next_offset: rows.length > args.limit ? args.offset + args.limit : null };
+    }
     const where = and(
       args.version_state || args.review_state || args.delivery_state ? inArray(feedbackItems.id,
         this.db.select({ id: feedbackPipeline.feedbackId }).from(feedbackPipeline).where(and(
@@ -186,8 +259,18 @@ export class FeedbackService {
     await this.available(actor);
     const id = feedbackId(input);
     await this.expire(id);
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const snapshot = owner.state.snapshot(), row = snapshot.table('feedbackItems').get(id) ?? (await this.db.select().from(feedbackItems).where(eq(feedbackItems.id, id)))[0];
+      if (!row) throw new NotFoundError('Feedback not found');
+      const pipeline = snapshot.table('feedbackPipeline').get(id) ?? (!snapshot.table('feedbackItems').has(id) ? (await this.db.select().from(feedbackPipeline).where(eq(feedbackPipeline.feedbackId, id)))[0] : undefined);
+      // Only requested cold history is read. Bound it to the already captured
+      // owned version so concurrent later events cannot produce a torn response.
+      const events = await this.db.select().from(feedbackEvents).where(and(eq(feedbackEvents.feedbackId, id), lte(feedbackEvents.version, row.version))).orderBy(asc(feedbackEvents.version));
+      return { feedback: { ...feedbackView(row), ...(pipeline ? { pipeline: pipelineView(pipeline) } : {}) }, events: events.map(event => ({ id: event.id, version: event.version, action: event.action, actor: event.actor, detail: event.detail, created_at: event.createdAt })) };
+    }
     // Same transaction gives a consistent item/version and its event history.
-    return this.db.transaction(async (tx) => {
+    return this.transaction(async (tx) => {
       const row = await this.row(tx, id);
       const events = await tx.select().from(feedbackEvents).where(eq(feedbackEvents.feedbackId, id)).orderBy(asc(feedbackEvents.version));
       const [pipeline] = await tx.select().from(feedbackPipeline).where(eq(feedbackPipeline.feedbackId, id));
@@ -209,13 +292,15 @@ export class FeedbackService {
     if (args.action === 'acquire' && !args.client_request_id) throw new ValidationError('client_request_id required for acquire');
     if (args.action === 'force_release' && (actor.admin_user_id === undefined || !args.reason)) throw new ForbiddenError('Administrative force release requires a reason');
     await this.expire(args.id);
-    const result = await this.db.transaction(async (tx) => {
+    const result = await this.transaction(async (tx) => {
       const row = await this.row(tx, args.id);
       const requestKey = hash(`${scope(actor)}:${args.client_request_id?.toLowerCase() ?? ''}`);
       if (args.action === 'acquire') {
         if (row.status === 'in_progress') {
-          if (row.claimRequestKey === requestKey && row.claimTokenEnc && row.claimOwner && scope(row.claimOwner as FeedbackActor) === scope(actor)) {
-            return { feedback: feedbackView(row), claim_token: decrypt(row.claimTokenEnc, this.keyring), replayed: true };
+          if (row.claimRequestKey === requestKey && row.claimOwner && scope(row.claimOwner as FeedbackActor) === scope(actor)) {
+            const encrypted = row.claimTokenEnc ?? (ownedFeedback.getStore() ? (await tx.select({ token: feedbackItems.claimTokenEnc }).from(feedbackItems).where(eq(feedbackItems.id, row.id)))[0]?.token : null);
+            if (!encrypted) throw new ConflictError('Feedback claim response unavailable');
+            return { feedback: feedbackView(row), claim_token: decrypt(encrypted, this.keyring), replayed: true };
           }
           throw new ConflictError('Feedback already claimed', 'feedback_claimed');
         }
@@ -247,7 +332,7 @@ export class FeedbackService {
     const { id, expected_version, claim_token, ...detail } = args;
     if (!Object.keys(detail).length) throw new ValidationError('An update or note is required');
     await this.expire(id);
-    const result = await this.db.transaction(async (tx) => {
+    const result = await this.transaction(async (tx) => {
       const row = await this.row(tx, id);
       if (row.version !== expected_version) throw new ConflictError('Feedback changed; read current version before updating', 'feedback_version_conflict');
       const admin = actor.admin_user_id !== undefined;
@@ -260,9 +345,10 @@ export class FeedbackService {
       if (args.status && ['blocked', 'dismissed'].includes(args.status) && !args.reason) throw new ValidationError(`${args.status} requires reason`);
       if (args.status === 'duplicate') {
         if (!args.duplicate_of || args.duplicate_of === id) throw new ValidationError('duplicate requires another feedback ID');
-        const [target] = await tx.select({ id: feedbackItems.id, status: feedbackItems.status }).from(feedbackItems).where(eq(feedbackItems.id, args.duplicate_of)).for('update');
+        const context = ownedFeedback.getStore();
+        const target = context ? context.draft.table('feedbackItems').get(args.duplicate_of) ?? (await tx.select({ id: feedbackItems.id, status: feedbackItems.status }).from(feedbackItems).where(eq(feedbackItems.id, args.duplicate_of)))[0] : (await tx.select({ id: feedbackItems.id, status: feedbackItems.status }).from(feedbackItems).where(eq(feedbackItems.id, args.duplicate_of)).for('update'))[0];
         if (!target || target.status === 'duplicate') throw new ValidationError('duplicate_of must refer to an existing canonical feedback item');
-        const references = await tx.select({ id: feedbackItems.id }).from(feedbackItems).where(eq(feedbackItems.duplicateOf, id)).limit(1);
+        const references = context ? context.draft.table('feedbackItems').all().filter(item => item.duplicateOf === id).slice(0, 1) : await tx.select({ id: feedbackItems.id }).from(feedbackItems).where(eq(feedbackItems.duplicateOf, id)).limit(1);
         if (references.length) throw new ValidationError('A canonical item referenced by duplicates cannot itself become a duplicate');
       } else if (args.duplicate_of) throw new ValidationError('duplicate_of requires status duplicate');
       const patch: Partial<Item> = {};
@@ -293,6 +379,7 @@ export class FeedbackService {
    */
   private async purgeRows(tx: Tx, rows: Item[], auditType: string, actor: FeedbackActor, criteria: Record<string, unknown>) {
     const seed = rows.map((r) => r.id);
+    const context = ownedFeedback.getStore();
     const duplicates = seed.length ? await tx.select().from(feedbackItems)
       .where(inArray(feedbackItems.duplicateOf, seed)).orderBy(asc(feedbackItems.id)).for('update') : [];
     const all = [...rows, ...duplicates.filter((d) => !seed.includes(d.id))];
@@ -302,6 +389,7 @@ export class FeedbackService {
       const eventResult = await tx.delete(feedbackEvents).where(inArray(feedbackEvents.feedbackId, ids));
       events = Number(eventResult[0]?.affectedRows ?? 0);
       await tx.delete(feedbackItems).where(inArray(feedbackItems.id, ids));
+      if (context) for (const id of ids) { context.draft.remove('feedbackItems', id); context.draft.remove('feedbackPipeline', id); }
     }
     const byStatus: Record<string, number> = {};
     for (const row of all) byStatus[row.status] = (byStatus[row.status] ?? 0) + 1;
@@ -316,7 +404,7 @@ export class FeedbackService {
   async remove(input: unknown, actor: FeedbackActor) {
     if (actor.admin_user_id === undefined) throw new ForbiddenError('Only administrators can delete feedback');
     const id = feedbackId(input);
-    const result = await this.db.transaction(async (tx) => {
+    const result = await this.transaction(async (tx) => {
       const row = await this.row(tx, id);
       // Closed items never hold a claim (every status change clears it), so this also refuses live claims.
       if (!terminal(row.status) || (row.claimExpiresAt && row.claimExpiresAt > new Date().toISOString())) {
@@ -332,7 +420,7 @@ export class FeedbackService {
     if (actor.admin_user_id === undefined) throw new ForbiddenError('Only administrators can purge feedback');
     const args = parseFeedback(feedbackPurgeSchema, input);
     const statuses = [...new Set(args.statuses)];
-    const result = await this.db.transaction(async (tx) => {
+    const result = await this.transaction(async (tx) => {
       const rows = await tx.select().from(feedbackItems).where(and(
         inArray(feedbackItems.status, statuses),
         args.older_than ? lt(feedbackItems.updatedAt, args.older_than) : undefined,

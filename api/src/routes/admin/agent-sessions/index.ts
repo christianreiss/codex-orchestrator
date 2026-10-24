@@ -1,3 +1,4 @@
+import {ownerRuntimeFor,ownerReadResponseGuard} from '../../../control-plane/state/runtime.js';
 import { NativeStopService } from '../../../services/native-stop.js';
 import { chatMetadataSchema } from '../../../services/agent-chat/contracts.js';
 import { createSseLifecycle } from '../../../http/sse-lifecycle.js';
@@ -143,6 +144,7 @@ export async function registerAdminAgentSessionsRoutes(
         (rawHeaderCursor !== undefined && Number.isFinite(headerCursor)
           ? Math.max(0, Math.trunc(headerCursor))
           : await portal.latestEventCursor());
+      const runtime=ownerRuntimeFor(ctx.db),checkRead=runtime?ownerReadResponseGuard(runtime):()=>{};checkRead();
       reply.hijack();
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
@@ -172,6 +174,7 @@ export async function registerAdminAgentSessionsRoutes(
             throw new ServiceUnavailableError('Agent portal is disabled', 'agent_portal_disabled');
           }
           const page = await portal.listEventsAfter(cursor, 250, query.session_id);
+          checkRead();
           if (closed) break;
           for (const event of page.events) {
             cursor = Number(event.cursor ?? cursor);

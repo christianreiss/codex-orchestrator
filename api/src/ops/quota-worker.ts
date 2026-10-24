@@ -6,7 +6,9 @@ import type { Keyring } from '../security/keyring.js';
 import type { Env } from '../env.js';
 import { agentSessions } from '../db/schema.js';
 import { quotaSnapshot } from '../services/quota-observation.js';
-import { createAgentMessagingService } from '../services/agent-messaging.js';
+import { startOwnerWorker } from './owner-worker.js';
+import { requireOwnerMaintenanceCommands } from './owner-maintenance.js';
+import { dependencyRevision } from './schedule-obligations.js';
 import { readFleetEngineState } from '../services/engine-switch.js';
 import { isEngine } from '../util/engine.js';
 
@@ -34,14 +36,18 @@ export async function warnQuotaSessions(db: Database, notify: (ids: string[], co
     }
   }
 }
-export function startQuotaWorker(app: FastifyInstance, db: Database, env: Env, keyring: Keyring) {
-  const messaging = createAgentMessagingService(db, env, keyring);
-  let pending: Promise<unknown> | null = null;
-  const tick = () => {
-    if (pending) return;
-    pending = messaging.isEnabled().then(enabled => enabled ? warnQuotaSessions(db, (ids, body, key) => messaging.noticeAddresses(ids, body, key)) : undefined)
-      .catch(err => app.log.warn({ err }, 'quota warning tick failed')).finally(() => { pending = null; });
-  };
-  const timer = setInterval(tick, 30000); timer.unref(); tick();
-  app.addHook('onClose', async () => { clearInterval(timer); await pending; });
+export function startQuotaWorker(app: FastifyInstance, db: Database, _env: Env, _keyring: Keyring) {
+  const commands = requireOwnerMaintenanceCommands(db);
+  const tables = ['versions', 'agentSessions', 'agentBusAddresses', 'providerAccounts', 'chatgptUsageSnapshots', 'claudeUsageSnapshots', 'grokUsageSnapshots'] as const;
+  startOwnerWorker(app, db, {
+    name: 'quota-notices', tables,
+    subscribe: wake => commands.subscribeFacts(wake),
+    select(snapshot) {
+      const revision = `${dependencyRevision(snapshot, tables)}:${commands.facts.revision()}`;
+      return snapshot.sessions.all().filter(session => !session.endedAt && session.status === 'active' && session.providerAccountId && session.agentBusAddressId)
+        .map(session => ({ key: session.id, revision, dueAt: 0 }));
+    },
+    run: work => commands.run('quota-notices', work),
+    error: error => app.log.warn({ err: error }, 'owner quota notice failed'),
+  });
 }

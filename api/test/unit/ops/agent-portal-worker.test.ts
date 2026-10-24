@@ -1,36 +1,31 @@
-import type { FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Database } from '../../../src/db/client.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../../src/env.js';
 import type { Keyring } from '../../../src/security/keyring.js';
-
-const mocks = vi.hoisted(() => ({ portal: vi.fn(), history: vi.fn(), hosts: vi.fn(), attachments: vi.fn() }));
-vi.mock('../../../src/services/agent-portal.js', () => ({ createAgentPortalService: () => ({ purgeExpired: mocks.portal }) }));
-vi.mock('../../../src/services/server-retention/index.js', () => ({ ServerRetentionService: class { purge = mocks.history; } }));
-vi.mock('../../../src/services/host-lifecycle.js', () => ({ pruneHosts: mocks.hosts }));
-vi.mock('../../../src/services/agent-chat/attachments.js', () => ({ ChatAttachments: class { purge = mocks.attachments; } }));
 import { startAgentPortalWorker } from '../../../src/ops/agent-portal-worker.js';
+import { ownerWorkerFixture } from '../../helpers/owner-worker.js';
+import type { StateSeed } from '../../../src/control-plane/state/catalog.js';
 
-describe('periodic server retention', () => {
-  afterEach(() => { vi.useRealTimers(); vi.resetAllMocks(); });
-  it('runs without host traffic and continues other phases after a failure', async () => {
-    vi.useFakeTimers();
-    mocks.portal.mockRejectedValue(new Error('temporary portal failure'));
-    mocks.history.mockResolvedValue({ credentials: 1 });
-    mocks.hosts.mockResolvedValue(0);
-    mocks.attachments.mockResolvedValue(0);
-    const log = { info: vi.fn(), error: vi.fn() };
-    let close!: () => Promise<void>;
-    const app = { log, addHook: (_: string, callback: () => Promise<void>) => { close = callback; } };
-    startAgentPortalWorker(app as unknown as FastifyInstance, {} as Database, { AGENT_PORTAL_PURGE_INTERVAL_SECONDS: 300 } as Env, {} as Keyring);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(log.error).toHaveBeenCalledWith(expect.objectContaining({ phase: 'portal' }), 'server retention phase failed');
-    expect(mocks.history).toHaveBeenCalledTimes(1);
-    expect(mocks.attachments).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(300000);
-    expect(mocks.history).toHaveBeenCalledTimes(2);
-    await close();
-    await vi.advanceTimersByTimeAsync(300000);
-    expect(mocks.history).toHaveBeenCalledTimes(2);
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(1_000_000); });
+afterEach(() => { vi.useRealTimers(); });
+describe('owner portal retention', () => {
+  it('does no empty sweep during ten quiet minutes', async () => {
+    const f = await ownerWorkerFixture(); startAgentPortalWorker(f.app, f.db, {} as Env, {} as Keyring);
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(f.run).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0); await f.close();
+  });
+  it('retains a native lifecycle with an expired stored bridge while reconnecting', async () => {
+    const f = await ownerWorkerFixture({ agentSessions: [{ id: 'native', endedAt: null, bridgeExpiresAt: new Date(0).toISOString(), receiver: null }] } as unknown as StateSeed);
+    startAgentPortalWorker(f.app, f.db, {} as Env, {} as Keyring);
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(f.run).not.toHaveBeenCalled(); await f.close();
+  });
+  it('runs a known future history deadline without traffic and drains on shutdown', async () => {
+    const f = await ownerWorkerFixture();
+    f.retention.stage('rooms', Date.now() + 20_000);
+    f.run.mockImplementation(async () => { f.retention.publishSweep('rooms', { past: false, next: null }, 1); });
+    startAgentPortalWorker(f.app, f.db, {} as Env, {} as Keyring);
+    await vi.advanceTimersByTimeAsync(19_999); expect(f.run).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1); expect(f.run).toHaveBeenCalledTimes(1);
+    await f.close(); expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"math/rand/v2"
 	"net/http"
@@ -498,6 +499,7 @@ func runHostExecution(parent context.Context, version string, stdout, stderr io.
 		backoff = min(backoff*2, 60*time.Second)
 		return waitContext(ctx, delay)
 	}
+	connectionOwned := false
 	for ctx.Err() == nil {
 		activeMu.Lock()
 		noActiveWork := len(active) == 0
@@ -608,10 +610,101 @@ func runHostExecution(parent context.Context, version string, stdout, stderr io.
 			}
 			complete(j)
 		}
+		state, stateErr := communicator.DialState(ctx, client.baseURL, communicator.StateScope{Topic: "daemon", NativeInstanceID: instance}, communicator.StateAuth{})
+		if stateErr != nil && (connectionOwned || communicator.StateRequired(client.baseURL)) {
+			ws.Close()
+			if !retry() {
+				break
+			}
+			continue
+		}
+		if state != nil {
+			connectionOwned = true
+		}
+		stateRevision := ""
+		stateConfigRevision := ""
+		localStateChanged := make(chan struct{}, 1)
 		ticker := time.NewTicker(15 * time.Second)
+		stateTimer := time.NewTimer(time.Hour)
+		stateTimer.Stop()
 	loop:
 		for {
+			var changed <-chan struct{}
+			tick := ticker.C
+			if state != nil {
+				ticker.Stop()
+				tick = nil
+				var view struct {
+					Settings       daemonSettings `json:"settings"`
+					Stop           []string       `json:"stop"`
+					ConfigRevision string         `json:"config_revision"`
+				}
+				frame, wake, live := state.Snapshot(&view)
+				changed = wake
+				if !live {
+					break loop
+				}
+				if frame.Revision != stateRevision {
+					stateRevision = frame.Revision
+					settings = view.Settings
+					if err := rememberDaemonDeadline(settings); err != nil {
+						break loop
+					}
+					activeMu.Lock()
+					for _, id := range view.Stop {
+						if stop := active[id]; stop != nil {
+							stop()
+						}
+					}
+					activeMu.Unlock()
+					if view.ConfigRevision != stateConfigRevision {
+						stateConfigRevision = view.ConfigRevision
+						if local, _, err := loadMessagingConfigs(); err == nil && len(local) > 0 {
+							configs = local
+							engines = daemonReadyEngines(configs)
+						}
+					}
+				}
+				activeMu.Lock()
+				count := len(active)
+				activeMu.Unlock()
+				if (!settings.Enabled || daemonLocalExpired()) && count == 0 && len(pendingDaemonReceipts(dir)) == 0 {
+					state.Close()
+					ws.Close()
+					return nil
+				}
+				// Retry only while a journal is pending; otherwise wake at the
+				// actual daemon authorization deadline or a state transition.
+				delay := time.Duration(0)
+				if len(pendingDaemonReceipts(dir)) > 0 {
+					delay = 15 * time.Second
+				}
+				if settings.ExpiresAt != "" {
+					if due, e := time.Parse(time.RFC3339Nano, settings.ExpiresAt); e == nil {
+						left := time.Until(due)
+						if left < 0 {
+							left = 0
+						}
+						if delay == 0 || left < delay {
+							delay = left
+						}
+						if left == 0 {
+							settings.Enabled = false
+						}
+					}
+				}
+				if delay > 0 {
+					stateTimer.Reset(delay)
+					tick = stateTimer.C
+				}
+			}
 			select {
+			case <-changed:
+				stateTimer.Stop()
+				continue
+			case <-localStateChanged:
+				stateTimer.Stop()
+				continue
 			case <-ctx.Done():
 				break loop
 			case <-c.done:
@@ -669,16 +762,22 @@ func runHostExecution(parent context.Context, version string, stdout, stderr io.
 					activeMu.Lock()
 					delete(active, op.Session)
 					activeMu.Unlock()
+					select {
+					case localStateChanged <- struct{}{}:
+					default:
+					}
 					stop()
 				}()
-			case <-ticker.C:
+			case <-tick:
 				replayDaemonPeerReceipts(ctx, client)
 				if daemonLocalExpired() {
 					settings.Enabled = false
 				}
-				if refreshed, _, _, e := daemonConfigWithController(ctx, controller); e == nil {
-					configs = refreshed
-					engines = daemonReadyEngines(configs)
+				if state == nil {
+					if refreshed, _, _, e := daemonConfigWithController(ctx, controller); e == nil {
+						configs = refreshed
+						engines = daemonReadyEngines(configs)
+					}
 				}
 				var heartbeat struct {
 					Settings daemonSettings `json:"settings"`
@@ -690,8 +789,12 @@ func runHostExecution(parent context.Context, version string, stdout, stderr io.
 					activeSessions = append(activeSessions, id)
 				}
 				activeMu.Unlock()
-				if err := c.rpc(ctx, "heartbeat", map[string]any{"engines": engines, "error": nil, "active_sessions": activeSessions}, &heartbeat); err != nil {
-					break loop
+				if state == nil {
+					if err := c.rpc(ctx, "heartbeat", map[string]any{"engines": engines, "error": nil, "active_sessions": activeSessions}, &heartbeat); err != nil {
+						break loop
+					}
+				} else {
+					heartbeat.Settings = settings
 				}
 				backoff = time.Second
 				activeMu.Lock()
@@ -728,6 +831,10 @@ func runHostExecution(parent context.Context, version string, stdout, stderr io.
 					}
 				}
 			}
+		}
+		stateTimer.Stop()
+		if state != nil {
+			state.Close()
 		}
 		ticker.Stop()
 		ws.Close()

@@ -57,32 +57,45 @@ def process(directory):
     publish(directory, {'state': 'ready', 'duration': duration, 'transcript': 'transcript.json', 'frames': frames, 'updated_at': time.time()})
 
 def loop():
-    ROOT.mkdir(parents=True, exist_ok=True)
-    while True:
-        for request in ROOT.glob('*/request.json'):
-            directory = request.parent
-            try:
-                state = json.loads((directory / 'processing.json').read_text())
-            except (OSError, ValueError):
-                state = {}
-            if state.get('state') in ('ready', 'failed'):
-                continue
-            # Retries are persisted and limited even across worker restarts.
-            attempt_file = directory / 'attempts'
-            try:
-                attempts = int(attempt_file.read_text())
-            except (OSError, ValueError):
-                attempts = 0
-            if attempts >= 3:
-                publish(directory, {'state': 'failed', 'error': 'Media preparation failed after three attempts; original is available.'})
-                continue
-            try:
-                attempt_file.write_text(str(attempts + 1))
-                run([sys.executable, __file__, '--job', str(directory)], timeout=1200)
-            except (subprocess.SubprocessError, OSError):
-                if directory.exists():
-                    publish(directory, {'state': 'failed' if attempts == 2 else 'queued', 'error': 'Media preparation failed; original remains available.', 'attempts': attempts + 1})
-        time.sleep(3)
+    from job_events import JobEvents
+    events = JobEvents(ROOT)
+    retry_at = {}
+    try:
+        while True:
+            timeout = max(0, min(retry_at.values()) - time.monotonic()) if retry_at else None
+            jobs = events.wait(timeout)
+            for directory, due in list(retry_at.items()):
+                if due <= time.monotonic():
+                    jobs.add(directory)
+                    del retry_at[directory]
+            for directory in jobs:
+                if not (directory / 'request.json').is_file():
+                    continue
+                try:
+                    state = json.loads((directory / 'processing.json').read_text())
+                except (OSError, ValueError):
+                    state = {}
+                if state.get('state') in ('ready', 'failed'):
+                    continue
+                # Retries are finite and have their own real deadline.
+                attempt_file = directory / 'attempts'
+                try:
+                    attempts = int(attempt_file.read_text())
+                except (OSError, ValueError):
+                    attempts = 0
+                if attempts >= 3:
+                    publish(directory, {'state': 'failed', 'error': 'Media preparation failed after three attempts; original is available.'})
+                    continue
+                try:
+                    attempt_file.write_text(str(attempts + 1))
+                    run([sys.executable, __file__, '--job', str(directory)], timeout=1200)
+                except (subprocess.SubprocessError, OSError):
+                    if directory.exists():
+                        publish(directory, {'state': 'failed' if attempts == 2 else 'queued', 'error': 'Media preparation failed; original remains available.', 'attempts': attempts + 1})
+                        if attempts < 2:
+                            retry_at[directory] = time.monotonic() + 3
+    finally:
+        events.close()
 
 if __name__ == '__main__':
     if len(sys.argv) == 3 and sys.argv[1] == '--job':

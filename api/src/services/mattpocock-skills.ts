@@ -1,3 +1,5 @@
+import { ownerRuntimeFor, mutateOwnerState, type OwnerMutationContext } from '../control-plane/state/runtime.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
 /**
  * Managed importer for Matt Pocock's public engineering/productivity skills.
  *
@@ -9,10 +11,10 @@
 import { createHash } from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
 import { TextDecoder } from 'node:util';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { skillFiles, skills, versions } from '../db/schema.js';
-import { ValidationError } from '../http/errors.js';
+import { ConflictError, ValidationError } from '../http/errors.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { isManagedSkillSlug } from './managed-skills.js';
 import {
@@ -383,6 +385,7 @@ export class MattPocockSkillsService {
       throw new ValidationError('auto_update must be a boolean', { param: 'auto_update' });
     }
 
+    if (ownerRuntimeFor(this.db)) return sourceExclusive(() => this.ownerOperation(input, false));
     const result = await sourceExclusive(() =>
       this.db.transaction(async (rawTx) => {
         const tx = rawTx as unknown as Database;
@@ -445,6 +448,7 @@ export class MattPocockSkillsService {
 
   async refresh(options: { force?: boolean } = {}): Promise<MattPocockSkillsState> {
     const force = options.force === true;
+    if (ownerRuntimeFor(this.db)) return sourceExclusive(() => this.ownerOperation(null, force));
     const result = await sourceExclusive(() =>
       this.db.transaction(async (rawTx) => {
         const tx = rawTx as unknown as Database;
@@ -462,6 +466,68 @@ export class MattPocockSkillsService {
       }, SOURCE_TRANSACTION_CONFIG),
     );
     return this.completeOperation(result);
+  }
+
+  /** Network and immutable bundle validation precede the short owner commit. */
+  private async ownerOperation(input: MattPocockSkillsConfigureInput | null, force: boolean): Promise<MattPocockSkillsState> {
+    const owner = ownerRuntimeFor(this.db)!;
+    const base = owner.state.snapshot(), current = await this.readState(this.db, false);
+    const enabled = input?.enabled ?? current.enabled;
+    const auto = input?.auto_update ?? current.auto_update;
+    if (!input && (!current.enabled || !current.auto_update && !force)) return current;
+    if (input && enabled === current.enabled && auto === current.auto_update) return current;
+    let promotion: UpstreamSnapshot | undefined;
+    let restore: number[] | undefined;
+    let changed = false;
+    let next = { ...current, enabled, auto_update: auto };
+    const commit = async (state: MattPocockSkillsState) => {
+      const now = this.nowIso();
+      await mutateOwnerState(owner, { kind: 'skills.source.snapshot', payload: { revision: state.revision, enabled: state.enabled, auto_update: state.auto_update },
+        authorize(snapshot) {
+          if (snapshot.setting(MATTPOCOCK_STATE_KEY) !== base.setting(MATTPOCOCK_STATE_KEY) || snapshot.table('skills') !== base.table('skills') || snapshot.table('skillFiles') !== base.table('skillFiles')) throw new ConflictError('Skill source changed while upstream snapshot was prepared');
+        },
+        prepare: context => {
+          if (!state.enabled && current.enabled) for (const row of context.draft.table('skills').all()) if (row.sourceType === MATTPOCOCK_SOURCE_TYPE && row.deletedAt === null) stageUpdate(context, 'skills', row.id, { deletedAt: now, updatedAt: now });
+          if (restore) for (const id of restore) stageUpdate(context, 'skills', id, { deletedAt: null, updatedAt: now });
+          context.write(async tx => {
+            if (promotion) await this.promoteSnapshot(tx as unknown as Database, promotion, state.enabled, now, context);
+            const row = { name: MATTPOCOCK_STATE_KEY, version: JSON.stringify(state), updatedAt: now };
+            await tx.insert(versions).values(row).onDuplicateKeyUpdate({ set: { version: row.version, updatedAt: now } });
+            context.draft.upsert('versions', row);
+          });
+          return null;
+        },
+      });
+    };
+    try {
+      if (!enabled && current.enabled) { next = { ...next, status: 'disabled', last_error: null }; changed = true; }
+      else if (!enabled) { /* Only disabled-source auto-follow preference changed. */ }
+      else if (input && current.enabled) { /* Only auto-follow changed. */ }
+      else {
+        const cached = input ? await this.validatedCachedSnapshot(this.db, current, false) : null;
+        if (cached) {
+          restore = cached.rows.map(row => row.id); changed = true;
+          next = { ...next, status: 'ok', last_error: null };
+        } else {
+          const checked = this.nowIso(), revision = await this.resolveRevision();
+          if (!force && revision === current.revision && await this.validatedCachedSnapshot(this.db, current, enabled)) {
+            next = { ...next, status: 'ok', last_checked_at: checked, last_error: null };
+          } else {
+            promotion = await this.fetchSnapshot(revision); changed = true;
+            next = { ...next, status: 'ok', revision: promotion.revision, upstream_version: promotion.upstreamVersion, skill_count: promotion.skills.length, file_count: promotion.fileCount,
+              last_checked_at: checked, last_synced_at: this.nowIso(), last_error: null };
+          }
+        }
+      }
+      await commit(next);
+    } catch (error) {
+      if (error instanceof ConflictError) throw error;
+      promotion = undefined; restore = undefined;
+      const failed: MattPocockSkillsState = { ...current, status: 'error', last_checked_at: this.nowIso(), last_error: errorMessage(error) };
+      await commit(failed);
+      this.publish(false, failed); throw error;
+    }
+    this.publish(changed, next); return next;
   }
 
   private async syncUpstreamLocked(
@@ -528,12 +594,13 @@ export class MattPocockSkillsService {
   }
 
   private async readState(db: DbLike, lock: boolean): Promise<MattPocockSkillsState> {
-    const query = db
+    const owner = ownerRuntimeFor(db);
+    const query = owner ? null : db
       .select({ version: versions.version })
       .from(versions)
       .where(eq(versions.name, MATTPOCOCK_STATE_KEY));
-    const rows = lock ? await query.for('update').limit(1) : await query.limit(1);
-    const serialized = rows[0]?.version;
+    const rows = query ? lock ? await query.for('update').limit(1) : await query.limit(1) : [];
+    const serialized = owner ? owner.state.snapshot().setting(MATTPOCOCK_STATE_KEY) : rows[0]?.version;
     if (typeof serialized !== 'string' || serialized.trim() === '') return defaultState();
     try {
       return normalizeStoredState(JSON.parse(serialized));
@@ -566,7 +633,7 @@ export class MattPocockSkillsService {
     if (currentRows.some((row) => expectedLive ? row.deletedAt !== null : row.deletedAt === null)) return null;
 
     const currentIds = new Set(currentRows.map((row) => row.id));
-    const allFiles = await db.select().from(skillFiles);
+    const allFiles = currentIds.size ? await db.select().from(skillFiles).where(inArray(skillFiles.skillId, [...currentIds])) : [];
     const files = allFiles.filter((file) => currentIds.has(file.skillId));
     if (currentRows.length + files.length !== state.file_count) return null;
 
@@ -593,8 +660,9 @@ export class MattPocockSkillsService {
     snapshot: UpstreamSnapshot,
     enabled: boolean,
     now: string,
+    context?: OwnerMutationContext,
   ): Promise<void> {
-    const existingRows = await tx.select().from(skills);
+    const existingRows = context ? context.draft.table('skills').all() : await tx.select().from(skills);
     const existingBySlug = new Map(existingRows.map((row) => [row.slug, row]));
     for (const incoming of snapshot.skills) {
       if (isManagedSkillSlug(incoming.slug)) {
@@ -614,6 +682,7 @@ export class MattPocockSkillsService {
         row.deletedAt === null
       ) {
         await tx.update(skills).set({ deletedAt: now, updatedAt: now }).where(eq(skills.id, row.id));
+        context?.draft.upsert('skills', { ...row, deletedAt: now, updatedAt: now });
       }
     }
 
@@ -652,9 +721,19 @@ export class MattPocockSkillsService {
         }
       }
 
+      context?.draft.upsert('skills', { ...(existing ?? { id: skillId, slug: incoming.slug, createdAt: now }), ...skillValues });
       await tx.delete(skillFiles).where(eq(skillFiles.skillId, skillId));
+      if (context) for (const file of context.draft.table('skillFiles').all()) if (file.skillId === skillId) context.draft.remove('skillFiles', file.id);
       const auxiliary = incoming.files.filter((file) => file.path !== 'SKILL.md');
-      if (auxiliary.length > 0) {
+      if (context) {
+        for (const file of auxiliary) {
+          const row = { skillId, path: file.path, sha256: file.sha256, content: file.content, createdAt: now, updatedAt: now };
+          const [inserted] = await tx.insert(skillFiles).values(row);
+          const id = Number((inserted as { insertId?: number }).insertId);
+          if (!Number.isSafeInteger(id) || id < 1) throw new Error('Imported skill file ID missing');
+          context.draft.upsert('skillFiles', { id, ...row });
+        }
+      } else if (auxiliary.length > 0) {
         await tx.insert(skillFiles).values(
           auxiliary.map((file) => ({
             skillId,

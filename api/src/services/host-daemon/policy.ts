@@ -51,6 +51,7 @@ export function daemonHealth(
   used: number,
   engines: string[],
   now = Date.now(),
+  connectionOwned = false,
 ): DaemonHealth {
   const result: DaemonHealth = {
     state: 'green',
@@ -67,7 +68,8 @@ export function daemonHealth(
     (enabledAt && now - Date.parse(enabledAt) >= 300_000 ? red : yellow).push('installation_pending');
   } else {
     const age = now - Date.parse(runtime.heartbeat_at);
-    if (!Number.isFinite(age) || age >= 90_000) red.push('heartbeat_expired');
+    if (connectionOwned) { if (!runtime.connected) yellow.push('reconnecting'); }
+    else if (!Number.isFinite(age) || age >= 90_000) red.push('heartbeat_expired');
     else if (!runtime.connected || age >= 45_000) yellow.push('reconnecting');
     if (runtime.error) red.push(runtime.error);
     if (runtime.username !== settings.username) red.push('service_user_mismatch');

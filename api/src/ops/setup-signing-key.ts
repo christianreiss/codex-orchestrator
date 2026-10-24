@@ -1,3 +1,4 @@
+import { acquireOfflineDatabase } from './offline-database.js';
 import { createPublicKey, randomBytes, verify as cryptoVerify } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { eq } from 'drizzle-orm';
@@ -26,9 +27,12 @@ async function main(): Promise<void> {
   }
 
   const env = loadEnv();
-  const { db, pool } = createDb(env);
+  const { db: readDb, pool } = createDb(env);
+  let db = readDb;
+  let offline: Awaited<ReturnType<typeof acquireOfflineDatabase>> | undefined;
   const keyring = Keyring.fromEnv(env);
   try {
+    offline=await acquireOfflineDatabase(pool,env.DB_DATABASE);db=offline.db;
     const [privatePem, publicPem] = await Promise.all([
       readFile(privatePath, 'utf8'),
       readFile(publicPath, 'utf8'),
@@ -87,6 +91,7 @@ async function main(): Promise<void> {
     }
     process.stdout.write(JSON.stringify({ ok: true, key_id: keyId, public_key: expected }) + '\n');
   } finally {
+    await offline?.close();
     await pool.end();
   }
 }

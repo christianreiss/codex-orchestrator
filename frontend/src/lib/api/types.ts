@@ -795,6 +795,8 @@ export interface HostEngineReadiness {
 /** Row shape returned by GET /admin/hosts. */
 export interface HostListItem {
   presence?: "online" | "offline";
+  /** Connection-owned presence changes only on owner events, never heartbeat age. */
+  presence_source?: "connection";
   presence_heartbeat_at?: string | null;
   presence_observed_at?: string;
   presence_fresh_seconds?: number;

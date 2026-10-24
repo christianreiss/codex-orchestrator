@@ -191,6 +191,8 @@ CREATE TABLE `agent_bus_conversations` (
 );
 
 CREATE TABLE `agent_bus_messages` (
+	`owner_instance_id` CHAR(36) NULL,
+	`ownership_mode` VARCHAR(16) NOT NULL DEFAULT 'timed',
   `delivery_class` VARCHAR(16) NOT NULL DEFAULT 'information',
   `coalesce_key` VARCHAR(128) NULL,
   `related_work_id` CHAR(36) NULL,
@@ -290,6 +292,9 @@ CREATE TABLE `agent_events` (
 );
 
 CREATE TABLE `agent_messages` (
+	`owner_binding_generation` INT UNSIGNED NULL,
+	`owner_instance_id` CHAR(36) NULL,
+	`ownership_mode` VARCHAR(16) NOT NULL DEFAULT 'timed',
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
 	`message_id` char(36) NOT NULL,
 	`session_id` char(36) NOT NULL,
@@ -717,6 +722,11 @@ CREATE TABLE `coord_project_card_deps` (
 );
 
 CREATE TABLE `coord_project_cards` (
+	`claim_uncertainty_reason` VARCHAR(32) NULL,
+	`claim_native_instance_id` CHAR(36) NULL,
+	`claim_binding_generation` INT NULL,
+	`claim_session_id` CHAR(36) NULL,
+	`claim_ownership_mode` VARCHAR(16) NOT NULL DEFAULT 'timed',
 	`id` char(36) NOT NULL,
 	`project_id` bigint unsigned NOT NULL,
 	`board_id` char(36) NOT NULL,
@@ -918,6 +928,9 @@ CREATE TABLE `git_merge_requests` (
 );
 
 CREATE TABLE `git_worktrees` (
+	`uncertainty_reason` VARCHAR(32) NULL,
+	`ownership_mode` VARCHAR(16) NOT NULL DEFAULT 'timed',
+	`native_instance_id` CHAR(36) NULL,
 	`id` char(36) NOT NULL,
 	`clone_id` char(36) NOT NULL,
 	`host_id` bigint unsigned NOT NULL,
@@ -1171,6 +1184,7 @@ CREATE TABLE `openai_api_keys` (
 );
 
 CREATE TABLE `provider_account_sessions` (
+	`ownership_mode` VARCHAR(16) NOT NULL DEFAULT 'timed',
 	`id` varchar(64) NOT NULL,
 	`host_id` bigint unsigned NOT NULL,
 	`engine` varchar(16) NOT NULL,
@@ -1346,6 +1360,41 @@ CREATE TABLE `wrapper_v2_binaries` (
 	CONSTRAINT `wrapper_v2_binaries_id` PRIMARY KEY(`id`),
 	CONSTRAINT `uniq_v2_bin_target` UNIQUE(`engine`,`os`,`arch`,`version`)
 );
+
+CREATE TABLE `control_plane_owner` (
+	`id` tinyint unsigned NOT NULL,
+	`epoch` char(36) NOT NULL,
+	`sequence` bigint unsigned NOT NULL DEFAULT 0,
+	`started_at` varchar(100) NOT NULL,
+	CONSTRAINT `control_plane_owner_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `control_plane_command_receipts` (
+	`principal` varchar(191) NOT NULL,
+	`request_id` varchar(64) NOT NULL,
+	`kind` varchar(191) NOT NULL,
+	`request_digest` char(64) NOT NULL,
+	`owner_epoch` char(36) NOT NULL,
+	`sequence` bigint unsigned NOT NULL,
+	`result_enc` longtext NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `control_plane_command_receipts_principal_request_id_pk` PRIMARY KEY(`principal`,`request_id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+
+CREATE TABLE `control_plane_outbox` (
+	`id` char(36) NOT NULL,
+	`principal` varchar(191) NOT NULL,
+	`request_id` varchar(64) NOT NULL,
+	`kind` varchar(191) NOT NULL,
+	`target` varchar(255) NOT NULL,
+	`payload_enc` longtext NOT NULL,
+	`status` varchar(32) NOT NULL DEFAULT 'pending',
+	`attempts` int unsigned NOT NULL DEFAULT 0,
+	`available_at` varchar(100) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`completed_at` varchar(100),
+	CONSTRAINT `control_plane_outbox_id` PRIMARY KEY(`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
 
 CREATE INDEX `idx_admin_events_host` ON `admin_events` (`host_id`);
 CREATE INDEX `idx_admin_events_type` ON `admin_events` (`type`);
@@ -1999,6 +2048,9 @@ CREATE TABLE `advisor_sessions` (
 ALTER TABLE `advisor_sessions` ADD CONSTRAINT `fk_advisor_host` FOREIGN KEY (`host_id`) REFERENCES `hosts`(`id`) ON DELETE CASCADE;
 
 CREATE TABLE `agent_resource_claims` (
+	`uncertainty_reason` VARCHAR(32) NULL,
+	`ownership_mode` VARCHAR(16) NOT NULL DEFAULT 'timed',
+	`native_instance_id` CHAR(36) NULL,
 	`id` char(36) NOT NULL,
 	`session_id` char(36) NOT NULL,
 	`generation` int unsigned NOT NULL,
@@ -2299,6 +2351,8 @@ CREATE TABLE `workflow_run_members` (
 );
 
 CREATE TABLE `workflow_run_tasks` (
+	`claim_native_instance_id` CHAR(36) NULL,
+	`claim_ownership_mode` VARCHAR(16) NOT NULL DEFAULT 'timed',
 	`id` char(36) NOT NULL,
 	`run_id` char(36) NOT NULL,
 	`task_id` varchar(64) NOT NULL,
@@ -2325,6 +2379,10 @@ CREATE TABLE `workflow_run_tasks` (
 );
 
 CREATE TABLE `workflow_runs` (
+	`coordinator_native_instance_id` CHAR(36) NULL,
+	`coordinator_binding_generation` INT NULL,
+	`coordinator_session_id` CHAR(36) NULL,
+	`coordinator_ownership_mode` VARCHAR(16) NOT NULL DEFAULT 'timed',
 	`id` char(36) NOT NULL,
 	`workflow_id` char(36) NOT NULL,
 	`workflow_version_id` char(36) NOT NULL,
@@ -2451,3 +2509,5 @@ CREATE INDEX `idx_feedback_pipeline_due` ON `feedback_pipeline` (`next_attempt_a
 
 -- Fresh installations select User feedback mode; outbound publication remains opt-in.
 INSERT INTO versions (name, version, updated_at) VALUES ('feedback_mode', 'user', '2026-10-20T00:00:00.000Z') ON DUPLICATE KEY UPDATE name = VALUES(name);
+
+CREATE INDEX `control_plane_outbox_due` ON `control_plane_outbox` (`status`,`available_at`);

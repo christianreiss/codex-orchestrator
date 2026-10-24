@@ -5,10 +5,10 @@
  let { host }: {host:DaemonHost|undefined}=$props();
  let now=$state(Date.now());
  onMount(()=>{const timer=setInterval(()=>now=Date.now(),5000);return()=>clearInterval(timer)});
- const stale=$derived($wsStatus!=='open'||!!host&&now-Date.parse(host.health.evaluated_at)>45_000);
+ const stale=$derived($wsStatus!=='open'||!!host&&host.health.presence_source!=='connection'&&now-Date.parse(host.health.evaluated_at)>45_000);
  const color=$derived(stale&&host?.health.state==='green'?'yellow':host?.health.state);
  const reasons:Record<string,string>={migration_pending:'Umstellung ausstehend',installation_pending:'Installation ausstehend',heartbeat_expired:'Daemon nicht erreichbar',reconnecting:'Verbindung wird wiederhergestellt',service_user_mismatch:'Dienstkonto stimmt nicht überein',no_engine_ready:'Keine Engine bereit',engines_partially_ready:'Nicht alle Engines bereit',busy:'Alle Arbeitsplätze belegt',host_access_blocked:'Host-Zugriff gesperrt',insecure_window_closed:'Zugriffsfenster geschlossen'};
- const label=$derived(host?.access?.reason==='insecure_window_closed'&&!stale&&color!=='red'&&!!host.health.heartbeat_at&&now-Date.parse(host.health.heartbeat_at)<45_000&&!host.health.reasons.includes('reconnecting')?'Online · Zugriff gesperrt':color==='green'?'Bereit':color==='red'?'Nicht verfügbar':'Eingeschränkt');
+ const label=$derived(host?.access?.reason==='insecure_window_closed'&&!stale&&color!=='red'&&(host.health.presence_source==='connection'||!!host.health.heartbeat_at&&now-Date.parse(host.health.heartbeat_at)<45_000)&&!host.health.reasons.includes('reconnecting')?'Online · Zugriff gesperrt':color==='green'?'Bereit':color==='red'?'Nicht verfügbar':'Eingeschränkt');
  const details=$derived(host?`Daemon: ${label} · ${host.health.used_slots}/${host.health.max_slots} Slots · ${stale?'Live-Status unbekannt':host.health.reasons.map(r=>reasons[r]??r).join(', ')} · Letzter Kontakt: ${host.health.heartbeat_at?new Date(host.health.heartbeat_at).toLocaleString():'noch keiner'}`:'');
 </script>
 {#if host?.enabled}

@@ -1,3 +1,6 @@
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { stageDelete } from '../control-plane/state/rows.js';
+import { adminAudit } from '../control-plane/state/admin.js';
 /**
  * Admin-side memories CRUD over `mcp_memories`. Hosts write via the MCP
  * tools; the admin view here is the cross-host firehose with search +
@@ -151,6 +154,15 @@ export class MemoriesService {
     if (!Number.isInteger(id) || id < 1) {
       throw new ValidationError('id must be a positive integer', { param: 'id' });
     }
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){
+      const result=await mutateOwnerState(owner,{kind:'memory.admin.delete',payload:{id},prepare(ctx){
+        const row=ctx.draft.table('mcpMemories').get(id);if(!row)throw new NotFoundError('Memory not found','memory_not_found');
+        stageDelete(ctx,'mcpMemories',id);adminAudit(ctx,'memory.deleted',{id,host_id:row.hostId,memory_key:row.memoryKey});
+        return {id,host_id:row.hostId,memory_key:row.memoryKey};
+      }}) as {id:number;host_id:number;memory_key:string};
+      wsPublisher.publish('memory.deleted',result);wsPublisher.publish('memory.changed',result);return {deleted:id};
+    }
     const rows = await this.db
       .select({ id: mcpMemories.id, hostId: mcpMemories.hostId, memoryKey: mcpMemories.memoryKey })
       .from(mcpMemories)
@@ -169,6 +181,7 @@ export class MemoriesService {
    * Test seam: bulk count for assertions.
    */
   async _count(): Promise<number> {
+    const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return owner.state.snapshot().table('mcpMemories').size;}
     const rows = await this.db.select({ c: sql<number>`count(*)` }).from(mcpMemories);
     return Number(rows[0]?.c ?? 0);
   }

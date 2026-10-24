@@ -1,3 +1,5 @@
+import { roleContext, roleState, roleVersion, stageRoleVersion } from './owner.js';
+import { stageUpdate } from '../../control-plane/state/rows.js';
 /**
  * Publishing: the one place a role version becomes immutable and current,
  * whether an operator publishes a draft, a proposal is applied or a version is
@@ -8,7 +10,13 @@ import { and, desc, eq, gte, isNotNull, max } from 'drizzle-orm';
 import { agentRoleVersions, agentRoles, type AgentRole, type AgentRoleVersion } from '../../db/schema.js';
 import { sha256 } from '../../security/hash.js';
 import { isoOffsetSeconds, nowIso } from '../../util/timestamp.js';
-import { assertPublishable, bundleDigest, writeVersionFiles, type RoleDb, type RoleFileEntry } from './content.js';
+import {
+  assertPublishable,
+  bundleDigest,
+  writeVersionFiles,
+  type RoleDb,
+  type RoleFileEntry,
+} from './content.js';
 import { readRolePolicy, roleUri, type RoleActor } from './contract.js';
 
 export interface PublishInput {
@@ -23,23 +31,58 @@ export interface PublishInput {
 }
 
 export async function nextVersionNumber(db: RoleDb, roleId: string): Promise<number> {
-  const [row] = await db.select({ value: max(agentRoleVersions.version) }).from(agentRoleVersions).where(eq(agentRoleVersions.roleId, roleId));
+  const state = roleState(db);
+  if (state)
+    return (
+      Math.max(
+        0,
+        ...state
+          .table('agentRoleVersions')
+          .all()
+          .filter((v) => v.roleId === roleId)
+          .map((v) => v.version ?? 0),
+      ) + 1
+    );
+  const [row] = await db
+    .select({ value: max(agentRoleVersions.version) })
+    .from(agentRoleVersions)
+    .where(eq(agentRoleVersions.roleId, roleId));
   return Number(row?.value ?? 0) + 1;
 }
 
 /** Versions published in the rolling 24 hours, against the policy budget. */
 export async function publishedInLastDay(db: RoleDb, roleId: string): Promise<number> {
+  const state = roleState(db);
+  if (state)
+    return state
+      .table('agentRoleVersions')
+      .all()
+      .filter((v) => v.roleId === roleId && v.publishedAt && v.publishedAt >= isoOffsetSeconds(-86400))
+      .length;
   const rows = await db
     .select({ id: agentRoleVersions.id })
     .from(agentRoleVersions)
-    .where(and(eq(agentRoleVersions.roleId, roleId), isNotNull(agentRoleVersions.publishedAt), gte(agentRoleVersions.publishedAt, isoOffsetSeconds(-86400))));
+    .where(
+      and(
+        eq(agentRoleVersions.roleId, roleId),
+        isNotNull(agentRoleVersions.publishedAt),
+        gte(agentRoleVersions.publishedAt, isoOffsetSeconds(-86400)),
+      ),
+    );
   return rows.length;
 }
 
-export async function publishVersion(db: RoleDb, role: AgentRole, input: PublishInput): Promise<{ version: AgentRoleVersion; previous: AgentRoleVersion | null }> {
+export async function publishVersion(
+  db: RoleDb,
+  role: AgentRole,
+  input: PublishInput,
+): Promise<{ version: AgentRoleVersion; previous: AgentRoleVersion | null }> {
   assertPublishable(role.slug, input.manifest, input.files);
   const number = await nextVersionNumber(db, role.id);
-  const files = input.files.map((file) => ({ ...file, introduced_in_version: file.introduced_in_version ?? number }));
+  const files = input.files.map((file) => ({
+    ...file,
+    introduced_in_version: file.introduced_in_version ?? number,
+  }));
   const manifestSha = sha256(input.manifest);
   const bundle = bundleDigest(manifestSha, files);
   const now = nowIso();
@@ -57,14 +100,45 @@ export async function publishVersion(db: RoleDb, role: AgentRole, input: Publish
     revertedFromVersion: input.revertedFromVersion ?? null,
     updatedAt: now,
   };
+  const ctx = roleContext();
+  if (ctx) {
+    const old = input.draftId ? await roleVersion(db, input.draftId) : undefined;
+    const version: AgentRoleVersion = {
+      id,
+      roleId: role.id,
+      createdBy: { ...input.actor },
+      createdAt: now,
+      withdrawnAt: null,
+      ...old,
+      ...row,
+    };
+    stageRoleVersion(ctx, version);
+    ctx.command.write(async (tx) =>
+      input.draftId
+        ? tx.update(agentRoleVersions).set(row).where(eq(agentRoleVersions.id, id))
+        : tx.insert(agentRoleVersions).values(version),
+    );
+    await writeVersionFiles(db, id, files);
+    const previous = role.currentVersionId ? await roleVersion(db, role.currentVersionId) : undefined;
+    stageUpdate(ctx.command, 'agentRoles', role.id, { currentVersionId: id, updatedAt: now });
+    return { version, previous: previous ?? null };
+  }
   if (input.draftId) {
     await db.update(agentRoleVersions).set(row).where(eq(agentRoleVersions.id, input.draftId));
   } else {
-    await db.insert(agentRoleVersions).values({ id, roleId: role.id, createdBy: { ...input.actor }, createdAt: now, ...row });
+    await db
+      .insert(agentRoleVersions)
+      .values({ id, roleId: role.id, createdBy: { ...input.actor }, createdAt: now, ...row });
   }
   await writeVersionFiles(db, id, files);
   const previous = role.currentVersionId
-    ? ((await db.select().from(agentRoleVersions).where(eq(agentRoleVersions.id, role.currentVersionId)).limit(1))[0] ?? null)
+    ? ((
+        await db
+          .select()
+          .from(agentRoleVersions)
+          .where(eq(agentRoleVersions.id, role.currentVersionId))
+          .limit(1)
+      )[0] ?? null)
     : null;
   await db.update(agentRoles).set({ currentVersionId: id, updatedAt: now }).where(eq(agentRoles.id, role.id));
   const [version] = await db.select().from(agentRoleVersions).where(eq(agentRoleVersions.id, id)).limit(1);
@@ -73,6 +147,19 @@ export async function publishVersion(db: RoleDb, role: AgentRole, input: Publish
 
 /** After a withdraw the newest published version that remains becomes current. */
 export async function recomputeCurrent(db: RoleDb, roleId: string): Promise<string | null> {
+  const ctx = roleContext();
+  if (ctx) {
+    const row = ctx.command.draft
+      .table('agentRoleVersions')
+      .all()
+      .filter((v) => v.roleId === roleId && v.state === 'published')
+      .sort((a, b) => (b.version ?? 0) - (a.version ?? 0))[0];
+    stageUpdate(ctx.command, 'agentRoles', roleId, {
+      currentVersionId: row?.id ?? null,
+      updatedAt: nowIso(),
+    });
+    return row?.id ?? null;
+  }
   const [row] = await db
     .select({ id: agentRoleVersions.id })
     .from(agentRoleVersions)
@@ -80,17 +167,25 @@ export async function recomputeCurrent(db: RoleDb, roleId: string): Promise<stri
     .orderBy(desc(agentRoleVersions.version))
     .limit(1);
   const id = row?.id ?? null;
-  await db.update(agentRoles).set({ currentVersionId: id, updatedAt: nowIso() }).where(eq(agentRoles.id, roleId));
+  await db
+    .update(agentRoles)
+    .set({ currentVersionId: id, updatedAt: nowIso() })
+    .where(eq(agentRoles.id, roleId));
   return id;
 }
 
 /** ROLE-UPDATE/1: what a holder pinned to an older version is told. Informational. */
-export function roleUpdateNotice(role: AgentRole, version: AgentRoleVersion, previous: AgentRoleVersion | null, severity: 'published' | 'withdrawn' = 'published'): string {
+export function roleUpdateNotice(
+  role: AgentRole,
+  version: AgentRoleVersion,
+  previous: AgentRoleVersion | null,
+  severity: 'published' | 'withdrawn' = 'published',
+): string {
   const policy = readRolePolicy(role.policy);
   const upgrade =
     policy.holder_upgrade === 'at_task_boundary'
       ? `Between two work items (never in the middle of one), move to it with agent_role_activate {role:"${role.slug}", version:"latest", activated_by:"self_upgrade", reason:"upgrade v${previous?.version ?? '?'} -> v${version.version}", client_request_id:<new UUID>}, say so in your next answer, and work from the new core it returns.`
-      : 'Stay on your pinned version; change only on your principal\'s explicit instruction.';
+      : "Stay on your pinned version; change only on your principal's explicit instruction.";
   const lines =
     severity === 'withdrawn'
       ? [

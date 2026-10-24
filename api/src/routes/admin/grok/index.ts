@@ -1,3 +1,4 @@
+import { appendAuditLog } from '../../../services/audit-log.js';
 import { parseKeyBackend } from '../../../services/api-key-routing.js';
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../../index.js';
@@ -22,7 +23,7 @@ export async function registerAdminGrokRoutes(app: FastifyInstance, ctx: RouteCo
     return id;
   };
   async function audit(action: string, detail: Record<string, unknown>) {
-    await ctx.db.insert(logs).values({ action, engine: 'grok', details: JSON.stringify(detail), createdAt: nowIso() });
+    await appendAuditLog(ctx.db,{ action, engine: 'grok', details: JSON.stringify(detail), createdAt: nowIso() });
   }
   const wireKey = (row: Awaited<ReturnType<typeof keys.issue>>['record']) => ({ id: row.id, name: row.name, key_prefix: row.keyPrefix, is_active: row.isActive === 1, use_count: Number(row.useCount), last_used_at: row.lastUsedAt, expires_at: row.expiresAt, engine: 'grok', backend_engine: row.backendEngine ?? null, created_at: row.createdAt, updated_at: row.updatedAt });
 

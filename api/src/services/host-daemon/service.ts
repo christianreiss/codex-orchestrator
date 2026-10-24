@@ -1,3 +1,6 @@
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { DaemonOperations } from '../../control-plane/streams/daemon-operations.js';
+import { ownerPresence } from '../../control-plane/presence.js';
 import { ChatAttachments } from '../agent-chat/attachments.js';
 import { validAnswer, type ChatMetadata } from '../agent-chat/contracts.js';
 import { randomUUID, createHash } from 'node:crypto';
@@ -48,12 +51,15 @@ export class HostDaemonService {
   private get db() {
     return this.ctx.db;
   }
+  private get owned() { const owner=ownerRuntimeFor(this.db);return owner?new DaemonOperations(this.ctx,owner):null; }
   async host(id: number) {
+    if(this.owned)return this.owned.host(id);
     const [host] = await this.db.select().from(hosts).where(eq(hosts.id, id));
     if (!host) throw new NotFoundError('Host not found');
     return host;
   }
   async settings(id: number) {
+    if(this.owned){await this.owned.expirePending(id);return this.owned.settings(id);}
     const [row] = await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, id));
     if (row && daemonExpired(row.settings)) {
       await this.expirePending(id);
@@ -73,12 +79,13 @@ export class HostDaemonService {
     const [host, row, work] = await Promise.all([
       this.host(id),
       this.settings(id),
-      this.db.select().from(sessions).where(eq(sessions.hostId, id)),
+      this.owned?Promise.resolve(this.owned.owner.state.snapshot().table('hostDaemonSessions').by('hostId',id)):this.db.select().from(sessions).where(eq(sessions.hostId, id)),
     ]);
     const engines = activeHostEngines(host.engines, await readFleetEngineState(this.db));
     const runtime = row.runtime
       ? {
           ...row.runtime,
+          connected: this.owned?ownerPresence(this.owned.owner).hasDaemon(id,row.runtime.instance_id):row.runtime.connected,
           engines: row.runtime.engines.filter(
             (e) =>
               engines.includes(e as Engine) &&
@@ -92,6 +99,8 @@ export class HostDaemonService {
       row.enabledAt,
       work.filter((s) => ['running', 'stopping'].includes(s.status)).length,
       engines,
+      Date.now(),
+      Boolean(this.owned),
     );
     const access = daemonAccess(host);
     if (row.settings.migration?.fenced && row.settings.enabled) {
@@ -103,7 +112,7 @@ export class HostDaemonService {
       else if (health.state === 'green') health.state = 'yellow';
       health.reasons.unshift(access.reason!);
     }
-    const flags = await this.db
+    const flags = this.owned?this.owned.owner.state.snapshot().table('versions').all().filter(v=>['api_disabled','agent_messaging_enabled'].includes(v.name)):await this.db
       .select()
       .from(versions)
       .where(inArray(versions.name, ['api_disabled', 'agent_messaging_enabled']));
@@ -115,7 +124,7 @@ export class HostDaemonService {
       health.state = 'red';
       health.reasons.unshift('messaging_or_api_disabled');
     }
-    const [spawn] = await this.db.select({ sourceHostId: hostSpawns.sourceHostId, operationId: hostSpawns.id })
+    const [spawn] = this.owned?this.owned.owner.state.snapshot().table('hostSpawns').by('targetHostId',id).slice(0,1).map(r=>({sourceHostId:r.sourceHostId,operationId:r.id})):await this.db.select({ sourceHostId: hostSpawns.sourceHostId, operationId: hostSpawns.id })
       .from(hostSpawns).where(eq(hostSpawns.targetHostId, id)).limit(1);
     return {
       spawn: spawn ?? null,
@@ -216,6 +225,7 @@ export class HostDaemonService {
     return this.configureSettings(id, (settings) => ({ ...settings, enabled }));
   }
   async migration(id: number, requestId: string, command: 'fence' | 'status' | 'release') {
+    if(this.owned)return this.owned.migration(id,requestId,command);
     if (command !== 'status') {
       await this.db.transaction(async (tx) => {
         await tx.select().from(hosts).where(eq(hosts.id, id)).for('update');
@@ -264,6 +274,7 @@ export class HostDaemonService {
     };
   }
   private async configureSettings(id: number, resolve: (settings: DaemonSettings) => DaemonSettings) {
+    if(this.owned){await this.owned.configure(id,resolve);return this.view(id);}
     await this.host(id);
     await this.db.transaction(async (tx) => {
       await tx.select().from(hosts).where(eq(hosts.id, id)).for('update');
@@ -312,6 +323,7 @@ export class HostDaemonService {
     return host;
   }
   async eligible(id: number, engine?: Engine, drain = false) {
+    if(this.owned)return this.owned.eligible(id,engine,drain);
     const host = await this.host(id),
       config = await this.settings(id);
     const flags = await this.db
@@ -331,6 +343,7 @@ export class HostDaemonService {
     return config;
   }
   async connect(id: number, input: Omit<DaemonRuntime, 'generation' | 'heartbeat_at' | 'connected'>) {
+    if(this.owned)return this.owned.connect(id,input);
     await this.eligible(id, undefined, true);
     return this.db.transaction(async (tx) => {
       const [config] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, id)).for('update');
@@ -357,6 +370,7 @@ export class HostDaemonService {
     });
   }
   async heartbeat(id: number, generation: string, engines: string[], error: string | null, activeSessions: string[] = []) {
+    if(this.owned)return this.owned.heartbeat(id,generation,engines,error);
     const config = await this.eligible(id, undefined, true);
     // Retention and idle deadlines are handled by the shared 60-second sweep.
     // Repeating that scan on every transport beat reread all historical work.
@@ -403,6 +417,7 @@ export class HostDaemonService {
     return { settings: {...row.settings,enabled:daemonAccepting(row.settings)}, stop: work.filter((s) => s.status === 'stopping').map((s) => s.id) };
   }
   async disconnect(id: number, generation: string) {
+    if(this.owned)return this.owned.disconnect(id,generation);
     const row = await this.settings(id);
     if (row.runtime?.generation === generation) {
       await this.db
@@ -430,6 +445,7 @@ export class HostDaemonService {
     portalInput?: PortalDaemonInput,
     options: { internal?: boolean; model?: string } = {},
   ) {
+    if(this.owned)return this.owned.start(input,owner,portalInput,options);
     // Server-owned hosts (the Fleet Advisor) take work only from their facade.
     if (isInternalHost(await this.host(input.host_id)) !== Boolean(options.internal))
       throw new NotFoundError('Host not found');
@@ -504,6 +520,7 @@ export class HostDaemonService {
     return result;
   }
   async session(id: string, owner?: string) {
+    if(this.owned)return this.owned.session(id,owner);
     const [row] = await this.db.select().from(sessions).where(eq(sessions.id, id));
     if (!row) throw new NotFoundError('Remote session not found');
     if (owner && row.owner !== owner)
@@ -523,6 +540,7 @@ export class HostDaemonService {
     };
   }
   async turn(id: string, prompt: string, clientId: string, owner?: string, portalInput?: PortalDaemonInput) {
+    if(this.owned)return this.owned.turn(id,prompt,clientId,owner,portalInput);
     const row = await this.session(id, owner);
     await this.eligible(row.hostId, row.engine as Engine);
     const key = `${owner ?? 'admin'}:${clientId}`;
@@ -613,6 +631,7 @@ export class HostDaemonService {
     expected?: { status: string; lastActivityAt: string },
     actor = owner ?? 'operator',
   ) {
+    if(this.owned)return this.owned.stop(id,owner,expected,actor);
     const row = await this.session(id, owner);
     await this.db.transaction(async (tx) => {
       await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, row.hostId)).for('update');
@@ -644,12 +663,14 @@ export class HostDaemonService {
   }
   /** Empty transport ticks do not mutate state and need no admission locks. */
   async hasPendingOffer(id: number): Promise<boolean> {
+    if(this.owned){this.owned.owner.assertOwner();return this.owned.owner.state.snapshot().table('hostDaemonOperations').by('hostId',id).some(o=>['queued','offered'].includes(o.status));}
     const [operation] = await this.db.select({ id: operations.id }).from(operations)
       .where(and(eq(operations.hostId, id), inArray(operations.status, ['offered', 'queued'])))
       .limit(1);
     return Boolean(operation);
   }
   async offer(id: number, generation: string) {
+    if(this.owned)return this.owned.offer(id,generation);
     const config = await this.eligible(id);
     if (config.runtime?.generation !== generation) throw new ConflictError('Daemon generation changed');
     return this.db.transaction(async (tx) => {
@@ -705,6 +726,7 @@ export class HostDaemonService {
     });
   }
   async accept(hostId: number, id: string, claim: string) {
+    if(this.owned)return this.owned.accept(hostId,id,claim);
     await this.eligible(hostId, undefined, true);
     return this.db.transaction(async (tx) => {
       await tx.select().from(hosts).where(eq(hosts.id, hostId)).for('update');
@@ -737,6 +759,7 @@ export class HostDaemonService {
     });
   }
   async bind(hostId: number, operationId: string, claim: string, sessionId: string, addressId: string) {
+    if(this.owned)return this.owned.bind(hostId,operationId,claim,sessionId,addressId);
     const [op] = await this.db.select().from(operations).where(eq(operations.id, operationId));
     if (!op || op.hostId !== hostId || op.claimId !== claim || op.status !== 'accepted')
       throw new ForbiddenError('Invalid daemon launch binding');
@@ -785,6 +808,7 @@ export class HostDaemonService {
     this.changed(hostId);
   }
   async bindPeer(hostId: number, sessionId: string, addressId: string) {
+    if(this.owned)return this.owned.bindPeer(hostId,sessionId,addressId);
     const [remote] = await this.db
       .select()
       .from(sessions)
@@ -809,6 +833,7 @@ export class HostDaemonService {
       upstream_session_id?: string;
     },
   ) {
+    if(this.owned)return this.owned.complete(hostId,id,claim,result);
     const encoded = encrypt(JSON.stringify(result), this.ctx.keyring);
     await this.db.transaction(async (tx) => {
       const [op] = await tx.select().from(operations).where(eq(operations.id, id)).for('update');
@@ -955,6 +980,7 @@ export class HostDaemonService {
     return { stored: true };
   }
   async peerFinished(hostId: number, id: string, messageId: string) {
+    if(this.owned)return this.owned.peerFinished(hostId,id,messageId);
     await this.db.transaction(async (tx) => {
       await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, hostId)).for('update');
       const [session] = await tx
@@ -986,6 +1012,7 @@ export class HostDaemonService {
     return { stored: true };
   }
   private async expirePending(hostId: number) {
+    if(this.owned)return this.owned.expirePending(hostId);
     await this.db.transaction(async tx => {
       const [locked] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, hostId)).for('update');
       if (!locked || !daemonExpired(locked.settings)) return;
@@ -996,6 +1023,7 @@ export class HostDaemonService {
     });
   }
   async sweep(hostId: number) {
+    if(this.owned)return this.owned.sweep(hostId);
     const config = await this.settings(hostId);
     const work = await this.db.select().from(sessions).where(eq(sessions.hostId, hostId));
     const expiredSessions = work.filter(session =>

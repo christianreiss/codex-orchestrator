@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto';
+import { bindOwnerRuntime } from '../../../src/control-plane/state/runtime.js';
+import { OwnerStateStore, OwnerStateSnapshot } from '../../../src/control-plane/state/store.js';
+import { DeadlineQueue } from '../../../src/control-plane/deadlines.js';
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import {
   createHash,
@@ -19,6 +23,7 @@ import type { Database } from '../../../src/db/client.js';
 import {
   createWrapperConfigService,
   canonicalStringify,
+  semanticConfigVersion,
   WRAPPER_CONFIG_SCHEMA_VERSION,
   WRAPPER_CONFIG_TTL_SECONDS,
   WrapperSigningUnavailableError,
@@ -868,4 +873,25 @@ describe('wrapper-config', () => {
       expect(payload.agent_messaging.enabled).toBe(true);
     });
   });
+});
+
+describe('owner semantic config identity',()=>{
+ it('ignores renewal clocks and counters but changes for actual policy or content',()=>{
+ const base={issued_at:'one',expires_at:'two',config_version:1,etag:'old',host:{secure:true},documents:{agents:{id:1,sha256:'a'}}};
+ const version=semanticConfigVersion(base);expect(Number.isSafeInteger(version)).toBe(true);expect(version).toBeGreaterThan(0);
+ expect(semanticConfigVersion({...base,issued_at:'later',expires_at:'later expiry',config_version:123,etag:'new'})).toBe(version);
+ expect(semanticConfigVersion({...base,host:{secure:false}})).not.toBe(version);
+ expect(semanticConfigVersion({...base,documents:{agents:{id:1,sha256:'b'}}})).not.toBe(version);
+ });
+});
+
+describe('owned wrapper bakery',()=>{
+ it.each(['codex','claude','grok'] as const)('%s signs current RAM metadata without SQL or a config-change write',async engine=>{
+ const {privateKey}=generateKeyPairSync('ed25519'),signer:WrapperSigner={kid:'owner',fingerprint:FAKE_FINGERPRINT,publicKey:'pk',sign:payload=>cryptoSign(null,Buffer.from(payload),privateKey)};
+ const host=fakeHost({engines:'codex,claude,grok'}),db=makeFakeDb({hosts:[host],agents:[],agentsState:[],clientConfigs:[],skills:[],updates:[]});
+ const state=new OwnerStateStore(new OwnerStateSnapshot({epoch:randomUUID(),sequence:0n},{})),deadlines=new DeadlineQueue(error=>{throw error;});
+ bindOwnerRuntime(db,{state,deadlines,assertOwner(){},execute:async()=>{throw new Error('A config read cannot write owner state');}});
+ const select=vi.spyOn(db,'select'),update=vi.spyOn(db,'update');
+ try{const service=createWrapperConfigService({db,keyring:makeKeyring(),binaries:fakeBinaries(),signing:makeSigningService(signer),installationId:'owner'});const first=await service.bakeForHost(host,engine,'https://co.example'),second=await service.bakeForHost(host,engine,'https://co.example');expect(first.bumped).toBe(false);expect(second.configVersion).toBe(first.configVersion);expect(select).not.toHaveBeenCalled();expect(update).not.toHaveBeenCalled();}finally{deadlines.close();}
+ });
 });

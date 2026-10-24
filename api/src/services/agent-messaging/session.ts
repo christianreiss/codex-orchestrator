@@ -1,3 +1,11 @@
+import { discoverOwnedAddresses } from './owned-discovery.js';
+import { suspendOwnedMessaging } from '../../control-plane/state/suspension.js';
+import type { MessagingHost } from './types.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../../control-plane/state/runtime.js';
+import { ownedBridge } from '../../control-plane/state/messaging.js';
+import { stageSessionFinish } from '../../control-plane/state/session-lifecycle.js';
+import { registerOwnedMessagingSession } from '../../control-plane/state/session-registration.js';
+import { updateOwnedSession } from '../../control-plane/state/session-update.js';
 import { agentScopeMembers, agentScopes, versions } from '../../db/schema.js';
 import { visibleHost } from '../internal-hosts.js';
 import { beginRebootBinding, completeRebootBinding, plannedRebootForSession } from '../reboot-handoffs.js';
@@ -85,7 +93,7 @@ export interface SessionCore {
   requireEnabledLocked(db: AgentMessagingDb): Promise<void>;
   requireAddressLocked(db: AgentMessagingDb, id: string): Promise<AgentBusAddress>;
   resolveAddressLocked(db: AgentMessagingDb, raw: string, forUpdate: boolean): Promise<AgentBusAddress>;
-  requireEligibleHostLocked(db: AgentMessagingDb, hostId: number): Promise<Host>;
+  requireEligibleHostLocked(db: AgentMessagingDb, hostId: number): Promise<MessagingHost>;
   requireBridgeSessionLocked(
     db: AgentMessagingDb,
     sessionId: string,
@@ -96,7 +104,7 @@ export interface SessionCore {
     sessionId: string,
     rawToken: string,
     allowEnded?: boolean,
-  ): Promise<{ session: AgentSession; host: Host }>;
+  ): Promise<{ session: AgentSession; host: MessagingHost }>;
   assertSessionRegistration(
     session: AgentSession,
     host: Host,
@@ -107,7 +115,7 @@ export interface SessionCore {
     bridgeToken: string,
   ): void;
   assertSessionAddressLocked(db: AgentMessagingDb, sessionId: string, address: AgentBusAddress): Promise<void>;
-  assertEligibleHost(host: Host): void;
+  assertEligibleHost(host: MessagingHost): void;
   assertAddressRegistration(
     address: AgentBusAddress,
     host: Host,
@@ -133,6 +141,7 @@ export class SessionRegistry {
     reason: 'host_inactive' | 'engine_disabled',
     engines?: Engine[],
   ): Promise<Record<string, unknown>> {
+    const owner=ownerRuntimeFor(this.core.db);if(owner)return await mutateOwnerState(owner,{kind:'messaging.host.suspend',payload:{hostId,reason,engines:engines??null},prepare:ctx=>({host_id:hostId,suspended:true,reason,...suspendOwnedMessaging(ctx,hostId,reason,engines)})}) as Record<string,unknown>;
     const result = await this.core.db.transaction(async (tx) =>
       await suspendAgentMessagingRuntimeLocked(tx, hostId, reason, engines),
     );
@@ -141,6 +150,8 @@ export class SessionRegistry {
   }
 
   async registerSession(host: Host, input: RegisterMessagingSessionInput): Promise<Record<string, unknown>> {
+    const owner = ownerRuntimeFor(this.core.db);
+    if (owner) return registerOwnedMessagingSession(owner, host, input, this.core.env);
     if (!(await this.core.isEnabled())) return { enabled: false, reason: 'master_disabled' };
     this.core.assertEligibleHost(host);
     const sessionId = normalizeUuid(input.sessionId, 'session_id');
@@ -386,6 +397,8 @@ export class SessionRegistry {
       skipIfUnbound?: boolean;
     },
   ): Promise<Record<string, unknown> | null> {
+    const owner = ownerRuntimeFor(this.core.db);
+    if (owner) return updateOwnedSession(owner, sessionId, bridgeToken, input);
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
     const now = nowIso();
     const expiresAt = isoOffsetSeconds(this.core.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS);
@@ -478,7 +491,7 @@ export class SessionRegistry {
    * housekeeping) returns null and takes the transactional path, with its errors.
    */
   private async timestampOnlyBeat(
-    authenticated: { session: AgentSession; host: Host },
+    authenticated: { session: AgentSession; host: MessagingHost },
     input: { status?: string; upstreamSessionId?: string | null; adapterProtocol?: string | null; adapterCapabilities?: Record<string, unknown> | null; receiveCapable?: boolean; expectedBindingGeneration?: number | null; continuity?: 'native' | 'reset' },
     now: string,
     expiresAt: string,
@@ -508,6 +521,23 @@ export class SessionRegistry {
   }
 
   async finishSession(sessionId: string, bridgeToken: string, status: 'completed' | 'failed', watchdogFailure?: WatchdogFailure): Promise<Record<string, unknown>> {
+    const owner = ownerRuntimeFor(this.core.db);
+    if (owner) {
+      owner.assertOwner();
+      const authenticated = ownedBridge(owner.state.snapshot(), sessionId, bridgeToken, { allowEnded: true });
+      if (authenticated.session.endedAt) return { enabled: true, status: authenticated.session.status };
+      const result = await mutateOwnerState(owner, {
+        kind: 'messaging.session.finish',responseAuthorization:'commit', principal: `session:${sessionId}`, payload: { sessionId, status, failure: watchdogFailure ?? null },
+        authorize(snapshot) { ownedBridge(snapshot, sessionId, bridgeToken, { allowEnded: true, generation: authenticated.session.bindingGeneration }); },
+        prepare(context) {
+          const session = context.snapshot.sessions.get(sessionId)!;
+          if (!session.endedAt) stageSessionFinish(context, session, status, nowIso(), watchdogFailure);
+          return { enabled: true, status: context.draft.table('agentSessions').get(sessionId)!.status };
+        },
+      });
+      wsPublisher.publish('agent_messaging.address.changed', { address_id: authenticated.session.agentBusAddressId, status });
+      return result as Record<string, unknown>;
+    }
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken, true);
     const now = nowIso();
     await this.core.db.transaction(async (tx) => {
@@ -542,6 +572,7 @@ export class SessionRegistry {
   }
 
   async listAddresses(sessionId: string, bridgeToken: string, filters: AgentDiscoveryFilters = {}): Promise<Record<string, unknown>> {
+    const owner=ownerRuntimeFor(this.core.db);if(owner)return discoverOwnedAddresses(this.core.db,owner,sessionId,bridgeToken,filters);
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
     const scope = filters.scope ?? 'fleet';
     const currentAddressId = authenticated.session.agentBusAddressId;

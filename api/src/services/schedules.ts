@@ -1,3 +1,6 @@
+import { ownedCredentialDeadline } from '../control-plane/credentials.js';
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { tickOwnedSchedules, sweepOwnedSchedules, mutateOwnedSchedule, scheduleInputFrom } from './schedules/owner.js';
 import { quotaSnapshot, quotaResumeGate } from './quota-observation.js';
 import { stopWatchdogLocked } from './watchdog-lifecycle.js';
 import { assertNoRebootRecovery } from './reboot-handoffs.js';
@@ -68,8 +71,9 @@ export class SchedulesService {
       max_recovery_attempts: row.maxRecoveryAttempts,
     };
   }
-  private view(row: Schedule, reveal = false) {
-    const { prompt, ...input } = this.input(row);
+  private view(row: Omit<Schedule, 'promptEnc'> & { promptEnc?: string }, reveal = false) {
+    const { prompt: _unused, ...input } = scheduleInputFrom(row);
+    const prompt = reveal ? this.decode(row.promptEnc!) : undefined;
     return {
       ...input,
       ...(reveal ? { prompt } : {}),
@@ -91,6 +95,12 @@ export class SchedulesService {
       })
       .strict()
       .parse(args);
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner(); const state = owner.state.snapshot();
+      const rows = state.table('agentSchedules').all().filter(row => !row.deletedAt && (!after || row.id > after) && !state.table('agentWatchdogs').all().some(w => w.scheduleId === row.id)).sort((a,b) => a.id.localeCompare(b.id)).slice(0, limit + 1);
+      return { schedules: rows.slice(0, limit).map(row => this.view(row)), next_cursor: rows.length > limit ? rows[limit - 1]!.id : null };
+    }
     const rows = await this.db
       .select()
       .from(agentSchedules)
@@ -103,6 +113,14 @@ export class SchedulesService {
     };
   }
   private async load(db: Pick<Database, 'select'>, id: string, lock = false) {
+    const owner = ownerRuntimeFor(db);
+    if (owner) {
+      owner.assertOwner(); const row = owner.state.snapshot().table('agentSchedules').get(id) ?? (await db.select().from(agentSchedules).where(eq(agentSchedules.id, id)))[0];
+      if (!row || row.deletedAt) throw new NotFoundError('Schedule not found', 'schedule_not_found');
+      const content = (await db.select({ promptEnc: agentSchedules.promptEnc }).from(agentSchedules).where(eq(agentSchedules.id, id)))[0];
+      if (!content) throw new NotFoundError('Schedule content not found');
+      return { ...row, ...content };
+    }
     const query = db
       .select()
       .from(agentSchedules)
@@ -202,6 +220,7 @@ export class SchedulesService {
       now = new Date(),
       id = randomUUID(),
       next = this.first(v, now);
+    if (ownerRuntimeFor(this.db)) { await mutateOwnedSchedule(this.db, this.keyring, 'create', id, actor, v); await this.changed(id, 'created', actor); return this.get(id); }
     await this.db.transaction(async (tx) => {
       await this.enabled(tx, true);
       await this.validateTarget(tx, v);
@@ -225,6 +244,7 @@ export class SchedulesService {
     const patch = { ...raw };
     delete patch.id;
     delete patch.version;
+    if (ownerRuntimeFor(this.db)) { await mutateOwnedSchedule(this.db, this.keyring, 'update', id, actor, patch, version); await this.changed(id, 'updated', actor); return this.get(id); }
     await this.db.transaction(async (tx) => {
       await this.enabled(tx, true);
       const [watchdog] = await tx.select().from(agentWatchdogs).where(eq(agentWatchdogs.scheduleId,id));
@@ -258,6 +278,7 @@ export class SchedulesService {
         .strict()
         .parse(raw),
       now = new Date().toISOString();
+    if (ownerRuntimeFor(this.db)) { await mutateOwnedSchedule(this.db, this.keyring, 'remove', id, actor, {}, version); await this.changed(id, 'deleted', actor); return { id, deleted: true }; }
     await this.db.transaction(async (tx) => {
       await this.enabled(tx, true);
       const [watchdog] = await tx.select().from(agentWatchdogs).where(eq(agentWatchdogs.scheduleId,id));
@@ -302,6 +323,7 @@ export class SchedulesService {
     }
   }
   private async changed(id: string, action: string, actor: string) {
+    if (ownerRuntimeFor(this.db)) { wsPublisher.publish('schedules.changed', { schedule_id: id }); return; }
     await createAdminEventsService(this.db).record(
       { type: `schedule.${action}`, payload: { schedule_id: id, actor } },
       { broadcast: false },
@@ -321,6 +343,7 @@ export class SchedulesService {
     );
   }
   async tick(now = new Date()) {
+    if (ownerRuntimeFor(this.db)) return tickOwnedSchedules(this.db, this.keyring, now);
     // Only a due schedule or one with an active run can change below; a locked pass over any other schedule was a
     // no-op, ten seconds apart, for every schedule in the fleet.
     const ids = await this.db
@@ -391,6 +414,7 @@ export class SchedulesService {
    * Watchdog schedules keep their own lifecycle.
    */
   async sweepStale(now = new Date(), actor = 'system:sweep') {
+    if (ownerRuntimeFor(this.db)) return sweepOwnedSchedules(this.db, now, actor);
     const ids = await this.db
       .select({ id: agentSchedules.id })
       .from(agentSchedules)
@@ -679,6 +703,20 @@ export class SchedulesService {
    * decisions and response shapes are unchanged.
    */
   async sessionPolicy(sessionId: string, token: string) {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner(); const state = owner.state.snapshot(), session = state.sessions.get(sessionId);
+      if (!session || session.endedAt || ownedCredentialDeadline(state, 'session', sessionId) <= Date.now() || !safeHashEqual(session.bridgeTokenHash, sha256(token))) throw new ForbiddenError('Invalid session bridge', 'schedule_bridge_invalid');
+      const address = session.agentBusAddressId ? state.addresses.get(session.agentBusAddressId) : undefined;
+      if (!address || !address.enabled || address.archivedAt || address.currentSessionId !== sessionId || state.table('versions').get('api_disabled')?.version === '1' || state.table('versions').get('agent_messaging_enabled')?.version !== '1') return { progress_timeout_seconds: null };
+      const host = state.hosts.get(session.hostId);
+      if (!host || session.hostAuthFingerprint !== host.authFingerprint || !messagingHostEligible(host) || !isEngine(address.engine) || !activeHostEngines(host.engines, await readFleetEngineState(this.db)).includes(address.engine)) return { progress_timeout_seconds: null };
+      const schedules = state.table('agentSchedules').by('targetAddressId', address.id).filter(row => row.enabled && row.persistent && !row.deletedAt && !state.table('agentWatchdogs').all().some(w => w.scheduleId === row.id)).sort((a,b) => (a.progressTimeoutSeconds ?? 0) - (b.progressTimeoutSeconds ?? 0));
+      const active = state.table('agentScheduleRuns').by('targetAddressId', address.id).filter(row => row.persistent && activeStatuses.includes(row.status) && schedules.some(schedule => schedule.id === row.scheduleId) && (session.activeTurnId || row.messageId && state.table('agentBusMessages').get(row.messageId)?.status === 'accepted')).sort((a,b) => (a.progressTimeoutSeconds ?? 0) - (b.progressTimeoutSeconds ?? 0))[0];
+      const openPrompt = state.table('agentPrompts').by('sessionId', sessionId).some(row => row.status === 'open');
+      return { progress_timeout_seconds: openPrompt ? null : active?.progressTimeoutSeconds ?? (session.activeTurnId && schedules[0]?.nextDueAt ? schedules[0].progressTimeoutSeconds : null), binding_generation: address.bindingGeneration };
+    }
+
     const flag = (name: string) => sql<string | null>`(SELECT ${versions.version} FROM ${versions} WHERE ${versions.name} = ${name} LIMIT 1)`;
     const watchdogFree = sql`NOT EXISTS (SELECT 1 FROM agent_watchdogs w WHERE w.schedule_id = ${agentSchedules.id})`;
     const [row] = await this.db

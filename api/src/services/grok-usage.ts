@@ -1,3 +1,4 @@
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 import { and, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { grokUsageSnapshots, providerAccounts } from '../db/schema.js';
@@ -92,11 +93,8 @@ export function grokUsageAuthFields(reading: {
 }
 
 export async function readGrokUsage(reader: Pick<Database, 'select'>, accountId: number) {
-  const [row] = await reader
-    .select()
-    .from(grokUsageSnapshots)
-    .where(eq(grokUsageSnapshots.accountId, accountId))
-    .limit(1);
+  const owner = ownerRuntimeFor(reader);
+  const row = owner ? (owner.assertOwner(), owner.state.snapshot().table('grokUsageSnapshots').get(accountId)) : (await reader.select().from(grokUsageSnapshots).where(eq(grokUsageSnapshots.accountId, accountId)).limit(1))[0];
   const now = Date.now();
   const window: GrokUsageWindow | null =
     row?.usedPercent == null
@@ -141,7 +139,8 @@ export class GrokUsageService {
 
   async refreshEnabled(): Promise<void> {
     if (!(await readFleetEngineState(this.deps.db, { fresh: true })).grok) return;
-    const accounts = await this.deps.db
+    const owner=ownerRuntimeFor(this.deps.db);
+    const accounts = owner ? owner.state.snapshot().accounts.all().filter(a=>a.engine==='grok'&&a.state==='enabled') : await this.deps.db
       .select()
       .from(providerAccounts)
       .where(and(eq(providerAccounts.engine, 'grok'), eq(providerAccounts.state, 'enabled')));
@@ -153,11 +152,12 @@ export class GrokUsageService {
   private async eligible(accountId: number): Promise<boolean> {
     const db = this.deps.db;
     if (!(await readFleetEngineState(db, { fresh: true })).grok) return false;
-    const [account] = await db
+    const owner=ownerRuntimeFor(db);
+    const account = owner ? owner.state.snapshot().accounts.get(accountId) : (await db
       .select()
       .from(providerAccounts)
       .where(eq(providerAccounts.id, accountId))
-      .limit(1);
+      .limit(1))[0];
     return (
       !!account && account.engine === 'grok' && account.state === 'enabled' && !account.mergedIntoAccountId
     );
@@ -166,11 +166,12 @@ export class GrokUsageService {
   async refreshAccount(accountId: number): Promise<void> {
     const { db, authOwner } = this.deps;
     if (!(await this.eligible(accountId))) return;
-    const [previous] = await db
+    const owner=ownerRuntimeFor(db);
+    const previous = owner ? owner.state.snapshot().table('grokUsageSnapshots').get(accountId) : (await db
       .select()
       .from(grokUsageSnapshots)
       .where(eq(grokUsageSnapshots.accountId, accountId))
-      .limit(1);
+      .limit(1))[0];
     if (previous && Date.now() - Date.parse(previous.checkedAt) < GROK_USAGE_INTERVAL_MS) return;
     let window: GrokUsageWindow | null = null;
     let errorCode: string | null = null;
@@ -240,7 +241,17 @@ export class GrokUsageService {
           }
         : {}),
     };
-    await db
+    if(owner){
+      await mutateOwnerState(owner,{kind:'provider.grok.usage',payload:{accountId,checkedAt},prepare(context){
+        const account=context.snapshot.accounts.get(accountId);
+        if(!account||account.engine!=='grok'||account.state!=='enabled'||account.mergedIntoAccountId||['1','true','yes','on'].includes(context.snapshot.setting('grok_engine_disabled')??''))return null;
+        const old=context.snapshot.table('grokUsageSnapshots').get(accountId);
+        if(old&&old.checkedAt>checkedAt)return null;
+        const row={accountId,usedPercent:null,periodType:null,periodStartsAt:null,periodResetsAt:null,shared:null,fetchedAt:null,planName:null,planFetchedAt:null,...old,...values};
+        context.write(async tx=>{await tx.insert(grokUsageSnapshots).values(row).onDuplicateKeyUpdate({set:values});});
+        context.draft.upsert('grokUsageSnapshots',row);return null;
+      }});
+    }else await db
       .insert(grokUsageSnapshots)
       .values({ accountId, ...values })
       .onDuplicateKeyUpdate({ set: values });

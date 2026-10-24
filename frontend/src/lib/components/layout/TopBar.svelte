@@ -73,7 +73,7 @@
       queryKey: [...feedbackKeys.summary],
       queryFn: () => feedbackApi.summary(),
       enabled: canReadFeedback,
-      refetchInterval: 120_000,
+
     })),
   );
   const openReports = $derived($feedbackSummary.data?.open ?? 0);
@@ -88,8 +88,8 @@
     if ($wsStatus === "open") return { tone: "online" as const, label: "Live", tooltip: "Live updates connected" };
     if ($wsStatus === "idle") return { tone: "warning" as const, label: "Connecting", tooltip: "Waiting for live updates" };
     if ($wsStatus === "connecting") return { tone: "warning" as const, label: "Connecting", tooltip: "Connecting to live updates" };
-    if ($wsStatus === "closed") return { tone: "offline" as const, label: "Disconnected", tooltip: "Live updates disconnected" };
-    return null;
+    if ($wsStatus === "closed") return { tone: "offline" as const, label: "Disconnected", tooltip: "Live updates disconnected; displayed information may be stale" };
+    return { tone: "warning" as const, label: "Updates paused", tooltip: "Live updates are disabled; reload to refresh displayed information" };
   });
 </script>
 
@@ -102,7 +102,7 @@
         {/if}
         <li class={crumb.route ? "min-w-0 shrink truncate" : "min-w-0 truncate"}>
           {#if crumb.route}
-            <a href={`${base}${crumb.route}`} class="rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{crumb.label}</a>
+            <a href={`${base}${crumb.route}`} class="inline-flex min-h-6 min-w-6 items-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{crumb.label}</a>
           {:else}
             <span class="font-semibold text-foreground" aria-current="page" title={crumb.label}>{crumb.label}</span>
           {/if}

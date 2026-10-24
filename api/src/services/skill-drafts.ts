@@ -1,3 +1,5 @@
+import {persistAuditLog} from './audit-log.js';
+import { ownerRuntimeFor, mutateOwnerState, withOwnerBackgroundScope } from '../control-plane/state/runtime.js';
 /**
  * AI-assisted skill drafting. Port of `App\Services\SkillDraftService`. When
  * the runner integration is wired (db + runner client + runner validation),
@@ -8,7 +10,7 @@
  */
 import { ApiError, ValidationError } from '../http/errors.js';
 import type { Database } from '../db/client.js';
-import { logs } from '../db/schema.js';
+
 import { nowIso } from '../util/timestamp.js';
 import type { RunnerClient } from './runner-client.js';
 import type { RunnerValidationService } from './runner-validation.js';
@@ -253,13 +255,16 @@ export class SkillDraftsService {
   private async recordLog(action: string, details: Record<string, unknown>): Promise<void> {
     if (!this.deps.db) return;
     try {
-      await this.deps.db.insert(logs).values({
+      const owner=ownerRuntimeFor(this.deps.db);
+      const values={
         hostId: null,
         action,
         details: JSON.stringify(details),
         createdAt: nowIso(),
         engine: this.deps.engine ?? null,
-      });
+      };
+      if(owner)await withOwnerBackgroundScope(()=>mutateOwnerState(owner,{kind:'draft.audit',payload:{action},prepare(ctx){ctx.write(tx=>persistAuditLog(tx, values));return null;}}));
+      else await persistAuditLog(this.deps.db, values);
     } catch {
       /* non-fatal */
     }

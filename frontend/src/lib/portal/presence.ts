@@ -43,10 +43,11 @@ export interface PresenceView {
  */
 export function livePresence(agent: Agent, now: number, timings: PresenceTimings = configuredTimings): Presence {
   if (agent.presence === "ended" || agent.ended_at) return "ended";
+  if (agent.presence === "offline") return "offline";
   const freshMs = positiveWindow(timings.heartbeat_fresh_seconds, heartbeatFreshMs);
-  if (!timestampFresh(agent.heartbeat_at, now, freshMs)) return "offline";
-  if (agent.receiver && (!timestampFresh(agent.receiver.heartbeat_at, now, 45_000) || !agent.receiver.sources.some(source => source.source === "portal" && source.state === "ready") || agent.receiver.failure)) return agent.presence === "working" ? "working" : "idle";
-  const relayFresh = agent.relay_enabled !== false && (agent.relay_heartbeat_at === undefined
+  if (agent.presence_source !== "connection" && !timestampFresh(agent.heartbeat_at, now, freshMs)) return "offline";
+  if (agent.receiver && (!receiverFresh(agent, now) || !agent.receiver.sources.some(source => source.source === "portal" && source.state === "ready") || agent.receiver.failure)) return agent.presence === "working" ? "working" : "idle";
+  const relayFresh = agent.relay_enabled !== false && (agent.presence_source === "connection" || agent.relay_heartbeat_at === undefined
     ? agent.relay_ready
     : timestampFresh(agent.relay_heartbeat_at, now, positiveWindow(timings.relay_fresh_seconds, 60_000)));
   if (agent.presence === "listening" && !relayFresh) return "idle";
@@ -55,6 +56,12 @@ export function livePresence(agent: Agent, now: number, timings: PresenceTimings
     return relayFresh ? "listening" : "idle";
   }
   return agent.presence;
+}
+
+function receiverFresh(agent: Agent, now: number): boolean {
+  return agent.presence_source === "connection"
+    ? agent.presence !== "offline" && agent.presence !== "ended"
+    : !!agent.receiver && timestampFresh(agent.receiver.heartbeat_at, now, 45_000);
 }
 
 function positiveWindow(seconds: number | undefined, fallback: number): number {
@@ -115,7 +122,7 @@ export function presenceView(agent: Agent, now: number, timings: PresenceTimings
   const activity = liveActivity(agent, now);
   if (activity !== null && presence !== "offline" && presence !== "ended") {
     const receiver = agent.receiver;
-    const ready = receiver ? !receiver.failure && timestampFresh(receiver.heartbeat_at, now, 45_000) && receiver.sources.some(s => s.source === "portal" && s.state === "ready") : agent.relay_ready;
+    const ready = receiver ? !receiver.failure && receiverFresh(agent, now) && receiver.sources.some(s => s.source === "portal" && s.state === "ready") : agent.relay_ready;
     const connection = ready ? "Connected · Can receive messages" : "Connected · Receiver unavailable";
     const explanation = activity === "unknown" ? "Activity observation expired or unavailable" : activity === "waiting" ? (agent.activity?.wait_reason === "approval" ? "Approval requested in the native client" : "Input requested") : activity === "working" ? "Native conversation is active" : "No active native turn";
     return { presence: ready ? "listening" : "idle", label: ACTIVITY_LABEL[activity], detail: `${explanation} · ${connection}`, canSend: !agent.read_only && ready };
@@ -131,8 +138,8 @@ export function presenceView(agent: Agent, now: number, timings: PresenceTimings
         // Still sendable: the agent returns to its relay when the turn ends and
         // picks the queue up then. Refusing here would be the old behaviour,
         // where a busy agent looked unreachable.
-        detail: agent.receiver && (!timestampFresh(agent.receiver.heartbeat_at, now, 45_000) || agent.receiver.failure) ? "Receiver unavailable; running work is unconfirmed." : age ? `Running your instruction — started ${age} ago` : "Running your instruction",
-        canSend: !agent.read_only && (!agent.receiver || (timestampFresh(agent.receiver.heartbeat_at, now, 45_000) && !agent.receiver.failure && agent.receiver.sources.some(source => source.source === "portal" && source.state === "ready"))),
+        detail: agent.receiver && (!receiverFresh(agent, now) || agent.receiver.failure) ? "Receiver unavailable; running work is unconfirmed." : age ? `Running your instruction — started ${age} ago` : "Running your instruction",
+        canSend: !agent.read_only && (!agent.receiver || (receiverFresh(agent, now) && !agent.receiver.failure && agent.receiver.sources.some(source => source.source === "portal" && source.state === "ready"))),
       };
     }
     case "idle":

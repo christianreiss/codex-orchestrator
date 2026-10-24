@@ -1,3 +1,7 @@
+import {persistAuditLog} from './audit-log.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { publicArtifact } from '../control-plane/state/artifact-content.js';
+import { servedAgentDocument } from '../control-plane/state/agent-documents.js';
 /**
  * Host-facing agents + client config retrieval.
  */
@@ -5,7 +9,7 @@ import { advisorConfigured, advisorCxxSupport } from './advisor.js';
 import { eq, desc, ne } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import type { Database } from '../db/client.js';
-import { agentsDocuments, agentsDocumentState, clientConfigDocuments, hostDaemons, logs, workflowRuns } from '../db/schema.js';
+import { agentsDocuments, agentsDocumentState, clientConfigDocuments, hostDaemons, workflowRuns } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import { nowIso } from '../util/timestamp.js';
 import { buildManagedMemoryRouting } from './managed-memory-routing.js';
@@ -252,12 +256,9 @@ export class HostAgentsService {
     engine: Engine = ENGINE_CODEX,
     opts: { home?: string | null; username?: string | null } = {},
   ): Promise<Record<string, unknown>> {
-    const rows = await this.db
-      .select()
-      .from(clientConfigDocuments)
-      .where(eq(clientConfigDocuments.engine, engine))
-      .orderBy(desc(clientConfigDocuments.id))
-      .limit(1);
+    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
+    const metadata=owner?.state.snapshot().table('clientConfigDocuments').by('engine',engine)[0];
+    const rows = owner ? metadata ? [await publicArtifact(owner,`config:${metadata.id}:${metadata.sha256}`,async()=>{const [row]=await this.db.select().from(clientConfigDocuments).where(eq(clientConfigDocuments.id,metadata.id)).limit(1);if(!row||row.sha256!==metadata.sha256)throw new Error('Canonical config changed');return row;},()=>owner.state.snapshot().table('clientConfigDocuments').get(metadata.id)?.sha256===metadata.sha256)] : [] : await this.db.select().from(clientConfigDocuments).where(eq(clientConfigDocuments.engine,engine)).orderBy(desc(clientConfigDocuments.id)).limit(1);
     // Native engine settings are not interchangeable: borrowing Codex's base
     // would send a GPT model and Codex-only options to Claude.
     const row = rows.find((candidate) => candidate.engine === engine);
@@ -330,7 +331,8 @@ export class HostAgentsService {
     host: Host,
     opts: { home?: string | null; username?: string | null } = {},
   ): Promise<Record<string, unknown>> {
-    const rows = await this.db
+    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
+    const rows = owner?owner.state.snapshot().table('clientConfigDocuments').by('engine',ENGINE_CLAUDE):await this.db
       .select()
       .from(clientConfigDocuments)
       .where(eq(clientConfigDocuments.engine, ENGINE_CLAUDE))
@@ -390,6 +392,7 @@ export class HostAgentsService {
    * config, host, and engine policy stays here.
    */
   private async resolveManagedFeatureContext(host: Host, engine: Engine): Promise<ManagedAgentFeatureContext> {
+    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
     const [
       configRows,
       skillCount,
@@ -409,7 +412,7 @@ export class HostAgentsService {
       fleetEngines,
       modelPolicies,
     ] = await Promise.all([
-      this.db
+      owner ? owner.state.snapshot().table('clientConfigDocuments').by('engine',engine) : this.db
         .select()
         .from(clientConfigDocuments)
         .where(eq(clientConfigDocuments.engine, engine))
@@ -575,7 +578,7 @@ export class HostAgentsService {
     };
 
     const workflowsEnabled = await this.settings.getFlag('workflows_enabled', false).catch(() => false);
-    const workflowsDraining = !workflowsEnabled && (await this.db.select({ id: workflowRuns.id }).from(workflowRuns).where(ne(workflowRuns.status, 'completed')).limit(1)).length > 0;
+    const workflowsDraining = !workflowsEnabled && (owner ? owner.state.snapshot().table('workflowRuns').all().some(row=>row.status!=='completed') : (await this.db.select({ id: workflowRuns.id }).from(workflowRuns).where(ne(workflowRuns.status, 'completed')).limit(1)).length > 0);
     return {
       engine,
       skills,
@@ -617,7 +620,8 @@ export class HostAgentsService {
    * fleet-wide readiness so the host-specific reason wins.
    */
   private async advisorState(host: Host): Promise<ManagedFeatureState> {
-    const [daemon] = await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, host.id)).limit(1);
+    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
+    const daemon=owner?owner.state.snapshot().table('hostDaemons').get(host.id):(await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId,host.id)).limit(1))[0];
     const daemonVersion = daemon && daemonExecutionEnabled(daemon.settings) ? daemon.runtime?.version ?? null : null;
     const support = advisorCxxSupport(hostRunningWrapperVersion(host), daemonVersion);
     return support.enabled ? advisorConfigured(this.db) : support;
@@ -628,6 +632,10 @@ export class HostAgentsService {
     engine: Engine,
     recordMissingOverride = true,
   ): Promise<typeof agentsDocuments.$inferSelect | null> {
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){owner.assertOwner();const metadata=servedAgentDocument(owner.state.snapshot(),engine,host.agentsDocumentIdOverride);if(!metadata)return null;
+      return publicArtifact(owner,`agents:${metadata.id}:${metadata.sha256}`,async()=>{const [row]=await this.db.select().from(agentsDocuments).where(eq(agentsDocuments.id,metadata.id)).limit(1);if(!row||row.sha256!==metadata.sha256)throw new Error('Canonical agent document changed');return row;},()=>owner.state.snapshot().table('agentsDocuments').get(metadata.id)?.sha256===metadata.sha256);
+    }
     const override = host.agentsDocumentIdOverride;
     if (override && Number(override) > 0) {
       const rows = await this.db
@@ -668,7 +676,8 @@ export class HostAgentsService {
   }
 
   private async recordLog(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {
-    await this.db.insert(logs).values({
+    const owner=ownerRuntimeFor(this.db);if(owner){await mutateOwnerState(owner,{kind:'agents.audit',payload:{hostId,action},prepare:ctx=>{ctx.write(async tx=>persistAuditLog(tx, {hostId,action,details:JSON.stringify(details),createdAt:nowIso(),engine:null}));return null;}});return;}
+    await persistAuditLog(this.db, {
       hostId: hostId ?? null,
       action,
       details: JSON.stringify(details),

@@ -25,9 +25,12 @@ describe('deploy.sh wrapper publishing contract', () => {
     expect(deploy).toContain('skipping wrappers (api not in --service list)');
   });
 
-  it('publishes before the stack is built and recreates the api afterwards', () => {
+  it('builds wrappers before downtime and publishes only after the quiescent backup', () => {
     expect(indexOf('publish_wrappers "${wrapper_version}" "${wrapper_root}"')).toBeLessThan(indexOf('build_args=(build)'));
-    expect(indexOf('recreate_args=(up -d --force-recreate)')).toBeGreaterThan(indexOf('"${compose[@]}" "${up_args[@]}"'));
+    expect(indexOf('owner_cutover_prepare ||')).toBeLessThan(deploy.lastIndexOf('  activate_wrappers'));
+    expect(deploy.lastIndexOf('  activate_wrappers')).toBeLessThan(indexOf('run --rm -T api node migrate.js'));
+    expect(indexOf('owner_cutover_phase replacement-started')).toBeLessThan(indexOf('"${compose[@]}" "${up_args[@]}"'));
+    expect(deploy).not.toContain('recreate_args=(up -d --force-recreate)');
   });
 
   it('never rebuilds a version that is already published', () => {

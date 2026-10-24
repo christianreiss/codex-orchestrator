@@ -42,6 +42,9 @@ services:
       AUTH_RUNNER_VERIFY_TTL_SECONDS: ${AUTH_RUNNER_VERIFY_TTL_SECONDS:-900}
       AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS: ${AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS:-300}
       AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS: ${AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS:-21600}
+      CHATGPT_USAGE_CRON_INTERVAL: ${CHATGPT_USAGE_CRON_INTERVAL:-900}
+      CHATGPT_BASE_URL: ${CHATGPT_BASE_URL:-https://chatgpt.com/backend-api}
+      CHATGPT_USAGE_TIMEOUT: ${CHATGPT_USAGE_TIMEOUT:-10}
       AUTH_RUNNER_IP_BYPASS: ${AUTH_RUNNER_IP_BYPASS:-0}
       AUTH_RUNNER_BYPASS_SUBNETS: ${AUTH_RUNNER_BYPASS_SUBNETS:-172.28.0.0/16,172.30.0.0/16}
       AUTH_RUNNER_SHARED_SECRET: ${AUTH_RUNNER_SHARED_SECRET:-}
@@ -132,46 +135,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    restart: unless-stopped
-
-  quota-cron:
-    build: .
-    env_file:
-      - ${ENV_FILE:-./.env}
-    depends_on:
-      mysql:
-        condition: service_healthy
-    command: ["node", "chatgpt-usage-worker.js"]
-    environment:
-      NODE_ENV: ${NODE_ENV:-production}
-      APP_ENV: ${APP_ENV:-production}
-      DB_HOST: ${DB_HOST:-mysql}
-      DB_PORT: ${DB_PORT:-3306}
-      DB_DATABASE: ${DB_DATABASE:-codex_auth}
-      DB_USERNAME: ${DB_USERNAME:-codex}
-      DB_PASSWORD: ${DB_PASSWORD:-codex-pass}
-      CHATGPT_USAGE_CRON_INTERVAL: ${CHATGPT_USAGE_CRON_INTERVAL:-900}
-      CHATGPT_BASE_URL: ${CHATGPT_BASE_URL:-https://chatgpt.com/backend-api}
-      CHATGPT_USAGE_TIMEOUT: ${CHATGPT_USAGE_TIMEOUT:-10}
-      CHATGPT_USAGE_HEALTH_PATH: ${CHATGPT_USAGE_HEALTH_PATH:-/tmp/chatgpt-usage-health.json}
-      CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS: ${CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS:-}
-    networks:
-      - codex_auth
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop: [ALL]
-    security_opt:
-      - no-new-privileges:true
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - >-
-          node -e 'const fs=require("fs"); const path=process.env.CHATGPT_USAGE_HEALTH_PATH||"/tmp/chatgpt-usage-health.json"; const max=Number(process.env.CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS)||Number(process.env.CHATGPT_USAGE_CRON_INTERVAL||900)+300; try { process.exit(Date.now()-fs.statSync(path).mtimeMs<=max*1000?0:1); } catch { process.exit(1); }'
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
     restart: unless-stopped
 
   # Fleet Advisor (opt-in: --profile advisor or COMPOSE_PROFILES=advisor).

@@ -44,7 +44,7 @@ func managedRequestAllowed(r *http.Request) bool {
 
 func transferHeaders(r *http.Request, hostKey string) http.Header {
 	h := make(http.Header)
-	for _, name := range []string{"content-type", "accept", "user-agent", "x-engine", "x-agent-bridge-token", "x-agent-relay-token", "x-wrapper-platform", "x-wrapper-version", "x-cxx-version", "if-none-match", "mcp-session-id", "mcp-protocol-version", "last-event-id", "range"} {
+	for _, name := range []string{"content-type", "accept", "user-agent", "x-engine", "x-agent-bridge-token", "x-agent-session-id", "x-agent-relay-token", "x-wrapper-platform", "x-wrapper-version", "x-cxx-version", "if-none-match", "mcp-session-id", "mcp-protocol-version", "last-event-id", "range"} {
 		if value := r.Header.Get(name); value != "" {
 			h.Set(name, value)
 		}

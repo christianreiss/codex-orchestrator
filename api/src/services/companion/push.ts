@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { OwnerCompanionPush } from './push-owner.js';
 import { randomUUID } from 'node:crypto';
 import { and, asc, eq, gt, isNull, lt, lte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -23,14 +25,9 @@ import { stalePendingReason } from '../insecure-window.js';
 import { readFleetEngineState } from '../engine-switch.js';
 import { isEngine } from '../../util/engine.js';
 import { FcmTransport } from './fcm.js';
-import { decodeSummaryPayload, eventSummary } from './summary.js';
+import { decodeSummaryPayload, eventSummary, notificationKind } from './summary.js';
 
-export function notificationKind(type: string, followed: boolean, payload: Record<string, unknown> = {}): 'attention' | 'reply' | null {
-  if (payload.severity && ['assistant_message', 'waiting_input', 'attention'].includes(type)) return 'attention';
-  if (type === 'waiting_input' && payload.answer_mode) return followed ? 'reply' : null;
-  if (type === 'waiting_input' || type === 'attention') return 'attention';
-  return type === 'assistant_message' && followed ? 'reply' : null;
-}
+export { notificationKind } from './summary.js';
 
 /** Replay durable source rows into a unique per-device outbox. No WS dependency. */
 export class CompanionPush {
@@ -319,6 +316,11 @@ export class CompanionPush {
 }
 
 export function startCompanionPush(app: FastifyInstance, ctx: RouteContext) {
+  if (ownerRuntimeFor(ctx.db)) {
+    const worker = new OwnerCompanionPush(ctx).start(error => app.log.error({ err: error }, 'Companion push obligation failed'));
+    app.addHook('onClose', async () => { await worker.close(); });
+    return;
+  }
   const worker = new CompanionPush(ctx);
   let running: Promise<void> | undefined;
   const timer = setInterval(() => {

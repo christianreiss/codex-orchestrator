@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -32,11 +33,32 @@ func (s *Session) observeClaim(path string, raw json.RawMessage) {
 	if s.activeClaims == nil {
 		s.activeClaims = make(map[string]bool)
 	}
+	before := s.activeClaims[result.ID]
 	if result.State == "active" && !strings.HasSuffix(path, "/release") {
 		s.activeClaims[result.ID] = true
 	} else {
 		delete(s.activeClaims, result.ID)
 	}
+	if before != s.activeClaims[result.ID] {
+		if s.claimsChanged != nil {
+			close(s.claimsChanged)
+		}
+		s.claimsChanged = make(chan struct{})
+	}
+}
+
+func (s *Session) activeClaimSnapshot() ([]string, <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.claimsChanged == nil {
+		s.claimsChanged = make(chan struct{})
+	}
+	ids := make([]string, 0, len(s.activeClaims))
+	for id := range s.activeClaims {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids, s.claimsChanged
 }
 
 func (s *Session) hasActiveClaims() bool {
@@ -51,6 +73,9 @@ func (s *Session) hasActiveClaims() bool {
 // terminal bridge error). Timeouts, transport failures and 5xx keep the entry
 // so the next heartbeat retries while the server lease is still live.
 func (s *Session) renewActiveClaims(ctx context.Context) {
+	if _, _, _, used := s.stateView(); used {
+		return
+	}
 	s.mu.Lock()
 	ids := make([]string, 0, len(s.activeClaims))
 	for id := range s.activeClaims {

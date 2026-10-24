@@ -1,3 +1,4 @@
+import { ownerStream } from "./owner-stream";
 import { expect, test, type Page } from "@playwright/test";
 import type { AgentSessionRow } from "../src/lib/api/agentSessions";
 import AxeBuilder from "@axe-core/playwright";
@@ -10,7 +11,7 @@ function session(id: string, engine: AgentSessionRow["engine"], presence: AgentS
 }
 async function fixtures(page: Page, manage = true) {
   let emit: ((data: string) => void) | undefined;
-  await page.routeWebSocket("**/clients-ws", ws => { emit = data => ws.send(data); });
+  await page.routeWebSocket("**/clients-ws", ws => { ownerStream(ws); emit = data => ws.send(data); });
   const state = { update: async (type = "agent_portal.sessions.changed") => {
     await expect.poll(() => Boolean(emit)).toBe(true);
     emit!(JSON.stringify({ type, payload: {}, ts: new Date().toISOString() }));
@@ -163,6 +164,7 @@ test("failed refresh retains clients and drafts, then retry restores live action
   await expect(page.locator(`#client-${CODEX}`)).toBeVisible();
   await expect(page.getByLabel("Message this agent")).toHaveValue("Keep this draft");
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Retry status" })).toBeEnabled();
   state.failList = false;
   await page.getByRole("button", { name: "Retry status" }).click();
   await expect(page.getByText("Client refresh failed", { exact: true })).toHaveCount(0);

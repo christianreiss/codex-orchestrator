@@ -1,4 +1,21 @@
+import {persistAuditLog} from './audit-log.js';
+import {ownedSelf} from './agent-messaging/owned-discovery.js';
+import { cancelOwnedConversation, stageCancelOwnedConversation } from './agent-messaging/owned-cancel.js';
+import { registerOwnedRelay, heartbeatOwnedRelay, stopOwnedRelay, ownedRelayTargets, pendingOwnedRelayWork } from '../control-plane/streams/relay.js';
+import type { MessagingHost } from './agent-messaging/types.js';
+import { queueOwnedPresenceNotices } from '../control-plane/state/presence-notices.js';
+import { sendOwnedMessage } from './agent-messaging/owned-send.js';
+import { acknowledgeOwnedDelivery, renewOwnedDelivery } from './agent-messaging/owned-delivery.js';
+import { claimOwnedDelivery } from './agent-messaging/owned-claim.js';
+import { replyOwnedMessage } from './agent-messaging/owned-reply.js';
+import { getOwnedMessage, peekOwnedMailbox, waitOwnedMessages } from './agent-messaging/owned-read.js';
+import { maintainOwnedMessaging } from './agent-messaging/owned-maintenance.js';
+import { stageCoordinationNotice } from '../control-plane/state/coordination-notices.js';
+import type { OwnerMutationContext } from '../control-plane/state/runtime.js';
+import type { StateRow } from '../control-plane/state/catalog.js';
 import { isEngine } from '../util/engine.js';
+import { ownerRuntimeFor, setOwnerRequestPrincipal, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { ownedBridge, ownedRelay, ownedMessagingHost, requireOwnedMessaging, ownedAddress } from '../control-plane/state/messaging.js';
 import { quotaRecoveryAllowed } from './quota-observation.js';
 import { preparePeerBatch, presentationOrder } from './agent-messaging/peer-batch.js';
 import { ApiError } from '../http/errors.js';
@@ -23,7 +40,7 @@ import { translateAgent } from './agent-messaging/names.js';
 import { listHostInventory, type HostInventoryFilters } from './agent-messaging/host-inventory.js';
 import { jsonRecord } from './agent-messaging/normalize.js';
 import { agentFreshStartGrants, agentTaskResults } from '../db/schema.js';
-import { storeTaskResult, queueTaskResultReply, unknownTaskResult, approveFreshStart, freshStartAllowed, taskResultSchema, type TaskResult } from './agent-messaging/task-execution.js';
+import { storeTaskResult, queueTaskResultReply, unknownTaskResult, approveFreshStart, approveOwnedFreshStart, freshStartAllowed, taskResultSchema, type TaskResult } from './agent-messaging/task-execution.js';
 import { receiverReady, receiverState } from './agent-receiver-state.js';
 import type { WatchdogFailure } from './watchdog-lifecycle.js';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -55,7 +72,6 @@ import {
   agentNameLeases,
   agentEvents,
   hosts,
-  logs,
   versions,
   type AgentBusAddress,
   type AgentBusConversation,
@@ -336,6 +352,11 @@ export class AgentMessagingService {
 
   async notifyPresenceReturn(sessionId: string): Promise<void> {
     if (!await this.isEnabled()) return;
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      for (const receipt of await queueOwnedPresenceNotices(owner, sessionId, this.keyring)) wsPublisher.publish('agent_messaging.message.changed', receipt);
+      return;
+    }
     if (await idleSessionPoll(this.db, sessionId, this.env)) return;
     const receipts = await this.db.transaction(async (tx) => {
       await this.requireEnabledLocked(tx);
@@ -430,6 +451,7 @@ export class AgentMessagingService {
   listAdminSubscriptions() { return this.groups.subscriptionsAdmin(); }
   publishAdmin(input: {topic: string; content: string; clientMessageId: string; ttlSeconds?: number | null}) { return this.groups.publishAdmin(input); }
   noticeAddresses(addressIds: string[], content: string, noticeId?: string) { return this.groups.noticeAddresses(addressIds, content, noticeId); }
+  noticeAddressesOwned(command: import('../control-plane/state/runtime.js').OwnerMutationContext, addressIds: string[], content: string) { return this.groups.noticeAddressesOwned(command,addressIds,content); }
   listGroups(sessionId: string, token: string) { return this.groups.listForAgent(sessionId, token); }
   createGroup(sessionId: string, token: string, input: {slug: string; title: string; description?: string | null}) { return this.groups.createForAgent(sessionId, token, input); }
   groupMembers(sessionId: string, token: string, slug: string) { return this.groups.detailForAgent(sessionId, token, slug); }
@@ -453,6 +475,8 @@ export class AgentMessagingService {
       queue?: QueuePolicy;
     },
   ): Promise<Record<string, unknown>> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) return sendOwnedMessage(this.db, owner, this.keyring, sessionId, bridgeToken, input);
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     if (!authenticated.session.agentBusAddressId) {
       throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -589,6 +613,8 @@ export class AgentMessagingService {
     parentMessageId: string,
     input: { content: string; clientMessageId: string; ttlSeconds?: number | null; claimId?: string; taskResult?: TaskResult; queue?: QueuePolicy },
   ): Promise<Record<string, unknown>> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) return replyOwnedMessage(this.db, owner, this.keyring, {kind:'session',id:sessionId,token:bridgeToken}, parentMessageId, input);
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     const senderAddressId = authenticated.session.agentBusAddressId;
     if (!senderAddressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -717,6 +743,8 @@ export class AgentMessagingService {
     conversationId: string,
     afterSequence = 0,
   ): Promise<Record<string, unknown>> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) return waitOwnedMessages(this.db, owner, this.keyring, sessionId, bridgeToken, conversationId, afterSequence);
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     const addressId = authenticated.session.agentBusAddressId;
     if (!addressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -748,6 +776,8 @@ export class AgentMessagingService {
   }
 
   async getMessage(sessionId: string, bridgeToken: string, messageId: string): Promise<Record<string, unknown>> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) return getOwnedMessage(this.db, owner, this.keyring, sessionId, bridgeToken, messageId);
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     const addressId = authenticated.session.agentBusAddressId;
     if (!addressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -785,6 +815,7 @@ export class AgentMessagingService {
     const addressId = authenticated.session.agentBusAddressId;
     if (!addressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
     const id = normalizeUuid(conversationId, 'conversation_id');
+    const owner=ownerRuntimeFor(this.db); if(owner)return await cancelOwnedConversation(owner,id,`agent:${addressId}`,reason??'Canceled by participant',{sessionId,token:bridgeToken}) as Record<string,unknown>;
     const result = await this.cancelConversationInternal(
       id,
       `agent:${addressId}`,
@@ -800,6 +831,7 @@ export class AgentMessagingService {
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     const addressId = authenticated.session.agentBusAddressId;
     if (!addressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
+    if (ownerRuntimeFor(this.db)) return this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly, smartQueueAllowed(this.env, authenticated.host.id, authenticated.session.receiver), peerBatchAllowed(this.env, authenticated.session.receiver));
     if (!authenticated.session.receiveHeartbeatAt) {
       throw new ConflictError('Agent session is not receive-capable', 'agent_messaging_adapter_unavailable');
     }
@@ -832,6 +864,8 @@ export class AgentMessagingService {
    * placed at all.
    */
   async peekMailbox(sessionId: string, bridgeToken: string): Promise<Record<string, unknown>> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) return peekOwnedMailbox(owner, sessionId, bridgeToken);
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     const addressId = authenticated.session.agentBusAddressId;
     if (!addressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -888,6 +922,7 @@ export class AgentMessagingService {
       capabilities?: Record<string, unknown> | null;
     },
   ): Promise<Record<string, unknown>> {
+    const owner=ownerRuntimeFor(this.db);if(owner)return registerOwnedRelay(owner,host,input);
     await this.requireEnabled();
     this.assertEligibleHost(host);
     const username = normalizeRequiredText(input.username, 'username', 255);
@@ -970,6 +1005,7 @@ export class AgentMessagingService {
   }
 
   async heartbeatRelay(relayId: string, rawToken: string): Promise<Record<string, unknown>> {
+    const owner=ownerRuntimeFor(this.db);if(owner)return heartbeatOwnedRelay(owner,relayId,rawToken);
     const relay = await this.authenticateRelay(relayId, rawToken, true);
     const now = nowIso();
     const expiresAt = isoOffsetSeconds(AGENT_MESSAGING_RELAY_TOKEN_SECONDS);
@@ -988,6 +1024,7 @@ export class AgentMessagingService {
   }
 
   async stopRelay(relayId: string, rawToken: string): Promise<Record<string, unknown>> {
+    const owner=ownerRuntimeFor(this.db);if(owner)return stopOwnedRelay(owner,relayId,rawToken);
     const relay = await this.authenticateRelay(relayId, rawToken);
     const now = nowIso();
     await this.db
@@ -1010,11 +1047,13 @@ export class AgentMessagingService {
    * the same order; it claims nothing, so concurrent waiters of one relay credential may share a true answer.
    */
   async relayIdle(relayId: string, rawToken: string): Promise<boolean> {
+    const owner=ownerRuntimeFor(this.db);if(owner)return ownedRelayTargets(owner,relayId,rawToken)===null;
     if (await relayIdleProof(this.db, relayId, rawToken)) return true;
     return (await this.relayClaimTargets(relayId, rawToken)) === null;
   }
 
   private async relayClaimTargets(relayId: string, rawToken: string): Promise<{ relay: AgentBusRelay; ids: string[] } | null> {
+    const owner=ownerRuntimeFor(this.db);if(owner)return ownedRelayTargets(owner,relayId,rawToken);
     const relay = await this.authenticateRelay(relayId, rawToken, true);
     const daemonRelay = jsonRecord(relay.capabilities)?.host_daemon === true;
     const targetUsername = daemonRelay ? relay.username.replace(/:daemon$/, '') : relay.username;
@@ -1051,6 +1090,7 @@ export class AgentMessagingService {
    * Ordinary future retries and accepted work cannot change on this path.
    */
   private async hasPendingRelayWork(targetAddressIds: string[]): Promise<boolean> {
+    const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return pendingOwnedRelayWork(owner.state.snapshot(),targetAddressIds);}
     const now = nowIso();
     const rows = await this.db
       .select({ id: agentBusMessages.id })
@@ -1098,6 +1138,12 @@ export class AgentMessagingService {
     const id = normalizeUuid(messageId, 'message_id');
     const why = normalizeMessageBody(reason);
     if (Buffer.byteLength(why, 'utf8') > 500) throw new ValidationError('Reason exceeds 500 bytes');
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = await approveOwnedFreshStart(owner, id, version, why, actor) as {grant: import('../control-plane/commands.js').Json};
+      wsPublisher.publish('agent_messaging.message.changed', { message_id: id });
+      return { grant: result.grant };
+    }
     const result = await this.db.transaction(async tx => {
       await this.requireEnabledLocked(tx);
       const [message] = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, id)).limit(1).for('update');
@@ -1164,6 +1210,8 @@ export class AgentMessagingService {
       upstreamSessionId?: string | null;
     },
   ): Promise<Record<string, unknown>> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) return replyOwnedMessage(this.db, owner, this.keyring, {kind:'relay',id:relayId,token:rawToken}, parentMessageId, input);
     const relay = await this.authenticateRelay(relayId, rawToken);
     const parentId = normalizeUuid(parentMessageId, 'message_id');
     const claimId = normalizeUuid(input.claimId, 'claim_id');
@@ -1338,6 +1386,7 @@ export class AgentMessagingService {
   }
 
   async self(sessionId: string, bridgeToken: string): Promise<Record<string, unknown>> {
+    const owner=ownerRuntimeFor(this.db);if(owner)return ownedSelf(this.db,owner,sessionId,bridgeToken);
     await this.authenticateBridge(sessionId, bridgeToken);
     // A pure read, polled by every live receiver every 15 s. It used to take the bus mutex (versions FOR UPDATE) and
     // host/session/address/name-lease row locks. One read-only repeatable-read transaction (its snapshot starts at the
@@ -1403,6 +1452,8 @@ export class AgentMessagingService {
   }
 
   async maintenance(): Promise<Record<string, number>> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) return maintainOwnedMessaging(owner);
     const now = nowIso();
     const staleRelay = isoOffsetSeconds(-2 * AGENT_MESSAGING_RECEIVE_FRESH_SECONDS);
     const result = await this.db.transaction(async (tx) => {
@@ -1454,6 +1505,8 @@ export class AgentMessagingService {
     smartQueue = false,
     peerBatch = false,
   ): Promise<MessageDelivery | null> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) return claimOwnedDelivery(this.db, owner, this.keyring, { targetAddressIds, leaseOwner, claimId: rawClaimId, relayGeneration, skipReceiveCapable, receiverGeneration, informationalOnly, smartQueue, peerBatch });
     const claimId = normalizeUuid(rawClaimId, 'claim_id');
     const now = nowIso();
     const leaseUntil = isoOffsetSeconds(AGENT_MESSAGING_LEASE_SECONDS);
@@ -1702,6 +1755,8 @@ export class AgentMessagingService {
     leaseOwner: string,
     relayGeneration: number | null,
   ): Promise<Record<string, unknown>> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) return renewOwnedDelivery(owner, messageId, rawClaimId, leaseOwner, relayGeneration);
     const id = normalizeUuid(messageId, 'message_id');
     const claimId = normalizeUuid(rawClaimId, 'claim_id');
     const now = nowIso();
@@ -1748,6 +1803,8 @@ export class AgentMessagingService {
     relayGeneration: number | null,
     deliverySessionId: string | null,
   ): Promise<Record<string, unknown>> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) return acknowledgeOwnedDelivery(this.db, owner, this.keyring, messageId, input, leaseOwner, relayGeneration, deliverySessionId);
     const id = normalizeUuid(messageId, 'message_id');
     const claimId = normalizeUuid(input.claimId, 'claim_id');
     const errorCode = normalizeErrorCode(input.errorCode);
@@ -1909,6 +1966,11 @@ export class AgentMessagingService {
     participantAddressId?: string,
     participantSessionId?: string,
   ): Promise<Record<string, unknown>> {
+    const owner=ownerRuntimeFor(this.db);
+    if(owner)return await mutateOwnerState(owner,{kind:'messaging.conversation.cancel',payload:{conversationId,canceledBy,reason},authorize(snapshot){
+      requireOwnedMessaging(snapshot);
+      if(participantAddressId&&participantSessionId){const address=ownedAddress(snapshot,participantAddressId),session=snapshot.sessions.get(participantSessionId),conversation=snapshot.table('agentBusConversations').get(conversationId);if(!session||session.endedAt||address.currentSessionId!==session.id||address.bindingGeneration!==session.bindingGeneration||!conversation||!conversationIncludes(conversation,address.id))throw new NotFoundError('Conversation not found','agent_messaging_conversation_not_found');}
+    },prepare:ctx=>JSON.parse(JSON.stringify(stageCancelOwnedConversation(ctx,conversationId,canceledBy,reason,nowIso())))}) as Record<string,unknown>;
     const now = nowIso();
     return await this.db.transaction(async (tx) => {
       await this.requireEnabledLocked(tx);
@@ -1945,8 +2007,17 @@ export class AgentMessagingService {
     });
   }
 
-  async authenticateBridge(sessionId: string, rawToken: string, allowEnded = false): Promise<{ session: AgentSession; host: Host }> {
+  async authenticateBridge(sessionId: string, rawToken: string, allowEnded = false): Promise<{ session: AgentSession; host: MessagingHost }> {
     const id = await this.normalizeEnabledUuid(sessionId, 'session_id');
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const current = ownedBridge(owner.state.snapshot(), id, rawToken, { allowEnded });
+      setOwnerRequestPrincipal({ principal: `session:${id}`, revalidate(snapshot) {
+        ownedBridge(snapshot, id, rawToken, { allowEnded, generation: current.session.bindingGeneration });
+      } });
+      return { session: current.session, host: current.host };
+    }
     const rows = await this.db
       .select({ session: agentSessions, host: hosts, enabled: messagingEnabledFlag })
       .from(agentSessions)
@@ -1994,6 +2065,22 @@ export class AgentMessagingService {
    */
   private async authenticateRelay(relayId: string, rawToken: string, requirePersistent = false): Promise<AgentBusRelay> {
     const id = await this.normalizeEnabledUuid(relayId, 'relay_id');
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const current = ownedRelay(owner.state.snapshot(), id, rawToken);
+      if (requirePersistent) {
+        const daemon = owner.state.snapshot().daemons.get(current.relay.hostId);
+        if (jsonRecord(current.relay.capabilities)?.host_daemon === true) {
+          if (!(daemon && daemonAccepting(daemon.settings)) && !(await this.daemonRelayDraining(current.relay.hostId))) throw new ForbiddenError('Daemon relay is not enabled');
+        } else if (!(daemon && daemonResidentFor(daemon.settings, current.relay.username))) throw notPersistentRelay();
+      }
+      setOwnerRequestPrincipal({ principal: `relay:${id}:${current.relay.generation}`, revalidate(snapshot) {
+        if (ownedRelay(snapshot, id, rawToken).relay.generation !== current.relay.generation)
+          throw new ConflictError('Agent relay generation changed', 'agent_messaging_lease_lost');
+      } });
+      return current.relay;
+    }
     const rows = await this.db
       .select({ relay: agentBusRelays, host: hosts, daemon: hostDaemons.settings, enabled: messagingEnabledFlag })
       .from(agentBusRelays)
@@ -2028,6 +2115,13 @@ export class AgentMessagingService {
    * hands such a relay no new work. Mirrors HostDaemonService.migration's readiness count.
    */
   private async daemonRelayDraining(hostId: number): Promise<boolean> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const snapshot = owner.state.snapshot(), work = snapshot.table('hostDaemonSessions').by('hostId', hostId);
+      if (work.some(session => session.status === 'running' || session.status === 'stopping')) return true;
+      return work.some(session => session.addressId && snapshot.messages.by('targetAddressId', session.addressId).some(message => ['leased', 'accepted'].includes(message.status)));
+    }
     const work = await this.db.select().from(hostDaemonSessions).where(eq(hostDaemonSessions.hostId, hostId));
     if (work.some((s) => s.status === 'running' || s.status === 'stopping')) return true;
     const addresses = work.map((s) => s.addressId).filter((a): a is string => Boolean(a));
@@ -2042,6 +2136,13 @@ export class AgentMessagingService {
 
   /** Registration gate for a per-user relay; see authenticateRelay. */
   private async assertPersistentHost(hostId: number, username: string): Promise<void> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const daemon = owner.state.snapshot().daemons.get(hostId);
+      if (!daemon || !daemonResidentFor(daemon.settings, username)) throw notPersistentRelay();
+      return;
+    }
     const [daemon] = await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, hostId)).limit(1);
     if (!daemon || !daemonResidentFor(daemon.settings, username)) throw notPersistentRelay();
   }
@@ -2072,6 +2173,13 @@ export class AgentMessagingService {
   }
 
   private async requireAddressLocked(db: AgentMessagingDb, id: string): Promise<AgentBusAddress> {
+    const owner = ownerRuntimeFor(db);
+    if (owner) {
+      owner.assertOwner();
+      const address = owner.state.snapshot().addresses.get(id);
+      if (!address) throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
+      return address;
+    }
     const rows = await db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, id)).limit(1).for('update');
     const address = rows[0];
     if (!address) throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
@@ -2109,6 +2217,8 @@ export class AgentMessagingService {
   }
 
   private async assertAddressEligibleLocked(db: AgentMessagingDb, address: AgentBusAddress): Promise<void> {
+    const owner = ownerRuntimeFor(db);
+    if (owner) { owner.assertOwner(); ownedAddress(owner.state.snapshot(), address.id); return; }
     if (address.enabled !== 1 || address.archivedAt) throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
     const rows = await db.select().from(hosts).where(eq(hosts.id, address.hostId)).limit(1).for('update');
     if (!rows[0] || !messagingHostEligible(rows[0])) {
@@ -2119,7 +2229,7 @@ export class AgentMessagingService {
     }
   }
 
-  private assertEligibleHost(host: Host): void {
+  private assertEligibleHost(host: MessagingHost): void {
     if (!messagingHostEligible(host)) {
       throw new ForbiddenError(
         host.secure === 1
@@ -2187,6 +2297,8 @@ export class AgentMessagingService {
   }
 
   private async addressMap(ids: string[]): Promise<Map<string, AgentBusAddress>> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); const addresses = owner.state.snapshot().addresses; return new Map(ids.flatMap(id => { const row=addresses.get(id); return row?[[id,row] as const]:[]; })); }
     const unique = [...new Set(ids)];
     if (unique.length === 0) return new Map();
     const rows = await this.db.select().from(agentBusAddresses).where(inArray(agentBusAddresses.id, unique));
@@ -2247,6 +2359,10 @@ export class AgentMessagingService {
     return { address, session };
   }
 
+  coordinationNoticeOwned(ctx: OwnerMutationContext, session: StateRow<'agentSessions'>, content: string, roomQuestion = false, clientMessageId?: string, noticeOptions: { deliveryClass?: 'notice' | 'coordination'; ttlSeconds?: number } = {}): string | undefined {
+    return stageCoordinationNotice(ctx, this.keyring, session, content, { roomQuestion, clientMessageId, ...noticeOptions });
+  }
+
   async coordinationNotice(tx: AgentMessagingDb, session: AgentSession, content: string, roomQuestion = false, clientMessageId?: string, noticeOptions: { deliveryClass?: 'notice' | 'coordination'; ttlSeconds?: number } = {}): Promise<string | undefined> {
     if (!session.agentBusAddressId || session.endedAt) return;
     const target = await this.requireAddressLocked(tx, session.agentBusAddressId);
@@ -2271,6 +2387,8 @@ export class AgentMessagingService {
   }
 
   private async requireEnabledLocked(db: AgentMessagingDb): Promise<void> {
+    const owner = ownerRuntimeFor(db);
+    if (owner) { owner.assertOwner(); requireOwnedMessaging(owner.state.snapshot()); return; }
     const rows = await db
       .select({ version: versions.version })
       .from(versions)
@@ -2282,7 +2400,9 @@ export class AgentMessagingService {
     }
   }
 
-  private async requireEligibleHostLocked(db: AgentMessagingDb, hostId: number): Promise<Host> {
+  private async requireEligibleHostLocked(db: AgentMessagingDb, hostId: number): Promise<MessagingHost> {
+    const owner = ownerRuntimeFor(db);
+    if (owner) { owner.assertOwner(); return ownedMessagingHost(owner.state.snapshot(), hostId); }
     const rows = await db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1).for('update');
     const host = rows[0];
     if (!host) throw new NotFoundError('Host not found', 'host_not_found');
@@ -2327,7 +2447,7 @@ export class AgentMessagingService {
   }
 
   private async recordRuntime(action: string, hostId: number | null, engine: string, details: Record<string, unknown>): Promise<void> {
-    await this.db.insert(logs).values({
+    await persistAuditLog(this.db, {
       hostId,
       action,
       details: JSON.stringify(details),

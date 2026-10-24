@@ -2,6 +2,7 @@ package agentportal
 
 import (
 	"context"
+	"errors"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 	"net/http"
 	"net/url"
@@ -16,6 +17,23 @@ func (s *Session) WithScheduleWatch(ctx context.Context) context.Context {
 	}
 	ctx = schedulewatch.WithPolicy(ctx, func(ctx context.Context) (schedulewatch.Policy, error) {
 		var policy schedulewatch.Policy
+		view, _, live, used := s.stateView()
+		if used {
+			if !live {
+				return policy, errors.New("state authority unavailable")
+			}
+			if view.Watchdog != nil && view.Watchdog.Watchdog != nil {
+				w := view.Watchdog
+				if !w.Watchdog.Deadline.After(view.observedServerTime) {
+					return policy, errors.New("watchdog expired")
+				}
+				return schedulewatch.Policy{TimeoutSeconds: w.PolicyTimeout, BindingGeneration: w.Generation, TerminateRequested: w.Stop}, nil
+			}
+			if view.Schedule != nil {
+				return *view.Schedule, nil
+			}
+			return policy, nil
+		}
 		if !s.signedReceivePlaneEnabled() {
 			return policy, nil
 		}

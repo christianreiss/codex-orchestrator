@@ -1,3 +1,9 @@
+import { recordOwnedNativeReceipt } from '../control-plane/streams/native-control.js';
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { ControlStateStreams, CONTROL_STATE_CAPABILITY, COMMUNICATOR_STATE_LIVENESS_CAPABILITY } from '../control-plane/protocol.js';
+import { OwnerStateProvider } from '../control-plane/streams/provider.js';
+import { StreamAuthorization } from '../control-plane/streams/authorization.js';
+import { ownerPresence } from '../control-plane/presence.js';
 import { McpSessionService } from '../services/mcp-session.js';
 import { parseBearer } from '../util/api-key-helpers.js';
 import { EventEmitter } from 'node:events';
@@ -124,6 +130,7 @@ const allowedHeaders = new Set([
   'user-agent',
   'x-engine',
   'x-agent-bridge-token',
+  'x-agent-session-id',
   'x-agent-relay-token',
   'x-wrapper-platform',
   'x-wrapper-version',
@@ -144,7 +151,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
     const binRoot = ctx.env.DATA_ROOT
       ? join(ctx.env.DATA_ROOT, 'wrapper', 'v2', 'bin')
       : resolve(import.meta.dirname, '..', '..', '..', 'storage', 'wrapper', 'v2', 'bin');
-    const stopWatch = startWrapperPublishWatch(createWrapperBinRegistry({ binRoot }));
+    const stopWatch = startWrapperPublishWatch(createWrapperBinRegistry({ binRoot }),{binRoot,error:err=>{app.log.error({err},'wrapper publication event stream lost');void app.close();}});
     app.addHook('onClose', async () => stopWatch());
   }
   const auth = createHostAuthService(ctx);
@@ -154,6 +161,16 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
       throw new ForbiddenError('Communicator is disabled', 'communicator_disabled');
     return auth.authenticate(req, { checkApiDisabled: true });
   };
+  app.post('/host/native-control/receipt', async req => {
+    const host = await authorize(req);
+    const runtime = ownerRuntimeFor(ctx.db);
+    if (!runtime) throw new ForbiddenError('Connection owner unavailable', 'owner_unavailable');
+    const input = z.object({ session_id: z.string().uuid(), binding_generation: z.number().int().nonnegative(),
+      native_instance_id: z.string().uuid(), request_id: z.string().uuid(),
+      result: z.enum(['accepted', 'exited', 'refused']) }).strict().parse(req.body);
+    const guard = new StreamAuthorization(runtime, host.id, host);
+    return recordOwnedNativeReceipt(runtime, host.id, input, snapshot => { guard.host(snapshot); });
+  });
   app.get('/admin/communicators', { preHandler: app.requireAdmin }, async () => ({
     enabled: ctx.env.CXX_COMMUNICATOR_ENABLED,
     protocol: 1,
@@ -169,6 +186,26 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
     },
     (socket, req) => {
       const connectionID = randomUUID();
+      const owner = ownerRuntimeFor(ctx.db);
+      let stateStreams: ControlStateStreams | undefined;
+      let stateAuthorization: StreamAuthorization | undefined;
+      let stopAuthorization: (() => void) | undefined;
+      let authorizationDeadline: ReturnType<typeof setTimeout> | undefined;
+      let lastFrameAt = Date.now();
+      const checkAuthorization = async () => {
+        if (stateAuthorization) { stateAuthorization.host(); return; }
+        await authorize(req);
+      };
+      const watchAuthorization = () => {
+        clearTimeout(authorizationDeadline);
+        try {
+          const result = stateAuthorization?.host();
+          if (result?.deadline != null) {
+            authorizationDeadline = setTimeout(watchAuthorization, Math.min(2147483647, Math.max(0, result.deadline - Date.now())));
+            authorizationDeadline.unref();
+          }
+        } catch { socket.close(1008, 'Authorization changed'); }
+      };
       let closed = false,
         inFlight = 0,
         greeted = false,
@@ -221,7 +258,12 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
       let updateDirty = false;
       const knownAccounts = new Map<string, number>();
       const authChanges = new Map<string, { engine: string; account_id: number; generation: number }>();
+      let invalidationTimer: ReturnType<typeof setTimeout> | undefined;
+      const scheduleInvalidation = () => {
+        if (!invalidationTimer && !closed) invalidationTimer = setTimeout(() => { invalidationTimer = undefined; flushInvalidations(); }, 0);
+      };
       const unsubscribe = wsPublisher.subscribe((event) => {
+        scheduleInvalidation();
         const payload = event.payload as Record<string, unknown> | null;
         if (event.type === 'auth.canonical') {
           const engine = payload?.engine;
@@ -273,7 +315,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
         // change this host's update target.
         if (/^(version|settings\.changed$|host\.updated$)/.test(event.type)) updateDirty = true;
       });
-      const invalidationTimer = setInterval(() => {
+      const flushInvalidations = () => {
         if (greeted && authChanges.size > 0) {
           for (const change of authChanges.values()) send({ type: 'auth_changed', ...change });
           authChanges.clear();
@@ -290,8 +332,12 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           updateDirty = false;
           send({ type: 'update_available' });
         }
-      }, 250);
+      };
       const timer = setInterval(() => {
+        if (stateAuthorization) {
+          if (Date.now() - lastFrameAt >= 45000) socket.close(1008, 'Communicator transport timeout');
+          return;
+        }
         void authorize(req)
           .then(() => {
             /* Authorization is rechecked independently of content invalidations. */
@@ -318,8 +364,17 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               })
               .strict()
               .parse(parsed);
+            if (greeted) throw new Error('Duplicate communicator handshake');
             const host = await authorize(req);
             hostId = host.id;
+            if (owner) {
+              stateAuthorization = new StreamAuthorization(owner, host.id, host);
+              stateStreams = new ControlStateStreams(new OwnerStateProvider(owner, stateAuthorization, connectionID, hello.username), {
+                send, bufferedBytes: () => socket.bufferedAmount, error: error => req.log.debug({ err: error }, 'Control state rejected'),
+              });
+              stopAuthorization = owner.state.subscribe(watchAuthorization);
+              watchAuthorization();
+            }
             communicatorRegistry.register(
               {
                 id: connectionID,
@@ -340,6 +395,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             );
             wsPublisher.publish('communicator.updated', { host_id: host.id });
             greeted = true;
+            scheduleInvalidation();
             // `control` offers the owner remote termination (see services/topology);
             // an owner that does not know the field ignores it and is never asked.
             // `owner_identity` says this server accepts the owner's process identity
@@ -348,11 +404,18 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             send({
               type: 'ready',
               protocol: 1,
-              control: ['terminate', 'owner_identity', 'resident_runtime', ...(updateEnabled ? ['wrapper_update'] : [])],
+              control: ['terminate', 'owner_identity', 'resident_runtime', ...(updateEnabled ? ['wrapper_update'] : []), ...(stateStreams ? [CONTROL_STATE_CAPABILITY, COMMUNICATOR_STATE_LIVENESS_CAPABILITY] : [])],
             });
             return;
           }
           if (!greeted) throw new Error('Handshake required');
+          lastFrameAt = Date.now();
+          if (stateAuthorization) stateAuthorization.host();
+          if (typeof parsed.type === 'string' && parsed.type.startsWith('state_')) {
+            if (!stateStreams) throw new Error('Connection state is unavailable');
+            await stateStreams.receive(parsed); return;
+          }
+          if (parsed.type === 'ping') { await checkAuthorization(); send({ type: 'pong' }); return; }
           communicatorRegistry.touch(connectionID);
           if (parsed.type === 'capabilities') {
             const caps = z
@@ -364,6 +427,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                 // Optional: an owner that predates identity sends neither.
                 instance_id: z.string().max(64).optional(),
                 runtime_id: z.string().max(64).optional(),
+                state_liveness: z.literal('communicator').optional(),
               })
               .strict()
               .parse(parsed);
@@ -374,6 +438,10 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               instance_id: caps.instance_id ?? null,
               runtime_id: caps.runtime_id ?? null,
             });
+            if (caps.state_liveness === 'communicator' && stateStreams) {
+              stateStreams.delegateTransportLiveness();
+              send({ type: 'state_liveness_ready', protocol: 1 });
+            }
             wsPublisher.publish('communicator.updated', { host_id: hostId });
             return;
           }
@@ -437,7 +505,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             return;
           }
           if (parsed.type === 'daemon') {
-            await authorize(req);
+            await checkAuthorization();
             if (!daemonAttached) {
               attachHostDaemonSocket(daemonSocket, req, ctx);
               daemonAttached = true;
@@ -490,7 +558,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               })
               .strict()
               .parse(parsed);
-            await authorize(req);
+            await checkAuthorization();
             const view = connections.get(connectionID)!;
             view.sessions = heartbeat.sessions;
             view.synced_at = heartbeat.synced_at;
@@ -504,7 +572,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             rejectable = parsed.id;
           const legacyBin = rejectable ? legacyBinaryRedirect(parsed) : null;
           if (legacyBin) {
-            await authorize(req);
+            await checkAuthorization();
             send({ id: parsed.id, status: 307, headers: { location: legacyBin }, body: '' });
             return;
           }
@@ -516,7 +584,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           inFlight++;
           try {
             rejectable = undefined;
-            await authorize(req);
+            await checkAuthorization();
             rejectable = frame.id;
             rejectStatus = 500;
             const headers: Record<string, string> = {};
@@ -639,7 +707,11 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
       socket.on('close', () => {
         closed = true;
         clearInterval(timer);
-        clearInterval(invalidationTimer);
+        clearTimeout(invalidationTimer);
+        clearTimeout(authorizationDeadline);
+        stopAuthorization?.();
+        stateStreams?.close('transport_lost');
+        if (owner) { try { ownerPresence(owner).disconnect(connectionID); } catch { /* owner already lost */ } }
         unsubscribe();
         daemonEvents.emit('close');
         communicatorRegistry.unregister(connectionID);

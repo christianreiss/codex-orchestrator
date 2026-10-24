@@ -49,6 +49,7 @@ func (c *Config) SourcePath() string {
 }
 
 type Orchestrator struct {
+	CommunicatorStateProtocol   int     `json:"communicator_state_protocol,omitempty"`
 	CommunicatorProtocol        int     `json:"communicator_protocol,omitempty"`
 	CommunicatorSyncProtocol    int     `json:"communicator_sync_protocol,omitempty"`
 	CommunicatorRuntimeProtocol int     `json:"communicator_runtime_protocol,omitempty"`

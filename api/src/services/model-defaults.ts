@@ -1,3 +1,5 @@
+import { clientConfigDocuments } from '../db/schema.js';
+import { ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/state/runtime.js';
 import { modelTier } from './model-tiers.js';
 import { readModelPolicy, applyModelPolicy, type ModelPolicy } from './model-policy.js';
 import type { Database } from '../db/client.js';
@@ -224,7 +226,31 @@ export class ModelDefaultsService {
   }
 
   /** Explicit Grok provisioning initializes the fleet config; reads stay read-only. */
+  /** Compose first-use defaults with the command assigning the engine. */
+  stageGrokDefaults(ctx: OwnerMutationContext): void {
+    if (ctx.draft.table('clientConfigDocuments').by('engine', ENGINE_GROK).length) return;
+    const rendered = this.clientConfig.render({ model: GROK_DEFAULT_MODEL, reasoning_effort: GROK_MODEL_DEFAULT_REASONING_EFFORTS[GROK_DEFAULT_MODEL] }, ENGINE_GROK);
+    const now = new Date().toISOString();
+    const values = { sha256: rendered.sha256, body: rendered.content, settings: rendered.settings as unknown as Record<string, unknown>, sourceHostId: null, engine: ENGINE_GROK, createdAt: now, updatedAt: now };
+    ctx.write(async tx => {
+      const [inserted] = await tx.insert(clientConfigDocuments).values(values);
+      ctx.draft.upsert('clientConfigDocuments', { ...values, id: Number(inserted.insertId) });
+    });
+  }
+
   async ensureGrokDefaults(): Promise<boolean> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      if (owner.state.snapshot().table('clientConfigDocuments').by('engine', ENGINE_GROK).length) return false;
+      try {
+        await this.clientConfig.store({ settings: { model: GROK_DEFAULT_MODEL, reasoning_effort: GROK_MODEL_DEFAULT_REASONING_EFFORTS[GROK_DEFAULT_MODEL] }, expected_revision: null }, null, ENGINE_GROK);
+        return true;
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'config_revision_conflict' && owner.state.snapshot().table('clientConfigDocuments').by('engine', ENGINE_GROK).length) return false;
+        throw error;
+      }
+    }
     return withClientConfigWriteLock(this.db, ENGINE_GROK, async (tx, existing, context) => {
       if (existing) return false;
       await new ModelDefaultsService(tx, context).set(ENGINE_GROK, {
@@ -251,7 +277,7 @@ export class ModelDefaultsService {
   }
 
   async set(engine: Engine, input: unknown): Promise<ModelDefaultsResponse> {
-    if (!this.configWrite) {
+    if (!this.configWrite && !ownerRuntimeFor(this.db)) {
       return withClientConfigWriteLock(this.db, engine, (tx, _existing, context) =>
         new ModelDefaultsService(tx, context).set(engine, input));
     }

@@ -1,3 +1,5 @@
+import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { adminAudit } from '../control-plane/state/admin.js';
 import { desc } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { adminEvents } from '../db/schema.js';
@@ -28,6 +30,14 @@ export class AdminEventsService {
     const createdAt = nowIso();
     const payload = input.payload ?? {};
 
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'admin.audit.record', payload: { type, hostId: input.hostId ?? null }, prepare(ctx) {
+        adminAudit(ctx, type, payload, createdAt, input.hostId ?? null); return null;
+      } });
+      if (options.broadcast !== false) wsPublisher.publish(type, payload);
+      return { createdAt };
+    }
     await this.db.insert(adminEvents).values({
       type,
       hostId: input.hostId ?? null,
@@ -47,6 +57,8 @@ export class AdminEventsService {
    * is empty. Used by `/admin/ws/info` so reconnecting clients can resume.
    */
   async latestEventId(): Promise<number | null> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); const raw = owner.state.snapshot().setting('owner_admin_event_id'); return raw ? Number(raw) : null; }
     const rows = await this.db
       .select({ id: adminEvents.id })
       .from(adminEvents)

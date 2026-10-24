@@ -1,3 +1,12 @@
+import { stageRoomEvent } from '../../control-plane/state/room-heads.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { ownerRuntimeFor,mutateOwnerState,type OwnerMutationContext } from '../../control-plane/state/runtime.js';
+import { ownedBridge,ownedAddress,requireOwnedMessaging } from '../../control-plane/state/messaging.js';
+import { stageQueuedMessage,stageServerAddress } from '../../control-plane/state/messages.js';
+import { stageDelete } from '../../control-plane/state/rows.js';
+import type { Json } from '../../control-plane/commands.js';
+const groupCommand=new AsyncLocalStorage<OwnerMutationContext>();
+import type { MessagingHost } from './types.js';
 import { randomUUID } from 'node:crypto';
 import { and, asc, count, eq, gte, sql } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
@@ -33,7 +42,7 @@ import {
   normalizeUuid,
 } from './normalize.js';
 import type { AgentMessagingDb } from './types.js';
-import { resolveWorkflowRunGroup, rejectManagedWorkflowGroupMutation } from '../workflow-run-group.js';
+import { resolveWorkflowRunGroup, rejectManagedWorkflowGroupMutation, ownedWorkflowRunGroup } from '../workflow-run-group.js';
 import { newQueuedMessage } from './views.js';
 
 export const SERVER_ADDRESS_ID = '00000000-0000-4000-8000-000000000001';
@@ -69,7 +78,7 @@ interface GroupsCore {
   db: Database;
   keyring: Keyring;
   requireEnabledLocked(db: AgentMessagingDb): Promise<void>;
-  authenticateBridge(sessionId: string, token: string): Promise<{ session: AgentSession; host: Host }>;
+  authenticateBridge(sessionId: string, token: string): Promise<{ session: AgentSession; host: MessagingHost }>;
   requireAddressLocked(db: AgentMessagingDb, id: string): Promise<AgentBusAddress>;
   assertSessionAddressLocked(
     db: AgentMessagingDb,
@@ -94,16 +103,27 @@ interface Receipts {
 /** Opt-in routing only: a topic is never a tap into direct or conference traffic. */
 export class AgentMessagingGroups {
   constructor(private readonly core: GroupsCore) {}
+  private async managed(tx:AgentMessagingDb,id:string){const state=this.snapshot();return state?ownedWorkflowRunGroup(state,id):resolveWorkflowRunGroup(tx,id);}
+  private async rejectManaged(tx:AgentMessagingDb,id:string){if(await this.managed(tx,id))throw new ConflictError('Manage this group through its workflow run','workflow_group_managed');}
+  private snapshot(){const context=groupCommand.getStore();if(context)return context.draft.view();const owner=ownerRuntimeFor(this.core.db);owner?.assertOwner();return owner?.state.snapshot();}
+  private async transaction<T>(action:(tx:AgentMessagingDb)=>Promise<T>):Promise<T>{const owner=ownerRuntimeFor(this.core.db);if(!owner)return this.core.db.transaction(action);if(groupCommand.getStore())return action(this.core.db);let value!:T;await mutateOwnerState(owner,{kind:'messaging.group.command',payload:{},authorize:requireOwnedMessaging,prepare:ctx=>groupCommand.run(ctx,async()=>{value=await action(this.core.db);return ()=>JSON.parse(JSON.stringify(value??null)) as Json;})});return value;}
+  private async deleteSubscriptions(tx:AgentMessagingDb,rows:ReadonlyArray<typeof agentBusSubscriptions.$inferSelect>):Promise<void>{const ctx=groupCommand.getStore();if(ctx){for(const row of rows)stageDelete(ctx,'agentBusSubscriptions',row.id);return;}for(const row of rows)await tx.delete(agentBusSubscriptions).where(eq(agentBusSubscriptions.id,row.id));}
+  private async conversation(tx:AgentMessagingDb,row:typeof agentBusConversations.$inferInsert):Promise<void>{const ctx=groupCommand.getStore();if(ctx){ctx.draft.upsert('agentBusConversations',{...row,lastToASequence:0,lastToBSequence:0} as typeof agentBusConversations.$inferSelect);ctx.write(async owned=>owned.insert(agentBusConversations).values(row));return;}await tx.insert(agentBusConversations).values(row);}
+  private async queued(tx:AgentMessagingDb,row:typeof agentBusMessages.$inferInsert):Promise<void>{const ctx=groupCommand.getStore();if(ctx){stageQueuedMessage(ctx,row);return;}await tx.insert(agentBusMessages).values(row);}
+
 
   private async asAgent<T>(
     sessionId: string,
     token: string,
     action: (tx: AgentMessagingDb, actor: AgentBusAddress) => Promise<T>,
+    readOnly=false,
   ): Promise<T> {
+    const owner=ownerRuntimeFor(this.core.db);if(owner){const admit=()=>{const snapshot=owner.state.snapshot(),{session}=ownedBridge(snapshot,sessionId,token);if(!session.agentBusAddressId)throw new ConflictError('Agent session has no messaging address','agent_messaging_address_missing');const actor=ownedAddress(snapshot,session.agentBusAddressId);if(actor.currentSessionId!==session.id||actor.bindingGeneration!==session.bindingGeneration)throw new ConflictError('Agent binding changed','agent_binding_changed');return actor;};
+      if(readOnly){const actor=admit();return action(this.core.db,actor);}let value!:T;await mutateOwnerState(owner,{kind:'messaging.group.command',principal:'session:'+sessionId,payload:{},authorize:()=>{admit();},prepare:ctx=>groupCommand.run(ctx,async()=>{value=await action(this.core.db,admit());return ()=>JSON.parse(JSON.stringify(value??null)) as Json;})});return value;}
     const auth = await this.core.authenticateBridge(sessionId, token);
     if (!auth.session.agentBusAddressId)
       throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
-    return this.core.db.transaction(async (tx) => {
+    return this.transaction(async (tx) => {
       // Same lock as every bus mutation, serializing publication snapshots with
       // joins/leaves and the master switch, including zero-recipient publishes.
       await this.core.requireEnabledLocked(tx);
@@ -114,7 +134,7 @@ export class AgentMessagingGroups {
   }
 
   private async group(tx: AgentMessagingDb, slug: string): Promise<Group> {
-    const rows = await tx.select().from(agentBusGroups).where(eq(agentBusGroups.slug, slug)).limit(1);
+    const rows = this.snapshot()?.table('agentBusGroups').all().filter(r=>r.slug===slug)??await tx.select().from(agentBusGroups).where(eq(agentBusGroups.slug,slug)).limit(1);
     if (!rows[0]) throw new NotFoundError('Group not found', 'agent_messaging_group_not_found');
     return rows[0];
   }
@@ -133,14 +153,14 @@ export class AgentMessagingGroups {
   }
 
   private async list(tx: AgentMessagingDb) {
-    const rows = await tx.select().from(agentBusGroups).orderBy(asc(agentBusGroups.slug));
-    const counts = await tx
+    const state=this.snapshot();const rows=state?[...state.table('agentBusGroups').all()].sort((a,b)=>a.slug.localeCompare(b.slug)):await tx.select().from(agentBusGroups).orderBy(asc(agentBusGroups.slug));
+    const counts = state?rows.map(r=>({topic:'group:'+r.slug,value:state.table('agentBusSubscriptions').all().filter(s=>s.topic==='group:'+r.slug).length})):await tx
       .select({ topic: agentBusSubscriptions.topic, value: count() })
       .from(agentBusSubscriptions)
       .groupBy(agentBusSubscriptions.topic);
     return {
       groups: await Promise.all(rows.map(async row => {
-        const managed = await resolveWorkflowRunGroup(tx, row.id);
+        const managed = await this.managed(tx, row.id);
         return { ...this.view(row, Number(counts.find(c => c.topic === `group:${row.slug}`)?.value ?? 0)),
           ...(managed ? { workflow_managed: true, workflow_run_id: managed.run.id, workflow_report_url: `/admin/workflows/runs/${managed.run.id}`, status: managed.closed ? 'closed' : 'open' } : {}) };
       })),
@@ -155,7 +175,7 @@ export class AgentMessagingGroups {
     return this.list(this.core.db);
   }
   async listForAgent(sessionId: string, token: string) {
-    return this.asAgent(sessionId, token, (tx) => this.list(tx));
+    return this.asAgent(sessionId, token, (tx) => this.list(tx),true);
   }
 
   private async create(
@@ -167,7 +187,7 @@ export class AgentMessagingGroups {
     if (slug.startsWith('workflow-run-')) throw new ConflictError('Workflow group slugs are reserved', 'workflow_group_managed');
     const title = normalizeRequiredText(input.title, 'title', 120);
     const description = normalizeOptionalText(input.description, 1024);
-    const existing = await tx.select().from(agentBusGroups).where(eq(agentBusGroups.slug, slug)).limit(1);
+    const existing=this.snapshot()?.table('agentBusGroups').all().filter(r=>r.slug===slug)??await tx.select().from(agentBusGroups).where(eq(agentBusGroups.slug,slug)).limit(1);
     if (existing[0]) {
       if (
         existing[0].createdByAddressId !== actorId ||
@@ -178,7 +198,7 @@ export class AgentMessagingGroups {
       }
       return { created: false, group: this.view(existing[0]) };
     }
-    const owned = await tx
+    const state=this.snapshot();const owned=state?[{value:state.table('agentBusGroups').all().filter(g=>g.createdByAddressId===actorId&&!state.table('workflowRuns').all().some(r=>r.communicationGroupId===g.id&&r.status==='completed')).length}]:await tx
       .select({ value: count() })
       .from(agentBusGroups)
       .where(and(eq(agentBusGroups.createdByAddressId, actorId), sql`NOT EXISTS (SELECT 1 FROM workflow_runs r WHERE r.communication_group_id = ${agentBusGroups.id} AND r.status = 'completed')`));
@@ -194,7 +214,7 @@ export class AgentMessagingGroups {
       createdAt: now,
       updatedAt: now,
     };
-    await tx.insert(agentBusGroups).values(group);
+    const ctx=groupCommand.getStore();if(ctx){ctx.draft.upsert('agentBusGroups',group);ctx.write(async owned=>owned.insert(agentBusGroups).values(group));}else await tx.insert(agentBusGroups).values(group);
     return { created: true, group: this.view(group) };
   }
 
@@ -208,7 +228,7 @@ export class AgentMessagingGroups {
     return result;
   }
   async createAdmin(input: { slug: string; title: string; description?: string | null }) {
-    const result = await this.core.db.transaction(async (tx) => {
+    const result = await this.transaction(async (tx) => {
       await this.core.requireEnabledLocked(tx);
       return this.create(tx, SERVER_ADDRESS_ID, input);
     });
@@ -225,7 +245,7 @@ export class AgentMessagingGroups {
    */
   private async remove(tx: AgentMessagingDb, actorId: string | null, rawSlug: string) {
     const group = await this.group(tx, normalizeGroupSlug(rawSlug));
-    await rejectManagedWorkflowGroupMutation(tx, group.id);
+    await this.rejectManaged(tx, group.id);
     if (actorId !== null && group.createdByAddressId !== actorId)
       throw new ForbiddenError(
         'Only the agent that created a group may delete it',
@@ -235,7 +255,7 @@ export class AgentMessagingGroups {
     // dead host cannot make a short-lived group undeletable.
     await this.pruneRetiredSubscriptions(tx);
     const topic = `group:${group.slug}`;
-    const members = await tx
+    const members=this.snapshot()?.table('agentBusSubscriptions').all().filter(r=>r.topic===topic)??await tx
       .select({ subscriberAddressId: agentBusSubscriptions.subscriberAddressId })
       .from(agentBusSubscriptions)
       .where(eq(agentBusSubscriptions.topic, topic));
@@ -246,8 +266,7 @@ export class AgentMessagingGroups {
         'agent_messaging_group_members_remain',
         { member_count: others },
       );
-    await tx.delete(agentBusSubscriptions).where(eq(agentBusSubscriptions.topic, topic));
-    await tx.delete(agentBusGroups).where(eq(agentBusGroups.id, group.id));
+    const ctx=groupCommand.getStore();if(ctx){await this.deleteSubscriptions(tx,ctx.draft.table('agentBusSubscriptions').all().filter(r=>r.topic===topic));stageDelete(ctx,'agentBusGroups',group.id);}else{await tx.delete(agentBusSubscriptions).where(eq(agentBusSubscriptions.topic,topic));await tx.delete(agentBusGroups).where(eq(agentBusGroups.id,group.id));}
     return {
       deleted: true as const,
       slug: group.slug,
@@ -270,7 +289,7 @@ export class AgentMessagingGroups {
   }
   async deleteAdmin(slug: string) {
     return this.announceRemoval(
-      await this.core.db.transaction(async (tx) => {
+      await this.transaction(async (tx) => {
         await this.core.requireEnabledLocked(tx);
         return this.remove(tx, null, slug);
       }),
@@ -279,13 +298,13 @@ export class AgentMessagingGroups {
 
   private async detail(tx: AgentMessagingDb, rawSlug: string) {
     const group = await this.group(tx, normalizeGroupSlug(rawSlug));
-    const rows = await tx
+    const state=this.snapshot();const rows=state?state.table('agentBusSubscriptions').all().filter(r=>r.topic==='group:'+group.slug).flatMap(subscription=>{const address=state.addresses.get(subscription.subscriberAddressId);return address?[{subscription,address}]:[];}).sort((a,b)=>a.subscription.createdAt.localeCompare(b.subscription.createdAt)):await tx
       .select({ subscription: agentBusSubscriptions, address: agentBusAddresses })
       .from(agentBusSubscriptions)
       .innerJoin(agentBusAddresses, eq(agentBusAddresses.id, agentBusSubscriptions.subscriberAddressId))
       .where(eq(agentBusSubscriptions.topic, `group:${group.slug}`))
       .orderBy(asc(agentBusSubscriptions.createdAt));
-    const managed = await resolveWorkflowRunGroup(tx, group.id);
+    const managed = await this.managed(tx, group.id);
     return {
       group: { ...this.view(group, rows.length), ...(managed ? { workflow_managed: true, workflow_run_id: managed.run.id, workflow_report_url: `/admin/workflows/runs/${managed.run.id}`, status: managed.closed ? 'closed' : 'open' } : {}) },
       members: rows.map(({ subscription, address }) => ({
@@ -302,7 +321,7 @@ export class AgentMessagingGroups {
     return this.detail(this.core.db, slug);
   }
   async detailForAgent(sessionId: string, token: string, slug: string) {
-    return this.asAgent(sessionId, token, (tx) => this.detail(tx, slug));
+    return this.asAgent(sessionId, token, (tx) => this.detail(tx, slug),true);
   }
 
   private async requireTopic(tx: AgentMessagingDb, topic: string) {
@@ -314,6 +333,7 @@ export class AgentMessagingGroups {
   }
 
   private async pruneRetiredSubscriptions(tx: AgentMessagingDb): Promise<void> {
+    const ctx=groupCommand.getStore();if(ctx){const state=ctx.draft.view(),alive=(id:string)=>{const a=state.addresses.get(id);return a&&!a.archivedAt&&state.hosts.has(a.hostId);};await this.deleteSubscriptions(tx,state.table('agentBusSubscriptions').all().filter(r=>!alive(r.subscriberAddressId)||r.topic.startsWith('agent:')&&r.topic!==SERVER_PUBLICATION_TOPIC&&!alive(r.topic.slice(6))));return;}
     // Disable, suspension and offline state preserve opt-in. Only permanent
     // retirement may reclaim capacity; a retired agent cannot opt out itself.
     await tx.delete(agentBusSubscriptions).where(sql`
@@ -340,7 +360,7 @@ export class AgentMessagingGroups {
     const result = await this.asAgent(sessionId, token, async (tx, actor) => {
       if (topic.startsWith('group:')) {
         const group = await this.group(tx, topic.slice(6));
-        await rejectManagedWorkflowGroupMutation(tx, group.id);
+        await this.rejectManaged(tx, group.id);
       }
       // Leaving remains possible when the followed agent is retired or disabled.
       if (subscribed) await this.requireTopic(tx, topic);
@@ -351,13 +371,13 @@ export class AgentMessagingGroups {
         eq(agentBusSubscriptions.topic, topic),
         eq(agentBusSubscriptions.subscriberAddressId, actor.id),
       );
-      const existing = await tx.select().from(agentBusSubscriptions).where(predicate).limit(1);
+      const state=this.snapshot();const existing=state?state.table('agentBusSubscriptions').all().filter(r=>r.topic===topic&&r.subscriberAddressId===actor.id):await tx.select().from(agentBusSubscriptions).where(predicate).limit(1);
       if (!subscribed) {
-        await tx.delete(agentBusSubscriptions).where(predicate);
+        await this.deleteSubscriptions(tx,existing);
         return { topic, subscribed: false, changed: existing.length > 0 };
       }
       if (existing[0]) return { topic, subscribed: true, changed: false };
-      const [members, own] = await Promise.all([
+      const [members,own]=state?[[{value:state.table('agentBusSubscriptions').all().filter(r=>r.topic===topic).length}],[{value:state.table('agentBusSubscriptions').all().filter(r=>r.subscriberAddressId===actor.id).length}]]:await Promise.all([
         tx
           .select({ value: count() })
           .from(agentBusSubscriptions)
@@ -373,9 +393,7 @@ export class AgentMessagingGroups {
       ) {
         throw new ConflictError('Subscription limit reached', 'agent_messaging_subscription_limit');
       }
-      await tx
-        .insert(agentBusSubscriptions)
-        .values({ id: randomUUID(), topic, subscriberAddressId: actor.id, createdAt: nowIso() });
+      const row={id:randomUUID(),topic,subscriberAddressId:actor.id,createdAt:nowIso()},ctx=groupCommand.getStore();if(ctx){ctx.draft.upsert('agentBusSubscriptions',row);ctx.write(async owned=>owned.insert(agentBusSubscriptions).values(row));}else await tx.insert(agentBusSubscriptions).values(row);
       return { topic, subscribed: true, changed: true };
     });
     if (result.changed) wsPublisher.publish('agent_messaging.subscriptions.changed', { topic });
@@ -383,7 +401,7 @@ export class AgentMessagingGroups {
   }
 
   private async subscriptions(tx: AgentMessagingDb, subscriberId?: string) {
-    const rows = await tx
+    const state=this.snapshot();const rows=state?state.table('agentBusSubscriptions').all().filter(r=>!subscriberId||r.subscriberAddressId===subscriberId).flatMap(subscription=>{const address=state.addresses.get(subscription.subscriberAddressId);return address?[{subscription,address}]:[];}).sort((a,b)=>a.subscription.topic.localeCompare(b.subscription.topic)):await tx
       .select({ subscription: agentBusSubscriptions, address: agentBusAddresses })
       .from(agentBusSubscriptions)
       .innerJoin(agentBusAddresses, eq(agentBusAddresses.id, agentBusSubscriptions.subscriberAddressId))
@@ -403,10 +421,11 @@ export class AgentMessagingGroups {
     return this.subscriptions(this.core.db);
   }
   async subscriptionsForAgent(sessionId: string, token: string) {
-    return this.asAgent(sessionId, token, (tx, actor) => this.subscriptions(tx, actor.id));
+    return this.asAgent(sessionId, token, (tx, actor) => this.subscriptions(tx, actor.id),true);
   }
 
   async server(tx: AgentMessagingDb): Promise<AgentBusAddress> {
+    const ctx=groupCommand.getStore();if(ctx)return stageServerAddress(ctx,nowIso());const state=this.snapshot();if(state){const row=state.addresses.get(SERVER_ADDRESS_ID);if(!row)throw new Error('Reserved Server identity is absent outside owner command');return row;}
     const rows = await tx
       .select()
       .from(agentBusAddresses)
@@ -461,7 +480,7 @@ export class AgentMessagingGroups {
     const ttl = normalizeMessageTtl(input.ttlSeconds);
     const clientId = normalizeUuid(input.clientMessageId, 'client_message_id');
     const digest = sha256(JSON.stringify({ topic, content, ttl }));
-    const existing = await tx
+    const existing=this.snapshot()?.table('agentBusPublications').all().filter(r=>r.senderAddressId===sender.id&&r.clientMessageId===clientId)??await tx
       .select()
       .from(agentBusPublications)
       .where(
@@ -486,7 +505,7 @@ export class AgentMessagingGroups {
     await this.requireTopic(tx, topic);
     if (topic.startsWith('group:')) {
       const group = await this.group(tx, topic.slice(6));
-      const managed = await resolveWorkflowRunGroup(tx, group.id);
+      const managed = await this.managed(tx, group.id);
       if (managed && (managed.closed || (sender.id !== SERVER_ADDRESS_ID && !managed.members.some(m => m.status === 'active' && m.agentAddressId === sender.id && m.sessionId === sessionId && m.bindingGeneration === sender.bindingGeneration))))
         throw new ForbiddenError('Active workflow membership is required to publish', 'workflow_member_required');
     }
@@ -497,7 +516,7 @@ export class AgentMessagingGroups {
           'agent_messaging_publication_forbidden',
         );
     } else if (sender.id !== SERVER_ADDRESS_ID) {
-      const joined = await tx
+      const joined=this.snapshot()?.table('agentBusSubscriptions').all().filter(r=>r.topic===topic&&r.subscriberAddressId===sender.id)??await tx
         .select()
         .from(agentBusSubscriptions)
         .where(
@@ -513,7 +532,7 @@ export class AgentMessagingGroups {
           'agent_messaging_group_membership_required',
         );
     }
-    const recent = await tx
+    const state=this.snapshot();const recent=state?[{value:state.table('agentBusPublications').all().filter(r=>r.senderAddressId===sender.id&&Date.parse(r.createdAt)>=Date.now()-60000).length}]:await tx
       .select({ value: count() })
       .from(agentBusPublications)
       .where(
@@ -528,7 +547,7 @@ export class AgentMessagingGroups {
         code: 'agent_messaging_publication_rate_limited',
         headers: { 'retry-after': '60' },
       });
-    const subscribers = await tx
+    const subscribers=state?[...state.table('agentBusSubscriptions').all()].filter(r=>r.topic===topic).sort((a,b)=>a.subscriberAddressId.localeCompare(b.subscriberAddressId)):await tx
       .select()
       .from(agentBusSubscriptions)
       .where(eq(agentBusSubscriptions.topic, topic))
@@ -559,7 +578,7 @@ export class AgentMessagingGroups {
         continue;
       }
       const conversationId = randomUUID();
-      await tx.insert(agentBusConversations).values({
+      await this.conversation(tx,{
         id: conversationId,
         addressAId: sender.id,
         addressBId: target.id,
@@ -571,7 +590,7 @@ export class AgentMessagingGroups {
         updatedAt: now,
       });
       const messageId = randomUUID();
-      await tx.insert(agentBusMessages).values(
+      await this.queued(tx,
         newQueuedMessage({
           id: messageId,
           conversationId,
@@ -590,10 +609,10 @@ export class AgentMessagingGroups {
       receipts.deliveries.push({ address_id: target.id, message_id: messageId });
     }
     if (topic.startsWith('group:')) {
-      const [group] = await tx.select().from(agentBusGroups).where(eq(agentBusGroups.slug,topic.slice(6)));
-      if(group) await tx.insert(agentRoomEvents).values({id:publicationId,roomId:group.id,actor:`agent:${sender.id}`,requestId:clientId,payloadHash:digest,bodyEnc:encrypt(JSON.stringify({name:sender.launchName??sender.displayAlias??sender.username,content,attachments:[],kind:'publication'}),this.core.keyring),createdAt:now});
+      const group=await this.group(tx,topic.slice(6));
+      if(group){const event={id:publicationId,roomId:group.id,actor:`agent:${sender.id}`,requestId:clientId,payloadHash:digest,bodyEnc:encrypt(JSON.stringify({name:sender.launchName??sender.displayAlias??sender.username,content,attachments:[],kind:'publication'}),this.core.keyring),createdAt:now},ctx=groupCommand.getStore();if(ctx){stageRoomEvent(ctx,event);}else await tx.insert(agentRoomEvents).values(event);}
     }
-    await tx.insert(agentBusPublications).values({
+    const publication={
       id: publicationId,
       topic,
       senderAddressId: sender.id,
@@ -603,7 +622,7 @@ export class AgentMessagingGroups {
       ttlSeconds: ttl,
       receipts,
       createdAt: now,
-    });
+    };const ctx=groupCommand.getStore();if(ctx){ctx.draft.upsert('agentBusPublications',publication);ctx.write(async owned=>owned.insert(agentBusPublications).values(publication));}else await tx.insert(agentBusPublications).values(publication);
     return {
       publication_id: publicationId,
       topic,
@@ -633,10 +652,11 @@ export class AgentMessagingGroups {
    * topic: the role system's ROLE-UPDATE / ROLE-REVIEW / ROLE-PROPOSAL lines.
    * The body carries its own protocol header; ineligible addresses are skipped.
    */
+  async noticeAddressesOwned(context:OwnerMutationContext,addressIds:string[],content:string,noticeId?:string){return groupCommand.run(context,()=>this.noticeAddresses(addressIds,content,noticeId));}
   async noticeAddresses(addressIds: string[], content: string, noticeId?: string) {
     const body = normalizeMessageBody(content);
     const roleWithdrawal = /^ROLE-UPDATE\/1 [^\n]* severity=withdrawn(?:\n|$)/.test(body);
-    const result = await this.core.db.transaction(async (tx) => {
+    const result = await this.transaction(async (tx) => {
       await this.core.requireEnabledLocked(tx);
       const sender = await this.server(tx);
       const now = nowIso();
@@ -655,7 +675,7 @@ export class AgentMessagingGroups {
           const [session] = target.currentSessionId
             // The address lock fences binding/finish cleanup. Do not take the
             // session lock after it: finishSession locks session then address.
-            ? await tx.select().from(agentSessions).where(eq(agentSessions.id, target.currentSessionId))
+            ? this.snapshot()?[this.snapshot()!.sessions.get(target.currentSessionId)].filter(s=>s!==undefined):await tx.select().from(agentSessions).where(eq(agentSessions.id,target.currentSessionId))
             : [];
           if (!session || session.endedAt || session.agentBusAddressId !== target.id || session.bindingGeneration !== target.bindingGeneration) {
             receipts.skipped.push({ address_id: id, reason: 'session_ineligible' });
@@ -663,14 +683,15 @@ export class AgentMessagingGroups {
           }
         }
         if (noticeId) {
-          const [existing] = await tx.select({ id: agentBusMessages.id }).from(agentBusMessages).where(and(
+          const known=this.snapshot()?.messages.all().find(m=>m.senderAddressId===sender.id&&m.targetAddressId===target.id&&m.clientMessageId===noticeId);
+          const [existing] = known?[known]:await tx.select({ id: agentBusMessages.id }).from(agentBusMessages).where(and(
             eq(agentBusMessages.senderAddressId, sender.id), eq(agentBusMessages.targetAddressId, target.id),
             eq(agentBusMessages.clientMessageId, noticeId),
           )).limit(1);
           if (existing) { receipts.deliveries.push({ address_id: id, message_id: existing.id }); continue; }
         }
         const conversationId = randomUUID();
-        await tx.insert(agentBusConversations).values({
+        await this.conversation(tx,{
           id: conversationId,
           addressAId: sender.id,
           addressBId: target.id,
@@ -701,19 +722,19 @@ export class AgentMessagingGroups {
           message.targetBindingGeneration = target.bindingGeneration;
           message.deliveryClass = 'coordination';
         }
-        await tx.insert(agentBusMessages).values(message);
+        await this.queued(tx,message);
         receipts.deliveries.push({ address_id: target.id, message_id: messageId });
       }
       return receipts;
     });
-    for (const delivery of result.deliveries)
+    if(!groupCommand.getStore())for (const delivery of result.deliveries)
       wsPublisher.publish('agent_messaging.message.changed', { message_id: delivery.message_id, status: 'queued' });
     return result;
   }
 
   async publishAdmin(input: PublicationInput) {
     return this.notify(
-      await this.core.db.transaction(async (tx) => {
+      await this.transaction(async (tx) => {
         await this.core.requireEnabledLocked(tx);
         return this.publish(tx, await this.server(tx), null, input);
       }),

@@ -1,3 +1,4 @@
+import { ownerStream } from "./owner-stream";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 const GROUP = "44444444-4444-4444-8444-444444444444",
@@ -61,7 +62,7 @@ async function fixture(page: Page) {
     work: { task: null, branch: null, target_branch: null, declared_paths: [], worktree_path: null, address: null, address_alias: null },
   }];
   let loseResponse = false;
-  await page.routeWebSocket("**/room-ws", () => {});
+  await page.routeWebSocket("**/room-ws", ws => { ownerStream(ws); });
   await page.addInitScript(() => {
     class MockSource extends EventTarget {
       close() {}

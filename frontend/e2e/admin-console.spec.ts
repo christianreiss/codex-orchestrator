@@ -1,3 +1,4 @@
+import { ownerStream, installOwnerUpdates } from "./owner-stream";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import type { ModelDefaultsValue } from "../src/lib/api/types";
@@ -178,7 +179,7 @@ test("quick settings reconcile failed Grok window saves and follow live context 
   const defaults = quickDefaults();
   let emit: ((data: string) => void) | undefined;
   let finishWrite: (() => void) | undefined;
-  await page.routeWebSocket("**/context-ws", ws => { emit = data => ws.send(data); });
+  await page.routeWebSocket("**/context-ws", ws => { ownerStream(ws); emit = data => ws.send(data); });
   await installFixtures(page, path => {
     if (path === "/admin/ws/info") return { enabled: true, url: "ws://127.0.0.1:4173/context-ws" };
     if (path === "/admin/model-defaults/grok") return { ...defaults.grok };
@@ -215,7 +216,7 @@ test("quick settings isolate saving, follow live updates, and ignore stale reads
   let emit: ((data: string) => void) | undefined;
   let finishWrite: (() => void) | undefined;
   let writes = 0;
-  await page.routeWebSocket("**/quick-ws", (ws) => { emit = (data) => ws.send(data); });
+  await page.routeWebSocket("**/quick-ws", (ws) => { ownerStream(ws); emit = (data) => ws.send(data); });
   await installFixtures(page, (path) => {
     if (path === "/admin/ws/info") return { enabled: true, url: "ws://127.0.0.1:4173/quick-ws" };
     if (path.startsWith("/admin/model-defaults/")) return { ...defaults[path.split("/").at(-1) as "codex" | "claude" | "grok"] };
@@ -587,7 +588,8 @@ test("every setting updates the effective preview without a button press", async
   await page.getByRole("textbox", { name: "Custom instructions" }).fill("no reactors");
   await expect(preview).toContainText("custom=no reactors", { timeout: 10_000 });
 
-  await expect(page.getByRole("button", { name: "Refresh" })).toHaveCount(0);
+  // Preview updates are automatic; the shell may separately offer a manual refresh.
+  await expect(preview.getByRole("button", { name: "Refresh" })).toHaveCount(0);
 });
 
 test("the generation master switch reaches the effective preview without a button press", async ({ page }) => {
@@ -632,7 +634,8 @@ test("the generation master switch reaches the effective preview without a butto
   await expect(raw).toBeVisible();
   await expect(raw).toHaveValue("## Operating Contract (FAST)\n\nExecute and verify.\n");
 
-  await expect(page.getByRole("button", { name: "Refresh" })).toHaveCount(0);
+  // Preview updates are automatic; the shell may separately offer a manual refresh.
+  await expect(preview.getByRole("button", { name: "Refresh" })).toHaveCount(0);
 });
 
 test("manual mode stores the bytes in the textarea, not the composed document", async ({ page }) => {
@@ -1072,7 +1075,7 @@ test("Grok account usage shows real periods and follows live updates without inv
   let available = true;
   const resetsAt = new Date(Date.now() + 604_800_000).toISOString();
   let emit: ((data: string) => void) | undefined;
-  await page.routeWebSocket("**/grok-usage-ws", ws => { emit = data => ws.send(data); });
+  await page.routeWebSocket("**/grok-usage-ws", ws => { ownerStream(ws); emit = data => ws.send(data); });
   await installFixtures(page, path => {
     if (path === "/admin/ws/info") return { enabled: true, url: "ws://127.0.0.1:4173/grok-usage-ws" };
     if (path === "/admin/accounts") return { accounts: [{
@@ -1387,6 +1390,7 @@ test("quota advice settings save centrally and survive reload", async ({ page })
 test("Claude login expiry remains visible with successful verification and clears after renewal", async ({ page }, info) => {
   test.setTimeout(90_000);
   await installFixtures(page, controlFixture);
+  const publish = await installOwnerUpdates(page);
   let expiryState = "expiring";
   let configured = true;
   await page.route("**/admin/runner", async (route) => route.fulfill({
@@ -1417,7 +1421,8 @@ test("Claude login expiry remains visible with successful verification and clear
   await page.reload();
   await expect(claude).toContainText("Claude login expired");
   expiryState = "ok";
-  // Existing polling must remove the warning after canonical renewal.
+  // Canonical renewal publishes a state transition; quiet pages never poll.
+  await publish("runner.state.changed", { engine: "claude" });
   await expect(claude).not.toContainText("Claude login expired", { timeout: 20_000 });
 });
 
@@ -1431,7 +1436,7 @@ for (const mode of ["triage", "manage"] as const) {
       for (const emit of emitters) emit(JSON.stringify({ type, payload, ts: new Date().toISOString() }));
     };
     for (const client of clients) {
-      await client.routeWebSocket("**/approvals-ws", (ws) => { emitters.push((data) => ws.send(data)); });
+      await client.routeWebSocket("**/approvals-ws", (ws) => { ownerStream(ws); emitters.push((data) => ws.send(data)); });
       await installFixtures(client, (path) => {
         if (path === "/admin/hosts/insecure") return { hosts: [], domains: [], domains_active: 0 };
         if (path === "/admin/ws/info") return { enabled: true, url: "ws://127.0.0.1:4173/approvals-ws" };

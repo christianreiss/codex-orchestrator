@@ -41,7 +41,8 @@
   import { liveActivity } from "$lib/portal/activity";
   import { presenceView } from "$lib/portal/presence";
   import { listTime, visibleTimeline } from "$lib/portal/grouping";
-  import { clientClock, isOnlineActiveAgent, roomHasActiveAgent, snapshotIsStale, visibleClients } from "$lib/portal/clients";
+  import { wsStatus } from "$lib/stores/ws-status";
+  import { clientClock, isOnlineActiveAgent, roomHasActiveAgent, visibleClients } from "$lib/portal/clients";
   import { watchClientEvents, type ClientFeedState } from "$lib/portal/client-events";
   import type { TimelineSource } from "$lib/portal/types";
   import { reconnectReceiverMutation, agentSessionKeys, agentSessionsQuery, forceCloseMutation, requestCloseMutation, sendMutation, sessionEventsQuery, type AgentSessionRow } from "$lib/api/agentSessions";
@@ -137,7 +138,7 @@
   const enabled = $derived($sessions.data?.enabled ?? true);
   const timings = $derived($sessions.data?.timings ?? {});
   const serverNow = $derived(clientClock($sessions.data, $sessions.dataUpdatedAt, now));
-  const stale = $derived(Boolean($sessions.data) && snapshotIsStale($sessions.dataUpdatedAt, now, timings));
+  const stale = $derived(Boolean($sessions.data) && $wsStatus !== "open");
   // Same rule as the Android app: current rooms need a reachable member that is also an online agent.
   const onlineSessionIds = $derived($sessions.data ? new Set(allRows.filter(row => isOnlineActiveAgent(row, serverNow, timings)).map(row => row.id)) : null);
   const roomRows = $derived(matchingRooms((roomData?.rooms ?? []).filter(room => roomView === 'history' || roomHasActiveAgent(room, onlineSessionIds)), search, engine));
@@ -289,7 +290,7 @@
 <DraftGuard preserveOnSamePath dirty={Object.values(drafts).some((draft) => draft.trim().length > 0) || Object.values(uploads).some((items) => items.length > 0) || Object.values(roomDrafts).some((draft) => draft.text.trim().length > 0 || draft.uploads.length > 0)} />
 
 {#if canRemoteManage}
-  <RemoteSessions active={workspace === "remote"} hosts={$daemonHosts.data?.hosts ?? []} loading={$daemonHosts.isPending} error={$daemonHosts.error} stale={!$daemonHosts.dataUpdatedAt || now - $daemonHosts.dataUpdatedAt > 45_000} agents={allRows} bind:selectedId={remoteId} bind:startOpen={startRemote} {refresh}
+  <RemoteSessions active={workspace === "remote"} hosts={$daemonHosts.data?.hosts ?? []} loading={$daemonHosts.isPending} error={$daemonHosts.error} stale={!$daemonHosts.dataUpdatedAt || $wsStatus !== "open"} agents={allRows} bind:selectedId={remoteId} bind:startOpen={startRemote} {refresh}
     onselect={(id) => { selectedId = id; }} fixedHost={embedded ? spawnHost : Number(page.url.searchParams.get("host")) || undefined} compact={embedded}>
     {#snippet conversation(id: string, controls: Snippet, live: boolean)}
       {#if selected?.id === id}{@render nativeConversation(controls, live)}{/if}

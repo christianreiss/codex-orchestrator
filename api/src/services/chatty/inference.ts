@@ -1,3 +1,4 @@
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
@@ -64,7 +65,9 @@ export class ChattyInference {
   }
   async availability(settings: ChattySettings): Promise<EngineAvailability[]> {
     const flags = await readFleetEngineState(this.ctx.db);
-    const candidates = await this.ctx.db
+    const owner = ownerRuntimeFor(this.ctx.db);
+    const snapshot = owner?.state.snapshot();
+    const candidates = snapshot ? snapshot.table('providerAccounts').all().filter(a => a.state === 'enabled' && a.payloadId !== null && snapshot.table('authPayloads').get(a.payloadId)?.verificationState === 'verified').map(a => ({id:a.id, engine:a.engine})) : await this.ctx.db
       .select({ id: providerAccounts.id, engine: providerAccounts.engine })
       .from(providerAccounts)
       .innerJoin(authPayloads, eq(authPayloads.id, providerAccounts.payloadId))
@@ -84,12 +87,16 @@ export class ChattyInference {
     const expired = new Set<Engine>();
     const validation = createRunnerValidationService({ db: this.ctx.db, keyring: this.ctx.keyring });
     for (const a of candidates) {
-      const canonical = await validation.resolveCanonicalPayload(a.engine as Engine, a.id);
-      const auth = canonical && validation.canonicalAuthFromPayload(canonical);
-      if (!auth) continue;
-      if (accessExpired(auth, a.engine as Engine)) {
-        expired.add(a.engine as Engine);
-        continue;
+      if (snapshot) {
+        const account = snapshot.table('providerAccounts').get(a.id);
+        const canonical = account?.payloadId ? snapshot.table('authPayloads').get(account.payloadId) : undefined;
+        if (!canonical?.credentialKind || (canonical.credentialKind !== 'api_key' && !canonical.accessExpiresAt)) continue;
+        if (canonical.accessExpiresAt && Date.parse(canonical.accessExpiresAt) <= Date.now()) { expired.add(a.engine as Engine); continue; }
+      } else {
+        const canonical = await validation.resolveCanonicalPayload(a.engine as Engine, a.id);
+        const auth = canonical && validation.canonicalAuthFromPayload(canonical);
+        if (!auth) continue;
+        if (accessExpired(auth, a.engine as Engine)) { expired.add(a.engine as Engine); continue; }
       }
       authenticated.add(a.engine as Engine);
       const usage = await accounts.usage(a.id, a.engine as Engine);
@@ -171,10 +178,10 @@ export class ChattyInference {
         const hardFail = await new SettingsService(this.ctx.db).getFlag('quota_hard_fail', false);
         if (hardFail && quotaExhausted(usage, threshold))
           throw new ServiceUnavailableError('Selected account quota is exhausted', 'quota_exhausted');
-        timer = setInterval(() => {
+        if (!ownerRuntimeFor(this.ctx.db)) timer = setInterval(() => {
           void accounts.heartbeat(0, engine, leaseId).catch(() => {});
         }, 30000);
-        timer.unref();
+        timer?.unref();
         let auth: unknown;
         if (engine === 'grok') {
           const owner = createGrokAuthOwner({

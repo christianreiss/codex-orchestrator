@@ -1,3 +1,6 @@
+import type { OwnerMutationContext, OwnerRuntime } from '../../control-plane/state/runtime.js';
+import { adminAudit } from '../../control-plane/state/admin.js';
+import { ownerPresence } from '../../control-plane/presence.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import {
@@ -39,9 +42,78 @@ export interface DirectorEvent {
  */
 export class GitDirectorNotifications {
   constructor(
-    private readonly bus: Pick<AgentMessagingService, 'coordinationNotice'>,
+    private readonly bus: Pick<AgentMessagingService, 'coordinationNotice'> & Partial<Pick<AgentMessagingService, 'coordinationNoticeOwned'>>,
     private readonly freshSeconds = AGENT_PRESENCE_FRESH_SECONDS,
   ) {}
+
+  enqueueOwned(ctx: OwnerMutationContext, owner: OwnerRuntime, event: DirectorEvent, now: string): string[] {
+    const state = ctx.draft.view(), ids: string[] = [], eventId = randomUUID();
+    const worktrees = state.table('gitWorktrees').all().filter(row => ['active','uncertain'].includes(row.status));
+    const requests = state.table('gitMergeRequests').all().filter(row => row.cloneId === event.clone?.id);
+    const targetBranch = event.targetBranch ?? event.worktree?.targetBranch;
+    const waitingIds = new Set(
+      requests
+        .filter(
+          (r) =>
+            r.verdict === 'wait' &&
+            !r.completedAt &&
+            (!targetBranch ||
+              r.targetBranch === targetBranch ||
+              (event.previousTargetBranch !== undefined && r.targetBranch === event.previousTargetBranch)),
+        )
+        .map((r) => r.worktreeId),
+    );
+
+    if (isTruthyFlagValue(state.setting('agent_messaging_enabled'))) {
+      if (!this.bus.coordinationNoticeOwned) throw new Error('Owner notification staging is unavailable');
+      for (const session of state.sessions.all()) {
+        const address = session.agentBusAddressId ? state.addresses.get(session.agentBusAddressId) : undefined;
+        if (!address || session.endedAt || address.currentSessionId !== session.id || address.bindingGeneration !== session.bindingGeneration || !ownerPresence(owner).hasSession(session.id,session.bindingGeneration)) continue;
+      const workspace = readWorkspace(session.workspace);
+      const root = workspace?.git_root ?? workspace?.cwd ?? session.cwd;
+      const own = worktrees.filter(
+        (w) => w.agentBusAddressId === address.id || (w.hostId === session.hostId && w.worktreePath === root),
+      );
+      const bound = (w: GitWorktree) =>
+        w.agentSessionId === session.id &&
+        w.agentBindingGeneration === session.bindingGeneration &&
+        address.bindingGeneration === session.bindingGeneration;
+      const actor = event.worktree && bound(event.worktree);
+      const selectedOwner = event.ownerWorktrees?.some((w) => w.agentBusAddressId === address.id && bound(w));
+      const sameClone = Boolean(
+        event.clone &&
+        session.hostId === event.clone.hostId &&
+        (workspace?.git_common_dir === event.clone.cloneDir ||
+          own.some((w) => w.cloneId === event.clone!.id)),
+      );
+      const informationalActor =
+        event.worktree && session.hostId === event.worktree.hostId && root === event.worktree.worktreePath;
+      if ((actor || informationalActor) && !event.includeActor) continue;
+      const affectedWaiter = sameClone && own.some((w) => waitingIds.has(w.id) && bound(w));
+      const selected =
+        (event.includeActor && actor) ||
+        selectedOwner ||
+        (event.audience === 'repository'
+          ? // Routine repository bookkeeping remains in audit/WS/poll. Only a
+            // current, exactly bound waiting request needs a native recheck.
+            affectedWaiter
+          : event.audience === 'branch'
+            ? sameClone && own.some((w) => waitingIds.has(w.id) && bound(w))
+            : event.audience === 'active'
+              ? false // Global module bookkeeping is audit/WS/poll only.
+              : false);
+      if (!selected) continue;
+      const detail =
+        JSON.stringify(event.detail ?? {}).length <= 12000 ? event.detail : { details_omitted: true };
+
+        const content = `GIT-DIRECTOR/1\nInformational state change, not work authorization or a merge lease. Revalidate with git_list/git_merge_status and current local Git state before acting. No acknowledgement required.\n${JSON.stringify({event_id:eventId,observed_at:now,kind:event.kind,clone_id:event.clone?.id,worktree_id:event.worktree?.id,request_id:event.requestId,target_branch:event.targetBranch,...detail})}`;
+        const id = this.bus.coordinationNoticeOwned(ctx, session, content, false, undefined, { deliveryClass: ['lease_expired','operator_eviction','operator_decision','registration_superseded','registration_rebound'].includes(event.kind) ? 'coordination' : 'notice', ttlSeconds: event.audience === 'repository' ? 3600 : 900 });
+        if (id) ids.push(id);
+      }
+    }
+    adminAudit(ctx,'git_director.notifications',{event_id:eventId,kind:event.kind,queued:ids.length},now,event.clone?.hostId??null);
+    return ids;
+  }
 
   async enqueue(tx: AgentMessagingDb, event: DirectorEvent, now: string): Promise<string[]> {
     const [flag] = await tx.select().from(versions).where(eq(versions.name, 'agent_messaging_enabled'));

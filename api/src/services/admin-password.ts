@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto';
+import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { adminAudit, credentialDigest, expireUserResetTokens, patchAdminUser, requireCurrentUser, revokeUserSessions, removeUserPasskeys } from '../control-plane/state/admin.js';
+import type { Json } from '../control-plane/commands.js';
 import { and, eq, gt, or, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { adminPasskeys, adminPasswordResets, adminUsers } from '../db/schema.js';
@@ -56,6 +60,18 @@ export class AdminPasswordService {
 
     const nextHash = await hashPassword(newPassword);
     const now = nowIso();
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const keepTokenHash = currentToken ? sha256(currentToken) : null;
+      const result = await mutateOwnerState(owner, { kind: 'admin.password.change', responseAuthorization:'commit', payload: { userId, credentialDigest: credentialDigest(nextHash), keepTokenHash }, prepare: ctx => {
+        requireCurrentUser(ctx, userId, credentialDigest(user.passwordHash));
+        const next = patchAdminUser(ctx, userId, { passwordHash: nextHash, updatedAt: now });
+        revokeUserSessions(ctx, userId, keepTokenHash); expireUserResetTokens(ctx, userId, now);
+        adminAudit(ctx, 'admin.auth.password.change', { user_id: userId });
+        return this.auth.sanitizeUser(next) as unknown as Json;
+      } });
+      return result as unknown as SanitizedAdminUser;
+    }
     await this.db
       .update(adminUsers)
       .set({ passwordHash: nextHash, updatedAt: now })
@@ -80,8 +96,12 @@ export class AdminPasswordService {
    */
   async requestReset(identifier: string): Promise<{ delivered: boolean }> {
     const normalized = identifier.trim().toLowerCase();
-    const userRows = normalized
-      ? await this.db
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) owner.assertOwner();
+    const ownedUsers = owner?.state.snapshot().table('adminUsers');
+    const userRows = owner
+      ? [...(ownedUsers!.by('username', normalized).length ? ownedUsers!.by('username', normalized) : ownedUsers!.by('email', normalized))]
+      : normalized ? await this.db
           .select()
           .from(adminUsers)
           .where(or(eq(adminUsers.username, normalized), eq(adminUsers.email, normalized)))
@@ -95,6 +115,7 @@ export class AdminPasswordService {
       // report success per the docstring above.
       const dummyToken = randomHex(32);
       const dummyHash = sha256(dummyToken);
+      if (owner) { void dummyHash; return { delivered: true }; }
       await this.db
         .select({ id: adminPasswordResets.id })
         .from(adminPasswordResets)
@@ -107,28 +128,32 @@ export class AdminPasswordService {
     const tokenHash = sha256(token);
     const expiresAt = isoOffsetSeconds(RESET_TTL_SECONDS);
 
-    await this.db.insert(adminPasswordResets).values({
-      userId: user.id,
-      tokenHash,
-      expiresAt,
-      usedAt: null,
-      createdAt: nowIso(),
-    });
-
     const base = this.env.PUBLIC_BASE_URL ?? '';
     const link = base ? `${base.replace(/\/$/, '')}/admin/password/reset?token=${token}` : `token=${token}`;
-    const result = await this.mailer.send({
-      to: user.email,
-      subject: 'Codex Orchestrator: password reset',
-      text:
-        `Hi ${user.name},\n\n` +
-        `A password reset was requested for your Codex Orchestrator admin account.\n\n` +
-        `Token (valid for 60 minutes): ${token}\n` +
-        (base ? `Reset link: ${link}\n\n` : '\n') +
-        `If you did not request this, you can ignore this message.`,
-    });
+    const email = { to: user.email, subject: 'Codex Orchestrator: password reset', text:
+      `Hi ${user.name},\n\nA password reset was requested for your Codex Orchestrator admin account.\n\nToken (valid for 60 minutes): ${token}\n` +
+      (base ? `Reset link: ${link}\n\n` : '\n') + `If you did not request this, you can ignore this message.` };
+    const effectId = randomUUID();
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'admin.password.reset.issue', payload: { userId: user.id, tokenHash }, prepare(ctx) {
+        const current = requireCurrentUser(ctx, user.id);
+        if (!current.active || current.email !== user.email) throw new ConflictError('User changed during reset request', 'user_changed');
+        const values = { userId: user.id, tokenHash, expiresAt, usedAt: null, createdAt: nowIso() };
+        ctx.write(async tx => {
+          const inserted = await tx.insert(adminPasswordResets).values(values); const id = Number(inserted[0]?.insertId);
+          if (!Number.isSafeInteger(id) || id < 1) throw new Error('Reset token insert returned no identity');
+          ctx.draft.upsert('adminPasswordResets', { ...values, id });
+        });
+        adminAudit(ctx, 'admin.auth.password.request', { user_id: user.id, delivery_pending: true });
+        ctx.effect({ id: effectId, kind: 'admin.password.reset.email', target: String(user.id), payload: email, availableAt: nowIso() });
+        return null;
+      } });
+    } else await this.db.insert(adminPasswordResets).values({ userId: user.id, tokenHash, expiresAt, usedAt: null, createdAt: nowIso() });
 
-    await this.events.record(
+    if (owner) return { delivered: true };
+    const result = await this.mailer.send(email);
+
+    if (!owner) await this.events.record(
       {
         type: 'admin.auth.password.request',
         payload: { user_id: user.id, delivered: result.delivered },
@@ -154,7 +179,9 @@ export class AdminPasswordService {
 
     const tokenHash = sha256(token);
     const now = nowIso();
-    const rows = await this.db
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) owner.assertOwner();
+    const rows = owner ? owner.state.snapshot().table('adminPasswordResets').by('tokenHash', tokenHash).filter(row => row.usedAt === null && row.expiresAt > now) : await this.db
       .select()
       .from(adminPasswordResets)
       .where(
@@ -176,6 +203,20 @@ export class AdminPasswordService {
     }
 
     const nextHash = await hashPassword(newPassword);
+    if (owner) {
+      const result = await mutateOwnerState(owner, { kind: 'admin.password.reset.consume', responseAuthorization:'commit', payload: { tokenHash, credentialDigest: credentialDigest(nextHash) }, prepare: ctx => {
+        const current = ctx.draft.table('adminPasswordResets').get(reset.id);
+        const at = nowIso();
+        if (!current || current.usedAt !== null || current.expiresAt <= at || current.tokenHash !== tokenHash) throw new ConflictError('Reset token is invalid or expired', 'reset_token_invalid');
+        const target = requireCurrentUser(ctx, current.userId);
+        if (!target.active) throw new NotFoundError('User not found', 'user_not_found');
+        const next = patchAdminUser(ctx, target.id, { passwordHash: nextHash, updatedAt: at });
+        revokeUserSessions(ctx, target.id); expireUserResetTokens(ctx, target.id, at); removeUserPasskeys(ctx, target.id);
+        adminAudit(ctx, 'admin.auth.password.reset', { user_id: target.id });
+        return this.auth.sanitizeUser(next) as unknown as Json;
+      } });
+      return result as unknown as SanitizedAdminUser;
+    }
     await this.db
       .update(adminUsers)
       .set({ passwordHash: nextHash, updatedAt: now })

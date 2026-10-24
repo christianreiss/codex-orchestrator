@@ -1,4 +1,6 @@
 import { randomInt } from 'node:crypto';
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { translateOwnedAgent } from '../../control-plane/state/names.js';
 import { and, asc, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { agentBusAddresses, agentNameLeases, agentNamePool, agentSessions } from '../../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../http/errors.js';
@@ -219,6 +221,8 @@ export async function translateAgent(
   raw: string,
   forUpdate = false,
 ): Promise<Record<string, unknown>> {
+  const owner = ownerRuntimeFor(db);
+  if (owner) { owner.assertOwner(); return translateOwnedAgent(owner.state.snapshot(), raw, nowIso()); }
   const value = raw.trim().toLowerCase();
   if (!value || value.length > 96)
     throw new ValidationError('value must contain 1–96 characters', { param: 'value' });

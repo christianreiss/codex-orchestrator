@@ -10,6 +10,7 @@
  * and `insecure-window-admin`) owns the actual DB work.
  */
 import type { FastifyInstance } from 'fastify';
+import { ownerRuntimeFor } from '../../../control-plane/state/runtime.js';
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { RouteContext } from '../../index.js';
@@ -191,7 +192,7 @@ function parseIncludeBody(raw: unknown): boolean {
   return s === '1' || s === 'true' || s === 'yes' || s === 'on';
 }
 
-function hostToWire(h: Host): Record<string, unknown> {
+function hostToWire(h: Omit<Host, 'apiKey' | 'apiKeyEnc'>): Record<string, unknown> {
   return {
     id: h.id,
     fqdn: h.fqdn,
@@ -258,7 +259,7 @@ export interface AdminHostRoutesOverrides {
   daemonService?: Pick<HostDaemonService, 'configureEnabled'>;
   hostService?: HostManagementService;
   insecure?: InsecureWindowAdminService;
-  authView?: (host: Host, engine: Engine, includeBody: boolean) => Promise<AdminHostAuthView>;
+  authView?: (host: Omit<Host, 'apiKey' | 'apiKeyEnc'>, engine: Engine, includeBody: boolean) => Promise<AdminHostAuthView>;
 }
 
 export async function registerAdminHostsRoutes(
@@ -283,11 +284,15 @@ export async function registerAdminHostsRoutes(
   });
   const authView =
     overrides.authView ??
-    (async (host: Host, engine: Engine, includeBody: boolean): Promise<AdminHostAuthView> => {
+    (async (host: Omit<Host, 'apiKey' | 'apiKeyEnc'>, engine: Engine, includeBody: boolean): Promise<AdminHostAuthView> => {
       const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine);
       const validated = runnerValidation.validateCanonicalPayload(canonicalRow);
       const distributableAuth = canonicalRow ? runnerValidation.canonicalAuthFromPayload(canonicalRow) : null;
-      const digests = await ctx.db
+      const owner = ownerRuntimeFor(ctx.db);
+      owner?.assertOwner();
+      const digests = owner ? owner.state.snapshot().table('hostAuthDigests').all()
+        .filter(row => row.hostId === host.id && row.engine === engine)
+        .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen)).slice(0, 3) : await ctx.db
         .select({ digest: hostAuthDigests.digest })
         .from(hostAuthDigests)
         .where(and(eq(hostAuthDigests.hostId, host.id), eq(hostAuthDigests.engine, engine)))
@@ -309,6 +314,7 @@ export async function registerAdminHostsRoutes(
   app.route({
     method: 'POST',
     url: '/admin/hosts/register',
+    config:{ownerResponse:'committed-action'},
     preHandler: app.requireAdmin,
     handler: async (req) => {
       const body = parseZod(registerSchema, req.body);

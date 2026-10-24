@@ -22,6 +22,7 @@ import (
 )
 
 type frame struct {
+	StateFrame
 	cacheDeadline time.Time
 
 	Engine     string            `json:"engine,omitempty"`
@@ -40,24 +41,29 @@ type frame struct {
 	Revision   string            `json:"revision,omitempty"`
 	// Control, RequestID and Reason carry the optional remote-control frames in
 	// control.go; an old server never sets them.
-	Control   []string `json:"control,omitempty"`
-	RequestID string   `json:"request_id,omitempty"`
-	Reason    string   `json:"reason,omitempty"`
+	Control       []string `json:"control,omitempty"`
+	StateLiveness string   `json:"state_liveness,omitempty"`
+	RequestID     string   `json:"request_id,omitempty"`
+	Reason        string   `json:"reason,omitempty"`
 	// OwnerInstanceID names the owner process a `terminate` is meant for.
 	OwnerInstanceID string `json:"owner_instance_id,omitempty"`
 }
 
 type connection struct {
-	daemon        chan json.RawMessage
-	daemonClosing chan json.RawMessage
-	daemonStop    func()
-	ws            *websocket.Conn
-	mu            sync.Mutex
-	sendMu        sync.Mutex
-	pending       map[string]chan frame
-	done          chan struct{}
-	ready         chan struct{}
-	invalidated   func()
+	states               map[string]*stateRelay
+	stateEnabled         bool
+	stateLivenessOffered bool
+	stateLocalLiveness   bool
+	daemon               chan json.RawMessage
+	daemonClosing        chan json.RawMessage
+	daemonStop           func()
+	ws                   *websocket.Conn
+	mu                   sync.Mutex
+	sendMu               sync.Mutex
+	pending              map[string]chan frame
+	done                 chan struct{}
+	ready                chan struct{}
+	invalidated          func()
 	// updateAvailable wakes the updater; updateAnnounced records that the
 	// server offered the wrapper_update trigger.
 	updateAvailable func()
@@ -166,11 +172,31 @@ func (c *connection) receive() {
 			return
 		}
 		switch f.Type {
+		case "state_snapshot", "state_delta", "state_ping", "state_close":
+			f.StateFrame.Type = f.Type
+			f.StateFrame.Protocol = f.Protocol
+			f.StateFrame.Revision = f.Revision
+			f.StateFrame.Payload = f.Payload
+			c.receiveState(f.StateFrame)
+
+		case "state_liveness_ready":
+			c.mu.Lock()
+			if f.Protocol == Protocol && c.stateLivenessOffered {
+				c.stateLocalLiveness = true
+				for _, stream := range c.states {
+					stream.lastPong = time.Now()
+				}
+			}
+			c.mu.Unlock()
 		case "ready":
 			if f.Protocol != Protocol {
 				return
 			}
 			if !ready {
+				c.mu.Lock()
+				c.stateEnabled = announces(f.Control, StateCapability)
+				c.stateLivenessOffered = c.stateEnabled && announces(f.Control, StateLivenessCapability)
+				c.mu.Unlock()
 				close(c.ready)
 				ready = true
 				if announces(f.Control, controlWrapperUpdate) {

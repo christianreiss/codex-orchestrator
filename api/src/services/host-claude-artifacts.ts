@@ -1,3 +1,6 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { publicArtifact } from '../control-plane/state/artifact-content.js';
+import type { StateRow } from '../control-plane/state/catalog.js';
 /**
  * Host-facing Claude artifact service. Mirrors host-skills.ts for the
  * subagents / slash-commands / output-styles collections.
@@ -44,7 +47,13 @@ export class HostClaudeArtifactsService {
 
   // kind/deletedAt filtered in SQL (real DB) and again in JS so the in-memory
   // test fake (whose `.where()` is a no-op) stays correct.
-  private async liveRows(kind: ArtifactKind): Promise<ClaudeArtifact[]> {
+  private async content(row:StateRow<'claudeArtifacts'>|ClaudeArtifact):Promise<string>{
+    const owner=ownerRuntimeFor(this.db);if(!owner)return (row as ClaudeArtifact).body;
+    return publicArtifact(owner,`claude-artifact:${row.id}:${row.sha256}`,async()=>{const [body]=await this.db.select({body:claudeArtifacts.body,sha256:claudeArtifacts.sha256}).from(claudeArtifacts).where(eq(claudeArtifacts.id,row.id)).limit(1);if(!body||body.sha256!==row.sha256)throw new Error('Claude artifact changed');return body.body;},()=>owner.state.snapshot().table('claudeArtifacts').get(row.id)?.sha256===row.sha256&&!owner.state.snapshot().table('claudeArtifacts').get(row.id)?.deletedAt);
+  }
+  private async liveRows(kind: ArtifactKind): Promise<Array<StateRow<'claudeArtifacts'>|ClaudeArtifact>> {
+    const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return owner.state.snapshot().table('claudeArtifacts').by('kind',kind).filter(row=>!row.deletedAt).sort((a,b)=>a.slug.localeCompare(b.slug));}
+
     const rows = await this.db
       .select()
       .from(claudeArtifacts)
@@ -83,7 +92,8 @@ export class HostClaudeArtifactsService {
         extra: { errors: { sha256: ['sha256 must be a 64-char hex digest'] } },
       });
     }
-    const rows = await this.db
+    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
+    const rows = owner?owner.state.snapshot().table('claudeArtifacts').by('kind',kind):await this.db
       .select()
       .from(claudeArtifacts)
       .where(and(eq(claudeArtifacts.kind, kind), eq(claudeArtifacts.slug, slug)));
@@ -105,7 +115,7 @@ export class HostClaudeArtifactsService {
       model: row.model ?? null,
       updated_at: row.updatedAt,
     };
-    if (status !== 'unchanged') result['content'] = row.body;
+    if (status !== 'unchanged') result['content'] = await this.content(row);
     return result;
   }
 
@@ -118,13 +128,13 @@ export class HostClaudeArtifactsService {
     for (const kind of ARTIFACT_KINDS) {
       const have = digests[kind] ?? {};
       const rows = (await this.liveRows(kind)).filter((r) => this.engineMatches(r.engine, engine));
-      out[kind] = rows.map((r) => {
+      out[kind] = await Promise.all(rows.map(async (r) => {
         const known = have[r.slug];
         const unchanged = typeof known === 'string' && SHA_RE.test(known) && safeHashEquals(r.sha256, known);
         const env: ArtifactEnvelope = { slug: r.slug, sha256: r.sha256, status: unchanged ? 'unchanged' : 'updated' };
-        if (!unchanged) env.content = r.body;
+        if (!unchanged) env.content = await this.content(r);
         return env;
-      });
+      }));
     }
     return out;
   }

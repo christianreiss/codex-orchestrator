@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { ownedAccount } from '../control-plane/streams/provider-leases.js';
 import { and, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { providerAccounts } from '../db/schema.js';
@@ -10,6 +12,8 @@ export async function resolveProviderAccount(
   id: number,
   engine?: Engine,
 ): Promise<typeof providerAccounts.$inferSelect | undefined> {
+  const owner = ownerRuntimeFor(db);
+  if (owner) { owner.assertOwner(); return ownedAccount(owner.state.snapshot(), id, engine); }
   const seen = new Set<number>();
   while (!seen.has(id)) {
     seen.add(id);

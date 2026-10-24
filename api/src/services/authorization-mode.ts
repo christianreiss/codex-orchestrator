@@ -25,6 +25,8 @@ import {
   type AuthorizationMode,
 } from '../security/authorization-mode.js';
 import type { Capability } from '../security/capabilities.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { adminAudit } from '../control-plane/state/admin.js';
 
 /** `admin_events.type` for a request `strict` would have refused. */
 export const WOULD_DENY_EVENT = 'authorization.would_deny';
@@ -92,6 +94,7 @@ export class AuthorizationModeService {
    * going to be refused as unauthenticated.
    */
   async getMode(): Promise<AuthorizationMode> {
+    const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return parseAuthorizationMode(owner.state.snapshot().setting(AUTHORIZATION_MODE_FLAG));}
     const cached = this.cached;
     if (cached && this.now() - cached.readAt < MODE_CACHE_TTL_MS) return cached.mode;
     try {
@@ -120,6 +123,7 @@ export class AuthorizationModeService {
   }
 
   async state(): Promise<AuthorizationModeState> {
+    const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();const row=owner.state.snapshot().table('versions').get(AUTHORIZATION_MODE_FLAG);return{mode:parseAuthorizationMode(row?.version),updated_at:row?.updatedAt??null,would_deny:await this.wouldDeny()};}
     const rows = await this.db
       .select()
       .from(versions)
@@ -135,6 +139,7 @@ export class AuthorizationModeService {
 
   async setMode(mode: AuthorizationMode, actor: { id: number; username: string }): Promise<void> {
     const now = nowIso();
+    const owner=ownerRuntimeFor(this.db);if(owner){await mutateOwnerState(owner,{kind:'authorization.mode.set',payload:{mode,actorId:actor.id},prepare(ctx){const row={name:AUTHORIZATION_MODE_FLAG,version:mode,updatedAt:now};ctx.draft.upsert('versions',row);ctx.write(tx=>tx.insert(versions).values(row).onDuplicateKeyUpdate({set:{version:mode,updatedAt:now}}));adminAudit(ctx,MODE_CHANGED_EVENT,{mode,actor_id:actor.id,actor:actor.username},now);return null;}});return;}
     const existing = await this.db
       .select()
       .from(versions)
@@ -183,6 +188,7 @@ export class AuthorizationModeService {
     this.pruneDedupCache(now);
 
     try {
+      const owner=ownerRuntimeFor(this.db);if(owner){await mutateOwnerState(owner,{kind:'authorization.would-deny',payload:{role:input.role,capability:input.capability,route:input.route},prepare(ctx){adminAudit(ctx,WOULD_DENY_EVENT,{role:input.role,capability:input.capability,route:input.route});return null;}});return;}
       await this.db.insert(adminEvents).values({
         type: WOULD_DENY_EVENT,
         hostId: null,

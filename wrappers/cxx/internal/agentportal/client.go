@@ -112,6 +112,11 @@ func NativeResumeSessionID(engine string, args []string) string {
 }
 
 type Session struct {
+	state                  *communicator.StateClient
+	nativeState            *communicator.StateClient
+	stateUsed              bool
+	stateReady             chan struct{}
+	claimsChanged          chan struct{}
 	activeClaims           map[string]bool
 	scopeContext           json.RawMessage
 	watchdog               *watchdogFeed
@@ -216,7 +221,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	}
 	body := map[string]any{
 		"engine":               input.Engine,
-		"adapter_capabilities": map[string]any{"scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 2, "execution_contract_version": 2, "watchdog_protocol_version": 1, "launch_identity_version": 1, "reboot_protocol_version": 1, "suspend_recovery_version": 1},
+		"adapter_capabilities": map[string]any{"control_state_protocol": 1, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 2, "execution_contract_version": 2, "watchdog_protocol_version": 1, "launch_identity_version": 1, "reboot_protocol_version": 1, "suspend_recovery_version": 1},
 		"username":             username,
 		"cwd":                  cwd,
 		"workspace":            captureWorkspace(parent, cwd),
@@ -364,6 +369,16 @@ func (s *Session) startHeartbeat(parent context.Context, interval time.Duration)
 		for {
 			if ctx.Err() != nil {
 				return
+			}
+			_ = s.consumeState(ctx)
+			_, _, _, stateUsed := s.stateView()
+			if stateUsed {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second):
+				}
+				continue
 			}
 			heartbeatCtx, heartbeatCancel := context.WithTimeout(ctx, 6*time.Second)
 			err := s.Heartbeat(heartbeatCtx, "", "")

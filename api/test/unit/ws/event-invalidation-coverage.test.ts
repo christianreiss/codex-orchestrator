@@ -41,7 +41,9 @@ const UNMAPPED_EVENT_TYPES: Record<string, string> = {
 
 /** Files that publish a type computed at runtime, and what feeds that type. */
 const RUNTIME_TYPED_PUBLISHERS: Record<string, string> = {
+  'control-plane/commands.ts': 'persistence.record() stores command receipts and outbox entries, not admin WebSocket events; the generic record-site scan also matches it.',
   'services/insecure-window-admin.ts': 'Flushes existing approval event types only after the decision transaction commits.',
+  'services/git-director.ts': 'owner transaction flushes existing literal event types after COMMIT',
   'services/shared-memories.ts': 'private publish() indirection — its callers pass shared_memory.* literals',
   'services/project-board.ts': 'withBoard() flushes queued publishes after commit — its callers pass project.card.*/project.board.* literals',
 };

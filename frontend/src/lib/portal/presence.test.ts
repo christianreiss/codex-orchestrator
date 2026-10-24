@@ -26,6 +26,10 @@ function agent(overrides: Partial<Agent> = {}): Agent {
 }
 
 describe("livePresence", () => {
+  it("keeps an idle owner-connected session reachable without fresh heartbeat writes", () => {
+    assert.equal(livePresence(agent({ presence_source: "connection", heartbeat_at: "2026-01-01T00:00:00Z" }), NOW), "listening");
+    assert.equal(livePresence(agent({ presence_source: "connection", presence: "offline" }), NOW), "offline");
+  });
   it("keeps the server verdict while the heartbeat is fresh", () => {
     assert.equal(livePresence(agent(), NOW), "listening");
   });

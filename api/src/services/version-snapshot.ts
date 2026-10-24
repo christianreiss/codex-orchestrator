@@ -1,10 +1,16 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { eq } from 'drizzle-orm';
 import { versions as versionsTable } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Engine } from '../util/engine.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES } from '../util/engine.js';
 import { ENGINE_DISABLED_FLAGS } from './engine-switch.js';
-import { coerceGrokVersionToMinimum, GROK_MIN_CLIENT_VERSION, isSemanticVersion, normalizeVersion } from './client-versions.js';
+import {
+  coerceGrokVersionToMinimum,
+  GROK_MIN_CLIENT_VERSION,
+  isSemanticVersion,
+  normalizeVersion,
+} from './client-versions.js';
 
 /**
  * Port of AuthService::versionSummary + availableClientVersion. The PHP
@@ -140,7 +146,11 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
   const { db, installationId } = deps;
 
   async function readMap(): Promise<Map<string, string>> {
-    const rows = await db.select().from(versionsTable);
+    const owner = ownerRuntimeFor(db);
+    owner?.assertOwner();
+    const rows = owner
+      ? owner.state.snapshot().table('versions').all()
+      : await db.select().from(versionsTable);
     const out = new Map<string, string>();
     for (const r of rows) out.set(r.name, r.version);
     return out;
@@ -238,11 +248,21 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
     },
 
     async flag(key, defaultValue = false) {
+      const owner = ownerRuntimeFor(db);
+      if (owner) {
+        owner.assertOwner();
+        return flagValue(owner.state.snapshot().table('versions').get(key)?.version, defaultValue);
+      }
       const rows = await db.select().from(versionsTable).where(eq(versionsTable.name, key)).limit(1);
       return flagValue(rows[0]?.version, defaultValue);
     },
 
     async setting(key) {
+      const owner = ownerRuntimeFor(db);
+      if (owner) {
+        owner.assertOwner();
+        return owner.state.snapshot().table('versions').get(key)?.version ?? null;
+      }
       const rows = await db.select().from(versionsTable).where(eq(versionsTable.name, key)).limit(1);
       return rows[0]?.version ?? null;
     },

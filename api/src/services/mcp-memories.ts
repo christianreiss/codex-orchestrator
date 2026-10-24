@@ -1,3 +1,8 @@
+import {persistAuditLog} from './audit-log.js';
+import { executeColdRead } from '../db/fresh-read.js';
+import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
+import type { Json } from '../control-plane/commands.js';
 /**
  * MCP host-scoped memories. Ports src/Services/MemoryService.php with the
  * same validation rules and response shapes.
@@ -5,7 +10,7 @@
 import { eq, and, desc, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { Database } from '../db/client.js';
-import { mcpMemories, logs } from '../db/schema.js';
+import { mcpMemories} from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import type { Engine } from '../util/engine.js';
 import { isMissingFulltextIndex } from '../util/mysql-fulltext.js';
@@ -40,6 +45,19 @@ export class McpMemoriesService {
 
     memoryKey = memoryKey ?? this.generateKey();
     const hostId = host.id;
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){const result=await mutateOwnerState(owner,{kind:'memory.host.store',payload:{hostId,memoryKey},prepare:async ctx=>{
+      const existing=ctx.snapshot.table('mcpMemories').by('hostId',hostId).find(row=>row.memoryKey===memoryKey),now=nowIso();
+      const cold=existing&&!existing.deletedAt?(await this.db.select({content:mcpMemories.content}).from(mcpMemories).where(eq(mcpMemories.id,existing.id)).limit(1))[0]:undefined;
+      const same=existing&&!existing.deletedAt&&cold?.content===content&&JSON.stringify(this.normalizedArray(parseTags(existing.tags)))===JSON.stringify(this.normalizedArray(tags))&&JSON.stringify(this.normalizedAssoc(existing.metadata as Record<string,unknown>|null))===JSON.stringify(this.normalizedAssoc(metadata));
+      const status=!existing||existing.deletedAt?'created':same?'unchanged':'updated';
+      let row={id:existing?.id??0,hostId,memoryKey:memoryKey!,content,metadata:metadata??null,tags:tags.length?tags:null,tagsText:tags.length?tags.join(' '):null,summary:existing?.summary??null,engine,createdAt:existing?.createdAt??now,updatedAt:now,deletedAt:null};
+      if(existing)stageUpdate(ctx,'mcpMemories',existing.id,row);
+      else ctx.write(async tx=>{const {id:_id,...values}=row;const result=await tx.insert(mcpMemories).values(values);row={...row,id:Number(result[0].insertId)};ctx.draft.upsert('mcpMemories',row);});
+      ctx.write(async tx=>persistAuditLog(tx, {hostId,action:'memory.store',details:JSON.stringify({id:memoryKey,status,content_length:content.length,tags:tags.length}),createdAt:now,engine:null}));
+      return ()=>({status,id:memoryKey,memory:this.formatMemory(row)}) as Json;
+    }}) as Record<string,unknown>;
+      wsPublisher.publish(result.status==='created'?'memory.created':'memory.changed',{id:memoryKey,host_id:hostId});return result;}
 
     const existingRows = await this.db
       .select()
@@ -158,7 +176,7 @@ export class McpMemoriesService {
         return rows as unknown as Array<Record<string, unknown>>;
       }
       try {
-        const res = await this.db.execute(
+        const res = await executeColdRead(this.db,
           sql`SELECT id, host_id, memory_key, content, metadata, tags, summary, created_at, updated_at,
                      MATCH(content, tags_text) AGAINST (${query} IN NATURAL LANGUAGE MODE) AS score
               FROM mcp_memories
@@ -243,6 +261,12 @@ export class McpMemoriesService {
     const memoryKey = this.normalizeKey(payload['id'] ?? payload['memory_id'] ?? payload['key'], false, errors);
     if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
     if (!memoryKey) throw new ValidationError('Validation failed', { extra: { errors: { id: ['id is required'] } } });
+
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){const result=await mutateOwnerState(owner,{kind:'memory.host.delete',payload:{hostId:host.id,memoryKey},prepare:ctx=>{
+      const row=ctx.snapshot.table('mcpMemories').by('hostId',host.id).find(row=>row.memoryKey===memoryKey&&!row.deletedAt),status=row?'deleted':'missing',now=nowIso();
+      if(row)stageUpdate(ctx,'mcpMemories',row.id,{deletedAt:now});ctx.write(async tx=>persistAuditLog(tx, {hostId:host.id,action:'memory.delete',details:JSON.stringify({id:memoryKey,status}),createdAt:now,engine:null}));return {status,id:memoryKey};
+    }}) as Record<string,unknown>;if(result.status==='deleted')wsPublisher.publish('memory.deleted',{id:memoryKey,host_id:host.id});return result;}
 
     const rows = await this.db
       .select()
@@ -353,7 +377,7 @@ export class McpMemoriesService {
   }
 
   private async recordLog(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {
-    await this.db.insert(logs).values({
+    await persistAuditLog(this.db, {
       hostId: hostId ?? null,
       action,
       details: JSON.stringify(details),

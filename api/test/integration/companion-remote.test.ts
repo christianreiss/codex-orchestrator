@@ -165,7 +165,7 @@ describe.skipIf(!handle)('companion remote conversations with MySQL', () => {
   it('binds the first real Portal greeting and keeps it writable after the process ends', async () => {
     const op = (await daemon.offer(hostId, generation))!;
     await daemon.accept(hostId, op.operation_id, op.claim_id);
-    const host = await daemon.host(hostId);
+    const host = await daemon.host(hostId) as typeof hosts.$inferSelect;
     const registered = await portal.registerAgent(host, {
       engine: 'codex',
       username: 'root',
@@ -244,7 +244,7 @@ describe.skipIf(!handle)('companion remote conversations with MySQL', () => {
     expect(op.upstream_session_id).toBe('native-test');
     await daemon.accept(hostId, op.operation_id, op.claim_id);
     expect((await send()).json()).toEqual(first.json());
-    const host = await daemon.host(hostId);
+    const host = await daemon.host(hostId) as typeof hosts.$inferSelect;
     const registration = { engine: 'codex', username: 'root', cwd: '/tmp',
       invocation_kind: 'peer_delivery', upstream_session_id: 'native-test', resumed: true,
       session_id: randomUUID(), bridge_token: randomBytes(32).toString('base64url'),

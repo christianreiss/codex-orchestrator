@@ -23,7 +23,7 @@ RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 
 FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production
-RUN apk add --no-cache tini libc6-compat \
+RUN apk add --no-cache tini libc6-compat util-linux \
     && addgroup -g 10001 -S app \
     && adduser -u 10001 -S -G app -H -s /sbin/nologin app
 WORKDIR /app/dist

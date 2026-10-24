@@ -67,10 +67,7 @@ function contentDisposition(name: string): string {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
-export async function registerAdminTransfersRoutes(
-  app: FastifyInstance,
-  ctx: RouteContext,
-): Promise<void> {
+export async function registerAdminTransfersRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const transfers = new AgentTransfersService({
     db: ctx.db,
     settings: new SettingsService(ctx.db),
@@ -126,22 +123,34 @@ export async function registerAdminTransfersRoutes(
         kind: 'admin',
         label: actor(req) === null ? null : String(actor(req)),
       });
-      // `broadcast: false`: an operator reading a file is an audit fact, not a
-      // change to anything the console is showing.
-      await events.record(
-        {
-          type: 'transfers.downloaded',
-          payload: { transfer_id: transfer.id, admin_user_id: actor(req) },
-        },
-        { broadcast: false },
-      );
-      // Not the envelope plugin's JSON shape: this reply IS the file.
-      return reply
-        .header('Content-Type', transfer.mime_type ?? 'application/octet-stream')
-        .header('Content-Length', String(transfer.size_bytes))
-        .header('Content-Disposition', contentDisposition(transfer.name))
-        .header('X-Content-Type-Options', 'nosniff')
-        .send(stream);
+      const closeStream = () => stream.destroy();
+      reply.raw.once('close', closeStream);
+      stream.once('close', () => reply.raw.removeListener('close', closeStream));
+      try {
+        if (reply.raw.destroyed) {
+          stream.destroy();
+          return reply;
+        }
+        // `broadcast: false`: an operator reading a file is an audit fact, not a
+        // change to anything the console is showing.
+        await events.record(
+          {
+            type: 'transfers.downloaded',
+            payload: { transfer_id: transfer.id, admin_user_id: actor(req) },
+          },
+          { broadcast: false },
+        );
+        // Not the envelope plugin's JSON shape: this reply IS the file.
+        return reply
+          .header('Content-Type', transfer.mime_type ?? 'application/octet-stream')
+          .header('Content-Length', String(transfer.size_bytes))
+          .header('Content-Disposition', contentDisposition(transfer.name))
+          .header('X-Content-Type-Options', 'nosniff')
+          .send(stream);
+      } catch (error) {
+        stream.destroy();
+        throw error;
+      }
     },
   );
 

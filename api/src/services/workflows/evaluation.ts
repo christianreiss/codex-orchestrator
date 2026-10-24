@@ -1,3 +1,4 @@
+import {workflowState,workflowPatch,patchWorkflowRow} from './owner.js';
 import { and, eq } from 'drizzle-orm';
 import { workflowRunEvaluations, workflowRunInvitations, workflowRunEvents } from '../../db/schema.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../http/errors.js';
@@ -26,11 +27,8 @@ export async function evaluateRun(
   expect(run.version, input.expected_run_version, 'workflow_run_version_conflict');
   if (run.status !== 'evaluating')
     throw new ConflictError('Finish execution before evaluating', 'workflow_evaluation_pending');
-  const [evaluation] = await ctx.tx
-    .select()
-    .from(workflowRunEvaluations)
-    .where(eq(workflowRunEvaluations.runId, run.id))
-    .for('update');
+  const state=workflowState();
+  const evaluation=state?state.table('workflowRunEvaluations').get(run.id):(await ctx.tx.select().from(workflowRunEvaluations).where(eq(workflowRunEvaluations.runId,run.id)).for('update'))[0];
   if (!evaluation) throw new NotFoundError('Evaluation not found');
   expect(evaluation.version, input.expected_evaluation_version, 'workflow_evaluation_version_conflict');
   const doc = await pinned(ctx, run),
@@ -60,10 +58,7 @@ export async function evaluateRun(
     if (draft.decision === 'revise') {
       const workflow = await definition(ctx.tx, run.workflowId, true);
       if (workflow.currentVersion !== draft.expected_workflow_version) {
-        await ctx.tx
-          .update(workflowRunEvaluations)
-          .set({ status: 'draft', version: nextVersion, draft, actor: { ...ctx.actor }, updatedAt: ctx.now })
-          .where(eq(workflowRunEvaluations.runId, run.id));
+        await workflowPatch(ctx.tx,'workflowRunEvaluations',run.id,{ status: 'draft', version: nextVersion, draft, actor: { ...ctx.actor }, updatedAt: ctx.now });
         await event(ctx, run, 'evaluation.conflict', {
           evaluation_version: nextVersion,
           current_workflow_version: workflow.currentVersion,
@@ -92,14 +87,13 @@ export async function evaluateRun(
         draft.reason = `Already included: ${draft.reason}`;
       }
     }
+    for(const invitation of workflowState()?.table('workflowRunInvitations').by('runId',run.id)??[])if(invitation.status==='pending')patchWorkflowRow('workflowRunInvitations',invitation.id,{status:'revoked',updatedAt:ctx.now});
     await ctx.tx
       .update(workflowRunInvitations)
       .set({ status: 'revoked', updatedAt: ctx.now })
       .where(and(eq(workflowRunInvitations.runId, run.id), eq(workflowRunInvitations.status, 'pending')));
     await syncGroup(ctx, run, collaboration, true);
-    await ctx.tx
-      .update(workflowRunEvaluations)
-      .set({
+    await workflowPatch(ctx.tx,'workflowRunEvaluations',run.id,{
         status: 'final',
         version: nextVersion,
         draft,
@@ -107,8 +101,7 @@ export async function evaluateRun(
         actor: { ...ctx.actor },
         finalizedAt: ctx.now,
         updatedAt: ctx.now,
-      })
-      .where(eq(workflowRunEvaluations.runId, run.id));
+      });
     await patchRun(ctx, run, {
       status: 'completed',
       completedAt: ctx.now,
@@ -141,10 +134,7 @@ export async function evaluateRun(
       },
     });
   } else
-    await ctx.tx
-      .update(workflowRunEvaluations)
-      .set({ status: 'draft', version: nextVersion, draft, actor: { ...ctx.actor }, updatedAt: ctx.now })
-      .where(eq(workflowRunEvaluations.runId, run.id));
+    await workflowPatch(ctx.tx,'workflowRunEvaluations',run.id,{ status: 'draft', version: nextVersion, draft, actor: { ...ctx.actor }, updatedAt: ctx.now });
   await event(ctx, run, `evaluation.${input.action}`, {
     evaluation_version: nextVersion,
     decision: draft.decision,

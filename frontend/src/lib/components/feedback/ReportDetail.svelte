@@ -17,7 +17,7 @@
       queryKey: feedbackKeys.detail(id),
       queryFn: () => feedbackApi.get(id),
       enabled: Boolean(id),
-      refetchInterval: 30000,
+
     })),
   );
   const item = $derived($detailQuery.data?.feedback);

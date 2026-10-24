@@ -1,3 +1,4 @@
+import { acquireOfflineDatabase } from '../ops/offline-database.js';
 /**
  * Migration CLI — `npm run migrate` in a checkout, `node dist/migrate.js` in
  * the image (same bundle, same `dist/migrations` directory as the server).
@@ -29,6 +30,7 @@ async function main(): Promise<number> {
   const env = loadEnv();
   const { pool } = createDb(env);
   const dir = env.MIGRATIONS_DIR;
+  let offline: Awaited<ReturnType<typeof acquireOfflineDatabase>> | undefined;
 
   // The CLI's own output is the report; keep the pino stream on stderr so
   // `--json` stdout stays parseable.
@@ -48,7 +50,9 @@ async function main(): Promise<number> {
       return options.check && pending.length > 0 ? 1 : 0;
     }
 
-    const report = await runMigrations(pool, {
+    // Read-only checks may coexist; any schema mutation requires a stopped API.
+    if (!options.dryRun) offline=await acquireOfflineDatabase(pool,env.DB_DATABASE);
+    const report = await runMigrations(offline?.pool ?? pool, {
       dir,
       logger,
       appliedBy: 'cli',
@@ -89,6 +93,7 @@ async function main(): Promise<number> {
     }
     return 0;
   } finally {
+    await offline?.close();
     await pool.end();
   }
 }

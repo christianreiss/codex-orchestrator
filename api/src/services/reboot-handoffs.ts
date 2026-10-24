@@ -1,3 +1,11 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import {
+  prepareOwnedReboot,
+  armOwnedReboot,
+  finishOwnedReboot,
+  disarmOwnedReboot,
+  ownedHandoffView,
+} from './reboot-handoffs/owner.js';
 /** Planned reboot transfers accepted execution without redelivery. */
 import { and, eq, inArray, isNotNull, or } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
@@ -36,6 +44,8 @@ export class RebootHandoffs {
     private readonly keyring: Keyring,
   ) {}
   async prepare(sessionId: string, token: string, raw: unknown) {
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) return prepareOwnedReboot(runtime, this.keyring, sessionId, token, raw);
     const v = prepareSchema.parse(raw),
       now = nowIso(),
       hash = sha256(JSON.stringify(v));
@@ -44,14 +54,23 @@ export class RebootHandoffs {
       // address -> host -> session so this cannot deadlock against a send or
       // an activity report. The unlocked read only picks rows; the checks
       // below run on locked data.
-      await tx.select({ name: versions.name }).from(versions).where(eq(versions.name, AGENT_MESSAGING_ENABLED_KEY)).for('update');
+      await tx
+        .select({ name: versions.name })
+        .from(versions)
+        .where(eq(versions.name, AGENT_MESSAGING_ENABLED_KEY))
+        .for('update');
       const [owner] = await tx
         .select({ hostId: agentSessions.hostId, addressId: agentSessions.agentBusAddressId })
         .from(agentSessions)
         .where(eq(agentSessions.id, sessionId));
       if (owner?.addressId)
-        await tx.select({ id: agentBusAddresses.id }).from(agentBusAddresses).where(eq(agentBusAddresses.id, owner.addressId)).for('update');
-      if (owner) await tx.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, owner.hostId)).for('update');
+        await tx
+          .select({ id: agentBusAddresses.id })
+          .from(agentBusAddresses)
+          .where(eq(agentBusAddresses.id, owner.addressId))
+          .for('update');
+      if (owner)
+        await tx.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, owner.hostId)).for('update');
       const [session] = await tx
         .select()
         .from(agentSessions)
@@ -139,6 +158,12 @@ export class RebootHandoffs {
     return { ...this.view(row), continuation: decrypt(row.continuationEnc, this.keyring) };
   }
   async arm(sessionId: string, requestId: string) {
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) {
+      const result = await armOwnedReboot(runtime, this.keyring, sessionId, requestId);
+      wsPublisher.publish('agent_portal.sessions.changed', { session_id: sessionId });
+      return result;
+    }
     const row = await this.db.transaction(async (tx) => {
       const [r] = await tx
         .select()
@@ -262,6 +287,18 @@ export class RebootHandoffs {
     return this.view(row);
   }
   async status(sessionId: string) {
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) {
+      runtime.assertOwner();
+      return {
+        handoffs: runtime.state
+          .snapshot()
+          .table('agentRebootHandoffs')
+          .all()
+          .filter((r) => r.oldSessionId === sessionId || r.newSessionId === sessionId)
+          .map(ownedHandoffView),
+      };
+    }
     const rows = await this.db
       .select()
       .from(agentRebootHandoffs)
@@ -271,6 +308,34 @@ export class RebootHandoffs {
     return { handoffs: rows.map((r) => this.view(r)) };
   }
   async restore(sessionId: string) {
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) {
+      runtime.assertOwner();
+      const state = runtime.state.snapshot(),
+        r = state
+          .table('agentRebootHandoffs')
+          .all()
+          .find((r) => r.newSessionId === sessionId);
+      if (!r) return { peer: [], portal: null };
+      const peers = r.busMessageIds
+        .map((id) => state.table('agentBusMessages').get(id))
+        .filter((m) => m?.status === 'accepted' && m.leaseOwner === `session:${sessionId}`);
+      const portal = r.portalMessageIds
+        .map((id) => state.table('agentMessages').by('messageId', id)[0])
+        .find((m) => m?.status === 'accepted' && m.sessionId === sessionId);
+      return {
+        request_id: r.id,
+        peer: peers.map((m) => ({
+          message_id: m!.id,
+          claim_id: m!.claimId,
+          work_kind: m!.workKind,
+          kind: m!.kind,
+        })),
+        portal: portal
+          ? { message_id: portal.messageId, lease_owner: portal.leaseOwner, upstream_id: portal.upstreamId }
+          : null,
+      };
+    }
     const [r] = await this.db
       .select()
       .from(agentRebootHandoffs)
@@ -318,6 +383,17 @@ export class RebootHandoffs {
     };
   }
   async ready(hostId: number, requestId: string, bootId: string) {
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) {
+      runtime.assertOwner();
+      const state = runtime.state.snapshot(),
+        r = state.table('agentRebootHandoffs').get(requestId);
+      if (!r || r.hostId !== hostId) throw new NotFoundError('Reboot handoff not found');
+      const old = state.table('agentSessions').get(r.oldSessionId);
+      if (r.status !== 'armed' || r.expiresAt <= nowIso() || r.bootId === bootId || old?.closeRequestedAt)
+        throw fail('Reboot handoff is not available for this boot');
+      return ownedHandoffView(r);
+    }
     const [r] = await this.db.select().from(agentRebootHandoffs).where(eq(agentRebootHandoffs.id, requestId));
     if (!r || r.hostId !== hostId) throw new NotFoundError('Reboot handoff not found');
     const [old] = await this.db.select().from(agentSessions).where(eq(agentSessions.id, r.oldSessionId));
@@ -326,6 +402,23 @@ export class RebootHandoffs {
     return this.view(r);
   }
   async observe(hostId: number, requestId: string) {
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) {
+      runtime.assertOwner();
+      const state = runtime.state.snapshot(),
+        r = state.table('agentRebootHandoffs').get(requestId);
+      if (!r || r.hostId !== hostId) throw new NotFoundError('Reboot handoff not found');
+      const session = state.table('agentSessions').get(r.newSessionId ?? r.oldSessionId),
+        binding = state.table('hostDaemonPortalBindings').get(r.oldSessionId),
+        remote = binding ? state.table('hostDaemonSessions').get(binding.daemonSessionId) : undefined;
+      return {
+        stop_requested:
+          !session ||
+          !!session.closeRequestedAt ||
+          !!session.endedAt ||
+          !!(remote && ['stopping', 'closed'].includes(remote.status)),
+      };
+    }
     const [r] = await this.db.select().from(agentRebootHandoffs).where(eq(agentRebootHandoffs.id, requestId));
     if (!r || r.hostId !== hostId) throw new NotFoundError('Reboot handoff not found');
     const [session] = await this.db
@@ -351,6 +444,8 @@ export class RebootHandoffs {
     };
   }
   async disarm(hostId: number, requestId: string) {
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) return disarmOwnedReboot(runtime, hostId, requestId);
     return this.db.transaction(async (tx) => {
       const [r] = await tx
         .select()
@@ -378,6 +473,8 @@ export class RebootHandoffs {
     failed: boolean,
     report?: { status: string; summary: string },
   ) {
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) return finishOwnedReboot(runtime, this.keyring, hostId, requestId, failed, report);
     return this.db.transaction(async (tx) => {
       const [r] = await tx
         .select()

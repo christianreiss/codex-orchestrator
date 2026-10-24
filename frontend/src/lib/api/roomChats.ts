@@ -84,14 +84,14 @@ export const roomOptions = (enabled = true, view: 'active' | 'history' | 'all' =
   }) => api.get<RoomPage>(`${roomRoot}?offset=${pageParam}&view=${view}`, { signal }),
   getNextPageParam: (last: RoomPage) => last.next_offset ?? undefined,
   enabled,
-  refetchInterval: 15000,
+
 });
 export const roomHistoryOptions = (id: string, enabled: boolean) => ({
   queryKey: [...roomKeys, id, "history"],
   queryFn: ({ signal }: { signal: AbortSignal }) =>
     api.post<RoomHistory>(`${roomRoot}/read`, { room_id: id }, { signal }),
   enabled,
-  refetchInterval: 10000,
+
 });
 export function matchingRooms(
   rooms: ChatRoom[],

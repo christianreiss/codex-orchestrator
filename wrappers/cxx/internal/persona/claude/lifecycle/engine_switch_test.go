@@ -74,6 +74,12 @@ func runClaudeSyncOnly(t *testing.T, cfg *config.Config) (int, error) {
 }
 
 func TestStrictCacheRefusesNewLaunchWithFreshLocalAuthButOfflineServer(t *testing.T) {
+	// This test exercises cache admission, independently of a locally installed CLI.
+	cli := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLX_CLAUDE_BIN", cli)
 	cfg, _ := engineSwitchHost(t, 0, "")
 	cfg.Orchestrator.CommunicatorCacheProtocol = 2
 	exit, err := Run(context.Background(), Options{Config: cfg, Headless: true, SkipBoot: true, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})

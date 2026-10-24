@@ -1,3 +1,4 @@
+import {assertOwnerRequestAuthority,withOwnerRpcResponse} from '../control-plane/state/runtime.js';
 /**
  * MCP JSON-RPC 2.0 dispatcher.
  */
@@ -66,12 +67,12 @@ export class McpServer {
     if (Array.isArray(body)) {
       const responses: JsonRpcResponse[] = [];
       for (const item of body) {
-        const res = await this.handleOne(item, ctx);
+        const res = await withOwnerRpcResponse(()=>this.handleOne(item, ctx));
         if (res) responses.push(res);
       }
       return responses.length === 0 ? null : responses;
     }
-    return this.handleOne(body, ctx);
+    return withOwnerRpcResponse(()=>this.handleOne(body, ctx));
   }
 
   async handleOne(req: unknown, ctx: DispatchContext): Promise<JsonRpcResponse | null> {
@@ -94,6 +95,7 @@ export class McpServer {
     let response: JsonRpcResponse | null = null;
 
     try {
+      assertOwnerRequestAuthority();
       switch (method) {
         case 'initialize': {
           response = okResponse(id, {

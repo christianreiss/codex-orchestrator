@@ -1,3 +1,16 @@
+import {persistAuditLog} from './audit-log.js';
+import type { AnyMySqlTable } from 'drizzle-orm/mysql-core';
+import { currentNativePrincipal, type NativePrincipal } from '../control-plane/state/native-principal.js';
+import { ownedBridge } from '../control-plane/state/messaging.js';
+import { nativeClaimAttachment } from '../control-plane/state/resource-claims.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { ownerRuntimeFor, mutateOwnerState, type OwnerMutationContext } from '../control-plane/state/runtime.js';
+import { stageUpdate, stageDelete } from '../control-plane/state/rows.js';
+import { stageProjectEvent } from '../control-plane/state/projects.js';
+import type { Json } from '../control-plane/commands.js';
+import { ownerPresence } from '../control-plane/presence.js';
+const boardCommand = new AsyncLocalStorage<OwnerMutationContext>();
+const boardPrincipals = new WeakMap<OwnerMutationContext,NativePrincipal>();
 /**
  * The project board: cards as the unit of coordinated work, with claim/lease
  * semantics mirroring the Git Director.
@@ -53,12 +66,11 @@ import {
   coordProjectEvents,
   coordProjects,
   hosts,
-  logs,
   type CoordProjectBoardColumn,
   type CoordProjectCard,
   type Host,
 } from '../db/schema.js';
-import { NotFoundError, ValidationError } from '../http/errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js';
 import { isoOffsetSeconds, nowIso, parseIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { SettingsService } from './settings.js';
@@ -278,6 +290,7 @@ export interface ClaimState {
   claimedAt: string | null;
   expiresAt: string | null;
   releasedAt: string | null;
+  ownershipMode?: string;
 }
 
 export interface ClaimRequester {
@@ -300,6 +313,7 @@ export type ClaimDecision =
 /** A claim is live while it has not been released and has not run out. */
 export function claimIsLive(state: ClaimState | null, now: string): boolean {
   if (!state || state.releasedAt || !state.claimedAt) return false;
+  if (state.ownershipMode === 'connection') return true;
   if (!state.expiresAt) return false;
   const expires = parseIso(state.expiresAt);
   const at = parseIso(now);
@@ -584,8 +598,28 @@ export interface CardReadiness {
 
 const EMPTY_READINESS: CardReadiness = { dependsOn: new Map(), waitingOn: new Map() };
 
+const boardTables={coordProjectBoards,coordProjectBoardColumns,coordProjectCards,coordProjectCardDeps};
 export class ProjectBoardService {
   private readonly now: () => string;
+  private nativeProof(actor:CardActor,supplied?:NativePrincipal){
+    const owner=ownerRuntimeFor(this.deps.db)!;const principal=supplied??(boardCommand.getStore()?boardPrincipals.get(boardCommand.getStore()!):undefined)??currentNativePrincipal();
+    if(!principal)throw new ConflictError('Authenticated native session required for card ownership','card_identity_required');
+    const {session}=ownedBridge(owner.state.snapshot(),principal.sessionId,principal.bridgeToken);
+    if(session.hostId!==actor.hostId||actor.engine&&session.engine!==actor.engine||actor.username&&session.username!==actor.username||actor.worktreePath&&session.cwd!==actor.worktreePath)throw new ConflictError('Card actor differs from authenticated native session','card_identity_mismatch');
+    const instances=new Set(ownerPresence(owner).session(session.id,session.bindingGeneration,'session').map(a=>a.scope.native_instance_id).filter(Boolean));if(instances.size!==1)throw new ConflictError('Exactly one proven native instance required','card_connection_required');const attachment=nativeClaimAttachment(owner,session);if(!attachment?.scope.native_instance_id)throw new ConflictError('Attached native instance required for card ownership','card_connection_required');
+    actor.username=session.username;actor.worktreePath=session.cwd;actor.engine=session.engine;
+    return {session,instance:attachment.scope.native_instance_id};
+  }
+  private claimConnected(card:CoordProjectCard):boolean{const owner=ownerRuntimeFor(this.deps.db);if(!owner||!card.claimSessionId||card.claimBindingGeneration===null||!card.claimNativeInstanceId)return false;return ownerPresence(owner).session(card.claimSessionId,card.claimBindingGeneration,'session').some(a=>a.scope.native_instance_id===card.claimNativeInstanceId);}
+  private snapshot(){const context=boardCommand.getStore();if(context)return context.draft.view();const owner=ownerRuntimeFor(this.deps.db);owner?.assertOwner();return owner?.state.snapshot();}
+  private async insertRow<K extends 'coordProjectBoards'|'coordProjectBoardColumns'|'coordProjectCards'|'coordProjectCardDeps'>(tx:ProjectBoardDb,name:K,values:typeof boardTables[K]['$inferInsert']):Promise<void>{
+    const ctx=boardCommand.getStore();if(!ctx){await tx.insert(boardTables[name] as typeof coordProjectCards).values(values as typeof coordProjectCards.$inferInsert);return;}
+    const defaults=name==='coordProjectCards'?{claimRole:null,claimedByHostId:null,claimedByUsername:null,claimedWorktreePath:null,claimedWorktreeHash:null,claimedAgentBusAddressId:null,claimClientRequestId:null,claimedAt:null,claimExpiresAt:null,claimReleasedAt:null,claimReleaseReason:null,dueAt:null,claimOwnershipMode:'connection',claimSessionId:null,claimBindingGeneration:null,claimNativeInstanceId:null,claimUncertaintyReason:null}:{};
+    ctx.draft.upsert(name,{...defaults,...values} as never);ctx.write(async owned=>owned.insert(boardTables[name] as typeof coordProjectCards).values(values as typeof coordProjectCards.$inferInsert));
+  }
+  private async updateRow<K extends 'coordProjectBoards'|'coordProjectBoardColumns'|'coordProjectCards'>(tx:ProjectBoardDb,name:K,id:string,patch:Partial<typeof boardTables[K]['$inferSelect']>):Promise<void>{const ctx=boardCommand.getStore();if(ctx){stageUpdate(ctx,name,id,patch as never);return;}await tx.update(boardTables[name] as AnyMySqlTable).set(patch).where(eq(boardTables[name].id,id));}
+  private async deleteDependencies(tx:ProjectBoardDb,field:'cardId'|'dependsOnCardId',id:string):Promise<void>{const ctx=boardCommand.getStore();if(ctx){for(const row of ctx.draft.table('coordProjectCardDeps').all())if(row[field]===id)stageDelete(ctx,'coordProjectCardDeps',row.id);return;}await tx.delete(coordProjectCardDeps).where(eq(coordProjectCardDeps[field],id));}
+
 
   constructor(private readonly deps: ProjectBoardServiceDeps) {
     this.now = deps.now ?? nowIso;
@@ -605,11 +639,11 @@ export class ProjectBoardService {
 
   async adminState(): Promise<ProjectBoardModuleState> {
     const meta = await this.requireSettings().getWithMeta(PROJECT_BOARD_ENABLED_FLAG);
-    const boardRows = await this.deps.db
+    const boardRows = this.snapshot()?.table('coordProjectBoards').all().filter(row=>!row.archivedAt) ?? await this.deps.db
       .select({ id: coordProjectBoards.id })
       .from(coordProjectBoards)
       .where(isNull(coordProjectBoards.archivedAt));
-    const cardRows = await this.deps.db
+    const cardRows = this.snapshot()?.table('coordProjectCards').all() ?? await this.deps.db
       .select({
         id: coordProjectCards.id,
         claimedAt: coordProjectCards.claimedAt,
@@ -638,6 +672,7 @@ export class ProjectBoardService {
             claimedAt: row.claimedAt,
             expiresAt: row.claimExpiresAt,
             releasedAt: row.claimReleasedAt,
+            ownershipMode: ownerRuntimeFor(this.deps.db)?'connection':'timed',
           },
           now,
         ),
@@ -670,7 +705,7 @@ export class ProjectBoardService {
     now: string,
     template: string = DEFAULT_BOARD_TEMPLATE,
   ): Promise<{ boardId: string; columns: ColumnRow[] }> {
-    const existing = await tx
+    const existing = this.snapshot()?.table('coordProjectBoards').all().filter(row=>row.projectId===project.id&&row.slug===DEFAULT_BOARD_SLUG) ?? await tx
       .select()
       .from(coordProjectBoards)
       .where(
@@ -684,7 +719,7 @@ export class ProjectBoardService {
     let boardId = existing[0]?.id ?? null;
     if (!boardId) {
       boardId = randomUUID();
-      await tx.insert(coordProjectBoards).values({
+      await this.insertRow(tx, 'coordProjectBoards', {
         id: boardId,
         projectId: project.id,
         slug: DEFAULT_BOARD_SLUG,
@@ -703,7 +738,7 @@ export class ProjectBoardService {
       const ids = new Map<string, string>();
       for (const seed of seeds) ids.set(seed.key, randomUUID());
       for (const [position, seed] of seeds.entries()) {
-        await tx.insert(coordProjectBoardColumns).values({
+        await this.insertRow(tx, 'coordProjectBoardColumns', {
           id: ids.get(seed.key)!,
           boardId,
           projectId: project.id,
@@ -739,6 +774,7 @@ export class ProjectBoardService {
   async provisionBoard(slug: string, template: string): Promise<void> {
     const project = await this.deps.projects.requireProject(slug);
     const now = this.now();
+    const owner=ownerRuntimeFor(this.deps.db);if(owner){await mutateOwnerState(owner,{kind:'project.board.provision',payload:{slug,template},prepare:ctx=>boardCommand.run(ctx,async()=>{await this.ensureBoard(this.deps.db,project,now,template);return null;})});return;}
     await this.deps.db.transaction(async (tx) => {
       await this.ensureBoard(tx as ProjectBoardDb, project, now, template);
     });
@@ -757,7 +793,7 @@ export class ProjectBoardService {
     cards: CoordProjectCard[],
     columns: ColumnRow[],
   ): Promise<CardReadiness> {
-    const edges = await tx
+    const edges = this.snapshot()?.table('coordProjectCardDeps').all().filter(row=>row.projectId===projectId) ?? await tx
       .select()
       .from(coordProjectCardDeps)
       .where(eq(coordProjectCardDeps.projectId, projectId));
@@ -816,7 +852,7 @@ export class ProjectBoardService {
       targets.push(target);
     }
 
-    const edges = await ctx.tx
+    const edges = this.snapshot()?.table('coordProjectCardDeps').all().filter(row=>row.projectId===ctx.project.id) ?? await ctx.tx
       .select()
       .from(coordProjectCardDeps)
       .where(eq(coordProjectCardDeps.projectId, ctx.project.id));
@@ -841,9 +877,9 @@ export class ProjectBoardService {
       });
     }
 
-    await ctx.tx.delete(coordProjectCardDeps).where(eq(coordProjectCardDeps.cardId, card.id));
+    await this.deleteDependencies(ctx.tx, 'cardId', card.id);
     for (const target of targets) {
-      await ctx.tx.insert(coordProjectCardDeps).values({
+      await this.insertRow(ctx.tx, 'coordProjectCardDeps', {
         id: randomUUID(),
         projectId: ctx.project.id,
         cardId: card.id,
@@ -854,6 +890,7 @@ export class ProjectBoardService {
   }
 
   private async fetchColumns(tx: ProjectBoardDb, boardId: string): Promise<ColumnRow[]> {
+    const state=this.snapshot();if(state)return [...state.table('coordProjectBoardColumns').all()].filter(row=>row.boardId===boardId).sort((a,b)=>a.position-b.position);
     const rows = await tx
       .select()
       .from(coordProjectBoardColumns)
@@ -926,10 +963,7 @@ export class ProjectBoardService {
       const reason = isDead
         ? 'Claim reclaimed: the holding agent is no longer running.'
         : 'Claim expired: it was never renewed and never released.';
-      await tx
-        .update(coordProjectCards)
-        .set({ claimReleasedAt: now, claimReleaseReason: reason, updatedAt: now })
-        .where(eq(coordProjectCards.id, card.id));
+      await this.updateRow(tx, 'coordProjectCards', card.id, { claimReleasedAt: now, claimReleaseReason: reason, updatedAt: now });
       reclaimed.push({ ...card, claimReleasedAt: now, claimReleaseReason: reason });
       await this.deps.projects._recordEventTx(
         tx,
@@ -963,6 +997,7 @@ export class ProjectBoardService {
    * are working on them.
    */
   private async deadAddressIds(tx: ProjectBoardDb, ids: readonly string[], now: string): Promise<Set<string>> {
+    const owner=ownerRuntimeFor(this.deps.db);if(owner)return new Set();
     const unique = [...new Set(ids)];
     if (unique.length === 0) return new Set();
     try {
@@ -1048,6 +1083,7 @@ export class ProjectBoardService {
       claimedAt: card.claimedAt,
       expiresAt: card.claimExpiresAt,
       releasedAt: card.claimReleasedAt,
+      ownershipMode: ownerRuntimeFor(this.deps.db)?'connection':card.claimOwnershipMode,
     };
   }
 
@@ -1080,10 +1116,19 @@ export class ProjectBoardService {
     slug: string,
     actor: CardActor,
     run: (ctx: BoardContext) => Promise<T>,
+    readOnly=false,
   ): Promise<T> {
     const project = await this.deps.projects.requireProject(slug);
     const now = this.now();
     const publishes: PendingPublish[] = [];
+    const owner=ownerRuntimeFor(this.deps.db),nativePrincipal=currentNativePrincipal();
+    if(owner&&readOnly){const board=owner.state.snapshot().table('coordProjectBoards').all().find(row=>row.projectId===project.id&&row.slug===DEFAULT_BOARD_SLUG);const columns=board?await this.fetchColumns(this.deps.db,board.id):[];return run({tx:this.deps.db,project,boardId:board?.id??'',columns,now,actor,publishes});}
+    if(owner){let value!:T,nativeFence:string|undefined;await mutateOwnerState(owner,{kind:'project.board.command',payload:{slug,hostId:actor.hostId},authorize:()=>{if(nativePrincipal&&actor.hostId!==null){const proof=this.nativeProof(actor,nativePrincipal),fence=proof.session.id+':'+proof.session.bindingGeneration+':'+proof.instance;if(nativeFence&&nativeFence!==fence)throw new ConflictError('Native ownership changed during card command','card_connection_required');nativeFence=fence;}},prepare:ctx=>boardCommand.run(ctx,async()=>{
+      if(nativePrincipal)boardPrincipals.set(ctx,nativePrincipal);
+      if(!ctx.snapshot.table('coordProjects').has(project.id))throw new NotFoundError('Project not found');
+      const {boardId,columns}=await this.ensureBoard(this.deps.db,project,now);
+      value=await run({tx:this.deps.db,project,boardId,columns,now,actor,publishes});return value as Json;
+    })});for(const pending of publishes)wsPublisher.publish(pending.event,pending.payload);return value;}
     const value = await this.deps.db.transaction(async (tx) => {
       // THE lock. Everything below — provisioning, renewal, the sweep, and the
       // decision itself — happens while this transaction holds the project row,
@@ -1121,7 +1166,8 @@ export class ProjectBoardService {
     payload: Record<string, unknown>,
     event: string,
   ): Promise<void> {
-    const seq = await this.deps.projects._recordEventTx(
+    const owned=boardCommand.getStore();
+    const seq = owned ? stageProjectEvent(owned,ctx.project.id,'card',action,'card',card.id,payload,ctx.actor.hostId).seq : await this.deps.projects._recordEventTx(
       ctx.tx,
       ctx.project,
       'card',
@@ -1148,7 +1194,8 @@ export class ProjectBoardService {
   }
 
   private async log(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {
-    await this.deps.db.insert(logs).values({
+    const ctx=boardCommand.getStore();if(ctx){ctx.write(async tx=>persistAuditLog(tx, {hostId,action,details:JSON.stringify(details),createdAt:this.now(),engine:null}));return;}
+    await persistAuditLog(this.deps.db, {
       hostId: hostId ?? null,
       action,
       details: JSON.stringify(details),
@@ -1187,10 +1234,7 @@ export class ProjectBoardService {
     );
     if (held.length === 0) return;
     const expires = await this.claimExpiry(tx, boardId, now);
-    await tx
-      .update(coordProjectCards)
-      .set({ claimExpiresAt: expires, updatedAt: now })
-      .where(inArray(coordProjectCards.id, held.map((card) => card.id)));
+    await tx.update(coordProjectCards).set({claimExpiresAt:expires,updatedAt:now}).where(inArray(coordProjectCards.id,held.map(card=>card.id)));
   }
 
   private async claimExpiry(tx: ProjectBoardDb, boardId: string, now: string): Promise<string> {
@@ -1207,6 +1251,7 @@ export class ProjectBoardService {
   // ── card lookup ───────────────────────────────────────────────────────────
 
   private async cardsOf(tx: ProjectBoardDb, projectId: number): Promise<CoordProjectCard[]> {
+    const state=this.snapshot();if(state)return [...state.table('coordProjectCards').all()].filter(row=>row.projectId===projectId&&!row.archivedAt).sort((a,b)=>b.priority-a.priority||a.enteredColumnAt.localeCompare(b.enteredColumnAt));
     const rows = await tx
       .select()
       .from(coordProjectCards)
@@ -1225,6 +1270,7 @@ export class ProjectBoardService {
     if (!id && number === null) {
       throw new ValidationError('card must be a card number or a card id', { param: 'card' });
     }
+    const state=this.snapshot();if(state){const card=state.table('coordProjectCards').all().find(row=>row.projectId===projectId&&(id?row.id===id:Number(row.cardNumber)===number));if(!card||card.archivedAt)throw new NotFoundError('Card not found');return card;}
     const where = id
       ? and(eq(coordProjectCards.projectId, projectId), eq(coordProjectCards.id, id))
       : and(eq(coordProjectCards.projectId, projectId), eq(coordProjectCards.cardNumber, number!));
@@ -1238,16 +1284,14 @@ export class ProjectBoardService {
   }
 
   private async allocateCardNumber(tx: ProjectBoardDb, boardId: string, now: string): Promise<number> {
+    const ctx=boardCommand.getStore();if(ctx){const row=ctx.draft.table('coordProjectBoards').get(boardId);if(!row)throw new NotFoundError('Board not found');const next=Number(row.nextCardNumber)||1;stageUpdate(ctx,'coordProjectBoards',boardId,{nextCardNumber:next+1,updatedAt:now});return next;}
     const rows = await tx
       .select({ next: coordProjectBoards.nextCardNumber })
       .from(coordProjectBoards)
       .where(eq(coordProjectBoards.id, boardId))
       .limit(1);
     const next = Number(rows[0]?.next ?? 1) || 1;
-    await tx
-      .update(coordProjectBoards)
-      .set({ nextCardNumber: next + 1, updatedAt: now })
-      .where(eq(coordProjectBoards.id, boardId));
+    await this.updateRow(tx, 'coordProjectBoards', boardId, { nextCardNumber: next + 1, updatedAt: now });
     return next;
   }
 
@@ -1295,7 +1339,9 @@ export class ProjectBoardService {
       host: card.claimedByHostId === null ? null : (hostLabels.get(Number(card.claimedByHostId)) ?? null),
       worktree_path: card.claimedWorktreePath,
       claimed_at: card.claimedAt,
-      expires_at: card.claimExpiresAt,
+      expires_at: ownerRuntimeFor(this.deps.db)?null:card.claimExpiresAt,
+      presence_source: ownerRuntimeFor(this.deps.db)?'connection':'heartbeat',
+      ownership_state: ownerRuntimeFor(this.deps.db)?(!card.claimUncertaintyReason&&this.claimConnected(card)?'active':'uncertain'):'timed',
       agent_address_bound: card.claimedAgentBusAddressId !== null,
       yours:
         card.claimedByHostId !== null &&
@@ -1342,6 +1388,7 @@ export class ProjectBoardService {
   /** fqdn lookup for the holder line, so "held by chris on crane" is possible. */
   private async hostLabels(tx: ProjectBoardDb, ids: readonly (number | null)[]): Promise<Map<number, string>> {
     const unique = [...new Set(ids.filter((id): id is number => typeof id === 'number'))];
+    const state=this.snapshot();if(state)return new Map(state.hosts.all().filter(row=>unique.includes(row.id)).map(row=>[row.id,row.fqdn]));
     if (unique.length === 0) return new Map();
     try {
       const rows = await tx
@@ -1420,7 +1467,7 @@ export class ProjectBoardService {
         // time, so dead holders appear unheld before their durable reclaim.
         boards.push(
           slug
-            ? await this.withBoard(each, actor, (ctx) => this.renderBoard(ctx, filters))
+            ? await this.withBoard(each, actor, (ctx) => this.renderBoard(ctx, filters),Boolean(ownerRuntimeFor(this.deps.db)))
             : await this.readBoard(each, actor, filters),
         );
       } catch (error) {
@@ -1450,7 +1497,7 @@ export class ProjectBoardService {
     filters: { column: string | null; role: string | null; mine: boolean; unclaimed: boolean },
   ): Promise<Record<string, unknown>> {
     const project = await this.deps.projects.requireProject(slug);
-    const boards = await this.deps.db
+    const boards = this.snapshot()?.table('coordProjectBoards').all().filter(row=>row.projectId===project.id&&row.slug===DEFAULT_BOARD_SLUG) ?? await this.deps.db
       .select({ id: coordProjectBoards.id })
       .from(coordProjectBoards)
       .where(
@@ -1546,6 +1593,7 @@ export class ProjectBoardService {
   }
 
   private async projectSlugs(): Promise<string[]> {
+    const state=this.snapshot();if(state)return state.table('coordProjects').all().filter(row=>!row.archivedAt).map(row=>row.slug);
     const rows = await this.deps.db
       .select({ slug: coordProjects.slug, archivedAt: coordProjects.archivedAt })
       .from(coordProjects)
@@ -1613,7 +1661,7 @@ export class ProjectBoardService {
     // agent stopped without releasing. `claim_expired` is written by nothing but
     // the sweep, so it answers the question exactly.
     const reclaimed = (
-      await ctx.tx
+      this.snapshot()?.table('coordProjects').get(ctx.project.id)?.recentEvents.filter(e=>e.entityType==='card'&&e.action==='claim_expired').slice(0,10).map(e=>({entityId:e.entityId,payload:e.payloadJson,createdAt:e.createdAt})) ?? await ctx.tx
         .select({
           entityId: coordProjectEvents.entityId,
           payload: coordProjectEvents.payloadJson,
@@ -1687,7 +1735,7 @@ export class ProjectBoardService {
           source_host_id: event.sourceHostId === null ? null : Number(event.sourceHostId),
         })),
       };
-    });
+    },Boolean(ownerRuntimeFor(this.deps.db)));
   }
 
   async createCard(args: Record<string, unknown>, host: Host | null): Promise<Record<string, unknown>> {
@@ -1701,11 +1749,12 @@ export class ProjectBoardService {
     const dependsOn = normalizeDependsOn(args['depends_on']);
 
     const result = await this.withBoard(slug, actor, async (ctx) => {
+      await this.log(actor.hostId,'project.card.create',{slug,title});
       const requested = optionalString(args, 'column');
       const column = requested ? this.columnByRef(ctx.columns, requested) : this.intakeColumn(ctx.columns);
       const number = await this.allocateCardNumber(ctx.tx, ctx.boardId, ctx.now);
       const id = randomUUID();
-      await ctx.tx.insert(coordProjectCards).values({
+      await this.insertRow(ctx.tx, 'coordProjectCards', {
         id,
         projectId: ctx.project.id,
         boardId: ctx.boardId,
@@ -1744,7 +1793,6 @@ export class ProjectBoardService {
         card: this.cardWire(card, ctx.columns, ctx.now, ctx.actor, new Map(), readiness),
       };
     });
-    await this.log(actor.hostId, 'project.card.create', { slug, title });
     return result;
   }
 
@@ -1774,7 +1822,10 @@ export class ProjectBoardService {
 
     return await this.withBoard(slug, actor, async (ctx) => {
       const card = await this.requireCard(ctx.tx, ctx.project.id, args['card'], true);
-      const decision = resolveClaim(this.claimStateOf(card), this.requesterOf(actor, clientRequestId), ctx.now);
+      const owner=ownerRuntimeFor(this.deps.db),proof=owner?this.nativeProof(actor):null;
+      const held=Boolean(card.claimedAt&&!card.claimReleasedAt);
+      const same=proof&&card.claimSessionId===proof.session.id&&card.claimBindingGeneration===proof.session.bindingGeneration&&card.claimNativeInstanceId===proof.instance;
+      const decision:ClaimDecision=owner?(held?(same?{outcome:clientRequestId&&clientRequestId===card.claimClientRequestId?'retry':'renewed'}:{outcome:'held'}):{outcome:'granted'}):resolveClaim(this.claimStateOf(card),this.requesterOf(actor,clientRequestId),ctx.now);
       const labels = await this.hostLabels(ctx.tx, [
         card.claimedByHostId === null ? null : Number(card.claimedByHostId),
       ]);
@@ -1793,6 +1844,7 @@ export class ProjectBoardService {
       }
 
       if (decision.outcome === 'retry') {
+        if(owner&&proof&&card.claimUncertaintyReason){await this.updateRow(ctx.tx,'coordProjectCards',card.id,{claimUncertaintyReason:null});await this.emit(ctx,'claim_recovered',card,{card_id:card.id},'project.card.claimed');}
         return {
           claimed: true,
           retried: true,
@@ -1804,8 +1856,8 @@ export class ProjectBoardService {
         };
       }
 
-      const address = await this.resolveAddress(ctx.tx, actor);
-      const expires = await this.claimExpiry(ctx.tx, ctx.boardId, ctx.now);
+      const address = proof?{id:proof.session.agentBusAddressId}:await this.resolveAddress(ctx.tx,actor);
+      const expires = owner?null:await this.claimExpiry(ctx.tx,ctx.boardId,ctx.now);
       const column = ctx.columns.find((entry) => entry.id === card.columnId) ?? null;
       const occupancy = (await this.cardsOf(ctx.tx, ctx.project.id)).filter(
         (entry) => entry.columnId === card.columnId && entry.id !== card.id,
@@ -1844,9 +1896,8 @@ export class ProjectBoardService {
         });
       }
 
-      await ctx.tx
-        .update(coordProjectCards)
-        .set({
+      await this.updateRow(ctx.tx,'coordProjectCards',card.id,{
+          ...(proof?{claimOwnershipMode:'connection',claimSessionId:proof.session.id,claimBindingGeneration:proof.session.bindingGeneration,claimNativeInstanceId:proof.instance,claimUncertaintyReason:null}:{}),
           claimRole: role,
           claimedByHostId: actor.hostId,
           claimedByUsername: actor.username,
@@ -1859,8 +1910,7 @@ export class ProjectBoardService {
           claimReleasedAt: null,
           claimReleaseReason: null,
           updatedAt: ctx.now,
-        })
-        .where(eq(coordProjectCards.id, card.id));
+        });
 
       await this.emit(
         ctx,
@@ -1964,9 +2014,7 @@ export class ProjectBoardService {
     // Landing in the terminal lane ends the claim: a card nobody is working on
     // any more must not keep a lease that would have to expire on its own.
     const terminal = column.isTerminal === 1;
-    await ctx.tx
-      .update(coordProjectCards)
-      .set({
+    await this.updateRow(ctx.tx, 'coordProjectCards', card.id, {
         columnId: column.id,
         enteredColumnAt: card.columnId === column.id ? card.enteredColumnAt : ctx.now,
         blockedReason: column.isBlocked === 1 ? (blockedReason ?? card.blockedReason) : null,
@@ -1974,8 +2022,7 @@ export class ProjectBoardService {
           ? { claimReleasedAt: ctx.now, claimReleaseReason: 'Card reached a terminal column.' }
           : {}),
         updatedAt: ctx.now,
-      })
-      .where(eq(coordProjectCards.id, card.id));
+      });
 
     await this.emit(
       ctx,
@@ -2033,6 +2080,7 @@ export class ProjectBoardService {
 
     return await this.withBoard(slug, actor, async (ctx) => {
       const card = await this.requireCard(ctx.tx, ctx.project.id, args['card'], true);
+      if(ownerRuntimeFor(this.deps.db)&&host&&card.claimedAt&&!card.claimReleasedAt){const proof=this.nativeProof(actor);if(card.claimSessionId!==proof.session.id||card.claimBindingGeneration!==proof.session.bindingGeneration||card.claimNativeInstanceId!==proof.instance)throw new ConflictError('Original native owner required to release card','card_owner_uncertain');}
       const current = ctx.columns.find((entry) => entry.id === card.columnId) ?? null;
       if (!current) throw new NotFoundError('Card is not in any column of this board');
 
@@ -2068,14 +2116,11 @@ export class ProjectBoardService {
       // would overwrite the reason with a less specific one.
       const after = await this.requireCard(ctx.tx, ctx.project.id, card.id, false);
       if (!after.claimReleasedAt) {
-        await ctx.tx
-          .update(coordProjectCards)
-          .set({
+        await this.updateRow(ctx.tx, 'coordProjectCards', card.id, {
             claimReleasedAt: ctx.now,
             claimReleaseReason: note ? textSummary(`Released: ${note}`, 255) : 'Released by its holder.',
             updatedAt: ctx.now,
-          })
-          .where(eq(coordProjectCards.id, card.id));
+          });
       }
 
       await this.emit(
@@ -2127,7 +2172,7 @@ export class ProjectBoardService {
       }
       if (args['due_at'] !== undefined) patch['dueAt'] = normalizeDueAt(args['due_at']);
 
-      await ctx.tx.update(coordProjectCards).set(patch).where(eq(coordProjectCards.id, card.id));
+      await this.updateRow(ctx.tx, 'coordProjectCards', card.id, patch);
       const dependsOn = normalizeDependsOn(args['depends_on']);
       if (dependsOn !== null) await this.setDependencies(ctx, card, dependsOn);
       const fresh = await this.requireCard(ctx.tx, ctx.project.id, card.id, false);
@@ -2157,22 +2202,17 @@ export class ProjectBoardService {
     const actor = host ? actorFromHost(host, args, optionalString(args, 'engine')) : OPERATOR_ACTOR;
     return await this.withBoard(slug, actor, async (ctx) => {
       const card = await this.requireCard(ctx.tx, ctx.project.id, args['card'], true);
-      await ctx.tx
-        .update(coordProjectCards)
-        .set({
+      await this.updateRow(ctx.tx, 'coordProjectCards', card.id, {
           archivedAt: ctx.now,
           claimReleasedAt: card.claimReleasedAt ?? ctx.now,
           claimReleaseReason: card.claimReleaseReason ?? 'Card archived.',
           updatedAt: ctx.now,
-        })
-        .where(eq(coordProjectCards.id, card.id));
+        });
       // Edges in both directions: a dependency on an archived card would leave
       // its dependents waiting on something nobody can finish, and the table
       // declares no foreign keys to do this for us.
-      await ctx.tx.delete(coordProjectCardDeps).where(eq(coordProjectCardDeps.cardId, card.id));
-      await ctx.tx
-        .delete(coordProjectCardDeps)
-        .where(eq(coordProjectCardDeps.dependsOnCardId, card.id));
+      await this.deleteDependencies(ctx.tx, 'cardId', card.id);
+      await this.deleteDependencies(ctx.tx, 'dependsOnCardId', card.id);
       await this.emit(
         ctx,
         'delete',
@@ -2237,7 +2277,7 @@ export class ProjectBoardService {
    * a listing that reclaims claims would make an innocuous read a write.
    */
   async todoRowsFor(projectId: number): Promise<ProjectTodoWire[]> {
-    const boards = await this.deps.db
+    const boards = this.snapshot()?.table('coordProjectBoards').all().filter(row=>row.projectId===projectId&&row.slug===DEFAULT_BOARD_SLUG) ?? await this.deps.db
       .select({ id: coordProjectBoards.id })
       .from(coordProjectBoards)
       .where(
@@ -2265,7 +2305,7 @@ export class ProjectBoardService {
       const column = this.intakeColumn(ctx.columns);
       const number = await this.allocateCardNumber(ctx.tx, ctx.boardId, ctx.now);
       const id = randomUUID();
-      await ctx.tx.insert(coordProjectCards).values({
+      await this.insertRow(ctx.tx, 'coordProjectCards', {
         id,
         projectId: ctx.project.id,
         boardId: ctx.boardId,
@@ -2304,10 +2344,7 @@ export class ProjectBoardService {
     const actor: CardActor = { ...OPERATOR_ACTOR, hostId: sourceHostId };
     return await this.withBoard(slug, actor, async (ctx) => {
       const card = await this.requireCardAsTodo(ctx, id);
-      await ctx.tx
-        .update(coordProjectCards)
-        .set({ title: payload.title, detail: payload.detail, updatedAt: ctx.now })
-        .where(eq(coordProjectCards.id, card.id));
+      await this.updateRow(ctx.tx, 'coordProjectCards', card.id, { title: payload.title, detail: payload.detail, updatedAt: ctx.now });
       const fresh = await this.requireCard(ctx.tx, ctx.project.id, card.id, false);
       await this.emit(
         ctx,
@@ -2352,22 +2389,17 @@ export class ProjectBoardService {
     const actor: CardActor = { ...OPERATOR_ACTOR, hostId: sourceHostId };
     return await this.withBoard(slug, actor, async (ctx) => {
       const card = await this.requireCardAsTodo(ctx, id);
-      await ctx.tx
-        .update(coordProjectCards)
-        .set({
+      await this.updateRow(ctx.tx, 'coordProjectCards', card.id, {
           archivedAt: ctx.now,
           claimReleasedAt: card.claimReleasedAt ?? ctx.now,
           claimReleaseReason: card.claimReleaseReason ?? 'Card archived.',
           updatedAt: ctx.now,
-        })
-        .where(eq(coordProjectCards.id, card.id));
+        });
       // Edges in both directions: a dependency on an archived card would leave
       // its dependents waiting on something nobody can finish, and the table
       // declares no foreign keys to do this for us.
-      await ctx.tx.delete(coordProjectCardDeps).where(eq(coordProjectCardDeps.cardId, card.id));
-      await ctx.tx
-        .delete(coordProjectCardDeps)
-        .where(eq(coordProjectCardDeps.dependsOnCardId, card.id));
+      await this.deleteDependencies(ctx.tx, 'cardId', card.id);
+      await this.deleteDependencies(ctx.tx, 'dependsOnCardId', card.id);
       await this.emit(
         ctx,
         'delete',
@@ -2391,6 +2423,7 @@ export class ProjectBoardService {
   // ── admin surface ─────────────────────────────────────────────────────────
 
   async adminBoard(slug: string): Promise<Record<string, unknown>> {
+    if(ownerRuntimeFor(this.deps.db))return this.readBoard(slug,OPERATOR_ACTOR,{column:null,role:null,mine:false,unclaimed:false});
     return await this.withBoard(slug, OPERATOR_ACTOR, (ctx) =>
       this.renderBoard(ctx, { column: null, role: null, mine: false, unclaimed: false }),
     );
@@ -2407,10 +2440,7 @@ export class ProjectBoardService {
       const message = reason?.trim()
         ? `Released by an operator: ${reason.trim()}`
         : 'Released by an operator.';
-      await ctx.tx
-        .update(coordProjectCards)
-        .set({ claimReleasedAt: ctx.now, claimReleaseReason: textSummary(message, 255), updatedAt: ctx.now })
-        .where(eq(coordProjectCards.id, card.id));
+      await this.updateRow(ctx.tx, 'coordProjectCards', card.id, { claimReleasedAt: ctx.now, claimReleaseReason: textSummary(message, 255), updatedAt: ctx.now });
       await this.emit(
         ctx,
         'force_release',
@@ -2491,10 +2521,7 @@ export class ProjectBoardService {
         }
       }
 
-      await ctx.tx
-        .update(coordProjectBoardColumns)
-        .set(update)
-        .where(eq(coordProjectBoardColumns.id, column.id));
+      await this.updateRow(ctx.tx, 'coordProjectBoardColumns', column.id, update);
       ctx.publishes.push({
         event: 'project.board.updated',
         payload: { slug: ctx.project.slug, column_id: column.id },

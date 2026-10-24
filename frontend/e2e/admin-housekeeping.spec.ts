@@ -1,3 +1,4 @@
+import { ownerStream } from "./owner-stream";
 import { expect, test, type Page } from '@playwright/test';
 const rule = { enabled: true, retention_days: 30, max_bytes: 5 * 1024 ** 3, min_age_days: 7 };
 function effective(value = rule) { return { ...value, source: 'fleet', override: null, fleet: { ...value } }; }
@@ -5,7 +6,7 @@ async function fixture(page: Page, manage = true) {
   const policies = { codex: effective(), claude: effective(), grok: effective() };
   const writes: { engine: string; value: typeof rule }[] = [];
   let emit: ((content: string) => void) | undefined;
-  await page.routeWebSocket('**/housekeeping-ws', ws => { emit = content => ws.send(content); });
+  await page.routeWebSocket('**/housekeeping-ws', ws => { ownerStream(ws); emit = content => ws.send(content); });
   await page.route('**/admin/**', route => {
     const req = route.request(); if (!req.headers().accept?.includes('application/json')) return route.continue();
     const path = new URL(req.url()).pathname;

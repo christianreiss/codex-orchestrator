@@ -1,3 +1,6 @@
+import {ownedMessagingTotalsView} from './owned-totals.js';
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { OwnedMessagingAdmin } from './owned-admin.js';
 import { visibleHost } from '../internal-hosts.js';
 import { assertAliasOutsideNamePool } from './names.js';
 import { deriveAddressPresence } from '../agent-presence.js';
@@ -81,6 +84,7 @@ export class AgentMessagingAdmin {
   constructor(private readonly core: AdminCore) {}
 
   async state(): Promise<Record<string, unknown>> {
+    if(ownerRuntimeFor(this.core.db))return ownedMessagingTotalsView(this.core.db);
     const enabled = await this.core.isEnabled();
     const now = nowIso();
     const freshAfter = isoOffsetSeconds(-AGENT_MESSAGING_RECEIVE_FRESH_SECONDS);
@@ -207,6 +211,7 @@ export class AgentMessagingAdmin {
   }
 
   async setEnabled(enabled: boolean): Promise<Record<string, unknown>> {
+    if(ownerRuntimeFor(this.core.db))return new OwnedMessagingAdmin(this.core).setEnabled(enabled) as Promise<Record<string,unknown>>;
     const now = nowIso();
     const result = await this.core.db.transaction(async (tx) => {
       const rows = await tx
@@ -318,6 +323,7 @@ export class AgentMessagingAdmin {
   }
 
   async listAdminAddresses(): Promise<Record<string, unknown>> {
+    if(ownerRuntimeFor(this.core.db))return new OwnedMessagingAdmin(this.core).addresses();
     const masterEnabled = await this.core.isEnabled();
     const rows = await this.core.db
       .select({
@@ -376,6 +382,7 @@ export class AgentMessagingAdmin {
   }
 
   async setAddressAlias(addressId: string, displayAlias: string | null): Promise<Record<string, unknown>> {
+    if(ownerRuntimeFor(this.core.db))return new OwnedMessagingAdmin(this.core).alias(addressId,displayAlias) as Promise<Record<string,unknown>>;
     const id = normalizeUuid(addressId, 'address_id');
     if (id === SERVER_ADDRESS_ID) throw new ConflictError('Server is a reserved publisher; native agent alias controls do not apply', 'agent_messaging_server_identity_readonly');
     const alias = normalizeAgentAlias(displayAlias);
@@ -397,6 +404,7 @@ export class AgentMessagingAdmin {
   }
 
   async setAddressEnabled(addressId: string, enabled: boolean): Promise<Record<string, unknown>> {
+    if(ownerRuntimeFor(this.core.db))return new OwnedMessagingAdmin(this.core).enabled(addressId,enabled) as Promise<Record<string,unknown>>;
     const id = normalizeUuid(addressId, 'address_id');
     if (id === SERVER_ADDRESS_ID) throw new ConflictError('Server is a reserved publisher; use the fleet Agent Messaging switch', 'agent_messaging_server_identity_readonly');
     const now = nowIso();
@@ -473,6 +481,7 @@ export class AgentMessagingAdmin {
   }
 
   async listAdminConversations(options: { status?: string; limit?: number } = {}): Promise<Record<string, unknown>> {
+    if(ownerRuntimeFor(this.core.db))return new OwnedMessagingAdmin(this.core).conversations(options);
     const limit = Math.max(1, Math.min(500, Math.trunc(options.limit ?? 100)));
     const rows = options.status
       ? await this.core.db.select().from(agentBusConversations).where(eq(agentBusConversations.status, options.status)).orderBy(desc(agentBusConversations.lastActivityAt)).limit(limit)
@@ -521,6 +530,7 @@ export class AgentMessagingAdmin {
   }
 
   async redriveMessage(messageId: string): Promise<Record<string, unknown>> {
+    if(ownerRuntimeFor(this.core.db))return new OwnedMessagingAdmin(this.core).redrive(messageId) as Promise<Record<string,unknown>>;
     await this.core.requireEnabled();
     const id = normalizeUuid(messageId, 'message_id');
     const result = await this.core.db.transaction(async (tx) => {

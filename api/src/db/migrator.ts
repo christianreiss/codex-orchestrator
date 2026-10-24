@@ -45,6 +45,8 @@ export const LEDGER_TABLE = 'schema_migrations';
 /** Session-scoped MySQL advisory lock; names are capped at 64 characters. */
 const LOCK_NAME = 'codex_orchestrator_schema_migrations';
 
+export type MigrationPool = Pick<Pool, 'getConnection'>;
+
 const FILENAME = /^(\d{4,})_([a-z0-9][a-z0-9_]*)\.sql$/;
 
 export interface MigrationFile {
@@ -281,7 +283,7 @@ export async function loadMigrations(dir?: string): Promise<MigrationFile[]> {
 }
 
 /** Read-only view of file state versus ledger state. Never writes. */
-export async function migrationStatus(pool: Pool, dir?: string): Promise<MigrationState[]> {
+export async function migrationStatus(pool: MigrationPool, dir?: string): Promise<MigrationState[]> {
   const files = await loadMigrations(dir);
   const conn = await pool.getConnection();
   try {
@@ -293,7 +295,7 @@ export async function migrationStatus(pool: Pool, dir?: string): Promise<Migrati
 }
 
 export async function runMigrations(
-  pool: Pool,
+  pool: MigrationPool,
   options: RunMigrationsOptions = {},
 ): Promise<MigrationReport> {
   const logger = options.logger ?? silentLogger;

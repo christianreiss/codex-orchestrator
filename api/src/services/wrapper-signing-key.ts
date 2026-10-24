@@ -10,6 +10,10 @@ import { wrapperSigningKeys } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
 import { decrypt, isEnvelope } from '../security/secret-box.js';
+import { ownerRuntimeFor, type OwnerRuntime } from '../control-plane/state/runtime.js';
+
+// KeyObjects remain outside public metadata and are scoped to this owner epoch.
+const ownedSigners = new WeakMap<OwnerRuntime, { view: object; loading: Promise<WrapperSigner[]> }>();
 
 /**
  * Loads the active Ed25519 wrapper-signing keys from `wrapper_signing_keys`.
@@ -116,6 +120,26 @@ export function createWrapperSigningKeyService(
   }
 
   async function load(): Promise<WrapperSigner[]> {
+    const owner = ownerRuntimeFor(deps.db);
+    if (owner) {
+      owner.assertOwner();
+      const view = owner.state.snapshot().table('wrapperSigningKeys');
+      const existing = ownedSigners.get(owner);
+      if (existing?.view === view) return existing.loading;
+      const active = view.all().filter(row => row.active === 1).sort((a,b) => a.createdAt.localeCompare(b.createdAt) || a.id-b.id);
+      const loading = (async () => {
+        const keys: Array<WrapperSigner | null> = [];
+        for (const metadata of active) {
+          const [row] = await deps.db.select().from(wrapperSigningKeys).where(eq(wrapperSigningKeys.id,metadata.id));
+          keys.push(row && isEnvelope(row.privateKeyEnc) ? toSigner(row) : null);
+        }
+        owner.assertOwner();
+        if (owner.state.snapshot().table('wrapperSigningKeys') !== view) return load();
+        return keys[0] ? keys.filter((key): key is WrapperSigner => key !== null) : [];
+      })();
+      ownedSigners.set(owner,{view,loading});
+      try { return await loading; } catch (error) { if (ownedSigners.get(owner)?.loading === loading) ownedSigners.delete(owner); throw error; }
+    }
     if (cached !== undefined && now() - cachedAt < ttlMs) return cached;
     const rows = await deps.db
       .select()
@@ -145,6 +169,8 @@ export function createWrapperSigningKeyService(
     },
     invalidate() {
       cached = undefined;
+      const owner = ownerRuntimeFor(deps.db);
+      if (owner) ownedSigners.delete(owner);
     },
   };
 }

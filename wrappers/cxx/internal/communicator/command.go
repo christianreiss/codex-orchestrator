@@ -9,6 +9,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -82,6 +83,12 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 		return err
 	}
 	client := &http.Client{Transport: Wrap(direct), Timeout: 120 * time.Second}
+	var brokerClient *http.Client
+	if socket := os.Getenv("CXX_AGENT_PORTAL_SOCKET"); socket != "" {
+		brokerClient = &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+		}}, Timeout: 120 * time.Second}
+	}
 	var writes sync.Mutex
 	// Relay replies byte-exact on one line: decoding into any would round
 	// integer IDs beyond float64 precision that sameMCPID compares exactly.
@@ -100,7 +107,14 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 		req.Header.Set("X-Engine", engine)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
-		res, err := client.Do(req)
+		requestClient := client
+		if brokerClient != nil {
+			req.URL.Scheme = "http"
+			req.URL.Host = "local"
+			req.URL.Path = "/_mcp"
+			requestClient = brokerClient
+		}
+		res, err := requestClient.Do(req)
 		if err != nil {
 			return 0, nil, err
 		}

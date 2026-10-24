@@ -16,8 +16,25 @@ import type { WsEvent } from "./client";
 
 export type WsInvalidationMap = Record<string, QueryKey[]>;
 
+/** Unknown owned domains conservatively refresh active snapshots instead of going stale. */
+export function ownerStateInvalidations(payload: unknown): QueryKey[] {
+  const tables = (payload as { tables?: unknown } | null)?.tables;
+  if (!Array.isArray(tables) || tables.some((name) => typeof name !== "string")) return [[]];
+  const keys: QueryKey[] = [];
+  for (const name of tables as string[]) {
+    if (name.startsWith("feedback")) keys.push(["feedback"], ["agents"]);
+    else if (name.startsWith("companion")) keys.push(["companion-devices"]);
+    else if (name.startsWith("chatty")) keys.push(["chatty"]);
+    else if (name.startsWith("agentSchedule") || name.startsWith("agentWatchdog")) keys.push(["schedules"], ["watchdogs"], ["agent-messaging"]);
+    else if (name.startsWith("gitDirector")) keys.push(["git-director"]);
+    else return [[]];
+  }
+  return keys;
+}
+
 /** Default invalidation map. */
 export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
+  "control_state.changed": [[]],
   "auth.canonical": [["accounts"]],
   "auth.invalidated": [["accounts"]],
   "communicator.updated": [["communicators"], ["topology"]],
@@ -39,7 +56,10 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "workflow.changed": [["workflows"], ["workflow-runs"]],
   "workflow.run.changed": [["workflow-runs"], ["agent-messaging"]],
   "workflow.state.changed": [["workflows"], ["workflow-runs"]],
-  "transport.connected": [["workflows"], ["workflow-runs"],["agent-sessions"], ["agent-messaging"], ["host-daemons"], ["daemon-sessions"], ["topology"]],
+  "transport.connected": [[]],
+  "transport.resync": [[]],
+  "agent_chat.attachment.changed": [["chat-attachments"]],
+  "runner.state.changed": [["runner"]],
   "agent_portal.sessions.changed": [["agent-sessions"], ["topology"], ["hosts"]],
   "agent_session.native_stop": [["agent-sessions"], ["topology"], ["native-stop"]],
   // Logs
@@ -184,10 +204,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
 
   // Agent portal controls live under Settings.
   "agent_portal.state": [["agent-portal"]],
-  // Live agent sessions. This is the ONLY event the sessions view gets: nothing
-  // publishes on register, heartbeat or event append, so the list polls and the
-  // timeline streams over SSE instead. Force-close is broadcast because it ends
-  // an agent every other console is also looking at.
+  // Session lifecycle events refresh snapshots; timeline content streams over SSE.
   "agent_portal.session.force_closed": [["agent-sessions"]],
 
   // Agent Messaging state, address discovery, relays and delivery lifecycle.
@@ -405,6 +422,11 @@ export function createCoalescingInvalidator(qc: QueryClient, windowMs: number): 
         void qc.invalidateQueries({ queryKey: key }, { cancelRefetch: false });
         return;
       }
+      const includes = (parent: QueryKey, child: QueryKey) => parent.length <= child.length && parent.every((part, index) => JSON.stringify(part) === JSON.stringify(child[index]));
+      // A full resnapshot already covers every descendant. Keeping both would
+      // issue an unnecessary trailing refresh and race explicit error retries.
+      for (const existing of pending.values()) if (includes(existing, key)) return;
+      for (const [hash, existing] of pending) if (includes(key, existing)) pending.delete(hash);
       pending.set(JSON.stringify(key), key);
       schedule();
     },
@@ -434,7 +456,7 @@ export function wireWsToQueryClient(
       showServerToast(event.payload);
       return;
     }
-    const keys = invalidations[event.type];
+    const keys = event.type === "control_state.changed" ? ownerStateInvalidations(event.payload) : invalidations[event.type];
     if (keys && keys.length > 0) {
       for (const key of keys) {
         invalidator.invalidate(key);

@@ -105,7 +105,7 @@ export async function registerAdminAuthRoutes(
   // -----------------------------------------------------------------------
   app.post(
     '/admin/auth/logout',
-    { preHandler: [app.requireAdmin] },
+    { preHandler: [app.requireAdmin],config:{ownerResponse:'committed-action'} },
     async (req: FastifyRequest, reply: FastifyReply) => {
       const token = auth.readTokenFromRequest(req);
       await auth.logoutByToken(token);
@@ -124,7 +124,7 @@ export async function registerAdminAuthRoutes(
   });
   app.post(
     '/admin/auth/password/change',
-    { preHandler: [app.requireAdmin] },
+    { preHandler: [app.requireAdmin],config:{ownerResponse:'committed-action'} },
     async (req: FastifyRequest) => {
       const adminCtx = req.admin;
       if (!adminCtx) throw new UnauthorizedError();

@@ -12,6 +12,7 @@ import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
 import { readFleetEngineState } from '../../services/engine-switch.js';
 import { normalizeSettings } from '../../services/config-normalizer.js';
 import { ForbiddenError, ValidationError } from '../../http/errors.js';
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 
 const inputSchema = z
   .object({
@@ -49,7 +50,10 @@ export async function registerTransfersRoutes(app: FastifyInstance, ctx: RouteCo
       if (engine !== 'codex' && engine !== 'claude' && engine !== 'grok')
         throw new ValidationError('engine must be codex, claude or grok');
       assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
-      const rows = await ctx.db
+      const owner = ownerRuntimeFor(ctx.db);
+      owner?.assertOwner();
+      const rows = owner ? owner.state.snapshot().table('clientConfigDocuments').all()
+        .filter(row => row.engine === engine).sort((a, b) => b.id - a.id).slice(0, 1) : await ctx.db
         .select()
         .from(clientConfigDocuments)
         .where(eq(clientConfigDocuments.engine, engine))

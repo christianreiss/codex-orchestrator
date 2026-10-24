@@ -1,3 +1,4 @@
+import { ownerRuntimeFor, type OwnerRuntime } from '../control-plane/state/runtime.js';
 import { createHash } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/mysql2';
 import type { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
@@ -8,8 +9,10 @@ import { ServiceUnavailableError } from '../http/errors.js';
 export interface GrokAccountOwner {
   accountId: number;
   db: Database;
-  connection: PoolConnection;
+  connection?: PoolConnection;
 }
+
+const ownerLocks = new WeakMap<OwnerRuntime, Map<number,Promise<void>>>();
 
 /** The durable state is the spend fence; this connection lock serializes live owners. */
 export async function withGrokAccountLock<T>(
@@ -18,6 +21,17 @@ export async function withGrokAccountLock<T>(
   operation: (owner: GrokAccountOwner) => Promise<T>,
   deadline = Date.now() + 6000,
 ): Promise<T> {
+  const runtime=ownerRuntimeFor(db);
+  if(runtime){
+    runtime.assertOwner();
+    const locks=ownerLocks.get(runtime)??new Map<number,Promise<void>>();ownerLocks.set(runtime,locks);
+    const previous=locks.get(accountId)??Promise.resolve();
+    let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;});
+    const tail=previous.catch(()=>{}).then(()=>gate);locks.set(accountId,tail);
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    try {await Promise.race([previous.catch(()=>{}),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(pending()),Math.max(1,deadline-Date.now()));})]);clearTimeout(timer);runtime.assertOwner();return await operation({accountId,db});}
+    finally {clearTimeout(timer);release();void tail.then(()=>{if(locks.get(accountId)===tail)locks.delete(accountId);});}
+  }
   const pool = db.$client as Pool;
   let expired = false;
   const acquiring = pool.getConnection();

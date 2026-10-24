@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -22,6 +23,7 @@ type Client interface {
 	JSON(context.Context, string, string, any, any, int) error
 }
 type Context struct {
+	baseURL   string
 	mu        sync.Mutex
 	Engine    string
 	ScopeID   string
@@ -44,7 +46,7 @@ func Load(engine, authPath, baseURL string) *Context {
 	}
 	scope := sha256.Sum256([]byte(directory))
 	server := sha256.Sum256([]byte(baseURL))
-	c := &Context{Engine: engine, ScopeID: hex.EncodeToString(scope[:]), path: filepath.Join(filepath.Dir(authPath), ".cxx-account-"+hex.EncodeToString(server[:8])+".json")}
+	c := &Context{baseURL: baseURL, Engine: engine, ScopeID: hex.EncodeToString(scope[:]), path: filepath.Join(filepath.Dir(authPath), ".cxx-account-"+hex.EncodeToString(server[:8])+".json")}
 	if raw, err := os.ReadFile(c.path); err == nil {
 		var b binding
 		if json.Unmarshal(raw, &b) == nil {
@@ -201,9 +203,15 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 		return nil, nil, err
 	}
 	release := func() {
+		queued, journalErr := communicator.QueueProviderRelease(c.baseURL, c.Engine, id)
+		if journalErr != nil {
+			fmt.Fprintln(os.Stderr, "cxx: provider release journal:", journalErr)
+		}
 		rctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = client.JSON(rctx, http.MethodPost, "/auth/sessions/release", map[string]any{"engine": c.Engine, "session_id": id}, nil, 0)
+		if err := client.JSON(rctx, http.MethodPost, "/auth/sessions/release", map[string]any{"engine": c.Engine, "session_id": id}, nil, 0); err == nil && queued {
+			communicator.AcknowledgeProviderRelease(c.baseURL, id)
+		}
 	}
 	if lease.AccountID <= 0 || lease.SessionID != id || lease.VerificationState != "verified" || len(lease.Auth) == 0 {
 		release()
@@ -229,10 +237,49 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 		release()
 		return nil, nil, fmt.Errorf("save account binding: %w", err)
 	}
+	var initialState *communicator.StateClient
+	if communicator.StateRequired(c.baseURL) {
+		var stateErr error
+		initialState, stateErr = communicator.DialState(ctx, c.baseURL, communicator.StateScope{Topic: "provider", ProviderSessionID: id, Engine: c.Engine}, communicator.StateAuth{})
+		if stateErr != nil {
+			release()
+			return nil, nil, fmt.Errorf("provider owner attachment required: %w", stateErr)
+		}
+	}
 	hctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		// A confirmed owner attachment replaces periodic lease renewal. Lost
+		// authority retries only that attachment, never reassigning an account.
+		connectionOwned := false
+		for {
+			state := initialState
+			initialState = nil
+			var err error
+			if state == nil {
+				state, err = communicator.DialState(hctx, c.baseURL, communicator.StateScope{Topic: "provider", ProviderSessionID: id, Engine: c.Engine}, communicator.StateAuth{})
+			}
+			if err != nil {
+				if !connectionOwned {
+					break
+				}
+				select {
+				case <-hctx.Done():
+					return
+				case <-time.After(time.Second):
+				}
+				continue
+			}
+			connectionOwned = true
+			select {
+			case <-hctx.Done():
+				state.Close()
+				return
+			case <-state.Done():
+				state.Close()
+			}
+		}
 		// Three renewals per five-minute lease TTL; a missed one re-reserves on 404.
 		ticker := time.NewTicker(leaseHeartbeatEvery)
 		defer ticker.Stop()

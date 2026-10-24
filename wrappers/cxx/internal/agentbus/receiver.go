@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"net/http"
 	"os"
@@ -19,6 +20,7 @@ import (
 )
 
 type autoReceiver struct {
+	connectionOwned bool
 	queueDeliveryV1 bool
 	queuePolicyV1   bool
 	client          *sessionClient
@@ -332,10 +334,11 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	var registered struct {
 		Sources      []string `json:"sources"`
 		Capabilities struct {
-			Activity      bool `json:"activity_v1"`
-			QueueDelivery bool `json:"queue_delivery_v1"`
-			QueuePolicy   bool `json:"queue_policy_v1"`
-			ClaimGate     bool `json:"claim_gate_v1"`
+			Activity             bool `json:"activity_v1"`
+			ControlStateProtocol int  `json:"control_state_protocol"`
+			QueueDelivery        bool `json:"queue_delivery_v1"`
+			QueuePolicy          bool `json:"queue_policy_v1"`
+			ClaimGate            bool `json:"claim_gate_v1"`
 		} `json:"capabilities"`
 		BindingGeneration int `json:"binding_generation"`
 	}
@@ -381,6 +384,21 @@ func (r *autoReceiver) connection(parent context.Context) error {
 		// server revokes the claim. Never replay it into the new connection.
 		_ = r.client.receiver(stopCtx, "stop", map[string]any{"generation": generation, "failure": "adapter_disconnected"}, nil)
 	}()
+	state, stateErr := communicator.DialStateSocket(ctx, r.client.socket, "/_state", communicator.StateScope{Topic: "receiver", SessionID: r.client.id, BindingGeneration: registered.BindingGeneration, ReceiverGeneration: generation}, communicator.StateAuth{})
+	r.mu.Lock()
+	wasConnectionOwned := r.connectionOwned
+	r.mu.Unlock()
+	if stateErr != nil && (wasConnectionOwned || registered.Capabilities.ControlStateProtocol == 1) {
+		return stateErr
+	}
+	if state != nil {
+		defer state.Close()
+		r.mu.Lock()
+		r.connectionOwned = true
+		r.mu.Unlock()
+	}
+	var stateRevision, lastGate string
+	stateClaims := 0
 	lastBeat := time.Time{}
 	nextSource := 0
 	for ctx.Err() == nil {
@@ -415,8 +433,10 @@ func (r *autoReceiver) connection(parent context.Context) error {
 					} `json:"sources"`
 				} `json:"receiver"`
 			}
-			if err := r.client.receiver(ctx, "heartbeat", r.heartbeatRequest(generation, registered.Capabilities.ClaimGate), &health); err != nil {
-				return err
+			if state == nil {
+				if err := r.client.receiver(ctx, "heartbeat", r.heartbeatRequest(generation, registered.Capabilities.ClaimGate), &health); err != nil {
+					return err
+				}
 			}
 			if health.Receiver != nil {
 				if health.Receiver.QueueDelivery != nil {
@@ -490,7 +510,42 @@ func (r *autoReceiver) connection(parent context.Context) error {
 		}
 		r.setGate(gate)
 		busy := gate != "open" && gate != "work_active"
-		if !busy && len(registered.Sources) > 0 {
+		var stateChanged <-chan struct{}
+		if state != nil {
+			var view struct {
+				WorkRevision string   `json:"work_revision"`
+				Sources      []string `json:"sources"`
+			}
+			frame, changed, live := state.Snapshot(&view)
+			stateChanged = changed
+			if !live {
+				return errors.New("receiver state disconnected")
+			}
+			revision := view.WorkRevision
+			if revision == "" {
+				revision = frame.Revision
+			}
+			if revision != stateRevision || gate != lastGate {
+				stateClaims = len(registered.Sources)
+				stateRevision = revision
+			}
+			if view.Sources != nil {
+				registered.Sources = view.Sources
+				r.mu.Lock()
+				r.sources = slices.Clone(view.Sources)
+				r.mu.Unlock()
+			}
+			if gate != lastGate {
+				if err := state.Update(map[string]any{"generation": generation, "gate": r.heartbeatRequest(generation, true)["claim_gate"], "capacity": !busy, "informational_only": coordinationOnly}); err != nil {
+					return err
+				}
+				lastGate = gate
+			}
+		}
+		if !busy && len(registered.Sources) > 0 && (state == nil || stateClaims > 0) {
+			if state != nil {
+				stateClaims--
+			}
 			source := registered.Sources[nextSource%len(registered.Sources)]
 			nextSource++
 			var claimed struct {
@@ -552,10 +607,21 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				}
 			}
 		}
+		delay := time.Second
+		if state != nil && !busy {
+			if stateClaims > 0 {
+				continue
+			}
+			delay = 15*time.Second - time.Since(lastBeat)
+			if delay < 0 {
+				delay = 0
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(time.Second):
+		case <-stateChanged:
+		case <-time.After(delay):
 		}
 	}
 	return ctx.Err()

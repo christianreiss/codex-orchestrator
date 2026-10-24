@@ -51,7 +51,7 @@ const toastModule: string = TOAST_STUB;
 const { stub: toastStub } = (await import(toastModule)) as { stub: { calls: ToastCall[] } };
 
 const eventsModule: string = "./events.ts";
-const { DEFAULT_INVALIDATIONS, createCoalescingInvalidator, wireWsToQueryClient } = (await import(
+const { DEFAULT_INVALIDATIONS, createCoalescingInvalidator, wireWsToQueryClient, ownerStateInvalidations } = (await import(
   eventsModule
 )) as typeof import("./events");
 
@@ -93,9 +93,9 @@ function emit(type: string, payload?: unknown): void {
   events.set({ type, payload, ts: "2026-01-01T00:00:00.000Z" });
 }
 
-it("resamples client snapshots and selected timelines after WS reconnect", () => {
+it("resamples every active snapshot after WS reconnect", () => {
   emit("transport.connected");
-  assert.deepEqual(qc.keys, [["workflows"], ["workflow-runs"], ["agent-sessions"], ["agent-messaging"], ["host-daemons"], ["daemon-sessions"], ["topology"]]);
+  assert.deepEqual(qc.keys, [[]]);
 });
 
 describe("toast events", () => {
@@ -316,5 +316,36 @@ describe("coalesced invalidation", () => {
 it("workflow invalidation refreshes reports and managed communication after changes and reconnect", () => {
   assert.deepEqual(DEFAULT_INVALIDATIONS["workflow.changed"], [["workflows"],["workflow-runs"]]);
   assert.deepEqual(DEFAULT_INVALIDATIONS["workflow.run.changed"], [["workflow-runs"],["agent-messaging"]]);
-  for (const root of ["workflows","workflow-runs"]) assert.ok(DEFAULT_INVALIDATIONS["transport.connected"].some(key=>key[0]===root));
+  assert.deepEqual(DEFAULT_INVALIDATIONS["transport.connected"], [[]]);
+});
+
+
+it("resnapshots all query domains when the owner stream has a gap", () => {
+  emit("transport.resync");
+  assert.deepEqual(qc.keys, [[]]);
+});
+
+it("refreshes attachment preparation on its owner event", () => {
+  emit("agent_chat.attachment.changed");
+  assert.deepEqual(qc.keys, [["chat-attachments"]]);
+});
+
+
+it("coalesces a reconnect resnapshot and descendant invalidations into one fetch", async () => {
+  const fake = new FakeQueryClient();
+  const inv = createCoalescingInvalidator(fake as unknown as QueryClient, 5);
+  inv.invalidate(["hosts"]);
+  inv.invalidate([]);
+  inv.invalidate(["hosts", "detail", "1"]);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(fake.keys, [[]]);
+  inv.dispose();
+});
+
+
+it("routes owner changes centrally and conservatively resnapshots unknown domains", () => {
+  assert.deepEqual(ownerStateInvalidations({ tables: ["feedbackItems"] }), [["feedback"], ["agents"]]);
+  assert.deepEqual(ownerStateInvalidations({ tables: ["futureOwnedDomain"] }), [[]]);
+  assert.deepEqual(ownerStateInvalidations({ tables: [null] }), [[]]);
+  assert.deepEqual(ownerStateInvalidations({ tables: [] }), []);
 });

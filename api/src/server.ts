@@ -1,14 +1,17 @@
 import { startQuotaWorker } from './ops/quota-worker.js';
 import { startFeedbackWorker } from './ops/feedback-worker.js';
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import { loadEnv } from './env.js';
 import { loggerOptions } from './util/log.js';
 import { createDb } from './db/client.js';
-import { LIVENESS_FLUSH_MS, LivenessLedger, setLivenessLedger } from './services/liveness-ledger.js';
+import { setLivenessLedger } from './services/liveness-ledger.js';
+import { createOwnedControlPlane } from './control-plane/bootstrap.js';
+import { acquireStorageOwnership } from './control-plane/storage-owner.js';
+import { composeOwnerServices } from './ops/owner-composition.js';
+import { startChatGptUsageWorker } from './ops/chatgpt-usage-worker.js';
 import { Keyring } from './security/keyring.js';
-import { runBootMigrations } from './ops/boot-migrations.js';
 import { runBootChecks } from './ops/boot-checks.js';
 import { retireManagedContextRow } from './ops/retire-context-skill.js';
 import { ensureAdvisorHost } from './ops/ensure-advisor-host.js';
@@ -44,10 +47,21 @@ export async function buildServer() {
   // No-op unless OTEL_TRACES_ENABLED is set — with it unset no OpenTelemetry
   // package is even imported. Before anything worth tracing runs.
   await initTracing(env);
-  const { db, pool, readCache } = createDb(env, { readCache: env.DB_READ_CACHE_ENABLED });
+  // Typed owner metadata replaces the legacy query cache and its resync timer.
+  const { db, pool } = createDb(env);
+  const keyring = Keyring.fromEnv(env);
+  // Database lock loss fences state, but does not cancel an already issued file
+  // operation. Keep the shared-store lock until all effects drain or we exit.
+  const storageOwner = await acquireStorageOwnership(env.DATA_ROOT ?? '/app/storage')
+    .catch(async error => { await pool.end(); await shutdownTracing(); throw error; });
+  const ownerLogger: { app?: FastifyInstance } = {};
+  const plane = await createOwnedControlPlane({
+    pool, handle: db, env, keyring,
+    error: err => ownerLogger.app ? ownerLogger.app.log.error({ err }, 'control-plane owner failure') : console.error('[boot] control-plane failure', err),
+    prepare: async held => {
+      const db = held as unknown as import('./db/client.js').Database;
 
-  // Schema first: the boot checks below probe tables that migrations create.
-  await runBootMigrations(env, pool);
+  // This callback runs after migrations, under exclusive ownership and before hydration.
   const agentPolicy = await ensureAgentPolicy(db);
   if (agentPolicy.status === 'created_default' || agentPolicy.status === 'converted_v55') {
     console.warn(`[boot] agent policy ${agentPolicy.status} as version ${agentPolicy.version_id ?? 'unknown'}`);
@@ -68,7 +82,6 @@ export async function buildServer() {
     .catch((err) => {
       console.warn(`[boot] could not retire legacy #context skill row: ${String(err)}`);
     });
-  const keyring = Keyring.fromEnv(env);
   // The Fleet Advisor's server-owned host. A failure only disables the
   // advisor, never the API.
   await ensureAdvisorHost(db, env, keyring)
@@ -81,7 +94,9 @@ export async function buildServer() {
       console.warn(`[boot] could not ensure the advisor host: ${String(err)}`);
     });
 
-  const app = Fastify({
+    },
+  }).catch(async error => { await pool.end(); await shutdownTracing(); await storageOwner.close(); throw error; });
+  const app: FastifyInstance = Fastify({
     logger: loggerOptions(env),
     trustProxy: env.TRUST_X_FORWARDED,
     disableRequestLogging: false,
@@ -91,6 +106,14 @@ export async function buildServer() {
     genReqId: generateRequestId,
   });
 
+  // Registered first: Fastify closes hooks in reverse order, so workers and
+  // external effects drain before the owner releases its lock.
+  app.addHook('onClose', async () => { await plane.close(); await pool.end(); await shutdownTracing(); await storageOwner.close(); });
+  app.addHook('onRequest', async () => { plane.runtime.assertOwner(); });
+  ownerLogger.app = app;
+  app.decorate('controlPlane', plane);
+  try {
+  await composeOwnerServices(app, { db, env, keyring }, plane);
   // Decorate shared infrastructure so route modules can find it.
   app.decorate('db', db);
   app.decorate('env', env);
@@ -113,10 +136,10 @@ export async function buildServer() {
   await app.register(envelopePlugin);
 
   await registerAllRoutes(app, { db, env, keyring });
-  await registerWsServer(app, env);
+  await registerWsServer(app, env, db);
   startAuthVerificationWorker(app, env, db, keyring);
   startAuthRetentionWorker(app, db);
-  startMattPocockSkillsWorker(app, new MattPocockSkillsService(db));
+  startMattPocockSkillsWorker(app, new MattPocockSkillsService(db), db);
   startAgentPortalWorker(app, db, env, keyring);
   startSchedulesWorker(app, db, keyring);
   startQuotaWorker(app, db, env, keyring);
@@ -125,35 +148,14 @@ export async function buildServer() {
   startWrapperRolloutWorker(app, db, env);
   startAgentTransfersWorker(app, db, env);
   startGrokUsageWorker(app, db, env, keyring);
+  startChatGptUsageWorker(app, db, env);
   startFeedbackWorker(app, { db, env, keyring });
 
-  // The default span processor batches, so without this flush a SIGTERM drops
-  // whatever the last batch window collected.
-  app.addHook('onClose', async () => {
-    await shutdownTracing();
-  });
+  // Transport presence is volatile; no heartbeat ledger writes or SQL cache resync.
+  setLivenessLedger(undefined);
+  } catch (error) { await app.close(); throw error; }
 
-  // Liveness-only heartbeats are persisted in batches; the last batch is
-  // written on shutdown so a deploy loses no beat.
-  const ledger = new LivenessLedger(db, LIVENESS_FLUSH_MS, (err) => app.log.warn({ err }, 'liveness ledger flush failed'));
-  setLivenessLedger(ledger);
-  ledger.start();
-  app.addHook('onClose', async () => {
-    await ledger.stop();
-  });
-
-  // Counters make the RAM layers' effect measurable instead of inferred.
-  const statsTimer = setInterval(
-    () => app.log.info({ readCache: readCache?.stats(), liveness: ledger.stats() }, 'db read cache'),
-    60_000,
-  );
-  statsTimer.unref();
-  app.addHook('onClose', async () => {
-    clearInterval(statsTimer);
-    readCache?.close();
-  });
-
-  attachShutdown(app, pool);
+  attachShutdown(app);
   return app;
 }
 
@@ -162,6 +164,7 @@ declare module 'fastify' {
     db: ReturnType<typeof createDb>['db'];
     env: ReturnType<typeof loadEnv>;
     keyring: Keyring;
+    controlPlane: Awaited<ReturnType<typeof createOwnedControlPlane>>;
   }
 }
 

@@ -1,3 +1,6 @@
+import {installOwnerResponseBoundary} from './owner-response.js';
+import { mutateOwnerState, ownerRuntimeFor, withOwnerRequestScope, setOwnerRequestPrincipal } from '../../control-plane/state/runtime.js';
+import { resolveOwnerAdmin } from '../../control-plane/state/admission.js';
 import fp from 'fastify-plugin';
 import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fastify';
 import { eq, and, gt } from 'drizzle-orm';
@@ -11,7 +14,7 @@ import { adminSessionTtlSeconds } from '../../services/admin-auth.js';
 import { isoOffsetSeconds } from '../../util/timestamp.js';
 
 export interface AdminContext {
-  user: AdminUser;
+  user: Omit<AdminUser, 'passwordHash'> & { passwordHash?: string };
   session: AdminSession;
 }
 
@@ -30,10 +33,39 @@ export function makeAuthAdminPlugin(db: Database, env: Env) {
 
   return fp(
     async function authAdminPlugin(app: FastifyInstance) {
+      app.addHook('onRequest', (_req, _reply, done) => withOwnerRequestScope(done));
+      const runtime=ownerRuntimeFor(db);if(runtime)installOwnerResponseBoundary(app,runtime);
       app.decorate('resolveAdmin', async (req: FastifyRequest): Promise<AdminContext | null> => {
         const raw = req.cookies?.[cookieName];
         if (!raw) return null;
         const tokenHash = sha256(raw);
+        const owner = ownerRuntimeFor(db);
+        if (owner) {
+          const current = resolveOwnerAdmin(db, tokenHash);
+          if (!current) return null;
+          setOwnerRequestPrincipal({ principal: `admin:${current.user.id}`, revalidate(snapshot) {
+            const session = snapshot.adminSessions.by('tokenHash', tokenHash)[0];
+            const user = session ? snapshot.table('adminUsers').get(session.userId) : undefined;
+            if (!session || Date.parse(session.expiresAt) <= Date.now() || !user?.active || user.id !== current.user.id || user.accessLevel !== current.user.accessLevel) throw new UnauthorizedError('Admin authority changed', 'admin_required');
+          } });
+          const ttlMs = adminSessionTtlSeconds(env) * 1000;
+          // Renew only when half the durable lifetime remains, on real use.
+          // No heartbeat UPDATE and no loss of an acknowledged renewal on crash.
+          if (Date.parse(current.session.expiresAt) - Date.now() <= ttlMs / 2) {
+            await mutateOwnerState(owner, { kind: 'admin.session.renew', payload: { tokenHash }, prepare(ctx) {
+              const session = ctx.draft.table('adminSessions').by('tokenHash', tokenHash)[0];
+              const user = session ? ctx.draft.table('adminUsers').get(session.userId) : undefined;
+              const now = new Date();
+              if (!session || !user?.active || Date.parse(session.expiresAt) <= now.getTime()) return false;
+              if (Date.parse(session.expiresAt) - now.getTime() > ttlMs / 2) return true;
+              const patch = { lastSeenAt: now.toISOString(), expiresAt: new Date(now.getTime() + ttlMs).toISOString() };
+              ctx.draft.upsert('adminSessions', { ...session, ...patch });
+              ctx.write(async tx => tx.update(adminSessions).set(patch).where(eq(adminSessions.id, session.id)));
+              return true;
+            } });
+          }
+          return resolveOwnerAdmin(db, tokenHash);
+        }
         const nowIso = new Date().toISOString();
         const rows = await db
           .select({

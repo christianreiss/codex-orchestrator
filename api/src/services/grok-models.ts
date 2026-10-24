@@ -1,3 +1,6 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { setOwnedModelEnabled } from './model-availability.js';
+import { SettingsService } from './settings.js';
 /**
  * Official Grok Build 1.0.46's subscription catalog, re-verified 2026-10-03 against the
  * live `cli-chat-proxy.grok.com/v1/models` listing and its `default_model` setting.
@@ -44,6 +47,7 @@ export function normalizeGrokEffort(value: unknown, model: unknown = GROK_DEFAUL
 
 export function createGrokModelsService(db: Database) {
   async function disabledSet() {
+    const owner=ownerRuntimeFor(db);if(owner){owner.assertOwner();return new Set((owner.state.snapshot().setting('grok_models_disabled')??'').split(',').filter(Boolean));}
     const rows = await db.select().from(versions).where(eq(versions.name, 'grok_models_disabled')).limit(1);
     return new Set((rows[0]?.version ?? '').split(',').filter(Boolean));
   }
@@ -56,6 +60,7 @@ export function createGrokModelsService(db: Database) {
     disabledSet,
     catalog,
     async setEnabled(model: GrokModel, enabled: boolean) {
+      if(ownerRuntimeFor(db))return setOwnedModelEnabled(db,'grok_models_disabled',model,enabled);
       const disabled = await disabledSet();
       if (enabled) disabled.delete(model); else disabled.add(model);
       await db.insert(versions).values({ name: 'grok_models_disabled', version: [...disabled].sort().join(','), updatedAt: new Date().toISOString() })
@@ -63,7 +68,7 @@ export function createGrokModelsService(db: Database) {
     },
     async resolveRequestedModel(value: unknown): Promise<GrokModel> {
       const defaultRequested = value === undefined || value === null || value === '';
-      const saved = defaultRequested ? (await db.select().from(versions).where(eq(versions.name, 'grok_default_model')).limit(1))[0]?.version : null;
+      const saved = defaultRequested ? await new SettingsService(db).getString('grok_default_model') : null;
       const model = defaultRequested ? normalizeGrokModel(saved) ?? GROK_DEFAULT_MODEL : normalizeGrokModel(value);
       if (!model) throw new ApiError('Unsupported Grok model', { status: 404, code: 'model_not_found', param: 'model' });
       if ((await disabledSet()).has(model)) throw new ApiError('Grok model is disabled', { status: 403, code: 'model_disabled', param: 'model' });

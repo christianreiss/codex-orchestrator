@@ -1,3 +1,4 @@
+import { ownerRuntimeFor, mutateOwnerState } from '../../control-plane/state/runtime.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
@@ -37,6 +38,24 @@ export class FeedbackConfiguration {
     if (current.revision !== args.expected_revision) throw new ConflictError('Feedback settings changed; reload before saving');
     const revision = randomUUID();
     const tokenEnc = args.token ? encrypt(args.token, this.keyring) : null;
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'feedback.configuration', payload: { revision, expected_revision: args.expected_revision }, prepare(context) {
+        const previous = JSON.parse(context.snapshot.setting(FEEDBACK_CONFIG_KEY) ?? '{"revision":"initial"}') as { revision?: string };
+        if (previous.revision !== args.expected_revision) throw new ConflictError('Feedback settings changed; reload before saving');
+        const now = new Date().toISOString();
+        const values = [{ name: FEEDBACK_MODE_KEY, version: args.config.mode, updatedAt: now }, { name: FEEDBACK_CONFIG_KEY, version: JSON.stringify({ ...args.config, revision }), updatedAt: now }, ...(tokenEnc ? [{ name: FEEDBACK_TOKEN_KEY, version: tokenEnc, updatedAt: now }] : [])];
+        for (const row of values) context.draft.upsert('versions', row);
+        if (args.disconnect) context.draft.remove('versions', FEEDBACK_TOKEN_KEY);
+        context.write(async tx => {
+          for (const row of values) await tx.insert(versions).values(row).onDuplicateKeyUpdate({ set: { version: row.version, updatedAt: now } });
+          if (args.disconnect) await tx.delete(versions).where(eq(versions.name, FEEDBACK_TOKEN_KEY));
+          await tx.insert(adminEvents).values({ type: 'feedback.configuration', hostId: null, createdAt: now, payload: { admin_user_id: adminUserId, ...args.config, revision, token_changed: Boolean(tokenEnc || args.disconnect) } });
+        });
+        return null;
+      } });
+      wsPublisher.publish('feedback.changed', { configuration: true }); return this.read();
+    }
     await this.db.transaction(async (tx) => {
       // Serialize the initial configuration and every following revision.
       await tx.insert(versions).values({ name: FEEDBACK_CONFIG_KEY, version: JSON.stringify({ ...current, revision: 'initial' }), updatedAt: new Date().toISOString() })

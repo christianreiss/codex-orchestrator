@@ -1,10 +1,12 @@
 package agentportal
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativewriter"
 	"io"
@@ -119,6 +121,14 @@ func (s *Session) StartBroker(parent context.Context) (*Broker, error) {
 }
 
 func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/_mcp" && r.Method == http.MethodPost {
+		b.forwardManagedMCP(w, r)
+		return
+	}
+	if r.URL.Path == "/_state" && r.Method == http.MethodGet {
+		b.stateStream(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodPost || !b.allowedPath(r.URL.Path) {
@@ -238,6 +248,19 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		delete(b.requests, requestID)
 		b.requestMu.Unlock()
 	}()
+	if strings.Contains(r.URL.Path, "/agent-messaging/claims/") && (communicator.StateRequired(b.session.BaseURL) || b.session.connectionStateUsed()) {
+		b.session.mu.Lock()
+		proof := b.session.nativeState
+		b.session.mu.Unlock()
+		live := false
+		if proof != nil {
+			_, _, live = proof.Snapshot(nil)
+		}
+		if !live {
+			writeBrokerError(w, 503, "native_attachment_unavailable", "Native process attachment is reconnecting")
+			return
+		}
+	}
 	var output json.RawMessage
 	err = b.session.bridgeJSON(requestCtx, http.MethodPost, r.URL.Path, json.RawMessage(raw), &output)
 	if err != nil {
@@ -580,4 +603,41 @@ func writeBrokerError(w http.ResponseWriter, status int, code, message string) {
 		"code":    code,
 		"message": message,
 	})
+}
+
+// The existing private broker supplies native scope; no bridge secret enters model env or tool arguments.
+func (b *Broker) forwardManagedMCP(w http.ResponseWriter, r *http.Request) {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 16*1024*1024+1))
+	if err != nil || len(raw) > 16*1024*1024 || !json.Valid(raw) {
+		writeBrokerError(w, 400, "broker_body_invalid", "Invalid MCP body")
+		return
+	}
+	ctx, cancel := context.WithTimeout(b.ctx, 120*time.Second)
+	defer cancel()
+	stop := context.AfterFunc(r.Context(), cancel)
+	defer stop()
+	b.session.mu.Lock()
+	id, token, base := b.session.ID, b.session.BridgeToken, b.session.BaseURL
+	b.session.mu.Unlock()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/mcp", bytes.NewReader(raw))
+	if err != nil {
+		writeBrokerError(w, 502, "broker_request_failed", "MCP request unavailable")
+		return
+	}
+	req.Header.Set("Authorization", r.Header.Get("Authorization"))
+	req.Header.Set("X-Engine", b.session.Engine)
+	req.Header.Set("X-Agent-Session-Id", id)
+	req.Header.Set("X-Agent-Bridge-Token", token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	res, err := b.session.http.Do(req)
+	if err != nil {
+		writeBrokerError(w, 502, "broker_request_failed", "MCP request failed")
+		return
+	}
+	defer res.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(res.StatusCode)
+	_, _ = io.Copy(w, io.LimitReader(res.Body, 16*1024*1024))
 }

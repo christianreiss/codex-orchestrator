@@ -1,3 +1,4 @@
+import { ownerStream } from "./owner-stream";
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 function state() {
@@ -10,7 +11,7 @@ function state() {
 }
 async function fixture(page: Page, shared: ReturnType<typeof state>, manage = true) {
   let emit: ((data: string) => void) | undefined;
-  await page.routeWebSocket('**/policies-ws', ws => { emit = data => ws.send(data); });
+  await page.routeWebSocket('**/policies-ws', ws => { ownerStream(ws); emit = data => ws.send(data); });
   await page.route('**/admin/**', route => {
     const req = route.request();
     if (!req.headers().accept?.includes('application/json')) return route.continue();

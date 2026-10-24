@@ -1,3 +1,6 @@
+import {persistAuditLog} from './audit-log.js';
+import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { suspendOwnedMessaging } from '../control-plane/state/suspension.js';
 /**
  * Fleet-wide engine master switches.
  *
@@ -74,6 +77,11 @@ export async function readFleetEngineState(
   db: Pick<Database, 'select'>,
   options: { fresh?: boolean } = {},
 ): Promise<FleetEngineState> {
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    owner.assertOwner(); const state = owner.state.snapshot();
+    return parseState(ENGINES.map(engine => ({ name: ENGINE_DISABLED_FLAGS[engine], version: state.setting(ENGINE_DISABLED_FLAGS[engine]) })));
+  }
   const hit = caches.get(db);
   if (!options.fresh && hit && Date.now() - hit.ts < TTL_MS) return hit.value;
   try {
@@ -120,6 +128,16 @@ export interface EngineStateRow {
 
 /** The admin view: one row per engine with who flipped it last. */
 export async function listEngineStates(db: Database): Promise<EngineStateRow[]> {
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    owner.assertOwner(); const state = owner.state.snapshot();
+    const hostRows = state.hosts.all().filter(row => row.status === 'active' && !row.internalRole);
+    return ENGINES.map(engine => {
+      const flag = state.settings.get(ENGINE_DISABLED_FLAGS[engine]);
+      return { engine, label: ENGINE_LABELS[engine], enabled: !isTruthyFlagValue(flag?.version), updated_at: flag?.updatedAt ?? null,
+        updated_by: state.setting(`owner_engine_actor_${engine}`) || null, assigned_hosts: hostRows.filter(row => hostEnginesList(row.engines).includes(engine)).length };
+    });
+  }
   const flagNames = ENGINES.map((engine) => ENGINE_DISABLED_FLAGS[engine]);
   const [flagRows, auditRows, hostRows] = await Promise.all([
     db
@@ -188,6 +206,32 @@ export async function setFleetEngineEnabled(
 ): Promise<EngineStateChange> {
   const flag = ENGINE_DISABLED_FLAGS[engine];
   const now = nowIso();
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    const result = await mutateOwnerState(owner, { kind: 'engine.state.set', payload: { engine, enabled, actor }, prepare(ctx) {
+      const previous = !isTruthyFlagValue(ctx.snapshot.setting(flag));
+      const row = { name: flag, version: enabled ? '0' : '1', updatedAt: now };
+      ctx.draft.upsert('versions', row);
+      ctx.write(async tx => tx.insert(versions).values(row).onDuplicateKeyUpdate({ set: { version: row.version, updatedAt: now } }));
+      let hostsSuspended = 0;
+      if (previous !== enabled) {
+        const actorRow = { name: `owner_engine_actor_${engine}`, version: actor ?? '', updatedAt: now };
+        ctx.draft.upsert('versions', actorRow);
+        ctx.write(async tx => tx.insert(versions).values(actorRow).onDuplicateKeyUpdate({ set: { version: actorRow.version, updatedAt: now } }));
+        for (const host of ctx.draft.table('hosts').all()) {
+          const patch = { configVersion: host.configVersion + 1, updatedAt: now };
+          ctx.draft.upsert('hosts', { ...host, ...patch });
+          ctx.write(async tx => tx.update(hosts).set(patch).where(eq(hosts.id, host.id)));
+          if (!enabled && hostEnginesList(host.engines).includes(engine)) { suspendOwnedMessaging(ctx, host.id, 'engine_disabled', [engine], now); hostsSuspended++; }
+        }
+        ctx.write(async tx => persistAuditLog(tx, { hostId: null, action: ENGINE_STATE_AUDIT_ACTION, details: JSON.stringify({ engine, enabled, previous, actor, hosts_suspended: hostsSuspended }), createdAt: now }));
+      }
+      return { engine, enabled, previous, hosts_suspended: hostsSuspended };
+    } });
+    const changed = result as unknown as EngineStateChange;
+    if (changed.previous !== enabled) { wsPublisher.publish('engine.state.changed', { engine, enabled }); wsPublisher.publish('settings.changed', { key: flag }); }
+    return changed;
+  }
   const result = await db.transaction(async (tx) => {
     const rows = await tx
       .select({ version: versions.version })
@@ -215,7 +259,7 @@ export async function setFleetEngineEnabled(
         hostsSuspended += 1;
       }
     }
-    await tx.insert(logs).values({
+    await persistAuditLog(tx, {
       hostId: null,
       action: ENGINE_STATE_AUDIT_ACTION,
       details: JSON.stringify({ engine, enabled, previous, actor, hosts_suspended: hostsSuspended }),

@@ -12,7 +12,7 @@ export interface QuotaRun {
  quota:{account_id:number; window:string; reset_at:string|null; attempts:number}; next_attempt_at:string; last_error:string|null;
 }
 export function watchdogsQuery(target:Readable<string>) {
- return createQuery(derived(target,v=>({queryKey:['watchdogs',v],enabled:!!v,queryFn:()=>apiFetch<{watchdogs:Watchdog[];quota_runs?:QuotaRun[]}>('/admin/watchdogs?target='+encodeURIComponent(v)),refetchInterval:15000})));
+ return createQuery(derived(target,v=>({queryKey:['watchdogs',v],enabled:!!v,queryFn:()=>apiFetch<{watchdogs:Watchdog[];quota_runs?:QuotaRun[]}>('/admin/watchdogs?target='+encodeURIComponent(v))})));
 }
 export function watchdogMutation() {
  const client=useQueryClient();

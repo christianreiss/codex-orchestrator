@@ -93,7 +93,7 @@
     queryKey: ["native-stop", action?.id],
     enabled: dialogOpen && phase === "done" && action?.kind === "stop_process" && Boolean(action.agent?.native_control),
     queryFn: ({ signal }: { signal: AbortSignal }) => api.get<{ status: string }>(`/admin/agent-sessions/${encodeURIComponent(action!.id)}/stop`, { signal }),
-    refetchInterval: 2000,
+
   })));
   $effect(() => {
     if (action?.kind !== "stop_process" || !action.agent?.native_control || phase !== "done" || !$nativeReceipt.data) return;

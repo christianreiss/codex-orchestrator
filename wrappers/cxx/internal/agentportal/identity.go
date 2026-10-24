@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 )
@@ -66,6 +67,20 @@ func (r *ConnectionRuntime) RequireIdentity(ctx context.Context, cfg *config.Con
 		return Identity{}, fmt.Errorf("agent identity: no confirmed connection; native launch refused")
 	}
 	s := r.session
+	if cfg.Orchestrator.CommunicatorStateProtocol == 1 {
+		timer := time.NewTimer(15 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return Identity{}, ctx.Err()
+		case <-timer.C:
+			return Identity{}, fmt.Errorf("control state: authenticated owner attachment unavailable; native launch refused")
+		case <-s.stateNegotiated():
+		}
+		if _, _, live, _ := s.stateView(); !live {
+			return Identity{}, fmt.Errorf("control state: owner attachment lost; native launch refused")
+		}
+	}
 	s.mu.Lock()
 	pending, name, status := s.pendingRegistration, s.LaunchName, s.registrationStatus
 	s.mu.Unlock()

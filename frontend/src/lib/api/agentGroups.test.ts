@@ -32,7 +32,7 @@ describe("Persistent audiences", () => {
     const detail = groups.agentGroupOptions("release-review");
     const subscriptions = groups.agentSubscriptionsOptions();
     assert.equal(groups.agentGroupOptions("").enabled, false);
-    assert.equal(detail.refetchInterval, 15_000);
+    assert.equal((detail as { refetchInterval?: number }).refetchInterval, undefined);
     assert.deepEqual(detail.queryKey, ["agent-messaging", "groups", "release-review"]);
     await list.queryFn({ signal }); await detail.queryFn({ signal }); await subscriptions.queryFn({ signal });
     assert.deepEqual(calls.map((call) => [call.method, call.path, (call.options as {signal: AbortSignal}).signal]), [

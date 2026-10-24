@@ -21,6 +21,10 @@ import { getTestDb } from '../../helpers/test-db.js';
 import { eq } from 'drizzle-orm';
 import { AgentTransfersService } from '../../../src/services/agent-transfers.js';
 import { invalidateFleetEngineState } from '../../../src/services/engine-switch.js';
+import { OwnerStateSnapshot, OwnerStateStore } from '../../../src/control-plane/state/store.js';
+import { bindOwnerRuntime, type OwnerRuntime } from '../../../src/control-plane/state/runtime.js';
+import type { StateSeed } from '../../../src/control-plane/state/catalog.js';
+import { DeadlineQueue } from '../../../src/control-plane/deadlines.js';
 
 // Host authentication/IP policy has its own suites. This boundary fixture gives
 // two distinct authenticated hosts to the real route/service/storage stack.
@@ -136,6 +140,27 @@ it('authenticates before body parsing and enforces module/config/engine controls
     { id: 1, engine: 'codex', settings: { orchestrator_mcp_enabled: false } },
   ]);
   expect((await app.inject({ method: 'POST', url: url(), headers, payload: m })).statusCode).toBe(403);
+});
+
+it('authorizes binary metadata from owned configuration and observes revocation without SQL', async () => {
+  const state = new OwnerStateStore(new OwnerStateSnapshot({ epoch: randomUUID(), sequence: 0n }, {
+    versions: db.rows.get(versions), clientConfigDocuments: db.rows.get(clientConfigDocuments),
+  } as unknown as StateSeed));
+  const deadlines = new DeadlineQueue(error => { throw error; });
+  const owner: OwnerRuntime = { state, deadlines, assertOwner() {}, execute: async () => { throw new Error('No command expected'); } };
+  bindOwnerRuntime(db, owner);
+  const select = vi.spyOn(db, 'select');
+  try {
+    for (const engine of ['codex', 'claude', 'grok']) {
+      const missing = await app.inject({ method: 'GET', url: url(`/${randomUUID()}`, engine), headers });
+      expect(missing.statusCode, missing.body).toBe(404);
+    }
+    const draft = state.begin();
+    draft.upsert('clientConfigDocuments', { ...state.snapshot().table('clientConfigDocuments').get(0)!, settings: { orchestrator_mcp_enabled: false } });
+    state.publish(draft.seal({ ...state.revision(), sequence: state.revision().sequence + 1n }));
+    expect((await app.inject({ method: 'GET', url: url(`/${randomUUID()}`), headers })).statusCode).toBe(403);
+    expect(select).not.toHaveBeenCalled();
+  } finally { select.mockRestore(); deadlines.close(); }
 });
 
 it('refuses another host continuing or sealing an upload', async () => {

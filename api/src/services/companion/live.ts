@@ -9,7 +9,8 @@ export interface CompanionSocket {
   on(event: 'close' | 'error', listener: () => void): unknown;
 }
 export interface CompanionLiveSources {
-  authorize(token: string | undefined): Promise<readonly string[]>;
+  authorize(token: string | undefined): Promise<readonly string[] | { capabilities: readonly string[]; expiresAt: string }>;
+  subscribe?(listener: () => void): () => void;
   revisions(): Promise<{ agents: string; approvals: string; hosts?: string }>;
 }
 
@@ -18,6 +19,7 @@ interface Client {
   token: string | undefined;
   capabilities: readonly string[];
   lastPing: number;
+  expiry?: ReturnType<typeof setTimeout>;
 }
 
 async function bounded<T>(operation: Promise<T>): Promise<T> {
@@ -35,11 +37,12 @@ async function bounded<T>(operation: Promise<T>): Promise<T> {
   }
 }
 
-/** One shared reconciliation loop, metadata-only invalidations, and no per-phone data polling. */
+/** Event-driven authorization and invalidations; periodic frames are transport-only. */
 export class CompanionLive {
   private readonly clients = new Set<Client>();
   private readonly interval: ReturnType<typeof setInterval>;
   private readonly unsubscribe: () => void;
+  private readonly unsubscribeState?: () => void;
   private scheduled?: ReturnType<typeof setTimeout>;
   private running?: Promise<void>;
   private pending = new Set<CompanionScope>();
@@ -47,7 +50,8 @@ export class CompanionLive {
   private stopped = false;
 
   constructor(private readonly sources: CompanionLiveSources) {
-    this.interval = setInterval(() => this.schedule(), 5000);
+    this.interval = setInterval(() => { for (const client of this.clients) this.send(client, { type: 'ping' }); }, 15_000);
+    this.unsubscribeState = this.sources.subscribe?.(() => this.schedule('me', 'agents', 'approvals', 'hosts', 'rooms'));
     this.interval.unref();
     this.unsubscribe = wsPublisher.subscribe(({ type }) => {
       if (/^(host\.|engine\.)/.test(type)) this.schedule('agents', 'hosts', 'approvals');
@@ -62,10 +66,10 @@ export class CompanionLive {
   attach(socket: CompanionSocket, token: string | undefined): void {
     const client: Client = { socket, token, capabilities: [], lastPing: Date.now() };
     this.clients.add(client);
-    const cleanup = () => this.clients.delete(client);
+    const cleanup = () => { clearTimeout(client.expiry); this.clients.delete(client); };
     socket.on('close', cleanup);
     socket.on('error', cleanup);
-    this.send(client, { type: 'hello' });
+    this.send(client, { type: 'hello', ...wsPublisher.cursor(), resync: true });
     this.schedule('me', 'agents', 'approvals', 'hosts', 'rooms');
   }
 
@@ -83,7 +87,7 @@ export class CompanionLive {
   }
 
   private close(client: Client, code: number): void {
-    this.clients.delete(client);
+    this.clients.delete(client); clearTimeout(client.expiry);
     try {
       client.socket.close(code);
     } catch {
@@ -112,7 +116,14 @@ export class CompanionLive {
       const checked = await Promise.all(
         [...this.clients].map(async (client) => {
           try {
-            const capabilities = await bounded(this.sources.authorize(client.token));
+            const authorization = await bounded(this.sources.authorize(client.token));
+            const capabilities = 'capabilities' in authorization ? authorization.capabilities : authorization;
+            if ('expiresAt' in authorization) {
+              const remaining = Date.parse(authorization.expiresAt) - Date.now();
+              if (!Number.isFinite(remaining) || remaining <= 0) { this.close(client, 4001); return null; }
+              clearTimeout(client.expiry);
+              client.expiry = setTimeout(() => remaining <= 2_147_483_647 ? this.close(client, 4001) : this.schedule('me'), Math.min(remaining, 2_147_483_647)); client.expiry.unref();
+            }
             if (JSON.stringify(capabilities) !== JSON.stringify(client.capabilities)) scopes.add('me');
             client.capabilities = capabilities;
             return this.clients.has(client) ? client : null;
@@ -136,6 +147,12 @@ export class CompanionLive {
       }
       this.previous = next;
       for (const client of authorized) {
+        // The revision snapshot may await I/O in legacy fixtures. Recheck before delivery.
+        try {
+          const current = await bounded(this.sources.authorize(client.token));
+          client.capabilities = 'capabilities' in current ? current.capabilities : current;
+          if ('expiresAt' in current && Date.parse(current.expiresAt) <= Date.now()) { this.close(client, 4001); continue; }
+        } catch (error) { this.close(client, (error as { status?: number }).status === 401 ? 4001 : 1013); continue; }
         const allowed = [...scopes].filter(
           (scope) =>
             scope === 'me' ||
@@ -147,11 +164,8 @@ export class CompanionLive {
                   : 'hosts.activate_insecure',
             ),
         );
-        if (allowed.length) this.send(client, { type: 'changed', scopes: allowed });
-        if (Date.now() - client.lastPing >= 15_000) {
-          client.lastPing = Date.now();
-          this.send(client, { type: 'ping' });
-        }
+        if (allowed.length) this.send(client, { type: 'changed', scopes: allowed, ...wsPublisher.cursor() });
+
       }
     } catch {
       for (const client of this.clients) this.close(client, 1013);
@@ -163,7 +177,7 @@ export class CompanionLive {
     clearInterval(this.interval);
     clearTimeout(this.scheduled);
     this.pending.clear();
-    this.unsubscribe();
+    this.unsubscribe(); this.unsubscribeState?.();
     for (const client of this.clients) this.close(client, 1001);
     await this.running;
   }

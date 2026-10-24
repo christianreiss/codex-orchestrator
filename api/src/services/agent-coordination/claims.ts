@@ -1,3 +1,10 @@
+import { adminAudit } from '../../control-plane/state/admin.js';
+import { mutateOwnerState, ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { coordinationSession, coordinationProtocol, coordinationPresent, stageScopeReconciliation } from '../../control-plane/state/coordination.js';
+import { claimContinuouslyHeld, nativeClaimAttachment, ownedClaimView, ownedClaimBlockers, stageClaimReconciliation, stageClaimAnnouncement } from '../../control-plane/state/resource-claims.js';
+import { stageCoordinationNotice } from '../../control-plane/state/coordination-notices.js';
+import { stageUpdate } from '../../control-plane/state/rows.js';
+import type { Json } from '../../control-plane/commands.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
@@ -143,6 +150,35 @@ export class ResourceClaims {
   }
   async acquire(id: string, token: string, input: unknown) {
     const body = acquireSchema.parse(input);
+    const owner = ownerRuntimeFor(this.core.db);
+    if (owner) {
+      const admitted = coordinationSession(owner,owner.state.snapshot(),id,token)!;
+      const nativeInstanceId = nativeClaimAttachment(owner,admitted)?.scope.native_instance_id;
+      if (!nativeInstanceId) throw new ConflictError('A proven native connection is required for resource ownership', 'claim_connection_required');
+      const result = await mutateOwnerState(owner,{ kind: 'coordination.claim.acquire', principal: `session:${id}`, id: body.client_request_id, payload: body as Json, authorize: snapshot => { const current = coordinationSession(owner,snapshot,id,token)!; if (!nativeClaimAttachment(owner,current,nativeInstanceId)) throw new ConflictError('Native connection changed','claim_connection_required'); }, prepare: ctx => {
+        const session = coordinationSession(owner,ctx.snapshot,id,token)!;
+        if (coordinationProtocol(session) !== 1) throw new ForbiddenError('Scope protocol 1 required');
+        const attachment = nativeClaimAttachment(owner,session,nativeInstanceId);
+        if (!attachment?.scope.native_instance_id) throw new ConflictError('A proven native connection is required for resource ownership', 'claim_connection_required');
+        stageScopeReconciliation(ctx,owner,this.core.keyring); stageClaimReconciliation(ctx,owner,this.core.keyring);
+        const existing = ctx.draft.table('agentResourceClaims').by('sessionId',id).find(row => row.requestId === body.client_request_id);
+        if (existing) {
+          if (existing.purpose !== body.purpose || JSON.stringify(existing.resources) !== JSON.stringify(body.resources)) throw new ConflictError('Claim request ID reused', 'claim_request_conflict');
+          return ownedClaimView(existing, owner) as Json;
+        }
+        if (body.resources.some(resource => resource.kind !== 'remote' && (!ctx.draft.table('hosts').get(resource.host_id) || ctx.draft.table('hosts').get(resource.host_id)?.internalRole))) throw new NotFoundError('Target host not found');
+        const blockers = ownedClaimBlockers(owner,ctx.draft.view(),body.resources,undefined,session), now = new Date().toISOString();
+        const claim: Claim = { id: randomUUID(), sessionId: id, generation: session.bindingGeneration, nativeInstanceId: attachment.scope.native_instance_id, ownershipMode: 'connection', uncertaintyReason: null, requestId: body.client_request_id, purpose: body.purpose, resources: body.resources, state: blockers.length ? 'waiting' : 'active', blockers, repliedAt: null, expiresAt: new Date(Date.now()+(blockers.length ? NEGOTIATION_SECONDS+CLAIM_SECONDS : CLAIM_SECONDS)*1000).toISOString(), createdAt: now, updatedAt: now };
+        ctx.draft.upsert('agentResourceClaims',claim); ctx.write(async tx => tx.insert(agentResourceClaims).values(claim));
+        stageClaimAnnouncement(ctx,this.core.keyring,id,{ action: claim.state, claim_id: claim.id, purpose: claim.purpose, blockers });
+        for (const peerId of new Set(blockers.map(row => row.session_id))) {
+          const peer = ctx.draft.table('agentSessions').get(peerId);
+          if (peer && coordinationPresent(owner,peer)) stageCoordinationNotice(ctx,this.core.keyring,peer,`CLAIM/1\n${session.launchName ?? id} requests overlapping resources for ${claim.purpose}. Coordinate before mutation. Use resource_claim_status with claim_id ${claim.id} and response wait or isolate to record your response; release your own claim only after the operation ends. Requester session: ${id}. This is coordination, not work authorization.`);
+        }
+        return ownedClaimView(claim, owner) as Json;
+      } });
+      wsPublisher.publish('agent_coordination.changed',{}); return result as ReturnType<typeof ownedClaimView>;
+    }
     const result = await this.core.run(id, token, async (tx, session) => {
       if (this.core.protocol(session!) !== 1) throw new ForbiddenError('Scope protocol 1 required');
       await this.core.reconcile(tx);
@@ -180,6 +216,7 @@ export class ResourceClaims {
       const blockers = await this.blockers(tx, body.resources, undefined, session!);
       const now = new Date().toISOString();
       const claim: Claim = {
+        nativeInstanceId: null, ownershipMode: 'timed', uncertaintyReason: null,
         id: randomUUID(),
         sessionId: id,
         generation: session!.bindingGeneration,
@@ -216,6 +253,42 @@ export class ResourceClaims {
   }
   async status(id: string, token: string, input: unknown) {
     const body = claimStatusSchema.parse(input);
+    const owner = ownerRuntimeFor(this.core.db);
+    if (owner) {
+      coordinationSession(owner,owner.state.snapshot(),id,token,true);
+      await this.core.reconcileOwned();
+      const snapshot = owner.state.snapshot(), session = coordinationSession(owner,snapshot,id,token,true)!;
+      const current = snapshot.claims.get(body.claim_id); if (!current) throw new NotFoundError('Claim not found');
+      if (!body.response && current.sessionId === id && current.generation === session.bindingGeneration && current.state === 'active' && claimContinuouslyHeld(owner,snapshot,current)) return ownedClaimView(current, owner);
+      return await mutateOwnerState(owner,{ kind: 'coordination.claim.status', principal: `session:${id}`, payload: body as Json, authorize: snapshot => { const session = coordinationSession(owner,snapshot,id,token,true)!; const claim = snapshot.claims.get(body.claim_id); if (body.renew && (!claim || claim.sessionId !== session.id || claim.generation !== session.bindingGeneration || !claimContinuouslyHeld(owner,snapshot,claim))) throw new ConflictError('Original native connection required','claim_connection_required'); }, prepare: ctx => {
+        const session = coordinationSession(owner,ctx.snapshot,id,token,true)!;
+        let claim = ctx.draft.table('agentResourceClaims').get(body.claim_id); if (!claim) throw new NotFoundError('Claim not found');
+        if (body.response) {
+          if (!(claim.blockers as Array<{session_id:string}>).some(row => row.session_id === id)) throw new ForbiddenError('Only a conflicting owner may answer');
+          claim = stageUpdate(ctx,'agentResourceClaims',claim.id,{ repliedAt: new Date().toISOString() });
+          stageClaimAnnouncement(ctx,this.core.keyring,claim.sessionId,{ action: 'response', claim_id: claim.id, response: body.response, responder: id });
+          return ownedClaimView(claim, owner) as Json;
+        }
+        if (claim.sessionId !== id) throw new ForbiddenError('Claim belongs to another session');
+        if (claim.generation !== session.bindingGeneration) throw new ConflictError('Claim belongs to an older binding','claim_generation_stale');
+        const proof = claimContinuouslyHeld(owner,ctx.snapshot,claim);
+        if (body.renew && claim.state === 'uncertain' && (claim.ownershipMode === 'connection' || ['owner_restart','disconnected'].includes(claim.uncertaintyReason ?? '')) && proof) {
+          claim = stageUpdate(ctx,'agentResourceClaims',claim.id,{ state: 'active', uncertaintyReason: null, updatedAt: new Date().toISOString() });
+          stageClaimAnnouncement(ctx,this.core.keyring,id,{ action: 'recovered', claim_id: claim.id, purpose: claim.purpose });
+        }
+        if (claim.state === 'waiting' && ctx.snapshot.setting('agent_coordination_enabled') === '1') {
+          const blockers = ownedClaimBlockers(owner,ctx.draft.view(),claim.resources as Resource[],claim.id,session);
+          if (!blockers.length && !proof) throw new ConflictError('The original native attachment is required to activate this claim','claim_connection_required');
+          const state = blockers.length ? 'waiting' : 'active';
+          if (JSON.stringify(blockers) !== JSON.stringify(claim.blockers) || state !== claim.state) {
+            claim = stageUpdate(ctx,'agentResourceClaims',claim.id,{ blockers,state,updatedAt:new Date().toISOString() });
+            if (state === 'active') stageClaimAnnouncement(ctx,this.core.keyring,id,{ action: 'active', claim_id: claim.id, purpose: claim.purpose });
+          }
+        }
+        if (body.renew && (!['active','waiting'].includes(claim.state) || !proof)) throw new ConflictError('Only the original connected owner can renew a live claim','claim_not_active');
+        return ownedClaimView(claim, owner) as Json;
+      } }) as ReturnType<typeof ownedClaimView>;
+    }
     return this.core.run(
       id,
       token,
@@ -294,6 +367,23 @@ export class ResourceClaims {
       })
       .strict()
       .parse(input);
+    const owner = ownerRuntimeFor(this.core.db);
+    if (owner) {
+      const result = await mutateOwnerState(owner,{ kind: 'coordination.claim.release', principal: id ? `session:${id}` : `admin:${operatorId ?? 'unknown'}`, payload: body, authorize: snapshot => { const session = coordinationSession(owner,snapshot,id,token,true); const claim = snapshot.claims.get(body.claim_id); if (session && claim && claim.state !== 'released' && (claim.sessionId !== session.id || claim.generation !== session.bindingGeneration || !claimContinuouslyHeld(owner,snapshot,claim))) throw new ConflictError('Original owner proof required to release this claim','claim_owner_uncertain'); }, prepare: ctx => {
+        const session = coordinationSession(owner,ctx.snapshot,id,token,true), claim = ctx.draft.table('agentResourceClaims').get(body.claim_id);
+        if (!claim) throw new NotFoundError('Claim not found');
+        if (session && (claim.sessionId !== id || claim.generation !== session.bindingGeneration)) throw new ForbiddenError('Claim belongs to a different session binding');
+        if (!session && !operatorId) throw new ForbiddenError('Operator required');
+        if (session && claim.state !== 'released' && !claimContinuouslyHeld(owner,ctx.snapshot,claim)) throw new ConflictError('Original native connection required to release this claim','claim_owner_uncertain');
+        if (operatorId) adminAudit(ctx,'agent_coordination.resolved',{claim_id:claim.id,admin_user_id:operatorId,outcome:body.outcome,reason:body.reason});
+        const state = body.outcome === 'unknown' ? 'uncertain' : 'released';
+        if (claim.state === 'released') return ownedClaimView(claim, owner) as Json;
+        const updated = stageUpdate(ctx,'agentResourceClaims',claim.id,{ state, uncertaintyReason: state === 'uncertain' ? 'reported_unknown' : null, updatedAt: new Date().toISOString() });
+        stageClaimAnnouncement(ctx,this.core.keyring,claim.sessionId,{ action: state, claim_id: claim.id, reason: body.reason, ...(operatorId ? { operator_id: operatorId } : {}) });
+        return ownedClaimView(updated, owner) as Json;
+      } });
+      wsPublisher.publish('agent_coordination.changed',{}); return result as ReturnType<typeof ownedClaimView>;
+    }
     const result = await this.core.run(
       id,
       token,

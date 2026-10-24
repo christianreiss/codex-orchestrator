@@ -82,12 +82,24 @@ test("draft survives rejection and navigation cancel, then clears only after sav
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("The server rejected the change.", { exact: false })).toBeVisible();
   await expect(body).toHaveValue("# My retained draft");
+  while (await page.getByRole("button", { name: "Close toast", exact: true }).count()) {
+    const closeButtons = page.getByRole("button", { name: "Close toast", exact: true });
+    const count = await closeButtons.count();
+    await closeButtons.first().click();
+    await expect(closeButtons).toHaveCount(count - 1);
+  }
   page.once("dialog", dialog => dialog.dismiss());
   await page.getByRole("link", { name: "Back", exact: true }).click();
   await expect(body).toHaveValue("# My retained draft");
   await page.unroute("**/admin/skills/store");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Saved. Confirmed by the server.", { exact: true })).toBeVisible();
+  while (await page.getByRole("button", { name: "Close toast", exact: true }).count()) {
+    const closeButtons = page.getByRole("button", { name: "Close toast", exact: true });
+    const count = await closeButtons.count();
+    await closeButtons.first().click();
+    await expect(closeButtons).toHaveCount(count - 1);
+  }
   await page.getByRole("link", { name: "Back", exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/library$/);
 });

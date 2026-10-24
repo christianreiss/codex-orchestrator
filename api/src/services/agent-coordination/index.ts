@@ -1,3 +1,9 @@
+import { stageUpdate, stageDelete } from '../../control-plane/state/rows.js';
+import { adminAudit } from '../../control-plane/state/admin.js';
+import type { Json } from '../../control-plane/commands.js';
+import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '../../control-plane/state/runtime.js';
+import { coordinationSession, stageScopeReconciliation, scopeSnapshot, scopeMembers, scopeMemberView, requireScopeMembership, stageScopeEvent, stageScopeDispatch } from '../../control-plane/state/coordination.js';
+import { claimReconciliationNeeded, stageClaimReconciliation, ownedClaimView } from '../../control-plane/state/resource-claims.js';
 import { sha256 } from '../../security/hash.js';
 import { sessionTaskTitles } from '../agent-messaging/task-titles.js';
 import { randomUUID } from 'node:crypto';
@@ -59,13 +65,35 @@ export class AgentCoordination {
     this.claims = new ResourceClaims(this);
   }
   async enabled(tx: AgentMessagingDb = this.db) {
+    const owner = ownerRuntimeFor(tx);
+    if (owner) { owner.assertOwner(); return owner.state.snapshot().setting(COORDINATION_ENABLED) === '1'; }
     const [v] = await tx.select().from(versions).where(eq(versions.name, COORDINATION_ENABLED));
     return v?.version === '1';
+  }
+  async reconcileOwned(): Promise<void> {
+    const owner = ownerRuntimeFor(this.db)!; owner.assertOwner();
+    const snapshot = owner.state.snapshot(), draft = owner.state.begin();
+    const preview: OwnerMutationContext = { snapshot, draft, revision: { epoch: snapshot.revision.epoch, sequence: snapshot.revision.sequence + 1n }, write() {}, effect() { throw new Error('Reconciliation must not dispatch external effects'); } };
+    if (!stageScopeReconciliation(preview, owner, this.keyring) && !claimReconciliationNeeded(owner,snapshot)) return;
+    await mutateOwnerState(owner,{ kind: 'coordination.reconcile', payload: {}, prepare: ctx => {
+      stageScopeReconciliation(ctx,owner,this.keyring); stageClaimReconciliation(ctx,owner,this.keyring); return null;
+    } });
   }
   async state() {
     return { enabled: await this.enabled(), protocol: 1, shell_enforcement: false };
   }
   async setEnabled(enabled: boolean, adminUserId?: number) {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner,{kind:'coordination.state.set',payload:{enabled,adminUserId:adminUserId ?? null},prepare:ctx => {
+        const row = {name:COORDINATION_ENABLED,version:enabled?'1':'0',updatedAt:new Date().toISOString()};
+        ctx.draft.upsert('versions',row); ctx.write(async tx => tx.insert(versions).values(row).onDuplicateKeyUpdate({set:{version:row.version,updatedAt:row.updatedAt}}));
+        if (adminUserId !== undefined) adminAudit(ctx,'agent_coordination.state',{enabled,admin_user_id:adminUserId});
+        stageScopeReconciliation(ctx,owner,this.keyring); stageClaimReconciliation(ctx,owner,this.keyring);
+        return null;
+      }});
+      wsPublisher.publish('agent_coordination.changed',{}); return {enabled,protocol:1,shell_enforcement:false};
+    }
     await this.bus.coordinationTransaction(null, null, async (tx) => {
       const now = new Date().toISOString();
       await tx
@@ -413,6 +441,12 @@ export class AgentCoordination {
     };
   }
   async context(id: string | null, token: string | null) {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      coordinationSession(owner,owner.state.snapshot(),id,token,true); await this.reconcileOwned();
+      const snapshot = owner.state.snapshot(), session = coordinationSession(owner,snapshot,id,token,true);
+      return scopeSnapshot(owner,snapshot,session,claim => ownedClaimView(claim,owner));
+    }
     return this.run(
       id,
       token,
@@ -425,6 +459,26 @@ export class AgentCoordination {
   }
   async update(id: string, token: string, input: unknown) {
     const body = contextUpdateSchema.parse(input);
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = await mutateOwnerState(owner,{kind:'coordination.context.update',principal:`session:${id}`,payload:JSON.parse(JSON.stringify(body)) as Json,authorize:snapshot => {coordinationSession(owner,snapshot,id,token);},prepare:ctx => {
+        let session = coordinationSession(owner,ctx.snapshot,id,token)!;
+        if (body.workspace) session = stageUpdate(ctx,'agentSessions',id,{workspace:normalizeWorkspace(body.workspace,readWorkspace(session.workspace))});
+        if (body.project_slug !== undefined) {
+          const repositoryKey = repositoryIdentity(session);
+          if (body.project_slug === null) stageDelete(ctx,'agentScopeBindings',repositoryKey);
+          else {
+            const project = ctx.draft.table('coordProjects').by('slug',body.project_slug)[0];
+            if (!project || project.archivedAt) throw new NotFoundError('Active CoCo project not found');
+            const row = {repositoryKey,projectSlug:body.project_slug,updatedAt:new Date().toISOString()};
+            ctx.draft.upsert('agentScopeBindings',row); ctx.write(async tx => tx.insert(agentScopeBindings).values(row).onDuplicateKeyUpdate({set:{projectSlug:row.projectSlug,updatedAt:row.updatedAt}}));
+          }
+        }
+        stageScopeReconciliation(ctx,owner,this.keyring); stageClaimReconciliation(ctx,owner,this.keyring);
+        return scopeSnapshot(owner,ctx.draft.view(),session,claim => ownedClaimView(claim,owner)) as Json;
+      }});
+      wsPublisher.publish('agent_coordination.changed',{}); return result as ReturnType<typeof scopeSnapshot>;
+    }
     const result = await this.run(id, token, async (tx, session) => {
       if (body.workspace) {
         await tx
@@ -462,6 +516,12 @@ export class AgentCoordination {
     return result;
   }
   async memberPage(scopeId: string, offset: number) {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const snapshot = owner.state.snapshot(); coordinationSession(owner,snapshot,null,null); requireScopeMembership(owner,snapshot,scopeId,null);
+      const rows = scopeMembers(owner,snapshot,scopeId);
+      return {members:rows.slice(offset,offset+50).map(row=>scopeMemberView(row)),next_member_offset:rows.length>offset+50?offset+50:null};
+    }
     return this.run(null, null, async (tx) => {
       await this.membership(tx, scopeId, null);
       const rows = await this.members(tx, scopeId);
@@ -473,6 +533,14 @@ export class AgentCoordination {
   }
   async read(id: string | null, token: string | null, input: unknown) {
     const body = roomReadSchema.parse(input);
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const before = owner.state.snapshot(); requireScopeMembership(owner,before,body.scope_id,coordinationSession(owner,before,id,token));
+      const events = await this.db.select().from(agentScopeEvents).where(and(eq(agentScopeEvents.scopeId,body.scope_id),body.after!==undefined?gt(agentScopeEvents.sequence,body.after):undefined,body.before!==undefined?lt(agentScopeEvents.sequence,body.before):undefined)).orderBy(body.after!==undefined?asc(agentScopeEvents.sequence):desc(agentScopeEvents.sequence)).limit(body.limit+1);
+      const snapshot = owner.state.snapshot(), session = coordinationSession(owner,snapshot,id,token), scope = requireScopeMembership(owner,snapshot,body.scope_id,session), members = scopeMembers(owner,snapshot,scope.id);
+      const more = events.length>body.limit, selected = events.slice(0,body.limit).sort((a,b)=>a.sequence-b.sequence);
+      return {scope,cursor:scope.sequence,resync_required:body.after!==undefined&&body.after>scope.sequence,events:selected.map(event=>({id:event.id,sequence:event.sequence,kind:event.kind,actor:event.actor,body:this.decode(event),created_at:event.createdAt})),has_more:more,next_after:body.after!==undefined&&more?selected.at(-1)?.sequence:null,next_before:body.after===undefined&&more?selected[0]?.sequence:null,members:members.slice(body.member_offset,body.member_offset+50).map(row=>scopeMemberView(row,session??undefined)),member_count:members.length,next_member_offset:members.length>body.member_offset+50?body.member_offset+50:null};
+    }
     return this.run(id, token, async (tx, session) => {
       const scope = await this.membership(tx, body.scope_id, session);
       const events = await tx
@@ -520,6 +588,17 @@ export class AgentCoordination {
     operator?: { id: number; name: string },
   ) {
     const body = roomSendSchema.parse(input);
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = await mutateOwnerState(owner,{kind:'coordination.room.send',id:body.client_request_id,principal:id?`session:${id}`:`operator:${operator?.id}`,payload:body,authorize:snapshot=>{const session=coordinationSession(owner,snapshot,id,token);requireScopeMembership(owner,snapshot,body.scope_id,session);},prepare:ctx=>{
+        const session=coordinationSession(owner,ctx.snapshot,id,token);requireScopeMembership(owner,ctx.snapshot,body.scope_id,session);
+        if (!session&&!operator) throw new ForbiddenError('Operator required');
+        const actor=session?.id??`operator:${operator!.id}`;
+        const event=stageScopeEvent(ctx,this.keyring,body.scope_id,'chat',actor,{content:body.content,name:session?(session.launchName??session.id):operator!.name,operator:!session},body.client_request_id);
+        stageScopeDispatch(ctx,owner,this.keyring,[event]);return {id:event.id,sequence:event.sequence,status:'stored'};
+      }});
+      wsPublisher.publish('agent_coordination.changed',{scope_id:body.scope_id});return result as {id:string;sequence:number;status:string};
+    }
     const result = await this.run(id, token, async (tx, session) => {
       await this.membership(tx, body.scope_id, session);
       const actor = session?.id ?? `operator:${operator!.id}`;
@@ -586,6 +665,21 @@ export class AgentCoordination {
     return this.ticking;
   }
   private async tickOnce() {
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){
+      await this.reconcileOwned();
+      if(owner.state.snapshot().setting('agent_coordination_enabled')!=='1'||owner.state.snapshot().setting('agent_messaging_enabled')!=='1')return;
+      const pending=owner.state.snapshot().table('agentScopeEvents').all().filter(event=>event.dispatched===0&&Date.parse(event.createdAt)<=Date.now()-2000).sort((a,b)=>a.sequence-b.sequence).slice(0,500);
+      if(!pending.length)return;
+      const rows=await this.db.select().from(agentScopeEvents).where(inArray(agentScopeEvents.id,pending.map(row=>row.id)));
+      const contents=new Map(rows.map(row=>[row.id,{...row,body:this.decode(row)}]));
+      await mutateOwnerState(owner,{kind:'coordination.events.dispatch',payload:{ids:pending.map(row=>row.id)},prepare:ctx=>{
+        const current=pending.flatMap(row=>{const event=ctx.draft.table('agentScopeEvents').get(row.id),body=contents.get(row.id);return event?.dispatched===0&&body?[body]:[];});
+        for(const scopeId of new Set(current.map(row=>row.scopeId)))stageScopeDispatch(ctx,owner,this.keyring,current.filter(row=>row.scopeId===scopeId));
+        return null;
+      }});
+      wsPublisher.publish('agent_coordination.changed',{});return;
+    }
     const input = await coordinationTickInput(this.db, this.env);
     if (input) {
       if (!input.enabled) { this.tickFingerprint = undefined; return; }

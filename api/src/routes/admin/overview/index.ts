@@ -1,3 +1,8 @@
+import {currentCanonicalMetadata} from '../../../control-plane/state/canonical-metadata.js';
+import {persistAuditLog} from '../../../services/audit-log.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../../../control-plane/state/runtime.js';
+import { stageUpdate } from '../../../control-plane/state/rows.js';
+import { adminAudit } from '../../../control-plane/state/admin.js';
 import { hostPresenceViews } from '../../../services/host-presence.js';
 import { visibleHost } from '../../../services/internal-hosts.js';
 import { pruneHosts } from '../../../services/host-lifecycle.js';
@@ -14,11 +19,11 @@ import { createPooledAuthStoreService as createCanonicalAuthStoreService } from 
  */
 
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import type { RouteContext } from '../../index.js';
 import { ok } from '../../../http/reply.js';
 import { ValidationError, NotFoundError } from '../../../http/errors.js';
-import { adminEvents, hosts, insecureDomainAllows, installTokens, logs } from '../../../db/schema.js';
+import { adminEvents, hosts, insecureDomainAllows, installTokens } from '../../../db/schema.js';
 import { SettingsService } from '../../../services/settings.js';
 import { makeAdminEventsWriter } from '../../../services/admin-events-writer.js';
 import { InsecureWindowAdminService } from '../../../services/insecure-window-admin.js';
@@ -71,7 +76,7 @@ async function recordLog(
   details: Record<string, unknown>,
 ): Promise<void> {
   try {
-    await ctx.db.insert(logs).values({
+    await persistAuditLog(ctx.db, {
       hostId: null,
       action,
       details: JSON.stringify(details),
@@ -116,7 +121,7 @@ function hostEngines(raw: string | null | undefined): Engine[] {
   return engines.length ? engines : [ENGINE_CODEX];
 }
 
-function hostDigestForEngine(h: typeof hosts.$inferSelect, engine: Engine): string | null {
+function hostDigestForEngine(h: Omit<typeof hosts.$inferSelect,'apiKey'|'apiKeyEnc'>, engine: Engine): string | null {
   return h[ENGINE_HOST_FIELDS[engine].authDigest] ?? null;
 }
 
@@ -130,7 +135,7 @@ export function resolveAliasedVersion(raw: string | null, available: { version: 
 }
 
 function hostAuthSummary(
-  h: typeof hosts.$inferSelect,
+  h: Omit<typeof hosts.$inferSelect,'apiKey'|'apiKeyEnc'>,
   canonicalDigests: Record<Engine, string | null>,
 ): { authed: boolean; auth_outdated: boolean } {
   const engines = hostEngines(h.engines);
@@ -183,6 +188,8 @@ export async function registerAdminOverviewRoutes(
   app: FastifyInstance,
   ctx: RouteContext,
 ): Promise<void> {
+  const ownedSnapshot = () => { const owner=ownerRuntimeFor(ctx.db); owner?.assertOwner(); return owner?.state.snapshot(); };
+  const visibleHosts = async () => { const snapshot=ownedSnapshot(); return snapshot ? snapshot.hosts.all().filter(row=>row.internalRole===null) : ctx.db.select().from(hosts).where(visibleHost); };
   const adminSpa = adminSpaHtmlPreHandler(ctx);
   const settings = new SettingsService(ctx.db);
   const insecureAdmin = new InsecureWindowAdminService({
@@ -192,6 +199,11 @@ export async function registerAdminOverviewRoutes(
   });
   const clientVersions = new ClientVersionsService(settings, app.log);
   const runnerValidation = createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring });
+  const canonicalMetadata = async (engine:Engine) => {
+    const snapshot=ownedSnapshot();
+    if(snapshot)return currentCanonicalMetadata(snapshot,engine);
+    return runnerValidation.resolveCanonicalPayload(engine);
+  };
   const runnerClient = createRunnerClient({ env: ctx.env });
   const chatgpt = new ChatGptUsageService(ctx.db, app.log, {
     env: ctx.env,
@@ -220,8 +232,8 @@ export async function registerAdminOverviewRoutes(
 
   // ── /admin/overview ───────────────────────────────────────────────────────
   app.get('/admin/overview', { preHandler: app.requireAdmin }, async () => {
-    const hostRows = await ctx.db.select().from(hosts).where(visibleHost);
-    const latestLog = await dashboard.latestLog();
+    const hostRows = await visibleHosts();
+    const latestLogAt = await dashboard.latestLogAt();
 
     const [versionSummary, claudeVersionSummary, codexAvailable, claudeAvailable, grokVersionSummary, grokAvailable] = await Promise.all([
       clientVersions.versionSummary('codex'),
@@ -313,7 +325,7 @@ export async function registerAdminOverviewRoutes(
 
     return ok({
       totals: { hosts: hostRows.length },
-      latest_log_at: latestLog?.createdAt ?? null,
+      latest_log_at: latestLogAt,
       last_refresh: lastRefresh,
       avg_refresh_age_days: avgRefreshAgeDays,
       version_distribution: {
@@ -399,12 +411,12 @@ export async function registerAdminOverviewRoutes(
     ]);
     const targets = { codex: codexTarget, claude: claudeTarget, grok: grokTarget };
     const [rows, codexCanonical, claudeCanonical, tokenRows, grokCanonical] = await Promise.all([
-      ctx.db.select().from(hosts).where(visibleHost).orderBy(hosts.fqdn),
-      runnerValidation.resolveCanonicalPayload(ENGINE_CODEX),
-      runnerValidation.resolveCanonicalPayload(ENGINE_CLAUDE),
+      visibleHosts().then(rows=>[...rows].sort((a,b)=>a.fqdn.localeCompare(b.fqdn))),
+      canonicalMetadata(ENGINE_CODEX),
+      canonicalMetadata(ENGINE_CLAUDE),
       // One read for every host, not one per row. Minting deletes a host's
       // older tokens, so this table stays about one row per host.
-      ctx.db
+      ownedSnapshot()?.table('installTokens').all() ?? ctx.db
         .select({
           id: installTokens.id,
           hostId: installTokens.hostId,
@@ -412,7 +424,7 @@ export async function registerAdminOverviewRoutes(
           expiresAt: installTokens.expiresAt,
         })
         .from(installTokens),
-      runnerValidation.resolveCanonicalPayload(ENGINE_GROK),
+      canonicalMetadata(ENGINE_GROK),
     ]);
     const presence = await hostPresenceViews(ctx.db, rows);
     const latestInstaller = new Map<number, InstallerTokenRow>();
@@ -496,7 +508,7 @@ export async function registerAdminOverviewRoutes(
     if (!Number.isFinite(id) || id <= 0) {
       throw new ValidationError('id must be a positive integer', { param: 'id' });
     }
-    const rows = await ctx.db.select().from(hosts).where(and(eq(hosts.id, id), visibleHost)).limit(1);
+    const rows = (await visibleHosts()).filter(row=>row.id===id);
     const h = rows[0];
     if (!h) throw new NotFoundError('Host not found', 'host_not_found');
     const presence = await hostPresenceViews(ctx.db, [h]);
@@ -520,9 +532,9 @@ export async function registerAdminOverviewRoutes(
         settings.getFlag('auto_update_enabled', false),
         settings.getFlag('reverse_dns_enabled', false),
         settings.getInt('inactivity_window_days', 30),
-        runnerValidation.resolveCanonicalPayload(ENGINE_CODEX),
-        runnerValidation.resolveCanonicalPayload(ENGINE_CLAUDE),
-        ctx.db
+        canonicalMetadata(ENGINE_CODEX),
+        canonicalMetadata(ENGINE_CLAUDE),
+        ownedSnapshot()?.table('installTokens').by('hostId',id).toSorted((a,b)=>b.id-a.id).slice(0,1) ?? ctx.db
           .select({
             id: installTokens.id,
             hostId: installTokens.hostId,
@@ -535,7 +547,7 @@ export async function registerAdminOverviewRoutes(
           .limit(1),
       ]);
     const [grokCanonical, grokVersions, grokAvailable] = await Promise.all([
-      runnerValidation.resolveCanonicalPayload(ENGINE_GROK),
+      canonicalMetadata(ENGINE_GROK),
       clientVersions.versionSummary(ENGINE_GROK),
       clientVersions.availableClientVersion(false, ENGINE_GROK),
     ]);
@@ -623,7 +635,7 @@ export async function registerAdminOverviewRoutes(
     // this endpoint gives is true even if the worker is wedged.
     await insecureAdmin.sweepIfLapsed();
     const fleetWindow = await insecureAdmin.fleetWindowState();
-    const allHosts = await ctx.db.select().from(hosts).where(visibleHost);
+    const allHosts = await visibleHosts();
     const nowMs = Date.now();
     const items: Array<{
       id: number;
@@ -654,7 +666,7 @@ export async function registerAdminOverviewRoutes(
     }
     items.sort((a, b) => a.fqdn.localeCompare(b.fqdn));
 
-    const domainRows = await ctx.db.select().from(insecureDomainAllows);
+    const domainRows = ownedSnapshot()?.table('insecureDomainAllows').all() ?? await ctx.db.select().from(insecureDomainAllows);
     const domains: Array<{
       id: number;
       domain: string;
@@ -695,7 +707,30 @@ export async function registerAdminOverviewRoutes(
   });
 
   app.post('/admin/hosts/insecure/extend', { preHandler: app.requireAdmin }, async () => {
-    const allHosts = await ctx.db.select().from(hosts).where(visibleHost);
+    const owner=ownerRuntimeFor(ctx.db);
+    if(owner){
+      const result=await mutateOwnerState(owner,{kind:'hosts.insecure.extend',payload:{},prepare(command){
+        const nowMs=Date.now(),at=new Date(nowMs).toISOString();
+        const floor=Date.parse(command.snapshot.setting('insecure_fleet_window_until')??'');
+        let extended=0;
+        for(const host of command.draft.table('hosts').all()){
+          if(host.internalRole||host.secure===1)continue;
+          const prior=host.insecureEnabledUntil?new Date(host.insecureEnabledUntil).getTime():0;
+          if(prior<=nowMs)continue;
+          const minutes=Math.max(5,Math.min(1440,host.insecureWindowMinutes??60));
+          // Extend never shortens an existing authorization deadline.
+          const until=new Date(Math.max(prior,nowMs+minutes*60000,Number.isFinite(floor)?floor:0));
+          if(until.getTime()===prior)continue;
+          stageUpdate(command,'hosts',host.id,{insecureEnabledUntil:until,updatedAt:at});
+          const details={fqdn:host.fqdn,enabled_until:until.toISOString(),window_minutes:minutes};
+          command.write(tx=>persistAuditLog(tx, {hostId:host.id,action:'admin.host.insecure_extend',details:JSON.stringify(details),createdAt:at}));
+          adminAudit(command,'host.updated',details,at,host.id);extended++;
+        }
+        return {extended};
+      }});
+      wsPublisher.publish('host.updated',{});return ok(result);
+    }
+    const allHosts = await visibleHosts();
     const nowMs = Date.now();
     // An open fleet window is a floor here. Without it, extending a fleet that
     // is open until this evening would pull every host back to its own stored

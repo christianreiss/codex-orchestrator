@@ -142,7 +142,7 @@ export function engineDestroyQuery(engine: string) {
   return createQuery<EngineDestroyProgress>({
     queryKey: engineDestroyQueryKey(engine),
     queryFn: () => api.get<EngineDestroyProgress>(`/admin/engines/${engine}/destroy`),
-    refetchInterval: 15_000,
+
   });
 }
 

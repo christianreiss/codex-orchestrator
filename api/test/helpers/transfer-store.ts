@@ -38,7 +38,7 @@ export function createTransferDb(): Database & { rows: Map<unknown, Row[]> } {
             where: (predicate: unknown) => {
               const ids = new Set(paramsOf(predicate));
               const filtered = result.filter(
-                (row) => ids.has(row['id']) || ids.has(row['name']) || ids.has(row['engine']),
+                (row) => ids.has(row['id']) || ids.has(row['transferId']) || ids.has(row['name']) || ids.has(row['engine']),
               );
               return Object.assign(Promise.resolve(filtered), {
                 limit: () => Promise.resolve(filtered),
@@ -61,7 +61,7 @@ export function createTransferDb(): Database & { rows: Map<unknown, Row[]> } {
                   // A locking read sees the row after its preceding writer
                   // commits, rather than the snapshot at query construction.
                   return get(table)
-                    .filter((row) => ids.has(row['id']) || ids.has(row['name']) || ids.has(row['engine']))
+                    .filter((row) => ids.has(row['id']) || ids.has(row['transferId']) || ids.has(row['name']) || ids.has(row['engine']))
                     .map((row) => ({ ...row }));
                 },
               });
@@ -96,7 +96,7 @@ export function createTransferDb(): Database & { rows: Map<unknown, Row[]> } {
           where: (predicate: unknown) => {
             const ids = new Set(paramsOf(predicate));
             for (const row of get(table)) {
-              if (ids.has(row['id']) || ids.has(row['name']) || ids.has(row['engine']))
+              if (ids.has(row['id']) || ids.has(row['transferId']) || ids.has(row['name']) || ids.has(row['engine']))
                 Object.assign(row, patch);
             }
             return Promise.resolve([{ affectedRows: 1 }]);
@@ -111,7 +111,7 @@ export function createTransferDb(): Database & { rows: Map<unknown, Row[]> } {
           rows.set(
             table,
             get(table).filter(
-              (row) => !(ids.has(row['id']) || ids.has(row['name']) || ids.has(row['engine'])),
+              (row) => !(ids.has(row['id']) || ids.has(row['transferId']) || ids.has(row['name']) || ids.has(row['engine'])),
             ),
           );
           return Promise.resolve([{ affectedRows: 1 }]);

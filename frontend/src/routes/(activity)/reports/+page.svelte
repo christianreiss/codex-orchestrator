@@ -48,7 +48,7 @@
 
   const stateQuery = createQuery({ queryKey: feedbackKeys.state, queryFn: feedbackApi.state });
   const listQuery = createQuery(
-    reactiveOptions(() => ({ queryKey: feedbackKeys.list(listFilters), queryFn: () => feedbackApi.list(listFilters), refetchInterval: 30000 })),
+    reactiveOptions(() => ({ queryKey: feedbackKeys.list(listFilters), queryFn: () => feedbackApi.list(listFilters) })),
   );
   const enabled = $derived($stateQuery.data?.enabled ?? false);
   const refresh = () => qc.invalidateQueries({ queryKey: feedbackKeys.all });

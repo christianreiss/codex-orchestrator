@@ -1168,6 +1168,7 @@ Reads require `feedback.read`; writes require `feedback.manage`. Fields and life
 ### Communicator transport endpoints
 
 - `GET /host/communicator/connect`: host-key/IP-authenticated WebSocket protocol 1, enabled by the signed communicator capability. Multiplexes existing host routes, MCP and daemon frames with UUID-correlated replies and content invalidations.
+- `POST /host/native-control/receipt`: host-key/IP-authenticated native-control result for `control_state_v1`. The body supplies `session_id`, `binding_generation`, `native_instance_id`, `request_id` and `result` (`accepted`, `exited` or `refused`). The current host and exact native binding are revalidated before the receipt commits; duplicate receipts replay safely. A disconnected socket alone never reports process exit.
 - `GET /admin/communicators`: requires `hosts.read`; reports the API process's live communicator connections, users, versions, client counts and last sync.
 
 See [CoCo Communicator](communicator.md) for the local socket, reconnect and rollout contract.

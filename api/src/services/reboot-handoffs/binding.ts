@@ -1,3 +1,5 @@
+import { ownerRuntimeFor, mutateOwnerState } from '../../control-plane/state/runtime.js';
+import { stageExpireOwnedHandoff } from './owner.js';
 import { and, eq, inArray, lte } from 'drizzle-orm';
 import {
   agentRebootHandoffs,
@@ -169,6 +171,19 @@ export async function completeRebootBinding(
 }
 
 export async function expireRebootHandoffs(db: AgentMessagingDb, now: string) {
+  const runtime = ownerRuntimeFor(db);
+  if (runtime) {
+    await mutateOwnerState(runtime, {
+      kind: 'reboot.expire',
+      payload: { now },
+      prepare: (context) => {
+        for (const row of context.draft.table('agentRebootHandoffs').all())
+          if (active.includes(row.status) && row.expiresAt <= now) stageExpireOwnedHandoff(context, row, now);
+        return null;
+      },
+    });
+    return;
+  }
   const rows = await db
     .select()
     .from(agentRebootHandoffs)

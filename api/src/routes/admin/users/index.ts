@@ -119,7 +119,7 @@ export async function registerAdminUsersRoutes(
     .strict();
   app.post(
     '/admin/users/:id',
-    { preHandler: app.requireAdmin },
+    { preHandler: app.requireAdmin,config:{ownerResponse:'committed-action'} },
     async (req: FastifyRequest) => {
       const params = (req.params ?? {}) as { id?: string };
       const id = Number(params.id);
@@ -146,7 +146,7 @@ export async function registerAdminUsersRoutes(
   // -----------------------------------------------------------------------
   app.delete(
     '/admin/users/:id',
-    { preHandler: app.requireAdmin },
+    { preHandler: app.requireAdmin,config:{ownerResponse:'committed-action'} },
     async (req: FastifyRequest) => {
       const params = (req.params ?? {}) as { id?: string };
       const id = Number(params.id);

@@ -1,3 +1,8 @@
+import {persistAuditLog} from './audit-log.js';
+import { executeColdRead } from '../db/fresh-read.js';
+import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/state/runtime.js';
+import { stageDelete, stageUpdate } from '../control-plane/state/rows.js';
+import type { Json } from '../control-plane/commands.js';
 /**
  * Fleet-wide shared memory: one corpus of large documents, readable and
  * writable by every host and both engines.
@@ -25,7 +30,7 @@
  */
 import { and, desc, eq, isNull, like, lte, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { logs, sharedMemories, sharedMemoryChunks, sharedMemoryRevisions } from '../db/schema.js';
+import { sharedMemories, sharedMemoryChunks, sharedMemoryRevisions } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import type { Engine } from '../util/engine.js';
 import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js';
@@ -129,7 +134,7 @@ export function sharedMemoryUri(slug: string, ordinal: number | null = null): st
 export class SharedMemoriesService {
   constructor(
     private readonly db: Database,
-    private readonly options: { publishEvents?: boolean } = {},
+    private readonly options: { publishEvents?: boolean; ownerContext?: OwnerMutationContext } = {},
   ) {}
 
   // ──────────────────────────────────────────────────────────────────────
@@ -165,7 +170,8 @@ export class SharedMemoriesService {
     // is what the listing is willing to look at, and `scanned_all` tells the
     // caller when that bound was hit.
     const scanCap = Math.min(LIST_SCAN_CAP, (offset + effectiveLimit) * (tags.length > 0 ? 5 : 1) + effectiveLimit);
-    const rows = await this.db
+    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
+    const rows = owner?owner.state.snapshot().table('sharedMemories').all().filter(row=>!row.deletedAt&&(prefix===''||row.slug.startsWith(prefix))).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||b.id-a.id).slice(0,scanCap).map(row=>({...row,content:row.contentPreview})):await this.db
       .select(listColumns())
       .from(sharedMemories)
       .where(and(...conditions))
@@ -260,7 +266,7 @@ export class SharedMemoriesService {
 
     const fetchBatch = async (offset: number): Promise<Array<Record<string, unknown>>> => {
       try {
-        const res = await this.db.execute(
+        const res = await executeColdRead(this.db,
           sql`SELECT c.memory_id, c.ordinal, c.heading, c.content AS chunk_content, c.char_start, c.char_end,
                      m.slug, m.title, m.summary, m.tags, m.content_length, m.chunk_count, m.revision, m.updated_at,
                      MATCH(c.content, c.heading, c.tags_text) AGAINST (${query} IN NATURAL LANGUAGE MODE) AS score
@@ -417,6 +423,19 @@ export class SharedMemoriesService {
       });
     }
 
+    if(this.options.ownerContext){const existing=await this.findBySlug(slug,true),expected=payload.expected_sha256;
+      if(typeof expected==='string'&&expected.trim()&&(existing&&existing.deletedAtIsNull?existing.doc.contentSha256:null)!==expected.trim())throw new ConflictError(`shared memory "${slug}" changed since it was read`,'shared_memory_conflict');
+      const live=existing&&existing.deletedAtIsNull?existing.doc:null;
+      return this.persist({slug,title:supplied(payload,'title')?title:live?.title??title,summary:supplied(payload,'summary')?summary:live?.summary??summary,content,tags:supplied(payload,'tags')?tags:live?.tags??tags,metadata:supplied(payload,'metadata')?metadata:live?.metadata??metadata,existing,op:'write',host,engine});
+    }
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){const result=await mutateOwnerState(owner,{kind:'shared.memory.write',payload:{slug,sha256:sha256(content)},prepare:async ctx=>{
+      const scoped=new SharedMemoriesService(this.db,{publishEvents:false,ownerContext:ctx}),existing=await scoped.findBySlug(slug,true),expected=payload.expected_sha256;
+      if(typeof expected==='string'&&expected.trim()&&(existing&&existing.deletedAtIsNull?existing.doc.contentSha256:null)!==expected.trim())throw new ConflictError(`shared memory "${slug}" changed since it was read`,'shared_memory_conflict');
+      const live=existing&&existing.deletedAtIsNull?existing.doc:null;
+      return await scoped.persist({slug,title:supplied(payload,'title')?title:live?.title??title,summary:supplied(payload,'summary')?summary:live?.summary??summary,content,tags:supplied(payload,'tags')?tags:live?.tags??tags,metadata:supplied(payload,'metadata')?metadata:live?.metadata??metadata,existing,op:'write',host,engine}) as Json;
+    }}) as Record<string,unknown>;if(result.status!=='unchanged')this.publish(result.status==='created'?'shared_memory.created':'shared_memory.changed',{slug});return result;}
+
     // Lock before reading the digest and keep the lock through chunks, parent
     // and revision writes. A check outside the transaction lets two replaces
     // accept the same digest; sharing append's lock also protects against an
@@ -487,6 +506,9 @@ export class SharedMemoriesService {
       throw new ValidationError('Validation failed', { extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } } });
     }
 
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){const result=await mutateOwnerState(owner,{kind:'shared.memory.append',payload:{slug,sha256:sha256(addition)},prepare:async ctx=>new SharedMemoriesService(this.db,{publishEvents:false,ownerContext:ctx}).appendLocked({slug,addition,heading,separator,tags,metadata,payload,host,engine}) as Promise<Json>}) as Record<string,unknown>;if(result.status!=='unchanged')this.publish(result.status==='created'?'shared_memory.created':'shared_memory.changed',{slug});return result;}
+
     // Everything from here runs inside a transaction that first takes a row
     // lock on the slug. Append is read-modify-write, so without serialization
     // two hosts appending at the same time both read the same base, both merge
@@ -508,6 +530,10 @@ export class SharedMemoriesService {
    * exact same chunk/revision machinery as MCP append without nesting another
    * transaction or publishing before the outer transaction commits.
    */
+  async appendOwned(context:OwnerMutationContext,payload:Record<string,unknown>,host:Host|null=null,engine:Engine|null=null):Promise<Record<string,unknown>>{
+    return new SharedMemoriesService(this.db,{publishEvents:false,ownerContext:context}).appendAlreadyLocked(payload,host,engine);
+  }
+
   async appendAlreadyLocked(
     payload: Record<string, unknown>,
     host: Host | null = null,
@@ -588,6 +614,15 @@ export class SharedMemoriesService {
     if (Object.keys(errors).length || !slug) {
       throw new ValidationError('Validation failed', { extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } } });
     }
+
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){const result=await mutateOwnerState(owner,{kind:'shared.memory.delete',payload:{slug},prepare:ctx=>{
+      const row=ctx.snapshot.table('sharedMemories').by('slug',slug)[0],now=nowIso(),status=!row||row.deletedAt?'missing':'deleted';
+      if(row&&!row.deletedAt){const revision=Math.max(row.highestRevision,row.revision)+1;stageUpdate(ctx,'sharedMemories',row.id,{deletedAt:now,updatedAt:now,revision});ctx.draft.upsert('sharedMemories',{...ctx.draft.table('sharedMemories').get(row.id)!,highestRevision:revision});
+        ctx.write(async tx=>{await tx.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId,row.id));await tx.insert(sharedMemoryRevisions).values({memoryId:row.id,revision,op:'delete',contentSha256:row.contentSha256,contentLength:0,deltaLength:-row.contentLength,sourceHostId:host?.id??null,sourceEngine:engine,note:null,prevContent:null,createdAt:now});});
+      }
+      ctx.write(async tx=>persistAuditLog(tx, {hostId:host?.id??null,action:'shared_memory.delete',details:JSON.stringify({slug,status}),createdAt:now,engine:null}));return {status,slug};
+    }}) as Record<string,unknown>;if(result.status==='deleted'){this.publish('shared_memory.deleted',{slug});this.publish('shared_memory.changed',{slug});}return result;}
 
     const doc = await this.findBySlug(slug);
     if (!doc) {
@@ -707,6 +742,10 @@ export class SharedMemoriesService {
     const errors: Record<string, string[]> = {};
     const normalized = this.normalizeSlug(slug, errors);
     if (Object.keys(errors).length || !normalized) throw new ValidationError('Validation failed', { extra: { errors } });
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){await mutateOwnerState(owner,{kind:'shared.memory.admin.delete',payload:{slug:normalized},prepare:ctx=>{const row=ctx.snapshot.table('sharedMemories').by('slug',normalized)[0];if(!row)throw new NotFoundError('Shared memory not found','shared_memory_not_found');
+      ctx.write(async tx=>{await tx.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId,row.id));await tx.delete(sharedMemoryRevisions).where(eq(sharedMemoryRevisions.memoryId,row.id));});stageDelete(ctx,'sharedMemories',row.id);ctx.write(async tx=>persistAuditLog(tx, {hostId:null,action:'shared_memory.admin.delete',details:JSON.stringify({slug:normalized,id:row.id}),createdAt:nowIso(),engine:null}));return null;
+    }});this.publish('shared_memory.deleted',{slug:normalized});this.publish('shared_memory.changed',{slug:normalized});return {deleted:normalized};}
     const rows = await this.db.select().from(sharedMemories).where(eq(sharedMemories.slug, normalized)).limit(1);
     const row = rows[0];
     if (!row) throw new NotFoundError('Shared memory not found', 'shared_memory_not_found');
@@ -730,6 +769,7 @@ export class SharedMemoriesService {
    * render 50 one-line descriptions.
    */
   async listRecent(limit = 20): Promise<SharedMemorySummary[]> {
+    const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return [...owner.state.snapshot().table('sharedMemories').all()].filter(row=>!row.deletedAt).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||b.id-a.id).slice(0,Math.max(1,Math.min(200,limit))).map(row=>this.summarize(hydrate({...row,content:row.contentPreview}),false));}
     const rows = await this.db
       .select(listColumns())
       .from(sharedMemories)
@@ -781,6 +821,25 @@ export class SharedMemoriesService {
       };
     }
 
+    const ownerContext=this.options.ownerContext;
+    if(ownerContext){
+      const ctx=ownerContext,chunks=chunkContent(content),prior=ctx.draft.table('sharedMemories').by('slug',slug)[0],revision=Math.max(prior?.highestRevision??0,prior?.revision??0)+1;
+      const status=live?(op==='append'?'appended':'updated'):'created',resolvedOp=op==='append'?'append':live?'replace':'create';
+      let memoryId=prior?.id??0;
+      const values={slug,title:input.title,summary:input.summary,content,contentSha256:digest,contentLength:content.length,chunkCount:chunks.length,revision,metadata,tags:tags.length?tags:null,tagsText,sourceHostId:host?.id??null,sourceEngine:engine,updatedAt:now,deletedAt:null};
+      if(prior){stageUpdate(ctx,'sharedMemories',prior.id,values);ctx.draft.upsert('sharedMemories',{...ctx.draft.table('sharedMemories').get(prior.id)!,highestRevision:revision,contentPreview:content.slice(0,PREVIEW_FETCH_CHARS)});}
+      else ctx.write(async tx=>{const row={...values,createdAt:now},inserted=await tx.insert(sharedMemories).values(row);memoryId=readInsertId(inserted)??0;if(!memoryId)throw new Error('Shared memory insert returned no identity');ctx.draft.upsert('sharedMemories',{id:memoryId,...row,highestRevision:revision,contentPreview:content.slice(0,PREVIEW_FETCH_CHARS)});});
+      ctx.write(async tx=>{
+        await tx.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId,memoryId));
+        for(let offset=0;offset<chunks.length;offset+=100)await tx.insert(sharedMemoryChunks).values(chunks.slice(offset,offset+100).map(chunk=>({memoryId,revision,ordinal:chunk.ordinal,heading:chunk.heading,content:chunk.content,charStart:chunk.charStart,charEnd:chunk.charEnd,tagsText,createdAt:now})));
+        await tx.insert(sharedMemoryRevisions).values({memoryId,revision,op:resolvedOp,contentSha256:digest,contentLength:content.length,deltaLength:content.length-(live?.contentLength??0),sourceHostId:host?.id??null,sourceEngine:engine,note:null,prevContent:resolvedOp==='replace'?live?.content??null:null,createdAt:now});
+        if(resolvedOp==='replace'&&revision>PREV_CONTENT_KEEP)await tx.update(sharedMemoryRevisions).set({prevContent:null}).where(and(eq(sharedMemoryRevisions.memoryId,memoryId),lte(sharedMemoryRevisions.revision,revision-PREV_CONTENT_KEEP)));
+        await persistAuditLog(tx, {hostId:host?.id??null,action:`shared_memory.${op}`,details:JSON.stringify({slug,status,revision,content_length:content.length,chunks:chunks.length,tags:tags.length}),createdAt:now,engine:null});
+      });
+      // Summary carries no database-generated identity, so it can be prepared now.
+      const doc=hydrate({id:memoryId,...values,createdAt:prior?.createdAt??now});
+      return {status,slug,revision,appended_chars:input.appendedChars??null,memory:this.summarize(doc,false)};
+    }
     const chunks = chunkContent(content);
     let memoryId: number;
     let revision: number;
@@ -1039,6 +1098,11 @@ export class SharedMemoriesService {
   private async findBySlug(slug: string): Promise<DocRow | null>;
   private async findBySlug(slug: string, includeDeleted: true): Promise<{ doc: DocRow; deletedAtIsNull: boolean } | null>;
   private async findBySlug(slug: string, includeDeleted = false): Promise<DocRow | { doc: DocRow; deletedAtIsNull: boolean } | null> {
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){owner.assertOwner();const state=this.options.ownerContext?.draft.view()??owner.state.snapshot(),metadata=state.table('sharedMemories').by('slug',slug)[0];if(!metadata||!includeDeleted&&metadata.deletedAt)return null;
+      const [row]=await this.db.select().from(sharedMemories).where(eq(sharedMemories.id,metadata.id)).limit(1);if(!row||row.contentSha256!==metadata.contentSha256||row.revision!==metadata.revision)throw new ConflictError('Shared memory changed during read','shared_memory_conflict');
+      const doc=hydrate(row as unknown as Record<string,unknown>);return includeDeleted?{doc,deletedAtIsNull:!metadata.deletedAt}:doc;
+    }
     const rows = await this.db.select().from(sharedMemories).where(eq(sharedMemories.slug, slug)).limit(1);
     const row = rows[0];
     if (!row) return null;
@@ -1048,6 +1112,7 @@ export class SharedMemoriesService {
   }
 
   private async countLive(): Promise<number> {
+    const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return owner.state.snapshot().table('sharedMemories').all().filter(row=>!row.deletedAt).length;}
     const rows = await this.db.select({ c: sql<number>`count(*)` }).from(sharedMemories).where(isNull(sharedMemories.deletedAt));
     return Number(rows[0]?.c ?? 0);
   }
@@ -1119,7 +1184,7 @@ export class SharedMemoriesService {
   }
 
   private async recordLog(host: Host | null, action: string, details: Record<string, unknown>): Promise<void> {
-    await this.db.insert(logs).values({
+    await persistAuditLog(this.db, {
       hostId: host?.id ?? null,
       action,
       details: JSON.stringify(details),

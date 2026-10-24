@@ -1,3 +1,4 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Database } from '../db/client.js';
@@ -20,7 +21,8 @@ export const quotaPolicyKey = (engine: Engine, accountId?: number) =>
   accountId === undefined ? `quota_policy_${engine}` : `quota_policy_account_${accountId}`;
 export async function readQuotaPolicy(db: Pick<Database, 'select'>, engine: Engine, accountId?: number) {
   const read = async (key: string) => {
-    const [row] = await db.select().from(versions).where(eq(versions.name, key));
+    const owner = ownerRuntimeFor(db);
+    const row = owner ? (owner.assertOwner(), {version:owner.state.snapshot().setting(key)}) : (await db.select().from(versions).where(eq(versions.name, key)))[0];
     if (!row?.version) return null;
     try { return quotaPolicySchema.parse(JSON.parse(row.version)); }
     catch { return { ...DEFAULT_QUOTA_POLICY, short_auto_resume: false, long_auto_resume: false }; }

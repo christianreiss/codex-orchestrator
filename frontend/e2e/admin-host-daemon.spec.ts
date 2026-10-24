@@ -1,9 +1,10 @@
+import { ownerStream } from "./owner-stream";
 import { test, expect } from "@playwright/test";
 test("daemon indicators are separate, enabled-only, and update live", async ({
   page,
 }) => {
   let emit: (s: string) => void = () => {};
-  await page.routeWebSocket("**/daemon-test-ws", (ws) => {
+  await page.routeWebSocket("**/daemon-test-ws", (ws) => { ownerStream(ws);
     emit = (s) => ws.send(s);
   });
   const stamp = () => new Date().toISOString();
@@ -106,7 +107,7 @@ test('closed-window daemon remains online and can be opened from host details', 
   };
   let grants = 0;
   let cwdSeen: string | null = null;
-  await page.routeWebSocket('**/insecure-daemon-ws', () => {});
+  await page.routeWebSocket('**/insecure-daemon-ws', ws => { ownerStream(ws); });
   await page.route('**/admin/**', route => {
     if (!route.request().headers().accept?.includes('application/json')) return route.continue();
     const path = new URL(route.request().url()).pathname;

@@ -1,3 +1,6 @@
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { stageDelete } from '../control-plane/state/rows.js';
+import { sha256 } from '../security/hash.js';
 import { randomBytes } from 'node:crypto';
 import { inspectCredential } from './auth-generation.js';
 import { assessLoginExpiry, type LoginExpiry } from './login-expiry.js';
@@ -116,9 +119,20 @@ export interface RunnerProxyDeps {
 export function createSeedTokenStore(db: Database): SeedTokenStore {
   return {
     async purgeExpired(before) {
+      // Owner issuance composes expiry pruning with the new grant. No separate
+      // command can consume the action identity before the grant is durable.
+      if(ownerRuntimeFor(db))return;
       await db.delete(authSeedTokens).where(lt(authSeedTokens.expiresAt, before));
     },
     async issue(grant) {
+      const owner=ownerRuntimeFor(db);
+      if(owner){await mutateOwnerState(owner,{kind:'auth.seed.issue',payload:{accountId:grant.accountId??null,tokenHash:sha256(grant.token),baseUrl:grant.baseUrl,engine:grant.engine,expiresAt:grant.expiresAt},prepare(ctx){
+        if(grant.accountId&&ctx.snapshot.table('providerAccounts').get(grant.accountId)?.engine!==grant.engine)throw new ValidationError('Seed account is unavailable');
+        for(const row of ctx.draft.table('authSeedTokens').all())if(Date.parse(row.expiresAt)<Date.now())stageDelete(ctx,'authSeedTokens',row.id);
+        const values={accountId:grant.accountId??null,token:sha256(grant.token),tokenEnc:null,baseUrl:grant.baseUrl,engine:grant.engine,expiresAt:grant.expiresAt,usedAt:null,createdAt:grant.createdAt};
+        ctx.write(async tx=>{const [inserted]=await tx.insert(authSeedTokens).values(values);ctx.draft.upsert('authSeedTokens',{...values,id:Number(inserted.insertId)});});return null;
+      }});return;}
+
       await db.insert(authSeedTokens).values({
         accountId: grant.accountId,
         token: grant.token,
@@ -135,6 +149,7 @@ export function createSeedTokenStore(db: Database): SeedTokenStore {
 
 export function createRunnerTelemetryReader(db: Database): RunnerTelemetryReader {
   return async () => {
+    const owner=ownerRuntimeFor(db);if(owner){owner.assertOwner();return new Map(owner.state.snapshot().settings.all().map(row=>[row.name,row.version]));}
     const rows = await db.select().from(versions);
     return new Map(rows.map((row) => [row.name, row.version]));
   };

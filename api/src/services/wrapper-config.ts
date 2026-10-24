@@ -1,3 +1,4 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { housekeepingPolicy, type HousekeepingPolicy } from './session-housekeeping.js';
 import { createHash } from 'node:crypto';
 import { desc, eq } from 'drizzle-orm';
@@ -15,10 +16,7 @@ import { ENGINE_HOST_FIELDS, ENGINES, type Engine } from '../util/engine.js';
 import { isoOffsetSeconds } from '../util/timestamp.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
-import {
-  wrapperBinaryUrl,
-  type WrapperBinRegistry,
-} from './wrapper-bin-registry.js';
+import { wrapperBinaryUrl, type WrapperBinRegistry } from './wrapper-bin-registry.js';
 import {
   compareWrapperVersions,
   hostRunningWrapperVersion,
@@ -99,6 +97,7 @@ export interface WrapperConfigPayload {
     installation_id: string;
     communicator_protocol?: number;
     communicator_sync_protocol?: number;
+    communicator_state_protocol?: number;
     communicator_runtime_protocol?: number;
     communicator_cache_protocol?: number;
     communicator_update_protocol?: number;
@@ -176,6 +175,8 @@ export interface WrapperConfigService {
 export interface WrapperConfigDeps {
   communicatorEnabled?: boolean;
   communicatorSyncEnabled?: boolean;
+  /** Enabled only by the coordinated owner cutover after all writers are migrated. */
+  communicatorStateEnabled?: boolean;
   communicatorRuntimeEnabled?: boolean;
   communicatorUpdateEnabled?: boolean;
   /**
@@ -238,7 +239,11 @@ const MESSAGING_INSECURE_MIN_WRAPPER = [0, 7, 8];
  */
 function reportedWrapperVersion(host: Host, engine: Engine): string | null {
   const own = host[ENGINE_HOST_FIELDS[engine].wrapperVersion];
-  return (own ?? '').trim() === '' ? ENGINES.map(peer => host[ENGINE_HOST_FIELDS[peer].wrapperVersion]).find(version => (version ?? '').trim() !== '') ?? null : own;
+  return (own ?? '').trim() === ''
+    ? (ENGINES.map((peer) => host[ENGINE_HOST_FIELDS[peer].wrapperVersion]).find(
+        (version) => (version ?? '').trim() !== '',
+      ) ?? null)
+    : own;
 }
 
 export function wrapperAcceptsInsecureMessaging(reported: string | null | undefined): boolean {
@@ -257,6 +262,24 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
   const settings = deps.settings ?? defaultSettings();
 
   async function activeAgentsDocId(engine: Engine): Promise<number | null> {
+    const runtime = ownerRuntimeFor(deps.db);
+    if (runtime) {
+      runtime.assertOwner();
+      const snapshot = runtime.state.snapshot(),
+        state = snapshot
+          .table('agentsDocumentState')
+          .all()
+          .find((row) => row.engine === engine);
+      return (
+        state?.activeDocumentId ??
+        snapshot
+          .table('agentsDocuments')
+          .all()
+          .filter((row) => row.engine === engine)
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]?.id ??
+        null
+      );
+    }
     // agents_document_state is a singleton table (id=1) with the active doc id.
     const rows = await deps.db
       .select()
@@ -285,18 +308,29 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
   } | null> {
     const id = hostOverride ?? (await activeAgentsDocId(engine));
     if (!id) return null;
-    const rows = await deps.db
-      .select()
-      .from(agentsDocuments)
-      .where(eq(agentsDocuments.id, id))
-      .limit(1);
+    const runtime = ownerRuntimeFor(deps.db);
+    if (runtime) {
+      runtime.assertOwner();
+      const row = runtime.state.snapshot().table('agentsDocuments').get(id);
+      return row ? { id: row.id, sha256: row.sha256 } : null;
+    }
+    const rows = await deps.db.select().from(agentsDocuments).where(eq(agentsDocuments.id, id)).limit(1);
     const r = rows[0];
     return r ? { id: r.id, sha256: r.sha256 } : null;
   }
 
-  async function activeClientConfig(
-    engine: Engine,
-  ): Promise<{ id: number; sha256: string } | null> {
+  async function activeClientConfig(engine: Engine): Promise<{ id: number; sha256: string } | null> {
+    const runtime = ownerRuntimeFor(deps.db);
+    if (runtime) {
+      runtime.assertOwner();
+      const row = runtime.state
+        .snapshot()
+        .table('clientConfigDocuments')
+        .all()
+        .filter((row) => row.engine === engine)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+      return row ? { id: row.id, sha256: row.sha256 } : null;
+    }
     const rows = await deps.db
       .select()
       .from(clientConfigDocuments)
@@ -308,7 +342,11 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
   }
 
   async function activeSkills(engine: Engine): Promise<Array<{ slug: string; sha256: string }>> {
-    const rows = await deps.db.select().from(skillsTable).limit(2000);
+    const runtime = ownerRuntimeFor(deps.db);
+    runtime?.assertOwner();
+    const rows = runtime
+      ? runtime.state.snapshot().table('skills').all().slice(0, 2000)
+      : await deps.db.select().from(skillsTable).limit(2000);
     return rows
       .filter((s) => {
         if (s.deletedAt) return false;
@@ -319,6 +357,11 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
   }
 
   async function agentMessagingGloballyEnabled(): Promise<boolean> {
+    const runtime = ownerRuntimeFor(deps.db);
+    if (runtime) {
+      runtime.assertOwner();
+      return isTruthyFlagValue(runtime.state.snapshot().setting('agent_messaging_enabled'), false);
+    }
     const rows = await deps.db
       .select({ version: versions.version })
       .from(versions)
@@ -328,7 +371,16 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
   }
 
   async function portalGloballyEnabled(): Promise<boolean> {
-    const rows = await deps.db.select({ version: versions.version }).from(versions).where(eq(versions.name, 'agent_portal_enabled')).limit(1);
+    const runtime = ownerRuntimeFor(deps.db);
+    if (runtime) {
+      runtime.assertOwner();
+      return isTruthyFlagValue(runtime.state.snapshot().setting('agent_portal_enabled'), false);
+    }
+    const rows = await deps.db
+      .select({ version: versions.version })
+      .from(versions)
+      .where(eq(versions.name, 'agent_portal_enabled'))
+      .limit(1);
     return isTruthyFlagValue(rows[0]?.version, false);
   }
 
@@ -352,13 +404,24 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     opts: { silent: boolean; adminTheme: string | null },
     policy: ModelPolicy,
   ): Record<string, unknown> {
-    if (engine === 'grok') return { silent: opts.silent, model_override: host.grokModelOverride ?? null, reasoning_effort_override: host.grokReasoningEffortOverride ?? null, grok_model_override: host.grokModelOverride ?? null, grok_reasoning_effort_override: host.grokReasoningEffortOverride ?? null, admin_theme_hint: opts.adminTheme, model_catalog: modelLaunchCatalog(engine, policy), ...(policy.latest_only ? { model_policy: policy } : {}) };
+    if (engine === 'grok')
+      return {
+        silent: opts.silent,
+        model_override: host.grokModelOverride ?? null,
+        reasoning_effort_override: host.grokReasoningEffortOverride ?? null,
+        grok_model_override: host.grokModelOverride ?? null,
+        grok_reasoning_effort_override: host.grokReasoningEffortOverride ?? null,
+        admin_theme_hint: opts.adminTheme,
+        model_catalog: modelLaunchCatalog(engine, policy),
+        ...(policy.latest_only ? { model_policy: policy } : {}),
+      };
     if (engine === 'claude') {
       return {
         silent: opts.silent,
         claude_model_override: host.claudeModelOverride ?? null,
         admin_theme_hint: opts.adminTheme,
-        model_catalog: modelLaunchCatalog(engine, policy), ...(policy.latest_only ? { model_policy: policy } : {}),
+        model_catalog: modelLaunchCatalog(engine, policy),
+        ...(policy.latest_only ? { model_policy: policy } : {}),
       };
     }
     return {
@@ -366,16 +429,12 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       model_override: host.modelOverride ?? null,
       reasoning_effort_override: host.reasoningEffortOverride ?? null,
       admin_theme_hint: opts.adminTheme,
-      model_catalog: modelLaunchCatalog(engine, policy), ...(policy.latest_only ? { model_policy: policy } : {}),
+      model_catalog: modelLaunchCatalog(engine, policy),
+      ...(policy.latest_only ? { model_policy: policy } : {}),
     };
   }
 
-  async function wrapperBlock(
-    host: Host,
-    engine: Engine,
-    publicBaseUrl: string,
-    requested?: BakePlatform,
-  ) {
+  async function wrapperBlock(host: Host, engine: Engine, publicBaseUrl: string, requested?: BakePlatform) {
     // The effective setting: the host's override, else the fleet default. The wrapper schedules its only
     // maintenance cron (nightly) from this, so it must be per host (docs/host-runtime-policy.md).
     const autoUpdate =
@@ -384,25 +443,32 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         : host.autoUpdateOverride === 1;
     const track = await settings.wrapperTrack();
     const rollout = deps.wrapperRollout ? await deps.wrapperRollout() : null;
-    const platformsToTry: Array<[string, string]> = requested?.os && requested?.arch
-      ? [[requested.os, requested.arch]]
-      : [
-          ['linux', 'amd64'],
-          ['linux', 'arm64'],
-          ['darwin', 'arm64'],
-          ['darwin', 'amd64'],
-        ];
+    const platformsToTry: Array<[string, string]> =
+      requested?.os && requested?.arch
+        ? [[requested.os, requested.arch]]
+        : [
+            ['linux', 'amd64'],
+            ['linux', 'arm64'],
+            ['darwin', 'arm64'],
+            ['darwin', 'amd64'],
+          ];
     for (const [os, arch] of platformsToTry) {
       const current = await deps.binaries.resolveCurrentBuild(engine, os, arch);
       if (!current) continue;
       // Same gate as /cron/check: a host the rollout has not admitted yet keeps
       // its current target. The updater applies only when both agree.
-      const gated = resolveHostWrapperTarget(rollout, host.id, current.version, hostRunningWrapperVersion(host));
+      const gated = resolveHostWrapperTarget(
+        rollout,
+        host.id,
+        current.version,
+        hostRunningWrapperVersion(host),
+      );
       // A held host whose old build is gone falls back to current here; /cron/check
       // then offers no target at all, so the two disagree and nothing updates.
-      const build = gated === current.version
-        ? current
-        : (await deps.binaries.resolveVersion(engine, os, arch, gated)) ?? current;
+      const build =
+        gated === current.version
+          ? current
+          : ((await deps.binaries.resolveVersion(engine, os, arch, gated)) ?? current);
       return {
         version: build.version,
         track,
@@ -447,21 +513,31 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     // inside the array would serialize seven independent lookups. This is also
     // where `wrapperBlock` raises WrapperBinaryUnavailableError, so that exit
     // marks this span ERROR as well as the root.
-    const [agents, clientCfg, skills, silent, adminTheme, wrapper, messagingEnabled, portalEnabled, fleet, policy] =
-      await withSpan('wrapper.config.collect', { 'wrapper.engine': engine }, () =>
-        Promise.all([
-          activeAgentsDocSha(engine, host.agentsDocumentIdOverride ?? null),
-          activeClientConfig(engine),
-          activeSkills(engine),
-          settings.silentFlag(),
-          settings.adminThemeHint(),
-          wrapperBlock(host, engine, publicBaseUrl, platform),
-          agentMessagingGloballyEnabled(),
-          portalGloballyEnabled(),
-          readFleetEngineState(deps.db),
-          readModelPolicy(deps.db, engine),
-        ]),
-      );
+    const [
+      agents,
+      clientCfg,
+      skills,
+      silent,
+      adminTheme,
+      wrapper,
+      messagingEnabled,
+      portalEnabled,
+      fleet,
+      policy,
+    ] = await withSpan('wrapper.config.collect', { 'wrapper.engine': engine }, () =>
+      Promise.all([
+        activeAgentsDocSha(engine, host.agentsDocumentIdOverride ?? null),
+        activeClientConfig(engine),
+        activeSkills(engine),
+        settings.silentFlag(),
+        settings.adminThemeHint(),
+        wrapperBlock(host, engine, publicBaseUrl, platform),
+        agentMessagingGloballyEnabled(),
+        portalGloballyEnabled(),
+        readFleetEngineState(deps.db),
+        readModelPolicy(deps.db, engine),
+      ]),
+    );
     // Assigned *and* not switched off fleet-wide. A suspended engine still
     // gets a config (see routes/wrapper-v2), but nothing that would let it run:
     // no bus, no receiver.
@@ -487,9 +563,11 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
 
     // Bump config_version atomically; the new value becomes part of the
     // payload so the etag/signature change visibly when state changes.
-    const newVersion = await withSpan('wrapper.config.bump_version', {}, () =>
-      bumpConfigVersion(deps.db, host.id),
-    );
+    const owner = ownerRuntimeFor(deps.db);
+    owner?.assertOwner();
+    let newVersion = owner
+      ? 0
+      : await withSpan('wrapper.config.bump_version', {}, () => bumpConfigVersion(deps.db, host.id));
     span.setAttribute('wrapper.config_version', newVersion);
 
     const draft: Omit<WrapperConfigPayload, 'etag'> = {
@@ -504,15 +582,27 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         allow_insecure: Boolean(host.curlInsecure),
         installation_id: deps.installationId,
         ...(deps.communicatorEnabled ? { communicator_protocol: 1 } : {}),
-        ...(deps.communicatorEnabled && deps.communicatorSyncEnabled ? { communicator_sync_protocol: 1 } : {}),
+        ...(deps.communicatorEnabled && deps.communicatorSyncEnabled
+          ? { communicator_sync_protocol: 1 }
+          : {}),
+        ...(deps.communicatorEnabled && deps.communicatorStateEnabled
+          ? { communicator_state_protocol: 1 }
+          : {}),
         ...(deps.communicatorRuntimeEnabled ? { communicator_runtime_protocol: 1 } : {}),
         // Old callers keep their warm-launch protocol; capable callers require
         // a server confirmation for every use of the owner's RAM content.
-        ...(deps.communicatorEnabled && deps.communicatorSyncEnabled ? {
-          communicator_cache_protocol: /^v?\d{1,2}\.\d+\.\d+(?:[-+].*)?$/.test(reportedWrapperVersion(host, engine) ?? '')
-            && compareWrapperVersions(reportedWrapperVersion(host, engine)!, '0.9.122') >= 0 ? 2 : 1,
-        } : {}),
-        ...(deps.communicatorEnabled && deps.communicatorUpdateEnabled ? { communicator_update_protocol: 1 } : {}),
+        ...(deps.communicatorEnabled && deps.communicatorSyncEnabled
+          ? {
+              communicator_cache_protocol:
+                /^v?\d{1,2}\.\d+\.\d+(?:[-+].*)?$/.test(reportedWrapperVersion(host, engine) ?? '') &&
+                compareWrapperVersions(reportedWrapperVersion(host, engine)!, '0.9.122') >= 0
+                  ? 2
+                  : 1,
+            }
+          : {}),
+        ...(deps.communicatorEnabled && deps.communicatorUpdateEnabled
+          ? { communicator_update_protocol: 1 }
+          : {}),
       },
       host: {
         id: host.id,
@@ -530,7 +620,12 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         ...(destroyEngines.length > 0 ? { destroy_engines: destroyEngines } : {}),
       },
       engine_options: engineOptions(host, engine, { silent, adminTheme }, policy),
-      session_housekeeping: (({ enabled, retention_days, max_bytes, min_age_days }) => ({ enabled, retention_days, max_bytes, min_age_days }))(await housekeepingPolicy(deps.db, engine, host.id)),
+      session_housekeeping: (({ enabled, retention_days, max_bytes, min_age_days }) => ({
+        enabled,
+        retention_days,
+        max_bytes,
+        min_age_days,
+      }))(await housekeepingPolicy(deps.db, engine, host.id)),
       agent_messaging: {
         enabled: messagingBaked,
         relay_poll_seconds: 25,
@@ -552,6 +647,14 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       skills,
       config_version: newVersion,
     };
+
+    if (owner) {
+      // Opaque semantic fingerprint, never an ordering or antirollback counter.
+      // Clock-only refreshes do not publish host changes or cause fetch loops.
+      newVersion = semanticConfigVersion(draft);
+      draft.config_version = newVersion;
+      span.setAttribute('wrapper.config_version', newVersion);
+    }
 
     // Hashing + signing, one span. `wrapper.signer_count` is the only thing
     // about the keys that reaches a span: no kid, no fingerprint, no signature
@@ -587,7 +690,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       payload: signed.payload,
       signature,
       signatures: signed.signatures,
-      bumped: true,
+      bumped: !owner,
       configVersion: newVersion,
       canonicalJson: signed.canonicalForSigning,
     };
@@ -664,4 +767,19 @@ function sortKeys(value: unknown): unknown {
     return out;
   }
   return value;
+}
+
+/** Stable across owner epochs and credential-envelope renewal. Fits Go int64 and JS exact integers. */
+export function semanticConfigVersion(payload: Record<string, unknown>): number {
+  const {
+    issued_at: _issued,
+    expires_at: _expires,
+    config_version: _version,
+    etag: _etag,
+    ...content
+  } = payload;
+  return Math.max(
+    1,
+    Number.parseInt(createHash('sha256').update(canonicalStringify(content)).digest('hex').slice(0, 13), 16),
+  );
 }

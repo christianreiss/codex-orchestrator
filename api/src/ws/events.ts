@@ -8,6 +8,9 @@
  * or routed by the frontend's `DEFAULT_INVALIDATIONS`.
  */
 export const WS_EVENT_TYPES = [
+  'control_state.changed',
+  'agent_chat.attachment.changed',
+  'runner.state.changed',
   'communicator.updated',
   'communicator.disconnected',
   'communicator.terminated',
@@ -198,4 +201,6 @@ export interface WsEvent<P = unknown> {
   type: WsEventType | string;
   payload: P;
   ts: string;
+  epoch?: string;
+  sequence?: string;
 }

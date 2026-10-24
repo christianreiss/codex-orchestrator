@@ -1,39 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db/client.js';
-import {
-  AUTH_PRUNE_BATCH_LIMIT,
-  pruneSupersededAuth,
-} from '../services/auth-generation-retention.js';
+import { startOwnerWorker } from './owner-worker.js';
+import { requireOwnerMaintenanceCommands } from './owner-maintenance.js';
+import { authRetentionObligations } from './maintenance-obligations.js';
 
-const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
+/** Payload metadata supplies exact purge dates; encrypted bodies stay cold. */
 export function startAuthRetentionWorker(app: FastifyInstance, db: Database): void {
-  let running = false;
-  let stopped = false;
-  const run = async (): Promise<void> => {
-    if (running || stopped) return;
-    running = true;
-    try {
-      let total = 0;
-      for (;;) {
-        const removed = await pruneSupersededAuth(db);
-        total += removed;
-        if (removed < AUTH_PRUNE_BATCH_LIMIT) break;
-      }
-      if (total > 0) app.log.info({ removed: total }, 'superseded auth history pruned');
-    } catch (err) {
-      app.log.warn({ err }, 'auth retention worker failed');
-    } finally {
-      running = false;
-    }
-  };
-  const first = setTimeout(() => void run(), 5_000);
-  first.unref?.();
-  const timer = setInterval(() => void run(), RETENTION_INTERVAL_MS);
-  timer.unref?.();
-  app.addHook('onClose', async () => {
-    stopped = true;
-    clearTimeout(first);
-    clearInterval(timer);
+  const commands = requireOwnerMaintenanceCommands(db);
+  startOwnerWorker(app, db, {
+    name: 'auth-retention', tables: ['authPayloads', 'authCanonicalHeads', 'providerAccounts'],
+    select: authRetentionObligations,
+    run: obligation => commands.run('auth-retention', obligation),
+    error: error => app.log.error({ err: error }, 'owner auth retention failed'),
   });
 }

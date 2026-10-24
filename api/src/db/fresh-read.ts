@@ -3,6 +3,22 @@ import type { Database } from './client.js';
 
 const fresh = new AsyncLocalStorage<boolean>();
 const snapshots = new AsyncLocalStorage<Map<object, object>>();
+const ownerReadHandles = new WeakSet<object>();
+const rawHandles = new WeakMap<object, object>();
+const ownerForbidden = new Set<PropertyKey>(['insert', 'update', 'delete', 'transaction', 'execute', '$client', 'session']);
+
+/** After hydration the public pool handle is for cold reads only. Domain writes
+ * must use the separate transaction supplied by the exclusive owner. */
+export function protectOwnerReadHandle(handle: object): void {
+  if (rawHandles.has(handle)) ownerReadHandles.add(handle);
+}
+
+/** Explicit reviewed raw SELECT surface for content search/analytics. This does
+ * not interpret SQL or project rows into state; current metadata uses the owner. */
+export function executeColdRead(db: Database, query: Parameters<Database['execute']>[0]): ReturnType<Database['execute']> {
+  const raw = (rawHandles.get(db) ?? db) as Database;
+  return raw.execute(query);
+}
 
 /** Freshness proofs must not be made from a periodically reconciled read cache. */
 export function authoritativeReads<T>(run: () => T): T {
@@ -18,10 +34,16 @@ export function scopedDatabase<T extends object>(db: T): T {
   const proxy = new Proxy(db, {
     get(target, property) {
       const source = snapshots.getStore()?.get(proxy) ?? target;
+      const assertAllowed = () => {
+        if (ownerReadHandles.has(proxy) && ownerForbidden.has(property))
+          throw new Error(`Owner database boundary: ${String(property)} requires an owner transaction or explicit cold read`);
+      };
+      assertAllowed();
       const value = Reflect.get(source, property);
-      return typeof value === 'function' ? value.bind(source) : value;
+      return typeof value === 'function' ? (...args: unknown[]) => { assertAllowed(); return value.apply(source, args); } : value;
     },
   });
+  rawHandles.set(proxy, db);
   return proxy;
 }
 

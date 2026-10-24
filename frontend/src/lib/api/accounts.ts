@@ -50,5 +50,5 @@ export const accountsApi = {
   verify: (id: number) => api.post<{ verification_state: string; reason?: string }>(`/admin/accounts/${id}/verify`, {}),
 };
 export function accountsQuery() {
-  return createQuery({ queryKey: accountsKeys.all(), queryFn: accountsApi.list, refetchInterval: 30_000 });
+  return createQuery({ queryKey: accountsKeys.all(), queryFn: accountsApi.list });
 }

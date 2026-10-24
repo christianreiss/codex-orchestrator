@@ -21,6 +21,7 @@
         "allow_insecure": { "type": "boolean", "default": false },
         "communicator_protocol": { "type": "integer", "enum": [1] },
         "communicator_sync_protocol": { "type": "integer", "enum": [1] },
+        "communicator_state_protocol": { "type": "integer", "enum": [1] },
         "communicator_runtime_protocol": { "type": "integer", "enum": [1] },
         "communicator_cache_protocol": { "type": "integer", "enum": [1] },
         "communicator_update_protocol": { "type": "integer", "enum": [1] },

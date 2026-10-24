@@ -1,3 +1,4 @@
+import { executeColdRead } from '../db/fresh-read.js';
 import { and, desc, eq, isNull, like, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { coordProjectMemories, coordProjects, hosts, mcpMemories, sharedMemories } from '../db/schema.js';
@@ -780,7 +781,7 @@ export class AdminMemoryCatalog {
     const queries: Array<Promise<unknown>> = [];
     if (enabled.hostEnabled) {
       queries.push(
-        this.db.execute(sql`
+        executeColdRead(this.db, sql`
           SELECT LOWER(jt.tag) AS tag_key, MIN(jt.tag) AS value, COUNT(*) AS count
           FROM ${mcpMemories}
           LEFT JOIN ${hosts} ON ${hosts.id} = ${mcpMemories.hostId}
@@ -794,7 +795,7 @@ export class AdminMemoryCatalog {
     }
     if (enabled.projectEnabled) {
       queries.push(
-        this.db.execute(sql`
+        executeColdRead(this.db, sql`
           SELECT LOWER(jt.tag) AS tag_key, MIN(jt.tag) AS value, COUNT(*) AS count
           FROM ${coordProjectMemories}
           JOIN ${coordProjects} ON ${coordProjects.id} = ${coordProjectMemories.projectId}
@@ -809,7 +810,7 @@ export class AdminMemoryCatalog {
     }
     if (enabled.sharedEnabled) {
       queries.push(
-        this.db.execute(sql`
+        executeColdRead(this.db, sql`
           SELECT LOWER(jt.tag) AS tag_key, MIN(jt.tag) AS value, COUNT(*) AS count
           FROM ${sharedMemories}
           LEFT JOIN ${hosts} ON ${hosts.id} = ${sharedMemories.sourceHostId}

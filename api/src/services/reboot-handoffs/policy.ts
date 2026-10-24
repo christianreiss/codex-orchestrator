@@ -1,3 +1,4 @@
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { agentRebootHandoffs, agentSchedules, agentWatchdogs } from '../../db/schema.js';
@@ -17,6 +18,19 @@ export const prepareSchema = z
 export const fail = (message: string) => new ConflictError(message, 'reboot_handoff_conflict');
 
 export async function assertNoRebootRecovery(db: AgentMessagingDb, addressId: string) {
+  const runtime = ownerRuntimeFor(db);
+  if (runtime) {
+    runtime.assertOwner();
+    if (
+      runtime.state
+        .snapshot()
+        .table('agentRebootHandoffs')
+        .all()
+        .some((r) => r.addressId === addressId && active.includes(r.status))
+    )
+      throw fail('A planned reboot already owns this session; recovery cannot be enabled');
+    return;
+  }
   const [row] = await db
     .select()
     .from(agentRebootHandoffs)
@@ -25,6 +39,28 @@ export async function assertNoRebootRecovery(db: AgentMessagingDb, addressId: st
   if (row) throw fail('A planned reboot already owns this session; recovery cannot be enabled');
 }
 export async function noCompetingRecovery(db: AgentMessagingDb, addressId: string) {
+  const runtime = ownerRuntimeFor(db);
+  if (runtime) {
+    runtime.assertOwner();
+    const s = runtime.state.snapshot();
+    if (
+      s
+        .table('agentSchedules')
+        .all()
+        .some(
+          (r) => r.targetAddressId === addressId && r.enabled === 1 && r.persistent === 1 && !r.deletedAt,
+        ) ||
+      s
+        .table('agentWatchdogs')
+        .all()
+        .some(
+          (r) =>
+            r.targetAddressId === addressId && ['watching', 'recovering', 'capacity_wait'].includes(r.status),
+        )
+    )
+      throw fail('Disable competing watchdog/persistent Wake recovery before preparing a reboot');
+    return;
+  }
   const [schedule] = await db
     .select()
     .from(agentSchedules)
@@ -51,6 +87,17 @@ export async function noCompetingRecovery(db: AgentMessagingDb, addressId: strin
     throw fail('Disable competing watchdog/persistent Wake recovery before preparing a reboot');
 }
 export async function plannedRebootForSession(db: AgentMessagingDb, sessionId: string) {
+  const runtime = ownerRuntimeFor(db);
+  if (runtime) {
+    runtime.assertOwner();
+    return (
+      runtime.state
+        .snapshot()
+        .table('agentRebootHandoffs')
+        .all()
+        .find((r) => r.oldSessionId === sessionId && r.status === 'armed') ?? null
+    );
+  }
   const [row] = await db
     .select()
     .from(agentRebootHandoffs)

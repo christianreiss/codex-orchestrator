@@ -1,3 +1,11 @@
+import type { OwnerStateSnapshot } from '../control-plane/state/store.js';
+import {persistAuditLog} from './audit-log.js';
+import { admissionInterestAt, pendingWithInterest } from '../control-plane/state/admission-interest.js';
+import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/state/runtime.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
+import { adminAudit } from '../control-plane/state/admin.js';
+import type { ManagedHost as Host } from '../control-plane/state/host-registration.js';
+import type { Json } from '../control-plane/commands.js';
 /**
  * Admin-facing wrapper around the insecure window state machine.
  *
@@ -18,9 +26,8 @@ import {
   hosts,
   insecureAuthRequests,
   insecureDomainAllows,
-  logs,
+  versions,
 } from '../db/schema.js';
-import type { Host } from '../db/schema.js';
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { NotFoundError, ValidationError, ConflictError } from '../http/errors.js';
@@ -183,12 +190,34 @@ export class InsecureWindowAdminService {
   }
   private settingsCache: SettingsService | undefined;
 
+  private async owned<T>(kind: string, payload: Record<string, unknown>, prepare: (ctx: OwnerMutationContext, publish: (type: string, payload: Record<string, unknown>) => void) => T, authorize?: (snapshot: OwnerStateSnapshot) => void): Promise<T> {
+    const owner = ownerRuntimeFor(this.db)!;
+    let result!: T; const events: Array<() => void> = [];
+    await mutateOwnerState(owner, { kind, authorize, payload: JSON.parse(JSON.stringify(payload)) as Json, prepare(ctx) {
+      result = prepare(ctx, (type, payload) => events.push(() => wsPublisher.publish(type, payload)));
+      return () => JSON.parse(JSON.stringify(result ?? null)) as Json;
+    } });
+    for (const event of events) event();
+    return result;
+  }
+
+  private ownedLog(ctx: OwnerMutationContext, hostId: number | null, action: string, details: Record<string, unknown>): void {
+    ctx.write(async tx => persistAuditLog(tx, { hostId, action, details: JSON.stringify(details), createdAt: nowIso() }));
+  }
+
+  private ownedGrant(ctx: OwnerMutationContext, host: Host, minutes: number): Date {
+    const now = Date.now(); const current = parseDate(host.insecureEnabledUntil)?.getTime() ?? 0;
+    const until = new Date(Math.max(current, now) + minutes * 60_000);
+    stageUpdate(ctx, 'hosts', host.id, { insecureEnabledUntil: until, insecureSessionRenewalBlocked: 0, insecureGraceUntil: computeGraceUntil(until, minutes, clampInsecureMinutes(this.env.INSECURE_GRACE_MINUTES, 60)), insecureWindowMinutes: minutes, updatedAt: nowIso() });
+    return until;
+  }
+
   private async writeLog(
     hostId: number | null,
     action: string,
     details: Record<string, unknown>,
   ): Promise<void> {
-    await this.db.insert(logs).values({
+    await persistAuditLog(this.db, {
       hostId: hostId ?? null,
       action,
       details: Object.keys(details).length ? JSON.stringify(details) : null,
@@ -197,6 +226,8 @@ export class InsecureWindowAdminService {
   }
 
   private async findHost(id: number): Promise<Host> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); const host = owner.state.snapshot().hosts.get(id); if (!host) throw new NotFoundError('Host not found'); return host; }
     const rows = await this.db.select().from(hosts).where(eq(hosts.id, id)).limit(1);
     if (!rows[0]) throw new NotFoundError('Host not found');
     return rows[0];
@@ -315,6 +346,27 @@ export class InsecureWindowAdminService {
    * disappear, since nothing else reads it.
    */
   async sweepStaleRequests(): Promise<number> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const stale = owner.state.snapshot().table('insecureAuthRequests').by('status', 'pending').some(req => {
+        const host = owner.state.snapshot().hosts.get(req.hostId);
+        return stalePendingReason(pendingWithInterest(owner, req)) || !host || host.secure === 1 || insecureWindowActive(host);
+      });
+      if (!stale) return 0;
+      return this.owned('insecure.requests.expire', {}, (ctx, publish) => {
+        let count = 0;
+        for (const req of ctx.draft.table('insecureAuthRequests').by('status', 'pending')) {
+          const host = ctx.draft.table('hosts').get(req.hostId);
+          const reason = stalePendingReason(pendingWithInterest(owner, req)) ?? (!host || host.secure === 1 || insecureWindowActive(host) ? 'superseded' : null);
+          if (!reason) continue;
+          stageUpdate(ctx, 'insecureAuthRequests', req.id, { status: reason === 'timeout' ? 'denied' : 'expired', resolvedAt: nowIso(), updatedAt: nowIso() });
+          const details = { host_id: req.hostId, fqdn: host?.fqdn ?? null, request_id: req.id, reason };
+          this.ownedLog(ctx, req.hostId, 'admin.insecure.auto_denied', { ...details, ...(reason === 'timeout' ? { ttl_seconds: PENDING_APPROVAL_TTL_MS / 1000 } : {}) });
+          adminAudit(ctx, 'insecure.denied', details, nowIso(), req.hostId); publish('insecure.denied', details); count++;
+        }
+        return count;
+      });
+    }
     const rows = await this.db
       .select()
       .from(insecureAuthRequests)
@@ -340,8 +392,8 @@ export class InsecureWindowAdminService {
   }> {
     const now = Date.now();
     const [allHosts, domains, fleet] = await Promise.all([
-      this.db.select({ id: hosts.id, fqdn: hosts.fqdn, secure: hosts.secure, insecureEnabledUntil: hosts.insecureEnabledUntil }).from(hosts).where(visibleHost),
-      this.db.select().from(insecureDomainAllows),
+      ownerRuntimeFor(this.db) ? Promise.resolve(ownerRuntimeFor(this.db)!.state.snapshot().hosts.all().filter(host => !host.internalRole)) : this.db.select({ id: hosts.id, fqdn: hosts.fqdn, secure: hosts.secure, insecureEnabledUntil: hosts.insecureEnabledUntil }).from(hosts).where(visibleHost),
+      ownerRuntimeFor(this.db) ? Promise.resolve(ownerRuntimeFor(this.db)!.state.snapshot().table('insecureDomainAllows').all()) : this.db.select().from(insecureDomainAllows),
       this.fleetWindowState(),
     ]);
     const activeDomains = domains.filter((d) => d.revokedAt === null &&
@@ -373,6 +425,25 @@ export class InsecureWindowAdminService {
     const minutes = clampFleetWindowMinutes(durationMinutes ?? undefined);
     const raw = isoOffsetSeconds(minutes * 60);
     const until = new Date(raw);
+    if (ownerRuntimeFor(this.db)) return this.owned('insecure.fleet.open', { minutes }, (ctx, publish) => {
+      const at = nowIso(); const version = { name: INSECURE_FLEET_WINDOW_KEY, version: raw, updatedAt: at };
+      ctx.draft.upsert('versions', version);
+      ctx.write(async tx => tx.insert(versions).values(version).onDuplicateKeyUpdate({ set: { version: raw, updatedAt: at } }));
+      let hostsOpened = 0; const approved: number[] = [];
+      for (const host of ctx.draft.table('hosts').all()) {
+        if (host.secure === 1) continue;
+        stageUpdate(ctx, 'hosts', host.id, { insecureEnabledUntil: until, insecureGraceUntil: null, insecureSessionRenewalBlocked: 0, updatedAt: at });
+        publish('host.updated', { id: host.id }); hostsOpened++;
+      }
+      for (const req of ctx.draft.table('insecureAuthRequests').by('status', 'pending')) {
+        stageUpdate(ctx, 'insecureAuthRequests', req.id, { status: 'approved', resolvedAt: at, updatedAt: at }); approved.push(req.id);
+        this.ownedLog(ctx, req.hostId, 'admin.insecure.approval', { request_id: req.id, source: 'fleet_window' });
+      }
+      const details = { action: 'fleet_window_opened', enabled_until: raw, window_minutes: minutes, hosts_opened: hostsOpened, approvals_resolved: approved.length, cleared_request_ids: approved };
+      this.ownedLog(ctx, null, 'admin.insecure.fleet_window_open', details); adminAudit(ctx, 'insecure.approval.changed', details);
+      publish('insecure.approval.changed', { source: 'fleet_window_opened', enabled_until: raw, cleared_request_ids: approved });
+      return { until, windowMinutes: minutes, hostsOpened, approvalsResolved: approved.length };
+    });
 
     await this.settings.set(INSECURE_FLEET_WINDOW_KEY, raw);
     const stamped = await stampAllInsecureHosts(this.db, until);
@@ -443,6 +514,33 @@ export class InsecureWindowAdminService {
     hosts: number;
     domains: number;
   }> {
+    if (ownerRuntimeFor(this.db)) return this.owned('insecure.fleet.close', { reason, actor }, (ctx, publish) => {
+      const raw = ctx.snapshot.setting(INSECURE_FLEET_WINDOW_KEY); const until = parseDate(raw);
+      const now = Date.now(); const at = nowIso();
+      // A queued expiry cannot revoke a newer grant.
+      if (reason === 'expired' && (!until || until.getTime() > now)) return { closed: false, hosts: 0, domains: 0 };
+      let hostCount = 0; let domainCount = 0;
+      for (const host of ctx.draft.table('hosts').all()) {
+        if (host.secure === 1) continue;
+        const enabled = parseDate(host.insecureEnabledUntil)?.getTime() ?? 0; const grace = parseDate(host.insecureGraceUntil)?.getTime() ?? 0;
+        if (reason === 'expired' && until && enabled > until.getTime() || enabled <= now && grace <= now) continue;
+        stageUpdate(ctx, 'hosts', host.id, { insecureEnabledUntil: null, insecureGraceUntil: null, insecureSessionRenewalBlocked: reason === 'manual' ? 1 : 0, updatedAt: at });
+        this.ownedLog(ctx, host.id, 'admin.host.insecure_disable', { fqdn: host.fqdn, source: `fleet_window_${reason}`, ...(actor ? { actor } : {}) });
+        publish('host.updated', { id: host.id }); hostCount++;
+      }
+      for (const domain of ctx.draft.table('insecureDomainAllows').all()) {
+        if (domain.revokedAt || domain.enabledUntil && (parseDate(domain.enabledUntil)?.getTime() ?? 0) <= now) continue;
+        stageUpdate(ctx, 'insecureDomainAllows', domain.id, { enabledUntil: at, updatedAt: at }); domainCount++;
+      }
+      if (raw !== null) {
+        ctx.draft.remove('versions', INSECURE_FLEET_WINDOW_KEY);
+        ctx.write(async tx => tx.delete(versions).where(eq(versions.name, INSECURE_FLEET_WINDOW_KEY)));
+        const details = { action: 'fleet_window_closed', reason, hosts_disabled: hostCount, domains_expired: domainCount, ...(actor ? { actor } : {}) };
+        this.ownedLog(ctx, null, 'admin.insecure.fleet_window_close', { ...details, enabled_until: raw }); adminAudit(ctx, 'insecure.approval.changed', details);
+        publish('insecure.approval.changed', { source: 'fleet_window_closed', reason });
+      }
+      return { closed: raw !== null, hosts: hostCount, domains: domainCount };
+    });
     const state = await this.fleetWindowState();
     const counts = await closeAllInsecureAccess(this.db, async (host) => {
       await this.writeLog(host.id, 'admin.host.insecure_disable', {
@@ -501,7 +599,19 @@ export class InsecureWindowAdminService {
 
   // ────────── enable / disable ──────────
 
-  async enable(hostId: number, durationMinutes: number | null, actor?: { host_id: number; agent_address: string; session_id: string }): Promise<Host> {
+  async enable(hostId: number, durationMinutes: number | null, actor?: { host_id: number; agent_address: string; session_id: string }, authorize?: (snapshot: OwnerStateSnapshot) => void): Promise<Host> {
+    if (ownerRuntimeFor(this.db)) return this.owned('insecure.host.enable', { hostId, durationMinutes, actor }, (ctx, publish) => {
+      const host = ctx.draft.table('hosts').get(hostId);
+      if (!host) throw new NotFoundError('Host not found');
+      if (host.secure === 1) throw new ValidationError('Host is secure; insecure window not applicable');
+      const fallback = host.insecureWindowMinutes ?? DEFAULT_INSECURE_WINDOW_MINUTES;
+      const minutes = clampInsecureMinutes(durationMinutes ?? fallback, fallback);
+      const until = this.ownedGrant(ctx, host, minutes);
+      const details = { host_id: hostId, fqdn: host.fqdn, enabled_until: until.toISOString(), window_minutes: minutes, ...(actor ? { source: 'secure_host', actor } : {}) };
+      this.ownedLog(ctx, hostId, 'admin.host.insecure_enable', details); adminAudit(ctx, 'insecure.requested', details, nowIso(), hostId);
+      publish('insecure.approval.changed', { host_id: hostId, fqdn: host.fqdn, source: 'admin_enable' });
+      return ctx.draft.table('hosts').get(hostId)!;
+    }, authorize);
     const host = await this.findHost(hostId);
     if (host.secure === 1) {
       throw new ValidationError('Host is secure; insecure window not applicable');
@@ -557,6 +667,17 @@ export class InsecureWindowAdminService {
   }
 
   async disable(hostId: number, actor?: InsecureWindowActor): Promise<Host> {
+    if (ownerRuntimeFor(this.db)) return this.owned('insecure.host.disable', { hostId, actor }, (ctx, publish) => {
+      const host = ctx.draft.table('hosts').get(hostId);
+      if (!host) throw new NotFoundError('Host not found');
+      const fleet = parseDate(ctx.snapshot.setting(INSECURE_FLEET_WINDOW_KEY));
+      if (fleet && fleet.getTime() > Date.now()) throw new ConflictError('Fleet insecure window is open; close it first', 'insecure_fleet_window_open');
+      stageUpdate(ctx, 'hosts', hostId, { insecureEnabledUntil: null, insecureSessionRenewalBlocked: 1, insecureGraceUntil: null, updatedAt: nowIso() });
+      const details = { host_id: hostId, fqdn: host.fqdn, action: 'disabled', ...(actor ? { actor } : {}) };
+      this.ownedLog(ctx, hostId, 'admin.host.insecure_disable', details); adminAudit(ctx, 'insecure.approval.changed', details, nowIso(), hostId);
+      publish('insecure.approval.changed', { host_id: hostId });
+      return ctx.draft.table('hosts').get(hostId)!;
+    });
     const host = await this.findHost(hostId);
     // Refuse rather than lie. With the fleet window open, `enforce()` re-stamps
     // this host on its very next request, so clearing the columns here would
@@ -592,6 +713,11 @@ export class InsecureWindowAdminService {
   async listPending(limit = 50): Promise<InsecureRequestRow[]> {
     await this.sweepStaleRequests();
     const cap = Math.min(Math.max(1, limit), 200);
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner(); const snapshot = owner.state.snapshot();
+      return [...snapshot.table('insecureAuthRequests').by('status', 'pending')].sort((a,b) => a.id-b.id).slice(0,cap).map(row => ({ id: row.id, host_id: row.hostId, fqdn: snapshot.hosts.get(row.hostId)?.fqdn ?? '', request_ip: row.requestIp, requested_at: row.requestedAt, resolved_at: row.resolvedAt, updated_at: row.updatedAt, status: row.status, expires_at: expiresAt(row.requestedAt), live: admissionInterestAt(owner, row.id) !== undefined }));
+    }
     const rows = await this.db
       .select({
         id: insecureAuthRequests.id,
@@ -625,6 +751,8 @@ export class InsecureWindowAdminService {
   // ────────── findRequest ──────────
 
   private async findRequest(id: number) {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); return owner.state.snapshot().table('insecureAuthRequests').get(id) ?? null; }
     const rows = await this.db
       .select()
       .from(insecureAuthRequests)
@@ -659,10 +787,39 @@ export class InsecureWindowAdminService {
   }
 
   async approve(requestId: number, durationMinutes: number | null, audit?: Record<string, unknown>) {
+    if (ownerRuntimeFor(this.db)) return this.owned('insecure.request.approve', { requestId, durationMinutes, audit }, (ctx, publish) => {
+      const req = ctx.draft.table('insecureAuthRequests').get(requestId);
+      if (!req) throw new NotFoundError('Request not found');
+      if (req.status !== 'pending' || stalePendingReason(pendingWithInterest(ownerRuntimeFor(this.db)!, req))) throw new ConflictError('Request already resolved');
+      const host = ctx.draft.table('hosts').get(req.hostId);
+      if (!host) throw new NotFoundError('Host not found');
+      if (host.secure === 1) throw new ValidationError('Host is secure; insecure window not applicable');
+      const minutes = clampInsecureMinutes(durationMinutes ?? APPROVAL_WINDOW_MINUTES, APPROVAL_WINDOW_MINUTES);
+      const until = this.ownedGrant(ctx, host, minutes); const fresh = ctx.draft.table('hosts').get(host.id)!;
+      stageUpdate(ctx, 'insecureAuthRequests', requestId, { status: 'approved', resolvedAt: nowIso(), updatedAt: nowIso() });
+      const details = { host_id: host.id, fqdn: host.fqdn, request_id: requestId };
+      this.ownedLog(ctx, host.id, 'admin.host.insecure_enable', { ...details, enabled_until: until.toISOString(), window_minutes: minutes, source: 'approval' });
+      this.ownedLog(ctx, host.id, 'admin.insecure.approval', details); adminAudit(ctx, 'insecure.approved', details, nowIso(), host.id);
+      if (audit) adminAudit(ctx, 'companion.approval.resolved', { ...audit, request_id: requestId });
+      publish('insecure.approved', { host_id: host.id, request_id: requestId });
+      return { requestId, host: fresh, enabledUntil: until.toISOString(), graceUntil: fresh.insecureGraceUntil?.toISOString() ?? null, windowMinutes: minutes };
+    });
     return this.resolveLocked(requestId, service => service.approveLocked(requestId, durationMinutes), audit);
   }
 
   async deny(requestId: number, audit?: Record<string, unknown>) {
+    if (ownerRuntimeFor(this.db)) return this.owned('insecure.request.deny', { requestId, audit }, (ctx, publish) => {
+      const req = ctx.draft.table('insecureAuthRequests').get(requestId);
+      if (!req) throw new NotFoundError('Request not found');
+      if (req.status !== 'pending' || stalePendingReason(pendingWithInterest(ownerRuntimeFor(this.db)!, req))) throw new ConflictError('Request already resolved');
+      const host = ctx.draft.table('hosts').get(req.hostId); if (!host) throw new NotFoundError('Host not found');
+      stageUpdate(ctx, 'insecureAuthRequests', requestId, { status: 'denied', resolvedAt: nowIso(), updatedAt: nowIso() });
+      const details = { host_id: host.id, fqdn: host.fqdn, request_id: requestId };
+      this.ownedLog(ctx, host.id, 'admin.insecure.denied', details); adminAudit(ctx, 'insecure.denied', details, nowIso(), host.id);
+      if (audit) adminAudit(ctx, 'companion.approval.resolved', { ...audit, request_id: requestId });
+      publish('insecure.denied', { host_id: host.id, request_id: requestId });
+      return { requestId, host };
+    });
     return this.resolveLocked(requestId, service => service.denyLocked(requestId), audit);
   }
 
@@ -784,6 +941,41 @@ export class InsecureWindowAdminService {
     windowMinutes: number;
     clearedRequestIds: number[];
   }> {
+    if (ownerRuntimeFor(this.db)) return this.owned('insecure.domain.allow', { requestId, domainInput, durationMinutes, permanent }, (ctx, publish) => {
+      const req = ctx.draft.table('insecureAuthRequests').get(requestId); if (!req) throw new NotFoundError('Request not found');
+      if (req.status !== 'pending' || stalePendingReason(pendingWithInterest(ownerRuntimeFor(this.db)!, req))) throw new ConflictError('Request already resolved');
+      const host = ctx.draft.table('hosts').get(req.hostId); if (!host) throw new NotFoundError('Host not found');
+      if (host.secure === 1) throw new ValidationError('Host is secure; insecure window not applicable');
+      const domain = normalizeDomainCandidate(domainInput) ?? resolveParentDomain(host.fqdn);
+      if (!domain) throw new ValidationError('Domain must be a subdomain like cluster.example.com', { param: 'domain' });
+      const fqdn = host.fqdn.toLowerCase().trim(); const suffix = '.' + domain;
+      if (fqdn.length <= suffix.length || !fqdn.endsWith(suffix)) throw new ValidationError('Domain must be a parent of the host FQDN', { param: 'domain' });
+      const minutes = clampInsecureMinutes(durationMinutes ?? APPROVAL_WINDOW_MINUTES, APPROVAL_WINDOW_MINUTES);
+      const at = nowIso(); const enabled = permanent ? null : new Date(Date.now()+minutes*60_000).toISOString();
+      const existing = ctx.draft.table('insecureDomainAllows').all().find(row => row.domain.toLowerCase() === domain.toLowerCase());
+      const values = { domain, windowMinutes: minutes, enabledUntil: enabled, revokedAt: null, updatedAt: at, createdAt: existing?.createdAt ?? at };
+      const allow: InsecureDomainAllowRow = { id: existing?.id ?? 0, domain, window_minutes: minutes, enabled_until: enabled, revoked_at: null, created_at: values.createdAt, updated_at: at };
+      if (existing) stageUpdate(ctx, 'insecureDomainAllows', existing.id, values);
+      else ctx.write(async tx => { const [inserted] = await tx.insert(insecureDomainAllows).values(values); allow.id = Number(inserted.insertId); ctx.draft.upsert('insecureDomainAllows', { ...values, id: allow.id }); });
+      const until = this.ownedGrant(ctx, host, minutes); const fresh = ctx.draft.table('hosts').get(host.id)!;
+      const clearedRequestIds: number[] = [];
+      const candidates = [req, ...[...ctx.draft.table('insecureAuthRequests').by('status', 'pending')].filter(row => row.id !== requestId).sort((a,b) => a.id-b.id).slice(0, DOMAIN_SWEEP_LIMIT)];
+      for (const candidate of candidates) {
+        const sibling = ctx.draft.table('hosts').get(candidate.hostId);
+        if (!sibling || sibling.secure === 1 || !fqdnMatchesDomain(sibling.fqdn, domain)) continue;
+        if (candidate.id !== requestId) this.ownedGrant(ctx, sibling, minutes);
+        stageUpdate(ctx, 'insecureAuthRequests', candidate.id, { status: 'approved', resolvedAt: at, updatedAt: at }); clearedRequestIds.push(candidate.id);
+        this.ownedLog(ctx, sibling.id, 'admin.insecure.approval', { fqdn: sibling.fqdn, request_id: candidate.id, ...(candidate.id !== requestId ? { source: 'domain_sweep', domain } : {}) });
+        this.ownedLog(ctx, sibling.id, 'admin.host.insecure_enable', { fqdn: sibling.fqdn, request_id: candidate.id, source: 'approval_domain', window_minutes: minutes, enabled_until: ctx.draft.table('hosts').get(sibling.id)!.insecureEnabledUntil!.toISOString() });
+        if (candidate.id !== requestId) publish('host.updated', { id: sibling.id });
+      }
+      ctx.write(async tx => persistAuditLog(tx, { hostId: host.id, action: 'admin.insecure.domain_allow', createdAt: at, details: JSON.stringify({ fqdn: host.fqdn, domain, domain_id: allow.id, enabled_until: enabled, window_minutes: minutes, request_id: requestId }) }));
+      adminAudit(ctx, 'insecure.domain.allowed', () => ({ host_id: host.id, fqdn: host.fqdn, domain, domain_id: allow.id, request_id: requestId, permanent, cleared_request_ids: clearedRequestIds }), at, host.id);
+      // Publication reads the generated ID only after persistence finishes.
+      const notification = { host_id: host.id, domain, get domain_id() { return allow.id; }, request_id: requestId, cleared_request_ids: clearedRequestIds };
+      publish('insecure.domain.allowed', notification);
+      return { requestId, host: fresh, domain: allow, enabledUntil: until.toISOString(), graceUntil: fresh.insecureGraceUntil?.toISOString() ?? null, windowMinutes: minutes, clearedRequestIds };
+    });
     const req = await this.findRequest(requestId);
     if (!req) throw new NotFoundError('Request not found');
     if (await this.expirePendingRequest(req)) throw new ConflictError('Request already resolved');
@@ -961,6 +1153,14 @@ export class InsecureWindowAdminService {
   // ────────── revoke domain ──────────
 
   async revokeDomain(allowId: number): Promise<InsecureDomainAllowRow> {
+    if (ownerRuntimeFor(this.db)) return this.owned('insecure.domain.revoke', { allowId }, (ctx, publish) => {
+      const allow = ctx.draft.table('insecureDomainAllows').get(allowId); if (!allow) throw new NotFoundError('Domain allow not found');
+      const at = nowIso(); stageUpdate(ctx, 'insecureDomainAllows', allowId, { revokedAt: at, updatedAt: at });
+      const details = { domain: allow.domain, domain_id: allowId };
+      this.ownedLog(ctx, null, 'admin.insecure.domain_revoke', details); adminAudit(ctx, 'insecure.domain.revoked', details);
+      publish('insecure.domain.revoked', { domain: allow.domain, id: allowId });
+      return { id: allowId, domain: allow.domain, window_minutes: allow.windowMinutes, enabled_until: allow.enabledUntil, revoked_at: at, created_at: allow.createdAt, updated_at: at };
+    });
     const rows = await this.db
       .select()
       .from(insecureDomainAllows)

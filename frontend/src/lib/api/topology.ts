@@ -193,9 +193,7 @@ export function topologyQuery() {
   return createQuery<Topology>({
     queryKey: topologyKeys.all,
     queryFn: ({ signal }) => api.get<Topology>("/admin/topology", { signal }),
-    // WebSocket events invalidate this on every connect, disconnect, heartbeat
-    // and session change; the poll is the net under a dropped socket.
-    refetchInterval: 10_000,
+    // Owner transitions refresh the graph; reconnect resnapshots every active view.
     // Keep the last tree on screen while a refetch is in flight or has failed.
     placeholderData: (previous) => previous,
     retry: 1,

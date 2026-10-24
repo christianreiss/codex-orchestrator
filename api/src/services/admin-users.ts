@@ -1,3 +1,7 @@
+import { projectAdminUserDeletion } from '../control-plane/state/deletion.js';
+import { mutateOwnerState, ownerRuntimeFor, type OwnerRuntime } from '../control-plane/state/runtime.js';
+import { adminAudit, credentialDigest, expireUserResetTokens, guardLastOwner, patchAdminUser, requireCurrentUser, revokeUserSessions, removeUserPasskeys } from '../control-plane/state/admin.js';
+import type { Json } from '../control-plane/commands.js';
 import { and, asc, count, eq, ne, or } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { adminPasswordResets, adminSessions, adminUsers, schemaMigrations, type AdminUser } from '../db/schema.js';
@@ -92,6 +96,8 @@ export class AdminUsersService {
   ) {}
 
   async list(): Promise<SanitizedAdminUser[]> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); return [...owner.state.snapshot().table('adminUsers').all()].sort((a, b) => a.username.localeCompare(b.username)).map(row => this.auth.sanitizeUser(row)); }
     const rows = await this.db.select().from(adminUsers).orderBy(asc(adminUsers.username));
     return rows.map((r) => this.auth.sanitizeUser(r));
   }
@@ -116,7 +122,9 @@ export class AdminUsersService {
 
     this.auth.validatePasswordOrThrow(password);
 
-    const usernameDup = await this.auth.findUserByUsername(username);
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) runtime.assertOwner();
+    const usernameDup = runtime ? runtime.state.snapshot().table('adminUsers').by('username', username)[0] : await this.auth.findUserByUsername(username);
     if (usernameDup) throw new ConflictError('Username already exists', 'username_taken');
     const emailDup = await this.findUserByEmail(email);
     if (emailDup) throw new ConflictError('Email already exists', 'email_taken');
@@ -124,6 +132,8 @@ export class AdminUsersService {
     const now = nowIso();
     const hash = await hashPassword(password);
 
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) return this.createOwned(owner, { name, username, email, passwordHash: hash, accessLevel, active: active ? 1 : 0, createdAt: now, updatedAt: now, lastLoginAt: null }, false);
     const result = await this.db.insert(adminUsers).values({
       name,
       username,
@@ -151,6 +161,13 @@ export class AdminUsersService {
   async createFirstOwner(
     input: Omit<CreateUserInput, 'access_level' | 'active'>,
   ): Promise<SanitizedAdminUser> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const name = normalizeName(input.name); const username = normalizeUsername(input.username); const email = normalizeEmail(input.email);
+      this.auth.validatePasswordOrThrow(input.password);
+      const passwordHash = await hashPassword(input.password); const now = nowIso();
+      return this.createOwned(owner, { name, username, email, passwordHash, accessLevel: ROLE_OWNER, active: 1, createdAt: now, updatedAt: now, lastLoginAt: null }, true);
+    }
     const previous = this.firstOwnerClaim;
     let release!: () => void;
     this.firstOwnerClaim = new Promise<void>((resolve) => { release = resolve; });
@@ -195,7 +212,9 @@ export class AdminUsersService {
   }
 
   async update(id: number, input: UpdateUserInput): Promise<SanitizedAdminUser> {
-    const user = await this.auth.findUserById(id);
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) runtime.assertOwner();
+    const user = runtime ? runtime.state.snapshot().table('adminUsers').get(id) : await this.auth.findUserById(id);
     if (!user) throw new NotFoundError('User not found', 'user_not_found');
 
     const patch: Partial<{
@@ -211,7 +230,7 @@ export class AdminUsersService {
     if (Object.prototype.hasOwnProperty.call(input, 'name')) patch.name = normalizeName(input.name);
     if (Object.prototype.hasOwnProperty.call(input, 'username')) {
       const username = normalizeUsername(input.username);
-      const dup = await this.auth.findUserByUsername(username);
+      const dup = runtime ? runtime.state.snapshot().table('adminUsers').by('username', username)[0] : await this.auth.findUserByUsername(username);
       if (dup && dup.id !== id) throw new ConflictError('Username already exists', 'username_taken');
       patch.username = username;
     }
@@ -233,11 +252,28 @@ export class AdminUsersService {
     }
 
     if (Object.keys(patch).length === 0) {
-      await this.guardLastAdmin(this.db, user, patch);
+      if (!runtime) await this.guardLastAdmin(this.db, user, patch);
       return this.auth.sanitizeUser(user);
     }
 
     patch.updatedAt = nowIso();
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = await mutateOwnerState(owner, { kind: 'admin.user.update', responseAuthorization:'commit', payload: { id, ...patch, passwordHash: patch.passwordHash ? credentialDigest(patch.passwordHash) : null }, prepare: ctx => {
+        requireCurrentUser(ctx, id);
+        guardLastOwner(ctx, id, patch);
+        const users = ctx.draft.table('adminUsers');
+        if (patch.username && users.by('username', patch.username).some(row => row.id !== id)) throw new ConflictError('Username already exists', 'username_taken');
+        if (patch.email && users.by('email', patch.email).some(row => row.id !== id)) throw new ConflictError('Email already exists', 'email_taken');
+        const next = patchAdminUser(ctx, id, patch);
+        if (patch.passwordHash !== undefined || patch.active === 0) revokeUserSessions(ctx, id);
+        if (patch.passwordHash !== undefined) expireUserResetTokens(ctx, id, patch.updatedAt!);
+        const sanitized = this.auth.sanitizeUser(next);
+        adminAudit(ctx, 'user.updated', { user: sanitized });
+        return sanitized as unknown as Json;
+      } });
+      return result as unknown as SanitizedAdminUser;
+    }
     // Guard-and-write atomically: without this, two concurrent requests that
     // each demote/deactivate a *different* admin can both see "one other
     // admin still active" and both pass the check, leaving zero active
@@ -264,6 +300,19 @@ export class AdminUsersService {
   }
 
   async remove(id: number): Promise<void> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'admin.user.remove', responseAuthorization:'commit', payload: { id }, prepare(ctx) {
+        const user = requireCurrentUser(ctx, id); guardLastOwner(ctx, id, { active: 0 });
+        revokeUserSessions(ctx, id); expireUserResetTokens(ctx, id, nowIso()); removeUserPasskeys(ctx, id);
+        projectAdminUserDeletion(ctx.draft, id);
+        ctx.draft.remove('adminUsers', id);
+        ctx.write(async tx => tx.delete(adminUsers).where(eq(adminUsers.id, id)));
+        adminAudit(ctx, 'user.deleted', { user_id: id, username: user.username });
+        return null;
+      } });
+      return;
+    }
     const user = await this.auth.findUserById(id);
     if (!user) throw new NotFoundError('User not found', 'user_not_found');
 
@@ -286,6 +335,22 @@ export class AdminUsersService {
    * not part of the table for some reason, falls back to wiping everything.
    */
   async wipe(actorId: number | null): Promise<{ removed: number }> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = await mutateOwnerState(owner, { kind: 'admin.users.wipe', payload: { actorId }, prepare(ctx) {
+        const now = nowIso();
+        const users = ctx.draft.table('adminUsers').all().filter(row => row.id !== actorId);
+        for (const user of users) {
+          revokeUserSessions(ctx, user.id); expireUserResetTokens(ctx, user.id, now); removeUserPasskeys(ctx, user.id);
+          projectAdminUserDeletion(ctx.draft, user.id);
+          ctx.draft.remove('adminUsers', user.id);
+          ctx.write(async tx => tx.delete(adminUsers).where(eq(adminUsers.id, user.id)));
+        }
+        adminAudit(ctx, 'admin.user.wipe', { removed: users.length, actor_id: actorId });
+        return { removed: users.length };
+      } });
+      return result as { removed: number };
+    }
     const now = nowIso();
     if (actorId && Number.isFinite(actorId)) {
       // Expire reset tokens for everyone other than actor, drop their sessions.
@@ -308,6 +373,26 @@ export class AdminUsersService {
     return { removed };
   }
 
+  private async createOwned(owner: OwnerRuntime, values: Omit<AdminUser, 'id'>, bootstrap: boolean): Promise<SanitizedAdminUser> {
+    let created: SanitizedAdminUser | undefined;
+    const result = await mutateOwnerState(owner, { kind: bootstrap ? 'admin.owner.claim' : 'admin.user.create', payload: { username: values.username, email: values.email, accessLevel: values.accessLevel, active: values.active, credentialDigest: credentialDigest(values.passwordHash) }, prepare: ctx => {
+      const users = ctx.draft.table('adminUsers');
+      if (bootstrap && users.size !== 0) throw new ConflictError('The first owner has already been claimed', 'first_owner_claimed');
+      if (!users.size && (values.active !== 1 || ![ROLE_OWNER, ROLE_ADMIN].includes(values.accessLevel))) throw new ValidationError('First user must be an active admin', { param: 'access_level' });
+      if (users.by('username', values.username).length) throw new ConflictError('Username already exists', 'username_taken');
+      if (users.by('email', values.email).length) throw new ConflictError('Email already exists', 'email_taken');
+      ctx.write(async tx => {
+        const insert = await tx.insert(adminUsers).values(values); const id = Number(insert[0]?.insertId);
+        if (!Number.isSafeInteger(id) || id < 1) throw new Error('Admin user insert returned no identity');
+        const row = { ...values, id, credentialDigest: credentialDigest(values.passwordHash) };
+        ctx.draft.upsert('adminUsers', row); created = this.auth.sanitizeUser(row);
+      });
+      adminAudit(ctx, 'user.created', () => ({ user: created, ...(bootstrap ? { bootstrap: true } : {}) }), values.createdAt);
+      return () => created as unknown as Json;
+    } });
+    return result as unknown as SanitizedAdminUser;
+  }
+
   // ---------- helpers ----------
 
   private validateAccessLevel(raw: unknown): string {
@@ -317,14 +402,16 @@ export class AdminUsersService {
     return raw;
   }
 
-  private async findUserByEmail(email: string): Promise<AdminUser | null> {
+  private async findUserByEmail(email: string): Promise<Omit<AdminUser, 'passwordHash'> | null> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); return owner.state.snapshot().table('adminUsers').by('email', email)[0] ?? null; }
     const rows = await this.db.select().from(adminUsers).where(eq(adminUsers.email, email)).limit(1);
     return rows[0] ?? null;
   }
 
   private async guardLastAdmin(
     tx: DbLike,
-    user: AdminUser,
+    user: Omit<AdminUser, 'passwordHash'>,
     patch: { accessLevel?: string; active?: number },
     deleting = false,
   ): Promise<void> {

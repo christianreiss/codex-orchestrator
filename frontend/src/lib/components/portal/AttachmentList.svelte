@@ -1,20 +1,17 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { createQuery } from '@tanstack/svelte-query';
+  import { toStore } from 'svelte/store';
   import { api } from '$lib/api/client';
   import { attachmentBase, attachmentUrl, type ChatFile } from '$lib/portal/chat-files';
   let { session, ids }: { session: string; ids: string[] } = $props();
-  let files = $state<ChatFile[]>([]);
-  let error = $state('');
   let expanded = $state<string | null>(null);
-  onMount(() => {
-    let stopped = false;
-    async function refresh() {
-      try { const rows = await Promise.all(ids.map(id => api.get<ChatFile>(`${attachmentBase(session)}/${id}`))); if (!stopped) { files = rows; error = ''; } }
-      catch(e) { if (!stopped) error = e instanceof Error ? e.message : 'Attachment unavailable'; }
-    }
-    void refresh(); const timer = setInterval(() => { if (!files.length || files.some(f => f.processing && ['queued','processing'].includes(f.processing.state))) void refresh(); }, 5000);
-    return () => { stopped = true; clearInterval(timer); };
-  });
+  const query = createQuery(toStore(() => ({
+    queryKey: ['chat-attachments', session, ...ids],
+    enabled: ids.length > 0,
+    queryFn: ({ signal }: { signal: AbortSignal }) => Promise.all(ids.map(id => api.get<ChatFile>(`${attachmentBase(session)}/${id}`, { signal }))),
+  })));
+  const files = $derived($query.data ?? []);
+  const error = $derived($query.error?.message ?? '');
 </script>
 <div class="mt-2 grid gap-2">
   {#if error}<p class="text-caption text-destructive">{error}</p>{/if}

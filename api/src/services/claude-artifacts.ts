@@ -1,3 +1,6 @@
+import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
+import { adminAudit } from '../control-plane/state/admin.js';
 /**
  * Claude-Code artifact admin service (subagents / slash-commands / output-styles).
  *
@@ -232,6 +235,20 @@ export class ClaudeArtifactsService {
     const model = asTrimmedString(frontmatter['model']) ?? null;
     const engine = asTrimmedString(input.engine) ?? null;
 
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){const result=await mutateOwnerState(owner,{kind:'claude.artifact.store',payload:{kind,slug,sha256:computedSha},prepare:ctx=>{
+      const existing=ctx.snapshot.table('claudeArtifacts').by('kind',kind).find(row=>row.slug===slug),now=nowIso();
+      const status=!existing?'created':existing.sha256===computedSha&&existing.displayName===displayName&&existing.description===description&&existing.model===model&&existing.engine===engine&&!existing.deletedAt?'unchanged':'updated';
+      if(status!=='unchanged'){
+        const values={kind,slug,sha256:computedSha,displayName,description,model,frontmatter,body,sourceHostId,engine,updatedAt:now,deletedAt:null};
+        if(existing)stageUpdate(ctx,'claudeArtifacts',existing.id,values);
+        else ctx.write(async tx=>{const row={...values,createdAt:now},inserted=await tx.insert(claudeArtifacts).values(row);ctx.draft.upsert('claudeArtifacts',{id:Number(inserted[0].insertId),...row});});
+        adminAudit(ctx,'claude_artifact.stored',{kind,slug,status});
+      }
+      return {status,kind,slug,sha256:computedSha,updated_at:status==='unchanged'?existing!.updatedAt:now};
+    }}) as unknown as StoreArtifactResult;
+    if(result.status!=='unchanged'){wsPublisher.publish('claude_artifact.stored',{kind,slug,status:result.status});wsPublisher.publish('claude_artifact.updated',{kind,slug});}return result;}
+
     const existingRows = await this.db
       .select()
       .from(claudeArtifacts)
@@ -306,6 +323,9 @@ export class ClaudeArtifactsService {
   /** Soft-delete via `deleted_at`. Returns false if no live row matched. */
   async softDelete(kind: ArtifactKind, rawSlug: string): Promise<boolean> {
     const slug = normalizeSlug(rawSlug);
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){const deleted=await mutateOwnerState(owner,{kind:'claude.artifact.delete',payload:{kind,slug},prepare:ctx=>{const existing=ctx.snapshot.table('claudeArtifacts').by('kind',kind).find(row=>row.slug===slug);if(!existing||existing.deletedAt)return false;const now=nowIso();stageUpdate(ctx,'claudeArtifacts',existing.id,{deletedAt:now,updatedAt:now});adminAudit(ctx,'claude_artifact.deleted',{kind,slug});return true;}});if(deleted)wsPublisher.publish('claude_artifact.deleted',{kind,slug});return Boolean(deleted);}
+
     const rows = await this.db
       .select()
       .from(claudeArtifacts)

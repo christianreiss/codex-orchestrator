@@ -52,8 +52,9 @@ func (e *APIError) Error() string {
 }
 
 type sessionClient struct {
-	id   string
-	http *http.Client
+	socket string
+	id     string
+	http   *http.Client
 }
 
 func sessionClientFromEnv(timeout time.Duration) (*sessionClient, error) {
@@ -75,8 +76,9 @@ func sessionClientAt(socket, id string, timeout time.Duration) *sessionClient {
 		ResponseHeaderTimeout: timeout,
 	}
 	return &sessionClient{
-		id:   id,
-		http: &http.Client{Transport: transport, Timeout: timeout},
+		id:     id,
+		socket: socket,
+		http:   &http.Client{Transport: transport, Timeout: timeout},
 	}
 }
 

@@ -1,3 +1,4 @@
+import {ownerRuntimeFor,ownerReadResponseGuard} from '../control-plane/state/runtime.js';
 import { registerQuotaRoutes } from './quota.js';
 import type { FastifyInstance } from 'fastify';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -97,6 +98,7 @@ export async function registerWatchdogRoutes(app: FastifyInstance, ctx: RouteCon
     const { id, token } = bridge(req);
     // Authenticate before hijacking, and re-authorize every frame.
     await service.snapshot(id, token);
+    const runtime=ownerRuntimeFor(ctx.db),checkRead=runtime?ownerReadResponseGuard(runtime):()=>{};checkRead();
     reply.hijack();
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
@@ -111,6 +113,7 @@ export async function registerWatchdogRoutes(app: FastifyInstance, ctx: RouteCon
     try {
       while (!controller.signal.aborted) {
         const snapshot = await service.snapshot(id, token);
+        checkRead();
         if (controller.signal.aborted) break;
         if (!reply.raw.write(`event: watchdog\ndata: ${JSON.stringify(snapshot)}\n\n`)) break;
         await delay(15000, undefined, { signal: controller.signal }).catch(() => {});

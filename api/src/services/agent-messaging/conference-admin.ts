@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { ownedAddressPresence } from '../../control-plane/state/presence-notices.js';
 import { and, asc, desc, eq, gt, inArray, lt } from 'drizzle-orm';
 import { agentBusAddresses, agentBusConferenceMembers, agentBusConferences, agentBusConversations, agentBusMessages, agentSessions, hosts } from '../../db/schema.js';
 import { NotFoundError } from '../../http/errors.js';
@@ -14,6 +16,7 @@ export class AgentMessagingConferenceAdmin {
   constructor(private readonly core: Pick<AdminCore, 'db' | 'decodeContent'>) {}
 
   private async rooms(status?: string, id?: string, limit = 100) {
+    const owner=ownerRuntimeFor(this.core.db);if(owner){owner.assertOwner();const key=id?normalizeUuid(id,'conference_id'):null;return owner.state.snapshot().table('agentBusConferences').all().filter(row=>(!key||row.id===key)&&(!status||(status==='open'?['open','adjourning'].includes(row.status):row.status===status))).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)||b.id.localeCompare(a.id)).slice(0,limit);}
     const predicates = [];
     if (status) predicates.push(status === 'open' ? inArray(agentBusConferences.status, ['open', 'adjourning']) : eq(agentBusConferences.status, status));
     if (id) predicates.push(eq(agentBusConferences.id, normalizeUuid(id, 'conference_id')));
@@ -23,6 +26,7 @@ export class AgentMessagingConferenceAdmin {
 
   private async members(ids: string[]) {
     if (!ids.length) return [];
+    const owner=ownerRuntimeFor(this.core.db);if(owner){owner.assertOwner();const snapshot=owner.state.snapshot();return snapshot.table('agentBusConferenceMembers').all().filter(member=>ids.includes(member.conferenceId)).map(member=>{const address=snapshot.addresses.get(member.addressId)??null;return {member,address,session:address?.currentSessionId?snapshot.sessions.get(address.currentSessionId)??null:null,fqdn:address?snapshot.hosts.get(address.hostId)?.fqdn??null:null,conversation:member.conversationId?snapshot.table('agentBusConversations').get(member.conversationId)??null:null,dispatch:member.dispatchMessageId?snapshot.messages.get(member.dispatchMessageId)??null:null};});}
     return this.core.db.select({ member: agentBusConferenceMembers, address: agentBusAddresses, session: agentSessions,
       fqdn: hosts.fqdn, conversation: agentBusConversations, dispatch: agentBusMessages })
       .from(agentBusConferenceMembers)
@@ -60,7 +64,7 @@ export class AgentMessagingConferenceAdmin {
       members: rows.map(({ member, address, session, fqdn, conversation, dispatch }) => ({
         ...(address ? publicConferenceMember(member, address, fqdn) : {}),
         id: member.id, address_id: member.addressId, role: member.role, state: member.state,
-        peer: address ? { ...publicAddress(address, fqdn ?? undefined, deriveAddressPresence(address, session, isoOffsetSeconds(-45))), name: member.launchName ?? null } : null,
+        peer: address ? { ...publicAddress(address, fqdn ?? undefined, ownerRuntimeFor(this.core.db)?ownedAddressPresence(ownerRuntimeFor(this.core.db)!,ownerRuntimeFor(this.core.db)!.state.snapshot(),address):deriveAddressPresence(address, session, isoOffsetSeconds(-45))), name: member.launchName ?? null } : null,
         conversation_id: member.conversationId, conversation_status: conversation?.status ?? null,
         dispatch_message_id: member.dispatchMessageId, dispatch_status: dispatch?.status ?? null,
         dispatch_error: dispatch?.lastErrorCode ?? null, left_at: member.leftAt,
@@ -82,7 +86,8 @@ export class AgentMessagingConferenceAdmin {
     // The reveal allowlist is scoped by the conference join, including ordinary replies.
     if (revealIds && selected.length !== new Set(revealIds).size) throw new NotFoundError('Conference message not found', 'agent_messaging_message_not_found');
     const ids = [...new Set(selected.flatMap((row) => [row.senderAddressId, row.targetAddressId]))];
-    const addresses = ids.length ? await this.core.db.select().from(agentBusAddresses).where(inArray(agentBusAddresses.id, ids)) : [];
+    const owner=ownerRuntimeFor(this.core.db);
+    const addresses = owner ? owner.state.snapshot().addresses.all().filter(row=>ids.includes(row.id)) : ids.length ? await this.core.db.select().from(agentBusAddresses).where(inArray(agentBusAddresses.id, ids)) : [];
     const peers = new Map(addresses.map((row) => [row.id, row]));
     return { messages: selected.map((row) => ({ ...messageMetadata(row, peers.get(row.senderAddressId), peers.get(row.targetAddressId)),
       id: row.id, dispatch_order: row.dispatchOrder, ...(revealIds ? { content: this.core.decodeContent(row) } : {}) })),

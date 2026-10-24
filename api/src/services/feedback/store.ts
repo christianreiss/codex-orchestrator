@@ -1,3 +1,5 @@
+import { ownerRuntimeFor, mutateOwnerState, type OwnerMutationContext } from '../../control-plane/state/runtime.js';
+import { stageUpdate } from '../../control-plane/state/rows.js';
 import { randomUUID } from 'node:crypto';
 import { and, asc, eq, isNull, lte, or } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
@@ -9,7 +11,7 @@ import { reportDigest } from './config.js';
 import type { FeedbackActor } from '../feedback-contract.js';
 
 export type PipelineRow = typeof feedbackPipeline.$inferSelect;
-export type ReportRow = typeof feedbackItems.$inferSelect;
+export type ReportRow = Omit<typeof feedbackItems.$inferSelect, 'claimTokenEnc'>;
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 export function pipelineView(row: PipelineRow) {
   return { version_state: row.versionState, review_state: row.reviewState, delivery_state: row.deliveryState,
@@ -20,6 +22,19 @@ export function pipelineView(row: PipelineRow) {
     next_attempt_at: row.nextAttemptAt, updated_at: row.updatedAt };
 }
 export const digestReport = (row: ReportRow) => reportDigest({ title: row.title, type: row.type, component: row.component, report: row.report });
+
+export function stageFeedbackPipelineUpdate(context: OwnerMutationContext, row: PipelineRow, patch: Partial<PipelineRow>, action: string, actor: Record<string, unknown> = { kind: 'system' }): void {
+  const item = context.draft.table('feedbackItems').get(row.feedbackId);
+  if (!item) throw new NotFoundError('Feedback not found');
+  const now = new Date().toISOString();
+  stageUpdate(context, 'feedbackPipeline', row.feedbackId, { ...patch, updatedAt: now });
+  stageUpdate(context, 'feedbackItems', item.id, { version: item.version + 1, updatedAt: now,
+    ...(patch.reviewState === 'discarded' && item.status === 'open' ? { status: 'dismissed', result: { reason: patch.reason } } : {}),
+  });
+  context.write(async tx => { await tx.insert(feedbackEvents).values({ id: randomUUID(), feedbackId: row.feedbackId, version: item.version + 1, action, actor,
+    detail: { version_state: patch.versionState ?? row.versionState, review_state: patch.reviewState ?? row.reviewState, delivery_state: patch.deliveryState ?? row.deliveryState,
+      reason: patch.reason ?? row.reason, github_url: patch.githubUrl ?? row.githubUrl }, createdAt: now }); });
+}
 
 export class FeedbackPipelineStore {
   constructor(readonly db: Database) {}
@@ -37,6 +52,28 @@ export class FeedbackPipelineStore {
         reason: patch.reason ?? row.reason, github_url: patch.githubUrl ?? row.githubUrl }, createdAt: now });
   }
   async recheck(id: string, expectedVersion: number, actor: FeedbackActor) {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'feedback.recheck', payload: { id, expectedVersion }, prepare: async context => {
+        const item = context.snapshot.table('feedbackItems').get(id) ?? (await this.db.select().from(feedbackItems).where(eq(feedbackItems.id, id)))[0];
+        const pipeline = context.snapshot.table('feedbackPipeline').get(id) ?? (item && !context.snapshot.table('feedbackItems').has(id) ? (await this.db.select().from(feedbackPipeline).where(eq(feedbackPipeline.feedbackId, id)))[0] : undefined);
+        if (item) context.draft.upsert('feedbackItems', item);
+        if (pipeline) context.draft.upsert('feedbackPipeline', pipeline);
+        const now = new Date().toISOString();
+        if (!item) throw new NotFoundError('Feedback not found');
+        if (item.version !== expectedVersion) throw new ConflictError('Feedback changed; reload before requesting a check');
+        if (pipeline?.deliveryState === 'sent') throw new ConflictError('This report has already been published');
+        if (pipeline?.leaseExpiresAt && pipeline.leaseExpiresAt > now) throw new ConflictError('Feedback check is already running');
+        if (pipeline) stageFeedbackPipelineUpdate(context, pipeline, { nextAttemptAt: now, attempts: 0, reviewState: 'pending', reason: 'Recheck requested', leaseToken: null, leaseExpiresAt: null }, 'recheck_requested', actor);
+        else {
+          const row: PipelineRow = { feedbackId: id, createdCommit: buildIdentity().commit, versionState: 'unknown', reviewState: 'pending', deliveryState: 'local', testedCommit: null, upstreamCommit: null,
+            evidence: { ...(item.report.retest ? { probe: item.report.retest as PipelineRow['evidence']['probe'] } : {}) }, githubIssueNumber: null, githubUrl: null, reason: null, leaseToken: null, leaseExpiresAt: null, nextAttemptAt: now, attempts: 0, updatedAt: now };
+          context.draft.upsert('feedbackPipeline', row); context.write(async tx => { await tx.insert(feedbackPipeline).values(row); });
+        }
+        return null;
+      } });
+      wsPublisher.publish('feedback.changed', { id }); return { queued: true, id };
+    }
     await this.db.transaction(async (tx) => {
       const [item] = await tx.select().from(feedbackItems).where(eq(feedbackItems.id, id)).for('update');
       if (!item) throw new NotFoundError('Feedback not found');
@@ -56,6 +93,27 @@ export class FeedbackPipelineStore {
     return { queued: true, id };
   }
   async take(): Promise<PipelineRow | null> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const candidate = () => {
+        const snapshot = owner.state.snapshot(), now = new Date().toISOString();
+        const lease = JSON.parse(snapshot.setting('feedback_runner_lease') ?? '{}') as { until?: string };
+        if (lease.until && lease.until > now) return undefined;
+        return snapshot.table('feedbackPipeline').all().filter(row => row.nextAttemptAt && row.nextAttemptAt <= now && (!row.leaseExpiresAt || row.leaseExpiresAt <= now)).sort((a,b) => a.nextAttemptAt!.localeCompare(b.nextAttemptAt!))[0];
+      };
+      if (!candidate()) return null;
+      let selected: PipelineRow | null = null;
+      await mutateOwnerState(owner, { kind: 'feedback.take', payload: {}, prepare(context) {
+        const row = candidate(); if (!row) return null;
+        const now = new Date().toISOString(), token = randomUUID(), until = new Date(Date.now() + 330_000).toISOString();
+        selected = { ...row, leaseToken: token, leaseExpiresAt: until, attempts: row.attempts + 1 };
+        stageUpdate(context, 'feedbackPipeline', row.feedbackId, { leaseToken: token, leaseExpiresAt: until, attempts: selected.attempts });
+        const lease = { name: 'feedback_runner_lease', version: JSON.stringify({ token, until }), updatedAt: now };
+        context.draft.upsert('versions', lease); context.write(async tx => { await tx.insert(versions).values(lease).onDuplicateKeyUpdate({ set: { version: lease.version, updatedAt: now } }); });
+        return null;
+      } });
+      return selected;
+    }
     return this.db.transaction(async (tx) => {
       const now = new Date().toISOString();
       // One server-side review at a time across all API processes.
@@ -78,6 +136,16 @@ export class FeedbackPipelineStore {
     });
   }
   async finish(row: PipelineRow, patch: Partial<PipelineRow>, action = 'feedback_checked') {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'feedback.finish', payload: { id: row.feedbackId, lease: row.leaseToken, action }, prepare(context) {
+        const item = context.snapshot.table('feedbackItems').get(row.feedbackId), current = context.snapshot.table('feedbackPipeline').get(row.feedbackId);
+        if (patch.evidence?.report_digest && item && digestReport(item) !== patch.evidence.report_digest) throw new ConflictError('Report changed during feedback check');
+        if (!current || current.leaseToken !== row.leaseToken || !current.leaseExpiresAt || current.leaseExpiresAt <= new Date().toISOString()) throw new ConflictError('Feedback worker lease lost');
+        stageFeedbackPipelineUpdate(context, current, patch, action); return null;
+      } });
+      wsPublisher.publish('feedback.changed', { id: row.feedbackId }); return;
+    }
     await this.db.transaction(async (tx) => {
       // Keep item -> pipeline lock ordering consistent with admin mutations.
       const [item] = await tx.select().from(feedbackItems).where(eq(feedbackItems.id, row.feedbackId)).for('update');
@@ -91,6 +159,16 @@ export class FeedbackPipelineStore {
     wsPublisher.publish('feedback.changed', { id: row.feedbackId });
   }
   async release(row: PipelineRow) {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'feedback.release', payload: { id: row.feedbackId, lease: row.leaseToken }, prepare(context) {
+        const current = context.snapshot.table('feedbackPipeline').get(row.feedbackId);
+        if (current?.leaseToken === row.leaseToken) stageUpdate(context, 'feedbackPipeline', row.feedbackId, { leaseToken: null, leaseExpiresAt: null });
+        const lock = context.snapshot.setting('feedback_runner_lease');
+        if (lock && (JSON.parse(lock) as { token?: string }).token === row.leaseToken) stageUpdate(context, 'versions', 'feedback_runner_lease', { version: '{}', updatedAt: new Date().toISOString() });
+        return null;
+      } }); return;
+    }
     await this.db.transaction(async (tx) => {
       await tx.update(feedbackPipeline).set({ leaseToken: null, leaseExpiresAt: null })
         .where(and(eq(feedbackPipeline.feedbackId, row.feedbackId), eq(feedbackPipeline.leaseToken, row.leaseToken!)));

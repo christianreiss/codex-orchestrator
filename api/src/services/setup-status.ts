@@ -26,6 +26,18 @@ import { parseEnginesInput } from './host-management.js';
 import { createSetupWizardService, type SetupWizardState } from './setup-wizard.js';
 import { ENGINE_CODEX, ENGINE_LABELS, type Engine } from '../util/engine.js';
 import { ALL_ENGINES_ENABLED, readFleetEngineState } from './engine-switch.js';
+import { ownerRuntimeFor, type OwnerRuntime } from '../control-plane/state/runtime.js';
+
+// The deployed migration files cannot change during one owner epoch. A new
+// process hydrates and verifies its own bundle before admitting traffic.
+const ownerMigrationFiles = new WeakMap<OwnerRuntime, ReturnType<typeof loadMigrations>>();
+function migrationFiles(db: Database, directory: string | undefined) {
+  const owner=ownerRuntimeFor(db);
+  if(!owner)return loadMigrations(directory);
+  let files=ownerMigrationFiles.get(owner);
+  if(!files){files=loadMigrations(directory);ownerMigrationFiles.set(owner,files);files.catch(()=>ownerMigrationFiles.delete(owner));}
+  return files;
+}
 
 export interface SetupCheck {
   id: string;
@@ -76,6 +88,8 @@ export class SetupStatusService {
   }
 
   async status(requestOrigin?: string | null): Promise<SetupStatus> {
+    const owner = ownerRuntimeFor(this.db);
+    owner?.assertOwner();
     // Probed first so a dead database reports as a failing check instead of
     // a 500: every read below it is skipped and falls back to "nothing yet".
     const database = await this.databaseCheck();
@@ -89,12 +103,12 @@ export class SetupStatusService {
         this.runnerCheck(),
         whenDb(() => this.signerCheck(), skipped('signer', 'Wrapper signer')),
         this.wrapperCheck(),
-        whenDb(() => this.db.select({ id: adminUsers.id }).from(adminUsers), []),
+        whenDb(() => owner ? Promise.resolve(owner.state.snapshot().table('adminUsers').all().map(row=>({id:row.id}))) : this.db.select({ id: adminUsers.id }).from(adminUsers), []),
         whenDb(() => this.hasCanonicalAuth('codex'), false),
         whenDb(() => this.hasCanonicalAuth('claude'), false),
         whenDb(() => this.hasCanonicalAuth('grok'), false),
         whenDb(
-          () => this.db
+          () => owner ? Promise.resolve(owner.state.snapshot().hosts.all().filter(row => !row.internalRole).map(row => ({id:row.id,codex:row.lastRefresh,claude:row.claudeLastRefresh,grok:row.grokLastRefresh}))) : this.db
             .select({ id: hosts.id, codex: hosts.lastRefresh, claude: hosts.claudeLastRefresh, grok: hosts.grokLastRefresh })
             .from(hosts)
             .where(visibleHost),
@@ -177,6 +191,8 @@ export class SetupStatusService {
 
   private async databaseCheck(): Promise<SetupCheck> {
     try {
+      const owner = ownerRuntimeFor(this.db);
+      if (owner) { owner.assertOwner(); return { id:'database',label:'Database',ok:true,critical:true,detail:'exclusive owner connected; boot hydration verified' }; }
       await this.db.execute(sql`SELECT 1`);
       return { id: 'database', label: 'Database', ok: true, critical: true, detail: 'query succeeded' };
     } catch (error) {
@@ -190,6 +206,8 @@ export class SetupStatusService {
    * skills, memory, projects and secrets off for every host.
    */
   private async hasFleetDefaults(): Promise<boolean> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); return owner.state.snapshot().table('clientConfigDocuments').by('engine',ENGINE_CODEX).length > 0; }
     const rows = await this.db
       .select({ id: clientConfigDocuments.id, engine: clientConfigDocuments.engine })
       .from(clientConfigDocuments)
@@ -202,8 +220,8 @@ export class SetupStatusService {
   private async migrationCheck(): Promise<SetupCheck> {
     try {
       const [files, applied] = await Promise.all([
-        loadMigrations(this.env.MIGRATIONS_DIR),
-        this.db.select().from(schemaMigrations),
+        migrationFiles(this.db,this.env.MIGRATIONS_DIR),
+        ownerRuntimeFor(this.db) ? Promise.resolve(ownerRuntimeFor(this.db)!.state.snapshot().table('schemaMigrations').all()) : this.db.select().from(schemaMigrations),
       ]);
       const ledger = new Map(applied.map((row) => [row.version, row.checksum]));
       const pending = files.filter((file) => !ledger.has(file.version));
@@ -223,6 +241,14 @@ export class SetupStatusService {
     if (!raw || !this.env.AUTH_RUNNER_SHARED_SECRET) {
       return { id: 'runner', label: 'Auth runner', ok: false, critical: true, detail: 'runner URL or shared secret missing' };
     }
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const snapshot = owner.state.snapshot();
+      const engines = parseEnginesInput(this.env.DEFAULT_HOST_ENGINES,[ENGINE_CODEX]).filter(engine => !['1','true','yes','on'].includes(snapshot.setting(`${engine}_engine_disabled`)?.toLowerCase() ?? ''));
+      const ok = engines.every(engine => snapshot.setting(engine === 'codex' ? 'runner_state' : `runner_state_${engine}`) === 'ok');
+      return { id:'runner',label:'Auth runner',ok,critical:true,detail:ok ? 'last observed health is healthy' : 'runner health is missing or failed' };
+    }
     const healthUrl = raw.replace(/\/verify(?:\?.*)?$/, '/health');
     try {
       const response = await this.fetchImpl(healthUrl, { signal: AbortSignal.timeout(Math.max(1000, (this.env.AUTH_RUNNER_TIMEOUT ?? 8) * 1000)) });
@@ -237,8 +263,9 @@ export class SetupStatusService {
   private async signerCheck(): Promise<SetupCheck> {
     // Several keys may be active at once during a rotation; all of them sign,
     // so the check passes only when every active row is encrypted and loadable.
-    const activeRows = await this.db.select().from(wrapperSigningKeys).where(eq(wrapperSigningKeys.active, 1));
-    const encrypted = activeRows.length > 0 && activeRows.every((row) => isEnvelope(row.privateKeyEnc));
+    const owner = ownerRuntimeFor(this.db);
+    const activeRows = owner ? owner.state.snapshot().table('wrapperSigningKeys').all().filter(row => row.active === 1) : await this.db.select().from(wrapperSigningKeys).where(eq(wrapperSigningKeys.active, 1));
+    const encrypted = activeRows.length > 0 && (Boolean(owner) || activeRows.every(row => 'privateKeyEnc' in row && typeof row.privateKeyEnc === 'string' && isEnvelope(row.privateKeyEnc)));
     const signers = encrypted
       ? await createWrapperSigningKeyService({ db: this.db, keyring: this.keyring }).allActive()
       : [];
@@ -273,6 +300,8 @@ export class SetupStatusService {
   }
 
   private async hasCanonicalAuth(engine: Engine): Promise<boolean> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); const snapshot=owner.state.snapshot(); return snapshot.table('authCanonicalHeads').by('engine',engine).some(head=>{const row=snapshot.table('authPayloads').get(head.payloadId);return row?.engine===engine&&row.verificationState==='verified';}); }
     const heads = await this.db
       .select({ payloadId: authCanonicalHeads.payloadId })
       .from(authCanonicalHeads)

@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import type { StateRow } from '../control-plane/state/catalog.js';
 /**
  * Server-owned hosts.
  *
@@ -28,11 +30,30 @@ export function isInternalHost(host: Pick<Host, 'internalRole'> | null | undefin
 
 /** Ids of every server-owned host, for filtering rows that only carry a host id. */
 export async function internalHostIds(db: Database): Promise<number[]> {
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    owner.assertOwner();
+    return owner.state
+      .snapshot()
+      .hosts.all()
+      .filter((row) => row.internalRole)
+      .map((row) => row.id);
+  }
   const rows = await db.select({ id: hosts.id, internalRole: hosts.internalRole }).from(hosts);
   return rows.filter((row) => row.internalRole).map((row) => row.id);
 }
 
-export async function advisorHost(db: Database): Promise<Host | null> {
+export async function advisorHost(db: Database): Promise<Host | StateRow<'hosts'> | null> {
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    owner.assertOwner();
+    return (
+      owner.state
+        .snapshot()
+        .hosts.all()
+        .find((row) => row.internalRole === ADVISOR_ROLE && row.status === 'active') ?? null
+    );
+  }
   const [row] = await db
     .select()
     .from(hosts)

@@ -1,3 +1,5 @@
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { authRetentionObligations } from '../ops/maintenance-obligations.js';
 import { and, eq, inArray, lt } from 'drizzle-orm';
 import {
   authCanonicalHeads,
@@ -88,6 +90,26 @@ export async function pruneSupersededAuth(
   now = nowIso(),
   limit = AUTH_PRUNE_BATCH_LIMIT,
 ): Promise<number> {
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    const due = () => authRetentionObligations(owner.state.snapshot()).filter(row => row.dueAt <= Date.parse(now)).slice(0, limit).map(row => Number(row.key));
+    if (!due().length) return 0;
+    let removed = 0;
+    await mutateOwnerState(owner, { kind: 'retention.auth-generations', payload: { now, limit }, prepare(context) {
+      const ids = authRetentionObligations(context.snapshot).filter(row => row.dueAt <= Date.parse(now)).slice(0, limit).map(row => Number(row.key));
+      if (!ids.length) return 0;
+      const keys = new Set(ids);
+      for (const row of context.draft.table('hostAuthStates').all()) if (keys.has(row.payloadId)) context.draft.removeRow('hostAuthStates', row);
+      for (const id of ids) context.draft.remove('authPayloads', id);
+      context.write(async tx => {
+        await tx.delete(hostAuthStates).where(inArray(hostAuthStates.payloadId, ids));
+        await tx.delete(authEntries).where(inArray(authEntries.payloadId, ids));
+        await tx.delete(authPayloads).where(inArray(authPayloads.id, ids));
+      });
+      removed = ids.length; return removed;
+    } });
+    return removed;
+  }
   const heads = await db.select().from(authCanonicalHeads);
   const accountHeads = await db.select().from(providerAccounts);
   const removedAccounts = new Set(accountHeads.filter((a) => a.state === 'removed').map((a) => a.id));

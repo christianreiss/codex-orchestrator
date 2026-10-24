@@ -1,3 +1,6 @@
+import {nativeClaimAttachment} from '../../control-plane/state/resource-claims.js';
+import {legacyDrainFor} from '../../control-plane/legacy-drain.js';
+import {workflowState,workflowOwnerContext,workflowOwnerRuntime,publishWorkflowRow,patchWorkflowRow} from './owner.js';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import {
@@ -43,11 +46,13 @@ export function expect(actual: number, wanted: number, code: string) {
     });
 }
 export async function lockRun(ctx: Session, id: string) {
-  const [run] = await ctx.tx.select().from(workflowRuns).where(eq(workflowRuns.id, id)).for('update');
+  const state=workflowState();
+  const run = state ? structuredClone(state.table('workflowRuns').get(id)) : (await ctx.tx.select().from(workflowRuns).where(eq(workflowRuns.id, id)).for('update'))[0];
   if (!run) throw new NotFoundError('Workflow run not found', 'workflow_run_not_found');
   return run;
 }
 export async function members(ctx: Session, run: Run) {
+  const state=workflowState();if(state)return structuredClone([...state.table('workflowRunMembers').by('runId',run.id)]);
   return ctx.tx.select().from(workflowRunMembers).where(eq(workflowRunMembers.runId, run.id));
 }
 export async function member(ctx: Session, run: Run) {
@@ -82,11 +87,12 @@ export async function coordinator(
   if (
     run.coordinatorAddressId !== ctx.actor.address_id ||
     generation !== run.coordinatorGeneration ||
-    expired(run.coordinatorLeaseUntil, ctx.now)
+    (run.coordinatorOwnershipMode==='connection' ? !sameCoordinatorConnection(ctx,run) : expired(run.coordinatorLeaseUntil,ctx.now))
   )
     throw new ConflictError('Coordinator lease or generation was lost', 'workflow_coordinator_lost');
 }
 export async function pinned(ctx: Session, run: Run) {
+  const state=workflowState();if(state){const row=state.table('workflowVersions').get(run.workflowVersionId);if(!row)throw new NotFoundError('Pinned workflow version missing');return structuredClone(row.document) as WorkflowDocument;}
   const [v] = await ctx.tx
     .select()
     .from(workflowVersions)
@@ -95,6 +101,7 @@ export async function pinned(ctx: Session, run: Run) {
   return v.document as WorkflowDocument;
 }
 export async function tasks(ctx: Session, run: Run) {
+  const state=workflowState();if(state)return structuredClone([...state.table('workflowRunTasks').by('runId',run.id)].sort((a,b)=>a.position-b.position));
   return ctx.tx
     .select()
     .from(workflowRunTasks)
@@ -112,11 +119,12 @@ export const clearClaim = {
 };
 export async function event(ctx: Session, run: Run, type: string, detail: Record<string, unknown>) {
   run.eventSequence++;
+  patchWorkflowRow('workflowRuns',run.id,{eventSequence:run.eventSequence,updatedAt:ctx.now});
   await ctx.tx
     .update(workflowRuns)
     .set({ eventSequence: run.eventSequence, updatedAt: ctx.now })
     .where(eq(workflowRuns.id, run.id));
-  await ctx.tx.insert(workflowRunEvents).values({
+  const row={
     id: randomUUID(),
     runId: run.id,
     sequence: run.eventSequence,
@@ -124,10 +132,19 @@ export async function event(ctx: Session, run: Run, type: string, detail: Record
     detail,
     actor: agentRecord(ctx.actor),
     createdAt: ctx.now,
-  });
+  };
+  await ctx.tx.insert(workflowRunEvents).values(row);
+  const active=workflowOwnerContext();
+  const source=detail.source as {knowledge_id?:string}|undefined;
+  if(active&&type==='note.knowledge'&&source?.knowledge_id){
+    for(const old of active.command.draft.table('workflowRunEvents').by('runId',run.id)){const oldSource=old.detail.source as {knowledge_id?:string}|undefined;if(oldSource?.knowledge_id===source.knowledge_id&&(old.detail.task_id??null)===(detail.task_id??null)&&old.actor.address_id===row.actor.address_id&&old.actor.session_id===row.actor.session_id&&old.actor.binding_generation===row.actor.binding_generation)active.command.draft.remove('workflowRunEvents',old.id);}
+    publishWorkflowRow('workflowRunEvents',row);
+  }
 }
 export async function patchRun(ctx: Session, run: Run, patch: Partial<Run>) {
+  if(patch.status==='completed'){const active=workflowOwnerContext();for(const row of active?.command.draft.table('workflowRunEvents').by('runId',run.id)??[])active!.command.draft.remove('workflowRunEvents',row.id);}
   Object.assign(run, patch, { version: run.version + 1, updatedAt: ctx.now });
+  patchWorkflowRow('workflowRuns',run.id,{...patch,version:run.version,updatedAt:ctx.now});
   await ctx.tx
     .update(workflowRuns)
     .set({ ...patch, version: run.version, updatedAt: ctx.now })
@@ -135,6 +152,7 @@ export async function patchRun(ctx: Session, run: Run, patch: Partial<Run>) {
 }
 export async function patchTask(ctx: Session, t: Task, patch: Partial<Task>) {
   Object.assign(t, patch, { version: t.version + 1, updatedAt: ctx.now });
+  patchWorkflowRow('workflowRunTasks',t.id,{...patch,version:t.version,updatedAt:ctx.now});
   await ctx.tx
     .update(workflowRunTasks)
     .set({ ...patch, version: t.version, updatedAt: ctx.now })
@@ -143,7 +161,7 @@ export async function patchTask(ctx: Session, t: Task, patch: Partial<Task>) {
 /** Expiry is evidence of uncertainty, never evidence that external work stopped. */
 export async function materializeExpiry(ctx: Session, run: Run) {
   for (const t of await tasks(ctx, run)) {
-    if (t.claimOwnerAddressId && expired(t.claimLeaseUntil, ctx.now)) {
+    if (t.claimOwnerAddressId && t.claimOwnershipMode!=='connection' && expired(t.claimLeaseUntil, ctx.now)) {
       const execution = t.status === 'running';
       await patchTask(ctx, t, {
         ...clearClaim,
@@ -151,6 +169,7 @@ export async function materializeExpiry(ctx: Session, run: Run) {
           ? { status: 'uncertain', reason: 'Claim lease expired; external effects require reconciliation' }
           : {}),
       });
+      if(execution)for(const attempt of workflowState()?.table('workflowTaskAttempts').by('runId',run.id)??[])if(attempt.taskId===t.taskId&&attempt.attemptNo===t.attemptNo)patchWorkflowRow('workflowTaskAttempts',attempt.id,{status:'uncertain'});
       if (execution)
         await ctx.tx
           .update(workflowTaskAttempts)
@@ -180,12 +199,13 @@ export function checkClaim(
     t.claimSessionId !== ctx.actor.session_id ||
     t.claimBindingGeneration !== ctx.actor.binding_generation ||
     t.claimGeneration !== generation ||
-    expired(t.claimLeaseUntil, ctx.now) ||
+    (t.claimOwnershipMode==='connection' ? !sameTaskConnection(ctx,t) : expired(t.claimLeaseUntil,ctx.now)) ||
     Boolean(t.claimRecovery) !== recovery
   )
     throw new ConflictError('Task claim was lost or belongs to another binding', 'workflow_claim_lost');
 }
 export function newClaim(ctx: Session, t: Task, recovery = false) {
+  const proof=connectionActor(ctx);
   const token = randomBytes(32).toString('base64url');
   return {
     token,
@@ -195,13 +215,14 @@ export function newClaim(ctx: Session, t: Task, recovery = false) {
       claimBindingGeneration: ctx.actor.binding_generation!,
       claimGeneration: t.claimGeneration + 1,
       claimTokenHash: digest(token),
-      claimLeaseUntil: leaseUntil(ctx.now),
+      claimLeaseUntil: proof?null:leaseUntil(ctx.now),
+      claimOwnershipMode:proof?'connection':'timed',claimNativeInstanceId:proof?.instanceId??null,
       claimRecovery: recovery ? 1 : 0,
     },
   };
 }
 export function taskView(t: Task, now: string) {
-  const expiredClaim = t.claimOwnerAddressId && expired(t.claimLeaseUntil, now);
+  const expiredClaim = t.claimOwnerAddressId && t.claimOwnershipMode!=='connection' && expired(t.claimLeaseUntil, now);
   return {
     task_id: t.taskId,
     title: t.title,
@@ -214,7 +235,8 @@ export function taskView(t: Task, now: string) {
       ? {
           owner_address_id: t.claimOwnerAddressId,
           generation: t.claimGeneration,
-          lease_until: t.claimLeaseUntil,
+          lease_until: t.claimOwnershipMode==='connection'?null:t.claimLeaseUntil,
+          ownership_mode:t.claimOwnershipMode??'timed',
           recovery: !!t.claimRecovery,
           expired: !!expiredClaim,
         }
@@ -237,7 +259,9 @@ export function runView(run: Run, baseUrl: string) {
       ? {
           address_id: run.coordinatorAddressId,
           generation: run.coordinatorGeneration,
-          lease_until: run.coordinatorLeaseUntil,
+          lease_until: run.coordinatorOwnershipMode==='connection'?null:run.coordinatorLeaseUntil,
+          ownership_mode:run.coordinatorOwnershipMode??'timed',
+          native_instance_id:run.coordinatorNativeInstanceId??null,
         }
       : null,
     cancel_requested: !!run.cancelRequested,
@@ -273,12 +297,14 @@ export function compactRunMutation(result: Record<string, unknown>) {
   };
 }
 export async function dbNow(tx: WorkflowTx) {
+  if(workflowState())return new Date().toISOString();
   const rows = await tx.execute(
     sql`SELECT DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%fZ') AS workflow_now`,
   );
   return new Date((rows[0] as unknown as Array<{ workflow_now: string }>)[0]!.workflow_now).toISOString();
 }
 export async function definition(tx: WorkflowTx, id: string, lock = false) {
+  const state=workflowState();if(state){const row=/^[0-9a-f-]{36}$/i.test(id)?state.table('workflows').get(id):state.table('workflows').all().find(r=>r.slug===id);if(!row)throw new NotFoundError('Workflow not found','workflow_not_found');return structuredClone(row);}
   const query = tx
     .select()
     .from(workflows)
@@ -296,10 +322,8 @@ export async function publish(
   sourceRunId: string | null = null,
 ) {
   expect(w.currentVersion, expected, 'workflow_version_conflict');
-  const [old] = await ctx.tx
-    .select()
-    .from(workflowVersions)
-    .where(eq(workflowVersions.id, w.currentVersionId));
+  const state=workflowState();
+  const old = state ? state.table('workflowVersions').get(w.currentVersionId) : (await ctx.tx.select().from(workflowVersions).where(eq(workflowVersions.id,w.currentVersionId)))[0];
   if (!old) throw new NotFoundError('Workflow head missing');
   const before = old.document as WorkflowDocument;
   if (canonical(before.goal) !== canonical(document.goal))
@@ -323,7 +347,9 @@ export async function publish(
     actor: agentRecord(ctx.actor),
     createdAt: ctx.now,
   };
+  publishWorkflowRow('workflowVersions',row);
   await ctx.tx.insert(workflowVersions).values(row);
+  patchWorkflowRow('workflows',w.id,{currentVersion:row.version,currentVersionId:row.id,title:document.title,summary:document.summary,controlVersion:w.controlVersion+1,updatedAt:ctx.now});
   await ctx.tx
     .update(workflows)
     .set({
@@ -379,3 +405,14 @@ export async function mergeAttemptEvidence(ctx: Session, run: Run, task: Task, i
     throw new ValidationError('An attempt may retain at most 200 evidence entries', { param: 'evidence' });
   return merged;
 }
+
+export function connectionActor(ctx:Session,actor:WorkflowActor=ctx.actor){
+ const owner=workflowOwnerRuntime(),state=workflowState();if(!owner||!state)return null;
+ const session=state.sessions.get(actor.session_id??'');
+ const attachment=session&&session.bindingGeneration===actor.binding_generation&&session.agentBusAddressId===actor.address_id&&!session.endedAt?nativeClaimAttachment(owner,session):undefined;
+ if(!session||!attachment?.scope.native_instance_id)throw new ConflictError('A live exact native process attachment is required','workflow_native_attachment_required');
+ return{sessionId:session.id,binding:session.bindingGeneration,instanceId:attachment.scope.native_instance_id};
+}
+export function coordinatorOwnership(ctx:Session,actor:WorkflowActor=ctx.actor){const proof=connectionActor(ctx,actor);return{coordinatorOwnershipMode:proof?'connection':'timed',coordinatorSessionId:proof?.sessionId??null,coordinatorBindingGeneration:proof?.binding??null,coordinatorNativeInstanceId:proof?.instanceId??null,coordinatorLeaseUntil:proof?null:leaseUntil(ctx.now)};}
+function sameTaskConnection(ctx:Session,t:Task){const owner=workflowOwnerRuntime(),state=workflowState();if(!owner||!state)return false;const session=state.sessions.get(ctx.actor.session_id??'');return Boolean(session&&session.bindingGeneration===t.claimBindingGeneration&&t.claimNativeInstanceId&&(nativeClaimAttachment(owner,session,t.claimNativeInstanceId)||legacyDrainFor(owner)?.session(session.id,session.bindingGeneration,t.claimNativeInstanceId)));}
+function sameCoordinatorConnection(ctx:Session,run:Run){if(run.coordinatorSessionId!==ctx.actor.session_id||run.coordinatorBindingGeneration!==ctx.actor.binding_generation)return false;const owner=workflowOwnerRuntime(),state=workflowState();if(!owner||!state)return false;const session=state.sessions.get(run.coordinatorSessionId??'');return Boolean(session&&run.coordinatorNativeInstanceId&&(nativeClaimAttachment(owner,session,run.coordinatorNativeInstanceId)||legacyDrainFor(owner)?.session(session.id,session.bindingGeneration,run.coordinatorNativeInstanceId)));}

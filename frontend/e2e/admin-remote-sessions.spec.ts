@@ -1,3 +1,4 @@
+import { ownerStream } from "./owner-stream";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import type { AgentSessionRow } from "../src/lib/api/agentSessions";
@@ -11,7 +12,7 @@ function agent(id: string): AgentSessionRow {
 }
 async function fixture(page: Page, read = true, manage = true) {
   let emit: ((data: string) => void) | undefined;
-  await page.routeWebSocket("**/remote-clients-ws", ws => { emit = data => ws.send(data); });
+  await page.routeWebSocket("**/remote-clients-ws", ws => { ownerStream(ws); emit = data => ws.send(data); });
   const remote: RemoteSession = { id: REMOTE, engine: "codex", title: "Review release on worker", cwd: "/srv/project", status: "idle", sessionId: NATIVE, addressId: "address", createdAt: stamp(), lastActivityAt: stamp(), operations: [{ id: "op", status: "completed", result: { reply: "Diagnostic operation output" } }] };
   const host: DaemonHost = { host_id: 1, fqdn: "worker.test", enabled: true, username: "operator", default_cwd: "/srv/project", engines: ["codex", "claude", "grok"], max_parallel: 8, idle_minutes: 60, question_minutes: 1440, health: { state: "green", reasons: [], heartbeat_at: stamp(), evaluated_at: stamp(), used_slots: 0, max_slots: 8 }, access: { allowed: true, reason: null, secure: true, enabled_until: null }, sessions: [remote] };
   const state = { update: async (type = "host.daemon.changed") => {

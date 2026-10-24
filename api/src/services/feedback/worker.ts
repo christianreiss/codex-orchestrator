@@ -1,3 +1,5 @@
+import { ownerRuntimeFor, mutateOwnerState } from '../../control-plane/state/runtime.js';
+import { stageUpdate } from '../../control-plane/state/rows.js';
 import { and, eq, isNull, ne, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../../routes/index.js';
@@ -96,7 +98,14 @@ INPUT:\n${input}`;
     if (config.mode !== 'user' || !config.runner_enabled) return;
     const identity = this.identity();
     if (identity.commit && !identity.dirty && this.seenBuild !== identity.commit) {
-      await this.ctx.db.update(feedbackPipeline).set({ nextAttemptAt: new Date().toISOString(), attempts: 0 })
+      const owner = ownerRuntimeFor(this.ctx.db);
+      if (owner) {
+        const rows = owner.state.snapshot().table('feedbackPipeline').all().filter(row => row.versionState === 'old_version' && row.testedCommit !== identity.commit);
+        if (rows.length) await mutateOwnerState(owner, { kind: 'feedback.build-recheck', payload: { commit: identity.commit }, prepare(context) {
+          for (const row of context.snapshot.table('feedbackPipeline').all()) if (row.versionState === 'old_version' && row.testedCommit !== identity.commit) stageUpdate(context, 'feedbackPipeline', row.feedbackId, { nextAttemptAt: new Date().toISOString(), attempts: 0 });
+          return null;
+        } });
+      } else await this.ctx.db.update(feedbackPipeline).set({ nextAttemptAt: new Date().toISOString(), attempts: 0 })
         .where(and(eq(feedbackPipeline.versionState, 'old_version'), or(isNull(feedbackPipeline.testedCommit), ne(feedbackPipeline.testedCommit, identity.commit))));
       this.seenBuild = identity.commit;
     }
@@ -123,7 +132,8 @@ INPUT:\n${input}`;
       return;
     }
     if (row.deliveryState === 'sent') return;
-    const [item] = await this.ctx.db.select().from(feedbackItems).where(eq(feedbackItems.id, row.feedbackId));
+    const owner = ownerRuntimeFor(this.ctx.db);
+    const item = owner ? owner.state.snapshot().table('feedbackItems').get(row.feedbackId) : (await this.ctx.db.select().from(feedbackItems).where(eq(feedbackItems.id, row.feedbackId)))[0];
     if (!item) return;
     if (item.status !== 'open') {
       await this.store.finish(row, { nextAttemptAt: null, reason: 'Local report is closed or claimed' }); return;
@@ -142,8 +152,8 @@ INPUT:\n${input}`;
     if (versionState === 'old_version' && !await github.isBehind(identity.commit!, sha)) versionState = 'unknown';
     if (/wrapper|cxx|cdx|clx|cgx/i.test(item.component)) {
       const hostId = Number(item.source.host_id);
-      const [host] = Number.isSafeInteger(hostId) && hostId > 0
-        ? await this.ctx.db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1) : [];
+      const host = Number.isSafeInteger(hostId) && hostId > 0
+        ? owner ? owner.state.snapshot().hosts.get(hostId) : (await this.ctx.db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1))[0] : undefined;
       // Free-form report.versions is not authoritative host telemetry.
       const actual = item.source.engine === 'claude' ? host?.claudeWrapperVersion
         : item.source.engine === 'grok' ? host?.grokWrapperVersion : host?.wrapperVersion;
@@ -220,7 +230,8 @@ INPUT:\n${input}`;
     github: FeedbackGithub, patch: Partial<PipelineRow> & { evidence: PipelineRow['evidence'] }) {
     const verdict = patch.evidence.verdict!;
     const latestConfig = await this.configuration.read();
-    const [latestItem] = await this.ctx.db.select().from(feedbackItems).where(eq(feedbackItems.id, item.id));
+    const owner = ownerRuntimeFor(this.ctx.db);
+    const latestItem = owner ? owner.state.snapshot().table('feedbackItems').get(item.id) : (await this.ctx.db.select().from(feedbackItems).where(eq(feedbackItems.id, item.id)))[0];
     const flags = new SettingsService(this.ctx.db);
     if (latestConfig.revision !== config.revision || latestConfig.mode !== 'user' || !latestConfig.auto_publish || !latestConfig.runner_enabled ||
       !await flags.getFlag('feedback_enabled', false) || await flags.getFlag('api_disabled', false) ||
@@ -256,6 +267,11 @@ INPUT:\n${input}`;
     try { await assertFleetEngineEnabledForAdmin(this.ctx.db, config.engine!); }
     catch {
       await this.store.finish(row, { deliveryState: 'local', nextAttemptAt: null, reason: 'Publication stopped because the selected engine is disabled' }); return;
+    }
+    if (owner) {
+      owner.assertOwner();
+      const snapshot = owner.state.snapshot(), current = snapshot.table('feedbackItems').get(item.id), lease = snapshot.table('feedbackPipeline').get(row.feedbackId);
+      if (!current || current.status !== 'open' || digestReport(current) !== digestReport(item) || lease?.leaseToken !== row.leaseToken || !lease.leaseExpiresAt || lease.leaseExpiresAt <= new Date().toISOString()) throw new ConflictError('Feedback authority changed before publication');
     }
     const result = await github.publish(verdict.public_title, body, target);
     await this.store.finish(row, { deliveryState: 'sent', githubIssueNumber: result.number, githubUrl: result.html_url,

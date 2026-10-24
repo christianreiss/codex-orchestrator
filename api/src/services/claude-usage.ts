@@ -13,6 +13,7 @@ import { desc, eq, gte, lte, and, isNull } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { claudeUsageSnapshots } from '../db/schema.js';
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 
 type ClaudeSnapshotRow = typeof claudeUsageSnapshots.$inferSelect;
 type ClaudeSnapshotInsert = typeof claudeUsageSnapshots.$inferInsert;
@@ -75,6 +76,7 @@ export class ClaudeUsageService {
   ) {}
 
   async latest(): Promise<ClaudeSnapshotRow | null> {
+    const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return owner.state.snapshot().table('claudeUsageSnapshots').all().filter(row=>row.accountId===(this.accountId??null)).sort((a,b)=>b.fetchedAt.localeCompare(a.fetchedAt)||b.id-a.id)[0]??null;}
     const rows = await this.db
       .select()
       .from(claudeUsageSnapshots)
@@ -111,6 +113,13 @@ export class ClaudeUsageService {
       fetchedAt: now,
       createdAt: now,
     };
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){let stored!:ClaudeSnapshotRow;await mutateOwnerState(owner,{kind:'usage.claude.report',payload:{accountId:values.accountId??null,hostId:values.hostId??null,fiveHourUsedPercent,sevenDayUsedPercent,at:now},prepare(ctx){
+      ctx.write(async tx=>{const [inserted]=await tx.insert(claudeUsageSnapshots).values(values);stored={...values,id:Number(inserted.insertId),accountId:values.accountId??null,hostId:values.hostId??null,source:values.source??'statusline',fiveHourUsedPercent:values.fiveHourUsedPercent??null,fiveHourResetsAt:values.fiveHourResetsAt??null,sevenDayUsedPercent:values.sevenDayUsedPercent??null,sevenDayResetsAt:values.sevenDayResetsAt??null} as ClaudeSnapshotRow;ctx.draft.upsert('claudeUsageSnapshots',stored);
+        // Quota semantics need both latest arrival and latest observed time.
+        const rows=ctx.draft.table('claudeUsageSnapshots').all().filter(row=>row.accountId===stored.accountId),arrived=rows.reduce((a,b)=>a.id>b.id?a:b),observed=[...rows].sort((a,b)=>b.fetchedAt.localeCompare(a.fetchedAt)||b.id-a.id)[0]!;for(const row of rows)if(row.id!==arrived.id&&row.id!==observed.id)ctx.draft.remove('claudeUsageSnapshots',row.id);
+      });return()=>stored as unknown as import('../control-plane/commands.js').Json;
+    }});return stored;}
     const result = await this.db.insert(claudeUsageSnapshots).values(values);
     const insertId = (result as unknown as [{ insertId?: number }])[0]?.insertId;
     if (typeof insertId === 'number' && insertId > 0) {

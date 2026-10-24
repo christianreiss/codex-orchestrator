@@ -1,3 +1,6 @@
+import {persistAuditLog} from '../services/audit-log.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { stageDelete } from '../control-plane/state/rows.js';
 import { ChatGptUsageService } from '../services/chatgpt-usage.js';
 import { GrokUsageService } from '../services/grok-usage.js';
 import { createGrokAuthOwner } from '../services/grok-auth-owner.js';
@@ -13,7 +16,7 @@ import { quotaSnapshot } from '../services/quota-observation.js';
 import { ProviderAccountsService } from '../services/provider-accounts.js';
 import { WatchdogsService } from '../services/watchdogs.js';
 import { parseEngine, type Engine } from '../util/engine.js';
-import { logs, versions } from '../db/schema.js';
+import { versions } from '../db/schema.js';
 
 export async function registerQuotaRoutes(app: FastifyInstance, ctx: RouteContext) {
   const settings = new SettingsService(ctx.db);
@@ -31,9 +34,21 @@ export async function registerQuotaRoutes(app: FastifyInstance, ctx: RouteContex
     const { engine, id } = await resolve(req.params);
     const input = z.object({ policy: quotaPolicySchema.nullable() }).strict().parse(req.body);
     const key = quotaPolicyKey(engine, id);
+    const owner=ownerRuntimeFor(ctx.db);
+    if(owner){
+      await mutateOwnerState(owner,{kind:'quota.policy.update',payload:{engine,accountId:id??null,policy:input.policy},prepare(command){
+        if(id&&command.snapshot.table('providerAccounts').get(id)?.engine!==engine)throw new Error('Quota account changed');
+        const now=new Date().toISOString();
+        if(input.policy===null)stageDelete(command,'versions',key);
+        else{const row={name:key,version:JSON.stringify(input.policy),updatedAt:now};command.draft.upsert('versions',row);command.write(tx=>tx.insert(versions).values(row).onDuplicateKeyUpdate({set:{version:row.version,updatedAt:now}}));}
+        command.write(tx=>persistAuditLog(tx, {action:'quota.policy.updated',details:JSON.stringify({engine,account_id:id??null,policy:input.policy}),createdAt:now}));return null;
+      }});
+      wsPublisher.publish('quota.policy.updated',{engine,account_id:id??null});
+      return readQuotaPolicy(ctx.db,engine,id);
+    }
     if (input.policy === null) await ctx.db.delete(versions).where(eq(versions.name, key));
     else await settings.set(key, JSON.stringify(input.policy));
-    await ctx.db.insert(logs).values({ action: 'quota.policy.updated', details: JSON.stringify({ engine, account_id: id ?? null, policy: input.policy }), createdAt: new Date().toISOString() });
+    await persistAuditLog(ctx.db, { action: 'quota.policy.updated', details: JSON.stringify({ engine, account_id: id ?? null, policy: input.policy }), createdAt: new Date().toISOString() });
     wsPublisher.publish('quota.policy.updated', { engine, account_id: id ?? null });
     return readQuotaPolicy(ctx.db, engine, id);
   };

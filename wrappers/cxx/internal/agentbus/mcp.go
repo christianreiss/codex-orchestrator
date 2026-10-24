@@ -157,6 +157,18 @@ func (t *channelTracker) track(parent context.Context, messageID, claimID string
 	}
 	t.items[messageID] = pending
 	t.mu.Unlock()
+	t.mu.Lock()
+	receiver := t.receiver
+	t.mu.Unlock()
+	connectionOwned := false
+	if receiver != nil {
+		receiver.mu.Lock()
+		connectionOwned = receiver.connectionOwned
+		receiver.mu.Unlock()
+	}
+	if connectionOwned {
+		return pending
+	}
 	go func() {
 		ticker := time.NewTicker(deliveryRenewEvery)
 		defer ticker.Stop()

@@ -1,3 +1,5 @@
+import { ownerRuntimeFor, setOwnerRequestPrincipal } from '../control-plane/state/runtime.js';
+import { recordGatewayKeyUse } from './gateway-key-usage.js';
 /**
  * Anthropic-compatible API-key resolver. Accepts the same three header forms
  * the legacy PHP `ClaudeApiController::authenticate()` honoured:
@@ -99,6 +101,12 @@ export function createClaudeKeyResolver(db: Database): ClaudeKeyResolver {
       );
     }
     const keyHash = sha256(raw);
+    const owner=ownerRuntimeFor(db);if(owner){owner.assertOwner();const row=owner.state.snapshot().table('openaiApiKeys').by('keyHash',keyHash).find(row=>row.engine===CLAUDE_ENGINE);
+      if(!row||row.isActive!==1||row.expiresAt&&Date.parse(row.expiresAt)<=Date.now())throw makeAuthError('Invalid or expired API key.','invalid_api_key');
+      setOwnerRequestPrincipal({principal:`gateway-key:${row.id}`,revalidate(snapshot){const key=snapshot.table('openaiApiKeys').get(row.id);if(!key||key.keyHash!==keyHash||key.engine!==CLAUDE_ENGINE||key.backendEngine!==row.backendEngine||key.isActive!==1||key.expiresAt&&Date.parse(key.expiresAt)<=Date.now())throw makeAuthError('API key authority changed.','invalid_api_key');}});
+      recordGatewayKeyUse(db,row.id);return {id:row.id,name:row.name,keyPrefix:row.keyPrefix,adminUserId:row.adminUserId??null,backendEngine:row.backendEngine??null};
+    }
+
     const rows = await db
       .select()
       .from(openaiApiKeys)

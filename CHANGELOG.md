@@ -1,5 +1,21 @@
 # 2026-10-24
 
+- Preserve existing legacy resource/Git grants through a quiescent cutover using exact captured identities and fresh native proof; healthy renewals remain in RAM. Add explicit deployment `--no-backup`, retaining writer shutdown and image rollback tags while omitting database/storage archives and credential copies.
+
+- Prepare the API's private storage lock file during install/deploy preflight, preserving its inode and existing lock on root-owned storage directories.
+
+- Release abandoned in-process provider-task leases after exclusive API restart, across all engines. Preserve remote native leases and legacy timed grants; account removal no longer waits forever on a stopped API task.
+
+- Keep a kernel storage lock for the API process lifetime so database connection loss cannot admit overlapping filesystem writers. Refuse committed-response delivery after owner loss and reject mutations through retained, sealed command contexts.
+
+- Serve version summaries, API routing, active key counts and surface kill switches from current owner metadata with immediate changes and fail-closed owner loss. Recheck volatile authorization after command receipt reads before replay.
+
+- Revalidate protected HTTP reads after cold I/O and before delivery, including streamed chunks and MCP batch items. Preserve explicitly committed logout, uninstall and credential-replacement acknowledgements without allowing audit writes or session renewal to authorize revoked reads.
+
+- Serve Companion unread counts and event pointers from bounded owner metadata, preserving ended-session aliases and explicit historical cursor lookups. Read admin host and installer metadata from owned state. Retired sync activity counters keep numeric zero compatibility fields without querying removed telemetry.
+
+- Move current orchestration metadata to an exclusive API owner with durable command receipts, connection-bound communicator state, event/deadline workers and commit-before-publication writes. Preserve offered execution identities across disconnects and shutdown. Coalesce gateway usage telemetry, publish media jobs durably, and replace wrapper/media filesystem polling with events. Provider usage collection now runs inside the API; schema changes and signing-key maintenance require a stopped owner. Wrapper config fetches are read-only; `config_version` becomes an opaque semantic fingerprint. The rollout script captures a private, quiescent database/storage backup before replacement; after replacement starts, repair proceeds forward to preserve new receipts. See `docs/control-plane-owner.md` and `docs/owner-cutover.md` for the architecture and rollout contract.
+
 - Reduce empty coordination work: active claim renewals skip unrelated fleet reconciliation; unchanged secure daemon heartbeats use a fenced timestamp update, with retention handled by the shared 60-second sweep. Native-control checkpoints recheck session/address identity atomically. Companion push checks its durable cursor/outbox before building rosters, and cleans expired rows once per minute. Idle relay requests keep their 10-second grid through the final timeout instead of reverting to two-second polling. Reuse SQL dependency parsing and preserve cached guard tables on single-target updates.
 - Normalize immutable runtime artifact read/traverse permissions in both API images. Restricted checkout umasks no longer make new migrations or browser assets unreadable to the unprivileged container user; root ownership and write protection remain unchanged.
 - Remove unused SQL access telemetry: generic MCP call logging, its Activity view, read/no-op logs and duplicate message/toast logs. Cron version reports log actual transitions only. Preserve secret-read audits in `admin_events`; migration 0092 freezes old writers, migrates audits and removes retired history. Remove the nonfunctional log-retention controls; inactivity pruning remains effective.

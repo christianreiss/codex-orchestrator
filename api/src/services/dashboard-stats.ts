@@ -1,3 +1,5 @@
+import {ownerRuntimeFor} from '../control-plane/state/runtime.js';
+import {LATEST_LOG_HEAD} from './audit-log.js';
 /**
  * Dashboard rollups for the /admin/overview tile data. Reads the recent/latest
  * `logs` rows and the pre-aggregated quota snapshots in
@@ -16,6 +18,8 @@ export class DashboardStatsService {
     const safe = Math.max(1, Math.min(500, limit));
     return this.db.select().from(logs).orderBy(desc(logs.createdAt)).limit(safe);
   }
+
+  async latestLogAt():Promise<string|null>{const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return owner.state.snapshot().setting(LATEST_LOG_HEAD);}return (await this.latestLog())?.createdAt??null;}
 
   async latestLog(): Promise<typeof logs.$inferSelect | null> {
     const rows = await this.db.select().from(logs).orderBy(desc(logs.createdAt)).limit(1);

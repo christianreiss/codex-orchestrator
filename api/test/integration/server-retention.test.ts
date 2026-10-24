@@ -229,7 +229,7 @@ describe.skipIf(!handle)('24h server history retention', { timeout: 120_000 }, (
       expect(await exists('agent_chat_attachments', attachment)).toBe(false);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
-  it('purges inactive private Chatty history and advances its generation once', async () => {
+  it('retains uncertain private Chatty work and purges completed history once', async () => {
     const username = `retention-${randomUUID()}`;
     await db!.insert(adminUsers).values({ name: 'test', username, email: `${username}@test.invalid`, passwordHash: 'unused', accessLevel: 'owner', createdAt: old, updatedAt: old });
     const user = (await db!.select().from(adminUsers).where(eq(adminUsers.username, username)))[0]!;
@@ -237,6 +237,12 @@ describe.skipIf(!handle)('24h server history retention', { timeout: 120_000 }, (
     await db!.insert(chattySessions).values({ userId: user.id, generation: 5, selection: { engine: 'grok', model: null }, updatedAt: old });
     await db!.insert(chattyRuns).values({ id: run, userId: user.id, adminSessionId: 999999, generation: 5, clientMessageId: randomUUID(), requestHash: 'f'.repeat(64), status: 'running', inputEnc: 'private', stateEnc: 'private', leaseUntil: old, createdAt: old, updatedAt: old });
     await db!.insert(chattyEvents).values({ userId: user.id, generation: 5, runId: run, kind: 'user', bodyEnc: 'private', createdAt: old });
+    await retention.purge(instant);
+    expect((await db!.select().from(chattyRuns).where(eq(chattyRuns.id, run)))[0]?.status).toBe('unknown');
+    expect((await db!.select().from(chattySessions).where(eq(chattySessions.userId, user.id)))[0]?.generation).toBe(5);
+    // An elapsed lease does not prove the external operation stopped. Only a
+    // recorded terminal result makes this history eligible for deletion.
+    await db!.update(chattyRuns).set({ status: 'completed', updatedAt: old }).where(eq(chattyRuns.id, run));
     await retention.purge(instant);
     expect(await exists('chatty_runs', run)).toBe(false);
     expect((await db!.select().from(chattySessions).where(eq(chattySessions.userId, user.id)))[0]?.generation).toBe(6);

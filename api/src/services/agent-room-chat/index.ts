@@ -1,3 +1,5 @@
+import { OwnedRoomChat } from './owned.js';
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import type { AnyMySqlColumn } from 'drizzle-orm/mysql-core';
@@ -69,7 +71,9 @@ export class AgentRoomChat {
   ) {
     this.attachments = new ChatAttachments(db, keyring, env.DATA_ROOT ?? 'storage');
   }
+  private owned(){return ownerRuntimeFor(this.db)?new OwnedRoomChat(this):undefined;}
   private run<T>(actor: RoomActor, fn: (tx: AgentMessagingDb, session: AgentSession | null) => Promise<T>) {
+    const owned=this.owned();if(owned){const session=owned.authorize(owned.snapshot(),actor);return fn(this.db,session).then(result=>{owned.authorize(owned.snapshot(),actor);return result;});}
     if (!actor.sessionId && !actor.adminId) throw new ForbiddenError('Authenticated author required');
     return this.bus.coordinationTransaction(actor.sessionId ?? null, actor.token ?? null, fn);
   }
@@ -105,6 +109,7 @@ export class AgentRoomChat {
     }));
   }
   async room(tx: AgentMessagingDb, id: string, session: AgentSession | null = null): Promise<Room> {
+    const owned=this.owned();if(owned)return owned.room(owned.snapshot(),id,session);
     const [g] = await tx.select().from(agentBusGroups).where(eq(agentBusGroups.id, id));
     let room: Room;
     if (g) {
@@ -184,6 +189,7 @@ export class AgentRoomChat {
     return room;
   }
   async access(actor: RoomActor, id: string, write = false) {
+    const owned=this.owned();if(owned)return owned.access(actor,id,write);
     return this.run(actor, async (tx, session) => {
       const room = await this.room(tx, id, session);
       if (write) await assertWorkflowGroupAccess(tx, id, session, true);
@@ -192,6 +198,7 @@ export class AgentRoomChat {
     });
   }
   async list(actor: RoomActor, offset = 0, view: RoomListView = 'active') {
+    const owned=this.owned();if(owned)return owned.list(actor,offset,view);
     if (!(await this.bus.isEnabled()))
       return { enabled: false, rooms: [], has_more: false, next_offset: null };
     return this.run(actor, async (tx, session) => {
@@ -351,7 +358,7 @@ export class AgentRoomChat {
         );
       }
       if (room.kind === 'group') {
-        const [group] = await tx.select().from(agentBusGroups).where(eq(agentBusGroups.id, room.id));
+        const [group] = this.owned()?[this.owned()!.snapshot().table('agentBusGroups').get(room.id)]:await tx.select().from(agentBusGroups).where(eq(agentBusGroups.id, room.id));
         const publications = await tx
           .select()
           .from(agentBusPublications)
@@ -445,6 +452,7 @@ export class AgentRoomChat {
     });
   }
   async markRead(actor: RoomActor, roomId: string, through: string) {
+    const owned=this.owned();if(owned)return owned.markRead(actor,roomId,through);
     if (!actor.adminId || !Number.isFinite(Date.parse(through)))
       throw new ValidationError('Valid read position required');
     return this.run(actor, async (tx, session) => {
@@ -458,6 +466,7 @@ export class AgentRoomChat {
     });
   }
   async send(actor: RoomActor, input: unknown) {
+    const owned=this.owned();if(owned){const result=await owned.send(actor,input);wsPublisher.publish('agent_room_chat.changed', {room_id:roomSendSchema.parse(input).room_id});return result;}
     const body = roomSendSchema.parse(input);
     const result = await this.run(actor, async (tx, session) => {
       const room = await this.room(tx, body.room_id, session),
@@ -678,6 +687,7 @@ export class AgentRoomChat {
     room.members.push(...(await this.members(tx, [{ id: addressId, role: 'member' }])));
   }
   async create(actor: RoomActor, input: unknown) {
+    const owned=this.owned();if(owned){const result=await owned.create(actor,input);wsPublisher.publish('agent_room_chat.changed', result);return result;}
     const body = roomCreateSchema.parse(input);
     const result = await this.operation(actor, body, async (tx) => {
       const id = randomUUID(),
@@ -711,6 +721,7 @@ export class AgentRoomChat {
     return result;
   }
   async manage(actor: RoomActor, input: unknown) {
+    const owned=this.owned();if(owned){const result=await owned.manage(actor,input);wsPublisher.publish('agent_room_chat.changed', result);return result;}
     const body = roomManageSchema.parse(input);
     const result = await this.operation(actor, body, async (tx) => {
       const room = await this.room(tx, body.room_id);
@@ -801,6 +812,7 @@ export class AgentRoomChat {
     return result;
   }
   async tick() {
+    if(this.owned())return; // Owner deadline/event workers own conference completion and retention.
     if (!(await this.bus.isEnabled())) return;
     await this.bus.coordinationTransaction(null, null, async (tx) => {
       const rooms = await tx

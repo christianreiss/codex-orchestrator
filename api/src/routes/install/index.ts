@@ -1,8 +1,11 @@
+import {persistAuditLog} from '../../services/audit-log.js';
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { requestHost } from '../../control-plane/state/admission.js';
 import { HostSpawnService, hostSpawnCompletionScript } from '../../services/host-spawn.js';
 import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../services/pooled-auth-store.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { hosts as hostsTable, hostSpawns, logs as logsTable } from '../../db/schema.js';
+import { hosts as hostsTable, hostSpawns} from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
 import { ApiError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
@@ -82,8 +85,9 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     if (tokenExpired(row.expiresAt))
       return { message: 'Installer expired', code: 'installer_expired', expiresAt: row.expiresAt };
 
-    const hostRows = await ctx.db.select().from(hostsTable).where(eq(hostsTable.id, row.hostId)).limit(1);
-    const host = hostRows[0];
+    const owner=ownerRuntimeFor(ctx.db);
+    const current=owner?.state.snapshot().hosts.get(row.hostId);
+    const host = owner ? current ? requestHost(current,row.apiKey) : undefined : (await ctx.db.select().from(hostsTable).where(eq(hostsTable.id,row.hostId)).limit(1))[0];
     if (!host) return { message: 'Installer host missing', code: 'installer_host_missing' };
     if ((host.status && host.status !== 'active') || (host.expiresAt && tokenExpired(host.expiresAt))) {
       return { message: 'Installer host unavailable', code: 'installer_host_unavailable' };
@@ -105,9 +109,9 @@ export async function registerInstallRoutes(app: FastifyInstance, ctx: RouteCont
     const baseUrl = resolveBaseUrl(row.baseUrl, ctx);
     if (!baseUrl) return { message: 'Installer base URL invalid', code: 'installer_base_url_invalid', expiresAt: row.expiresAt };
 
-    const spawnRows = await ctx.db.select().from(hostSpawns).where(eq(hostSpawns.targetHostId, host.id)).limit(1);
+    const spawnRows = owner ? owner.state.snapshot().table('hostSpawns').by('targetHostId',host.id) : await ctx.db.select().from(hostSpawns).where(eq(hostSpawns.targetHostId, host.id)).limit(1);
     if (spawnRows.length) {
-      const [source] = await ctx.db.select().from(hostsTable).where(eq(hostsTable.id, spawnRows[0]!.sourceHostId));
+      const source = owner ? owner.state.snapshot().hosts.get(spawnRows[0]!.sourceHostId) : (await ctx.db.select().from(hostsTable).where(eq(hostsTable.id,spawnRows[0]!.sourceHostId)))[0];
       if (!(await new HostSpawnService(ctx).enabled()) || !source || source.status !== 'active' || source.vip !== 1)
         return { message: 'System spawn is disabled or source VIP revoked', code: 'host_spawn_disabled' };
     }
@@ -163,7 +167,7 @@ ui_result_fail`);
     const { row, host, body } = resolved;
     const claimed = await installSvc.markInstallUsed(row.id);
     if (!claimed) return shellishError(reply, 'Installer already used', 'installer_used', row.expiresAt);
-    await ctx.db.insert(logsTable).values({
+    if (!ownerRuntimeFor(ctx.db)) await persistAuditLog(ctx.db, {
       hostId: row.hostId,
       action: 'install.v2.token.consume',
       details: JSON.stringify({ token: token.slice(0, 8) + '…', engine: row.engine }),

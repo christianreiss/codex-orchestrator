@@ -1,3 +1,7 @@
+import {addOwnerResponseProof} from '../../control-plane/state/runtime.js';
+import { requireOwnerRuntime } from '../../control-plane/state/runtime.js';
+import { ownedBridge,ownedEngineState } from '../../control-plane/state/messaging.js';
+import { withNativePrincipal } from '../../control-plane/state/native-principal.js';
 import { recordHostContact } from '../../services/host-lifecycle.js';
 import { HostSpawnService } from '../../services/host-spawn.js';
 import { createAgentMessagingService } from '../../services/agent-messaging.js';
@@ -259,19 +263,29 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
     host = await recordHostContact(ctx.db, host);
     req.authHost = host;
-    const result = await server.handlePayload(body, {
+    const sessionHeader=req.headers['x-agent-session-id'],bridgeHeader=req.headers['x-agent-bridge-token'];
+    let nativePrincipal:{sessionId:string;bridgeToken:string}|undefined;
+    if(sessionHeader!==undefined||bridgeHeader!==undefined){
+      if(typeof sessionHeader!=='string'||typeof bridgeHeader!=='string'||!sessionHeader||!bridgeHeader)throw new UnauthorizedError('Paired native session credentials required','agent_bridge_unauthorized');
+      const owner=requireOwnerRuntime(ctx.db),{session}=ownedBridge(owner.state.snapshot(),sessionHeader,bridgeHeader);
+      if(session.hostId!==host.id||session.engine!==engine)throw new ForbiddenError('Native session does not belong to this MCP host and engine','agent_bridge_host_mismatch');
+      nativePrincipal={sessionId:sessionHeader,bridgeToken:bridgeHeader};
+    }
+    addOwnerResponseProof('mcp-engine',snapshot=>{const current=snapshot.hosts.get(host.id);if(!current)throw new UnauthorizedError('Host revoked');assertHostEngineEnabled(current,engine,ownedEngineState(snapshot));});
+    if(nativePrincipal){const proof=nativePrincipal;addOwnerResponseProof('mcp-native',snapshot=>{const {session}=ownedBridge(snapshot,proof.sessionId,proof.bridgeToken);if(session.hostId!==host.id||session.engine!==engine)throw new UnauthorizedError('Native binding changed');});}
+    const dispatch=()=>server.handlePayload(body, {
       host,
       clientIp: clientIp(req),
       serverVersion: '2.0.0',
       capability: detectCapability(req),
       engine,
     });
+    const result=await (nativePrincipal?withNativePrincipal(nativePrincipal,dispatch):dispatch());
 
     if (result === null) {
-      raw(reply).code(202).send();
-      return;
+      return raw(reply).code(202).send();
     }
 
-    raw(reply).type('application/json').code(200).send(JSON.stringify(result));
+    return raw(reply).type('application/json').code(200).send(JSON.stringify(result));
   });
 }

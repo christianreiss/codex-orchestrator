@@ -1,3 +1,6 @@
+import { ownerRuntimeFor, mutateOwnerState, type OwnerRuntime } from '../control-plane/state/runtime.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
+import { NotFoundError } from '../http/errors.js';
 import { eq, sql } from 'drizzle-orm';
 import { hostUsers, type Host } from '../db/schema.js';
 import type { Database } from '../db/client.js';
@@ -48,6 +51,9 @@ export interface HostSyncDeps {
   versions: VersionSnapshotService;
 }
 
+const userObservations=new WeakMap<OwnerRuntime,Map<number,string>>();
+function observeUser(owner:OwnerRuntime,id:number){let rows=userObservations.get(owner);if(!rows){rows=new Map();userObservations.set(owner,rows);const observations=rows;owner.state.subscribe(snapshot=>{for(const key of observations.keys())if(!snapshot.table('hostUsers').has(key))observations.delete(key);});}rows.set(id,nowIso());}
+
 export function createHostSyncService(deps: HostSyncDeps): HostSyncService {
   const { db, versions } = deps;
 
@@ -67,6 +73,23 @@ export function createHostSyncService(deps: HostSyncDeps): HostSyncService {
 
     async recordHostUser(hostId, username, hostname) {
       const u = (username ?? '').trim();
+      const owner=ownerRuntimeFor(db);
+      if(owner){
+        owner.assertOwner();
+        if(u){const prior=owner.state.snapshot().table('hostUsers').by('hostId',hostId).find(row=>row.username===u);
+          // Content sync records new users and hostname changes. Transport
+          // presence already owns ongoing liveness, so unchanged sync is read-only.
+          if(!prior||hostname!==null&&hostname!==prior.hostname)await mutateOwnerState(owner,{kind:'host.user.register',payload:{hostId,username:u,hostname},prepare(ctx){
+            if(!ctx.snapshot.hosts.has(hostId))throw new NotFoundError('Host not found');
+            const existing=ctx.snapshot.table('hostUsers').by('hostId',hostId).find(row=>row.username===u),now=nowIso();
+            if(existing){if(hostname!==null&&hostname!==existing.hostname)stageUpdate(ctx,'hostUsers',existing.id,{hostname,lastSeen:now});}
+            else{const row={hostId,username:u,hostname,firstSeen:now,lastSeen:now};ctx.write(async tx=>{const [result]=await tx.insert(hostUsers).values(row);ctx.draft.upsert('hostUsers',{...row,id:Number(result.insertId)});});}return null;
+          }});
+        }
+        const observed=owner.state.snapshot().table('hostUsers').by('hostId',hostId).find(row=>row.username===u);if(observed)observeUser(owner,observed.id);
+        return readUsers(db,hostId);
+      }
+
       if (u !== '') {
         const now = nowIso();
         await db
@@ -91,6 +114,7 @@ async function readUsers(
   db: Database,
   hostId: number,
 ): Promise<Array<{ username: string; hostname: string | null; last_seen: string }>> {
+  const owner=ownerRuntimeFor(db);if(owner){owner.assertOwner();return owner.state.snapshot().table('hostUsers').by('hostId',hostId).map(row=>({username:row.username,hostname:row.hostname??null,last_seen:userObservations.get(owner)?.get(row.id)??row.lastSeen}));}
   const rows = await db.select().from(hostUsers).where(eq(hostUsers.hostId, hostId));
   return rows.map((r) => ({ username: r.username, hostname: r.hostname ?? null, last_seen: r.lastSeen }));
 }

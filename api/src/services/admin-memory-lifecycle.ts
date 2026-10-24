@@ -1,3 +1,6 @@
+import {persistAuditLog} from './audit-log.js';
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { AdminMemoryOwned } from './admin-memory-owned.js';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
@@ -6,7 +9,6 @@ import {
   coordProjectMemories,
   coordProjects,
   hosts,
-  logs,
   mcpMemories,
   sharedMemories,
   sharedMemoryChunks,
@@ -49,7 +51,8 @@ export class AdminMemoryLifecycle {
     input: Record<string, unknown>,
     actorId: number,
   ): Promise<{ status: 'created'; memory: MemoryDetail }> {
-    this.assertCreateInput(scope, input);
+    this.assertCreateInput(scope,input);
+    if(ownerRuntimeFor(this.db)){const row=await new AdminMemoryOwned(this.db).create(scope,input,actorId);this.publishMutation('created',row);return {status:'created',memory:toMemoryDetail(row,true)};}
     try {
       if (scope === 'host') return await this.createHost(input, actorId);
       if (scope === 'project') return await this.createProject(input, actorId);
@@ -66,7 +69,8 @@ export class AdminMemoryLifecycle {
     input: Record<string, unknown>,
     actorId: number,
   ): Promise<{ status: 'updated' | 'unchanged'; memory: MemoryDetail }> {
-    this.assertMutablePatch(scope, input);
+    this.assertMutablePatch(scope,input);
+    if(ownerRuntimeFor(this.db)){const result=await new AdminMemoryOwned(this.db).change(scope,recordId,input,actorId);if(result.changed)this.publishMutation('updated',result.row);return {status:result.changed?'updated':'unchanged',memory:toMemoryDetail(result.row,true)};}
     if (scope === 'host') return this.updateHost(recordId, input, actorId);
     if (scope === 'project') return this.updateProject(recordId, input, actorId);
     return this.updateShared(recordId, input, actorId);
@@ -78,6 +82,7 @@ export class AdminMemoryLifecycle {
     expectedEtag: unknown,
     actorId: number,
   ): Promise<{ status: 'deleted'; node_id: string; scope: MemoryScope; record_id: number }> {
+    if(ownerRuntimeFor(this.db)){const result=await new AdminMemoryOwned(this.db).change(scope,recordId,{expected_etag:expectedEtag},actorId,'deleted');this.publishMutation('deleted',result.row);return {status:'deleted',node_id:memoryNodeId(scope,recordId),scope,record_id:recordId};}
     const deleted = await this.db.transaction(async (tx) => {
       const scoped = new AdminMemoryCatalog(tx as unknown as Database);
       const initial = await scoped.loadRow(scope, recordId);
@@ -119,6 +124,7 @@ export class AdminMemoryLifecycle {
     actorId: number,
   ): Promise<{ status: 'appended'; memory: MemoryDetail }> {
     const addition = normalizeContent(contentValue, MAX_CONTENT_CHARS);
+    if(ownerRuntimeFor(this.db)){const result=await new AdminMemoryOwned(this.db).change('shared',recordId,{content:addition},actorId,'appended');this.publishMutation('appended',result.row);return {status:'appended',memory:toMemoryDetail(result.row,true)};}
     const result = await this.db.transaction(async (tx) => {
       await tx
         .select({ id: sharedMemories.id })
@@ -155,6 +161,7 @@ export class AdminMemoryLifecycle {
     actorId: number,
   ): Promise<{ status: 'restored'; memory: MemoryDetail; restored_from_revision: number }> {
     const revision = normalizePositiveInt(input['revision'], 'revision');
+    if(ownerRuntimeFor(this.db)){const result=await new AdminMemoryOwned(this.db).change('shared',recordId,input,actorId,'restored');this.publishMutation('restored',result.row);return {status:'restored',memory:toMemoryDetail(result.row,true),restored_from_revision:revision};}
     const result = await this.db.transaction(async (tx) => {
       await tx
         .select({ id: sharedMemories.id })
@@ -690,7 +697,7 @@ export class AdminMemoryLifecycle {
     await db
       .insert(adminEvents)
       .values({ type: `admin.memory.${action}`, hostId: row.ownerHostId, payload, createdAt });
-    await db.insert(logs).values({
+    await persistAuditLog(db, {
       hostId: row.ownerHostId,
       action: `admin.memory.${action}`,
       details: JSON.stringify(payload),

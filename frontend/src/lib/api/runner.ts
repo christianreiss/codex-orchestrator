@@ -11,7 +11,7 @@
  * plus engine-scoped persisted telemetry under `runner.engines`.
  *
  * No WebSocket events exist for runner state changes today, so the card
- * polls via `refetchInterval`.
+ * refreshes through the shared live-update stream.
  */
 import { api, ApiError } from "./client";
 import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
@@ -103,16 +103,12 @@ export const runnerKeys = {
 
 /* Query / mutation builders -------------------------------------------- */
 
-/**
- * Polls `/admin/runner` every 15 s. No WebSocket events exist for runner
- * state today (see grep over `api/src` for `runner.` publish calls) — the
- * polling interval is the sole refresh trigger.
- */
+/** Runner observations refresh through owner events and explicit checks. */
 export function createRunnerStateQuery() {
   return createQuery<RunnerStateResponse>({
     queryKey: runnerKeys.state(),
     queryFn: () => api.get<RunnerStateResponse>("/admin/runner"),
-    refetchInterval: 15_000,
+
   });
 }
 

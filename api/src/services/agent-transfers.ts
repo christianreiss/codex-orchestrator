@@ -1,3 +1,18 @@
+import {
+  transferCommand,
+  transferRows,
+  insertTransfer,
+  updateTransfer,
+  transferEvent,
+  transferNotify,
+} from './agent-transfers/owner.js';
+import type { Json } from '../control-plane/commands.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
+import {
+  ownerRuntimeFor,
+  mutateOwnerState,
+  withOwnerBackgroundScope,
+} from '../control-plane/state/runtime.js';
 /**
  * Agent file transfer: a fleet-wide, TTL'd pool of arbitrary files.
  *
@@ -5,7 +20,8 @@
  * tables keeps its content in a LONGTEXT column. This one does not: the bytes
  * live on the DATA_ROOT volume and the row holds only metadata and a path. The
  * consequence that shapes this whole module is that a row and its bytes can now
- * disagree, so every destructive step unlinks the file BEFORE it changes the
+ * disagree. Owner mode retires metadata before unlink and retains purgedAt=null
+ * as a durable cleanup obligation across crashes. The legacy path unlinks before the
  * row. A crash in between leaves a live row whose file is already gone, which
  * the next sweep retries harmlessly; the other order would leave an expired row
  * nobody looks at again guarding a file nothing ever deletes. Same retry-token
@@ -46,11 +62,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js
 import { isoOffsetSeconds, nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { SettingsService } from './settings.js';
-import {
-  BINARY_CHUNK_BYTES,
-  BinaryTransfers,
-  type BinaryTransferInput,
-} from './agent-transfers/binary.js';
+import { BINARY_CHUNK_BYTES, BinaryTransfers, type BinaryTransferInput } from './agent-transfers/binary.js';
 
 export const TRANSFERS_ENABLED_FLAG = 'transfers_module_enabled';
 export const TRANSFERS_DEFAULT_TTL_KEY = 'transfers_default_ttl_seconds';
@@ -330,7 +342,12 @@ export class AgentTransfersService {
     this.now = deps.now ?? nowIso;
   }
 
-  private async writeTransaction<T>(operation: (db: Database) => Promise<T>): Promise<T> {
+  private async writeTransaction<T>(
+    operation: (db: Database) => Promise<T>,
+    intent: { kind: string; payload: Json } = { kind: 'transfer.change', payload: {} },
+  ): Promise<T> {
+    if (ownerRuntimeFor(this.deps.db))
+      return transferCommand(this.deps.db, intent.kind, intent.payload, () => operation(this.deps.db));
     return this.deps.db.transaction(async (tx) => {
       await tx.select().from(versions).where(eq(versions.name, 'agent_transfers_write_lock')).for('update');
       return operation(tx as unknown as Database);
@@ -341,7 +358,7 @@ export class AgentTransfersService {
     return new BinaryTransfers({
       ...this.deps,
       now: this.now,
-      transaction: (operation) => this.writeTransaction(operation),
+      transaction: (operation, intent) => this.writeTransaction(operation, intent),
       limits: () => this.getLimits(),
       requireRow: (id, db) => this.requireRow(id, db),
       view: (row) => this.view(row),
@@ -352,7 +369,7 @@ export class AgentTransfersService {
   }
 
   async createBinary(input: BinaryTransferInput, host: Host) {
-    await this.sweepExpired();
+    if (!ownerRuntimeFor(this.deps.db)) await this.sweepExpired();
     return this.binary().create(input, host);
   }
 
@@ -365,7 +382,7 @@ export class AgentTransfersService {
   }
 
   async openBinaryDownload(id: string, offset: number, actor: TransferActor) {
-    await this.sweepExpired();
+    if (!ownerRuntimeFor(this.deps.db)) await this.sweepExpired();
     return this.binary().download(id, offset, actor);
   }
 
@@ -415,21 +432,46 @@ export class AgentTransfersService {
     if (next.quota_bytes > 0 && next.max_file_bytes > 0 && next.quota_bytes < next.max_file_bytes) {
       throw new ValidationError('quota_bytes must be at least max_file_bytes');
     }
-    await Promise.all([
-      this.deps.settings.setInt(TRANSFERS_DEFAULT_TTL_KEY, next.default_ttl_seconds, {
-        publish: false,
-      }),
-      this.deps.settings.setInt(TRANSFERS_MAX_TTL_KEY, next.max_ttl_seconds, { publish: false }),
-      this.deps.settings.setInt(TRANSFERS_MAX_FILE_KEY, next.max_file_bytes, { publish: false }),
-      this.deps.settings.setInt(TRANSFERS_QUOTA_KEY, next.quota_bytes, { publish: false }),
-    ]);
+    const owner = ownerRuntimeFor(this.deps.db);
+    if (owner)
+      await mutateOwnerState(owner, {
+        kind: 'transfer.limits',
+        payload: { ...next },
+        prepare: (c) => {
+          for (const [name, value] of [
+            [TRANSFERS_DEFAULT_TTL_KEY, next.default_ttl_seconds],
+            [TRANSFERS_MAX_TTL_KEY, next.max_ttl_seconds],
+            [TRANSFERS_MAX_FILE_KEY, next.max_file_bytes],
+            [TRANSFERS_QUOTA_KEY, next.quota_bytes],
+          ] as const) {
+            const row = { name, version: String(value), updatedAt: this.now() };
+            c.draft.upsert('versions', row);
+            c.write(async (tx) => {
+              await tx
+                .insert(versions)
+                .values(row)
+                .onDuplicateKeyUpdate({ set: { version: row.version, updatedAt: row.updatedAt } });
+            });
+          }
+          return null;
+        },
+      });
+    else
+      await Promise.all([
+        this.deps.settings.setInt(TRANSFERS_DEFAULT_TTL_KEY, next.default_ttl_seconds, {
+          publish: false,
+        }),
+        this.deps.settings.setInt(TRANSFERS_MAX_TTL_KEY, next.max_ttl_seconds, { publish: false }),
+        this.deps.settings.setInt(TRANSFERS_MAX_FILE_KEY, next.max_file_bytes, { publish: false }),
+        this.deps.settings.setInt(TRANSFERS_QUOTA_KEY, next.quota_bytes, { publish: false }),
+      ]);
     wsPublisher.publish('settings.changed', { kind: 'transfers' });
     wsPublisher.publish('transfers.changed', { kind: 'limits' });
     return await this.adminState();
   }
 
   async adminState(): Promise<TransferModuleState> {
-    await this.sweepExpired().catch(() => undefined);
+    if (!ownerRuntimeFor(this.deps.db)) await this.sweepExpired().catch(() => undefined);
     const meta = await this.deps.settings.getWithMeta(TRANSFERS_ENABLED_FLAG);
     const limits = await this.getLimits();
     const holding = await this.holdingRows();
@@ -444,7 +486,7 @@ export class AgentTransfersService {
 
   /** The limits an agent should consult before a large upload. See `TransferDiscovery`. */
   async discovery(): Promise<TransferDiscovery> {
-    await this.sweepExpired().catch(() => undefined);
+    if (!ownerRuntimeFor(this.deps.db)) await this.sweepExpired().catch(() => undefined);
     const limits = await this.getLimits();
     const holding = await this.holdingRows();
     const used = holding.reduce((sum, row) => sum + Number(row.expectedSizeBytes ?? row.sizeBytes ?? 0), 0);
@@ -475,28 +517,32 @@ export class AgentTransfersService {
   /** How many live transfers exist. Used by the AGENTS.md renderer. */
   async availableCount(): Promise<number> {
     const rows = await this.holdingRows();
-    return rows.filter((row) => row.status === TRANSFER_STATUS_LIVE).length;
+    return rows.filter((row) => row.status === TRANSFER_STATUS_LIVE && row.expiresAt > this.now()).length;
   }
 
   // ── reads ─────────────────────────────────────────────────────────────────
 
   async list(options: { limit?: number; includeRetired?: boolean } = {}): Promise<TransferView[]> {
-    await this.sweepExpired();
+    if (!ownerRuntimeFor(this.deps.db)) await this.sweepExpired();
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? 100), 1), 500);
-    const rows = await this.deps.db.select().from(agentTransfers).orderBy(desc(agentTransfers.createdAt));
-    const keep = options.includeRetired ? rows : rows.filter((row) => HOLDING_STATUSES.includes(row.status));
+    const rows = transferRows(this.deps.db)
+      ? [...transferRows(this.deps.db)!].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      : await this.deps.db.select().from(agentTransfers).orderBy(desc(agentTransfers.createdAt));
+    const keep = options.includeRetired
+      ? rows
+      : rows.filter((row) => HOLDING_STATUSES.includes(row.status) && row.expiresAt > this.now());
     return keep.slice(0, limit).map((row) => this.view(row));
   }
 
   async info(id: string): Promise<TransferView> {
-    await this.sweepExpired();
+    if (!ownerRuntimeFor(this.deps.db)) await this.sweepExpired();
     return this.view(await this.requireRow(id));
   }
 
   async get(id: string, options: { offset?: unknown; max_bytes?: unknown } = {}): Promise<GetTransferResult> {
-    await this.sweepExpired();
+    if (!ownerRuntimeFor(this.deps.db)) await this.sweepExpired();
     const row = await this.requireRow(id);
-    if (row.status !== TRANSFER_STATUS_LIVE) {
+    if (row.status !== TRANSFER_STATUS_LIVE || row.expiresAt <= this.now()) {
       throw new ConflictError(
         row.status === TRANSFER_STATUS_UPLOADING
           ? `Transfer ${id} is still being uploaded. Its final chunk has not arrived yet.`
@@ -515,15 +561,26 @@ export class AgentTransfersService {
     const buf = await this.readSlice(row, offset, length);
     const nextOffset = offset + buf.length;
     const complete = nextOffset >= size;
-    await this.recordEvent(
-      row.id,
-      'downloaded',
-      { kind: 'agent', label: null, hostId: null },
-      `${buf.length} bytes from offset ${offset}`,
+    await this.writeTransaction(
+      async (db) => {
+        await this.recordEvent(
+          row.id,
+          'downloaded',
+          { kind: 'agent', label: null, hostId: null },
+          `${buf.length} bytes from offset ${offset}`,
+          db,
+        );
+        if (complete) {
+          const current = await this.requireRow(row.id, db);
+          await updateTransfer(db, row.id, {
+            downloadCount: Number(current.downloadCount ?? 0) + 1,
+            updatedAt: this.now(),
+          });
+        }
+        return null;
+      },
+      { kind: 'transfer.download', payload: { id: row.id, offset, length: buf.length, complete } },
     );
-    // Only a fetch that reached the end counts as a download: a chunked read
-    // would otherwise inflate the count by however many slices it took.
-    if (complete) await this.bumpDownloadCount(row.id);
     return {
       transfer: this.view({
         ...row,
@@ -547,7 +604,12 @@ export class AgentTransfersService {
    * is the row worth keeping.
    */
   async events(id: string, limit = 200): Promise<TransferEventView[]> {
-    const rows = await this.deps.db.select().from(agentTransferEvents).orderBy(asc(agentTransferEvents.seq));
+    const rows = await this.deps.db
+      .select()
+      .from(agentTransferEvents)
+      .where(eq(agentTransferEvents.transferId, id))
+      .orderBy(asc(agentTransferEvents.seq))
+      .limit(Math.min(Math.max(Math.trunc(limit), 1), 500));
     return rows
       .filter((row) => row.transferId === id)
       .slice(0, Math.min(Math.max(Math.trunc(limit), 1), 500))
@@ -572,14 +634,34 @@ export class AgentTransfersService {
     id: string,
     actor: TransferActor,
   ): Promise<{ transfer: TransferView; stream: ReadStream }> {
-    await this.sweepExpired();
+    if (!ownerRuntimeFor(this.deps.db)) await this.sweepExpired();
     const row = await this.requireRow(id);
-    if (row.status !== TRANSFER_STATUS_LIVE) {
+    if (row.status !== TRANSFER_STATUS_LIVE || row.expiresAt <= this.now()) {
       throw new ConflictError(`Transfer ${id} is ${row.status} and its bytes are gone.`);
     }
-    const stream = createReadStream(this.absolutePath(row));
-    await this.recordEvent(row.id, 'downloaded', actor, null);
-    await this.bumpDownloadCount(row.id);
+    const handle = ownerRuntimeFor(this.deps.db) ? await open(this.absolutePath(row), 'r') : undefined;
+    const stream = handle
+      ? handle.createReadStream({ autoClose: true })
+      : createReadStream(this.absolutePath(row));
+    try {
+      await this.writeTransaction(
+        async (db) => {
+          const current = await this.requireRow(row.id, db);
+          if (current.status !== TRANSFER_STATUS_LIVE || current.expiresAt <= this.now())
+            throw new ConflictError(`Transfer ${id} is no longer available.`);
+          await this.recordEvent(row.id, 'downloaded', actor, null, db);
+          await updateTransfer(db, row.id, {
+            downloadCount: Number(current.downloadCount ?? 0) + 1,
+            updatedAt: this.now(),
+          });
+          return null;
+        },
+        { kind: 'transfer.download', payload: { id: row.id } },
+      );
+    } catch (error) {
+      stream.destroy();
+      throw error;
+    }
     return {
       transfer: this.view({ ...row, downloadCount: Number(row.downloadCount ?? 0) + 1 }),
       stream,
@@ -589,7 +671,7 @@ export class AgentTransfersService {
   // ── writes ────────────────────────────────────────────────────────────────
 
   async put(input: PutTransferInput, host: Host | null): Promise<PutTransferResult> {
-    await this.sweepExpired();
+    if (!ownerRuntimeFor(this.deps.db)) await this.sweepExpired();
     const limits = await this.getLimits();
     const chunk = decodeBase64(input.content_b64);
     if (chunk.length > MAX_CHUNK_BYTES) {
@@ -638,61 +720,82 @@ export class AgentTransfersService {
         `This file is ${formatBytes(chunk.length)}, over the fleet's ${formatBytes(limits.max_file_bytes)} per-file limit.`,
       );
     }
-    return this.writeTransaction(async (tx) => {
-      await this.requireQuota(Math.max(chunk.length, declared ?? 0), limits, tx);
+    return this.writeTransaction(
+      async (tx) => {
+        await this.requireQuota(Math.max(chunk.length, declared ?? 0), limits, tx);
 
-      const id = randomUUID();
-      const storagePath = join(STORAGE_DIR, id.slice(0, 2), id);
-      const absolute = join(this.deps.dataRoot, storagePath);
-      // Bytes first, row second: a crash here leaves an orphan file, which
-      // reconcileOrphans() collects. A row written first whose bytes never
-      // arrived would be a live transfer that fails every fetch.
-      try {
-        await mkdir(dirname(absolute), { recursive: true });
-        await writeFile(absolute, chunk, { flag: 'wx' });
-      } catch (error) {
-        rethrowStorageError(error, this.deps.dataRoot);
-      }
+        const id = randomUUID();
+        const storagePath = join(STORAGE_DIR, id.slice(0, 2), id);
+        const absolute = join(this.deps.dataRoot, storagePath);
+        // Bytes first, row second: a crash here leaves an orphan file, which
+        // reconcileOrphans() collects. A row written first whose bytes never
+        // arrived would be a live transfer that fails every fetch.
+        try {
+          await mkdir(dirname(absolute), { recursive: true });
+          await writeFile(absolute, chunk, { flag: 'wx' });
+          if (ownerRuntimeFor(this.deps.db)) {
+            const handle = await open(absolute, 'r');
+            try {
+              await handle.sync();
+            } finally {
+              await handle.close();
+            }
+          }
+        } catch (error) {
+          rethrowStorageError(error, this.deps.dataRoot);
+        }
 
-      const now = this.now();
-      const row = {
-        id,
-        name,
-        description: optionalText(input.description, 'description', 2000),
-        mimeType: optionalText(input.mime_type, 'mime_type', 255),
-        sizeBytes: chunk.length,
-        contentSha256: isFinal ? createHash('sha256').update(chunk).digest('hex') : null,
-        storagePath,
-        status: isFinal ? TRANSFER_STATUS_LIVE : TRANSFER_STATUS_UPLOADING,
-        sourceHostId: host?.id ?? null,
-        uploadedBy: optionalText(input.username, 'username', 255),
-        uploadedFrom: optionalText(input.worktree_path, 'worktree_path', 512),
-        requestedTtlSeconds: requested,
-        downloadCount: 0,
-        expiresAt: isoOffsetSeconds(effective),
-        sealedAt: isFinal ? now : null,
-        purgedAt: null,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await tx.insert(agentTransfers).values(row);
-      await this.recordEvent(
-        id,
-        isFinal ? 'uploaded' : 'appended',
-        { kind: 'agent', label: row.uploadedBy, hostId: row.sourceHostId },
-        clamped
-          ? `${chunk.length} bytes; ttl clamped from ${requested}s to ${effective}s`
-          : `${chunk.length} bytes`,
-        tx,
-      );
-      wsPublisher.publish('transfers.changed', { kind: 'created', id });
-      return {
-        transfer: this.view(row as AgentTransfer),
-        ttl_clamped: clamped,
-        bytes_written: chunk.length,
-        complete: isFinal,
-      };
-    });
+        const now = this.now();
+        const row = {
+          id,
+          name,
+          description: optionalText(input.description, 'description', 2000),
+          mimeType: optionalText(input.mime_type, 'mime_type', 255),
+          sizeBytes: chunk.length,
+          contentSha256: isFinal ? createHash('sha256').update(chunk).digest('hex') : null,
+          storagePath,
+          status: isFinal ? TRANSFER_STATUS_LIVE : TRANSFER_STATUS_UPLOADING,
+          sourceHostId: host?.id ?? null,
+          uploadedBy: optionalText(input.username, 'username', 255),
+          uploadedFrom: optionalText(input.worktree_path, 'worktree_path', 512),
+          requestedTtlSeconds: requested,
+          downloadCount: 0,
+          expiresAt: isoOffsetSeconds(effective),
+          sealedAt: isFinal ? now : null,
+          purgedAt: null,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await insertTransfer(tx, row);
+        await this.recordEvent(
+          id,
+          isFinal ? 'uploaded' : 'appended',
+          { kind: 'agent', label: row.uploadedBy, hostId: row.sourceHostId },
+          clamped
+            ? `${chunk.length} bytes; ttl clamped from ${requested}s to ${effective}s`
+            : `${chunk.length} bytes`,
+          tx,
+        );
+        transferNotify(this.deps.db, () => wsPublisher.publish('transfers.changed', { kind: 'created', id }));
+        return {
+          transfer: this.view(row as AgentTransfer),
+          ttl_clamped: clamped,
+          bytes_written: chunk.length,
+          complete: isFinal,
+        };
+      },
+      {
+        kind: 'transfer.create',
+        payload: {
+          name,
+          hostId: host?.id ?? null,
+          bytes: chunk.length,
+          sha256: createHash('sha256').update(chunk).digest('hex'),
+          final: isFinal,
+          requestedTtlSeconds: requested,
+        },
+      },
+    );
   }
 
   private async appendChunk(
@@ -705,94 +808,127 @@ export class AgentTransfersService {
   ): Promise<PutTransferResult> {
     // The row is the committed byte boundary. Hold its lock across filesystem
     // work and the metadata commit so other API workers cannot use a stale size.
-    const result = await this.writeTransaction(async (tx) => {
-      const row = await this.requireRow(id, tx, true);
-      if (row.status !== TRANSFER_STATUS_UPLOADING) {
-        throw new ConflictError(
-          `Transfer ${id} is ${row.status} and no longer accepts chunks. Start a new transfer instead of appending to a sealed one.`,
-        );
-      }
-      if (row.expectedSizeBytes != null)
-        throw new ConflictError('Use the binary upload endpoint to continue this transfer');
-      if (row.sourceHostId != null && row.sourceHostId !== host?.id)
-        throw new ConflictError('Only the uploading host may append');
-      const size = Number(row.sizeBytes ?? 0);
-      if (input.offset !== undefined && input.offset !== null) {
-        const offset = requiredInt(input.offset, 'offset');
-        if (offset !== size) {
+    const result = await this.writeTransaction(
+      async (tx) => {
+        const row = await this.requireRow(id, tx, true);
+        if (row.status !== TRANSFER_STATUS_UPLOADING || row.expiresAt <= this.now()) {
           throw new ConflictError(
-            `offset ${offset} does not match this transfer's current size ${size}. Resume from ${size}.`,
+            `Transfer ${id} is ${row.status} and no longer accepts chunks. Start a new transfer instead of appending to a sealed one.`,
           );
         }
-      }
-      const total = size + chunk.length;
-      if (limits.max_file_bytes > 0 && total > limits.max_file_bytes) {
-        throw new ValidationError(
-          `This chunk would take the file to ${formatBytes(total)}, over the fleet's ${formatBytes(limits.max_file_bytes)} per-file limit.`,
-        );
-      }
-      await this.requireQuota(chunk.length, limits, tx);
-
-      const absolute = this.absolutePath(row);
-      try {
-        // Never use append mode: a killed writer may have left an uncommitted
-        // tail. Also never recreate a missing file or zero-fill a lost prefix.
-        const handle = await open(absolute, 'r+');
-        try {
-          if ((await handle.stat()).size < size) {
+        if (row.expectedSizeBytes != null)
+          throw new ConflictError('Use the binary upload endpoint to continue this transfer');
+        if (row.sourceHostId != null && row.sourceHostId !== host?.id)
+          throw new ConflictError('Only the uploading host may append');
+        const size = Number(row.sizeBytes ?? 0);
+        if (input.offset !== undefined && input.offset !== null) {
+          const offset = requiredInt(input.offset, 'offset');
+          if (offset !== size) {
             throw new ConflictError(
-              `Transfer ${id} is shorter than its committed size. Start a new transfer.`,
+              `offset ${offset} does not match this transfer's current size ${size}. Resume from ${size}.`,
             );
           }
-          await handle.truncate(size);
-          let written = 0;
-          while (written < chunk.length) {
-            const { bytesWritten } = await handle.write(
-              chunk,
-              written,
-              chunk.length - written,
-              size + written,
-            );
-            if (bytesWritten === 0) throw new Error(`Could not write transfer ${id}.`);
-            written += bytesWritten;
-          }
-          // The database must never commit a size whose bytes are not durable.
-          await handle.sync();
-        } finally {
-          await handle.close();
         }
-      } catch (error) {
-        rethrowStorageError(error, this.deps.dataRoot);
-      }
-      const now = this.now();
-      const update: Record<string, unknown> = {
-        sizeBytes: total,
-        status: isFinal ? TRANSFER_STATUS_LIVE : TRANSFER_STATUS_UPLOADING,
-        sealedAt: isFinal ? now : null,
-        updatedAt: now,
-      };
-      if (isFinal) update['contentSha256'] = await this.hashFile(absolute);
-      await tx.update(agentTransfers).set(update).where(eq(agentTransfers.id, id));
-      await this.recordEvent(
-        id,
-        isFinal ? 'sealed' : 'appended',
-        { kind: 'agent', label: row.uploadedBy ?? null, hostId: host?.id ?? null },
-        `${chunk.length} bytes at offset ${size}`,
-        tx,
-      );
-      return {
-        transfer: this.view({ ...row, ...update } as AgentTransfer),
-        ttl_clamped: false,
-        bytes_written: chunk.length,
-        complete: isFinal,
-      };
-    });
+        const total = size + chunk.length;
+        if (limits.max_file_bytes > 0 && total > limits.max_file_bytes) {
+          throw new ValidationError(
+            `This chunk would take the file to ${formatBytes(total)}, over the fleet's ${formatBytes(limits.max_file_bytes)} per-file limit.`,
+          );
+        }
+        await this.requireQuota(chunk.length, limits, tx);
+
+        const absolute = this.absolutePath(row);
+        try {
+          // Never use append mode: a killed writer may have left an uncommitted
+          // tail. Also never recreate a missing file or zero-fill a lost prefix.
+          const handle = await open(absolute, 'r+');
+          try {
+            if ((await handle.stat()).size < size) {
+              throw new ConflictError(
+                `Transfer ${id} is shorter than its committed size. Start a new transfer.`,
+              );
+            }
+            await handle.truncate(size);
+            let written = 0;
+            while (written < chunk.length) {
+              const { bytesWritten } = await handle.write(
+                chunk,
+                written,
+                chunk.length - written,
+                size + written,
+              );
+              if (bytesWritten === 0) throw new Error(`Could not write transfer ${id}.`);
+              written += bytesWritten;
+            }
+            // The database must never commit a size whose bytes are not durable.
+            await handle.sync();
+          } finally {
+            await handle.close();
+          }
+        } catch (error) {
+          rethrowStorageError(error, this.deps.dataRoot);
+        }
+        const now = this.now();
+        const update: Record<string, unknown> = {
+          sizeBytes: total,
+          status: isFinal ? TRANSFER_STATUS_LIVE : TRANSFER_STATUS_UPLOADING,
+          sealedAt: isFinal ? now : null,
+          updatedAt: now,
+        };
+        if (isFinal) update['contentSha256'] = await this.hashFile(absolute);
+        await updateTransfer(tx, id, update);
+        await this.recordEvent(
+          id,
+          isFinal ? 'sealed' : 'appended',
+          { kind: 'agent', label: row.uploadedBy ?? null, hostId: host?.id ?? null },
+          `${chunk.length} bytes at offset ${size}`,
+          tx,
+        );
+        return {
+          transfer: this.view({ ...row, ...update } as AgentTransfer),
+          ttl_clamped: false,
+          bytes_written: chunk.length,
+          complete: isFinal,
+        };
+      },
+      {
+        kind: 'transfer.append',
+        payload: {
+          id,
+          hostId: host?.id ?? null,
+          bytes: chunk.length,
+          sha256: createHash('sha256').update(chunk).digest('hex'),
+          final: isFinal,
+          offset: typeof input.offset === 'number' ? input.offset : null,
+        },
+      },
+    );
     wsPublisher.publish('transfers.changed', { kind: isFinal ? 'sealed' : 'appended', id });
     return result;
   }
 
   /** Retire a transfer early. The bytes go, the row and its audit trail stay. */
   async remove(id: string, actor: TransferActor): Promise<TransferView> {
+    if (ownerRuntimeFor(this.deps.db)) {
+      await this.writeTransaction(
+        async (db) => {
+          const row = await this.requireRow(id, db);
+          if (![TRANSFER_STATUS_DELETED, TRANSFER_STATUS_EXPIRED].includes(row.status)) {
+            await updateTransfer(db, id, {
+              status: TRANSFER_STATUS_DELETED,
+              purgedAt: null,
+              updatedAt: this.now(),
+            });
+            await this.recordEvent(id, 'deleted', actor, null, db);
+          }
+          return null;
+        },
+        { kind: 'transfer.retire', payload: { id, actor: actor as unknown as Json } },
+      );
+      await this.purgeRetired(id);
+      wsPublisher.publish('transfers.changed', { kind: 'deleted', id });
+      return this.view(await this.requireRow(id));
+    }
     return this.writeTransaction(async (tx) => {
       const row = await this.requireRow(id, tx);
       if (row.status === TRANSFER_STATUS_DELETED || row.status === TRANSFER_STATUS_EXPIRED) {
@@ -801,9 +937,9 @@ export class AgentTransfersService {
       await this.unlink(row);
       const now = this.now();
       const update = { status: TRANSFER_STATUS_DELETED, purgedAt: now, updatedAt: now };
-      await tx.update(agentTransfers).set(update).where(eq(agentTransfers.id, id));
+      await updateTransfer(tx, id, update);
       await this.recordEvent(id, 'deleted', actor, null, tx);
-      wsPublisher.publish('transfers.changed', { kind: 'deleted', id });
+      transferNotify(this.deps.db, () => wsPublisher.publish('transfers.changed', { kind: 'deleted', id }));
       return this.view({ ...row, ...update } as AgentTransfer);
     });
   }
@@ -816,6 +952,55 @@ export class AgentTransfersService {
    * the status update is a no-op the second time.
    */
   async sweepExpired(now: string = this.now()): Promise<SweepCounts> {
+    const owner = ownerRuntimeFor(this.deps.db);
+    if (owner) {
+      owner.assertOwner();
+      let expired = 0;
+      if (
+        owner.state
+          .snapshot()
+          .table('agentTransfers')
+          .all()
+          .some((row) => HOLDING_STATUSES.includes(row.status) && row.expiresAt <= now)
+      ) {
+        expired = Number(
+          await mutateOwnerState(owner, {
+            kind: 'retention.transfers',
+            payload: { now },
+            prepare: (context) => {
+              const lapsed = context.snapshot
+                .table('agentTransfers')
+                .all()
+                .filter((row) => HOLDING_STATUSES.includes(row.status) && row.expiresAt <= now)
+                .slice(0, 100);
+              for (const row of lapsed) {
+                stageUpdate(context, 'agentTransfers', row.id, {
+                  status: TRANSFER_STATUS_EXPIRED,
+                  purgedAt: null,
+                  updatedAt: now,
+                });
+                context.write(async (tx) => {
+                  await tx.insert(agentTransferEvents).values({
+                    id: randomUUID(),
+                    transferId: row.id,
+                    action: 'expired',
+                    actorKind: 'system',
+                    actorLabel: 'sweeper',
+                    sourceHostId: null,
+                    detail: `deadline ${row.expiresAt}`,
+                    createdAt: now,
+                  });
+                });
+              }
+              return lapsed.length;
+            },
+          }),
+        );
+      }
+      const freed = await this.purgeRetired();
+      if (expired) wsPublisher.publish('transfers.changed', { kind: 'expired', count: expired });
+      return { expired, bytes_freed: freed };
+    }
     return this.writeTransaction(async (tx) => {
       const rows = await this.holdingRows(tx);
       const lapsed = rows.filter((row) => row.expiresAt <= now);
@@ -849,7 +1034,7 @@ export class AgentTransfersService {
    * claims. Without it, a process that died between `writeFile` and the row
    * insert leaks a file nothing will ever look at again.
    */
-  async reconcileOrphans(): Promise<{ removed: number }> {
+  async reconcileOrphans(): Promise<{ removed: number; next_due_at?: number }> {
     const root = join(this.deps.dataRoot, STORAGE_DIR);
     let shards: string[];
     try {
@@ -857,8 +1042,17 @@ export class AgentTransfersService {
     } catch {
       return { removed: 0 };
     }
-    const claimed = new Set((await this.holdingRows()).map((row) => row.id));
+    const owner = ownerRuntimeFor(this.deps.db);
+    const holding = owner
+      ? owner.state
+          .snapshot()
+          .table('agentTransfers')
+          .all()
+          .filter((row) => HOLDING_STATUSES.includes(row.status))
+      : await this.holdingRows();
+    const claimed = new Set(holding.map((row) => row.id));
     let removed = 0;
+    let next: number | undefined;
     for (const shard of shards) {
       let names: string[];
       try {
@@ -872,7 +1066,10 @@ export class AgentTransfersService {
         // flight on another worker, so leave it for a later pass than race it.
         try {
           const info = await stat(join(root, shard, name));
-          if (Date.now() - info.mtimeMs < ORPHAN_GRACE_MS) continue;
+          if (Date.now() - info.mtimeMs < ORPHAN_GRACE_MS) {
+            next = Math.min(next ?? Infinity, info.mtimeMs + ORPHAN_GRACE_MS);
+            continue;
+          }
         } catch {
           continue;
         }
@@ -880,15 +1077,55 @@ export class AgentTransfersService {
         removed += 1;
       }
     }
-    return { removed };
+    return next === undefined ? { removed } : { removed, next_due_at: next };
   }
 
   // ── internals ─────────────────────────────────────────────────────────────
 
+  /** Retired metadata is the durable retry token; unlink can safely repeat after restart. */
+  private async purgeRetired(id?: string): Promise<number> {
+    const owner = ownerRuntimeFor(this.deps.db)!;
+    owner.assertOwner();
+    const rows = owner.state
+      .snapshot()
+      .table('agentTransfers')
+      .all()
+      .filter(
+        (row) =>
+          (!id || row.id === id) &&
+          [TRANSFER_STATUS_EXPIRED, TRANSFER_STATUS_DELETED].includes(row.status) &&
+          !row.purgedAt,
+      )
+      .slice(0, 100);
+    if (!rows.length) return 0;
+    for (const row of rows) await this.unlink(row);
+    await withOwnerBackgroundScope(() =>
+      mutateOwnerState(owner, {
+        kind: 'transfer.purge',
+        principal: 'system:transfer-purge',
+        payload: { ids: rows.map((row) => row.id) },
+        prepare: (c) => {
+          for (const row of rows) {
+            const current = c.draft.table('agentTransfers').get(row.id);
+            if (
+              current &&
+              [TRANSFER_STATUS_EXPIRED, TRANSFER_STATUS_DELETED].includes(current.status) &&
+              !current.purgedAt &&
+              current.storagePath === row.storagePath
+            )
+              stageUpdate(c, 'agentTransfers', row.id, { purgedAt: this.now(), updatedAt: this.now() });
+          }
+          return null;
+        },
+      }),
+    );
+    return rows.reduce((sum, row) => sum + Number(row.sizeBytes ?? 0), 0);
+  }
+
   private async holdingRows(db: TransferDb = this.deps.db): Promise<AgentTransfer[]> {
     // Filtered in JS rather than SQL for the same reason availableCount() in
     // git-director.ts is: the test db-fake ignores WHERE clauses.
-    const rows = await db.select().from(agentTransfers);
+    const rows = transferRows(db) ?? (await db.select().from(agentTransfers));
     return rows.filter((row) => HOLDING_STATUSES.includes(row.status));
   }
 
@@ -899,6 +1136,12 @@ export class AgentTransfersService {
   ): Promise<AgentTransfer> {
     const trimmed = typeof id === 'string' ? id.trim() : '';
     if (!trimmed) throw new ValidationError('id is required');
+    const owned = transferRows(db);
+    if (owned) {
+      const row = owned.find((candidate) => candidate.id === trimmed);
+      if (!row) throw new NotFoundError(`No transfer with id ${trimmed}. It may have expired.`);
+      return row;
+    }
     const query = db.select().from(agentTransfers).where(eq(agentTransfers.id, trimmed));
     const rows = forUpdate ? await query.for('update') : await query;
     const row = rows.find((candidate) => candidate.id === trimmed);
@@ -954,13 +1197,17 @@ export class AgentTransfersService {
   }
 
   private async bumpDownloadCount(id: string): Promise<void> {
-    const rows = await this.deps.db.select().from(agentTransfers).where(eq(agentTransfers.id, id));
-    const row = rows.find((candidate) => candidate.id === id);
-    if (!row) return;
-    await this.deps.db
-      .update(agentTransfers)
-      .set({ downloadCount: Number(row.downloadCount ?? 0) + 1, updatedAt: this.now() })
-      .where(eq(agentTransfers.id, id));
+    await this.writeTransaction(
+      async (db) => {
+        const row = await this.requireRow(id, db);
+        await updateTransfer(db, id, {
+          downloadCount: Number(row.downloadCount ?? 0) + 1,
+          updatedAt: this.now(),
+        });
+        return null;
+      },
+      { kind: 'transfer.download_complete', payload: { id } },
+    );
   }
 
   private async recordEvent(
@@ -970,7 +1217,7 @@ export class AgentTransfersService {
     detail: string | null,
     db: TransferDb = this.deps.db,
   ): Promise<void> {
-    await db.insert(agentTransferEvents).values({
+    await transferEvent(db as Database, {
       id: randomUUID(),
       transferId,
       action,

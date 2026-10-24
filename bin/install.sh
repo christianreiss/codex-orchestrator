@@ -18,7 +18,8 @@
 #    human UI goes to stderr, so an agent and a person can both read the same
 #    run. `--non-interactive` never prompts: missing input is one error naming
 #    everything that is missing, not a question loop.
-#  - **Docker is the only hard dependency** beyond coreutils, openssl and curl.
+#  - **No host Go toolchain is required.** Docker, Python 3, flock, GNU coreutils,
+#    tar, openssl and curl support installation and its private rollback bundle.
 #    The wrapper matrix still has to be compiled here — each installation bakes
 #    its own signing key into the binaries — but it compiles in a container when
 #    the host has no Go.
@@ -32,6 +33,7 @@ cd "$ROOT_DIR"
 INSTANCE_ROOT="$ROOT_DIR"
 # shellcheck source=bin/lib/instance-compose.sh
 source "$ROOT_DIR/bin/lib/instance-compose.sh"
+source "$ROOT_DIR/bin/lib/owner-cutover.sh"
 declare -a INSTANCE_PROFILES=()
 
 # ─── presentation ────────────────────────────────────────────────────────────
@@ -151,7 +153,7 @@ SKIP_OWNER=0
 SKIP_PUBLIC_READY=0
 SKIP_BUILD=0
 
-ALL_STEPS=(prereqs secrets urls dataroot tls wrappers datatier schema apptier signer owner verify)
+ALL_STEPS=(prereqs secrets urls dataroot tls wrappers datatier schema signer apptier owner verify)
 
 usage() {
   cat <<'EOF'
@@ -583,6 +585,10 @@ step_prereqs() {
   require_cmd curl || missing+=("curl")
   require_cmd openssl || missing+=("openssl")
   require_cmd awk || missing+=("awk")
+  local command
+  for command in python3 flock tar du df realpath sha256sum; do
+    require_cmd "$command" || missing+=("$command")
+  done
 
   if (( ${#missing[@]} )); then
     fatal "missing required commands: ${missing[*]}"
@@ -595,9 +601,8 @@ step_prereqs() {
     fatal "Docker Compose v2 is required (install the compose plugin; the legacy docker-compose binary will not do)"
   fi
 
-  # Go, make and python3 used to be hard requirements here because the wrapper
-  # matrix was cross-compiled on the host. It now falls back to a container, so
-  # their absence is a performance note, not a failure.
+  # Wrapper compilation can use a container when host Go/make is absent.
+  # Python remains required for rollback configuration validation.
   if require_cmd go && require_cmd make && require_cmd python3; then
     good "host Go toolchain present — wrapper builds will skip the container"
   else
@@ -908,6 +913,11 @@ wrapper_version() {
 step_wrappers() {
   wrapper_key_paths
   (( DRY_RUN )) && { info "would build the four-platform cxx matrix"; step_skipped "dry run"; return 0; }
+  local previous_api
+  previous_api="$(compose ps -a -q api)" || fatal "could not inspect the existing API before wrapper publication"
+  if [[ -n "$previous_api" && ! -f "$WRAPPER_PUBLIC_KEY" ]]; then
+    fatal "an API already exists; use scripts/deploy.sh for a quiescent wrapper upgrade instead of generating a new signing identity"
+  fi
   mkdir -p "$WRAPPER_KEY_DIR"; chmod 700 "$WRAPPER_KEY_DIR" 2>/dev/null || true
 
   # Each installation signs its own wrapper binaries, so the keypair has to
@@ -946,6 +956,10 @@ step_wrappers() {
     publish_readable "$publish_root"
     step_done "four platforms present at v$version, signed by this installation"
     return 0
+  fi
+
+  if [[ -n "$previous_api" ]]; then
+    fatal "an API already exists and the wrapper matrix needs rebuilding; use scripts/deploy.sh so publication follows the quiescent backup"
   fi
 
   # Establish that a rebuild is actually possible BEFORE touching anything.
@@ -1062,6 +1076,9 @@ step_datatier() {
 
 step_schema() {
   (( DRY_RUN )) && { step_skipped "would run migrate.js --init-schema"; return 0; }
+  instance_compose_init
+  owner_cutover_prepare || fatal "quiescent backup failed; inspect previous-container recovery status"
+  owner_cutover_phase changing
   info "provisioning the schema"
   # Creates the baseline only when the database has no application tables, then
   # migrates on top. Safe on every re-run and against an existing installation.
@@ -1076,15 +1093,18 @@ step_schema() {
 
 step_apptier() {
   (( DRY_RUN )) && { step_skipped "would start api, media-worker and configured caddy"; return 0; }
+  if [[ -z "$OWNER_CUTOVER_DIR" ]]; then
+    instance_compose_init
+    owner_cutover_prepare || fatal "quiescent backup failed"
+  fi
   local services=(api media-worker) up=(up -d)
   (( USE_CADDY )) && services+=(caddy)
   compose up --help 2>/dev/null | grep -q -- '--wait' && up+=(--wait --wait-timeout 180)
+  [[ -z "$OWNER_CUTOVER_DIR" ]] || owner_cutover_phase replacement-started
   info "starting ${services[*]}"
   compose "${up[@]}" "${services[@]}" >&2 ||
     fatal "the API or media worker did not become healthy; check \`docker compose logs api media-worker\`"
-  # A missing provider credential is onboarding state, not a broken stack, so
-  # the quota worker is never waited on.
-  compose up -d quota-cron >&2 || true
+  # Provider usage deadlines run inside the API owner.
   step_done "api healthy"
 }
 
@@ -1092,6 +1112,11 @@ step_signer() {
   wrapper_key_paths
   (( DRY_RUN )) && { step_skipped "would import the signing key"; return 0; }
   if [[ -f "$WRAPPER_PRIVATE_KEY" ]]; then
+    if [[ -z "$OWNER_CUTOVER_DIR" ]]; then
+      instance_compose_init
+      owner_cutover_prepare || fatal "quiescent backup failed"
+    fi
+    owner_cutover_phase changing
     info "importing the signing key into encrypted database storage"
     # As the invoking user, not the image's root. The key is mode 0600 and owned
     # by whoever ran the installer, and the api service drops every capability —
@@ -1389,6 +1414,12 @@ cmd_install() {
     step_header "$index" "$total" "$(step_title "$step")"
     "step_${step}"
   done
+
+  if [[ -n "$OWNER_CUTOVER_DIR" && "$ONLY_STEP" == signer ]]; then
+    owner_cutover_resume_previous
+  elif [[ -n "$OWNER_CUTOVER_DIR" && "$ONLY_STEP" == schema ]]; then
+    warn "schema changed with the API stopped; complete signer/apptier before admitting work (bundle: $OWNER_CUTOVER_DIR)"
+  fi
 
   if (( DRY_RUN )); then
     ui ""

@@ -1,3 +1,5 @@
+import { ownerStream } from "./owner-stream";
+import { reportText } from "../src/lib/components/workflows/report-text";
 import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { installFixtures } from "./admin-fixtures";
@@ -9,7 +11,7 @@ async function fixtures(page: Page) {
   const receipts = new Map<string, unknown>();
   page.on("pageerror",e=>state.errors.push(e.message));
   await installFixtures(page);
-  await page.routeWebSocket("**/workflow-ws",socket=>state.sockets.push(socket));
+  await page.routeWebSocket("**/workflow-ws",socket=>{ ownerStream(socket); state.sockets.push(socket); });
   await page.route(/\/admin\/workflow-(?:definitions|runs)(?:\/|\?|$)/, async route => {
     if (!route.request().headers().accept?.includes("application/json")) return route.fallback();
     const req=route.request(),url=new URL(req.url()),path=url.pathname;
@@ -272,8 +274,20 @@ for (const theme of ["light", "dark"] as const) for (const width of [320, 390, 1
   });
 }
 
-for (const width of [320, 1440]) for (const theme of ["light", "dark"] as const) test(`nested final handover prioritizes follow-up and keeps evidence usable ${theme} ${width}`, async ({page, context}, info) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+for (const width of [320, 1440]) for (const theme of ["light", "dark"] as const) test(`nested final handover prioritizes follow-up and keeps evidence usable ${theme} ${width}`, async ({page, context, browserName}, info) => {
+  if (browserName === "chromium") {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  } else {
+    // Firefox/WebKit do not expose Chromium's clipboard permission names.
+    // Capture the real UI writeText call while preserving the payload assertion.
+    await page.addInitScript(() => {
+      let copied = "";
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+        writeText: async (value: string) => { copied = value; },
+        readText: async () => copied,
+      } });
+    });
+  }
   const {report, state} = await fixtures(page);
   report.status = "completed"; report.outcome = "partial"; report.completed_at = report.finished_at;
   report.summary = "The host is available. Backup acceptance remains open.";
@@ -299,8 +313,14 @@ for (const width of [320, 1440]) for (const theme of ["light", "dark"] as const)
   await expect(handover.getByRole("link",{name:"https://example.test/proof"})).toHaveAttribute("href","https://example.test/proof");
   expect(await page.locator('a[href^="javascript:"]').count()).toBe(0);
   await expect(handover.locator("pre")).not.toBeVisible();
-  await expect(page.getByText("Produce artifacts",{exact:true})).not.toBeVisible();
-  await page.getByText("Task evidence (2)",{exact:true}).click(); await page.getByText("Produce artifacts",{exact:true}).click();
+  const taskEvidence = page.locator("#tasks > details");
+  // WebKit gives nested summary text a box inside a closed parent details;
+  // the disclosure is closed and its pixels stay hidden (verified separately).
+  await expect(taskEvidence).toHaveJSProperty("open", false);
+  await page.getByText("Task evidence (2)",{exact:true}).click();
+  await expect(taskEvidence).toHaveJSProperty("open", true);
+  await expect(page.getByText("Produce artifacts",{exact:true})).toBeVisible();
+  await page.getByText("Produce artifacts",{exact:true}).click();
   await expect(page.getByRole("link",{name:"Open evidence",exact:true})).toBeVisible();
   await page.getByText("Raw JSON · Result facts",{exact:true}).click();
   await expect(handover.locator("pre")).toContainText('"ipam": {');
@@ -308,6 +328,7 @@ for (const width of [320, 1440]) for (const theme of ["light", "dark"] as const)
   await page.getByRole("button",{name:"Copy report",exact:true}).click();
   await expect(page.getByText("Report copied.",{exact:true})).toBeVisible();
   const copied=await page.evaluate(()=>navigator.clipboard.readText());
+  expect(copied).toBe(reportText(report));
   expect(copied).toContain("Outcome: Partial"); expect(copied).toContain(report.open_items[0]); expect(copied).toContain("FQDN: test01.example.test"); expect(copied).toContain("First backup and restore"); expect(copied).toContain("Full report and evidence:");
   await page.getByRole("navigation",{name:"Report sections"}).getByRole("link",{name:"Open work",exact:true}).click(); await expect(page).toHaveURL(/#open-work$/);
   expect(await page.locator("main").evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(2);

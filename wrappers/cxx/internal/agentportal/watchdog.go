@@ -55,6 +55,10 @@ func (s *Session) startWatchdogFeed(ctx context.Context) func() {
 		backoff := time.Second
 		disconnected := false
 		for ctx.Err() == nil {
+			if _, _, _, used := s.stateView(); used {
+				<-ctx.Done()
+				return
+			}
 			if s.signedReceivePlaneEnabled() {
 				_ = s.consumeWatchdogFeed(ctx)
 				s.watchdog.mu.Lock()
@@ -90,6 +94,13 @@ func (s *Session) startWatchdogFeed(ctx context.Context) func() {
 func (s *Session) consumeWatchdogFeed(ctx context.Context) error {
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	go func() {
+		select {
+		case <-streamCtx.Done():
+		case <-s.stateNegotiated():
+			cancel()
+		}
+	}()
 	req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, strings.TrimRight(s.BaseURL, "/")+"/host/agent-sessions/"+url.PathEscape(s.ID)+"/watchdog/stream", nil)
 	if err != nil {
 		return err

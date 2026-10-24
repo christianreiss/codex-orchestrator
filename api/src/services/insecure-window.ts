@@ -1,3 +1,7 @@
+import { observeAdmissionInterest, pendingWithInterest } from '../control-plane/state/admission-interest.js';
+import { bindOwnerHostPrincipal, requestHost } from '../control-plane/state/admission.js';
+import { sha256 } from '../security/hash.js';
+import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/state/runtime.js';
 import { and, desc, eq, gt, isNull, or } from 'drizzle-orm';
 import {
   hosts as hostsTable,
@@ -95,7 +99,7 @@ export function insecureWindowActiveAt(host: Pick<Host, 'insecureEnabledUntil'>,
   const until = host.insecureEnabledUntil;
   if (!until) return false;
   const ms = until instanceof Date ? until.getTime() : new Date(until).getTime();
-  return Number.isFinite(ms) && ms >= now;
+  return Number.isFinite(ms) && ms > now;
 }
 
 export interface InsecureWindowService {
@@ -111,6 +115,7 @@ export interface InsecureWindowService {
    * insecure host (or a custom window if the operator overrides).
    */
   openInitial(hostId: number, windowMinutes?: number): Promise<void>;
+  stageInitial?(ctx: OwnerMutationContext, hostId: number, windowMinutes?: number): void;
 }
 
 export interface InsecureWindowDeps {
@@ -124,8 +129,101 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
   // from here without changing any of the five construction sites.
   const settings = new SettingsService(db);
 
+  const stageInitial = (ctx: OwnerMutationContext, hostId: number, windowMinutes?: number) => {
+    const host = ctx.draft.table('hosts').get(hostId);
+    if (!host) throw new ForbiddenError('Host not found', 'host_not_found');
+    const initialMinutes = windowMinutes !== undefined ? clampWindow(windowMinutes) : PROVISIONING_WINDOW_MINUTES;
+    const storedMinutes = windowMinutes !== undefined ? clampWindow(windowMinutes) : DEFAULT_WINDOW;
+    const enabledUntil = new Date(Date.now() + initialMinutes * 60_000);
+    const patch = { insecureEnabledUntil: enabledUntil, insecureSessionRenewalBlocked: 0, insecureGraceUntil: computeGrace(enabledUntil, storedMinutes, env), insecureWindowMinutes: storedMinutes, updatedAt: nowIso() };
+    ctx.draft.upsert('hosts', { ...host, ...patch });
+    ctx.write(async tx => tx.update(hostsTable).set(patch).where(eq(hostsTable.id, hostId)));
+  };
   return {
+    stageInitial,
     async enforce(host, command, requestIp = null) {
+      const owner = ownerRuntimeFor(db);
+      if (owner) {
+        owner.assertOwner();
+        const admitted = owner.state.snapshot().hosts.get(host.id);
+        if (!admitted || admitted.credentialLookupHash !== sha256(host.apiKey)) throw new ForbiddenError('Host credentials changed', 'invalid_api_key');
+        if (admitted.secure === 1 || command === 'store') return requestHost(admitted, host.apiKey);
+        const waiting = owner.state.snapshot().table('insecureAuthRequests').by('hostId', host.id).find(row => row.status === 'pending');
+        const activeDomain = owner.state.snapshot().table('insecureDomainAllows').all().some(row => !row.revokedAt && (!row.enabledUntil || (parseDate(row.enabledUntil)?.getTime() ?? 0) > Date.now()) && (admitted.fqdn.toLowerCase() === row.domain.toLowerCase() || admitted.fqdn.toLowerCase().endsWith('.' + row.domain.toLowerCase())));
+        const fleetActive = (parseDate(owner.state.snapshot().setting('insecure_fleet_window_until'))?.getTime() ?? 0) > Date.now();
+        if (waiting && !insecureWindowActive(admitted) && !activeDomain && !fleetActive && !stalePendingReason(pendingWithInterest(owner, waiting))) {
+          if (observeAdmissionInterest(owner, waiting.id)) wsPublisher.publish('insecure.requested', { host_id: host.id, fqdn: admitted.fqdn, request_id: waiting.id, live: true });
+          throw new LockedError('Insecure host approval pending', 'insecure_pending');
+        }
+        let denied = false; const notifications: Array<() => void> = [];
+        await mutateOwnerState(owner, { kind: 'host.insecure.admit', payload: { hostId: host.id, command, requestIp }, prepare(ctx) {
+          const current = ctx.draft.table('hosts').get(host.id);
+          if (!current || current.credentialLookupHash !== sha256(host.apiKey)) throw new ForbiddenError('Host credentials changed', 'invalid_api_key');
+          if (current.secure === 1) return null;
+          const now = new Date(); const at = now.toISOString();
+          const updateHost = (until: Date, grace: Date | null) => {
+            const patch = { insecureEnabledUntil: until, insecureGraceUntil: grace, updatedAt: at };
+            ctx.draft.upsert('hosts', { ...current, ...patch });
+            ctx.write(async tx => tx.update(hostsTable).set(patch).where(eq(hostsTable.id, current.id)));
+          };
+          const fleetUntil = parseDate(ctx.snapshot.setting('insecure_fleet_window_until'));
+          const enabled = parseDate(current.insecureEnabledUntil);
+          if (fleetUntil && fleetUntil > now) {
+            if (!enabled || enabled < fleetUntil) updateHost(fleetUntil, null);
+            return null;
+          }
+          const minutes = clampWindow(current.insecureWindowMinutes);
+          if (enabled && enabled > now) {
+            const until = new Date(Math.max(enabled.getTime(), now.getTime() + minutes * 60_000));
+            const grace = computeGrace(until, minutes, env);
+            if (until.getTime() !== enabled.getTime() || parseDate(current.insecureGraceUntil)?.getTime() !== grace?.getTime()) updateHost(until, grace);
+            return null;
+          }
+          const fqdn = current.fqdn.toLowerCase();
+          const domain = ctx.draft.table('insecureDomainAllows').all().find(row => {
+            const deadline = parseDate(row.enabledUntil); const suffix = row.domain.toLowerCase();
+            return !row.revokedAt && (!row.enabledUntil || deadline && deadline > now) && Boolean(suffix) && (fqdn === suffix || fqdn.endsWith('.' + suffix));
+          });
+          if (domain) {
+            const until = new Date(now.getTime() + minutes * 60_000); updateHost(until, computeGrace(until, minutes, env));
+            const patch = { enabledUntil: isoLocalAtom(new Date(now.getTime() + clampWindow(domain.windowMinutes) * 60_000)), updatedAt: at };
+            ctx.draft.upsert('insecureDomainAllows', { ...domain, ...patch });
+            ctx.write(async tx => tx.update(insecureDomainAllows).set(patch).where(eq(insecureDomainAllows.id, domain.id)));
+            notifications.push(() => wsPublisher.publish('insecure.domain.allowed', { host_id: current.id, fqdn: current.fqdn, domain: domain.domain }));
+            return null;
+          }
+          const pending = ctx.draft.table('insecureAuthRequests').by('hostId', current.id).find(row => row.status === 'pending');
+          if (pending) {
+            const stale = stalePendingReason(pendingWithInterest(owner, pending), now.getTime());
+            if (stale) {
+              const patch = { status: stale === 'timeout' ? 'denied' : 'expired', resolvedAt: at, updatedAt: at };
+              ctx.draft.upsert('insecureAuthRequests', { ...pending, ...patch });
+              ctx.write(async tx => tx.update(insecureAuthRequests).set(patch).where(eq(insecureAuthRequests.id, pending.id)));
+              notifications.push(() => wsPublisher.publish('insecure.denied', { host_id: current.id, fqdn: current.fqdn, request_id: pending.id, reason: stale }));
+              if (stale === 'timeout') { denied = true; return null; }
+            } else {
+              const first = observeAdmissionInterest(owner, pending.id, now.getTime());
+              if (first) notifications.push(() => wsPublisher.publish('insecure.requested', { host_id: current.id, fqdn: current.fqdn, request_id: pending.id, live: true }));
+              return 'pending';
+            }
+          }
+          const latest = [...ctx.draft.table('insecureAuthRequests').by('hostId', current.id)].sort((a,b) => Date.parse(b.requestedAt)-Date.parse(a.requestedAt))[0];
+          const resolved = latest && parseDate(latest.resolvedAt);
+          if (latest?.status === 'denied' && resolved && now.getTime()-resolved.getTime() < APPROVAL_DENY_COOLDOWN_SECONDS*1000) { denied = true; return null; }
+          const values = { hostId: current.id, status: 'pending', requestIp: requestIp ? requestIp.slice(0,64) : null, requestedAt: at, updatedAt: at, resolvedAt: null, engine: 'codex' };
+          ctx.write(async tx => {
+            const [inserted] = await tx.insert(insecureAuthRequests).values(values);
+            ctx.draft.upsert('insecureAuthRequests', { ...values, id: Number(inserted.insertId) });
+          });
+          notifications.push(() => wsPublisher.publish('insecure.requested', { host_id: current.id, fqdn: current.fqdn, command }));
+          return 'pending';
+        } });
+        for (const notify of notifications) notify();
+        if (denied) throw new ForbiddenError('Insecure host approval denied', 'insecure_denied');
+        const current = owner.state.snapshot().hosts.get(host.id)!;
+        if (current.secure === 1 || insecureWindowActiveAt(current, Date.now())) { const admittedHost = requestHost(current, host.apiKey); bindOwnerHostPrincipal(db, admittedHost,true); return admittedHost; }
+        throw new LockedError('Insecure host approval pending', 'insecure_pending');
+      }
       if (host.secure === 1) return host;
 
       // A local login/logout may complete after the retrieve window closes.
@@ -165,7 +263,7 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
       }
 
       const enabledUntil = parseDate(host.insecureEnabledUntil ?? null);
-      const enabledActive = enabledUntil !== null && enabledUntil >= now;
+      const enabledActive = enabledUntil !== null && enabledUntil > now;
       const hostId = host.id;
 
       if (enabledActive) {
@@ -321,6 +419,18 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
         windowMinutes !== undefined ? clampWindow(windowMinutes) : DEFAULT_WINDOW;
       const enabledUntil = new Date(Date.now() + initialMinutes * 60_000);
       const grace = computeGrace(enabledUntil, storedMinutes, env);
+      const owner = ownerRuntimeFor(db);
+      if (owner) {
+        await mutateOwnerState(owner, { kind: 'host.insecure.openInitial', payload: { hostId, initialMinutes, storedMinutes }, prepare(ctx) {
+          const host = ctx.draft.table('hosts').get(hostId);
+          if (!host) throw new ForbiddenError('Host not found', 'host_not_found');
+          const patch = { insecureEnabledUntil: enabledUntil, insecureSessionRenewalBlocked: 0, insecureGraceUntil: grace, insecureWindowMinutes: storedMinutes, updatedAt: nowIso() };
+          ctx.draft.upsert('hosts', { ...host, ...patch });
+          ctx.write(async tx => tx.update(hostsTable).set(patch).where(eq(hostsTable.id, hostId)));
+          return null;
+        } });
+        return;
+      }
       await db
         .update(hostsTable)
         .set({

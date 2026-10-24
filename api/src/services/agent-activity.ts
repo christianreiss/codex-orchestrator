@@ -2,6 +2,19 @@ import { z } from 'zod';
 import { ConflictError } from '../http/errors.js';
 import { receiverState, RECEIVER_FRESH_MS } from './agent-receiver-state.js';
 
+// Legacy observations can renew a deadline without changing the visible state.
+// Notify local subscribers after commit without writing a synthetic Portal event.
+const observationListeners = new WeakMap<object, Set<() => void>>();
+export function subscribeActivityObservations(database: object, listener: () => void): () => void {
+  let listeners = observationListeners.get(database);
+  if (!listeners) { listeners = new Set(); observationListeners.set(database, listeners); }
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+export function notifyActivityObservation(database: object): void {
+  for (const listener of observationListeners.get(database) ?? []) listener();
+}
+
 export const ACTIVITY_FRESH_MS = 45_000;
 export const activityInputSchema = z
   .object({

@@ -21,7 +21,7 @@
   let input = $state<HTMLTextAreaElement>();
   let bottom = $state<HTMLDivElement>();
   let retryMessage = $state<{ id: string; text: string; generation: number; context: ReturnType<typeof chattyContext> } | null>(null);
-  const status = createQuery(toStore(() => ({ queryKey: [...chattyKeys.status, $authStore.user?.id], queryFn: fetchChattyStatus, enabled: $authStore.can('chatty.use'), refetchInterval: 30000, retry: false })));
+  const status = createQuery(toStore(() => ({ queryKey: [...chattyKeys.status, $authStore.user?.id], queryFn: fetchChattyStatus, enabled: $authStore.can('chatty.use'), retry: false })));
   const session = createQuery(toStore(() => ({ queryKey: [...chattyKeys.session, $authStore.user?.id], queryFn: () => fetchChattySession(), enabled: open && $authStore.can('chatty.use'), retry: false })));
   const active = $derived($session.data?.active);
   const selectionLocked = $derived(busy || !!active || !$session.data);

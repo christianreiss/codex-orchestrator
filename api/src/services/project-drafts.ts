@@ -1,3 +1,5 @@
+import {persistAuditLog} from './audit-log.js';
+import { ownerRuntimeFor, mutateOwnerState, withOwnerBackgroundScope } from '../control-plane/state/runtime.js';
 /**
  * AI-assisted project drafting. Port of `App\Services\ProjectDraftService`.
  * Calls the runner's `/projects/assist` endpoint with the project's current
@@ -9,7 +11,7 @@ import { withAccountTask } from './account-task.js';
 import type { ProviderAccountsService } from './provider-accounts.js';
 import { ApiError } from '../http/errors.js';
 import type { Database } from '../db/client.js';
-import { logs } from '../db/schema.js';
+
 import { nowIso } from '../util/timestamp.js';
 import { ENGINE_CODEX, type Engine } from '../util/engine.js';
 import type { ProjectDetail, ProjectsService } from './projects.js';
@@ -145,13 +147,16 @@ export class ProjectDraftsService {
   private async recordLog(action: string, details: Record<string, unknown>): Promise<void> {
     if (!this.deps.db) return;
     try {
-      await this.deps.db.insert(logs).values({
+      const owner=ownerRuntimeFor(this.deps.db);
+      const values={
         hostId: null,
         action,
         details: JSON.stringify(details),
         createdAt: nowIso(),
         engine: this.deps.engine ?? null,
-      });
+      };
+      if(owner)await withOwnerBackgroundScope(()=>mutateOwnerState(owner,{kind:'draft.audit',payload:{action},prepare(ctx){ctx.write(tx=>persistAuditLog(tx, values));return null;}}));
+      else await persistAuditLog(this.deps.db, values);
     } catch {
       /* non-fatal */
     }

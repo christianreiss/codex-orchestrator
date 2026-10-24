@@ -1,10 +1,18 @@
+import {persistAuditLog} from './audit-log.js';
+import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/state/runtime.js';
+import { materializeHost, stageHostRegistration } from '../control-plane/state/host-registration.js';
+import { requestHost } from '../control-plane/state/admission.js';
+import { suspendOwnedMessaging } from '../control-plane/state/suspension.js';
+import { adminAudit } from '../control-plane/state/admin.js';
+import { ENGINES } from '../util/engine.js';
+import { isTruthyFlagValue } from './settings.js';
+import type { FleetEngineState } from './engine-switch.js';
 import { pruneHosts } from './host-lifecycle.js';
 import { eq } from 'drizzle-orm';
 import {
   adminEvents,
   installTokens,
   hosts as hostsTable,
-  logs as logsTable,
   type Host,
 } from '../db/schema.js';
 import type { Database } from '../db/client.js';
@@ -32,14 +40,16 @@ export interface RegisteredHost {
   apiKey: string;
 }
 
-export interface HostRegistrationService {
-  registerOrRotate(input: {
+export interface HostRegistrationInput {
     fqdn: string;
     secure?: boolean;
     insecureWindowMinutes?: number;
     engines?: string;
     createdBy?: string | null;
-  }): Promise<RegisteredHost>;
+}
+export interface HostRegistrationService {
+  registerOrRotate(input: HostRegistrationInput): Promise<RegisteredHost>;
+  stageOwned?(ctx: OwnerMutationContext, input: HostRegistrationInput, completed: (result: RegisteredHost) => void): void;
 }
 
 export interface HostRegistrationDeps {
@@ -51,10 +61,62 @@ export interface HostRegistrationDeps {
 
 export function createHostRegistrationService(deps: HostRegistrationDeps): HostRegistrationService {
   const { db, keyring, insecure } = deps;
+  const stageOwned = (ctx: OwnerMutationContext, { fqdn, secure = true, insecureWindowMinutes, engines: enginesIn, createdBy }: HostRegistrationInput, completed: (result: RegisteredHost) => void) => {
+    const trimmed = fqdn.trim(), now = nowIso();
+    const current = ctx.draft.table('hosts').by('fqdn', trimmed)[0];
+    const fleet = Object.fromEntries(ENGINES.map(engine => [engine, !isTruthyFlagValue(ctx.draft.table('versions').get(`${engine}_engine_disabled`)?.version)])) as FleetEngineState;
+    const defaults = parseEnginesInput(deps.defaultHostEngines, [ENGINE_CODEX]);
+    const usable = defaults.filter(engine => fleet[engine]);
+    const engines = enginesIn ?? current?.engines ?? (usable.length ? usable : defaults).join(',');
+    assertEnginesAddable(hostEnginesList(engines), current ? hostEnginesList(current.engines) : [], fleet);
+    if (hostEnginesList(engines).includes(ENGINE_GROK)) new ModelDefaultsService(db).stageGrokDefaults(ctx);
+    const { key: apiKey, hash: apiKeyHash } = generateApiKey('sk-codex-');
+    const patch = { apiKey: apiKeyHash, apiKeyHash, apiKeyEnc: encrypt(apiKey, keyring), secure: secure ? 1 : 0, engines, updatedAt: now };
+    const finish = (hostId: number, created: boolean) => {
+      if (!secure) {
+        if (!insecure.stageInitial) throw new Error('Owner registration requires composed insecure-window service');
+        insecure.stageInitial(ctx, hostId, insecureWindowMinutes);
+      }
+      const action = created ? 'host.created' : 'host.rotated';
+      const details = { fqdn: trimmed, createdBy: createdBy ?? null, engines };
+      stageHostRegistration(ctx, hostId, action, details, now);
+      adminAudit(ctx, action, details, now, hostId);
+      completed({ host: requestHost(ctx.draft.table('hosts').get(hostId)!, apiKey), apiKey });
+    };
+    if (current) {
+      suspendOwnedMessaging(ctx, current.id, 'host_auth_rotated');
+      for (const row of ctx.draft.table('installTokens').by('hostId', current.id)) ctx.draft.removeRow('installTokens', row);
+      ctx.draft.upsert('hosts', { ...current, ...patch });
+      ctx.write(async tx => tx.delete(installTokens).where(eq(installTokens.hostId, current.id)));
+      ctx.write(async tx => tx.update(hostsTable).set(patch).where(eq(hostsTable.id, current.id)));
+      finish(current.id, false);
+    } else {
+      const values = { ...patch, fqdn: trimmed, status: 'active', createdAt: now };
+      ctx.write(async tx => {
+        const result = await tx.insert(hostsTable).values(values);
+        const hostId = Number(result[0]?.insertId);
+        if (!Number.isSafeInteger(hostId) || hostId < 1) throw new Error('Host insert returned no identity');
+        ctx.draft.upsert('hosts', materializeHost({ ...values, id: hostId }));
+        finish(hostId, true);
+      });
+    }
+  };
   return {
-    async registerOrRotate({ fqdn, secure = true, insecureWindowMinutes, engines: enginesIn, createdBy }) {
+    stageOwned,
+    async registerOrRotate(input) {
+      const { fqdn, secure = true, insecureWindowMinutes, engines: enginesIn, createdBy } = input;
       const trimmed = fqdn.trim();
       const now = nowIso();
+      const owner = ownerRuntimeFor(db);
+      if (owner) {
+        const result = await mutateOwnerState(owner, { kind: 'host.registration', payload: { fqdn: trimmed, secure, engines: enginesIn ?? null, createdBy: createdBy ?? null, insecureWindowMinutes: insecureWindowMinutes ?? null }, prepare(ctx) {
+          let result!: RegisteredHost;
+          stageOwned(ctx, input, value => { result = value; });
+          return () => JSON.parse(JSON.stringify(result)) as import('../control-plane/commands.js').Json;
+        } }) as unknown as RegisteredHost;
+        wsPublisher.publish('host.updated', { id: result.host.id, fqdn: trimmed });
+        return result;
+      }
       const existing = await db.select().from(hostsTable).where(eq(hostsTable.fqdn, trimmed)).limit(1);
 
       // Same rule as the admin host forms: an engine switched off fleet-wide
@@ -161,5 +223,5 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
 async function audit(db: Database, hostId: number, type: string, payload: Record<string, unknown>): Promise<void> {
   const now = nowIso();
   await db.insert(adminEvents).values({ type, hostId, payload, createdAt: now });
-  await db.insert(logsTable).values({ hostId, action: type, details: JSON.stringify(payload), createdAt: now });
+  await persistAuditLog(db, { hostId, action: type, details: JSON.stringify(payload), createdAt: now });
 }

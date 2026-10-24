@@ -79,7 +79,7 @@ export function transferListQuery() {
     queryFn: () => api.get<{ transfers: TransferRow[] }>("/admin/transfers"),
     // Every row carries a deadline that the server sweeps past. Without a
     // refetch a page left open shows files that expired minutes ago as live.
-    refetchInterval: 30_000,
+
   });
 }
 

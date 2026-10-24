@@ -1,5 +1,7 @@
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { companionUnread, COMPANION_EVENT_TYPES } from '../../control-plane/state/companion-index.js';
 import { namedSessionTitle } from '../agent-messaging/names.js';
-import { and, inArray, sql } from 'drizzle-orm';
+import { and, eq, gt, count, inArray, sql } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
 import { agentEvents, agentPrompts } from '../../db/schema.js';
 import { decrypt } from '../../security/secret-box.js';
@@ -54,21 +56,71 @@ export async function companionPreviews(
     .filter(([sessionId, cursor]) => sessionIds.has(sessionId) && cursor > 0)
     .map(([sessionId, cursor]) => sql`WHEN ${logicalId} = ${sessionId} THEN ${cursor}`);
   const readCursor = markers.length ? sql`CASE ${sql.join(markers, sql` `)} ELSE 0 END` : sql`0`;
-  const latest = await ctx.db
-    .select({
-      id: sql<number>`MAX(${agentEvents.id})`,
-      sessionId: logicalId,
-      type: agentEvents.eventType,
-      unread: sql<number>`SUM(CASE WHEN ${agentEvents.eventType} = 'assistant_message' AND ${agentEvents.id} > ${readCursor} THEN 1 ELSE 0 END)`,
-    })
-    .from(agentEvents)
-    .where(
-      and(
-        inArray(agentEvents.sessionId, physicalIds),
-        inArray(agentEvents.eventType, ['assistant_message', 'waiting_input', 'attention', 'session_named']),
-      ),
-    )
-    .groupBy(logicalId, agentEvents.eventType);
+  const owner = ownerRuntimeFor(ctx.db);
+  owner?.assertOwner();
+  const snapshot = owner?.state.snapshot();
+  const ownerLatest: Array<{ id: number; sessionId: string; type: string; unread: number }> = [];
+  if (snapshot) {
+    const byLogical = new Map<
+      string,
+      Map<string, { id: number; sessionId: string; type: string; unread: number }>
+    >();
+    for (const physical of physicalIds) {
+      const index = snapshot.sessions.get(physical)?.companionEvents;
+      if (!index) continue;
+      const logical = aliases.get(physical) ?? physical,
+        types = byLogical.get(logical) ?? new Map();
+      byLogical.set(logical, types);
+      let unread = companionUnread(index, Number(readCursors[logical] ?? 0));
+      if (unread === undefined) {
+        const [historical] = await ctx.db
+          .select({ count: count() })
+          .from(agentEvents)
+          .where(
+            and(
+              eq(agentEvents.sessionId, physical),
+              eq(agentEvents.eventType, 'assistant_message'),
+              gt(agentEvents.id, Number(readCursors[logical] ?? 0)),
+            ),
+          );
+        unread = Number(historical?.count ?? 0);
+      }
+      for (const type of COMPANION_EVENT_TYPES) {
+        const id = index.heads[type];
+        if (!id) continue;
+        const previous = types.get(type);
+        types.set(type, {
+          id: Math.max(previous?.id ?? 0, id),
+          sessionId: logical,
+          type,
+          unread: (previous?.unread ?? 0) + (type === 'assistant_message' ? unread : 0),
+        });
+      }
+    }
+    for (const types of byLogical.values()) ownerLatest.push(...types.values());
+  }
+  const latest = snapshot
+    ? ownerLatest
+    : await ctx.db
+        .select({
+          id: sql<number>`MAX(${agentEvents.id})`,
+          sessionId: logicalId,
+          type: agentEvents.eventType,
+          unread: sql<number>`SUM(CASE WHEN ${agentEvents.eventType} = 'assistant_message' AND ${agentEvents.id} > ${readCursor} THEN 1 ELSE 0 END)`,
+        })
+        .from(agentEvents)
+        .where(
+          and(
+            inArray(agentEvents.sessionId, physicalIds),
+            inArray(agentEvents.eventType, [
+              'assistant_message',
+              'waiting_input',
+              'attention',
+              'session_named',
+            ]),
+          ),
+        )
+        .groupBy(logicalId, agentEvents.eventType);
   const unreadBySession = new Map(
     latest
       .filter((row) => row.type === 'assistant_message')
@@ -78,10 +130,15 @@ export async function companionPreviews(
     s.pending_prompt ? [String((s.pending_prompt as { id: string }).id)] : [],
   );
   const prompts = promptIds.length
-    ? await ctx.db
-        .select({ id: agentPrompts.id, eventId: agentPrompts.eventId })
-        .from(agentPrompts)
-        .where(inArray(agentPrompts.id, promptIds))
+    ? snapshot
+      ? promptIds.flatMap((id) => {
+          const prompt = snapshot.table('agentPrompts').get(id);
+          return prompt ? [{ id: prompt.id, eventId: prompt.eventId }] : [];
+        })
+      : await ctx.db
+          .select({ id: agentPrompts.id, eventId: agentPrompts.eventId })
+          .from(agentPrompts)
+          .where(inArray(agentPrompts.id, promptIds))
     : [];
   const promptEvents = new Map(prompts.map((p) => [p.id, p.eventId]));
   const ids = [
@@ -91,6 +148,7 @@ export async function companionPreviews(
     ]),
   ];
   const rows = ids.length ? await ctx.db.select().from(agentEvents).where(inArray(agentEvents.id, ids)) : [];
+  owner?.assertOwner();
   const byId = new Map(rows.map((r) => [r.id, r]));
   const bySession = new Map<string, Map<string, (typeof rows)[number]>>();
   for (const row of rows) {
@@ -132,4 +190,16 @@ export async function companionPreviews(
       unread_reply_count: unreadReplyCount,
     };
   });
+}
+
+export function notificationKind(
+  type: string,
+  followed: boolean,
+  payload: Record<string, unknown> = {},
+): 'attention' | 'reply' | null {
+  if (payload.severity && ['assistant_message', 'waiting_input', 'attention'].includes(type))
+    return 'attention';
+  if (type === 'waiting_input' && payload.answer_mode) return followed ? 'reply' : null;
+  if (type === 'waiting_input' || type === 'attention') return 'attention';
+  return type === 'assistant_message' && followed ? 'reply' : null;
 }

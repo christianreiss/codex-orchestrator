@@ -338,24 +338,17 @@ describe("query builders", () => {
         typeof built.refetchInterval === "function"
           ? built.refetchInterval({ state: { data: undefined } })
           : built.refetchInterval;
-      assert.equal(interval, queryCase.refetchInterval);
+      assert.equal(interval, undefined);
 
       await built.queryFn();
       assert.deepEqual(calls, [{ method: "GET", path: queryCase.path, body: undefined }]);
     });
   }
 
-  it("polls pending approvals faster while any are pending, also in the background", () => {
-    const built = asQuery(insecure.insecureApprovalsQuery()) as BuiltQuery & {
-      refetchIntervalInBackground?: boolean;
-      refetchOnWindowFocus?: boolean;
-    };
-    assert.equal(typeof built.refetchInterval, "function");
-    const fn = built.refetchInterval as (q: { state: { data?: unknown } }) => number;
-    assert.equal(fn({ state: { data: { requests: [{ id: 1 }] } } }), 10_000);
-    assert.equal(fn({ state: { data: { requests: [] } } }), 30_000);
-    assert.equal(built.refetchIntervalInBackground, true);
-    assert.equal(built.refetchOnWindowFocus, true);
+  it("uses owner expiry events instead of background polling", () => {
+    const built = asQuery(insecure.insecureApprovalsQuery()) as BuiltQuery & { refetchIntervalInBackground?: boolean };
+    assert.equal(built.refetchInterval, undefined);
+    assert.equal(built.refetchIntervalInBackground, undefined);
   });
 
   it("keys the summary the way the hosts feature keys it", () => {

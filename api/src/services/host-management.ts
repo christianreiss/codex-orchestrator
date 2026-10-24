@@ -1,3 +1,12 @@
+import {persistAuditLog} from './audit-log.js';
+import { projectHostDeletion } from '../control-plane/state/deletion.js';
+import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/state/runtime.js';
+import { materializeHost, stageHostRegistration, type ManagedHost } from '../control-plane/state/host-registration.js';
+import { suspendOwnedMessaging } from '../control-plane/state/suspension.js';
+import { adminAudit } from '../control-plane/state/admin.js';
+import { wsPublisher } from '../ws/publisher.js';
+import { isTruthyFlagValue } from './settings.js';
+import type { Json } from '../control-plane/commands.js';
 import { pruneHosts } from './host-lifecycle.js';
 /**
  * Admin-side host management: register / clear / delete / toggle flags / set
@@ -10,7 +19,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
 import type { Env } from '../env.js';
-import { hosts, installTokens, hostAuthDigests, logs } from '../db/schema.js';
+import { hosts, installTokens, hostAuthDigests} from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import { decryptOrNull, encrypt as sboxEncrypt } from '../security/secret-box.js';
 import { sha256 } from '../security/hash.js';
@@ -218,19 +227,141 @@ export class HostManagementService {
     return this.opts.events;
   }
 
+  private ownedFleet(ctx: OwnerMutationContext): FleetEngineState {
+    return Object.fromEntries(ENGINES.map(engine => [engine, !isTruthyFlagValue(ctx.draft.table('versions').get(`${engine}_engine_disabled`)?.version)])) as FleetEngineState;
+  }
+
+  private async patchOwned(id: number, patch: Partial<Host> | ((host: ManagedHost) => Partial<Host>), action: string, details: Record<string, unknown>, expected?: ManagedHost): Promise<ManagedHost> {
+    const owner = ownerRuntimeFor(this.db)!;
+    await mutateOwnerState(owner, { kind: action, payload: { id, details: JSON.parse(JSON.stringify(details)) as Json }, prepare: ctx => {
+      const current = ctx.draft.table('hosts').get(id);
+      if (!current) throw new NotFoundError('Host not found', 'host_not_found');
+      if (expected && JSON.stringify(current) !== JSON.stringify(expected)) throw new ConflictError('Host changed; retry the operation', 'host_changed');
+      const changes = typeof patch === 'function' ? patch(current) : patch;
+      ctx.draft.upsert('hosts', { ...current, ...changes });
+      ctx.write(async tx => tx.update(hosts).set(changes).where(eq(hosts.id, id)));
+      ctx.write(async tx => persistAuditLog(tx, { hostId: id, action, details: JSON.stringify({ fqdn: current.fqdn, ...details }), createdAt: nowIso() }));
+      adminAudit(ctx, 'host.updated', { host_id: id, fqdn: current.fqdn, ...details }, nowIso(), id);
+      return null;
+    } });
+    const fresh = await this.requireById(id);
+    wsPublisher.publish('host.updated', { id, fqdn: fresh.fqdn });
+    return fresh;
+  }
+
+  private stageInstaller(ctx: OwnerMutationContext, host: ManagedHost, apiKeyPlain: string, engines: Engine[], token: string, requestedEngines?: Engine[]): InstallerInfo {
+    const fleet = this.ownedFleet(ctx);
+    const installable = engines.filter(engine => fleet[engine]);
+    if (requestedEngines?.length === 1 && !fleet[requestedEngines[0]!]) throw fleetEngineConflictError(requestedEngines[0]!);
+    if (!installable.length) throw fleetEngineConflictError(engines[0] ?? ENGINE_CODEX);
+    const installerEngine = requestedEngines?.length === 1 ? requestedEngines[0]! : installable.includes(ENGINE_CODEX) ? ENGINE_CODEX : installable[0]!;
+    const baseUrl = this.resolveInstallerBaseUrl(); const expiresAt = isoOffsetSeconds(INSTALL_TOKEN_TTL_SECONDS_DEFAULT);
+    for (const old of ctx.draft.table('installTokens').by('hostId', host.id)) ctx.draft.remove('installTokens', old.id);
+    ctx.write(async tx => tx.delete(installTokens).where(eq(installTokens.hostId, host.id)));
+    const values = { token: sha256(token), tokenEnc: sboxEncrypt(token, this.keyring), hostId: host.id, apiKey: sha256(apiKeyPlain), apiKeyEnc: sboxEncrypt(apiKeyPlain, this.keyring), fqdn: host.fqdn, baseUrl, engine: installerEngine, expiresAt, usedAt: null, createdAt: nowIso() };
+    ctx.write(async tx => {
+      const result = await tx.insert(installTokens).values(values); const id = Number(result[0]?.insertId);
+      if (!Number.isSafeInteger(id) || id < 1) throw new Error('Installer insert returned no identity');
+      ctx.draft.upsert('installTokens', { ...values, id });
+    });
+    const mode = installerModeForEngines(engines);
+    ctx.write(async tx => persistAuditLog(tx, { hostId: host.id, action: 'admin.install_token.create', details: JSON.stringify({ fqdn: host.fqdn, expires_at: expiresAt, installer_mode: mode, token: `${token.slice(0, 8)}…` }), createdAt: nowIso() }));
+    const url = `${baseUrl.replace(/\/+$/, '')}/install/${token}`;
+    return { token, mode, label: installerModeLabel(mode), url, command: installerCommand(url, host.curlInsecure === 1), expires_at: expiresAt };
+  }
+
+  /** Compose host, installer and caller-owned operation in one owner command. */
+  stageRegisterOwned(ctx: OwnerMutationContext, req: RegisterRequest, options: {createOnly?: boolean}, completed: (result: {host: ManagedHost; apiKeyPlain: string; installer: InstallerInfo}) => void): void {
+    const fqdn = req.fqdn.trim();
+    const apiKeyPlain = `sk-codex-${randomBytes(32).toString('hex')}`;
+    const apiKeyHash = sha256(apiKeyPlain), apiKeyEnc = sboxEncrypt(apiKeyPlain, this.keyring), token = randomUUID();
+    let hostId = 0; let installer!: InstallerInfo; let created = false;
+    const optional: Partial<Host> = {};
+    if (typeof req.vip === 'boolean') optional.vip = req.vip ? 1 : 0;
+    if (typeof req.temporary === 'boolean') optional.expiresAt = req.temporary ? isoOffsetSeconds(QUICK_REGISTER_TTL_SECONDS) : null;
+    if (typeof req.curl_insecure === 'boolean') optional.curlInsecure = req.curl_insecure ? 1 : 0;
+    if (req.reverse_dns_mode) {
+      const mode = parseReverseDnsModeInput(req.reverse_dns_mode);
+      if (mode === null) throw new ValidationError('reverse_dns_mode must be one of: global, enabled, disabled', { param: 'reverse_dns_mode' });
+      optional.reverseDnsMode = modeStringToTinyint(mode);
+    }
+      const previous = ctx.draft.table('hosts').by('fqdn', fqdn)[0];
+      if (previous && options.createOnly) throw new ConflictError(`Host "${fqdn}" is already registered`, 'host_fqdn_conflict');
+      let engines = req.engines?.length ? req.engines : previous ? parseEnginesInput(previous.engines, [ENGINE_CODEX]) : parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
+      const fleet = this.ownedFleet(ctx);
+      if (!req.engines?.length && !previous) { const enabled = engines.filter(engine => fleet[engine]); if (enabled.length) engines = enabled; }
+      assertEnginesAddable(engines, previous ? parseEnginesInput(previous.engines, [ENGINE_CODEX]) : [], fleet);
+      if (!engines.some(engine => fleet[engine])) throw fleetEngineConflictError(engines[0] ?? ENGINE_CODEX);
+      if (engines.includes(ENGINE_GROK)) new ModelDefaultsService(this.db).stageGrokDefaults(ctx);
+      const now = nowIso(); const secure = req.secure ?? (previous ? previous.secure === 1 : true);
+      const patch: Partial<Host> = { ...optional, apiKey: apiKeyHash, apiKeyHash, apiKeyEnc, secure: secure ? 1 : 0, engines: serializeEngines(engines), updatedAt: now };
+      if (!secure) {
+        const provision = clampInsecureMinutes(req.duration_minutes ?? PROVISIONING_WINDOW_MINUTES, PROVISIONING_WINDOW_MINUTES);
+        const stored = clampInsecureMinutes(req.duration_minutes ?? DEFAULT_INSECURE_WINDOW_MINUTES, DEFAULT_INSECURE_WINDOW_MINUTES);
+        const until = new Date(Date.now() + provision * 60_000);
+        Object.assign(patch, { insecureEnabledUntil: until, insecureSessionRenewalBlocked: 0, insecureGraceUntil: computeGraceUntil(until, stored, clampInsecureMinutes(this.env.INSECURE_GRACE_MINUTES, 60)), insecureWindowMinutes: stored });
+      }
+      const finish = () => {
+        const host = ctx.draft.table('hosts').get(hostId)!;
+        stageHostRegistration(ctx, hostId, created ? 'host.created' : 'host.rotated', { fqdn, engines: host.engines }, now);
+        installer = this.stageInstaller(ctx, host, apiKeyPlain, engines, token);
+        adminAudit(ctx, created ? 'host.created' : 'host.updated', { host_id: hostId, fqdn, engines: host.engines, secure }, now, hostId);
+        completed({ host: ctx.draft.table('hosts').get(hostId)!, apiKeyPlain, installer });
+      };
+      if (previous) {
+        hostId = previous.id;
+        suspendOwnedMessaging(ctx, hostId, 'host_auth_rotated', undefined, now);
+        ctx.draft.upsert('hosts', { ...previous, ...patch });
+        ctx.write(async tx => tx.update(hosts).set(patch).where(eq(hosts.id, hostId)));
+        finish();
+      } else {
+        created = true;
+        const values = { fqdn, status: 'active', createdAt: now, ...patch, apiKey: apiKeyHash, updatedAt: now };
+        ctx.write(async tx => {
+          const result = await tx.insert(hosts).values(values); hostId = Number(result[0]?.insertId);
+          if (!Number.isSafeInteger(hostId) || hostId < 1) throw new Error('Host insert returned no identity');
+          ctx.draft.upsert('hosts', materializeHost({ ...values, id: hostId })); finish();
+        });
+      }
+  }
+
+  private async registerOwned(req: RegisterRequest, options: { createOnly?: boolean }): Promise<{ host: ManagedHost; apiKeyPlain: string; installer: InstallerInfo }> {
+    const owner = ownerRuntimeFor(this.db)!;
+    const result = await mutateOwnerState(owner, { kind: 'host.register', responseAuthorization:'commit', payload: { request: JSON.parse(JSON.stringify(req)) as Json, createOnly: options.createOnly ?? false }, prepare: ctx => {
+      let result!: {host: ManagedHost; apiKeyPlain: string; installer: InstallerInfo};
+      this.stageRegisterOwned(ctx, req, options, value => { result = value; });
+      return () => JSON.parse(JSON.stringify(result)) as Json;
+    } }) as unknown as {host: ManagedHost; apiKeyPlain: string; installer: InstallerInfo};
+    wsPublisher.publish('host.updated', { id: result.host.id, fqdn: result.host.fqdn });
+    return result;
+  }
+
+  async stageMintExistingOwned(ctx: OwnerMutationContext, id: number): Promise<InstallerInfo> {
+    const host = ctx.draft.table('hosts').get(id);
+    if (!host) throw new NotFoundError('Host not found', 'host_not_found');
+    const [credential] = await this.db.select({ apiKey: hosts.apiKey, apiKeyEnc: hosts.apiKeyEnc }).from(hosts).where(eq(hosts.id, id)).limit(1);
+    const apiKey = decryptOrNull(credential?.apiKeyEnc ?? null, this.keyring) ?? (credential?.apiKey && !/^[a-f0-9]{64}$/.test(credential.apiKey) ? credential.apiKey : null);
+    if (!apiKey || host.credentialLookupHash !== sha256(apiKey)) throw new ConflictError('Host credential unavailable or changed', 'host_changed');
+    return this.stageInstaller(ctx, host, apiKey, parseEnginesInput(host.engines, [ENGINE_CODEX]), randomUUID());
+  }
+
   // ────────── Lookup ──────────
 
-  async findById(id: number): Promise<Host | null> {
+  async findById(id: number): Promise<ManagedHost | null> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); return owner.state.snapshot().hosts.get(id) ?? null; }
     const rows = await this.db.select().from(hosts).where(eq(hosts.id, id)).limit(1);
     return rows[0] ?? null;
   }
 
-  async findByFqdn(fqdn: string): Promise<Host | null> {
+  async findByFqdn(fqdn: string): Promise<ManagedHost | null> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); return owner.state.snapshot().hosts.by('fqdn', fqdn)[0] ?? null; }
     const rows = await this.db.select().from(hosts).where(eq(hosts.fqdn, fqdn)).limit(1);
     return rows[0] ?? null;
   }
 
-  async requireById(id: number): Promise<Host> {
+  async requireById(id: number): Promise<ManagedHost> {
     const host = await this.findById(id);
     if (!host) throw new NotFoundError('Host not found');
     return host;
@@ -239,7 +370,14 @@ export class HostManagementService {
   // ────────── Logs ──────────
 
   async writeLog(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {
-    await this.db.insert(logs).values({
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'host.audit', payload: { hostId, action }, prepare(ctx) {
+        ctx.write(async tx => persistAuditLog(tx, { hostId, action, details: JSON.stringify(details), createdAt: nowIso() })); return null;
+      } });
+      return;
+    }
+    await persistAuditLog(this.db, {
       hostId: hostId ?? null,
       action,
       details: Object.keys(details).length ? JSON.stringify(details) : null,
@@ -252,9 +390,10 @@ export class HostManagementService {
   async register(
     req: RegisterRequest,
     options: { createOnly?: boolean } = {},
-  ): Promise<{ host: Host; apiKeyPlain: string; installer: InstallerInfo }> {
+  ): Promise<{ host: ManagedHost; apiKeyPlain: string; installer: InstallerInfo }> {
     const fqdn = (req.fqdn ?? '').trim();
     if (!fqdn) throw new ValidationError('fqdn is required', { param: 'fqdn' });
+    if (ownerRuntimeFor(this.db)) return this.registerOwned(req, options);
 
     const existing = await this.findByFqdn(fqdn);
     if (existing && options.createOnly) {
@@ -287,7 +426,7 @@ export class HostManagementService {
     const apiKeyEnc = sboxEncrypt(apiKeyPlain, this.keyring);
     const now = nowIso();
 
-    let host: Host;
+    let host: ManagedHost;
 
     if (existing) {
       await this.db.transaction(async (tx) => {
@@ -431,7 +570,7 @@ export class HostManagementService {
 
   async quickRegister(
     req: QuickRegisterRequest,
-  ): Promise<{ host: Host; apiKeyPlain: string; installer: InstallerInfo }> {
+  ): Promise<{ host: ManagedHost; apiKeyPlain: string; installer: InstallerInfo }> {
     const fleet = await readFleetEngineState(this.db);
     const defaults = parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
     const usableDefaults = defaults.filter((engine) => fleet[engine]);
@@ -466,10 +605,12 @@ export class HostManagementService {
     id: number,
     additionalEngines?: Engine[],
     options: MintInstallerOptions = {},
-  ): Promise<{ host: Host; installer: InstallerInfo }> {
+  ): Promise<{ host: ManagedHost; installer: InstallerInfo }> {
     let host = await this.requireById(id);
-    const legacyPlainApiKey = host.apiKey && !/^[a-f0-9]{64}$/.test(host.apiKey) ? host.apiKey : null;
-    const apiKeyPlain = decryptOrNull(host.apiKeyEnc ?? null, this.keyring) ?? legacyPlainApiKey;
+    // Only installer minting requests credential material; management views stay metadata-only.
+    const [credential] = await this.db.select({ apiKey: hosts.apiKey, apiKeyEnc: hosts.apiKeyEnc }).from(hosts).where(eq(hosts.id, id)).limit(1);
+    const legacyPlainApiKey = credential?.apiKey && !/^[a-f0-9]{64}$/.test(credential.apiKey) ? credential.apiKey : null;
+    const apiKeyPlain = decryptOrNull(credential?.apiKeyEnc ?? null, this.keyring) ?? legacyPlainApiKey;
     if (!apiKeyPlain) {
       throw new ApiError('Host API key is not recoverable; rotate the host before minting an installer', {
         status: 409,
@@ -487,12 +628,40 @@ export class HostManagementService {
     }
     const engines = union.length ? union : [ENGINE_CODEX];
     assertEnginesAddable(engines, currentEngines, await readFleetEngineState(this.db));
-    if (engines.includes(ENGINE_GROK)) {
+    if (engines.includes(ENGINE_GROK) && !ownerRuntimeFor(this.db)) {
       await new ModelDefaultsService(this.db).ensureGrokDefaults();
     }
     const enginesChanged = serializeEngines(engines) !== serializeEngines(currentEngines);
     const curlInsecureChanged =
       typeof options.curlInsecure === 'boolean' && (host.curlInsecure === 1) !== options.curlInsecure;
+
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const token = randomUUID(); let installer!: InstallerInfo;
+      await mutateOwnerState(owner, { kind: 'host.installer.mint', payload: { id, engines, curlInsecure: options.curlInsecure ?? null }, prepare: ctx => {
+        const current = ctx.draft.table('hosts').get(id);
+        if (!current) throw new NotFoundError('Host not found', 'host_not_found');
+        if (current.credentialLookupHash !== sha256(apiKeyPlain) || current.engines !== host.engines) throw new ConflictError('Host changed; retry installer mint', 'host_changed');
+        assertEnginesAddable(engines, parseEnginesInput(current.engines, [ENGINE_CODEX]), this.ownedFleet(ctx));
+        const patch: Partial<Host> = { updatedAt: nowIso() };
+        if (enginesChanged) patch.engines = serializeEngines(engines);
+        if (curlInsecureChanged) patch.curlInsecure = options.curlInsecure ? 1 : 0;
+        const updated = { ...current, ...patch };
+        if (enginesChanged || curlInsecureChanged) {
+          ctx.draft.upsert('hosts', updated);
+          ctx.write(async tx => tx.update(hosts).set(patch).where(eq(hosts.id, id)));
+          if (enginesChanged) ctx.write(async tx => persistAuditLog(tx, { hostId: id, action: 'admin.host.engines_added', details: JSON.stringify({ fqdn: current.fqdn, previous: serializeEngines(currentEngines), engines: serializeEngines(engines) }), createdAt: nowIso() }));
+          if (curlInsecureChanged) ctx.write(async tx => persistAuditLog(tx, { hostId: id, action: 'admin.host.curl_insecure', details: JSON.stringify({ fqdn: current.fqdn, curl_insecure: options.curlInsecure, source: 'installer_mint' }), createdAt: nowIso() }));
+        }
+        if (engines.includes(ENGINE_GROK)) new ModelDefaultsService(this.db).stageGrokDefaults(ctx);
+        installer = this.stageInstaller(ctx, updated, apiKeyPlain, engines, token, additionalEngines);
+        adminAudit(ctx, 'host.installer.minted', { host_id: id, fqdn: current.fqdn, engines: serializeEngines(engines), installer_mode: installer.mode, expires_at: installer.expires_at, engines_changed: enginesChanged, curl_insecure: updated.curlInsecure === 1 }, nowIso(), id);
+        return null;
+      } });
+      host = await this.requireById(id);
+      wsPublisher.publish('host.updated', { id, fqdn: host.fqdn });
+      return { host, installer };
+    }
 
     if (enginesChanged || curlInsecureChanged) {
       const patch: Partial<Host> = { updatedAt: nowIso() };
@@ -556,7 +725,7 @@ export class HostManagementService {
   // ────────── Installer tokens ──────────
 
   private async issueInstallerToken(
-    host: Host,
+    host: ManagedHost,
     apiKeyPlain: string,
     engines: Engine[],
     requestedEngines?: Engine[],
@@ -600,7 +769,7 @@ export class HostManagementService {
     await this.db.transaction(async (tx) => {
       const [current] = await tx.select().from(hosts).where(eq(hosts.id, host.id)).limit(1).for('update');
       if (!current) throw new NotFoundError('Host not found', 'host_not_found');
-      if (current.engines !== host.engines || current.apiKey !== host.apiKey) {
+      if (current.engines !== host.engines || (current.apiKeyHash || sha256(current.apiKey)) !== apiKeyHash) {
         throw new ConflictError('Host changed; retry installer minting', 'host_changed');
       }
       await tx.delete(installTokens).where(eq(installTokens.hostId, host.id));
@@ -652,8 +821,29 @@ export class HostManagementService {
 
   // ────────── Delete + clear ──────────
 
-  async delete(id: number): Promise<{ host: Host }> {
+  async delete(id: number): Promise<{ host: ManagedHost }> {
     const host = await this.requireById(id);
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'host.delete', payload: { id }, prepare(ctx) {
+        const current = ctx.draft.table('hosts').get(id);
+        if (!current) throw new NotFoundError('Host not found', 'host_not_found');
+        suspendOwnedMessaging(ctx, id, 'host_inactive');
+        for (const table of ['installTokens', 'hostAuthDigests'] as const) {
+          for (const row of ctx.draft.table(table).by('hostId', id)) ctx.draft.removeRow(table, row);
+        }
+        projectHostDeletion(ctx.draft, id);
+        ctx.draft.remove('hosts', id);
+        ctx.write(async tx => persistAuditLog(tx, { hostId: null, action: 'admin.host.delete', details: JSON.stringify({ host_id: id, fqdn: current.fqdn }), createdAt: nowIso() }));
+        ctx.write(async tx => tx.delete(installTokens).where(eq(installTokens.hostId, id)));
+        ctx.write(async tx => tx.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, id)));
+        ctx.write(async tx => tx.delete(hosts).where(eq(hosts.id, id)));
+        adminAudit(ctx, 'host.deleted', { host_id: id, fqdn: current.fqdn });
+        return null;
+      } });
+      wsPublisher.publish('host.deleted', { id, fqdn: host.fqdn });
+      return { host };
+    }
     await this.writeLog(id, 'admin.host.delete', { fqdn: host.fqdn });
     // FK cascades take care of children where defined; explicit digest cleanup
     // matches the legacy controller for safety.
@@ -671,8 +861,25 @@ export class HostManagementService {
     return { host };
   }
 
-  async clear(id: number): Promise<{ host: Host }> {
+  async clear(id: number): Promise<{ host: ManagedHost }> {
     const host = await this.requireById(id);
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'host.auth.clear', payload: { id }, prepare(ctx) {
+        const current = ctx.draft.table('hosts').get(id);
+        if (!current) throw new NotFoundError('Host not found', 'host_not_found');
+        const patch = { lastRefresh: null, authDigest: null, claudeLastRefresh: null, claudeAuthDigest: null, grokLastRefresh: null, grokAuthDigest: null, updatedAt: nowIso() };
+        for (const row of ctx.draft.table('hostAuthDigests').by('hostId', id)) ctx.draft.removeRow('hostAuthDigests', row);
+        ctx.draft.upsert('hosts', { ...current, ...patch });
+        ctx.write(async tx => tx.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, id)));
+        ctx.write(async tx => tx.update(hosts).set(patch).where(eq(hosts.id, id)));
+        ctx.write(async tx => persistAuditLog(tx, { hostId: id, action: 'admin.host.clear', details: JSON.stringify({ fqdn: current.fqdn }), createdAt: nowIso() }));
+        adminAudit(ctx, 'host.updated', { host_id: id, fqdn: current.fqdn, action: 'clear' }, nowIso(), id);
+        return null;
+      } });
+      wsPublisher.publish('host.updated', { id, fqdn: host.fqdn });
+      return { host: (await this.requireById(id)) };
+    }
     await this.db.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, id));
     await this.db
       .update(hosts)
@@ -701,10 +908,15 @@ export class HostManagementService {
    * authenticated host request establishes a fresh binding under the existing
    * secure/roaming policy.
    */
-  async releaseIpBinding(id: number): Promise<Host> {
+  async releaseIpBinding(id: number): Promise<ManagedHost> {
     const host = await this.requireById(id);
     const previousIp4 = host.ip4 ?? null;
     const previousIp6 = host.ip6 ?? null;
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { ip4: null, ip6: null, updatedAt: nowIso() }, 'admin.host.ip_binding_released', {
+      fqdn: host.fqdn,
+      previous_ip4: previousIp4,
+      previous_ip6: previousIp6,
+    }, host);
     await this.db
       .update(hosts)
       .set({ ip4: null, ip6: null, updatedAt: nowIso() })
@@ -723,8 +935,12 @@ export class HostManagementService {
 
   // ────────── Toggles ──────────
 
-  async setRoaming(id: number, allow: boolean): Promise<Host> {
+  async setRoaming(id: number, allow: boolean): Promise<ManagedHost> {
     const host = await this.requireById(id);
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { allowRoamingIps: allow ? 1 : 0, updatedAt: nowIso() }, 'admin.host.roaming', {
+      fqdn: host.fqdn,
+      allow_roaming: allow,
+    }, host);
     await this.db
       .update(hosts)
       .set({ allowRoamingIps: allow ? 1 : 0, updatedAt: nowIso() })
@@ -736,7 +952,7 @@ export class HostManagementService {
     return await this.publishUpdate(id, host.fqdn, { allow_roaming_ips: allow });
   }
 
-  async setSecure(id: number, secure: boolean, graceMinutes?: number | null): Promise<Host> {
+  async setSecure(id: number, secure: boolean, graceMinutes?: number | null): Promise<ManagedHost> {
     const host = await this.requireById(id);
     const patch: Partial<Host> = { secure: secure ? 1 : 0, updatedAt: nowIso() };
     if (secure) {
@@ -756,6 +972,7 @@ export class HostManagementService {
     // Demoting a host to insecure no longer suspends Agent Messaging. Insecure
     // is not disqualifying, only window-bounded: in-flight work stays queued
     // and resumes when an operator reopens the window, or expires on its TTL.
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, patch, 'admin.host.secure', { fqdn: host.fqdn, secure }, host);
     await this.db.transaction(async (tx) => {
       await tx.update(hosts).set(patch).where(eq(hosts.id, id));
     });
@@ -763,8 +980,9 @@ export class HostManagementService {
     return await this.publishUpdate(id, host.fqdn, { secure });
   }
 
-  async setVip(id: number, vip: boolean): Promise<Host> {
+  async setVip(id: number, vip: boolean): Promise<ManagedHost> {
     const host = await this.requireById(id);
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { vip: vip ? 1 : 0, updatedAt: nowIso() }, 'admin.host.vip', { fqdn: host.fqdn, vip }, host);
     await this.db
       .update(hosts)
       .set({ vip: vip ? 1 : 0, updatedAt: nowIso() })
@@ -773,8 +991,12 @@ export class HostManagementService {
     return await this.publishUpdate(id, host.fqdn, { vip });
   }
 
-  async setScalingExempt(id: number, exempt: boolean): Promise<Host> {
+  async setScalingExempt(id: number, exempt: boolean): Promise<ManagedHost> {
     const host = await this.requireById(id);
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { scalingExempt: exempt ? 1 : 0, updatedAt: nowIso() }, 'admin.host.scaling_exempt', {
+      fqdn: host.fqdn,
+      scaling_exempt: exempt,
+    }, host);
     await this.db
       .update(hosts)
       .set({ scalingExempt: exempt ? 1 : 0, updatedAt: nowIso() })
@@ -786,9 +1008,10 @@ export class HostManagementService {
     return await this.publishUpdate(id, host.fqdn, { scaling_exempt: exempt });
   }
 
-  async setAutoUpdateOverride(id: number, override: boolean | null): Promise<Host> {
+  async setAutoUpdateOverride(id: number, override: boolean | null): Promise<ManagedHost> {
     const host = await this.requireById(id);
     const value = override === null ? null : override ? 1 : 0;
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { autoUpdateOverride: value, updatedAt: nowIso() }, 'admin.host.auto_update', { fqdn: host.fqdn, override }, host);
     await this.db
       .update(hosts)
       .set({ autoUpdateOverride: value, updatedAt: nowIso() })
@@ -797,8 +1020,12 @@ export class HostManagementService {
     return await this.publishUpdate(id, host.fqdn, { auto_update_override: override });
   }
 
-  async setCurlInsecure(id: number, allow: boolean): Promise<Host> {
+  async setCurlInsecure(id: number, allow: boolean): Promise<ManagedHost> {
     const host = await this.requireById(id);
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { curlInsecure: allow ? 1 : 0, updatedAt: nowIso() }, 'admin.host.curl_insecure', {
+      fqdn: host.fqdn,
+      curl_insecure: allow,
+    }, host);
     await this.db
       .update(hosts)
       .set({ curlInsecure: allow ? 1 : 0, updatedAt: nowIso() })
@@ -810,8 +1037,16 @@ export class HostManagementService {
     return await this.publishUpdate(id, host.fqdn, { curl_insecure: allow });
   }
 
-  async setBrowserOsMcp(id: number, enabled: boolean): Promise<Host> {
+  async setBrowserOsMcp(id: number, enabled: boolean): Promise<ManagedHost> {
     const host = await this.requireById(id);
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, {
+        browserosMcpEnabled: enabled ? 1 : 0,
+        configVersion: Number(host.configVersion ?? 0) + 1,
+        updatedAt: nowIso(),
+      }, 'admin.host.browseros_mcp', {
+      fqdn: host.fqdn,
+      browseros_mcp_enabled: enabled,
+    }, host);
     await this.db
       .update(hosts)
       .set({
@@ -827,7 +1062,7 @@ export class HostManagementService {
     return await this.publishUpdate(id, host.fqdn, { browseros_mcp_enabled: enabled });
   }
 
-  async setEngines(id: number, enginesIn: Engine[]): Promise<Host> {
+  async setEngines(id: number, enginesIn: Engine[]): Promise<ManagedHost> {
     const host = await this.requireById(id);
     const engines = enginesIn.length ? enginesIn : [];
     if (!engines.length) {
@@ -840,6 +1075,28 @@ export class HostManagementService {
       await new ModelDefaultsService(this.db).ensureGrokDefaults();
     }
     const disabled = ENGINES.filter((engine) => !engines.includes(engine));
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'host.engines.set', payload: { id, engines }, prepare: ctx => {
+        const current = ctx.draft.table('hosts').get(id);
+        if (!current) throw new NotFoundError('Host not found', 'host_not_found');
+        previous = serializeEngines(parseEnginesInput(current.engines, [ENGINE_CODEX]));
+        assertEnginesAddable(engines, parseEnginesInput(current.engines, [ENGINE_CODEX]), this.ownedFleet(ctx));
+        if (disabled.length) suspendOwnedMessaging(ctx, id, 'engine_disabled', disabled);
+        if (previous !== next) {
+          for (const row of ctx.draft.table('installTokens').by('hostId', id)) ctx.draft.removeRow('installTokens', row);
+          const patch = { engines: next, updatedAt: nowIso() };
+          ctx.draft.upsert('hosts', { ...current, ...patch });
+          ctx.write(async tx => tx.delete(installTokens).where(eq(installTokens.hostId, id)));
+          ctx.write(async tx => tx.update(hosts).set(patch).where(eq(hosts.id, id)));
+          ctx.write(async tx => persistAuditLog(tx, { hostId: id, action: 'admin.host.engines', details: JSON.stringify({ fqdn: current.fqdn, previous, engines: next }), createdAt: nowIso() }));
+        }
+        adminAudit(ctx, 'host.updated', { host_id: id, fqdn: current.fqdn, previous_engines: previous, engines: next }, nowIso(), id);
+        return null;
+      } });
+      wsPublisher.publish('host.updated', { id, fqdn: host.fqdn });
+      return this.requireById(id);
+    }
     await this.db.transaction(async (tx) => {
       const [current] = await tx.select().from(hosts).where(eq(hosts.id, id)).limit(1).for('update');
       if (!current) throw new NotFoundError('Host not found', 'host_not_found');
@@ -869,9 +1126,13 @@ export class HostManagementService {
     });
   }
 
-  async setReverseDnsMode(id: number, mode: ReverseDnsModeInput): Promise<Host> {
+  async setReverseDnsMode(id: number, mode: ReverseDnsModeInput): Promise<ManagedHost> {
     const host = await this.requireById(id);
     const value = modeStringToTinyint(mode);
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { reverseDnsMode: value, updatedAt: nowIso() }, 'admin.host.reverse_dns', {
+      fqdn: host.fqdn,
+      reverse_dns_mode: mode,
+    }, host);
     await this.db.update(hosts).set({ reverseDnsMode: value, updatedAt: nowIso() }).where(eq(hosts.id, id));
     await this.writeLog(id, 'admin.host.reverse_dns', {
       fqdn: host.fqdn,
@@ -892,7 +1153,7 @@ export class HostManagementService {
       grok_reasoning_effort_override?: string | null | undefined;
       includeClaudeOverride?: boolean;
     },
-  ): Promise<Host> {
+  ): Promise<ManagedHost> {
     const host = await this.requireById(id);
     const patch: Partial<Host> = { updatedAt: nowIso() };
     const rawModelOverride =
@@ -947,6 +1208,14 @@ export class HostManagementService {
       if (value && !effort) throw new ValidationError('Unsupported Grok reasoning effort override', { param: 'grok_reasoning_effort_override' });
       patch.grokReasoningEffortOverride = effort;
     }
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, patch, 'admin.host.model_overrides', {
+      fqdn: host.fqdn,
+      model_override: patch.modelOverride ?? host.modelOverride ?? null,
+      reasoning_effort_override: patch.reasoningEffortOverride ?? host.reasoningEffortOverride ?? null,
+      ...(payload.includeClaudeOverride ? { claude_model_override: patch.claudeModelOverride ?? null } : {}),
+      ...(payload.grok_model_override !== undefined ? { grok_model_override: patch.grokModelOverride } : {}),
+      ...(payload.grok_reasoning_effort_override !== undefined ? { grok_reasoning_effort_override: patch.grokReasoningEffortOverride } : {}),
+    }, host);
     await this.db.update(hosts).set(patch).where(eq(hosts.id, id));
     await this.writeLog(id, 'admin.host.model_overrides', {
       fqdn: host.fqdn,
@@ -959,7 +1228,7 @@ export class HostManagementService {
     return await this.publishUpdate(id, host.fqdn, { model_overrides_changed: true });
   }
 
-  async setCodexVersionOverride(id: number, selection: string | null): Promise<Host> {
+  async setCodexVersionOverride(id: number, selection: string | null): Promise<ManagedHost> {
     const host = await this.requireById(id);
     let stored: string | null = null;
     if (selection !== null) {
@@ -973,6 +1242,10 @@ export class HostManagementService {
       // get a config.toml its CLI refuses.
       stored = coerceCodexVersionToMinimum(normalized);
     }
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { clientVersionOverride: stored, updatedAt: nowIso() }, 'admin.host.client_version_override', {
+      fqdn: host.fqdn,
+      client_version_override: stored,
+    }, host);
     await this.db
       .update(hosts)
       .set({ clientVersionOverride: stored, updatedAt: nowIso() })
@@ -984,7 +1257,7 @@ export class HostManagementService {
     return await this.publishUpdate(id, host.fqdn, { client_version_override: stored });
   }
 
-  async setClaudeVersionOverride(id: number, selection: string | null): Promise<Host> {
+  async setClaudeVersionOverride(id: number, selection: string | null): Promise<ManagedHost> {
     const host = await this.requireById(id);
     let stored: string | null = null;
     if (selection !== null) {
@@ -996,6 +1269,10 @@ export class HostManagementService {
       }
       stored = normalized;
     }
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { claudeClientVersionOverride: stored, updatedAt: nowIso() }, 'admin.host.claude_client_version_override', {
+      fqdn: host.fqdn,
+      claude_client_version_override: stored,
+    }, host);
     await this.db
       .update(hosts)
       .set({ claudeClientVersionOverride: stored, updatedAt: nowIso() })
@@ -1009,17 +1286,18 @@ export class HostManagementService {
     });
   }
 
-  async setGrokVersionOverride(id: number, selection: string | null): Promise<Host> {
+  async setGrokVersionOverride(id: number, selection: string | null): Promise<ManagedHost> {
     const host = await this.requireById(id);
     const stored = selection === null ? null : normalizeSemver(selection);
     if (stored !== null && !isSemanticVersion(stored)) throw new ValidationError(`selection must be a semantic version like ${GROK_MIN_CLIENT_VERSION}`, { param: 'selection' });
     if (stored !== null && !isSupportedGrokVersion(stored)) throw new ValidationError(`Grok requires version ${GROK_MIN_CLIENT_VERSION} or later`, { param: 'selection' });
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { grokClientVersionOverride: stored, updatedAt: nowIso() }, 'admin.host.grok_client_version_override', { fqdn: host.fqdn, grok_client_version_override: stored }, host);
     await this.db.update(hosts).set({ grokClientVersionOverride: stored, updatedAt: nowIso() }).where(eq(hosts.id, id));
     await this.writeLog(id, 'admin.host.grok_client_version_override', { fqdn: host.fqdn, grok_client_version_override: stored });
     return this.publishUpdate(id, host.fqdn, { grok_client_version_override: stored });
   }
 
-  async setAgentsDocumentOverride(id: number, selection: string | number | null): Promise<Host> {
+  async setAgentsDocumentOverride(id: number, selection: string | number | null): Promise<ManagedHost> {
     const host = await this.requireById(id);
     let stored: number | null = null;
     if (selection !== null && selection !== '' && selection !== 'global') {
@@ -1031,6 +1309,10 @@ export class HostManagementService {
       }
       stored = num;
     }
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { agentsDocumentIdOverride: stored, updatedAt: nowIso() }, 'admin.host.agents_version_override', {
+      fqdn: host.fqdn,
+      agents_document_id_override: stored,
+    }, host);
     await this.db
       .update(hosts)
       .set({ agentsDocumentIdOverride: stored, updatedAt: nowIso() })
@@ -1044,7 +1326,7 @@ export class HostManagementService {
 
   // ────────── Helper ──────────
 
-  private async publishUpdate(id: number, fqdn: string, payload: Record<string, unknown>): Promise<Host> {
+  private async publishUpdate(id: number, fqdn: string, payload: Record<string, unknown>): Promise<ManagedHost> {
     const fresh = (await this.findById(id))!;
     await this.events.appendAndPublish(
       'host.updated',

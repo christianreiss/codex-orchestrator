@@ -1,3 +1,5 @@
+import { transferRows, insertTransfer, updateTransfer, transferNotify } from './owner.js';
+import type { Json } from '../../control-plane/commands.js';
 import { randomUUID } from 'node:crypto';
 import { mkdir, open, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -33,7 +35,10 @@ interface BinaryCore {
   db: Database;
   dataRoot: string;
   now: () => string;
-  transaction: <T>(operation: (db: Database) => Promise<T>) => Promise<T>;
+  transaction: <T>(
+    operation: (db: Database) => Promise<T>,
+    intent?: { kind: string; payload: Json },
+  ) => Promise<T>;
   limits: () => Promise<TransferLimits>;
   requireRow: (id: string, db?: Database) => Promise<AgentTransfer>;
   view: (row: AgentTransfer) => TransferView;
@@ -82,69 +87,72 @@ export class BinaryTransfers {
       if (input[key] !== undefined && (typeof input[key] !== 'string' || input[key].length > max))
         throw new ValidationError(`Invalid ${key}`);
     }
-    const result = await this.core.transaction(async (db) => {
-      const existing = (await db.select().from(agentTransfers).where(eq(agentTransfers.id, input.id))).find(
-        (r) => r.id === input.id,
-      );
-      if (existing) {
-        this.owner(existing, host);
-        if (
-          existing.name !== name ||
-          Number(existing.expectedSizeBytes) !== input.size_bytes ||
-          existing.expectedSha256 !== input.content_sha256 ||
-          existing.requestedTtlSeconds !== input.ttl_seconds
-        ) {
-          throw new ConflictError('This request ID already identifies a different upload');
+    const result = await this.core.transaction(
+      async (db) => {
+        const existing = (
+          transferRows(db) ?? (await db.select().from(agentTransfers).where(eq(agentTransfers.id, input.id)))
+        ).find((r) => r.id === input.id);
+        if (existing) {
+          this.owner(existing, host);
+          if (
+            existing.name !== name ||
+            Number(existing.expectedSizeBytes) !== input.size_bytes ||
+            existing.expectedSha256 !== input.content_sha256 ||
+            existing.requestedTtlSeconds !== input.ttl_seconds
+          ) {
+            throw new ConflictError('This request ID already identifies a different upload');
+          }
+          return this.core.view(existing);
         }
-        return this.core.view(existing);
-      }
-      const limits = await this.core.limits();
-      if (limits.max_file_bytes > 0 && input.size_bytes > limits.max_file_bytes)
-        throw new ValidationError('Upload exceeds the configured per-file limit');
-      await this.core.quota(input.size_bytes, limits, db);
-      const { effective } = clampTtlSeconds(input.ttl_seconds, limits.max_ttl_seconds);
-      const now = this.core.now();
-      const row: AgentTransfer = {
-        id: input.id,
-        name,
-        description: input.description ?? null,
-        mimeType: input.mime_type ?? null,
-        sizeBytes: 0,
-        contentSha256: null,
-        expectedSizeBytes: input.size_bytes,
-        expectedSha256: input.content_sha256,
-        storagePath: join('transfers', input.id.slice(0, 2), input.id),
-        status: 'uploading',
-        sourceHostId: host.id,
-        uploadedBy: input.username ?? null,
-        uploadedFrom: input.worktree_path ?? null,
-        requestedTtlSeconds: input.ttl_seconds,
-        downloadCount: 0,
-        expiresAt: new Date(Date.parse(now) + effective * 1000).toISOString(),
-        sealedAt: null,
-        purgedAt: null,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await mkdir(dirname(this.path(row)), { recursive: true });
-      // A crashed create can leave an empty orphan. No other request can own
-      // this UUID under the global write lock, so discard that orphan on retry.
-      const handle = await open(this.path(row), 'w', 0o600);
-      try {
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-      await db.insert(agentTransfers).values(row);
-      await this.core.event(
-        row.id,
-        'uploaded',
-        { kind: 'agent', label: row.uploadedBy, hostId: host.id },
-        `binary upload; ${input.size_bytes} bytes reserved`,
-        db,
-      );
-      return this.core.view(row);
-    });
+        const limits = await this.core.limits();
+        if (limits.max_file_bytes > 0 && input.size_bytes > limits.max_file_bytes)
+          throw new ValidationError('Upload exceeds the configured per-file limit');
+        await this.core.quota(input.size_bytes, limits, db);
+        const { effective } = clampTtlSeconds(input.ttl_seconds, limits.max_ttl_seconds);
+        const now = this.core.now();
+        const row: AgentTransfer = {
+          id: input.id,
+          name,
+          description: input.description ?? null,
+          mimeType: input.mime_type ?? null,
+          sizeBytes: 0,
+          contentSha256: null,
+          expectedSizeBytes: input.size_bytes,
+          expectedSha256: input.content_sha256,
+          storagePath: join('transfers', input.id.slice(0, 2), input.id),
+          status: 'uploading',
+          sourceHostId: host.id,
+          uploadedBy: input.username ?? null,
+          uploadedFrom: input.worktree_path ?? null,
+          requestedTtlSeconds: input.ttl_seconds,
+          downloadCount: 0,
+          expiresAt: new Date(Date.parse(now) + effective * 1000).toISOString(),
+          sealedAt: null,
+          purgedAt: null,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await mkdir(dirname(this.path(row)), { recursive: true });
+        // A crashed create can leave an empty orphan. No other request can own
+        // this UUID under the global write lock, so discard that orphan on retry.
+        const handle = await open(this.path(row), 'w', 0o600);
+        try {
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+        await insertTransfer(db, row);
+        await this.core.event(
+          row.id,
+          'uploaded',
+          { kind: 'agent', label: row.uploadedBy, hostId: host.id },
+          `binary upload; ${input.size_bytes} bytes reserved`,
+          db,
+        );
+        return this.core.view(row);
+      },
+      { kind: 'transfer.binary_create', payload: { input, hostId: host.id } as unknown as Json },
+    );
     wsPublisher.publish('transfers.changed', { kind: 'created', id: input.id });
     return result;
   }
@@ -185,59 +193,62 @@ export class BinaryTransfers {
       }
       if (received !== length)
         throw new ValidationError('Incomplete binary body; resume from the last confirmed offset');
-      const result = await this.core.transaction(async (db) => {
-        const row = await this.core.requireRow(id, db);
-        this.owner(row, host);
-        if (row.status !== 'uploading' || Number(row.sizeBytes) !== offset)
-          throw new ConflictError(`Resume from ${row.sizeBytes}`);
-        const limits = await this.core.limits();
-        if (limits.max_file_bytes > 0 && offset + length > limits.max_file_bytes)
-          throw new ValidationError('Upload exceeds the configured per-file limit');
-        // A quota reduced after reservation also applies to existing uploads.
-        await this.core.quota(0, limits, db);
-        const target = await open(this.path(row), 'r+');
-        try {
-          if ((await target.stat()).size < offset)
-            throw new ConflictError('Stored file is shorter than its committed offset');
-          await target.truncate(offset); // discard a killed writer's uncommitted tail
-          const buffer = Buffer.allocUnsafe(256 * 1024);
-          let copied = 0;
-          while (copied < length) {
-            const { bytesRead } = await staged.read(
-              buffer,
-              0,
-              Math.min(buffer.length, length - copied),
-              copied,
-            );
-            if (!bytesRead) throw new Error('Staged transfer is incomplete');
-            let written = 0;
-            while (written < bytesRead) {
-              const result = await target.write(
+      const result = await this.core.transaction(
+        async (db) => {
+          const row = await this.core.requireRow(id, db);
+          this.owner(row, host);
+          if (row.status !== 'uploading' || Number(row.sizeBytes) !== offset)
+            throw new ConflictError(`Resume from ${row.sizeBytes}`);
+          const limits = await this.core.limits();
+          if (limits.max_file_bytes > 0 && offset + length > limits.max_file_bytes)
+            throw new ValidationError('Upload exceeds the configured per-file limit');
+          // A quota reduced after reservation also applies to existing uploads.
+          await this.core.quota(0, limits, db);
+          const target = await open(this.path(row), 'r+');
+          try {
+            if ((await target.stat()).size < offset)
+              throw new ConflictError('Stored file is shorter than its committed offset');
+            await target.truncate(offset); // discard a killed writer's uncommitted tail
+            const buffer = Buffer.allocUnsafe(256 * 1024);
+            let copied = 0;
+            while (copied < length) {
+              const { bytesRead } = await staged.read(
                 buffer,
-                written,
-                bytesRead - written,
-                offset + copied + written,
+                0,
+                Math.min(buffer.length, length - copied),
+                copied,
               );
-              if (!result.bytesWritten) throw new Error('Transfer store write failed');
-              written += result.bytesWritten;
+              if (!bytesRead) throw new Error('Staged transfer is incomplete');
+              let written = 0;
+              while (written < bytesRead) {
+                const result = await target.write(
+                  buffer,
+                  written,
+                  bytesRead - written,
+                  offset + copied + written,
+                );
+                if (!result.bytesWritten) throw new Error('Transfer store write failed');
+                written += result.bytesWritten;
+              }
+              copied += bytesRead;
             }
-            copied += bytesRead;
+            await target.sync(); // bytes durable BEFORE metadata commits
+          } finally {
+            await target.close();
           }
-          await target.sync(); // bytes durable BEFORE metadata commits
-        } finally {
-          await target.close();
-        }
-        const update = { sizeBytes: offset + length, updatedAt: this.core.now() };
-        await db.update(agentTransfers).set(update).where(eq(agentTransfers.id, id));
-        await this.core.event(
-          id,
-          'appended',
-          { kind: 'agent', label: row.uploadedBy, hostId: host.id },
-          `${length} binary bytes at offset ${offset}`,
-          db,
-        );
-        return this.core.view({ ...row, ...update });
-      });
+          const update = { sizeBytes: offset + length, updatedAt: this.core.now() };
+          await updateTransfer(db, id, update);
+          await this.core.event(
+            id,
+            'appended',
+            { kind: 'agent', label: row.uploadedBy, hostId: host.id },
+            `${length} binary bytes at offset ${offset}`,
+            db,
+          );
+          return this.core.view({ ...row, ...update });
+        },
+        { kind: 'transfer.binary_append', payload: { id, offset, length, hostId: host.id } },
+      );
       wsPublisher.publish('transfers.changed', { kind: 'appended', id });
       return result;
     } finally {
@@ -257,24 +268,28 @@ export class BinaryTransfers {
     const hash = await this.core.hash(this.path(row));
     if (hash !== row.expectedSha256)
       throw new ConflictError('SHA-256 mismatch; start a new transfer from the source file');
-    return this.core.transaction(async (db) => {
-      const current = await this.core.requireRow(id, db);
-      this.owner(current, host);
-      if (current.status === 'live') return this.core.view(current);
-      if (current.sizeBytes !== row.sizeBytes) throw new ConflictError('Upload changed during verification');
-      const now = this.core.now();
-      const update = { contentSha256: hash, status: 'live', sealedAt: now, updatedAt: now };
-      await db.update(agentTransfers).set(update).where(eq(agentTransfers.id, id));
-      await this.core.event(
-        id,
-        'sealed',
-        { kind: 'agent', label: row.uploadedBy, hostId: host.id },
-        `SHA-256 ${hash}`,
-        db,
-      );
-      wsPublisher.publish('transfers.changed', { kind: 'sealed', id });
-      return this.core.view({ ...current, ...update });
-    });
+    return this.core.transaction(
+      async (db) => {
+        const current = await this.core.requireRow(id, db);
+        this.owner(current, host);
+        if (current.status === 'live') return this.core.view(current);
+        if (current.sizeBytes !== row.sizeBytes)
+          throw new ConflictError('Upload changed during verification');
+        const now = this.core.now();
+        const update = { contentSha256: hash, status: 'live', sealedAt: now, updatedAt: now };
+        await updateTransfer(db, id, update);
+        await this.core.event(
+          id,
+          'sealed',
+          { kind: 'agent', label: row.uploadedBy, hostId: host.id },
+          `SHA-256 ${hash}`,
+          db,
+        );
+        transferNotify(this.core.db, () => wsPublisher.publish('transfers.changed', { kind: 'sealed', id }));
+        return this.core.view({ ...current, ...update });
+      },
+      { kind: 'transfer.binary_seal', payload: { id, hostId: host.id, hash } },
+    );
   }
 
   async download(id: string, offset: number, actor: TransferActor) {
@@ -298,13 +313,13 @@ export class BinaryTransfers {
     }
     const stream = handle.createReadStream({ start: offset, autoClose: true });
     const completed = async () => {
-      await this.core.transaction(async (db) => {
-        const current = await this.core.requireRow(id, db);
-        await db
-          .update(agentTransfers)
-          .set({ downloadCount: Number(current.downloadCount) + 1 })
-          .where(eq(agentTransfers.id, id));
-      });
+      await this.core.transaction(
+        async (db) => {
+          const current = await this.core.requireRow(id, db);
+          await updateTransfer(db, id, { downloadCount: Number(current.downloadCount) + 1 });
+        },
+        { kind: 'transfer.binary_download_complete', payload: { id, offset } },
+      );
     };
     return { transfer: this.core.view(row), stream, completed };
   }

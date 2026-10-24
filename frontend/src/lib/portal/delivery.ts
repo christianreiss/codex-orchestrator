@@ -1,7 +1,7 @@
 import type { EventRow } from "./types";
 
 export type Delivery = "sending" | "queued" | "delivered" | "read" | "processing" | "replied" | "failed" | "canceled";
-export interface DeliveryActivity { presence: string; active_turn_id?: string | null; heartbeat_at?: string }
+export interface DeliveryActivity { presence: string; presence_source?: "connection"; active_turn_id?: string | null; heartbeat_at?: string; activity?: { state: string; expires_at?: string | null } }
 
 export const DELIVERY_LABEL: Record<Delivery, string> = {
   sending: "Sending…",
@@ -41,7 +41,10 @@ export function deliveryFor(event: EventRow, index: Map<string, Delivery>, activ
   const resolved = index.get(messageId);
   // A stored start is historical evidence. Show ongoing work only while the
   // server still reports this exact turn as working, never for an older bubble.
-  if (resolved === "processing") return activity?.presence === "working" && activity.active_turn_id === messageId && Number.isFinite(Date.parse(activity.heartbeat_at ?? "")) && now - Date.parse(activity.heartbeat_at!) >= 0 && now - Date.parse(activity.heartbeat_at!) < 45_000 ? "processing" : "read";
+  const workingFresh = activity?.presence_source === "connection"
+    ? activity.activity?.state === "working" && Date.parse(activity.activity.expires_at ?? "") > now
+    : Number.isFinite(Date.parse(activity?.heartbeat_at ?? "")) && now - Date.parse(activity!.heartbeat_at!) >= 0 && now - Date.parse(activity!.heartbeat_at!) < 45_000;
+  if (resolved === "processing") return activity?.presence === "working" && activity.active_turn_id === messageId && workingFresh ? "processing" : "read";
   if (resolved) return resolved;
   return event.payload.delivery_status === "sending" ? "sending" : "queued";
 }

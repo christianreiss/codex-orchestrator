@@ -1,3 +1,4 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { and, desc, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { providerAccounts, chatgptUsageSnapshots, claudeUsageSnapshots, grokUsageSnapshots } from '../db/schema.js';
@@ -19,8 +20,11 @@ export interface QuotaWindow {
 }
 export type QuotaSnapshot = Awaited<ReturnType<typeof quotaSnapshot>>;
 export async function quotaSnapshot(db: Pick<Database, 'select'>, accountId: number, engine: Engine, now = Date.now()) {
-  const [account] = await db.select().from(providerAccounts).where(and(eq(providerAccounts.id, accountId), eq(providerAccounts.engine, engine)));
-  if (!account || account.mergedIntoAccountId || !isEngine(account.engine)) return null;
+  const owner = ownerRuntimeFor(db);
+  owner?.assertOwner();
+  const state = owner?.state.snapshot();
+  const account = state ? state.table('providerAccounts').get(accountId) : (await db.select().from(providerAccounts).where(and(eq(providerAccounts.id, accountId), eq(providerAccounts.engine, engine))))[0];
+  if (!account || account.engine !== engine || account.mergedIntoAccountId || !isEngine(account.engine)) return null;
   const policy = await readQuotaPolicy(db, engine, accountId);
   const windows: QuotaWindow[] = [];
   const add = (kind: 'short' | 'long', used: number | null | undefined, reset: string | null | undefined, seconds: number | null, observed: string | undefined, source: string, failed = false) => {
@@ -31,16 +35,16 @@ export async function quotaSnapshot(db: Pick<Database, 'select'>, accountId: num
   };
   if (engine === 'codex') {
     // Include failed refreshes: an older successful row must not hide an outage.
-    const [r] = await db.select().from(chatgptUsageSnapshots).where(eq(chatgptUsageSnapshots.accountId, accountId)).orderBy(desc(chatgptUsageSnapshots.id)).limit(1);
+    const r = state ? state.table('chatgptUsageSnapshots').all().filter(row => row.accountId === accountId).sort((a, b) => b.id - a.id)[0] : (await db.select().from(chatgptUsageSnapshots).where(eq(chatgptUsageSnapshots.accountId, accountId)).orderBy(desc(chatgptUsageSnapshots.id)).limit(1))[0];
     for (const [used, reset, seconds] of [[r?.primaryUsedPercent, r?.primaryResetAt, r?.primaryLimitSeconds], [r?.secondaryUsedPercent, r?.secondaryResetAt, r?.secondaryLimitSeconds]] as const) {
       if (typeof seconds === 'number' && seconds > 0) add(seconds < 86400 ? 'short' : 'long', used, reset, seconds, r?.fetchedAt, 'chatgpt_usage', r?.status !== 'ok');
     }
   } else if (engine === 'claude') {
-    const [r] = await db.select().from(claudeUsageSnapshots).where(eq(claudeUsageSnapshots.accountId, accountId)).orderBy(desc(claudeUsageSnapshots.id)).limit(1);
+    const r = state ? state.table('claudeUsageSnapshots').all().filter(row => row.accountId === accountId).sort((a, b) => b.id - a.id)[0] : (await db.select().from(claudeUsageSnapshots).where(eq(claudeUsageSnapshots.accountId, accountId)).orderBy(desc(claudeUsageSnapshots.id)).limit(1))[0];
     add('short', r?.fiveHourUsedPercent, r?.fiveHourResetsAt, 18000, r?.fetchedAt, 'claude_statusline');
     add('long', r?.sevenDayUsedPercent, r?.sevenDayResetsAt, 604800, r?.fetchedAt, 'claude_statusline');
   } else {
-    const [r] = await db.select().from(grokUsageSnapshots).where(eq(grokUsageSnapshots.accountId, accountId)).limit(1);
+    const r = state ? state.table('grokUsageSnapshots').all().find(row => row.accountId === accountId) : (await db.select().from(grokUsageSnapshots).where(eq(grokUsageSnapshots.accountId, accountId)).limit(1))[0];
     if (r?.periodType === 'weekly' || r?.periodType === 'monthly') add('long', r.usedPercent, r.periodResetsAt, r.periodType === 'weekly' ? 604800 : null, r.fetchedAt ?? undefined, 'grok_subscription', !!r.errorCode);
   }
   return { account_id: account.id, account_label: account.label, account_state: account.state, engine,

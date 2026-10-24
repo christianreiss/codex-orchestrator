@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { ownedRelayTargets } from '../../control-plane/streams/relay.js';
 import { and, eq, inArray, lte, or, sql } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import { agentBusAddresses, agentBusMessages, agentBusRelays, hostDaemonSessions, hostDaemons, hosts, versions } from '../../db/schema.js';
@@ -75,6 +77,7 @@ const parsed = (value: unknown): unknown[] => {
  * runs the unchanged path with its admission errors, order and locked claim fences.
  */
 export async function relayIdleProof(db: Database, relayId: string, rawToken: string): Promise<boolean> {
+  const owner=ownerRuntimeFor(db);if(owner)return ownedRelayTargets(owner,relayId,rawToken)===null;
   if (!UUID.test(relayId)) return false;
   const identity = await relayIdentity(db, relayId);
   if (!identity) return false;

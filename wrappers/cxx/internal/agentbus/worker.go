@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -69,6 +70,7 @@ type relayDelivery struct {
 }
 
 type relayClient struct {
+	connectionOwned      atomic.Bool
 	daemon               bool
 	claimPermit          func() (func(), bool)
 	beforeDelivery       func(context.Context, *relayDelivery) (context.Context, func())
@@ -76,6 +78,8 @@ type relayClient struct {
 	apiKey               string
 	http                 *http.Client
 	id                   string
+	instanceID           string
+	generation           int
 	token                string
 	heartbeatEvery       time.Duration
 	completionRenewEvery time.Duration
@@ -129,10 +133,9 @@ func RunWorker(parent context.Context, version string, stdout, stderr io.Writer)
 		go func() { defer authWatchDone.Done(); runPersistentAuthWatch(ctx, engine, slog.Default()) }()
 	}
 	defer func() { stop(); authWatchDone.Wait(); policyWatchDone.Wait() }()
-	instanceID, err := loadOrCreateInstanceID()
-	if err != nil {
-		return err
-	}
+	// A new worker process is a new lease owner. A durable installation UUID
+	// must never authorize taking over a predecessor's unresolved work.
+	instanceID := newUUID()
 	fmt.Fprintln(stdout, "cxx background worker: starting")
 	var stale staleConfigClock
 	for ctx.Err() == nil {
@@ -302,6 +305,7 @@ func (c *relayClient) register(ctx context.Context, username, instanceID, versio
 	if out.RelayID == "" || out.RelayToken == "" {
 		return nil, errors.New("relay registration returned incomplete credential")
 	}
+	c.instanceID, c.generation = instanceID, out.Generation
 	return &out, nil
 }
 
@@ -315,6 +319,14 @@ func (c *relayClient) poll(ctx context.Context, configs map[string]*config.Confi
 func (c *relayClient) pollParallel(ctx context.Context, configs map[string]*config.Config, stderr io.Writer, loops int) (resultErr error) {
 	if loops < 1 {
 		loops = 1
+	}
+	state, stateErr := communicator.DialState(ctx, c.baseURL, communicator.StateScope{Topic: "relay", RelayID: c.id, NativeInstanceID: c.instanceID, BindingGeneration: c.generation}, communicator.StateAuth{RelayToken: c.token})
+	if stateErr == nil {
+		c.connectionOwned.Store(true)
+		return c.pollState(ctx, configs, stderr, loops, state)
+	}
+	if c.connectionOwned.Load() || communicator.StateRequired(c.baseURL) {
+		return stateErr
 	}
 	pollCtx, cancel := context.WithCancel(ctx)
 	heartbeatErr := make(chan error, 1)
@@ -642,6 +654,10 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		if c.connectionOwned.Load() {
+			<-runCtx.Done()
+			return
+		}
 		ticker := time.NewTicker(deliveryRenewEvery)
 		defer ticker.Stop()
 		for {
@@ -760,6 +776,9 @@ func (c *relayClient) heartbeat(ctx context.Context) error {
 }
 
 func (c *relayClient) renew(ctx context.Context, delivery *relayDelivery) error {
+	if c.connectionOwned.Load() {
+		return nil
+	}
 	var out map[string]any
 	return c.relayPost(ctx, "/deliveries/"+url.PathEscape(delivery.MessageID)+"/renew", map[string]any{"claim_id": delivery.ClaimID}, &out)
 }
@@ -804,6 +823,10 @@ func (c *relayClient) storeCompletion(ctx context.Context, delivery *relayDelive
 	}
 	go func() {
 		defer close(done)
+		if c.connectionOwned.Load() {
+			<-ctx.Done()
+			return
+		}
 		ticker := time.NewTicker(every)
 		defer ticker.Stop()
 		for {

@@ -1,3 +1,9 @@
+import { authorizeAgentInsecureEnable } from '../control-plane/streams/insecure-enable.js';
+import { startOwnerWorker } from '../ops/owner-worker.js';
+import { daemonSweepObligations } from '../control-plane/streams/daemon-deadlines.js';
+import { ownerRuntimeFor, withOwnerRequestScope, setOwnerRequestPrincipal } from '../control-plane/state/runtime.js';
+import { StreamAuthorization } from '../control-plane/streams/authorization.js';
+import { canonicalCommand } from '../control-plane/commands.js';
 import { asc, eq, inArray } from 'drizzle-orm';
 import { registerWebsocketTransport } from '../ws/transport.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -44,7 +50,8 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
   };
   app.get('/admin/host-daemons', { preHandler: app.requireAdmin }, async () => {
     const hidden = await internalHostIds(ctx.db);
-    const rows = (await ctx.db.select().from(hostDaemons)).filter((row) => !hidden.includes(row.hostId));
+    const runtime=ownerRuntimeFor(ctx.db);runtime?.assertOwner();
+    const rows = (runtime?runtime.state.snapshot().daemons.all():await ctx.db.select().from(hostDaemons)).filter((row) => !hidden.includes(row.hostId));
     return { hosts: await Promise.all(rows.map((row) => service.view(row.hostId))) };
   });
   // The advisor's server-owned host is managed by the stack, never by an admin.
@@ -94,7 +101,17 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
     }).strict().parse(req.body);
     if (host.secure !== 1 || !session.agentBusAddressId)
       throw new ForbiddenError('An authenticated agent on a secure host is required', 'secure_host_required');
-    const opened = await ctx.db.transaction(async (tx) => {
+    const opened = ownerRuntimeFor(ctx.db)
+      ? await new InsecureWindowAdminService({ db: ctx.db, env: ctx.env, events: makeAdminEventsWriter(ctx.db) }).enable(
+        body.host_id, body.duration_minutes ?? null,
+        { host_id: host.id, agent_address: `agent:${session.agentBusAddressId}`, session_id: session.id },
+        snapshot => authorizeAgentInsecureEnable(snapshot, {
+          sessionId: session.id, bridgeToken: String(req.headers['x-agent-bridge-token'] ?? ''),
+          bindingGeneration: session.bindingGeneration, hostId: host.id,
+          addressId: session.agentBusAddressId!, targetHostId: body.host_id,
+        }),
+      )
+      : await ctx.db.transaction(async (tx) => {
       const locked = await tx.select().from(hosts)
         .where(inArray(hosts.id, [host.id, body.host_id])).orderBy(asc(hosts.id)).for('update');
       const caller = locked.find((h) => h.id === host.id), target = locked.find((h) => h.id === body.host_id);
@@ -118,7 +135,8 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
     const body = z.object({ session_id: z.string().uuid().optional() }).strict().parse(req.body);
     if (body.session_id) return service.session(body.session_id, actor);
     const hidden = await internalHostIds(ctx.db);
-    const rows = await ctx.db.select().from(hostDaemons);
+    const runtime=ownerRuntimeFor(ctx.db);runtime?.assertOwner();
+    const rows = runtime?runtime.state.snapshot().daemons.all():await ctx.db.select().from(hostDaemons);
     return {
       hosts: await Promise.all(
         rows
@@ -187,6 +205,9 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
     },
     (socket, req) => attachHostDaemonSocket(socket, req, ctx),
   );
+  if(ownerRuntimeFor(ctx.db)){
+    startOwnerWorker(app,ctx.db,{name:'daemon-sweep',tables:['hostDaemons','hostDaemonSessions','hostDaemonOperations','agentPrompts','agentBusMessages'],select:(snapshot,now)=>daemonSweepObligations(snapshot,now,ctx.env.AGENT_PORTAL_RETENTION_HOURS),run:async work=>{await service.sweep(Number(work.key));},error:err=>app.log.warn({err},'daemon sweep failed')});
+  } else {
   const timer = setInterval(() => {
     void ctx.db
       .select()
@@ -205,6 +226,7 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
   app.addHook('onClose', async () => {
     clearInterval(timer);
   });
+  }
 }
 
 
@@ -218,6 +240,13 @@ export interface DaemonSocket {
 /** Shared by the legacy WebSocket and the communicator multiplexed channel. */
 export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest, ctx: RouteContext) {
   const service = new HostDaemonService(ctx), auth = createHostAuthService(ctx);
+  const runtime=ownerRuntimeFor(ctx.db);
+  let guard:StreamAuthorization|undefined;
+  let deadline:ReturnType<typeof setTimeout>|undefined;
+  const authorize=async()=>{
+    if(guard){guard.host();setOwnerRequestPrincipal({principal:`host:${guard.hostId}`,revalidate:snapshot=>{guard!.host(snapshot);}});return req.authHost!;}
+    const host=await auth.authenticate(req);if(runtime)guard=new StreamAuthorization(runtime,host.id,host);return host;
+  };
 
       let hostID = 0,
         generation = '',
@@ -233,16 +262,16 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
         if (busy) { pendingWake = true; return; }
         pendingWake = false;
         busy = true;
-        void (async () => {
+        void withOwnerRequestScope(async () => {
           // This peek authorizes nothing. Nonempty work still performs fresh
           // host authentication, daemon admission and the original locked offer.
           if (!await service.hasPendingOffer(hostID) || closed) return;
-          const host = await auth.authenticate(req);
+          const host = await authorize();
           const row = await service.settings(host.id);
           if (!row.settings.enabled || closed) return;
           const operation = await service.offer(hostID, generation);
           if (operation) send({ type: 'operation', operation });
-        })()
+        })
           .catch(() => {})
           .finally(() => {
             busy = false;
@@ -256,10 +285,27 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
           'host_id' in payload && payload.host_id === hostID) poll();
       });
       // Queue events wake the poll at once; this only reconciles a lost event.
-      const timer = setInterval(poll, 60_000);
+      const timer = runtime ? undefined : setInterval(poll, 60_000);
+      let fingerprint='';
+      const ownerChanged=()=>{
+        if(closed||!runtime||!hostID)return;
+        try {
+          const authorized=guard?.host();clearTimeout(deadline);
+          if(authorized?.deadline!=null){deadline=setTimeout(ownerChanged,Math.min(2147483647,Math.max(0,authorized.deadline-Date.now())));deadline.unref();}
+          const snapshot=runtime.state.snapshot();
+          const next=canonicalCommand(JSON.parse(JSON.stringify([
+            snapshot.daemons.get(hostID)?.settings,
+            snapshot.table('hostDaemonOperations').by('hostId',hostID).filter(o=>['queued','offered'].includes(o.status)).map(o=>[o.id,o.requestHash]),
+            snapshot.table('hostDaemonSessions').by('hostId',hostID).map(s=>[s.id,s.status]),
+            snapshot.hosts.get(hostID)?.engines,
+          ])));
+          if(next!==fingerprint){fingerprint=next;poll();}
+        } catch {socket.close(1008,'Authorization changed');}
+      };
+      const stopOwner=runtime?.state.subscribe(ownerChanged);
       socket.on('message', (raw: { toString(): string }) => {
         chain = chain
-          .then(async () => {
+          .then(() => withOwnerRequestScope(async () => {
             const msg = z
               .object({
                 id: z.string().uuid(),
@@ -268,12 +314,12 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
               })
               .parse(JSON.parse(raw.toString()));
             try {
-              const [kill] = await ctx.db.select().from(versions).where(eq(versions.name, 'api_disabled'));
+              const kill=runtime?{version:runtime.state.snapshot().setting('api_disabled')}:(await ctx.db.select().from(versions).where(eq(versions.name,'api_disabled')))[0];
               if (kill?.version === '1') {
                 socket.close(1008, 'API disabled');
                 return;
               }
-              const host = await auth.authenticate(req);
+              const host = await authorize();
               hostID = host.id;
               let result: unknown;
               if (msg.type === 'hello') {
@@ -290,6 +336,7 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
                 const connected = await service.connect(host.id, body);
                 generation = connected.generation;
                 result = connected;
+                ownerChanged();
               } else {
                 const current = await service.settings(host.id);
                 if (!generation || current.runtime?.generation !== generation)
@@ -331,7 +378,7 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
             } catch (err) {
               send({ id: msg.id, error: err instanceof Error ? err.message : 'Request rejected' });
             }
-          })
+          }))
           .catch(() => {
             socket.close(1008, 'Invalid daemon frame');
           });
@@ -339,6 +386,8 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
       socket.on('close', () => {
         closed = true;
         clearInterval(timer);
+        clearTimeout(deadline);
+        stopOwner?.();
         unsubscribe();
         if (generation) void service.disconnect(hostID, generation).catch(() => {});
       });

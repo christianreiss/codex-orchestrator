@@ -42,10 +42,12 @@ if 'config' in a and '--services' in a:
     print('api\\nmysql\\nauth-runner\\nmedia-worker\\nquota-cron')
     if 'caddy' in a: print('caddy')
 elif 'config' in a:
-    print(json.dumps({'services': {'api': {'volumes': [{'target': '/app/storage',
+    os.makedirs(os.environ['DATA_ROOT'] + '/store', exist_ok=True)
+    print(json.dumps({'name': 'codex-orchestrator', 'services': {'api': {'volumes': [{'target': '/app/storage',
             'source': os.environ['DATA_ROOT'] + '/store'}]}}}))
 elif 'ps' in a and '-q' in a:
-    if os.environ.get('EXISTING_CADDY'): print('existing-caddy')
+    if os.environ.get('EXISTING_API') and 'api' in a: print('previous-api')
+    if os.environ.get('EXISTING_CADDY') and a[0]=='compose': print('existing-caddy')
 elif 'ps' in a and '--format' in a:
     state = os.environ.get('SERVICE_STATE', 'running')
     rows = [{'Service': s, 'State': state, 'Health': os.environ.get('SERVICE_HEALTH', 'healthy')}
@@ -57,6 +59,7 @@ elif 'ps' in a and '--format' in a:
     else:
         for row in rows: print(json.dumps(row))
 elif 'exec' in a and 'mysql' in a:
+    if 'information_schema.tables' in a[-1]: print('4096'); sys.exit(0)
     if os.environ.get('DUMP_EXIT'): sys.exit(int(os.environ['DUMP_EXIT']))
     print('-- fixture SQL')
     if not os.environ.get('INCOMPLETE_DUMP'): print('-- Dump completed on 2026-10-12')
@@ -131,6 +134,14 @@ describe('local instance CLI', () => {
     expect(f.run(['unknown']).status).toBe(2);
     expect(f.run(['start', '--json']).status).toBe(2);
     expect(f.run(['update', '--repo-url']).status).toBe(2);
+  });
+
+  it('refuses installer wrapper regeneration with an existing API', () => {
+    const f = fixture();
+    const result = f.run(['setup', '--only', 'wrappers', '--non-interactive'], { EXISTING_API: '1' });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('use scripts/deploy.sh');
+    expect(f.calls().some(call => call.args.includes('build') || call.args.includes('stop'))).toBe(false);
   });
 
   it('starts repeatedly and stops all profiles without deleting data', () => {

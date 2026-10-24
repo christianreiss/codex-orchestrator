@@ -1,3 +1,4 @@
+import {workflowState} from './owner.js';
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import { workflowRunEvents } from '../../db/schema.js';
 import { ValidationError } from '../../http/errors.js';
@@ -68,7 +69,8 @@ export async function knowledgeChecks(
     requiredKnowledge(document, taskId).map(async (knowledge) => {
       // The run row is locked during mutation, so notes and claim acquisition serialize.
       // One bounded lookup per source avoids reading the unbounded run event history.
-      const [receipt] = await ctx.tx
+      const state=workflowState();
+      const receipt=state&&run.status!=='completed'?[...state.table('workflowRunEvents').by('runId',run.id)].filter(r=>r.type==='note.knowledge'&&(r.detail.source as KnowledgeSource|undefined)?.knowledge_id===knowledge.id&&(r.detail.task_id==null||r.detail.task_id===taskId)&&r.actor.address_id===(actor.address_id??'')&&r.actor.session_id===(actor.session_id??'')&&r.actor.binding_generation===(actor.binding_generation??0)).sort((a,b)=>Number(b.detail.task_id===taskId)-Number(a.detail.task_id===taskId)||b.sequence-a.sequence)[0]:(await ctx.tx
         .select()
         .from(workflowRunEvents)
         .where(
@@ -94,7 +96,7 @@ export async function knowledgeChecks(
           ),
           desc(workflowRunEvents.sequence),
         )
-        .limit(1);
+        .limit(1))[0];
       const source = (receipt?.detail as { source?: KnowledgeSource } | undefined)?.source;
       return {
         knowledge_id: knowledge.id,

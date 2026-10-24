@@ -653,12 +653,12 @@ and cached launch remain allowed; only an explicit stored credential-
 verification failure blocks the launch.
 
 When `/sync/bootstrap` supplies its compatibility `sessions` object, the
-`ACTIVITY` section labels it truthfully: `local procs` is the same-UID `cdx`
-wrapper process count; `hosts 30m` is the number of distinct hosts with an
-`agents.retrieve` event in the prior 30 minutes; `syncs UTC day` and `syncs UTC
-month` are those event totals from the UTC day/month boundaries. They are not
-launch or concurrency counts. Older servers omit the block cleanly rather than
-producing invented zeroes.
+`ACTIVITY` section retains its compatibility labels: `local procs` is the same-UID
+`cdx` wrapper process count. The owner server returns zero placeholders for
+`hosts 30m`, `syncs UTC day`, and `syncs UTC month`: their `agents.retrieve`
+telemetry was retired in migration 0092. These zeros do not mean the fleet is
+inactive. Older servers may still return historical sync counts or omit the block.
+Use connection-owned presence for current fleet activity.
 
 Final credential uploads share a single 15-second deadline across retries. A
 verification may use the remaining budget; there is no shorter per-attempt

@@ -1,3 +1,4 @@
+import {workflowState,withWorkflowRead,workflowTransaction,workflowInsert,workflowPatch,workflowOwnerContext,publishWorkflowRow} from './workflows/owner.js';
 /** Durable workflow facade. Authentication adapters provide actors, never request bodies. */
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, gt, inArray, like, or, sql } from 'drizzle-orm';
@@ -93,12 +94,13 @@ export class WorkflowsService {
   private async authenticate(tx: WorkflowTx, actor: WorkflowActor) {
     if (actor.kind === 'admin') return;
     requireAgent(actor);
-    const [address] = await tx
+    const state=workflowState();
+    const address = state?state.addresses.get(actor.address_id!):(await tx
       .select()
       .from(agentBusAddresses)
       .where(eq(agentBusAddresses.id, actor.address_id!))
-      .for('update');
-    const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, actor.session_id!));
+      .for('update'))[0];
+    const session=state?state.sessions.get(actor.session_id!):(await tx.select().from(agentSessions).where(eq(agentSessions.id,actor.session_id!)))[0];
     if (
       !address ||
       !session ||
@@ -123,7 +125,16 @@ export class WorkflowsService {
     const schema = workflowMutationSchemas[operation];
     if (!schema) throw new NotFoundError('Workflow operation not found');
     const input = schema.parse(body);
-    const result = await this.deps.db.transaction(async (tx) => {
+    const current=workflowState(this.deps.db),renewal=input as {run_id?:string;task_id?:string;action?:string};
+    const run=renewal.run_id?current?.table('workflowRuns').get(renewal.run_id):undefined;
+    const task=run&&renewal.task_id?current?.table('workflowRunTasks').by('runId',run.id).find(t=>t.taskId===renewal.task_id):undefined;
+    if(run&&((operation==='task_claim'&&renewal.action==='renew'&&task?.claimOwnershipMode==='connection')||(operation==='run_control'&&renewal.action==='coordinator_renew'&&run.coordinatorOwnershipMode==='connection'))){
+      return withWorkflowRead(this.deps.db,async()=>{const tx=this.deps.db as unknown as WorkflowTx;if(this.deps.collaboration)await this.deps.collaboration.lock(tx,actor);await this.authenticate(tx,actor);const ctx:Session={tx,actor,now:new Date().toISOString()},copy=structuredClone(run);if(copy.preparation)requireWorkflowProtocol(actor);
+        if(operation==='task_claim'){const result=await taskClaim(ctx,copy,input as MutationInput<'task_claim'>);return compactRunMutation({...runView(copy,this.baseUrl),task:result});}
+        await runControl(ctx,copy,input as MutationInput<'run_control'>,this.deps.collaboration);return runView(copy,this.baseUrl);
+      });
+    }
+    const result = await workflowTransaction(this.deps.db,operation,{actor:actor.id,requestId:input.client_request_id},async (tx) => {
       // Shared messaging lock precedes address/run/task locks. No network I/O here.
       if (this.deps.collaboration) await this.deps.collaboration.lock(tx, actor);
       await this.authenticate(tx, actor);
@@ -167,11 +178,8 @@ export class WorkflowsService {
           ...receipt.response,
           ...(receipt.secretResponse ? JSON.parse(decrypt(receipt.secretResponse, this.deps.keyring)) : {}),
         };
-      const [moduleFlag] = await tx
-        .select()
-        .from(settingsRows)
-        .where(eq(settingsRows.name, WORKFLOWS_ENABLED_KEY))
-        .for('update');
+      const state=workflowState();
+      const moduleFlag=state?state.table('versions').get(WORKFLOWS_ENABLED_KEY):(await tx.select().from(settingsRows).where(eq(settingsRows.name,WORKFLOWS_ENABLED_KEY)).for('update'))[0];
       if (
         ['run_create', 'invite'].includes(operation) ||
         (actor.kind === 'agent' && ['create', 'revise', 'archive', 'revert'].includes(operation))
@@ -188,6 +196,7 @@ export class WorkflowsService {
             'workflow_admin_required',
           );
         const enabled = (input as MutationInput<'state'>).enabled;
+        publishWorkflowRow('versions',{name:WORKFLOWS_ENABLED_KEY,version:enabled?'1':'0',updatedAt:now});
         await tx
           .insert(settingsRows)
           .values({ name: WORKFLOWS_ENABLED_KEY, version: enabled ? '1' : '0', updatedAt: now })
@@ -197,13 +206,10 @@ export class WorkflowsService {
         const d = input as MutationInput<'create'>,
           id = randomUUID(),
           versionId = randomUUID();
-        const duplicate = await tx
-          .select({ id: workflows.id })
-          .from(workflows)
-          .where(eq(workflows.slug, d.slug));
+        const duplicate=state?state.table('workflows').all().filter(r=>r.slug===d.slug):await tx.select({id:workflows.id}).from(workflows).where(eq(workflows.slug,d.slug));
         if (duplicate.length)
           throw new ConflictError('Workflow slug already exists', 'workflow_slug_conflict');
-        await tx.insert(workflows).values({
+        await workflowInsert(tx,'workflows',{
           id,
           slug: d.slug,
           status: 'active',
@@ -214,7 +220,7 @@ export class WorkflowsService {
           createdAt: now,
           updatedAt: now,
         });
-        await tx.insert(workflowVersions).values({
+        await workflowInsert(tx,'workflowVersions',{
           id: versionId,
           workflowId: id,
           version: 1,
@@ -243,12 +249,7 @@ export class WorkflowsService {
         let document: WorkflowDocument;
         if ('document' in d) document = d.document;
         else {
-          const [source] = await tx
-            .select()
-            .from(workflowVersions)
-            .where(
-              and(eq(workflowVersions.workflowId, workflow.id), eq(workflowVersions.version, d.version)),
-            );
+          const source=state?state.table('workflowVersions').by('workflowId',workflow.id).find(r=>r.version===d.version):(await tx.select().from(workflowVersions).where(and(eq(workflowVersions.workflowId,workflow.id),eq(workflowVersions.version,d.version))))[0];
           if (!source) throw new NotFoundError('Version not found', 'workflow_version_not_found');
           document = source.document as WorkflowDocument;
         }
@@ -275,10 +276,7 @@ export class WorkflowsService {
         expect(workflow.currentVersion, d.expected_workflow_version, 'workflow_version_conflict');
         expect(workflow.controlVersion, d.expected_control_version, 'workflow_control_version_conflict');
         const status = d.action === 'archive' ? 'archived' : 'active';
-        await tx
-          .update(workflows)
-          .set({ status, controlVersion: workflow.controlVersion + 1, updatedAt: now })
-          .where(eq(workflows.id, workflow.id));
+        await workflowPatch(tx,'workflows',workflow.id,{status,controlVersion:workflow.controlVersion+1,updatedAt:now});
         out = {
           workflow_id: workflow.id,
           status,
@@ -409,7 +407,8 @@ export class WorkflowsService {
           )
         : undefined,
     );
-    const rows = await this.deps.db
+    const state=workflowState(this.deps.db);
+    const rows = state ? [...state.table('workflows').all()].filter(r=>(!input.status||r.status===input.status)&&(!input.search||[r.title,r.summary,r.slug].some(v=>v.toLocaleLowerCase().includes(input.search!.toLocaleLowerCase())))).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||a.id.localeCompare(b.id)).slice(input.cursor,input.cursor+input.limit+1) : await this.deps.db
       .select()
       .from(workflows)
       .where(where)
@@ -433,17 +432,10 @@ export class WorkflowsService {
     };
   }
   async get(id: string, version?: number) {
-    const [w] = await this.deps.db
-      .select()
-      .from(workflows)
-      .where(/^[0-9a-f-]{36}$/i.test(id) ? eq(workflows.id, id) : eq(workflows.slug, id));
+    const state=workflowState(this.deps.db);
+    const w=state?(/^[0-9a-f-]{36}$/i.test(id)?state.table('workflows').get(id):state.table('workflows').all().find(r=>r.slug===id)):(await this.deps.db.select().from(workflows).where(/^[0-9a-f-]{36}$/i.test(id)?eq(workflows.id,id):eq(workflows.slug,id)))[0];
     if (!w) throw new NotFoundError('Workflow not found', 'workflow_not_found');
-    const [v] = await this.deps.db
-      .select()
-      .from(workflowVersions)
-      .where(
-        and(eq(workflowVersions.workflowId, w.id), eq(workflowVersions.version, version ?? w.currentVersion)),
-      );
+    const v=state?state.table('workflowVersions').by('workflowId',w.id).find(r=>r.version===(version??w.currentVersion)):(await this.deps.db.select().from(workflowVersions).where(and(eq(workflowVersions.workflowId,w.id),eq(workflowVersions.version,version??w.currentVersion))))[0];
     if (!v) throw new NotFoundError('Version not found', 'workflow_version_not_found');
     return {
       enabled: await this.isEnabled(),
@@ -468,7 +460,8 @@ export class WorkflowsService {
   async versions(id: string, body: unknown = {}) {
     const w = await this.get(id),
       input = pageSchema.parse(body);
-    const rows = await this.deps.db
+    const state=workflowState(this.deps.db);
+    const rows=state?[...state.table('workflowVersions').by('workflowId',w.workflow_id)].sort((a,b)=>b.version-a.version).slice(input.cursor,input.cursor+input.limit+1):await this.deps.db
       .select()
       .from(workflowVersions)
       .where(eq(workflowVersions.workflowId, w.workflow_id))
@@ -500,16 +493,17 @@ export class WorkflowsService {
         search: z.string().max(255).optional(),
       })
       .parse(body);
+    const state=workflowState(this.deps.db);
     let memberRuns: string[] | undefined;
     if (input.agent_address_id) {
-      const rows = await this.deps.db
+      const rows=state?state.table('workflowRunMembers').by('agentAddressId',input.agent_address_id):await this.deps.db
         .select({ runId: workflowRunMembers.runId })
         .from(workflowRunMembers)
         .where(eq(workflowRunMembers.agentAddressId, input.agent_address_id));
       memberRuns = rows.map((m) => m.runId);
       if (!memberRuns.length) return { enabled: await this.isEnabled(), items: [], next_cursor: null };
     }
-    const rows = await this.deps.db
+    const rows=state?[...state.table('workflowRuns').all()].filter(r=>(!input.workflow_id||r.workflowId===input.workflow_id)&&(!input.status||r.status===input.status)&&(!input.evaluation||r.status===(input.evaluation==='pending'?'evaluating':'completed'))&&(!input.search||r.title.toLocaleLowerCase().includes(input.search.toLocaleLowerCase()))&&(!input.outcome||r.outcome===input.outcome)&&(!memberRuns||memberRuns.includes(r.id))).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)||a.id.localeCompare(b.id)).slice(input.cursor,input.cursor+input.limit+1):await this.deps.db
       .select()
       .from(workflowRuns)
       .where(
@@ -539,9 +533,15 @@ export class WorkflowsService {
       .parse(body);
     if (options.task_id) return this.taskDetail(runId, options.task_id, options);
     if (options.section === 'events') return this.events(runId, options);
-    const [run] = await this.deps.db.select().from(workflowRuns).where(eq(workflowRuns.id, runId));
+    const state=workflowState(this.deps.db);
+    const run=state?state.table('workflowRuns').get(runId):(await this.deps.db.select().from(workflowRuns).where(eq(workflowRuns.id,runId)))[0];
     if (!run) throw new NotFoundError('Run not found', 'workflow_run_not_found');
-    const [ts, ms, invs, evals] = await Promise.all([
+    const [ts, ms, invs, evals] = state ? [
+      [...state.table('workflowRunTasks').by('runId',runId)].sort((a,b)=>a.position-b.position).slice(options.cursor,options.cursor+options.limit+1),
+      state.table('workflowRunMembers').by('runId',runId),
+      [...state.table('workflowRunInvitations').by('runId',runId)].filter(r=>r.status==='pending').sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,100),
+      state.table('workflowRunEvaluations').by('runId',runId),
+    ] as const : await Promise.all([
       this.deps.db
         .select()
         .from(workflowRunTasks)
@@ -589,6 +589,7 @@ export class WorkflowsService {
   }
   async events(runId: string, body: unknown = {}) {
     const input = pageSchema.parse(body);
+    const state=workflowState(this.deps.db),run=state?.table('workflowRuns').get(runId);if(state&&(!run||run.eventSequence<=input.cursor))return{items:[],next_cursor:null};
     const rows = await this.deps.db
       .select()
       .from(workflowRunEvents)
@@ -609,10 +610,11 @@ export class WorkflowsService {
   }
   async taskDetail(runId: string, taskId: string, body: unknown = {}) {
     const input = pageSchema.parse(body);
-    const [t] = await this.deps.db
+    const state=workflowState(this.deps.db);
+    const t=state?state.table('workflowRunTasks').by('runId',runId).find(r=>r.taskId===taskId):(await this.deps.db
       .select()
       .from(workflowRunTasks)
-      .where(and(eq(workflowRunTasks.runId, runId), eq(workflowRunTasks.taskId, taskId)));
+      .where(and(eq(workflowRunTasks.runId, runId), eq(workflowRunTasks.taskId, taskId))))[0];
     if (!t) throw new NotFoundError('Task not found', 'workflow_task_not_found');
     const attempts = await this.deps.db
       .select()
@@ -622,20 +624,20 @@ export class WorkflowsService {
       .limit(input.limit + 1)
       .offset(input.cursor);
     const now = new Date().toISOString();
-    const [run] = await this.deps.db.select().from(workflowRuns).where(eq(workflowRuns.id, runId));
+    const run=state?state.table('workflowRuns').get(runId):(await this.deps.db.select().from(workflowRuns).where(eq(workflowRuns.id,runId)))[0];
     if (!run) throw new NotFoundError('Run not found', 'workflow_run_not_found');
-    const [version] = await this.deps.db.select().from(workflowVersions).where(eq(workflowVersions.id, run.workflowVersionId));
+    const version=state?state.table('workflowVersions').get(run.workflowVersionId):(await this.deps.db.select().from(workflowVersions).where(eq(workflowVersions.id,run.workflowVersionId)))[0];
     const address = t.claimOwnerAddressId ?? run.coordinatorAddressId;
-    const [subject] = address ? await this.deps.db.select().from(workflowRunMembers).where(and(
+    const subject = address ? state?state.table('workflowRunMembers').by('runId',runId).find(m=>m.agentAddressId===address&&m.status==='active'):(await this.deps.db.select().from(workflowRunMembers).where(and(
       eq(workflowRunMembers.runId, runId), eq(workflowRunMembers.agentAddressId, address), eq(workflowRunMembers.status, 'active'),
-    )) : [];
+    )))[0] : undefined;
     const knowledge = version && subject ? {
       subject: { ...subject.actor, address_id: subject.agentAddressId, session_id: subject.sessionId, binding_generation: subject.bindingGeneration },
       role: t.claimOwnerAddressId ? 'claim_owner' : 'coordinator',
-      checks: await this.deps.db.transaction((tx) => knowledgeChecks({ tx, now, actor: {
+      checks: await (state&&run.status!=='completed'?withWorkflowRead(this.deps.db,()=>knowledgeChecks({tx:this.deps.db as unknown as WorkflowTx,now,actor:{...subject.actor,kind:'agent',id:subject.agentAddressId,address_id:subject.agentAddressId,session_id:subject.sessionId,binding_generation:subject.bindingGeneration}},run,version.document as WorkflowDocument,taskId)):this.deps.db.transaction((tx) => knowledgeChecks({ tx, now, actor: {
         ...subject.actor, kind: 'agent', id: subject.agentAddressId,
         address_id: subject.agentAddressId, session_id: subject.sessionId, binding_generation: subject.bindingGeneration,
-      } }, run, version.document as WorkflowDocument, taskId)),
+      } }, run, version.document as WorkflowDocument, taskId))),
     } : version ? {
       subject: null, role: null,
       checks: requiredKnowledge(version.document as WorkflowDocument, taskId).map((knowledge) => ({
@@ -665,22 +667,24 @@ export class WorkflowsService {
   }
   async report(runId: string) {
     const snapshot = await this.runGet(runId);
-    const [run] = await this.deps.db.select().from(workflowRuns).where(eq(workflowRuns.id, runId));
+    const state=workflowState(this.deps.db);
+    const run=state?state.table('workflowRuns').get(runId):(await this.deps.db.select().from(workflowRuns).where(eq(workflowRuns.id,runId)))[0];
     if (!run) throw new NotFoundError('Run not found');
-    const [v] = await this.deps.db
-      .select()
-      .from(workflowVersions)
-      .where(eq(workflowVersions.id, run.workflowVersionId));
+    const v=state?state.table('workflowVersions').get(run.workflowVersionId):(await this.deps.db.select().from(workflowVersions).where(eq(workflowVersions.id,run.workflowVersionId)))[0];
     return { ...snapshot, document: v?.document, report: run.report };
   }
   async runCurrent(actor: WorkflowActor) {
-    const now = await this.deps.db.transaction(async (tx) => {
+    const state=workflowState(this.deps.db);
+    const validate=async(tx:WorkflowTx)=>{
+      if(this.deps.collaboration)await this.deps.collaboration.lock(tx,actor);await this.authenticate(tx,actor);return dbNow(tx);
+    };
+    const now=state?await withWorkflowRead(this.deps.db,()=>validate(this.deps.db as unknown as WorkflowTx)):await this.deps.db.transaction(async (tx) => {
       if (this.deps.collaboration) await this.deps.collaboration.lock(tx, actor);
       await this.authenticate(tx, actor);
       return dbNow(tx);
     });
     requireAgent(actor);
-    const memberRows = await this.deps.db
+    const memberRows=state?state.table('workflowRunMembers').by('agentAddressId',actor.address_id!).filter(r=>r.status==='active'):await this.deps.db
       .select()
       .from(workflowRunMembers)
       .where(
@@ -690,7 +694,7 @@ export class WorkflowsService {
         ),
       );
     const openRuns = memberRows.length
-      ? await this.deps.db
+      ? state?state.table('workflowRuns').all().filter(r=>r.status!=='completed'&&memberRows.some(m=>m.runId===r.id)):await this.deps.db
           .select()
           .from(workflowRuns)
           .where(
@@ -703,7 +707,7 @@ export class WorkflowsService {
             ),
           )
       : [];
-    const invitations = await this.deps.db
+    const invitations=state?state.table('workflowRunInvitations').by('targetAddressId',actor.address_id!).filter(r=>r.targetSessionId===actor.session_id&&r.targetBindingGeneration===actor.binding_generation&&r.status==='pending'):await this.deps.db
       .select()
       .from(workflowRunInvitations)
       .where(
@@ -714,7 +718,7 @@ export class WorkflowsService {
           eq(workflowRunInvitations.status, 'pending'),
         ),
       );
-    const claims = await this.deps.db
+    const claims=state?state.table('workflowRunTasks').by('claimOwnerAddressId',actor.address_id!):await this.deps.db
       .select()
       .from(workflowRunTasks)
       .where(eq(workflowRunTasks.claimOwnerAddressId, actor.address_id!));

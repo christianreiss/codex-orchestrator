@@ -32,6 +32,8 @@ type sharedCall struct {
 	err      error
 }
 type server struct {
+	releaseWake      chan struct{}
+	localChanged     chan struct{}
 	validatedCache   validatedRAM
 	jobRefs          map[string]int
 	scopes           map[string]*scopeState
@@ -158,7 +160,7 @@ func serveWithResident(ctx context.Context, path, version string, options *Resid
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	s := &server{stop: cancel, runtimeID: runtimeIdentity(socket), kick: make(chan struct{}, 1), cfg: cfg, version: version, lastUsed: time.Now(), calls: map[string]*sharedCall{}, dirty: make(chan struct{}, 1), authDirty: make(chan struct{}, 1), jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
+	s := &server{releaseWake: make(chan struct{}, 1), stop: cancel, runtimeID: runtimeIdentity(socket), kick: make(chan struct{}, 1), cfg: cfg, version: version, lastUsed: time.Now(), calls: map[string]*sharedCall{}, dirty: make(chan struct{}, 1), authDirty: make(chan struct{}, 1), jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
 	httpServer := &http.Server{Handler: s, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	if cfg.Orchestrator.CommunicatorRuntimeProtocol == residency.Protocol {
 		s.residentState = &residentState{socket: socket}
@@ -181,6 +183,7 @@ func serveWithResident(ctx context.Context, path, version string, options *Resid
 	defer httpServer.Close()
 	go s.connectLoop(ctx)
 	go s.syncLoop(ctx)
+	go s.providerReleaseLoop(ctx)
 	s.startUpdater(ctx, path)
 	s.supervise(ctx, cancel, httpServer, 5*time.Second, 5*time.Minute)
 	err = httpServer.Serve(listener)
@@ -231,6 +234,7 @@ func (s *server) supervise(ctx context.Context, cancel context.CancelFunc, httpS
 }
 
 func (s *server) invalidate() {
+	defer s.notifyLocal()
 	s.mu.Lock()
 	s.invalidatedAt = time.Now()
 	s.mu.Unlock()
@@ -348,6 +352,7 @@ func (s *server) connectLoop(ctx context.Context) {
 				s.invalidate()
 			}
 			timer := time.NewTicker(15 * time.Second)
+			lastMetadata := ""
 		live:
 			for {
 				select {
@@ -356,6 +361,7 @@ func (s *server) connectLoop(ctx context.Context) {
 				case <-ctx.Done():
 					break live
 				case <-timer.C:
+					c.pingLocalStates(time.Now())
 					s.mu.Lock()
 					leases, last := s.leases, s.lastSync
 					syncScopes := s.scopeViewsLocked()
@@ -364,8 +370,20 @@ func (s *server) connectLoop(ctx context.Context) {
 					if last != "" {
 						synced = last
 					}
-					if c.send(map[string]any{"type": "heartbeat", "sessions": leases, "synced_at": synced, "sync_scopes": syncScopes}) != nil {
-						break live
+					metadata := map[string]any{"type": "heartbeat", "sessions": leases, "synced_at": synced, "sync_scopes": syncScopes}
+					c.mu.Lock()
+					stateEnabled := c.stateEnabled
+					c.mu.Unlock()
+					encoded, _ := json.Marshal(metadata)
+					if !stateEnabled || string(encoded) != lastMetadata {
+						if c.send(metadata) != nil {
+							break live
+						}
+						lastMetadata = string(encoded)
+					} else {
+						if c.send(map[string]any{"type": "ping"}) != nil {
+							break live
+						}
 					}
 					c.queueResidentReport()
 				}
@@ -423,6 +441,12 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/_comm/handoff":
 		s.handoff(w, r)
 		return
+	case "/_comm/provider-release":
+		s.providerReleaseHTTP(w, r)
+		return
+	case "/_comm/state":
+		s.state(w, r)
+		return
 	case "/_comm/daemon":
 		s.daemon(w, r)
 		return
@@ -433,6 +457,13 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		residentView := s.residentView()
 		s.mu.Lock()
 		status := map[string]any{"protocol": Protocol, "version": s.version, "pid": os.Getpid(), "connected": s.conn != nil, "https_fallback": s.fallback, "sessions": s.leases, "requests": s.requests, "coalesced": s.shared, "last_error": s.lastError, "synced_at": s.lastSync, "sync_protocol": SyncProtocol, "sync_scopes": s.scopeViewsLocked(), "local_errors": s.localErrorsLocked()}
+		if s.conn != nil {
+			s.conn.mu.Lock()
+			if s.conn.stateEnabled {
+				status["control_state_protocol"] = 1
+			}
+			s.conn.mu.Unlock()
+		}
 		if s.updateStatus != nil {
 			status["update"] = *s.updateStatus
 		}
@@ -474,13 +505,15 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.wake()
 		}
 		lastStates := map[string]string{}
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
+		initial := make(chan struct{})
+		close(initial)
+		var changed <-chan struct{} = initial
 		for {
 			select {
 			case <-r.Context().Done():
 				return
-			case <-ticker.C:
+			case <-changed:
+				changed = s.localChanges()
 				s.mu.Lock()
 				attached := []syncJob{}
 				for _, id := range ids {
@@ -774,4 +807,23 @@ func (w flushWriter) Write(p []byte) (int, error) {
 	n, err := w.ResponseWriter.Write(p)
 	w.ResponseWriter.(http.Flusher).Flush()
 	return n, err
+}
+
+// localChanges is a broadcast cursor: install it before reading status to
+// avoid losing a completed auth/content operation between read and wait.
+func (s *server) localChanges() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.localChanged == nil {
+		s.localChanged = make(chan struct{})
+	}
+	return s.localChanged
+}
+func (s *server) notifyLocal() {
+	s.mu.Lock()
+	if s.localChanged != nil {
+		close(s.localChanged)
+	}
+	s.localChanged = make(chan struct{})
+	s.mu.Unlock()
 }

@@ -1,3 +1,4 @@
+import { ownerStream } from "./owner-stream";
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
@@ -15,7 +16,7 @@ async function fixture(page: Page, overrides = false, manage = true, singleEngin
   let daemon = { host_id: 1, enabled: true, username: 'chris', default_cwd: '', max_parallel: 8, idle_minutes: 60, question_minutes: 1440,
     access: { secure: true, allowed: true }, health: { state: 'green', reasons: [], heartbeat_at: stamp, used_slots: 0, max_slots: 8 }, sessions: [] };
   const writes: { path: string; value: any }[] = [];
-  await page.routeWebSocket('**/host-detail-ws', () => {});
+  await page.routeWebSocket('**/host-detail-ws', ws => { ownerStream(ws); });
   await page.route('**/admin/**', route => {
     const req = route.request();
     if (!req.headers().accept?.includes('application/json')) return route.continue();
@@ -135,4 +136,27 @@ test('online evidence ages out even when cached replies repeat and admin timesta
   await page.clock.fastForward(46_000);
   await expect(page.locator('main').getByText('Offline', { exact: true })).toBeVisible();
   await expect(page.locator('main').getByText('Online', { exact: true })).toHaveCount(0);
+});
+
+test('an idle connected host view makes no periodic HTTP reads for ten minutes', async ({ page }) => {
+  await page.clock.install();
+  const state = await fixture(page);
+  Object.assign(state.host, { presence_source: 'connection' });
+  const reads: string[] = [];
+  page.on('request', request => {
+    if (request.method() === 'GET' && request.headers().accept?.includes('application/json')) reads.push(new URL(request.url()).pathname);
+  });
+  await page.goto('/admin/hosts/1');
+  await expect(page.getByRole('heading', { name: 'workstation.example.test', level: 1 })).toBeVisible();
+  await expect(page.getByText('Live', { exact: true })).toBeVisible();
+  // Drain the initial hello's snapshot reconciliation before measuring idle.
+  for (let settle = 0; settle < 3; settle++) {
+    await page.waitForLoadState("networkidle");
+    await page.clock.runFor(1000);
+  }
+  await page.waitForLoadState("networkidle");
+  const before = reads.length;
+  await page.clock.runFor(600_000);
+  expect(reads.slice(before)).toEqual([]);
+  await expect(page.getByText('Live', { exact: true })).toBeVisible();
 });

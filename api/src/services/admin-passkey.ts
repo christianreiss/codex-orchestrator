@@ -1,3 +1,6 @@
+import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { adminAudit, requireCurrentUser, type PasskeyPrincipal } from '../control-plane/state/admin.js';
+import type { Json } from '../control-plane/commands.js';
 import { and, asc, count, eq, gt, sql } from 'drizzle-orm';
 import {
   generateAuthenticationOptions,
@@ -105,6 +108,8 @@ export class AdminPasskeyService {
   // ---------- list / rename / delete ----------
 
   async listForUser(userId: number): Promise<SanitizedPasskey[]> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); return [...owner.state.snapshot().table('adminPasskeys').by('userId', userId)].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).map(row => this.sanitize(row)); }
     const rows = await this.db
       .select()
       .from(adminPasskeys)
@@ -122,6 +127,18 @@ export class AdminPasskeyService {
     const passkey = await this.findById(id);
     if (!passkey) throw new NotFoundError('Passkey not found', 'passkey_not_found');
     if (passkey.userId !== userId) throw new ForbiddenError('Forbidden', 'passkey_forbidden');
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'admin.passkey.rename', payload: { id, userId, name: trimmed }, prepare(ctx) {
+        const current = ctx.draft.table('adminPasskeys').get(id);
+        if (!current || current.userId !== userId) throw new ForbiddenError('Forbidden', 'passkey_forbidden');
+        ctx.draft.upsert('adminPasskeys', { ...current, name: trimmed });
+        ctx.write(async tx => tx.update(adminPasskeys).set({ name: trimmed }).where(eq(adminPasskeys.id, id)));
+        adminAudit(ctx, 'passkey.renamed', { user_id: userId, passkey_id: id });
+        return null;
+      } });
+      return;
+    }
     await this.db.update(adminPasskeys).set({ name: trimmed }).where(eq(adminPasskeys.id, id));
   }
 
@@ -129,6 +146,18 @@ export class AdminPasskeyService {
     const passkey = await this.findById(id);
     if (!passkey) throw new NotFoundError('Passkey not found', 'passkey_not_found');
     if (passkey.userId !== userId) throw new ForbiddenError('Forbidden', 'passkey_forbidden');
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'admin.passkey.remove', payload: { id, userId }, prepare(ctx) {
+        const current = ctx.draft.table('adminPasskeys').get(id);
+        if (!current || current.userId !== userId) throw new ForbiddenError('Forbidden', 'passkey_forbidden');
+        ctx.draft.remove('adminPasskeys', id);
+        ctx.write(async tx => tx.delete(adminPasskeys).where(eq(adminPasskeys.id, id)));
+        adminAudit(ctx, 'passkey.deleted', { user_id: userId, passkey_id: id });
+        return null;
+      } });
+      return;
+    }
     await this.db.delete(adminPasskeys).where(eq(adminPasskeys.id, id));
     await this.events.record({
       type: 'passkey.deleted',
@@ -139,7 +168,9 @@ export class AdminPasskeyService {
   // ---------- registration ----------
 
   async beginRegistration(owner: PasskeyOwner, req?: WebAuthnRequestContext): Promise<unknown> {
-    const userCount = await this.db
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) runtime.assertOwner();
+    const userCount = runtime ? [{ c: runtime.state.snapshot().table('adminPasskeys').by('userId', owner.id).length }] : await this.db
       .select({ c: count() })
       .from(adminPasskeys)
       .where(eq(adminPasskeys.userId, owner.id));
@@ -148,7 +179,7 @@ export class AdminPasskeyService {
     }
     await this.purgeExpiredChallenges();
 
-    const existing = await this.db
+    const existing = runtime ? runtime.state.snapshot().table('adminPasskeys').by('userId', owner.id) : await this.db
       .select()
       .from(adminPasskeys)
       .where(eq(adminPasskeys.userId, owner.id));
@@ -225,7 +256,9 @@ export class AdminPasskeyService {
     const publicKey = Buffer.from(info.credential.publicKey);
     const pubKeyEncoded = `${PUBLIC_KEY_PREFIX}${publicKey.toString('base64')}`;
 
-    const dup = await this.db
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) runtime.assertOwner();
+    const dup = runtime ? runtime.state.snapshot().table('adminPasskeys').by('credentialIdHash', credentialIdHash) : await this.db
       .select()
       .from(adminPasskeys)
       .where(eq(adminPasskeys.credentialIdHash, credentialIdHash))
@@ -244,6 +277,25 @@ export class AdminPasskeyService {
     const name = (body.name ?? '').trim() || `Passkey ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
     const aaguid = info.aaguid && info.aaguid !== '00000000-0000-0000-0000-000000000000' ? info.aaguid : null;
 
+    if (runtime) {
+      let inserted: SanitizedPasskey | undefined;
+      const result = await mutateOwnerState(runtime, { kind: 'admin.passkey.register', payload: { userId: owner.id, credentialIdHash, name }, prepare: ctx => {
+        const user = requireCurrentUser(ctx, owner.id);
+        if (!user.active) throw new ForbiddenError('User inactive', 'user_inactive');
+        const keys = ctx.draft.table('adminPasskeys');
+        if (keys.by('credentialIdHash', credentialIdHash).length) throw new ConflictError('Credential already registered', 'credential_duplicate');
+        if (keys.by('userId', owner.id).length >= MAX_PASSKEYS_PER_USER) throw new ValidationError('Maximum number of passkeys reached');
+        const values = { userId: owner.id, credentialId: credentialIdBytes.toString('base64url'), credentialIdHash, publicKeyPem: pubKeyEncoded, coseAlg: this.guessCoseAlg(publicKey), signCount: info.credential.counter ?? 0, name, transports: transportsStr, aaguid, createdAt: nowIso(), lastUsedAt: null };
+        ctx.write(async tx => {
+          const record = await tx.insert(adminPasskeys).values(values); const id = Number(record[0]?.insertId);
+          if (!Number.isSafeInteger(id) || id < 1) throw new Error('Passkey insert returned no identity');
+          ctx.draft.upsert('adminPasskeys', { ...values, id }); inserted = this.sanitize({ ...values, id });
+        });
+        adminAudit(ctx, 'passkey.registered', { user_id: owner.id, credential_id_hash: credentialIdHash });
+        return () => inserted as unknown as Json;
+      } });
+      return result as unknown as SanitizedPasskey;
+    }
     const insertResult = await this.db.insert(adminPasskeys).values({
       userId: owner.id,
       credentialId: credentialIdBytes.toString('base64url'),
@@ -279,7 +331,9 @@ export class AdminPasskeyService {
       throw new NotFoundError('Unknown or inactive user', 'user_not_found');
     }
 
-    const credentials = await this.db
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) runtime.assertOwner();
+    const credentials = runtime ? runtime.state.snapshot().table('adminPasskeys').by('userId', user.id) : await this.db
       .select()
       .from(adminPasskeys)
       .where(eq(adminPasskeys.userId, user.id));
@@ -303,7 +357,7 @@ export class AdminPasskeyService {
 
   async completeAuthentication(body: {
     response?: AuthenticationResponseJSON;
-  }, req?: WebAuthnRequestContext): Promise<AdminUser> {
+  }, req?: WebAuthnRequestContext): Promise<AdminUser | PasskeyPrincipal> {
     const response = body.response;
     if (!response || typeof response !== 'object') {
       throw new ValidationError('Missing assertion response', { param: 'response' });
@@ -327,7 +381,9 @@ export class AdminPasskeyService {
     const rawIdBytes = Buffer.from(response.rawId, 'base64url');
     const credentialIdHash = sha256(rawIdBytes);
     void rawIdBytes;
-    const credRows = await this.db
+    const runtime = ownerRuntimeFor(this.db);
+    if (runtime) runtime.assertOwner();
+    const credRows = runtime ? runtime.state.snapshot().table('adminPasskeys').by('credentialIdHash', credentialIdHash) : await this.db
       .select()
       .from(adminPasskeys)
       .where(eq(adminPasskeys.credentialIdHash, credentialIdHash))
@@ -361,6 +417,19 @@ export class AdminPasskeyService {
 
     const newCounter = verification.authenticationInfo.newCounter;
     const lastUsed = nowIso();
+    if (runtime) {
+      const result = await mutateOwnerState(runtime, { kind: 'admin.passkey.authenticate', payload: { credentialIdHash, newCounter }, prepare(ctx) {
+        const current = ctx.draft.table('adminPasskeys').get(credential.id);
+        if (!current || current.credentialIdHash !== credentialIdHash || current.publicKeyPem !== credential.publicKeyPem || current.signCount !== credential.signCount) throw new ConflictError('Credential changed during verification', 'credential_changed');
+        const user = requireCurrentUser(ctx, current.userId);
+        if (!user.active) throw new ConflictError('User inactive or not found', 'user_inactive');
+        const patch = { signCount: Math.max(current.signCount, newCounter), lastUsedAt: lastUsed };
+        ctx.draft.upsert('adminPasskeys', { ...current, ...patch });
+        ctx.write(async tx => tx.update(adminPasskeys).set(patch).where(eq(adminPasskeys.id, current.id)));
+        return { ...user, passkeyProof: { id: current.id, credentialIdHash } } as unknown as Json;
+      } });
+      return result as unknown as PasskeyPrincipal;
+    }
     if (newCounter > Number(credential.signCount ?? 0)) {
       await this.db
         .update(adminPasskeys)
@@ -446,6 +515,8 @@ export class AdminPasskeyService {
   }
 
   private async findById(id: number): Promise<AdminPasskey | null> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); return owner.state.snapshot().table('adminPasskeys').get(id) ?? null; }
     const rows = await this.db
       .select()
       .from(adminPasskeys)
@@ -454,7 +525,9 @@ export class AdminPasskeyService {
     return rows[0] ?? null;
   }
 
-  private async findActiveUserByUsername(username: string): Promise<AdminUser | null> {
+  private async findActiveUserByUsername(username: string): Promise<Omit<AdminUser, 'passwordHash'> | null> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); return owner.state.snapshot().table('adminUsers').by('username', username).find(user => user.active === 1) ?? null; }
     const rows = await this.db
       .select()
       .from(adminUsers)
@@ -463,7 +536,12 @@ export class AdminPasskeyService {
     return rows[0] ?? null;
   }
 
-  private async findOnlyActiveUser(): Promise<AdminUser | null> {
+  private async findOnlyActiveUser(): Promise<Omit<AdminUser, 'passwordHash'> | null> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner(); const users = owner.state.snapshot().table('adminUsers').all().filter(user => user.active === 1);
+      return users.length === 1 ? users[0]! : null;
+    }
     const rows = await this.db
       .select()
       .from(adminUsers)
@@ -524,6 +602,21 @@ export class AdminPasskeyService {
     // challenges from simplewebauthn are base64url-encoded random bytes; the
     // default length fits.
     const stored = challenge.slice(0, 64);
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'admin.passkey.challenge.issue', payload: { userId, type, challenge: stored }, prepare(ctx) {
+        const user = requireCurrentUser(ctx, userId);
+        if (!user.active) throw new ForbiddenError('User inactive', 'user_inactive');
+        const values = { challenge: stored, userId, type, expiresAt: isoOffsetSeconds(CHALLENGE_TTL_SECONDS), createdAt: nowIso() };
+        ctx.write(async tx => {
+          const inserted = await tx.insert(adminWebauthnChallenges).values(values); const id = Number(inserted[0]?.insertId);
+          if (!Number.isSafeInteger(id) || id < 1) throw new Error('Challenge insert returned no identity');
+          ctx.draft.upsert('adminWebauthnChallenges', { ...values, id });
+        });
+        return null;
+      } });
+      return;
+    }
     await this.db.insert(adminWebauthnChallenges).values({
       challenge: stored,
       userId,
@@ -537,6 +630,17 @@ export class AdminPasskeyService {
     challenge: string,
   ): Promise<{ type: string; userId: number | null } | null> {
     const stored = challenge.slice(0, 64);
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = await mutateOwnerState(owner, { kind: 'admin.passkey.challenge.consume', payload: { challenge: stored }, prepare(ctx) {
+        const row = ctx.draft.table('adminWebauthnChallenges').by('challenge', stored)[0];
+        if (!row || row.expiresAt <= nowIso()) return null;
+        ctx.draft.remove('adminWebauthnChallenges', row.id);
+        ctx.write(async tx => tx.delete(adminWebauthnChallenges).where(eq(adminWebauthnChallenges.id, row.id)));
+        return { type: row.type, userId: row.userId };
+      } });
+      return result as { type: string; userId: number | null } | null;
+    }
     const now = nowIso();
     const rows = await this.db
       .select()
@@ -554,6 +658,17 @@ export class AdminPasskeyService {
   }
 
   private async purgeExpiredChallenges(): Promise<void> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner(); const now = nowIso();
+      if (!owner.state.snapshot().table('adminWebauthnChallenges').all().some(row => row.expiresAt <= now)) return;
+      await mutateOwnerState(owner, { kind: 'admin.passkey.challenges.purge', payload: { now }, prepare(ctx) {
+        for (const row of ctx.draft.table('adminWebauthnChallenges').all()) if (row.expiresAt <= now) ctx.draft.remove('adminWebauthnChallenges', row.id);
+        ctx.write(async tx => tx.delete(adminWebauthnChallenges).where(sql`${adminWebauthnChallenges.expiresAt} <= ${now}`));
+        return null;
+      } });
+      return;
+    }
     const now = nowIso();
     await this.db
       .delete(adminWebauthnChallenges)

@@ -1,3 +1,4 @@
+import { appendAuditLog } from '../../../services/audit-log.js';
 /**
  * /admin/* settings endpoints. Each pair (GET + POST) reads and writes one
  * setting from the `versions` table via SettingsService. Every mutation
@@ -112,7 +113,7 @@ async function recordLog(
   details: Record<string, unknown>,
 ): Promise<void> {
   try {
-    await ctx.db.insert(logs).values({
+    await appendAuditLog(ctx.db,{
       hostId: null,
       action,
       details: JSON.stringify(details),

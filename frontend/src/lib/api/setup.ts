@@ -108,7 +108,7 @@ export function setupStatusQuery(enabled = true) {
     queryFn: getSetupStatus,
     enabled,
     staleTime: 10_000,
-    refetchInterval: 30_000,
+
   });
 }
 

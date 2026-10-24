@@ -1,3 +1,7 @@
+import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { stageDelete, stageUpdate } from '../control-plane/state/rows.js';
+import { adminAudit } from '../control-plane/state/admin.js';
+import type { Json } from '../control-plane/commands.js';
 /**
  * Named fleet security postures and their per-host assignment.
  *
@@ -73,8 +77,10 @@ function normalizeDescription(raw: unknown): string | null {
 export class AgentPolicyProfilesService {
   constructor(private readonly db: Database) {}
 
+  private snapshot() { const owner=ownerRuntimeFor(this.db); owner?.assertOwner(); return owner?.state.snapshot(); }
+
   private async assignments(): Promise<Array<{ hostId: number; profileId: number }>> {
-    const rows = await this.db.select().from(agentPolicyProfileAssignments);
+    const rows = this.snapshot()?.table('agentPolicyProfileAssignments').all() ?? await this.db.select().from(agentPolicyProfileAssignments);
     return rows.map((row) => ({ hostId: Number(row.hostId), profileId: Number(row.profileId) }));
   }
 
@@ -101,7 +107,7 @@ export class AgentPolicyProfilesService {
 
   async list(): Promise<AgentPolicyProfileView[]> {
     const [rows, assigned] = await Promise.all([
-      this.db.select().from(agentPolicyProfiles),
+      this.snapshot()?.table('agentPolicyProfiles').all() ?? this.db.select().from(agentPolicyProfiles),
       this.assignments(),
     ]);
     return rows
@@ -110,7 +116,7 @@ export class AgentPolicyProfilesService {
   }
 
   private async requireRow(id: number): Promise<typeof agentPolicyProfiles.$inferSelect> {
-    const rows = await this.db
+    const rows = this.snapshot()?.table('agentPolicyProfiles').all().filter(row=>row.id===id) ?? await this.db
       .select()
       .from(agentPolicyProfiles)
       .where(eq(agentPolicyProfiles.id, id))
@@ -125,6 +131,17 @@ export class AgentPolicyProfilesService {
     const description = normalizeDescription(input.description);
     const levels = normalizeSecurityLevels(input.levels);
     const ts = nowIso();
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){
+      let id=0;
+      await mutateOwnerState(owner,{kind:'policy.profile.create',payload:{name,description,levels} as Json,prepare:ctx=>{
+        if(ctx.snapshot.table('agentPolicyProfiles').all().some(row=>row.name.toLowerCase()===name.toLowerCase()))throw new ValidationError(`a policy profile named ${name} already exists`,{param:'name'});
+        const values={name,description,levels,isDefault:0,revision:1,createdAt:ts,updatedAt:ts};
+        ctx.write(async tx=>{const result=await tx.insert(agentPolicyProfiles).values(values);id=Number(result[0].insertId);ctx.draft.upsert('agentPolicyProfiles',{id,...values});});
+        adminAudit(ctx,'agent_policy_profile.created',()=>({id,name}));return ()=>({id});
+      }});
+      wsPublisher.publish('agents.stored',{profile:name});return this.toView(await this.requireRow(id),await this.assignments());
+    }
 
     const existing = await this.db
       .select()
@@ -168,12 +185,24 @@ export class AgentPolicyProfilesService {
     if (input.description !== undefined) patch['description'] = normalizeDescription(input.description);
     if (input.levels !== undefined) patch['levels'] = normalizeSecurityLevels(input.levels);
 
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){await mutateOwnerState(owner,{kind:'policy.profile.update',payload:{id,patch} as Json,prepare:ctx=>{
+      const current=ctx.draft.table('agentPolicyProfiles').get(id);if(!current)throw new NotFoundError('Policy profile not found');
+      if(typeof patch.name==='string'&&ctx.snapshot.table('agentPolicyProfiles').all().some(row=>row.id!==id&&row.name.toLowerCase()===(patch.name as string).toLowerCase()))throw new ValidationError('Policy profile name already exists');
+      stageUpdate(ctx,'agentPolicyProfiles',id,{...patch,revision:current.revision+1});adminAudit(ctx,'agent_policy_profile.updated',{id});return {id};
+    }});}else
     await this.db.update(agentPolicyProfiles).set(patch).where(eq(agentPolicyProfiles.id, id));
     wsPublisher.publish('agents.stored', { profile_id: id });
     return this.toView(await this.requireRow(id), await this.assignments());
   }
 
   async remove(id: number): Promise<{ deleted_id: number }> {
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){await mutateOwnerState(owner,{kind:'policy.profile.remove',payload:{id},prepare:ctx=>{
+      const row=ctx.draft.table('agentPolicyProfiles').get(id);if(!row)throw new NotFoundError('Policy profile not found');if(row.isDefault)throw new ValidationError('the fleet default profile cannot be deleted',{param:'id'});
+      for(const assignment of ctx.draft.table('agentPolicyProfileAssignments').by('profileId',id))stageDelete(ctx,'agentPolicyProfileAssignments',assignment.hostId);
+      stageDelete(ctx,'agentPolicyProfiles',id);adminAudit(ctx,'agent_policy_profile.deleted',{id});return {id};
+    }});wsPublisher.publish('agents.stored',{deleted_profile_id:id});return {deleted_id:id};}
     const row = await this.requireRow(id);
     if (Number(row.isDefault) === 1) {
       // Without a default there is no posture to fall back to, and every
@@ -187,6 +216,12 @@ export class AgentPolicyProfilesService {
   }
 
   async setDefault(id: number): Promise<AgentPolicyProfileView> {
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){await mutateOwnerState(owner,{kind:'policy.profile.default',payload:{id},prepare:ctx=>{
+      if(!ctx.draft.table('agentPolicyProfiles').get(id))throw new NotFoundError('Policy profile not found');
+      for(const row of ctx.draft.table('agentPolicyProfiles').all())if(row.isDefault!==(row.id===id?1:0))stageUpdate(ctx,'agentPolicyProfiles',row.id,{isDefault:row.id===id?1:0,updatedAt:nowIso()});
+      adminAudit(ctx,'agent_policy_profile.default',{id});return {id};
+    }});wsPublisher.publish('agents.stored',{default_profile_id:id});return this.toView(await this.requireRow(id),await this.assignments());}
     await this.requireRow(id);
     const rows = await this.db.select().from(agentPolicyProfiles);
     for (const row of rows) {
@@ -204,6 +239,18 @@ export class AgentPolicyProfilesService {
   /** Assign a host to a profile, or clear the assignment back to the fleet default. */
   async assign(hostId: number, profileId: number | null): Promise<{ host_id: number; profile_id: number | null }> {
     const ts = nowIso();
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){await mutateOwnerState(owner,{kind:'policy.profile.assign',payload:{hostId,profileId},prepare:ctx=>{
+      if(!ctx.snapshot.hosts.get(hostId))throw new NotFoundError('Host not found');
+      if(profileId===null)stageDelete(ctx,'agentPolicyProfileAssignments',hostId);
+      else{
+        if(!ctx.snapshot.table('agentPolicyProfiles').get(profileId))throw new NotFoundError('Policy profile not found');
+        const existing=ctx.draft.table('agentPolicyProfileAssignments').get(hostId);
+        if(existing)stageUpdate(ctx,'agentPolicyProfileAssignments',hostId,{profileId,updatedAt:ts});
+        else{const row={hostId,profileId,createdAt:ts,updatedAt:ts};ctx.draft.upsert('agentPolicyProfileAssignments',row);ctx.write(async tx=>tx.insert(agentPolicyProfileAssignments).values(row));}
+      }
+      adminAudit(ctx,'agent_policy_profile.assigned',{hostId,profileId});return {hostId,profileId};
+    }});wsPublisher.publish('agents.stored',{host_id:hostId,profile_id:profileId});return {host_id:hostId,profile_id:profileId};}
     if (profileId === null) {
       await this.db
         .delete(agentPolicyProfileAssignments)
@@ -240,6 +287,7 @@ export class AgentPolicyProfilesService {
    * degrade to today's posture, never to no document at all.
    */
   async resolveForHost(hostId: number): Promise<SecurityLevels> {
+    const state=this.snapshot();if(state){const assigned=state.table('agentPolicyProfileAssignments').get(hostId);const profile=assigned?state.table('agentPolicyProfiles').get(assigned.profileId):undefined;return normalizeSecurityLevels((profile??state.table('agentPolicyProfiles').all().find(row=>row.isDefault===1))?.levels??DEFAULT_SECURITY_LEVELS);}
     try {
       const assigned = await this.db
         .select()
@@ -280,6 +328,7 @@ export class AgentPolicyProfilesService {
    * from a peer that never answered.
    */
   async rootHostNames(): Promise<string[]> {
+    const state=this.snapshot();if(state)return [...new Set(state.table('hostUsers').by('username','root').flatMap(row=>{const host=state.hosts.get(row.hostId);return host?[host.fqdn]:[];}))].sort();
     try {
       const rows = await this.db
         .select({ fqdn: hosts.fqdn })
@@ -307,6 +356,7 @@ export class AgentPolicyProfilesService {
     const enforcement = await this.enforcementForHost(hostId);
     const asked = enforcement.claude.permission_mode.value;
     if (asked !== 'bypassPermissions') return [];
+    const state=this.snapshot();if(state)return state.table('hostUsers').by('hostId',hostId).filter(row=>row.username==='root').slice(0,1).map(row=>({username:row.username,from:asked,to:ROOT_CLAMPED_CLAUDE_PERMISSION_MODE}));
     try {
       const rows = await this.db
         .select({ username: hostUsers.username })

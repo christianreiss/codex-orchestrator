@@ -1,3 +1,4 @@
+import { bindOwnerHostPrincipal, ownerRuntimeFor, resolveOwnerHost } from '../../control-plane/state/admission.js';
 import { assertHostNotExpired, recordHostContact } from '../../services/host-lifecycle.js';
 import fp from 'fastify-plugin';
 import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fastify';
@@ -25,6 +26,11 @@ export function makeAuthHostPlugin(db: Database) {
         const key = extractApiKey(req.headers as Record<string, string | string[] | undefined>);
         if (!key) return null;
         const hash = hashApiKey(key);
+        if (ownerRuntimeFor(db)) {
+          const host = resolveOwnerHost(db, hash, key);
+          if (host) assertHostNotExpired(host);
+          return host;
+        }
         const rows = await db.select().from(hostsTable).where(eq(hostsTable.apiKeyHash, hash)).limit(1);
         if (rows[0]) {
           assertHostNotExpired(rows[0]);
@@ -45,6 +51,7 @@ export function makeAuthHostPlugin(db: Database) {
           throw new UnauthorizedError(`Host ${host.status}`, `host_${host.status}`);
         }
         req.authHost = req.method === 'DELETE' ? host : await recordHostContact(db, host, new Date(), true);
+        if (ownerRuntimeFor(db)) bindOwnerHostPrincipal(db, req.authHost);
       });
     },
     { name: 'auth-host' },

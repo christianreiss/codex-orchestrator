@@ -42,7 +42,7 @@
   const detail = createQuery<RemoteSession>(toStore(() => ({
     queryKey: ["daemon-sessions", selectedId], enabled: active && !!selectedId && canRead,
     queryFn: ({ queryKey, signal }) => api.get<RemoteSession>(`/admin/daemon-sessions/${queryKey[1]}`, { signal }),
-    refetchInterval: 3000,
+
   })));
   const selected = $derived($detail.data ?? selectedEntry?.session);
   const selectedHost = $derived(selectedEntry?.host);

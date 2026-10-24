@@ -1,3 +1,5 @@
+import { ownerRuntimeFor, mutateOwnerState } from '../../control-plane/state/runtime.js';
+import { stageDelete } from '../../control-plane/state/rows.js';
 import { and, asc, desc, eq, gt, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import type { RouteContext } from '../../routes/index.js';
@@ -52,7 +54,8 @@ export class CompanionRemote {
     this.daemon = new HostDaemonService(ctx);
   }
   async hosts() {
-    const rows = await this.ctx.db.select().from(hostDaemons);
+    const owner = ownerRuntimeFor(this.ctx.db); owner?.assertOwner();
+    const rows = owner ? owner.state.snapshot().table('hostDaemons').all() : await this.ctx.db.select().from(hostDaemons);
     return Promise.all(
       rows
         .filter((r) => r.settings.enabled)
@@ -94,7 +97,8 @@ export class CompanionRemote {
     );
   }
   async find(id: string, userId: number) {
-    const [row] = await this.ctx.db.select().from(hostDaemonSessions).where(eq(hostDaemonSessions.id, id));
+    const owner = ownerRuntimeFor(this.ctx.db); owner?.assertOwner();
+    const row = owner ? owner.state.snapshot().table('hostDaemonSessions').get(id) : (await this.ctx.db.select().from(hostDaemonSessions).where(eq(hostDaemonSessions.id, id)))[0];
     if (!row) return null;
     if (row.owner !== `admin:${userId}`)
       throw new ForbiddenError('This remote conversation belongs to another operator');
@@ -111,6 +115,8 @@ export class CompanionRemote {
     return row;
   }
   async hasOperation(clientId: string, userId: number) {
+    const owner = ownerRuntimeFor(this.ctx.db);
+    if (owner) { owner.assertOwner(); return owner.state.snapshot().table('hostDaemonOperations').all().some(row => row.clientKey === `admin:${userId}:${clientId}`); }
     return !!(
       await this.ctx.db
         .select()
@@ -120,13 +126,14 @@ export class CompanionRemote {
     ).length;
   }
   async project(userId: number, sessions: Array<Record<string, unknown>>) {
-    const rows = await this.ctx.db
+    const owner = ownerRuntimeFor(this.ctx.db); owner?.assertOwner(); const state = owner?.state.snapshot();
+    const rows = state ? state.table('hostDaemonSessions').all().filter(row => row.owner === `admin:${userId}`) : await this.ctx.db
       .select()
       .from(hostDaemonSessions)
       .where(eq(hostDaemonSessions.owner, `admin:${userId}`));
     const hosts = await this.hosts();
     const bindings = rows.length
-      ? await this.ctx.db
+      ? state ? state.table('hostDaemonPortalBindings').all().filter(binding => rows.some(row => row.id === binding.daemonSessionId)) : await this.ctx.db
           .select()
           .from(hostDaemonPortalBindings)
           .where(
@@ -200,7 +207,8 @@ export class CompanionRemote {
   async events(id: string, userId: number, after: number, tail: boolean) {
     const remote = await this.find(id, userId);
     if (!remote) return null;
-    const bindings = await this.ctx.db
+    const state = ownerRuntimeFor(this.ctx.db)?.state.snapshot();
+    const bindings = state ? state.table('hostDaemonPortalBindings').by('daemonSessionId', id) : await this.ctx.db
       .select()
       .from(hostDaemonPortalBindings)
       .where(eq(hostDaemonPortalBindings.daemonSessionId, id));
@@ -233,6 +241,21 @@ export class CompanionRemote {
     };
   }
   async follow(deviceId: string, id: string, value: boolean) {
+    const owner = ownerRuntimeFor(this.ctx.db);
+    if (owner) {
+      await mutateOwnerState(owner, { kind: 'companion.remote.follow', payload: { deviceId, id, value }, prepare(context) {
+        const bindings = context.draft.table('hostDaemonPortalBindings').by('daemonSessionId', id);
+        if (value) {
+          const remote = { deviceId, daemonSessionId: id }; context.draft.upsert('companionDaemonFollows', remote);
+          context.write(async tx => { await tx.insert(companionDaemonFollows).values(remote).onDuplicateKeyUpdate({ set: { daemonSessionId: id } }); });
+          for (const binding of bindings) { const row = { deviceId, sessionId: binding.portalSessionId }; context.draft.upsert('companionFollows', row); context.write(async tx => { await tx.insert(companionFollows).values(row).onDuplicateKeyUpdate({ set: { sessionId: row.sessionId } }); }); }
+        } else {
+          stageDelete(context, 'companionDaemonFollows', [deviceId, id]);
+          for (const binding of bindings) stageDelete(context, 'companionFollows', [deviceId, binding.portalSessionId]);
+        }
+        return null;
+      } }); return;
+    }
     const bindings = await this.ctx.db
       .select()
       .from(hostDaemonPortalBindings)

@@ -184,6 +184,7 @@ func Start(ctx context.Context, cmd *exec.Cmd) func() {
 		generation := 0
 		var known Policy
 		var knownAt time.Time
+		var reportedProgress time.Time
 		for {
 			select {
 			case <-childCtx.Done():
@@ -198,9 +199,13 @@ func Start(ctx context.Context, cmd *exec.Cmd) func() {
 					w.mu.Lock()
 					progress := w.progress
 					w.mu.Unlock()
-					request, c := context.WithTimeout(childCtx, 4*time.Second)
-					_ = w.report(request, progress, "")
-					c()
+					if !progress.Equal(reportedProgress) {
+						request, c := context.WithTimeout(childCtx, 4*time.Second)
+						if w.report(request, progress, "") == nil {
+							reportedProgress = progress
+						}
+						c()
+					}
 				}
 				policy, err := known, error(nil)
 				if knownAt.IsZero() || known.TimeoutSeconds > 0 || known.TerminateRequested || time.Since(knownAt) >= idlePolicyEvery {

@@ -42,6 +42,7 @@ export interface DaemonHost extends DaemonSettings {
   fqdn?: string;
   access?: { allowed: boolean; reason: string | null; secure: boolean; enabled_until: string | null };
   health: {
+    presence_source?: "connection";
     state: "disabled" | "green" | "yellow" | "red";
     reasons: string[];
     heartbeat_at: string | null;
@@ -66,14 +67,14 @@ export function hostDaemonsQuery(enabled: () => boolean = () => true) {
     enabled: enabled(),
     queryKey: ["host-daemons"],
     queryFn: () => api.get<{ hosts: DaemonHost[] }>("/admin/host-daemons"),
-    refetchInterval: 15_000,
+
   })));
 }
 export function hostDaemonQuery(id: string | number) {
   return createQuery({
     queryKey: ["host-daemons", String(id)],
     queryFn: () => api.get<DaemonHost>(`/admin/hosts/${id}/daemon`),
-    refetchInterval: 15_000,
+
   });
 }
 export function configureDaemon(qc: QueryClient, id: string | number) {

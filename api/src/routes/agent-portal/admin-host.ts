@@ -1,3 +1,6 @@
+import { stageUpdate } from '../../control-plane/state/rows.js';
+import {ownerRuntimeFor,mutateOwnerState} from '../../control-plane/state/runtime.js';
+import {legacyDrainFor} from '../../control-plane/legacy-drain.js';
 import { and, eq, gt } from 'drizzle-orm';
 import { agentSessions, providerAccountSessions } from '../../db/schema.js';
 import { AgentCoordination } from '../../services/agent-coordination/index.js';
@@ -118,7 +121,8 @@ export async function registerAgentPortalAdminHostRoutes(
       .parse(req.body ?? {});
     const engine = parseEngine(body.engine);
     assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
-    const [providerLease] = body.provider_session_id ? await ctx.db.select().from(providerAccountSessions).where(and(
+    const owner = ownerRuntimeFor(ctx.db);
+    const [providerLease] = body.provider_session_id ? owner ? owner.state.snapshot().table('providerAccountSessions').by('hostId',host.id).filter(row=>row.id===body.provider_session_id&&row.engine===engine&&(row.ownershipMode==='connection'||Date.parse(row.expiresAt)>Date.now())) : await ctx.db.select().from(providerAccountSessions).where(and(
       eq(providerAccountSessions.id, body.provider_session_id), eq(providerAccountSessions.hostId, host.id),
       eq(providerAccountSessions.engine, engine), gt(providerAccountSessions.expiresAt, new Date().toISOString()),
     )) : [];
@@ -189,7 +193,13 @@ export async function registerAgentPortalAdminHostRoutes(
     }
     if (providerLease) {
       // Serialize registration retries before attaching the immutable account binding.
-      await ctx.db.transaction(async tx => {
+      if(owner)await mutateOwnerState(owner,{kind:'session.provider.bind',payload:{sessionId,providerSessionId:providerLease.id},prepare(command){
+        const registered=command.draft.table('agentSessions').get(sessionId),lease=command.draft.table('providerAccountSessions').get(providerLease.id);
+        if(!registered||registered.hostId!==host.id||registered.engine!==engine||registered.endedAt||(registered.providerAccountId&&registered.providerAccountId!==providerLease.accountId)||!lease||lease.hostId!==host.id||lease.engine!==engine||lease.accountId!==providerLease.accountId||(lease.ownershipMode!=='connection'&&Date.parse(lease.expiresAt)<=Date.now()))throw new ForbiddenError('Provider account binding changed');
+        if(registered.providerAccountId!==lease.accountId)stageUpdate(command,'agentSessions',sessionId,{providerAccountId:lease.accountId});
+        return null;
+      }});
+      else await ctx.db.transaction(async tx => {
         const [registered] = await tx.select().from(agentSessions).where(and(
           eq(agentSessions.id, sessionId), eq(agentSessions.hostId, host.id), eq(agentSessions.engine, engine),
         )).for('update');
@@ -240,6 +250,8 @@ export async function registerAgentPortalAdminHostRoutes(
   app.post('/host/agent-sessions/:id/native-control', async req => {
     const id = stringParam(req.params, 'id');
     const body = z.object({ protocol: z.literal(1), instance_id: z.string().uuid(), report: z.object({ request_id: z.string().uuid(), status: z.enum(['accepted', 'exited', 'refused']) }).strict().optional() }).strict().parse(req.body);
+    const owner = ownerRuntimeFor(ctx.db);
+    if (owner && !body.report) legacyDrainFor(owner)?.renew('session', id, requireBridgeToken(req), {instanceId: body.instance_id});
     await portal.authenticateBridge(id, requireBridgeToken(req), undefined, Boolean(body.report));
     return new NativeStopService(ctx.db).poll(id, body.instance_id, body.report);
   });
@@ -319,7 +331,7 @@ export async function registerAgentPortalAdminHostRoutes(
     );
   });
 
-  app.post('/host/agent-sessions/:id/finish', async (req) => {
+  app.post('/host/agent-sessions/:id/finish', {config:{ownerResponse:'committed-action'}}, async (req) => {
     const id = stringParam(req.params, 'id');
     const token = requireBridgeToken(req);
     const body = z

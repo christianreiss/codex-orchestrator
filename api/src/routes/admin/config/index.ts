@@ -43,6 +43,10 @@
  *
  * Every route is gated by `app.requireAdmin` from the auth-admin plugin.
  */
+import { isDeepStrictEqual } from 'node:util';
+import { ownerRuntimeFor } from '../../../control-plane/state/runtime.js';
+import type { Database } from '../../../db/client.js';
+import { SettingsService } from '../../../services/settings.js';
 import type { FastifyInstance } from 'fastify';
 import { ProviderAccountsService } from '../../../services/provider-accounts.js';
 import { eq, sql } from 'drizzle-orm';
@@ -77,6 +81,22 @@ function parseInteger(value: unknown): number | null {
   return null;
 }
 
+/** Explicit preview content needs credential recoverability, never a full host reload. */
+export async function loadAdminAgentPreviewHost(db: Database, hostId: number) {
+  const owner = ownerRuntimeFor(db);
+  if (!owner) return (await db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1))[0];
+  owner.assertOwner();
+  const host = owner.state.snapshot().table('hosts').get(hostId);
+  if (!host) return undefined;
+  const [credentials] = await db.select({ apiKey: hosts.apiKey, apiKeyEnc: hosts.apiKeyEnc })
+    .from(hosts).where(eq(hosts.id, hostId)).limit(1);
+  owner.assertOwner();
+  if (!isDeepStrictEqual(owner.state.snapshot().table('hosts').get(hostId), host)) {
+    throw new ValidationError('Host changed during preview; retry', { param: 'host_id' });
+  }
+  return credentials ? { ...host, ...credentials } : undefined;
+}
+
 export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const db = ctx.db;
   // `/admin/skills` is both the JSON API and the Svelte list/detail route.
@@ -103,8 +123,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
   const sharedMemories = new SharedMemoriesService(db);
   const policyProfiles = new AgentPolicyProfilesService(db);
   const agents = new AgentsService(db, async () => {
-    const rows = await db.select().from(versions).where(sql`name = ${AGENTS_BACKUP_LIMIT_KEY}`).limit(1);
-    const v = rows[0]?.version;
+    const v = await new SettingsService(db).getRaw(AGENTS_BACKUP_LIMIT_KEY);
     if (typeof v !== 'string' || v.trim() === '' || !/^\d+$/.test(v.trim())) return null;
     const n = parseInt(v.trim(), 10);
     return n > 0 ? Math.min(n, 200) : null;
@@ -162,8 +181,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       if (!isEngine(engine)) {
         throw new ValidationError('engine must be codex, claude, or grok', { param: 'engine' });
       }
-      const rows = await db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1);
-      const host = rows[0];
+      const host = await loadAdminAgentPreviewHost(db, hostId);
       if (!host) throw new NotFoundError('Host not found');
       // A preview of what the host would receive. Config editing stays
       // available while an engine is switched off fleet-wide.
@@ -209,8 +227,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       if (!isEngine(engine)) {
         throw new ValidationError('engine must be codex, claude, or grok', { param: 'engine' });
       }
-      const rows = await db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1);
-      const host = rows[0];
+      const host = await loadAdminAgentPreviewHost(db, hostId);
       if (!host) throw new NotFoundError('Host not found');
       // A preview of what the host would receive. Config editing stays
       // available while an engine is switched off fleet-wide.

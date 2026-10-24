@@ -1,3 +1,6 @@
+import {persistAuditLog} from './audit-log.js';
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { ownedDestroyRequests, ownedDestroyProgress, requestOwnedEngineDestroy, cancelOwnedEngineDestroy, recordOwnedDestroyReport, purgeOwnedEngine } from '../control-plane/streams/engine-destroy.js';
 /**
  * Fleet-wide "destroy engine".
  *
@@ -31,7 +34,6 @@ import {
   hostAuthStates,
   hosts,
   installTokens,
-  logs,
   providerAccountSessions,
   providerAccounts,
   versions,
@@ -77,6 +79,7 @@ function parseRequest(engine: Engine, raw: string | null | undefined): DestroyRe
 
 /** Open destroy requests, one per engine at most. */
 export async function readDestroyRequests(db: Pick<Database, 'select'>): Promise<DestroyRequest[]> {
+  const owner=ownerRuntimeFor(db);if(owner){owner.assertOwner();return ownedDestroyRequests(owner.state.snapshot());}
   const rows = await db
     .select({ name: versions.name, version: versions.version })
     .from(versions)
@@ -109,6 +112,7 @@ export async function destroyDirectivesForHost(
   db: Pick<Database, 'select'>,
   hostId: number,
 ): Promise<Array<{ engine: Engine; request_id: string }>> {
+  const owner=ownerRuntimeFor(db);if(owner){owner.assertOwner();const snapshot=owner.state.snapshot(),mine=new Set(snapshot.table('engineDestroyHosts').by('hostId',hostId).map(row=>row.requestId));return ownedDestroyRequests(snapshot).filter(r=>mine.has(r.request_id)).map(r=>({engine:r.engine,request_id:r.request_id}));}
   try {
     const requests = await readDestroyRequests(db);
     if (requests.length === 0) return [];
@@ -143,6 +147,7 @@ export async function requestEngineDestroy(
   actor: string | null,
 ): Promise<DestroyRequestResult> {
   if (confirm !== engine) throw new ValidationError(`confirm must equal "${engine}"`, { param: 'confirm' });
+  const owner=ownerRuntimeFor(db);if(owner){const result=await requestOwnedEngineDestroy(owner,engine,actor);wsPublisher.publish('engine.state.changed',{engine});return result as unknown as DestroyRequestResult;}
   if ((await readFleetEngineState(db, { fresh: true }))[engine]) {
     throw new ConflictError(`${engine} must be suspended (master switch off) before it can be destroyed`, 'engine_not_suspended', { engine });
   }
@@ -174,7 +179,7 @@ export async function requestEngineDestroy(
       await tx.update(hosts).set({ configVersion: sql`${hosts.configVersion} + 1`, updatedAt: now });
     }
     if (!alreadyOpen) {
-      await tx.insert(logs).values({
+      await persistAuditLog(tx, {
         hostId: null,
         action: ENGINE_DESTROY_AUDIT_ACTION,
         details: JSON.stringify({ engine, op: 'request', request_id: request.request_id, actor, hosts: fresh.length }),
@@ -189,6 +194,7 @@ export async function requestEngineDestroy(
 
 /** Withdraw a request. Hosts that already completed it stay destroyed. */
 export async function cancelEngineDestroy(db: Database, engine: Engine, actor: string | null): Promise<{ cancelled: boolean }> {
+  const owner=ownerRuntimeFor(db);if(owner){const result=await cancelOwnedEngineDestroy(owner,engine,actor);wsPublisher.publish('engine.state.changed',{engine});return result as {cancelled:boolean};}
   const flag = ENGINE_DESTROY_FLAGS[engine];
   const now = nowIso();
   const cancelled = await db.transaction(async (tx) => {
@@ -198,7 +204,7 @@ export async function cancelEngineDestroy(db: Database, engine: Engine, actor: s
     await tx.delete(versions).where(eq(versions.name, flag));
     await tx.delete(engineDestroyHosts).where(eq(engineDestroyHosts.requestId, request.request_id));
     await tx.update(hosts).set({ configVersion: sql`${hosts.configVersion} + 1`, updatedAt: now });
-    await tx.insert(logs).values({
+    await persistAuditLog(tx, {
       hostId: null,
       action: ENGINE_DESTROY_AUDIT_ACTION,
       details: JSON.stringify({ engine, op: 'cancel', request_id: request.request_id, actor }),
@@ -222,6 +228,7 @@ export async function recordHostReport(
   const residue = Array.isArray(input.residue)
     ? input.residue.filter((x): x is string => typeof x === 'string').slice(0, 50).map((x) => x.slice(0, 300))
     : [];
+  const owner=ownerRuntimeFor(db);if(owner){const result=await recordOwnedDestroyReport(owner,hostId,input,residue);wsPublisher.publish('engine.state.changed',{engine:input.engine});return result as {recorded:boolean};}
   const open = await readDestroyRequest(db, input.engine);
   if (!open || open.request_id !== input.request_id) return { recorded: false };
   const res = await db
@@ -241,6 +248,7 @@ export interface DestroyProgress {
 }
 
 export async function listDestroyProgress(db: Database, engine: Engine): Promise<DestroyProgress> {
+  const owner=ownerRuntimeFor(db);if(owner){owner.assertOwner();return ownedDestroyProgress(owner.state.snapshot(),engine);}
   const request = await readDestroyRequest(db, engine);
   const counts: Record<DestroyStatus, number> = { pending: 0, running: 0, done: 0, failed: 0 };
   if (!request) return { engine, request: null, counts, hosts: [] };
@@ -276,6 +284,7 @@ export async function purgeEngineServerData(
   engine: Engine,
   options: { force: boolean; actor: string | null },
 ): Promise<{ purged: true; payloads: number; accounts: number; hosts_unassigned: number }> {
+  const owner=ownerRuntimeFor(db);if(owner){const result=await purgeOwnedEngine(owner,engine,options);wsPublisher.publish('engine.state.changed',{engine});return result as {purged:true;payloads:number;accounts:number;hosts_unassigned:number};}
   const progress = await listDestroyProgress(db, engine);
   if (!progress.request) throw new NotFoundError('No destroy request is open for this engine');
   const unfinished = progress.counts.pending + progress.counts.running + progress.counts.failed;
@@ -311,7 +320,7 @@ export async function purgeEngineServerData(
       await tx.update(hosts).set({ engines: remaining.join(','), configVersion: sql`${hosts.configVersion} + 1`, updatedAt: now }).where(eq(hosts.id, h.id));
       unassigned += 1;
     }
-    await tx.insert(logs).values({
+    await persistAuditLog(tx, {
       hostId: null,
       action: ENGINE_DESTROY_AUDIT_ACTION,
       details: JSON.stringify({ engine, op: 'purge', request_id: progress.request!.request_id, actor: options.actor, force: options.force, payloads: payloadIds.length, accounts: accounts.length, hosts_unassigned: unassigned }),

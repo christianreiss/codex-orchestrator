@@ -6,17 +6,21 @@ repo_root="$(cd "${script_dir}/.." && pwd)"
 INSTANCE_ROOT="$repo_root"
 # shellcheck source=bin/lib/instance-compose.sh
 source "$repo_root/bin/lib/instance-compose.sh"
+source "$repo_root/bin/lib/owner-cutover.sh"
 declare -a INSTANCE_PROFILES=()
 instance_env_path
 
 original_args=("$@")
 backup=0
+no_backup=0
 cleanup=1
 pull_rebase=0
 skip_git=0
 no_wait=0
 skip_wrappers=0
 wrappers_published=0
+staged_wrapper_dir=""
+staged_wrapper_root=""
 wrapper_version=""
 profiles=()
 services=()
@@ -28,7 +32,10 @@ Usage: scripts/deploy.sh [options]
 Build, restart, and verify the codex-orchestrator Docker stack.
 
 Options:
-  --backup             Write a one-off MySQL dump before rebuilding.
+  --backup             Also snapshot when deploying a subset without api.
+                       API deployments take a quiescent rollback bundle by default.
+  --no-backup          Quiesce without DB/storage archives or credential copies.
+                       No database/storage rollback copy is created.
   --no-cleanup         Skip Docker image/builder pruning after deploy.
   --pull-rebase        Run git pull --rebase before deploying.
   --skip-git           Skip clean-worktree and git pull checks.
@@ -47,7 +54,7 @@ Wrappers:
   hosts are offered the new version. Bump VERSION to ship wrapper changes.
 
 Environment:
-  CODEX_DEPLOY_BACKUP_DIR  Directory for --backup dumps (default: ./backups).
+  CODEX_DEPLOY_BACKUP_DIR  Private rollback bundles (default: ./backups).
 EOF
 }
 
@@ -68,6 +75,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --backup)
       backup=1
+      ;;
+    --no-backup)
+      no_backup=1
       ;;
     --no-cleanup)
       cleanup=0
@@ -108,6 +118,9 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+(( backup == 0 || no_backup == 0 )) || fail "--backup and --no-backup are mutually exclusive"
+export OWNER_CUTOVER_NO_BACKUP="$no_backup"
+
 cd "${repo_root}"
 
 require_cmd git
@@ -119,7 +132,7 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 if [[ "${skip_git}" -eq 0 ]]; then
-  [[ -d .git ]] || fail "not a git checkout: ${repo_root}"
+  git rev-parse --git-dir >/dev/null 2>&1 || fail "not a git checkout: ${repo_root}"
 
   if ! git diff --quiet --ignore-submodules --; then
     fail "worktree has unstaged changes; commit/stash them or use --skip-git"
@@ -162,23 +175,6 @@ compose=("${INSTANCE_COMPOSE[@]}")
 
 deploy_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-if [[ "${backup}" -eq 1 ]]; then
-  backup_dir="${CODEX_DEPLOY_BACKUP_DIR:-${repo_root}/backups}"
-  mkdir -p "${backup_dir}"
-  backup_file="${backup_dir}/codex-orchestrator-$(date -u +%Y%m%dT%H%M%SZ).sql"
-  log "writing MySQL backup to ${backup_file}"
-  if ! "${compose[@]}" ps -q mysql >/dev/null 2>&1; then
-    fail "mysql service is not available for backup"
-  fi
-  # shellcheck disable=SC2016 # Expand MYSQL_* inside the mysql container.
-  (
-    umask 077
-    "${compose[@]}" exec -T mysql sh -lc \
-      'mysqldump --no-tablespaces -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
-      > "${backup_file}"
-  )
-  log "backup complete ($(wc -c < "${backup_file}") bytes)"
-fi
 
 deploys_api=1
 if [[ "${#services[@]}" -gt 0 ]]; then
@@ -249,7 +245,7 @@ wrapper_signing_pem() {
   local out
   # shellcheck disable=SC2016 # Expand MYSQL_* inside the mysql container.
   out="$("${compose[@]}" exec -T mysql sh -lc \
-    'mysql -N -B -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "SELECT REPLACE(public_key, CHAR(10), \"|\") FROM wrapper_signing_keys WHERE active = 1"' \
+    'MYSQL_PWD="$MYSQL_PASSWORD" mysql -N -B -u"$MYSQL_USER" "$MYSQL_DATABASE" -e "SELECT REPLACE(public_key, CHAR(10), \"|\") FROM wrapper_signing_keys WHERE active = 1"' \
     2>/dev/null)" || fail "could not read wrapper_signing_keys (is mysql up?)"
   local count
   count="$(printf '%s\n' "${out}" | grep -c 'BEGIN PUBLIC KEY' || true)"
@@ -312,8 +308,8 @@ publish_wrappers() {
   fi
 
   stage="$(mktemp -d)"
-  # shellcheck disable=SC2064 # Expand the path now; the variable is local.
-  trap "rm -rf '${stage}'" EXIT
+  trap '[[ -z "${staged_wrapper_dir:-}" ]] || rm -rf -- "$staged_wrapper_dir"' EXIT
+  staged_wrapper_dir="$stage"
   mkdir -p "${stage}/keys" "${stage}/out"
   ( umask 077; printf '%s\n' "${pem}" > "${stage}/keys/signing.pub" )
   chmod 0755 "${stage}" "${stage}/out"
@@ -347,14 +343,22 @@ publish_wrappers() {
       || fail "staged ${plat} binary does not embed the active signing key; refusing to publish"
   done
 
-  mkdir -p "${root}"
-  python3 "${repo_root}/wrappers/scripts/publish-release.py" "${stage}/out" "${root}" "${version}" \
-    || fail "publish failed; if v${version} directories were created without manifests, remove them or bump VERSION"
-  chmod -R a+rX "${root}" 2>/dev/null || true
-  rm -rf "${stage}"
-  trap - EXIT
+  staged_wrapper_root="$root"
+  log "staged cxx ${version}; publication waits for quiescent cutover"
+}
+
+activate_wrappers() {
+  [[ -n "$staged_wrapper_dir" ]] || return 0
+  local active_pem
+  active_pem="$(wrapper_signing_pem)"
+  [[ "$(printf '%s\n' "$active_pem" | pem_body)" == "$(pem_body < "$staged_wrapper_dir/keys/signing.pub")" ]] || fail "active signing key changed during the build; rebuild before publishing"
+  mkdir -p "$staged_wrapper_root"
+  python3 "${repo_root}/wrappers/scripts/publish-release.py" "$staged_wrapper_dir/out" "$staged_wrapper_root" "$wrapper_version" || fail "wrapper publication failed; restore the quiescent bundle before starting an owner"
+  chmod -R a+rX "$staged_wrapper_root"
+  rm -rf -- "$staged_wrapper_dir"
+  staged_wrapper_dir=""
   wrappers_published=1
-  log "published cxx ${version} to ${root}"
+  log "published cxx ${wrapper_version} to ${staged_wrapper_root}"
 }
 
 if [[ "${skip_wrappers}" -eq 1 ]]; then
@@ -399,32 +403,36 @@ log "building compose services"
 # ALTER out of the container healthcheck window, so `up --wait` cannot mark a
 # successfully-migrating api unhealthy.
 if [[ "${deploys_api}" -eq 1 ]]; then
-  log "applying database migrations"
+  owner_cutover_prepare || fail "quiescent cutover failed; inspect previous-container recovery status"
+  owner_cutover_phase changing
+  activate_wrappers
+  log "applying database migrations under exclusive database ownership"
   "${compose[@]}" run --rm -T api node migrate.js
 else
   log "skipping database migrations (api not in --service list)"
 fi
 
-up_args=(up -d --remove-orphans)
+if [[ "$deploys_api" -eq 0 && "$backup" -eq 1 ]]; then
+  owner_cutover_prepare || fail "quiescent backup failed"
+  owner_cutover_resume_previous
+fi
+
+up_args=(up -d)
+[[ "$deploys_api" -eq 0 ]] || up_args+=(--remove-orphans)
 if [[ "${no_wait}" -eq 0 ]] && docker compose up --help | grep -q -- '--wait'; then
   up_args+=(--wait)
 fi
 if [[ "${#services[@]}" -gt 0 ]]; then
   up_args+=("${services[@]}")
 fi
+[[ -z "$OWNER_CUTOVER_DIR" ]] || owner_cutover_phase replacement-started
 log "starting compose services"
 "${compose[@]}" "${up_args[@]}"
-
-if [[ "${wrappers_published}" -eq 1 ]]; then
-  # The api projects the served wrapper version into `versions` only at boot,
-  # and a wrappers-only commit does not change the api image.
-  log "recreating api so hosts are offered cxx ${wrapper_version}"
-  recreate_args=(up -d --force-recreate)
-  if [[ "${no_wait}" -eq 0 ]] && docker compose up --help | grep -q -- '--wait'; then
-    recreate_args+=(--wait)
-  fi
-  "${compose[@]}" "${recreate_args[@]}" api
+if [[ "$deploys_api" -eq 1 && "${#services[@]}" -gt 0 && " ${services[*]} " != *" media-worker "* ]] && grep -q '^media-worker' "$OWNER_CUTOVER_DIR/previous-images.tsv"; then
+  "${compose[@]}" up -d --no-deps media-worker
 fi
+
+
 
 log "compose status"
 "${compose[@]}" ps
@@ -477,4 +485,5 @@ if [[ "${cleanup}" -eq 1 ]]; then
   docker builder prune -f --filter until=24h >/dev/null
 fi
 
+[[ -z "$OWNER_CUTOVER_DIR" ]] || owner_cutover_phase verified
 log "deploy complete"

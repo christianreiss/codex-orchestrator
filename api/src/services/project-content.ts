@@ -1,3 +1,8 @@
+import {persistAuditLog} from './audit-log.js';
+import { ownerRuntimeFor, mutateOwnerState, type OwnerMutationContext } from '../control-plane/state/runtime.js';
+import { stageUpdate, stageDelete } from '../control-plane/state/rows.js';
+import { stageProjectEvent } from '../control-plane/state/projects.js';
+import type { Json } from '../control-plane/commands.js';
 /**
  * Sub-resource handlers for a project: notes, todos, files, feedback.
  * Each method:
@@ -136,6 +141,8 @@ function normalizeFeedback(payload: Record<string, unknown>): { type: string; ti
 }
 
 export class ProjectContentService {
+  private event(ctx:OwnerMutationContext,projectId:number,eventType:string,action:string,entityType:string|null,entityId:number|string|null,payload:Record<string,unknown>|null,hostId:number|null){const event=stageProjectEvent(ctx,projectId,eventType,action,entityType,entityId,payload,hostId);if(hostId!==null)ctx.write(async tx=>persistAuditLog(tx, {hostId,action:'project.'+eventType+'.'+action,details:JSON.stringify({project_id:projectId,entity_id:entityId,...payload}),createdAt:nowIso(),engine:null}));return event;}
+
   constructor(
     private readonly db: Database,
     private readonly projects: ProjectsService,
@@ -162,6 +169,21 @@ export class ProjectContentService {
     const project = await this.projects._resolveProject(slug);
     const { header, body } = normalizeNote(payload);
     const nowTs = nowIso();
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      let note!: typeof coordProjectNotes.$inferSelect;
+      await mutateOwnerState(owner, {kind:'project.note.upsert',payload:{projectId:project.id,id,header},prepare:ctx=>{
+        if (!ctx.snapshot.table('coordProjects').has(project.id)) throw new NotFoundError('Project not found');
+        const old=id===null?null:ctx.snapshot.table('coordProjectNotes').get(id);
+        if(id!==null&&old?.projectId!==project.id) throw new NotFoundError('Note not found','note_not_found');
+        const values={projectId:project.id,header,body,sourceHostId,createdAt:old?.createdAt??nowTs,updatedAt:nowTs};
+        if(old){note={...values,id:old.id};stageUpdate(ctx,'coordProjectNotes',old.id,{header,body,sourceHostId,updatedAt:nowTs});this.event(ctx,project.id,'note','update','note',old.id,{header,body},sourceHostId);}
+        else ctx.write(async tx=>{const inserted=await tx.insert(coordProjectNotes).values(values);note={...values,id:Number(inserted[0].insertId)};ctx.draft.upsert('coordProjectNotes',note);this.event(ctx,project.id,'note','create','note',note.id,{header,body},sourceHostId);});
+        return ()=>({project:project.slug,note}) as unknown as Json;
+      }});
+      wsPublisher.publish(id===null?'project.note.created':'project.note.updated',{slug:project.slug,note_id:note.id});wsPublisher.publish('project.changed',{slug:project.slug});
+      return {project:project.slug,note};
+    }
 
     let savedId: number;
     let action: 'create' | 'update';
@@ -211,6 +233,8 @@ export class ProjectContentService {
 
   async deleteNote(slug: string, id: number, sourceHostId: number | null = null): Promise<{ project: string; deleted: number }> {
     const project = await this.projects._resolveProject(slug);
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){await mutateOwnerState(owner,{kind:'project.note.delete',payload:{projectId:project.id,id},prepare:ctx=>{const old=ctx.snapshot.table('coordProjectNotes').get(id);if(old?.projectId!==project.id)throw new NotFoundError('Note not found','note_not_found');stageDelete(ctx,'coordProjectNotes',id);this.event(ctx,project.id,'note','delete','note',id,{id},sourceHostId);return {deleted:id};}});wsPublisher.publish('project.note.deleted',{slug:project.slug,note_id:id});wsPublisher.publish('project.changed',{slug:project.slug});return {project:project.slug,deleted:id};}
     const existing = await this.db
       .select({ id: coordProjectNotes.id })
       .from(coordProjectNotes)
@@ -301,6 +325,18 @@ export class ProjectContentService {
     const project = await this.projects._resolveProject(slug);
     const { storedName, description, content, mimeType, encoding, sha256: sha } = normalizeFile(payload);
     const nowTs = nowIso();
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){let saved!:typeof coordProjectFiles.$inferSelect;let action='create';
+      await mutateOwnerState(owner,{kind:'project.file.upsert',payload:{projectId:project.id,storedName,sha},prepare:ctx=>{
+        if(!ctx.snapshot.table('coordProjects').has(project.id))throw new NotFoundError('Project not found');
+        const old=ctx.snapshot.table('coordProjectFiles').all().find(row=>row.projectId===project.id&&row.storedName===storedName);
+        const values={projectId:project.id,storedName,description,content,contentEncoding:encoding,contentSha256:sha,mimeType,sourceHostId,createdAt:old?.createdAt??nowTs,updatedAt:nowTs};
+        const audit={stored_name:storedName,description,content_sha256:sha,mime_type:mimeType};
+        if(old){action='update';saved={...values,id:old.id};stageUpdate(ctx,'coordProjectFiles',old.id,values);this.event(ctx,project.id,'file','update','file',old.id,audit,sourceHostId);}
+        else ctx.write(async tx=>{const ids=await tx.insert(coordProjectFiles).values(values);saved={...values,id:Number(ids[0].insertId)};ctx.draft.upsert('coordProjectFiles',saved);this.event(ctx,project.id,'file','create','file',saved.id,audit,sourceHostId);});
+        return ()=>({id:saved.id});
+      }});wsPublisher.publish(action==='create'?'project.file.upserted':'project.file.updated',{slug:project.slug,file_id:saved.id,stored_name:storedName});wsPublisher.publish('project.changed',{slug:project.slug});return {project:project.slug,file:formatFile(saved)};
+    }
 
     const existing = await this.db
       .select()
@@ -379,6 +415,8 @@ export class ProjectContentService {
 
   async deleteFile(slug: string, id: number, sourceHostId: number | null = null): Promise<{ project: string; deleted: number }> {
     const project = await this.projects._resolveProject(slug);
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){let storedName='';await mutateOwnerState(owner,{kind:'project.file.delete',payload:{projectId:project.id,id},prepare:ctx=>{const old=ctx.snapshot.table('coordProjectFiles').get(id);if(old?.projectId!==project.id)throw new NotFoundError('Project file not found','project_file_not_found');storedName=old.storedName;stageDelete(ctx,'coordProjectFiles',id);this.event(ctx,project.id,'file','delete','file',id,{id,stored_name:storedName},sourceHostId);return {deleted:id};}});wsPublisher.publish('project.file.deleted',{slug:project.slug,file_id:id,stored_name:storedName});wsPublisher.publish('project.changed',{slug:project.slug});return {project:project.slug,deleted:id};}
     const existing = await this.db
       .select({ id: coordProjectFiles.id, storedName: coordProjectFiles.storedName })
       .from(coordProjectFiles)
@@ -420,7 +458,8 @@ export class ProjectContentService {
     sourceHostId: number | null = null,
   ): Promise<{ project: string; feedback: typeof coordProjectFeedback.$inferSelect }> {
     const project = await this.projects._resolveProject(slug);
-    const existing = await this.db
+    const runtime=ownerRuntimeFor(this.db);runtime?.assertOwner();
+    const existing = runtime ? runtime.state.snapshot().table('coordProjectFeedback').all().filter(row=>row.projectId===project.id&&row.id===id) : await this.db
       .select()
       .from(coordProjectFeedback)
       .where(and(eq(coordProjectFeedback.projectId, project.id), eq(coordProjectFeedback.id, id)))
@@ -453,6 +492,15 @@ export class ProjectContentService {
     }
 
     const nowTs = nowIso();
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){let feedback!:typeof coordProjectFeedback.$inferSelect;
+      await mutateOwnerState(owner,{kind:'project.feedback.update',payload:{projectId:project.id,id},prepare:async ctx=>{
+        const current=ctx.snapshot.table('coordProjectFeedback').get(id);if(current?.projectId!==project.id)throw new NotFoundError('Project feedback not found');
+        const full=(await this.db.select().from(coordProjectFeedback).where(eq(coordProjectFeedback.id,id)).limit(1))[0];if(!full)throw new NotFoundError('Project feedback not found');
+        feedback={...full,...patch,updatedAt:nowTs} as typeof coordProjectFeedback.$inferSelect;
+        stageUpdate(ctx,'coordProjectFeedback',id,{...patch,updatedAt:nowTs});this.event(ctx,project.id,'feedback','update','feedback',id,feedback,sourceHostId);return ()=>({project:project.slug,feedback}) as unknown as Json;
+      }});wsPublisher.publish('project.feedback.updated',{slug:project.slug,feedback_id:id});wsPublisher.publish('project.changed',{slug:project.slug});return {project:project.slug,feedback};
+    }
     await this.db
       .update(coordProjectFeedback)
       .set({ ...patch, updatedAt: nowTs })
@@ -472,6 +520,11 @@ export class ProjectContentService {
     const project = await this.projects._resolveProject(slug);
     const { type, title, body } = normalizeFeedback(payload);
     const nowTs = nowIso();
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){let feedback!:typeof coordProjectFeedback.$inferSelect;await mutateOwnerState(owner,{kind:'project.feedback.create',payload:{projectId:project.id,type,title},prepare:ctx=>{
+      if(!ctx.snapshot.table('coordProjects').has(project.id))throw new NotFoundError('Project not found');const values={projectId:project.id,type,title,body,status:'open',sourceHostId,createdAt:nowTs,updatedAt:nowTs};
+      ctx.write(async tx=>{const ids=await tx.insert(coordProjectFeedback).values(values);feedback={...values,id:Number(ids[0].insertId)};ctx.draft.upsert('coordProjectFeedback',feedback);this.event(ctx,project.id,'feedback','create','feedback',feedback.id,feedback,sourceHostId);});return ()=>({project:project.slug,feedback}) as unknown as Json;
+    }});wsPublisher.publish('project.feedback.created',{slug:project.slug,feedback_id:feedback.id,type});wsPublisher.publish('project.changed',{slug:project.slug});return {project:project.slug,feedback};}
     const inserted = await this.db.insert(coordProjectFeedback).values({
       projectId: project.id,
       type,

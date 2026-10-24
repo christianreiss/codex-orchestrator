@@ -119,11 +119,11 @@ describe("transfer queries", () => {
     assert.deepEqual(calls, [{ method: "GET", path: "/admin/transfers/state", body: undefined }]);
   });
 
-  it("polls the listing, because every row carries a deadline the server sweeps", async () => {
+  it("subscribes to listing changes without periodic requests", async () => {
     const built = asQuery(transfers.transferListQuery());
     assert.deepEqual(built.queryKey, ["transfers", "list"]);
-    // Without this a page left open renders swept files as live.
-    assert.equal(built.refetchInterval, 30_000);
+    // Expiry transitions arrive through the shared event stream.
+    assert.equal(built.refetchInterval, undefined);
     await built.queryFn();
     assert.deepEqual(calls, [{ method: "GET", path: "/admin/transfers", body: undefined }]);
   });

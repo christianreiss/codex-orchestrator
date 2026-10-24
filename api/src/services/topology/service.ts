@@ -1,4 +1,6 @@
 import { visibleHost } from '../internal-hosts.js';
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { ownedControlView } from '../../control-plane/streams/native-control.js';
 import { controlView } from '../native-stop.js';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
@@ -62,6 +64,13 @@ export class TopologyService {
   }
 
   async snapshot(): Promise<TopologySnapshot> {
+    const owner = ownerRuntimeFor(this.ctx.db);
+    if (owner) {
+      owner.assertOwner();
+      // Current metadata and socket evidence are already local. A TTL would
+      // conceal committed changes and disconnects without saving any SQL.
+      return this.build();
+    }
     const now = Date.now();
     if (this.cached && now - this.cached.at < SNAPSHOT_TTL_MS) return this.cached.value;
     // Concurrent readers (every WebSocket-driven refetch lands together) share
@@ -87,11 +96,16 @@ export class TopologyService {
     const sessionIds = sessions.map((session) => session.id);
     const hostIds = [...new Set([...communicators.map((c) => c.view.host_id), ...this.registry.tombstones(now).map((t) => t.host_id), ...sessions.map((s) => s.host_id)])];
 
+    const owner = ownerRuntimeFor(db);
+    owner?.assertOwner();
+    const state = owner?.state.snapshot();
+
     const [hostRows, addressRows, daemonRows] = await Promise.all([
-      hostIds.length
+      state ? state.hosts.all().filter(row => hostIds.includes(row.id) && row.internalRole === null) : hostIds.length
         ? db.select({ id: hosts.id, fqdn: hosts.fqdn }).from(hosts).where(and(inArray(hosts.id, hostIds), visibleHost))
         : Promise.resolve([]),
-      sessionIds.length
+      state ? state.addresses.all().filter(row => row.currentSessionId && sessionIds.includes(row.currentSessionId))
+        .map(row => ({ sessionId: row.currentSessionId, address: row.address, alias: row.displayAlias, generation: row.bindingGeneration })) : sessionIds.length
         ? db
             .select({
               sessionId: agentBusAddresses.currentSessionId,
@@ -102,7 +116,11 @@ export class TopologyService {
             .from(agentBusAddresses)
             .where(inArray(agentBusAddresses.currentSessionId, sessionIds))
         : Promise.resolve([]),
-      sessionIds.length
+      state ? state.table('hostDaemonPortalBindings').all().flatMap(row => {
+        if (!sessionIds.includes(row.portalSessionId)) return [];
+        const daemon = state.table('hostDaemonSessions').get(row.daemonSessionId);
+        return daemon ? [{ portalSessionId: row.portalSessionId, daemonSessionId: daemon.id, status: daemon.status }] : [];
+      }) : sessionIds.length
         ? db
             .select({
               portalSessionId: hostDaemonPortalBindings.portalSessionId,
@@ -133,7 +151,7 @@ export class TopologyService {
       /* An unparsable base URL keeps the generic label. */
     }
 
-    const nativeControls = sessionIds.length ? await db.select().from(agentNativeControls).where(inArray(agentNativeControls.sessionId, sessionIds)) : [];
+    const nativeControls = state ? state.table('agentNativeControls').all().filter(row => sessionIds.includes(row.sessionId)) : sessionIds.length ? await db.select().from(agentNativeControls).where(inArray(agentNativeControls.sessionId, sessionIds)) : [];
     const value = buildTopology({
       now,
       serverLabel: label,
@@ -148,7 +166,7 @@ export class TopologyService {
       daemonBySession,
       tombstones: this.registry.tombstones(now),
     });
-    const nativeBySession = new Map(nativeControls.map(row => [row.sessionId, controlView(row)]));
+    const nativeBySession = new Map(nativeControls.map(row => [row.sessionId, owner ? ownedControlView(owner, row) : controlView(row)]));
     for (const agent of value.agents) agent.native_control = agent.daemon ? null : nativeBySession.get(agent.id) ?? null;
     this.cached = { at: Date.now(), value };
     return value;

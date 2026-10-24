@@ -40,8 +40,8 @@ RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production
 # tini reaps zombies under PID 1; libc6-compat backs the glibc-built native
-# addons. Nothing else is installed — the healthcheck uses busybox wget.
-RUN apk add --no-cache tini libc6-compat \
+# addons; util-linux supplies the shared-storage ownership lock.
+RUN apk add --no-cache tini libc6-compat util-linux \
     && addgroup -g 10001 -S app \
     && adduser -u 10001 -S -G app -H -s /sbin/nologin app
 WORKDIR /app/api/dist

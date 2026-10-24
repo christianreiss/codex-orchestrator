@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { prepareOwned, statusOwned, completeOwned } from './host-spawn-owned.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
@@ -54,6 +56,7 @@ export class HostSpawnService {
     const parsed = hostSpawnSchema.safeParse(raw);
     if (!parsed.success) throw new ValidationError(parsed.error.message);
     const input = parsed.data;
+    if (ownerRuntimeFor(this.ctx.db)) return prepareOwned(this.ctx, this, input, sourceHostId);
     const result = await this.ctx.db.transaction(async tx => {
       const db = tx as unknown as RouteContext['db'];
       await this.caller(db, sourceHostId);
@@ -90,7 +93,7 @@ export class HostSpawnService {
     wsPublisher.publish('host.updated', { id: result.host_id });
     return result;
   }
-  private response(row: typeof hostSpawns.$inferSelect, deadlineExpired = false) {
+  response(row: typeof hostSpawns.$inferSelect, deadlineExpired = false) {
     const installer = JSON.parse(decrypt(row.installerEnc, this.ctx.keyring)) as InstallerInfo;
     const daemon = row.request.daemon;
     return { operation_id: row.id, host_id: row.targetHostId, fqdn: row.request.fqdn,
@@ -108,6 +111,7 @@ export class HostSpawnService {
     const parsed = hostSpawnStatusSchema.safeParse(raw);
     if (!parsed.success) throw new ValidationError(parsed.error.message);
     const input = parsed.data;
+    if (ownerRuntimeFor(this.ctx.db)) return statusOwned(this.ctx, this, input, sourceHostId);
     const row = await this.ctx.db.transaction(async tx => {
       const db = tx as unknown as RouteContext['db'];
       await this.caller(db, sourceHostId);
@@ -147,6 +151,7 @@ export class HostSpawnService {
       state: row.setupCompletedAt ? 'installed' : token?.usedAt ? 'installer_downloaded' : 'registered' };
   }
   async complete(targetHostId: number) {
+    if (ownerRuntimeFor(this.ctx.db)) return completeOwned(this.ctx, targetHostId);
     await this.ctx.db.update(hostSpawns).set({ setupCompletedAt: now(), updatedAt: now() })
       .where(and(eq(hostSpawns.targetHostId, targetHostId), isNull(hostSpawns.setupCompletedAt)));
     wsPublisher.publish('host.updated', { id: targetHostId });

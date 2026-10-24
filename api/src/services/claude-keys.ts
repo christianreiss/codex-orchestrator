@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { OpenAiKeyService } from './openai-keys.js';
 /**
  * Admin CRUD for Anthropic-compatible API keys. Backed by the same
  * `openai_api_keys` table the OpenAI side uses; differentiated by
@@ -75,6 +77,17 @@ function toRecord(row: typeof openaiApiKeys.$inferSelect): ClaudeKeyRecord {
 }
 
 export function createClaudeKeysService(db: Database, keyring: Keyring): ClaudeKeysService {
+  if(ownerRuntimeFor(db)){
+    const keys=new OpenAiKeyService({db,keyring});
+    return {
+      async list(){return (await keys.listByEngine(CLAUDE_ENGINE)).map(row=>toRecord({...row,keyHash:'',keyEnc:null}));},
+      async findById(id){const row=await keys.findById(id);return row?.engine===CLAUDE_ENGINE?toRecord(row):null;},
+      async create({name,adminUserId,expiresAt,prefix,backendEngine}){const exp=expiresAt?.trim()||null;if(exp&&!isRfc3339(exp))throw new ApiError('expires_at must be an RFC3339 timestamp',{status:400,code:'invalid_expires_at',type:'invalid_request_error',param:'expires_at'});const issued=await keys.issue({name,adminUserId,expiresAt:exp,prefix,backendEngine,engine:CLAUDE_ENGINE});return {key:issued.key,record:toRecord(issued.record)};},
+      async setActive(id,active){const row=await keys.setActive(id,active,CLAUDE_ENGINE);return row?toRecord(row):null;},
+      delete:id=>keys.delete(id,CLAUDE_ENGINE),
+    };
+  }
+
   async function load(id: number): Promise<ClaudeKeyRecord | null> {
     const rows = await db
       .select()

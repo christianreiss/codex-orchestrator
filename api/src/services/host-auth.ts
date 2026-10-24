@@ -1,3 +1,5 @@
+import { bindOwnerHostPrincipal, ownerRuntimeFor, resolveOwnerHost, requestHost } from '../control-plane/state/admission.js';
+import { mutateOwnerState } from '../control-plane/state/runtime.js';
 import { readTransportAdmission } from './host-auth-admission.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { FastifyRequest } from 'fastify';
@@ -71,6 +73,8 @@ export function createHostAuthService(deps: HostAuthDeps): HostAuthService {
         host = admission?.host;
         reverseDnsDefault = admission?.reverseDnsDefault;
         if (!host) await assertApiEnabled();
+      } else if (ownerRuntimeFor(deps.db)) {
+        host = resolveOwnerHost(deps.db, hash, key) ?? undefined;
       } else {
         const found = await deps.db.select().from(hostsTable).where(eq(hostsTable.apiKeyHash, hash)).limit(1);
         host = found[0];
@@ -96,6 +100,7 @@ export function createHostAuthService(deps: HostAuthDeps): HostAuthService {
         logForceDeleteIpMismatch(req, host, ip);
       }
       if (req.method !== 'DELETE') host = await recordHostContact(deps.db, host, new Date(), true);
+      if (ownerRuntimeFor(deps.db)) bindOwnerHostPrincipal(deps.db, host);
       req.authHost = host;
       return host;
     },
@@ -170,6 +175,23 @@ function ipMismatch(family: 'ipv4' | 'ipv6'): UnauthorizedError {
 }
 
 async function bindIp(db: Database, host: Host, ip: string, family: 'ipv4' | 'ipv6'): Promise<Host> {
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    await mutateOwnerState(owner, { kind: 'host.ip.bind', principal: `host:${host.id}`, payload: { hostId: host.id, ip, family }, prepare(ctx) {
+      const current = ctx.draft.table('hosts').get(host.id);
+      if (!current || current.credentialLookupHash !== hashApiKey(host.apiKey) || current.status !== 'active') throw new UnauthorizedError('Host authority changed', 'invalid_api_key');
+      const request = requestHost(current, host.apiKey); assertHostNotExpired(request);
+      const same = family === 'ipv4' ? current.ip4 : current.ip6;
+      if ((current.ip4 || current.ip6) && same !== ip && current.allowRoamingIps !== 1 && !canRebindInsecureHost(request)) throw ipMismatch(family);
+      const patch = family === 'ipv4' ? { ip4: ip, updatedAt: nowIso() } : { ip6: ip, updatedAt: nowIso() };
+      ctx.draft.upsert('hosts', { ...current, ...patch });
+      ctx.write(async tx => tx.update(hostsTable).set(patch).where(eq(hostsTable.id, host.id)));
+      return null;
+    } });
+    const current = resolveOwnerHost(db, hashApiKey(host.apiKey), host.apiKey);
+    if (!current) throw new UnauthorizedError('Host authority changed', 'invalid_api_key');
+    return current;
+  }
   const patch = family === 'ipv4' ? { ip4: ip, updatedAt: nowIso() } : { ip6: ip, updatedAt: nowIso() };
   await db.update(hostsTable).set(patch).where(eq(hostsTable.id, host.id));
   return family === 'ipv4'

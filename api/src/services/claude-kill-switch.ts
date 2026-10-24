@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { SettingsService } from './settings.js';
 /**
  * Reads the admin-toggleable `claude_api_disabled` flag from the `versions`
  * table. When set, every /anthropic/v1/* route (except OPTIONS) returns 503
@@ -32,6 +34,7 @@ export function createClaudeKillSwitch(db: Database): ClaudeKillSwitch {
   const TTL_MS = 1_000;
 
   async function read(): Promise<boolean> {
+    if(ownerRuntimeFor(db))return new SettingsService(db).getFlag(FLAG);
     if (cache && Date.now() - cache.ts < TTL_MS) return cache.value;
     try {
       const rows = await db.select().from(versions).where(eq(versions.name, FLAG)).limit(1);
@@ -59,6 +62,7 @@ export function createClaudeKillSwitch(db: Database): ClaudeKillSwitch {
     },
 
     async setDisabled(disabled) {
+      if(ownerRuntimeFor(db))return new SettingsService(db).set(FLAG,disabled?'true':'false');
       const now = new Date().toISOString();
       const value = disabled ? 'true' : 'false';
       const existing = await db.select().from(versions).where(eq(versions.name, FLAG)).limit(1);

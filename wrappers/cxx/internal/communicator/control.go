@@ -90,6 +90,11 @@ func (c *connection) announceCapabilities(identity bool) {
 		frame["instance_id"] = processInstance
 		frame["runtime_id"] = c.runtimeID
 	}
+	c.mu.Lock()
+	if c.stateLivenessOffered {
+		frame["state_liveness"] = "communicator"
+	}
+	c.mu.Unlock()
 	if c.send(frame) != nil {
 		return
 	}

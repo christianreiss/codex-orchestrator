@@ -1,3 +1,8 @@
+import {persistAuditLog} from './audit-log.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { publicArtifact } from '../control-plane/state/artifact-content.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
+import { adminAudit } from '../control-plane/state/admin.js';
 /**
  * Host-facing skills service. Mirrors the legacy SkillService for the host
  * surface (list / retrieve / store).
@@ -5,7 +10,7 @@
 import { eq, asc, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import type { Database } from '../db/client.js';
-import { skills, skillFiles, logs } from '../db/schema.js';
+import { skills, skillFiles} from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import { ConflictError, NotFoundError, ServiceUnavailableError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
@@ -101,7 +106,7 @@ function quoteYaml(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-function visibleToEngine(row: typeof skills.$inferSelect, engine: Engine): boolean {
+function visibleToEngine(row: Pick<typeof skills.$inferSelect,'engine'>, engine: Engine): boolean {
   const rowEngine = row.engine;
   return rowEngine === null || rowEngine === undefined || rowEngine === '' || rowEngine === engine;
 }
@@ -173,8 +178,9 @@ export class HostSkillsService {
    * rendering calls it on every sync and must not load full Skill bundles.
    */
   async availableCount(engine: Engine): Promise<number> {
+    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
     const [stored, managed] = await Promise.all([
-      this.db
+      owner?owner.state.snapshot().table('skills').all():this.db
         .select({ slug: skills.slug, deletedAt: skills.deletedAt, engine: skills.engine })
         .from(skills)
         .where(sql`${skills.deletedAt} IS NULL`),
@@ -400,6 +406,19 @@ export class HostSkillsService {
     const displayName = typeof displayNameRaw === 'string' ? displayNameRaw.trim() : null;
     const description = typeof descriptionRaw === 'string' ? descriptionRaw.trim() : null;
 
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){const result=await mutateOwnerState(owner,{kind:'host.skill.store',payload:{slug,sha,hostId:host.id},prepare:ctx=>{
+      const existing=ctx.snapshot.table('skills').by('slug',slug)[0];if(existing&&isSourceOwnedSkill(existing))throw new ConflictError('source-managed skill cannot be overwritten directly','managed_skill');
+      const name=displayNameRaw===undefined?existing?.displayName??null:displayName,descriptionValue=descriptionRaw===undefined?existing?.description??null:description,now=nowIso();
+      const status=!existing?'created':existing.sha256===sha&&existing.displayName===name&&existing.description===descriptionValue&&existing.engine===null&&!existing.deletedAt?'unchanged':'updated';
+      if(status!=='unchanged'){
+        const values={slug,sha256:sha,manifest,displayName:name,description:descriptionValue,sourceHostId:host.id,engine:null,updatedAt:now,deletedAt:null};
+        if(existing)stageUpdate(ctx,'skills',existing.id,values);else{const row={...values,createdAt:now,sourceType:null,sourceRepository:null,sourcePath:null,sourceRevision:null,sourceLicense:null,bundleSha256:null};ctx.write(async tx=>{const result=await tx.insert(skills).values(row);ctx.draft.upsert('skills',{id:Number(result[0].insertId),...row});});}
+      }
+      adminAudit(ctx,'skill.store',{slug,status},now,host.id);
+      return {status,slug,uri:skillUri(slug),canonical_uri:skillUri(slug),sha256:sha,updated_at:status==='unchanged'?existing!.updatedAt:now,managed:false};
+    }});const status=(result as {status:string}).status;wsPublisher.publish(status==='created'?'skill.stored':'skill.updated',{slug,source_host_id:host.id});return result as Record<string,unknown>;}
+
     // The unique slug lookup is a locking read. Under REPEATABLE READ it locks
     // either the existing row or the unique-index gap, so an importer cannot
     // insert a source-owned row between the ownership check and this write.
@@ -485,6 +504,14 @@ export class HostSkillsService {
       throw new ConflictError('managed skill cannot be deleted directly', 'managed_skill');
     }
 
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){const result=await mutateOwnerState(owner,{kind:'host.skill.delete',payload:{slug,hostId:host.id},prepare:ctx=>{
+      const existing=ctx.snapshot.table('skills').by('slug',slug)[0];if(existing&&isSourceOwnedSkill(existing))throw new ConflictError('source-managed skill cannot be deleted directly','managed_skill');
+      const status=!existing?'missing':existing.deletedAt&&existing.engine===null?'unchanged':'deleted',now=nowIso(),deletedAt=existing?(existing.deletedAt??now):null;
+      if(status==='deleted')stageUpdate(ctx,'skills',existing!.id,{deletedAt,engine:null,updatedAt:now});adminAudit(ctx,'skill.delete',{slug,status},now,host.id);
+      return {status,slug,uri:skillUri(slug),canonical_uri:skillUri(slug),...(deletedAt?{deleted_at:deletedAt}:{}),managed:false};
+    }});if((result as {status:string}).status==='deleted')wsPublisher.publish('skill.deleted',{slug,source_host_id:host.id});return result as Record<string,unknown>;}
+
     const persisted = await this.db.transaction(async (tx) => {
       const rows = await tx
         .select()
@@ -544,6 +571,12 @@ export class HostSkillsService {
   }
 
   private async readLiveSnapshot(engine: Engine | null): Promise<LiveSkillSnapshot> {
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){owner.assertOwner();const metadata=owner.state.snapshot().table('skills').all().filter(row=>!row.deletedAt&&(!engine||visibleToEngine(row,engine))).sort((a,b)=>a.slug.localeCompare(b.slug));
+      const rows:Array<typeof skills.$inferSelect>=[],filesBySkillId=new Map<number,SkillFileView[]>();
+      for(const row of metadata){const snapshot=await this.readStoredSkillSnapshot(row.slug,engine??(row.engine as Engine|null)??ENGINE_CODEX);if(snapshot){rows.push(snapshot.row);if(isSourceOwnedSkill(row))filesBySkillId.set(row.id,snapshot.files);}}
+      return {rows,filesBySkillId};
+    }
     return this.db.transaction(async (tx) => {
       const selected = await tx
         .select()
@@ -572,6 +605,16 @@ export class HostSkillsService {
   }
 
   private async readStoredSkillSnapshot(slug: string, engine: Engine): Promise<StoredSkillSnapshot | null> {
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){owner.assertOwner();const metadata=owner.state.snapshot().table('skills').by('slug',slug)[0];if(!metadata||!visibleToEngine(metadata,engine))return null;
+      const identity=`skill:${metadata.id}:${metadata.sha256}:${metadata.bundleSha256}:${metadata.updatedAt}:${metadata.deletedAt}`;
+      return publicArtifact(owner,identity,async()=>{
+        const [row]=await this.db.select().from(skills).where(eq(skills.id,metadata.id)).limit(1);if(!row||row.sha256!==metadata.sha256||row.bundleSha256!==metadata.bundleSha256)throw new Error('Canonical skill changed');
+        const metadataFiles=owner.state.snapshot().table('skillFiles').by('skillId',row.id);
+        const selected=!row.deletedAt&&metadataFiles.length?await this.db.select().from(skillFiles).where(eq(skillFiles.skillId,row.id)).orderBy(asc(skillFiles.path)):[];
+        const files=selected.filter(file=>file.skillId===row.id).map(file=>({path:file.path,sha256:file.sha256,content:file.content}));if(!row.deletedAt&&isSourceOwnedSkill(row))this.assertSourceBundle(row,files);return {row,files};
+      },()=>{const current=owner.state.snapshot().table('skills').get(metadata.id);return current?.sha256===metadata.sha256&&current.bundleSha256===metadata.bundleSha256&&current.updatedAt===metadata.updatedAt&&current.deletedAt===metadata.deletedAt;});
+    }
     return this.db.transaction(async (tx) => {
       const found = await tx.select().from(skills).where(eq(skills.slug, slug)).limit(1);
       const row = found[0];
@@ -636,7 +679,7 @@ export class HostSkillsService {
   }
 
   private async recordLog(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {
-    await this.db.insert(logs).values({
+    await persistAuditLog(this.db, {
       hostId: hostId ?? null,
       action,
       details: JSON.stringify(details),

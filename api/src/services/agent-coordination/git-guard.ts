@@ -1,3 +1,7 @@
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { claimContinuouslyHeld } from '../../control-plane/state/resource-claims.js';
+import { coordinationPresent } from '../../control-plane/state/coordination.js';
+import type { OwnerStateSnapshot } from '../../control-plane/state/store.js';
 import { eq, inArray } from 'drizzle-orm';
 import { posix } from 'node:path';
 import {
@@ -13,6 +17,7 @@ import { overlaps, type Resource } from './model.js';
 
 /** Same ordering as scope transactions: bus gate before clone/worktree rows. */
 export async function lockClaimGate(tx: AgentMessagingDb) {
+  const owner=ownerRuntimeFor(tx);if(owner){owner.assertOwner();return;}
   await tx
     .select({ version: versions.version })
     .from(versions)
@@ -27,22 +32,25 @@ export async function guardGitMutation(
   worktree: GitWorktree,
   branch: string,
   paths: string[],
+  composed?: OwnerStateSnapshot,
 ) {
-  const [flag] = await tx.select().from(versions).where(eq(versions.name, 'agent_coordination_enabled'));
-  const held = await tx
+  const owner=ownerRuntimeFor(tx),snapshot=owner?(composed??owner.state.snapshot()):undefined;
+  owner?.assertOwner();
+  const flag=snapshot?snapshot.settings.get('agent_coordination_enabled'):(await tx.select().from(versions).where(eq(versions.name,'agent_coordination_enabled')))[0];
+  const held = snapshot?snapshot.claims.all().filter(row=>['active','uncertain'].includes(row.state)):await tx
     .select()
     .from(agentResourceClaims)
     .where(inArray(agentResourceClaims.state, ['active', 'uncertain']));
   if (flag?.version !== '1' && held.length === 0 && !worktree.agentSessionId) return;
   const sessions = worktree.agentBusAddressId
-    ? await tx
+    ? snapshot?snapshot.sessions.by('agentBusAddressId',worktree.agentBusAddressId):await tx
         .select()
         .from(agentSessions)
         .where(eq(agentSessions.agentBusAddressId, worktree.agentBusAddressId))
     : [];
   const session = sessions.find(
     (s) =>
-      !s.endedAt && (!worktree.agentSessionId || s.id === worktree.agentSessionId && s.bindingGeneration === worktree.agentBindingGeneration) && (s.adapterCapabilities as Record<string, unknown> | null)?.scope_protocol_version === 1,
+      !s.endedAt && (!owner || coordinationPresent(owner,s)) && (!worktree.agentSessionId || s.id === worktree.agentSessionId && s.bindingGeneration === worktree.agentBindingGeneration) && (s.adapterCapabilities as Record<string, unknown> | null)?.scope_protocol_version === 1,
   );
   const remoteBinding = sessions.find((s) => s.id === worktree.agentSessionId && s.hostId !== clone.hostId);
   if (remoteBinding && !session)
@@ -55,20 +63,21 @@ export async function guardGitMutation(
       path: posix.resolve(worktree.worktreePath, path),
     })),
   ];
+  const liveClaim=(claim: typeof held[number])=>owner&&snapshot?claimContinuouslyHeld(owner,snapshot,claim):Date.parse(claim.expiresAt)>Date.now();
   const conflicts = held.filter(
     (c) =>
       (!session ||
         c.sessionId !== session.id ||
         c.generation !== session.bindingGeneration ||
         c.state === 'uncertain' ||
-        Date.parse(c.expiresAt) <= Date.now()) &&
+        !liveClaim(c)) &&
       (c.resources as Resource[]).some((a) => resources.some((b) => overlaps(a, b))),
   );
   // Without a live protocol-1 session the guard cannot attribute any claim, so
   // the requester's own live claims count against it. Still block (an unbound
   // registration must never pass a foreign reservation), but name the binding
   // as the actionable condition. Only the message reaches MCP callers.
-  if (conflicts.length && !session && conflicts.every((c) => c.state === 'active' && Date.parse(c.expiresAt) > Date.now()))
+  if (conflicts.length && !session && conflicts.every((c) => c.state === 'active' && liveClaim(c)))
     throw new ConflictError(
       (worktree.agentBusAddressId
         ? 'This worktree registration is bound to an agent session that is no longer live (or lacks scope protocol 1)'
@@ -101,7 +110,7 @@ export async function guardGitMutation(
           c.sessionId === session.id &&
           c.generation === session.bindingGeneration &&
           c.state === 'active' &&
-          Date.parse(c.expiresAt) > Date.now(),
+          liveClaim(c),
       )
       .flatMap((c) => c.resources as Resource[]);
     const covered = resources.every((r) =>

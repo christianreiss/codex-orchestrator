@@ -1,3 +1,4 @@
+import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
 /**
  * Generic typed settings reader/writer backed by the `versions` table. The
  * legacy PHP code stored arbitrary key/value pairs in `versions` (name/version
@@ -32,6 +33,8 @@ export class SettingsService {
   constructor(private readonly db: Database) {}
 
   async getRaw(key: string): Promise<string | null> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); return owner.state.snapshot().setting(key); }
     const rows = await this.db
       .select({ version: versions.version, updatedAt: versions.updatedAt })
       .from(versions)
@@ -43,6 +46,12 @@ export class SettingsService {
   }
 
   async getWithMeta(key: string): Promise<{ value: string | null; updatedAt: string | null }> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const row = owner.state.snapshot().settings.get(key);
+      return { value: row?.version ?? null, updatedAt: row?.updatedAt ?? null };
+    }
     const rows = await this.db
       .select({ version: versions.version, updatedAt: versions.updatedAt })
       .from(versions)
@@ -70,6 +79,22 @@ export class SettingsService {
   }
 
   async set(key: string, value: string, options: { publish?: boolean } = {}): Promise<void> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      if (owner.state.snapshot().setting(key) === value) return;
+      await mutateOwnerState(owner, {
+        kind: 'settings.set', payload: { key, value },
+        prepare({ draft, write }) {
+          const row = { name: key, version: value, updatedAt: nowIso() };
+          draft.upsert('versions', row);
+          write(async tx => tx.insert(versions).values(row).onDuplicateKeyUpdate({ set: { version: value, updatedAt: row.updatedAt } }));
+          return null;
+        },
+      });
+      if (options.publish !== false) wsPublisher.publish('settings.changed', { key });
+      return;
+    }
     const now = nowIso();
     const existing = await this.db
       .select({ name: versions.name })
@@ -106,6 +131,21 @@ export class SettingsService {
   }
 
   async delete(key: string, options: { publish?: boolean } = {}): Promise<void> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      if (!owner.state.snapshot().settings.has(key)) return;
+      await mutateOwnerState(owner, {
+        kind: 'settings.delete', payload: { key },
+        prepare({ draft, write }) {
+          draft.remove('versions', key);
+          write(async tx => tx.delete(versions).where(eq(versions.name, key)));
+          return null;
+        },
+      });
+      if (options.publish !== false) wsPublisher.publish('settings.changed', { key });
+      return;
+    }
     await this.db.delete(versions).where(eq(versions.name, key));
     if (options.publish !== false) {
       wsPublisher.publish('settings.changed', { key });
@@ -126,6 +166,22 @@ export class SettingsService {
     expected: string,
     options: { publish?: boolean } = {},
   ): Promise<boolean> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      if (owner.state.snapshot().setting(key) !== expected) return false;
+      const removed = await mutateOwnerState(owner, {
+        kind: 'settings.deleteIf', payload: { key, expected },
+        prepare({ draft, write }) {
+          if (draft.table('versions').get(key)?.version !== expected) return false;
+          draft.remove('versions', key);
+          write(async tx => tx.delete(versions).where(eq(versions.name, key)));
+          return true;
+        },
+      });
+      if (removed && options.publish !== false) wsPublisher.publish('settings.changed', { key });
+      return removed === true;
+    }
     const result = await this.db
       .delete(versions)
       .where(and(eq(versions.name, key), eq(versions.version, expected)));

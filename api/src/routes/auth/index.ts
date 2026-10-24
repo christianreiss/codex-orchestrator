@@ -1,3 +1,6 @@
+import {persistAuditLog} from '../../services/audit-log.js';
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { recordAuthCall,flushAuthCalls,uninstallOwnedHost } from './owner.js';
 import { readQuotaPolicy } from '../../services/quota-policy.js';
 import { ProviderAccountsService } from '../../services/provider-accounts.js';
 import { hostWithCallerWrapper } from '../../services/host-wrapper-capabilities.js';
@@ -13,7 +16,6 @@ import {
   hostAuthStates,
   hosts as hostsTable,
   installTokens,
-  logs as logsTable,
   type Host,
 } from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
@@ -81,6 +83,7 @@ import { suspendAgentMessagingRuntimeLocked } from '../../services/agent-messagi
  * configured) verifies it before persisting.
  */
 export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
+  app.addHook('onClose',async()=>{const owner=ownerRuntimeFor(ctx.db);if(owner)await flushAuthCalls(owner);});
   const insecure = createInsecureWindowService({ db: ctx.db, env: ctx.env });
   const hostAuth = createHostAuthService({ db: ctx.db, env: ctx.env, insecure });
   const clientVersions = new ClientVersionsService(new SettingsService(ctx.db), app.log);
@@ -266,11 +269,12 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
   });
 
   // DELETE /auth — host uninstall.
-  app.delete('/auth', async (req) => {
+  app.delete('/auth', {config:{ownerResponse:'committed-action'}}, async (req) => {
     const host = await hostAuth.authenticate(req);
     const query = req.query as { force?: string; engine?: string };
     const force = query.force === '1';
     const explicitEngine = typeof query.engine === 'string' && query.engine.trim() !== '';
+    const owner=ownerRuntimeFor(ctx.db);if(owner){const requested=explicitEngine?query.engine!.trim().toLowerCase():undefined;if(requested&&!isEngine(requested))throw new ValidationError('engine must be "codex", "claude" or "grok"',{param:'engine'});return uninstallOwnedHost(owner,host,requested as Engine|undefined,force);}
     if (explicitEngine) {
       const engine = query.engine!.trim().toLowerCase();
       if (!isEngine(engine)) {
@@ -283,7 +287,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
         const now = nowIso();
         await ctx.db.transaction(async (tx) => {
           await suspendAgentMessagingRuntimeLocked(tx, host.id, 'engine_disabled', [engine]);
-          await tx.insert(logsTable).values({
+          await persistAuditLog(tx, {
             hostId: host.id,
             action: 'host.engine.delete',
             details: JSON.stringify({ fqdn: host.fqdn, engine, initiator: 'host_api', force }),
@@ -350,7 +354,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       await suspendAgentMessagingRuntimeLocked(tx, host.id, 'host_inactive');
       // Keep the audit row independent of host FK policy: the host identity is
       // preserved in details while the nullable FK is deliberately unset.
-      await tx.insert(logsTable).values({
+      await persistAuditLog(tx, {
         hostId: null,
         action: 'host.delete',
         details: JSON.stringify({ host_id: host.id, fqdn: host.fqdn, initiator: 'host_api', force }),
@@ -681,10 +685,7 @@ async function handleRetrieve(
 
   // Bump api_calls. Atomic SQL increment — avoids lost updates from concurrent
   // requests reading the same stale `host.apiCalls` snapshot.
-  await ctx.db
-    .update(hostsTable)
-    .set({ apiCalls: sql`${hostsTable.apiCalls} + 1`, updatedAt: nowIso() })
-    .where(eq(hostsTable.id, host.id));
+  const apiCalls = await recordAuthCall(ctx.db,host);
 
   const versions = await projectVersions(engine, payload.wrapper_version);
   const quota = await readQuotaControls(ctx, host.vip === 1, engine, accountId ?? canonicalRow?.accountId ?? undefined);
@@ -695,7 +696,7 @@ async function handleRetrieve(
     canonical_digest: canonicalDigest,
     canonical_generation: canonicalRow?.generation ?? undefined,
     host: buildHostPayload(host, await readFleetEngineState(ctx.db)),
-    api_calls: Number(host.apiCalls ?? 0) + 1,
+    api_calls: apiCalls,
     versions,
     ...quota,
     cdx_silent: versions.cdx_silent,
@@ -794,16 +795,13 @@ async function buildRetrieveBaseResponse(
 ): Promise<Record<string, unknown>> {
   // Atomic SQL increment — avoids lost updates from concurrent requests
   // reading the same stale `host.apiCalls` snapshot.
-  await ctx.db
-    .update(hostsTable)
-    .set({ apiCalls: sql`${hostsTable.apiCalls} + 1`, updatedAt: nowIso() })
-    .where(eq(hostsTable.id, host.id));
+  const apiCalls = await recordAuthCall(ctx.db,host);
 
   const versions = await projectVersions(engine, payload.wrapper_version);
   const quota = await readQuotaControls(ctx, host.vip === 1, engine, accountIdFrom(payload.account_id));
   const baseResponse: Record<string, unknown> = {
     host: buildHostPayload(host, await readFleetEngineState(ctx.db)),
-    api_calls: Number(host.apiCalls ?? 0) + 1,
+    api_calls: apiCalls,
     versions,
     ...quota,
     cdx_silent: versions.cdx_silent,
@@ -1138,10 +1136,7 @@ async function handleStore(
   const now = nowIso();
   // Atomic SQL increment — avoids lost updates from concurrent requests
   // reading the same stale `host.apiCalls` snapshot.
-  await ctx.db
-    .update(hostsTable)
-    .set({ apiCalls: sql`${hostsTable.apiCalls} + 1`, updatedAt: now })
-    .where(eq(hostsTable.id, host.id));
+  const apiCalls = await recordAuthCall(ctx.db,host);
 
   const summary = await projectVersions(engine, payload.wrapper_version);
   const quota = await readQuotaControls(ctx, host.vip === 1, engine, stored.account_id);
@@ -1149,7 +1144,7 @@ async function handleStore(
   const response: Record<string, unknown> = {
     ...stored,
     account_pool: true,
-    api_calls: Number(host.apiCalls ?? 0) + 1,
+    api_calls: apiCalls,
     versions: summary,
     ...quota,
     cdx_silent: summary.cdx_silent,
@@ -1390,7 +1385,8 @@ async function readAuthQuotaSnapshots(ctx: RouteContext, host: Host, engine: Eng
   const enabled = activeHostEngines(host.engines, await readFleetEngineState(ctx.db));
   const alternatives = !unlimited && advice.mode !== 'off';
   const needed: Engine[] = [ENGINE_CODEX, ENGINE_CLAUDE].filter((e) => e === engine || alternatives && enabled.includes(e));
-  const accounts = alternatives ? await ctx.db.select({ id: providerAccounts.id, engine: providerAccounts.engine })
+  const owner=ownerRuntimeFor(ctx.db);owner?.assertOwner();const snapshot=owner?.state.snapshot();
+  const accounts = alternatives && snapshot ? snapshot.table('providerAccounts').all().filter(a=>needed.includes(a.engine as Engine)&&a.state==='enabled'&&!a.mergedIntoAccountId&&a.payloadId!==null&&snapshot.table('authPayloads').get(a.payloadId)?.verificationState==='verified').sort((a,b)=>(b.lastSelectedAt??'').localeCompare(a.lastSelectedAt??'')||b.id-a.id).map(a=>({id:a.id,engine:a.engine})) : alternatives ? await ctx.db.select({ id: providerAccounts.id, engine: providerAccounts.engine })
     .from(providerAccounts).innerJoin(authPayloads, eq(providerAccounts.payloadId, authPayloads.id))
     .where(and(inArray(providerAccounts.engine, needed), eq(providerAccounts.state, 'enabled'),
       isNull(providerAccounts.mergedIntoAccountId), eq(authPayloads.verificationState, 'verified')))

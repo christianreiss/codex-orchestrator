@@ -1,3 +1,7 @@
+import {persistAuditLog} from './audit-log.js';
+import { canonicalTransaction, canonicalContext, canonicalState, insertCanonicalPayload, patchCanonicalPayload, setOwnedGrokState } from '../control-plane/streams/canonical-state.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { and, eq, gt } from 'drizzle-orm';
 import {
@@ -9,7 +13,6 @@ import {
   hostAuthDigests,
   hostAuthStates,
   hosts as hostsTable,
-  logs as logsTable,
   grokAuthRefreshState,
 } from '../db/schema.js';
 import type { Database } from '../db/client.js';
@@ -238,7 +241,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
       if (head && input.sourceHostId !== null && input.baseCanonicalGeneration !== head.generation && identity?.access !== existing?.access) {
         throw new ConflictError('Grok canonical generation changed; retrieve before retrying the login upload', 'grok_generation_conflict', { account_id: accountId, canonical_generation: head.generation });
       }
-      const state = (await db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, accountId!)))[0];
+      const state = canonicalState(db) ? canonicalState(db)!.table('grokAuthRefreshState').get(accountId!) : (await db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, accountId!)))[0];
       if (state && state.state !== 'idle' && identity?.refresh === existing?.refresh) {
         throw new ConflictError('This Grok refresh credential is fenced; a distinct subscription login is required', 'grok_login_required');
       }
@@ -277,7 +280,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
       throw new ValidationError('payload contains no inspectable engine credential', { param: 'auth' });
     }
     const candidateFingerprints = pairFingerprints(candidateIdentity, keyring);
-    const allHistory = await db.select().from(authPayloads).where(eq(authPayloads.engine, engine));
+    const allHistory = canonicalState(db)?.table('authPayloads').all().filter(row=>row.engine===engine) ?? await db.select().from(authPayloads).where(eq(authPayloads.engine, engine));
     const history = allHistory.filter((row) =>
       accountId === undefined ? !row.accountId : row.accountId === accountId);
     const currentIdentityMatches = currentRow
@@ -619,12 +622,17 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     const finalMetadata = credentialMetadata(finalIdentity, keyring.active());
     const maxKnownGeneration = allHistory.reduce((max, row) => Math.max(max, row.generation ?? 0), 0);
     const parentRow = latestRow ?? currentRow;
-    const nextGeneration = Math.max(parentRow?.generation ?? 0, maxKnownGeneration) + 1;
+    let nextGeneration = Math.max(parentRow?.generation ?? 0, maxKnownGeneration) + 1;
     const promotesCanonical = verificationState === 'verified';
     let payloadId = 0;
-    await db.transaction(async (tx) => {
+    await canonicalTransaction(db, 'auth.canonical.write', async (tx) => {
       await lockAccount(tx, engine, accountId, input.sourceHostId);
-      const ins = await tx.insert(authPayloads).values({
+      if(canonicalContext()){
+        const head=(await readHeads(tx,engine,accountId))[0];
+        if((head?.payloadId??null)!==(parentRow?.id??null))throw new ConflictError('Canonical changed during verification','canonical_generation_conflict');
+        nextGeneration=Math.max(parentRow?.generation??0,...canonicalState(db)!.table('authPayloads').all().filter(row=>row.engine===engine).map(row=>row.generation??0))+1;
+      }
+      payloadId = await insertCanonicalPayload(tx, {
         lastRefresh: finalLastRefresh,
         sha256: digestToStore,
         sourceHostId: input.sourceHostId,
@@ -641,9 +649,8 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
         ...finalMetadata,
         supersededAt: promotesCanonical ? null : now,
         purgeAfter: promotesCanonical ? null : retentionDeadline(now),
-      });
-      const insertedRaw = ins[0] as { insertId?: number | bigint } | undefined;
-      payloadId = insertedRaw?.insertId !== undefined ? Number(insertedRaw.insertId) : 0;
+      }, keyring);
+
 
       if (invalidateSelectedReason && currentRow?.verificationState === 'verified') {
         // The native CLI already replaced the candidate before returning a
@@ -652,22 +659,16 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
         // so no retrieve can fleet stale pre-refresh bytes.
         const heads = await readHeads(tx, engine, accountId);
         if (heads[0]?.payloadId === currentRow.id) {
-          await tx
-            .update(authPayloads)
-            .set({
+          await patchCanonicalPayload(tx, currentRow.id, {
               verificationState: 'failed',
               verificationCheckedAt: now,
               verificationReason: invalidateSelectedReason,
-            })
-            .where(eq(authPayloads.id, currentRow.id));
+            });
         }
       }
 
       if (promotesCanonical && parentRow) {
-        await tx
-          .update(authPayloads)
-          .set({ supersededAt: now, purgeAfter: retentionDeadline(now) })
-          .where(eq(authPayloads.id, parentRow.id));
+        await patchCanonicalPayload(tx, parentRow.id, { supersededAt: now, purgeAfter: retentionDeadline(now) });
       }
       if (promotesCanonical) {
         await writeHead(tx,engine, accountId, payloadId, nextGeneration, now);
@@ -717,8 +718,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
       account_id: accountId,
     };
     if (engine === ENGINE_GROK && promotesCanonical) {
-      await db.insert(grokAuthRefreshState).values({ accountId: accountId!, state: 'idle', updatedAt: now })
-        .onDuplicateKeyUpdate({ set: { state: 'idle', attemptId: null, basePayloadId: null, baseGeneration: null, pendingPayloadId: null, responseEnc: null, nextAttemptAt: null, errorCode: null, updatedAt: now } });
+      await setOwnedGrokState(db,accountId!,{ state: 'idle', attemptId: null, basePayloadId: null, baseGeneration: null, pendingPayloadId: null, responseEnc: null, nextAttemptAt: null, errorCode: null, updatedAt: now });
     }
     if (postPersistError) throw postPersistError;
     return result;
@@ -750,7 +750,9 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     const responseStatus = distributable ? status : 'outdated';
     const responseCandidateResult = distributable ? options.candidateResult : undefined;
     const generation = options.generation ?? storedRow?.generation ?? undefined;
-    await db.transaction(async (tx) => {
+    await canonicalTransaction(db, 'auth.canonical.write', async (tx) => {
+      if(canonicalContext()){await lockAccount(tx,input.engine,input.accountId,input.sourceHostId);if(distributable&&(await readHeads(tx,input.engine,input.accountId))[0]?.payloadId!==payloadId)throw new ConflictError('Canonical changed before response','canonical_generation_conflict');}
+
       if (distributable && input.sourceHostId !== null) {
         await recordHostCanonical(
           tx,
@@ -815,6 +817,13 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     engine: Engine,
     now: string,
   ): Promise<void> {
+    const c=canonicalContext();
+    if(c){
+      const previous=c.draft.table('hostAuthDigests').all().find(row=>row.hostId===hostId&&row.engine===engine&&row.digest===digest);
+      if(previous){await tx.update(hostAuthDigests).set({lastSeen:now}).where(eq(hostAuthDigests.id,previous.id));c.draft.upsert('hostAuthDigests',{...previous,lastSeen:now});}
+      else{const value={hostId,engine,digest,lastSeen:now,createdAt:now};const result=await tx.insert(hostAuthDigests).values(value);const id=Number((result[0] as {insertId:number}).insertId);c.draft.upsert('hostAuthDigests',{...value,id});}
+      await touchHostAuthState(tx,hostId,payloadId,digest,engine);await touchHostAuthFields(tx,hostId,lastRefresh,digest,engine);return;
+    }
     await tx
       .insert(hostAuthDigests)
       .values({ hostId, digest, lastSeen: now, createdAt: now, engine })
@@ -833,7 +842,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     runnerSkippedReason?: string,
     candidateResult?: StoreAuthCandidateResult['candidate_result'],
   ): Promise<void> {
-    await tx.insert(logsTable).values({
+    await persistAuditLog(tx, {
       hostId: input.sourceHostId,
       action: input.logAction,
       details: JSON.stringify({
@@ -1079,14 +1088,11 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
       // credential bytes is not evidence that the known-good head is bad.
       if (!verdict.ok && !verdict.definitive) return unchanged;
       if (!verdict.ok) {
-        await db
-          .update(authPayloads)
-          .set({
+        await patchCanonicalPayload(db, row.id, {
             verificationState: 'failed',
             verificationCheckedAt: now,
             verificationReason: (verdict.reason ?? 'runner verification failed').slice(0, 500),
-          })
-          .where(eq(authPayloads.id, row.id));
+          });
         wsPublisher.publish('auth.invalidated', { engine, account_id: accountId ?? null });
         return { ...unchanged, state: 'failed', reason: verdict.reason };
       }
@@ -1133,10 +1139,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
           // cannot be made canonical, the pre-refresh blob must not be stamped
           // verified and served as though the rotation never happened.
           const reason = 'runner refreshed auth but canonical persistence failed';
-          await db
-            .update(authPayloads)
-            .set({ verificationState: 'failed', verificationCheckedAt: now, verificationReason: reason })
-            .where(eq(authPayloads.id, row.id));
+          await patchCanonicalPayload(db, row.id, { verificationState: 'failed', verificationCheckedAt: now, verificationReason: reason });
           return { ...unchanged, state: 'failed', reason };
         }
       }
@@ -1203,10 +1206,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
           return { ...snapshot, refreshed: false };
         }
       } else {
-        await db
-          .update(authPayloads)
-          .set({ verificationState: 'verified', verificationCheckedAt: now, verificationReason: null })
-          .where(eq(authPayloads.id, row.id));
+        await patchCanonicalPayload(db, row.id, { verificationState: 'verified', verificationCheckedAt: now, verificationReason: null });
       }
       return { ...unchanged, state: 'verified' };
     });
@@ -1233,10 +1233,9 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
   ): Promise<boolean> {
     let promoted = false;
     let promotedGeneration = 0;
-    await db.transaction(async (tx) => {
+    await canonicalTransaction(db, 'auth.canonical.write', async (tx) => {
       await lockAccount(tx, engine, accountId);
-      const pendingRows = await tx.select().from(authPayloads).where(eq(authPayloads.id, payloadId));
-      const pending = pendingRows[0];
+      const pending = canonicalState(db) ? canonicalState(db)!.table('authPayloads').get(payloadId) : (await tx.select().from(authPayloads).where(eq(authPayloads.id,payloadId)))[0];
       if (!pending || pending.engine !== engine || pending.verificationState !== 'pending') return;
 
       const heads = await readHeads(tx, engine, accountId);
@@ -1251,21 +1250,15 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
       }
 
       if (expectedHead && expectedHead.id !== payloadId) {
-        await tx
-          .update(authPayloads)
-          .set({ supersededAt: now, purgeAfter: retentionDeadline(now) })
-          .where(eq(authPayloads.id, expectedHead.id));
+        await patchCanonicalPayload(tx, expectedHead.id, { supersededAt: now, purgeAfter: retentionDeadline(now) });
       }
-      await tx
-        .update(authPayloads)
-        .set({
+      await patchCanonicalPayload(tx, payloadId, {
           verificationState: 'verified',
           verificationCheckedAt: now,
           verificationReason: null,
           supersededAt: null,
           purgeAfter: null,
-        })
-        .where(eq(authPayloads.id, payloadId));
+        });
 
       const generation = pending.generation ?? Math.max(expectedHead?.generation ?? 0, 0) + 1;
       await writeHead(tx, engine, accountId, payloadId, generation, now);
@@ -1278,6 +1271,13 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
 
   async function lockAccount(tx: DbLike, engine: Engine, accountId?: number, sourceHostId: number | null | undefined = ownerSourceHostId) {
     if (accountId === undefined) return;
+    const owned=canonicalState(db);
+    if(owned){
+      const account=owned.table('providerAccounts').get(accountId);
+      if(!account||account.engine!==engine||account.state==='removed'||account.mergedIntoAccountId)throw new ConflictError('Account is retired','account_removed');
+      if(account.state==='removing'&&!owned.table('providerAccountSessions').all().some(lease=>lease.accountId===accountId&&lease.hostId===sourceHostId&&(lease.ownershipMode==='connection'||Date.parse(lease.expiresAt)>Date.now())))throw new ConflictError('Account is retired','account_removed');
+      return;
+    }
     const rows = await tx
       .select()
       .from(providerAccounts)
@@ -1305,6 +1305,8 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
   }
 
   async function readHeads(tx: DbLike, engine: Engine, accountId?: number) {
+    const owned=canonicalState(db);
+    if(owned){const row=accountId===undefined?owned.table('authCanonicalHeads').get(engine):owned.table('providerAccounts').get(accountId);return row&&row.engine===engine&&row.payloadId!=null?[{payloadId:row.payloadId,generation:row.generation??0}]:[];}
     if (accountId !== undefined) {
       const rows = await tx
         .select()
@@ -1325,6 +1327,14 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     generation: number,
     now: string,
   ) {
+    const c=canonicalContext();
+    if(c){
+      if(accountId!==undefined){const account=c.draft.table('providerAccounts').get(accountId);if(!account)throw new ConflictError('Account removed','account_removed');const patch={payloadId,generation,updatedAt:now};await tx.update(providerAccounts).set(patch).where(eq(providerAccounts.id,accountId));c.draft.upsert('providerAccounts',{...account,...patch});}
+      const head=c.draft.table('authCanonicalHeads').get(engine);
+      if(accountId!==undefined&&head&&c.draft.table('authPayloads').get(head.payloadId)?.accountId!==accountId)return;
+      const value={engine,payloadId,generation,updatedAt:now};
+      await tx.insert(authCanonicalHeads).values(value).onDuplicateKeyUpdate({set:{payloadId,generation,updatedAt:now}});c.draft.upsert('authCanonicalHeads',value);return;
+    }
     if (accountId !== undefined) {
       await tx
         .update(providerAccounts)
@@ -1352,16 +1362,15 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     const identity = inspectCredential(canonical, ENGINE_GROK)!;
     const now = nowIso();
     let payloadId = 0;
-    await db.transaction(async tx => {
+    await canonicalTransaction(db, 'auth.grok.candidate', async tx => {
       await lockAccount(tx, ENGINE_GROK, base.accountId!);
       const heads = await readHeads(tx, ENGINE_GROK, base.accountId!);
       if (heads[0]?.payloadId !== base.id || heads[0]?.generation !== base.generation) throw new ConflictError('Grok generation changed during refresh', 'grok_generation_conflict');
-      const history = await tx.select().from(authPayloads).where(eq(authPayloads.accountId, base.accountId!));
+      const history = canonicalState(db)?.table('authPayloads').all().filter(row=>row.accountId===base.accountId) ?? await tx.select().from(authPayloads).where(eq(authPayloads.accountId, base.accountId!));
       const generation = Math.max(base.generation ?? 0, ...history.map(row => row.generation ?? 0)) + 1;
-      const inserted = await tx.insert(authPayloads).values({ accountId: base.accountId, engine: ENGINE_GROK, lastRefresh: String(canonical.last_refresh), sha256: runnerValidation.calculateDigest(encoded), body: encrypt(encoded, keyring), sourceHostId: null, createdAt: now, generation, parentPayloadId: base.id, sourceKind: 'grok_refresh', verificationState: 'pending', ...credentialMetadata(identity, keyring.active()) });
-      payloadId = Number((inserted[0] as { insertId: number }).insertId);
+      payloadId = await insertCanonicalPayload(tx, { accountId: base.accountId, engine: ENGINE_GROK, lastRefresh: String(canonical.last_refresh), sha256: runnerValidation.calculateDigest(encoded), body: encrypt(encoded, keyring), sourceHostId: null, createdAt: now, generation, parentPayloadId: base.id, sourceKind: 'grok_refresh', verificationState: 'pending', ...credentialMetadata(identity, keyring.active()) }, keyring);
       await persistEntries(tx, payloadId, entries, now);
-      await tx.insert(logsTable).values({ action: 'grok.auth.refresh.candidate', engine: ENGINE_GROK, details: JSON.stringify({ account_id: base.accountId, payload_id: payloadId, base_generation: base.generation, generation }), createdAt: now });
+      await persistAuditLog(tx, { action: 'grok.auth.refresh.candidate', engine: ENGINE_GROK, details: JSON.stringify({ account_id: base.accountId, payload_id: payloadId, base_generation: base.generation, generation }), createdAt: now });
     });
     return (await db.select().from(authPayloads).where(eq(authPayloads.id, payloadId)))[0]!;
   }
@@ -1382,6 +1391,10 @@ export async function touchHostAuthFields(
   engine: Engine,
 ): Promise<void> {
   const now = nowIso();
+  const patch={ [ENGINE_HOST_FIELDS[engine].lastRefresh]:lastRefresh,[ENGINE_HOST_FIELDS[engine].authDigest]:digest,updatedAt:now };
+  const c=canonicalContext(), owner=ownerRuntimeFor(db);
+  if(c){const host=c.draft.table('hosts').get(hostId);if(!host)throw new ConflictError('Host removed');await db.update(hostsTable).set(patch).where(eq(hostsTable.id,hostId));c.draft.upsert('hosts',{...host,...patch});return;}
+  if(owner){await mutateOwnerState(owner,{kind:'auth.host.canonical-fields',payload:{hostId,engine,digest,lastRefresh},prepare(c){stageUpdate(c,'hosts',hostId,patch);return null;}});return;}
   await db
     .update(hostsTable)
     .set(
@@ -1398,6 +1411,10 @@ export async function touchHostAuthState(
   engine: Engine,
 ): Promise<void> {
   const now = nowIso();
+  const value={hostId,payloadId,seenDigest:digest,seenAt:now,engine};
+  const c=canonicalContext(),owner=ownerRuntimeFor(db);
+  if(c){await db.insert(hostAuthStates).values(value).onDuplicateKeyUpdate({set:{payloadId,seenDigest:digest,seenAt:now}});c.draft.upsert('hostAuthStates',value);return;}
+  if(owner){await mutateOwnerState(owner,{kind:'auth.host.canonical-state',payload:{hostId,payloadId,digest,engine},prepare(c){c.draft.upsert('hostAuthStates',value);c.write(tx=>tx.insert(hostAuthStates).values(value).onDuplicateKeyUpdate({set:{payloadId,seenDigest:digest,seenAt:now}}));return null;}});return;}
   await db
     .insert(hostAuthStates)
     .values({ hostId, payloadId, seenDigest: digest, seenAt: now, engine })
@@ -1557,14 +1574,11 @@ async function markPayloadFailed(
   checkedAt: string,
   reason: string,
 ): Promise<void> {
-  await db
-    .update(authPayloads)
-    .set({
+  await patchCanonicalPayload(db, payloadId, {
       verificationState: 'failed',
       verificationCheckedAt: checkedAt,
       verificationReason: reason.slice(0, 500),
-    })
-    .where(eq(authPayloads.id, payloadId));
+    });
   wsPublisher.publish('auth.invalidated', {});
 }
 

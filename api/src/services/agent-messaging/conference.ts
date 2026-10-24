@@ -1,3 +1,6 @@
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { OwnedConferences } from './owned-conference.js';
+import type { MessagingHost } from './types.js';
 /**
  * Conferences: an owner, a roster, and the authority to dispatch and adjourn.
  *
@@ -97,7 +100,7 @@ export interface ConferenceCore {
     sessionId: string,
     rawToken: string,
     allowEnded?: boolean,
-  ): Promise<{ session: AgentSession; host: Host }>;
+  ): Promise<{ session: AgentSession; host: MessagingHost }>;
   assertSessionAddressLocked(db: AgentMessagingDb, sessionId: string, address: AgentBusAddress): Promise<void>;
   assertAddressEligibleLocked(db: AgentMessagingDb, address: AgentBusAddress): Promise<void>;
   requireConversationLocked(db: AgentMessagingDb, id: string): Promise<AgentBusConversation>;
@@ -113,6 +116,8 @@ export interface ConferenceCore {
 
 export class ConferenceCoordinator {
   constructor(private readonly core: ConferenceCore) {}
+
+  private owned() { const owner=ownerRuntimeFor(this.core.db); return owner ? new OwnedConferences(owner,this.core.keyring) : null; }
 
   private async presenceLocked(db: AgentMessagingDb, address: AgentBusAddress): Promise<AgentAddressPresence> {
     const rows = address.currentSessionId
@@ -463,6 +468,7 @@ export class ConferenceCoordinator {
     bridgeToken: string,
     input: { topic?: string | null; purpose?: string | null; ttlSeconds?: number | null; maxMembers?: number | null } = {},
   ): Promise<Record<string, unknown>> {
+    const owner=this.owned(); if(owner)return await owner.open(sessionId,bridgeToken,input);
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
     if (!authenticated.session.agentBusAddressId) {
       throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -566,6 +572,7 @@ export class ConferenceCoordinator {
     bridgeToken: string,
     input: { conferenceId: string; to: string[]; note?: string | null },
   ): Promise<Record<string, unknown>> {
+    const owner=this.owned(); if(owner)return await owner.invite(sessionId,bridgeToken,input);
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
     const selfId = authenticated.session.agentBusAddressId;
     if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -697,6 +704,7 @@ export class ConferenceCoordinator {
     bridgeToken: string,
     input: { pin?: string | null; conferenceId?: string | null; purpose?: string | null; content?: string | null },
   ): Promise<Record<string, unknown>> {
+    const owner=this.owned(); if(owner)return await owner.join(sessionId,bridgeToken,input);
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
     const selfId = authenticated.session.agentBusAddressId;
     if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -827,6 +835,7 @@ export class ConferenceCoordinator {
   }
 
   async roster(sessionId: string, bridgeToken: string, conferenceId: string): Promise<Record<string, unknown>> {
+    const owner=this.owned(); if(owner)return await owner.roster(sessionId,bridgeToken,conferenceId);
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
     const selfId = authenticated.session.agentBusAddressId;
     if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -860,6 +869,7 @@ export class ConferenceCoordinator {
    * gets it back from `agent_conf_open`, which returns the existing room.
    */
   async list(sessionId: string, bridgeToken: string): Promise<Record<string, unknown>> {
+    const owner=this.owned(); if(owner)return await owner.list(sessionId,bridgeToken);
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
     const selfId = authenticated.session.agentBusAddressId;
     if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -927,6 +937,7 @@ export class ConferenceCoordinator {
     bridgeToken: string,
     input: { conferenceId: string; content: string; to?: string | null },
   ): Promise<Record<string, unknown>> {
+    const owner=this.owned(); if(owner)return await owner.say(sessionId,bridgeToken,input);
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
     const selfId = authenticated.session.agentBusAddressId;
     if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -986,6 +997,7 @@ export class ConferenceCoordinator {
     bridgeToken: string,
     input: { conferenceId: string; to: string; task: string; etaSeconds?: number | null },
   ): Promise<Record<string, unknown>> {
+    const owner=this.owned(); if(owner)return await owner.dispatch(sessionId,bridgeToken,input);
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
     const selfId = authenticated.session.agentBusAddressId;
     if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -1072,6 +1084,7 @@ export class ConferenceCoordinator {
     bridgeToken: string,
     input: { conferenceId: string; reason?: string | null; force?: boolean },
   ): Promise<Record<string, unknown>> {
+    const owner=this.owned(); if(owner)return await owner.adjourn(sessionId,bridgeToken,input);
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken);
     const selfId = authenticated.session.agentBusAddressId;
     if (!selfId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -1150,7 +1163,7 @@ export class ConferenceCoordinator {
 
   /** One spoke of a fan-out, isolated so a single failure is reported rather than fatal. */
   private async deliverConferenceMessage(
-    authenticated: { session: AgentSession; host: Host },
+    authenticated: { session: AgentSession; host: MessagingHost },
     conferenceId: string,
     selfId: string,
     targetAddressId: string | null,

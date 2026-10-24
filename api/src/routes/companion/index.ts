@@ -1,12 +1,15 @@
+import { CompanionChanges } from '../../services/companion/changes.js';
+import { subscribeActivityObservations } from '../../services/agent-activity.js';
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { ownerPresence } from '../../control-plane/presence.js';
+import { attachCompanion } from '../../services/companion/presence.js';
 import { chatMetadataSchema } from '../../services/agent-chat/contracts.js';
 import { registerCompanionRooms } from './rooms.js';
-import { setTimeout as delay } from 'node:timers/promises';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../index.js';
 import {
-  companionDevices,
   companionFollows,
   companionDaemonFollows,
   hostDaemonSessions,
@@ -20,13 +23,11 @@ import { SettingsService } from '../../services/settings.js';
 import { registerWebsocketTransport } from '../../ws/transport.js';
 import { wsPublisher } from '../../ws/publisher.js';
 import { capabilitiesForRole, type Capability } from '../../security/capabilities.js';
-import { encrypt } from '../../security/secret-box.js';
 import { createAgentPortalService, type PortalActor } from '../../services/agent-portal.js';
 import { InsecureWindowAdminService } from '../../services/insecure-window-admin.js';
 import { makeAdminEventsWriter } from '../../services/admin-events-writer.js';
 import { ApiError, ForbiddenError, ServiceUnavailableError } from '../../http/errors.js';
 import { createSseLifecycle } from '../../http/sse-lifecycle.js';
-import { isoOffsetSeconds, nowIso } from '../../util/timestamp.js';
 
 const id = (req: FastifyRequest) => z.object({ id: z.string().uuid() }).parse(req.params).id;
 const message = z.object({ client_message_id: z.string().uuid(), metadata: chatMetadataSchema.optional(),
@@ -73,20 +74,16 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
     if (await settings.getFlag('api_disabled', false))
       throw new ServiceUnavailableError('API disabled by administrator', 'api_disabled');
   };
+  const authenticatedDevices = new WeakMap<object, string>();
   const auth = async (req: FastifyRequest, capability?: Capability) => {
     await checkEnabled();
-    return devices.authenticate(req.headers.authorization, capability);
+    const result = await devices.authenticate(req.headers.authorization, capability); authenticatedDevices.set(req, result.device.id); return result;
   };
   const actor = (user: { id: number; name: string }): PortalActor => ({
     kind: 'admin',
     user: { id: user.id, displayName: user.name },
   });
-  const follow = async (deviceId: string, sessionId: string) => {
-    await ctx.db
-      .insert(companionFollows)
-      .values({ deviceId, sessionId })
-      .onDuplicateKeyUpdate({ set: { sessionId } });
-  };
+  const follow = (deviceId: string, sessionId: string) => devices.follow(deviceId, sessionId);
   const requirePortal = async () => {
     if (!(await portal.isEnabled()))
       throw new ServiceUnavailableError('Agent portal is disabled', 'agent_portal_disabled');
@@ -94,10 +91,19 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
   const live = new CompanionLive({
     authorize: async (token) => {
       await checkEnabled();
-      const { user } = await devices.authenticate(token);
-      return capabilitiesForRole(user.accessLevel);
+      const { user, device } = await devices.authenticate(token);
+      return { capabilities: capabilitiesForRole(user.accessLevel), expiresAt: device.expiresAt };
+    },
+    subscribe: listener => {
+      const owner = ownerRuntimeFor(ctx.db); if (!owner) return subscribeActivityObservations(ctx.db, listener);
+      const tables = ['adminUsers','companionDevices','versions','hosts','agentSessions','agentPrompts','insecureAuthRequests','hostDaemons','hostDaemonSessions','agentBusConferences','agentRoomEvents'] as const;
+      let previous = owner.state.snapshot();
+      const state = owner.state.subscribe(next => { const changed = tables.some(table => next.table(table) !== previous.table(table)); previous = next; if (changed) listener(); });
+      const presence = ownerPresence(owner).subscribe(listener); return () => { state(); presence(); };
     },
     revisions: async () => {
+      const owner = ownerRuntimeFor(ctx.db);
+      if (owner) { const revision = owner.state.revision(); const value = `${revision.epoch}:${revision.sequence}`; return { agents: value, approvals: value, hosts: value }; }
       const enabled = await portal.isEnabled();
       const snapshot = enabled ? await portal.listAgentsSnapshot() : null;
       const cursor = enabled ? await portal.latestEventCursor() : 0;
@@ -168,7 +174,11 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
           await auth(req);
         },
       },
-      (socket, req) => live.attach(socket, req.headers.authorization),
+      (socket, req) => {
+        const owner = ownerRuntimeFor(ctx.db), deviceId = authenticatedDevices.get(req);
+        if (owner && deviceId) { const detach = attachCompanion(owner, deviceId); socket.on('close', detach); socket.on('error', detach); }
+        live.attach(socket, req.headers.authorization);
+      },
     );
     app.post('/companion/v1/pair', async (req) => {
       const body = z
@@ -186,10 +196,10 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         notifications: !!device.notifications,
         follows: [
           ...(
-            await ctx.db.select().from(companionFollows).where(eq(companionFollows.deviceId, device.id))
+            ownerRuntimeFor(ctx.db) ? ownerRuntimeFor(ctx.db)!.state.snapshot().table('companionFollows').by('deviceId', device.id) : await ctx.db.select().from(companionFollows).where(eq(companionFollows.deviceId, device.id))
           ).map((f) => f.sessionId),
           ...(
-            await ctx.db
+            ownerRuntimeFor(ctx.db) ? ownerRuntimeFor(ctx.db)!.state.snapshot().table('companionDaemonFollows').by('deviceId', device.id) : await ctx.db
               .select()
               .from(companionDaemonFollows)
               .where(eq(companionDaemonFollows.deviceId, device.id))
@@ -206,26 +216,10 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
           visible_session_id: z.string().uuid().nullable().optional(),
         })
         .parse(req.body);
-      await ctx.db
-        .update(companionDevices)
-        .set({
-          lastSeenAt: nowIso(),
-          ...(body.fcm_token !== undefined
-            ? { fcmTokenEnc: body.fcm_token ? encrypt(body.fcm_token, ctx.keyring) : null }
-            : {}),
-          ...(body.notifications !== undefined ? { notifications: body.notifications ? 1 : 0 } : {}),
-          ...(body.visible_session_id !== undefined
-            ? {
-                visibleSessionId: body.visible_session_id,
-                visibleUntil: body.visible_session_id ? isoOffsetSeconds(45) : null,
-              }
-            : {}),
-        })
-        .where(eq(companionDevices.id, device.id));
-      if (body.notifications !== undefined) wsPublisher.publish('companion.devices.changed', {});
+      await devices.patch(device.id, body);
       return { updated: true };
     });
-    app.delete('/companion/v1/device', async (req) => {
+    app.delete('/companion/v1/device', {config:{ownerResponse:'committed-action'}}, async (req) => {
       const { user, device } = await auth(req);
       await devices.revoke(user.id, device.id);
       return { revoked: true };
@@ -389,11 +383,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       }
       await portal.listEvents(id(req), 0, 1, true);
       const body = z.object({ followed: z.boolean() }).parse(req.body);
-      if (body.followed) await follow(device.id, id(req));
-      else
-        await ctx.db
-          .delete(companionFollows)
-          .where(and(eq(companionFollows.deviceId, device.id), eq(companionFollows.sessionId, id(req))));
+      await devices.follow(device.id, id(req), body.followed);
       wsPublisher.publish('companion.devices.changed', {});
       return { followed: body.followed };
     });
@@ -480,25 +470,35 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       const stop = trackStream(reply, () => disconnected.abort());
       reply.raw.flushHeaders();
       let heartbeat = Date.now();
+      const changes = new CompanionChanges(ownerRuntimeFor(ctx.db));
+      let source = -1;
       try {
         while (!disconnected.signal.aborted) {
           await auth(req, 'agent_portal.reveal_transcript');
           await requirePortal();
+          const observed = changes.revision;
+          if (source !== changes.source) {
+          const requestedSource = changes.source;
           const page = await portal.listEventsAfter(cursor, 250, query.session_id);
+          await auth(req, 'agent_portal.reveal_transcript');
+          await requirePortal();
           for (const event of page.events) {
             cursor = Number(event.cursor);
             if (!reply.raw.write(`id: ${cursor}\nevent: agent\ndata: ${JSON.stringify(event)}\n\n`)) return;
           }
-          if (Date.now() - heartbeat > 15_000) {
+          if (page.events.length >= 250) continue;
+          source = requestedSource;
+          }
+          if (Date.now() - heartbeat >= 15_000) {
             if (!reply.raw.write(': heartbeat\n\n')) return;
             heartbeat = Date.now();
           }
-          await delay(1000, undefined, { signal: disconnected.signal });
+          await changes.wait(observed, Math.max(1, 15_000 - (Date.now() - heartbeat)), disconnected.signal);
         }
       } catch {
         /* Reconnect rechecks credentials and resumes the cursor. */
       } finally {
-        stop();
+        changes.close(); stop();
       }
     });
   });

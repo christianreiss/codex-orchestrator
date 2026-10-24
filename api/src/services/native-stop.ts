@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { ownedControlView, pollOwnedControl, requestOwnedControl } from '../control-plane/streams/native-control.js';
 import { assertFleetEngineEnabledForAdmin } from './engine-switch.js';
 import { parseEngine } from '../util/engine.js';
 import { and, eq, inArray, sql } from 'drizzle-orm';
@@ -20,10 +22,12 @@ export function controlView(row: NativeControl | undefined, now = Date.now()) {
 export class NativeStopService {
   constructor(private readonly db: Database) {}
   async get(sessionId: string) {
+    const owner=ownerRuntimeFor(this.db);if(owner)return ownedControlView(owner,owner.state.snapshot().table('agentNativeControls').get(sessionId));
     const [row] = await this.db.select().from(agentNativeControls).where(eq(agentNativeControls.sessionId, sessionId));
     return controlView(row);
   }
   async poll(sessionId: string, instanceId: string, report?: { request_id: string; status: 'accepted' | 'exited' | 'refused' }) {
+    const owner=ownerRuntimeFor(this.db);if(owner)return pollOwnedControl(owner,sessionId,instanceId,report);
     if (!report) {
       // One fresh snapshot proves only an idle, still-bound process with a
       // current identity. Requests and reports retain the locked path; a
@@ -106,6 +110,7 @@ export class NativeStopService {
     });
   }
   async request(sessionId: string, key: string, expected: { instance_id: string; binding_generation: number }, actor: number) {
+    const owner=ownerRuntimeFor(this.db);if(owner)return requestOwnedControl(owner,sessionId,key,expected,actor);
     return this.db.transaction(async tx => {
       const [session] = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).for('update');
       const [row] = await tx.select().from(agentNativeControls).where(eq(agentNativeControls.sessionId, sessionId)).for('update');

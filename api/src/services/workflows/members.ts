@@ -1,3 +1,4 @@
+import {workflowState,workflowInsert,workflowPatch,patchWorkflowRow} from './owner.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import {
@@ -54,8 +55,8 @@ export async function addMember(ctx: Session, run: Run, actor: WorkflowActor, re
     updatedAt: ctx.now,
   };
   if (previous)
-    await ctx.tx.update(workflowRunMembers).set(row).where(eq(workflowRunMembers.id, previous.id));
-  else await ctx.tx.insert(workflowRunMembers).values({ id: randomUUID(), createdAt: ctx.now, ...row });
+    await workflowPatch(ctx.tx,'workflowRunMembers',previous.id,row);
+  else await workflowInsert(ctx.tx,'workflowRunMembers',{ id: randomUUID(), createdAt: ctx.now, ...row });
 }
 export async function syncGroup(
   ctx: Session,
@@ -81,10 +82,7 @@ export async function syncGroup(
   if (group) {
     run.communicationGroupId = group.group_id;
     run.communication = { ...group };
-    await ctx.tx
-      .update(workflowRuns)
-      .set({ communicationGroupId: group.group_id, communication: { ...group } })
-      .where(eq(workflowRuns.id, run.id));
+    await workflowPatch(ctx.tx,'workflowRuns',run.id,{communicationGroupId:group.group_id,communication:{...group}});
   }
 }
 export async function invite(
@@ -119,7 +117,8 @@ export async function invite(
       );
     return { already_member: true };
   }
-  const all = await ctx.tx
+  const state=workflowState();
+  const all = state ? state.table('workflowRunInvitations').by('runId',run.id).filter(r=>r.targetAddressId===target.address_id&&r.status==='pending') : await ctx.tx
     .select()
     .from(workflowRunInvitations)
     .where(
@@ -131,20 +130,14 @@ export async function invite(
     );
   for (const old of all) {
     if (expired(old.expiresAt, ctx.now))
-      await ctx.tx
-        .update(workflowRunInvitations)
-        .set({ status: 'expired', updatedAt: ctx.now })
-        .where(eq(workflowRunInvitations.id, old.id));
+      await workflowPatch(ctx.tx,'workflowRunInvitations',old.id,{ status: 'expired', updatedAt: ctx.now });
     else if (
       old.targetBindingGeneration === target.binding_generation &&
       old.targetSessionId === target.session_id
     )
       return invitationView(old);
     else
-      await ctx.tx
-        .update(workflowRunInvitations)
-        .set({ status: 'revoked', updatedAt: ctx.now })
-        .where(eq(workflowRunInvitations.id, old.id));
+      await workflowPatch(ctx.tx,'workflowRunInvitations',old.id,{ status: 'revoked', updatedAt: ctx.now });
   }
   const doc = await pinned(ctx, run);
   for (const id of input.task_ids)
@@ -166,7 +159,7 @@ export async function invite(
     createdAt: ctx.now,
     updatedAt: ctx.now,
   };
-  await ctx.tx.insert(workflowRunInvitations).values(row);
+  await workflowInsert(ctx.tx,'workflowRunInvitations',row);
   const message = await collaboration.invite(ctx.tx, {
     actor: ctx.actor,
     target,
@@ -179,10 +172,7 @@ export async function invite(
     client_request_id: input.client_request_id,
   });
   row.messageId = message.message_id;
-  await ctx.tx
-    .update(workflowRunInvitations)
-    .set({ messageId: row.messageId })
-    .where(eq(workflowRunInvitations.id, row.id));
+  await workflowPatch(ctx.tx,'workflowRunInvitations',row.id,{ messageId: row.messageId });
   await event(ctx, run, 'member.invited', { invitation_id: row.id, target_address_id: target.address_id });
   return invitationView(row);
 }
@@ -213,13 +203,14 @@ export async function membership(
   mutable(run);
   requireAgent(ctx.actor);
   if ('invitation_id' in input) {
-    const [inv] = await ctx.tx
+    const state=workflowState();
+    const inv = state ? state.table('workflowRunInvitations').by('runId',run.id).find(r=>r.id===input.invitation_id) : (await ctx.tx
       .select()
       .from(workflowRunInvitations)
       .where(
         and(eq(workflowRunInvitations.id, input.invitation_id), eq(workflowRunInvitations.runId, run.id)),
       )
-      .for('update');
+      .for('update'))[0];
     if (!inv) throw new NotFoundError('Invitation not found', 'workflow_invitation_not_found');
     if (input.action === 'revoke_invitation') {
       await member(ctx, run);
@@ -246,10 +237,7 @@ export async function membership(
     const status =
       input.action === 'accept' ? 'accepted' : input.action === 'decline' ? 'declined' : 'revoked';
     if (input.action === 'accept') await addMember(ctx, run, ctx.actor, input.reason);
-    await ctx.tx
-      .update(workflowRunInvitations)
-      .set({ status, updatedAt: ctx.now })
-      .where(eq(workflowRunInvitations.id, inv.id));
+    await workflowPatch(ctx.tx,'workflowRunInvitations',inv.id,{ status, updatedAt: ctx.now });
     await syncGroup(ctx, run, collaboration);
     await event(ctx, run, `member.${status}`, {
       invitation_id: inv.id,
@@ -276,6 +264,7 @@ export async function membership(
     if (input.action === 'leave')
       throw new ConflictError('Resolve or release owned claims before leaving', 'workflow_member_has_claims');
     await patchTask(ctx, t, { ...clearClaim, status: 'uncertain', reason: input.reason });
+    for(const attempt of workflowState()?.table('workflowTaskAttempts').by('runId',run.id)??[])if(attempt.taskId===t.taskId&&attempt.attemptNo===t.attemptNo)patchWorkflowRow('workflowTaskAttempts',attempt.id,{status:'uncertain'});
     await ctx.tx
       .update(workflowTaskAttempts)
       .set({ status: 'uncertain' })
@@ -288,10 +277,7 @@ export async function membership(
       );
   }
   const status = input.action === 'leave' ? 'left' : 'removed';
-  await ctx.tx
-    .update(workflowRunMembers)
-    .set({ status, reason: input.reason, updatedAt: ctx.now })
-    .where(eq(workflowRunMembers.id, found.id));
+  await workflowPatch(ctx.tx,'workflowRunMembers',found.id,{status,reason:input.reason,updatedAt:ctx.now});
   if (input.action === 'remove') await patchRun(ctx, run, {});
   await syncGroup(ctx, run, collaboration);
   await event(ctx, run, `member.${status}`, { address_id: address, reason: input.reason });

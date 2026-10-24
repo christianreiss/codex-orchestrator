@@ -1,3 +1,7 @@
+import { OwnerStateSnapshot, OwnerStateStore } from '../../../src/control-plane/state/store.js';
+import { bindOwnerRuntime } from '../../../src/control-plane/state/runtime.js';
+import { DeadlineQueue } from '../../../src/control-plane/deadlines.js';
+import { ControlStateStreams } from '../../../src/control-plane/protocol.js';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { communicatorRegistry } from '../../../src/services/topology/communicator-registry.js';
@@ -37,10 +41,15 @@ afterEach(async () => {
   auth.policies.length = 0;
   await app?.close();
 });
-async function setup(enabled = true, update = false) {
+async function setup(enabled = true, update = false, owned = false) {
   app = await buildRouteApp();
   app.decorateRequest('clientIp', '192.0.2.1');
   const { db } = createMockDb();
+  if (owned) {
+    const deadlines = new DeadlineQueue(() => {});
+    app.addHook('onClose', async () => deadlines.close());
+    bindOwnerRuntime(db, { state: new OwnerStateStore(new OwnerStateSnapshot({ epoch: randomUUID(), sequence: 0n }, { hosts: [{ id: 1, status: 'active', secure: 1, apiKeyHash: 'test' } as never] })), deadlines, assertOwner() {}, async execute() { return null; } });
+  }
   await registerCommunicatorRoutes(app, {
     db,
     env: { CXX_COMMUNICATOR_ENABLED: enabled, CXX_COMMUNICATOR_UPDATE_ENABLED: update, DATA_ROOT: update ? '/nonexistent-cxx-test-root' : undefined } as never,
@@ -87,6 +96,19 @@ async function open(realSocket = false, control = ['terminate', 'owner_identity'
   return ws;
 }
 describe('communicator transport', () => {
+  it('delegates local state liveness only after authenticated capability acceptance', async () => {
+    await setup(true, false, true);
+    const delegated = vi.spyOn(ControlStateStreams.prototype, 'delegateTransportLiveness');
+    try {
+      const ws = await open(false, ['terminate', 'owner_identity', 'resident_runtime', 'control_state_v1', 'communicator_state_liveness_v1']);
+      expect(delegated).not.toHaveBeenCalled();
+      const accepted = new Promise<string>(resolve => ws.once('message', (data: unknown) => resolve(String(data))));
+      ws.send(JSON.stringify({ type: 'capabilities', terminate: false, pid: 1234, started_at: '2026-10-24T00:00:00Z', state_liveness: 'communicator' }));
+      expect(JSON.parse(await accepted)).toEqual({ type: 'state_liveness_ready', protocol: 1 });
+      expect(delegated).toHaveBeenCalledOnce(); ws.close();
+    } finally { delegated.mockRestore(); }
+  });
+
   it('requires fresh combined kill-switch admission for every request frame', async () => {
     await setup();
     const ws = await open();

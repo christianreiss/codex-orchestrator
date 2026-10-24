@@ -1,7 +1,9 @@
+import {persistAuditLog} from '../services/audit-log.js';
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
 import type { RouteContext } from './index.js';
-import { hosts, logs } from '../db/schema.js';
+import { hosts} from '../db/schema.js';
 import { ENGINES, type Engine } from '../util/engine.js';
 import { ValidationError, NotFoundError } from '../http/errors.js';
 import { createHostAuthService } from '../services/host-auth.js';
@@ -23,13 +25,14 @@ export async function registerHousekeepingRoutes(app: FastifyInstance, ctx: Rout
   const hostId = async (value: unknown) => {
     const id = Number(value);
     if (!Number.isSafeInteger(id) || id <= 0) throw new ValidationError('invalid host id');
-    if (!(await ctx.db.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, id)).limit(1)).length) throw new NotFoundError('Host not found');
+    const owner=ownerRuntimeFor(ctx.db);
+    if (owner ? !owner.state.snapshot().hosts.has(id) : !(await ctx.db.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, id)).limit(1)).length) throw new NotFoundError('Host not found');
     return id;
   };
   app.get('/admin/session-housekeeping', { preHandler: app.requireAdmin }, async () => policies());
   app.post<{ Params: { engine: string } }>('/admin/session-housekeeping/:engine', { preHandler: app.requireAdmin }, async req => {
     const engine=engineOf(req.params.engine);const result=await storeHousekeeping(ctx.db,engine,req.body);
-    await ctx.db.insert(logs).values({hostId:null,action:'admin.session_housekeeping',details:JSON.stringify({engine,policy:result}),createdAt:nowIso()});return result;
+    if(!ownerRuntimeFor(ctx.db))await persistAuditLog(ctx.db, {hostId:null,action:'admin.session_housekeeping',details:JSON.stringify({engine,policy:result}),createdAt:nowIso()});return result;
   });
   app.get<{ Params: { id: string } }>('/admin/hosts/:id/session-housekeeping', { preHandler: app.requireAdmin }, async req => {
     const id = await hostId(req.params.id);
@@ -38,7 +41,7 @@ export async function registerHousekeepingRoutes(app: FastifyInstance, ctx: Rout
   app.post<{ Params: { id: string; engine: string } }>('/admin/hosts/:id/session-housekeeping/:engine', { preHandler: app.requireAdmin }, async req => {
     const id = await hostId(req.params.id);
     const result = await storeHousekeeping(ctx.db, engineOf(req.params.engine), (req.body as { inherit?: boolean })?.inherit === true ? null : req.body, id);
-    await ctx.db.insert(logs).values({hostId:id,action:'admin.session_housekeeping',details:JSON.stringify({engine:req.params.engine,policy:result}),createdAt:nowIso()});
+    if(!ownerRuntimeFor(ctx.db))await persistAuditLog(ctx.db, {hostId:id,action:'admin.session_housekeeping',details:JSON.stringify({engine:req.params.engine,policy:result}),createdAt:nowIso()});
     wsPublisher.publish('host.updated', { id });
     return result;
   });

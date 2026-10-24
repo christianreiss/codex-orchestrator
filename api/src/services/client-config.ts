@@ -1,3 +1,5 @@
+import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import type { Json } from '../control-plane/commands.js';
 /**
  * Client config (codex/claude wrapper config.toml) admin service.
  *
@@ -1364,6 +1366,22 @@ export class ClientConfigService {
   constructor(private readonly db: Database, private readonly configWrite?: ConfigWriteContext) {}
 
   async adminFetch(engine: Engine = ENGINE_CODEX): Promise<AdminFetchResult> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const row = [...owner.state.snapshot().table('clientConfigDocuments').by('engine', engine)].sort((a,b) => b.id-a.id)[0];
+      if (!row) return { status: 'missing', revision: null };
+      const rendered = this.render(row.settings, engine);
+      // Legacy authored bodies may differ from today's renderer; load only the
+      // exact immutable revision requested, never discover its head through SQL.
+      let body = rendered.content;
+      if (rendered.sha256 !== row.sha256) {
+        const [content] = await this.db.select({ body: clientConfigDocuments.body }).from(clientConfigDocuments).where(eq(clientConfigDocuments.id, row.id)).limit(1);
+        if (!content) throw new Error('Owned configuration revision is missing durable content');
+        body = content.body;
+      }
+      return { status: 'ok', revision: String(row.id), sha256: row.sha256, updated_at: row.updatedAt, size_bytes: Buffer.byteLength(body, 'utf8'), content: body, settings: rendered.settings };
+    }
     const rows = await this.db
       .select()
       .from(clientConfigDocuments)
@@ -1411,6 +1429,42 @@ export class ClientConfigService {
     sourceHostId: number | null = null,
     engine: Engine = ENGINE_CODEX,
   ): Promise<StoreResult> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const rendered = this.render(payload.settings, engine);
+      if (!rendered.content) throw new ValidationError('config cannot be empty', { param: 'settings' });
+      let result!: StoreResult;
+      await mutateOwnerState(owner, { kind: 'config.store', payload: { engine, sourceHostId, settings: rendered.settings as unknown as Json, expectedRevision: payload.expected_revision as Json ?? null, sha256: typeof payload.sha256 === 'string' ? payload.sha256 : null }, prepare(ctx) {
+        const existing = [...ctx.draft.table('clientConfigDocuments').by('engine', engine)].sort((a,b) => b.id-a.id)[0];
+        if (payload.expected_revision !== undefined) {
+          const expected = payload.expected_revision;
+          if (expected !== null && (typeof expected !== 'string' || !/^[1-9]\d*$/.test(expected))) throw new ValidationError('expected_revision must be a saved revision string or null for a missing config', { param: 'expected_revision' });
+          const current = existing ? String(existing.id) : null;
+          if (expected !== current) throw new ConflictError('Configuration changed since it was loaded; reload and review your changes before saving', 'config_revision_conflict', { expected_revision: expected, current_revision: current });
+        }
+        if (payload.sha256 !== undefined && payload.sha256 !== null && payload.sha256 !== '') {
+          if (typeof payload.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(payload.sha256.trim().toLowerCase())) throw new ValidationError('sha256 must be 64 hex characters when provided', { param: 'sha256' });
+          if (existing && existing.sha256.toLowerCase() !== payload.sha256.trim().toLowerCase()) throw new ValidationError('sha256 does not match current saved config.toml (reload before saving)', { param: 'sha256' });
+        }
+        const unchanged = existing && existing.sha256 === rendered.sha256 && settingsHash(existing.settings ?? {}) === settingsHash(rendered.settings);
+        const change = unchanged ? 'unchanged' : existing ? 'updated' : 'created';
+        const at = unchanged ? existing.updatedAt : nowIso();
+        result = { status: 'ok', revision: unchanged ? String(existing.id) : '', sha256: rendered.sha256, updated_at: at, size_bytes: rendered.size_bytes, content: rendered.content, settings: rendered.settings, change };
+        if (!unchanged) {
+          const values = { sha256: rendered.sha256, body: rendered.content, settings: rendered.settings as unknown as Record<string, unknown>, sourceHostId, engine, createdAt: at, updatedAt: at };
+          ctx.write(async tx => {
+            const [inserted] = await tx.insert(clientConfigDocuments).values(values);
+            const id = Number(inserted.insertId);
+            for (const prior of ctx.draft.table('clientConfigDocuments').by('engine', engine)) ctx.draft.removeRow('clientConfigDocuments', prior);
+            ctx.draft.upsert('clientConfigDocuments', { ...values, id });
+            result.revision = String(id);
+          });
+        }
+        return () => result as unknown as Json;
+      } });
+      if (result.change !== 'unchanged') wsPublisher.publish('settings.changed', { kind: 'client_config', change: result.change, engine });
+      return result;
+    }
     if (!this.configWrite) {
       return withClientConfigWriteLock(this.db, engine, (tx, _existing, context) =>
         new ClientConfigService(tx, context).store(payload, sourceHostId, engine));

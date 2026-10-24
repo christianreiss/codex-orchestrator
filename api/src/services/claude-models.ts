@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { setOwnedModelEnabled } from './model-availability.js';
 /**
  * Claude (Anthropic) model catalog. Port of src/Services/ClaudeModelService.php
  * + src/Support/ConfigNormalizer::CLAUDE_SUPPORTED_MODELS.
@@ -220,6 +222,7 @@ export function createClaudeModelsService(db: Database): ClaudeModelsService {
   const TTL_MS = 5_000;
 
   async function loadDisabled(): Promise<Set<string>> {
+    const owner=ownerRuntimeFor(db);if(owner){owner.assertOwner();return new Set((owner.state.snapshot().setting(FLAG)??'').split(',').map(value=>value.trim().toLowerCase()).filter(Boolean));}
     if (cache && Date.now() - cache.ts < TTL_MS) return cache.disabled;
     const rows = await db.select().from(versions).where(eq(versions.name, FLAG)).limit(1);
     const raw = rows[0]?.version ?? '';
@@ -252,6 +255,7 @@ export function createClaudeModelsService(db: Database): ClaudeModelsService {
     },
 
     async setEnabled(model, enabled) {
+      if(ownerRuntimeFor(db))return setOwnedModelEnabled(db,FLAG,model,enabled);
       const current = new Set(await loadDisabled());
       if (enabled) current.delete(model);
       else current.add(model);

@@ -1,7 +1,12 @@
+import {persistAuditLog} from '../../services/audit-log.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../../control-plane/state/runtime.js';
+import { stageUpdate } from '../../control-plane/state/rows.js';
+import { ownedEngineState } from '../../control-plane/state/messaging.js';
+import { requestHost } from '../../control-plane/state/admission.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { join, resolve } from 'node:path';
-import { hosts as hostsTable, logs as logsTable, type Host } from '../../db/schema.js';
+import { hosts as hostsTable, type Host } from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
 import { ApiError, ValidationError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
@@ -101,13 +106,25 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     if (!retired && lane !== null && typeof lane === 'string' && lane.trim() !== '' && normalized === null) {
       throw new ValidationError('lane must be one of: normal or null', { param: 'lane' });
     }
+    const owner=ownerRuntimeFor(ctx.db);
+    if(owner){
+      await mutateOwnerState(owner,{kind:'host.lane.set',payload:{hostId:host.id,lane:normalized},prepare(command){
+        const current=command.snapshot.hosts.get(host.id);if(!current)throw new Error('Host unavailable');
+        assertHostEngineEnabled(requestHost(current,host.apiKey),ENGINE_CODEX,ownedEngineState(command.snapshot));
+        const at=nowIso();
+        if(current.lanePreference!==normalized)stageUpdate(command,'hosts',host.id,{lanePreference:normalized,updatedAt:at});
+        command.write(tx=>persistAuditLog(tx, {hostId:host.id,action:'host.lane.set',details:JSON.stringify({fqdn:current.fqdn,lane_preference:normalized,effective_lane:normalized??'normal'}),createdAt:at}));return null;
+      }});
+      wsPublisher.publish('host.updated',{id:host.id,fqdn:host.fqdn});
+      return {lane_preference:normalized,effective_lane:normalized??'normal',host_id:host.id,fqdn:host.fqdn};
+    }
     await ctx.db
       .update(hostsTable)
       .set({ lanePreference: normalized, updatedAt: nowIso() })
       .where(eq(hostsTable.id, host.id));
     const updated = await ctx.db.select().from(hostsTable).where(eq(hostsTable.id, host.id)).limit(1);
     const eff = normalizeLane(updated[0]?.lanePreference ?? null) ?? 'normal';
-    await ctx.db.insert(logsTable).values({
+    await persistAuditLog(ctx.db, {
       hostId: host.id,
       action: 'host.lane.set',
       details: JSON.stringify({ fqdn: host.fqdn, lane_preference: normalized, effective_lane: eff }),
@@ -166,7 +183,11 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const usingLegacyTransition = isLegacyShellWrapperVersion(submittedWrapper);
     const targetWrapper = summary.wrapper_version;
 
-    if (!probe) {
+    if (!probe && ownerRuntimeFor(ctx.db)) {
+      await mutateOwnerState(ownerRuntimeFor(ctx.db)!,{kind:'host.cron.checked',payload:{hostId:host.id,engine},prepare(command){
+        const at=nowIso();stageUpdate(command,'hosts',host.id,{lastCronCheck:at,updatedAt:at});return null;
+      }});
+    } else if (!probe) {
       await ctx.db
         .update(hostsTable)
         .set({ lastCronCheck: nowIso(), updatedAt: nowIso() })
@@ -258,8 +279,23 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
       ...(wrapperVersion ? { [fields.wrapperVersion]: wrapperVersion } : {}),
       updatedAt: nowIso(),
     };
+    const owner=ownerRuntimeFor(ctx.db);
+    if(owner){
+      const changed=!!((clientVersion&&previousClient!==clientVersion)||(wrapperVersion&&previousWrapper!==wrapperVersion));
+      if(!changed)return {recorded:true};
+      await mutateOwnerState(owner,{kind:'host.versions.report',payload:{hostId:host.id,engine,clientVersion,wrapperVersion},prepare(command){
+        const current=command.snapshot.hosts.get(host.id);if(!current)throw new Error('Host unavailable');
+        assertHostEngineEnabled(requestHost(current,host.apiKey),engine,ownedEngineState(command.snapshot));
+        if((!clientVersion||current[fields.clientVersion]===clientVersion)&&(!wrapperVersion||current[fields.wrapperVersion]===wrapperVersion))return null;
+        stageUpdate(command,'hosts',host.id,patch);
+        command.write(tx=>persistAuditLog(tx, {hostId:host.id,action:'cron.update_reported',details:JSON.stringify({engine,client:{reported:clientVersion},wrapper:{reported:wrapperVersion}}),createdAt:nowIso()}));return null;
+      }});
+      wsPublisher.publish('host.updated',{id:host.id,fqdn:host.fqdn,source:'cron_report'});
+      if(clientVersion&&previousClient!==clientVersion)wsPublisher.publish('host.updated',{id:host.id,fqdn:host.fqdn,field:fields.clientVersion});
+      return {recorded:true};
+    }
     await ctx.db.update(hostsTable).set(patch).where(eq(hostsTable.id, host.id));
-    if ((clientVersion && previousClient !== clientVersion) || (wrapperVersion && previousWrapper !== wrapperVersion)) await ctx.db.insert(logsTable).values({
+    if ((clientVersion && previousClient !== clientVersion) || (wrapperVersion && previousWrapper !== wrapperVersion)) await persistAuditLog(ctx.db, {
       hostId: host.id,
       action: 'cron.update_reported',
       details: JSON.stringify({ engine, client: { reported: clientVersion }, wrapper: { reported: wrapperVersion } }),

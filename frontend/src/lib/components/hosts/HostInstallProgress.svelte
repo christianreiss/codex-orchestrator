@@ -53,7 +53,6 @@
   // The host is fixed for this instance; containers remount for a new one.
   const detail = hostDetailQuery(
     untrack(() => hostId),
-    { refetchInterval: (data) => (syncedAt(data?.host) ? false : 5000) },
   );
   const setup = setupStatusQuery();
   const mint = createMintInstallerMutation(qc);

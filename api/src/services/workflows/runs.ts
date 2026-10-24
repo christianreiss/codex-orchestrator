@@ -1,3 +1,4 @@
+import {workflowState,workflowInsert,workflowPatch} from './owner.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import {
@@ -22,6 +23,7 @@ import {
   assertPreparationReady,
   agentRecord,
   coordinator,
+  coordinatorOwnership,
   knownEvidence,
   definition,
   event,
@@ -45,10 +47,8 @@ export async function createRun(ctx: Session, input: MutationInput<'run_create'>
   if (workflow.status !== 'active')
     throw new ConflictError('Archived workflows cannot start runs', 'workflow_archived');
   const number = input.version === 'latest' ? workflow.currentVersion : input.version;
-  const [v] = await ctx.tx
-    .select()
-    .from(workflowVersions)
-    .where(and(eq(workflowVersions.workflowId, workflow.id), eq(workflowVersions.version, number)));
+  const state=workflowState();
+  const v=state?state.table('workflowVersions').by('workflowId',workflow.id).find(r=>r.version===number):(await ctx.tx.select().from(workflowVersions).where(and(eq(workflowVersions.workflowId,workflow.id),eq(workflowVersions.version,number))))[0];
   if (!v) throw new NotFoundError('Workflow version not found', 'workflow_version_not_found');
   const doc = v.document as WorkflowDocument;
   const agent = ctx.actor.kind === 'agent';
@@ -68,7 +68,7 @@ export async function createRun(ctx: Session, input: MutationInput<'run_create'>
     eventSequence: 0,
     coordinatorAddressId: agent ? ctx.actor.address_id! : null,
     coordinatorGeneration: agent ? 1 : 0,
-    coordinatorLeaseUntil: agent ? leaseUntil(ctx.now) : null,
+    ... (agent?coordinatorOwnership(ctx):{coordinatorOwnershipMode:'timed',coordinatorSessionId:null,coordinatorBindingGeneration:null,coordinatorNativeInstanceId:null,coordinatorLeaseUntil:null}),
     cancelRequested: 0,
     communicationGroupId: null,
     communication: null,
@@ -84,9 +84,8 @@ export async function createRun(ctx: Session, input: MutationInput<'run_create'>
     createdAt: ctx.now,
     updatedAt: ctx.now,
   };
-  await ctx.tx.insert(workflowRuns).values(row);
-  await ctx.tx.insert(workflowRunTasks).values(
-    doc.tasks.map((t, i) => ({
+  await workflowInsert(ctx.tx,'workflowRuns',row);
+  for(const [i,t] of doc.tasks.entries())await workflowInsert(ctx.tx,'workflowRunTasks',{
       id: randomUUID(),
       runId: row.id,
       taskId: t.id,
@@ -94,8 +93,7 @@ export async function createRun(ctx: Session, input: MutationInput<'run_create'>
       title: t.title,
       createdAt: ctx.now,
       updatedAt: ctx.now,
-    })),
-  );
+    });
   if (agent) await addMember(ctx, row, ctx.actor, 'Run creator');
   await event(ctx, row, 'run.created', { workflow_version: number });
   return row;
@@ -162,7 +160,7 @@ export async function runControl(
         ...(input.action === 'start' || !run.preparation ? { status: 'running', startedAt: ctx.now } : {}),
         coordinatorAddressId: ctx.actor.address_id!,
         coordinatorGeneration: run.coordinatorGeneration + 1,
-        coordinatorLeaseUntil: leaseUntil(ctx.now),
+        ...coordinatorOwnership(ctx),
       });
     } else {
       await member(ctx, run);
@@ -170,12 +168,12 @@ export async function runControl(
         await coordinator(ctx, run, input.coordinator_generation);
         await patchRun(ctx, run, { status: 'running', startedAt: ctx.now });
       } else {
-        if (!expired(run.coordinatorLeaseUntil, ctx.now))
+        if (run.coordinatorOwnershipMode==='connection'||!expired(run.coordinatorLeaseUntil, ctx.now))
           throw new ConflictError('Coordinator lease remains valid', 'workflow_coordinator_claimed');
         await patchRun(ctx, run, {
           coordinatorAddressId: ctx.actor.address_id!,
           coordinatorGeneration: run.coordinatorGeneration + 1,
-          coordinatorLeaseUntil: leaseUntil(ctx.now),
+          ...coordinatorOwnership(ctx),
         });
       }
     }
@@ -195,16 +193,13 @@ export async function runControl(
           'Resolve earlier binding claims before recovery',
           'workflow_member_has_claims',
         );
-      await ctx.tx
-        .update(workflowRunMembers)
-        .set({ status: 'removed', reason: input.reason, updatedAt: ctx.now })
-        .where(eq(workflowRunMembers.id, old.id));
+      await workflowPatch(ctx.tx,'workflowRunMembers',old.id,{status:'removed',reason:input.reason,updatedAt:ctx.now});
     }
     await addMember(ctx, run, target, input.reason);
     await patchRun(ctx, run, {
       coordinatorAddressId: target.address_id!,
       coordinatorGeneration: run.coordinatorGeneration + 1,
-      coordinatorLeaseUntil: leaseUntil(ctx.now),
+      ...coordinatorOwnership(ctx,target),
       ...(run.status === 'pending' && !run.preparation ? { status: 'running', startedAt: ctx.now } : {}),
     });
     await syncGroup(ctx, run, collaboration);
@@ -215,6 +210,7 @@ export async function runControl(
       input.coordinator_generation,
       ['pause', 'resume', 'block', 'request_cancel'].includes(input.action),
     );
+    if(input.action==='coordinator_renew'&&run.coordinatorOwnershipMode==='connection')return run;
     if (input.action === 'coordinator_renew')
       await patchRun(ctx, run, { coordinatorLeaseUntil: leaseUntil(ctx.now) });
     else if (input.action === 'coordinator_transfer') {
@@ -234,7 +230,7 @@ export async function runControl(
       await patchRun(ctx, run, {
         coordinatorAddressId: target.agentAddressId,
         coordinatorGeneration: run.coordinatorGeneration + 1,
-        coordinatorLeaseUntil: leaseUntil(ctx.now),
+        ...coordinatorOwnership(ctx,{...target.actor,kind:'agent',id:target.agentAddressId,address_id:target.agentAddressId,session_id:target.sessionId,binding_generation:target.bindingGeneration}),
       });
     } else {
       if (input.action === 'request_cancel' && run.status === 'pending') {
@@ -366,9 +362,7 @@ export async function finishRun(ctx: Session, run: Run, input: MutationInput<'ru
     openItems: input.open_items,
     finishedAt: ctx.now,
   });
-  await ctx.tx
-    .insert(workflowRunEvaluations)
-    .values({ runId: run.id, status: 'pending', createdAt: ctx.now, updatedAt: ctx.now });
+  await workflowInsert(ctx.tx,'workflowRunEvaluations',{ runId: run.id, status: 'pending', createdAt: ctx.now, updatedAt: ctx.now });
   await event(ctx, run, 'run.finished', { outcome: input.outcome, uncertain_task_ids: uncertain });
   return run;
 }
@@ -403,9 +397,7 @@ async function cancelPending(ctx: Session, run: Run, reason: string, eventType: 
     openItems: ['Evaluation by an agent is required'],
     finishedAt: ctx.now,
   });
-  await ctx.tx
-    .insert(workflowRunEvaluations)
-    .values({ runId: run.id, status: 'pending', createdAt: ctx.now, updatedAt: ctx.now });
+  await workflowInsert(ctx.tx,'workflowRunEvaluations',{ runId: run.id, status: 'pending', createdAt: ctx.now, updatedAt: ctx.now });
   await event(ctx, run, eventType, { reason: input.reason });
   return run;
 }

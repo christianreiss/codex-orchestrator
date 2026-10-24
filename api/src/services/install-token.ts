@@ -1,5 +1,10 @@
+import {persistAuditLog} from './audit-log.js';
+import { hostEnginesList } from './host-engine-policy.js';
+import { isTruthyFlagValue } from './settings.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
 import { and, eq, isNull } from 'drizzle-orm';
-import { authSeedTokens, installTokens } from '../db/schema.js';
+import { authSeedTokens, installTokens} from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
 import { decryptOrNull } from '../security/secret-box.js';
@@ -66,7 +71,10 @@ export function createInstallTokenService(deps: InstallTokenDeps): InstallTokenS
   return {
     async findInstall(token) {
       const tokenHash = sha256(token);
-      let rows = await db.select().from(installTokens).where(eq(installTokens.token, tokenHash)).limit(1);
+      const owner=ownerRuntimeFor(db);owner?.assertOwner();
+      const metadata=owner?.state.snapshot().table('installTokens').all().find(row=>row.token===tokenHash||row.token===token);
+      if(owner&&!metadata)return null;
+      let rows = metadata ? await db.select().from(installTokens).where(eq(installTokens.id,metadata.id)).limit(1) : await db.select().from(installTokens).where(eq(installTokens.token, tokenHash)).limit(1);
       if (!rows[0]) {
         rows = await db.select().from(installTokens).where(eq(installTokens.token, token)).limit(1);
       }
@@ -87,6 +95,15 @@ export function createInstallTokenService(deps: InstallTokenDeps): InstallTokenS
       };
     },
     async markInstallUsed(id) {
+      const owner=ownerRuntimeFor(db);if(owner)return await mutateOwnerState(owner,{kind:'install.token.consume',payload:{id},prepare(ctx){
+        const row=ctx.snapshot.table('installTokens').get(id);if(!row||row.usedAt||tokenExpired(row.expiresAt))return false;
+        const host=ctx.snapshot.hosts.get(row.hostId);
+        if(!host||host.status!=='active'||host.expiresAt&&tokenExpired(host.expiresAt)||!hostEnginesList(host.engines).includes(asEngine(row.engine))||isTruthyFlagValue(ctx.snapshot.setting(`${row.engine}_engine_disabled`)))return false;
+        const spawn=ctx.snapshot.table('hostSpawns').by('targetHostId',host.id)[0];
+        if(spawn){const source=ctx.snapshot.hosts.get(spawn.sourceHostId);if(ctx.snapshot.setting('host_spawn_enabled')!=='1'||!source||source.status!=='active'||source.vip!==1||source.expiresAt&&tokenExpired(source.expiresAt))return false;}
+        const at=nowIso();stageUpdate(ctx,'installTokens',id,{usedAt:at});
+        ctx.write(tx=>persistAuditLog(tx, {hostId:host.id,action:'install.v2.token.consume',details:JSON.stringify({token_id:id,engine:row.engine}),createdAt:at}));return true;
+      }}) as boolean;
       const result = await db
         .update(installTokens)
         .set({ usedAt: nowIso() })
@@ -95,6 +112,8 @@ export function createInstallTokenService(deps: InstallTokenDeps): InstallTokenS
     },
     async findSeed(token) {
       const tokenHash = sha256(token);
+      const owner=ownerRuntimeFor(db);owner?.assertOwner();
+      if(owner){const row=owner.state.snapshot().table('authSeedTokens').all().find(row=>row.token===tokenHash||row.token===token);return row?{id:row.id,token,baseUrl:row.baseUrl??null,expiresAt:row.expiresAt,usedAt:row.usedAt??null,accountId:row.accountId??null,engine:asEngine(row.engine)}:null;}
       let rows = await db.select().from(authSeedTokens).where(eq(authSeedTokens.token, tokenHash)).limit(1);
       if (!rows[0]) {
         rows = await db.select().from(authSeedTokens).where(eq(authSeedTokens.token, token)).limit(1);
@@ -113,6 +132,7 @@ export function createInstallTokenService(deps: InstallTokenDeps): InstallTokenS
       };
     },
     async markSeedUsed(id) {
+      const owner=ownerRuntimeFor(db);if(owner)return await mutateOwnerState(owner,{kind:'seed.token.consume',payload:{id},prepare(ctx){const row=ctx.snapshot.table('authSeedTokens').get(id);if(!row||row.usedAt||tokenExpired(row.expiresAt))return false;stageUpdate(ctx,'authSeedTokens',id,{usedAt:nowIso()});return true;}}) as boolean;
       const result = await db
         .update(authSeedTokens)
         .set({ usedAt: nowIso() })
@@ -120,6 +140,7 @@ export function createInstallTokenService(deps: InstallTokenDeps): InstallTokenS
       return Number(result[0]?.affectedRows ?? 0) > 0;
     },
     async releaseSeed(id) {
+      const owner=ownerRuntimeFor(db);if(owner){await mutateOwnerState(owner,{kind:'seed.token.release',payload:{id},prepare(ctx){if(ctx.snapshot.table('authSeedTokens').has(id))stageUpdate(ctx,'authSeedTokens',id,{usedAt:null});return null;}});return;}
       await db.update(authSeedTokens).set({ usedAt: null }).where(eq(authSeedTokens.id, id));
     },
   };

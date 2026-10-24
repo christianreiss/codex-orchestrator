@@ -1,3 +1,4 @@
+import type { ManagedHost } from '../../../src/control-plane/state/host-registration.js';
 import { randomUUID } from 'node:crypto';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,7 +23,7 @@ describe.skipIf(!handle)('Grok fleet defaults during explicit provisioning again
   let configs: ClientConfigService;
   let defaults: ModelDefaultsService;
 
-  function tracked(host: Host): Host {
+  function tracked(host: ManagedHost): ManagedHost {
     hostIds.add(host.id);
     return host;
   }
@@ -57,13 +58,13 @@ describe.skipIf(!handle)('Grok fleet defaults during explicit provisioning again
     expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing', revision: null });
     const legacy = tracked((await management.register({ fqdn: `${randomUUID()}.grok-read.test`, secure: true, engines: ['codex'] })).host);
     const out = await new HostAgentsService(db, { publicBaseUrl: 'https://grok-defaults.test', keyring: testKeyring() })
-      .retrieveConfig(null, legacy, ENGINE_GROK);
+      .retrieveConfig(null, (await db.select().from(hosts).where(eq(hosts.id, legacy.id)))[0]!, ENGINE_GROK);
     expect(out).toEqual({ status: 'missing' });
     expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing', revision: null });
   });
 
   it.each(['register', 'quick-register', 'engine-switch', 'installer-add', 'cli-register', 'cli-engine-add'] as const)('initializes Grok defaults and managed MCP through %s', async operation => {
-      let host: Host;
+      let host: ManagedHost;
       const fqdn = `${randomUUID()}.grok-provision.test`;
       if (operation === 'register') {
         host = tracked((await management.register({ fqdn, secure: true, engines: ['grok'] })).host);
@@ -88,7 +89,7 @@ describe.skipIf(!handle)('Grok fleet defaults during explicit provisioning again
       }
       expect(await defaults.get(ENGINE_GROK)).toMatchObject({ model: 'grok-4.7', reasoning_effort: 'high' });
       const rendered = await new HostAgentsService(db, { publicBaseUrl: 'https://grok-defaults.test', keyring: testKeyring() })
-        .retrieveConfig(null, host, ENGINE_GROK);
+        .retrieveConfig(null, (await db.select().from(hosts).where(eq(hosts.id, host.id)))[0]!, ENGINE_GROK);
       expect(rendered.status).toBe('updated');
       expect(rendered.content).toContain('[mcp_servers.cgx]');
       expect(rendered.content).toContain('https://grok-defaults.test/mcp');

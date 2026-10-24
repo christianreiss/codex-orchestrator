@@ -14,7 +14,7 @@
   const devices = createQuery({
     queryKey: ["companion-devices"],
     queryFn: () => api.get<{ devices: Device[]; push_configured: boolean }>("/admin/companion/devices"),
-    refetchInterval: 5000,
+
   });
   const list = $derived($devices.data?.devices ?? []);
   let open = $state(false);

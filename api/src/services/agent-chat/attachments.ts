@@ -1,3 +1,6 @@
+import { ownerRuntimeFor, type OwnerMutationContext } from '../../control-plane/state/runtime.js';
+import { OwnedChatAttachments, attachmentConversation, assertAttachmentConversation } from './attachments-owned.js';
+import { stageUpdate } from '../../control-plane/state/rows.js';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -45,6 +48,7 @@ export class ChatAttachments {
     return join(this.directory(id), 'original');
   }
   async conversationKey(id: string, db: ChatDb = this.db) {
+    const owner=ownerRuntimeFor(db);if(owner){owner.assertOwner();return attachmentConversation(owner.state.snapshot(),id);}
     const [binding] = await db
       .select()
       .from(hostDaemonPortalBindings)
@@ -53,6 +57,7 @@ export class ChatAttachments {
     return binding?.daemonSessionId ?? id;
   }
   private async session(id: string, db: ChatDb = this.db) {
+    const owner=ownerRuntimeFor(db);if(owner){owner.assertOwner();return assertAttachmentConversation(owner.state.snapshot(),id);}
     const [session] = await db.select().from(agentSessions).where(eq(agentSessions.id, id)).limit(1);
     if (!session) {
       const [remote] = await db
@@ -72,6 +77,7 @@ export class ChatAttachments {
     return session;
   }
   async create(sessionId: string, owner: string, input: unknown) {
+    if(ownerRuntimeFor(this.db))return new OwnedChatAttachments(this.db,this.keyring,this).create(sessionId,owner,input);
     sessionId = await this.conversationKey(sessionId);
     if (owner.startsWith('agent:')) owner = `agent:${sessionId}`;
     const body = attachmentCreateSchema.parse(input);
@@ -133,6 +139,7 @@ export class ChatAttachments {
     return this.info(sessionId, body.id);
   }
   async put(sessionId: string, owner: string, id: string, offset: number, encoded: string) {
+    if(ownerRuntimeFor(this.db))return new OwnedChatAttachments(this.db,this.keyring,this).put(sessionId,owner,id,offset,encoded);
     sessionId = await this.conversationKey(sessionId);
     if (owner.startsWith('agent:')) owner = `agent:${sessionId}`;
     if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded))
@@ -183,6 +190,7 @@ export class ChatAttachments {
     return this.info(sessionId, id);
   }
   async seal(sessionId: string, owner: string, id: string) {
+    if(ownerRuntimeFor(this.db))return new OwnedChatAttachments(this.db,this.keyring,this).seal(sessionId,owner,id);
     sessionId = await this.conversationKey(sessionId);
     if (owner.startsWith('agent:')) owner = `agent:${sessionId}`;
     await this.db.transaction(async (tx) => {
@@ -229,18 +237,22 @@ export class ChatAttachments {
     return this.info(sessionId, id);
   }
   async assertReadableDraft(sessionId: string, id: string, owner: string) {
+    const runtime=ownerRuntimeFor(this.db);if(runtime){runtime.assertOwner();const row=runtime.state.snapshot().table('agentChatAttachments').get(id);if(!row||row.sessionId!==sessionId||row.status==='retired'||row.status!=='linked'&&row.owner!==owner)throw new NotFoundError('Attachment not found');return;}
     const [row] = await this.db.select().from(agentChatAttachments).where(and(eq(agentChatAttachments.id,id),eq(agentChatAttachments.sessionId,sessionId)));
     if (!row || (row.status !== 'linked' && row.owner !== owner)) throw new NotFoundError('Attachment not found');
   }
   async info(sessionId: string, id: string) {
     sessionId = await this.conversationKey(sessionId);
     await this.session(sessionId);
+    const runtime=ownerRuntimeFor(this.db),current=runtime?.state.snapshot().table('agentChatAttachments').get(id);
+    if(runtime&&(!current||current.sessionId!==sessionId||current.status==='retired'))throw new NotFoundError('Attachment not found');
     const [row] = await this.db
       .select()
       .from(agentChatAttachments)
       .where(and(eq(agentChatAttachments.id, id), eq(agentChatAttachments.sessionId, sessionId)))
       .limit(1);
     if (!row) throw new NotFoundError('Attachment not found');
+    if(runtime){runtime.assertOwner();const latest=runtime.state.snapshot().table('agentChatAttachments').get(id);if(!latest||latest.status==='retired'||latest.sessionId!==sessionId)throw new NotFoundError('Attachment not found');Object.assign(row,latest);}
     const meta = JSON.parse(decrypt(row.metadataEnc, this.keyring)) as Record<string, unknown>;
     let processing: unknown =
       /^(audio|video)\//.test(String(meta.mime_type)) && row.status !== 'uploading'
@@ -286,6 +298,7 @@ export class ChatAttachments {
     };
   }
   async discard(sessionId: string, owner: string, id: string) {
+    if(ownerRuntimeFor(this.db))return new OwnedChatAttachments(this.db,this.keyring,this).discard(sessionId,owner,id);
     sessionId = await this.conversationKey(sessionId);
     if (owner.startsWith('agent:')) owner = `agent:${sessionId}`;
     await this.db.transaction(async (tx) => {
@@ -302,7 +315,19 @@ export class ChatAttachments {
     });
     return { deleted: true };
   }
-  async link(db: ChatDb, sessionId: string, metadata: ChatMetadata, owner?: string) {
+  async linkOwned(ctx:OwnerMutationContext,sessionId:string,metadata:ChatMetadata,owner?:string) {
+    const originalSessionId=sessionId;
+    sessionId=ctx.draft.table('hostDaemonPortalBindings').get(sessionId)?.daemonSessionId??sessionId;
+    if(owner?.startsWith('agent:'))owner='agent:'+sessionId;
+    if(metadata.reply_to){const {agentEvents}=await import('../../db/schema.js');const conversationIds=[originalSessionId,...ctx.draft.table('hostDaemonPortalBindings').all().filter(b=>b.daemonSessionId===sessionId).map(b=>b.portalSessionId)];const [event]=await this.db.select({id:agentEvents.id}).from(agentEvents).where(and(inArray(agentEvents.sessionId,conversationIds),eq(agentEvents.id,metadata.reply_to))).limit(1);if(!event)throw new ValidationError('Reply target is outside this conversation');}
+    const ids=[...new Set(metadata.attachments??[])],rows=ids.map(id=>ctx.draft.table('agentChatAttachments').get(id));
+    if(rows.some(row=>!row||row.sessionId!==sessionId||!['ready','linked'].includes(row.status)||(owner&&row.owner!==owner)))throw new ForbiddenError('Attachment is unavailable or belongs to another sender');
+    if(rows.reduce((sum,row)=>sum+(row?.sizeBytes??0),0)>this.limits().max_total_bytes)throw new ValidationError('Attachments exceed total limit');
+    for(const row of rows)if(row!.status!=='linked')stageUpdate(ctx,'agentChatAttachments',row!.id,{status:'linked'});
+  }
+  async link(db: ChatDb, sessionId: string, metadata: ChatMetadata, owner?: string, context?:OwnerMutationContext) {
+    if(context)return this.linkOwned(context,sessionId,metadata,owner);
+
     const originalSessionId = sessionId;
     sessionId = await this.conversationKey(sessionId, db);
     if (owner?.startsWith('agent:')) owner = `agent:${sessionId}`;
@@ -340,6 +365,7 @@ export class ChatAttachments {
       .where(inArray(agentChatAttachments.id, ids));
   }
   async purge() {
+    const owner=ownerRuntimeFor(this.db);if(owner){const before=owner.state.snapshot().table('agentChatAttachments').size;const {purgeAttachments}=await import('../server-retention/portal-owner.js');await purgeAttachments(owner,{DATA_ROOT:this.root} as import('../../env.js').Env);return before-owner.state.snapshot().table('agentChatAttachments').size;}
     const cutoff = new Date(Date.now() - 86400_000).toISOString();
     const rows = await this.db
       .select({ row: agentChatAttachments, session: agentSessions.id })

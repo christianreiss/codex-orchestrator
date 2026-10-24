@@ -1,3 +1,4 @@
+import { appendAuditLog } from '../../../services/audit-log.js';
 import { parseKeyBackend } from '../../../services/api-key-routing.js';
 /**
  * Admin Claude API key management. Mirrors src/Http/Controllers/AdminClaudeKeyController.php.
@@ -27,7 +28,7 @@ export async function registerAdminClaudeKeyRoutes(
 
   async function writeLog(action: string, payload: Record<string, unknown>): Promise<void> {
     try {
-      await ctx.db.insert(logs).values({
+      await appendAuditLog(ctx.db,{
         action,
         details: JSON.stringify(payload),
         createdAt: nowIso(),

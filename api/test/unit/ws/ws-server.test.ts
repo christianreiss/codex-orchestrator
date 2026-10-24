@@ -1,284 +1,139 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { Database } from '../../../src/db/client.js';
+import type { Env } from '../../../src/env.js';
+import { UnauthorizedError } from '../../../src/http/errors.js';
+
+const authority = vi.hoisted(() => ({
+  bound: true,
+  resolve: vi.fn(),
+  assertOwner: vi.fn(),
+  listeners: new Set<() => void>(),
+}));
+vi.mock('../../../src/control-plane/state/runtime.js', () => ({
+  ownerRuntimeFor: () => authority.bound ? {
+    assertOwner: authority.assertOwner,
+    state: { subscribe: (listener: () => void) => { authority.listeners.add(listener); return () => authority.listeners.delete(listener); } },
+  } : undefined,
+}));
+vi.mock('../../../src/control-plane/state/admission.js', () => ({ resolveOwnerAdmin: authority.resolve }));
 import { registerWsServer } from '../../../src/ws/server.js';
 import { wsPublisher } from '../../../src/ws/publisher.js';
-import { UnauthorizedError, type ApiError } from '../../../src/http/errors.js';
-import type { AdminContext } from '../../../src/http/plugins/auth-admin.js';
-import type { Env } from '../../../src/env.js';
-
-/**
- * `/admin/ws` is registered by hand here rather than through the admin router,
- * so `requireAdmin` never sees it and the route-table guard only knows it is
- * meant to be admin-only. Its own preHandler is the whole gate, and the
- * heartbeat is the only thing that ever revisits that decision — without it a
- * revoked session keeps streaming every admin event for as long as the socket
- * lives. The teardown matters just as much: the interval and the publisher
- * subscription outlive the socket unless both close paths detach them.
- *
- * The Fastify instance is a stub that captures the route, so the preHandler and
- * the connection handler can be driven directly against a fake socket.
- */
 
 const NOW = '2026-07-29T12:00:00Z';
-const HEARTBEAT_SECONDS = 5;
-const HEARTBEAT_MS = HEARTBEAT_SECONDS * 1000;
-
-const ADMIN = { user: { id: 1 }, session: { id: 9 } } as unknown as AdminContext;
-
-/** The connection request, which the heartbeat has to re-present for re-auth. */
-const REQ = { id: 'req-1' } as unknown as FastifyRequest;
-
-interface Route {
-  path: string;
-  opts: { websocket?: boolean; preHandler: (req: FastifyRequest) => Promise<void> };
-  handler: (socket: FakeSocket, req: FastifyRequest) => void;
-}
-
-/**
- * Enough of a `ws` socket for the handler: `close()` moves readyState the way a
- * real socket does, while `emit()` fires the lifecycle listeners *without*
- * touching readyState — that keeps the socket "open" after a teardown, so a
- * leaked interval or subscription shows up as a frame instead of hiding behind
- * the readyState guard.
- */
-class FakeSocket {
+const DB = {} as Database;
+const REQ = { cookies: { admin_cookie: 'opaque-test-token' } } as unknown as FastifyRequest;
+const admin = (expiresAt = '2026-07-29T13:00:00Z') => ({ user: { id: 1, active: 1 }, session: { id: 9, expiresAt } });
+class Socket {
   readyState = 1;
   closed = 0;
-  sendThrows = false;
-  readonly sent: string[] = [];
-  private readonly listeners = new Map<string, Array<() => void>>();
-
-  send(data: string): void {
-    if (this.sendThrows) throw new Error('WebSocket is not open');
-    this.sent.push(data);
-  }
-
-  close(): void {
-    this.closed += 1;
-    this.readyState = 3;
-  }
-
-  on(event: string, cb: () => void): void {
-    const bucket = this.listeners.get(event) ?? [];
-    bucket.push(cb);
-    this.listeners.set(event, bucket);
-  }
-
-  emit(event: string): void {
-    for (const cb of this.listeners.get(event) ?? []) cb();
-  }
-
-  frames(): Array<Record<string, unknown>> {
-    return this.sent.map((raw) => JSON.parse(raw) as Record<string, unknown>);
-  }
+  sent: Array<Record<string, unknown>> = [];
+  listeners = new Map<string, () => void>();
+  send(data: string) { this.sent.push(JSON.parse(data)); }
+  close() { this.closed++; this.readyState = 3; this.listeners.get('close')?.(); }
+  on(event: string, callback: () => void) { this.listeners.set(event, callback); }
 }
-
-interface Harness {
-  routes: Route[];
-  registrations: Array<{ plugin: unknown; opts: unknown }>;
-  resolveAdmin: ReturnType<typeof vi.fn>;
-  /** Swap what the next `resolveAdmin` call returns, as a revocation would. */
-  setAdmin(ctx: AdminContext | null): void;
+interface Route {
+  path: string;
+  opts: { websocket: boolean; preHandler(req: FastifyRequest): Promise<void> };
+  handler(socket: Socket, req: FastifyRequest): void;
 }
-
-function env(over: Partial<Env> = {}): Env {
-  return {
-    ADMIN_WS_ENABLED: true,
-    ADMIN_WS_HEARTBEAT_SECONDS: HEARTBEAT_SECONDS,
-    ADMIN_WS_BACKLOG_LIMIT: 200,
-    ...over,
-  } as unknown as Env;
-}
-
-async function register(over: Partial<Env> = {}): Promise<Harness> {
+const sockets: Socket[] = [];
+async function register(enabled = true) {
   const routes: Route[] = [];
-  const registrations: Array<{ plugin: unknown; opts: unknown }> = [];
-  let admin: AdminContext | null = ADMIN;
-  const resolveAdmin = vi.fn(async (_req: FastifyRequest) => admin);
-
+  const resolveAdmin = vi.fn(async () => admin());
   const app = {
-    register: async (plugin: unknown, opts: unknown) => {
-      registrations.push({ plugin, opts });
-    },
-    resolveAdmin,
-    get: (path: string, opts: Route['opts'], handler: Route['handler']) => {
-      routes.push({ path, opts, handler });
-    },
+    register: vi.fn(), resolveAdmin,
+    get(path: string, opts: Route['opts'], handler: Route['handler']) { routes.push({ path, opts, handler }); },
   };
-
-  await registerWsServer(app as unknown as FastifyInstance, env(over));
-  return {
-    routes,
-    registrations,
-    resolveAdmin,
-    setAdmin: (ctx) => {
-      admin = ctx;
-    },
-  };
+  await registerWsServer(app as unknown as FastifyInstance, {
+    ADMIN_WS_ENABLED: enabled, ADMIN_WS_HEARTBEAT_SECONDS: 5, ADMIN_WS_BACKLOG_LIMIT: 200, ADMIN_SESSION_COOKIE: 'admin_cookie',
+  } as Env, DB);
+  return { app, route: routes[0], routes };
 }
-
-/** Registers, then opens one connection through the captured handler. */
-async function connect(over: Partial<Env> = {}): Promise<Harness & { socket: FakeSocket }> {
-  const harness = await register(over);
-  const socket = new FakeSocket();
-  harness.routes[0]!.handler(socket, REQ);
+async function connect() {
+  const harness = await register();
+  await harness.route!.opts.preHandler(REQ);
+  const socket = new Socket(); sockets.push(socket);
+  harness.route!.handler(socket, REQ);
   return { ...harness, socket };
 }
-
 beforeEach(() => {
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date(NOW));
+  vi.useFakeTimers(); vi.setSystemTime(new Date(NOW));
+  authority.bound = true; authority.resolve.mockReset().mockReturnValue(admin());
+  authority.assertOwner.mockReset(); authority.listeners.clear();
 });
-
 afterEach(() => {
-  // Drops any heartbeat still pending, so a leak cannot reach the next test.
+  for (const socket of sockets.splice(0)) socket.listeners.get('close')?.();
   vi.useRealTimers();
 });
 
-describe('registerWsServer registration', () => {
-  it('registers nothing at all when ADMIN_WS_ENABLED is false', async () => {
-    const { routes, registrations } = await register({ ADMIN_WS_ENABLED: false });
-
-    expect(registrations).toEqual([]);
-    expect(routes).toEqual([]);
+describe('admin owner stream', () => {
+  it('registers nothing when disabled', async () => {
+    const { routes } = await register(false); expect(routes).toEqual([]);
   });
-
-  it('registers the websocket plugin and a websocket GET /admin/ws', async () => {
-    const { routes, registrations } = await register();
-
-    expect(registrations).toHaveLength(1);
-    expect(registrations[0]!.opts).toEqual({ options: { maxPayload: 1024 * 1024 } });
-    expect(routes).toHaveLength(1);
-    expect(routes[0]!.path).toBe('/admin/ws');
-    expect(routes[0]!.opts.websocket).toBe(true);
+  it('requires owner readiness and current RAM authorization before upgrade', async () => {
+    const { route, app } = await register();
+    authority.bound = false;
+    await expect(route!.opts.preHandler(REQ)).rejects.toBeInstanceOf(UnauthorizedError);
+    authority.bound = true; authority.resolve.mockReturnValue(null);
+    await expect(route!.opts.preHandler(REQ)).rejects.toBeInstanceOf(UnauthorizedError);
+    expect(app.resolveAdmin).not.toHaveBeenCalled();
   });
-});
-
-describe('/admin/ws preHandler', () => {
-  it('admits a request that resolves to an admin context', async () => {
-    const { routes, resolveAdmin } = await register();
-
-    await expect(routes[0]!.opts.preHandler(REQ)).resolves.toBeUndefined();
-    expect(resolveAdmin).toHaveBeenCalledWith(REQ);
-  });
-
-  it('rejects an unauthenticated request with admin_required', async () => {
-    const { routes, setAdmin } = await register();
-    setAdmin(null);
-
-    const err = await routes[0]!.opts.preHandler(REQ).catch((e: unknown) => e);
-
-    expect(err).toBeInstanceOf(UnauthorizedError);
-    expect((err as ApiError).status).toBe(401);
-    expect((err as ApiError).code).toBe('admin_required');
-  });
-});
-
-describe('/admin/ws connection', () => {
-  it('greets the socket with a hello frame', async () => {
+  it('sends a subscribed epoch/sequence hello, then monotonic domain frames', async () => {
     const { socket } = await connect();
-
-    expect(socket.frames()).toEqual([{ type: 'hello', ts: NOW }]);
+    const cursor = wsPublisher.cursor();
+    expect(socket.sent).toEqual([{ type: 'hello', ts: NOW, ...cursor, resync: true }]);
+    wsPublisher.publish('host.updated', { id: 1 });
+    expect(socket.sent[1]).toMatchObject({ type: 'host.updated', epoch: cursor.epoch, sequence: String(BigInt(cursor.sequence) + 1n) });
   });
-
-  it('forwards published events only while the socket is open', async () => {
+  it('does not reauthenticate or rediscover unchanged state during ten quiet minutes', async () => {
+    const { socket, app } = await connect();
+    const calls = authority.resolve.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(authority.resolve).toHaveBeenCalledTimes(calls);
+    expect(app.resolveAdmin).not.toHaveBeenCalled();
+    expect(socket.sent.filter(frame => frame.type === 'ping')).toHaveLength(120);
+    expect(socket.closed).toBe(0);
+  });
+  it('revokes immediately on owner publication, before any following domain frame', async () => {
     const { socket } = await connect();
-
-    wsPublisher.publish('host.updated', { id: 1 });
-    expect(socket.frames().at(-1)).toEqual({ type: 'host.updated', payload: { id: 1 }, ts: NOW });
-
-    socket.readyState = 0;
-    wsPublisher.publish('host.updated', { id: 2 });
-    expect(socket.frames()).toHaveLength(2);
-
-    socket.readyState = 1;
-    wsPublisher.publish('host.updated', { id: 3 });
-    expect(socket.frames().at(-1)).toEqual({ type: 'host.updated', payload: { id: 3 }, ts: NOW });
+    authority.resolve.mockReturnValue(null);
+    for (const notify of authority.listeners) notify();
+    wsPublisher.publish('host.updated', { secret: 'must not arrive' });
+    expect(socket.closed).toBe(1); expect(socket.sent).toHaveLength(1);
   });
-
-  it('swallows a send that throws so the fan-out reaches other sockets', async () => {
+  it('rechecks authority before publishing even if a revocation notification is missed', async () => {
+    const { socket } = await connect(); authority.resolve.mockReturnValue(null);
+    wsPublisher.publish('host.updated', {});
+    expect(socket.closed).toBe(1); expect(socket.sent).toHaveLength(1);
+  });
+  it('enforces the exact absolute expiration without traffic', async () => {
+    const expires = '2026-07-29T12:00:07Z';
+    authority.resolve.mockImplementation(() => Date.now() < Date.parse(expires) ? admin(expires) : null);
     const { socket } = await connect();
-    socket.sendThrows = true;
-
-    expect(() => wsPublisher.publish('host.updated', { id: 1 })).not.toThrow();
+    await vi.advanceTimersByTimeAsync(6999); expect(socket.closed).toBe(0);
+    await vi.advanceTimersByTimeAsync(1); expect(socket.closed).toBe(1);
   });
-
-  it('pings on every heartbeat tick while the admin session survives', async () => {
-    const { socket, resolveAdmin } = await connect();
-
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS - 1);
-    expect(socket.frames()).toHaveLength(1);
-
-    await vi.advanceTimersByTimeAsync(1);
-    expect(socket.frames().at(-1)).toEqual({ type: 'ping', ts: '2026-07-29T12:00:05Z' });
-
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
-    expect(socket.frames().at(-1)).toEqual({ type: 'ping', ts: '2026-07-29T12:00:10Z' });
-    // Re-auth is per tick, against the connection's own request.
-    expect(resolveAdmin.mock.calls).toEqual([[REQ], [REQ]]);
+  it('reschedules expiry when a committed session renewal arrives', async () => {
+    authority.resolve.mockReturnValue(admin('2026-07-29T12:00:07Z'));
+    const { socket } = await connect();
+    authority.resolve.mockReturnValue(admin());
+    for (const notify of authority.listeners) notify();
+    await vi.advanceTimersByTimeAsync(8000); expect(socket.closed).toBe(0);
   });
-
-  it('closes the socket instead of pinging once the admin session is gone', async () => {
-    const { socket, setAdmin } = await connect();
-    setAdmin(null);
-
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
-
-    expect(socket.closed).toBe(1);
-    expect(socket.frames()).toEqual([{ type: 'hello', ts: NOW }]);
-
-    // readyState is CLOSED now, so later ticks do not re-close it.
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 3);
-    expect(socket.closed).toBe(1);
+  it('fails closed on owner loss rather than falling back to SQL', async () => {
+    const { socket, app } = await connect();
+    authority.assertOwner.mockImplementation(() => { throw new Error('owner fenced'); });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(socket.closed).toBe(1); expect(app.resolveAdmin).not.toHaveBeenCalled();
   });
-
-  it('closes safely if heartbeat authorization fails during an API dependency outage', async () => {
-    const { socket, resolveAdmin } = await connect();
-    resolveAdmin.mockRejectedValueOnce(new Error('database temporarily unavailable'));
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
-    expect(socket.closed).toBe(1);
-    socket.readyState = 1;
-    wsPublisher.publish('host.updated', { id: 1 });
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 3);
-    expect(resolveAdmin).toHaveBeenCalledTimes(1);
-    expect(socket.frames()).toEqual([{ type: 'hello', ts: NOW }]);
-  });
-
-  it('does not overlap slow authorization checks or send their result after disconnect', async () => {
-    const { socket, resolveAdmin } = await connect();
-    let finish!: (value: AdminContext) => void;
-    resolveAdmin.mockImplementationOnce(() => new Promise<AdminContext>((resolve) => { finish = resolve; }));
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 3);
-    expect(resolveAdmin).toHaveBeenCalledTimes(1);
-    socket.emit('close');
-    finish(ADMIN);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(socket.frames()).toEqual([{ type: 'hello', ts: NOW }]);
-  });
-
-  it('disconnects a subscriber when authorization never settles', async () => {
-    const { socket, resolveAdmin } = await connect();
-    resolveAdmin.mockImplementationOnce(() => new Promise<AdminContext>(() => {}));
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS + 10_000);
-    expect(socket.closed).toBe(1);
-    socket.readyState = 1;
-    wsPublisher.publish('host.updated', { id: 1 });
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 3);
-    expect(resolveAdmin).toHaveBeenCalledTimes(1);
-    expect(socket.frames()).toEqual([{ type: 'hello', ts: NOW }]);
-  });
-
-  it.each(['close', 'error'])('clears the heartbeat and unsubscribes on %s', async (event) => {
-    const { socket, resolveAdmin } = await connect();
-    socket.emit(event);
-
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 3);
-    wsPublisher.publish('host.updated', { id: 1 });
-
-    // The socket still reads as open, so only a detached interval and a
-    // detached subscription can explain the silence.
-    expect(socket.readyState).toBe(1);
-    expect(resolveAdmin).not.toHaveBeenCalled();
-    expect(socket.frames()).toEqual([{ type: 'hello', ts: NOW }]);
+  it.each(['close', 'error'])('unsubscribes and cancels timers on %s', async event => {
+    const { socket } = await connect(); socket.listeners.get(event)?.();
+    const calls = authority.resolve.mock.calls.length;
+    wsPublisher.publish('host.updated', {});
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(socket.sent).toHaveLength(1); expect(authority.resolve).toHaveBeenCalledTimes(calls);
+    expect(authority.listeners.size).toBe(0);
   });
 });

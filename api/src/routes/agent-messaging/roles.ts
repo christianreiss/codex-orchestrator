@@ -27,6 +27,7 @@ export function createRolesService(ctx: RouteContext, messaging: AgentMessagingS
       adapter: createRunnerClaudeAdapter({ env: ctx.env, getAuthSnapshot: traffic.getAuthSnapshot, onExecSuccess: traffic.recordExecSuccess }),
     }),
     authenticateBridge: (sessionId, token) => messaging.authenticateBridge(sessionId, token),
+    notifyOwned: async (command, addressIds, body) => { await messaging.noticeAddressesOwned(command, addressIds, body); },
     notify: async (addressIds, body) => {
       await messaging.noticeAddresses(addressIds, body);
     },

@@ -7,7 +7,7 @@
   const query = createQuery({
     queryKey: ['communicators'],
     queryFn: () => api.get<{ enabled: boolean; connections: Connection[] }>('/admin/communicators'),
-    refetchInterval: 30000,
+
   });
   const authLabels: Record<string, string> = {pending:'Waiting for first sync', checked:'Credentials checked', server_confirmed:'Upload confirmed', locally_written:'Credentials written locally', deferred:'Waiting for local credential change', error:'Sync needs attention'};
   const connections = $derived(($query.data?.connections ?? []).filter(c => c.host_id === Number(id)));

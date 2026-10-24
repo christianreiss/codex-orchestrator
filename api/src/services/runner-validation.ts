@@ -1,3 +1,4 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { and, eq, isNull } from 'drizzle-orm';
 import { authCanonicalHeads, authPayloads, providerAccounts } from '../db/schema.js';
 import type { Database } from '../db/client.js';
@@ -68,6 +69,7 @@ export interface RunnerValidationService {
   resolvePendingQuarantine?(engine: Engine, accountId?: number): Promise<CanonicalPayloadRow | null>;
   validateCanonicalPayload(
     row: CanonicalPayloadRow | null,
+    nowMs?: number,
   ): { auth: Record<string, unknown>; digest: string; last_refresh: string } | null;
   canonicalAuthFromPayload(row: CanonicalPayloadRow): Record<string, unknown> | null;
   ensureAuthsFallback(payload: Record<string, unknown>, engine: Engine): Record<string, unknown>;
@@ -90,7 +92,7 @@ export interface RunnerValidationService {
 }
 
 export interface RunnerValidationDeps {
-  db: Database;
+  db: Pick<Database, 'select'>;
   keyring?: Keyring;
   /** Test/embedding override; production defaults to TOKEN_MIN_LENGTH or 24. */
   tokenMinLength?: number;
@@ -101,6 +103,24 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
   const tokenMinLength = resolveTokenMinLength(deps.tokenMinLength);
   const service: RunnerValidationService = {
     async resolveCanonicalPayload(engine, accountId) {
+      const owner=ownerRuntimeFor(db);
+      if(owner){
+        owner.assertOwner();const snapshot=owner.state.snapshot();
+        const load=async(id:number)=>{
+          const metadata=snapshot.table('authPayloads').get(id);if(!metadata)return null;
+          const cold=(await db.select({body:authPayloads.body}).from(authPayloads).where(eq(authPayloads.id,id)))[0];
+          return toCanonicalPayloadRow({...metadata,body:cold?.body??null} as typeof authPayloads.$inferSelect);
+        };
+        if(accountId!==undefined){
+          const account=await resolveProviderAccount(db,accountId,engine);if(!account||account.state==='removed'||!account.payloadId)return null;
+          const row=await load(account.payloadId);return row?.accountId===account.id&&row.engine===engine?row:null;
+        }
+        const head=snapshot.table('authCanonicalHeads').get(engine);
+        if(head){const row=await load(head.payloadId);if(row?.accountId&&snapshot.accounts.get(row.accountId)?.state!=='enabled')return null;return row;}
+        const candidates=snapshot.table('authPayloads').by('engine',engine).filter(r=>r.accountId===null);
+        const rows=(await Promise.all(candidates.map(r=>load(r.id)))).filter((r):r is CanonicalPayloadRow=>r!==null).sort(compareCanonicalRowsNewestFirst);
+        return rows.find(row=>row.verificationState==='verified'&&service.validateCanonicalPayload(row)!==null)??null;
+      }
       if (accountId !== undefined) {
         const account = await resolveProviderAccount(db, accountId, engine);
         if (!account || account.state === 'removed' || !account.payloadId) return null;
@@ -173,7 +193,7 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
       return newestQuarantine[0]?.verificationState === 'pending' ? newestQuarantine[0] : null;
     },
 
-    validateCanonicalPayload(row) {
+    validateCanonicalPayload(row, nowMs=Date.now()) {
       if (!row || !row.body) return null;
       const body = decodePayloadBody(row.body, deps.keyring);
       if (!body) return null;
@@ -188,7 +208,7 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
       const lr = auth.last_refresh;
       if (typeof lr !== 'string' || !isRfc3339(lr)) return null;
       if (!isRfc3339(row.lastRefresh) || compareRfc3339(lr, row.lastRefresh) !== 0) return null;
-      if (!isReasonableLastRefresh(lr)) return null;
+      if (!isReasonableLastRefresh(lr, nowMs)) return null;
       if (sha256(body) !== row.sha256) return null;
       const engine = isEngine(row.engine) ? row.engine : null;
       if (!engine) return null;
@@ -497,10 +517,10 @@ function resolveTokenMinLength(override?: number): number {
   return Math.max(TOKEN_MIN_LENGTH_FLOOR, Math.trunc(configured));
 }
 
-function isReasonableLastRefresh(value: string): boolean {
+function isReasonableLastRefresh(value: string, nowMs=Date.now()): boolean {
   const timestamp = parseRfc3339Millis(value);
   return (
-    timestamp !== null && timestamp >= MIN_REFRESH_EPOCH_MS && timestamp <= Date.now() + MAX_FUTURE_SKEW_MS
+    timestamp !== null && timestamp >= MIN_REFRESH_EPOCH_MS && timestamp <= nowMs + MAX_FUTURE_SKEW_MS
   );
 }
 
@@ -552,7 +572,7 @@ function toCanonicalPayloadRow(row: typeof authPayloads.$inferSelect): Canonical
   };
 }
 
-function compareCanonicalRowsNewestFirst(a: CanonicalPayloadRow, b: CanonicalPayloadRow): number {
+export function compareCanonicalRowsNewestFirst(a: CanonicalPayloadRow, b: CanonicalPayloadRow): number {
   const aNanos = parseRfc3339Nanos(a.lastRefresh);
   const bNanos = parseRfc3339Nanos(b.lastRefresh);
   if (aNanos !== null && bNanos !== null && aNanos !== bNanos) return aNanos < bNanos ? 1 : -1;

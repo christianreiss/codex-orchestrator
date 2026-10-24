@@ -55,18 +55,13 @@ export function hostsListQuery() {
       const received = Date.now();
       return { ...response, hosts: response.hosts.map(host => withPresenceReceipt(host, previous?.hosts.find(h => h.id === host.id), received)) };
     },
-    refetchInterval: 15_000,
+
   });
 }
 
 export function hostDetailQuery(
   id: number | string,
-  opts: {
-    /** Poll while the caller is waiting on something (install progress). */
-    refetchInterval?: (data: HostDetailResponse | undefined) => number | false;
-  } = {},
 ) {
-  const { refetchInterval } = opts;
   return createQuery<HostDetailResponse>({
     queryKey: hostsKeys.detail(id),
     queryFn: async ({ client, queryKey }) => {
@@ -74,11 +69,9 @@ export function hostDetailQuery(
       const response = await api.get<HostDetailResponse>(`/admin/hosts/${id}/detail`);
       return { ...response, host: withPresenceReceipt(response.host, previous?.host) };
     },
-    refetchInterval: 15_000,
+
     enabled: id !== undefined && id !== null && String(id) !== "",
-    ...(refetchInterval
-      ? { refetchInterval: (query: { state: { data: HostDetailResponse | undefined } }) => refetchInterval(query.state.data) }
-      : {}),
+
   });
 }
 
@@ -572,6 +565,7 @@ export function hostStatusKind(host: HostListItem, nowMs = Date.now()): HostStat
   const raw = (host.status ?? "").toLowerCase();
   if (raw === "offline" || raw === "stale" || raw === "disabled") return "offline";
   if (host.presence !== "online") return "offline";
+  if (host.presence_source === "connection") return "online";
   const observed = parseHostTime(host.presence_observed_at);
   const now = observed !== null && host.presence_received_at !== undefined
     ? observed + Math.max(0, nowMs - host.presence_received_at) : nowMs;

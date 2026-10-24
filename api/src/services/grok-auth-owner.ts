@@ -1,7 +1,12 @@
+import {persistAuditLog} from './audit-log.js';
+import { canonicalState, setOwnedGrokState, patchCanonicalPayload, canonicalTransaction } from '../control-plane/streams/canonical-state.js';
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { ownerPresence } from '../control-plane/presence.js';
+import { ownedProviderSession } from '../control-plane/streams/provider-leases.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq, gt } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { authPayloads, grokAuthRefreshState, logs, providerAccountSessions } from '../db/schema.js';
+import { authPayloads, grokAuthRefreshState, providerAccountSessions } from '../db/schema.js';
 import type { Keyring } from '../security/keyring.js';
 import { decrypt, encrypt } from '../security/secret-box.js';
 import { ApiError, ConflictError, NotFoundError, ServiceUnavailableError } from '../http/errors.js';
@@ -79,15 +84,19 @@ export function createGrokAuthOwner(deps: GrokAuthOwnerDeps) {
       if (!credential) throw loginRequired('Grok requires a modern subscription login');
       if (input.refreshIfGeneration !== undefined && (base.generation ?? 0) < input.refreshIfGeneration) throw new ConflictError('Observed Grok generation is newer than canonical', 'grok_generation_conflict');
       const force = input.refreshIfGeneration !== undefined && input.refreshIfGeneration === base.generation;
-      let state = (await db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, account.id)))[0];
+      let state: typeof grokAuthRefreshState.$inferSelect | undefined;
+      const ownedState=canonicalState(db);
+      if(ownedState){const metadata=ownedState.table('grokAuthRefreshState').get(account.id);if(metadata){let responseEnc:string|null=null;if(metadata.state!=='idle')responseEnc=(await db.select({responseEnc:grokAuthRefreshState.responseEnc}).from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId,account.id)))[0]?.responseEnc??null;state={...metadata,responseEnc};}}
+      else state=(await db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, account.id)))[0];
 
       async function setState(next: GrokRefreshState, extra: Partial<typeof grokAuthRefreshState.$inferInsert> = {}) {
         const values = { ...extra, state: next, updatedAt: nowIso() };
-        await db.insert(grokAuthRefreshState).values({ accountId: account.id, ...values }).onDuplicateKeyUpdate({ set: values });
-        state = (await db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, account.id)))[0];
+        await setOwnedGrokState(db,account.id,values);
+        if(ownerRuntimeFor(db)){const metadata=canonicalState(db)!.table('grokAuthRefreshState').get(account.id)!;state={...metadata,responseEnc:extra.responseEnc===undefined?state?.responseEnc??null:extra.responseEnc};}
+        else state = (await db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, account.id)))[0];
       }
       async function audit(action: string, detail: Record<string, unknown> = {}) {
-        await db.insert(logs).values({ engine: 'grok', action, details: JSON.stringify({ account_id: account.id, attempt_id: state?.attemptId, base_generation: base!.generation, ...detail }), createdAt: nowIso() });
+        await canonicalTransaction(db,'auth.grok.audit',async tx=>{await persistAuditLog(tx, { engine: 'grok', action, details: JSON.stringify({ account_id: account.id, attempt_id: state?.attemptId, base_generation: base!.generation, ...detail }), createdAt: nowIso() });});
       }
       async function snapshot(row: CanonicalPayloadRow, refreshState: GrokRefreshState): Promise<GrokAuthSnapshot> {
         if (input.sessionId) await assertSession(db, input, account.id);
@@ -111,7 +120,7 @@ export function createGrokAuthOwner(deps: GrokAuthOwnerDeps) {
         const verdict = await deps.runner.verifyGrok({ authJson: projectGrokAuth(candidate.auth), timeoutSeconds: remaining / 1000 });
         if (!verdict.ok || !verdict.reachable || !verdict.definitive) {
           if (verdict.definitive && verdict.reachable) {
-            await db.update(authPayloads).set({ verificationState: 'failed', verificationCheckedAt: nowIso(), verificationReason: 'Grok subscription bearer was rejected' }).where(eq(authPayloads.id, payloadId));
+            await patchCanonicalPayload(db,payloadId,{ verificationState: 'failed', verificationCheckedAt: nowIso(), verificationReason: 'Grok subscription bearer was rejected' });
             await setState('login_required', { errorCode: 'bearer_rejected' });
             await audit('grok.auth.refresh.failed');
             throw loginRequired('Grok subscription renewal was rejected');
@@ -218,6 +227,8 @@ export function createGrokAuthOwner(deps: GrokAuthOwnerDeps) {
 
 async function assertSession(db: Database, input: GrokAuthFreshInput, accountId: number) {
   if (!input.sourceHostId || !input.sessionId) throw new ConflictError('Grok account session is required', 'grok_session_required');
+  const runtime=ownerRuntimeFor(db);
+  if(runtime){const lease=ownedProviderSession(runtime,input.sourceHostId,'grok',input.sessionId);if(lease.accountId!==accountId||lease.ownershipMode==='connection'&&!ownerPresence(runtime).hasProvider(lease.id))throw new NotFoundError('Account session not found');return;}
   const rows = await db.select().from(providerAccountSessions).where(and(eq(providerAccountSessions.id, input.sessionId), eq(providerAccountSessions.hostId, input.sourceHostId), eq(providerAccountSessions.engine, 'grok'), eq(providerAccountSessions.accountId, accountId), gt(providerAccountSessions.expiresAt, nowIso()))).limit(1);
   if (!rows.length) throw new NotFoundError('Account session not found');
 }

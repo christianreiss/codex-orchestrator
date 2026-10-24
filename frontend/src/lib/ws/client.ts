@@ -22,6 +22,9 @@ export interface WsEvent<P = unknown> {
   type: string;
   payload: P;
   ts: string;
+  epoch?: string;
+  sequence?: string;
+  resync?: boolean;
 }
 
 interface InternalState {
@@ -58,6 +61,10 @@ export function backoffMs(attempt: number): number {
 export function createWsClient(): WsClientHandle {
   const events = writable<WsEvent | null>(null);
   const status = writable<"idle" | "connecting" | "open" | "closed" | "disabled">("idle");
+
+  let epoch: string | null = null;
+  let sequence: bigint | null = null;
+  let awaitingHello = true;
 
   const state: InternalState = {
     socket: null,
@@ -113,6 +120,7 @@ export function createWsClient(): WsClientHandle {
   async function connect() {
     if (state.stopped || !state.enabled) return;
     const generation = ++state.generation;
+    awaitingHello = true;
     const controller = new AbortController();
     state.discovery = controller;
     status.set("connecting");
@@ -163,13 +171,11 @@ export function createWsClient(): WsClientHandle {
     ws.addEventListener("open", () => {
       if (!current(generation, ws)) return;
       if (state.connectionTimer !== null) clearTimeout(state.connectionTimer);
-      state.connectionTimer = null;
+      state.connectionTimer = setTimeout(() => disconnect(generation), CONNECT_TIMEOUT_MS);
       state.attempts = 0;
       state.lastReceivedAt = Date.now();
-      status.set("open");
-      // The server's WS bus has no durable replay cursor. Refresh the clients
-      // snapshot on every connection instead of assuming missed frames replay.
-      events.set({ type: "transport.connected", payload: {}, ts: new Date().toISOString() });
+      // A TCP/WebSocket handshake does not establish the owner snapshot epoch.
+      // Remain connecting until the subscribed server sends its hello.
       state.heartbeatTimer = setInterval(() => {
         if (!current(generation, ws)) return;
         if (Date.now() - state.lastReceivedAt >= state.heartbeatMs * 3 || ws.readyState !== WebSocket.OPEN) {
@@ -188,6 +194,32 @@ export function createWsClient(): WsClientHandle {
       catch { return; }
       if (!frame || typeof frame !== "object" || typeof frame.type !== "string" || !frame.type) return;
       state.lastReceivedAt = Date.now();
+      if (frame.type === "hello") {
+        if (typeof frame.epoch !== "string" || !frame.epoch || typeof frame.sequence !== "string" || !/^\d+$/.test(frame.sequence)) {
+          disconnect(generation);
+          return;
+        }
+        if (state.connectionTimer !== null) clearTimeout(state.connectionTimer);
+        state.connectionTimer = null;
+        epoch = frame.epoch;
+        sequence = BigInt(frame.sequence);
+        awaitingHello = false;
+        status.set("open");
+        events.set({ type: "transport.connected", payload: {}, ts: frame.ts, epoch, sequence: frame.sequence });
+        return;
+      }
+      if (frame.type === "ping" || frame.type === "pong") return;
+      if (awaitingHello || typeof frame.epoch !== "string" || typeof frame.sequence !== "string" || !/^\d+$/.test(frame.sequence)) {
+        disconnect(generation);
+        return;
+      }
+      const next = BigInt(frame.sequence);
+      if (frame.epoch === epoch && sequence !== null && next <= sequence) return;
+      if (frame.epoch !== epoch || sequence === null || next !== sequence + 1n) {
+        events.set({ type: "transport.resync", payload: {}, ts: frame.ts });
+      }
+      epoch = frame.epoch;
+      sequence = next;
       events.set(frame);
     });
     ws.addEventListener("close", () => disconnect(generation));

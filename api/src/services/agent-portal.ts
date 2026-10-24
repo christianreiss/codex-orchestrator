@@ -1,6 +1,9 @@
+import { OwnedPortal, visiblePortalSession } from './agent-portal/owned.js';
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { runOwnerPortalRetention } from './server-retention/portal-owner.js';
 import { protectedSession } from './server-retention/guards.js';
 import { visibleHost } from './internal-hosts.js';
-import { acceptActivity, activityView, type ActivityInput } from './agent-activity.js';
+import { acceptActivity, activityView, notifyActivityObservation, type ActivityInput } from './agent-activity.js';
 import { ChatAttachments } from './agent-chat/attachments.js';
 import { normalizeWorkspace, type WorkspaceInput } from './agent-messaging/workspace.js';
 import { chatMetadataSchema, promptChoices, severitySchema, validAnswer, type ChatMetadata } from './agent-chat/contracts.js';
@@ -223,7 +226,7 @@ interface NormalizedEvent {
   };
 }
 
-interface EventTransactionOptions {
+export interface EventTransactionOptions {
   bridge?: {
     token: string;
     hostId: number;
@@ -249,6 +252,11 @@ export class AgentPortalService {
     private readonly keyring: Keyring,
   ) {
     this.settings = new SettingsService(db);
+  }
+
+  private owned(): OwnedPortal | null {
+    const owner = ownerRuntimeFor(this.db);
+    return owner ? new OwnedPortal(owner,this.db,this.env,this.keyring) : null;
   }
 
   async isEnabled(): Promise<boolean> {
@@ -280,6 +288,7 @@ export class AgentPortalService {
   }
 
   async setEnabled(enabled: boolean): Promise<{ enabled: boolean; canceled: number; revoked_sessions: number }> {
+    const owner = this.owned(); if (owner) { return await owner.setEnabled(enabled) as { enabled: boolean; canceled: number; revoked_sessions: number }; }
     const now = nowIso();
     const result = await this.db.transaction(async (tx) => {
       const setting = await tx
@@ -338,6 +347,7 @@ export class AgentPortalService {
   }
 
   async registerAgent(host: Host, input: RegisterAgentInput): Promise<{ enabled: true; session_id: string; bridge_token: string; expires_at: string } | { enabled: false }> {
+    const owner = this.owned(); if (owner) { return await owner.register(host,input) as { enabled: true; session_id: string; bridge_token: string; expires_at: string } | { enabled: false }; }
     const username = normalizeRequiredText(input.username, 'username', 255);
     const cwd = normalizeRequiredText(input.cwd, 'cwd', 1024);
     const workspace = normalizeWorkspace(input.workspace);
@@ -431,6 +441,7 @@ export class AgentPortalService {
   }
 
   async heartbeatAgent(sessionId: string, bridgeToken: string, input: { status?: string; activeTurnId?: string | null; relayAction?: 'poll' | 'close' }, hostId?: number): Promise<Record<string, unknown>> {
+    const owner = this.owned(); if (owner) { return await owner.heartbeat(sessionId,bridgeToken,input,hostId); }
     const session = await this.authenticateBridge(sessionId, bridgeToken, hostId);
     const now = nowIso();
     const expiresAt = isoOffsetSeconds(this.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS);
@@ -507,6 +518,7 @@ export class AgentPortalService {
   }
 
   async reportActivity(sessionId: string, bridgeToken: string, input: ActivityInput) {
+    const owner = this.owned(); if (owner) { return await owner.activity(sessionId,bridgeToken,input); }
     const session = await this.authenticateBridge(sessionId, bridgeToken);
     const result = await this.db.transaction(async (tx) => {
       await this.requirePortalEnabledLocked(tx);
@@ -520,6 +532,7 @@ export class AgentPortalService {
       return { accepted: true, changed: before.state !== after.state || before.wait_reason !== after.wait_reason || before.source !== after.source };
     });
     if (result.changed) wsPublisher.publish('agent_portal.sessions.changed', { session_id: sessionId });
+    if (result.accepted) notifyActivityObservation(this.db);
     return { accepted: result.accepted };
   }
 
@@ -550,6 +563,7 @@ export class AgentPortalService {
   }
 
   async listAgentsSnapshot(at?: number): Promise<{ generated_at: string; sessions: Array<Record<string, unknown>> }> {
+    const owner = this.owned(); if (owner) { return await owner.list(at); }
     const now = new Date(at ?? Date.now()).toISOString();
     const rows = await this.db
       .select({ session: agentSessions, host: hosts })
@@ -782,6 +796,8 @@ export class AgentPortalService {
   }
 
   async listEvents(sessionId: string, after = 0, limit = 250, tail = false): Promise<{ events: Array<Record<string, unknown>>; next_cursor: number }> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) { owner.assertOwner(); const session = visiblePortalSession(owner.state.snapshot(),sessionId); if (!tail && session.portalEventCursor <= after) return {events:[],next_cursor:Math.max(0,Math.trunc(after))}; }
     await this.requireVisibleSession(sessionId);
     const bounded = Math.max(1, Math.min(500, Math.trunc(limit)));
     if (tail) {
@@ -820,6 +836,7 @@ export class AgentPortalService {
   }
 
   async listEventsAfter(after = 0, limit = 250, sessionId?: string): Promise<{ events: Array<Record<string, unknown>>; next_cursor: number }> {
+    const owner = ownerRuntimeFor(this.db); if (owner) { owner.assertOwner(); const snapshot=owner.state.snapshot(); const head=sessionId?visiblePortalSession(snapshot,sessionId).portalEventCursor:Number(snapshot.setting('owner_portal_event_id')??0); if(head<=after)return{events:[],next_cursor:Math.max(0,Math.trunc(after))}; }
     const bounded = Math.max(1, Math.min(500, Math.trunc(limit)));
     const rows = await this.db
       .select()
@@ -842,11 +859,13 @@ export class AgentPortalService {
   }
 
   async latestEventCursor(): Promise<number> {
+    const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return Number(owner.state.snapshot().setting('owner_portal_event_id')??0);}
     const rows = await this.db.select({ id: agentEvents.id }).from(agentEvents).orderBy(desc(agentEvents.id)).limit(1);
     return rows[0]?.id ?? 0;
   }
 
   async enqueueMessage(actor: PortalActor, input: { sessionId: string; clientMessageId: string; content: string; metadata?: ChatMetadata }): Promise<Record<string, unknown>> {
+    const owner = this.owned(); if (owner) { return await owner.enqueue(actor,input,'message') as Record<string,unknown>; }
     const metadata = chatMetadataSchema.parse(input.metadata ?? {});
     const content = metadata.attachments?.length && !input.content.trim() ? '' : normalizeMessage(input.content);
     const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
@@ -902,6 +921,7 @@ export class AgentPortalService {
   }
 
   async answerPrompt(actor: PortalActor, input: { sessionId: string; promptId: string; clientMessageId: string; answer: string; version?: number; metadata?: ChatMetadata }): Promise<Record<string, unknown>> {
+    const owner = this.owned(); if (owner) { return await owner.enqueue(actor,input,'answer') as Record<string,unknown>; }
     const metadata = chatMetadataSchema.parse(input.metadata ?? {});
     const answer = metadata.attachments?.length && !input.answer.trim() ? '' : normalizeMessage(input.answer);
     const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
@@ -998,6 +1018,7 @@ export class AgentPortalService {
     actor: PortalActor,
     input: { sessionId: string; clientMessageId: string; note?: string },
   ): Promise<Record<string, unknown>> {
+    const owner = this.owned(); if (owner) { return await owner.enqueue(actor,input,'close') as Record<string,unknown>; }
     const note = normalizeCloseNote(input.note);
     const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
     const messageId = randomUUID();
@@ -1068,6 +1089,7 @@ export class AgentPortalService {
     actor: PortalActor,
     input: { sessionId: string; clientMessageId: string; note?: string },
   ): Promise<Record<string, unknown>> {
+    const owner = this.owned(); if (owner) { return await owner.forceClose(actor,input) as Record<string,unknown>; }
     const note = normalizeCloseNote(input.note);
     const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
     const eventId = `portal:close-force:${clientMessageId}`;
@@ -1120,6 +1142,7 @@ export class AgentPortalService {
   }
 
   async claimMessage(sessionId: string, bridgeToken: string, claimId: string, hostId?: number, receiverGeneration?: string): Promise<ClaimedMessage | null> {
+    const owner = this.owned(); if (owner) { return await owner.claim(sessionId,bridgeToken,claimId,hostId,receiverGeneration); }
     const leaseClaimId = normalizeUuid(claimId, 'claim_id');
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken, hostId);
     for (;;) {
@@ -1221,6 +1244,7 @@ export class AgentPortalService {
   }
 
   async acknowledgeMessage(sessionId: string, bridgeToken: string, input: { messageId: string; leaseOwner: string; outcome: 'accepted' | 'retry' | 'failed'; upstreamId?: string | null; error?: string | null }, hostId?: number): Promise<Record<string, unknown>> {
+    const owner = this.owned(); if (owner) { return await owner.ack(sessionId,bridgeToken,input,hostId) as Record<string,unknown>; }
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken, hostId);
     const updated = await this.db.transaction(async (tx) => {
       await this.requirePortalEnabledLocked(tx);
@@ -1315,6 +1339,15 @@ export class AgentPortalService {
     abandoned_sessions: number;
     stale_turns: number;
   }> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const before = owner.state.snapshot();
+      for (const family of ['turns', 'portal'] as const) await runOwnerPortalRetention(this.db, owner, this.env, { key: `history:${family}`, revision: 'manual', dueAt: 0 });
+      for (const session of before.sessions.all()) if (!session.endedAt && session.receiver) await runOwnerPortalRetention(this.db, owner, this.env, { key: `receiver:${session.id}`, revision: 'manual', dueAt: 0 });
+      const after = owner.state.snapshot();
+      return { sessions: Math.max(0, before.sessions.size - after.sessions.size), browser_sessions: 0, abandoned_sessions: 0,
+        stale_turns: before.sessions.all().filter(row => row.activeTurnId && !after.sessions.get(row.id)?.activeTurnId).length };
+    }
     const now = nowIso();
     const staleTurns = await this.clearStaleTurns(now);
     await this.expireDisconnectedReceiverPrompts(now);
@@ -1355,6 +1388,7 @@ export class AgentPortalService {
   }
 
   async health(): Promise<Record<string, unknown>> {
+    const owner = this.owned(); if (owner) { return owner.health(); }
     const [sessions, queued, dead] = await Promise.all([
       this.db.select({ value: count() }).from(agentSessions).where(inArray(agentSessions.status, [...LIVE_SESSION_STATES])),
       this.db.select({ value: count() }).from(agentMessages).where(inArray(agentMessages.status, ['queued', 'leased'])),
@@ -1372,6 +1406,7 @@ export class AgentPortalService {
     input: AgentEventInput,
     options: EventTransactionOptions = {},
   ): Promise<Record<string, unknown>> {
+    const owner = this.owned(); if (owner) { return await owner.addEvent(sessionId,input,options) as Record<string,unknown>; }
     if (!AGENT_EVENT_TYPE_SET.has(input.type)) throw new ValidationError('Unsupported agent event type', { param: 'type' });
     const clientEventId = normalizeEventId(input.clientEventId);
     const normalized = normalizeEvent(input.type, input.payload ?? {});
@@ -1657,6 +1692,7 @@ export class AgentPortalService {
     hostId?: number,
     allowEnded = false,
   ): Promise<AgentSession> {
+    const owner = this.owned(); if (owner) { return owner.authenticate(sessionId,rawToken,hostId,allowEnded); }
     await this.requireEnabled();
     const rows = await this.db
       .select({ session: agentSessions, host: hosts })
@@ -1711,6 +1747,7 @@ export class AgentPortalService {
   }
 
   private async requireVisibleSession(id: string): Promise<AgentSession> {
+    const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return visiblePortalSession(owner.state.snapshot(),id);}
     const rows = await this.db.select().from(agentSessions).where(eq(agentSessions.id, id)).limit(1);
     const session = rows[0];
     if (!session) throw new NotFoundError('Agent session not found', 'agent_session_not_found');
@@ -1920,6 +1957,7 @@ export class AgentPortalService {
   }
 
   async resolveNotice(actor: PortalActor, sessionId: string, noticeId: string, clientEventId: string) {
+    const owner = this.owned(); if (owner) { return await owner.resolve(actor,sessionId,noticeId,clientEventId); }
     const now = nowIso();
     const [notice] = await this.db.select().from(agentChatNotices).where(eq(agentChatNotices.id, noticeId));
     const files = new ChatAttachments(this.db, this.keyring, this.env.DATA_ROOT ?? 'storage');
@@ -2208,14 +2246,14 @@ export function createAgentPortalService(db: Database, env: Env, keyring: Keyrin
   return new AgentPortalService(db, env, keyring);
 }
 
-function normalizeRequiredText(value: unknown, param: string, max: number): string {
+export function normalizeRequiredText(value: unknown, param: string, max: number): string {
   if (typeof value !== 'string' || !value.trim()) throw new ValidationError(`${param} is required`, { param });
   const normalized = value.trim();
   if (Buffer.byteLength(normalized, 'utf8') > max) throw new ValidationError(`${param} is too long`, { param });
   return normalized;
 }
 
-function normalizeOptionalText(value: unknown, max: number): string | null {
+export function normalizeOptionalText(value: unknown, max: number): string | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim();
   if (!normalized) return null;
@@ -2224,7 +2262,7 @@ function normalizeOptionalText(value: unknown, max: number): string | null {
   return Buffer.byteLength(normalized, 'utf8') > max ? new StringDecoder('utf8').write(Buffer.from(normalized).subarray(0, max)) : normalized;
 }
 
-function normalizeMessage(value: unknown): string {
+export function normalizeMessage(value: unknown): string {
   if (typeof value !== 'string' || !value.trim()) throw new ValidationError('message text is required', { param: 'content' });
   const text = value.trim();
   if (Buffer.byteLength(text, 'utf8') > AGENT_PORTAL_MESSAGE_MAX_BYTES) {
@@ -2233,7 +2271,7 @@ function normalizeMessage(value: unknown): string {
   return text;
 }
 
-function normalizeCloseNote(value: unknown): string {
+export function normalizeCloseNote(value: unknown): string {
   if (value === undefined || value === null || !String(value).trim()) {
     return AGENT_PORTAL_DEFAULT_CLOSE_NOTE;
   }
@@ -2244,20 +2282,20 @@ function normalizeCloseNote(value: unknown): string {
  * The close note's message row carries the whole lifecycle, so the portal needs
  * no extra column to tell a pending close from an honoured one.
  */
-function closeState(status: string): AgentCloseState {
+export function closeState(status: string): AgentCloseState {
   if (status === 'accepted') return 'acknowledged';
   if (status === 'canceled' || status === 'dead') return 'undeliverable';
   return 'pending';
 }
 
 /** Keeps the two claim paths from drifting when a new message kind is added. */
-function normalizeClaimKind(value: string): 'message' | 'answer' | 'close' {
+export function normalizeClaimKind(value: string): 'message' | 'answer' | 'close' {
   if (value === 'answer') return 'answer';
   if (value === 'close') return 'close';
   return 'message';
 }
 
-function normalizeUuid(value: unknown, param: string): string {
+export function normalizeUuid(value: unknown, param: string): string {
   const text = String(value ?? '').trim().toLowerCase();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(text)) {
     throw new ValidationError(`${param} must be a UUID`, { param });
@@ -2265,7 +2303,7 @@ function normalizeUuid(value: unknown, param: string): string {
   return text;
 }
 
-function normalizeBridgeToken(value: unknown): string {
+export function normalizeBridgeToken(value: unknown): string {
   const token = String(value ?? '').trim();
   if (token.length < 43 || token.length > 128 || !/^[A-Za-z0-9_-]+$/.test(token)) {
     throw new ValidationError('bridge_token must be a 43-128 character base64url value', { param: 'bridge_token' });
@@ -2273,7 +2311,7 @@ function normalizeBridgeToken(value: unknown): string {
   return token;
 }
 
-function normalizeEventId(value: unknown): string {
+export function normalizeEventId(value: unknown): string {
   const text = String(value ?? '').trim();
   if (!text || text.length > 64 || !/^[A-Za-z0-9._:-]+$/.test(text)) {
     throw new ValidationError('client_event_id must contain only letters, digits, dot, underscore, colon or dash', { param: 'client_event_id' });
@@ -2281,7 +2319,7 @@ function normalizeEventId(value: unknown): string {
   return text;
 }
 
-function normalizeEvent(type: AgentEventType, input: Record<string, unknown>): NormalizedEvent {
+export function normalizeEvent(type: AgentEventType, input: Record<string, unknown>): NormalizedEvent {
   const payload: Record<string, unknown> = {};
   if (type === 'session_named') {
     payload.name = normalizeRequiredText(input.name, 'name', 1000);
@@ -2376,7 +2414,7 @@ function extractInsertId(result: unknown): number {
   return 0;
 }
 
-function messageView(row: typeof agentMessages.$inferSelect): Record<string, unknown> {
+export function messageView(row: typeof agentMessages.$inferSelect): Record<string, unknown> {
   return {
     message_id: row.messageId,
     sequence: row.id,
@@ -2395,11 +2433,11 @@ function messageView(row: typeof agentMessages.$inferSelect): Record<string, unk
   };
 }
 
-function eventView(row: typeof agentEvents.$inferSelect, payload: Record<string, unknown>): Record<string, unknown> {
+export function eventView(row: typeof agentEvents.$inferSelect, payload: Record<string, unknown>): Record<string, unknown> {
   return { cursor: row.id, session_id: row.sessionId, type: row.eventType, source: row.source, payload, created_at: row.createdAt };
 }
 
-function backoffSeconds(attempts: number): number {
+export function backoffSeconds(attempts: number): number {
   return Math.min(300, Math.max(2, 2 ** Math.min(8, Math.max(1, attempts))));
 }
 

@@ -1,3 +1,5 @@
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { ownedHostInventory } from './owned-discovery.js';
 /**
  * Host-scope agent inventory: the read-only answer to "which agents are
  * registered on this host, which are resumable, and what work is still
@@ -37,6 +39,7 @@ export async function listHostInventory(
   host: Host,
   filters: HostInventoryFilters = {},
 ): Promise<Record<string, unknown>> {
+  const owner=ownerRuntimeFor(core.db);if(owner)return ownedHostInventory(owner,host,filters);
   const enabled = await core.isEnabled();
   const predicates = [eq(agentBusAddresses.hostId, host.id), isNull(agentBusAddresses.archivedAt)];
   if (filters.engine) predicates.push(eq(agentBusAddresses.engine, filters.engine));

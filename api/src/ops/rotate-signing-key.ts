@@ -1,3 +1,4 @@
+import { acquireOfflineDatabase } from './offline-database.js';
 import { readFile } from 'node:fs/promises';
 import { and, eq } from 'drizzle-orm';
 import { loadEnv } from '../env.js';
@@ -71,10 +72,13 @@ async function main(): Promise<void> {
   }
 
   const env = loadEnv();
-  const { db, pool } = createDb(env);
+  const { db: readDb, pool } = createDb(env);
+  let db = readDb;
+  let offline: Awaited<ReturnType<typeof acquireOfflineDatabase>> | undefined;
   const keyring = Keyring.fromEnv(env);
-  const signerService = createWrapperSigningKeyService({ db, keyring });
   try {
+    if (command !== 'list') { offline=await acquireOfflineDatabase(pool,env.DB_DATABASE);db=offline.db; }
+    const signerService = createWrapperSigningKeyService({ db, keyring });
     if (command === 'list') {
       const signers = await signerService.allActive();
       process.stdout.write(
@@ -202,6 +206,7 @@ async function main(): Promise<void> {
     );
     process.stderr.write(STALE_CACHE_NOTE);
   } finally {
+    await offline?.close();
     await pool.end();
   }
 }

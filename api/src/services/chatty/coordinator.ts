@@ -1,3 +1,6 @@
+import { OwnedChattyActions } from './owner-actions.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../../control-plane/state/runtime.js';
+import { stageUpdate } from '../../control-plane/state/rows.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
@@ -93,11 +96,11 @@ export class ChattyCoordinator {
     const settings = await this.store.settings();
     const engines = await this.inference.availability(settings);
     const ready = engines.some((e) => e.ready);
-    if (ready && !session.seenAvailable)
-      await this.ctx.db
-        .update(chattySessions)
-        .set({ seenAvailable: 1 })
-        .where(eq(chattySessions.userId, userId));
+    if (ready && !session.seenAvailable) {
+      const owner = ownerRuntimeFor(this.ctx.db);
+      if (owner) await mutateOwnerState(owner, { kind: 'chatty.available', payload: { userId }, prepare(c) { stageUpdate(c, 'chattySessions', userId, { seenAvailable: 1 }); return null; } });
+      else await this.ctx.db.update(chattySessions).set({ seenAvailable: 1 }).where(eq(chattySessions.userId, userId));
+    }
     return {
       visible: !!session.seenAvailable || ready,
       ready,
@@ -126,10 +129,9 @@ export class ChattyCoordinator {
         throw new ConflictError('Model is not available');
     } else if (selection.model) throw new ConflictError('An explicit model requires an engine');
     await this.store.session(userId);
-    await this.ctx.db
-      .update(chattySessions)
-      .set({ selection, updatedAt: now() })
-      .where(eq(chattySessions.userId, userId));
+    const owner = ownerRuntimeFor(this.ctx.db);
+    if (owner) await mutateOwnerState(owner, { kind: 'chatty.selection', payload: { userId, selection }, prepare(c) { stageUpdate(c, 'chattySessions', userId, { selection, updatedAt: now() }); return null; } });
+    else await this.ctx.db.update(chattySessions).set({ selection, updatedAt: now() }).where(eq(chattySessions.userId, userId));
   }
   /** A run was submitted in this process: the next tick checks at once. */
   wake() {
@@ -137,12 +139,13 @@ export class ChattyCoordinator {
   }
 
   async tick() {
-    if (this.tickRunning || Date.now() < this.idleUntil) return;
+    if (this.tickRunning || (!this.store.owned && Date.now() < this.idleUntil)) return;
     this.tickRunning = true;
     try {
       // Every second, even with no chats: the claim transaction (scheduler lock upsert, locked run scans) and the
       // expiry sweep change nothing unless some run is queued, running or waiting. One plain read decides that.
-      const [active] = await this.ctx.db
+      const owner = ownerRuntimeFor(this.ctx.db);
+      const [active] = owner ? owner.state.snapshot().table('chattyRuns').all().filter(r => ['queued','running','waiting_input','waiting_confirmation'].includes(r.status)) : await this.ctx.db
         .select({ id: chattyRuns.id })
         .from(chattyRuns)
         .where(inArray(chattyRuns.status, ['queued', 'running', 'waiting_input', 'waiting_confirmation']))
@@ -162,12 +165,12 @@ export class ChattyCoordinator {
           .catch(() => {});
       }
       // Expire prepared decisions instead of letting them block a conversation forever.
-      const waiting = await this.ctx.db
+      const waiting = owner ? owner.state.snapshot().table('chattyRuns').all().filter(r => ['waiting_input','waiting_confirmation'].includes(r.status)) : await this.ctx.db
         .select()
         .from(chattyRuns)
         .where(inArray(chattyRuns.status, ['waiting_input', 'waiting_confirmation']));
       for (const r of waiting)
-        if (Date.parse(r.updatedAt) < Date.now() - 1800000) await this.store.cancel(r.userId, r.id);
+        if (Date.parse(r.updatedAt) <= Date.now() - 1800000) await this.store.cancel(r.userId, r.id);
     } finally {
       this.tickRunning = false;
     }
@@ -319,14 +322,19 @@ export class ChattyCoordinator {
   }
   private async execute(run: Run, controller: AbortController) {
     const signal = controller.signal;
-    const heartbeat = setInterval(() => {
+    const owner = ownerRuntimeFor(this.ctx.db);
+    const heartbeat = owner ? undefined : setInterval(() => {
       void Promise.all([this.store.heartbeat(run), this.store.settings()])
         .then(([, settings]) => {
           if (!settings.enabled) controller.abort();
         })
         .catch(() => controller.abort());
     }, 5000);
-    heartbeat.unref();
+    heartbeat?.unref();
+    const revalidate = () => { try { if (!this.store.owned?.settings().enabled) controller.abort(); this.store.owned?.current(run); } catch { controller.abort(); } };
+    const unsubscribe = owner?.state.subscribe(revalidate);
+    const adminExpiry = owner?.state.snapshot().table('adminSessions').get(run.adminSessionId)?.expiresAt;
+    const authorizationDeadline = adminExpiry ? setTimeout(() => controller.abort(), Math.min(2_147_483_647, Math.max(0, Date.parse(adminExpiry) - Date.now()))) : undefined;
     const deadline = setTimeout(() => controller.abort(), Math.max(1, 600000 - run.activeMs));
     const state = this.store.open<RunState>(run.stateEnc);
     try {
@@ -340,7 +348,7 @@ export class ChattyCoordinator {
           throw new Error(
             'Request limit reached. Completed receipts remain valid; continue with a new request.',
           );
-        const approved = (
+        const approved = owner ? owner.state.snapshot().table('chattyActions').all().find(a => a.runId === run.id && a.status === 'approved') : (
           await this.ctx.db
             .select()
             .from(chattyActions)
@@ -446,7 +454,7 @@ export class ChattyCoordinator {
         /* a clear, revocation or newer claim owns the state */
       }
     } finally {
-      clearInterval(heartbeat);
+      clearInterval(heartbeat); unsubscribe?.(); clearTimeout(authorizationDeadline);
       clearTimeout(deadline);
     }
   }
@@ -457,6 +465,7 @@ export class ChattyCoordinator {
     state: RunState,
     elapsed: number,
   ) {
+    if (this.ownedActions) return this.ownedActions.prepare(run, tool, args, state, elapsed);
     await this.ctx.db.transaction(async (tx) => {
       const db = tx as unknown as Database;
       await this.store.lockSession(run.userId, db);
@@ -498,7 +507,9 @@ export class ChattyCoordinator {
       });
     });
   }
+  private get ownedActions() { return this.store.owned ? new OwnedChattyActions({ store: this.store, tools: this.tools, context: (run) => this.toolContext(run) }) : undefined; }
   async decide(actor: ChattyActor, id: string, approve: boolean, generation: number) {
+    if (this.ownedActions) return this.ownedActions.decide(actor, id, approve, generation);
     return this.ctx.db.transaction(async (tx) => {
       const db = tx as unknown as Database;
       const session = await this.store.lockSession(actor.userId, db);
@@ -536,6 +547,7 @@ export class ChattyCoordinator {
     });
   }
   private async failAction(run: Run, id: string) {
+    if (this.ownedActions) return this.ownedActions.fail(run, id);
     await this.ctx.db
       .transaction(async (tx) => {
         const db = tx as unknown as Database;
@@ -559,6 +571,7 @@ export class ChattyCoordinator {
       .catch(() => {});
   }
   private async perform(run: Run, actionId: string, state: RunState) {
+    if (this.ownedActions) return this.ownedActions.perform(run, actionId, state);
     await this.ctx.db.transaction(async (tx) => {
       const db = tx as unknown as Database;
       await this.store.lockSession(run.userId, db);

@@ -1010,7 +1010,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       secure: true,
       engines: ['codex', 'claude'],
     });
-    host = rotated.host;
+    host = (await db.select().from(hosts).where(eq(hosts.id, rotated.host.id)))[0]!;
 
     expect((await db.select().from(agentBusMessages).where(
       eq(agentBusMessages.id, String((sent.message as Record<string, unknown>).id)),
@@ -1038,7 +1038,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       engines: 'codex,claude',
       createdBy: 'durability-test',
     });
-    host = rotated.host;
+    host = (await db.select().from(hosts).where(eq(hosts.id, rotated.host.id)))[0]!;
 
     expect((await db.select().from(agentBusMessages).where(
       eq(agentBusMessages.id, String((sent.message as Record<string, unknown>).id)),

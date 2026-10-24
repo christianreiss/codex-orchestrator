@@ -76,6 +76,7 @@ export interface Agent {
   /** Compatibility only — never branch on this for liveness. Use `presence`. */
   status: string;
   presence: Presence;
+  presence_source?: "connection";
   relay_ready: boolean;
   relay_heartbeat_at?: string | null;
   relay_enabled?: boolean;

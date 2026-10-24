@@ -51,7 +51,7 @@ export function agentGroupsOptions() {
   return {
     queryKey: [...agentMessagingKeys.all, "groups"],
     queryFn: ({ signal }: { signal: AbortSignal }) => api.get<{ groups: AgentGroup[]; max_publication_content_bytes?: number }>("/admin/agent-messaging/groups", { signal }),
-    refetchInterval: 15_000,
+
   };
 }
 export function agentGroupOptions(slug: string) {
@@ -59,14 +59,14 @@ export function agentGroupOptions(slug: string) {
     queryKey: [...agentMessagingKeys.all, "groups", slug],
     queryFn: ({ signal }: { signal: AbortSignal }) => api.get<{ group: AgentGroup; members: AgentGroupMember[] }>(`/admin/agent-messaging/groups/${encodeURIComponent(slug)}`, { signal }),
     enabled: slug.length > 0,
-    refetchInterval: 15_000,
+
   };
 }
 export function agentSubscriptionsOptions() {
   return {
     queryKey: [...agentMessagingKeys.all, "subscriptions"],
     queryFn: ({ signal }: { signal: AbortSignal }) => api.get<{ subscriptions: AgentSubscription[] }>("/admin/agent-messaging/subscriptions", { signal }),
-    refetchInterval: 15_000,
+
   };
 }
 export function agentGroupCreateMutation() {

@@ -458,7 +458,9 @@ describe('reconcileOrphans', () => {
     const recent = join(dataRoot, 'transfers', 'zz', 'zzzz-recent');
     await mkdir(join(dataRoot, 'transfers', 'zz'), { recursive: true });
     await writeFile(recent, 'maybe still being written');
-    expect(await service.reconcileOrphans()).toEqual({ removed: 0 });
+    const result = await service.reconcileOrphans();
+    expect(result.removed).toBe(0);
+    expect(result.next_due_at).toBeGreaterThan(Date.now());
     await stat(recent);
   });
 

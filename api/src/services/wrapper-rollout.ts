@@ -1,3 +1,6 @@
+import {persistAuditLog} from './audit-log.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
 /**
  * Staged cxx rollout: canary hosts first, then percentage waves.
  *
@@ -32,7 +35,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { hosts as hostsTable, logs as logsTable, versions as versionsTable } from '../db/schema.js';
+import { hosts as hostsTable, versions as versionsTable } from '../db/schema.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import {
@@ -309,8 +312,17 @@ function parseState(raw: string | null | undefined): WrapperRolloutState | null 
   }
 }
 
+const ownerSources = new WeakMap<WrapperRolloutState, string | null>();
+
 /** Cached for a few seconds: both gate call sites run on every cron check and config bake. */
 export async function loadWrapperRollout(db: Database, opts: { fresh?: boolean } = {}): Promise<WrapperRolloutState | null> {
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    const raw = owner.state.snapshot().setting(WRAPPER_ROLLOUT_KEY);
+    const state = parseState(raw ?? undefined);
+    if (state) ownerSources.set(state, raw);
+    return state;
+  }
   const now = Date.now();
   if (!opts.fresh && cache && now - cache.at < STATE_CACHE_MS) return cache.state;
   const rows = await db
@@ -328,6 +340,24 @@ async function saveState(db: Database, state: WrapperRolloutState): Promise<void
   state.updated_at = at;
   if (state.history.length > HISTORY_LIMIT) state.history = state.history.slice(-HISTORY_LIMIT);
   const value = JSON.stringify(state);
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    const expected = ownerSources.has(state) ? ownerSources.get(state)! : owner.state.snapshot().setting(WRAPPER_ROLLOUT_KEY);
+    await mutateOwnerState(owner, { kind: 'wrapper.rollout.state', payload: { id: state.id, state: value },
+      authorize(snapshot) { if (snapshot.setting(WRAPPER_ROLLOUT_KEY) !== expected) throw new RolloutConflictError('Rollout changed while preparing this transition'); },
+      prepare(context) {
+        const row = { name: WRAPPER_ROLLOUT_KEY, version: value, updatedAt: at };
+        context.draft.upsert('versions', row);
+        context.write(async tx => {
+          await tx.insert(versionsTable).values(row).onDuplicateKeyUpdate({ set: { version: value, updatedAt: at } });
+          await persistAuditLog(tx, { hostId: null, action: 'wrapper.rollout.changed', details: JSON.stringify({ rollout_id: state.id, status: state.status, stage_index: state.stage_index, event: state.history.at(-1) ?? null }), createdAt: at });
+        });
+        return null;
+      },
+    });
+    ownerSources.set(state, value);
+    return;
+  }
   const updated = await db
     .update(versionsTable)
     .set({ version: value, updatedAt: at })
@@ -343,7 +373,8 @@ async function saveState(db: Database, state: WrapperRolloutState): Promise<void
 }
 
 async function logRollout(db: Database, action: string, state: WrapperRolloutState, detail: Record<string, unknown> = {}): Promise<void> {
-  await db.insert(logsTable).values({
+  if (ownerRuntimeFor(db)) return; // Owner state transition and its audit commit atomically above.
+  await persistAuditLog(db, {
     hostId: null,
     action,
     details: JSON.stringify({
@@ -366,6 +397,8 @@ function publishState(state: WrapperRolloutState, advanced: boolean): void {
 }
 
 export async function loadRolloutHosts(db: Database): Promise<RolloutHost[]> {
+  const owner = ownerRuntimeFor(db);
+  if (owner) return owner.state.snapshot().hosts.all().map(row => ({ id: row.id, canary: row.wrapperCanary === 1, excluded: row.autoUpdateOverride === 0, running: hostRunningWrapperVersion(row) }));
   const rows = await db
     .select({
       id: hostsTable.id,
@@ -446,6 +479,7 @@ export async function startRolloutOnPublish(
     updated_at: now,
     history: live ? [...live.history] : [],
   };
+  if (ownerRuntimeFor(db)) ownerSources.set(state, existing ? ownerSources.get(existing) ?? null : null);
   if (live) pushHistory(state, 'superseded', by, `${live.target_version} → ${target}`);
   state.admitted_host_ids = computeAdmitted(state, await loadRolloutHosts(db), 0);
   state.stage_host_ids = [...state.admitted_host_ids];
@@ -582,6 +616,32 @@ export async function completeRollout(db: Database, by: string): Promise<Wrapper
 
 /** Canary hosts join a running rollout immediately. */
 export async function setHostWrapperCanary(db: Database, hostId: number, enabled: boolean, by: string): Promise<boolean> {
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    if (!owner.state.snapshot().hosts.has(hostId)) return false;
+    let rollout: WrapperRolloutState | null = null;
+    await mutateOwnerState(owner, { kind: 'wrapper.rollout.canary', payload: { hostId, enabled }, prepare(context) {
+      if (!context.snapshot.hosts.has(hostId)) return false;
+      const now = nowIso();
+      stageUpdate(context, 'hosts', hostId, { wrapperCanary: enabled ? 1 : 0, updatedAt: now });
+      const state = parseState(context.snapshot.setting(WRAPPER_ROLLOUT_KEY) ?? undefined);
+      if (enabled && state && ['active', 'halted'].includes(state.status) && !state.admitted_host_ids.includes(hostId)) {
+        const hosts = context.draft.table('hosts').all().map(row => ({ id: row.id, canary: row.wrapperCanary === 1, excluded: row.autoUpdateOverride === 0, running: hostRunningWrapperVersion(row) }));
+        state.admitted_host_ids = computeAdmitted(state, hosts, state.stage_index);
+        pushHistory(state, 'canary_added', by, `host ${hostId}`);
+        state.updated_at = now;
+        const row = { name: WRAPPER_ROLLOUT_KEY, version: JSON.stringify(state), updatedAt: now };
+        context.draft.upsert('versions', row);
+        context.write(async tx => { await tx.insert(versionsTable).values(row).onDuplicateKeyUpdate({ set: { version: row.version, updatedAt: now } }); });
+        rollout = state;
+      }
+      context.write(async tx => { await persistAuditLog(tx, { hostId, action: 'wrapper.rollout.canary', details: JSON.stringify({ enabled, by }), createdAt: now }); });
+      return true;
+    } });
+    if (rollout) publishState(rollout, true);
+    wsPublisher.publish('host.updated', { id: hostId, source: 'wrapper_canary' });
+    return true;
+  }
   const result = await db
     .update(hostsTable)
     .set({ wrapperCanary: enabled ? 1 : 0, updatedAt: nowIso() })

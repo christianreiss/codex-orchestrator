@@ -7,6 +7,7 @@ import { HostDaemonService } from '../../../src/services/host-daemon/service.js'
 import { daemonSettingsSchema } from '../../../src/services/host-daemon/policy.js';
 import {
   hosts,
+  type Host,
   versions,
   hostDaemons,
   hostDaemonSessions,
@@ -194,7 +195,7 @@ describe('host daemon service decisions', () => {
       wrapperVersion: '0.9.42',
       capabilities: { host_daemon: true },
     };
-    const host = await service.host(1);
+    const host = await service.host(1) as Host;
     await expect(messaging.registerRelay(host, input)).rejects.toThrow('not enabled');
     input.username = 'root:daemon';
     const relay = await messaging.registerRelay(host, input);

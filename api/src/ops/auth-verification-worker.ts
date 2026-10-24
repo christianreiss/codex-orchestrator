@@ -1,20 +1,16 @@
-import { eq } from 'drizzle-orm';
-import { providerAccounts } from '../db/schema.js';
+import { startOwnerWorker } from './owner-worker.js';
+import { requireOwnerMaintenanceCommands } from './owner-maintenance.js';
 import type { FastifyInstance } from 'fastify';
 import type { Env } from '../env.js';
 import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
-import { createRunnerClient } from '../services/runner-client.js';
-import { createRunnerValidationService } from '../services/runner-validation.js';
 import {
-  createCanonicalAuthStoreService,
   unverifiableWithoutRefreshSpend,
 } from '../services/canonical-auth-store.js';
 import { inspectCredential } from '../services/auth-generation.js';
 import { ENGINES, type Engine } from '../util/engine.js';
-import { enabledEngines, readFleetEngineState } from '../services/engine-switch.js';
 import { nowIso } from '../util/timestamp.js';
-import { writeRunnerTelemetry, type RunnerTelemetryState } from '../services/runner-telemetry.js';
+import { type RunnerTelemetryState } from '../services/runner-telemetry.js';
 import type { RunnerValidationService } from '../services/runner-validation.js';
 import type { CanonicalAuthStoreService } from '../services/canonical-auth-store.js';
 
@@ -62,109 +58,38 @@ export interface AuthVerificationTickDeps {
   engines?: readonly Engine[];
 }
 
-export function startAuthVerificationWorker(
-  app: FastifyInstance,
-  env: Env,
-  db: Database,
-  keyring: Keyring,
-): void {
+export function startAuthVerificationWorker(app: FastifyInstance, env: Env, db: Database, _keyring: Keyring): void {
   if (!env.AUTH_RUNNER_URL) return;
-
-  const intervalSeconds = Math.max(30, Number(env.AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS ?? 300));
+  const commands = requireOwnerMaintenanceCommands(db);
   const ttlSeconds = Math.max(0, Number(env.AUTH_RUNNER_VERIFY_TTL_SECONDS ?? 900));
-  const maxIntervalSeconds = Math.max(
-    ttlSeconds,
-    Number(env.AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS ?? DEFAULT_MAX_INTERVAL_SECONDS),
-  );
-  const runnerValidation = createRunnerValidationService({ db, keyring });
-  const runner = createRunnerClient({ env });
-  const authStore = createCanonicalAuthStoreService({ db, keyring, runnerValidation, runner });
-  const telemetry: AuthVerificationTelemetryWriter = {
-    write: (engine, state, checkedAt) => writeRunnerTelemetry(db, engine, state, checkedAt),
-  };
-  const scheduleMemory: AuthProbeScheduleMemory = new Map();
-  const accountSchedules = new Map<number, AuthProbeScheduleMemory>();
-  let running = false;
-  let stopped = false;
-
-  const run = async (reason: WorkerReason): Promise<void> => {
-    if (running || stopped) return;
-    running = true;
-    try {
-      // An engine switched off fleet-wide is not verified, refreshed or
-      // probed at all; its accounts and canonical auth are left exactly as
-      // they are until it is switched back on.
-      const fleet = await readFleetEngineState(db, { fresh: true });
-      const accounts = (await db.select().from(providerAccounts).where(eq(providerAccounts.state, 'enabled')))
-        .filter((account) => fleet[account.engine as Engine] !== false);
-      if (accounts.length) {
-        const states = new Map<Engine, Array<'ok' | 'fail'>>();
-        for (const account of accounts) {
-          const scoped: RunnerValidationService = {
-            ...runnerValidation,
-            resolveCanonicalPayload: (engine) =>
-              engine === account.engine
-                ? runnerValidation.resolveCanonicalPayload(engine, account.id)
-                : Promise.resolve(null),
-            resolvePendingQuarantine: (engine) =>
-              engine === account.engine
-                ? runnerValidation.resolvePendingQuarantine!(engine, account.id)
-                : Promise.resolve(null),
-          };
-          const accountSchedule = accountSchedules.get(account.id) ?? new Map();
-          accountSchedules.set(account.id, accountSchedule);
-          await runAuthVerificationWorkerTick({
-            runnerValidation: scoped,
-            authStore,
-            scheduleMemory: accountSchedule,
-            telemetry: {
-              async write(engine, state) {
-                const values = states.get(engine) ?? [];
-                values.push(state);
-                states.set(engine, values);
-              },
-            },
-            ttlSeconds,
-            maxIntervalSeconds,
-            reason,
-            log: app.log,
-          });
+  const maxIntervalSeconds = Math.max(ttlSeconds, Number(env.AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS ?? DEFAULT_MAX_INTERVAL_SECONDS));
+  const tables = ['versions', 'authPayloads', 'authCanonicalHeads', 'providerAccounts'] as const;
+  startOwnerWorker(app, db, {
+    name: 'auth-verification', tables,
+    select(snapshot) {
+      const accounts = snapshot.accounts.all().filter(row => row.state === 'enabled' && !row.mergedIntoAccountId);
+      const scopes = ENGINES.flatMap(engine => {
+        const assigned=accounts.filter(row=>row.engine===engine);
+        return assigned.length ? assigned.map(row=>({key:String(row.id),engine,payloadId:row.payloadId,accountId:row.id as number|null}))
+          : [{key:engine,engine,payloadId:snapshot.table('authCanonicalHeads').by('engine',engine)[0]?.payloadId??null,accountId:null}];
+      });
+      return scopes.flatMap(scope => {
+        if (['1', 'true', 'yes', 'on'].includes(snapshot.setting(`${scope.engine}_engine_disabled`)?.toLowerCase() ?? '')) return [];
+        const row = scope.payloadId ? snapshot.table('authPayloads').get(scope.payloadId) : undefined;
+        // Telemetry and unrelated settings writes must not retrigger their own
+        // verification input. Only the credential generation/verdict matters.
+        const quarantine=snapshot.table('authPayloads').by('engine',scope.engine).filter(candidate=>candidate.accountId===scope.accountId&&candidate.verificationState!=='verified'&&(candidate.generation??0)>(row?.generation??0)).map(candidate=>[candidate.id,candidate.sha256,candidate.generation,candidate.verificationState,candidate.verificationCheckedAt]);
+        const revision = JSON.stringify([scope.engine,scope.payloadId,row?.sha256,row?.verificationState,row?.verificationCheckedAt,row?.createdAt,quarantine]);
+        const work = [{ key: `input:${scope.key}`, revision, dueAt: 0 }];
+        if (row?.verificationCheckedAt) {
+          const interval = probeIntervalSeconds({ createdAt: row.createdAt, checkedAt: row.verificationCheckedAt, ttlSeconds, maxIntervalSeconds });
+          work.push({ key: `probe:${scope.key}`, revision, dueAt: Date.parse(row.verificationCheckedAt) + interval * 1000 + 1 });
         }
-        for (const [engine, values] of states)
-          await telemetry.write(engine, values.includes('ok') ? 'ok' : 'fail', nowIso());
-      } else
-        await runAuthVerificationWorkerTick({
-          runnerValidation,
-          authStore,
-          telemetry,
-          ttlSeconds,
-          maxIntervalSeconds,
-          scheduleMemory,
-          reason,
-          log: app.log,
-          engines: enabledEngines(fleet),
-        });
-    } catch (err) {
-      app.log.warn({ err, reason }, 'auth verification worker tick failed');
-    } finally {
-      running = false;
-    }
-  };
-
-  const first = setTimeout(() => {
-    void run('startup');
-  }, 1000);
-  first.unref?.();
-
-  const timer = setInterval(() => {
-    void run('interval');
-  }, intervalSeconds * 1000);
-  timer.unref?.();
-
-  app.addHook('onClose', async () => {
-    stopped = true;
-    clearTimeout(first);
-    clearInterval(timer);
+        return work;
+      });
+    },
+    run: work => commands.run('auth-verification', work),
+    error: error => app.log.warn({ err: error }, 'owner auth verification failed'),
   });
 }
 

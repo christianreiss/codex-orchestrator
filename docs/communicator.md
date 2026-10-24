@@ -815,4 +815,30 @@ remain in their existing lifecycles. See [runtime, migration and acceptance](com
 
 The topology inspector opens technical fields on demand. Chat and Spawn reuse the Clients workspace; filters and collapsing change only presentation and never infer a parent. Server edges use solid/dashed/dotted patterns for reported resident/on-demand/unknown mode; stale reports remain visibly stale. Color represents connection health independently of mode.
 
-Native-session process stop is a separate session-bridge protocol, not a communicator terminate frame. It binds to the wrapper's random process instance and the session binding generation and is polled independently of model turns. Only the process-owning supervisor signals the native child (TERM, then KILL after five seconds). A communicator restart cannot retarget a stop. The wrapper's exit receipt is distinct from a transport close or a server-side record close. See the API contract for receipt and recovery semantics.
+Native-session process stop is a separate session-bridge protocol, not a communicator terminate frame. It binds to the wrapper's random process instance and the session binding generation and uses the negotiated state stream independently of model turns (only captured legacy processes retain polling during drain). Only the process-owning supervisor signals the native child (TERM, then KILL after five seconds). A communicator restart cannot retarget a stop. The wrapper's exit receipt is distinct from a transport close or a server-side record close. See the API contract for receipt and recovery semantics.
+
+
+### Coordinated owner cutover: active legacy processes
+
+A coordinated owner cutover preserves already running native processes. The new owner captures an explicit boot manifest of their existing session, native instance, receiver, and already accepted claim identities. Legacy heartbeats renew only volatile drain credentials for those captured identities. They do not create WebSocket presence, replace a native instance, accept an old unaccepted offer, or acquire new work. A receiver may reconnect only for the same captured native transcript and binding. Security policy, host credential, engine eligibility, fixed session expiry, explicit exit, and revocation continue to fence the drain. An expired bootstrap credential requires authenticated host recovery for that same lifecycle.
+
+Pre-cutover timed provider account leases are a bounded compatibility exception: their old processes continue the existing durable expiry renewal until release or expiry. They are not silently upgraded, and historical expired rows are never revived. The owner drain diagnostic `legacy_timed_provider` counts the unexpired timed cohort; `legacy_sessions` and `legacy_relays` count captured lifecycle records. Report legacy traffic separately from the negotiated protocol cohort. Universal zero idle SQL cannot be claimed while timed legacy provider renewals remain; negotiated connection-owned Codex, Claude, and Grok idle traffic must independently produce zero SQL.
+
+Managed host MCP calls use the session's private Unix broker to inject authenticated native session headers. Bridge credentials remain in the broker, never in model-visible tool arguments. The server validates the session against the authenticated host and engine before exposing the native principal to board/resource operations. Requests without native proof retain ordinary host tools but cannot claim native-owned work.
+
+
+### Communicator-owned local stream liveness
+
+With `communicator_state_liveness_v1` in `ready.control`, a communicator may send
+`capabilities.state_liveness: "communicator"`. Only the server's
+`state_liveness_ready` acknowledgement enables local handling. The server then
+stops its per-stream ping loop. The communicator's existing 15-second transport
+ticker sends local Unix-socket pings, consumes their pongs locally, and reports
+only attachment closure upstream on failure. Native clients retain their
+45-second read deadline, so a stalled communicator cannot preserve stale local
+authority. The parent connection keeps its existing 45/50-second failure bounds;
+security deadlines and revocation notifications remain independent.
+
+Older communicators and standalone state streams retain server ping/pong.
+The shared protocol applies equally to Codex, Claude, and Grok; transport
+liveness does not prove task progress or successful execution.

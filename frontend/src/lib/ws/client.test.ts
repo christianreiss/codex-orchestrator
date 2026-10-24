@@ -62,6 +62,7 @@ class FakeSocket {
   handshake(): void {
     this.readyState = FakeSocket.OPEN;
     this.emit("open");
+    this.emit("message", { data: JSON.stringify({ type: "hello", epoch: "test-epoch", sequence: "0", resync: true, ts: "now" }) });
   }
 }
 
@@ -297,6 +298,8 @@ describe("createWsClient frames", () => {
 
     const frame = {
       type: "project.updated",
+      epoch: "test-epoch",
+      sequence: "1",
       payload: { slug: "acme" },
       ts: "2026-01-01T00:00:00.000Z",
     };
@@ -523,4 +526,65 @@ describe("createWsClient lifecycle", () => {
 
     client.stop();
   });
+});
+
+
+describe("owner stream continuity", () => {
+  it("waits for a valid subscribed hello rather than declaring a socket live", async () => {
+    const client = await start({ enabled: true, url: "wss://host/admin/ws" });
+    const socket = lastSocket();
+    socket.readyState = FakeSocket.OPEN;
+    socket.emit("open");
+    assert.equal(get(client.status), "connecting");
+    fire("timeout");
+    assert.equal(get(client.status), "closed");
+    client.stop();
+  });
+
+  it("resnapshots gaps and epoch replacement, ignoring duplicate frames", async () => {
+    const client = await start({ enabled: true, url: "wss://host/admin/ws" });
+    const socket = lastSocket();
+    const seen: string[] = [];
+    const unsubscribe = client.events.subscribe(event => { if (event) seen.push(event.type); });
+    socket.handshake();
+    const send = (epoch: string, sequence: string) => socket.emit("message", { data: JSON.stringify({ type: "host.updated", payload: {}, ts: "now", epoch, sequence }) });
+    send("test-epoch", "1");
+    send("test-epoch", "1");
+    send("test-epoch", "3");
+    send("replacement", "1");
+    assert.deepEqual(seen, ["transport.connected", "host.updated", "transport.resync", "host.updated", "transport.resync", "host.updated"]);
+    unsubscribe(); client.stop();
+  });
+
+  it("handles decimal sequences beyond JavaScript's safe integer range", async () => {
+    const client = await start({ enabled: true, url: "wss://host/admin/ws" });
+    const socket = lastSocket(); socket.handshake();
+    socket.emit("message", { data: JSON.stringify({ type: "hello", ts: "now", epoch: "large", sequence: "9007199254740993", resync: true }) });
+    const seen: string[] = [];
+    const unsubscribe = client.events.subscribe(event => { if (event) seen.push(event.type); });
+    socket.emit("message", { data: JSON.stringify({ type: "host.updated", ts: "now", epoch: "large", sequence: "9007199254740994" }) });
+    assert.deepEqual(seen, ["transport.connected", "host.updated"]);
+    unsubscribe(); client.stop();
+  });
+});
+
+
+it("keeps ten quiet minutes connected without HTTP rediscovery or refresh events", async () => {
+  const client = await start({ enabled: true, url: "wss://host/admin/ws", heartbeat_seconds: 15 });
+  const socket = lastSocket(); socket.handshake();
+  let httpRequests = 0;
+  g.fetch = async () => { httpRequests++; return infoResponse({ enabled: true, url: "wss://host/admin/ws" }); };
+  const domainEvents: string[] = [];
+  const unsubscribe = client.events.subscribe(event => { if (event) domainEvents.push(event.type); });
+  const baseline = Date.now();
+  for (let step = 1; step <= 40; step++) {
+    Date.now = () => baseline + step * 15_000;
+    socket.emit("message", { data: JSON.stringify({ type: "ping", ts: "now" }) });
+    pending("interval")[0].fn();
+  }
+  assert.equal(httpRequests, 0);
+  assert.equal(socket.sent.length, 40);
+  assert.deepEqual(domainEvents, ["transport.connected"]);
+  assert.equal(get(client.status), "open");
+  unsubscribe(); client.stop();
 });

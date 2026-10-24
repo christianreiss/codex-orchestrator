@@ -447,6 +447,11 @@ describe("hostHasRequiredAuth", () => {
 });
 
 describe("hostStatusKind", () => {
+  it("keeps idle connection-owned presence until an owner transition", () => {
+    const host = makeHost({ presence_source: "connection", presence: "online", presence_heartbeat_at: iso(NOW - 86400000) });
+    assert.equal(hostStatusKind(host, NOW + 86400000), "online");
+    assert.equal(hostStatusKind({ ...host, presence: "offline" }, NOW), "offline");
+  });
   it("honors disabled/offline state regardless of heartbeat", () => {
     for (const status of ["offline", "stale", "disabled", "OFFLINE"]) assert.equal(hostStatusKind(makeHost({ status })), "offline");
   });

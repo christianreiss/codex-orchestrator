@@ -1,3 +1,4 @@
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 /**
  * Fleet-wide managed-wrapper sync activity derived from the `logs` table.
  *
@@ -29,6 +30,14 @@ export class HostSessionsService {
   constructor(private readonly db: Pick<Database, 'execute'>) {}
 
   async fleetCounts(now: Date = new Date()): Promise<FleetSessionCounts> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      return { now: 0, today: 0, month: 0 };
+    }
+    // Legacy fixtures retain the historical aggregate contract. Production no
+    // longer collects agents.retrieve (migration 0092); zeros are compatibility
+    // placeholders, never a measurement of active connections or native work.
     const nowCutoff = isoFloor(new Date(now.getTime() - NOW_WINDOW_MINUTES * 60 * 1000));
     const todayCutoff = isoFloor(startOfUtcDay(now));
     const monthCutoff = isoFloor(startOfUtcMonth(now));

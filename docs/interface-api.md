@@ -1,5 +1,30 @@
 # API Interface (Source of Truth)
 
+## Current owner-mode contract
+
+The running API is the single owner of bounded current-state metadata in RAM.
+It hydrates once under exclusive database ownership; production also holds the
+shared-storage kernel lock before bootstrap. Durable commands commit state,
+receipts and required effect intents before publishing revisions. Current-state reads
+and transport liveness do not poll SQL; requested historical/encrypted bodies
+remain explicit cold reads. See [control-plane-owner.md](control-plane-owner.md).
+
+New connection-owned grants use authenticated session/binding/native-instance
+proof. Disconnect, silence, owner restart and old timestamp expiry do not prove
+execution ended or release uncertain work. Genuine authorization, retry, business
+and retention deadlines still apply. Legacy timed rows and draining old processes
+retain their explicitly bounded compatibility behavior; a retained expiry column
+does not make a connection-owned row a timed lease.
+
+Negotiated `control_state_v1` streams deliver authenticated snapshots and deltas;
+communicator WebSocket and local Unix-socket liveness replace recurring domain
+polling. Pings do not renew durable leases or insecure grants. Finite mutation
+routes retain their identity/idempotency contracts and revalidate authority.
+Host-0 reservations belong to internal API inference tasks: bootstrap removes
+only their connection-owned grants after the shared-storage lock proves the old
+API drained or exited. Remote reservations and legacy timed grants survive this
+cleanup. This recovery releases reservations, never replays the interrupted task.
+
 ## Communicator cache protocol 2 (cxx 0.9.122)
 
 Only actually retained, future-valid OAuth resources shorten the confirmation
@@ -10,7 +35,7 @@ does not zero the live admission proof; engine refresh ownership is unchanged.
 - `POST /sync/cache` — authenticated, server-confirmed resource read. Requires communicator transport and sync enabled. Body: `protocol:2`, UUID `request_id`, original `method`, allow-listed relative `path`, original JSON `body`, allow-listed `headers`, and `known:{<JSON resource path>:<sha256>}`. Host key and client IP are pinned by the outer request; MCP bearers must belong to that host. Arbitrary paths, forwarding headers, writes and MCP tools are refused.
 - Supported sources: content bootstrap, agents/config retrieval, Skill list/retrieval, selected Skill MCP/resource reads, auth retrieve and account-session acquisition. Admission and credential exchange still execute each time; their results are not memoized. Bootstrap sends a candidate once, then reads content in a separate consistent transaction. Post-dispatch failures retain `409 communicator_outcome_unknown` semantics.
 - Success: standard `{status:"ok",data:{protocol,request_id,checked_at,valid_for_ms,status,headers,body,resources}}`. Each resource has `path:string[]`, `revision`, `sha256`, nullable `valid_until`, and base64 JSON `content` only when not already known. `body` contains null placeholders at those paths. Status, authorization, quota and RPC IDs remain fresh. Full resource inventories preserve deletions. Each confirmation is usable only for this request, for at most 30 seconds including transport time and less when an OAuth access expiry requires it. Unknown expiry credentials and insecure-host content are not cached.
-- Fresh checks bypass the periodic DB read cache. Content renderers share a repeatable-read consistent snapshot. The owner verifies correlation, digests and deadlines before reconstructing a reply; no stale fallback exists for new protocol-2 launches. Existing native processes continue. Signed configs select protocol 2 for reported cxx >=0.9.122; older callers retain protocol 1. See [communicator.md](communicator.md).
+- In owner mode, fresh authorization checks use the authoritative RAM snapshot; explicitly requested cold content is read separately and authority is revalidated before delivery. The legacy path bypasses its periodic DB read cache and shares a repeatable-read snapshot. The owner verifies correlation, digests and deadlines before reconstructing a reply; no stale fallback exists for new protocol-2 launches. Existing native processes continue. Signed configs select protocol 2 for reported cxx >=0.9.122; older callers retain protocol 1. See [communicator.md](communicator.md).
 
 - `POST /host/agent-sessions/{id}/agent-messaging/digest` — bridge-authenticated original retrieval for a negotiated smart-queue digest. Body: `digest_id`, optional `after` dispatch cursor and `limit` (1–20). Returns `messages` and `next_after`; grouping is never a read receipt. See [Smart queue](smart-queue.md).
 
@@ -359,7 +384,7 @@ Suspending an engine keeps everything; *destroy* removes it from every host.
   Legacy requests without `engine` retain whole-host deregistration. IP binding
   is enforced unless `?force=1`; both paths are transactional and audit logged.
 - `POST /sync/status` — batched startup diff probe for AGENTS.md and baked `config.toml`. Requires host API key + IP binding. Body accepts local digests (`agents.sha256`, `config.sha256`) plus optional host-user context. The `agents` block includes canonical `base_sha256`, combined `managed_sha256`, separate policy/features digests, and stable `sections` diagnostics for the mandatory fleet/safety/hard-stop prefix (`fleet_identity`, `safety_floor`, `hard_stops`, plus `standing_authorizations` and `response_style` when the posture or verbosity level renders them) and the feature blocks `skills`, `memories`/`memory_routing`, `projects`, `browseros`, `secrets`, `api_keys_in_chat`, `agent_messaging`, `git_director`, and `file_transfer`. Metadata describes guidance, never inventories. Optional `include_auth` retains the existing auth semantics. Contract: `docs/contracts/sync-status.schema.json`.
-- `POST /sync/bootstrap` — batched startup payload endpoint. Uses the same input shape as `/sync/status`; when updates exist it returns changed payloads in one response (`agents.content`, `config.content`) plus `host_users`. Every successful response also includes the historical compatibility key `sessions:{now,today,month}` for the shared cdx/clx/cgx `ACTIVITY` section; older servers may omit it. These values are sync activity, not sessions or launches: `now` is distinct hosts with an `agents.retrieve` log in the prior 30 minutes, while `today` and `month` are total `agents.retrieve` attempts since the UTC day/month boundaries. Wrappers pair them with their local same-UID wrapper process count and label the rows `local procs`, `hosts 30m`, `syncs UTC day`, and `syncs UTC month`. The `agents` block carries the same `base_sha256` / `managed_sha256` / `sections` metadata as `/sync/status`, so hosts and operators can inspect which feature hints affect the served engine/host document before or after a content fetch. Codex Skills are not bundled as local files; cdx reads manifests/support files through MCP `resource_read` at `skill://{slug}` / `skill://{slug}/{path}`. With usable orchestrator MCP (`agents.memory_routing.enabled=true`), Claude uses the same MCP Skill content path and receives an explicit empty `claude_skills` list to prune only previously fleet-owned native Skill directories. Omission is not a deletion instruction. This uses the managed configuration gate, not a live connectivity probe; transient MCP outages do not switch transport. Without usable MCP, Claude receives `claude_skills`, the complete live set of native fallback directory bundles; each changed source-owned item includes its rendered `SKILL.md` plus every `skill_files` entry, and the bundle digest changes when either the manifest or a support file changes. Reading Skill content through MCP does not register native Claude Skills or activate their native slash-command, hook, or filesystem semantics. Grok hosts receive `grok_skills` in the same shape and install it under `~/.grok/skills/<slug>/`. Both native bundles honor an optional request `skills` map of `{slug: sha256}` digests: content and files are omitted for a slug whose reported digest matches. Optional `include_auth` (default true) adds the same auth block as `/sync/status`; optional `auth_candidate` lets the endpoint auto-run the runner-validated `/auth` store path before returning canonical auth. Native Claude candidates without `last_refresh` are canonicalized for comparison first: if they match canonical they return `valid`; if they differ and are usable they are stored with a server timestamp instead of being overwritten by canonical auth. Successful inline stores add the `auth_stored` reason. When `include_auth=false`, no `/auth` retrieve/store path runs. Optional `include_content:false` (communicator warm-cache launch) skips every content renderer: no MCP bearer is minted. The response omits `agents`, `config`, `memory_routing`, `claude_*`, `grok_skills` and `sessions`, and carries `content: "omitted"`. Contract: `docs/contracts/sync-bootstrap.schema.json`.
+- `POST /sync/bootstrap` — batched startup payload endpoint. Uses the same input shape as `/sync/status`; when updates exist it returns changed payloads in one response (`agents.content`, `config.content`) plus `host_users`. Every successful response also includes the historical compatibility key `sessions:{now,today,month}` for the shared cdx/clx/cgx `ACTIVITY` section; older servers may omit it. The authoritative owner returns numeric zero placeholders for these retired counters: migration 0092 removed `agents.retrieve` telemetry, so they no longer measure activity, sessions or launches. Older servers derived `now` from distinct retrieving hosts over 30 minutes and `today` / `month` from UTC-boundary retrieval totals. Current connection activity is available through connection-owned presence. Wrappers pair them with their local same-UID wrapper process count and label the rows `local procs`, `hosts 30m`, `syncs UTC day`, and `syncs UTC month`. The `agents` block carries the same `base_sha256` / `managed_sha256` / `sections` metadata as `/sync/status`, so hosts and operators can inspect which feature hints affect the served engine/host document before or after a content fetch. Codex Skills are not bundled as local files; cdx reads manifests/support files through MCP `resource_read` at `skill://{slug}` / `skill://{slug}/{path}`. With usable orchestrator MCP (`agents.memory_routing.enabled=true`), Claude uses the same MCP Skill content path and receives an explicit empty `claude_skills` list to prune only previously fleet-owned native Skill directories. Omission is not a deletion instruction. This uses the managed configuration gate, not a live connectivity probe; transient MCP outages do not switch transport. Without usable MCP, Claude receives `claude_skills`, the complete live set of native fallback directory bundles; each changed source-owned item includes its rendered `SKILL.md` plus every `skill_files` entry, and the bundle digest changes when either the manifest or a support file changes. Reading Skill content through MCP does not register native Claude Skills or activate their native slash-command, hook, or filesystem semantics. Grok hosts receive `grok_skills` in the same shape and install it under `~/.grok/skills/<slug>/`. Both native bundles honor an optional request `skills` map of `{slug: sha256}` digests: content and files are omitted for a slug whose reported digest matches. Optional `include_auth` (default true) adds the same auth block as `/sync/status`; optional `auth_candidate` lets the endpoint auto-run the runner-validated `/auth` store path before returning canonical auth. Native Claude candidates without `last_refresh` are canonicalized for comparison first: if they match canonical they return `valid`; if they differ and are usable they are stored with a server timestamp instead of being overwritten by canonical auth. Successful inline stores add the `auth_stored` reason. When `include_auth=false`, no `/auth` retrieve/store path runs. Optional `include_content:false` (communicator warm-cache launch) skips every content renderer: no MCP bearer is minted. The response omits `agents`, `config`, `memory_routing`, `claude_*`, `grok_skills` and `sessions`, and carries `content: "omitted"`. Contract: `docs/contracts/sync-bootstrap.schema.json`.
 - Bootstrap version snapshots and wrapper/platform projections are reused only
   within that request. Credential-store attempts and Grok refreshes invalidate
   them; failed reads are discarded so fallback reads retain their retry behavior.
@@ -1023,9 +1048,11 @@ All three engine config GET/store routes share the revision contract: `revision`
     `X-Content-Type-Options: nosniff`, and a `Content-Disposition` whose
     RFC 5987 `filename*` carries the uploader's name intact. Audited without a
     broadcast: an operator reading a file changes nothing the console renders.
-  - `DELETE /admin/transfers/{id}` — retire one file early. Unlinks the bytes
-    and marks the row `deleted`; the row and its events are kept, because an
-    audit trail whose subject has been deleted is not one.
+  - `DELETE /admin/transfers/{id}` — retire one file early. Owner mode commits
+    `deleted` metadata and its audit before unlinking bytes; pending filesystem
+    cleanup retries after failure or restart. Already admitted downloads retain
+    their open descriptor until completion or disconnect. The row and its events
+    remain as the audit trail.
 - Live agent sessions (`agent_portal.*`) serve Active Clients and Android.
   Dashboard access uses the admin session and its current role capabilities.
   Web Active Clients defaults to Active: ongoing sessions, including offline
@@ -1228,7 +1255,9 @@ Explicit Portal source closure releases its local gate so peers can continue.
 
 For accepted Codex work, a fresh failed or interrupted native turn stops claim
 renewal even when watchdog recovery is disabled. The receiver acknowledges the
-original claim as `ambiguous`; a lost acknowledgement falls back to lease expiry.
+original claim as `ambiguous`; a lost acknowledgement falls back to lease expiry
+only in legacy timed mode. Connection-owned delivery retains the unresolved claim
+and replays the same durable receipt, never the action.
 An explicit result or reply already awaiting storage confirmation keeps its
 original receipt instead. A historical failed turn observed before new queue
 admission does not release the new delivery.
@@ -1395,9 +1424,14 @@ headless; elsewhere its mail waits for a human to restart the agent and expires
 after its TTL. The scoped bridge bearer is kept by `cxx` and proxied to
 the engine over its private Unix socket.
 
-A bridge lease lasts `AGENT_PORTAL_BRIDGE_TTL_SECONDS` (default 900) and is
-renewed by the 15-second heartbeat (cxx backs off to 60 seconds while the API is
-unreachable). A lapsed lease is recoverable: the bridge answers
+In owner mode, the persisted bridge credential bootstraps an authenticated
+attachment; its effective authorization deadline can renew in RAM while current
+host/security/binding proof remains valid. Reconnect may renew the same bootstrap
+credential through a finite host-authenticated command, never revive an ended
+lifecycle or extend an insecure grant from pings. The following timed abandonment
+behavior applies only to the legacy path: a bridge lease lasts
+`AGENT_PORTAL_BRIDGE_TTL_SECONDS` (default 900), renewed by the 15-second heartbeat
+(cxx backs off to 60 seconds while the API is unreachable). A lapsed lease is recoverable: the bridge answers
 `agent_bridge_expired` and the wrapper registers the same session ID and token
 again. The portal's abandonment sweep ends a session whose lease lapsed (status
 `failed`, event `server:abandoned`, address unbound). It waits 150 seconds after
@@ -1564,7 +1598,7 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   Optional `informational_only: true` leaves work queued without spending a
   delivery attempt or bypassing FIFO; one-shot CLI readers use this mode.
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/renew`
-  — extend the owned 60-second lease.
+  — validate the exact owned claim; connection-owned grants need no durable heartbeat renewal. Legacy timed grants extend their 60-second lease.
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/ack` —
   report `accepted`, `completed`, `retry`, `dead`, or `ambiguous` for the owned
   claim.
@@ -1637,18 +1671,21 @@ Finish a notice with `agent_listen` once; never acknowledge it with another mess
 Delivery is ordered at least once. A monotonic dispatch key and conversation
 sequence provide per-target FIFO; a delayed retry remains head-of-line, and no
 target may have more than one leased or accepted message. Claims and sender
-`client_message_id` values are idempotent. Leases last 60 seconds, retries use
+`client_message_id` values are idempotent. Legacy timed leases last 60 seconds;
+owner-mode grants are connection-owned and are not released by silence or timestamp expiry. Retries use
 bounded exponential backoff, and the twelfth attempt is terminal `dead`.
 Backoff fences the delivery path that failed, not the message: a live session's
 claim ignores `next_attempt_at` on a row whose last delivery session was another
 one or none (the relay's `native_session_busy` retries), so a returning session
 is never held behind backoff it did not cause; its own retries keep theirs.
 Messages are at most 32 KiB UTF-8. TTL defaults to 24 hours and accepts 60
-seconds through seven days. Expired queued/leased rows become `expired`.
+seconds through seven days. Expired queued rows become `expired`; legacy timed leased rows retain their expiry handling. Connection-owned held work is not released by TTL alone.
 
 Acceptance is a deliberate uncertainty boundary: after the target has accepted
-work, a lost completion acknowledgement, eligibility shutdown, or expired
-accepted lease becomes `ambiguous` rather than being replayed automatically.
+work, a lost completion acknowledgement or eligibility shutdown preserves an
+uncertain outcome rather than replaying work automatically. Legacy timed accepted
+lease expiry becomes `ambiguous`; connection-owned work retains its claim through
+disconnect/restart until authoritative completion or explicit resolution.
 Only an owner/admin may explicitly redrive a `dead` or `ambiguous` message; the
 redrive is a new queued row and conversation sequence linked by
 `redrive_of_message_id`, while the terminal original remains unchanged.
@@ -1712,7 +1749,7 @@ generation. Version 1 performs queue maintenance and state transitions only:
 terminal messages, canceled conversations, dormant addresses, and their audit
 history are retained; there is no automatic Agent Messaging history purge.
 
-### Idle relay FIFO observation
+### Legacy timed-path idle relay FIFO observation
 
 An idle relay uses the same strict FIFO readiness predicate as its authoritative claim. A due queued follower behind an earlier queued message or accepted/leased/reboot-held work does not start an empty claim transaction. Completion or the head becoming due makes normal delivery eligible on the next observation. Expired messages, lease reconciliation, routine-notice retirement and safe digest recovery still enter their existing locked paths. This observation caches no authorization or queue results.
 
@@ -1721,7 +1758,11 @@ grid. After the last grid point before the request deadline they wait for that
 deadline or a work event; they do not revert to faster polling. Every new request
 performs its own admission check, and committed work wakes parked requests.
 
-### Idle coordination maintenance
+### Legacy timed-path idle coordination maintenance
+
+The following polling/checkpoint optimizations describe the retained legacy path.
+Owner mode uses RAM projections, change subscriptions and indexed deadlines; it
+does not run these SQL idle checks, heartbeat checkpoints or periodic sweeps.
 
 An active resource claim owned by the current, present binding can be read or
 renewed inside the existing bus transaction without reconciling every fleet
@@ -1908,9 +1949,9 @@ ChatGPT (`codex`) and Claude (`claude`) have independent account pools. Provider
 - `PATCH /admin/accounts/:id` — `{label?, state?: "enabled"|"paused"}`. Paused accounts accept same-account refreshes for existing sessions but receive no new scopes.
 - `POST /admin/accounts/:id/credentials` — `{payload}`; validates replacement for the specified engine/account. Known different account identities cannot overwrite it.
 - `POST /admin/accounts/:id/verify` — live runner verification; returns verdict metadata only.
-- `DELETE /admin/accounts/:id` — stops new assignments immediately (`removing`); after live sessions drain or expire, clears encrypted payload bodies and auth entries and retains an identity tombstone (`removed`).
-- `POST /auth/sessions` — host-key/IP/security gated `{engine, scope_id, session_id, account_id?}`. IDs are opaque strings of 16–64 characters; `scope_id` represents the native auth directory. Returns verified `auth`, `account_id`, `account_label`, `session_id`, `expires_at`, `canonical_digest`, `canonical_last_refresh` and existing quota controls. Retries with one session ID are idempotent. An optional account ID supports retaining an already active native child, rather than a user pin.
-- `POST /auth/sessions/heartbeat` — `{engine, session_id}` extends a live, host-owned lease by five minutes; expired/foreign sessions are rejected with 404. Wrappers heartbeat every 90 s (cxx 0.9.121; 30 s before) and answer a 404 (a host that slept past the TTL) by re-reserving the same `session_id` through `POST /auth/sessions` with their `scope_id` and bound `account_id`, discarding the returned auth; a lease landing on another account is released and retried on the next tick. Paused, unverified, or removed accounts refuse the re-reservation.
+- `DELETE /admin/accounts/:id` — stops new assignments immediately (`removing`); after sessions release (or legacy timed grants expire), clears encrypted payload bodies and auth entries and retains an identity tombstone (`removed`).
+- `POST /auth/sessions` — host-key/IP/security gated `{engine, scope_id, session_id, account_id?}`. IDs are opaque strings of 16–64 characters; `scope_id` represents the native auth directory. Returns `ownership_mode` plus verified `auth`, `account_id`, `account_label`, `session_id`, `expires_at`, `canonical_digest`, `canonical_last_refresh` and existing quota controls. Retries with one session ID are idempotent. An optional account ID supports retaining an already active native child, rather than a user pin.
+- `POST /auth/sessions/heartbeat` — `{engine, session_id}` validates a connection-owned reservation from RAM without a durable renewal. Negotiated clients stop this polling after authenticated connection ownership is confirmed. For legacy timed reservations only, it extends a live, host-owned lease by five minutes; expired/foreign sessions are rejected with 404. Wrappers heartbeat every 90 s (cxx 0.9.121; 30 s before) and answer a 404 (a host that slept past the TTL) by re-reserving the same `session_id` through `POST /auth/sessions` with their `scope_id` and bound `account_id`, discarding the returned auth; a lease landing on another account is released and retried on the next tick. Paused, unverified, or removed accounts refuse the re-reservation.
 - `POST /auth/sessions/release` — `{engine, session_id}` idempotently releases that host's reservation and drains pending removal.
 
 Admin mutations require `auth.manage`; listing requires `auth.metadata.read`. All host routes retain the API kill switch, engine membership, host/IP authentication and insecure credential-distribution window. `/auth` and `/sync/bootstrap` accept `account_id` and advertise `account_pool: true`; returned digests, generations, verdicts and quota readings belong to that account. `/claude/usage/report` accepts `account_id` and `session_id`, rejecting a mismatched binding.
@@ -2008,7 +2049,7 @@ Device credentials expire after one year; pairing again creates a new device.
 - `POST /companion/v1/agents/{id}/messages` — `{client_message_id,content}`, returns 202 and follows this conversation. Reuses the portal's UUID idempotency and live-receiver checks.
 - `POST /companion/v1/agents/{id}/prompts/{promptId}/answer` — `{client_message_id,answer,version?}`, returns 202, preserves first-answer-wins and follows the conversation. Both writes require `agent_portal.manage`.
 - `PUT /companion/v1/agents/{id}/follow` — `{followed}` changes reply notifications for this device; requires transcript access.
-- `GET /companion/v1/approvals` — current host-access `requests` plus default/max duration, currently 480 minutes; requires `hosts.activate_insecure`. Also returns `active_windows: [{host_id,fqdn,enabled_until,domain_allow}]` for insecure hosts with future deadlines, sorted by FQDN/ID, independently of daemon/engine readiness. `domain_allow` is a matching active domain name or null; a domain grant may reopen a host after individual disable. `fleet_window: {open,enabled_until}` exposes the fleet state, with a null deadline when absent. Dates are UTC ISO strings; secure, closed and expired host windows are excluded. Window changes share the `approvals` WebSocket scope and five-second reconciliation.
+- `GET /companion/v1/approvals` — current host-access `requests` plus default/max duration, currently 480 minutes; requires `hosts.activate_insecure`. Also returns `active_windows: [{host_id,fqdn,enabled_until,domain_allow}]` for insecure hosts with future deadlines, sorted by FQDN/ID, independently of daemon/engine readiness. `domain_allow` is a matching active domain name or null; a domain grant may reopen a host after individual disable. `fleet_window: {open,enabled_until}` exposes the fleet state, with a null deadline when absent. Dates are UTC ISO strings; secure, closed and expired host windows are excluded. Window changes share the `approvals` WebSocket scope and owner state/deadline notifications.
 - `POST /companion/v1/hosts/{hostId}/insecure/disable` — `hosts.activate_insecure`; no body required. Reuses single-host disable: clears grant/grace, blocks session renewal and returns `{host_id,enabled_until:null}`. Repeated close is safe. Missing host returns 404; an open fleet window returns 409 `insecure_fleet_window_open`. Independent domain grants retain their existing reopening behavior.
 - `POST /companion/v1/insecure/window/close` — `hosts.activate_insecure`; no body required. Reuses manual fleet close, clearing all standing host grants and active domain allows, including permanent allows. Returns `{closed,hosts,domains}`; `closed:false` means no stored fleet window was removed or a concurrent reopen won, and clients must refresh. Both close operations audit the authenticated administrator and paired device as `actor:{admin_user_id,device_id}`. Android 0.4.17 confirms the fleet-wide effect before calling this route.
 - `POST /companion/v1/approvals/{requestId}/approve` — optional `{duration_minutes}` in 0–480, defaults to 480. Rechecks expiry under the same lock as dashboard decisions; stale/conflicting decisions return 409.
@@ -2019,8 +2060,7 @@ tool/command approvals. Finished conversations remain readable under portal
 retention. Agent/engine switches and receiver readiness retain their existing
 meaning; ordinary chats never wake engines; explicit remote starts and resumptions use the enabled host daemon and retain host assignments.
 
-A durable per-device outbox scans committed portal events and live host requests
-every five seconds. It notifies ordinary questions and replies for followed conversations, plus explicit
+The owner compares committed portal event heads and per-device cursors in RAM. Source changes and actual retry/expiry deadlines wake the durable notification worker; an idle fleet performs no notification scans. It notifies ordinary questions and replies for followed conversations, plus explicit
 important/critical/blocker notices for eligible devices regardless of follow state, skips
 routine activity, and sends opaque IDs plus the source event's short `summary`
 through FCM for agent notifications. Agent payloads additionally carry optional
@@ -2031,10 +2071,9 @@ does not acknowledge a reply. REST snapshots reconcile suppressed/missed pushes
 and older payloads without this field. Full response text is never sent. The optional
 summary uses the existing encrypted event payload; no schema migration is needed.
 Jobs have unique source
-keys, expiring claims, up to eight attempts, and expiry capped at the request's
-five-minute deadline or one hour for chat. Delivery is at least once; the app
-deduplicates notification IDs. Invalid FCM registrations are removed. Every send
-rechecks the device, administrator capabilities and source state. No browser
+keys, up to eight proven-safe send attempts, and expiry capped at the request's
+five-minute deadline or one hour for chat. A durable dispatch intent precedes FCM I/O. Ambiguous network outcomes remain uncertain and are not automatically sent again; the app deduplicates notification IDs. Invalid FCM registrations are removed. Every send
+rechecks the device, administrator capabilities and source state immediately before sending. Foreground presence and last-seen observations stay in RAM; disconnects do not require durable heartbeat writes. No browser
 needs to remain connected. See [Android setup](android-companion.md).
 
 ## Agent Wake / Cron schedules
@@ -2052,7 +2091,7 @@ Create fields: `name`, stable `target=agent:<uuid>`, `prompt` (max 30000 UTF-8 b
 
 Ordinary schedules await a live receiver; their messages can never be claimed by a headless relay. Explicit persistent schedules use the per-user cxx-agent worker and exact native-session resume adapters for all three engines; they exist only for agents on persistent hosts, and creating or enabling (`enabled` and `persistent`) a schedule whose target agent's host is not persistent is refused with 403 `schedule_host_not_persistent` ([host runtime policy](host-runtime-policy.md)). No transcript means blocked, never a fresh-session fallback. Work for an ended agent without a running host worker stays queued until its TTL (24 hours) and then expires. No host power-on is performed. Every interval wakes healthy idle sessions too; one unfinished execution per schedule coalesces downtime and busy intervals into one follow-up. Bus FIFO, process writer locks and binding/lease generations prevent concurrent native writers.
 
-A durable ten-second scheduler serializes through DB locks. Payload and recovery policy are snapshotted per execution. Recovery after ambiguous crash may repeat external effects and is visibly counted. Capacity failures wait at least the configured interval (five minutes for cron/once); recognized structured provider retry/reset hints extend that wait. No implicit engine switch. Spring nonexistent fixed-hour Cron times are skipped; repeated autumn local times run once. Pause/delete cancels queued work and future recovery but leaves accepted work running.
+Owner mode schedules indexed due obligations and serializes durable commands; the legacy scheduler uses a ten-second DB-locked pass. Payload and recovery policy are snapshotted per execution. Recovery after ambiguous crash may repeat external effects and is visibly counted. Capacity failures wait at least the configured interval (five minutes for cron/once); recognized structured provider retry/reset hints extend that wait. No implicit engine switch. Spring nonexistent fixed-hour Cron times are skipped; repeated autumn local times run once. Pause/delete cancels queued work and future recovery but leaves accepted work running.
 
 Wrapper 0.9.21 observes native output and Linux process activity. Only the wrapper that created a process may stop it, after an explicit progress timeout and a fresh policy/binding check; TERM precedes KILL by ten seconds. Active child tools count as ongoing work, and a wrapper heartbeat does not count as progress. Idle sessions and open operator prompts are protected. Linux /proc is required for automatic hang termination; other platforms retain crash/capacity recovery without guessing process health. Fleet API/messaging/engine and host gates remain authoritative. The UI shows waiting, queued, leased, accepted, completed, recovering, capacity_wait, blocked and terminal error states; acceptance alone is not successful task completion.
 
@@ -2606,7 +2645,7 @@ Natural fleet-window expiry preserves a later renewed host grant; explicit
 fleet closure removes it. No automatic provider session or credential sync is
 kept alive merely because the daemon is online.
 
-- `POST /host/agent-sessions/:sessionId/agent-messaging/insecure-enable`: bridge-authenticated secure-source activation; body `{host_id, duration_minutes?}`, result `{host_id, enabled_until, window_minutes}`. New work errors use `daemon_insecure_window_closed`.
+- `POST /host/agent-sessions/:sessionId/agent-messaging/insecure-enable`: bridge-authenticated secure-source activation; body `{host_id, duration_minutes?}`, result `{host_id, enabled_until, window_minutes}`. Owner mode commits the grant and audit together, rechecking the exact bridge credential, session binding, active secure caller and active target inside the serialized command. New work errors use `daemon_insecure_window_closed`.
 
 ## Local session housekeeping
 
@@ -2889,6 +2928,7 @@ contracts. See [communicator protocol, lifecycle and rollout](communicator.md).
 
 Native process controls (cxx 0.9.85):
 
+- `POST /host/native-control/receipt` replays a durable local native-stop receipt using the host API credential. Communicator support and the connection owner must be enabled. The strict body is `{session_id:<uuid>, binding_generation:<nonnegative integer>, native_instance_id:<uuid>, request_id:<uuid>, result:"accepted"|"exited"|"refused"}`. The server revalidates host policy/fingerprint plus the exact session, native instance, binding and existing stop request. It may record an already-ended session's known exit; it never repeats a stop or starts a process. Successful and duplicate receipts return `{recorded:true}`; a delayed `accepted` after `exited` is acknowledged, contradictory outcomes or replaced identities are fenced. The wrapper retains its fsynced receipt journal until this durable acknowledgement, then removes the entry.
 - `POST /host/agent-sessions/{id}/native-control` uses the session bridge credential and body `{protocol:1, instance_id:<uuid>, report?:{request_id:<uuid>, status:"accepted"|"exited"|"refused"}}`. From cxx 0.9.121 the owning wrapper polls every ten seconds only after starting its child (older wrappers use three seconds). Registration pins the process instance and current binding generation. Timestamp-only checkpoints recheck the live session/address binding, ready status and absent request in the conditional write; a racing change enters the locked path. A replacement binding is refused. `exited` is sent only after the wrapper observes Wait complete; an accepted request is not an exit receipt. Legacy servers return 404 and the wrapper stops capability polling.
 - `POST /admin/agent-sessions/{id}/stop` requires `agent_portal.manage`, enabled portal/engine and body `{client_message_id:<uuid>, expect:{instance_id:<uuid>, binding_generation:<integer>}}`. A fresh capability is required (15 seconds); otherwise 404/409. Concurrent identical requests share one durable request; a changed key or actor cannot supersede it. The bound watchdog is disabled, and recovery for the current scheduled execution is canceled. Future ordinary schedule ticks remain configured. Audited as `agent_session.native_stop`.
 - `GET /admin/agent-sessions/{id}/stop` requires `agent_portal.read`; returns the retained control view or null. Fields: `instance_id`, `binding_generation`, `request_id`, `available`, `updated_at`, and `status` (`ready`, `requested`, `accepted`, `exited`, `refused`, or derived `unknown`). A pending receipt older than 15 seconds is unknown; a delayed matching exit receipt can settle it. Receipts survive session completion until session retention removes the row.
@@ -3125,24 +3165,26 @@ status and expiry are checked on every contact. Temporary-host sliding expiry st
 renews on every valid contact under the host lock.
 Optional contact bookkeeping reuses the same request's fresh authenticated host
 snapshot; checkpoints that write still revalidate the current row under lock.
-Valid empty peer/portal receiver claims use one fresh SQL snapshot for admission,
-receiver ownership and queue absence. Only compiled SQL is cached; permissions,
-settings and queue results are not cached between requests. Uncertain or nonempty
-claims retain the existing locked validation and delivery path.
+Owner-mode empty peer/portal claims use the current RAM snapshot for admission,
+receiver ownership and queue absence, without SQL. Permissions, settings and queue
+state are authoritative owner state updated by durable commands, not TTL-cached
+query results. Nonempty claims use serialized durable owner commands. The legacy
+path uses a fresh SQL snapshot and caches only compiled SQL.
 It is independent of provider authentication readiness. Administrative edits and provider
 refreshes never update `last_contact_at`; legacy timestamps remain for compatibility.
 Host inactivity pruning uses genuine contact, falling back to creation when unknown. An
 explicit key rotation grants 30 minutes for provisioning; ordinary edits grant no extension.
 
-The portal retention worker runs every `AGENT_PORTAL_PURGE_INTERVAL_SECONDS` (300 by default),
+In owner mode, indexed deadlines schedule bounded retention work. The legacy
+portal retention worker runs every `AGENT_PORTAL_PURGE_INTERVAL_SECONDS` (300 by default),
 including when messaging is disabled or the source host never reconnects. It purges expired
-MCP/admin credentials and provider-account session leases at their existing expiry and inactive server conversation history after
+MCP/admin credentials and legacy timed provider-account reservations at their existing expiry and inactive server conversation history after
 24 hours: peer threads/messages/results, ended portal sessions (including rebooted sessions),
 remote/daemon/Advisor history, Chatty, shared room history, unused agent addresses and expired dormant relays.
 Persistent group/project/scope definitions remain. Native transcript housekeeping is separate.
 Explicit schedules (including paused), active watchdogs/reboot handoffs and unfinished work
-protect their required targets. Stale delivery leases become unknown/ambiguous, never success
-or replay. Historical data and reads alone do not protect identities. Old unresolved notices
+protect their required targets. Legacy timed stale delivery leases become unknown/ambiguous, never success
+or replay. Connection-owned uncertain grants are not purged merely for elapsed time. Historical data and reads alone do not protect identities. Old unresolved notices
 cannot retain an expired session indefinitely. Cleanup is bounded and transactional; large
 threads drain over multiple ticks. Attachment files are retired transactionally and removed
 with retry-safe filesystem cleanup. Chatty purging advances the private conversation generation.
@@ -3302,3 +3344,8 @@ Responses include canonical IDs, versions and an authenticated `report_url`; cla
 - `/auth` selects alternative quota advice from an enabled verified account of the correct engine (most recently selected first). Current-engine telemetry stays bound to its requested account; disabled/unlimited advice skips alternative history reads. No provider refresh or account lease is acquired for advice.
 
 Claim-status reads/renewals in cxx 0.9.124 retry transient communicator 502/504 (and transport-unavailable 503) twice with bounded backoff. Explicit API-disable, authorization errors, owner responses and work mutations are never replayed by this path.
+
+
+## Authoritative control-plane owner
+
+Current runtime state and command/receipt semantics are specified in [control-plane-owner.md](control-plane-owner.md). `/readyz` reads the hydrated migration ledger and last observed runner health; it does not perform a new SQL or runner probe. Gateway key use counts are approximate, buffered for up to 30 seconds, and flushed on orderly shutdown. Signing-key mutations and mutating migration CLI operations require exclusive ownership while the API is stopped.

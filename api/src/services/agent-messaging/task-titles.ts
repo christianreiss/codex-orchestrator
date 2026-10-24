@@ -1,3 +1,4 @@
+import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import { agentEvents } from '../../db/schema.js';
@@ -11,6 +12,15 @@ export async function sessionTaskTitles(
   sessions: { id: string; upstreamSessionId: string | null }[],
 ) {
   const titles = new Map<string, string>();
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    owner.assertOwner();
+    for (const session of sessions) {
+      const current = owner.state.snapshot().sessions.get(session.id);
+      if (current?.taskTitle && current.taskTitleNativeId === session.upstreamSessionId) titles.set(session.id, current.taskTitle);
+    }
+    return titles;
+  }
   if (!sessions.length) return titles;
   const latest = db
     .select({ id: sql<number>`max(${agentEvents.id})`.as('latest_event_id') })

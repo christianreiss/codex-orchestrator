@@ -50,7 +50,8 @@ type AuthStatus struct {
 	Fatal          bool   `json:"fatal,omitempty"`
 }
 type scopeState struct {
-	gate chan struct{}
+	suspended bool
+	gate      chan struct{}
 	// authGate serializes credential work for the scope. Content-only work holds
 	// gate, an auth-only bootstrap holds authGate, and anything that does both
 	// takes gate then authGate, so a warm-cache launch never queues behind a
@@ -215,6 +216,18 @@ func (s *server) registerJobs(r *http.Request) (ids []string, fresh bool, err er
 	for _, job := range jobs {
 		id := jobID(job)
 		ids = append(ids, id)
+		if job.Auth {
+			observed := false
+			for _, prior := range s.jobs {
+				if prior.Auth && stateID(prior) == stateID(job) {
+					observed = true
+					break
+				}
+			}
+			if !observed {
+				fresh = true
+			}
+		}
 		s.jobs[id] = job
 		s.jobRefs[id]++
 		if s.scopes == nil || s.scopes[stateID(job)] == nil {
@@ -380,6 +393,7 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 		}
 		s.mu.Unlock()
 	}
+	defer s.notifyLocal()
 	workerStart := time.Now()
 	defer func() {
 		if out.Error != nil {
@@ -540,7 +554,7 @@ func fileGeneration(path string) string {
 }
 
 func (s *server) syncLoop(ctx context.Context) {
-	poll := time.NewTicker(2 * time.Second)
+	poll := time.NewTimer(0)
 	defer poll.Stop()
 	watcher, _ := fsnotify.NewWatcher()
 	if watcher != nil {
@@ -556,6 +570,22 @@ func (s *server) syncLoop(ctx context.Context) {
 	defer work.Wait()
 	for {
 		force := false
+		watchComplete := watcher != nil
+		s.mu.Lock()
+		for _, job := range s.jobs {
+			if job.AuthPath != "" && !watched[filepath.Dir(job.AuthPath)] {
+				watchComplete = false
+			}
+			if job.Config != "" && !watched[filepath.Dir(job.Config)] {
+				watchComplete = false
+			}
+		}
+		s.mu.Unlock()
+		if delay, scheduled := s.nextSyncWake(watchComplete); scheduled {
+			poll.Reset(delay)
+		} else {
+			poll.Stop()
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -564,6 +594,7 @@ func (s *server) syncLoop(ctx context.Context) {
 			force = true
 		case <-s.authDirty:
 		case <-events:
+			s.notifyLocal()
 		case <-watchErrors:
 		}
 		if s.draining.Load() {
@@ -599,7 +630,28 @@ func (s *server) syncLoop(ctx context.Context) {
 			}
 		}
 		connected := s.conn != nil || s.fallback
+		stateOwned := false
+		if s.conn != nil {
+			s.conn.mu.Lock()
+			stateOwned = s.conn.stateEnabled
+			s.conn.mu.Unlock()
+		}
 		s.mu.Unlock()
+		// Local signed policy can change while the upstream is unavailable.
+		// Install watches before the network gate; they never force a DB refresh.
+		if watcher != nil {
+			for _, job := range jobs {
+				for _, path := range []string{job.Config, job.AuthPath} {
+					if path == "" {
+						continue
+					}
+					dir := filepath.Dir(path)
+					if !watched[dir] && watcher.Add(dir) == nil {
+						watched[dir] = true
+					}
+				}
+			}
+		}
 		if !connected {
 			continue
 		}
@@ -620,7 +672,16 @@ func (s *server) syncLoop(ctx context.Context) {
 		for _, id := range order {
 			job := jobs[id]
 			if job.Owner && job.Auth && signedSyncDisabled(job) {
+				s.mu.Lock()
+				s.stateLocked(job).suspended = true
+				s.mu.Unlock()
 				continue
+			}
+			if watcher != nil && job.Config != "" {
+				dir := filepath.Dir(job.Config)
+				if !watched[dir] && watcher.Add(dir) == nil {
+					watched[dir] = true
+				}
 			}
 			if watcher != nil && job.AuthPath != "" {
 				dir := filepath.Dir(job.AuthPath)
@@ -634,6 +695,7 @@ func (s *server) syncLoop(ctx context.Context) {
 			}
 			s.mu.Lock()
 			state := s.stateLocked(job)
+			state.suspended = false
 			if s.draining.Load() {
 				s.mu.Unlock()
 				continue
@@ -656,16 +718,22 @@ func (s *server) syncLoop(ctx context.Context) {
 			// deadline and cause another pass, never disappear behind an in-flight flag.
 			if authDue {
 				state.nextAuth = time.Now().Add(authResyncEvery)
+				if stateOwned {
+					state.nextAuth = time.Now().Add(100 * 365 * 24 * time.Hour)
+				}
 				state.lastFile = digest
 			}
 			if contentDue {
 				state.nextContent = time.Now().Add(5 * time.Minute)
+				if stateOwned {
+					state.nextContent = time.Now().Add(100 * 365 * 24 * time.Hour)
+				}
 			}
 			s.mu.Unlock()
 			work.Add(1)
 			go func(job syncJob, state *scopeState, authDue, contentDue bool) {
 				defer work.Done()
-				defer func() { s.mu.Lock(); state.running = false; s.mu.Unlock() }()
+				defer func() { s.mu.Lock(); state.running = false; s.mu.Unlock(); s.wake() }()
 				if authDue {
 					result := s.runSync(ctx, SyncRequest{Job: job, Operation: "auth"})
 					s.mu.Lock()
@@ -687,7 +755,14 @@ func (s *server) syncLoop(ctx context.Context) {
 					s.mu.Unlock()
 				}
 				if contentDue && !(job.Owner && signedSyncDisabled(job)) {
-					s.runSync(ctx, SyncRequest{Job: job, Operation: "content", Scheduled: true})
+					result := s.runSync(ctx, SyncRequest{Job: job, Operation: "content", Scheduled: true})
+					if result.Error != nil {
+						s.mu.Lock()
+						if !state.nextContent.IsZero() {
+							state.nextContent = time.Now().Add(15 * time.Second)
+						}
+						s.mu.Unlock()
+					}
 				}
 			}(job, state, authDue, contentDue)
 		}
@@ -700,6 +775,7 @@ func (s *server) scopeViewsLocked() []map[string]any {
 		home, _, _ := strings.Cut(id, "/")
 		views = append(views, map[string]any{"scope": id, "auth": state.auth, "running": state.running || len(state.gate) > 0 || len(state.authGate) > 0, "content_error": state.contentError, "primed": s.primedLocked(home)})
 	}
+	sort.Slice(views, func(i, j int) bool { return views[i]["scope"].(string) < views[j]["scope"].(string) })
 	return views
 }
 
@@ -728,6 +804,7 @@ func stateID(job syncJob) string {
 // their schedules (a fresh per-session Grok runtime scope must not resync the
 // warm Codex/Claude scopes in front of a launch).
 func (s *server) wake() {
+	s.notifyLocal()
 	select {
 	case s.authDirty <- struct{}{}:
 	default:
@@ -769,4 +846,65 @@ func (s *server) localErrorsLocked() map[string]string {
 		}
 	}
 	return result
+}
+
+// nextSyncWake replaces the fixed scanner with the earliest real retry/deadline.
+// Platforms without a file watcher still inspect local files, without forcing
+// successful auth/content scopes to query the owner again.
+func (s *server) nextSyncWake(watching bool) (time.Duration, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn == nil && !s.fallback {
+		return 0, false
+	}
+	next := time.Time{}
+	consider := func(at time.Time) {
+		if at.IsZero() {
+			at = time.Now()
+		}
+		if next.IsZero() || at.Before(next) {
+			next = at
+		}
+	}
+	if !watching {
+		consider(time.Now().Add(2 * time.Second))
+	}
+	keys := make([]string, 0, len(s.jobs))
+	for key := range s.jobs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	seen := map[string]bool{}
+	for _, key := range keys {
+		job := s.jobs[key]
+		home := scopeID(job)
+		content := !seen[home]
+		seen[home] = true
+		state := s.scopes[stateID(job)]
+		if state == nil {
+			consider(time.Now())
+			continue
+		}
+		if state.running || state.suspended {
+			continue
+		}
+		if job.Auth {
+			consider(state.nextAuth)
+		}
+		if content {
+			due := state.nextContent
+			if due.IsZero() && state.contentFresh.IsZero() {
+				due = state.born.Add(initialContentGrace)
+			}
+			consider(due)
+		}
+	}
+	if next.IsZero() {
+		return 0, false
+	}
+	delay := time.Until(next)
+	if delay < 0 {
+		delay = 0
+	}
+	return delay, true
 }
