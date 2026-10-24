@@ -446,7 +446,7 @@ Admin routes:
   Dark and clears `localStorage["codex.theme.palette"]`; the backend continues
   accepting those historical values for compatibility.
 - **Overview** (`GET /admin/overview`): host totals, refresh metrics, canonical-auth status, token totals/day/week/month, ChatGPT usage snapshot/summary, quota flags, prune window, reverse-DNS flag, insecure-approval flag, codex lock metadata.
-- **Log retention** now has four buckets: API logs, MCP logs, admin events, and set-aside graph stats. The graph-stats bucket controls the compact dashboard quota and usage history store rather than raw verbose logs.
+- **Log retention** controls have been removed: no worker enforced their old windows. The compatibility endpoint reports unsupported and ignores old submitted values. Agent-session lifecycle cleanup remains separate.
 - **Hosts**:
   - List: `GET /admin/hosts`.
   - Host auth view: `GET /admin/hosts/{id}/auth` (`include_body=true` adds canonical auth body; `engine` can be supplied via body/query/header and defaults to `codex`).
@@ -524,7 +524,6 @@ Admin routes:
   - ChatGPT usage history: `GET /admin/chatgpt/usage/history` (`days`, `from`, `until`, `interval=raw|hour|day`, `lane=normal|spark|both`, `window=primary|secondary|both`).
   - Force ChatGPT refresh: `POST /admin/chatgpt/usage/refresh`.
   - Audit logs: `GET /admin/logs` (`limit`, repository clamps to `1..500`).
-  - MCP logs: `GET /admin/mcp/logs` (`limit`, repository clamps to `1..500`).
 - **Content Sync Surfaces**:
   - Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/generate`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`. `POST /admin/skills/generate` uses the runner plus canonical auth to draft a skill into the admin modal, but it never persists anything until `store` runs. When Projects is enabled, the managed `coco` skill appears here as read-only and cannot be overwritten/deleted directly.
   - Projects: `GET /admin/projects`, `POST /admin/projects`, `DELETE /admin/projects/{slug}`, `GET /admin/projects/feedback`, `GET /admin/projects/{slug}`, `POST /admin/projects/{slug}/about`, `POST /admin/projects/{slug}/roster`, `GET /admin/projects/{slug}/changes`, note/todo/file/feedback subroutes, and `GET/POST /admin/projects/state`.

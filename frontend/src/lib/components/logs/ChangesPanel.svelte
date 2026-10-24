@@ -40,6 +40,7 @@
   const rowKey = (row: AdminAuditLogRow) => String(row.id);
 </script>
 
+<h2 class="sr-only">Change history</h2>
 <EventFeed page={Math.min(feed.page, pageCount)} {pageCount} onPage={(next) => (feed.page = next)}>
   {#snippet filters()}
     <ActivityFilterBar {feed} {hosts} includeSystem searchLabel="Search changes" count={`${rows.length} of ${all.length} recent changes`}>

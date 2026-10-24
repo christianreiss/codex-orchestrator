@@ -202,3 +202,13 @@ No existing session or manual subscription is rewritten. Deploy API/schema and
 wrapper together before enabling. Protocol 0 remains observable but cannot acquire
 claims. Revert by disabling the feature after operations drain; preserve uncertain
 claims for explicit resolution. Production rollout requires its own authorization.
+
+## Claim and workspace refinements (2026-10-24)
+
+Waiting claims begin with a 180-second expiry and may renew without authorizing a write. Negotiation remains 120 seconds; uncertain active claims cannot be renewed or taken over. Blockers include purpose, resources, owner address/name and, for uncertain outcomes, the supported audited operator endpoint `/admin/agent-messaging/scopes/resolve`. Owner metadata is loaded only for overlapping claims. A live same-session Git lease does not block its own claims.
+
+Unmanaged SSH targets use `{kind:"remote",fqdn:"mx1.example.org",service:"mail"}`. FQDN case and one trailing dot normalize. The operator's literal canonical FQDN is the shared key across caller hosts; DNS aliases/IPs are not inferred. `service:"*"` reserves all services of that FQDN. These claims do not create fleet membership or access credentials, and do not permit worktree isolation on a system target.
+
+An origin-omitting workspace refresh preserves repository identity only when its canonical common directory is unchanged. Explicit null/empty origin clears it. Project discovery without Git includes local descendant directories with path-segment boundaries; missing peer metadata still marks coverage limited.
+
+Use `agent_git_remote` for a fleet SSH target whose own path and target-branch claims belong to the calling managed session. Supply actual absolute checkout/common-directory facts. The authenticated bridge carries origin provenance to the remote registration without a helper identity or remote host-key impersonation. It never executes Git, SSH or deployment commands.

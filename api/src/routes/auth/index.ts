@@ -5,8 +5,10 @@ import { createPooledAuthStoreService as createCanonicalAuthStoreService } from 
 import { readQuotaAdvice, quotaAdviceSnapshot } from '../../services/quota-advice.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { join, resolve } from 'node:path';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, desc, sql } from 'drizzle-orm';
 import {
+  providerAccounts,
+  authPayloads,
   hostAuthDigests,
   hostAuthStates,
   hosts as hostsTable,
@@ -699,11 +701,7 @@ async function handleRetrieve(
     cdx_silent: versions.cdx_silent,
     engine,
   };
-  const [chatgpt, claude, advice] = await Promise.all([
-    readChatgptSnapshot(ctx, accountId ?? canonicalRow?.accountId ?? undefined),
-    readClaudeSnapshot(ctx, accountId ?? canonicalRow?.accountId ?? undefined),
-    readQuotaAdvice(new SettingsService(ctx.db)),
-  ]);
+  const [chatgpt, claude, advice] = await readAuthQuotaSnapshots(ctx, host, engine, accountId ?? canonicalRow?.accountId ?? undefined, quota.quota_unlimited === true);
   if (engine === ENGINE_CODEX) Object.assign(baseResponse, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
   baseResponse.quota_advice = quotaAdviceSnapshot(quota.quota_unlimited ? { ...advice, mode: 'off' } : advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
@@ -811,11 +809,7 @@ async function buildRetrieveBaseResponse(
     cdx_silent: versions.cdx_silent,
     engine,
   };
-  const [chatgpt, claude, advice] = await Promise.all([
-    readChatgptSnapshot(ctx, accountIdFrom(payload.account_id)),
-    readClaudeSnapshot(ctx, accountIdFrom(payload.account_id)),
-    readQuotaAdvice(new SettingsService(ctx.db)),
-  ]);
+  const [chatgpt, claude, advice] = await readAuthQuotaSnapshots(ctx, host, engine, accountIdFrom(payload.account_id), quota.quota_unlimited === true);
   if (engine === ENGINE_CODEX) Object.assign(baseResponse, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
   else if (engine === ENGINE_GROK) baseResponse.grok_usage = await readGrokUsageSnapshot(ctx, accountIdFrom(payload.account_id));
@@ -1161,11 +1155,7 @@ async function handleStore(
     cdx_silent: summary.cdx_silent,
     host: buildHostPayload(host, await readFleetEngineState(ctx.db)),
   };
-  const [chatgpt, claude, advice] = await Promise.all([
-    readChatgptSnapshot(ctx, stored.account_id),
-    readClaudeSnapshot(ctx, stored.account_id),
-    readQuotaAdvice(new SettingsService(ctx.db)),
-  ]);
+  const [chatgpt, claude, advice] = await readAuthQuotaSnapshots(ctx, host, engine, stored.account_id, quota.quota_unlimited === true);
   if (engine === ENGINE_CODEX) Object.assign(response, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) response.claude_usage = claude;
   else if (engine === ENGINE_GROK) response.grok_usage = await readGrokUsageSnapshot(ctx, stored.account_id);
@@ -1390,6 +1380,30 @@ function codexUsageFields(
   return isLegacyShellWrapperVersion(payload.wrapper_version)
     ? { chatgpt, chatgpt_usage: chatgpt }
     : { chatgpt };
+}
+
+/** Alternative-engine advice uses an enabled verified account of that engine.
+ * Never query another provider's history with the current engine's account ID.
+ * Read only: advice does not acquire leases or refresh provider credentials. */
+async function readAuthQuotaSnapshots(ctx: RouteContext, host: Host, engine: Engine, accountId: number | undefined, unlimited: boolean) {
+  const advice = await readQuotaAdvice(new SettingsService(ctx.db));
+  const enabled = activeHostEngines(host.engines, await readFleetEngineState(ctx.db));
+  const alternatives = !unlimited && advice.mode !== 'off';
+  const needed: Engine[] = [ENGINE_CODEX, ENGINE_CLAUDE].filter((e) => e === engine || alternatives && enabled.includes(e));
+  const accounts = alternatives ? await ctx.db.select({ id: providerAccounts.id, engine: providerAccounts.engine })
+    .from(providerAccounts).innerJoin(authPayloads, eq(providerAccounts.payloadId, authPayloads.id))
+    .where(and(inArray(providerAccounts.engine, needed), eq(providerAccounts.state, 'enabled'),
+      isNull(providerAccounts.mergedIntoAccountId), eq(authPayloads.verificationState, 'verified')))
+    .orderBy(desc(providerAccounts.lastSelectedAt), desc(providerAccounts.id)) : [];
+  const idFor = (target: Engine) => target === engine ? accountId : accounts.find((a) => a.engine === target)?.id;
+  const read = async (target: Engine) => {
+    if (!needed.includes(target)) return { status: 'unavailable' };
+    const id = idFor(target);
+    if (target !== engine && id === undefined) return { status: 'unavailable' };
+    return target === ENGINE_CODEX ? readChatgptSnapshot(ctx, id) : readClaudeSnapshot(ctx, id);
+  };
+  const [chatgpt, claude] = await Promise.all([read(ENGINE_CODEX), read(ENGINE_CLAUDE)]);
+  return [chatgpt, claude, advice] as const;
 }
 
 async function readChatgptSnapshot(ctx: RouteContext, accountId?: number): Promise<Record<string, unknown>> {

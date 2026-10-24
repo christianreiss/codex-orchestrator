@@ -188,6 +188,16 @@ describe.skipIf(!handle)('git director against a real database', () => {
     ).toBe((correct.clone as Record<string, unknown>).clone_id);
   });
 
+  it('preserves a linked-worktree mapping when refreshing without clone_dir', async () => {
+    const before = await register(LINKED_WT);
+    const granted = await requestMerge(LINKED_WT, ['refresh.ts']);
+    const refreshed = await svc.register({ worktree_path: LINKED_WT, branch: 'feat/a', username: 'chris' }, host);
+    expect(refreshed.worktree_id).toBe(before.worktree_id);
+    expect((refreshed.clone as Record<string, unknown>).clone_id).toBe((before.clone as Record<string, unknown>).clone_id);
+    expect(refreshed.superseded_registrations).toEqual([]);
+    await svc.release({ request_id: granted.request_id, worktree_path: LINKED_WT }, host);
+  });
+
   it('never transfers or retires a registration with a live merge lease', async () => {
     const old = await register(MAIN_WT);
     const granted = await requestMerge(MAIN_WT, ['movie.blend']);
@@ -950,7 +960,8 @@ describe.skipIf(!handle)('git director against a real database', () => {
     const now = new Date().toISOString();
     const helpers = svc as unknown as Record<string, (db: TestDb, id: string, now: string) => Promise<unknown>>;
     expect(listed[0]!['worktrees']).toEqual(await helpers['worktreeWire']!(db, clone, now));
-    expect(listed[0]!['leases']).toEqual(await helpers['leaseWire']!(db, clone, now));
+    const leasesById = (rows: unknown) => [...(rows as Array<Record<string, unknown>>)].sort((a, b) => String(a['request_id']).localeCompare(String(b['request_id'])));
+    expect(leasesById(listed[0]!['leases'])).toEqual(leasesById(await helpers['leaseWire']!(db, clone, now)));
     expect(listed[0]!['stale']).toEqual(await helpers['staleWire']!(db, clone, now));
     expect((listed[0]!['recent'] as unknown[]).length).toBe(25);
     // Decisions in the same second have no defined order; compare them as sets.

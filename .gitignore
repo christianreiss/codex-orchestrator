@@ -38,3 +38,6 @@ __pycache__/
 
 # Local instance-management lock; retain its inode across commands.
 /.orchestrator.lock
+
+# Deployment dumps and detached-supervisor results are local runtime evidence.
+/backups/

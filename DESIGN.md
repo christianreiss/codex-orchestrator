@@ -232,7 +232,7 @@ This is a source audit, not a live visual acceptance report. All 39 `+page.svelt
 | `/admin/schedules` | Schedule/review prompts; list/detail | `PageShell`, `DataTable`, `ListDetail`, schedule form | Timezone, recurrence, failure and recovery meaning |
 | `/admin/git-director` | Inspect merge coordination; list/detail | `PageShell`, `Toolbar`, `DataTable`, `ListDetail`, settings | Pending versus granted/denied; stale evidence |
 | `/admin/transfers` | Inspect shared files; list | `PageShell`, `DataTable`, `Toolbar`, audit sheet | Expiry, unavailable download, limits and deletion |
-| `/admin/activity` | Inspect changes/tool calls; history | `PageShell`, type selector, filters, event panels | Both types, empty/error, details and deep links |
+| `/admin/activity` | Inspect configuration/system changes; history | `PageShell`, filters, change events | Empty/error, details and legacy deep links; generic MCP call history removed 2026-10-24 |
 | `/admin/reports` | Triage fleet reports; list/detail | `PageShell`, `Toolbar`, `ReportInbox`, `ListDetail` | Create/detail, long evidence, status transitions; feedback destination/configuration, opt-in, old-version/retest and uncertain publication evidence |
 | `/admin/accounts` | Manage provider accounts and quota overrides (PayG, warnings, reset recovery); list | `PageShell`, `Toolbar`, `DataTable`, account dialogs | Codex/Claude/Grok, missing quota, expired auth |
 | `/admin/engines` | Configure providers; settings, one engine per tab (`?engine=`) | `PageShell`, `Tabs`, `Section`, engine master switches, `EngineSection`, `EngineDangerZone` | Per-engine deltas, tab and hash deep links, save failure, suspended/destroy states |

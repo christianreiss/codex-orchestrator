@@ -1,5 +1,6 @@
+import { ChatGptUsageService } from '../../../src/services/chatgpt-usage.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { claudeUsageSnapshots, providerAccounts, hosts, versions } from '../../../src/db/schema.js';
+import { claudeUsageSnapshots, providerAccounts, authPayloads, hosts, versions } from '../../../src/db/schema.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { ClaudeUsageService } from '../../../src/services/claude-usage.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
@@ -211,6 +212,39 @@ describe('Claude usage in authentication and startup responses', () => {
     } finally {
       await app.close();
     }
+  });
+
+  it('uses engine-correct alternative account IDs for Grok quota advice', async () => {
+    const db = seedDb(null);
+    db.tables.get(hosts)![0]!.engines = 'codex,claude,grok';
+    db.tables.set(providerAccounts, [
+      // The lightweight fake flattens joined columns onto the base row.
+      { id: 2, engine: 'codex', state: 'enabled', payloadId: 11, verificationState: 'verified' },
+      { id: 1, engine: 'claude', state: 'enabled', payloadId: 12, verificationState: 'verified' },
+      { id: 7, engine: 'grok', state: 'enabled', payloadId: null },
+    ]);
+    db.tables.set(authPayloads, [
+      { id: 11, engine: 'codex', verificationState: 'verified' },
+      { id: 12, engine: 'claude', verificationState: 'verified' },
+    ]);
+    const codexReads: Array<number | undefined> = [], claudeReads: Array<number | undefined> = [];
+    vi.spyOn(ChatGptUsageService.prototype, 'latest').mockImplementation(async function (this: ChatGptUsageService) {
+      codexReads.push((this as unknown as { deps: { accountId?: number } }).deps.accountId);
+      return null;
+    });
+    vi.spyOn(ClaudeUsageService.prototype, 'latest').mockImplementation(async function (this: ClaudeUsageService) {
+      claudeReads.push((this as unknown as { accountId?: number }).accountId);
+      return null;
+    });
+    const app = await build(db);
+    let failure: Error | undefined;
+    app.addHook('onError', async (_req, _reply, error) => { failure = error; });
+    try {
+      const response = await app.inject({ method: 'POST', url: '/auth', headers: { authorization: `Bearer ${apiKey}` }, payload: { engine: 'grok', account_id: 7, metadata_only: true } });
+      expect(response.statusCode, failure?.stack ?? response.body).toBe(200);
+      expect(codexReads).toEqual([2]);
+      expect(claudeReads).toEqual([1]);
+    } finally { await app.close(); }
   });
 
   it.each([1, 5])('includes only the selected account snapshot after a Claude upload through account ID %s', async (accountId) => {

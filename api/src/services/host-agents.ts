@@ -187,7 +187,6 @@ export class HostAgentsService {
   async retrieve(providedSha: string | null, host: Host, engine: Engine = ENGINE_CODEX): Promise<Record<string, unknown>> {
     const rendered = await this.renderForHost(host, engine, true);
     if (rendered['status'] === 'missing') {
-      await this.recordLog(host.id, 'agents.retrieve', { status: 'missing' });
       return rendered;
     }
 
@@ -199,7 +198,6 @@ export class HostAgentsService {
     const status = providedSha && safeHashEquals(servedSha, providedSha) ? 'unchanged' : 'updated';
     const out: Record<string, unknown> = { ...metadata, status };
     if (status !== 'unchanged') out['content'] = served;
-    await this.recordLog(host.id, 'agents.retrieve', { status, engine });
     return out;
   }
 
@@ -264,7 +262,6 @@ export class HostAgentsService {
     // would send a GPT model and Codex-only options to Claude.
     const row = rows.find((candidate) => candidate.engine === engine);
     if (!row) {
-      await this.recordLog(host.id, 'config.retrieve', { status: 'missing' });
       return { status: 'missing' };
     }
     const body = row.body ?? '';
@@ -320,7 +317,6 @@ export class HostAgentsService {
     // and for engines without profiles, so an older reply can never prune.
     if (rendered.profiles !== undefined) out['profiles'] = rendered.profiles;
     if (rendered.owned_paths !== undefined) out['owned_paths'] = rendered.owned_paths;
-    await this.recordLog(host.id, 'config.retrieve', { status, base_sha256: baseSha, baked_sha256: rendered.sha256 });
     return out;
   }
 
@@ -371,7 +367,6 @@ export class HostAgentsService {
       securityLevels: await this.resolvePosture(host),
       responseVerbosityLevel: await this.resolveResponseVerbosity(),
     });
-    await this.recordLog(host.id, 'claude_settings.retrieve', { sha256: rendered.sha256 });
     return {
       status: 'updated',
       sha256: rendered.sha256,

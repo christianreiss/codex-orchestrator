@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { afterEach, describe, it } from "node:test";
 
-import type { AdminAuditLogRow, HostFqdnSummary, McpAccessLogRow } from "./types";
+import type { AdminAuditLogRow, HostFqdnSummary } from "./types";
 
 // `logs.ts` reaches the network only through the real `./client`, so `fetch` is
 // the seam these tests stub. ESM resolves specifiers verbatim, though, and the
@@ -18,7 +18,7 @@ registerHooks({
 // import needs the ".ts" extension that TypeScript rejects on a static import;
 // hiding it behind a variable keeps both happy. Types come from the cast.
 const logsModule: string = "./logs.ts";
-const { buildHostLabelMap, eventLogsQuery, hostsForLogsQuery, mcpLogsQuery } = (await import(
+const { buildHostLabelMap, eventLogsQuery, hostsForLogsQuery } = (await import(
   logsModule
 )) as typeof import("./logs");
 
@@ -42,17 +42,6 @@ function queryFnOf<T>(options: unknown): () => Promise<T> {
   return (options as { queryFn: () => Promise<T> }).queryFn;
 }
 
-/** `/admin/mcp/logs` serves a bare `{logs}` body. */
-const mcpRow = {
-  id: 7,
-  host_id: 3,
-  host_fqdn: "edge-01.example",
-  method: "tools/call",
-  name: "memory_search",
-  success: 1,
-  created_at: "2026-07-29T04:00:00Z",
-};
-
 /** `/admin/logs` serves `{logs}` inside the admin ok envelope. */
 const eventRow = {
   id: 12,
@@ -63,38 +52,6 @@ const eventRow = {
 
 afterEach(() => {
   globalThis.fetch = realFetch;
-});
-
-describe("mcpLogsQuery", () => {
-  it("requests and keys the default limit", async () => {
-    const urls = captureFetch({ logs: [mcpRow] });
-    const options = mcpLogsQuery();
-
-    assert.deepEqual(options.queryKey, ["logs", "mcp", { limit: 200 }]);
-    assert.deepEqual(await queryFnOf<McpAccessLogRow[]>(options)(), [mcpRow]);
-    assert.deepEqual(urls, ["/admin/mcp/logs?limit=200"]);
-  });
-
-  it("requests and keys an explicit limit", async () => {
-    const urls = captureFetch({ logs: [] });
-    const options = mcpLogsQuery(25);
-
-    assert.deepEqual(options.queryKey, ["logs", "mcp", { limit: 25 }]);
-    assert.deepEqual(await queryFnOf<McpAccessLogRow[]>(options)(), []);
-    assert.deepEqual(urls, ["/admin/mcp/logs?limit=25"]);
-  });
-
-  it("yields [] for a non-array logs value", async () => {
-    captureFetch({ logs: { 0: mcpRow } });
-
-    assert.deepEqual(await queryFnOf<McpAccessLogRow[]>(mcpLogsQuery())(), []);
-  });
-
-  it("yields [] for a body carrying no logs key at all", async () => {
-    captureFetch({ count: 0 });
-
-    assert.deepEqual(await queryFnOf<McpAccessLogRow[]>(mcpLogsQuery())(), []);
-  });
 });
 
 describe("eventLogsQuery", () => {

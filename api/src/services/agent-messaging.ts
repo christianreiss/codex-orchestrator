@@ -574,15 +574,6 @@ export class AgentMessagingService {
       return { message: persisted, sender, target, content, created: true };
     });
     if (result.created) {
-      await this.recordRuntime('agent_message.queued', authenticated.host.id, result.sender.engine, {
-        message_id: result.message.id,
-        conversation_id: result.message.conversationId,
-        source_address_id: result.sender.id,
-        target_address_id: result.target.id,
-        source_engine: result.sender.engine,
-        target_engine: result.target.engine,
-        content_bytes: result.message.contentBytes,
-      });
       wsPublisher.publish('agent_messaging.message.changed', {
         message_id: result.message.id,
         conversation_id: result.message.conversationId,
@@ -715,14 +706,6 @@ export class AgentMessagingService {
       return { message: persisted, sender, target, content, created: true };
     });
     if (result.created) {
-      await this.recordRuntime('agent_message.replied', authenticated.host.id, result.sender.engine, {
-        message_id: result.message.id,
-        conversation_id: result.message.conversationId,
-        reply_to_message_id: result.message.replyToMessageId,
-        source_address_id: result.sender.id,
-        target_address_id: result.target.id,
-        content_bytes: result.message.contentBytes,
-      });
       wsPublisher.publish('agent_messaging.message.changed', { message_id: result.message.id, conversation_id: result.message.conversationId, status: 'queued' });
     }
     return this.sendReceipt(result);
@@ -1304,14 +1287,6 @@ export class AgentMessagingService {
       return { message: persisted, sender, target, created: true };
     });
     if (result.created) {
-      await this.recordRuntime('agent_message.replied', relay.hostId, result.sender.engine, {
-        message_id: result.message.id,
-        conversation_id: result.message.conversationId,
-        reply_to_message_id: parentId,
-        source_address_id: result.sender.id,
-        target_address_id: result.target.id,
-        content_bytes: result.message.contentBytes,
-      });
       wsPublisher.publish('agent_messaging.message.changed', {
         message_id: result.message.id,
         conversation_id: result.message.conversationId,

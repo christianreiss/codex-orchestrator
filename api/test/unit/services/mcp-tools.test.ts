@@ -1,3 +1,4 @@
+import { ConflictError } from '../../../src/http/errors.js';
 import { beforeEach, describe, it, expect } from 'vitest';
 import { McpToolsRegistry, wrapContent } from '../../../src/services/mcp-tools.js';
 import type { McpMemoriesService } from '../../../src/services/mcp-memories.js';
@@ -1005,4 +1006,14 @@ describe('transfer_* tools', () => {
       actor: { kind: 'agent', label: 'chris', hostId: host.id },
     });
   });
+});
+
+describe('structured MCP errors', () => {
+ it('keeps ApiError code and safe conflict details in text and structuredContent', async () => {
+  const registry = new McpToolsRegistry({ memories: stubMemories, projects: stubProjects, skills: stubSkills,
+   gitDirector: { getEnabled: async () => true, list: async () => { throw new ConflictError('Held', 'resource_claim_conflict', { claim_ids: ['claim'] }); } } as unknown as GitDirectorService });
+  const result = await registry.dispatch('git_list', {}, host);
+  expect(result).toMatchObject({ isError: true, structuredContent: { error: { message: 'Held', code: 'resource_claim_conflict', claim_ids: ['claim'] } } });
+  expect(JSON.parse((result.content as Array<{ text: string }>)[0]!.text)).toMatchObject({ error: { code: 'resource_claim_conflict' } });
+ });
 });

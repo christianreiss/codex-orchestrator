@@ -66,7 +66,7 @@ Schema is MySQL 8.4, defined as Drizzle table builders in `api/src/db/schema.ts`
 - `admin_users`, `admin_sessions`, `admin_passkeys`, `admin_password_resets` — the admin identity stack.
 - `coord_projects`, `coord_project_notes`, `coord_project_todos`, `coord_project_files`, `coord_project_feedback`, `coord_project_events` — the Projects module (all `coord_`-prefixed).
 - `chatgpt_usage_snapshots` — ChatGPT quota snapshots.
-- `mcp_session_tokens`, `mcp_access_logs`, `mcp_memories` — MCP identity, access log, and host memory store; `shared_memories` (+ `_chunks`, `_revisions`) and `coord_project_memories` are the other two memory scopes.
+- `mcp_session_tokens`, `mcp_memories` — MCP identity and host memory store; generic MCP access logs have been removed; `shared_memories` (+ `_chunks`, `_revisions`) and `coord_project_memories` are the other two memory scopes.
 - `secrets` — credentials supplied to agents over MCP.
 - `agent_sessions`, `agent_events`, `agent_prompts`, `agent_messages` — the agent sessions model behind the Agents page.
 - `agent_bus_addresses`, `agent_bus_conversations`, `agent_bus_conferences`, `agent_bus_messages`, `agent_bus_relays` — Agent Messaging.

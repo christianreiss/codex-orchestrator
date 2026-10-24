@@ -150,7 +150,7 @@ const REGISTRY: NavDefinition[] = [
   { id: "workflows", group: "coordination", route: "/workflows", label: "Workflows", description: "Reusable instructions, shared runs and reports", keywords: ["tasks", "runs", "evaluation", "reports"], icon: Waypoints },
   {
     id: "activity", group: "activity", route: "/activity", label: "Activity",
-    description: "Admin changes and tool calls", keywords: ["audit", "logs", "mcp", "events", "diagnostics", "troubleshooting"], icon: Activity,
+    description: "Configuration and system changes", keywords: ["audit", "logs", "events", "diagnostics", "troubleshooting"], icon: Activity,
   },
   {
     id: "reports", group: "activity", route: "/reports", label: "Reports",

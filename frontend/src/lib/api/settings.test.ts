@@ -127,7 +127,6 @@ const KEYS = {
   insecureApproval: ["settings", "insecure-approval"],
   quotaMode: ["settings", "quota-mode"],
   scaling: ["settings", "scaling"],
-  logRetention: ["settings", "log-retention"],
   authorization: ["settings", "authorization"],
 } as const;
 
@@ -289,13 +288,6 @@ const QUERY_CASES: QueryCase[] = [
     queryKey: KEYS.scaling,
     method: "GET",
     path: "/admin/scaling",
-  },
-  {
-    name: "logRetentionQuery",
-    build: () => asQuery(settings.logRetentionQuery()),
-    queryKey: KEYS.logRetention,
-    method: "GET",
-    path: "/admin/log-retention",
   },
 ];
 
@@ -531,17 +523,6 @@ const MUTATION_CASES: MutationCase[] = [
     // No GET endpoint exists, so there is no paired key to invalidate.
     invalidates: [],
   },
-  {
-    name: "logRetentionMutation",
-    build: (opts) => asMutation(settings.logRetentionMutation(opts)),
-    variables: { enabled: true, days_logs: 14 },
-    request: {
-      method: "POST",
-      path: "/admin/log-retention",
-      body: { enabled: true, days_logs: 14 },
-    },
-    invalidates: [KEYS.logRetention],
-  },
 ];
 
 beforeEach(() => {
@@ -657,9 +638,6 @@ describe("module surface", () => {
     "insecureApprovalMutation",
     "insecureApprovalQuery",
     "insecureApprovalQueryKey",
-    "logRetentionMutation",
-    "logRetentionQuery",
-    "logRetentionQueryKey",
     "modelDefaultsMutation",
     "modelDefaultsQuery",
     "modelDefaultsQueryKey",

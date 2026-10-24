@@ -247,11 +247,6 @@ export class HostProjectsService {
         about_omitted: true,
       };
     });
-    await this.recordLog(host.id, 'project.list', {
-      count: summaries.length,
-      include_archived: includeArchived,
-      include_about: includeAbout,
-    });
     return { projects: summaries };
   }
 
@@ -345,7 +340,7 @@ export class HostProjectsService {
 
   async bootstrap(slug: string, host: Host): Promise<Record<string, unknown>> {
     const project = await this.requireProject(slug);
-    const detail = await this.buildDetail(project, host, false);
+    const detail = await this.buildDetail(project, host);
     const encoded = encodeURIComponent(project.slug);
     const detailRoute = `/projects/${encoded}`;
     const guidance = managedCocoBootstrapGuidance();
@@ -417,7 +412,6 @@ export class HostProjectsService {
     const guidance = managedCocoBootstrapGuidance();
     const encoded = encodeURIComponent(project.slug);
     const detailRoute = `/projects/${encoded}`;
-    await this.recordLog(host.id, 'project.summary', { slug: project.slug });
     return {
       project: project.slug,
       about: project.about,
@@ -476,7 +470,7 @@ export class HostProjectsService {
     recent_changes: EventRow[];
   }> {
     const project = await this.requireProject(slug);
-    return this.buildDetail(project, host, true);
+    return this.buildDetail(project, host);
   }
 
   async updateAbout(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
@@ -562,7 +556,6 @@ export class HostProjectsService {
       .limit(200);
     const hydrated = rows.map((r) => this.hydrateEvent(r));
     const changes = preview ? hydrated.map((e) => this.toEventPreview(e)) : hydrated;
-    await this.recordLog(host.id, 'project.changes', { slug: project.slug, since: safeSince, count: changes.length });
     return {
       project: project.slug,
       since: safeSince,
@@ -574,7 +567,6 @@ export class HostProjectsService {
   async listNotes(slug: string, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
     const rows = await this.fetchNotes(project.id);
-    await this.recordLog(host.id, 'project.notes.list', { slug: project.slug, count: rows.length });
     return { project: project.slug, notes: rows };
   }
 
@@ -645,7 +637,6 @@ export class HostProjectsService {
   async listTodos(slug: string, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
     const todos = await this.board().todoRowsFor(project.id);
-    await this.recordLog(host.id, 'project.todos.list', { slug: project.slug, count: todos.length });
     return { project: project.slug, todos };
   }
 
@@ -682,7 +673,6 @@ export class HostProjectsService {
   async listFiles(slug: string, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
     const files = await this.fetchFiles(project.id);
-    await this.recordLog(host.id, 'project.files.list', { slug: project.slug, count: files.length });
     return { project: project.slug, files };
   }
 
@@ -694,7 +684,6 @@ export class HostProjectsService {
   async listFileSummaries(slug: string, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
     const files = await this.fetchFileSummaries(project.id);
-    await this.recordLog(host.id, 'project.files.list', { slug: project.slug, count: files.length });
     return { project: project.slug, files };
   }
 
@@ -721,11 +710,6 @@ export class HostProjectsService {
       });
     }
     if (!file) throw new NotFoundError('Project file not found');
-    await this.recordLog(host.id, 'project.file.read', {
-      slug: project.slug,
-      file_id: file.id,
-      stored_name: file.stored_name,
-    });
 
     // Windowing is opt-in: passing neither `offset` nor `limit` returns the whole
     // body exactly as before, so every existing caller is untouched. The contract
@@ -846,7 +830,6 @@ export class HostProjectsService {
   async listFeedback(slug: string, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
     const items = await this.fetchFeedback(project.id);
-    await this.recordLog(host.id, 'project.feedback.list', { project: project.slug, count: items.length });
     return { project: project.slug, feedback: items };
   }
 
@@ -955,11 +938,6 @@ export class HostProjectsService {
     const limit = this.normalizeMemoryLimit(payload['limit'], MEMORY_LIST_MAX);
     const all = await this.fetchMemories(project.id);
     const page = all.slice(0, limit);
-    await this.recordLog(host.id, 'project.memories.list', {
-      slug: project.slug,
-      count: page.length,
-      include_content: includeContent,
-    });
     return {
       project: project.slug,
       count: page.length,
@@ -973,7 +951,6 @@ export class HostProjectsService {
     const memoryKey = this.normalizeMemoryKey(key);
     const memory = await this.fetchMemoryByKey(project.id, memoryKey);
     const status = memory ? 'found' : 'missing';
-    await this.recordLog(host.id, 'project.memory.get', { slug: project.slug, key: memoryKey, status });
     return { project: project.slug, status, id: memoryKey, memory };
   }
 
@@ -998,7 +975,6 @@ export class HostProjectsService {
       const sameTags = JSON.stringify(sortedLowercase(existing.tags)) === JSON.stringify(sortedLowercase(tags));
       const sameMeta = JSON.stringify(sortedAssoc(existing.metadata)) === JSON.stringify(sortedAssoc(metadata));
       if (sameContent && sameTags && sameMeta) {
-        await this.recordLog(host.id, 'project.memory.unchanged', { slug: project.slug, key });
         return { project: project.slug, status: 'unchanged', id: key, memory: existing };
       }
     }
@@ -1153,14 +1129,6 @@ export class HostProjectsService {
       offset += batchSize;
     }
 
-    await this.recordLog(host.id, 'project.memories.search', {
-      slug: project.slug,
-      query_length: query.length,
-      limit,
-      returned: matches.length,
-      tags: tags.length,
-      degraded,
-    });
     return { project: project.slug, query, limit, count: matches.length, degraded, matches };
   }
 
@@ -1223,7 +1191,7 @@ export class HostProjectsService {
     return found;
   }
 
-  private async buildDetail(project: ProjectRow, host: Host, log: boolean) {
+  private async buildDetail(project: ProjectRow, host: Host) {
     const [notes, todos, files, feedback, memories, recent] = await Promise.all([
       this.fetchNotes(project.id),
       this.fetchTodos(project.id),
@@ -1232,7 +1200,6 @@ export class HostProjectsService {
       this.fetchMemories(project.id),
       this.fetchRecentEvents(project.id, 20),
     ]);
-    if (log) await this.recordLog(host.id, 'project.detail', { slug: project.slug });
     return {
       project: {
         slug: project.slug,

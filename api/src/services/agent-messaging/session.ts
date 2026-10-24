@@ -511,6 +511,12 @@ export class SessionRegistry {
     const authenticated = await this.core.authenticateBridge(sessionId, bridgeToken, true);
     const now = nowIso();
     await this.core.db.transaction(async (tx) => {
+      // Match claim renewal: gate, address, then session. Finishing also
+      // retires presence notices and must not hold session before address.
+      await tx.select({ name: versions.name }).from(versions).where(eq(versions.name, 'agent_messaging_enabled')).for('update');
+      if (authenticated.session.agentBusAddressId)
+        await tx.select({ id: agentBusAddresses.id }).from(agentBusAddresses)
+          .where(eq(agentBusAddresses.id, authenticated.session.agentBusAddressId)).for('update');
       const rows = await tx.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).limit(1).for('update');
       const session = rows[0];
       if (!session) return;

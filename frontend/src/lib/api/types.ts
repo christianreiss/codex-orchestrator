@@ -993,22 +993,6 @@ export interface HostQuickRegisterPayload {
 // hosts feature ↑ ----------------------------------------------------------
 
 // logs feature ↓
-/** A row from `/admin/mcp/logs`. */
-export interface McpAccessLogRow {
-  id: number | string;
-  host_id: number | null;
-  host_fqdn?: string | null;
-  client_ip?: string | null;
-  method?: string | null;
-  name?: string | null;
-  success: boolean | number;
-  error_code?: string | null;
-  error_message?: string | null;
-  created_at?: string | null;
-  engine?: string | null;
-  params?: unknown;
-}
-
 /** A row from `/admin/logs` (admin audit trail). */
 export interface AdminAuditLogRow {
   id: number | string;
@@ -1202,14 +1186,6 @@ export interface QuotaModeValue {
   hard_fail: boolean;
   limit_percent: number;
   week_partition: number | "off" | "5" | "7";
-}
-
-export interface LogRetentionValue {
-  enabled: boolean;
-  days_logs: number;
-  days_mcp: number;
-  days_events: number;
-  days_graph_stats: number;
 }
 
 export interface PrunePolicyValue {

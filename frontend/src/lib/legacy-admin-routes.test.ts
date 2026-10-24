@@ -23,7 +23,7 @@ describe("legacy admin destinations", () => {
     assert.equal(legacyTarget("/clients", q()), "/agents");
     assert.equal(legacyTarget("/topology", q()), "/agents?view=graph");
     assert.equal(legacyTarget("/logs/events", q()), "/activity?type=changes");
-    assert.equal(legacyTarget("/logs/mcp", q()), "/activity?type=tools");
+    assert.equal(legacyTarget("/logs/mcp", q()), "/activity?type=changes");
     assert.equal(legacyTarget("/feedback", q()), "/reports");
     assert.equal(legacyTarget("/users", q()), "/people");
     assert.equal(legacyTarget("/policies", q()), "/settings");

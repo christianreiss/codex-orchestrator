@@ -837,7 +837,7 @@ function injectManagedMcp(
     }
   }
   // BrowserOS is a local host capability and needs no fleet MCP bearer.
-  if (opts.engine === ENGINE_CODEX && opts.host?.browserosMcpEnabled === 1) {
+  if (opts.host?.browserosMcpEnabled === 1) {
     managedNames.add('browseros');
     managedEntries.push({
       name: 'browseros',

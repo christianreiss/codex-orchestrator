@@ -48,7 +48,6 @@ describe.skipIf(!handle)('fleet secrets against a real database', () => {
   let db: TestDb;
   let svc: SecretsService;
   let host: Host;
-  const logged: Array<{ method: string; name: string | null; success: boolean }> = [];
 
   const exec = async (q: string) => db.execute(sql.raw(q));
   const rowsOf = (res: unknown): Array<Record<string, unknown>> => {
@@ -58,7 +57,7 @@ describe.skipIf(!handle)('fleet secrets against a real database', () => {
   const cleanup = async () => {
     await exec(`DELETE FROM secrets WHERE slug LIKE 'ztest-%'`);
     await exec(`DELETE FROM versions WHERE name = 'secrets_module_enabled'`);
-    await exec(`DELETE FROM mcp_access_logs WHERE method = 'secret.read'`);
+    await exec(`DELETE FROM admin_events WHERE type = 'secret.read' AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.slug')) LIKE 'ztest-%'`);
     await exec(`DELETE FROM hosts WHERE fqdn IN ('${FQDN}', 'ztest-doomed.example')`);
   };
 
@@ -78,16 +77,7 @@ describe.skipIf(!handle)('fleet secrets against a real database', () => {
       await exec(`SELECT id, fqdn FROM hosts WHERE fqdn = '${FQDN}'`),
     )[0] as unknown as Host;
 
-    const accessLog = {
-      log: async (entry: { method: string; name: string | null; success: boolean; engine: string | null }) => {
-        logged.push(entry);
-        await db.execute(
-          sql`INSERT INTO mcp_access_logs (host_id, client_ip, method, name, success, error_code, error_message, created_at, engine)
-              VALUES (${host.id}, NULL, ${entry.method}, ${entry.name}, ${entry.success ? 1 : 0}, NULL, NULL, ${now}, ${entry.engine})`,
-        );
-      },
-    };
-    svc = new SecretsService({ db, keyring: testKeyring(), accessLog: accessLog as never });
+    svc = new SecretsService({ db, keyring: testKeyring() });
     await svc.setEnabled(true);
   });
 
@@ -228,9 +218,12 @@ describe.skipIf(!handle)('fleet secrets against a real database', () => {
       expect((await svc.listForHost(host.id)).map(s => s.slug).filter(s => mine.includes(s))).toEqual(mine);
       expect((await svc.searchForHost('ztest-', host.id)).map(s => s.slug).filter(s => mine.includes(s))).toEqual(mine);
       for (const slug of mine) {
-        const before = logged.length;
         expect((await svc.getForHost(slug, host, caller)).value).toBe('v');
-        expect(logged.slice(before)).toMatchObject([{ method: 'secret.read', name: `secret_get:${slug}`, success: true, engine: caller }]);
+        const audit = rowsOf(await db.execute(sql`SELECT payload FROM admin_events WHERE type='secret.read'
+          AND host_id=${host.id} ORDER BY id DESC LIMIT 1`))[0]!;
+        const detail = typeof audit.payload === 'string' ? JSON.parse(audit.payload) : audit.payload;
+        expect(detail).toMatchObject({ slug, success: true, engine: caller });
+        expect(JSON.stringify(detail)).not.toContain(PLAINTEXT);
       }
     });
 

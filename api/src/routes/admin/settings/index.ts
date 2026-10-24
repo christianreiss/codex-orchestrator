@@ -420,58 +420,11 @@ export async function registerAdminSettingsRoutes(
     return ok({ inactivity_window_days: days });
   });
 
-  // ── log-retention ─────────────────────────────────────────────────────────
-  app.get('/admin/log-retention', { preHandler: app.requireAdmin }, async () => {
-    const [enabled, dl, dm, de, dgs] = await Promise.all([
-      settings.getFlag('log_retention_enabled', false),
-      settings.getInt('log_retention_days_logs', 90),
-      settings.getInt('log_retention_days_mcp', 90),
-      settings.getInt('log_retention_days_events', 30),
-      settings.getInt('log_retention_days_graph_stats', 180),
-    ]);
-    return ok({
-      enabled,
-      days_logs: clampInt(dl, 1, 365, 90),
-      days_mcp: clampInt(dm, 1, 365, 90),
-      days_events: clampInt(de, 1, 365, 30),
-      days_graph_stats: clampInt(dgs, 1, 365, 180),
-    });
-  });
-  app.post('/admin/log-retention', { preHandler: app.requireAdmin }, async (req) => {
-    const body = (req.body ?? {}) as {
-      enabled?: unknown;
-      days_logs?: unknown;
-      days_mcp?: unknown;
-      days_events?: unknown;
-      days_graph_stats?: unknown;
-    };
-    const enabled = normalizeBool(body.enabled);
-    if (enabled === null) throw new ValidationError('enabled must be boolean', { param: 'enabled' });
-    const daysLogs = clampInt(body.days_logs, 1, 365, 90);
-    const daysMcp = clampInt(body.days_mcp, 1, 365, 90);
-    const daysEvents = clampInt(body.days_events, 1, 365, 30);
-    const daysGraphStats = clampInt(body.days_graph_stats, 1, 365, 180);
-
-    await settings.setFlag('log_retention_enabled', enabled);
-    await settings.setInt('log_retention_days_logs', daysLogs);
-    await settings.setInt('log_retention_days_mcp', daysMcp);
-    await settings.setInt('log_retention_days_events', daysEvents);
-    await settings.setInt('log_retention_days_graph_stats', daysGraphStats);
-    await recordLog(ctx, 'admin.log_retention', {
-      enabled,
-      days_logs: daysLogs,
-      days_mcp: daysMcp,
-      days_events: daysEvents,
-      days_graph_stats: daysGraphStats,
-    });
-    return ok({
-      enabled,
-      days_logs: daysLogs,
-      days_mcp: daysMcp,
-      days_events: daysEvents,
-      days_graph_stats: daysGraphStats,
-    });
-  });
+  // Compatibility for old clients: these settings never had a cleanup worker.
+  // Do not persist or claim to enable a policy that cannot take effect.
+  const retiredRetention = { enabled: false, supported: false, reason: 'retired_no_worker' };
+  app.get('/admin/log-retention', { preHandler: app.requireAdmin }, async () => ok(retiredRetention));
+  app.post('/admin/log-retention', { preHandler: app.requireAdmin }, async () => ok(retiredRetention));
 
   // ── scaling ───────────────────────────────────────────────────────────────
   app.get('/admin/scaling', { preHandler: app.requireAdmin }, async () => {

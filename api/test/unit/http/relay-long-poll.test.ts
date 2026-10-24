@@ -235,11 +235,13 @@ describe('shared idle checks across waiters of one relay credential', () => {
     const check = vi.fn(io(true));
     const a = key('token-a');
     const b = key('token-b');
+    // Stop after both first grid points, before either credential's second one.
+    const firstChecks = Math.max(relayGridDelay(a, Date.now()), relayGridDelay(b, Date.now()));
     const wa = relayLongPoll(async () => null, Date.now() + 4100, () => false, undefined, { key: a, check });
     const wb = relayLongPoll(async () => null, Date.now() + 4100, () => false, undefined, { key: b, check });
-    await vi.advanceTimersByTimeAsync(2010);
+    await vi.advanceTimersByTimeAsync(firstChecks);
     expect(check).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(4101);
     expect(await Promise.all([wa, wb])).toEqual([null, null]);
   });
 

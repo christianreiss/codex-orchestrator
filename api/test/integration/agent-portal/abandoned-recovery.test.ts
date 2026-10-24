@@ -98,6 +98,30 @@ describe.skipIf(!handle)('abandoned bridge recovery', { timeout: 120_000 }, () =
     await expect(messaging.self(b.sessionId, b.token)).resolves.toMatchObject({ address: a.address.address, session_id: b.sessionId });
   });
 
+  it('keeps advertised interactive suspend recovery nonterminal for one day, with an expired bridge still fenced', async () => {
+    const native = randomUUID();
+    const a = await register(native);
+    await handle!.db.update(agentSessions).set({
+      adapterCapabilities: { suspend_recovery_version: 1 },
+      heartbeatAt: new Date(Date.now() - 8 * 3600_000).toISOString(),
+    }).where(eq(agentSessions.id, a.sessionId));
+    await lapse(a.sessionId);
+    expect((await portal.purgeExpired()).abandoned_sessions).toBe(0);
+    await expect(messaging.self(a.sessionId, a.token)).rejects.toMatchObject({ code: 'agent_bridge_expired' });
+    await messaging.registerSession(host, { sessionId: a.sessionId, bridgeToken: a.token, engine: 'codex', username,
+      cwd: '/tmp/abandoned-recovery', invocationKind: 'interactive', upstreamSessionId: native,
+      requestedAddress: a.address.address, expectedBindingGeneration: a.address.binding_generation,
+      adapterCapabilities: { suspend_recovery_version: 1 } });
+    await expect(messaging.self(a.sessionId, a.token)).resolves.toMatchObject({ session_id: a.sessionId });
+    await handle!.db.update(agentSessions).set({
+      heartbeatAt: new Date(Date.now() - 25 * 3600_000).toISOString(),
+    }).where(eq(agentSessions.id, a.sessionId));
+    await lapse(a.sessionId);
+    const longerRetention = new AgentPortalService(handle!.db, { ...loadTestEnv(), AGENT_PORTAL_RETENTION_HOURS: 72 }, testKeyring());
+    expect((await longerRetention.purgeExpired()).abandoned_sessions).toBe(1);
+    await expect(register(native, a.sessionId, a.token)).rejects.toMatchObject({ code: 'agent_session_finished' });
+  });
+
   it('keeps the plain wording for a lifecycle its wrapper finished', async () => {
     const a = await register(randomUUID());
     await messaging.finishSession(a.sessionId, a.token, 'completed');

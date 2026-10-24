@@ -237,7 +237,7 @@ describe.skipIf(!handle)('directory, checkout and project discovery on MySQL', {
     }
   });
 
-  it('marks partial coverage, falls back for non-Git callers and refreshes metadata on registration retry and resume', async () => {
+  it('marks partial coverage, includes non-Git project children and refreshes metadata on registration retry and resume', async () => {
     const caller = await launch();
     const legacy = await launch();
     await db!
@@ -250,16 +250,15 @@ describe.skipIf(!handle)('directory, checkout and project discovery on MySQL', {
     });
     expect(await list(legacy, { scope: 'project' })).toMatchObject({
       total: 1,
-      effective_scope: 'directory',
+      effective_scope: 'project',
       coverage: { limited: true },
     });
     const nonGit = { cwd: '/repo', git_status: 'none' as const, git_root: null, git_common_dir: null };
     await service.registerSession(legacy.host, { ...legacy.input, workspace: nonGit });
-    expect(await list(legacy, { scope: 'project' })).toMatchObject({
-      total: 1,
-      effective_scope: 'directory',
-      coverage: { limited: false },
-    });
+    const child = await launch(workspace('/repo/api'));
+    const scoped = await list(legacy, { scope: 'project' });
+    expect(scoped).toMatchObject({ total: 2, effective_scope: 'project', coverage: { limited: false } });
+    expect(scoped.addresses.find((peer) => peer.address === child.address.address)?.match_reason).toBe('project_subdirectory');
     await service.finishSession(legacy.input.sessionId, legacy.input.bridgeToken, 'completed');
     const resumedInput = {
       ...legacy.input,

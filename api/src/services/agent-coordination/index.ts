@@ -429,9 +429,9 @@ export class AgentCoordination {
       if (body.workspace) {
         await tx
           .update(agentSessions)
-          .set({ workspace: normalizeWorkspace(body.workspace) })
+          .set({ workspace: normalizeWorkspace(body.workspace, readWorkspace(session!.workspace)) })
           .where(eq(agentSessions.id, id));
-        session = { ...session!, workspace: normalizeWorkspace(body.workspace) };
+        session = { ...session!, workspace: normalizeWorkspace(body.workspace, readWorkspace(session!.workspace)) };
       }
       if (body.project_slug !== undefined) {
         const key = repositoryIdentity(session!);

@@ -264,11 +264,6 @@ export async function registerAdminOverviewRoutes(
       insecureApprovalEnabled,
       autoUpdateEnabled,
       inactivityWindowDays,
-      logRetentionEnabled,
-      logRetentionDaysLogs,
-      logRetentionDaysMcp,
-      logRetentionDaysEvents,
-      logRetentionDaysGraphStats,
       clientVersionLock,
       claudeApiDisabled,
       claudeDefaultModel,
@@ -283,11 +278,6 @@ export async function registerAdminOverviewRoutes(
       settings.getFlag('insecure_approval_enabled', false),
       settings.getFlag('auto_update_enabled', false),
       settings.getInt('inactivity_window_days', 30),
-      settings.getFlag('log_retention_enabled', false),
-      settings.getInt('log_retention_days_logs', 90),
-      settings.getInt('log_retention_days_mcp', 90),
-      settings.getInt('log_retention_days_events', 30),
-      settings.getInt('log_retention_days_graph_stats', 180),
       settings.getWithMeta('client_version_lock'),
       settings.getFlag('claude_api_disabled', false),
       settings.getString('claude_default_model', CLAUDE_DEFAULT_MODEL),
@@ -372,11 +362,6 @@ export async function registerAdminOverviewRoutes(
       insecure_approval_enabled: insecureApprovalEnabled,
       auto_update_enabled: autoUpdateEnabled,
       inactivity_window_days: inactivityWindowDays,
-      log_retention_enabled: logRetentionEnabled,
-      log_retention_days_logs: logRetentionDaysLogs,
-      log_retention_days_mcp: logRetentionDaysMcp,
-      log_retention_days_events: logRetentionDaysEvents,
-      log_retention_days_graph_stats: logRetentionDaysGraphStats,
       client_version_lock: clientVersionLock.value,
       client_version_lock_updated_at: clientVersionLock.updatedAt,
       scaling: scalingStatus,
@@ -900,7 +885,6 @@ export async function registerAdminOverviewRoutes(
       app.log.warn({ err }, 'failed to record admin toast event');
     }
 
-    await recordLog(ctx, 'admin.toast', { level, title });
     wsPublisher.publish('toast', payload);
 
     return ok({ event: { id: eventId, type: 'toast', payload, created_at: now } });

@@ -30,7 +30,6 @@ import type {
   EngineStateUpdate,
   EngineStateValue,
   InsecureApprovalValue,
-  LogRetentionValue,
   ModelDefaultsEngine,
   ModelDefaultsUpdate,
   ModelDefaultsValue,
@@ -606,31 +605,6 @@ export function prunePolicyMutation(
   return createMutation<PrunePolicyValue, Error, { inactivity_days: number }>({
     mutationFn: (payload) => api.post<PrunePolicyValue>("/admin/prune-policy", payload),
     ...opts,
-  });
-}
-
-/* ─────────────────────── 12. Log retention ───────────────────────── */
-
-export const logRetentionQueryKey = ["settings", "log-retention"] as const;
-
-export function logRetentionQuery() {
-  return createQuery<LogRetentionValue>({
-    queryKey: logRetentionQueryKey,
-    queryFn: () => api.get<LogRetentionValue>("/admin/log-retention"),
-  });
-}
-
-export function logRetentionMutation(
-  opts: MutationOpts<LogRetentionValue, Partial<LogRetentionValue>> = {},
-) {
-  const qc = useQueryClient();
-  return createMutation<LogRetentionValue, Error, Partial<LogRetentionValue>>({
-    mutationFn: (payload) => api.post<LogRetentionValue>("/admin/log-retention", payload),
-    ...opts,
-    onSettled: (...args) => {
-      void qc.invalidateQueries({ queryKey: logRetentionQueryKey });
-      opts.onSettled?.(...args);
-    },
   });
 }
 

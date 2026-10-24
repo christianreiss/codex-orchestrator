@@ -42,7 +42,7 @@ Three memory substrates live behind this endpoint and they are not interchangeab
 - `X-Engine` selects the engine for Skill reads and secret audit attribution: an omitted header still resolves to `codex`, but a malformed value is a validation error rather than a silent Codex default, and an engine disabled on that host answers 403 `engine_disabled` before JSON-RPC dispatch.
 - Origin checks apply to `/mcp` `GET` and `POST` only, and they are a single toggle rather than a list of allowed origins: with `MCP_ALLOW_REQUEST_HOST_ORIGIN` off (default `0`) any request carrying a non-empty `Origin` header is rejected with 403, and turning it on drops the check entirely. A missing or empty `Origin`, the normal case for non-browser MCP clients, is always allowed.
 - Request admission: `/mcp*` has no orchestrator-enforced request-rate limit; host authentication and capability checks still apply.
-- MCP JSON-RPC requests are logged in `mcp_access_logs`; browse via `/admin` (Logs → MCP) or `GET /admin/mcp/logs`.
+- Generic MCP requests are not persisted. Credential reads remain audited to `admin_events` before a secret value is returned; routine tool discovery and reads create no access-log rows.
 - Host-authenticated `/mcp` advertises the host-safe memory, shared-memory, resource, Skill, project, project-board, fleet-secrets, Git Director and file-transfer tools. Coordinator filesystem helpers (`fs_*`) are not listed and return “method not found” if called on that route.
 
 ## JSON-RPC methods

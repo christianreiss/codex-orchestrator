@@ -135,7 +135,6 @@
       "GET /admin/manual/article/:slug",
       "GET /admin/manual/manifest",
       "GET /admin/manual/search",
-      "GET /admin/mcp/logs",
       "GET /admin/mcp/memories",
       "GET /admin/memories/:scope/:recordId",
       "GET /admin/memories/audit",

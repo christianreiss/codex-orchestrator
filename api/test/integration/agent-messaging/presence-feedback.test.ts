@@ -1,3 +1,6 @@
+import { drizzle } from 'drizzle-orm/mysql2';
+import * as schema from '../../../src/db/schema.js';
+import { discardPresenceNotices } from '../../../src/services/agent-messaging/presence-feedback.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -91,6 +94,38 @@ describe.skipIf(!handle)('presence receipts and session-bound return notices', (
       await expect(service.replyMessage(b.id, b.token, delivery!.message_id, { content: 'thanks', clientMessageId: randomUUID() })).rejects.toMatchObject({ code: 'agent_messaging_presence_notice_reply' });
     });
   }
+
+  it('locks addresses before session rows while retiring notices beside claim renewal', async () => {
+    let a = await peer();
+    const b = await peer('codex', undefined, true);
+    await service.finishSession(a.id, a.token, 'completed');
+    await send(b, a);
+    a = await peer('codex', a);
+    await ready(a);
+    expect(await notices(b)).toHaveLength(1);
+    // A terminal row without running its cleanup supplies a stale notice.
+    await handle!.db.update(agentSessions).set({ endedAt: new Date().toISOString() }).where(eq(agentSessions.id, b.id));
+    const owner = await handle!.pool.getConnection();
+    const retireConnection = await handle!.pool.getConnection();
+    let retire: Promise<void> | undefined;
+    try {
+      await owner.beginTransaction();
+      await owner.query('SELECT id FROM agent_bus_addresses WHERE id=? FOR UPDATE', [b.addressId]);
+      const retiring = drizzle(retireConnection, { schema, mode: 'default' });
+      retire = retiring.transaction(async (tx) => { await discardPresenceNotices(tx, new Date().toISOString(), [b.addressId]); });
+      // Retirement must wait on the address without first locking its session.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await owner.query('SET SESSION innodb_lock_wait_timeout=2');
+      await owner.query('SELECT id FROM agent_sessions WHERE id=? FOR UPDATE', [b.id]);
+      await owner.commit();
+      await retire;
+      expect((await notices(b))[0]!.status).toBe('canceled');
+    } finally {
+      await owner.rollback();
+      if (retire) await retire.catch(() => {});
+      owner.release(); retireConnection.release();
+    }
+  });
 
   it('drops a queued notice when B ends and does not block later mail or wake a new B', async () => {
     let a = await peer(), b = await peer('codex', undefined, true);

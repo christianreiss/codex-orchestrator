@@ -1120,19 +1120,6 @@ CREATE TABLE `logs` (
 	CONSTRAINT `logs_id` PRIMARY KEY(`id`)
 );
 
-CREATE TABLE `mcp_access_logs` (
-	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
-	`host_id` bigint unsigned,
-	`client_ip` varchar(64),
-	`method` varchar(64) NOT NULL,
-	`name` varchar(128),
-	`success` tinyint NOT NULL DEFAULT 0,
-	`error_code` int,
-	`error_message` text,
-	`created_at` varchar(100) NOT NULL,
-	`engine` varchar(16),
-	CONSTRAINT `mcp_access_logs_id` PRIMARY KEY(`id`)
-);
 
 CREATE TABLE `mcp_memories` (
 	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
@@ -1482,9 +1469,6 @@ CREATE INDEX `idx_install_tokens_expires_at` ON `install_tokens` (`expires_at`);
 CREATE INDEX `idx_logs_host` ON `logs` (`host_id`);
 CREATE INDEX `idx_logs_created_at` ON `logs` (`created_at`);
 CREATE INDEX `idx_logs_action_created_host` ON `logs` (`action`,`created_at`,`host_id`);
-CREATE INDEX `idx_mcp_logs_host` ON `mcp_access_logs` (`host_id`);
-CREATE INDEX `idx_mcp_logs_method` ON `mcp_access_logs` (`method`);
-CREATE INDEX `idx_mcp_logs_created_at` ON `mcp_access_logs` (`created_at`);
 CREATE INDEX `idx_memories_host` ON `mcp_memories` (`host_id`);
 CREATE INDEX `idx_mcp_session_tokens_host` ON `mcp_session_tokens` (`host_id`);
 CREATE INDEX `idx_mcp_session_tokens_expires_at` ON `mcp_session_tokens` (`expires_at`);
@@ -2064,7 +2048,8 @@ CREATE TABLE `agent_scope_members` (
 	`joined_at` varchar(100) NOT NULL,
 	`updated_at` varchar(100) NOT NULL,
 	CONSTRAINT `agent_scope_members_id` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_agent_scope_member` UNIQUE(`scope_id`,`session_id`)
+	CONSTRAINT `uq_agent_scope_member` UNIQUE(`scope_id`,`session_id`),
+	KEY `idx_scope_member_session` (`session_id`)
 );
 
 CREATE TABLE `agent_scopes` (

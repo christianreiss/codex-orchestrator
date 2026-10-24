@@ -34,12 +34,12 @@ The desktop sidebar is nine always-visible entries in two sections. Each entry o
 | | Agents | Agents (Live and Graph views) |
 | | Projects | Projects |
 | | Coordination | Messages, Timed wake-ups, Git merges, Shared files |
-| | Activity | Activity (admin changes and tool calls), Reports |
+| | Activity | Activity (configuration and system changes), Reports |
 | **Configure** | Providers | Accounts, Engines (including Model defaults) |
 | | Library | Skills, Agent rules, Memories; Claude-native: Subagents, Commands, Reply styles |
 | | Access & Settings | Access (People, API keys, Secrets), Settings |
 
-Manual, Account and Shortcuts sit at the foot of the sidebar. On a phone the bottom bar keeps Overview, Hosts, Projects and Agents; the other hubs are under Menu. The command palette (Ctrl/Cmd-K) still jumps straight to any individual page. The active destination and breadcrumb identify your current location. **Overview** opens with a "Needs attention" list, then one line of fleet numbers, provider usage as a single table, an Engines table, and the verification runner. **Agents** is one page with a Live / Graph view toggle. **Engines** holds fleet model and update controls; **Settings** holds fleet-wide behaviour (hosts, agents, data retention). **Git merges** (the Git Director) arbitrates merges between agents sharing a clone, **Shared files** (file transfer) is the expiring pool of files agents hand each other, **Timed wake-ups** is wake/cron, and **Messages** is agent messaging. **Activity** holds the audit trail (Admin changes) and MCP requests (Tool calls) behind a type filter, and **Reports** is the inbox for bugs and requests about the orchestrator itself (feedback). The **Library** is one page with a type filter; Subagents, Commands, and Reply styles (output styles) are Claude-native collections, and **Agent rules** (fleet instructions) is the shared `AGENTS.md` / `CLAUDE.md` document.
+Manual, Account and Shortcuts sit at the foot of the sidebar. On a phone the bottom bar keeps Overview, Hosts, Projects and Agents; the other hubs are under Menu. The command palette (Ctrl/Cmd-K) still jumps straight to any individual page. The active destination and breadcrumb identify your current location. **Overview** opens with a "Needs attention" list, then one line of fleet numbers, provider usage as a single table, an Engines table, and the verification runner. **Agents** is one page with a Live / Graph view toggle. **Engines** holds fleet model and update controls; **Settings** holds fleet-wide behaviour (hosts, agents, data retention). **Git merges** (the Git Director) arbitrates merges between agents sharing a clone, **Shared files** (file transfer) is the expiring pool of files agents hand each other, **Timed wake-ups** is wake/cron, and **Messages** is agent messaging. **Activity** holds the audit trail of configuration and system changes, and **Reports** is the inbox for bugs and requests about the orchestrator itself (feedback). The **Library** is one page with a type filter; Subagents, Commands, and Reply styles (output styles) are Claude-native collections, and **Agent rules** (fleet instructions) is the shared `AGENTS.md` / `CLAUDE.md` document.
 
 The footer provides **Manual**, **Account**, **Shortcuts**, and an account menu whose links jump to the Security, Appearance, and Android devices sections of the single **Account** page (`/account#security`, `#appearance`, `#devices`), plus sign-out. On phones, Overview, Hosts, Projects, and Agents stay in the bottom bar; **Menu** opens the remaining destinations and account actions. Menu is highlighted when the current page belongs to that group.
 
@@ -80,7 +80,7 @@ Each article is stamped with a `verified:` date visible as the pill at the top. 
 - frontend/src/routes/setup/+page.svelte (first-run wizard)
 - frontend/src/lib/nav.ts (left rail navigation items)
 - frontend/src/routes/dashboard/+page.svelte (Overview layout)
-- frontend/src/routes/(activity)/activity/+page.svelte (Activity: Admin changes and Tool calls)
+- frontend/src/routes/(activity)/activity/+page.svelte (Activity: configuration and system changes)
 - frontend/src/lib/components/layout/Sidebar.svelte (left rail, footer links, account dropdown)
 - frontend/src/lib/components/layout/TopBar.svelte (theme menu, command palette launcher)
 - frontend/src/lib/utils/shortcuts.ts (global shortcut key bindings)

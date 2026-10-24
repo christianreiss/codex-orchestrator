@@ -21,7 +21,7 @@ function harness(fail = false) {
     },
   })])) as unknown as ToolDeps;
   const registry = new McpToolsRegistry(deps);
-  const server = new McpServer(registry, deps.resources!, { log: async () => {} } as never);
+  const server = new McpServer(registry, deps.resources!);
   return { registry, server, calls };
 }
 

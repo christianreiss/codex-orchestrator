@@ -1,3 +1,4 @@
+import { remoteGitOwner, remoteAddress, type GitProvenance } from './git-director/remote.js';
 import { GitDirectorNotifications, type DirectorEvent } from './git-director/notifications.js';
 import { readWorkspace } from './agent-messaging/workspace.js';
 import { lockClaimGate, guardGitMutation } from './agent-coordination/git-guard.js';
@@ -677,10 +678,10 @@ export class GitDirectorService {
    * The one refusal: a live registration that currently holds a merge lease. A
    * lease must never change hands by re-registering.
    */
-  async register(args: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {
+  async register(args: Record<string, unknown>, host: Host, provenance?: GitProvenance): Promise<Record<string, unknown>> {
     const now = this.now();
     const worktreePath = normalizePath(requiredString(args, 'worktree_path'));
-    const cloneDir = normalizePath(optionalString(args, 'clone_dir') ?? worktreePath);
+    let cloneDir = normalizePath(optionalString(args, 'clone_dir') ?? worktreePath);
     const repoRoot = normalizePath(optionalString(args, 'repo_root') ?? worktreePath);
     for (const [param, path] of Object.entries({
       worktree_path: worktreePath,
@@ -700,7 +701,6 @@ export class GitDirectorService {
     const engineRaw = optionalString(args, 'engine', 16);
     const engine = isEngine(engineRaw) ? engineRaw : null;
 
-    const cloneKey = sha256(cloneDir);
     const worktreeHash = sha256(worktreePath);
     const remoteKey = normalizeRemote(remoteUrl);
 
@@ -710,9 +710,20 @@ export class GitDirectorService {
       // Serialize path reassignment across different clones on the same host.
       await tx.select({ id: hosts.id }).from(hosts).where(eq(hosts.id, host.id)).for('update');
 
+      // A refresh may omit clone_dir. Preserve the existing canonical mapping;
+      // the server cannot discover a remote checkout's common directory itself.
+      if (args.clone_dir === undefined) {
+        const mappings = await tx.select({ clone: gitClones }).from(gitWorktrees)
+          .innerJoin(gitClones, eq(gitWorktrees.cloneId, gitClones.id))
+          .where(and(eq(gitWorktrees.hostId, host.id), eq(gitWorktrees.worktreeHash, worktreeHash),
+            ne(gitWorktrees.status, 'superseded'), isNull(gitClones.archivedAt)));
+        const dirs = [...new Set(mappings.map((r) => r.clone.cloneDir))];
+        if (dirs.length > 1) throw new ConflictError('Multiple clone mappings exist; pass the absolute clone_dir from git rev-parse --git-common-dir', 'git_director_worktree_ambiguous');
+        if (dirs[0]) cloneDir = dirs[0];
+      }
       const clone = await this.upsertCloneLocked(tx, {
         host,
-        cloneKey,
+        cloneKey: sha256(cloneDir),
         cloneDir,
         repoRoot,
         remoteUrl,
@@ -759,7 +770,9 @@ export class GitDirectorService {
         await this.notify(tx, { kind: 'registration_superseded', clone: previousClone, worktree: row, audience: 'branch', includeActor: true, detail: { withdrawn_requests: pending.map(r => r.id) } });
       }
 
-      const address = await this.resolveAddress(tx, host, requestedUsername, engine, worktreePath, now);
+      const address = provenance
+        ? remoteAddress((await remoteGitOwner(tx, provenance)).session)
+        : await this.resolveAddress(tx, host, requestedUsername, engine, worktreePath, now);
       const username = requestedUsername ?? address?.username ?? 'unknown';
       const existing = (
         await tx
@@ -1426,11 +1439,15 @@ export class GitDirectorService {
     const requestId = optionalString(args, 'request_id', 36);
     const worktreePath = optionalString(args, 'worktree_path');
     const deregister = args.deregister === true;
+    const correctionReason = optionalString(args, 'correction_reason', 1000);
+    const correctionId = optionalString(args, 'correction_id', 36);
+    if ((correctionReason || correctionId) && (!correctionReason || !correctionId || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(correctionId))) throw new ValidationError('An outcome correction requires correction_reason and a UUID correction_id');
     const outcome = optionalString(args, 'outcome', 32) ?? 'unknown';
     const targetHeadSha = optionalString(args, 'target_head_sha', 64);
     if (!['merged', 'aborted', 'unknown'].includes(outcome)) throw new ValidationError('outcome must be merged, aborted or unknown');
     if (args.outcome !== undefined && (!requestId || !worktreePath)) throw new ValidationError('request_id and worktree_path are required for a reported outcome');
-    if (outcome === 'merged' && (!targetHeadSha || !/^[a-f0-9]{40,64}$/.test(targetHeadSha))) throw new ValidationError('target_head_sha is required for a reported merge');
+    if (outcome === 'merged' && !targetHeadSha) throw new ValidationError('target_head_sha is required for a reported merge');
+    if (outcome === 'merged' && !/^[a-f0-9]{40,64}$/.test(targetHeadSha!)) throw new ValidationError('target_head_sha must be a full 40-64 lowercase hex commit SHA; use git rev-parse HEAD');
     if (!requestId && !worktreePath) {
       throw new ValidationError('request_id or worktree_path is required', { param: 'request_id' });
     }
@@ -1450,6 +1467,20 @@ export class GitDirectorService {
           const [owner] = await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId));
           if (!owner || owner.worktreePath !== normalizePath(worktreePath!)) throw new ValidationError('worktree_path does not match the reported request');
           if (outcome === 'merged' && !request.leaseExpiresAt) throw new ValidationError('A merged report requires a request that held a lease');
+          if (correctionReason) {
+            if (deregister || outcome !== 'merged' || request.reportedOutcome !== 'merged' || !request.completedAt)
+              throw new ValidationError('Corrections require an already completed merged report and cannot release or deregister anything');
+            const [existing] = await tx.select().from(adminEvents).where(and(
+              eq(adminEvents.type, 'git_director.outcome_correction'), eq(adminEvents.hostId, host.id),
+              sql`JSON_UNQUOTE(JSON_EXTRACT(${adminEvents.payload}, '$.correction_id')) = ${correctionId}`,
+            )).limit(1);
+            const correction = { correction_id: correctionId, request_id: request.id, original_target_head_sha: request.reportedTargetHeadSha,
+              corrected_target_head_sha: targetHeadSha, reason: correctionReason, evidence: 'agent_reported', verified: false };
+            if (existing && Object.entries(correction).some(([key, value]) => (existing.payload as Record<string, unknown>)?.[key] !== value))
+              throw new ConflictError('Correction ID reused with different evidence', 'git_director_outcome_conflict');
+            if (!existing) await tx.insert(adminEvents).values({ type: 'git_director.outcome_correction', hostId: host.id, payload: correction, createdAt: now });
+            return { released: 0, deregistered: false, corrected: true, replayed: Boolean(existing), correction };
+          }
           const refinement = request.reportedOutcome === 'unknown' && outcome !== 'unknown';
           if (!refinement && request.reportedOutcome != null && (request.reportedOutcome !== outcome || request.reportedTargetHeadSha !== targetHeadSha)) {
             throw new ConflictError('A different outcome was already reported for this request', 'git_director_outcome_conflict');

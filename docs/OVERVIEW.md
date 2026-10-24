@@ -561,16 +561,14 @@ invalidation, without live provider probes from the hosts list.
 
 ## Policies workspace
 
-`/admin/policies` groups fleet controls into Host behavior, Agent behavior,
-Access control and Cleanup. Desktop uses a category sidebar; mobile uses a
-category selector. Existing section anchors select the appropriate category.
-Switches and selections apply immediately with inline progress and failure
-feedback. Inactivity and retention durations use Save changes and Reset; drafts
-survive category changes, and external updates require resetting a conflicting
-draft before saving. The retention switch applies saved durations without
-submitting numeric drafts. Capability checks make controls read-only when the
-session cannot manage the corresponding policy. This layout changes no backend
-policy defaults, endpoints or enforcement behavior.
+`/admin/settings` is the flat home for fleet host and agent policy. Switches
+apply immediately; the inactivity window uses Save changes and Reset, preserves
+safe drafts, and detects external changes. Capability checks make controls
+read-only for sessions without policy management rights. Generic MCP call
+logging and its Activity view have been removed. The log-retention controls
+were also removed because no cleanup worker enforced their durations;
+`GET/POST /admin/log-retention` is an unsupported compatibility endpoint that
+ignores old submitted values. Agent-session housekeeping remains independent.
 
 ## Data retention & pruning
 
@@ -1439,3 +1437,9 @@ generation without competing for the publisher lock; later updates remain pendin
 Messaging is optional; polling and local verification remain necessary. Reported
 merge completion is explicitly unverified and separate from lease release, push
 and deployment. See `docs/interface-api.md` for the event and delivery contract.
+
+### Feedback and SQL telemetry cleanup (2026-10-24)
+
+Activity now shows meaningful changes; generic MCP history and ineffective log-retention controls are retired. Secret reads retain fail-closed audits, protocol events retain their state/cursor roles, and migration 0092 requires a pre-deploy SQL backup for historical telemetry rollback. Remote Git provenance, unmanaged-target claims, structured MCP conflicts and bounded interactive suspend recovery are documented in the interface and coordination contracts.
+
+For a self-hosted control-plane rollout run `python3 scripts/deploy-detached.py -- --backup --no-cleanup --service api`. The systemd unit survives SSH/native/API interruption; inspect the printed result.json and deploy.log paths. An accepted launcher is not deployment success. The result includes actual Git provenance and the deploy exit code; HOME/PATH are retained explicitly. Restore old source plus the matching pre-0092 SQL backup to roll back the removed MCP schema; an old image alone cannot audit secret reads and therefore fails closed.

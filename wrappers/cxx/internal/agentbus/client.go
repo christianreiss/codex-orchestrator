@@ -85,7 +85,27 @@ func (c *sessionClient) path(suffix string) string {
 }
 
 func (c *sessionClient) post(ctx context.Context, suffix string, body any, out any) error {
-	return doJSON(ctx, c.http, "http://agent-messaging.local", http.MethodPost, c.path(suffix), body, nil, out)
+	err := doJSON(ctx, c.http, "http://agent-messaging.local", http.MethodPost, c.path(suffix), body, nil, out)
+	args, _ := body.(map[string]any)
+	// Status/renewal is retry-safe; owner responses and work mutations are not
+	// replayed here. A bounded reconnect gap must not strand a healthy claim.
+	if suffix != "claims/status" || stringArg(args, "response") != "" {
+		return err
+	}
+	for _, delay := range []time.Duration{250 * time.Millisecond, time.Second} {
+		var api *APIError
+		if !errors.As(err, &api) || !(api.Status == 502 || api.Status == 504 ||
+			api.Status == 503 && (api.Code == "communicator_unavailable" || api.Code == "broker_upstream_unavailable" || api.Code == "")) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+		err = doJSON(ctx, c.http, "http://agent-messaging.local", http.MethodPost, c.path(suffix), body, nil, out)
+	}
+	return err
 }
 
 func doJSON(

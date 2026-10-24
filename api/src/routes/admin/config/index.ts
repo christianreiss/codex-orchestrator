@@ -1,9 +1,8 @@
 /**
- * Admin config / agents / skills / memories / mcp logs routes.
+ * Admin config / agents / skills / memories routes.
  *
  * Routes registered:
  *   GET    /admin/config
- *   GET    /admin/mcp/logs
  *   POST   /admin/config/render
  *   POST   /admin/config/store
  *   GET    /admin/agents
@@ -46,8 +45,8 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { ProviderAccountsService } from '../../../services/provider-accounts.js';
-import { desc, eq, sql } from 'drizzle-orm';
-import { hosts, mcpAccessLogs, versions } from '../../../db/schema.js';
+import { eq, sql } from 'drizzle-orm';
+import { hosts, versions } from '../../../db/schema.js';
 import { NotFoundError, ValidationError } from '../../../http/errors.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, isEngine } from '../../../util/engine.js';
 import type { RouteContext } from '../../index.js';
@@ -136,39 +135,6 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
     async (req) => {
       const body = (req.body && typeof req.body === 'object') ? req.body as { settings?: unknown; sha256?: unknown; expected_revision?: unknown } : {};
       return await clientConfig.store(body, null);
-    },
-  );
-
-  // ── /admin/mcp/logs ──────────────────────────────────────────────────────
-
-  app.get<{ Querystring: { limit?: string } }>(
-    '/admin/mcp/logs',
-    { preHandler: app.requireAdmin },
-    async (req) => {
-      const limit = Math.max(1, Math.min(parseInteger(req.query.limit) ?? 200, 500));
-      // Left join so rows whose host has been pruned (or that were never bound
-      // to one) still list, with a null Host column instead of dropping out.
-      // Aliased to the snake_case keys `McpAccessLogRow` (and the log view that
-      // reads it) expects — a camelCase alias here renders as an empty column.
-      const rows = await db
-        .select({
-          id: mcpAccessLogs.id,
-          host_id: mcpAccessLogs.hostId,
-          host_fqdn: hosts.fqdn,
-          client_ip: mcpAccessLogs.clientIp,
-          method: mcpAccessLogs.method,
-          name: mcpAccessLogs.name,
-          success: mcpAccessLogs.success,
-          error_code: mcpAccessLogs.errorCode,
-          error_message: mcpAccessLogs.errorMessage,
-          created_at: mcpAccessLogs.createdAt,
-          engine: mcpAccessLogs.engine,
-        })
-        .from(mcpAccessLogs)
-        .leftJoin(hosts, eq(hosts.id, mcpAccessLogs.hostId))
-        .orderBy(desc(mcpAccessLogs.createdAt))
-        .limit(limit);
-      return { logs: rows };
     },
   );
 

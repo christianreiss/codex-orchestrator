@@ -6,7 +6,6 @@ function state() {
     'api-keys-in-chat': { enabled: true }, 'insecure-approval': { enabled: false },
     authorization: { mode: 'compatible', updated_at: null, would_deny: [{ role: 'operator', capability: 'security.manage_authorization', route: 'POST /admin/authorization', first_seen: '2026-10-09T08:00:00Z', last_seen: '2026-10-09T08:00:00Z' }] },
     'prune-policy': { inactivity_window_days: 30 },
-    'log-retention': { enabled: false, days_logs: 90, days_mcp: 90, days_events: 30, days_graph_stats: 180 },
   } as Record<string, Record<string, unknown>>, writes: [] as { key: string; body: Record<string, unknown> }[], fail: '', readFail: '' };
 }
 async function fixture(page: Page, shared: ReturnType<typeof state>, manage = true) {
@@ -33,7 +32,7 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
   });
   return async () => { await expect.poll(() => Boolean(emit)).toBe(true); emit!(JSON.stringify({ type: 'settings.changed', payload: {}, ts: new Date().toISOString() })); };
 }
-const ANCHORS = ['hosts', 'agents', 'retention', 'auto-update', 'reverse-dns', 'insecure-approval', 'host-spawn', 'api-keys-in-chat', 'model-tier-check', 'authorization', 'host-lifecycle', 'prune-policy', 'log-retention', 'session-housekeeping'];
+const ANCHORS = ['hosts', 'agents', 'retention', 'auto-update', 'reverse-dns', 'insecure-approval', 'host-spawn', 'api-keys-in-chat', 'model-tier-check', 'authorization', 'host-lifecycle', 'prune-policy', 'session-housekeeping'];
 test('one flat page keeps drafts, resolves anchors and has no duplicate IDs', async ({ page }) => {
   const shared = state(); await fixture(page, shared); await page.goto('/admin/settings');
   for (const name of ['Hosts', 'Agents', 'Data retention']) await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
@@ -68,20 +67,15 @@ test('immediate controls save, reload and recover after failure', async ({ page 
   await approval.click(); await expect(approval).toBeChecked();
   await page.reload(); await expect(mode).toHaveValue('strict');
 });
-test('numeric validation and retention toggle never submit unsaved durations', async ({ page }) => {
+test('numeric validation preserves inactive-host policy and retired retention is absent', async ({ page }) => {
   const shared = state(); await fixture(page, shared); await page.goto('/admin/settings');
-  const prune = page.locator('#prune-policy'), retention = page.locator('#log-retention');
+  const prune = page.locator('#prune-policy');
   const days = prune.getByLabel('Inactivity window (days)'), save = prune.getByRole('button', { name: 'Save changes' });
   await expect(days).toHaveValue('30'); await expect(save).toBeDisabled();
   for (const value of ['1.5', '-1', '61', '']) { await days.fill(value); await expect(save).toBeDisabled(); await expect(days).toHaveAttribute('aria-invalid', 'true'); }
   await days.fill('0'); await save.click(); await expect(prune).toContainText('inactivity pruning disabled'); await expect(save).toBeDisabled();
-  const logs = retention.getByLabel('API logs (days)'); await logs.fill('45');
-  const toggle = retention.getByRole('switch', { name: 'Remove old logs automatically' }); await toggle.click(); await expect(toggle).toBeChecked(); await expect(toggle).toBeEnabled(); await expect(logs).toHaveValue('45');
-  expect(shared.values['log-retention'].days_logs).toBe(90); expect(shared.writes.at(-1)?.body.days_logs).toBe(90);
-  await logs.fill('366'); await expect(retention.getByRole('button', { name: 'Save changes' })).toBeDisabled();
-  await logs.fill('45'); shared.fail = 'log-retention'; await retention.getByRole('button', { name: 'Save changes' }).click();
-  await expect(retention).toContainText('Save failed'); await expect(logs).toHaveValue('45');
-  shared.fail = ''; await retention.getByRole('button', { name: 'Save changes' }).click(); await expect(retention.getByRole('button', { name: 'Save changes' })).toBeDisabled(); await expect.poll(() => shared.values['log-retention'].days_logs).toBe(45);
+  await expect(page.getByRole('switch', { name: 'Remove old logs automatically' })).toHaveCount(0);
+  await expect(page.getByLabel('MCP logs (days)')).toHaveCount(0);
 });
 test('external updates refresh pristine values and protect dirty drafts', async ({ page }) => {
   const shared = state(); const refresh = await fixture(page, shared); await page.goto('/admin/settings');
@@ -90,9 +84,7 @@ test('external updates refresh pristine values and protect dirty drafts', async 
   await days.fill('12'); shared.values['prune-policy'].inactivity_window_days = 40; await refresh();
   await expect(prune).toContainText('Saved values changed elsewhere'); await expect(days).toHaveValue('12'); await expect(prune.getByRole('button', { name: 'Save changes' })).toBeDisabled();
   await prune.getByRole('button', { name: 'Reset', exact: true }).click(); await expect(days).toHaveValue('40');
-  const retention = page.locator('#log-retention'), logs = retention.getByLabel('API logs (days)');
-  await logs.fill('14'); shared.values['log-retention'].days_logs = 60; await refresh(); await expect(retention).toContainText('Saved values changed elsewhere'); await expect(logs).toHaveValue('14');
-  await retention.getByRole('button', { name: 'Reset', exact: true }).click(); await expect(logs).toHaveValue('60');
+
 });
 test('failed reads disable writes and offer retry', async ({ page }) => {
   const shared = state(); shared.readFail = 'auto-update'; await fixture(page, shared); await page.goto('/admin/settings'); const card = page.locator('#auto-update');
@@ -112,4 +104,25 @@ for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`re
   expect((await new AxeBuilder({ page }).include('main').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
   await page.screenshot({ path: `test-results/settings-${width}-${theme}.png`, fullPage: true });
   expect(shared.writes).toEqual([]);
+});
+
+test('Activity retires tool-call URLs and never requests generic MCP history', async ({ page }, testInfo) => {
+  const shared = state(); await fixture(page, shared);
+  const calls: string[] = [];
+  page.on('request', req => calls.push(new URL(req.url()).pathname));
+  await page.goto('/admin/activity?type=tools');
+  await expect(page.getByRole('heading', { name: 'Activity', exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/activity$/);
+  await expect(page.getByRole('button', { name: 'Tool calls', exact: true })).toHaveCount(0);
+  await expect(page.getByText('No changes recorded', { exact: true })).toBeVisible();
+  expect(calls).not.toContain('/admin/mcp/logs');
+  for (const width of [320, 1440]) for (const theme of ['light', 'dark']) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(theme => localStorage.setItem('codex.theme', theme), theme);
+    await page.reload();
+    await expect(page.getByText('No changes recorded', { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath(`activity-${width}-${theme}.png`), fullPage: true });
+  }
 });

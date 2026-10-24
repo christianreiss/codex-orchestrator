@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import {
+  agentBusAddresses,
   agentResourceClaims,
   agentScopeMembers,
   agentSessions,
@@ -76,17 +77,35 @@ export class ResourceClaims {
       .where(eq(agentScopeMembers.sessionId, sessionId));
     for (const member of memberships) await this.core.event(tx, member.scopeId, 'claim', sessionId, body);
   }
-  async blockers(tx: AgentMessagingDb, resources: Resource[], exclude?: string) {
+  async blockers(tx: AgentMessagingDb, resources: Resource[], exclude?: string, owner?: AgentSession) {
     const held = await tx
       .select()
       .from(agentResourceClaims)
       .where(inArray(agentResourceClaims.state, ['active', 'uncertain']));
-    const blockers = held
-      .filter(
-        (c) =>
-          c.id !== exclude && (c.resources as Resource[]).some((a) => resources.some((b) => overlaps(a, b))),
-      )
-      .map((c) => ({ id: c.id, session_id: c.sessionId, state: c.state }));
+    const conflicting = held.filter((c) => c.id !== exclude &&
+      !(owner && c.sessionId === owner.id && c.generation === owner.bindingGeneration &&
+        c.state === 'active' && Date.parse(c.expiresAt) > Date.now()) &&
+      (c.resources as Resource[]).some((a) => resources.some((b) => overlaps(a, b))));
+    const ownerIds = [...new Set(conflicting.map((c) => c.sessionId))];
+    const sessions = ownerIds.length ? await tx.select({ id: agentSessions.id, agentBusAddressId: agentSessions.agentBusAddressId,
+      launchName: agentSessions.launchName }).from(agentSessions).where(inArray(agentSessions.id, ownerIds)) : [];
+    const addressIds = sessions.flatMap((s) => s.agentBusAddressId ? [s.agentBusAddressId] : []);
+    const addresses = addressIds.length ? await tx.select({ id: agentBusAddresses.id, address: agentBusAddresses.address })
+      .from(agentBusAddresses).where(inArray(agentBusAddresses.id, addressIds)) : [];
+    const blockers: Array<Record<string, unknown> & { id: string; session_id: string; state: string }> = conflicting
+      .map((c) => {
+        const session = sessions.find((s) => s.id === c.sessionId);
+        return { id: c.id, session_id: c.sessionId, state: c.state, purpose: c.purpose,
+          resources: c.resources, generation: c.generation,
+          owner_address: addresses.find((a) => a.id === session?.agentBusAddressId)?.address ?? null,
+          owner_name: session?.launchName ?? null,
+          ...(c.state === 'uncertain' ? { recovery: {
+            method: 'POST', path: '/admin/agent-messaging/scopes/resolve',
+            claim_id: c.id, operator_required: true,
+            instruction: 'Operator must verify the operation has ended and provide an audited reason; never take over an uncertain resource.'
+          }} : {}),
+        };
+      });
     const peers = await tx.select().from(agentSessions).where(isNull(agentSessions.endedAt));
     for (const peer of peers) {
       if (!this.core.present(peer) || this.core.protocol(peer) === 1) continue;
@@ -104,6 +123,8 @@ export class ResourceClaims {
       .innerJoin(gitClones, eq(gitWorktrees.cloneId, gitClones.id))
       .where(eq(gitMergeRequests.verdict, 'allow'));
     for (const row of legacy) {
+      if (owner && owner.id === row.worktree.agentSessionId &&
+        owner.bindingGeneration === row.worktree.agentBindingGeneration) continue;
       if (row.lease.completedAt || Date.parse(row.lease.leaseExpiresAt ?? '') <= Date.now()) continue;
       const r: Resource = { kind: 'path', host_id: row.clone.hostId, path: row.worktree.worktreePath };
       if (
@@ -142,21 +163,21 @@ export class ResourceClaims {
           throw new ConflictError('Claim request ID reused', 'claim_request_conflict');
         return this.view(existing);
       }
-      const targetHosts = await tx
+      const targetHosts = body.resources.every((r) => r.kind === 'remote') ? [] : await tx
         .select({ id: hosts.id })
         .from(hosts)
         .where(
           and(
             inArray(
               hosts.id,
-              body.resources.map((r) => r.host_id),
+              body.resources.flatMap((r) => r.kind === 'remote' ? [] : [r.host_id]),
             ),
             isNull(hosts.internalRole),
           ),
         );
-      if (body.resources.some((r) => !targetHosts.some((h) => h.id === r.host_id)))
+      if (body.resources.some((r) => r.kind !== 'remote' && !targetHosts.some((h) => h.id === r.host_id)))
         throw new NotFoundError('Target host not found');
-      const blockers = await this.blockers(tx, body.resources);
+      const blockers = await this.blockers(tx, body.resources, undefined, session!);
       const now = new Date().toISOString();
       const claim: Claim = {
         id: randomUUID(),
@@ -168,7 +189,7 @@ export class ResourceClaims {
         state: blockers.length ? 'waiting' : 'active',
         blockers,
         repliedAt: null,
-        expiresAt: new Date(Date.now() + CLAIM_SECONDS * 1000).toISOString(),
+        expiresAt: new Date(Date.now() + (blockers.length ? NEGOTIATION_SECONDS + CLAIM_SECONDS : CLAIM_SECONDS) * 1000).toISOString(),
         createdAt: now,
         updatedAt: now,
       };
@@ -225,7 +246,7 @@ export class ResourceClaims {
         if (claim.generation !== session!.bindingGeneration)
           throw new ConflictError('Claim belongs to an older binding', 'claim_generation_stale');
         if (claim.state === 'waiting' && (await this.core.enabled(tx))) {
-          const blockers = await this.blockers(tx, claim.resources as Resource[], claim.id);
+          const blockers = await this.blockers(tx, claim.resources as Resource[], claim.id, session!);
           claim.blockers = blockers;
           if (!blockers.length) {
             claim.state = 'active';
@@ -242,7 +263,7 @@ export class ResourceClaims {
             .where(eq(agentResourceClaims.id, claim.id));
         }
         if (body.renew) {
-          if (claim.state !== 'active')
+          if (!['active', 'waiting'].includes(claim.state))
             throw new ConflictError('Only a live claim can be renewed', 'claim_not_active');
           claim.expiresAt = new Date(Date.now() + CLAIM_SECONDS * 1000).toISOString();
           await tx

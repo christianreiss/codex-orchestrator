@@ -1309,6 +1309,15 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
       true,
     );
   });
+  it('lets its coordinator cancel an unstarted preparation while preserving notes and evaluation', async () => {
+    const { run } = await setup(document(), false);
+    await call('run_note', { run_id: run.run_id, kind: 'note', text: 'Imported inventory remains available' });
+    const fresh = await service.runGet(run.run_id) as Result;
+    const canceled = await call('run_control', { run_id: run.run_id, expected_run_version: fresh.version,
+      coordinator_generation: fresh.coordinator.generation, action: 'request_cancel', reason: 'Operator chose direct inventory' });
+    expect(canceled).toMatchObject({ status: 'evaluating', outcome: 'canceled', started_at: null });
+    expect(JSON.stringify(await service.events(run.run_id))).toContain('Imported inventory remains available');
+  });
   it('clarifies partial typed inputs and follow-ups before versioned explicit approval', async () => {
     const doc = document();
     doc.inputs = [

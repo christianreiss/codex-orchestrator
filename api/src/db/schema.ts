@@ -1374,27 +1374,6 @@ export const logs = mysqlTable(
   }),
 );
 
-export const mcpAccessLogs = mysqlTable(
-  'mcp_access_logs',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    hostId: bigint('host_id', { mode: 'number', unsigned: true }),
-    clientIp: varchar('client_ip', { length: 64 }),
-    method: varchar('method', { length: 64 }).notNull(),
-    name: varchar('name', { length: 128 }),
-    success: tinyint('success').notNull().default(0),
-    errorCode: int('error_code'),
-    errorMessage: text('error_message'),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-    engine: varchar('engine', { length: 16 }),
-  },
-  (t) => ({
-    hostIdx: index('idx_mcp_logs_host').on(t.hostId),
-    methodIdx: index('idx_mcp_logs_method').on(t.method),
-    createdAtIdx: index('idx_mcp_logs_created_at').on(t.createdAt),
-  }),
-);
-
 export const mcpSessionTokens = mysqlTable(
   'mcp_session_tokens',
   {

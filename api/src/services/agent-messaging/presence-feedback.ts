@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { agentBusAddresses, agentBusConversations, agentBusMessages, agentSessions, type AgentBusAddress } from '../../db/schema.js';
 import type { Env } from '../../env.js';
 import { ApiError } from '../../http/errors.js';
@@ -26,12 +26,27 @@ export async function recipientSnapshot(tx: AgentMessagingDb, address: AgentBusA
 
 /** Called under the bus gate, before FIFO selection. Session-scoped mail must never wake a replacement. */
 export async function discardPresenceNotices(tx: AgentMessagingDb, now: string, targetIds?: string[]) {
-  await tx.update(agentBusMessages).set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, lastErrorCode: 'presence_notice_session_ended', updatedAt: now }).where(and(
-    eq(agentBusMessages.kind, 'presence_notice'),
-    inArray(agentBusMessages.status, ['queued', 'leased', 'accepted', 'batched']),
-    ...(targetIds ? [inArray(agentBusMessages.targetAddressId, targetIds)] : []),
-    sql`NOT EXISTS (SELECT 1 FROM agent_sessions AS notice_session INNER JOIN agent_bus_addresses AS notice_address ON notice_address.id = ${agentBusMessages.targetAddressId} WHERE notice_session.id = ${agentBusMessages.targetSessionId} AND notice_session.ended_at IS NULL AND notice_address.current_session_id = notice_session.id)`,
-  ));
+  const notices = await tx.select({ id: agentBusMessages.id, targetAddressId: agentBusMessages.targetAddressId,
+    targetSessionId: agentBusMessages.targetSessionId }).from(agentBusMessages).where(and(
+      eq(agentBusMessages.kind, 'presence_notice'),
+      inArray(agentBusMessages.status, ['queued', 'leased', 'accepted', 'batched']),
+      ...(targetIds ? [inArray(agentBusMessages.targetAddressId, targetIds)] : []),
+    ));
+  if (!notices.length) return;
+  // Lock addresses before sessions, matching claim renewal. A correlated
+  // UPDATE used to acquire session S locks before address locks and deadlock.
+  const addresses = await tx.select().from(agentBusAddresses)
+    .where(inArray(agentBusAddresses.id, [...new Set(notices.map((n) => n.targetAddressId))]))
+    .orderBy(asc(agentBusAddresses.id)).for('update');
+  const sessionIds = notices.flatMap((n) => n.targetSessionId ? [n.targetSessionId] : []);
+  const sessions = sessionIds.length ? await tx.select().from(agentSessions)
+    .where(inArray(agentSessions.id, sessionIds)).orderBy(asc(agentSessions.id)).for('update') : [];
+  const stale = notices.filter((n) => !sessions.some((s) => s.id === n.targetSessionId && !s.endedAt &&
+    addresses.some((a) => a.id === n.targetAddressId && a.currentSessionId === s.id)));
+  if (stale.length) await tx.update(agentBusMessages).set({ status: 'canceled', canceledAt: now,
+    leaseOwner: null, leaseUntil: null, lastErrorCode: 'presence_notice_session_ended', updatedAt: now })
+    .where(and(inArray(agentBusMessages.id, stale.map((n) => n.id)),
+      inArray(agentBusMessages.status, ['queued', 'leased', 'accepted', 'batched'])));
 }
 
 export async function markWaitingForPresence(tx: AgentMessagingDb, targetId: string) {

@@ -244,7 +244,6 @@ export class HostSkillsService {
           : { slug: m.slug, sha256: sha, status: 'updated', content },
       );
     }
-    await this.recordLog(host.id, 'skill.bundle', { count: out.length, engine });
     return out;
   }
 
@@ -259,7 +258,6 @@ export class HostSkillsService {
       .filter((r) => !managedSlugs.has(r.slug))
       .map((r) => this.decorate(r));
     for (const m of managed) decorated.push(this.decorateManaged(m));
-    await this.recordLog(host.id, 'skill.list', { count: decorated.length, engine });
     return { engine, skills: decorated };
   }
 
@@ -271,7 +269,6 @@ export class HostSkillsService {
   ): Promise<SkillFileSummary[]> {
     const snapshot = await this.requireStoredSkillSnapshot(rawSlug, engine);
     const out = snapshot.files.map((file) => ({ path: file.path, sha256: file.sha256 }));
-    await this.recordLog(host.id, 'skill.file.list', { slug: snapshot.row.slug, count: out.length, engine });
     return out;
   }
 
@@ -286,7 +283,6 @@ export class HostSkillsService {
     const path = normalizeSkillFilePath(rawPath);
     const file = snapshot.files.find((candidate) => candidate.path === path);
     if (!file) throw new NotFoundError('Skill file not found', 'skill_file_not_found');
-    await this.recordLog(host.id, 'skill.file.retrieve', { slug: snapshot.row.slug, path, engine });
     return { path: file.path, sha256: file.sha256, content: file.content };
   }
 
@@ -304,7 +300,6 @@ export class HostSkillsService {
     const managed = await findManagedSkill(this.db, normalized);
     if (managed) {
       const status = providedSha && safeHashEquals(managed.sha256, providedSha.toLowerCase()) ? 'unchanged' : 'updated';
-      await this.recordLog(host.id, 'skill.retrieve', { slug: normalized, status, managed: true });
       return {
         status,
         slug: managed.slug,
@@ -325,7 +320,6 @@ export class HostSkillsService {
     const snapshot = await this.readStoredSkillSnapshot(normalized, engine);
     const row = snapshot?.row;
     if (!row) {
-      await this.recordLog(host.id, 'skill.retrieve', { slug: normalized, status: 'missing', engine });
       return {
         status: 'missing',
         slug: normalized,
@@ -334,7 +328,6 @@ export class HostSkillsService {
       };
     }
     if (row.deletedAt) {
-      await this.recordLog(host.id, 'skill.retrieve', { slug: normalized, status: 'deleted', engine });
       return {
         status: 'deleted',
         slug: normalized,
@@ -367,7 +360,6 @@ export class HostSkillsService {
       ...skillProvenanceView(row),
     };
     if (status !== 'unchanged') result['manifest'] = row.manifest ?? '';
-    await this.recordLog(host.id, 'skill.retrieve', { slug: normalized, status, engine });
     return result;
   }
 

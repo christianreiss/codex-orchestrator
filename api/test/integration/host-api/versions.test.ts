@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
-import { hosts as hostsTable, versions as versionsTable } from '../../../src/db/schema.js';
+import { hosts as hostsTable, versions as versionsTable, logs as logsTable } from '../../../src/db/schema.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { hashApiKey } from '../../../src/util/api-key-helpers.js';
 import { assertContract } from '../../helpers/contract-schema.js';
@@ -699,6 +699,27 @@ describe('POST /cron/check (claude engine)', () => {
 });
 
 describe('cron report content invalidation', () => {
+  it.each([
+    ['codex', 'clientVersion', 'wrapperVersion'],
+    ['claude', 'claudeClientVersion', 'claudeWrapperVersion'],
+    ['grok', 'grokClientVersion', 'grokWrapperVersion'],
+  ])('logs only actual %s version transitions', async (engine, clientField, wrapperField) => {
+    const db = createDbFake();
+    const apiKey = 'sk-cron-transition-test';
+    db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: engine, [clientField]: '1.0.0', [wrapperField]: '0.9.123' }]);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    try {
+      for (const [client, wrapper, count] of [
+        ['1.0.0', '0.9.123', 0], ['1.0.1', '0.9.123', 1],
+        ['1.0.1', '0.9.123', 1], ['1.0.1', '0.9.124', 2], ['1.0.1', '0.9.124', 2],
+      ] as const) {
+        const response = await app.inject({ method: 'POST', url: '/cron/report',
+          headers: { authorization: `Bearer ${apiKey}` }, payload: { engine, client_version: client, wrapper_version: wrapper } });
+        expect(response.statusCode).toBe(200);
+        expect((db.tables.get(logsTable) ?? []).filter((r) => r.action === 'cron.update_reported')).toHaveLength(count);
+      }
+    } finally { await app.close(); }
+  });
   it('publishes a content-relevant host event only when the stored CLI version changes', async () => {
     const db = createDbFake();
     const apiKey = 'sk-cron-report-invalidation';

@@ -711,7 +711,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean); per-host overrides win over it.
 - `GET /admin/authorization` / `POST /admin/authorization` — read/set the authorization mode (`{mode: "compatible"|"strict"}`). GET also returns `would_deny`: what `strict` would have refused, from this installation's own traffic. Requires `security.manage_authorization`, enforced under both modes.
 - `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default).
-- `GET /admin/log-retention` / `POST /admin/log-retention` — read/set log pruning: `enabled` plus `days_logs` (default 90), `days_mcp` (90), `days_events` (30), `days_graph_stats` (180), each clamped to `1..365`.
+- `GET /admin/log-retention` / `POST /admin/log-retention` — retired compatibility endpoint: always returns `{enabled:false,supported:false,reason:"retired_no_worker"}`. Old durations are ignored and no setting is persisted.
 - `GET /admin/scaling` / `POST /admin/scaling` — read the scaling status and store the scaling rules; invalid rules return `422 validation_failed` with per-rule errors. Hosts flagged `scaling_exempt` are excluded.
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set global reverse DNS enforcement (`enabled` boolean).
 - `GET /admin/response-verbosity` / `POST /admin/response-verbosity` — read/set the fleet-wide response-verbosity dial (`level`: `0..4`, `0` default/no-op). Projected into the served AGENTS.md/CLAUDE.md `## Default Response Shape` policy text, and (for `clx` hosts) into a `verbosity-*` Claude output style via `outputStyle` in settings.json.
@@ -719,7 +719,6 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - Runner: `GET /admin/runner` (config/telemetry/state/timestamps/counts/canonical metadata), `POST /admin/runner/run` (force Codex runner validation), `POST /admin/runner/run-claude` (force Claude runner validation), `POST /admin/runner/run-grok` (read-only Grok subscription verification).
 - Logs:
   - `GET /admin/logs?limit=50`
-  - `GET /admin/mcp/logs?limit=200`
 - ChatGPT usage:
   - `GET /admin/chatgpt/usage[?force=1]`
   - `GET /admin/chatgpt/usage/history?days=60[&from=&until=&interval=raw|hour|day&lane=normal|spark|both&window=primary|secondary|both]`
@@ -1353,3 +1352,11 @@ Responses include canonical IDs, versions and an authenticated `report_url`; cla
 - A native capacity failure plus a fresh exhausted quota window arms reset recovery when enabled. Overload alone and usage without a failed turn cannot arm it. A known long blocker takes precedence. Unknown scope is left for the operator.
 - Recovery reuses the Watchdog schedule and native-session executor. It waits at least 60 seconds beyond all known blocking resets, rechecks effective policy and attempts, and stops on task completion, cancel, manual stop, changed native binding or missing transcript. PayG or a disabled policy cancels queued quota recovery. Initial attempt plus at most three retries (5, 15, 30 minutes when no newer reset exists); only persistent hosts start automatically. Stale post-reset readings permit a bounded probe. No replacement session or independent replacement subagent is created.
 - `agent_watchdogs` exposes nullable `quota` metadata (account, window, reset, attempts and last attempt). Engine defaults live in Engines, account overrides in Accounts, and recovery state in the existing Watchdog panel. Warning thresholds do not force a pause. Managed instructions require quota_get before heavy work/delegation.
+
+## Feedback sweep additions (2026-10-24)
+
+- `POST /host/agent-sessions/:id/agent-messaging/git/remote` — bridge-authenticated `agent_git_remote`: `{target_host_id, claim_id, common_dir, branch, operation, args}`. Operations are `register|join|list|merge_request|merge_status|release`; `args.worktree_path` is required. Canonical absolute paths, the active originating binding and its remote path/branch claim are checked. `args.target_branch` must equal `branch`. Registration preserves the origin agent/session/generation; later operations cannot use a foreign registration or request. It records coordination only; the agent runs SSH and Git. Cross-host merge grants recheck live claim coverage after judging even if new coordination is disabled.
+- MCP domain failures retain `isError:true`, JSON text `{error:{message,code,type,...safe_details}}` and matching `structuredContent`. Unknown exceptions retain their plain message; no stack or credential is added.
+- `git_release` accepts `correction_id` (stable UUID) and `correction_reason` with a completed merged request and replacement full `target_head_sha`. This appends `git_director.outcome_correction` to the audit; the original report and ended lease remain unchanged. Corrections cannot deregister or release other work.
+- `api_disabled` is admitted globally before authentication and handler work. Only the actual `/admin/api/state` route is exempt, including its supported trailing slash; SPA lookalikes remain disabled.
+- `/auth` selects alternative quota advice from an enabled verified account of the correct engine (most recently selected first). Current-engine telemetry stays bound to its requested account; disabled/unlimited advice skips alternative history reads. No provider refresh or account lease is acquired for advice.

@@ -1,3 +1,5 @@
+import { apiKillSwitch } from '../http/plugins/api-kill-switch.js';
+import { SettingsService } from '../services/settings.js';
 import { registerAgentRoomChatRoutes } from './agent-room-chat.js';
 import { registerTransfersRoutes } from './transfers/index.js';
 import { registerCommunicatorRoutes } from './communicator.js';
@@ -62,6 +64,8 @@ export interface RouteContext {
 }
 
 export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
+  const settings = new SettingsService(ctx.db);
+  await app.register(apiKillSwitch(() => settings.getFlag('api_disabled', false)));
   await registerHealthRoutes(app, ctx);
   await registerCommunicatorRoutes(app, ctx);
   await registerHousekeepingRoutes(app, ctx);

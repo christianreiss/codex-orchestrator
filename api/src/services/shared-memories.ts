@@ -198,7 +198,6 @@ export class SharedMemoriesService {
     }
 
     const total = await this.countLive();
-    await this.recordLog(host, 'shared_memory.list', { limit, offset, returned: items.length, tags: tags.length, prefix: prefix !== '' });
     return {
       status: 'ok',
       limit: effectiveLimit,
@@ -322,15 +321,6 @@ export class SharedMemoriesService {
 
     const matches = mode === 'documents' ? foldToDocuments(hits, query, limit) : hits.slice(0, limit).map((r) => chunkMatch(r, query));
 
-    await this.recordLog(host, 'shared_memory.search', {
-      query_length: query.length,
-      mode,
-      limit,
-      returned: matches.length,
-      tags: tags.length,
-      degraded,
-      truncated,
-    });
     return { status: 'ok', query, mode, limit, degraded, truncated, count: matches.length, matches };
   }
 
@@ -349,7 +339,6 @@ export class SharedMemoriesService {
 
     const doc = await this.findBySlug(slug);
     if (!doc) {
-      await this.recordLog(host, 'shared_memory.read', { slug, status: 'missing' });
       return { status: 'missing', slug, memory: null };
     }
 
@@ -387,7 +376,6 @@ export class SharedMemoriesService {
     const content = doc.content.slice(start, end);
     const truncated = end < doc.content.length;
 
-    await this.recordLog(host, 'shared_memory.read', { slug, status: 'found', returned: content.length, truncated });
     return {
       status: 'found',
       slug,

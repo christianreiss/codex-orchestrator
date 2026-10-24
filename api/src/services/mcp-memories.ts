@@ -119,7 +119,6 @@ export class McpMemoriesService {
       .limit(1);
 
     const status = rows[0] ? 'found' : 'missing';
-    await this.recordLog(host.id, 'memory.retrieve', { id: memoryKey, status });
     return {
       status,
       id: memoryKey,
@@ -205,13 +204,6 @@ export class McpMemoriesService {
       offset += batchSize;
     }
 
-    await this.recordLog(host.id, 'memory.search', {
-      query_length: query.length,
-      limit,
-      returned: filtered.length,
-      tags: tags.length,
-      degraded,
-    });
 
     // `degraded` mirrors shared_memory_search: it lets the caller tell "the index
     // is missing so this scan was shallow" apart from "nothing matched".

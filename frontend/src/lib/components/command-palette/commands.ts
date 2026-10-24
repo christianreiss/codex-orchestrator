@@ -123,7 +123,6 @@ export interface DeepNavEntry {
 export const DEEP_NAV: DeepNavEntry[] = [
   { href: "/agents?view=graph", label: "Agents / Connection graph", icon: Network, description: "How hosts, agents and the orchestrator are connected", keywords: ["topology", "graph", "communicator", "connection"] },
   { href: "/activity?type=changes", label: "Activity / Admin changes", icon: ScrollText, description: "Who changed what in the console", keywords: ["audit", "events", "logs", "trail"] },
-  { href: "/activity?type=tools", label: "Activity / Tool calls", icon: Wrench, description: "MCP requests agents made to the orchestrator", keywords: ["mcp", "logs", "requests"] },
   { href: "/library?type=skills", label: "Library / Skills", icon: Library, description: "Reusable instructions agents can load", keywords: ["skill"] },
   {
     href: "/library/agent-rules",

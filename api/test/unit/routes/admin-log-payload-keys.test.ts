@@ -14,7 +14,6 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { registerAdminConfigRoutes } from '../../../src/routes/admin/config/index.js';
 import { registerAdminOverviewRoutes } from '../../../src/routes/admin/overview/index.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 import { buildRouteApp } from '../../helpers/build-route-app.js';
@@ -22,12 +21,6 @@ import { createMockDb } from '../../helpers/in-memory-db.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TYPES_FILE = resolve(HERE, '../../../..', 'frontend/src/lib/api/types.ts');
-
-/**
- * Declared by `McpAccessLogRow` but backed by no `mcp_access_logs` column: the
- * expanded row renders `row.params ?? null`, so there is nothing to emit.
- */
-const RENDER_ONLY_FIELDS = new Set(['params']);
 
 /** Field names of `export interface <name>` in frontend/src/lib/api/types.ts. */
 function declaredFields(interfaceName: string): string[] {
@@ -44,7 +37,6 @@ function expectRowMatchesInterface(row: Record<string, unknown>, interfaceName: 
   const declared = declaredFields(interfaceName);
   const keys = Object.keys(row);
   for (const field of declared) {
-    if (RENDER_ONLY_FIELDS.has(field)) continue;
     expect(keys, `${interfaceName}.${field} is missing from the payload`).toContain(field);
   }
   // A camelCase key is the exact bug this guards; an undeclared one is the same
@@ -57,21 +49,8 @@ async function logsOf(url: string): Promise<Array<Record<string, unknown>>> {
   const app = await buildRouteApp();
   const mock = createMockDb();
   const ctx = { db: mock.db, env: {} as never, keyring: {} as never } as RouteContext;
-  await registerAdminConfigRoutes(app, ctx);
   await registerAdminOverviewRoutes(app, ctx);
   mock.insertRow('hosts', { id: 4, fqdn: 'crane.alpha-labs.net' });
-  mock.insertRow('mcp_access_logs', {
-    id: 1,
-    host_id: 4,
-    client_ip: '10.0.0.5',
-    method: 'tools/call',
-    name: 'memory_search',
-    success: 1,
-    error_code: 429,
-    error_message: 'rate limited',
-    created_at: '2026-07-28T10:00:00.000Z',
-    engine: 'codex',
-  });
   mock.insertRow('logs', {
     id: 1,
     host_id: 4,
@@ -89,21 +68,6 @@ async function logsOf(url: string): Promise<Array<Record<string, unknown>>> {
 }
 
 describe('admin log payload keys', () => {
-  it('GET /admin/mcp/logs emits every McpAccessLogRow field', async () => {
-    const [row] = await logsOf('/admin/mcp/logs');
-
-    expect(row).toBeDefined();
-    expectRowMatchesInterface(row!, 'McpAccessLogRow');
-    expect(row).toMatchObject({
-      host_id: 4,
-      host_fqdn: 'crane.alpha-labs.net',
-      client_ip: '10.0.0.5',
-      error_code: 429,
-      error_message: 'rate limited',
-      created_at: '2026-07-28T10:00:00.000Z',
-    });
-  });
-
   it('GET /admin/logs emits every AdminAuditLogRow field', async () => {
     const [row] = await logsOf('/admin/logs');
 

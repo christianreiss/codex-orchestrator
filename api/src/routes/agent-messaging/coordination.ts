@@ -1,3 +1,10 @@
+import { normalizePath } from '../../services/git-director.js';
+import { SettingsService } from '../../services/settings.js';
+import { and, eq } from 'drizzle-orm';
+import { gitWorktrees, gitClones, gitMergeRequests } from '../../db/schema.js';
+import { GitDirectorService } from '../../services/git-director.js';
+import { remoteGitOwner } from '../../services/git-director/remote.js';
+import { ForbiddenError } from '../../http/errors.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../index.js';
@@ -14,6 +21,7 @@ export function registerCoordinationRoutes(
 ) {
   const service = new AgentCoordination(ctx.db, ctx.env, ctx.keyring, messaging);
   const audit = createAdminEventsService(ctx.db);
+  const director = new GitDirectorService({ db: ctx.db, settings: new SettingsService(ctx.db) });
   const bridge = (req: FastifyRequest) => {
     const token = req.headers['x-agent-bridge-token'];
     if (typeof token !== 'string' || !token) throw new UnauthorizedError('Bridge credential required');
@@ -44,6 +52,41 @@ export function registerCoordinationRoutes(
   app.post('/host/agent-sessions/:id/agent-messaging/rooms/list', (req) => invoke('rooms/list', req));
   app.post('/host/agent-sessions/:id/agent-messaging/rooms/read', (req) => invoke('rooms/read', req));
   app.post('/host/agent-sessions/:id/agent-messaging/rooms/send', (req) => invoke('rooms/send', req));
+  app.post('/host/agent-sessions/:id/agent-messaging/git/remote', async (req) => {
+    const { id, token } = bridge(req);
+    await messaging.self(id, token);
+    const { session } = await messaging.authenticateBridge(id, token);
+    const canonicalPath = z.string().startsWith('/').refine((v) => !v.includes('\0') && !v.split('/').includes('..'), 'Canonical absolute path required').transform(normalizePath);
+    const input = z.object({
+      target_host_id: z.number().int().positive(), claim_id: z.string().uuid(),
+      common_dir: canonicalPath, branch: z.string().min(1).max(255),
+      operation: z.enum(['register', 'join', 'list', 'merge_request', 'merge_status', 'release']),
+      args: z.object({ worktree_path: canonicalPath }).catchall(z.unknown()),
+    }).strict().parse(req.body);
+    if (!(await director.getEnabled())) throw new ForbiddenError('Git Director is disabled');
+    const proof = { sessionId: id, generation: session.bindingGeneration, claimId: input.claim_id,
+      hostId: input.target_host_id, commonDir: input.common_dir, branch: input.branch, worktreePath: input.args.worktree_path };
+    if (input.args.target_branch !== undefined && input.args.target_branch !== input.branch)
+      throw new ForbiddenError('Target branch must match the claimed remote branch', 'git_remote_scope_mismatch');
+    const { host } = await remoteGitOwner(ctx.db, proof);
+    const args = { ...input.args, clone_dir: input.common_dir, engine: session.engine, username: session.username };
+    // Only this bridge-authenticated route can supply private provenance. A
+    // remote host key cannot impersonate the originating managed session.
+    if (input.operation === 'register') return director.register(args, host, proof);
+    const [registration] = await ctx.db.select({ worktree: gitWorktrees, clone: gitClones }).from(gitWorktrees)
+      .innerJoin(gitClones, eq(gitWorktrees.cloneId, gitClones.id))
+      .where(and(eq(gitWorktrees.hostId, host.id), eq(gitWorktrees.worktreePath, input.args.worktree_path),
+        eq(gitClones.cloneDir, input.common_dir), eq(gitWorktrees.status, 'active'))).limit(1);
+    if (!registration || registration.worktree.agentSessionId !== id || registration.worktree.agentBindingGeneration !== session.bindingGeneration)
+      throw new ForbiddenError('Remote registration belongs to another session binding', 'git_remote_binding_stale');
+    if (typeof input.args.request_id === 'string') {
+      const [request] = await ctx.db.select().from(gitMergeRequests).where(eq(gitMergeRequests.id, input.args.request_id));
+      if (!request || request.worktreeId !== registration.worktree.id)
+        throw new ForbiddenError('Remote request belongs to another worktree', 'git_remote_scope_mismatch');
+    }
+    const methods = { join: 'join', list: 'list', merge_request: 'requestMerge', merge_status: 'mergeStatus', release: 'release' } as const;
+    return director[methods[input.operation]](args, host);
+  });
   app.post('/host/agent-sessions/:id/agent-messaging/claims/acquire', (req) => invoke('claims/acquire', req));
   app.post('/host/agent-sessions/:id/agent-messaging/claims/status', (req) => invoke('claims/status', req));
   app.post('/host/agent-sessions/:id/agent-messaging/claims/release', (req) => invoke('claims/release', req));

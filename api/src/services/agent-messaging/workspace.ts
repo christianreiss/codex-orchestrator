@@ -33,7 +33,7 @@ export type AgentWorkspace = Omit<WorkspaceInput, 'origin_url'> & { repository_k
 const cleanPath = (value: string) => posix.normalize(value).replace(/\/+$/, '') || '/';
 
 /** Remote text is never persisted or returned; local remotes cannot identify a fleet project. */
-export function normalizeWorkspace(input: WorkspaceInput | undefined): AgentWorkspace | null {
+export function normalizeWorkspace(input: WorkspaceInput | undefined, previous?: AgentWorkspace | null): AgentWorkspace | null {
   if (!input) return null;
   const value = workspaceInputSchema.parse(input);
   const origin = value.origin_url?.trim().split(/[?#]/, 1)[0] ?? '';
@@ -48,7 +48,9 @@ export function normalizeWorkspace(input: WorkspaceInput | undefined): AgentWork
     git_common_dir: value.git_common_dir ? cleanPath(value.git_common_dir) : null,
     branch: value.branch ?? null,
     head_sha: value.head_sha ?? null,
-    repository_key: remote ? sha256(remote) : null,
+    repository_key: remote ? sha256(remote) :
+      value.origin_url === undefined && value.git_status === 'repository' &&
+      previous?.git_common_dir === cleanPath(value.git_common_dir!) ? previous.repository_key : null,
   };
 }
 
@@ -84,8 +86,7 @@ export function workspaceCoverage(
     );
   }).length;
   return {
-    effective_scope: (scope === 'project' && !workspace?.git_common_dir) ||
-      (scope === 'checkout' && !workspace?.git_root) ? 'directory' : scope,
+    effective_scope: scope === 'checkout' && !workspace?.git_root ? 'directory' : scope,
     ...(scope === 'checkout' ? { checkout_root: workspace?.git_root ?? null } : {}),
     coverage: {
       limited: scope === 'checkout'
@@ -114,6 +115,11 @@ export function workspaceMatch(
     return sameDirectory ? 'same_directory' : null;
   }
   if (sameDirectory) return 'same_directory';
+  if (sameHost && !a?.git_common_dir) {
+    const root = cleanPath(a?.cwd ?? caller.cwd);
+    const child = cleanPath(b?.cwd ?? peer.cwd);
+    if (child.startsWith(root === '/' ? '/' : root + '/')) return 'project_subdirectory';
+  }
   if (a?.git_common_dir && b?.git_common_dir && sameHost && a.git_common_dir === b.git_common_dir)
     return 'same_clone';
   if (a?.repository_key && a.repository_key === b?.repository_key) return 'same_repository';

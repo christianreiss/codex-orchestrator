@@ -1,3 +1,4 @@
+import { ApiError } from '../http/errors.js';
 import type { HostSpawnService } from './host-spawn.js';
 import type { WorkflowsService } from './workflows.js';
 import type { RolesService } from './roles.js';
@@ -175,6 +176,10 @@ export class McpToolsRegistry {
       return wrapContent(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (err instanceof ApiError) {
+        const error = err.toJSON();
+        return { ...wrapContent({ error }, true), structuredContent: { error } };
+      }
       return wrapContent(message, true);
     }
   }
@@ -1920,7 +1925,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'git_release',
         description:
-          'Give back a merge lease as soon as the merge is done or abandoned, so whoever is waiting can proceed — a lease you forget about blocks the branch until its TTL runs out. Pass request_id to release one request, or worktree_path to drop everything outstanding for that worktree. Optionally report outcome merged|aborted|unknown; a reported outcome requires request_id plus matching worktree_path and merged requires a prior grant plus target_head_sha (40-64 lowercase hex). This is an agent report, never server-verified merge proof. Add deregister:true when you are finished in that directory entirely, and do that rather than simply stopping: the Director will eventually reclaim an abandoned registration, but until it does your peers are queued behind an agent that is never coming back.',
+          'Give back a merge lease as soon as the merge is done or abandoned, so whoever is waiting can proceed — a lease you forget about blocks the branch until its TTL runs out. Pass request_id to release one request, or worktree_path to drop everything outstanding for that worktree. Optionally report outcome merged|aborted|unknown; a reported outcome requires request_id plus matching worktree_path and merged requires a prior grant plus target_head_sha (40-64 lowercase hex). This is an agent report, never server-verified merge proof. To correct a completed merged report, pass a stable correction_id UUID and correction_reason with the replacement target_head_sha; this appends an audit record, preserves the original report and never reactivates the lease. Do not combine correction with deregister. Add deregister:true when you are finished in that directory entirely, and do that rather than simply stopping: the Director will eventually reclaim an abandoned registration, but until it does your peers are queued behind an agent that is never coming back.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -1929,6 +1934,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
             deregister: { type: 'boolean' },
             outcome: { type: 'string', enum: ['merged', 'aborted', 'unknown'] },
             target_head_sha: { type: 'string' },
+            correction_id: { type: 'string', format: 'uuid' },
+            correction_reason: { type: 'string' },
           },
         },
       },

@@ -1,9 +1,8 @@
 /**
- * Pure helpers behind the Activity feed: time windows, filtering of the two
- * data sources (admin changes, tool calls), action grouping and paging.
+ * Pure helpers behind the Activity feed: time windows, filtering of admin and system changes, action grouping and paging.
  * No Svelte, no network, so they are unit-testable.
  */
-import type { AdminAuditLogRow, McpAccessLogRow } from "$lib/api/types";
+import type { AdminAuditLogRow } from "$lib/api/types";
 
 export const PAGE_SIZE = 50;
 
@@ -16,19 +15,8 @@ export const TIME_WINDOWS = [
 ] as const;
 
 export type TimeWindow = (typeof TIME_WINDOWS)[number]["value"];
-export type ActivityType = "changes" | "tools";
-export type ToolStatus = "all" | "ok" | "fail";
-
 export function parseWindow(value: string | null): TimeWindow {
   return TIME_WINDOWS.find((w) => w.value === value)?.value ?? "all";
-}
-
-export function parseType(value: string | null): ActivityType {
-  return value === "tools" ? "tools" : "changes";
-}
-
-export function parseStatus(value: string | null): ToolStatus {
-  return value === "ok" || value === "fail" ? value : "all";
 }
 
 /** `all`, `system`, or a numeric host id; anything else falls back to `all`. */
@@ -126,39 +114,6 @@ export function filterChanges(
       row.action.toLowerCase().includes(needle) ||
       hostLabel(row).toLowerCase().includes(needle) ||
       detailsToString(row.details).toLowerCase().includes(needle)
-    );
-  });
-}
-
-export type ToolFilter = {
-  q: string;
-  /** FQDN of the chosen host, or null for every host. */
-  hostFqdn: string | null;
-  window: TimeWindow;
-  /** Tool-name prefix, "" for every tool. */
-  action: string;
-  status: ToolStatus;
-};
-
-export function toolSucceeded(row: McpAccessLogRow): boolean {
-  return Boolean(row.success);
-}
-
-export function filterToolCalls(rows: McpAccessLogRow[], filter: ToolFilter, now = Date.now()): McpAccessLogRow[] {
-  const needle = filter.q.trim().toLowerCase();
-  const prefix = filter.action.trim().toLowerCase();
-  const cutoff = windowCutoff(filter.window, now);
-  return rows.filter((row) => {
-    if (filter.hostFqdn !== null && (row.host_fqdn ?? "") !== filter.hostFqdn) return false;
-    if (filter.status === "ok" && !toolSucceeded(row)) return false;
-    if (filter.status === "fail" && toolSucceeded(row)) return false;
-    if (prefix !== "" && !(row.name ?? "").toLowerCase().startsWith(prefix)) return false;
-    if (!inWindow(row.created_at, cutoff)) return false;
-    if (needle === "") return true;
-    return (
-      (row.host_fqdn ?? "").toLowerCase().includes(needle) ||
-      (row.name ?? "").toLowerCase().includes(needle) ||
-      (row.method ?? "").toLowerCase().includes(needle)
     );
   });
 }

@@ -11,13 +11,11 @@
  * SQL half; this proves the half that survives a fake.
  *
  * The other load-bearing test is the fail-closed audit: `getForHost` must write
- * its `mcp_access_logs` row *before* returning a value and must let a failing
- * write propagate. `mcp-server.ts` also logs every `tools/call`, but as a bare
- * `secret_get` with no slug inside a swallowing try/catch — so without this,
- * "every credential read is audited" would be false and nothing would say so.
+ * its `admin_events` security audit before returning plaintext and let a failing
+ * write propagate. Ordinary MCP calls no longer write SQL access telemetry.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { secrets, versions, type Host } from '../../../src/db/schema.js';
+import { adminEvents, secrets, versions, type Host } from '../../../src/db/schema.js';
 import {
   SecretsService,
   SECRETS_ENABLED_FLAG,
@@ -81,20 +79,21 @@ function makeHarness(
   ]);
 
   const logged: LoggedEntry[] = [];
-  const accessLog = {
-    log: async (entry: LoggedEntry) => {
-      logged.push(entry);
+  const insert = db.insert.bind(db);
+  db.insert = ((table: unknown) => {
+    if (table !== adminEvents) return insert(table as never);
+    return { values: async (row: { type: string; payload: { slug: string; success: boolean; error_code: string | null; engine: string | null } }) => {
+      const payload = row.payload;
+      logged.push({ method: row.type, name: `secret_get:${payload.slug}`, success: payload.success,
+        errorMessage: payload.error_code, engine: payload.engine } as LoggedEntry);
       if (opts.logFails) throw new Error('audit write failed');
-    },
-  };
+      return (insert(table as never) as { values: (row: unknown) => Promise<unknown> }).values(row);
+    } };
+  }) as typeof db.insert;
   return {
     db,
     logged,
-    service: new SecretsService({
-      db: db as never,
-      keyring,
-      accessLog: accessLog as never,
-    }),
+    service: new SecretsService({ db: db as never, keyring }),
   };
 }
 
@@ -258,10 +257,14 @@ describe('revealById', () => {
 
 describe('getForHost', () => {
   it('returns the plaintext and audits the read with the slug', async () => {
-    const { service, logged } = makeHarness([{ slug: 'gh-pat', value: 'ghp_supersecret' }]);
+    const { db, service, logged } = makeHarness([{ slug: 'gh-pat', value: 'ghp_supersecret' }]);
     const payload = await service.getForHost('gh-pat', host, ENGINE_CODEX);
 
     expect(payload.value).toBe('ghp_supersecret');
+    const audit = db.tables.get(adminEvents)?.[0];
+    expect(audit).toMatchObject({ type: 'secret.read', hostId: 7,
+      payload: { slug: 'gh-pat', success: true, error_code: null, engine: 'codex' } });
+    expect(JSON.stringify(audit)).not.toContain('ghp_supersecret');
     expect(logged).toEqual([
       expect.objectContaining({
         method: 'secret.read',

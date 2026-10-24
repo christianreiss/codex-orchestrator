@@ -79,15 +79,7 @@ provider binaries are outside this policy.
 
 #### Log retention
 
-`GET /admin/log-retention`, `POST /admin/log-retention` — Settings → Data retention, **Remove old logs automatically**: one boolean and four day-window integers (labelled *API logs*, *MCP logs*, *Events*, and *Graph statistics* in the form):
-
-| Field | Description |
-|---|---|
-| `enabled` | Master switch for retention pruning. |
-| `days_logs` | Retention window for log rows. |
-| `days_mcp` | Retention window for MCP rows. |
-| `days_events` | Retention window for event rows. |
-| `days_graph_stats` | Retention window for graph-stats rows. |
+The unused log-retention controls have been removed. No cleanup worker enforced the old windows. The compatibility endpoint `GET/POST /admin/log-retention` returns `enabled:false`, `supported:false`, and `reason:retired_no_worker`; old submitted durations are ignored. Agent-session cleanup is configured separately under Data retention.
 
 ### Engine master switches
 

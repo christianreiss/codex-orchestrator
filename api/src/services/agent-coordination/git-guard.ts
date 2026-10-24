@@ -33,7 +33,7 @@ export async function guardGitMutation(
     .select()
     .from(agentResourceClaims)
     .where(inArray(agentResourceClaims.state, ['active', 'uncertain']));
-  if (flag?.version !== '1' && held.length === 0) return;
+  if (flag?.version !== '1' && held.length === 0 && !worktree.agentSessionId) return;
   const sessions = worktree.agentBusAddressId
     ? await tx
         .select()
@@ -42,8 +42,11 @@ export async function guardGitMutation(
     : [];
   const session = sessions.find(
     (s) =>
-      !s.endedAt && (s.adapterCapabilities as Record<string, unknown> | null)?.scope_protocol_version === 1,
+      !s.endedAt && (!worktree.agentSessionId || s.id === worktree.agentSessionId && s.bindingGeneration === worktree.agentBindingGeneration) && (s.adapterCapabilities as Record<string, unknown> | null)?.scope_protocol_version === 1,
   );
+  const remoteBinding = sessions.find((s) => s.id === worktree.agentSessionId && s.hostId !== clone.hostId);
+  if (remoteBinding && !session)
+    throw new ConflictError('Registered session binding is no longer live; re-register from the current managed launch', 'git_remote_binding_stale');
   const resources: Resource[] = [
     { kind: 'git', host_id: clone.hostId, common_dir: clone.cloneDir, branch },
     ...(paths.length ? paths : ['.']).map((path) => ({
@@ -83,11 +86,15 @@ export async function guardGitMutation(
     );
   if (conflicts.length)
     throw new ConflictError(
-      'Resources are reserved or uncertain; coordinate with owners before merging',
+      'Resources are reserved or uncertain; coordinate with owners before merging: ' +
+        conflicts.map((c) => `${c.id} session=${c.sessionId} state=${c.state} purpose=${c.purpose}`).join('; ') +
+        '. For uncertain claims, ask an operator to verify the operation ended and use POST /admin/agent-messaging/scopes/resolve with an audited reason.',
       'resource_claim_conflict',
-      { claim_ids: conflicts.map((c) => c.id) },
+      { claim_ids: conflicts.map((c) => c.id), blockers: conflicts.map((c) => ({
+        id: c.id, session_id: c.sessionId, state: c.state, purpose: c.purpose, resources: c.resources,
+      })), recovery_path: '/admin/agent-messaging/scopes/resolve', operator_required: true },
     );
-  if (flag?.version === '1' && session) {
+  if (session && (flag?.version === '1' || session.hostId !== clone.hostId)) {
     const own = held
       .filter(
         (c) =>

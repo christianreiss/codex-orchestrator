@@ -83,7 +83,7 @@ export function legacyTarget(pathname: string, search = new URLSearchParams(), h
     case "clients": return withQuery("/agents", search);
     case "topology": return withQuery("/agents", search, { view: "graph" });
     case "feedback": return withQuery("/reports", search);
-    case "logs": return withQuery("/activity", search, { type: second === "mcp" ? "tools" : "changes" });
+    case "logs": return withQuery("/activity", search, { type: "changes" });
     case "access": return accessTarget(search, hash);
     case "users": return withQuery("/people", search);
     case "policies": return hash ? `/settings${hash}` : "/settings";

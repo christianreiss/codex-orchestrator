@@ -183,13 +183,13 @@ describe('HostAgentsService.retrieve', () => {
     expect(logDetails(db, 'agents.retrieve')).toEqual([]);
   });
 
-  it('returns missing and logs agents.retrieve when no document exists', async () => {
+  it('returns missing without access telemetry when no document exists', async () => {
     const db = makeDb([[agentsDocuments, []]]);
 
     const out = await makeService(db).retrieve(null, makeHost());
 
     expect(out).toEqual({ status: 'missing', memory_routing: { enabled: false, content: '' } });
-    expect(logDetails(db, 'agents.retrieve')).toEqual([{ status: 'missing' }]);
+    expect(logDetails(db, 'agents.retrieve')).toEqual([]);
   });
 
   it('serves the canonical body plus enabled Codex feature guidance', async () => {
@@ -224,7 +224,7 @@ describe('HostAgentsService.retrieve', () => {
     expect(out['sha256']).not.toBe(out['base_sha256']);
     expect(out['sha256']).not.toBe(out['managed_sha256']);
     expect(out['size_bytes']).toBe(Buffer.byteLength(served, 'utf8'));
-    expect(logDetails(db, 'agents.retrieve')).toEqual([{ status: 'updated', engine: ENGINE_CODEX }]);
+    expect(logDetails(db, 'agents.retrieve')).toEqual([]);
   });
 
   it('reports unchanged only for the sha of the effective rendered document', async () => {
@@ -594,7 +594,7 @@ describe('HostAgentsService config surfaces', () => {
     const out = await makeService(db).retrieveConfig(null, makeHost(), ENGINE_CLAUDE);
 
     expect(out).toEqual({ status: 'missing' });
-    expect(logDetails(db, 'config.retrieve')).toEqual([{ status: 'missing' }]);
+    expect(logDetails(db, 'config.retrieve')).toEqual([]);
   });
 
   it('serves and deduplicates the selected engine full config when both exist', async () => {
@@ -628,7 +628,7 @@ describe('HostAgentsService config surfaces', () => {
     // Rendered from an EMPTY base, so the managed clx block still lands.
     expect(ownedPaths).toContain('mcpServers.clx');
     expect(clxAuthHeader(partial)).toBe(`Bearer ${PLAIN_KEY}`);
-    expect(logDetails(db, 'claude_settings.retrieve')).toHaveLength(1);
+    expect(logDetails(db, 'claude_settings.retrieve')).toHaveLength(0);
   });
 
   it('uses the claude client_config when one exists', async () => {
@@ -646,7 +646,7 @@ describe('HostAgentsService config surfaces', () => {
     const out = await makeService(db).retrieveConfig(null, makeHost());
 
     expect(out).toEqual({ status: 'missing' });
-    expect(logDetails(db, 'config.retrieve')).toEqual([{ status: 'missing' }]);
+    expect(logDetails(db, 'config.retrieve')).toEqual([]);
   });
 });
 

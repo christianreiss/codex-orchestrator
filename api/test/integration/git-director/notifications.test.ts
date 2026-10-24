@@ -672,6 +672,14 @@ describe.skipIf(!handle)('Git Director transactional agent notifications', () =>
     };
     expect(await director.release(args, host)).toMatchObject({ released: 0, reported: true });
     expect((await messages(b)).at(-1)!.event.kind).toBe('merge_reported');
+    const correction = { ...args, target_head_sha: 'e'.repeat(40), correction_id: randomUUID(), correction_reason: 'Verified actual target HEAD' };
+    expect(await director.release(correction, host)).toMatchObject({ corrected: true, replayed: false, released: 0 });
+    expect(await director.release(correction, host)).toMatchObject({ corrected: true, replayed: true });
+    const [original] = await db!.select().from(gitMergeRequests).where(eq(gitMergeRequests.id, grant.request_id as string));
+    expect(original!.reportedTargetHeadSha).toBe('d'.repeat(40));
+    const audits = await db!.select().from(adminEvents).where(eq(adminEvents.type, 'git_director.outcome_correction'));
+    expect(audits.filter((row) => (row.payload as Record<string, unknown>)?.correction_id === correction.correction_id)).toHaveLength(1);
+    await expect(director.release({ ...args, target_head_sha: 'shortsha' }, host)).rejects.toThrow('full 40-64');
     const count = (await messages(b)).length;
     expect(await director.release(args, host)).toMatchObject({ released: 0, reported: false });
     expect((await messages(b)).length).toBe(count);

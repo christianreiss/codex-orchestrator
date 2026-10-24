@@ -36,7 +36,6 @@ export const WS_EVENT_TYPES = [
   // Logs
   'log.created',
   'log.updated',
-  'mcp.invoked',
 
   // Hosts
   'host.updated',

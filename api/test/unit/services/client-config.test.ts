@@ -280,7 +280,7 @@ describe('client-config: renderToml', () => {
     expect(rendered.content).not.toContain('[mcp_servers.cdx]');
   });
 
-  it.each([ENGINE_CLAUDE, ENGINE_GROK])('does not inject Codex BrowserOS for %s', (engine) => {
+  it.each([ENGINE_CLAUDE, ENGINE_GROK])('injects local BrowserOS for %s', (engine) => {
     const rendered = renderTomlForHost({
       settings: { orchestrator_mcp_enabled: false },
       host: { id: 7, fqdn: 'host.example', secure: 1, browserosMcpEnabled: 1 } as never,
@@ -288,7 +288,8 @@ describe('client-config: renderToml', () => {
       apiKey: null,
       engine,
     });
-    expect(rendered.content).not.toContain('[mcp_servers.browseros]');
+    expect(rendered.content).toContain(engine === ENGINE_CLAUDE ? '"browseros"' : '[mcp_servers.browseros]');
+    expect(rendered.content).toContain('http://127.0.0.1:9000/mcp');
   });
 
   it('injects the local Agent Messaging MCP whenever the fleet switch is on', () => {

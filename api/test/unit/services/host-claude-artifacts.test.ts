@@ -53,7 +53,7 @@ function logRows(db: DbFake): Array<{ hostId: unknown; action: string; details: 
 }
 
 describe('HostClaudeArtifactsService.list', () => {
-  it('returns the host-facing field shape and logs one claude_artifact.list row', async () => {
+  it('returns the host-facing field shape without access telemetry', async () => {
     const { svc, db } = makeService([
       artifactRow({ id: 1, slug: 'reviewer' }),
       artifactRow({ id: 2, slug: 'zbare', body: bodyTerse, displayName: null, description: null, model: null }),
@@ -85,9 +85,7 @@ describe('HostClaudeArtifactsService.list', () => {
     // Body is never part of the list payload -- that is what retrieve/bundle are for.
     expect(out.items[0]).not.toHaveProperty('content');
 
-    expect(logRows(db)).toEqual([
-      { hostId: 7, action: 'claude_artifact.list', details: { kind: 'subagent', count: 2, engine: 'claude' } },
-    ]);
+    expect(logRows(db)).toEqual([]);
   });
 
   it('treats a null or empty row engine as fleet-wide and hides the other engine', async () => {
@@ -110,12 +108,7 @@ describe('HostClaudeArtifactsService.list', () => {
     expect(unscoped.engine).toBeNull();
     expect(unscoped.items.map((i) => i['slug'])).toEqual(['a-null', 'b-empty', 'c-claude', 'd-codex']);
 
-    // One log row per call, each carrying the count it actually returned.
-    expect(logRows(db).map((r) => r.details)).toEqual([
-      { kind: 'subagent', count: 3, engine: 'claude' },
-      { kind: 'subagent', count: 3, engine: 'codex' },
-      { kind: 'subagent', count: 4, engine: null },
-    ]);
+    expect(logRows(db)).toEqual([]);
   });
 
   it('scopes to the requested kind and excludes soft-deleted rows', async () => {
@@ -140,9 +133,7 @@ describe('HostClaudeArtifactsService.retrieve', () => {
       kind: 'subagent',
       slug: 'nope',
     });
-    expect(logRows(db)).toEqual([
-      { hostId: 7, action: 'claude_artifact.retrieve', details: { kind: 'subagent', slug: 'nope', status: 'missing' } },
-    ]);
+    expect(logRows(db)).toEqual([]);
   });
 
   it('reports deleted with the deletion timestamp so the wrapper can unlink', async () => {
@@ -156,9 +147,7 @@ describe('HostClaudeArtifactsService.retrieve', () => {
       slug: 'gone',
       deleted_at: '2026-01-03T00:00:00Z',
     });
-    expect(logRows(db)).toEqual([
-      { hostId: 7, action: 'claude_artifact.retrieve', details: { kind: 'subagent', slug: 'gone', status: 'deleted' } },
-    ]);
+    expect(logRows(db)).toEqual([]);
   });
 
   it('omits content when the supplied digest matches', async () => {
@@ -177,13 +166,7 @@ describe('HostClaudeArtifactsService.retrieve', () => {
       updated_at: '2026-01-02T00:00:00Z',
     });
     expect(out).not.toHaveProperty('content');
-    expect(logRows(db)).toEqual([
-      {
-        hostId: 7,
-        action: 'claude_artifact.retrieve',
-        details: { kind: 'subagent', slug: 'reviewer', status: 'unchanged' },
-      },
-    ]);
+    expect(logRows(db)).toEqual([]);
   });
 
   it('accepts an upper-case digest past the hex guard but compares it byte-exactly', async () => {
@@ -206,10 +189,7 @@ describe('HostClaudeArtifactsService.retrieve', () => {
     const stale = await svc.retrieve('subagent', 'reviewer', 'f'.repeat(64), host);
     expect(stale).toMatchObject({ status: 'updated', content: bodyReviewer });
 
-    expect(logRows(db).map((r) => r.details)).toEqual([
-      { kind: 'subagent', slug: 'reviewer', status: 'updated' },
-      { kind: 'subagent', slug: 'reviewer', status: 'updated' },
-    ]);
+    expect(logRows(db)).toEqual([]);
   });
 
   it('rejects a digest that is not 64 hex characters', async () => {
@@ -233,7 +213,7 @@ describe('HostClaudeArtifactsService.retrieve', () => {
     const out = await svc.retrieve('subagent', '  reviewer  ', null, host);
 
     expect(out).toMatchObject({ status: 'updated', slug: 'reviewer', content: bodyReviewer });
-    expect(logRows(db)[0]?.details).toEqual({ kind: 'subagent', slug: 'reviewer', status: 'updated' });
+    expect(logRows(db)).toEqual([]);
   });
 });
 

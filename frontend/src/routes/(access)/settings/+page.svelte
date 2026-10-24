@@ -25,7 +25,7 @@
         <TogglePolicy id="reverse-dns" />
         <TogglePolicy id="insecure-approval" />
         <TogglePolicy id="host-spawn" />
-        <div id="host-lifecycle" class="scroll-mt-24"><CleanupPolicy kind="prune-policy" /></div>
+        <div id="host-lifecycle" class="scroll-mt-24"><CleanupPolicy /></div>
       </div>
     </Section>
 
@@ -46,9 +46,8 @@
 
     <ChattySettings />
 
-    <Section id="retention" title="Data retention" description="How long logs and agent sessions are kept before automatic cleanup.">
+    <Section id="retention" title="Data retention" description="Configure local agent-session cleanup.">
       <div class="divide-y border-y">
-        <CleanupPolicy kind="log-retention" />
         <SessionHousekeeping />
       </div>
     </Section>

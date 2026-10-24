@@ -23,7 +23,7 @@ const catalogues = {
   cgx: new McpToolsRegistry(deps).list('operator'),
   'cxx-agent': JSON.parse(await readFile(localCatalogue, 'utf8')) as unknown[],
 };
-const dispatcher = new McpServer(new McpToolsRegistry(deps), deps.resources!, { log: async () => {} } as never);
+const dispatcher = new McpServer(new McpToolsRegistry(deps), deps.resources!);
 const seen = new Set<string>();
 const server = createServer(async (req, res) => {
   if (req.method !== 'POST') { res.writeHead(405).end(); return; }

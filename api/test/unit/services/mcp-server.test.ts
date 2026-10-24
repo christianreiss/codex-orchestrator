@@ -11,19 +11,8 @@ import type { McpFsTools } from '../../../src/services/mcp-fs.js';
 import type { McpMemoriesService } from '../../../src/services/mcp-memories.js';
 import type { HostProjectsService } from '../../../src/services/host-projects.js';
 import type { HostSkillsService } from '../../../src/services/host-skills.js';
-import type { McpAccessLogEntry, McpAccessLogService } from '../../../src/services/mcp-access-log.js';
 import type { Host } from '../../../src/db/schema.js';
 
-const noopAccess = { log: async () => undefined } as unknown as McpAccessLogService;
-
-/** Access-log stub that keeps the entries the dispatcher wrote. */
-function recordingAccess(entries: McpAccessLogEntry[]): McpAccessLogService {
-  return {
-    log: async (entry: McpAccessLogEntry) => {
-      entries.push(entry);
-    },
-  } as unknown as McpAccessLogService;
-}
 const stubMemories = {
   store: async () => ({}),
   retrieve: async () => ({}),
@@ -53,7 +42,7 @@ const stubSkills = {
 
 const tools = new McpToolsRegistry({ memories: stubMemories, projects: stubProjects, skills: stubSkills });
 const resources = new McpResourcesService({ memories: stubMemories, projects: stubProjects, skills: stubSkills });
-const server = new McpServer(tools, resources, noopAccess);
+const server = new McpServer(tools, resources);
 
 /**
  * Registry with the operator-only fs_* tools registered; `reads` collects the
@@ -160,7 +149,7 @@ describe('McpServer.handlePayload', () => {
       skills: scopedSkills,
       resources: scopedResources,
     });
-    const scopedServer = new McpServer(scopedTools, scopedResources, noopAccess);
+    const scopedServer = new McpServer(scopedTools, scopedResources);
     const claude = { ...ctx, engine: 'claude' as const };
 
     await scopedServer.handlePayload({ jsonrpc: '2.0', id: 1, method: 'resources/list' }, claude);
@@ -201,58 +190,6 @@ describe('McpServer.handlePayload', () => {
   });
 });
 
-describe('McpServer access logging', () => {
-  const call = {
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'tools/call',
-    params: { name: 'memory_store', arguments: { content: 'note' } },
-  };
-
-  it('logs the engine the caller dispatched with', async () => {
-    const entries: McpAccessLogEntry[] = [];
-    const logging = new McpServer(tools, resources, recordingAccess(entries));
-
-    await logging.handlePayload(call, { ...ctx, engine: 'claude' });
-
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ hostId: 1, method: 'tools/call', name: 'memory_store', engine: 'claude' });
-  });
-
-  it('logs a null engine when the caller announced none', async () => {
-    const entries: McpAccessLogEntry[] = [];
-    const logging = new McpServer(tools, resources, recordingAccess(entries));
-
-    await logging.handlePayload(call, { ...ctx, engine: null });
-
-    expect(entries[0]!.engine).toBeNull();
-  });
-
-  it('resolves an id:null request to null but still writes one log entry', async () => {
-    const entries: McpAccessLogEntry[] = [];
-    const logging = new McpServer(tools, resources, recordingAccess(entries));
-
-    const r = await logging.handlePayload({ jsonrpc: '2.0', id: null, method: 'tools/list' }, ctx);
-
-    expect(r).toBeNull();
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ method: 'tools/list', name: null, success: true, errorCode: null });
-  });
-
-  it('keeps the response when the access log rejects', async () => {
-    const failingAccess = {
-      log: async () => {
-        throw new Error('access log unavailable');
-      },
-    } as unknown as McpAccessLogService;
-    const logging = new McpServer(tools, resources, failingAccess);
-
-    const r = await logging.handlePayload({ jsonrpc: '2.0', id: 12, method: 'prompts/list' }, ctx);
-
-    expect(r).toEqual({ jsonrpc: '2.0', id: 12, result: { prompts: [] } });
-  });
-});
-
 describe('McpServer capability gate', () => {
   const fsCall = {
     jsonrpc: '2.0',
@@ -263,8 +200,7 @@ describe('McpServer capability gate', () => {
 
   it('answers -32601 without dispatching when a host caller invokes an operator-only tool', async () => {
     const reads: Record<string, unknown>[] = [];
-    const entries: McpAccessLogEntry[] = [];
-    const gated = new McpServer(operatorToolsRegistry(reads), resources, recordingAccess(entries));
+    const gated = new McpServer(operatorToolsRegistry(reads), resources);
 
     // ctx omits `capability`, so the dispatcher falls back to 'host'.
     const r = await gated.handlePayload(fsCall, ctx);
@@ -275,12 +211,11 @@ describe('McpServer capability gate', () => {
       data: { tool: 'fs_read_file' },
     });
     expect(reads).toEqual([]);
-    expect(entries[0]).toMatchObject({ name: 'fs_read_file', success: false, errorCode: -32601 });
   });
 
   it('reaches the registry when the caller carries the operator capability', async () => {
     const reads: Record<string, unknown>[] = [];
-    const gated = new McpServer(operatorToolsRegistry(reads), resources, noopAccess);
+    const gated = new McpServer(operatorToolsRegistry(reads), resources);
 
     const r = await gated.handlePayload(fsCall, { ...ctx, capability: 'operator' });
 
@@ -290,7 +225,7 @@ describe('McpServer capability gate', () => {
   });
 
   it('hides operator-only tools from tools/list unless the caller is an operator', async () => {
-    const gated = new McpServer(operatorToolsRegistry([]), resources, noopAccess);
+    const gated = new McpServer(operatorToolsRegistry([]), resources);
     const listNames = async (c: DispatchContext): Promise<string[]> => {
       const r = await gated.handlePayload({ jsonrpc: '2.0', id: 'l', method: 'tools/list' }, c);
       return (r as { result: { tools: Array<{ name: string }> } }).result.tools.map((t) => t.name);
@@ -339,7 +274,6 @@ describe('McpServer batch handling', () => {
 
 describe('McpServer error mapping', () => {
   it('maps a throwing registry to -32603 with the thrown message as data', async () => {
-    const entries: McpAccessLogEntry[] = [];
     const throwingTools = {
       list: () => [],
       has: () => true,
@@ -347,7 +281,7 @@ describe('McpServer error mapping', () => {
         throw new Error('registry exploded');
       },
     } as unknown as McpToolsRegistry;
-    const failing = new McpServer(throwingTools, resources, recordingAccess(entries));
+    const failing = new McpServer(throwingTools, resources);
 
     const r = await failing.handlePayload(
       { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'memory_store' } },
@@ -359,12 +293,10 @@ describe('McpServer error mapping', () => {
       message: 'Internal error',
       data: 'registry exploded',
     });
-    expect(entries[0]).toMatchObject({ success: false, errorCode: -32603, errorMessage: 'registry exploded' });
   });
 
-  it('returns a result but logs failure when the tool reports isError', async () => {
-    const entries: McpAccessLogEntry[] = [];
-    const logging = new McpServer(tools, resources, recordingAccess(entries));
+  it('returns an isError tool result without changing JSON-RPC success', async () => {
+    const logging = new McpServer(tools, resources);
 
     // memory_store requires `content`, so the registry answers isError.
     const r = await logging.handlePayload(
@@ -374,15 +306,13 @@ describe('McpServer error mapping', () => {
 
     expect((r as { error?: unknown }).error).toBeUndefined();
     expect((r as { result: { isError: boolean } }).result.isError).toBe(true);
-    expect(entries[0]).toMatchObject({ name: 'memory_store', success: false, errorCode: null });
   });
 
   it.each([
     ['missing', {}],
     ['blank', { name: '' }],
   ])('answers a tools/call with a %s name with an ok isError result', async (_label, params) => {
-    const entries: McpAccessLogEntry[] = [];
-    const logging = new McpServer(tools, resources, recordingAccess(entries));
+    const logging = new McpServer(tools, resources);
 
     const r = await logging.handlePayload({ jsonrpc: '2.0', id: 8, method: 'tools/call', params }, ctx);
 
@@ -391,7 +321,6 @@ describe('McpServer error mapping', () => {
       isError: true,
       content: [{ type: 'text', text: 'Tool name is required' }],
     });
-    expect(entries[0]).toMatchObject({ name: '', success: false, errorCode: null });
   });
 
   it.each(['resources/create', 'resources/update', 'resources/delete'])(

@@ -45,7 +45,6 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // Logs
   "log.created": [["logs"], ["logs", "api"], ["logs", "events"]],
   "log.updated": [["logs"], ["logs", "events"]],
-  "mcp.invoked": [["logs", "mcp"]],
 
   // Hosts + overview dashboard counters
   // `setup` too: the checklist counts registered and synced hosts, and the

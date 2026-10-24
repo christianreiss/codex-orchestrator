@@ -6,7 +6,6 @@ import { api } from "./client";
 import type {
   AdminAuditLogRow,
   HostFqdnSummary,
-  McpAccessLogRow,
 } from "./types";
 
 function buildQuery(params: Record<string, string | number | null | undefined>): string {
@@ -19,21 +18,6 @@ function buildQuery(params: Record<string, string | number | null | undefined>):
   }
   const s = search.toString();
   return s ? `?${s}` : "";
-}
-
-/**
- * Query builder for recent MCP access logs (returns full page).
- * Endpoint: `GET /admin/mcp/logs?limit=`
- */
-export function mcpLogsQuery(limit = 200): CreateQueryOptions<McpAccessLogRow[], Error> {
-  const qs = buildQuery({ limit });
-  return {
-    queryKey: ["logs", "mcp", { limit }],
-    queryFn: async () => {
-      const data = await api.get<{ logs: McpAccessLogRow[] }>(`/admin/mcp/logs${qs}`);
-      return Array.isArray(data?.logs) ? data.logs : [];
-    },
-  };
 }
 
 /**

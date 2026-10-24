@@ -237,6 +237,10 @@ export async function runControl(
         coordinatorLeaseUntil: leaseUntil(ctx.now),
       });
     } else {
+      if (input.action === 'request_cancel' && run.status === 'pending') {
+        await patchRun(ctx, run, { cancelRequested: 1 });
+        return cancelPending(ctx, run, input.reason, 'run.request_cancel');
+      }
       if (!['running', 'paused', 'blocked'].includes(run.status))
         throw new ConflictError('Run control is only available during execution', 'workflow_execution_ended');
       if (input.action === 'resume' && !['paused', 'blocked'].includes(run.status))
@@ -377,6 +381,11 @@ export async function prepareCancel(ctx: Session, run: Run, input: MutationInput
       'Only an unstarted run can be canceled here',
       'workflow_run_not_pending',
     );
+  return cancelPending(ctx, run, input.reason, 'run.prepared_cancel');
+}
+
+async function cancelPending(ctx: Session, run: Run, reason: string, eventType: string) {
+  const input = { reason };
   const doc = await pinned(ctx, run);
   for (const t of await tasks(ctx, run))
     await patchTask(ctx, t, { status: 'skipped', skipReason: 'run_ended', reason: input.reason });
@@ -397,6 +406,6 @@ export async function prepareCancel(ctx: Session, run: Run, input: MutationInput
   await ctx.tx
     .insert(workflowRunEvaluations)
     .values({ runId: run.id, status: 'pending', createdAt: ctx.now, updatedAt: ctx.now });
-  await event(ctx, run, 'run.prepared_cancel', { reason: input.reason });
+  await event(ctx, run, eventType, { reason: input.reason });
   return run;
 }

@@ -251,13 +251,15 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const engine = resolveRequestEngine(req, body, { legacyUserAgentInference: true, fallback: ENGINE_CODEX });
     assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
     const fields = ENGINE_HOST_FIELDS[engine];
+    const previousClient = (host as unknown as Record<string, unknown>)[fields.clientVersion];
+    const previousWrapper = (host as unknown as Record<string, unknown>)[fields.wrapperVersion];
     const patch = {
       ...(clientVersion ? { [fields.clientVersion]: clientVersion } : {}),
       ...(wrapperVersion ? { [fields.wrapperVersion]: wrapperVersion } : {}),
       updatedAt: nowIso(),
     };
     await ctx.db.update(hostsTable).set(patch).where(eq(hostsTable.id, host.id));
-    await ctx.db.insert(logsTable).values({
+    if ((clientVersion && previousClient !== clientVersion) || (wrapperVersion && previousWrapper !== wrapperVersion)) await ctx.db.insert(logsTable).values({
       hostId: host.id,
       action: 'cron.update_reported',
       details: JSON.stringify({ engine, client: { reported: clientVersion }, wrapper: { reported: wrapperVersion } }),
@@ -267,7 +269,6 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     // The stored CLI version selects rendered native config (Codex profile files,
     // native-settings support). A real change is a content change for this host;
     // the routine report above stays excluded so reports cannot loop.
-    const previousClient = (host as unknown as Record<string, unknown>)[fields.clientVersion];
     if (clientVersion && previousClient !== clientVersion) {
       wsPublisher.publish('host.updated', { id: host.id, fqdn: host.fqdn, field: fields.clientVersion });
     }

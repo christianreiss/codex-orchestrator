@@ -13,12 +13,21 @@ const absolute = z
   )
   .transform((v) => posix.normalize(v).replace(/\/+$/, '') || '/');
 export const resourceSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('remote'),
+    fqdn: z.string().trim().toLowerCase().transform((v) => v.replace(/\.$/, ''))
+      .pipe(z.string().max(253).regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/)),
+    service: z.string().trim().min(1).max(255),
+  }).strict(),
   z.object({ kind: z.literal('path'), host_id: z.number().int().positive(), path: absolute }).strict(),
   z
     .object({
       kind: z.literal('git'),
       host_id: z.number().int().positive(),
       common_dir: absolute,
+      // Native MCP schemas expose the union of resource fields. Accept a
+      // redundant path for compatibility; Git identity remains common_dir/branch.
+      path: absolute.optional(),
       branch: z.string().min(1).max(255).optional(),
     })
     .strict(),
@@ -32,6 +41,8 @@ export const resourceSchema = z.discriminatedUnion('kind', [
 ]);
 export type Resource = z.infer<typeof resourceSchema>;
 export function overlaps(a: Resource, b: Resource): boolean {
+  if (a.kind === 'remote' || b.kind === 'remote') return a.kind === 'remote' && b.kind === 'remote' &&
+    a.fqdn === b.fqdn && (a.service === b.service || a.service === '*' || b.service === '*');
   if (a.host_id !== b.host_id || a.kind !== b.kind) return false;
   if (a.kind === 'path' && b.kind === 'path')
     return (

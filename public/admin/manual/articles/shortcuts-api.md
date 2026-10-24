@@ -216,7 +216,6 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | POST | `/admin/auth/seed-command` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/auth/upload` | api/src/routes/admin/overview/index.ts |
 | GET | `/admin/logs` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/mcp/logs` | api/src/routes/admin/config/index.ts |
 
 ### Admin config / agents / skills / memories
 

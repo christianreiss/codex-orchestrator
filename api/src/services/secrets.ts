@@ -16,10 +16,9 @@
  */
 import { and, asc, eq, isNull, like, or, type SQL } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { secrets, versions, type Host, type Secret } from '../db/schema.js';
+import { adminEvents, secrets, versions, type Host, type Secret } from '../db/schema.js';
 import type { Keyring } from '../security/keyring.js';
 import { encrypt as encryptSecret, decryptOrNull } from '../security/secret-box.js';
-import type { McpAccessLogService } from './mcp-access-log.js';
 import { parseTags, sortedLowercase } from './memory-tags.js';
 import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
@@ -161,8 +160,6 @@ export interface SecretsServiceDeps {
    * paths throw rather than silently storing something unreadable.
    */
   keyring?: Keyring | null;
-  /** Required for `getForHost`; admin CRUD may construct the service without it. */
-  accessLog?: McpAccessLogService;
 }
 
 /**
@@ -514,37 +511,17 @@ export class SecretsService {
     return { secret: toMetadata(loaded), value };
   }
 
-  /**
-   * The MCP read path. Two properties here are non-negotiable:
-   *
-   *  1. The audit row is written BEFORE the plaintext is returned, and its
-   *     failure propagates. `mcp-server.ts` already logs every `tools/call`, but
-   *     with `name = 'secret_get'` (no slug) inside a swallowing `try/catch` —
-   *     under that path alone "every secret_get is audited" is simply false.
-   *     This row carries the slug and is not swallowed, so a credential is never
-   *     handed out without a trail.
-   *  2. A miss is audited too, with `success: false`. Probing for slugs is a
-   *     signal worth keeping.
-   *
-   * `clientIp` is null: the tool handler signature is `(args, host, engine)` and
-   * carries no request. The generic `tools/call` row written microseconds later
-   * by mcp-server.ts has the IP and the same host, so the two correlate.
+  /** A credential read (including misses) is audited before plaintext is returned.
+   * Audit failure propagates. Only slug, caller and outcome are persisted;
+   * ordinary MCP dispatches no longer produce SQL access logs.
    */
   async getForHost(slug: string, host: Host, engine: Engine | null): Promise<SecretPayload> {
-    const accessLog = this.deps.accessLog;
-    if (!accessLog) throw new Error('SecretsService requires accessLog for host reads');
-
     const normalized = this.normalizeSlug(slug);
     const audit = async (success: boolean, message: string | null): Promise<void> => {
-      await accessLog.log({
-        hostId: host.id,
-        clientIp: null,
-        method: 'secret.read',
-        name: `secret_get:${normalized}`.slice(0, 128),
-        success,
-        errorCode: null,
-        errorMessage: message,
-        engine,
+      // No credential leaves the service until its minimal security audit commits.
+      await this.deps.db.insert(adminEvents).values({
+        type: 'secret.read', hostId: host.id, createdAt: nowIso(),
+        payload: { slug: normalized, success, error_code: message, engine },
       });
     };
 

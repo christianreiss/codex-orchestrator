@@ -1,3 +1,4 @@
+import { registerCoordinationRoutes } from '../../../src/routes/agent-messaging/coordination.js';
 import { GitDirectorService } from '../../../src/services/git-director.js';
 import { SettingsService } from '../../../src/services/settings.js';
 import { guardGitMutation } from '../../../src/services/agent-coordination/git-guard.js';
@@ -129,6 +130,67 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
     await db.execute(sql`DELETE FROM agent_bus_addresses WHERE host_id = ${host.id}`);
     await db.delete(hosts).where(eq(hosts.id, host.id));
     await handle!.pool.end();
+  });
+  it('binds remote Git to the originating claim and fences traversal, wrong branches and foreign requests', async () => {
+    const a = await register('codex');
+    const fqdn = `remote-${randomUUID()}.test`;
+    const now = new Date().toISOString();
+    await handle!.db.insert(hosts).values({ fqdn, apiKey: randomBytes(32).toString('hex'), status: 'active', secure: 1, engines: 'codex', createdAt: now, updatedAt: now });
+    const target = (await handle!.db.select().from(hosts).where(eq(hosts.fqdn, fqdn)))[0]!;
+    const path = `/srv/remote-${suffix}`, common = path + '/.git';
+    const claim = await service.claims.acquire(a.id, a.token, { client_request_id: randomUUID(), purpose: 'remote Git proof', resources: [
+      { kind: 'path', host_id: target.id, path }, { kind: 'git', host_id: target.id, common_dir: common, branch: 'main' },
+    ] });
+    const app = await buildRouteApp();
+    registerCoordinationRoutes(app, { db: handle!.db, env, keyring }, bus);
+    const settings = new SettingsService(handle!.db);
+    await settings.setFlag('git_director_enabled', true);
+    const call = (operation: string, args: Record<string, unknown> = {}, overrides: Record<string, unknown> = {}) => app.inject({ method: 'POST',
+      url: `/host/agent-sessions/${a.id}/agent-messaging/git/remote`, headers: { 'x-agent-bridge-token': a.token },
+      payload: { target_host_id: target.id, claim_id: claim.id, common_dir: common, branch: 'main', operation,
+        args: { worktree_path: path, ...args }, ...overrides } });
+    try {
+      for (const invalid of [path + '/../foreign', path + '//../foreign', path + '/bad\0path'])
+        expect((await call('register', { worktree_path: invalid })).statusCode).toBe(422);
+      expect((await call('register', {}, { claim_id: randomUUID() })).statusCode).toBe(409);
+      const registered = await call('register', { branch: 'main', head_sha: 'a'.repeat(40), repo_root: path });
+      expect(registered.statusCode, registered.body).toBe(200);
+      expect(registered.json()).toMatchObject({ agent_address_bound: true });
+      expect((await call('join', { target_branch: 'main', paths: ['fix.ts'], task: 'remote proof' })).statusCode).toBe(200);
+      for (const enabled of [true, false]) {
+        await service.setEnabled(enabled);
+        expect((await call('merge_request', { target_branch: 'release', client_request_id: randomUUID(), changed_paths: ['fix.ts'] })).statusCode).toBe(403);
+      }
+      await service.setEnabled(true);
+      const granted = await call('merge_request', { target_branch: 'main', client_request_id: randomUUID(), base_sha: 'a'.repeat(40), head_sha: 'a'.repeat(40), changed_paths: ['fix.ts'] });
+      expect(granted.statusCode, granted.body).toBe(200);
+      expect(granted.json()).toMatchObject({ verdict: 'allow' });
+      const coexist = await service.claims.acquire(a.id, a.token, { client_request_id: randomUUID(), purpose: 'same-session lease coexistence',
+        resources: [{ kind: 'path', host_id: target.id, path }, { kind: 'git', host_id: target.id, common_dir: common, branch: 'main' }] });
+      expect(coexist).toMatchObject({ state: 'active', blockers: [] });
+      await service.claims.release(a.id, a.token, { claim_id: coexist.id, outcome: 'completed', reason: 'coexistence verified' });
+      // Reusing an address never makes a different binding's live lease ours.
+      await handle!.db.update(schema.gitWorktrees).set({ agentBindingGeneration: 2 })
+        .where(eq(schema.gitWorktrees.worktreePath, path));
+      const staleLease = await service.claims.acquire(a.id, a.token, { client_request_id: randomUUID(), purpose: 'foreign binding fence',
+        resources: [{ kind: 'git', host_id: target.id, common_dir: common, branch: 'main' }] });
+      expect(staleLease).toMatchObject({ state: 'waiting', blockers: [{ state: 'legacy_merge_lease' }] });
+      await service.claims.release(a.id, a.token, { claim_id: staleLease.id, outcome: 'canceled', reason: 'binding fence verified' });
+      await handle!.db.update(schema.gitWorktrees).set({ agentBindingGeneration: 1 })
+        .where(eq(schema.gitWorktrees.worktreePath, path));
+      expect((await call('release', { request_id: randomUUID() })).statusCode).toBe(403);
+      expect((await call('release', { request_id: granted.json().request_id, outcome: 'aborted', deregister: true })).statusCode).toBe(200);
+      await service.claims.release(a.id, a.token, { claim_id: claim.id, outcome: 'completed', reason: 'test finished' });
+      expect((await call('register')).statusCode).toBe(409);
+    } finally {
+      await app.close();
+      await bus.finishSession(a.id, a.token, 'completed');
+      await service.setEnabled(true);
+      await handle!.db.execute(sql`DELETE FROM git_merge_requests WHERE clone_id IN (SELECT id FROM git_clones WHERE host_id=${target.id})`);
+      await handle!.db.execute(sql`DELETE FROM git_worktrees WHERE host_id=${target.id}`);
+      await handle!.db.execute(sql`DELETE FROM git_clones WHERE host_id=${target.id}`);
+      await handle!.db.delete(hosts).where(eq(hosts.id, target.id));
+    }
   });
   it('joins all three engines once, separates host/project, and reads a durable idempotent chat', async () => {
     const agents = await Promise.all([register('codex'), register('claude'), register('grok')]);
@@ -263,6 +325,9 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       .where(eq(agentBusMessages.targetSessionId, owner.id));
     const conflictNotices = ownerMail.filter((m) => decrypt(m.contentEnc, keyring).startsWith('CLAIM/1\n'));
     expect(conflictNotices).toHaveLength(1);
+    expect(Date.parse(waiting.expires_at) - Date.parse(waiting.created_at)).toBeGreaterThanOrEqual(180000);
+    expect(await service.claims.status(waiter.id, waiter.token, { claim_id: waiting.id, renew: true })).toMatchObject({ state: 'waiting' });
+    expect(waiting.blockers).toEqual(expect.arrayContaining([expect.objectContaining({ id: held.id, purpose: expect.any(String), owner_address: expect.stringMatching(/^agent:/), resources })]));
     expect(decrypt(conflictNotices[0]!.contentEnc, keyring)).toContain(waiting.id);
     await handle!.db
       .update(agentResourceClaims)
@@ -756,6 +821,11 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       .update(agentScopeEvents)
       .set({ dispatched: 1 })
       .where(inArray(agentScopeEvents.scopeId, scopeIds));
+    // Hold the presence boundary steady while proving an unchanged idle tick.
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+    await service.tick();
+    // Reconciliation can itself change the certified rows; settle that change
+    // before measuring the no-op fast path.
     await service.tick();
     const connection = vi.spyOn(handle!.pool, 'getConnection');
     const query = vi.spyOn(handle!.pool, 'query');
@@ -766,7 +836,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       // Renewed timestamps remain the same live-presence state.
       await handle!.db
         .update(agentSessions)
-        .set({ heartbeatAt: new Date().toISOString() })
+        .set({ heartbeatAt: new Date(Date.now()).toISOString() })
         .where(eq(agentSessions.id, a.id));
       query.mockClear();
       await service.tick();
@@ -785,6 +855,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
           .where(and(eq(agentScopeMembers.sessionId, a.id), eq(agentScopeMembers.state, 'active'))),
       ).toHaveLength(0);
     } finally {
+      clock.mockRestore();
       connection.mockRestore();
       query.mockRestore();
     }
@@ -974,7 +1045,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
   it('honors certified engine flags when secondary reads fall back to all enabled', async () => {
     const a = await register('codex');
     await service.context(a.id, a.token);
-    await handle!.db.update(versions).set({ version: '1' }).where(eq(versions.name, 'codex_engine_disabled'));
+    await handle!.db.insert(versions).values({ name: 'codex_engine_disabled', version: '1', updatedAt: new Date().toISOString() }).onDuplicateKeyUpdate({ set: { version: '1' } });
     const engineSwitch = await import('../../../src/services/engine-switch.js');
     const fallback = vi.spyOn(engineSwitch, 'readFleetEngineState').mockResolvedValue({ codex: true, claude: true, grok: true });
     try {
@@ -1025,6 +1096,22 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
         .set({ secure: 1, insecureEnabledUntil: null })
         .where(eq(hosts.id, host.id));
     }
+  });
+  it('coordinates an unmanaged canonical FQDN globally without a synthetic fleet host', async () => {
+    const a = await register('codex'), b = await register('claude');
+    const acquire = (actor: typeof a, fqdn: string) => service.claims.acquire(actor.id, actor.token, {
+      client_request_id: randomUUID(), purpose: 'unmanaged SSH maintenance', resources: [{ kind: 'remote', fqdn, service: 'mail' }],
+    });
+    const owned = await acquire(a, 'MX1.Example.org.');
+    const waiting = await acquire(b, 'mx1.example.org');
+    const independent = await acquire(b, 'alias.example.org');
+    expect(owned.state).toBe('active');
+    expect(waiting.state).toBe('waiting');
+    expect(independent.state).toBe('active');
+    expect(owned.resources).toEqual([{ kind: 'remote', fqdn: 'mx1.example.org', service: 'mail' }]);
+    await service.claims.release(a.id, a.token, { claim_id: owned.id, outcome: 'completed', reason: 'test ended' });
+    await service.claims.release(b.id, b.token, { claim_id: waiting.id, outcome: 'canceled', reason: 'test ended' });
+    await service.claims.release(b.id, b.token, { claim_id: independent.id, outcome: 'completed', reason: 'test ended' });
   });
   it('feature off rejects new work but permits releasing claims', async () => {
     const a = await register('codex');

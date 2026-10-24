@@ -4,7 +4,6 @@
 import type { Host } from '../db/schema.js';
 import type { Capability, McpToolsRegistry } from './mcp-tools.js';
 import type { McpResourcesService } from './mcp-resources.js';
-import type { McpAccessLogService } from './mcp-access-log.js';
 import { ENGINE_CODEX, type Engine } from '../util/engine.js';
 
 /**
@@ -52,7 +51,6 @@ export class McpServer {
   constructor(
     private readonly tools: McpToolsRegistry,
     private readonly resources: McpResourcesService,
-    private readonly accessLog: McpAccessLogService,
   ) {}
 
   async handlePayload(rawBody: unknown, ctx: DispatchContext): Promise<JsonRpcResponse | JsonRpcResponse[] | null> {
@@ -94,10 +92,6 @@ export class McpServer {
         : {};
     const capability: Capability = ctx.capability ?? 'host';
     let response: JsonRpcResponse | null = null;
-    let logName: string | null = null;
-    let logSuccess = true;
-    let logErrorCode: number | null = null;
-    let logErrorMessage: string | null = null;
 
     try {
       switch (method) {
@@ -130,26 +124,19 @@ export class McpServer {
         case 'call_tool': {
           const name = typeof params['name'] === 'string' ? (params['name'] as string) : '';
           const args = params['arguments'] ?? {};
-          logName = name;
+
           if (!name) {
             response = okResponse(id, { isError: true, content: [{ type: 'text', text: 'Tool name is required' }] });
-            logSuccess = false;
             break;
           }
           // has() applies capability filtering so operator-only tools look
           // like method-not-found to host callers (no leak of existence).
           if (!this.tools.has(name, capability)) {
             response = errorResponse(id, -32601, 'Method not found', { tool: name });
-            logSuccess = false;
-            logErrorCode = -32601;
-            logErrorMessage = 'Method not found';
             break;
           }
           const result = await this.tools.dispatch(name, args, ctx.host, capability, ctx.engine ?? null);
           response = okResponse(id, result);
-          if (typeof result === 'object' && result !== null && (result as { isError?: boolean }).isError === true) {
-            logSuccess = false;
-          }
           break;
         }
         case 'resources/templates/list':
@@ -170,12 +157,9 @@ export class McpServer {
         case 'resources.read':
         case 'read_resource': {
           const uri = typeof params['uri'] === 'string' ? (params['uri'] as string) : '';
-          logName = uri;
+
           if (!uri) {
             response = errorResponse(id, -32602, 'Invalid params', 'uri is required');
-            logSuccess = false;
-            logErrorCode = -32602;
-            logErrorMessage = 'Invalid params';
             break;
           }
           response = okResponse(id, await this.resources.read(uri, ctx.host, ctx.engine ?? ENGINE_CODEX));
@@ -185,12 +169,9 @@ export class McpServer {
         case 'resources.create':
         case 'create_resource': {
           const uri = typeof params['uri'] === 'string' ? (params['uri'] as string) : '';
-          logName = uri;
+
           if (!uri) {
             response = errorResponse(id, -32602, 'Invalid params', 'uri is required');
-            logSuccess = false;
-            logErrorCode = -32602;
-            logErrorMessage = 'Invalid params';
             break;
           }
           response = okResponse(id, await this.resources.create(uri, params, ctx.host));
@@ -200,12 +181,9 @@ export class McpServer {
         case 'resources.update':
         case 'update_resource': {
           const uri = typeof params['uri'] === 'string' ? (params['uri'] as string) : '';
-          logName = uri;
+
           if (!uri) {
             response = errorResponse(id, -32602, 'Invalid params', 'uri is required');
-            logSuccess = false;
-            logErrorCode = -32602;
-            logErrorMessage = 'Invalid params';
             break;
           }
           response = okResponse(id, await this.resources.update(uri, params, ctx.host));
@@ -215,12 +193,9 @@ export class McpServer {
         case 'resources.delete':
         case 'delete_resource': {
           const uri = typeof params['uri'] === 'string' ? (params['uri'] as string) : '';
-          logName = uri;
+
           if (!uri) {
             response = errorResponse(id, -32602, 'Invalid params', 'uri is required');
-            logSuccess = false;
-            logErrorCode = -32602;
-            logErrorMessage = 'Invalid params';
             break;
           }
           response = okResponse(id, await this.resources.delete(uri, ctx.host));
@@ -234,39 +209,16 @@ export class McpServer {
         case 'prompts/get':
         case 'prompts.get': {
           response = errorResponse(id, -32601, 'Method not found');
-          logSuccess = false;
-          logErrorCode = -32601;
-          logErrorMessage = 'Method not found';
           break;
         }
         default:
           response = errorResponse(id, -32601, 'Method not found');
-          logSuccess = false;
-          logErrorCode = -32601;
-          logErrorMessage = 'Method not found';
           break;
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       response = errorResponse(id, -32603, 'Internal error', message);
-      logSuccess = false;
-      logErrorCode = -32603;
-      logErrorMessage = message;
-    }
 
-    try {
-      await this.accessLog.log({
-        hostId: ctx.host.id,
-        clientIp: ctx.clientIp,
-        method,
-        name: logName,
-        success: logSuccess,
-        errorCode: logErrorCode,
-        errorMessage: logErrorMessage,
-        engine: ctx.engine ?? null,
-      });
-    } catch {
-      /* swallow */
     }
 
     if (isNotification) return null;

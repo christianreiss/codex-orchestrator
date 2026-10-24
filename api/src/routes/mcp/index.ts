@@ -26,7 +26,6 @@ import { resolveRequestEngine } from '../../util/engine-resolution.js';
 import { ENGINE_CODEX } from '../../util/engine.js';
 
 import { McpSessionService } from '../../services/mcp-session.js';
-import { McpAccessLogService } from '../../services/mcp-access-log.js';
 import { McpMemoriesService } from '../../services/mcp-memories.js';
 import { SharedMemoriesService } from '../../services/shared-memories.js';
 import { SecretsService } from '../../services/secrets.js';
@@ -55,7 +54,6 @@ import type { Host } from '../../db/schema.js';
 
 export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const sessions = new McpSessionService(ctx.db);
-  const accessLog = new McpAccessLogService(ctx.db);
   const memories = new McpMemoriesService(ctx.db);
   const sharedMemories = new SharedMemoriesService(ctx.db);
   const projects = new HostProjectsService(ctx.db, { presenceFreshSeconds: ctx.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS });
@@ -80,7 +78,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
   // The secrets service needs the access log: `secret_get` writes its own audit
   // row, carrying the slug and failing closed, rather than relying on the
   // generic tools/call row McpServer logs on a best-effort basis.
-  const secrets = new SecretsService({ db: ctx.db, keyring: ctx.keyring, accessLog });
+  const secrets = new SecretsService({ db: ctx.db, keyring: ctx.keyring });
 
   // Git Director. The judge is deliberately allowed to be null: with no runner
   // configured `createRunnerClaudeAdapter` returns null, the factory below
@@ -148,7 +146,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     roles,
     workflows,
   });
-  const server = new McpServer(tools, resources, accessLog);
+  const server = new McpServer(tools, resources);
 
   const operatorToken = ((ctx.env as { MCP_OPERATOR_TOKEN?: string }).MCP_OPERATOR_TOKEN ?? '').trim();
 

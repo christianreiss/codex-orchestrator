@@ -6,10 +6,8 @@ import type { McpMemoriesService } from '../../../src/services/mcp-memories.js';
 import type { HostProjectsService } from '../../../src/services/host-projects.js';
 import type { HostSkillsService } from '../../../src/services/host-skills.js';
 import type { SharedMemoriesService } from '../../../src/services/shared-memories.js';
-import type { McpAccessLogService } from '../../../src/services/mcp-access-log.js';
 import type { Host } from '../../../src/db/schema.js';
 
-const noopAccess = { log: async () => undefined } as unknown as McpAccessLogService;
 
 interface SeededFile {
   id: number;
@@ -390,7 +388,7 @@ describe('McpServer integration with project_file_* tools', () => {
       projects: service,
       skills: stubSkills,
     });
-    const server = new McpServer(tools, resources, noopAccess);
+    const server = new McpServer(tools, resources);
     const r = await server.handlePayload(
       {
         jsonrpc: '2.0',
@@ -422,7 +420,7 @@ describe('McpServer integration with project_file_* tools', () => {
       projects: service,
       skills: stubSkills,
     });
-    const server = new McpServer(tools, resources, noopAccess);
+    const server = new McpServer(tools, resources);
     const r = await server.handlePayload(
       {
         jsonrpc: '2.0',
@@ -450,7 +448,7 @@ describe('McpServer integration with project_file_* tools', () => {
       projects: service,
       skills: stubSkills,
     });
-    const server = new McpServer(tools, resources, noopAccess);
+    const server = new McpServer(tools, resources);
 
     const upsert = await server.handlePayload(
       {

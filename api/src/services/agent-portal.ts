@@ -555,7 +555,7 @@ export class AgentPortalService {
       .select({ session: agentSessions, host: hosts })
       .from(agentSessions)
       .innerJoin(hosts, eq(hosts.id, agentSessions.hostId))
-      .where(and(visibleHost, or(isNull(agentSessions.endedAt), gt(agentSessions.expiresAt, now), sql`EXISTS (SELECT 1 FROM agent_chat_notices n WHERE n.session_id = ${agentSessions.id} AND n.resolved_at IS NULL)`)))
+      .where(and(visibleHost, or(isNull(agentSessions.endedAt), gt(agentSessions.expiresAt, now), sql`EXISTS (SELECT 1 FROM agent_chat_notices n WHERE n.session_id = ${agentSessions.id} COLLATE utf8mb4_unicode_ci AND n.resolved_at IS NULL)`)))
       .orderBy(desc(agentSessions.startedAt));
     const sessionIds = rows.map((row) => row.session.id);
     const reboots = sessionIds.length ? await this.db.select().from(agentRebootHandoffs).where(or(inArray(agentRebootHandoffs.oldSessionId, sessionIds), inArray(agentRebootHandoffs.newSessionId, sessionIds))) : [];
@@ -1326,7 +1326,7 @@ export class AgentPortalService {
       const expired = await tx.select({ id: agentSessions.id }).from(agentSessions)
         .where(and(lte(agentSessions.expiresAt, now), isNotNull(agentSessions.endedAt),
           sql`NOT ${protectedSession(sql`${agentSessions.id}`, sql`${agentSessions.agentBusAddressId}`)}`,
-          sql`NOT EXISTS (SELECT 1 FROM agent_chat_notices n WHERE n.session_id = ${agentSessions.id} AND n.resolved_at IS NULL AND n.created_at > ${cutoff})`))
+          sql`NOT EXISTS (SELECT 1 FROM agent_chat_notices n WHERE n.session_id = ${agentSessions.id} COLLATE utf8mb4_unicode_ci AND n.resolved_at IS NULL AND n.created_at > ${cutoff})`))
         .orderBy(asc(agentSessions.expiresAt)).limit(100).for('update');
       const ids = expired.map(row => row.id);
       if (!ids.length) return ids;
@@ -1589,7 +1589,14 @@ export class AgentPortalService {
     const candidates = await this.db
       .select({ id: agentSessions.id })
       .from(agentSessions)
-      .where(and(isNull(agentSessions.endedAt), lte(agentSessions.bridgeExpiresAt, now)))
+      .where(and(isNull(agentSessions.endedAt), lte(agentSessions.bridgeExpiresAt, now),
+        // An interactive native wrapper may be asleep with an intact process.
+        // Its expired bridge grants no authority; allow one day to re-register
+        // before finalizing. Explicit finishes and unadvertised clients retain
+        // the existing terminal contract.
+        sql`NOT (COALESCE(JSON_EXTRACT(${agentSessions.adapterCapabilities}, '$.suspend_recovery_version'), 0) = 1
+          AND ${agentSessions.invocationKind} = 'interactive'
+          AND ${agentSessions.heartbeatAt} > ${isoOffsetSeconds(-86400, new Date(now))})`))
       .orderBy(asc(agentSessions.bridgeExpiresAt))
       .limit(100);
     let expired = 0;
@@ -1603,6 +1610,8 @@ export class AgentPortalService {
           .for('update');
         const session = rows[0];
         if (!session || session.endedAt || session.bridgeExpiresAt > now) return false;
+        if ((session.adapterCapabilities as Record<string, unknown> | null)?.suspend_recovery_version === 1 &&
+          session.invocationKind === 'interactive' && Date.parse(session.heartbeatAt) > Date.parse(now) - 86400_000) return false;
         const payload = { summary: 'Agent disconnected before finalization' };
         const existing = await tx
           .select()

@@ -1,3 +1,13 @@
+# 2026-10-24
+
+- Remove unused SQL access telemetry: generic MCP call logging, its Activity view, read/no-op logs and duplicate message/toast logs. Cron version reports log actual transitions only. Preserve secret-read audits in `admin_events`; migration 0092 freezes old writers, migrates audits and removes retired history. Remove the nonfunctional log-retention controls; inactivity pruning remains effective.
+- Preserve typed MCP errors and expose claim owners, reserved resources and operator recovery guidance. Waiting claims remain renewable through negotiation. Same-session Git leases coexist with their claims; linked-worktree refresh preserves its clone mapping. Git completion corrections append evidence without replacing the original report or reviving a lease.
+- Enforce the fleet API kill switch on all HTTP surfaces except the actual `/admin/api/state` route. Repair mixed-collation retention comparisons and use engine-correct verified accounts for alternative quota advice.
+- Allow a coordinator to cancel an unstarted workflow while preserving notes and evaluation. Non-Git project discovery includes local child directories; workspace refresh retains repository identity when its common directory is unchanged and origin is omitted.
+- Add claim-backed remote Git coordination and canonical FQDN/service claims for unmanaged SSH targets. These coordinate existing authorization and never provision a host or execute Git/SSH.
+- cxx 0.9.124 advertises a bounded 24-hour interactive suspend-recovery window: expired bridges remain fenced, claims expire normally and finished lifecycles are never revived. Enable the existing local BrowserOS MCP toggle for all three engine configs.
+- Add a systemd-supervised deployment launcher with durable exit/provenance results and explicit HOME/PATH preservation. Publish the prepared `gime` Skill correction: local merge does not imply push permission.
+
 # 2026-10-23
 
 - **Keep fresh Claude admission proofs valid when native OAuth refresh is needed.** Expired access-token packages remain excluded from RAM caching and are delivered only by the live authorized read. Their expiry no longer sets the entire admission/content proof budget to zero. Future-valid cached OAuth resources still bound the proof by their own expiry; native refresh ownership, offline refusal and no-replay behavior are unchanged.

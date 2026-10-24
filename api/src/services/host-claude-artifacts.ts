@@ -9,10 +9,9 @@
  */
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { claudeArtifacts, logs } from '../db/schema.js';
+import { claudeArtifacts } from '../db/schema.js';
 import type { ClaudeArtifact, Host } from '../db/schema.js';
 import { ValidationError } from '../http/errors.js';
-import { nowIso } from '../util/timestamp.js';
 import { isEngine, type Engine } from '../util/engine.js';
 import { ARTIFACT_KINDS, type ArtifactKind, normalizeSlug } from './claude-frontmatter.js';
 
@@ -69,7 +68,6 @@ export class HostClaudeArtifactsService {
       updated_at: r.updatedAt,
       engine: r.engine ?? null,
     }));
-    await this.recordLog(host.id, 'claude_artifact.list', { kind, count: items.length, engine });
     return { kind, engine, items };
   }
 
@@ -91,11 +89,9 @@ export class HostClaudeArtifactsService {
       .where(and(eq(claudeArtifacts.kind, kind), eq(claudeArtifacts.slug, slug)));
     const row = rows.find((r) => r.kind === kind && r.slug === slug);
     if (!row) {
-      await this.recordLog(host.id, 'claude_artifact.retrieve', { kind, slug, status: 'missing' });
       return { status: 'missing', kind, slug };
     }
     if (row.deletedAt) {
-      await this.recordLog(host.id, 'claude_artifact.retrieve', { kind, slug, status: 'deleted' });
       return { status: 'deleted', kind, slug, deleted_at: row.deletedAt };
     }
     const status = providedSha && safeHashEquals(row.sha256, providedSha) ? 'unchanged' : 'updated';
@@ -110,7 +106,6 @@ export class HostClaudeArtifactsService {
       updated_at: row.updatedAt,
     };
     if (status !== 'unchanged') result['content'] = row.body;
-    await this.recordLog(host.id, 'claude_artifact.retrieve', { kind, slug, status });
     return result;
   }
 
@@ -134,13 +129,5 @@ export class HostClaudeArtifactsService {
     return out;
   }
 
-  private async recordLog(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {
-    await this.db.insert(logs).values({
-      hostId: hostId ?? null,
-      action,
-      details: JSON.stringify(details),
-      createdAt: nowIso(),
-      engine: null,
-    });
-  }
+
 }
