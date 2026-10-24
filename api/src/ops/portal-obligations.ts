@@ -40,10 +40,10 @@ export function portalObligations(
     if (Number.isFinite(at)) work.push({ key, revision, dueAt: at });
   };
   for (const session of snapshot.sessions.all()) {
-    if (session.endedAt) {
-      if (session.expiresAt) add(`session:${session.id}`, Date.parse(session.expiresAt));
-      continue;
-    }
+    // Ended-session expiry belongs exclusively to the retention index. A
+    // per-session obligation with this global input revision would rerun a
+    // protected zero-change sweep on every unrelated heartbeat or message.
+    if (session.endedAt) continue;
     // A lost connection or expired authentication token does not prove native
     // process exit. Retain resumable identities and accepted work until an
     // authoritative roster/exit command applies a terminal transition.

@@ -1,5 +1,7 @@
 # 2026-10-24
 
+- Remove duplicate expired-session scheduling from portal maintenance. The retention deadline index alone schedules cleanup, so unrelated state changes cannot repeatedly sweep already protected sessions.
+
 - Keep protected retention history parked across heartbeat-only changes, scheduling its actual age deadlines instead. Inspect indexed active message statuses for maintenance. Valid detached legacy relays wait empty without discovering work or repeatedly renewing registration; cxx 0.9.126 advertises its signed connection protocol and refuses HTTP fallback when it is required.
 
 - Keep communicator bootstrap and skill reads inside an explicit read-only snapshot without opening the public owner write boundary. Track background-work dependencies by immutable table generations instead of cloning and hashing complete metadata tables on each wakeup.
