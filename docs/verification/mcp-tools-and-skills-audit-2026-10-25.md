@@ -1,6 +1,6 @@
 # MCP tools and server Skill audit — 2026-10-25
 
-Status: repairs and post-deployment retests in progress. This report separates transport fixtures, functional calls and expected denials.
+Status: server repairs deployed and independently retested. Existing native supervisors retain their old transport until resumed under cxx 0.9.130. This report separates transport fixtures, functional calls and expected denials.
 
 ## Scope and ownership
 
@@ -18,10 +18,10 @@ Operator requested a full MCP/operational Skill check with Jasmin and Stephanie.
 | --- | --- | --- |
 | Missing ping; silent empty batch; malformed IDs/params dispatch | Authenticated live probes reproduced all four. Dispatcher now handles ping, rejects empty batches/IDs and validates named params before dispatch. | Twelve new cases observed red then green; HTTP route tests pass. |
 | Todo returns error after card committed | Move todo audit into the same board owner command; avoid a second audit outside the command. | Lifecycle owner tests plus real-MySQL injected audit failure: SQL card/event/log and owner state all remain unchanged on failure. |
-| Root Skill backlinks cannot resolve | Resolve exact root `SKILL.md` to the canonical manifest; retain engine, deletion, traversal and source-bundle checks. | Source-managed all-engine, managed root, visibility/deletion/traversal tests; live retest pending. |
+| Root Skill backlinks cannot resolve | Resolve exact root `SKILL.md` to the canonical manifest; retain engine, deletion, traversal and source-bundle checks. | Source-managed all-engine, managed root, visibility/deletion/traversal tests; independent live retest passed (details below). |
 | Long-lived bridge expires only in command views | Private metadata scopes now follow genuine same-epoch composed views; independently reconstructed snapshots receive a fresh scope. | Live Git reproduction plus fake-clock tests, disconnect/binding/token/restart fencing; independent static review by Jasmin found no blocker; held-view close and relay-disconnect tests pass. |
-| Agent translate and current workflow HTTP 500 | Native live probes reached forbidden pool transaction paths under owner mode. | Stephanie’s patch integrated; local Owner/cache regression tests pass; live retest pending. |
-| Broker Skill HTTP 401 and nine cached-read HTTP 409 failures | Native session header is missing from validated-cache forwarding; protocol response compatibility is under investigation. | Stephanie’s patch integrated; local Owner/cache regression tests pass; live retest pending. |
+| Agent translate and current workflow HTTP 500 | Native live probes reached forbidden pool transaction paths under owner mode. | Stephanie’s patch integrated; local Owner/cache regression tests pass; independent live retest passed (details below). |
+| Broker Skill HTTP 401 and nine cached-read HTTP 409 failures | Paired native headers and expiry proof were lost; old owners also accepted unsupported cache requests. Preserve proofs and check owner capability before dispatch. | Regression tests pass; server reads pass live via batches. Existing supervisor single-call behavior remains limited until replacement (details below). |
 
 ## Current test evidence
 
@@ -113,4 +113,16 @@ On still-running old native supervisors, a one-element standard JSON-RPC batch f
 
 ## Cleanup and remaining limits
 
-Jasmin removed temporary files, notes, memories, synthetic secrets, disabled schedules and transfers; the test Skill was soft-deleted, the own project archived and its cards completed. Git registrations/leases were released. Audit history is retained. The final report will add the deployed SHA, live retests, remaining limits and test-container removal.
+Jasmin removed temporary files, notes, memories, synthetic secrets, disabled schedules and transfers; the test Skill was soft-deleted, the own project archived and its cards completed. Audit history is retained. The isolated MySQL container and its tmpfs database were removed. Newly created deployment rollback image tags and cutover metadata were deleted after health verification, as requested; deployment used `--no-backup`. Production data, Bareos, running images and unrelated workloads were preserved.
+
+## Deployment and independent live retest
+
+On docker01, `scripts/deploy.sh --skip-git --no-backup --no-cleanup --service api` deployed `b97d194fe7f31fa75150e1e1077aac73e53e5fcd` (clean source). Running API image: `sha256:af67beae9165175e27f40aac7e774979c50fbfc6b86685faf75a6de38de81341`. All four cxx 0.9.130 platform artifacts were published. API, media worker and auth runner remained healthy; 103 migrations applied, zero pending and zero drifted. Eight critical source files match the running sourcemap exactly.
+
+Jasmin independently retested all 13 formerly failing central tools: the four todo mutations pass as normal single calls, with update/done/undone read back from the board. All nine content reads pass through authenticated one-element JSON-RPC batches with the fixture marker confirmed in the returned body. Skill list/retrieve and all four repaired root aliases also pass through that path; alias bodies and SHA-256 exactly match the canonical manifests. This was a targeted retest, not a second complete 91-tool sweep. Temporary fixtures were cleaned and cleanup read back. Sanitized result summary: [live retest](mcp-live-retest-2026-10-25.json).
+
+Stephanie independently verified `agent_translate` and `agent_workflow_run_current` on the deployed server without HTTP 500 and closed their feedback reports as resolved/deployed. Rosa-Maria verified the four protocol responses live and successfully registered/deregistered Git after reproducing the former long-lived credential expiry.
+
+The host wrapper was updated normally from 0.9.128 to 0.9.130. Reloading MCP configuration in the current native thread preserves the same identity but does not replace the supervising process. Existing supervisors on both tested hosts still produce HTTP 401/409 on the affected single-read path. Therefore a fresh supervising process under 0.9.130 is still required for those existing sessions. New native-scope client/owner behavior is regression-tested for all three engines; a fresh native supervisor against production has not yet been independently proven. No uncertain write was replayed, no native transcript was killed and no reboot was used as a test.
+
+No authentication, TLS or authorization check was weakened. Destructive operations and actions against unrelated external services were covered through contract/fixture/denial tests where appropriate rather than executed against real infrastructure. The API full suite described above predates the final peer runtime patch; targeted integration checks, typecheck, lint, Go build/vet and focused race tests cover the integrated patch. No frontend changes or frontend checks were necessary.

@@ -1,0 +1,40 @@
+{
+  "api_commit": "b97d194fe7f31fa75150e1e1077aac73e53e5fcd",
+  "api_dirty": false,
+  "previous_failed_tools": 13,
+  "server_path_pass": 13,
+  "todo_single_call_pass": [
+    "project_todo_create",
+    "project_todo_update",
+    "project_todo_done",
+    "project_todo_undone"
+  ],
+  "batch_read_pass": [
+    "memory_retrieve",
+    "memory_search",
+    "shared_memory_list",
+    "shared_memory_search",
+    "shared_memory_read",
+    "project_file_read",
+    "project_memory_list",
+    "project_memory_get",
+    "project_memory_search"
+  ],
+  "skill_broker_read_pass": [
+    "skill_list",
+    "skill_retrieve"
+  ],
+  "repaired_manifest_aliases": [
+    "codebase-design",
+    "prototype",
+    "teach",
+    "writing-for-agents"
+  ],
+  "alias_check": "Each body equals canonical manifest, SHA256 matches",
+  "limits": [
+    "Normal single read calls on old running broker still401/409; single-element batch passes",
+    "No supervisor/MCP restart or deploy performed here",
+    "No claim that all91 tools were rerun; this is targeted retest of failures"
+  ],
+  "cleanup": "Own retest project archived;todo done;file,project memory,host scratch and shared memory deleted and verified"
+}
