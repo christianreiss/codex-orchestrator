@@ -57,6 +57,17 @@ describe.skipIf(!config)('owner core SQL budget against real MySQL', () => {
 
         // A scheduled provider check in the future is still a quiet fleet now.
         vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+        // Fresh internal refusal IDs cannot have an earlier committed result.
+        // Include execute() in the budget: MySQL digests alone miss this path.
+        budget.reset();
+        for (let attempt = 0; attempt < 50; attempt++) {
+          await expect(mutateOwnerState(owner.runtime, {
+            kind: 'fixture.internal-refusal', payload: {},
+            prepare() { throw new Error('previous relay work is unresolved'); },
+          })).rejects.toThrow('previous relay work is unresolved');
+        }
+        expect(budget.snapshot()).toEqual([]);
+
         const due = vi.fn();
         owner.deadlines.schedule('provider:future', Date.now() + 20 * 60_000, due);
         budget.reset();

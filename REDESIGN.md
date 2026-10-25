@@ -1,6 +1,9 @@
 # Stateful orchestrator redesign
 
-Status: implemented, pushed and deployed; quiet-path production verification passed.
+Status: implemented, pushed and deployed; controlled quiet-path verification passed.
+A later audit corrected connection-owned Activity and the production SQL sampler:
+original production SQL counts covered digests only, not binary prepared executions.
+See [the follow-up server/SQL report](docs/verification/server-sql-2026-10-25.md).
 Grok re-login accepted and live admission verified on 2026-10-25 at 11:17–11:18 UTC.
 Decision date: 2026-10-25. Target: the existing docker01.uggs.io stack and its managed wrappers.
 

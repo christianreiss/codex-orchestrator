@@ -1,6 +1,7 @@
 # 2026-10-25
 
 - Fix legacy timed Board claims becoming permanent connection locks. Add audited explicit claim and Git registration continuation for a completed, detached lifecycle of the same native transcript; revoke old merge permissions. Unknown outcomes stay uncertain on renew, and Git release requires its authenticated native owner. Ship matching MCP guidance in cxx 0.9.131 for Codex, Claude and Grok.
+- Keep refused internal attempts in RAM instead of looking up receipts for fresh server-generated IDs. Preserve stable external replay recovery. Count MySQL binary prepared executions alongside digests in the quiet-check diagnostic and qualify earlier digest-only production evidence.
 
 - Use exact receiver connections for native activity admission and display, removing repeated stale-heartbeat refusals without adding SQL or heartbeat traffic. Keep legacy evidence expiry and binding checks; the Agents UI honors connection-bound activity.
 
