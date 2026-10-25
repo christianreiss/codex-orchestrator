@@ -49,7 +49,7 @@ export function createAuthTrafficVerifier(deps: AuthTrafficVerifierDeps): AuthTr
   return {
     async getAuthSnapshot(): Promise<unknown | null> {
       const provided = deps.snapshotProvider ? await deps.snapshotProvider() : null;
-      const row = provided?.row ?? await runnerValidation.resolveCanonicalPayload(engine);
+      const row = provided?.row ?? (await runnerValidation.resolveCanonicalPayload(engine));
       const auth = provided?.auth ?? (row ? runnerValidation.canonicalAuthFromPayload(row) : null);
       if (auth === null || row === null) return null;
       // Give every request a distinct identity, even if a provider caches its
@@ -72,16 +72,42 @@ export function createAuthTrafficVerifier(deps: AuthTrafficVerifierDeps): AuthTr
         // Only touch the row the snapshot came from, and only while it is
         // still the verified canonical head — traffic proof must never
         // resurrect a failed or pending lineage.
-        const owner=ownerRuntimeFor(db);
-        if(owner){
-          const snapshot=owner.state.snapshot(),pointer=served.accountId?snapshot.accounts.get(served.accountId):snapshot.table('authCanonicalHeads').get(engine),row=snapshot.table('authPayloads').get(rowId);
-          if(pointer?.payloadId!==rowId||row?.verificationState!=='verified'||row.supersededAt)return;
-          const checkedAt=nowMs();if(rowId===lastTouchRowId&&checkedAt-lastTouchMs<minIntervalMs)return;lastTouchRowId=rowId;lastTouchMs=checkedAt;
-          const ts=now();const touched=await mutateOwnerState(owner,{kind:'auth.traffic.verified',payload:{engine,rowId,checkedAt:ts},prepare(c){
-            const pointer=served.accountId?c.snapshot.accounts.get(served.accountId):c.snapshot.table('authCanonicalHeads').get(engine),current=c.snapshot.table('authPayloads').get(rowId);
-            if(pointer?.payloadId!==rowId||current?.verificationState!=='verified'||current.supersededAt)return false;
-            if(!current.verificationCheckedAt||current.verificationCheckedAt<ts)stageUpdate(c,'authPayloads',rowId,{verificationCheckedAt:ts});return true;
-          }});if(touched)await writeRunnerTelemetry(db,engine,'ok',ts);return;
+        const owner = ownerRuntimeFor(db);
+        if (owner) {
+          const snapshot = owner.state.snapshot(),
+            pointer = served.accountId
+              ? snapshot.accounts.get(served.accountId)
+              : snapshot.table('authCanonicalHeads').get(engine),
+            row = snapshot.table('authPayloads').get(rowId);
+          if (pointer?.payloadId !== rowId || row?.verificationState !== 'verified' || row.supersededAt)
+            return;
+          const checkedAt = nowMs();
+          if (rowId === lastTouchRowId && checkedAt - lastTouchMs < minIntervalMs) return;
+          lastTouchRowId = rowId;
+          lastTouchMs = checkedAt;
+          const ts = now();
+          const touched = await mutateOwnerState(owner, {
+            kind: 'auth.traffic.verified',
+            persistence: 'volatile',
+            payload: { engine, rowId, checkedAt: ts },
+            prepare(c) {
+              const pointer = served.accountId
+                  ? c.snapshot.accounts.get(served.accountId)
+                  : c.snapshot.table('authCanonicalHeads').get(engine),
+                current = c.snapshot.table('authPayloads').get(rowId);
+              if (
+                pointer?.payloadId !== rowId ||
+                current?.verificationState !== 'verified' ||
+                current.supersededAt
+              )
+                return false;
+              if (!current.verificationCheckedAt || current.verificationCheckedAt < ts)
+                stageUpdate(c, 'authPayloads', rowId, { verificationCheckedAt: ts });
+              return true;
+            },
+          });
+          if (touched) await writeRunnerTelemetry(db, engine, 'ok', ts);
+          return;
         }
         const head = await runnerValidation.resolveCanonicalPayload(engine, served.accountId ?? undefined);
         if (!head || head.id !== rowId || head.verificationState !== 'verified') return;

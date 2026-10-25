@@ -1,4 +1,4 @@
-import { portalHistoryWhere } from './selectors.js';
+import { ownerHistoryCandidates, readOwnerRetentionClock } from './ram.js';
 import { serverRetentionPolicy, historyRetentionHours } from './policy.js';
 import { legacyDrainFor } from '../../control-plane/legacy-drain.js';
 import { eq, sql } from 'drizzle-orm';
@@ -13,8 +13,15 @@ import { stageDelete, stageUpdate } from '../../control-plane/state/rows.js';
 import { ownerPresence } from '../../control-plane/presence.js';
 import { receiverState, RECEIVER_FRESH_MS } from '../agent-receiver-state.js';
 import { RetentionProjection } from './projection.js';
-import { ownerRetention, retentionFamily, runOwnerHistoryRetention, recordRetentionSweep, finishRetentionRun } from './owner.js';
-import { readRetentionClock, type RetentionClockSnapshot } from './deadlines.js';
+import {
+  ownerRetention,
+  retentionFamily,
+  runOwnerHistoryRetention,
+  recordRetentionSweep,
+  stageRetentionSweep,
+  finishRetentionRun,
+} from './owner.js';
+import { type RetentionClockSnapshot } from './deadlines.js';
 import { pruneHosts } from '../host-lifecycle.js';
 import { wsPublisher } from '../../ws/publisher.js';
 import type { OwnerWorkObligation, OwnerWorkResult } from '../../ops/owner-worker.js';
@@ -25,6 +32,22 @@ const rebooting = (context: OwnerMutationContext, id: string) =>
     .all()
     .some((row) => row.oldSessionId === id && row.status === 'armed');
 
+export function turnClock(
+  state: import('../../control-plane/state/store.js').OwnerStateSnapshot,
+  now: number,
+  delay: number,
+): RetentionClockSnapshot {
+  let past = false,
+    next: number | null = null;
+  for (const session of state.sessions.all())
+    if (!session.endedAt && session.activeTurnId) {
+      const due = session.portalAcceptedAt ? Date.parse(session.portalAcceptedAt) + delay : 0;
+      if (due <= now) past = true;
+      else next = next === null ? due : Math.min(next, due);
+    }
+  return { past, next };
+}
+
 async function purgePortalFamily(runtime: OwnerRuntime, env: Env, family: 'portal' | 'turns'): Promise<void> {
   let changed = 0,
     clock: RetentionClockSnapshot | undefined;
@@ -34,21 +57,37 @@ async function purgePortalFamily(runtime: OwnerRuntime, env: Env, family: 'porta
     prepare(context) {
       const now = new Date().toISOString();
       const projection = new RetentionProjection(context.draft);
+      const hours = serverRetentionPolicy(context.snapshot).history_hours;
+      const cutoff = new Date(Date.parse(now) - hours * 3600000).toISOString();
+      const turnCutoff = new Date(
+        Date.parse(now) - env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 10000,
+      ).toISOString();
+      const turns = context.snapshot.sessions
+        .all()
+        .filter(
+          (s) =>
+            !s.endedAt &&
+            s.activeTurnId &&
+            !rebooting(context, s.id) &&
+            (!s.portalAcceptedAt || s.portalAcceptedAt <= turnCutoff),
+        )
+        .slice(0, 100);
+      const portal =
+        family === 'portal'
+          ? ownerHistoryCandidates(context.snapshot, cutoff, now, ownerPresence(runtime)).portal()
+          : [];
+      const readClock = () =>
+        family === 'portal'
+          ? readOwnerRetentionClock(context.draft.view(), 'portal', Date.parse(now), hours)
+          : turnClock(context.draft.view(), Date.parse(now), env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 10000);
+      if (!(family === 'portal' ? portal : turns).length) {
+        clock = readClock();
+        stageRetentionSweep(context, family, 0);
+        return { changed: 0 };
+      }
       context.write(async (tx) => {
         if (family === 'turns') {
-          const cutoff = new Date(
-            Date.parse(now) - env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 10_000,
-          ).toISOString();
-          const candidates = context.snapshot.sessions
-            .all()
-            .filter((row) => !row.endedAt && row.activeTurnId && !rebooting(context, row.id))
-            .slice(0, 100);
-          for (const session of candidates) {
-            const [rows] = await tx.execute(
-              sql`SELECT created_at FROM agent_events WHERE session_id = ${session.id} AND event_type = 'message_accepted' ORDER BY id DESC LIMIT 1`,
-            );
-            const started = (rows as unknown as Array<{ created_at: string }>)[0]?.created_at;
-            if (started && started > cutoff) continue;
+          for (const session of turns) {
             await tx
               .update(agentSessions)
               .set({ activeTurnId: null, updatedAt: now })
@@ -60,11 +99,7 @@ async function purgePortalFamily(runtime: OwnerRuntime, env: Env, family: 'porta
             changed++;
           }
         } else {
-          const cutoff = new Date(Date.parse(now) - serverRetentionPolicy(context.snapshot).history_hours * 3600000).toISOString();
-          const [rows] =
-            await tx.execute(sql`SELECT id FROM agent_sessions WHERE ${portalHistoryWhere(now, cutoff, context.snapshot.sessions.all().filter(s=>ownerPresence(runtime).hasSession(s.id,s.bindingGeneration)).map(s=>s.id))}
-            ORDER BY expires_at LIMIT 100 FOR UPDATE`);
-          const ids = (rows as unknown as Array<{ id: string }>).map((row) => row.id);
+          const ids = portal.map((row) => row.id);
           if (ids.length) {
             const list = sql.join(
                 ids.map((id) => sql`${id}`),
@@ -146,13 +181,7 @@ async function purgePortalFamily(runtime: OwnerRuntime, env: Env, family: 'porta
             changed = ids.length;
           }
         }
-        clock = await readRetentionClock(
-          tx,
-          family,
-          Date.parse(now),
-          env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 10_000,
-          serverRetentionPolicy(context.snapshot),
-        );
+        clock = readClock();
         await recordRetentionSweep(context, tx, family, changed);
       });
       return () => ({ changed });
@@ -246,7 +275,8 @@ export async function runOwnerPortalRetention(
   if (family === 'portal' || family === 'turns') await purgePortalFamily(runtime, env, family);
   else if (family === 'attachments') await purgeAttachments(runtime, env);
   else await runOwnerHistoryRetention(db, runtime, family, env);
-  wsPublisher.publish('settings.changed', { key: 'server_retention_run_v1' });
+  if (JSON.parse(runtime.state.snapshot().setting('server_retention_run_v1') ?? '{}').status === 'running')
+    wsPublisher.publish('settings.changed', { key: 'server_retention_run_v1' });
   await finishRetentionRun(runtime);
 }
 
@@ -260,7 +290,7 @@ export async function purgeAttachments(runtime: OwnerRuntime, env: Env): Promise
     const native = view.sessions.get(file.sessionId);
     if (native && !native.endedAt) return false;
     const daemon = view.table('hostDaemonSessions').get(file.sessionId);
-    if (daemon && !['completed','failed','canceled'].includes(daemon.status)) return false;
+    if (daemon && !['completed', 'failed', 'canceled'].includes(daemon.status)) return false;
     const scopeExists =
       view.sessions.has(file.sessionId) ||
       view.table('hostDaemonSessions').has(file.sessionId) ||
@@ -321,10 +351,15 @@ export async function purgeAttachments(runtime: OwnerRuntime, env: Env): Promise
           throw new Error('Retired attachment was revived during unlink');
         stageDelete(context, 'agentChatAttachments', file.id);
       }
-      context.write(async (tx) => {
-        clock = await readRetentionClock(tx, 'attachments', Date.now(), 900000, serverRetentionPolicy(context.snapshot));
-        await recordRetentionSweep(context, tx, 'attachments', retired.length);
-      });
+      clock = readOwnerRetentionClock(
+        context.draft.view(),
+        'attachments',
+        Date.now(),
+        serverRetentionPolicy(context.snapshot).history_hours,
+      );
+      if (retired.length)
+        context.write(async (tx) => recordRetentionSweep(context, tx, 'attachments', retired.length));
+      else stageRetentionSweep(context, 'attachments', 0);
       return null;
     },
   });

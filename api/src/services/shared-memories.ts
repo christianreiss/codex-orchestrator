@@ -1,6 +1,10 @@
-import {persistAuditLog} from './audit-log.js';
+import { persistAuditLog } from './audit-log.js';
 import { executeColdRead } from '../db/fresh-read.js';
-import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/state/runtime.js';
+import {
+  mutateOwnerState,
+  ownerRuntimeFor,
+  type OwnerMutationContext,
+} from '../control-plane/state/runtime.js';
 import { stageDelete, stageUpdate } from '../control-plane/state/rows.js';
 import type { Json } from '../control-plane/commands.js';
 /**
@@ -40,6 +44,7 @@ import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { parseTags, sortedLowercase } from './memory-tags.js';
 import { chunkContent, excerptFor, preview, type Chunk } from './shared-memory-chunker.js';
+import { searchOwnedKnowledge } from './runtime-knowledge.js';
 
 /** 1 MiB. Two orders of magnitude above the 32k both other substrates cap at. */
 export const MAX_CONTENT_CHARS = 1_048_576;
@@ -169,14 +174,27 @@ export class SharedMemoriesService {
     // that fall outside the page. One bounded fetch, filtered here — `scanCap`
     // is what the listing is willing to look at, and `scanned_all` tells the
     // caller when that bound was hit.
-    const scanCap = Math.min(LIST_SCAN_CAP, (offset + effectiveLimit) * (tags.length > 0 ? 5 : 1) + effectiveLimit);
-    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
-    const rows = owner?owner.state.snapshot().table('sharedMemories').all().filter(row=>!row.deletedAt&&(prefix===''||row.slug.startsWith(prefix))).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||b.id-a.id).slice(0,scanCap).map(row=>({...row,content:row.contentPreview})):await this.db
-      .select(listColumns())
-      .from(sharedMemories)
-      .where(and(...conditions))
-      .orderBy(desc(sharedMemories.updatedAt), desc(sharedMemories.id))
-      .limit(scanCap);
+    const scanCap = Math.min(
+      LIST_SCAN_CAP,
+      (offset + effectiveLimit) * (tags.length > 0 ? 5 : 1) + effectiveLimit,
+    );
+    const owner = ownerRuntimeFor(this.db);
+    owner?.assertOwner();
+    const rows = owner
+      ? owner.state
+          .snapshot()
+          .table('sharedMemories')
+          .all()
+          .filter((row) => !row.deletedAt && (prefix === '' || row.slug.startsWith(prefix)))
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id - a.id)
+          .slice(0, scanCap)
+          .map((row) => ({ ...row, content: row.contentPreview }))
+      : await this.db
+          .select(listColumns())
+          .from(sharedMemories)
+          .where(and(...conditions))
+          .orderBy(desc(sharedMemories.updatedAt), desc(sharedMemories.id))
+          .limit(scanCap);
 
     const items: SharedMemorySummary[] = [];
     let skipped = 0;
@@ -225,7 +243,9 @@ export class SharedMemoriesService {
     const query = String(payload['query'] ?? payload['q'] ?? '').trim();
     const limit = normalizeInt(payload['limit'], 10, 1, 50);
     const tags = sortedLowercase(this.normalizeTags(payload['tags'], errors));
-    const modeRaw = String(payload['mode'] ?? 'chunks').trim().toLowerCase();
+    const modeRaw = String(payload['mode'] ?? 'chunks')
+      .trim()
+      .toLowerCase();
     if (modeRaw !== 'chunks' && modeRaw !== 'documents') {
       errors['mode'] = (errors['mode'] ?? []).concat("mode must be 'chunks' or 'documents'");
     }
@@ -235,7 +255,9 @@ export class SharedMemoriesService {
     if (query === '') {
       // Empty query is a recency listing, not an error — same affordance the
       // other two memory searches give.
-      const listed = (await this.list({ limit, tags: payload['tags'] }, host)) as { memories: SharedMemorySummary[] };
+      const listed = (await this.list({ limit, tags: payload['tags'] }, host)) as {
+        memories: SharedMemorySummary[];
+      };
       return {
         status: 'ok',
         query,
@@ -259,6 +281,25 @@ export class SharedMemoriesService {
       };
     }
 
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const hits = searchOwnedKnowledge(owner.state.snapshot(), query, tags);
+      const matches =
+        mode === 'documents'
+          ? foldToDocuments(hits, query, limit)
+          : hits.slice(0, limit).map((row) => chunkMatch(row, query));
+      return {
+        status: 'ok',
+        query,
+        mode,
+        limit,
+        degraded: false,
+        truncated: false,
+        count: matches.length,
+        matches,
+      };
+    }
     let degraded = false;
     // Documents mode needs several chunks per document to pick a winner, so it
     // pulls a wider net before folding.
@@ -266,7 +307,8 @@ export class SharedMemoriesService {
 
     const fetchBatch = async (offset: number): Promise<Array<Record<string, unknown>>> => {
       try {
-        const res = await executeColdRead(this.db,
+        const res = await executeColdRead(
+          this.db,
           sql`SELECT c.memory_id, c.ordinal, c.heading, c.content AS chunk_content, c.char_start, c.char_end,
                      m.slug, m.title, m.summary, m.tags, m.content_length, m.chunk_count, m.revision, m.updated_at,
                      MATCH(c.content, c.heading, c.tags_text) AGAINST (${query} IN NATURAL LANGUAGE MODE) AS score
@@ -320,12 +362,16 @@ export class SharedMemoriesService {
       // In documents mode the goal is distinct documents, not raw hits: one
       // chunk-heavy document can otherwise fill the whole window and starve
       // every other match out of the results.
-      const satisfied = mode === 'documents' ? distinctDocs.size >= limit || hits.length >= wanted : hits.length >= wanted;
+      const satisfied =
+        mode === 'documents' ? distinctDocs.size >= limit || hits.length >= wanted : hits.length >= wanted;
       if (satisfied || batch.length < perFetch) break;
       offset += perFetch;
     }
 
-    const matches = mode === 'documents' ? foldToDocuments(hits, query, limit) : hits.slice(0, limit).map((r) => chunkMatch(r, query));
+    const matches =
+      mode === 'documents'
+        ? foldToDocuments(hits, query, limit)
+        : hits.slice(0, limit).map((r) => chunkMatch(r, query));
 
     return { status: 'ok', query, mode, limit, degraded, truncated, count: matches.length, matches };
   }
@@ -340,7 +386,9 @@ export class SharedMemoriesService {
     const errors: Record<string, string[]> = {};
     const slug = this.normalizeSlug(payload['slug'] ?? payload['id'] ?? payload['key'], errors);
     if (Object.keys(errors).length || !slug) {
-      throw new ValidationError('Validation failed', { extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } } });
+      throw new ValidationError('Validation failed', {
+        extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } },
+      });
     }
 
     const doc = await this.findBySlug(slug);
@@ -360,17 +408,30 @@ export class SharedMemoriesService {
       const ordinal = normalizeInt(chunkParam, 0, 0, Number.MAX_SAFE_INTEGER);
       const span = await this.chunkSpan(doc, ordinal, ordinal);
       if (!span) {
-        throw new ValidationError('Validation failed', { extra: { errors: { chunk: [`chunk ${ordinal} is out of range (0..${Math.max(0, doc.chunkCount - 1)})`] } } });
+        throw new ValidationError('Validation failed', {
+          extra: {
+            errors: { chunk: [`chunk ${ordinal} is out of range (0..${Math.max(0, doc.chunkCount - 1)})`] },
+          },
+        });
       }
       start = span.start;
       end = Math.min(span.end, start + maxChars);
       chunkRange = { from: ordinal, to: ordinal };
-    } else if ((fromChunk !== undefined && fromChunk !== null && fromChunk !== '') || (toChunk !== undefined && toChunk !== null && toChunk !== '')) {
+    } else if (
+      (fromChunk !== undefined && fromChunk !== null && fromChunk !== '') ||
+      (toChunk !== undefined && toChunk !== null && toChunk !== '')
+    ) {
       const from = normalizeInt(fromChunk, 0, 0, Number.MAX_SAFE_INTEGER);
       const to = normalizeInt(toChunk, from, from, Number.MAX_SAFE_INTEGER);
       const span = await this.chunkSpan(doc, from, to);
       if (!span) {
-        throw new ValidationError('Validation failed', { extra: { errors: { from_chunk: [`chunks ${from}..${to} are out of range (0..${Math.max(0, doc.chunkCount - 1)})`] } } });
+        throw new ValidationError('Validation failed', {
+          extra: {
+            errors: {
+              from_chunk: [`chunks ${from}..${to} are out of range (0..${Math.max(0, doc.chunkCount - 1)})`],
+            },
+          },
+        });
       }
       start = span.start;
       end = Math.min(span.end, start + maxChars);
@@ -405,11 +466,19 @@ export class SharedMemoriesService {
    * write is rejected with a conflict if someone else moved the document
    * meanwhile. Without it, last writer wins.
    */
-  async write(payload: Record<string, unknown>, host: Host | null = null, engine: Engine | null = null): Promise<Record<string, unknown>> {
+  async write(
+    payload: Record<string, unknown>,
+    host: Host | null = null,
+    engine: Engine | null = null,
+  ): Promise<Record<string, unknown>> {
     return this.retryOnWriteRace(() => this.writeOnce(payload, host, engine));
   }
 
-  private async writeOnce(payload: Record<string, unknown>, host: Host | null, engine: Engine | null): Promise<Record<string, unknown>> {
+  private async writeOnce(
+    payload: Record<string, unknown>,
+    host: Host | null,
+    engine: Engine | null,
+  ): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};
     const slug = this.normalizeSlug(payload['slug'] ?? payload['id'] ?? payload['key'], errors);
     const content = this.normalizeContent(payload['content'] ?? payload['text'], errors);
@@ -423,25 +492,82 @@ export class SharedMemoriesService {
       });
     }
 
-    if(this.options.ownerContext){const existing=await this.findBySlug(slug,true),expected=payload.expected_sha256;
-      if(typeof expected==='string'&&expected.trim()&&(existing&&existing.deletedAtIsNull?existing.doc.contentSha256:null)!==expected.trim())throw new ConflictError(`shared memory "${slug}" changed since it was read`,'shared_memory_conflict');
-      const live=existing&&existing.deletedAtIsNull?existing.doc:null;
-      return this.persist({slug,title:supplied(payload,'title')?title:live?.title??title,summary:supplied(payload,'summary')?summary:live?.summary??summary,content,tags:supplied(payload,'tags')?tags:live?.tags??tags,metadata:supplied(payload,'metadata')?metadata:live?.metadata??metadata,existing,op:'write',host,engine});
+    if (this.options.ownerContext) {
+      const existing = await this.findBySlug(slug, true),
+        expected = payload.expected_sha256;
+      if (
+        typeof expected === 'string' &&
+        expected.trim() &&
+        (existing && existing.deletedAtIsNull ? existing.doc.contentSha256 : null) !== expected.trim()
+      )
+        throw new ConflictError(
+          `shared memory "${slug}" changed since it was read`,
+          'shared_memory_conflict',
+        );
+      const live = existing && existing.deletedAtIsNull ? existing.doc : null;
+      return this.persist({
+        slug,
+        title: supplied(payload, 'title') ? title : (live?.title ?? title),
+        summary: supplied(payload, 'summary') ? summary : (live?.summary ?? summary),
+        content,
+        tags: supplied(payload, 'tags') ? tags : (live?.tags ?? tags),
+        metadata: supplied(payload, 'metadata') ? metadata : (live?.metadata ?? metadata),
+        existing,
+        op: 'write',
+        host,
+        engine,
+      });
     }
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){const result=await mutateOwnerState(owner,{kind:'shared.memory.write',payload:{slug,sha256:sha256(content)},prepare:async ctx=>{
-      const scoped=new SharedMemoriesService(this.db,{publishEvents:false,ownerContext:ctx}),existing=await scoped.findBySlug(slug,true),expected=payload.expected_sha256;
-      if(typeof expected==='string'&&expected.trim()&&(existing&&existing.deletedAtIsNull?existing.doc.contentSha256:null)!==expected.trim())throw new ConflictError(`shared memory "${slug}" changed since it was read`,'shared_memory_conflict');
-      const live=existing&&existing.deletedAtIsNull?existing.doc:null;
-      return await scoped.persist({slug,title:supplied(payload,'title')?title:live?.title??title,summary:supplied(payload,'summary')?summary:live?.summary??summary,content,tags:supplied(payload,'tags')?tags:live?.tags??tags,metadata:supplied(payload,'metadata')?metadata:live?.metadata??metadata,existing,op:'write',host,engine}) as Json;
-    }}) as Record<string,unknown>;if(result.status!=='unchanged')this.publish(result.status==='created'?'shared_memory.created':'shared_memory.changed',{slug});return result;}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = (await mutateOwnerState(owner, {
+        kind: 'shared.memory.write',
+        payload: { slug, sha256: sha256(content) },
+        prepare: async (ctx) => {
+          const scoped = new SharedMemoriesService(this.db, { publishEvents: false, ownerContext: ctx }),
+            existing = await scoped.findBySlug(slug, true),
+            expected = payload.expected_sha256;
+          if (
+            typeof expected === 'string' &&
+            expected.trim() &&
+            (existing && existing.deletedAtIsNull ? existing.doc.contentSha256 : null) !== expected.trim()
+          )
+            throw new ConflictError(
+              `shared memory "${slug}" changed since it was read`,
+              'shared_memory_conflict',
+            );
+          const live = existing && existing.deletedAtIsNull ? existing.doc : null;
+          return (await scoped.persist({
+            slug,
+            title: supplied(payload, 'title') ? title : (live?.title ?? title),
+            summary: supplied(payload, 'summary') ? summary : (live?.summary ?? summary),
+            content,
+            tags: supplied(payload, 'tags') ? tags : (live?.tags ?? tags),
+            metadata: supplied(payload, 'metadata') ? metadata : (live?.metadata ?? metadata),
+            existing,
+            op: 'write',
+            host,
+            engine,
+          })) as Json;
+        },
+      })) as Record<string, unknown>;
+      if (result.status !== 'unchanged')
+        this.publish(result.status === 'created' ? 'shared_memory.created' : 'shared_memory.changed', {
+          slug,
+        });
+      return result;
+    }
 
     // Lock before reading the digest and keep the lock through chunks, parent
     // and revision writes. A check outside the transaction lets two replaces
     // accept the same digest; sharing append's lock also protects against an
     // append that lands while a replacement is checking its expected digest.
     const { result, id } = await this.db.transaction(async (tx) => {
-      await tx.select({ id: sharedMemories.id }).from(sharedMemories).where(eq(sharedMemories.slug, slug)).for('update');
+      await tx
+        .select({ id: sharedMemories.id })
+        .from(sharedMemories)
+        .where(eq(sharedMemories.slug, slug))
+        .for('update');
       const scoped = new SharedMemoriesService(tx as unknown as Database, { publishEvents: false });
       const existing = await scoped.findBySlug(slug, true);
       const expected = payload['expected_sha256'];
@@ -473,12 +599,19 @@ export class SharedMemoriesService {
         host,
         engine,
       });
-      const saved = await tx.select({ id: sharedMemories.id }).from(sharedMemories).where(eq(sharedMemories.slug, slug)).limit(1);
+      const saved = await tx
+        .select({ id: sharedMemories.id })
+        .from(sharedMemories)
+        .where(eq(sharedMemories.slug, slug))
+        .limit(1);
       return { result, id: saved[0]?.id };
     });
     // Consumers must not re-read a change before the transaction commits.
     if (result['status'] !== 'unchanged') {
-      this.publish(result['status'] === 'created' ? 'shared_memory.created' : 'shared_memory.changed', { slug, id });
+      this.publish(result['status'] === 'created' ? 'shared_memory.created' : 'shared_memory.changed', {
+        slug,
+        id,
+      });
     }
     return result;
   }
@@ -488,11 +621,19 @@ export class SharedMemoriesService {
    * path: two agents appending concurrently both keep their text, where a
    * read-modify-write pair would silently drop one of them.
    */
-  async append(payload: Record<string, unknown>, host: Host | null = null, engine: Engine | null = null): Promise<Record<string, unknown>> {
+  async append(
+    payload: Record<string, unknown>,
+    host: Host | null = null,
+    engine: Engine | null = null,
+  ): Promise<Record<string, unknown>> {
     return this.retryOnWriteRace(() => this.appendOnce(payload, host, engine));
   }
 
-  private async appendOnce(payload: Record<string, unknown>, host: Host | null, engine: Engine | null): Promise<Record<string, unknown>> {
+  private async appendOnce(
+    payload: Record<string, unknown>,
+    host: Host | null,
+    engine: Engine | null,
+  ): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};
     const slug = this.normalizeSlug(payload['slug'] ?? payload['id'] ?? payload['key'], errors);
     const addition = this.normalizeContent(payload['content'] ?? payload['text'], errors);
@@ -503,11 +644,35 @@ export class SharedMemoriesService {
     const separatorRaw = payload['separator'];
     const separator = typeof separatorRaw === 'string' ? separatorRaw : '\n\n';
     if (Object.keys(errors).length || slug === null || addition === null) {
-      throw new ValidationError('Validation failed', { extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } } });
+      throw new ValidationError('Validation failed', {
+        extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } },
+      });
     }
 
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){const result=await mutateOwnerState(owner,{kind:'shared.memory.append',payload:{slug,sha256:sha256(addition)},prepare:async ctx=>new SharedMemoriesService(this.db,{publishEvents:false,ownerContext:ctx}).appendLocked({slug,addition,heading,separator,tags,metadata,payload,host,engine}) as Promise<Json>}) as Record<string,unknown>;if(result.status!=='unchanged')this.publish(result.status==='created'?'shared_memory.created':'shared_memory.changed',{slug});return result;}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = (await mutateOwnerState(owner, {
+        kind: 'shared.memory.append',
+        payload: { slug, sha256: sha256(addition) },
+        prepare: async (ctx) =>
+          new SharedMemoriesService(this.db, { publishEvents: false, ownerContext: ctx }).appendLocked({
+            slug,
+            addition,
+            heading,
+            separator,
+            tags,
+            metadata,
+            payload,
+            host,
+            engine,
+          }) as Promise<Json>,
+      })) as Record<string, unknown>;
+      if (result.status !== 'unchanged')
+        this.publish(result.status === 'created' ? 'shared_memory.created' : 'shared_memory.changed', {
+          slug,
+        });
+      return result;
+    }
 
     // Everything from here runs inside a transaction that first takes a row
     // lock on the slug. Append is read-modify-write, so without serialization
@@ -518,9 +683,23 @@ export class SharedMemoriesService {
     // An absent slug takes a gap lock; competing inserts can deadlock while
     // upgrading it, so retryOnWriteRace retries the rolled-back transaction.
     return this.db.transaction(async (tx) => {
-      await tx.select({ id: sharedMemories.id }).from(sharedMemories).where(eq(sharedMemories.slug, slug)).for('update');
+      await tx
+        .select({ id: sharedMemories.id })
+        .from(sharedMemories)
+        .where(eq(sharedMemories.slug, slug))
+        .for('update');
       const scoped = new SharedMemoriesService(tx as unknown as Database);
-      return scoped.appendLocked({ slug, addition, heading, separator, tags, metadata, payload, host, engine });
+      return scoped.appendLocked({
+        slug,
+        addition,
+        heading,
+        separator,
+        tags,
+        metadata,
+        payload,
+        host,
+        engine,
+      });
     });
   }
 
@@ -530,8 +709,16 @@ export class SharedMemoriesService {
    * exact same chunk/revision machinery as MCP append without nesting another
    * transaction or publishing before the outer transaction commits.
    */
-  async appendOwned(context:OwnerMutationContext,payload:Record<string,unknown>,host:Host|null=null,engine:Engine|null=null):Promise<Record<string,unknown>>{
-    return new SharedMemoriesService(this.db,{publishEvents:false,ownerContext:context}).appendAlreadyLocked(payload,host,engine);
+  async appendOwned(
+    context: OwnerMutationContext,
+    payload: Record<string, unknown>,
+    host: Host | null = null,
+    engine: Engine | null = null,
+  ): Promise<Record<string, unknown>> {
+    return new SharedMemoriesService(this.db, {
+      publishEvents: false,
+      ownerContext: context,
+    }).appendAlreadyLocked(payload, host, engine);
   }
 
   async appendAlreadyLocked(
@@ -593,7 +780,11 @@ export class SharedMemoriesService {
     return this.persist({
       slug,
       title: existing && existing.deletedAtIsNull && !supplied(payload, 'title') ? existing.doc.title : title,
-      summary: supplied(payload, 'summary') ? summary : (existing && existing.deletedAtIsNull ? existing.doc.summary : null),
+      summary: supplied(payload, 'summary')
+        ? summary
+        : existing && existing.deletedAtIsNull
+          ? existing.doc.summary
+          : null,
       content: merged,
       // Appends union tags rather than replacing them: an appending agent is
       // adding to someone else's document and should not be able to drop the
@@ -608,21 +799,72 @@ export class SharedMemoriesService {
     });
   }
 
-  async delete(payload: Record<string, unknown>, host: Host | null = null, engine: Engine | null = null): Promise<Record<string, unknown>> {
+  async delete(
+    payload: Record<string, unknown>,
+    host: Host | null = null,
+    engine: Engine | null = null,
+  ): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};
     const slug = this.normalizeSlug(payload['slug'] ?? payload['id'] ?? payload['key'], errors);
     if (Object.keys(errors).length || !slug) {
-      throw new ValidationError('Validation failed', { extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } } });
+      throw new ValidationError('Validation failed', {
+        extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } },
+      });
     }
 
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){const result=await mutateOwnerState(owner,{kind:'shared.memory.delete',payload:{slug},prepare:ctx=>{
-      const row=ctx.snapshot.table('sharedMemories').by('slug',slug)[0],now=nowIso(),status=!row||row.deletedAt?'missing':'deleted';
-      if(row&&!row.deletedAt){const revision=Math.max(row.highestRevision,row.revision)+1;stageUpdate(ctx,'sharedMemories',row.id,{deletedAt:now,updatedAt:now,revision});ctx.draft.upsert('sharedMemories',{...ctx.draft.table('sharedMemories').get(row.id)!,highestRevision:revision});
-        ctx.write(async tx=>{await tx.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId,row.id));await tx.insert(sharedMemoryRevisions).values({memoryId:row.id,revision,op:'delete',contentSha256:row.contentSha256,contentLength:0,deltaLength:-row.contentLength,sourceHostId:host?.id??null,sourceEngine:engine,note:null,prevContent:null,createdAt:now});});
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = (await mutateOwnerState(owner, {
+        kind: 'shared.memory.delete',
+        payload: { slug },
+        prepare: (ctx) => {
+          const row = ctx.snapshot.table('sharedMemories').by('slug', slug)[0],
+            now = nowIso(),
+            status = !row || row.deletedAt ? 'missing' : 'deleted';
+          if (row && !row.deletedAt) {
+            const revision = Math.max(row.highestRevision, row.revision) + 1;
+            stageUpdate(ctx, 'sharedMemories', row.id, { deletedAt: now, updatedAt: now, revision });
+            ctx.draft.upsert('sharedMemories', {
+              ...ctx.draft.table('sharedMemories').get(row.id)!,
+              highestRevision: revision,
+            });
+            ctx.write(async (tx) => {
+              await tx.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId, row.id));
+              await tx
+                .insert(sharedMemoryRevisions)
+                .values({
+                  memoryId: row.id,
+                  revision,
+                  op: 'delete',
+                  contentSha256: row.contentSha256,
+                  contentLength: 0,
+                  deltaLength: -row.contentLength,
+                  sourceHostId: host?.id ?? null,
+                  sourceEngine: engine,
+                  note: null,
+                  prevContent: null,
+                  createdAt: now,
+                });
+            });
+          }
+          ctx.write(async (tx) =>
+            persistAuditLog(tx, {
+              hostId: host?.id ?? null,
+              action: 'shared_memory.delete',
+              details: JSON.stringify({ slug, status }),
+              createdAt: now,
+              engine: null,
+            }),
+          );
+          return { status, slug };
+        },
+      })) as Record<string, unknown>;
+      if (result.status === 'deleted') {
+        this.publish('shared_memory.deleted', { slug });
+        this.publish('shared_memory.changed', { slug });
       }
-      ctx.write(async tx=>persistAuditLog(tx, {hostId:host?.id??null,action:'shared_memory.delete',details:JSON.stringify({slug,status}),createdAt:now,engine:null}));return {status,slug};
-    }}) as Record<string,unknown>;if(result.status==='deleted'){this.publish('shared_memory.deleted',{slug});this.publish('shared_memory.changed',{slug});}return result;}
+      return result;
+    }
 
     const doc = await this.findBySlug(slug);
     if (!doc) {
@@ -637,11 +879,23 @@ export class SharedMemoriesService {
     // this same row and computes its revision from it. Leaving the row at N
     // while the ledger already holds N+1 makes that revive collide on
     // uniq_shared_memory_revision and fail the write outright.
-    await this.db.update(sharedMemories).set({ deletedAt: now, updatedAt: now, revision }).where(eq(sharedMemories.id, doc.id));
+    await this.db
+      .update(sharedMemories)
+      .set({ deletedAt: now, updatedAt: now, revision })
+      .where(eq(sharedMemories.id, doc.id));
     // Chunks are pure derived data; drop them so a soft-deleted document stops
     // consuming FULLTEXT index space and can never surface in a search.
     await this.db.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId, doc.id));
-    await this.recordRevision(doc.id, revision, 'delete', doc.contentSha256, 0, -doc.contentLength, host, engine);
+    await this.recordRevision(
+      doc.id,
+      revision,
+      'delete',
+      doc.contentSha256,
+      0,
+      -doc.contentLength,
+      host,
+      engine,
+    );
     await this.recordLog(host, 'shared_memory.delete', { slug, status: 'deleted' });
     this.publish('shared_memory.deleted', { slug, id: doc.id });
     this.publish('shared_memory.changed', { slug, id: doc.id });
@@ -655,20 +909,28 @@ export class SharedMemoriesService {
   async adminList(input: Record<string, unknown>): Promise<Record<string, unknown>> {
     const query = String(input['query'] ?? input['q'] ?? '').trim();
     if (query !== '') {
-      const found = (await this.search({ query, limit: normalizeInt(input['limit'], 50, 1, 200), mode: 'documents', tags: input['tags'] })) as Record<
-        string,
-        unknown
-      >;
+      const found = (await this.search({
+        query,
+        limit: normalizeInt(input['limit'], 50, 1, 200),
+        mode: 'documents',
+        tags: input['tags'],
+      })) as Record<string, unknown>;
       return { ...found, view: 'search' };
     }
-    const listed = await this.list({ limit: normalizeInt(input['limit'], 50, 1, 200), offset: input['offset'], tags: input['tags'], prefix: input['prefix'] });
+    const listed = await this.list({
+      limit: normalizeInt(input['limit'], 50, 1, 200),
+      offset: input['offset'],
+      tags: input['tags'],
+      prefix: input['prefix'],
+    });
     return { ...listed, view: 'list' };
   }
 
   async adminDetail(slug: string): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};
     const normalized = this.normalizeSlug(slug, errors);
-    if (Object.keys(errors).length || !normalized) throw new ValidationError('Validation failed', { extra: { errors } });
+    if (Object.keys(errors).length || !normalized)
+      throw new ValidationError('Validation failed', { extra: { errors } });
     const doc = await this.findBySlug(normalized);
     if (!doc) throw new NotFoundError('Shared memory not found', 'shared_memory_not_found');
     const revisions = await this.db
@@ -706,11 +968,17 @@ export class SharedMemoriesService {
    * a NEW revision rather than rewinding the counter — the ledger stays
    * append-only, and the restore is itself undoable.
    */
-  async restore(payload: Record<string, unknown>, host: Host | null = null, engine: Engine | null = null): Promise<Record<string, unknown>> {
+  async restore(
+    payload: Record<string, unknown>,
+    host: Host | null = null,
+    engine: Engine | null = null,
+  ): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};
     const slug = this.normalizeSlug(payload['slug'] ?? payload['id'], errors);
     if (Object.keys(errors).length || !slug) {
-      throw new ValidationError('Validation failed', { extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } } });
+      throw new ValidationError('Validation failed', {
+        extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } },
+      });
     }
     // Include soft-deleted: restoring the body of a document someone deleted is
     // exactly as valid as undoing a bad replace, and `write` revives the row.
@@ -727,7 +995,13 @@ export class SharedMemoriesService {
     const prev = rows[0]?.prevContent ?? null;
     if (prev === null) {
       throw new ValidationError('That revision has no restorable body', {
-        extra: { errors: { revision: [`revision ${target} kept no prior body (only the newest ${PREV_CONTENT_KEEP} replaces do)`] } },
+        extra: {
+          errors: {
+            revision: [
+              `revision ${target} kept no prior body (only the newest ${PREV_CONTENT_KEEP} replaces do)`,
+            ],
+          },
+        },
       });
     }
 
@@ -741,12 +1015,42 @@ export class SharedMemoriesService {
   async adminDelete(slug: string): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};
     const normalized = this.normalizeSlug(slug, errors);
-    if (Object.keys(errors).length || !normalized) throw new ValidationError('Validation failed', { extra: { errors } });
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){await mutateOwnerState(owner,{kind:'shared.memory.admin.delete',payload:{slug:normalized},prepare:ctx=>{const row=ctx.snapshot.table('sharedMemories').by('slug',normalized)[0];if(!row)throw new NotFoundError('Shared memory not found','shared_memory_not_found');
-      ctx.write(async tx=>{await tx.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId,row.id));await tx.delete(sharedMemoryRevisions).where(eq(sharedMemoryRevisions.memoryId,row.id));});stageDelete(ctx,'sharedMemories',row.id);ctx.write(async tx=>persistAuditLog(tx, {hostId:null,action:'shared_memory.admin.delete',details:JSON.stringify({slug:normalized,id:row.id}),createdAt:nowIso(),engine:null}));return null;
-    }});this.publish('shared_memory.deleted',{slug:normalized});this.publish('shared_memory.changed',{slug:normalized});return {deleted:normalized};}
-    const rows = await this.db.select().from(sharedMemories).where(eq(sharedMemories.slug, normalized)).limit(1);
+    if (Object.keys(errors).length || !normalized)
+      throw new ValidationError('Validation failed', { extra: { errors } });
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, {
+        kind: 'shared.memory.admin.delete',
+        payload: { slug: normalized },
+        prepare: (ctx) => {
+          const row = ctx.snapshot.table('sharedMemories').by('slug', normalized)[0];
+          if (!row) throw new NotFoundError('Shared memory not found', 'shared_memory_not_found');
+          ctx.write(async (tx) => {
+            await tx.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId, row.id));
+            await tx.delete(sharedMemoryRevisions).where(eq(sharedMemoryRevisions.memoryId, row.id));
+          });
+          stageDelete(ctx, 'sharedMemories', row.id);
+          ctx.write(async (tx) =>
+            persistAuditLog(tx, {
+              hostId: null,
+              action: 'shared_memory.admin.delete',
+              details: JSON.stringify({ slug: normalized, id: row.id }),
+              createdAt: nowIso(),
+              engine: null,
+            }),
+          );
+          return null;
+        },
+      });
+      this.publish('shared_memory.deleted', { slug: normalized });
+      this.publish('shared_memory.changed', { slug: normalized });
+      return { deleted: normalized };
+    }
+    const rows = await this.db
+      .select()
+      .from(sharedMemories)
+      .where(eq(sharedMemories.slug, normalized))
+      .limit(1);
     const row = rows[0];
     if (!row) throw new NotFoundError('Shared memory not found', 'shared_memory_not_found');
     await this.db.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId, row.id));
@@ -769,7 +1073,15 @@ export class SharedMemoriesService {
    * render 50 one-line descriptions.
    */
   async listRecent(limit = 20): Promise<SharedMemorySummary[]> {
-    const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return [...owner.state.snapshot().table('sharedMemories').all()].filter(row=>!row.deletedAt).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||b.id-a.id).slice(0,Math.max(1,Math.min(200,limit))).map(row=>this.summarize(hydrate({...row,content:row.contentPreview}),false));}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      return [...owner.state.snapshot().table('sharedMemories').all()]
+        .filter((row) => !row.deletedAt)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id - a.id)
+        .slice(0, Math.max(1, Math.min(200, limit)))
+        .map((row) => this.summarize(hydrate({ ...row, content: row.contentPreview }), false));
+    }
     const rows = await this.db
       .select(listColumns())
       .from(sharedMemories)
@@ -811,7 +1123,14 @@ export class SharedMemoriesService {
     const tagsText = tags.length > 0 ? tags.join(' ') : null;
     const live = existing && existing.deletedAtIsNull ? existing.doc : null;
 
-    if (live && live.contentSha256 === digest && live.title === input.title && (live.summary ?? null) === (input.summary ?? null) && sameTags(live.tags, tags) && sameMetadata(live.metadata, metadata)) {
+    if (
+      live &&
+      live.contentSha256 === digest &&
+      live.title === input.title &&
+      (live.summary ?? null) === (input.summary ?? null) &&
+      sameTags(live.tags, tags) &&
+      sameMetadata(live.metadata, metadata)
+    ) {
       // Re-storing identical content writes nothing and burns no revision —
       // the same `unchanged` contract project memories give.
       return {
@@ -821,24 +1140,121 @@ export class SharedMemoriesService {
       };
     }
 
-    const ownerContext=this.options.ownerContext;
-    if(ownerContext){
-      const ctx=ownerContext,chunks=chunkContent(content),prior=ctx.draft.table('sharedMemories').by('slug',slug)[0],revision=Math.max(prior?.highestRevision??0,prior?.revision??0)+1;
-      const status=live?(op==='append'?'appended':'updated'):'created',resolvedOp=op==='append'?'append':live?'replace':'create';
-      let memoryId=prior?.id??0;
-      const values={slug,title:input.title,summary:input.summary,content,contentSha256:digest,contentLength:content.length,chunkCount:chunks.length,revision,metadata,tags:tags.length?tags:null,tagsText,sourceHostId:host?.id??null,sourceEngine:engine,updatedAt:now,deletedAt:null};
-      if(prior){stageUpdate(ctx,'sharedMemories',prior.id,values);ctx.draft.upsert('sharedMemories',{...ctx.draft.table('sharedMemories').get(prior.id)!,highestRevision:revision,contentPreview:content.slice(0,PREVIEW_FETCH_CHARS)});}
-      else ctx.write(async tx=>{const row={...values,createdAt:now},inserted=await tx.insert(sharedMemories).values(row);memoryId=readInsertId(inserted)??0;if(!memoryId)throw new Error('Shared memory insert returned no identity');ctx.draft.upsert('sharedMemories',{id:memoryId,...row,highestRevision:revision,contentPreview:content.slice(0,PREVIEW_FETCH_CHARS)});});
-      ctx.write(async tx=>{
-        await tx.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId,memoryId));
-        for(let offset=0;offset<chunks.length;offset+=100)await tx.insert(sharedMemoryChunks).values(chunks.slice(offset,offset+100).map(chunk=>({memoryId,revision,ordinal:chunk.ordinal,heading:chunk.heading,content:chunk.content,charStart:chunk.charStart,charEnd:chunk.charEnd,tagsText,createdAt:now})));
-        await tx.insert(sharedMemoryRevisions).values({memoryId,revision,op:resolvedOp,contentSha256:digest,contentLength:content.length,deltaLength:content.length-(live?.contentLength??0),sourceHostId:host?.id??null,sourceEngine:engine,note:null,prevContent:resolvedOp==='replace'?live?.content??null:null,createdAt:now});
-        if(resolvedOp==='replace'&&revision>PREV_CONTENT_KEEP)await tx.update(sharedMemoryRevisions).set({prevContent:null}).where(and(eq(sharedMemoryRevisions.memoryId,memoryId),lte(sharedMemoryRevisions.revision,revision-PREV_CONTENT_KEEP)));
-        await persistAuditLog(tx, {hostId:host?.id??null,action:`shared_memory.${op}`,details:JSON.stringify({slug,status,revision,content_length:content.length,chunks:chunks.length,tags:tags.length}),createdAt:now,engine:null});
+    const ownerContext = this.options.ownerContext;
+    if (ownerContext) {
+      const ctx = ownerContext,
+        chunks = chunkContent(content),
+        prior = ctx.draft.table('sharedMemories').by('slug', slug)[0],
+        revision = Math.max(prior?.highestRevision ?? 0, prior?.revision ?? 0) + 1;
+      const status = live ? (op === 'append' ? 'appended' : 'updated') : 'created',
+        resolvedOp = op === 'append' ? 'append' : live ? 'replace' : 'create';
+      let memoryId = prior?.id ?? 0;
+      const values = {
+        slug,
+        title: input.title,
+        summary: input.summary,
+        content,
+        contentSha256: digest,
+        contentLength: content.length,
+        chunkCount: chunks.length,
+        revision,
+        metadata,
+        tags: tags.length ? tags : null,
+        tagsText,
+        sourceHostId: host?.id ?? null,
+        sourceEngine: engine,
+        updatedAt: now,
+        deletedAt: null,
+      };
+      if (prior) {
+        stageUpdate(ctx, 'sharedMemories', prior.id, values);
+        ctx.draft.upsert('sharedMemories', {
+          ...ctx.draft.table('sharedMemories').get(prior.id)!,
+          highestRevision: revision,
+          contentPreview: content.slice(0, PREVIEW_FETCH_CHARS),
+        });
+      } else
+        ctx.write(async (tx) => {
+          const row = { ...values, createdAt: now },
+            inserted = await tx.insert(sharedMemories).values(row);
+          memoryId = readInsertId(inserted) ?? 0;
+          if (!memoryId) throw new Error('Shared memory insert returned no identity');
+          ctx.draft.upsert('sharedMemories', {
+            id: memoryId,
+            ...row,
+            highestRevision: revision,
+            contentPreview: content.slice(0, PREVIEW_FETCH_CHARS),
+          });
+        });
+      ctx.write(async (tx) => {
+        await tx.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId, memoryId));
+        for (let offset = 0; offset < chunks.length; offset += 100)
+          await tx
+            .insert(sharedMemoryChunks)
+            .values(
+              chunks
+                .slice(offset, offset + 100)
+                .map((chunk) => ({
+                  memoryId,
+                  revision,
+                  ordinal: chunk.ordinal,
+                  heading: chunk.heading,
+                  content: chunk.content,
+                  charStart: chunk.charStart,
+                  charEnd: chunk.charEnd,
+                  tagsText,
+                  createdAt: now,
+                })),
+            );
+        await tx
+          .insert(sharedMemoryRevisions)
+          .values({
+            memoryId,
+            revision,
+            op: resolvedOp,
+            contentSha256: digest,
+            contentLength: content.length,
+            deltaLength: content.length - (live?.contentLength ?? 0),
+            sourceHostId: host?.id ?? null,
+            sourceEngine: engine,
+            note: null,
+            prevContent: resolvedOp === 'replace' ? (live?.content ?? null) : null,
+            createdAt: now,
+          });
+        if (resolvedOp === 'replace' && revision > PREV_CONTENT_KEEP)
+          await tx
+            .update(sharedMemoryRevisions)
+            .set({ prevContent: null })
+            .where(
+              and(
+                eq(sharedMemoryRevisions.memoryId, memoryId),
+                lte(sharedMemoryRevisions.revision, revision - PREV_CONTENT_KEEP),
+              ),
+            );
+        await persistAuditLog(tx, {
+          hostId: host?.id ?? null,
+          action: `shared_memory.${op}`,
+          details: JSON.stringify({
+            slug,
+            status,
+            revision,
+            content_length: content.length,
+            chunks: chunks.length,
+            tags: tags.length,
+          }),
+          createdAt: now,
+          engine: null,
+        });
       });
       // Summary carries no database-generated identity, so it can be prepared now.
-      const doc=hydrate({id:memoryId,...values,createdAt:prior?.createdAt??now});
-      return {status,slug,revision,appended_chars:input.appendedChars??null,memory:this.summarize(doc,false)};
+      const doc = hydrate({ id: memoryId, ...values, createdAt: prior?.createdAt ?? now });
+      return {
+        status,
+        slug,
+        revision,
+        appended_chars: input.appendedChars ?? null,
+        memory: this.summarize(doc, false),
+      };
     }
     const chunks = chunkContent(content);
     let memoryId: number;
@@ -938,7 +1354,10 @@ export class SharedMemoriesService {
       chunks: chunks.length,
       tags: tags.length,
     });
-    this.publish(status === 'created' ? 'shared_memory.created' : 'shared_memory.changed', { slug, id: memoryId });
+    this.publish(status === 'created' ? 'shared_memory.created' : 'shared_memory.changed', {
+      slug,
+      id: memoryId,
+    });
 
     const saved = await this.findBySlug(slug);
     return {
@@ -958,8 +1377,14 @@ export class SharedMemoriesService {
    */
   private async highestRevision(memoryId: number, parentRevision: number): Promise<number> {
     const [chunkRows, ledgerRows] = await Promise.all([
-      this.db.select({ revision: sharedMemoryChunks.revision }).from(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId, memoryId)),
-      this.db.select({ revision: sharedMemoryRevisions.revision }).from(sharedMemoryRevisions).where(eq(sharedMemoryRevisions.memoryId, memoryId)),
+      this.db
+        .select({ revision: sharedMemoryChunks.revision })
+        .from(sharedMemoryChunks)
+        .where(eq(sharedMemoryChunks.memoryId, memoryId)),
+      this.db
+        .select({ revision: sharedMemoryRevisions.revision })
+        .from(sharedMemoryRevisions)
+        .where(eq(sharedMemoryRevisions.memoryId, memoryId)),
     ]);
     let highest = parentRevision;
     for (const row of [...chunkRows, ...ledgerRows]) {
@@ -969,7 +1394,13 @@ export class SharedMemoriesService {
     return highest;
   }
 
-  private async writeChunks(memoryId: number, revision: number, chunks: Chunk[], tagsText: string | null, now: string): Promise<void> {
+  private async writeChunks(
+    memoryId: number,
+    revision: number,
+    chunks: Chunk[],
+    tagsText: string | null,
+    now: string,
+  ): Promise<void> {
     const rows = chunks.map((c) => ({
       memoryId,
       revision,
@@ -1026,16 +1457,32 @@ export class SharedMemoriesService {
       if (Number.isFinite(rev) && rev !== currentRevision) stale.add(rev);
     }
     for (const rev of stale) {
-      await this.db.delete(sharedMemoryChunks).where(and(eq(sharedMemoryChunks.memoryId, memoryId), eq(sharedMemoryChunks.revision, rev)));
+      await this.db
+        .delete(sharedMemoryChunks)
+        .where(and(eq(sharedMemoryChunks.memoryId, memoryId), eq(sharedMemoryChunks.revision, rev)));
     }
   }
 
-  private async chunkSpan(doc: DocRow, from: number, to: number): Promise<{ start: number; end: number } | null> {
+  private async chunkSpan(
+    doc: DocRow,
+    from: number,
+    to: number,
+  ): Promise<{ start: number; end: number } | null> {
     if (from > to) return null;
+    if (ownerRuntimeFor(this.db)) {
+      const chunks = chunkContent(doc.content).filter(
+        (chunk) => chunk.ordinal >= from && chunk.ordinal <= to,
+      );
+      return chunks.length ? { start: chunks[0]!.charStart, end: chunks.at(-1)!.charEnd } : null;
+    }
     // No orderBy/limit: the chunk set for one revision is small and bounded by
     // MAX_CHUNKS, and sorting here keeps the query to plain equality predicates.
     const rows = await this.db
-      .select({ ordinal: sharedMemoryChunks.ordinal, charStart: sharedMemoryChunks.charStart, charEnd: sharedMemoryChunks.charEnd })
+      .select({
+        ordinal: sharedMemoryChunks.ordinal,
+        charStart: sharedMemoryChunks.charStart,
+        charEnd: sharedMemoryChunks.charEnd,
+      })
       .from(sharedMemoryChunks)
       .where(and(eq(sharedMemoryChunks.memoryId, doc.id), eq(sharedMemoryChunks.revision, doc.revision)));
     const inRange = rows.filter((r) => r.ordinal >= from && r.ordinal <= to);
@@ -1053,7 +1500,11 @@ export class SharedMemoriesService {
    * document and byte caps — a degraded search is explicitly best-effort, and
    * `degraded: true` in the response says so.
    */
-  private async substringFallback(query: string, limit: number, offset: number): Promise<Array<Record<string, unknown>>> {
+  private async substringFallback(
+    query: string,
+    limit: number,
+    offset: number,
+  ): Promise<Array<Record<string, unknown>>> {
     const needle = query.toLowerCase();
     const docs = await this.db
       .select(listColumns(FALLBACK_PREFIX_CHARS))
@@ -1096,24 +1547,48 @@ export class SharedMemoriesService {
   }
 
   private async findBySlug(slug: string): Promise<DocRow | null>;
-  private async findBySlug(slug: string, includeDeleted: true): Promise<{ doc: DocRow; deletedAtIsNull: boolean } | null>;
-  private async findBySlug(slug: string, includeDeleted = false): Promise<DocRow | { doc: DocRow; deletedAtIsNull: boolean } | null> {
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){owner.assertOwner();const state=this.options.ownerContext?.draft.view()??owner.state.snapshot(),metadata=state.table('sharedMemories').by('slug',slug)[0];if(!metadata||!includeDeleted&&metadata.deletedAt)return null;
-      const [row]=await this.db.select().from(sharedMemories).where(eq(sharedMemories.id,metadata.id)).limit(1);if(!row||row.contentSha256!==metadata.contentSha256||row.revision!==metadata.revision)throw new ConflictError('Shared memory changed during read','shared_memory_conflict');
-      const doc=hydrate(row as unknown as Record<string,unknown>);return includeDeleted?{doc,deletedAtIsNull:!metadata.deletedAt}:doc;
+  private async findBySlug(
+    slug: string,
+    includeDeleted: true,
+  ): Promise<{ doc: DocRow; deletedAtIsNull: boolean } | null>;
+  private async findBySlug(
+    slug: string,
+    includeDeleted = false,
+  ): Promise<DocRow | { doc: DocRow; deletedAtIsNull: boolean } | null> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const state = this.options.ownerContext?.draft.view() ?? owner.state.snapshot(),
+        metadata = state.table('sharedMemories').by('slug', slug)[0];
+      if (!metadata || (!includeDeleted && metadata.deletedAt)) return null;
+      const content = state.content('sharedMemories', metadata.id, 'content');
+      if (typeof content !== 'string') throw new Error('Current knowledge body missing from owner state');
+      const doc = hydrate({ ...metadata, content });
+      return includeDeleted ? { doc, deletedAtIsNull: !metadata.deletedAt } : doc;
     }
     const rows = await this.db.select().from(sharedMemories).where(eq(sharedMemories.slug, slug)).limit(1);
     const row = rows[0];
     if (!row) return null;
     const doc = hydrate(row as unknown as Record<string, unknown>);
-    if (includeDeleted) return { doc, deletedAtIsNull: row.deletedAt === null || row.deletedAt === undefined };
+    if (includeDeleted)
+      return { doc, deletedAtIsNull: row.deletedAt === null || row.deletedAt === undefined };
     return row.deletedAt ? null : doc;
   }
 
   private async countLive(): Promise<number> {
-    const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();return owner.state.snapshot().table('sharedMemories').all().filter(row=>!row.deletedAt).length;}
-    const rows = await this.db.select({ c: sql<number>`count(*)` }).from(sharedMemories).where(isNull(sharedMemories.deletedAt));
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      return owner.state
+        .snapshot()
+        .table('sharedMemories')
+        .all()
+        .filter((row) => !row.deletedAt).length;
+    }
+    const rows = await this.db
+      .select({ c: sql<number>`count(*)` })
+      .from(sharedMemories)
+      .where(isNull(sharedMemories.deletedAt));
     return Number(rows[0]?.c ?? 0);
   }
 
@@ -1136,7 +1611,10 @@ export class SharedMemoriesService {
       // Slice before previewing: `read`/`write` paths hold the full body, and
       // running a whole-document regex over 1 MiB to produce 240 characters is
       // pure waste (it was measured at seconds of blocked event loop per list).
-      preview: doc.summary && doc.summary.trim() !== '' ? preview(doc.summary) : preview(doc.content.slice(0, PREVIEW_FETCH_CHARS)),
+      preview:
+        doc.summary && doc.summary.trim() !== ''
+          ? preview(doc.summary)
+          : preview(doc.content.slice(0, PREVIEW_FETCH_CHARS)),
     };
     if (includeContent) (out as SharedMemorySummary & { content: string }).content = doc.content;
     return out;
@@ -1183,7 +1661,11 @@ export class SharedMemoriesService {
       .where(and(eq(sharedMemoryRevisions.memoryId, memoryId), lte(sharedMemoryRevisions.revision, cutoff)));
   }
 
-  private async recordLog(host: Host | null, action: string, details: Record<string, unknown>): Promise<void> {
+  private async recordLog(
+    host: Host | null,
+    action: string,
+    details: Record<string, unknown>,
+  ): Promise<void> {
     await persistAuditLog(this.db, {
       hostId: host?.id ?? null,
       action,
@@ -1240,7 +1722,9 @@ export class SharedMemoriesService {
       return null;
     }
     if (trimmed.length > MAX_CONTENT_CHARS) {
-      errors['content'] = (errors['content'] ?? []).concat(`content must be ${MAX_CONTENT_CHARS} characters or fewer`);
+      errors['content'] = (errors['content'] ?? []).concat(
+        `content must be ${MAX_CONTENT_CHARS} characters or fewer`,
+      );
       return null;
     }
     return trimmed;
@@ -1254,7 +1738,9 @@ export class SharedMemoriesService {
     }
     const trimmed = value.trim();
     if (trimmed.length > MAX_TITLE_LENGTH) {
-      errors['title'] = (errors['title'] ?? []).concat(`title must be ${MAX_TITLE_LENGTH} characters or fewer`);
+      errors['title'] = (errors['title'] ?? []).concat(
+        `title must be ${MAX_TITLE_LENGTH} characters or fewer`,
+      );
     }
     return trimmed === '' ? (slug ?? '') : trimmed;
   }
@@ -1267,13 +1753,18 @@ export class SharedMemoriesService {
     }
     const trimmed = value.trim();
     if (trimmed.length > MAX_SUMMARY_LENGTH) {
-      errors['summary'] = (errors['summary'] ?? []).concat(`summary must be ${MAX_SUMMARY_LENGTH} characters or fewer`);
+      errors['summary'] = (errors['summary'] ?? []).concat(
+        `summary must be ${MAX_SUMMARY_LENGTH} characters or fewer`,
+      );
       return null;
     }
     return trimmed === '' ? null : trimmed;
   }
 
-  private normalizeMetadata(value: unknown, errors: Record<string, string[]>): Record<string, unknown> | null {
+  private normalizeMetadata(
+    value: unknown,
+    errors: Record<string, string[]>,
+  ): Record<string, unknown> | null {
     if (value === null || value === undefined) return null;
     if (typeof value !== 'object' || Array.isArray(value)) {
       errors['metadata'] = (errors['metadata'] ?? []).concat('metadata must be an object');
@@ -1284,11 +1775,7 @@ export class SharedMemoriesService {
 
   private normalizeTags(value: unknown, errors: Record<string, string[]>): string[] {
     if (value === null || value === undefined) return [];
-    const raw = Array.isArray(value)
-      ? value
-      : typeof value === 'string'
-        ? value.split(/[,\s]+/)
-        : null;
+    const raw = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,\s]+/) : null;
     if (raw === null) {
       errors['tags'] = (errors['tags'] ?? []).concat('tags must be an array of strings');
       return [];
@@ -1303,7 +1790,9 @@ export class SharedMemoriesService {
       const t = tag.trim();
       if (t === '') continue;
       if (t.length > MAX_TAG_LENGTH) {
-        errors['tags'] = (errors['tags'] ?? []).concat(`tag "${t}" is longer than ${MAX_TAG_LENGTH} characters`);
+        errors['tags'] = (errors['tags'] ?? []).concat(
+          `tag "${t}" is longer than ${MAX_TAG_LENGTH} characters`,
+        );
         continue;
       }
       const k = t.toLowerCase();
@@ -1355,14 +1844,17 @@ function listColumns(prefixChars: number = PREVIEW_FETCH_CHARS) {
 function hydrate(row: Record<string, unknown>): DocRow {
   const num = (v: unknown): number => (v === null || v === undefined ? 0 : Number(v));
   const str = (v: unknown): string => (v === null || v === undefined ? '' : String(v));
-  const nullableStr = (v: unknown): string | null => (v === null || v === undefined || v === '' ? null : String(v));
+  const nullableStr = (v: unknown): string | null =>
+    v === null || v === undefined || v === '' ? null : String(v);
   const metadataRaw = row['metadata'];
   let metadata: Record<string, unknown> | null = null;
-  if (metadataRaw && typeof metadataRaw === 'object' && !Array.isArray(metadataRaw)) metadata = metadataRaw as Record<string, unknown>;
+  if (metadataRaw && typeof metadataRaw === 'object' && !Array.isArray(metadataRaw))
+    metadata = metadataRaw as Record<string, unknown>;
   else if (typeof metadataRaw === 'string' && metadataRaw.trim().startsWith('{')) {
     try {
       const parsed = JSON.parse(metadataRaw);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) metadata = parsed as Record<string, unknown>;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+        metadata = parsed as Record<string, unknown>;
     } catch {
       metadata = null;
     }
@@ -1379,7 +1871,10 @@ function hydrate(row: Record<string, unknown>): DocRow {
     revision: num(row['revision']),
     metadata,
     tags: parseTags(row['tags'] ?? null),
-    sourceHostId: row['sourceHostId'] ?? row['source_host_id'] ? Number(row['sourceHostId'] ?? row['source_host_id']) : null,
+    sourceHostId:
+      (row['sourceHostId'] ?? row['source_host_id'])
+        ? Number(row['sourceHostId'] ?? row['source_host_id'])
+        : null,
     sourceEngine: nullableStr(row['sourceEngine'] ?? row['source_engine']),
     createdAt: str(row['createdAt'] ?? row['created_at']),
     updatedAt: str(row['updatedAt'] ?? row['updated_at']),
@@ -1397,7 +1892,12 @@ function chunkMatch(row: Record<string, unknown>, query: string): Record<string,
     chunk: ordinal,
     heading: row['heading'] ?? null,
     excerpt: excerptFor(String(row['chunk_content'] ?? ''), query),
-    score: typeof row['score'] === 'number' ? row['score'] : row['score'] === null || row['score'] === undefined ? null : Number(row['score']),
+    score:
+      typeof row['score'] === 'number'
+        ? row['score']
+        : row['score'] === null || row['score'] === undefined
+          ? null
+          : Number(row['score']),
     tags: parseTags(row['tags'] ?? null),
     char_start: row['char_start'] ?? null,
     char_end: row['char_end'] ?? null,
@@ -1407,17 +1907,31 @@ function chunkMatch(row: Record<string, unknown>, query: string): Record<string,
   };
 }
 
-function foldToDocuments(hits: Array<Record<string, unknown>>, query: string, limit: number): Array<Record<string, unknown>> {
+function foldToDocuments(
+  hits: Array<Record<string, unknown>>,
+  query: string,
+  limit: number,
+): Array<Record<string, unknown>> {
   const byDoc = new Map<string, Record<string, unknown>>();
   for (const row of hits) {
     const slug = String(row['slug'] ?? '');
     if (slug === '') continue;
-    const score = typeof row['score'] === 'number' ? row['score'] : row['score'] === null || row['score'] === undefined ? 0 : Number(row['score']);
+    const score =
+      typeof row['score'] === 'number'
+        ? row['score']
+        : row['score'] === null || row['score'] === undefined
+          ? 0
+          : Number(row['score']);
     const hit = {
       chunk: row['ordinal'] === null || row['ordinal'] === undefined ? null : Number(row['ordinal']),
       heading: row['heading'] ?? null,
       excerpt: excerptFor(String(row['chunk_content'] ?? ''), query),
-      score: typeof row['score'] === 'number' ? row['score'] : row['score'] === null || row['score'] === undefined ? null : Number(row['score']),
+      score:
+        typeof row['score'] === 'number'
+          ? row['score']
+          : row['score'] === null || row['score'] === undefined
+            ? null
+            : Number(row['score']),
     };
     const found = byDoc.get(slug);
     if (found) {
@@ -1460,14 +1974,18 @@ function sameTags(a: string[], b: string[]): boolean {
 }
 
 function sameMetadata(a: Record<string, unknown> | null, b: Record<string, unknown> | null): boolean {
-  const norm = (v: Record<string, unknown> | null) => (v === null ? null : Object.fromEntries(Object.entries(v).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))));
+  const norm = (v: Record<string, unknown> | null) =>
+    v === null
+      ? null
+      : Object.fromEntries(Object.entries(v).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)));
   return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
 }
 
 function normalizeInt(value: unknown, fallback: number, min: number, max: number): number {
   let n: number;
   if (typeof value === 'number') n = Math.trunc(value);
-  else if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) n = Math.trunc(Number(value));
+  else if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)))
+    n = Math.trunc(Number(value));
   else return fallback;
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, n));
@@ -1527,9 +2045,9 @@ function readInsertId(res: unknown): number | null {
 function isWriteRace(err: unknown): boolean {
   for (let cur: unknown = err, depth = 0; cur && depth < 5; depth++) {
     const e = cur as { errno?: unknown; code?: unknown; message?: unknown; cause?: unknown };
-    if (e.errno === 1062 || e.code === 'ER_DUP_ENTRY' || e.errno === 1213 || e.code === 'ER_LOCK_DEADLOCK') return true;
+    if (e.errno === 1062 || e.code === 'ER_DUP_ENTRY' || e.errno === 1213 || e.code === 'ER_LOCK_DEADLOCK')
+      return true;
     cur = e.cause;
   }
   return false;
 }
-

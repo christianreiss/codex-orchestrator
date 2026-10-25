@@ -22,6 +22,7 @@ export function stagePortalEvent(
         portalEventCursor: result.id,
         portalLastEventType: input.eventType,
         portalLastEventAt: input.createdAt,
+        ...(input.eventType === 'message_accepted' ? { portalAcceptedAt: input.createdAt } : {}),
         ...(input.eventType === 'attention' ? { portalAttentionCursor: result.id } : {}),
         ...(['user_message', 'close_requested', 'attention_resolved'].includes(input.eventType)
           ? { portalAttentionClearedCursor: result.id }

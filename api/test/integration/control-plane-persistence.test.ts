@@ -198,6 +198,54 @@ describe.skipIf(!handle)('owner persistence against real MySQL', () => {
     await handle!.pool.query('DELETE FROM control_plane_command_receipts WHERE principal = ?', [principal]);
     await handle!.pool.query('DELETE FROM versions WHERE name = ?', [name]);
   }
+  it('persists after many volatile revisions without advancing the durable counter for observations', async () => {
+    const f = await freshOwner(),
+      principal = 'test:' + randomUUID(),
+      name = 'quiet-revision-' + randomUUID();
+    try {
+      for (let i = 0; i < 20; i++) {
+        await f.commands.execute({
+          principal,
+          id: randomUUID(),
+          kind: 'fixture.observe',
+          payload: { i },
+          authorize() {},
+          prepare(_snapshot, revision) {
+            const draft = f.store.begin();
+            draft.upsert('versions', { name, version: String(i), updatedAt: new Date().toISOString() });
+            return {
+              persistence: 'volatile',
+              state: draft.seal(revision),
+              result: null,
+              persist: async () => {
+                throw new Error('Observation wrote SQL');
+              },
+            };
+          },
+        });
+      }
+      const [before] = await handle!.pool.query<RowDataPacket[]>(
+        'SELECT sequence FROM control_plane_owner WHERE id=1',
+      );
+      expect(Number(before[0]!.sequence)).toBe(0);
+      const effect = randomUUID();
+      await f.commands.execute(fixtureCommand(f.store, principal, randomUUID(), effect, name));
+      expect(f.store.revision().sequence).toBe(21n);
+      const [after] = await handle!.pool.query<RowDataPacket[]>(
+        'SELECT sequence FROM control_plane_owner WHERE id=1',
+      );
+      expect(Number(after[0]!.sequence)).toBe(1);
+      const [receipts] = await handle!.pool.query<RowDataPacket[]>(
+        'SELECT COUNT(*) AS n FROM control_plane_command_receipts WHERE principal=?',
+        [principal],
+      );
+      expect(Number(receipts[0]!.n)).toBe(1);
+    } finally {
+      await f.commands.drain();
+      await f.owner.close();
+      await cleanupFault(principal, name);
+    }
+  });
   it.each(['commit_ack', 'publication'] as const)(
     'reconstructs after real commit followed by %s loss without duplicate state or effects',
     async (fault) => {
@@ -243,14 +291,15 @@ describe.skipIf(!handle)('owner persistence against real MySQL', () => {
         replacement = await freshOwner(keyring);
         expect(replacement.store.snapshot().setting(name)).toBe('committed');
         const replayPrepare = vi.fn(() => {
-          throw new Error('durable replay must not prepare');
+          throw new Error('the already-mutated target no longer validates');
         });
         const result = await replacement.commands.execute({
           ...fixtureCommand(replacement.store, principal, id, effect, name),
           prepare: replayPrepare,
         });
         expect(result).toEqual({ value: 'committed' });
-        expect(replayPrepare).not.toHaveBeenCalled();
+        expect(replayPrepare).toHaveBeenCalledOnce();
+        // Pure validation may run again; no domain write, effect or publication may replay.
         expect(replacement.store.revision().sequence).toBe(0n);
         const [receipts] = await handle!.pool.query<RowDataPacket[]>(
           'SELECT request_id FROM control_plane_command_receipts WHERE principal = ?',

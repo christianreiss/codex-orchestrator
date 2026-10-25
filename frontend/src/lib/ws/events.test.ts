@@ -349,3 +349,11 @@ it("routes owner changes centrally and conservatively resnapshots unknown domain
   assert.deepEqual(ownerStateInvalidations({ tables: [null] }), [[]]);
   assert.deepEqual(ownerStateInvalidations({ tables: [] }), []);
 });
+
+
+it("keeps ordinary session and host observations scoped to their views", () => {
+  for(const table of ["agentSessions","agentBusMessages","hosts","hostDaemons","coordProjectFiles","versions"]){
+    const keys=ownerStateInvalidations({tables:[table]});
+    assert.ok(keys.length>0);assert.ok(keys.every(key=>key.length>0),`${table} invalidated all queries`);
+  }
+});

@@ -11,7 +11,8 @@ import { parseRoleManifest } from '../../services/roles/contract.js';
 import { boundedProjectEvents, type ProjectEventMetadata } from './project-history.js';
 import type { Keyring } from '../../security/keyring.js';
 import { decrypt } from '../../security/secret-box.js';
-import { desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { desc, eq, getTableColumns, inArray, sql, type SQL } from 'drizzle-orm';
+import { CORE_CONTENT_FIELDS } from './core-content.js';
 import type { AnyMySqlColumn } from 'drizzle-orm/mysql-core';
 import type { Database } from '../../db/client.js';
 import * as schema from '../../db/schema.js';
@@ -60,6 +61,9 @@ export async function hydrateOwnerState(
   let metadataBytes = 0;
   for (const name of OWNED_TABLE_NAMES) {
     const columns: Record<string, AnyMySqlColumn | SQL> = stateColumns(name);
+    const bodyColumns: Record<string, AnyMySqlColumn> = getTableColumns(schema[name]);
+    for (const field of CORE_CONTENT_FIELDS[name] ?? [])
+      if (bodyColumns[field]) columns[field] = bodyColumns[field];
     if (name === 'hosts') {
       // Legacy cleartext credentials never cross the persistence boundary.
       columns.credentialLookupHash = sql<string>`COALESCE(NULLIF(${schema.hosts.apiKeyHash}, ''), SHA2(${schema.hosts.apiKey}, 256))`;
@@ -244,6 +248,9 @@ export async function hydrateOwnerState(
       .select({
         sessionId: schema.agentEvents.sessionId,
         cursor: sql<number>`MAX(${schema.agentEvents.id})`,
+        acceptedAt: sql<
+          string | null
+        >`MAX(CASE WHEN ${schema.agentEvents.eventType}='message_accepted' THEN ${schema.agentEvents.createdAt} END)`,
         attention: sql<number>`COALESCE(MAX(CASE WHEN ${schema.agentEvents.eventType}='attention' THEN ${schema.agentEvents.id} END),0)`,
         cleared: sql<number>`COALESCE(MAX(CASE WHEN ${schema.agentEvents.eventType} IN ('user_message','close_requested','attention_resolved') THEN ${schema.agentEvents.id} END),0)`,
       })
@@ -274,6 +281,7 @@ export async function hydrateOwnerState(
       if (row)
         Object.assign(row, {
           portalEventCursor: Number(event.cursor),
+          portalAcceptedAt: event.acceptedAt,
           portalAttentionCursor: Number(event.attention),
           portalAttentionClearedCursor: Number(event.cleared),
         });
@@ -487,7 +495,16 @@ export async function hydrateOwnerState(
   if (latestAudit) {
     const pointer = {
       name: 'owner_admin_event_id',
-      version: String(Math.max(Number(latestAudit.id), Number((seed.versions as Array<{ name: string; version: string }> | undefined)?.find(row => row.name === 'owner_admin_event_id')?.version ?? 0))),
+      version: String(
+        Math.max(
+          Number(latestAudit.id),
+          Number(
+            (seed.versions as Array<{ name: string; version: string }> | undefined)?.find(
+              (row) => row.name === 'owner_admin_event_id',
+            )?.version ?? 0,
+          ),
+        ),
+      ),
       updatedAt: latestAudit.createdAt,
     };
     seed.versions = [

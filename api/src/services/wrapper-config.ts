@@ -590,13 +590,15 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
           : {}),
         ...(deps.communicatorRuntimeEnabled ? { communicator_runtime_protocol: 1 } : {}),
         // Old callers keep their warm-launch protocol; capable callers require
-        // a server confirmation for every use of the owner's RAM content.
+        // protocol 3 keeps content locally; admissions still require the server.
         ...(deps.communicatorEnabled && deps.communicatorSyncEnabled
           ? {
               communicator_cache_protocol:
                 /^v?\d{1,2}\.\d+\.\d+(?:[-+].*)?$/.test(reportedWrapperVersion(host, engine) ?? '') &&
                 compareWrapperVersions(reportedWrapperVersion(host, engine)!, '0.9.122') >= 0
-                  ? 2
+                  ? compareWrapperVersions(reportedWrapperVersion(host, engine)!, '0.9.128') >= 0
+                    ? 3
+                    : 2
                   : 1,
             }
           : {}),

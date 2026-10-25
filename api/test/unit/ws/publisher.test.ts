@@ -54,7 +54,9 @@ describe('wsPublisher fan-out', () => {
     wsPublisher.publish('host.updated', { id: 2 });
 
     expect(listener).toHaveBeenCalledTimes(1);
-    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ type: 'host.updated', payload: { id: 1 }, ts: NOW, sequence: '1' }));
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'host.updated', payload: { id: 1 }, ts: NOW, sequence: '1' }),
+    );
     // Unsubscribing detaches the socket, it does not stop the bus.
     expect(wsPublisher.recent()).toHaveLength(2);
   });
@@ -112,30 +114,59 @@ describe('wsPublisher backlog', () => {
   });
 });
 
-
 it('advances a monotonic sequence within one owner epoch', () => {
   const initial = wsPublisher.cursor();
   expect(initial.sequence).toBe('0');
   wsPublisher.publish('host.updated', {});
   wsPublisher.publish('host.updated', {});
   expect(wsPublisher.cursor()).toEqual({ epoch: initial.epoch, sequence: '2' });
-  expect(wsPublisher.recent().map(event => event.sequence)).toEqual(['1', '2']);
+  expect(wsPublisher.recent().map((event) => event.sequence)).toEqual(['1', '2']);
 });
 
 it('publishes changed owner tables once and ignores unchanged revisions', async () => {
   const { OwnerStateSnapshot, OwnerStateStore } = await import('../../../src/control-plane/state/store.js');
   const { publishOwnerStateChanges } = await import('../../../src/ws/publisher.js');
-  const state = new OwnerStateStore(new OwnerStateSnapshot({ epoch: '11111111-1111-4111-8111-111111111111', sequence: 0n }, {}));
-  const stop = publishOwnerStateChanges({ state } as import('../../../src/control-plane/state/runtime.js').OwnerRuntime);
+  const state = new OwnerStateStore(
+    new OwnerStateSnapshot({ epoch: '11111111-1111-4111-8111-111111111111', sequence: 0n }, {}),
+  );
+  const stop = publishOwnerStateChanges({
+    state,
+  } as import('../../../src/control-plane/state/runtime.js').OwnerRuntime);
   state.publish(state.begin().seal({ ...state.revision(), sequence: 1n }));
   expect(wsPublisher.recent()).toEqual([]);
   const draft = state.begin();
   draft.upsert('versions', { name: 'test', version: 'on', updatedAt: NOW });
   state.publish(draft.seal({ ...state.revision(), sequence: 2n }));
   expect(wsPublisher.recent()).toHaveLength(1);
-  expect(wsPublisher.recent()[0]).toMatchObject({ type: 'control_state.changed', payload: { tables: ['versions'] } });
+  expect(wsPublisher.recent()[0]).toMatchObject({
+    type: 'control_state.changed',
+    payload: { tables: ['versions'] },
+  });
   stop();
-  const later = state.begin(); later.remove('versions', 'test');
+  const later = state.begin();
+  later.remove('versions', 'test');
   state.publish(later.seal({ ...state.revision(), sequence: 3n }));
   expect(wsPublisher.recent()).toHaveLength(1);
+});
+
+it('keeps volatile observations and owner bookkeeping off the dashboard stream', async () => {
+  const { OwnerStateSnapshot, OwnerStateStore } = await import('../../../src/control-plane/state/store.js');
+  const { publishOwnerStateChanges } = await import('../../../src/ws/publisher.js');
+  const state = new OwnerStateStore(
+    new OwnerStateSnapshot({ epoch: '11111111-1111-4111-8111-111111111111', sequence: 0n }, {}),
+  );
+  const stop = publishOwnerStateChanges({
+    state,
+  } as import('../../../src/control-plane/state/runtime.js').OwnerRuntime);
+  try {
+    const observation = state.begin();
+    observation.upsert('versions', { name: 'observation', version: 'seen', updatedAt: NOW });
+    state.publish(observation.seal({ ...state.revision(), sequence: 1n }), 'volatile');
+    const internal = state.begin();
+    internal.upsert('versions', { name: 'owner_retention_cursor', version: 'next', updatedAt: NOW });
+    state.publish(internal.seal({ ...state.revision(), sequence: 2n }));
+    expect(wsPublisher.recent()).toEqual([]);
+  } finally {
+    stop();
+  }
 });

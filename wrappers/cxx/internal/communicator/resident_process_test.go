@@ -170,6 +170,12 @@ func TestResidentProcessRunsWithoutMessagingClientsOrAccountAdmission(t *testing
 	if policyReads.Load() == 0 || accountCalls.Load() != 0 {
 		t.Fatalf("policy=%d account admissions=%d", policyReads.Load(), accountCalls.Load())
 	}
+	reads := policyReads.Load()
+	time.Sleep(6 * time.Second)
+	if policyReads.Load() != reads {
+		t.Fatalf("idle resident polled settings: before=%d after=%d", reads, policyReads.Load())
+	}
+
 	namespace, _ := residency.Namespace(os.Getuid(), runtimeRoot)
 	coord := filepath.Join("/tmp", fmt.Sprintf("cxx-%d", os.Getuid()), "owner-"+residency.Key(os.Getuid(), upstream.URL, namespace))
 	defer os.RemoveAll(coord)

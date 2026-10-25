@@ -22,7 +22,11 @@ const MIN_REFRESH_EPOCH_MS = Date.UTC(2000, 0, 1);
 const MAX_FUTURE_SKEW_MS = 300 * 1000;
 const DEFAULT_TOKEN_MIN_LENGTH = 24;
 const TOKEN_MIN_LENGTH_FLOOR = 8;
-const AUTH_TARGETS: Record<Engine, string> = { codex: 'api.openai.com', claude: 'api.anthropic.com', grok: GROK_AUTH_TARGET };
+const AUTH_TARGETS: Record<Engine, string> = {
+  codex: 'api.openai.com',
+  claude: 'api.anthropic.com',
+  grok: GROK_AUTH_TARGET,
+};
 
 /**
  * Lightweight port of RunnerValidationService. The full PHP service handles
@@ -103,23 +107,42 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
   const tokenMinLength = resolveTokenMinLength(deps.tokenMinLength);
   const service: RunnerValidationService = {
     async resolveCanonicalPayload(engine, accountId) {
-      const owner=ownerRuntimeFor(db);
-      if(owner){
-        owner.assertOwner();const snapshot=owner.state.snapshot();
-        const load=async(id:number)=>{
-          const metadata=snapshot.table('authPayloads').get(id);if(!metadata)return null;
-          const cold=(await db.select({body:authPayloads.body}).from(authPayloads).where(eq(authPayloads.id,id)))[0];
-          return toCanonicalPayloadRow({...metadata,body:cold?.body??null} as typeof authPayloads.$inferSelect);
+      const owner = ownerRuntimeFor(db);
+      if (owner) {
+        owner.assertOwner();
+        const snapshot = owner.state.snapshot();
+        const load = async (id: number) => {
+          const metadata = snapshot.table('authPayloads').get(id);
+          if (!metadata) return null;
+          const body = snapshot.content('authPayloads', id, 'body');
+          if (body === undefined)
+            throw new Error('Current canonical credential body missing from owner state');
+          return toCanonicalPayloadRow({ ...metadata, body } as typeof authPayloads.$inferSelect);
         };
-        if(accountId!==undefined){
-          const account=await resolveProviderAccount(db,accountId,engine);if(!account||account.state==='removed'||!account.payloadId)return null;
-          const row=await load(account.payloadId);return row?.accountId===account.id&&row.engine===engine?row:null;
+        if (accountId !== undefined) {
+          const account = await resolveProviderAccount(db, accountId, engine);
+          if (!account || account.state === 'removed' || !account.payloadId) return null;
+          const row = await load(account.payloadId);
+          return row?.accountId === account.id && row.engine === engine ? row : null;
         }
-        const head=snapshot.table('authCanonicalHeads').get(engine);
-        if(head){const row=await load(head.payloadId);if(row?.accountId&&snapshot.accounts.get(row.accountId)?.state!=='enabled')return null;return row;}
-        const candidates=snapshot.table('authPayloads').by('engine',engine).filter(r=>r.accountId===null);
-        const rows=(await Promise.all(candidates.map(r=>load(r.id)))).filter((r):r is CanonicalPayloadRow=>r!==null).sort(compareCanonicalRowsNewestFirst);
-        return rows.find(row=>row.verificationState==='verified'&&service.validateCanonicalPayload(row)!==null)??null;
+        const head = snapshot.table('authCanonicalHeads').get(engine);
+        if (head) {
+          const row = await load(head.payloadId);
+          if (row?.accountId && snapshot.accounts.get(row.accountId)?.state !== 'enabled') return null;
+          return row;
+        }
+        const candidates = snapshot
+          .table('authPayloads')
+          .by('engine', engine)
+          .filter((r) => r.accountId === null);
+        const rows = (await Promise.all(candidates.map((r) => load(r.id))))
+          .filter((r): r is CanonicalPayloadRow => r !== null)
+          .sort(compareCanonicalRowsNewestFirst);
+        return (
+          rows.find(
+            (row) => row.verificationState === 'verified' && service.validateCanonicalPayload(row) !== null,
+          ) ?? null
+        );
       }
       if (accountId !== undefined) {
         const account = await resolveProviderAccount(db, accountId, engine);
@@ -193,7 +216,7 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
       return newestQuarantine[0]?.verificationState === 'pending' ? newestQuarantine[0] : null;
     },
 
-    validateCanonicalPayload(row, nowMs=Date.now()) {
+    validateCanonicalPayload(row, nowMs = Date.now()) {
       if (!row || !row.body) return null;
       const body = decodePayloadBody(row.body, deps.keyring);
       if (!body) return null;
@@ -258,7 +281,11 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
 
     ensureAuthsFallback(payload, engine) {
       if (engine === ENGINE_GROK) {
-        try { return normalizeGrokAuth(payload); } catch { return { ...payload, auths: {} }; }
+        try {
+          return normalizeGrokAuth(payload);
+        } catch {
+          return { ...payload, auths: {} };
+        }
       }
       const out = { ...payload };
       const nativeTarget = AUTH_TARGETS[engine];
@@ -466,7 +493,9 @@ function projectNativeEntry(
  * stamping the wrong engine's canonical head.
  */
 export function inferCanonicalEngine(entries: readonly NormalizedAuthEntry[]): Engine | null {
-  const engines = (Object.entries(AUTH_TARGETS) as Array<[Engine, string]>).filter(([, target]) => entries.some(entry => entry.target === target));
+  const engines = (Object.entries(AUTH_TARGETS) as Array<[Engine, string]>).filter(([, target]) =>
+    entries.some((entry) => entry.target === target),
+  );
   return engines.length === 1 ? engines[0]![0] : null;
 }
 
@@ -481,7 +510,9 @@ export function assertCanonicalEngineConsistent(
   entries: readonly NormalizedAuthEntry[],
   engine: Engine,
 ): void {
-  const foreignTarget = Object.values(AUTH_TARGETS).find(target => target !== AUTH_TARGETS[engine] && entries.some(entry => entry.target === target));
+  const foreignTarget = Object.values(AUTH_TARGETS).find(
+    (target) => target !== AUTH_TARGETS[engine] && entries.some((entry) => entry.target === target),
+  );
   if (foreignTarget) {
     throw new ValidationError(
       `canonical payload declared engine ${engine} but carries ${foreignTarget} credentials`,
@@ -517,11 +548,9 @@ function resolveTokenMinLength(override?: number): number {
   return Math.max(TOKEN_MIN_LENGTH_FLOOR, Math.trunc(configured));
 }
 
-function isReasonableLastRefresh(value: string, nowMs=Date.now()): boolean {
+function isReasonableLastRefresh(value: string, nowMs = Date.now()): boolean {
   const timestamp = parseRfc3339Millis(value);
-  return (
-    timestamp !== null && timestamp >= MIN_REFRESH_EPOCH_MS && timestamp <= nowMs + MAX_FUTURE_SKEW_MS
-  );
+  return timestamp !== null && timestamp >= MIN_REFRESH_EPOCH_MS && timestamp <= nowMs + MAX_FUTURE_SKEW_MS;
 }
 
 function isTokenQualityValid(rawToken: string, minLength: number): boolean {

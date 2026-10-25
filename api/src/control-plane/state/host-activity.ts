@@ -1,3 +1,4 @@
+import { communicatorRegistry } from '../../services/topology/communicator-registry.js';
 import { legacyDrainFor } from '../legacy-drain.js';
 import { ownerPresence } from '../presence.js';
 import type { OwnerRuntime } from './runtime.js';
@@ -11,11 +12,13 @@ export function trackHostActivity(owner: OwnerRuntime): void {
   const presence = ownerPresence(owner);
   for (const attachment of presence.all()) last.set(attachment.hostId, Date.now());
   const stopPresence = presence.subscribe((change) => last.set(change.attachment.hostId, Date.now()));
+  const stopConnections = communicatorRegistry.subscribeLifecycle((hostId) => last.set(hostId, Date.now()));
   const stopState = owner.state.subscribe((snapshot) => {
     for (const id of last.keys()) if (!snapshot.hosts.has(id)) last.delete(id);
   });
   stops.set(owner, () => {
     stopPresence();
+    stopConnections();
     stopState();
     last.clear();
     registries.delete(owner);
@@ -29,11 +32,20 @@ export function hostActivity(
   trackHostActivity(owner);
   const legacy = legacyDrainFor(owner)?.hostActivity(hostId);
   const connected =
+    [...communicatorRegistry.views.values()].some((connection) => connection.host_id === hostId) ||
     ownerPresence(owner)
       .all()
-      .some((attachment) => attachment.hostId === hostId) || legacy?.connected === true;
+      .some((attachment) => attachment.hostId === hostId) ||
+    legacy?.connected === true;
   const lastAt = Math.max(registries.get(owner)!.get(hostId) ?? 0, legacy?.lastAt ?? 0);
   return { connected, lastAt: connected ? Date.now() : lastAt || null };
+}
+
+/** Observation is not a durable domain change and cannot extend authority. */
+export function observeHostActivity(owner: OwnerRuntime, hostId: number, now = Date.now()): void {
+  trackHostActivity(owner);
+  const last = registries.get(owner)!;
+  last.set(hostId, Math.max(last.get(hostId) ?? 0, now));
 }
 
 export function stopHostActivity(owner: OwnerRuntime): void {

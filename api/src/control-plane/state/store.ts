@@ -1,4 +1,5 @@
 import { emptyCompanionEventIndex } from './companion-index.js';
+import { CORE_CONTENT_FIELDS, coreContentKey, type CoreContents } from './core-content.js';
 import {
   messagingTotalsFromSeed,
   updateMessagingTotals,
@@ -156,6 +157,7 @@ export class EntityView<K extends OwnedTableName> {
         'portalAttentionClearedCursor',
         'portalLastEventType',
         'portalLastEventAt',
+        'portalAcceptedAt',
       ])
         columns.add(field);
     }
@@ -238,6 +240,7 @@ export class EntityView<K extends OwnedTableName> {
         projected.portalAttentionClearedCursor ??= 0;
         projected.portalLastEventType ??= null;
         projected.portalLastEventAt ??= null;
+        projected.portalAcceptedAt ??= null;
       }
       // Legacy credentials are reduced to a hash before entering owner state.
       if (name === 'hosts') {
@@ -321,7 +324,11 @@ export class EntityView<K extends OwnedTableName> {
 }
 
 type Views = { [K in OwnedTableName]: EntityView<K> };
+const privateContents = new WeakMap<object, CoreContents>();
+const contentSizes = new WeakMap<CoreContents, number>();
 export class OwnerStateSnapshot {
+  readonly #contents: CoreContents;
+  readonly contentBytes: number;
   readonly revision: StateRevision;
   readonly #views: Views;
   readonly messagingTotals: MessagingTotals;
@@ -332,6 +339,7 @@ export class OwnerStateSnapshot {
     previous?: OwnerStateSnapshot,
     changed?: ReadonlySet<OwnedTableName>,
     totals?: MessagingTotals,
+    contents?: CoreContents,
   ) {
     this.revision = revision(value);
     this.messagingTotals = totals
@@ -345,6 +353,30 @@ export class OwnerStateSnapshot {
           : new EntityView(name, seed[name] ?? [], projectedSeeds.has(seed) ? projectedRows : undefined),
       ]),
     ) as Views;
+    if (contents) this.#contents = contents;
+    else {
+      const bodies = new Map(previous ? previous.#contents : undefined);
+      for (const name of OWNED_TABLE_NAMES)
+        for (const row of seed[name] ?? []) {
+          const key = this.table(name).keyFor(row as StateRow<typeof name>);
+          for (const field of CORE_CONTENT_FIELDS[name] ?? []) {
+            const value = (row as RecordRow)[field];
+            if (typeof value === 'string' || value === null)
+              bodies.set(coreContentKey(name, key, field), value);
+          }
+        }
+      this.#contents = bodies;
+    }
+    privateContents.set(this, this.#contents);
+    let bytes = contentSizes.get(this.#contents);
+    if (bytes === undefined) {
+      bytes = [...this.#contents].reduce(
+        (sum, [key, body]) => sum + Buffer.byteLength(key) + (body === null ? 0 : Buffer.byteLength(body)),
+        0,
+      );
+      contentSizes.set(this.#contents, bytes);
+    }
+    this.contentBytes = bytes;
     const tables = Object.fromEntries(
       OWNED_TABLE_NAMES.map((name) => [name, this.table(name).size]),
     ) as Record<OwnedTableName, number>;
@@ -357,6 +389,7 @@ export class OwnerStateSnapshot {
       tables: Object.freeze(tables),
       rows: aggregateRows + OWNED_TABLE_NAMES.reduce((n, name) => n + tables[name], 0),
       metadataBytes:
+        this.contentBytes +
         metadataSize(this.messagingTotals) +
         OWNED_TABLE_NAMES.reduce((n, name) => n + this.table(name).metadataBytes, 0),
     });
@@ -364,6 +397,14 @@ export class OwnerStateSnapshot {
   }
   table<K extends OwnedTableName>(name: K): EntityView<K> {
     return this.#views[name];
+  }
+  /** Only explicit domain readers expose a body, after their existing authority checks. */
+  content(name: OwnedTableName, key: Key, field: string): string | null | undefined {
+    return this.#contents.get(coreContentKey(name, keyOf(key), field));
+  }
+  /** Copy-on-write input for composed owner commands; never a wire field. */
+  copyContents(): Map<string, string | null> {
+    return new Map(this.#contents);
   }
   get hosts() {
     return this.table('hosts');
@@ -413,6 +454,8 @@ export class PreparedOwnerState {
 }
 
 export class OwnerStateDraft {
+  #contents: Map<string, string | null> | undefined;
+  #contentsPublished = false;
   readonly #changed = new Map<OwnedTableName, Map<string, RecordRow>>();
   #sealed = false;
   #messagingTotals: MessagingTotals | undefined;
@@ -421,6 +464,9 @@ export class OwnerStateDraft {
     this.#messagingTotals = updateMessagingTotals(this.#messagingTotals ?? this.base.messagingTotals, delta);
   }
   constructor(readonly base: OwnerStateSnapshot) {}
+  hasChanges(): boolean {
+    return this.#changed.size > 0 || this.#messagingTotals !== undefined;
+  }
   #assertOpen(): void {
     if (this.#sealed) throw new Error('Owner state draft is sealed');
   }
@@ -444,16 +490,37 @@ export class OwnerStateDraft {
     const view = new EntityView(name, [row]);
     const projected = entityRows.get(view)!.values().next().value! as StateRow<K>;
     this.#rows(name).set(view.keyFor(projected), projected as RecordRow);
+    for (const field of CORE_CONTENT_FIELDS[name] ?? []) {
+      const value = (row as RecordRow)[field];
+      if (typeof value === 'string' || value === null) {
+        this.#writableContents().set(coreContentKey(name, view.keyFor(projected), field), value);
+      }
+    }
   }
   remove(name: OwnedTableName, key: Key): void {
     this.#rows(name).delete(keyOf(key));
+    this.#dropContents(name, keyOf(key));
   }
   removeRow<K extends OwnedTableName>(name: K, row: Readonly<StateRow<K>>): void {
     this.#rows(name).delete(this.base.table(name).keyFor(row));
+    this.#dropContents(name, this.base.table(name).keyFor(row));
+  }
+  #dropContents(name: OwnedTableName, key: string): void {
+    const fields = CORE_CONTENT_FIELDS[name];
+    if (!fields?.length) return;
+    const contents = this.#writableContents();
+    for (const field of fields) contents.delete(coreContentKey(name, key, field));
+  }
+  #writableContents(): Map<string, string | null> {
+    if (!this.#contents) this.#contents = this.base.copyContents();
+    else if (this.#contentsPublished) this.#contents = new Map(this.#contents);
+    this.#contentsPublished = false;
+    return this.#contents;
   }
   /** Read the command's composed changes without sealing or publishing them. */
   view(): OwnerStateSnapshot {
     this.#assertOpen();
+    this.#contentsPublished = true;
     const seed = Object.fromEntries(
       [...this.#changed].map(([name, rows]) => [name, [...rows.values()]]),
     ) as StateSeed;
@@ -464,6 +531,7 @@ export class OwnerStateDraft {
       this.base,
       new Set(this.#changed.keys()),
       this.#messagingTotals,
+      this.#contents ?? privateContents.get(this.base)!,
     );
   }
   seal(next: StateRevision): PreparedOwnerState {
@@ -480,6 +548,7 @@ export class OwnerStateDraft {
       this.base,
       new Set(this.#changed.keys()),
       this.#messagingTotals,
+      this.#contents ?? privateContents.get(this.base)!,
     );
     this.#sealed = true;
     return PreparedOwnerState.fromDraft(this.base, snapshot);
@@ -488,7 +557,9 @@ export class OwnerStateDraft {
 
 export class OwnerStateStore {
   #current: OwnerStateSnapshot;
-  readonly #listeners = new Set<(snapshot: OwnerStateSnapshot) => void>();
+  readonly #listeners = new Set<
+    (snapshot: OwnerStateSnapshot, persistence: 'volatile' | 'durable') => void
+  >();
   readonly limits: OwnerStateLimits;
   constructor(initial: OwnerStateSnapshot, overrides: Partial<OwnerStateLimits> = {}) {
     this.limits = Object.freeze({ ...DEFAULT_OWNER_STATE_LIMITS, ...overrides });
@@ -512,7 +583,9 @@ export class OwnerStateStore {
   revision(): StateRevision {
     return this.#current.revision;
   }
-  subscribe(listener: (snapshot: OwnerStateSnapshot) => void): () => void {
+  subscribe(
+    listener: (snapshot: OwnerStateSnapshot, persistence: 'volatile' | 'durable') => void,
+  ): () => void {
     this.#listeners.add(listener);
     return () => {
       this.#listeners.delete(listener);
@@ -531,14 +604,14 @@ export class OwnerStateStore {
     if (candidate?.base !== this.#current) throw new Error('Owner state publication conflict');
     this.#checkLimits(candidate.snapshot);
   }
-  publish(prepared: PreparedOwnerState): void {
+  publish(prepared: PreparedOwnerState, persistence: 'volatile' | 'durable' = 'durable'): void {
     this.validate(prepared);
     this.#current = preparedSnapshots.get(prepared)!.snapshot;
     preparedSnapshots.delete(prepared);
     const errors: unknown[] = [];
     for (const listener of this.#listeners) {
       try {
-        listener(this.#current);
+        listener(this.#current, persistence);
       } catch (error) {
         errors.push(error);
       }

@@ -212,7 +212,7 @@ func CacheEnabled(ctx context.Context, base string) bool {
 	// An insecure host's rendered config embeds a short-lived MCP bearer that
 	// expires on a timer, not on an event, so its content is never cached.
 	if cfg, ok := ctx.Value(configContextKey{}).(*config.Config); ok && cfg != nil {
-		return cfg.Host.Secure && cfg.Orchestrator.CommunicatorCacheProtocol == CacheProtocol
+		return cfg.Host.Secure && (cfg.Orchestrator.CommunicatorCacheProtocol == CacheProtocol || cfg.Orchestrator.CommunicatorCacheProtocol == LocalContentCacheProtocol)
 	}
 	ep := endpointFor(base)
 	if ep == nil {
@@ -220,7 +220,7 @@ func CacheEnabled(ctx context.Context, base string) bool {
 	}
 	ep.mu.Lock()
 	defer ep.mu.Unlock()
-	return ep.anchor != nil && ep.anchor.Host.Secure && ep.anchor.Orchestrator.CommunicatorCacheProtocol == CacheProtocol
+	return ep.anchor != nil && ep.anchor.Host.Secure && (ep.anchor.Orchestrator.CommunicatorCacheProtocol == CacheProtocol || ep.anchor.Orchestrator.CommunicatorCacheProtocol == LocalContentCacheProtocol)
 }
 
 // Primed asks the owner whether it already holds current content for this
@@ -244,6 +244,12 @@ func Primed(ctx context.Context, base, engine, authPath string) bool {
 	}
 	if ExplicitContent(ctx) || !CacheEnabled(ctx, base) {
 		return false
+	}
+	if cfg, ok := ctx.Value(configContextKey{}).(*config.Config); ok && cfg != nil && cfg.Orchestrator.CommunicatorCacheProtocol == LocalContentCacheProtocol {
+		owner, ok := OwnerStatus(ctx, base)
+		if !ok || owner.Cache.LocalProtocol != LocalContentCacheProtocol {
+			return false
+		}
 	}
 	job, err := newSyncJob(ctx, base, engine, authPath)
 	if err != nil {

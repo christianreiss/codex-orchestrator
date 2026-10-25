@@ -72,8 +72,11 @@ export class DaemonState {
     if (engine) assertEngine(s, host, engine);
     return host;
   }
-  changed(id: number) {
-    wsPublisher.publish('host.daemon.changed', { host_id: id });
+  changed(id: number, policyChanged = false) {
+    wsPublisher.publish('host.daemon.changed', {
+      host_id: id,
+      ...(policyChanged ? { policy_changed: true } : {}),
+    });
   }
   cancelPending(c: OwnerMutationContext, id: number) {
     for (const op of c.draft
@@ -126,7 +129,7 @@ export class DaemonState {
         return null;
       },
     });
-    this.changed(id);
+    this.changed(id, true);
   }
   async migration(id: number, requestId: string, command: 'fence' | 'status' | 'release') {
     if (command !== 'status')
@@ -157,7 +160,7 @@ export class DaemonState {
     const claims = work
       .flatMap((w) => (w.addressId ? s.messages.by('targetAddressId', w.addressId) : []))
       .filter((m) => ['leased', 'accepted'].includes(m.status)).length;
-    if (command !== 'status') this.changed(id);
+    if (command !== 'status') this.changed(id, true);
     return {
       request_id: requestId,
       fenced: row.settings.migration?.request_id === requestId,
@@ -168,8 +171,11 @@ export class DaemonState {
     };
   }
   async connect(id: number, input: Omit<DaemonRuntime, 'generation' | 'heartbeat_at' | 'connected'>) {
+    const previous = this.settings(id);
+    const startsLifetime = !!previous.settings.lifetime_minutes && !previous.settings.expires_at;
     const result = await mutateOwnerState(this.owner, {
       kind: 'daemon.connect',
+      persistence: startsLifetime ? 'durable' : 'volatile',
       payload: { id, input },
       prepare: (c) => {
         this.eligible(id, undefined, true, c.snapshot);
@@ -193,7 +199,7 @@ export class DaemonState {
         } as unknown as Json;
       },
     });
-    this.changed(id);
+    this.changed(id, startsLifetime);
     return result as unknown as { generation: string; settings: DaemonSettings };
   }
   async heartbeat(id: number, generation: string, engines: string[], error: string | null) {
@@ -206,6 +212,7 @@ export class DaemonState {
     ) {
       await mutateOwnerState(this.owner, {
         kind: 'daemon.metadata',
+        persistence: 'volatile',
         payload: { id, generation, engines, error },
         prepare: (c) => {
           this.eligible(id, undefined, true, c.snapshot);
@@ -237,6 +244,7 @@ export class DaemonState {
     if (!row?.runtime?.connected || row.runtime.generation !== generation) return;
     await mutateOwnerState(this.owner, {
       kind: 'daemon.disconnect',
+      persistence: 'volatile',
       payload: { id, generation },
       prepare: (c) => {
         const current = c.snapshot.daemons.get(id);

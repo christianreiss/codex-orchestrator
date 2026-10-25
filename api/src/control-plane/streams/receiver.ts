@@ -207,8 +207,10 @@ export async function registerOwnedReceiver(
         bindingGeneration: auth.bindingGeneration,
       }),
       old = receiverState(session.receiver);
-    if (!ownerPresence(runtime).hasSession(id, session.bindingGeneration) &&
-        !drain?.session(id, session.bindingGeneration))
+    if (
+      !ownerPresence(runtime).hasSession(id, session.bindingGeneration) &&
+      !drain?.session(id, session.bindingGeneration)
+    )
       throw new ConflictError('Receiver connection unavailable', 'receiver_expired');
     if (
       old?.generation === input.generation &&
@@ -230,6 +232,13 @@ export async function registerOwnedReceiver(
   if (current.old?.generation === input.generation) return response(runtime, id);
   await mutateOwnerState(runtime, {
     kind: 'receiver.register',
+    persistence:
+      auth.upstreamSessionId === input.native_session_id &&
+      (!auth.agentBusAddressId ||
+        runtime.state.snapshot().addresses.get(auth.agentBusAddressId)?.lastUpstreamSessionId ===
+          input.native_session_id)
+        ? 'volatile'
+        : 'durable',
     payload: { id, ...input },
     authorize: (s) => {
       check(s);
@@ -319,6 +328,7 @@ export async function updateOwnedReceiver(
     return { receiver: ownedReceiverView(runtime, session) };
   await mutateOwnerState(runtime, {
     kind: 'receiver.stop',
+    persistence: 'volatile',
     payload: { id, generation, failure: input.failure ?? 'receiver_stopped' },
     authorize: (s) => {
       const current = ownedSessionAuthority(s, id, token).session;
@@ -364,6 +374,7 @@ export function statusOwnedReceiver(runtime: OwnerRuntime, id: string, token: st
 export async function retryOwnedReceiver(runtime: OwnerRuntime, id: string) {
   await mutateOwnerState(runtime, {
     kind: 'receiver.retry',
+    persistence: 'volatile',
     payload: { id },
     prepare(context) {
       const session = context.snapshot.sessions.get(id),

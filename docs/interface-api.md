@@ -1,5 +1,30 @@
 # API Interface (Source of Truth)
 
+## Quiet runtime (2026-10-25)
+
+Read, volatile observation and durable mutation have separate execution paths.
+No-op work opens no transaction and publishes no revision. Presence, contact and
+unchanged provider/runner observations update RAM without receipts; genuine
+identity/auth/work/usage changes persist. Quota history retains a daily baseline
+and changed readings rather than a copy of every freshness timestamp.
+
+Durable commands reserve their unique receipt before domain DML. Only an actual
+duplicate or failed-prepare recovery reads the stored receipt; replays still
+require current authority. RAM publication sequence and durable commit count are
+independent. Commit-before-publication and uncertain-outcome fencing remain.
+No schema change is required for these paths.
+
+Retention derives scope/room/session protections from current RAM, including
+paused jobs, accepted/unknown work and unended native sessions. Empty eligibility
+checks perform no SQL. Real bounded deletion and requested cold-history queries
+remain durable operations. WebUI policies, exclusions and host overrides retain
+their existing authority; they are not bypassed by cleanup.
+
+`POST /sync/cache` accepts protocol 3 only for pure content reads. It may grant
+communicator-local reuse on secure hosts with a current owner, bounded by actual
+host/token expiry. Auth/admission and mutations remain live. Invalidations use
+the existing push connection and scoped cache families. See [REDESIGN.md](../REDESIGN.md).
+
 ## Current owner-mode contract
 
 Routine HTTP request/completion logs are disabled; request errors remain logged.
@@ -12,12 +37,15 @@ Response authorization accepts ordinary extensions of an already admitted
 insecure-host window. Shortening or closing the window, rotating credentials,
 or changing host IP policy still invalidates pending responses.
 
-The running API is the single owner of bounded current-state metadata in RAM.
+The running API is the single owner of bounded current state and private current document content in RAM.
 It hydrates once under exclusive database ownership; production also holds the
 shared-storage kernel lock before bootstrap. Durable commands commit state,
 receipts and required effect intents before publishing revisions. Current-state reads
-and transport liveness do not poll SQL; requested historical/encrypted bodies
-remain explicit cold reads. See [control-plane-owner.md](control-plane-owner.md).
+and transport liveness do not poll SQL. Current Auth, Skills, AGENTS, config,
+Knowledge, project/host memories and secret envelopes are loaded privately at
+boot; requested history and large attachments remain explicit cold reads.
+Private bytes are excluded from metadata broadcasts and charged to the existing
+owner-state byte budget. See [control-plane-owner.md](control-plane-owner.md).
 
 New connection-owned grants use authenticated session/binding/native-instance
 proof. Disconnect, silence, owner restart and old timestamp expiry do not prove

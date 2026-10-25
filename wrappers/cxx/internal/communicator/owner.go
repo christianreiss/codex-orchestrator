@@ -20,7 +20,8 @@ type Owner struct {
 	PID                  int    `json:"pid"`
 	Mode                 string `json:"mode"`
 	Cache                struct {
-		Protocol int `json:"protocol"`
+		Protocol      int `json:"protocol"`
+		LocalProtocol int `json:"local_content_protocol"`
 	} `json:"cache"`
 }
 

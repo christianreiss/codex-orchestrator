@@ -1,4 +1,5 @@
-import {persistAuditLog} from './audit-log.js';
+import { searchOwnedMemories } from './runtime-knowledge.js';
+import { persistAuditLog } from './audit-log.js';
 import { executeColdRead } from '../db/fresh-read.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 import { stageUpdate, stageDelete } from '../control-plane/state/rows.js';
@@ -111,7 +112,9 @@ export interface ProjectSummary {
 }
 
 /** A `project_list` record: the full summary, or the compact form without `about`. */
-export type ListedProject = ProjectSummary | (Omit<ProjectSummary, 'about'> & { about_bytes: number; about_omitted: true });
+export type ListedProject =
+  | ProjectSummary
+  | (Omit<ProjectSummary, 'about'> & { about_bytes: number; about_omitted: true });
 
 const LIST_DESCRIPTION_CHARS = 500;
 
@@ -131,7 +134,7 @@ interface NoteRow {
   project_id: number;
   header: string;
   body: string;
-  body_length?:number;
+  body_length?: number;
   source_host_id: number | null;
   created_at: string | null;
   updated_at: string | null;
@@ -193,7 +196,7 @@ interface FeedbackRow {
 }
 
 interface MemoryRow {
-  content_length?:number;
+  content_length?: number;
   id: number;
   project_id: number;
   key: string;
@@ -225,14 +228,49 @@ interface EventRow {
 }
 
 export class HostProjectsService {
-  constructor(private readonly db: Database, private readonly options: { presenceFreshSeconds?: number } = {}) {}
-  private snapshot(){const owner=ownerRuntimeFor(this.db);owner?.assertOwner();return owner?.state.snapshot();}
-  private content(){return new ProjectContentService(this.db,new ProjectsService(this.db));}
-  private async patchOwnedProject(project:ProjectRow,patch:Partial<typeof coordProjects.$inferSelect>,eventType:string,action:string,payload:Record<string,unknown>,host:Host):Promise<ProjectRow>{
-    const owner=ownerRuntimeFor(this.db)!;await mutateOwnerState(owner,{kind:'project.'+eventType+'.'+action,payload:{projectId:project.id},prepare:ctx=>{stageUpdate(ctx,'coordProjects',project.id,{...patch,updatedAt:nowIso()});stageProjectEvent(ctx,project.id,eventType,action,'project',project.id,payload,host.id);ctx.write(async tx=>persistAuditLog(tx, {hostId:host.id,action:'project.'+eventType+'.'+action,details:JSON.stringify({slug:project.slug}),createdAt:nowIso(),engine:null}));return null;}});const updated=(await this.findById(project.id))!;wsPublisher.publish('project.updated',{slug:project.slug,source_host_id:host.id});return updated;
+  constructor(
+    private readonly db: Database,
+    private readonly options: { presenceFreshSeconds?: number } = {},
+  ) {}
+  private snapshot() {
+    const owner = ownerRuntimeFor(this.db);
+    owner?.assertOwner();
+    return owner?.state.snapshot();
   }
-
-
+  private content() {
+    return new ProjectContentService(this.db, new ProjectsService(this.db));
+  }
+  private async patchOwnedProject(
+    project: ProjectRow,
+    patch: Partial<typeof coordProjects.$inferSelect>,
+    eventType: string,
+    action: string,
+    payload: Record<string, unknown>,
+    host: Host,
+  ): Promise<ProjectRow> {
+    const owner = ownerRuntimeFor(this.db)!;
+    await mutateOwnerState(owner, {
+      kind: 'project.' + eventType + '.' + action,
+      payload: { projectId: project.id },
+      prepare: (ctx) => {
+        stageUpdate(ctx, 'coordProjects', project.id, { ...patch, updatedAt: nowIso() });
+        stageProjectEvent(ctx, project.id, eventType, action, 'project', project.id, payload, host.id);
+        ctx.write(async (tx) =>
+          persistAuditLog(tx, {
+            hostId: host.id,
+            action: 'project.' + eventType + '.' + action,
+            details: JSON.stringify({ slug: project.slug }),
+            createdAt: nowIso(),
+            engine: null,
+          }),
+        );
+        return null;
+      },
+    });
+    const updated = (await this.findById(project.id))!;
+    wsPublisher.publish('project.updated', { slug: project.slug, source_host_id: host.id });
+    return updated;
+  }
 
   /**
    * `include_about` defaults to true so `GET /projects` keeps its documented
@@ -243,12 +281,19 @@ export class HostProjectsService {
    */
   async listProjects(host: Host, args: Record<string, unknown> = {}): Promise<{ projects: ListedProject[] }> {
     const includeArchived = this.normalizeBoolFlag(args['include_archived']);
-    const includeAbout = args['include_about'] === undefined ? true : this.normalizeBoolFlag(args['include_about']);
-    const rows = this.snapshot()?.table('coordProjects').all().filter(row=>includeArchived||!row.archivedAt).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||a.slug.localeCompare(b.slug)) ?? await this.db
-      .select()
-      .from(coordProjects)
-      .where(includeArchived ? undefined : isNull(coordProjects.archivedAt))
-      .orderBy(desc(coordProjects.updatedAt), asc(coordProjects.slug));
+    const includeAbout =
+      args['include_about'] === undefined ? true : this.normalizeBoolFlag(args['include_about']);
+    const rows =
+      this.snapshot()
+        ?.table('coordProjects')
+        .all()
+        .filter((row) => includeArchived || !row.archivedAt)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.slug.localeCompare(b.slug)) ??
+      (await this.db
+        .select()
+        .from(coordProjects)
+        .where(includeArchived ? undefined : isNull(coordProjects.archivedAt))
+        .orderBy(desc(coordProjects.updatedAt), asc(coordProjects.slug)));
     const summaries: ListedProject[] = rows.map((r) => {
       const summary = this.buildSummary(this.hydrateProject(r));
       if (includeAbout) return summary;
@@ -275,7 +320,21 @@ export class HostProjectsService {
   async archiveProject(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
     const reason = this.optString(payload['reason']);
-    if(ownerRuntimeFor(this.db)){if(project.archived_at)return {project:this.buildSummary(project),archived_at:project.archived_at,status:'unchanged'};const now=nowIso(),updated=await this.patchOwnedProject(project,{archivedAt:now},'project','archive',{archived_at:now,reason},host);wsPublisher.publish('project.archived',{slug,source_host_id:host.id});return {project:this.buildSummary(updated),archived_at:now,status:'archived'};}
+    if (ownerRuntimeFor(this.db)) {
+      if (project.archived_at)
+        return { project: this.buildSummary(project), archived_at: project.archived_at, status: 'unchanged' };
+      const now = nowIso(),
+        updated = await this.patchOwnedProject(
+          project,
+          { archivedAt: now },
+          'project',
+          'archive',
+          { archived_at: now, reason },
+          host,
+        );
+      wsPublisher.publish('project.archived', { slug, source_host_id: host.id });
+      return { project: this.buildSummary(updated), archived_at: now, status: 'archived' };
+    }
     if (project.archived_at) {
       return { project: this.buildSummary(project), archived_at: project.archived_at, status: 'unchanged' };
     }
@@ -285,7 +344,15 @@ export class HostProjectsService {
       .set({ archivedAt: now, updatedAt: now })
       .where(eq(coordProjects.id, project.id));
     const updated = (await this.findById(project.id))!;
-    await this.recordEvent(updated, 'project', 'archive', 'project', String(updated.id), { archived_at: now, reason }, host.id);
+    await this.recordEvent(
+      updated,
+      'project',
+      'archive',
+      'project',
+      String(updated.id),
+      { archived_at: now, reason },
+      host.id,
+    );
     await this.recordLog(host.id, 'project.archive', { slug: updated.slug, reason });
     wsPublisher.publish('project.archived', { slug: updated.slug, source_host_id: host.id });
     wsPublisher.publish('project.updated', { slug: updated.slug, source_host_id: host.id });
@@ -294,7 +361,20 @@ export class HostProjectsService {
 
   async unarchiveProject(slug: string, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
-    if(ownerRuntimeFor(this.db)){if(!project.archived_at)return {project:this.buildSummary(project),archived_at:null,status:'unchanged'};const updated=await this.patchOwnedProject(project,{archivedAt:null},'project','unarchive',{archived_at:null},host);wsPublisher.publish('project.unarchived',{slug,source_host_id:host.id});return {project:this.buildSummary(updated),archived_at:null,status:'unarchived'};}
+    if (ownerRuntimeFor(this.db)) {
+      if (!project.archived_at)
+        return { project: this.buildSummary(project), archived_at: null, status: 'unchanged' };
+      const updated = await this.patchOwnedProject(
+        project,
+        { archivedAt: null },
+        'project',
+        'unarchive',
+        { archived_at: null },
+        host,
+      );
+      wsPublisher.publish('project.unarchived', { slug, source_host_id: host.id });
+      return { project: this.buildSummary(updated), archived_at: null, status: 'unarchived' };
+    }
     if (!project.archived_at) {
       return { project: this.buildSummary(project), archived_at: null, status: 'unchanged' };
     }
@@ -304,7 +384,15 @@ export class HostProjectsService {
       .set({ archivedAt: null, updatedAt: now })
       .where(eq(coordProjects.id, project.id));
     const updated = (await this.findById(project.id))!;
-    await this.recordEvent(updated, 'project', 'unarchive', 'project', String(updated.id), { archived_at: null }, host.id);
+    await this.recordEvent(
+      updated,
+      'project',
+      'unarchive',
+      'project',
+      String(updated.id),
+      { archived_at: null },
+      host.id,
+    );
     await this.recordLog(host.id, 'project.unarchive', { slug: updated.slug });
     wsPublisher.publish('project.unarchived', { slug: updated.slug, source_host_id: host.id });
     wsPublisher.publish('project.updated', { slug: updated.slug, source_host_id: host.id });
@@ -322,10 +410,56 @@ export class HostProjectsService {
       });
     }
 
-    const owner=ownerRuntimeFor(this.db);if(owner){await mutateOwnerState(owner,{kind:'project.create',payload:{slug},prepare:ctx=>{if(ctx.snapshot.table('coordProjects').all().some(row=>row.slug===slug))throw new ConflictError('Project already exists');const now=nowIso(),values={slug,aboutJson:about,rosterMarkdown:roster,latestEventSeq:0,archivedAt:null,createdAt:now,updatedAt:now};ctx.write(async tx=>{const inserted=await tx.insert(coordProjects).values(values),id=Number(inserted[0].insertId);ctx.draft.upsert('coordProjects',{...values,id});stageProjectEvent(ctx,id,'project','create','project',id,{slug,about},host.id);});ctx.write(async tx=>persistAuditLog(tx, {hostId:host.id,action:'project.create',details:JSON.stringify({slug,board_template:template}),createdAt:now,engine:null}));return null;}});if(template!==DEFAULT_BOARD_TEMPLATE)await this.board().provisionBoard(slug,template);wsPublisher.publish('project.created',{slug,source_host_id:host.id});return this.projectDetail(slug,host);}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, {
+        kind: 'project.create',
+        payload: { slug },
+        prepare: (ctx) => {
+          if (
+            ctx.snapshot
+              .table('coordProjects')
+              .all()
+              .some((row) => row.slug === slug)
+          )
+            throw new ConflictError('Project already exists');
+          const now = nowIso(),
+            values = {
+              slug,
+              aboutJson: about,
+              rosterMarkdown: roster,
+              latestEventSeq: 0,
+              archivedAt: null,
+              createdAt: now,
+              updatedAt: now,
+            };
+          ctx.write(async (tx) => {
+            const inserted = await tx.insert(coordProjects).values(values),
+              id = Number(inserted[0].insertId);
+            ctx.draft.upsert('coordProjects', { ...values, id });
+            stageProjectEvent(ctx, id, 'project', 'create', 'project', id, { slug, about }, host.id);
+          });
+          ctx.write(async (tx) =>
+            persistAuditLog(tx, {
+              hostId: host.id,
+              action: 'project.create',
+              details: JSON.stringify({ slug, board_template: template }),
+              createdAt: now,
+              engine: null,
+            }),
+          );
+          return null;
+        },
+      });
+      if (template !== DEFAULT_BOARD_TEMPLATE) await this.board().provisionBoard(slug, template);
+      wsPublisher.publish('project.created', { slug, source_host_id: host.id });
+      return this.projectDetail(slug, host);
+    }
     const existing = await this.findBySlug(slug, true);
     if (existing) {
-      throw new ValidationError('Validation failed', { extra: { errors: { slug: ['slug already exists'] } } });
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { slug: ['slug already exists'] } },
+      });
     }
 
     const now = nowIso();
@@ -408,12 +542,12 @@ export class HostProjectsService {
   async summary(slug: string, args: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {
     const project = await this.requireProject(slug);
     const [notes, todos, files, feedback, memories, recent] = await Promise.all([
-      this.fetchNotes(project.id,true),
+      this.fetchNotes(project.id, true),
       this.fetchTodos(project.id),
       this.fetchFileSummaries(project.id),
-      this.fetchFeedback(project.id,true),
-      this.fetchMemories(project.id,true),
-      this.fetchRecentEvents(project.id,10,true),
+      this.fetchFeedback(project.id, true),
+      this.fetchMemories(project.id, true),
+      this.fetchRecentEvents(project.id, 10, true),
     ]);
 
     const board = await this.board().summaryFor(
@@ -471,7 +605,10 @@ export class HostProjectsService {
     };
   }
 
-  async projectDetail(slug: string, host: Host): Promise<{
+  async projectDetail(
+    slug: string,
+    host: Host,
+  ): Promise<{
     project: {
       slug: string;
       about: Record<string, unknown> | null;
@@ -496,14 +633,32 @@ export class HostProjectsService {
     const project = await this.requireProject(slug);
     const aboutRaw = (payload as Record<string, unknown>)['about'] ?? payload;
     const about = this.normalizeAbout(aboutRaw);
-    if(ownerRuntimeFor(this.db)){const updated=await this.patchOwnedProject(project,{aboutJson:about},'about','update',{about},host);return {project:this.buildSummary(updated),about:updated.about};}
+    if (ownerRuntimeFor(this.db)) {
+      const updated = await this.patchOwnedProject(
+        project,
+        { aboutJson: about },
+        'about',
+        'update',
+        { about },
+        host,
+      );
+      return { project: this.buildSummary(updated), about: updated.about };
+    }
     const now = nowIso();
     await this.db
       .update(coordProjects)
       .set({ aboutJson: about, updatedAt: now })
       .where(eq(coordProjects.id, project.id));
     const updated = (await this.findById(project.id))!;
-    await this.recordEvent(updated, 'about', 'update', 'project', String(updated.id), { about: updated.about }, host.id);
+    await this.recordEvent(
+      updated,
+      'about',
+      'update',
+      'project',
+      String(updated.id),
+      { about: updated.about },
+      host.id,
+    );
     await this.recordLog(host.id, 'project.about.update', { slug: updated.slug });
     wsPublisher.publish('project.updated', { slug: updated.slug, source_host_id: host.id });
     return { project: this.buildSummary(updated), about: updated.about };
@@ -534,15 +689,59 @@ export class HostProjectsService {
       });
     }
 
-    const owner=ownerRuntimeFor(this.db);if(owner){await mutateOwnerState(owner,{kind:'project.update',payload:{slug},prepare:ctx=>{const row=ctx.snapshot.table('coordProjects').get(project.id);if(!row)throw new NotFoundError('Project not found');if(touchesAbout){const incoming=this.normalizeAbout(payload['about'])??{},about=payload['replace']===true?incoming:{...(row.aboutJson as Record<string,unknown>??{}),...incoming};stageUpdate(ctx,'coordProjects',project.id,{aboutJson:about});stageProjectEvent(ctx,project.id,'about','update','project',project.id,{about},host.id);}if(touchesRoster){const roster=this.normalizeRoster(payload['roster_markdown']??payload['markdown']??'');stageUpdate(ctx,'coordProjects',project.id,{rosterMarkdown:roster});stageProjectEvent(ctx,project.id,'roster','update','project',project.id,{roster_markdown:roster},host.id);}return null;}});const updated=(await this.findById(project.id))!;wsPublisher.publish('project.updated',{slug,source_host_id:host.id});return {project:this.buildSummary(updated),...(touchesAbout?{about:updated.about}:{}),...(touchesRoster?{roster_markdown:updated.roster_markdown}:{})};}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, {
+        kind: 'project.update',
+        payload: { slug },
+        prepare: (ctx) => {
+          const row = ctx.snapshot.table('coordProjects').get(project.id);
+          if (!row) throw new NotFoundError('Project not found');
+          if (touchesAbout) {
+            const incoming = this.normalizeAbout(payload['about']) ?? {},
+              about =
+                payload['replace'] === true
+                  ? incoming
+                  : { ...((row.aboutJson as Record<string, unknown>) ?? {}), ...incoming };
+            stageUpdate(ctx, 'coordProjects', project.id, { aboutJson: about });
+            stageProjectEvent(ctx, project.id, 'about', 'update', 'project', project.id, { about }, host.id);
+          }
+          if (touchesRoster) {
+            const roster = this.normalizeRoster(payload['roster_markdown'] ?? payload['markdown'] ?? '');
+            stageUpdate(ctx, 'coordProjects', project.id, { rosterMarkdown: roster });
+            stageProjectEvent(
+              ctx,
+              project.id,
+              'roster',
+              'update',
+              'project',
+              project.id,
+              { roster_markdown: roster },
+              host.id,
+            );
+          }
+          return null;
+        },
+      });
+      const updated = (await this.findById(project.id))!;
+      wsPublisher.publish('project.updated', { slug, source_host_id: host.id });
+      return {
+        project: this.buildSummary(updated),
+        ...(touchesAbout ? { about: updated.about } : {}),
+        ...(touchesRoster ? { roster_markdown: updated.roster_markdown } : {}),
+      };
+    }
     let result: Record<string, unknown> = {};
     if (touchesAbout) {
       const incoming = this.normalizeAbout(payload['about']) ?? {};
       const merged = payload['replace'] === true ? incoming : { ...(project.about ?? {}), ...incoming };
-      result = { ...result, ...(await this.updateAbout(slug, { about: merged }, host) as Record<string, unknown>) };
+      result = {
+        ...result,
+        ...((await this.updateAbout(slug, { about: merged }, host)) as Record<string, unknown>),
+      };
     }
     if (touchesRoster) {
-      result = { ...result, ...(await this.updateRoster(slug, payload, host) as Record<string, unknown>) };
+      result = { ...result, ...((await this.updateRoster(slug, payload, host)) as Record<string, unknown>) };
     }
     return result;
   }
@@ -550,27 +749,51 @@ export class HostProjectsService {
   async updateRoster(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
     const roster = this.normalizeRoster(payload['roster_markdown'] ?? payload['markdown'] ?? '');
-    if(ownerRuntimeFor(this.db)){const updated=await this.patchOwnedProject(project,{rosterMarkdown:roster},'roster','update',{roster_markdown:roster},host);return {project:this.buildSummary(updated),roster_markdown:updated.roster_markdown};}
+    if (ownerRuntimeFor(this.db)) {
+      const updated = await this.patchOwnedProject(
+        project,
+        { rosterMarkdown: roster },
+        'roster',
+        'update',
+        { roster_markdown: roster },
+        host,
+      );
+      return { project: this.buildSummary(updated), roster_markdown: updated.roster_markdown };
+    }
     const now = nowIso();
     await this.db
       .update(coordProjects)
       .set({ rosterMarkdown: roster, updatedAt: now })
       .where(eq(coordProjects.id, project.id));
     const updated = (await this.findById(project.id))!;
-    await this.recordEvent(updated, 'roster', 'update', 'project', String(updated.id), { roster_markdown: updated.roster_markdown }, host.id);
+    await this.recordEvent(
+      updated,
+      'roster',
+      'update',
+      'project',
+      String(updated.id),
+      { roster_markdown: updated.roster_markdown },
+      host.id,
+    );
     await this.recordLog(host.id, 'project.roster.update', { slug: updated.slug });
     wsPublisher.publish('project.updated', { slug: updated.slug, source_host_id: host.id });
     return { project: this.buildSummary(updated), roster_markdown: updated.roster_markdown };
   }
 
-  async listChanges(slug: string, since: number, host: Host, args: Record<string, unknown> = {}): Promise<unknown> {
+  async listChanges(
+    slug: string,
+    since: number,
+    host: Host,
+    args: Record<string, unknown> = {},
+  ): Promise<unknown> {
     const project = await this.requireProject(slug);
     // `Math.trunc`, not `| 0`: the bitwise form silently wraps a sequence above
     // 2^31, which on a long-lived project would replay the whole log instead of
     // resuming.
     const safeSince = Math.max(0, Math.trunc(Number(since)) || 0);
     const preview = String(args['payloads'] ?? '').toLowerCase() === 'preview';
-    if(ownerRuntimeFor(this.db)&&safeSince>=project.latest_event_seq)return {project:project.slug,since:safeSince,latest_seq:project.latest_event_seq,changes:[]};
+    if (ownerRuntimeFor(this.db) && safeSince >= project.latest_event_seq)
+      return { project: project.slug, since: safeSince, latest_seq: project.latest_event_seq, changes: [] };
     const rows = await this.db
       .select()
       .from(coordProjectEvents)
@@ -593,8 +816,17 @@ export class HostProjectsService {
     return { project: project.slug, notes: rows };
   }
 
-  async upsertNote(slug: string, id: number | null, payload: Record<string, unknown>, host: Host): Promise<unknown> {
-    if(ownerRuntimeFor(this.db)){const normalized=this.normalizeNotePayload(payload);const result=await this.content().upsertNote(slug,id,normalized,host.id);return {project:result.project,note:this.hydrateNote(result.note)};}
+  async upsertNote(
+    slug: string,
+    id: number | null,
+    payload: Record<string, unknown>,
+    host: Host,
+  ): Promise<unknown> {
+    if (ownerRuntimeFor(this.db)) {
+      const normalized = this.normalizeNotePayload(payload);
+      const result = await this.content().upsertNote(slug, id, normalized, host.id);
+      return { project: result.project, note: this.hydrateNote(result.note) };
+    }
     const project = await this.requireProject(slug);
     const { header, body } = this.normalizeNotePayload(payload);
     const now = nowIso();
@@ -629,13 +861,25 @@ export class HostProjectsService {
       eventAction = 'update';
     }
 
-    const savedRows = await this.db.select().from(coordProjectNotes).where(eq(coordProjectNotes.id, savedId)).limit(1);
+    const savedRows = await this.db
+      .select()
+      .from(coordProjectNotes)
+      .where(eq(coordProjectNotes.id, savedId))
+      .limit(1);
     const saved = savedRows[0] ? this.hydrateNote(savedRows[0]) : null;
 
-    await this.recordEvent(project, 'note', eventAction, 'note', String(savedId), {
-      header: saved?.header ?? header,
-      body: saved?.body ?? body,
-    }, host.id);
+    await this.recordEvent(
+      project,
+      'note',
+      eventAction,
+      'note',
+      String(savedId),
+      {
+        header: saved?.header ?? header,
+        body: saved?.body ?? body,
+      },
+      host.id,
+    );
     await this.recordLog(host.id, `project.note.${eventAction}`, { slug: project.slug, note_id: savedId });
     wsPublisher.publish(`project.note.${eventAction === 'create' ? 'created' : 'updated'}`, {
       slug: project.slug,
@@ -668,7 +912,11 @@ export class HostProjectsService {
     const { title, detail } = this.normalizeTodoPayload(payload);
     const result = await this.board().todoCreate(slug, { title, detail }, host.id);
     await this.recordLog(host.id, 'project.todo.create', { slug: result.project, todo_id: result.todo.id });
-    wsPublisher.publish('project.todo.created', { slug: result.project, todo_id: result.todo.id, source_host_id: host.id });
+    wsPublisher.publish('project.todo.created', {
+      slug: result.project,
+      todo_id: result.todo.id,
+      source_host_id: host.id,
+    });
     return result;
   }
 
@@ -676,21 +924,34 @@ export class HostProjectsService {
     const { title, detail } = this.normalizeTodoPayload(payload);
     const result = await this.board().todoUpdate(slug, id, { title, detail }, host.id);
     await this.recordLog(host.id, 'project.todo.update', { slug: result.project, todo_id: id });
-    wsPublisher.publish('project.todo.updated', { slug: result.project, todo_id: id, source_host_id: host.id });
+    wsPublisher.publish('project.todo.updated', {
+      slug: result.project,
+      todo_id: id,
+      source_host_id: host.id,
+    });
     return result;
   }
 
   async setTodoDone(slug: string, id: number, done: boolean, host: Host): Promise<unknown> {
     const result = await this.board().todoSetDone(slug, id, done, host.id);
     await this.recordLog(host.id, 'project.todo.done', { slug: result.project, todo_id: id, done });
-    wsPublisher.publish('project.todo.updated', { slug: result.project, todo_id: id, done, source_host_id: host.id });
+    wsPublisher.publish('project.todo.updated', {
+      slug: result.project,
+      todo_id: id,
+      done,
+      source_host_id: host.id,
+    });
     return result;
   }
 
   async deleteTodo(slug: string, id: number, host: Host): Promise<unknown> {
     const result = await this.board().todoDelete(slug, id, host.id);
     await this.recordLog(host.id, 'project.todo.delete', { slug: result.project, todo_id: id });
-    wsPublisher.publish('project.todo.deleted', { slug: result.project, todo_id: id, source_host_id: host.id });
+    wsPublisher.publish('project.todo.deleted', {
+      slug: result.project,
+      todo_id: id,
+      source_host_id: host.id,
+    });
     return result;
   }
 
@@ -713,7 +974,12 @@ export class HostProjectsService {
 
   async readFile(
     slug: string,
-    locator: { storedName?: string | null; id?: number | null; offset?: number | null; limit?: number | null },
+    locator: {
+      storedName?: string | null;
+      id?: number | null;
+      offset?: number | null;
+      limit?: number | null;
+    },
     host: Host,
   ): Promise<{ project: string; file: FileRow & Partial<FileReadWindow> }> {
     const project = await this.requireProject(slug);
@@ -722,11 +988,20 @@ export class HostProjectsService {
       file = await this.fetchFileById(project.id, locator.id);
     } else if (typeof locator.storedName === 'string' && locator.storedName.trim() !== '') {
       const storedName = this.normalizeStoredName(locator.storedName);
-      const rows = await this.db
-        .select()
-        .from(coordProjectFiles)
-        .where(and(eq(coordProjectFiles.projectId, project.id), eq(coordProjectFiles.storedName, storedName)))
-        .limit(1);
+      const state = this.snapshot();
+      const rows = state
+        ? state
+            .table('coordProjectFiles')
+            .by('projectId', project.id)
+            .filter((r) => r.storedName === storedName)
+            .map((r) => ({ ...r, content: this.currentBody(state, 'coordProjectFiles', r.id, 'content') }))
+        : await this.db
+            .select()
+            .from(coordProjectFiles)
+            .where(
+              and(eq(coordProjectFiles.projectId, project.id), eq(coordProjectFiles.storedName, storedName)),
+            )
+            .limit(1);
       file = rows[0] ? this.hydrateFile(rows[0]) : null;
     } else {
       throw new ValidationError('Validation failed', {
@@ -779,10 +1054,20 @@ export class HostProjectsService {
   }
 
   async upsertFile(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
-    if(ownerRuntimeFor(this.db)){this.normalizeFilePayload(payload);const result=await this.content().upsertFile(slug,payload,host.id);return result;}
-    const project = await this.requireProject(slug);
-    const { storedName, description, content, mimeType, encoding, sha256: sha } =
+    if (ownerRuntimeFor(this.db)) {
       this.normalizeFilePayload(payload);
+      const result = await this.content().upsertFile(slug, payload, host.id);
+      return result;
+    }
+    const project = await this.requireProject(slug);
+    const {
+      storedName,
+      description,
+      content,
+      mimeType,
+      encoding,
+      sha256: sha,
+    } = this.normalizeFilePayload(payload);
     const now = nowIso();
     const existing = await this.db
       .select()
@@ -825,29 +1110,55 @@ export class HostProjectsService {
 
     const fileRow = await this.fetchFileById(project.id, savedId);
     if (fileRow) {
-      await this.recordEvent(project, 'file', action, 'file', String(savedId), {
-        id: savedId,
-        stored_name: fileRow.stored_name,
-        description: fileRow.description,
-        content_sha256: fileRow.content_sha256,
-        mime_type: fileRow.mime_type,
-        size_bytes: fileRow.size_bytes,
-        updated_at: fileRow.updated_at,
-        created_at: fileRow.created_at,
-      }, host.id);
+      await this.recordEvent(
+        project,
+        'file',
+        action,
+        'file',
+        String(savedId),
+        {
+          id: savedId,
+          stored_name: fileRow.stored_name,
+          description: fileRow.description,
+          content_sha256: fileRow.content_sha256,
+          mime_type: fileRow.mime_type,
+          size_bytes: fileRow.size_bytes,
+          updated_at: fileRow.updated_at,
+          created_at: fileRow.created_at,
+        },
+        host.id,
+      );
     }
-    await this.recordLog(host.id, `project.file.${action}`, { slug: project.slug, file_id: savedId, stored_name: storedName });
-    wsPublisher.publish('project.file.upserted', { slug: project.slug, file_id: savedId, source_host_id: host.id });
+    await this.recordLog(host.id, `project.file.${action}`, {
+      slug: project.slug,
+      file_id: savedId,
+      stored_name: storedName,
+    });
+    wsPublisher.publish('project.file.upserted', {
+      slug: project.slug,
+      file_id: savedId,
+      source_host_id: host.id,
+    });
     return { project: project.slug, file: fileRow };
   }
 
   async deleteFile(slug: string, id: number, host: Host): Promise<unknown> {
-    if(ownerRuntimeFor(this.db))return this.content().deleteFile(slug,id,host.id);
+    if (ownerRuntimeFor(this.db)) return this.content().deleteFile(slug, id, host.id);
     const project = await this.requireProject(slug);
     const existing = await this.fetchFileById(project.id, id);
     if (!existing) throw new NotFoundError('Project file not found');
-    await this.db.delete(coordProjectFiles).where(and(eq(coordProjectFiles.projectId, project.id), eq(coordProjectFiles.id, id)));
-    await this.recordEvent(project, 'file', 'delete', 'file', String(id), { id, stored_name: existing.stored_name }, host.id);
+    await this.db
+      .delete(coordProjectFiles)
+      .where(and(eq(coordProjectFiles.projectId, project.id), eq(coordProjectFiles.id, id)));
+    await this.recordEvent(
+      project,
+      'file',
+      'delete',
+      'file',
+      String(id),
+      { id, stored_name: existing.stored_name },
+      host.id,
+    );
     await this.recordLog(host.id, 'project.file.delete', { slug: project.slug, file_id: id });
     wsPublisher.publish('project.file.deleted', { slug: project.slug, file_id: id, source_host_id: host.id });
     return { project: project.slug, deleted: id };
@@ -860,7 +1171,11 @@ export class HostProjectsService {
   }
 
   async createFeedback(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
-    if(ownerRuntimeFor(this.db)){const normalized=this.normalizeFeedbackPayload(payload);const result=await this.content().createFeedback(slug,normalized,host.id);return {project:result.project,feedback:this.hydrateFeedback(result.feedback)};}
+    if (ownerRuntimeFor(this.db)) {
+      const normalized = this.normalizeFeedbackPayload(payload);
+      const result = await this.content().createFeedback(slug, normalized, host.id);
+      return { project: result.project, feedback: this.hydrateFeedback(result.feedback) };
+    }
     const project = await this.requireProject(slug);
     const { type, title, body } = this.normalizeFeedbackPayload(payload);
     const now = nowIso();
@@ -876,9 +1191,21 @@ export class HostProjectsService {
     });
     const savedId = Number((inserted[0] as { insertId?: number })?.insertId ?? 0);
     const row = await this.fetchFeedbackById(project.id, savedId);
-    await this.recordEvent(project, 'feedback', 'create', 'feedback', String(savedId), row as unknown as Record<string, unknown>, host.id);
+    await this.recordEvent(
+      project,
+      'feedback',
+      'create',
+      'feedback',
+      String(savedId),
+      row as unknown as Record<string, unknown>,
+      host.id,
+    );
     await this.recordLog(host.id, 'project.feedback.create', { slug: project.slug, feedback_id: savedId });
-    wsPublisher.publish('project.feedback.created', { slug: project.slug, feedback_id: savedId, source_host_id: host.id });
+    wsPublisher.publish('project.feedback.created', {
+      slug: project.slug,
+      feedback_id: savedId,
+      source_host_id: host.id,
+    });
     return { project: project.slug, feedback: row };
   }
 
@@ -887,15 +1214,25 @@ export class HostProjectsService {
    * the table did and nothing ever wrote anything but 'open', so the inbox only
    * ever grew.
    */
-  async updateFeedback(slug: string, id: number, payload: Record<string, unknown>, host: Host): Promise<unknown> {
-    if(ownerRuntimeFor(this.db)){const result=await this.content().updateFeedback(slug,id,payload,host.id);return {project:result.project,feedback:this.hydrateFeedback(result.feedback)};}
+  async updateFeedback(
+    slug: string,
+    id: number,
+    payload: Record<string, unknown>,
+    host: Host,
+  ): Promise<unknown> {
+    if (ownerRuntimeFor(this.db)) {
+      const result = await this.content().updateFeedback(slug, id, payload, host.id);
+      return { project: result.project, feedback: this.hydrateFeedback(result.feedback) };
+    }
     const project = await this.requireProject(slug);
     const existing = await this.fetchFeedbackById(project.id, id);
     if (!existing) throw new NotFoundError('Project feedback not found');
 
     const patch: Record<string, unknown> = {};
     if (payload['status'] !== undefined) {
-      const status = String(payload['status'] ?? '').trim().toLowerCase();
+      const status = String(payload['status'] ?? '')
+        .trim()
+        .toLowerCase();
       if (!isProjectFeedbackStatus(status)) {
         throw new ValidationError('Validation failed', {
           extra: { errors: { status: [`status must be one of: ${projectFeedbackStatusList()}`] } },
@@ -904,7 +1241,9 @@ export class HostProjectsService {
       patch['status'] = status;
     }
     if (payload['type'] !== undefined) {
-      const type = String(payload['type'] ?? '').trim().toLowerCase();
+      const type = String(payload['type'] ?? '')
+        .trim()
+        .toLowerCase();
       if (!isProjectFeedbackType(type)) {
         throw new ValidationError('Validation failed', {
           extra: { errors: { type: [`type must be one of: ${projectFeedbackTypeList()}`] } },
@@ -916,7 +1255,9 @@ export class HostProjectsService {
       if (payload[field] === undefined) continue;
       const text = String(payload[field] ?? '').trim();
       if (!text) {
-        throw new ValidationError('Validation failed', { extra: { errors: { [field]: [`${field} cannot be blank`] } } });
+        throw new ValidationError('Validation failed', {
+          extra: { errors: { [field]: [`${field} cannot be blank`] } },
+        });
       }
       patch[field] = text;
     }
@@ -932,14 +1273,30 @@ export class HostProjectsService {
       .set({ ...patch, updatedAt: now })
       .where(and(eq(coordProjectFeedback.projectId, project.id), eq(coordProjectFeedback.id, id)));
     const row = await this.fetchFeedbackById(project.id, id);
-    await this.recordEvent(project, 'feedback', 'update', 'feedback', String(id), row as unknown as Record<string, unknown>, host.id);
-    await this.recordLog(host.id, 'project.feedback.update', { slug: project.slug, feedback_id: id, ...patch });
-    wsPublisher.publish('project.feedback.updated', { slug: project.slug, feedback_id: id, source_host_id: host.id });
+    await this.recordEvent(
+      project,
+      'feedback',
+      'update',
+      'feedback',
+      String(id),
+      row as unknown as Record<string, unknown>,
+      host.id,
+    );
+    await this.recordLog(host.id, 'project.feedback.update', {
+      slug: project.slug,
+      feedback_id: id,
+      ...patch,
+    });
+    wsPublisher.publish('project.feedback.updated', {
+      slug: project.slug,
+      feedback_id: id,
+      source_host_id: host.id,
+    });
     return { project: project.slug, feedback: row };
   }
 
   async deleteNote(slug: string, id: number, host: Host): Promise<unknown> {
-    if(ownerRuntimeFor(this.db))return this.content().deleteNote(slug,id,host.id);
+    if (ownerRuntimeFor(this.db)) return this.content().deleteNote(slug, id, host.id);
     const project = await this.requireProject(slug);
     const rows = await this.db
       .select()
@@ -950,7 +1307,15 @@ export class HostProjectsService {
     await this.db
       .delete(coordProjectNotes)
       .where(and(eq(coordProjectNotes.projectId, project.id), eq(coordProjectNotes.id, id)));
-    await this.recordEvent(project, 'note', 'delete', 'note', String(id), { id, header: rows[0].header }, host.id);
+    await this.recordEvent(
+      project,
+      'note',
+      'delete',
+      'note',
+      String(id),
+      { id, header: rows[0].header },
+      host.id,
+    );
     await this.recordLog(host.id, 'project.note.delete', { slug: project.slug, note_id: id });
     wsPublisher.publish('project.note.deleted', { slug: project.slug, note_id: id, source_host_id: host.id });
     return { project: project.slug, deleted: id };
@@ -965,7 +1330,7 @@ export class HostProjectsService {
     const project = await this.requireProject(slug);
     const includeContent = this.normalizeBoolFlag(payload['include_content']);
     const limit = this.normalizeMemoryLimit(payload['limit'], MEMORY_LIST_MAX);
-    const all = await this.fetchMemories(project.id,!includeContent);
+    const all = await this.fetchMemories(project.id, !includeContent);
     const page = all.slice(0, limit);
     return {
       project: project.slug,
@@ -997,13 +1362,98 @@ export class HostProjectsService {
   async upsertMemory(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
     const { key, content, metadata, tags } = this.normalizeMemoryPayload(payload);
-    const owner=ownerRuntimeFor(this.db);if(owner){let result!:Record<string,unknown>;await mutateOwnerState(owner,{kind:'project.memory.upsert',payload:{projectId:project.id,key},prepare:async ctx=>{const old=ctx.snapshot.table('coordProjectMemories').all().find(row=>row.projectId===project.id&&row.memoryKey===key);const existing=old?await this.fetchMemoryByKey(project.id,key):null;if(existing&&existing.content===content&&JSON.stringify(sortedLowercase(existing.tags))===JSON.stringify(sortedLowercase(tags))&&JSON.stringify(sortedAssoc(existing.metadata))===JSON.stringify(sortedAssoc(metadata))){result={project:project.slug,status:'unchanged',id:key,memory:existing};return result as Json;}const now=nowIso(),status=old?'updated':'created',values={projectId:project.id,memoryKey:key,content,metadata:metadata??null,tags:tags.length?tags:null,tagsText:tags.length?tags.join(' '):null,sourceHostId:host.id,createdAt:old?.createdAt??now,updatedAt:now};const finish=(id:number)=>{const saved=this.hydrateMemory({...values,id});stageProjectEvent(ctx,project.id,'memory',old?'update':'create','memory',id,{id,key,tags:saved.tags,content_length:content.length,preview:content.slice(0,MEMORY_PREVIEW_CHARS),updated_at:now},host.id);result={project:project.slug,status,id:key,memory:saved};};if(old){stageUpdate(ctx,'coordProjectMemories',old.id,values);finish(old.id);}else ctx.write(async tx=>{const inserted=await tx.insert(coordProjectMemories).values(values),id=Number(inserted[0].insertId);ctx.draft.upsert('coordProjectMemories',{...values,id});finish(id);});ctx.write(async tx=>persistAuditLog(tx, {hostId:host.id,action:'project.memory.'+status,details:JSON.stringify({slug,key,content_length:content.length,tags:tags.length}),createdAt:now,engine:null}));return ()=>result as Json;}});if(result.status!=='unchanged')wsPublisher.publish(result.status==='created'?'project.memory.created':'project.memory.updated',{slug,key,source_host_id:host.id});return result;}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      let result!: Record<string, unknown>;
+      await mutateOwnerState(owner, {
+        kind: 'project.memory.upsert',
+        payload: { projectId: project.id, key },
+        prepare: async (ctx) => {
+          const old = ctx.snapshot
+            .table('coordProjectMemories')
+            .all()
+            .find((row) => row.projectId === project.id && row.memoryKey === key);
+          const existing = old ? await this.fetchMemoryByKey(project.id, key) : null;
+          if (
+            existing &&
+            existing.content === content &&
+            JSON.stringify(sortedLowercase(existing.tags)) === JSON.stringify(sortedLowercase(tags)) &&
+            JSON.stringify(sortedAssoc(existing.metadata)) === JSON.stringify(sortedAssoc(metadata))
+          ) {
+            result = { project: project.slug, status: 'unchanged', id: key, memory: existing };
+            return result as Json;
+          }
+          const now = nowIso(),
+            status = old ? 'updated' : 'created',
+            values = {
+              projectId: project.id,
+              memoryKey: key,
+              content,
+              metadata: metadata ?? null,
+              tags: tags.length ? tags : null,
+              tagsText: tags.length ? tags.join(' ') : null,
+              sourceHostId: host.id,
+              createdAt: old?.createdAt ?? now,
+              updatedAt: now,
+            };
+          const finish = (id: number) => {
+            const saved = this.hydrateMemory({ ...values, id });
+            stageProjectEvent(
+              ctx,
+              project.id,
+              'memory',
+              old ? 'update' : 'create',
+              'memory',
+              id,
+              {
+                id,
+                key,
+                tags: saved.tags,
+                content_length: content.length,
+                preview: content.slice(0, MEMORY_PREVIEW_CHARS),
+                updated_at: now,
+              },
+              host.id,
+            );
+            result = { project: project.slug, status, id: key, memory: saved };
+          };
+          if (old) {
+            stageUpdate(ctx, 'coordProjectMemories', old.id, values);
+            finish(old.id);
+          } else
+            ctx.write(async (tx) => {
+              const inserted = await tx.insert(coordProjectMemories).values(values),
+                id = Number(inserted[0].insertId);
+              ctx.draft.upsert('coordProjectMemories', { ...values, id });
+              finish(id);
+            });
+          ctx.write(async (tx) =>
+            persistAuditLog(tx, {
+              hostId: host.id,
+              action: 'project.memory.' + status,
+              details: JSON.stringify({ slug, key, content_length: content.length, tags: tags.length }),
+              createdAt: now,
+              engine: null,
+            }),
+          );
+          return () => result as Json;
+        },
+      });
+      if (result.status !== 'unchanged')
+        wsPublisher.publish(
+          result.status === 'created' ? 'project.memory.created' : 'project.memory.updated',
+          { slug, key, source_host_id: host.id },
+        );
+      return result;
+    }
     const existing = await this.fetchMemoryByKey(project.id, key);
 
     if (existing) {
       const sameContent = existing.content === content;
-      const sameTags = JSON.stringify(sortedLowercase(existing.tags)) === JSON.stringify(sortedLowercase(tags));
-      const sameMeta = JSON.stringify(sortedAssoc(existing.metadata)) === JSON.stringify(sortedAssoc(metadata));
+      const sameTags =
+        JSON.stringify(sortedLowercase(existing.tags)) === JSON.stringify(sortedLowercase(tags));
+      const sameMeta =
+        JSON.stringify(sortedAssoc(existing.metadata)) === JSON.stringify(sortedAssoc(metadata));
       if (sameContent && sameTags && sameMeta) {
         return { project: project.slug, status: 'unchanged', id: key, memory: existing };
       }
@@ -1078,21 +1528,81 @@ export class HostProjectsService {
   async deleteMemory(slug: string, key: string, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
     const memoryKey = this.normalizeMemoryKey(key);
-    const owner=ownerRuntimeFor(this.db);if(owner){let status='missing';await mutateOwnerState(owner,{kind:'project.memory.delete',payload:{projectId:project.id,key:memoryKey},prepare:ctx=>{const row=ctx.snapshot.table('coordProjectMemories').all().find(row=>row.projectId===project.id&&row.memoryKey===memoryKey);if(row){status='deleted';stageDelete(ctx,'coordProjectMemories',row.id);stageProjectEvent(ctx,project.id,'memory','delete','memory',row.id,{id:row.id,key:memoryKey},host.id);}ctx.write(async tx=>persistAuditLog(tx, {hostId:host.id,action:'project.memory.delete',details:JSON.stringify({slug,key:memoryKey,status}),createdAt:nowIso(),engine:null}));return {status};}});if(status==='deleted')wsPublisher.publish('project.memory.deleted',{slug,key:memoryKey,source_host_id:host.id});return {project:project.slug,status,id:memoryKey};}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      let status = 'missing';
+      await mutateOwnerState(owner, {
+        kind: 'project.memory.delete',
+        payload: { projectId: project.id, key: memoryKey },
+        prepare: (ctx) => {
+          const row = ctx.snapshot
+            .table('coordProjectMemories')
+            .all()
+            .find((row) => row.projectId === project.id && row.memoryKey === memoryKey);
+          if (row) {
+            status = 'deleted';
+            stageDelete(ctx, 'coordProjectMemories', row.id);
+            stageProjectEvent(
+              ctx,
+              project.id,
+              'memory',
+              'delete',
+              'memory',
+              row.id,
+              { id: row.id, key: memoryKey },
+              host.id,
+            );
+          }
+          ctx.write(async (tx) =>
+            persistAuditLog(tx, {
+              hostId: host.id,
+              action: 'project.memory.delete',
+              details: JSON.stringify({ slug, key: memoryKey, status }),
+              createdAt: nowIso(),
+              engine: null,
+            }),
+          );
+          return { status };
+        },
+      });
+      if (status === 'deleted')
+        wsPublisher.publish('project.memory.deleted', { slug, key: memoryKey, source_host_id: host.id });
+      return { project: project.slug, status, id: memoryKey };
+    }
     const existing = await this.fetchMemoryByKey(project.id, memoryKey);
     if (!existing) {
-      await this.recordLog(host.id, 'project.memory.delete', { slug: project.slug, key: memoryKey, status: 'missing' });
+      await this.recordLog(host.id, 'project.memory.delete', {
+        slug: project.slug,
+        key: memoryKey,
+        status: 'missing',
+      });
       return { project: project.slug, status: 'missing', id: memoryKey };
     }
     await this.db
       .delete(coordProjectMemories)
       .where(and(eq(coordProjectMemories.projectId, project.id), eq(coordProjectMemories.id, existing.id)));
-    await this.recordEvent(project, 'memory', 'delete', 'memory', String(existing.id), {
-      id: existing.id,
+    await this.recordEvent(
+      project,
+      'memory',
+      'delete',
+      'memory',
+      String(existing.id),
+      {
+        id: existing.id,
+        key: memoryKey,
+      },
+      host.id,
+    );
+    await this.recordLog(host.id, 'project.memory.delete', {
+      slug: project.slug,
       key: memoryKey,
-    }, host.id);
-    await this.recordLog(host.id, 'project.memory.delete', { slug: project.slug, key: memoryKey, status: 'deleted' });
-    wsPublisher.publish('project.memory.deleted', { slug: project.slug, key: memoryKey, source_host_id: host.id });
+      status: 'deleted',
+    });
+    wsPublisher.publish('project.memory.deleted', {
+      slug: project.slug,
+      key: memoryKey,
+      source_host_id: host.id,
+    });
     return { project: project.slug, status: 'deleted', id: memoryKey };
   }
 
@@ -1110,12 +1620,20 @@ export class HostProjectsService {
     const searchTags = sortedLowercase(tags);
     let degraded = false;
 
+    const state = this.snapshot();
+    if (state) {
+      const matches = searchOwnedMemories(state, 'coordProjectMemories', project.id, query, searchTags)
+        .slice(0, limit)
+        .map((row) => ({ ...this.hydrateMemory(row), score: query ? row.score : null }));
+      return { project: project.slug, query, limit, count: matches.length, degraded: false, matches };
+    }
     const batchSize = limit * (searchTags.length > 0 ? 3 : 1);
 
     const fetchBatch = async (offset: number): Promise<MemoryRow[]> => {
       if (!query) return (await this.fetchMemories(project.id)).slice(offset, offset + batchSize);
       try {
-        const res = await executeColdRead(this.db,
+        const res = await executeColdRead(
+          this.db,
           sql`SELECT id, project_id, memory_key, content, metadata, tags, source_host_id, created_at, updated_at,
                      MATCH(content, tags_text) AGAINST (${query} IN NATURAL LANGUAGE MODE) AS score
               FROM coord_project_memories
@@ -1125,7 +1643,9 @@ export class HostProjectsService {
               LIMIT ${batchSize} OFFSET ${offset}`,
         );
         const rows = Array.isArray(res) ? (res[0] as unknown) : (res as unknown);
-        return Array.isArray(rows) ? rows.map((r) => this.hydrateMemoryRaw(r as Record<string, unknown>)) : [];
+        return Array.isArray(rows)
+          ? rows.map((r) => this.hydrateMemoryRaw(r as Record<string, unknown>))
+          : [];
       } catch (err) {
         // MySQL 1191 "Can't find FULLTEXT index matching the column list". The
         // index ships in 0003_add_coord_project_memories.sql, but nothing applies
@@ -1137,7 +1657,11 @@ export class HostProjectsService {
         const needle = query.toLowerCase();
         const all = await this.fetchMemories(project.id);
         return all
-          .filter((m) => m.content.toLowerCase().includes(needle) || m.tags.some((t) => t.toLowerCase().includes(needle)))
+          .filter(
+            (m) =>
+              m.content.toLowerCase().includes(needle) ||
+              m.tags.some((t) => t.toLowerCase().includes(needle)),
+          )
           .slice(offset, offset + batchSize);
       }
     };
@@ -1164,17 +1688,32 @@ export class HostProjectsService {
   }
 
   async findBySlug(slug: string, includeArchived = false): Promise<ProjectRow | null> {
-    const state=this.snapshot();if(state){const row=state.table('coordProjects').all().find(row=>row.slug===slug&&(includeArchived||!row.archivedAt));return row?this.hydrateProject(row):null;}
+    const state = this.snapshot();
+    if (state) {
+      const row = state
+        .table('coordProjects')
+        .all()
+        .find((row) => row.slug === slug && (includeArchived || !row.archivedAt));
+      return row ? this.hydrateProject(row) : null;
+    }
     const rows = await this.db
       .select()
       .from(coordProjects)
-      .where(includeArchived ? eq(coordProjects.slug, slug) : and(eq(coordProjects.slug, slug), isNull(coordProjects.archivedAt)))
+      .where(
+        includeArchived
+          ? eq(coordProjects.slug, slug)
+          : and(eq(coordProjects.slug, slug), isNull(coordProjects.archivedAt)),
+      )
       .limit(1);
     return rows[0] ? this.hydrateProject(rows[0]) : null;
   }
 
   async findById(id: number): Promise<ProjectRow | null> {
-    const state=this.snapshot();if(state){const row=state.table('coordProjects').get(id);return row?this.hydrateProject(row):null;}
+    const state = this.snapshot();
+    if (state) {
+      const row = state.table('coordProjects').get(id);
+      return row ? this.hydrateProject(row) : null;
+    }
     const rows = await this.db.select().from(coordProjects).where(eq(coordProjects.id, id)).limit(1);
     return rows[0] ? this.hydrateProject(rows[0]) : null;
   }
@@ -1259,8 +1798,19 @@ export class HostProjectsService {
     };
   }
 
-  private async fetchNotes(projectId: number,preview=false): Promise<NoteRow[]> {
-    const state=this.snapshot();if(state&&preview)return [...state.table('coordProjectNotes').all()].filter(r=>r.projectId===projectId).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||b.id-a.id).map(r=>({...this.hydrateNote({...r,body:r.bodyPreview}),body_length:r.bodyLength}));
+  private async fetchNotes(projectId: number, preview = false): Promise<NoteRow[]> {
+    const state = this.snapshot();
+    if (state)
+      return [...state.table('coordProjectNotes').all()]
+        .filter((r) => r.projectId === projectId)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id - a.id)
+        .map((r) => ({
+          ...this.hydrateNote({
+            ...r,
+            body: preview ? r.bodyPreview : this.currentBody(state, 'coordProjectNotes', r.id, 'body'),
+          }),
+          body_length: r.bodyLength,
+        }));
     const rows = await this.db
       .select()
       .from(coordProjectNotes)
@@ -1273,7 +1823,30 @@ export class HostProjectsService {
     return await this.board().todoRowsFor(projectId);
   }
 
+  private currentBody(
+    state: import('../control-plane/state/store.js').OwnerStateSnapshot,
+    table: 'coordProjectFiles' | 'coordProjectNotes' | 'coordProjectMemories' | 'coordProjectFeedback',
+    id: number,
+    field: string,
+  ): string {
+    const body = state.content(table, id, field);
+    if (typeof body !== 'string') throw new Error('Current project content missing from owner state');
+    return body;
+  }
   private async fetchFiles(projectId: number): Promise<FileRow[]> {
+    const state = this.snapshot();
+    if (state)
+      return state
+        .table('coordProjectFiles')
+        .by('projectId', projectId)
+        .slice()
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id - a.id)
+        .map((row) =>
+          this.hydrateFile({
+            ...row,
+            content: this.currentBody(state, 'coordProjectFiles', row.id, 'content'),
+          }),
+        );
     const rows = await this.db
       .select()
       .from(coordProjectFiles)
@@ -1290,7 +1863,24 @@ export class HostProjectsService {
    * away. Same number that `hydrateFile` derives, one round trip cheaper.
    */
   private async fetchFileSummaries(projectId: number): Promise<FileSummaryRow[]> {
-    const state=this.snapshot();if(state)return [...state.table('coordProjectFiles').all()].filter(row=>row.projectId===projectId).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||b.id-a.id).map(r=>({id:r.id,project_id:r.projectId,stored_name:r.storedName,description:r.description,content_sha256:r.contentSha256,mime_type:r.mimeType,content_encoding:r.contentEncoding??'utf8',size_bytes:decodedLengthFromStored(r.sizeBytes,r.contentTail,r.contentEncoding),source_host_id:r.sourceHostId,created_at:r.createdAt,updated_at:r.updatedAt}));
+    const state = this.snapshot();
+    if (state)
+      return [...state.table('coordProjectFiles').all()]
+        .filter((row) => row.projectId === projectId)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id - a.id)
+        .map((r) => ({
+          id: r.id,
+          project_id: r.projectId,
+          stored_name: r.storedName,
+          description: r.description,
+          content_sha256: r.contentSha256,
+          mime_type: r.mimeType,
+          content_encoding: r.contentEncoding ?? 'utf8',
+          size_bytes: decodedLengthFromStored(r.sizeBytes, r.contentTail, r.contentEncoding),
+          source_host_id: r.sourceHostId,
+          created_at: r.createdAt,
+          updated_at: r.updatedAt,
+        }));
     const rows = await this.db
       .select({
         id: coordProjectFiles.id,
@@ -1331,6 +1921,13 @@ export class HostProjectsService {
   }
 
   private async fetchFileById(projectId: number, id: number): Promise<FileRow | null> {
+    const state = this.snapshot();
+    if (state) {
+      const row = state.table('coordProjectFiles').get(id);
+      return row?.projectId === projectId
+        ? this.hydrateFile({ ...row, content: this.currentBody(state, 'coordProjectFiles', id, 'content') })
+        : null;
+    }
     const rows = await this.db
       .select()
       .from(coordProjectFiles)
@@ -1339,8 +1936,18 @@ export class HostProjectsService {
     return rows[0] ? this.hydrateFile(rows[0]) : null;
   }
 
-  private async fetchFeedback(projectId: number,metadataOnly=false): Promise<FeedbackRow[]> {
-    const state=this.snapshot();if(state&&metadataOnly)return state.table('coordProjectFeedback').all().filter(r=>r.projectId===projectId).map(r=>this.hydrateFeedback({...r,body:''}));
+  private async fetchFeedback(projectId: number, metadataOnly = false): Promise<FeedbackRow[]> {
+    const state = this.snapshot();
+    if (state)
+      return state
+        .table('coordProjectFeedback')
+        .by('projectId', projectId)
+        .map((r) =>
+          this.hydrateFeedback({
+            ...r,
+            body: metadataOnly ? '' : this.currentBody(state, 'coordProjectFeedback', r.id, 'body'),
+          }),
+        );
     const rows = await this.db
       .select()
       .from(coordProjectFeedback)
@@ -1350,6 +1957,13 @@ export class HostProjectsService {
   }
 
   private async fetchFeedbackById(projectId: number, id: number): Promise<FeedbackRow | null> {
+    const state = this.snapshot();
+    if (state) {
+      const row = state.table('coordProjectFeedback').get(id);
+      return row?.projectId === projectId
+        ? this.hydrateFeedback({ ...row, body: this.currentBody(state, 'coordProjectFeedback', id, 'body') })
+        : null;
+    }
     const rows = await this.db
       .select()
       .from(coordProjectFeedback)
@@ -1358,8 +1972,21 @@ export class HostProjectsService {
     return rows[0] ? this.hydrateFeedback(rows[0]) : null;
   }
 
-  private async fetchMemories(projectId: number,preview=false): Promise<MemoryRow[]> {
-    const state=this.snapshot();if(state&&preview)return [...state.table('coordProjectMemories').all()].filter(r=>r.projectId===projectId).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||b.id-a.id).map(r=>({...this.hydrateMemory({...r,content:r.contentPreview}),content_length:r.contentLength}));
+  private async fetchMemories(projectId: number, preview = false): Promise<MemoryRow[]> {
+    const state = this.snapshot();
+    if (state)
+      return [...state.table('coordProjectMemories').all()]
+        .filter((r) => r.projectId === projectId)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id - a.id)
+        .map((r) => ({
+          ...this.hydrateMemory({
+            ...r,
+            content: preview
+              ? r.contentPreview
+              : this.currentBody(state, 'coordProjectMemories', r.id, 'content'),
+          }),
+          content_length: r.contentLength,
+        }));
     const rows = await this.db
       .select()
       .from(coordProjectMemories)
@@ -1369,6 +1996,19 @@ export class HostProjectsService {
   }
 
   private async fetchMemoryByKey(projectId: number, key: string): Promise<MemoryRow | null> {
+    const state = this.snapshot();
+    if (state) {
+      const row = state
+        .table('coordProjectMemories')
+        .by('projectId', projectId)
+        .find((r) => r.memoryKey === key);
+      return row
+        ? this.hydrateMemory({
+            ...row,
+            content: this.currentBody(state, 'coordProjectMemories', row.id, 'content'),
+          })
+        : null;
+    }
     const rows = await this.db
       .select()
       .from(coordProjectMemories)
@@ -1377,8 +2017,12 @@ export class HostProjectsService {
     return rows[0] ? this.hydrateMemory(rows[0]) : null;
   }
 
-  private async fetchRecentEvents(projectId: number,limit:number,preview=false):Promise<EventRow[]> {
-    const state=this.snapshot();if(state&&preview)return (state.table('coordProjects').get(projectId)?.recentEvents??[]).slice(0,limit).map(row=>this.hydrateEvent(row));
+  private async fetchRecentEvents(projectId: number, limit: number, preview = false): Promise<EventRow[]> {
+    const state = this.snapshot();
+    if (state && preview)
+      return (state.table('coordProjects').get(projectId)?.recentEvents ?? [])
+        .slice(0, limit)
+        .map((row) => this.hydrateEvent(row));
     const rows = await this.db
       .select()
       .from(coordProjectEvents)
@@ -1453,7 +2097,13 @@ export class HostProjectsService {
     action: string,
     sourceHostId: number | null,
   ): void {
-    wsPublisher.publish('project.changed', { slug: project.slug, seq, event_type: eventType, action, source_host_id: sourceHostId });
+    wsPublisher.publish('project.changed', {
+      slug: project.slug,
+      seq,
+      event_type: eventType,
+      action,
+      source_host_id: sourceHostId,
+    });
   }
 
   private async recordEvent(
@@ -1472,7 +2122,11 @@ export class HostProjectsService {
     this._publishProjectChanged(project, seq, eventType, action, sourceHostId);
   }
 
-  private async recordLog(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {
+  private async recordLog(
+    hostId: number | null,
+    action: string,
+    details: Record<string, unknown>,
+  ): Promise<void> {
     const now = nowIso();
     await persistAuditLog(this.db, {
       hostId: hostId ?? null,
@@ -1564,7 +2218,10 @@ export class HostProjectsService {
       content: String(row['content'] ?? ''),
       metadata: (row['metadata'] as Record<string, unknown> | null) ?? null,
       tags: parseTags(row['tags']),
-      source_host_id: row['source_host_id'] === null || row['source_host_id'] === undefined ? null : Number(row['source_host_id']),
+      source_host_id:
+        row['source_host_id'] === null || row['source_host_id'] === undefined
+          ? null
+          : Number(row['source_host_id']),
       created_at: (row['created_at'] as string | null) ?? null,
       updated_at: (row['updated_at'] as string | null) ?? null,
       score: typeof row['score'] === 'number' ? row['score'] : null,
@@ -1584,7 +2241,8 @@ export class HostProjectsService {
   }
 
   private toNotePreview(row: NoteRow): Record<string, unknown> {
-    const {body,body_length,...rest}=row;return {...rest,...this.preview(body??''),content_length:body_length??body.length};
+    const { body, body_length, ...rest } = row;
+    return { ...rest, ...this.preview(body ?? ''), content_length: body_length ?? body.length };
   }
 
   /**
@@ -1611,7 +2269,12 @@ export class HostProjectsService {
   }
 
   private toMemoryPreview(row: MemoryRow): MemoryPreviewRow {
-    const {content,content_length,...rest}=row;return {...rest,content_length:content_length??content.length,preview:content.slice(0,MEMORY_PREVIEW_CHARS)};
+    const { content, content_length, ...rest } = row;
+    return {
+      ...rest,
+      content_length: content_length ?? content.length,
+      preview: content.slice(0, MEMORY_PREVIEW_CHARS),
+    };
   }
 
   /**
@@ -1658,7 +2321,8 @@ export class HostProjectsService {
 
   normalizeSlug(value: unknown): string {
     const slug = String(value ?? '').trim();
-    if (slug === '') throw new ValidationError('Validation failed', { extra: { errors: { slug: ['slug is required'] } } });
+    if (slug === '')
+      throw new ValidationError('Validation failed', { extra: { errors: { slug: ['slug is required'] } } });
     if (!SLUG_RE.test(slug)) {
       throw new ValidationError('Validation failed', {
         extra: { errors: { slug: ['slug must match /^[A-Za-z0-9][A-Za-z0-9_-]*$/'] } },
@@ -1670,7 +2334,9 @@ export class HostProjectsService {
   normalizeAbout(value: unknown): Record<string, unknown> | null {
     if (value === null || value === undefined) return null;
     if (typeof value !== 'object' || Array.isArray(value)) {
-      throw new ValidationError('Validation failed', { extra: { errors: { about: ['about must be an object'] } } });
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { about: ['about must be an object'] } },
+      });
     }
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
@@ -1689,7 +2355,9 @@ export class HostProjectsService {
   normalizeRoster(value: unknown): string {
     const text = String(value ?? '').trim();
     if (text.length > 65535) {
-      throw new ValidationError('Validation failed', { extra: { errors: { roster_markdown: ['roster_markdown must be 65535 characters or fewer'] } } });
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { roster_markdown: ['roster_markdown must be 65535 characters or fewer'] } },
+      });
     }
     return text;
   }
@@ -1707,7 +2375,8 @@ export class HostProjectsService {
   normalizeTodoPayload(payload: Record<string, unknown>): { title: string; detail: string } {
     const title = String(payload['title'] ?? '').trim();
     const detail = String(payload['detail'] ?? '').trim();
-    if (!title) throw new ValidationError('Validation failed', { extra: { errors: { title: ['title is required'] } } });
+    if (!title)
+      throw new ValidationError('Validation failed', { extra: { errors: { title: ['title is required'] } } });
     return { title, detail };
   }
 
@@ -1722,7 +2391,10 @@ export class HostProjectsService {
     const rawName = payload['stored_name'] ?? payload['name'] ?? '';
     const storedName = this.normalizeStoredName(rawName);
     const content = String(payload['content'] ?? payload['text'] ?? '');
-    if (!content) throw new ValidationError('Validation failed', { extra: { errors: { content: ['content is required'] } } });
+    if (!content)
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { content: ['content is required'] } },
+      });
     const accepted = acceptFileBody(content, payload['encoding']);
     if (!accepted.ok) {
       throw new ValidationError('Validation failed', {
@@ -1743,14 +2415,25 @@ export class HostProjectsService {
 
   normalizeStoredName(value: unknown): string {
     const name = String(value ?? '').trim();
-    if (!name) throw new ValidationError('Validation failed', { extra: { errors: { stored_name: ['stored_name is required'] } } });
-    if (!STORED_NAME_RE.test(name)) throw new ValidationError('Validation failed', { extra: { errors: { stored_name: ['stored_name is invalid'] } } });
+    if (!name)
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { stored_name: ['stored_name is required'] } },
+      });
+    if (!STORED_NAME_RE.test(name))
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { stored_name: ['stored_name is invalid'] } },
+      });
     const normalized = name.replaceAll('\\', '/').replace(/\/+/g, '/');
     const segments = normalized.split('/').filter((s) => s !== '');
-    if (segments.length === 0) throw new ValidationError('Validation failed', { extra: { errors: { stored_name: ['stored_name is invalid'] } } });
+    if (segments.length === 0)
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { stored_name: ['stored_name is invalid'] } },
+      });
     for (const seg of segments) {
       if (seg === '.' || seg === '..') {
-        throw new ValidationError('Validation failed', { extra: { errors: { stored_name: ['stored_name cannot contain dot segments'] } } });
+        throw new ValidationError('Validation failed', {
+          extra: { errors: { stored_name: ['stored_name cannot contain dot segments'] } },
+        });
       }
     }
     const joined = segments.join('/');
@@ -1775,7 +2458,9 @@ export class HostProjectsService {
     const key = this.normalizeMemoryKey(payload['key'] ?? payload['id'] ?? payload['memory_id']);
     const content = String(payload['content'] ?? payload['text'] ?? '').trim();
     if (!content) {
-      throw new ValidationError('Validation failed', { extra: { errors: { content: ['content is required'] } } });
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { content: ['content is required'] } },
+      });
     }
     if (content.length > MEMORY_MAX_CONTENT) {
       throw new ValidationError('Validation failed', {
@@ -1792,13 +2477,18 @@ export class HostProjectsService {
 
   normalizeMemoryKey(value: unknown): string {
     const key = String(value ?? '').trim();
-    if (!key) throw new ValidationError('Validation failed', { extra: { errors: { key: ['key is required'] } } });
+    if (!key)
+      throw new ValidationError('Validation failed', { extra: { errors: { key: ['key is required'] } } });
     if (key.length > 128) {
-      throw new ValidationError('Validation failed', { extra: { errors: { key: ['key must be 128 characters or fewer'] } } });
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { key: ['key must be 128 characters or fewer'] } },
+      });
     }
     if (!MEMORY_KEY_RE.test(key)) {
       throw new ValidationError('Validation failed', {
-        extra: { errors: { key: ['key may only contain letters, numbers, dots, underscores, hyphens, and colons'] } },
+        extra: {
+          errors: { key: ['key may only contain letters, numbers, dots, underscores, hyphens, and colons'] },
+        },
       });
     }
     return key;
@@ -1807,7 +2497,9 @@ export class HostProjectsService {
   normalizeMemoryMetadata(value: unknown): Record<string, unknown> | null {
     if (value === null || value === undefined) return null;
     if (typeof value !== 'object' || Array.isArray(value)) {
-      throw new ValidationError('Validation failed', { extra: { errors: { metadata: ['metadata must be an object'] } } });
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { metadata: ['metadata must be an object'] } },
+      });
     }
     return value as Record<string, unknown>;
   }
@@ -1815,13 +2507,17 @@ export class HostProjectsService {
   normalizeMemoryTags(value: unknown): string[] {
     if (value === null || value === undefined) return [];
     if (!Array.isArray(value)) {
-      throw new ValidationError('Validation failed', { extra: { errors: { tags: ['tags must be an array of strings'] } } });
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { tags: ['tags must be an array of strings'] } },
+      });
     }
     const out: string[] = [];
     const seen = new Set<string>();
     for (const tag of value) {
       if (typeof tag !== 'string') {
-        throw new ValidationError('Validation failed', { extra: { errors: { tags: ['tags must be strings'] } } });
+        throw new ValidationError('Validation failed', {
+          extra: { errors: { tags: ['tags must be strings'] } },
+        });
       }
       const t = tag.trim();
       if (!t) continue;
@@ -1855,14 +2551,17 @@ export class HostProjectsService {
   private normalizeMemoryLimit(value: unknown, max: number, fallback = max): number {
     let limit = fallback;
     if (typeof value === 'number' && Number.isFinite(value)) limit = Math.trunc(value);
-    else if (typeof value === 'string' && /^\d+$/.test(value.trim())) limit = Number.parseInt(value.trim(), 10);
+    else if (typeof value === 'string' && /^\d+$/.test(value.trim()))
+      limit = Number.parseInt(value.trim(), 10);
     if (limit < 1) limit = 1;
     if (limit > max) limit = max;
     return limit;
   }
 
   normalizeFeedbackPayload(payload: Record<string, unknown>): { type: string; title: string; body: string } {
-    const type = String(payload['type'] ?? 'feature').trim().toLowerCase();
+    const type = String(payload['type'] ?? 'feature')
+      .trim()
+      .toLowerCase();
     const title = String(payload['title'] ?? '').trim();
     const body = String(payload['body'] ?? '').trim();
     const errors: Record<string, string[]> = {};

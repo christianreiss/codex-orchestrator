@@ -3,6 +3,7 @@ import { inspectCredential } from './auth-generation.js';
 import type { Engine } from '../util/engine.js';
 
 export const COMMUNICATOR_CACHE_PROTOCOL = 2;
+export const LOCAL_CONTENT_CACHE_PROTOCOL = 3;
 // A confirmation is for one request, never a lease for subsequent reads.
 export const CACHE_CONFIRMATION_MS = 30_000;
 
@@ -76,11 +77,28 @@ export function cacheableMcp(body: Record<string, unknown>): boolean {
     return false;
   const params = record(body.params);
   if (body.method === 'resources/read')
-    return typeof params?.uri === 'string' && params.uri.startsWith('skill://');
+    return typeof params?.uri === 'string' && /^(skill|shared):\/\//.test(params.uri);
   if (body.method !== 'tools/call') return false;
-  if (params?.name === 'skill_list' || params?.name === 'skill_retrieve') return true;
+  if (
+    [
+      'skill_list',
+      'skill_retrieve',
+      'shared_memory_list',
+      'shared_memory_search',
+      'shared_memory_read',
+      'memory_retrieve',
+      'memory_search',
+      'project_memory_list',
+      'project_memory_search',
+      'project_memory_get',
+      'project_file_read',
+    ].includes(String(params?.name))
+  )
+    return true;
   const args = record(params?.arguments);
-  return params?.name === 'resource_read' && typeof args?.uri === 'string' && args.uri.startsWith('skill://');
+  return (
+    params?.name === 'resource_read' && typeof args?.uri === 'string' && /^(skill|shared):\/\//.test(args.uri)
+  );
 }
 
 export function cacheSourceAllowed(method: string, path: string, body: Record<string, unknown>): boolean {
@@ -103,4 +121,14 @@ export function cacheSourceAllowed(method: string, path: string, body: Record<st
     '/config/retrieve',
     '/skills/retrieve',
   ].includes(path);
+}
+
+/** Admission, auth material and disclosure of secrets are never local decisions. */
+export function localContentSource(method: string, path: string, body: Record<string, unknown>): boolean {
+  if (!cacheSourceAllowed(method, path, body)) return false;
+  const route = new URL(path, 'http://cache.local').pathname;
+  if (['/auth', '/auth/sessions'].includes(route)) return false;
+  if (route === '/sync/bootstrap')
+    return body.include_auth === false && body.session_id === undefined && body.auth_candidate === undefined;
+  return true;
 }

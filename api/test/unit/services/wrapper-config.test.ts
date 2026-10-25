@@ -28,10 +28,7 @@ import {
   WRAPPER_CONFIG_TTL_SECONDS,
   WrapperSigningUnavailableError,
 } from '../../../src/services/wrapper-config.js';
-import type {
-  WrapperSigner,
-  WrapperSigningKeyService,
-} from '../../../src/services/wrapper-signing-key.js';
+import type { WrapperSigner, WrapperSigningKeyService } from '../../../src/services/wrapper-signing-key.js';
 import type {
   WrapperBinRegistry,
   BinaryBuild,
@@ -103,7 +100,9 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     grokReasoningEffortOverride: null,
     grokLastRefresh: null,
     configVersion: 4,
-    wrapperTrack: 'v2', wrapperCanary: 0, internalRole: null,
+    wrapperTrack: 'v2',
+    wrapperCanary: 0,
+    internalRole: null,
     createdAt: '2026-05-01T00:00:00Z',
     updatedAt: '2026-05-15T00:00:00Z',
     ...overrides,
@@ -211,15 +210,15 @@ function makeFakeDb(state: DbState): Database {
         return chain;
       },
       where(predicate: unknown) {
-        const pred = predicate as { _: { type?: string; column?: { name?: string }; value?: unknown } } | undefined;
+        const pred = predicate as
+          | { _: { type?: string; column?: { name?: string }; value?: unknown } }
+          | undefined;
         // The fake DB doesn't introspect drizzle expressions; it just trusts
         // the caller (the service) to pass us enough info via context. We
         // approximate: filter by `engine` if predicate references that
         // column.
         if (pred && pred._ && pred._.column?.name === 'engine') {
-          filtered = filtered.filter(
-            (r) => (r as { engine?: string }).engine === pred._.value,
-          );
+          filtered = filtered.filter((r) => (r as { engine?: string }).engine === pred._.value);
         }
         return chain;
       },
@@ -267,13 +266,7 @@ function pickTable(state: DbState, _name: string): unknown[] {
     // But we want to be able to serve hosts queries too. So we'll just
     // return everything; the service filters by engine.
   }
-  return [
-    ...state.hosts,
-    ...state.agents,
-    ...state.agentsState,
-    ...state.clientConfigs,
-    ...state.skills,
-  ];
+  return [...state.hosts, ...state.agents, ...state.agentsState, ...state.clientConfigs, ...state.skills];
 }
 
 beforeAll(async () => {
@@ -281,51 +274,125 @@ beforeAll(async () => {
 });
 
 describe('wrapper-config', () => {
-  it.each(['codex', 'claude', 'grok'] as const)('negotiates strict cache only with capable %s wrappers', async engine => {
-    const { privateKey } = generateKeyPairSync('ed25519');
-    const signer: WrapperSigner = { kid: '1', fingerprint: FAKE_FINGERPRINT, publicKey: 'pk', sign: payload => cryptoSign(null, Buffer.from(payload), privateKey) };
-    for (const version of ['0.9.121', '0.9.122', '0.9.123', '2025.11.03', 'dev']) {
-      const host = fakeHost({ engines: 'codex,claude,grok', wrapperVersion: version, claudeWrapperVersion: version, grokWrapperVersion: version });
-      const svc = createWrapperConfigService({ db: makeFakeDb({ hosts: [host], agents: [], agentsState: [], clientConfigs: [], skills: [], updates: [] }), keyring: makeKeyring(), binaries: fakeBinaries(), signing: makeSigningService(signer), installationId: 'strict-cache', communicatorEnabled: true, communicatorSyncEnabled: true });
-      const { payload } = await svc.bakeForHost(host, engine, 'https://co.example');
-      expect(payload.orchestrator.communicator_cache_protocol).toBe(['0.9.122', '0.9.123'].includes(version) ? 2 : 1);
-    }
-  });
-  it.each(['codex', 'claude', 'grok'] as const)('signs the independent resident capability for %s only when enabled', async (engine) => {
-    const { privateKey } = generateKeyPairSync('ed25519');
-    const signer: WrapperSigner = { kid:'1', fingerprint:FAKE_FINGERPRINT, publicKey:'pk', sign:payload => cryptoSign(null,Buffer.from(payload),privateKey) };
-    const host = fakeHost({engines:'codex,claude,grok'});
-    for (const enabled of [undefined,false,true]) {
-      const svc = createWrapperConfigService({
-        db: makeFakeDb({hosts:[host],agents:[],agentsState:[],clientConfigs:[],skills:[],updates:[]}),
-        keyring:makeKeyring(), binaries:fakeBinaries(), signing:makeSigningService(signer), installationId:'resident-test',
-        communicatorRuntimeEnabled:enabled,
-      });
-      const {payload} = await svc.bakeForHost(host,engine,'https://co.example');
-      expect(payload.orchestrator.communicator_runtime_protocol).toBe(enabled ? 1 : undefined);
-      expect(payload.orchestrator.communicator_protocol).toBeUndefined();
-      expect(payload.orchestrator.communicator_sync_protocol).toBeUndefined();
-    }
-  });
-  it.each(['codex', 'claude', 'grok'] as const)('signs the cache capability for %s with central sync and the update capability on its flag', async (engine) => {
-    const { privateKey } = generateKeyPairSync('ed25519');
-    const signer: WrapperSigner = { kid:'1', fingerprint:FAKE_FINGERPRINT, publicKey:'pk', sign:payload => cryptoSign(null,Buffer.from(payload),privateKey) };
-    const host = fakeHost({engines:'codex,claude,grok'});
-    for (const transport of [false,true]) for (const sync of [false,true]) for (const flag of [false,true]) {
-      const svc = createWrapperConfigService({
-        db: makeFakeDb({hosts:[host],agents:[],agentsState:[],clientConfigs:[],skills:[],updates:[]}),
-        keyring:makeKeyring(), binaries:fakeBinaries(), signing:makeSigningService(signer), installationId:'cache-test',
-        communicatorEnabled:transport, communicatorSyncEnabled:sync,
-        communicatorUpdateEnabled:flag,
-      });
-      const {payload} = await svc.bakeForHost(host,engine,'https://co.example');
-      expect(payload.orchestrator.communicator_cache_protocol).toBe(transport && sync ? 1 : undefined);
-      expect(payload.orchestrator.communicator_update_protocol).toBe(transport && flag ? 1 : undefined);
-    }
-  });
+  it.each(['codex', 'claude', 'grok'] as const)(
+    'negotiates strict cache only with capable %s wrappers',
+    async (engine) => {
+      const { privateKey } = generateKeyPairSync('ed25519');
+      const signer: WrapperSigner = {
+        kid: '1',
+        fingerprint: FAKE_FINGERPRINT,
+        publicKey: 'pk',
+        sign: (payload) => cryptoSign(null, Buffer.from(payload), privateKey),
+      };
+      for (const version of ['0.9.121', '0.9.122', '0.9.123', '0.9.128', '2025.11.03', 'dev']) {
+        const host = fakeHost({
+          engines: 'codex,claude,grok',
+          wrapperVersion: version,
+          claudeWrapperVersion: version,
+          grokWrapperVersion: version,
+        });
+        const svc = createWrapperConfigService({
+          db: makeFakeDb({
+            hosts: [host],
+            agents: [],
+            agentsState: [],
+            clientConfigs: [],
+            skills: [],
+            updates: [],
+          }),
+          keyring: makeKeyring(),
+          binaries: fakeBinaries(),
+          signing: makeSigningService(signer),
+          installationId: 'strict-cache',
+          communicatorEnabled: true,
+          communicatorSyncEnabled: true,
+        });
+        const { payload } = await svc.bakeForHost(host, engine, 'https://co.example');
+        expect(payload.orchestrator.communicator_cache_protocol).toBe(
+          version === '0.9.128' ? 3 : ['0.9.122', '0.9.123'].includes(version) ? 2 : 1,
+        );
+      }
+    },
+  );
+  it.each(['codex', 'claude', 'grok'] as const)(
+    'signs the independent resident capability for %s only when enabled',
+    async (engine) => {
+      const { privateKey } = generateKeyPairSync('ed25519');
+      const signer: WrapperSigner = {
+        kid: '1',
+        fingerprint: FAKE_FINGERPRINT,
+        publicKey: 'pk',
+        sign: (payload) => cryptoSign(null, Buffer.from(payload), privateKey),
+      };
+      const host = fakeHost({ engines: 'codex,claude,grok' });
+      for (const enabled of [undefined, false, true]) {
+        const svc = createWrapperConfigService({
+          db: makeFakeDb({
+            hosts: [host],
+            agents: [],
+            agentsState: [],
+            clientConfigs: [],
+            skills: [],
+            updates: [],
+          }),
+          keyring: makeKeyring(),
+          binaries: fakeBinaries(),
+          signing: makeSigningService(signer),
+          installationId: 'resident-test',
+          communicatorRuntimeEnabled: enabled,
+        });
+        const { payload } = await svc.bakeForHost(host, engine, 'https://co.example');
+        expect(payload.orchestrator.communicator_runtime_protocol).toBe(enabled ? 1 : undefined);
+        expect(payload.orchestrator.communicator_protocol).toBeUndefined();
+        expect(payload.orchestrator.communicator_sync_protocol).toBeUndefined();
+      }
+    },
+  );
+  it.each(['codex', 'claude', 'grok'] as const)(
+    'signs the cache capability for %s with central sync and the update capability on its flag',
+    async (engine) => {
+      const { privateKey } = generateKeyPairSync('ed25519');
+      const signer: WrapperSigner = {
+        kid: '1',
+        fingerprint: FAKE_FINGERPRINT,
+        publicKey: 'pk',
+        sign: (payload) => cryptoSign(null, Buffer.from(payload), privateKey),
+      };
+      const host = fakeHost({ engines: 'codex,claude,grok' });
+      for (const transport of [false, true])
+        for (const sync of [false, true])
+          for (const flag of [false, true]) {
+            const svc = createWrapperConfigService({
+              db: makeFakeDb({
+                hosts: [host],
+                agents: [],
+                agentsState: [],
+                clientConfigs: [],
+                skills: [],
+                updates: [],
+              }),
+              keyring: makeKeyring(),
+              binaries: fakeBinaries(),
+              signing: makeSigningService(signer),
+              installationId: 'cache-test',
+              communicatorEnabled: transport,
+              communicatorSyncEnabled: sync,
+              communicatorUpdateEnabled: flag,
+            });
+            const { payload } = await svc.bakeForHost(host, engine, 'https://co.example');
+            expect(payload.orchestrator.communicator_cache_protocol).toBe(transport && sync ? 1 : undefined);
+            expect(payload.orchestrator.communicator_update_protocol).toBe(transport && flag ? 1 : undefined);
+          }
+    },
+  );
   it('gates the signed wrapper block with the staged rollout, like /cron/check', async () => {
     const { privateKey } = generateKeyPairSync('ed25519');
-    const signer: WrapperSigner = { kid:'1', fingerprint:FAKE_FINGERPRINT, publicKey:'pk', sign:payload => cryptoSign(null,Buffer.from(payload),privateKey) };
+    const signer: WrapperSigner = {
+      kid: '1',
+      fingerprint: FAKE_FINGERPRINT,
+      publicKey: 'pk',
+      sign: (payload) => cryptoSign(null, Buffer.from(payload), privateKey),
+    };
     const binaries: WrapperBinRegistry = {
       ...fakeBinaries(),
       async resolveVersion(_engine, _os, _arch, version) {
@@ -333,20 +400,44 @@ describe('wrapper-config', () => {
       },
     };
     const rollout = {
-      id: 'r1', target_version: '1.0.1', from_version: '1.0.0',
+      id: 'r1',
+      target_version: '1.0.1',
+      from_version: '1.0.0',
       stages: [{ kind: 'canary' as const }, { kind: 'percent' as const, percent: 100 }],
-      stage_index: 0, stage_started_at: '2026-10-14T00:00:00Z', soak_minutes: 30,
-      status: 'active' as const, halted_reason: null, admitted_host_ids: [7],
-      started_at: '2026-10-14T00:00:00Z', updated_at: '2026-10-14T00:00:00Z', history: [],
+      stage_index: 0,
+      stage_started_at: '2026-10-14T00:00:00Z',
+      soak_minutes: 30,
+      status: 'active' as const,
+      halted_reason: null,
+      admitted_host_ids: [7],
+      started_at: '2026-10-14T00:00:00Z',
+      updated_at: '2026-10-14T00:00:00Z',
+      history: [],
     };
-    for (const [id, version, sha] of [[7, '1.0.1', 'a'.repeat(64)], [8, '1.0.0', 'b'.repeat(64)]] as const) {
+    for (const [id, version, sha] of [
+      [7, '1.0.1', 'a'.repeat(64)],
+      [8, '1.0.0', 'b'.repeat(64)],
+    ] as const) {
       const host = fakeHost({ id });
       const svc = createWrapperConfigService({
-        db: makeFakeDb({hosts:[host],agents:[],agentsState:[],clientConfigs:[],skills:[],updates:[]}),
-        keyring:makeKeyring(), binaries, signing:makeSigningService(signer), installationId:'rollout-test',
+        db: makeFakeDb({
+          hosts: [host],
+          agents: [],
+          agentsState: [],
+          clientConfigs: [],
+          skills: [],
+          updates: [],
+        }),
+        keyring: makeKeyring(),
+        binaries,
+        signing: makeSigningService(signer),
+        installationId: 'rollout-test',
         wrapperRollout: async () => rollout,
       });
-      const { payload } = await svc.bakeForHost(host, 'codex', 'https://co.example', { os: 'linux', arch: 'amd64' });
+      const { payload } = await svc.bakeForHost(host, 'codex', 'https://co.example', {
+        os: 'linux',
+        arch: 'amd64',
+      });
       expect(payload.wrapper.version).toBe(version);
       expect(payload.wrapper.binary_sha256).toBe(sha);
     }
@@ -416,7 +507,11 @@ describe('wrapper-config', () => {
       installationId: 'inst-1',
     });
 
-    const result = await svc.bakeForHost(fakeHost({ configVersion: initialConfigVersion }), 'codex', 'https://api.example.com/');
+    const result = await svc.bakeForHost(
+      fakeHost({ configVersion: initialConfigVersion }),
+      'codex',
+      'https://api.example.com/',
+    );
 
     // Schema version + structure
     expect(result.payload.schema_version).toBe(WRAPPER_CONFIG_SCHEMA_VERSION);
@@ -509,12 +604,10 @@ describe('wrapper-config', () => {
       signing: makeSigningService(signer),
       installationId: 'inst-mac',
     });
-    const result = await svc.bakeForHost(
-      fakeHost(),
-      'codex',
-      'https://api.example.com',
-      { os: 'darwin', arch: 'arm64' },
-    );
+    const result = await svc.bakeForHost(fakeHost(), 'codex', 'https://api.example.com', {
+      os: 'darwin',
+      arch: 'arm64',
+    });
     expect(result.payload.wrapper.binary_url).toContain('/wrapper/v2/bin/cxx/darwin-arm64/v1.0.1/cxx');
   });
 
@@ -645,9 +738,9 @@ describe('wrapper-config', () => {
         const result = await withDriftOnEveryClockRead(1500, bakeOnce);
 
         expect(WRAPPER_CONFIG_TTL_SECONDS).toBe(30 * 24 * 60 * 60);
-        expect(
-          Date.parse(result.payload.expires_at!) - Date.parse(result.payload.issued_at),
-        ).toBe(WRAPPER_CONFIG_TTL_SECONDS * 1000);
+        expect(Date.parse(result.payload.expires_at!) - Date.parse(result.payload.issued_at)).toBe(
+          WRAPPER_CONFIG_TTL_SECONDS * 1000,
+        );
       } finally {
         vi.useRealTimers();
       }
@@ -697,8 +790,7 @@ describe('wrapper-config', () => {
         fingerprint: createHash('sha256').update(raw).digest('hex'),
         publicKey: raw.toString('base64'),
         sign(payload) {
-          const buf =
-            typeof payload === 'string' ? Buffer.from(payload, 'utf8') : Buffer.from(payload);
+          const buf = typeof payload === 'string' ? Buffer.from(payload, 'utf8') : Buffer.from(payload);
           return cryptoSign(null, buf, privateKey);
         },
       };
@@ -758,10 +850,7 @@ describe('wrapper-config', () => {
     it('signs the same canonical bytes with every active key', async () => {
       const older = generateKeyPairSync('ed25519');
       const newer = generateKeyPairSync('ed25519');
-      const result = await bake(
-        realSigner('3', older.privateKey),
-        realSigner('9', newer.privateKey),
-      );
+      const result = await bake(realSigner('3', older.privateKey), realSigner('9', newer.privateKey));
 
       const bytes = Buffer.from(result.canonicalJson, 'utf8');
       for (const [signature, pair] of [
@@ -811,7 +900,8 @@ describe('wrapper-config', () => {
         };
         return all;
       };
-      const select = (base as unknown as { select: (f?: unknown) => { from: (t: unknown) => unknown } }).select;
+      const select = (base as unknown as { select: (f?: unknown) => { from: (t: unknown) => unknown } })
+        .select;
       return {
         ...(base as object),
         select: (fields?: unknown) => {
@@ -830,11 +920,19 @@ describe('wrapper-config', () => {
         kid: '1',
         fingerprint: FAKE_FINGERPRINT,
         publicKey: 'pk',
-        sign: (payload) => cryptoSign(null, Buffer.from(typeof payload === 'string' ? payload : payload), privateKey),
+        sign: (payload) =>
+          cryptoSign(null, Buffer.from(typeof payload === 'string' ? payload : payload), privateKey),
       };
       const host = fakeHost({ engines: 'codex,claude' });
       const db = withVersions(
-        makeFakeDb({ hosts: [host], agents: [], agentsState: [], clientConfigs: [], skills: [], updates: [] }),
+        makeFakeDb({
+          hosts: [host],
+          agents: [],
+          agentsState: [],
+          clientConfigs: [],
+          skills: [],
+          updates: [],
+        }),
         flags,
       );
       const svc = createWrapperConfigService({
@@ -875,23 +973,86 @@ describe('wrapper-config', () => {
   });
 });
 
-describe('owner semantic config identity',()=>{
- it('ignores renewal clocks and counters but changes for actual policy or content',()=>{
- const base={issued_at:'one',expires_at:'two',config_version:1,etag:'old',host:{secure:true},documents:{agents:{id:1,sha256:'a'}}};
- const version=semanticConfigVersion(base);expect(Number.isSafeInteger(version)).toBe(true);expect(version).toBeGreaterThan(0);
- expect(semanticConfigVersion({...base,issued_at:'later',expires_at:'later expiry',config_version:123,etag:'new'})).toBe(version);
- expect(semanticConfigVersion({...base,host:{secure:false}})).not.toBe(version);
- expect(semanticConfigVersion({...base,documents:{agents:{id:1,sha256:'b'}}})).not.toBe(version);
- });
+describe('owner semantic config identity', () => {
+  it('ignores renewal clocks and counters but changes for actual policy or content', () => {
+    const base = {
+      issued_at: 'one',
+      expires_at: 'two',
+      config_version: 1,
+      etag: 'old',
+      host: { secure: true },
+      documents: { agents: { id: 1, sha256: 'a' } },
+    };
+    const version = semanticConfigVersion(base);
+    expect(Number.isSafeInteger(version)).toBe(true);
+    expect(version).toBeGreaterThan(0);
+    expect(
+      semanticConfigVersion({
+        ...base,
+        issued_at: 'later',
+        expires_at: 'later expiry',
+        config_version: 123,
+        etag: 'new',
+      }),
+    ).toBe(version);
+    expect(semanticConfigVersion({ ...base, host: { secure: false } })).not.toBe(version);
+    expect(semanticConfigVersion({ ...base, documents: { agents: { id: 1, sha256: 'b' } } })).not.toBe(
+      version,
+    );
+  });
 });
 
-describe('owned wrapper bakery',()=>{
- it.each(['codex','claude','grok'] as const)('%s signs current RAM metadata without SQL or a config-change write',async engine=>{
- const {privateKey}=generateKeyPairSync('ed25519'),signer:WrapperSigner={kid:'owner',fingerprint:FAKE_FINGERPRINT,publicKey:'pk',sign:payload=>cryptoSign(null,Buffer.from(payload),privateKey)};
- const host=fakeHost({engines:'codex,claude,grok'}),db=makeFakeDb({hosts:[host],agents:[],agentsState:[],clientConfigs:[],skills:[],updates:[]});
- const state=new OwnerStateStore(new OwnerStateSnapshot({epoch:randomUUID(),sequence:0n},{})),deadlines=new DeadlineQueue(error=>{throw error;});
- bindOwnerRuntime(db,{state,deadlines,assertOwner(){},execute:async()=>{throw new Error('A config read cannot write owner state');}});
- const select=vi.spyOn(db,'select'),update=vi.spyOn(db,'update');
- try{const service=createWrapperConfigService({db,keyring:makeKeyring(),binaries:fakeBinaries(),signing:makeSigningService(signer),installationId:'owner'});const first=await service.bakeForHost(host,engine,'https://co.example'),second=await service.bakeForHost(host,engine,'https://co.example');expect(first.bumped).toBe(false);expect(second.configVersion).toBe(first.configVersion);expect(select).not.toHaveBeenCalled();expect(update).not.toHaveBeenCalled();}finally{deadlines.close();}
- });
+describe('owned wrapper bakery', () => {
+  it.each(['codex', 'claude', 'grok'] as const)(
+    '%s signs current RAM metadata without SQL or a config-change write',
+    async (engine) => {
+      const { privateKey } = generateKeyPairSync('ed25519'),
+        signer: WrapperSigner = {
+          kid: 'owner',
+          fingerprint: FAKE_FINGERPRINT,
+          publicKey: 'pk',
+          sign: (payload) => cryptoSign(null, Buffer.from(payload), privateKey),
+        };
+      const host = fakeHost({ engines: 'codex,claude,grok' }),
+        db = makeFakeDb({
+          hosts: [host],
+          agents: [],
+          agentsState: [],
+          clientConfigs: [],
+          skills: [],
+          updates: [],
+        });
+      const state = new OwnerStateStore(new OwnerStateSnapshot({ epoch: randomUUID(), sequence: 0n }, {})),
+        deadlines = new DeadlineQueue((error) => {
+          throw error;
+        });
+      bindOwnerRuntime(db, {
+        state,
+        deadlines,
+        assertOwner() {},
+        execute: async () => {
+          throw new Error('A config read cannot write owner state');
+        },
+      });
+      const select = vi.spyOn(db, 'select'),
+        update = vi.spyOn(db, 'update');
+      try {
+        const service = createWrapperConfigService({
+          db,
+          keyring: makeKeyring(),
+          binaries: fakeBinaries(),
+          signing: makeSigningService(signer),
+          installationId: 'owner',
+        });
+        const first = await service.bakeForHost(host, engine, 'https://co.example'),
+          second = await service.bakeForHost(host, engine, 'https://co.example');
+        expect(first.bumped).toBe(false);
+        expect(second.configVersion).toBe(first.configVersion);
+        expect(select).not.toHaveBeenCalled();
+        expect(update).not.toHaveBeenCalled();
+      } finally {
+        deadlines.close();
+      }
+    },
+  );
 });

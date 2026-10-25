@@ -36,6 +36,7 @@ export function stageUpdate<K extends OwnedTableName>(
       { ...previous, ...patch } as unknown as { status: string },
     );
   context.draft.upsert(name, { ...previous, ...patch } as StateRow<K>);
+  if (context.persistence === 'volatile') return context.draft.table(name).get(key)!;
   context.write(async (tx) => {
     await tx
       .update(schema[name] as AnyMySqlTable)
@@ -56,6 +57,7 @@ export function stageDelete<K extends OwnedTableName>(
   if (name === 'agentBusMessages' || name === 'agentMessages')
     recordMessagingRowChange(context.draft, name, previous as unknown as { status: string }, null);
   context.draft.remove(name, key);
+  if (context.persistence === 'volatile') return true;
   context.write(async (tx) => {
     await tx.delete(schema[name]).where(identity(name, previous));
   });

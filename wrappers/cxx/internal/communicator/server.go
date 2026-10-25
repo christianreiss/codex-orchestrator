@@ -50,12 +50,13 @@ type server struct {
 	lastError        string
 	// refusal is the server's host-credential verdict (401 / 403 host_*) on the last
 	// refused handshake; nil once a connection succeeds or fails for another reason.
-	refusal   *handshakeRefusal
-	lastSync  string
-	calls     map[string]*sharedCall
-	dirty     chan struct{}
-	authDirty chan struct{}
-	jobs      map[string]syncJob
+	refusal      *handshakeRefusal
+	lastSync     string
+	calls        map[string]*sharedCall
+	residentWake chan struct{}
+	dirty        chan struct{}
+	authDirty    chan struct{}
+	jobs         map[string]syncJob
 	// failures counts consecutive failed connection attempts; zero means the
 	// control connection is either up or still being established for the first time.
 	failures int
@@ -160,7 +161,7 @@ func serveWithResident(ctx context.Context, path, version string, options *Resid
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	s := &server{releaseWake: make(chan struct{}, 1), stop: cancel, runtimeID: runtimeIdentity(socket), kick: make(chan struct{}, 1), cfg: cfg, version: version, lastUsed: time.Now(), calls: map[string]*sharedCall{}, dirty: make(chan struct{}, 1), authDirty: make(chan struct{}, 1), jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
+	s := &server{residentWake: make(chan struct{}, 1), releaseWake: make(chan struct{}, 1), stop: cancel, runtimeID: runtimeIdentity(socket), kick: make(chan struct{}, 1), cfg: cfg, version: version, lastUsed: time.Now(), calls: map[string]*sharedCall{}, dirty: make(chan struct{}, 1), authDirty: make(chan struct{}, 1), jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
 	httpServer := &http.Server{Handler: s, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	if cfg.Orchestrator.CommunicatorRuntimeProtocol == residency.Protocol {
 		s.residentState = &residentState{socket: socket}
@@ -233,8 +234,29 @@ func (s *server) supervise(ctx context.Context, cancel context.CancelFunc, httpS
 	}()
 }
 
-func (s *server) invalidate() {
+func (s *server) invalidate() { s.invalidateContent(nil) }
+func (s *server) invalidateContent(scopes []string) {
 	defer s.notifyLocal()
+	s.validatedCache.invalidateLocal(scopes...)
+	content := len(scopes) == 0
+	for _, scope := range scopes {
+		if scope != "knowledge" && scope != "projects" {
+			content = true
+		}
+	}
+	if !content {
+		return
+	}
+	if len(scopes) == 0 {
+		s.signalResidentPolicy()
+	} else {
+		for _, scope := range scopes {
+			if scope == "policy" || scope == "config" {
+				s.signalResidentPolicy()
+				break
+			}
+		}
+	}
 	s.mu.Lock()
 	s.invalidatedAt = time.Now()
 	s.mu.Unlock()
@@ -313,7 +335,7 @@ func (s *server) connectLoop(ctx context.Context) {
 				cancel()
 				err = e
 				if err == nil {
-					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, updateAvailable: s.triggerUpdate, authChanged: s.invalidateAuth, onTerminate: s.terminate, runtimeID: s.runtimeID, preTerminate: s.preflightStop, residentReport: s.sampleResidentReport}
+					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, cacheInvalidated: s.invalidateContent, updateAvailable: s.triggerUpdate, authChanged: s.invalidateAuth, onTerminate: s.terminate, runtimeID: s.runtimeID, preTerminate: s.preflightStop, residentReport: s.sampleResidentReport, residentChanged: s.signalResidentPolicy}
 					go c.receive()
 					err = c.send(map[string]any{"type": "hello", "protocol": Protocol, "username": communicatorUsername(), "version": s.version})
 					if err == nil {
@@ -343,6 +365,7 @@ func (s *server) connectLoop(ctx context.Context) {
 			s.everConnected = true
 			s.mu.Unlock()
 			delay = time.Second
+			s.signalResidentPolicy()
 			if firstConnect {
 				// Nothing was missed by an owner that never had a connection, and a
 				// launch's bootstrap that started while this connection was still
@@ -601,8 +624,25 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	requestFrame := frame{Method: r.Method, Path: r.URL.RequestURI(), Headers: headers(r.Header), Body: body}
-	if r.Header.Get("X-Cxx-Cache-Protocol") == "2" && cacheCandidate(requestFrame) {
-		result, unknown, cacheErr := s.validatedCache.read(r.Context(), requestFrame, s.cacheExchange)
+	if (r.Header.Get("X-Cxx-Cache-Protocol") == "2" || r.Header.Get("X-Cxx-Cache-Protocol") == "3") && cacheCandidate(requestFrame) {
+		protocol := ValidatedCacheProtocol
+		if r.Header.Get("X-Cxx-Cache-Protocol") == "3" && localContentCandidate(requestFrame) {
+			protocol = LocalContentCacheProtocol
+		}
+		online := func() bool {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if s.conn == nil {
+				return false
+			}
+			select {
+			case <-s.conn.done:
+				return false
+			default:
+				return !s.fallback
+			}
+		}
+		result, unknown, cacheErr := s.validatedCache.readMode(r.Context(), requestFrame, s.cacheExchange, protocol, online)
 		if cacheErr != nil {
 			// Never turn an unconfirmed read into an offline-credential launch.
 			// A bootstrap/session admission may already have committed.

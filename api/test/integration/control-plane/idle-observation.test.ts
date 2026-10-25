@@ -71,6 +71,14 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
           new Promise<unknown>((resolve, reject) =>
             profiler!.post(method, params, (error, result) => (error ? reject(error) : resolve(result))),
           );
+        const communicatorFrames: Record<string, number> = {};
+        const browserFrames: Record<string, number> = {};
+        const business = (counts: Record<string, number>) =>
+          Object.fromEntries(
+            Object.entries(counts).filter(
+              ([type]) => !['ping', 'pong', 'state_ping', 'state_pong'].includes(type),
+            ),
+          );
         const browserRequests: string[] = [];
         const browserErrors: string[] = [];
         const reconnectRequests: string[] = [];
@@ -214,6 +222,7 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
               );
               socket.on('message', (raw: Buffer) => {
                 const frame = JSON.parse(raw.toString());
+                if (measuring) communicatorFrames[frame.type] = (communicatorFrames[frame.type] ?? 0) + 1;
                 if (frame.type === 'ready' && delegateLiveness)
                   socket.send(
                     JSON.stringify({
@@ -337,7 +346,9 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
                 page.on('websocket', (socket) => {
                   socket.on('framereceived', (frame) => {
                     try {
-                      if (JSON.parse(String(frame.payload)).type === 'hello') {
+                      const type = JSON.parse(String(frame.payload)).type;
+                      if (measuring) browserFrames[type] = (browserFrames[type] ?? 0) + 1;
+                      if (type === 'hello') {
                         browserHellos++;
                         clearTimeout(timeout);
                         resolve();
@@ -451,6 +462,10 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
             bridgeTtlSeconds: app.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS,
             browserRequests,
             browserErrors,
+            communicatorFrames,
+            browserFrames,
+            businessFrames: { communicator: business(communicatorFrames), browser: business(browserFrames) },
+            memoryBytes: process.memoryUsage(),
             hydrationSql,
             providerAccounts: runtime.state.snapshot().table('providerAccounts').all().length,
             protocolClients: 'simulated TCP clients',
@@ -478,6 +493,8 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
           if (process.env.OWNER_IDLE_RESULT)
             await writeFile(process.env.OWNER_IDLE_RESULT, JSON.stringify(result, null, 2));
           expect(failures).toEqual([]);
+          expect(business(communicatorFrames)).toEqual({});
+          expect(business(browserFrames)).toEqual({});
           expect(browserErrors).toEqual([]);
           expect(browserRequests).toEqual([]);
           expect(sql).toEqual([]);

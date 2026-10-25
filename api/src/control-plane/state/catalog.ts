@@ -219,6 +219,7 @@ export type StateRow<K extends OwnedTableName> = Omit<Row<K>, Extract<keyof Row<
                                     portalAttentionClearedCursor: number;
                                     portalLastEventType: string | null;
                                     portalLastEventAt: string | null;
+                                    portalAcceptedAt: string | null;
                                   }
                                 : unknown);
 export type StateSeed = { [K in OwnedTableName]?: readonly (StateRow<K> | Row<K>)[] };
@@ -285,6 +286,7 @@ export function workingSetPredicate(name: OwnedTableName): SQL | undefined {
       return sql`NOT EXISTS (SELECT 1 FROM client_config_documents n WHERE n.engine = ${schema.clientConfigDocuments.engine} AND n.id > ${schema.clientConfigDocuments.id})`;
     case 'agentBusMessages':
       return or(
+        eq(schema.agentBusMessages.taskResultStatus, 'unknown'),
         and(
           eq(schema.agentBusMessages.status, 'expired'),
           sql`${schema.agentBusMessages.expiredAt} > ${new Date(Date.now() - AGENT_MESSAGING_MISSED_WINDOW_SECONDS * 1000).toISOString()}`,
@@ -341,9 +343,9 @@ export function workingSetPredicate(name: OwnedTableName): SQL | undefined {
         ),
       );
     case 'agentRoomEvents':
-      return sql`${schema.agentRoomEvents.createdAt}>${new Date(Date.now() - 60000).toISOString()} OR EXISTS (SELECT 1 FROM agent_room_deliveries d JOIN agent_bus_messages m ON BINARY m.id = BINARY d.message_id JOIN agent_bus_conferences c ON BINARY c.id = BINARY ${schema.agentRoomEvents.roomId} WHERE BINARY d.event_id = BINARY ${schema.agentRoomEvents.id} AND c.status <> 'adjourned' AND m.sender_address_id = '00000000-0000-4000-8000-000000000001' AND m.status NOT IN ('completed','dead','expired','canceled','ambiguous'))`;
+      return undefined; // Small history metadata supplies RAM-only retention decisions; bodies stay cold.
     case 'agentRoomDeliveries':
-      return sql`EXISTS (SELECT 1 FROM agent_room_events e JOIN agent_bus_conferences c ON BINARY c.id = BINARY e.room_id JOIN agent_bus_messages m ON BINARY m.id = BINARY ${schema.agentRoomDeliveries.messageId} WHERE BINARY e.id = BINARY ${schema.agentRoomDeliveries.eventId} AND c.status <> 'adjourned' AND m.sender_address_id = '00000000-0000-4000-8000-000000000001' AND m.status NOT IN ('completed','dead','expired','canceled','ambiguous'))`;
+      return sql`EXISTS (SELECT 1 FROM agent_bus_messages m WHERE BINARY m.id=BINARY ${schema.agentRoomDeliveries.messageId} AND (m.status IN ('queued','leased','accepted','reboot_hold','batched','ambiguous') OR m.task_result_status='unknown')) OR EXISTS (SELECT 1 FROM agent_room_events e JOIN agent_bus_conferences c ON BINARY c.id = BINARY e.room_id JOIN agent_bus_messages m ON BINARY m.id = BINARY ${schema.agentRoomDeliveries.messageId} WHERE BINARY e.id = BINARY ${schema.agentRoomDeliveries.eventId} AND c.status <> 'adjourned' AND m.sender_address_id = '00000000-0000-4000-8000-000000000001' AND m.status NOT IN ('completed','dead','expired','canceled','ambiguous'))`;
     case 'chatgptUsageSnapshots':
       // Rank each account (including NULL) once per required ordering, rather
       // than re-scanning its entire history for every candidate snapshot.
@@ -383,7 +385,7 @@ export function workingSetPredicate(name: OwnedTableName): SQL | undefined {
     case 'controlPlaneOutbox':
       return isNull(schema.controlPlaneOutbox.completedAt);
     case 'agentScopeEvents':
-      return eq(schema.agentScopeEvents.dispatched, 0);
+      return undefined;
     case 'gitMergeRequests':
       return or(
         isNull(schema.gitMergeRequests.completedAt),

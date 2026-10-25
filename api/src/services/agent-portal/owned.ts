@@ -450,6 +450,7 @@ export class OwnedPortal {
     if (!next) return { accepted: false };
     return mutateOwnerState(this.runtime, {
       kind: 'portal.activity',
+      persistence: 'volatile',
       payload: json({ id, input }),
       authorize: (s) => {
         this.authority(s, id, token);
@@ -648,7 +649,12 @@ export class OwnedPortal {
             const retained = ctx.draft.table('agentSessions').get(sessionId);
             if (retained?.expiresAt && retained.expiresAt <= now)
               stageUpdate(ctx, 'agentSessions', sessionId, {
-                expiresAt: isoOffsetSeconds(historyRetentionHours(this.runtime.state.snapshot(), this.env.AGENT_PORTAL_RETENTION_HOURS) * 3600),
+                expiresAt: isoOffsetSeconds(
+                  historyRetentionHours(
+                    this.runtime.state.snapshot(),
+                    this.env.AGENT_PORTAL_RETENTION_HOURS,
+                  ) * 3600,
+                ),
               });
           }
         }
@@ -909,7 +915,10 @@ export class OwnedPortal {
             expires_at: session.expiresAt,
           };
         const now = nowIso(),
-          expires = isoOffsetSeconds(historyRetentionHours(this.runtime.state.snapshot(), this.env.AGENT_PORTAL_RETENTION_HOURS) * 3600);
+          expires = isoOffsetSeconds(
+            historyRetentionHours(this.runtime.state.snapshot(), this.env.AGENT_PORTAL_RETENTION_HOURS) *
+              3600,
+          );
         stagePortalEvent(ctx, {
           sessionId: session.id,
           clientEventId: `portal:close-force:${clientId}`,

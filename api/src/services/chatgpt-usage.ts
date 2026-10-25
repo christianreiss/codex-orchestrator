@@ -1,4 +1,5 @@
-import {ownerRuntimeFor,mutateOwnerState} from '../control-plane/state/runtime.js';
+import { sameQuotaObservation } from '../control-plane/state/quota.js';
+import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 /**
  * ChatGPT usage service — pulls the usage snapshot from chatgpt.com's
  * `/backend-api/usage` endpoint, caches it in `chatgpt_usage_snapshots`, and
@@ -36,7 +37,7 @@ export interface FetchResult {
   error?: string | null;
 }
 
-const ownedSnapshotDetails=new WeakMap<object,Map<number,Promise<{raw:string|null;error:string|null}>>>();
+const transientSnapshots = new WeakSet<object>();
 type ChatGptSnapshotRow = typeof chatgptUsageSnapshots.$inferSelect;
 type ChatGptSnapshotView = ChatGptSnapshotRow & { refreshError?: string | null; refreshAttemptedAt?: string };
 type ChatGptSnapshotInsert = typeof chatgptUsageSnapshots.$inferInsert;
@@ -307,7 +308,8 @@ function normalizeResetAt(value: unknown): string | null {
   if (typeof value === 'string') return value;
   // Bound the seconds before conversion so malformed provider data cannot throw
   // or become an extended-year date that downstream RFC3339 readers reject.
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value >= 253402300800) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value >= 253402300800)
+    return null;
   return new Date(value * 1000).toISOString();
 }
 
@@ -389,23 +391,38 @@ export class ChatGptUsageService {
   }
 
   private async latestAttempt(usableOnly = false): Promise<ChatGptSnapshotRow | null> {
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){owner.assertOwner();const row=owner.state.snapshot().table('chatgptUsageSnapshots').all().filter(r=>r.accountId===(this.deps.accountId??null)&&(!usableOnly||['ok','rate_limited'].includes(r.status))).sort((a,b)=>b.fetchedAt.localeCompare(a.fetchedAt)||b.id-a.id)[0];
-      if(!row)return null;
-      let cache=ownedSnapshotDetails.get(owner);if(!cache){cache=new Map();ownedSnapshotDetails.set(owner,cache);}
-      let pending=cache.get(row.id);if(!pending){pending=this.db.select({raw:chatgptUsageSnapshots.raw,error:chatgptUsageSnapshots.error}).from(chatgptUsageSnapshots).where(eq(chatgptUsageSnapshots.id,row.id)).limit(1).then(rows=>rows[0]??{raw:null,error:null});cache.set(row.id,pending);pending.catch(()=>cache!.delete(row.id));if(cache.size>128)cache.delete(cache.keys().next().value!);}
-      const detail=await pending;
-      return {...row,raw:detail?.raw??null,error:detail?.error??null};
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const row = owner.state
+        .snapshot()
+        .table('chatgptUsageSnapshots')
+        .all()
+        .filter(
+          (r) =>
+            r.accountId === (this.deps.accountId ?? null) &&
+            (!usableOnly || ['ok', 'rate_limited'].includes(r.status)),
+        )
+        .sort((a, b) => b.fetchedAt.localeCompare(a.fetchedAt) || b.id - a.id)[0];
+      if (!row) return null;
+      const snapshot = owner.state.snapshot();
+      return {
+        ...row,
+        raw: snapshot.content('chatgptUsageSnapshots', row.id, 'raw') ?? null,
+        error: snapshot.content('chatgptUsageSnapshots', row.id, 'error') ?? null,
+      };
     }
     const rows = await this.db
       .select()
       .from(chatgptUsageSnapshots)
-      .where(and(
-        this.deps.accountId === undefined
-          ? isNull(chatgptUsageSnapshots.accountId)
-          : eq(chatgptUsageSnapshots.accountId, this.deps.accountId),
-        usableOnly ? inArray(chatgptUsageSnapshots.status, ['ok', 'rate_limited']) : undefined,
-      ))
+      .where(
+        and(
+          this.deps.accountId === undefined
+            ? isNull(chatgptUsageSnapshots.accountId)
+            : eq(chatgptUsageSnapshots.accountId, this.deps.accountId),
+          usableOnly ? inArray(chatgptUsageSnapshots.status, ['ok', 'rate_limited']) : undefined,
+        ),
+      )
       .orderBy(desc(chatgptUsageSnapshots.fetchedAt), desc(chatgptUsageSnapshots.id))
       .limit(1);
     return rows[0] ?? null;
@@ -431,7 +448,12 @@ export class ChatGptUsageService {
     const nextTs = nextEligibleAt ? (parseIso(nextEligibleAt)?.getTime() ?? 0) : 0;
     if (!force && latest && nextTs > now) {
       return {
-        status: latest.refreshAttemptedAt || latest.status === 'error' ? 'error' : latest.status === 'rate_limited' ? 'rate_limited' : 'ok',
+        status:
+          latest.refreshAttemptedAt || latest.status === 'error'
+            ? 'error'
+            : latest.status === 'rate_limited'
+              ? 'rate_limited'
+              : 'ok',
         snapshot: this.normalizeSnapshot(latest),
         cached: true,
         next_eligible_at: nextEligibleAt,
@@ -443,10 +465,13 @@ export class ChatGptUsageService {
   }
 
   async refresh(): Promise<FetchResult> {
+    const previous = ownerRuntimeFor(this.db) ? await this.latestAttempt() : null;
     const result = await this.fetchLatest(true);
-    wsPublisher.publish('chatgpt.usage.updated', {
-      fetched_at: (result.snapshot?.['fetched_at'] as string | undefined) ?? nowIso(),
-    });
+    if (!previous || result.snapshot?.['id'] !== previous.id) {
+      wsPublisher.publish('chatgpt.usage.updated', {
+        fetched_at: (result.snapshot?.['fetched_at'] as string | undefined) ?? nowIso(),
+      });
+    }
     return result;
   }
 
@@ -525,7 +550,10 @@ export class ChatGptUsageService {
     };
   }
 
-  async dailyUsage(row: ChatGptSnapshotRow, now = new Date()): Promise<{
+  async dailyUsage(
+    row: ChatGptSnapshotRow,
+    now = new Date(),
+  ): Promise<{
     daily_used_percent: number | null;
     daily_baseline_at: string | null;
   }> {
@@ -533,26 +561,70 @@ export class ChatGptUsageService {
     const observed = parseIso(row.fetchedAt);
     const midnight = new Date(now);
     midnight.setUTCHours(0, 0, 0, 0);
-    const weeklyUsed = (snapshot: Pick<ChatGptSnapshotRow,'primaryLimitSeconds'|'primaryUsedPercent'|'secondaryLimitSeconds'|'secondaryUsedPercent'>) =>
-      snapshot.primaryLimitSeconds === 604800 && snapshot.primaryUsedPercent !== null ? snapshot.primaryUsedPercent :
-        snapshot.secondaryLimitSeconds === 604800 ? snapshot.secondaryUsedPercent : null;
+    const weeklyUsed = (
+      snapshot: Pick<
+        ChatGptSnapshotRow,
+        'primaryLimitSeconds' | 'primaryUsedPercent' | 'secondaryLimitSeconds' | 'secondaryUsedPercent'
+      >,
+    ) =>
+      snapshot.primaryLimitSeconds === 604800 && snapshot.primaryUsedPercent !== null
+        ? snapshot.primaryUsedPercent
+        : snapshot.secondaryLimitSeconds === 604800
+          ? snapshot.secondaryUsedPercent
+          : null;
     const current = weeklyUsed(row);
-    if (!observed || observed < midnight || observed > now || current === null ||
-      !['ok', 'rate_limited'].includes(row.status)) return unavailable;
+    if (
+      !observed ||
+      observed < midnight ||
+      observed > now ||
+      current === null ||
+      !['ok', 'rate_limited'].includes(row.status)
+    )
+      return unavailable;
     // Restore the legacy UTC-day delta, using the actual weekly slot (providers
     // can move it between primary and secondary) and this account's observations.
-    const owner=ownerRuntimeFor(this.db);
-    const baseline = owner ? owner.state.snapshot().table('chatgptUsageSnapshots').all().filter(r=>r.accountId===(this.deps.accountId??null)&&['ok','rate_limited'].includes(r.status)&&r.fetchedAt>=midnight.toISOString()&&r.fetchedAt<=row.fetchedAt&&weeklyUsed(r)!==null).sort((a,b)=>a.fetchedAt.localeCompare(b.fetchedAt)||a.id-b.id)[0] : (await this.db.select().from(chatgptUsageSnapshots).where(and(
-      this.deps.accountId === undefined ? isNull(chatgptUsageSnapshots.accountId) :
-        eq(chatgptUsageSnapshots.accountId, this.deps.accountId),
-      inArray(chatgptUsageSnapshots.status, ['ok', 'rate_limited']),
-      gte(chatgptUsageSnapshots.fetchedAt, midnight.toISOString()),
-      lte(chatgptUsageSnapshots.fetchedAt, row.fetchedAt),
-      or(
-        and(eq(chatgptUsageSnapshots.primaryLimitSeconds, 604800), isNotNull(chatgptUsageSnapshots.primaryUsedPercent)),
-        and(eq(chatgptUsageSnapshots.secondaryLimitSeconds, 604800), isNotNull(chatgptUsageSnapshots.secondaryUsedPercent)),
-      ),
-    )).orderBy(asc(chatgptUsageSnapshots.fetchedAt), asc(chatgptUsageSnapshots.id)).limit(1))[0];
+    const owner = ownerRuntimeFor(this.db);
+    const baseline = owner
+      ? owner.state
+          .snapshot()
+          .table('chatgptUsageSnapshots')
+          .all()
+          .filter(
+            (r) =>
+              r.accountId === (this.deps.accountId ?? null) &&
+              ['ok', 'rate_limited'].includes(r.status) &&
+              r.fetchedAt >= midnight.toISOString() &&
+              r.fetchedAt <= row.fetchedAt &&
+              weeklyUsed(r) !== null,
+          )
+          .sort((a, b) => a.fetchedAt.localeCompare(b.fetchedAt) || a.id - b.id)[0]
+      : (
+          await this.db
+            .select()
+            .from(chatgptUsageSnapshots)
+            .where(
+              and(
+                this.deps.accountId === undefined
+                  ? isNull(chatgptUsageSnapshots.accountId)
+                  : eq(chatgptUsageSnapshots.accountId, this.deps.accountId),
+                inArray(chatgptUsageSnapshots.status, ['ok', 'rate_limited']),
+                gte(chatgptUsageSnapshots.fetchedAt, midnight.toISOString()),
+                lte(chatgptUsageSnapshots.fetchedAt, row.fetchedAt),
+                or(
+                  and(
+                    eq(chatgptUsageSnapshots.primaryLimitSeconds, 604800),
+                    isNotNull(chatgptUsageSnapshots.primaryUsedPercent),
+                  ),
+                  and(
+                    eq(chatgptUsageSnapshots.secondaryLimitSeconds, 604800),
+                    isNotNull(chatgptUsageSnapshots.secondaryUsedPercent),
+                  ),
+                ),
+              ),
+            )
+            .orderBy(asc(chatgptUsageSnapshots.fetchedAt), asc(chatgptUsageSnapshots.id))
+            .limit(1)
+        )[0];
     const initial = baseline ? weeklyUsed(baseline) : null;
     if (!baseline || initial === null) return unavailable;
     return {
@@ -715,12 +787,14 @@ export class ChatGptUsageService {
       'chatgpt.usage refresh failed',
     );
     const usable = await this.latestAttempt(true);
-    const snapshot = usable ? {
-      ...usable,
-      nextEligibleAt: row.nextEligibleAt,
-      refreshError: message,
-      refreshAttemptedAt: row.fetchedAt,
-    } : row;
+    const snapshot = usable
+      ? {
+          ...usable,
+          nextEligibleAt: row.nextEligibleAt,
+          refreshError: message,
+          refreshAttemptedAt: row.fetchedAt,
+        }
+      : row;
     return {
       status: 'error',
       snapshot: this.normalizeSnapshot(snapshot),
@@ -731,17 +805,89 @@ export class ChatGptUsageService {
   }
 
   private async insertSnapshot(values: ChatGptSnapshotInsert): Promise<ChatGptSnapshotRow> {
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){
-      let inserted:ChatGptSnapshotRow|undefined;
-      await mutateOwnerState(owner,{kind:'provider.chatgpt.usage',payload:{accountId:this.deps.accountId??null,fetchedAt:values.fetchedAt},prepare:context=>{
-        const account=this.deps.accountId===undefined?null:context.snapshot.accounts.get(this.deps.accountId);
-        if(this.deps.accountId!==undefined&&(!account||account.engine!=='codex'||account.state!=='enabled'||account.mergedIntoAccountId))throw new Error('Usage account is no longer eligible');
-        if(['1','true','yes','on'].includes(context.snapshot.setting('codex_engine_disabled')??''))throw new Error('Codex engine is disabled');
-        const row={hostId:null,planType:null,rateAllowed:null,rateLimitReached:null,primaryUsedPercent:null,primaryLimitSeconds:null,primaryResetAfterSeconds:null,primaryResetAt:null,secondaryUsedPercent:null,secondaryLimitSeconds:null,secondaryResetAfterSeconds:null,secondaryResetAt:null,sparkLimitName:null,sparkMeteredFeature:null,sparkRateAllowed:null,sparkRateLimitReached:null,sparkPrimaryUsedPercent:null,sparkPrimaryLimitSeconds:null,sparkPrimaryResetAfterSeconds:null,sparkPrimaryResetAt:null,sparkSecondaryUsedPercent:null,sparkSecondaryLimitSeconds:null,sparkSecondaryResetAfterSeconds:null,sparkSecondaryResetAt:null,hasCredits:null,unlimited:null,creditBalance:null,approxLocalMessages:null,approxCloudMessages:null,raw:null,error:null,...values,accountId:this.deps.accountId??null};
-        context.write(async tx=>{const result=await tx.insert(chatgptUsageSnapshots).values(row);const id=(result as unknown as [{insertId?:number}])[0]?.insertId;if(!id)throw new Error('Missing usage snapshot insert ID');inserted={...row,id} as ChatGptSnapshotRow;context.draft.upsert('chatgptUsageSnapshots',inserted);});return null;
-      }});
-      if(!inserted)throw new Error('Usage snapshot was not persisted');return inserted;
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      let inserted: ChatGptSnapshotRow | undefined;
+      await mutateOwnerState(owner, {
+        kind: 'provider.chatgpt.usage',
+        payload: { accountId: this.deps.accountId ?? null, fetchedAt: values.fetchedAt },
+        prepare: (context) => {
+          const account =
+            this.deps.accountId === undefined ? null : context.snapshot.accounts.get(this.deps.accountId);
+          if (
+            this.deps.accountId !== undefined &&
+            (!account ||
+              account.engine !== 'codex' ||
+              account.state !== 'enabled' ||
+              account.mergedIntoAccountId)
+          )
+            throw new Error('Usage account is no longer eligible');
+          if (['1', 'true', 'yes', 'on'].includes(context.snapshot.setting('codex_engine_disabled') ?? ''))
+            throw new Error('Codex engine is disabled');
+          const row = {
+            hostId: null,
+            planType: null,
+            rateAllowed: null,
+            rateLimitReached: null,
+            primaryUsedPercent: null,
+            primaryLimitSeconds: null,
+            primaryResetAfterSeconds: null,
+            primaryResetAt: null,
+            secondaryUsedPercent: null,
+            secondaryLimitSeconds: null,
+            secondaryResetAfterSeconds: null,
+            secondaryResetAt: null,
+            sparkLimitName: null,
+            sparkMeteredFeature: null,
+            sparkRateAllowed: null,
+            sparkRateLimitReached: null,
+            sparkPrimaryUsedPercent: null,
+            sparkPrimaryLimitSeconds: null,
+            sparkPrimaryResetAfterSeconds: null,
+            sparkPrimaryResetAt: null,
+            sparkSecondaryUsedPercent: null,
+            sparkSecondaryLimitSeconds: null,
+            sparkSecondaryResetAfterSeconds: null,
+            sparkSecondaryResetAt: null,
+            hasCredits: null,
+            unlimited: null,
+            creditBalance: null,
+            approxLocalMessages: null,
+            approxCloudMessages: null,
+            raw: null,
+            error: null,
+            ...values,
+            accountId: this.deps.accountId ?? null,
+          };
+          const prior = context.snapshot
+            .table('chatgptUsageSnapshots')
+            .by('accountId', row.accountId)
+            .slice()
+            .sort((a, b) => b.id - a.id)[0];
+          if (
+            prior &&
+            row.status === 'ok' &&
+            prior.status === 'ok' &&
+            prior.createdAt.slice(0, 10) === row.createdAt.slice(0, 10) &&
+            sameQuotaObservation(prior, row)
+          ) {
+            inserted = { ...row, id: prior.id, createdAt: prior.createdAt } as ChatGptSnapshotRow;
+            transientSnapshots.add(inserted);
+            context.draft.upsert('chatgptUsageSnapshots', inserted);
+            return null;
+          }
+          context.write(async (tx) => {
+            const result = await tx.insert(chatgptUsageSnapshots).values(row);
+            const id = (result as unknown as [{ insertId?: number }])[0]?.insertId;
+            if (!id) throw new Error('Missing usage snapshot insert ID');
+            inserted = { ...row, id } as ChatGptSnapshotRow;
+            context.draft.upsert('chatgptUsageSnapshots', inserted);
+          });
+          return null;
+        },
+      });
+      if (!inserted) throw new Error('Usage snapshot was not persisted');
+      return inserted;
     }
 
     const result = await this.db
@@ -766,7 +912,7 @@ export class ChatGptUsageService {
   }
 
   private async recordGraphSnapshot(row: ChatGptSnapshotRow): Promise<void> {
-    if (this.deps.accountId !== undefined) return;
+    if (this.deps.accountId !== undefined || transientSnapshots.has(row)) return;
     try {
       const values = {
         fetchedAt: row.fetchedAt,
@@ -781,8 +927,18 @@ export class ChatGptUsageService {
         createdAt: nowIso(),
         updatedAt: nowIso(),
       };
-      const owner=ownerRuntimeFor(this.db);
-      if(owner)await mutateOwnerState(owner,{kind:'provider.chatgpt.graph',payload:{snapshotId:row.id},prepare(context){context.write(async tx=>{await tx.insert(dashboardGraphQuotaSnapshots).values(values);});return null;}});
+      const owner = ownerRuntimeFor(this.db);
+      if (owner)
+        await mutateOwnerState(owner, {
+          kind: 'provider.chatgpt.graph',
+          payload: { snapshotId: row.id },
+          prepare(context) {
+            context.write(async (tx) => {
+              await tx.insert(dashboardGraphQuotaSnapshots).values(values);
+            });
+            return null;
+          },
+        });
       else await this.db.insert(dashboardGraphQuotaSnapshots).values(values);
     } catch {
       // The snapshot itself is authoritative; graph persistence must not break refresh.

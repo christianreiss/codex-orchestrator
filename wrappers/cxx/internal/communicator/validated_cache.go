@@ -21,10 +21,11 @@ import (
 )
 
 const ValidatedCacheProtocol = 2
+const LocalContentCacheProtocol = 3
 const validatedCacheLimit = 64 * 1024 * 1024
 
 func StrictCache(cfg *config.Config) bool {
-	return cfg != nil && cfg.Orchestrator.CommunicatorCacheProtocol == ValidatedCacheProtocol
+	return cfg != nil && (cfg.Orchestrator.CommunicatorCacheProtocol == ValidatedCacheProtocol || cfg.Orchestrator.CommunicatorCacheProtocol == LocalContentCacheProtocol)
 }
 
 type cacheResource struct {
@@ -44,21 +45,30 @@ type cacheRead struct {
 	Known     map[string]string          `json:"known"`
 }
 type cacheReply struct {
-	Protocol   int               `json:"protocol"`
-	RequestID  string            `json:"request_id"`
-	CheckedAt  time.Time         `json:"checked_at"`
-	ValidForMS int64             `json:"valid_for_ms"`
-	Status     int               `json:"status"`
-	Headers    map[string]string `json:"headers"`
-	Body       json.RawMessage   `json:"body"`
-	Resources  []cacheResource   `json:"resources"`
+	LocalContent bool              `json:"local_content"`
+	GrantUntil   *string           `json:"grant_until"`
+	Protocol     int               `json:"protocol"`
+	RequestID    string            `json:"request_id"`
+	CheckedAt    time.Time         `json:"checked_at"`
+	ValidForMS   int64             `json:"valid_for_ms"`
+	Status       int               `json:"status"`
+	Headers      map[string]string `json:"headers"`
+	Body         json.RawMessage   `json:"body"`
+	Resources    []cacheResource   `json:"resources"`
 }
 type cachedBytes struct {
 	raw     []byte
 	sha     string
 	expires time.Time
 }
+type cachedContent struct {
+	reply   frame
+	until   time.Time
+	scope   string
+	offline bool
+}
 type cachedRead struct {
+	local     *cachedContent
 	sequence  uint64
 	resources map[string]cachedBytes
 }
@@ -67,6 +77,8 @@ type validatedRAM struct {
 	reads                       map[string]cachedRead
 	gates                       map[string]*cacheReadGate
 	sequence                    uint64
+	generation                  uint64
+	localHits                   uint64
 	size                        int
 	hits, misses, confirmations uint64
 }
@@ -183,6 +195,9 @@ func (c *validatedRAM) replace(key string, sequence uint64, resources map[string
 	for _, value := range c.reads[key].resources {
 		c.size -= len(value.raw)
 	}
+	if local := c.reads[key].local; local != nil {
+		c.size -= len(local.reply.Body)
+	}
 	size := 0
 	for _, value := range resources {
 		size += len(value.raw)
@@ -201,7 +216,7 @@ func (c *validatedRAM) replace(key string, sequence uint64, resources map[string
 func (c *validatedRAM) status() map[string]any {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return map[string]any{"protocol": ValidatedCacheProtocol, "bytes": c.size, "entries": len(c.reads), "hits": c.hits, "misses": c.misses, "confirmations": c.confirmations}
+	return map[string]any{"protocol": ValidatedCacheProtocol, "bytes": c.size, "entries": len(c.reads), "hits": c.hits, "misses": c.misses, "confirmations": c.confirmations, "local_content_protocol": LocalContentCacheProtocol, "local_hits": c.localHits}
 }
 
 func cacheCandidate(f frame) bool {
@@ -245,9 +260,16 @@ func cacheCandidate(f frame) bool {
 			return false
 		}
 		if rpc.Method == "resources/read" {
-			return strings.HasPrefix(rpc.Params.URI, "skill://")
+			return strings.HasPrefix(rpc.Params.URI, "skill://") || strings.HasPrefix(rpc.Params.URI, "shared://")
 		}
-		return rpc.Method == "tools/call" && (rpc.Params.Name == "skill_list" || rpc.Params.Name == "skill_retrieve" || rpc.Params.Name == "resource_read" && strings.HasPrefix(rpc.Params.Arguments.URI, "skill://"))
+		if rpc.Method != "tools/call" {
+			return false
+		}
+		switch rpc.Params.Name {
+		case "skill_list", "skill_retrieve", "shared_memory_list", "shared_memory_search", "shared_memory_read", "memory_retrieve", "memory_search", "project_memory_list", "project_memory_search", "project_memory_get", "project_file_read":
+			return true
+		}
+		return rpc.Params.Name == "resource_read" && (strings.HasPrefix(rpc.Params.Arguments.URI, "skill://") || strings.HasPrefix(rpc.Params.Arguments.URI, "shared://"))
 	}
 	return false
 }
@@ -294,7 +316,108 @@ func putResource(node any, path []string, value json.RawMessage) error {
 
 // Reconstruct only a reply correlated to THIS server confirmation. Cache entries
 // alone never yield a response, including after a timeout, reconnect or expiry.
-func (c *validatedRAM) read(ctx context.Context, f frame, exchange func(context.Context, frame) (frame, bool, error)) (result frame, unknown bool, err error) {
+func (c *validatedRAM) read(ctx context.Context, f frame, exchange func(context.Context, frame) (frame, bool, error)) (frame, bool, error) {
+	return c.readMode(ctx, f, exchange, ValidatedCacheProtocol, nil)
+}
+func localContentCandidate(f frame) bool {
+	if !cacheCandidate(f) {
+		return false
+	}
+	path := strings.Split(f.Path, "?")[0]
+	if path == "/auth" || path == "/auth/sessions" {
+		return false
+	}
+	if path == "/sync/bootstrap" {
+		var body map[string]json.RawMessage
+		if json.Unmarshal(f.Body, &body) != nil {
+			return false
+		}
+		return string(body["include_auth"]) == "false" && len(body["session_id"]) == 0 && len(body["auth_candidate"]) == 0
+	}
+	return true
+}
+
+// Invalidate the existing RAM entries, including in-flight fills. No second cache.
+func (c *validatedRAM) invalidateLocal(scopes ...string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.generation++
+	if len(scopes) == 0 {
+		c.reads = map[string]cachedRead{}
+		c.size = 0
+		return
+	}
+	for _, scope := range scopes {
+		if scope == "policy" {
+			c.reads = map[string]cachedRead{}
+			c.size = 0
+			return
+		}
+	}
+	for key, entry := range c.reads {
+		if entry.local == nil {
+			continue
+		}
+		remove := entry.local.scope == "bundle"
+		for _, scope := range scopes {
+			remove = remove || entry.local.scope == scope
+		}
+		if remove {
+			c.size -= len(entry.local.reply.Body)
+			entry.local = nil
+			c.reads[key] = entry
+		}
+	}
+}
+func localContentScope(f frame) string {
+	path := strings.Split(f.Path, "?")[0]
+	switch path {
+	case "/sync/bootstrap":
+		return "bundle"
+	case "/config/retrieve":
+		return "config"
+	case "/agents/retrieve":
+		return "agents"
+	case "/mcp":
+		var request struct {
+			Params struct {
+				Name, URI string
+				Arguments struct {
+					URI string `json:"uri"`
+				}
+			}
+		}
+		_ = json.Unmarshal(f.Body, &request)
+		if strings.HasPrefix(request.Params.Name, "skill_") || strings.HasPrefix(request.Params.URI, "skill://") || strings.HasPrefix(request.Params.Arguments.URI, "skill://") {
+			return "skills"
+		}
+		if strings.HasPrefix(request.Params.Name, "project_") {
+			return "projects"
+		}
+		return "knowledge"
+	}
+	return "skills"
+}
+func rebindContent(result frame, request frame) frame {
+	result.Body = bytes.Clone(result.Body)
+	if strings.Split(request.Path, "?")[0] != "/mcp" {
+		return result
+	}
+	var input map[string]json.RawMessage
+	var output map[string]json.RawMessage
+	if json.Unmarshal(request.Body, &input) != nil || json.Unmarshal(result.Body, &output) != nil {
+		return result
+	}
+	if _, ok := output["jsonrpc"]; ok {
+		output["id"] = input["id"]
+		result.Body, _ = json.Marshal(output)
+	}
+	return result
+}
+func (c *validatedRAM) readMode(ctx context.Context, f frame, exchange func(context.Context, frame) (frame, bool, error), protocol int, online func() bool) (result frame, unknown bool, err error) {
+	if protocol == LocalContentCacheProtocol && !localContentCandidate(f) {
+		return frame{}, false, errors.New("operation requires a live server decision")
+	}
 	confirmedOperation := false
 	defer func() {
 		// A valid server reply can be lost during proof reconstruction too.
@@ -314,8 +437,20 @@ func (c *validatedRAM) read(ctx context.Context, f frame, exchange func(context.
 	}
 	defer release()
 	started := time.Now()
+	c.mu.Lock()
+	generation := c.generation
+	if protocol == LocalContentCacheProtocol {
+		if local := c.reads[key].local; local != nil && (local.until.IsZero() || cacheBefore(local.until)) && (local.offline || online != nil && online()) {
+			c.localHits++
+			result = rebindContent(local.reply, f)
+			c.mu.Unlock()
+			return result, false, nil
+		}
+	}
+	c.mu.Unlock()
+	coherent := protocol == LocalContentCacheProtocol && online != nil && online()
 	sequence, previous := c.snapshot(key, started)
-	input := cacheRead{Protocol: ValidatedCacheProtocol, RequestID: uuid.NewString(), Method: f.Method, Path: f.Path, Body: body, Headers: cacheHeaders(f.Headers), Known: map[string]string{}}
+	input := cacheRead{Protocol: protocol, RequestID: uuid.NewString(), Method: f.Method, Path: f.Path, Body: body, Headers: cacheHeaders(f.Headers), Known: map[string]string{}}
 	for path, resource := range previous {
 		input.Known[path] = resource.sha
 	}
@@ -332,7 +467,7 @@ func (c *validatedRAM) read(ctx context.Context, f frame, exchange func(context.
 		return frame{}, false, errors.New("invalid cache confirmation")
 	}
 	reply := envelope.Data
-	if reply.Protocol != ValidatedCacheProtocol || reply.RequestID != input.RequestID || reply.CheckedAt.IsZero() || reply.ValidForMS <= 0 || reply.ValidForMS > 30_000 || reply.Status < 200 || reply.Status >= 300 {
+	if reply.Protocol != protocol || reply.RequestID != input.RequestID || reply.CheckedAt.IsZero() || reply.ValidForMS <= 0 || reply.ValidForMS > 30_000 || reply.Status < 200 || reply.Status >= 300 {
 		return frame{}, false, errors.New("unconfirmed cache response")
 	}
 	// Use the request's monotonic start, not the local wall clock. Network time
@@ -396,9 +531,42 @@ func (c *validatedRAM) read(ctx context.Context, f frame, exchange func(context.
 	if result.Headers == nil {
 		result.Headers = map[string]string{}
 	}
-	result.Headers["x-cxx-cache-protocol"] = "2"
+	result.Headers["x-cxx-cache-protocol"] = strconv.Itoa(protocol)
 	result.Headers["cache-control"] = "no-store"
 	result.cacheDeadline = deadline
+	if protocol == LocalContentCacheProtocol && reply.LocalContent && coherent && online() {
+		until := time.Time{}
+		if reply.GrantUntil != nil {
+			absolute, parseErr := time.Parse(time.RFC3339Nano, *reply.GrantUntil)
+			if parseErr != nil || !absolute.After(reply.CheckedAt) {
+				return frame{}, false, errors.New("content authority expired")
+			}
+			until = started.Add(absolute.Sub(reply.CheckedAt))
+			if !cacheBefore(until) {
+				return frame{}, false, errors.New("content authority expired")
+			}
+		}
+		c.mu.Lock()
+		if c.generation != generation {
+			c.mu.Unlock()
+			return frame{}, false, errors.New("content changed during fetch")
+		}
+		if c.size+len(result.Body) <= validatedCacheLimit {
+			entry := c.reads[key]
+			result.cacheDeadline = until
+			stored := result
+			stored.Body = bytes.Clone(result.Body)
+			stored.Headers = map[string]string{}
+			for k, v := range result.Headers {
+				stored.Headers[k] = v
+			}
+			scope := localContentScope(f)
+			entry.local = &cachedContent{reply: stored, until: until, scope: scope, offline: scope != "knowledge" && scope != "projects"}
+			c.reads[key] = entry
+			c.size += len(result.Body)
+		}
+		c.mu.Unlock()
+	}
 	return result, false, nil
 }
 

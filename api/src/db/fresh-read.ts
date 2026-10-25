@@ -5,7 +5,15 @@ const fresh = new AsyncLocalStorage<boolean>();
 const snapshots = new AsyncLocalStorage<Map<object, object>>();
 const ownerReadHandles = new WeakSet<object>();
 const rawHandles = new WeakMap<object, object>();
-const ownerForbidden = new Set<PropertyKey>(['insert', 'update', 'delete', 'transaction', 'execute', '$client', 'session']);
+const ownerForbidden = new Set<PropertyKey>([
+  'insert',
+  'update',
+  'delete',
+  'transaction',
+  'execute',
+  '$client',
+  'session',
+]);
 
 /** After hydration the public pool handle is for cold reads only. Domain writes
  * must use the separate transaction supplied by the exclusive owner. */
@@ -15,7 +23,10 @@ export function protectOwnerReadHandle(handle: object): void {
 
 /** Explicit reviewed raw SELECT surface for content search/analytics. This does
  * not interpret SQL or project rows into state; current metadata uses the owner. */
-export function executeColdRead(db: Database, query: Parameters<Database['execute']>[0]): ReturnType<Database['execute']> {
+export function executeColdRead(
+  db: Database,
+  query: Parameters<Database['execute']>[0],
+): ReturnType<Database['execute']> {
   const raw = (snapshots.getStore()?.get(db) ?? rawHandles.get(db) ?? db) as Database;
   return raw.execute(query);
 }
@@ -36,11 +47,18 @@ export function scopedDatabase<T extends object>(db: T): T {
       const source = snapshots.getStore()?.get(proxy) ?? target;
       const assertAllowed = () => {
         if (ownerReadHandles.has(proxy) && ownerForbidden.has(property))
-          throw new Error(`Owner database boundary: ${String(property)} requires an owner transaction or explicit cold read`);
+          throw new Error(
+            `Owner database boundary: ${String(property)} requires an owner transaction or explicit cold read`,
+          );
       };
       assertAllowed();
       const value = Reflect.get(source, property);
-      return typeof value === 'function' ? (...args: unknown[]) => { assertAllowed(); return value.apply(source, args); } : value;
+      return typeof value === 'function'
+        ? (...args: unknown[]) => {
+            assertAllowed();
+            return value.apply(source, args);
+          }
+        : value;
     },
   });
   rawHandles.set(proxy, db);
@@ -49,6 +67,10 @@ export function scopedDatabase<T extends object>(db: T): T {
 
 export async function authoritativeSnapshot<T>(db: Database, run: () => Promise<T>): Promise<T> {
   const protectedOwner = ownerReadHandles.has(db);
+  // Current content is part of the exclusive owner's immutable RAM state.
+  // Opening a SQL transaction around RAM reads manufactured SQL on every
+  // bootstrap/cache miss. Response authority is checked by the owner at send.
+  if (protectedOwner) return authoritativeReads(async () => await run());
   // Only this reviewed read-only entrypoint borrows the underlying pool. The
   // public proxy remains protected throughout the callback, including raw SQL.
   const source = (protectedOwner ? rawHandles.get(db)! : db) as Database;
@@ -64,7 +86,10 @@ export async function authoritativeSnapshot<T>(db: Database, run: () => Promise<
       // Drizzle cannot combine WITH CONSISTENT SNAPSHOT and READ ONLY (it
       // omits MySQL's required comma). Repeatable-read establishes the same
       // stable content snapshot on its first SELECT.
-      { isolationLevel: 'repeatable read', ...(protectedOwner ? { accessMode: 'read only' as const } : { withConsistentSnapshot: true }) },
+      {
+        isolationLevel: 'repeatable read',
+        ...(protectedOwner ? { accessMode: 'read only' as const } : { withConsistentSnapshot: true }),
+      },
     ),
   );
 }

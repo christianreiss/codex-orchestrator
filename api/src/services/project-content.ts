@@ -1,5 +1,9 @@
-import {persistAuditLog} from './audit-log.js';
-import { ownerRuntimeFor, mutateOwnerState, type OwnerMutationContext } from '../control-plane/state/runtime.js';
+import { persistAuditLog } from './audit-log.js';
+import {
+  ownerRuntimeFor,
+  mutateOwnerState,
+  type OwnerMutationContext,
+} from '../control-plane/state/runtime.js';
 import { stageUpdate, stageDelete } from '../control-plane/state/rows.js';
 import { stageProjectEvent } from '../control-plane/state/projects.js';
 import type { Json } from '../control-plane/commands.js';
@@ -86,7 +90,8 @@ function normalizeNote(payload: Record<string, unknown>): { header: string; body
   const errors: string[] = [];
   if (header === '') errors.push('header is required');
   if (body === '') errors.push('body is required');
-  if (errors.length > 0) throw new ValidationError(errors.join('; '), { param: header === '' ? 'header' : 'body' });
+  if (errors.length > 0)
+    throw new ValidationError(errors.join('; '), { param: header === '' ? 'header' : 'body' });
   return { header, body };
 }
 
@@ -107,7 +112,12 @@ function normalizeFile(payload: Record<string, unknown>): {
 } {
   const storedName = normalizeStoredName(payload.stored_name ?? payload.name);
   const description = normalizeOptionalString(payload.description);
-  const content = typeof payload.content === 'string' ? payload.content : typeof payload.text === 'string' ? payload.text : '';
+  const content =
+    typeof payload.content === 'string'
+      ? payload.content
+      : typeof payload.text === 'string'
+        ? payload.text
+        : '';
   const mimeType = normalizeOptionalString(payload.mime_type);
   if (content === '') {
     throw new ValidationError('content is required', { param: 'content' });
@@ -141,22 +151,64 @@ function normalizeFeedback(payload: Record<string, unknown>): { type: string; ti
 }
 
 export class ProjectContentService {
-  private event(ctx:OwnerMutationContext,projectId:number,eventType:string,action:string,entityType:string|null,entityId:number|string|null,payload:Record<string,unknown>|null,hostId:number|null){const event=stageProjectEvent(ctx,projectId,eventType,action,entityType,entityId,payload,hostId);if(hostId!==null)ctx.write(async tx=>persistAuditLog(tx, {hostId,action:'project.'+eventType+'.'+action,details:JSON.stringify({project_id:projectId,entity_id:entityId,...payload}),createdAt:nowIso(),engine:null}));return event;}
+  private event(
+    ctx: OwnerMutationContext,
+    projectId: number,
+    eventType: string,
+    action: string,
+    entityType: string | null,
+    entityId: number | string | null,
+    payload: Record<string, unknown> | null,
+    hostId: number | null,
+  ) {
+    const event = stageProjectEvent(ctx, projectId, eventType, action, entityType, entityId, payload, hostId);
+    if (hostId !== null)
+      ctx.write(async (tx) =>
+        persistAuditLog(tx, {
+          hostId,
+          action: 'project.' + eventType + '.' + action,
+          details: JSON.stringify({ project_id: projectId, entity_id: entityId, ...payload }),
+          createdAt: nowIso(),
+          engine: null,
+        }),
+      );
+    return event;
+  }
 
   constructor(
     private readonly db: Database,
     private readonly projects: ProjectsService,
   ) {}
 
+  private currentBody(
+    state: import('../control-plane/state/store.js').OwnerStateSnapshot,
+    table: 'coordProjectNotes' | 'coordProjectFiles' | 'coordProjectFeedback',
+    id: number,
+  ): string {
+    const body = state.content(table, id, table === 'coordProjectFiles' ? 'content' : 'body');
+    if (typeof body !== 'string') throw new Error('Current project body missing');
+    return body;
+  }
+
   // ── notes ────────────────────────────────────────────────────────────────
 
-  async listNotes(slug: string): Promise<{ project: string; notes: typeof coordProjectNotes.$inferSelect[] }> {
+  async listNotes(
+    slug: string,
+  ): Promise<{ project: string; notes: (typeof coordProjectNotes.$inferSelect)[] }> {
     const project = await this.projects._resolveProject(slug);
-    const notes = await this.db
-      .select()
-      .from(coordProjectNotes)
-      .where(eq(coordProjectNotes.projectId, project.id))
-      .orderBy(desc(coordProjectNotes.updatedAt));
+    const state = ownerRuntimeFor(this.db)?.state.snapshot();
+    const notes = state
+      ? state
+          .table('coordProjectNotes')
+          .by('projectId', project.id)
+          .slice()
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          .map((row) => ({ ...row, body: this.currentBody(state, 'coordProjectNotes', row.id) }))
+      : await this.db
+          .select()
+          .from(coordProjectNotes)
+          .where(eq(coordProjectNotes.projectId, project.id))
+          .orderBy(desc(coordProjectNotes.updatedAt));
     return { project: project.slug, notes };
   }
 
@@ -172,30 +224,59 @@ export class ProjectContentService {
     const owner = ownerRuntimeFor(this.db);
     if (owner) {
       let note!: typeof coordProjectNotes.$inferSelect;
-      await mutateOwnerState(owner, {kind:'project.note.upsert',payload:{projectId:project.id,id,header},prepare:ctx=>{
-        if (!ctx.snapshot.table('coordProjects').has(project.id)) throw new NotFoundError('Project not found');
-        const old=id===null?null:ctx.snapshot.table('coordProjectNotes').get(id);
-        if(id!==null&&old?.projectId!==project.id) throw new NotFoundError('Note not found','note_not_found');
-        const values={projectId:project.id,header,body,sourceHostId,createdAt:old?.createdAt??nowTs,updatedAt:nowTs};
-        if(old){note={...values,id:old.id};stageUpdate(ctx,'coordProjectNotes',old.id,{header,body,sourceHostId,updatedAt:nowTs});this.event(ctx,project.id,'note','update','note',old.id,{header,body},sourceHostId);}
-        else ctx.write(async tx=>{const inserted=await tx.insert(coordProjectNotes).values(values);note={...values,id:Number(inserted[0].insertId)};ctx.draft.upsert('coordProjectNotes',note);this.event(ctx,project.id,'note','create','note',note.id,{header,body},sourceHostId);});
-        return ()=>({project:project.slug,note}) as unknown as Json;
-      }});
-      wsPublisher.publish(id===null?'project.note.created':'project.note.updated',{slug:project.slug,note_id:note.id});wsPublisher.publish('project.changed',{slug:project.slug});
-      return {project:project.slug,note};
+      await mutateOwnerState(owner, {
+        kind: 'project.note.upsert',
+        payload: { projectId: project.id, id, header },
+        prepare: (ctx) => {
+          if (!ctx.snapshot.table('coordProjects').has(project.id))
+            throw new NotFoundError('Project not found');
+          const old = id === null ? null : ctx.snapshot.table('coordProjectNotes').get(id);
+          if (id !== null && old?.projectId !== project.id)
+            throw new NotFoundError('Note not found', 'note_not_found');
+          const values = {
+            projectId: project.id,
+            header,
+            body,
+            sourceHostId,
+            createdAt: old?.createdAt ?? nowTs,
+            updatedAt: nowTs,
+          };
+          if (old) {
+            note = { ...values, id: old.id };
+            stageUpdate(ctx, 'coordProjectNotes', old.id, { header, body, sourceHostId, updatedAt: nowTs });
+            this.event(ctx, project.id, 'note', 'update', 'note', old.id, { header, body }, sourceHostId);
+          } else
+            ctx.write(async (tx) => {
+              const inserted = await tx.insert(coordProjectNotes).values(values);
+              note = { ...values, id: Number(inserted[0].insertId) };
+              ctx.draft.upsert('coordProjectNotes', note);
+              this.event(ctx, project.id, 'note', 'create', 'note', note.id, { header, body }, sourceHostId);
+            });
+          return () => ({ project: project.slug, note }) as unknown as Json;
+        },
+      });
+      wsPublisher.publish(id === null ? 'project.note.created' : 'project.note.updated', {
+        slug: project.slug,
+        note_id: note.id,
+      });
+      wsPublisher.publish('project.changed', { slug: project.slug });
+      return { project: project.slug, note };
     }
 
     let savedId: number;
     let action: 'create' | 'update';
     if (id === null) {
-      const inserted = await this.db.insert(coordProjectNotes).values({
-        projectId: project.id,
-        header,
-        body,
-        sourceHostId,
-        createdAt: nowTs,
-        updatedAt: nowTs,
-      }).$returningId();
+      const inserted = await this.db
+        .insert(coordProjectNotes)
+        .values({
+          projectId: project.id,
+          header,
+          body,
+          sourceHostId,
+          createdAt: nowTs,
+          updatedAt: nowTs,
+        })
+        .$returningId();
       savedId = inserted[0]?.id ?? 0;
       action = 'create';
     } else {
@@ -220,7 +301,15 @@ export class ProjectContentService {
       .limit(1);
     const note = rows[0]!;
 
-    await this.projects._recordEvent(project.id, 'note', action, 'note', savedId, { header, body }, sourceHostId);
+    await this.projects._recordEvent(
+      project.id,
+      'note',
+      action,
+      'note',
+      savedId,
+      { header, body },
+      sourceHostId,
+    );
 
     wsPublisher.publish(action === 'create' ? 'project.note.created' : 'project.note.updated', {
       slug: project.slug,
@@ -231,10 +320,29 @@ export class ProjectContentService {
     return { project: project.slug, note };
   }
 
-  async deleteNote(slug: string, id: number, sourceHostId: number | null = null): Promise<{ project: string; deleted: number }> {
+  async deleteNote(
+    slug: string,
+    id: number,
+    sourceHostId: number | null = null,
+  ): Promise<{ project: string; deleted: number }> {
     const project = await this.projects._resolveProject(slug);
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){await mutateOwnerState(owner,{kind:'project.note.delete',payload:{projectId:project.id,id},prepare:ctx=>{const old=ctx.snapshot.table('coordProjectNotes').get(id);if(old?.projectId!==project.id)throw new NotFoundError('Note not found','note_not_found');stageDelete(ctx,'coordProjectNotes',id);this.event(ctx,project.id,'note','delete','note',id,{id},sourceHostId);return {deleted:id};}});wsPublisher.publish('project.note.deleted',{slug:project.slug,note_id:id});wsPublisher.publish('project.changed',{slug:project.slug});return {project:project.slug,deleted:id};}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, {
+        kind: 'project.note.delete',
+        payload: { projectId: project.id, id },
+        prepare: (ctx) => {
+          const old = ctx.snapshot.table('coordProjectNotes').get(id);
+          if (old?.projectId !== project.id) throw new NotFoundError('Note not found', 'note_not_found');
+          stageDelete(ctx, 'coordProjectNotes', id);
+          this.event(ctx, project.id, 'note', 'delete', 'note', id, { id }, sourceHostId);
+          return { deleted: id };
+        },
+      });
+      wsPublisher.publish('project.note.deleted', { slug: project.slug, note_id: id });
+      wsPublisher.publish('project.changed', { slug: project.slug });
+      return { project: project.slug, deleted: id };
+    }
     const existing = await this.db
       .select({ id: coordProjectNotes.id })
       .from(coordProjectNotes)
@@ -279,7 +387,11 @@ export class ProjectContentService {
     return { project: project.slug, todos: todos.map(toTodoView) };
   }
 
-  async createTodo(slug: string, payload: Record<string, unknown>, sourceHostId: number | null = null): Promise<{ project: string; todo: TodoView }> {
+  async createTodo(
+    slug: string,
+    payload: Record<string, unknown>,
+    sourceHostId: number | null = null,
+  ): Promise<{ project: string; todo: TodoView }> {
     const { title, detail } = normalizeTodo(payload);
     const result = await this.board().todoCreate(slug, { title, detail }, sourceHostId);
     wsPublisher.publish('project.todo.created', { slug: result.project, todo_id: result.todo.id });
@@ -287,7 +399,12 @@ export class ProjectContentService {
     return { project: result.project, todo: toTodoView(result.todo) };
   }
 
-  async updateTodo(slug: string, id: number, payload: Record<string, unknown>, sourceHostId: number | null = null): Promise<{ project: string; todo: TodoView }> {
+  async updateTodo(
+    slug: string,
+    id: number,
+    payload: Record<string, unknown>,
+    sourceHostId: number | null = null,
+  ): Promise<{ project: string; todo: TodoView }> {
     const { title, detail } = normalizeTodo(payload);
     const result = await this.board().todoUpdate(slug, id, { title, detail }, sourceHostId);
     wsPublisher.publish('project.todo.updated', { slug: result.project, todo_id: id });
@@ -295,14 +412,23 @@ export class ProjectContentService {
     return { project: result.project, todo: toTodoView(result.todo) };
   }
 
-  async setTodoDone(slug: string, id: number, done: boolean, sourceHostId: number | null = null): Promise<{ project: string; todo: TodoView }> {
+  async setTodoDone(
+    slug: string,
+    id: number,
+    done: boolean,
+    sourceHostId: number | null = null,
+  ): Promise<{ project: string; todo: TodoView }> {
     const result = await this.board().todoSetDone(slug, id, done, sourceHostId);
     wsPublisher.publish('project.todo.updated', { slug: result.project, todo_id: id, done });
     wsPublisher.publish('project.changed', { slug: result.project });
     return { project: result.project, todo: toTodoView(result.todo) };
   }
 
-  async deleteTodo(slug: string, id: number, sourceHostId: number | null = null): Promise<{ project: string; deleted: number }> {
+  async deleteTodo(
+    slug: string,
+    id: number,
+    sourceHostId: number | null = null,
+  ): Promise<{ project: string; deleted: number }> {
     const result = await this.board().todoDelete(slug, id, sourceHostId);
     wsPublisher.publish('project.todo.deleted', { slug: result.project, todo_id: id });
     wsPublisher.publish('project.changed', { slug: result.project });
@@ -313,29 +439,79 @@ export class ProjectContentService {
 
   async listFiles(slug: string): Promise<{ project: string; files: ProjectFileView[] }> {
     const project = await this.projects._resolveProject(slug);
-    const rows = await this.db
-      .select()
-      .from(coordProjectFiles)
-      .where(eq(coordProjectFiles.projectId, project.id))
-      .orderBy(asc(coordProjectFiles.storedName));
+    const state = ownerRuntimeFor(this.db)?.state.snapshot();
+    const rows = state
+      ? state
+          .table('coordProjectFiles')
+          .by('projectId', project.id)
+          .slice()
+          .sort((a, b) => a.storedName.localeCompare(b.storedName))
+          .map((row) => ({ ...row, content: this.currentBody(state, 'coordProjectFiles', row.id) }))
+      : await this.db
+          .select()
+          .from(coordProjectFiles)
+          .where(eq(coordProjectFiles.projectId, project.id))
+          .orderBy(asc(coordProjectFiles.storedName));
     return { project: project.slug, files: rows.map(formatFile) };
   }
 
-  async upsertFile(slug: string, payload: Record<string, unknown>, sourceHostId: number | null = null): Promise<{ project: string; file: ProjectFileView }> {
+  async upsertFile(
+    slug: string,
+    payload: Record<string, unknown>,
+    sourceHostId: number | null = null,
+  ): Promise<{ project: string; file: ProjectFileView }> {
     const project = await this.projects._resolveProject(slug);
     const { storedName, description, content, mimeType, encoding, sha256: sha } = normalizeFile(payload);
     const nowTs = nowIso();
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){let saved!:typeof coordProjectFiles.$inferSelect;let action='create';
-      await mutateOwnerState(owner,{kind:'project.file.upsert',payload:{projectId:project.id,storedName,sha},prepare:ctx=>{
-        if(!ctx.snapshot.table('coordProjects').has(project.id))throw new NotFoundError('Project not found');
-        const old=ctx.snapshot.table('coordProjectFiles').all().find(row=>row.projectId===project.id&&row.storedName===storedName);
-        const values={projectId:project.id,storedName,description,content,contentEncoding:encoding,contentSha256:sha,mimeType,sourceHostId,createdAt:old?.createdAt??nowTs,updatedAt:nowTs};
-        const audit={stored_name:storedName,description,content_sha256:sha,mime_type:mimeType};
-        if(old){action='update';saved={...values,id:old.id};stageUpdate(ctx,'coordProjectFiles',old.id,values);this.event(ctx,project.id,'file','update','file',old.id,audit,sourceHostId);}
-        else ctx.write(async tx=>{const ids=await tx.insert(coordProjectFiles).values(values);saved={...values,id:Number(ids[0].insertId)};ctx.draft.upsert('coordProjectFiles',saved);this.event(ctx,project.id,'file','create','file',saved.id,audit,sourceHostId);});
-        return ()=>({id:saved.id});
-      }});wsPublisher.publish(action==='create'?'project.file.upserted':'project.file.updated',{slug:project.slug,file_id:saved.id,stored_name:storedName});wsPublisher.publish('project.changed',{slug:project.slug});return {project:project.slug,file:formatFile(saved)};
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      let saved!: typeof coordProjectFiles.$inferSelect;
+      let action = 'create';
+      await mutateOwnerState(owner, {
+        kind: 'project.file.upsert',
+        payload: { projectId: project.id, storedName, sha },
+        prepare: (ctx) => {
+          if (!ctx.snapshot.table('coordProjects').has(project.id))
+            throw new NotFoundError('Project not found');
+          const old = ctx.snapshot
+            .table('coordProjectFiles')
+            .all()
+            .find((row) => row.projectId === project.id && row.storedName === storedName);
+          const values = {
+            projectId: project.id,
+            storedName,
+            description,
+            content,
+            contentEncoding: encoding,
+            contentSha256: sha,
+            mimeType,
+            sourceHostId,
+            createdAt: old?.createdAt ?? nowTs,
+            updatedAt: nowTs,
+          };
+          const audit = { stored_name: storedName, description, content_sha256: sha, mime_type: mimeType };
+          if (old) {
+            action = 'update';
+            saved = { ...values, id: old.id };
+            stageUpdate(ctx, 'coordProjectFiles', old.id, values);
+            this.event(ctx, project.id, 'file', 'update', 'file', old.id, audit, sourceHostId);
+          } else
+            ctx.write(async (tx) => {
+              const ids = await tx.insert(coordProjectFiles).values(values);
+              saved = { ...values, id: Number(ids[0].insertId) };
+              ctx.draft.upsert('coordProjectFiles', saved);
+              this.event(ctx, project.id, 'file', 'create', 'file', saved.id, audit, sourceHostId);
+            });
+          return () => ({ id: saved.id });
+        },
+      });
+      wsPublisher.publish(action === 'create' ? 'project.file.upserted' : 'project.file.updated', {
+        slug: project.slug,
+        file_id: saved.id,
+        stored_name: storedName,
+      });
+      wsPublisher.publish('project.changed', { slug: project.slug });
+      return { project: project.slug, file: formatFile(saved) };
     }
 
     const existing = await this.db
@@ -362,31 +538,46 @@ export class ProjectContentService {
         })
         .where(eq(coordProjectFiles.id, savedId));
     } else {
-      const inserted = await this.db.insert(coordProjectFiles).values({
-        projectId: project.id,
-        storedName,
-        description,
-        content,
-        contentEncoding: encoding,
-        contentSha256: sha,
-        mimeType,
-        sourceHostId,
-        createdAt: nowTs,
-        updatedAt: nowTs,
-      }).$returningId();
+      const inserted = await this.db
+        .insert(coordProjectFiles)
+        .values({
+          projectId: project.id,
+          storedName,
+          description,
+          content,
+          contentEncoding: encoding,
+          contentSha256: sha,
+          mimeType,
+          sourceHostId,
+          createdAt: nowTs,
+          updatedAt: nowTs,
+        })
+        .$returningId();
       savedId = inserted[0]?.id ?? 0;
       action = 'create';
     }
 
-    const rows = await this.db.select().from(coordProjectFiles).where(eq(coordProjectFiles.id, savedId)).limit(1);
+    const rows = await this.db
+      .select()
+      .from(coordProjectFiles)
+      .where(eq(coordProjectFiles.id, savedId))
+      .limit(1);
     const file = formatFile(rows[0]!);
 
-    await this.projects._recordEvent(project.id, 'file', action, 'file', savedId, {
-      stored_name: storedName,
-      description,
-      content_sha256: sha,
-      mime_type: mimeType,
-    }, sourceHostId);
+    await this.projects._recordEvent(
+      project.id,
+      'file',
+      action,
+      'file',
+      savedId,
+      {
+        stored_name: storedName,
+        description,
+        content_sha256: sha,
+        mime_type: mimeType,
+      },
+      sourceHostId,
+    );
 
     wsPublisher.publish(action === 'create' ? 'project.file.upserted' : 'project.file.updated', {
       slug: project.slug,
@@ -413,10 +604,45 @@ export class ProjectContentService {
     return { project: project.slug, file: formatFile(rows[0]) };
   }
 
-  async deleteFile(slug: string, id: number, sourceHostId: number | null = null): Promise<{ project: string; deleted: number }> {
+  async deleteFile(
+    slug: string,
+    id: number,
+    sourceHostId: number | null = null,
+  ): Promise<{ project: string; deleted: number }> {
     const project = await this.projects._resolveProject(slug);
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){let storedName='';await mutateOwnerState(owner,{kind:'project.file.delete',payload:{projectId:project.id,id},prepare:ctx=>{const old=ctx.snapshot.table('coordProjectFiles').get(id);if(old?.projectId!==project.id)throw new NotFoundError('Project file not found','project_file_not_found');storedName=old.storedName;stageDelete(ctx,'coordProjectFiles',id);this.event(ctx,project.id,'file','delete','file',id,{id,stored_name:storedName},sourceHostId);return {deleted:id};}});wsPublisher.publish('project.file.deleted',{slug:project.slug,file_id:id,stored_name:storedName});wsPublisher.publish('project.changed',{slug:project.slug});return {project:project.slug,deleted:id};}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      let storedName = '';
+      await mutateOwnerState(owner, {
+        kind: 'project.file.delete',
+        payload: { projectId: project.id, id },
+        prepare: (ctx) => {
+          const old = ctx.snapshot.table('coordProjectFiles').get(id);
+          if (old?.projectId !== project.id)
+            throw new NotFoundError('Project file not found', 'project_file_not_found');
+          storedName = old.storedName;
+          stageDelete(ctx, 'coordProjectFiles', id);
+          this.event(
+            ctx,
+            project.id,
+            'file',
+            'delete',
+            'file',
+            id,
+            { id, stored_name: storedName },
+            sourceHostId,
+          );
+          return { deleted: id };
+        },
+      });
+      wsPublisher.publish('project.file.deleted', {
+        slug: project.slug,
+        file_id: id,
+        stored_name: storedName,
+      });
+      wsPublisher.publish('project.changed', { slug: project.slug });
+      return { project: project.slug, deleted: id };
+    }
     const existing = await this.db
       .select({ id: coordProjectFiles.id, storedName: coordProjectFiles.storedName })
       .from(coordProjectFiles)
@@ -425,7 +651,15 @@ export class ProjectContentService {
     if (!existing[0]) throw new NotFoundError('Project file not found', 'project_file_not_found');
     const storedName = existing[0].storedName;
     await this.db.delete(coordProjectFiles).where(eq(coordProjectFiles.id, id));
-    await this.projects._recordEvent(project.id, 'file', 'delete', 'file', id, { id, stored_name: storedName }, sourceHostId);
+    await this.projects._recordEvent(
+      project.id,
+      'file',
+      'delete',
+      'file',
+      id,
+      { id, stored_name: storedName },
+      sourceHostId,
+    );
     wsPublisher.publish('project.file.deleted', { slug: project.slug, file_id: id, stored_name: storedName });
     wsPublisher.publish('project.changed', { slug: project.slug });
     return { project: project.slug, deleted: id };
@@ -433,9 +667,26 @@ export class ProjectContentService {
 
   // ── feedback ─────────────────────────────────────────────────────────────
 
-  async listFeedback(slug: string | null): Promise<{ project: string | null; feedback: typeof coordProjectFeedback.$inferSelect[] }> {
+  async listFeedback(
+    slug: string | null,
+  ): Promise<{ project: string | null; feedback: (typeof coordProjectFeedback.$inferSelect)[] }> {
+    const state = ownerRuntimeFor(this.db)?.state.snapshot();
+    if (state) {
+      const project = slug === null ? null : await this.projects._resolveProject(slug);
+      const feedback = state
+        .table('coordProjectFeedback')
+        .all()
+        .filter((row) => !project || row.projectId === project.id)
+        .slice()
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .map((row) => ({ ...row, body: this.currentBody(state, 'coordProjectFeedback', row.id) }));
+      return { project: project?.slug ?? null, feedback };
+    }
     if (slug === null) {
-      const rows = await this.db.select().from(coordProjectFeedback).orderBy(desc(coordProjectFeedback.updatedAt));
+      const rows = await this.db
+        .select()
+        .from(coordProjectFeedback)
+        .orderBy(desc(coordProjectFeedback.updatedAt));
       return { project: null, feedback: rows };
     }
     const project = await this.projects._resolveProject(slug);
@@ -458,19 +709,28 @@ export class ProjectContentService {
     sourceHostId: number | null = null,
   ): Promise<{ project: string; feedback: typeof coordProjectFeedback.$inferSelect }> {
     const project = await this.projects._resolveProject(slug);
-    const runtime=ownerRuntimeFor(this.db);runtime?.assertOwner();
-    const existing = runtime ? runtime.state.snapshot().table('coordProjectFeedback').all().filter(row=>row.projectId===project.id&&row.id===id) : await this.db
-      .select()
-      .from(coordProjectFeedback)
-      .where(and(eq(coordProjectFeedback.projectId, project.id), eq(coordProjectFeedback.id, id)))
-      .limit(1);
+    const runtime = ownerRuntimeFor(this.db);
+    runtime?.assertOwner();
+    const existing = runtime
+      ? runtime.state
+          .snapshot()
+          .table('coordProjectFeedback')
+          .all()
+          .filter((row) => row.projectId === project.id && row.id === id)
+      : await this.db
+          .select()
+          .from(coordProjectFeedback)
+          .where(and(eq(coordProjectFeedback.projectId, project.id), eq(coordProjectFeedback.id, id)))
+          .limit(1);
     if (!existing[0]) throw new NotFoundError('Project feedback not found');
 
     const patch: Record<string, unknown> = {};
     if (payload.status !== undefined) {
       const status = trimStr(payload.status).toLowerCase();
       if (!isProjectFeedbackStatus(status)) {
-        throw new ValidationError(`status must be one of: ${projectFeedbackStatusList()}`, { param: 'status' });
+        throw new ValidationError(`status must be one of: ${projectFeedbackStatusList()}`, {
+          param: 'status',
+        });
       }
       patch.status = status;
     }
@@ -492,53 +752,129 @@ export class ProjectContentService {
     }
 
     const nowTs = nowIso();
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){let feedback!:typeof coordProjectFeedback.$inferSelect;
-      await mutateOwnerState(owner,{kind:'project.feedback.update',payload:{projectId:project.id,id},prepare:async ctx=>{
-        const current=ctx.snapshot.table('coordProjectFeedback').get(id);if(current?.projectId!==project.id)throw new NotFoundError('Project feedback not found');
-        const full=(await this.db.select().from(coordProjectFeedback).where(eq(coordProjectFeedback.id,id)).limit(1))[0];if(!full)throw new NotFoundError('Project feedback not found');
-        feedback={...full,...patch,updatedAt:nowTs} as typeof coordProjectFeedback.$inferSelect;
-        stageUpdate(ctx,'coordProjectFeedback',id,{...patch,updatedAt:nowTs});this.event(ctx,project.id,'feedback','update','feedback',id,feedback,sourceHostId);return ()=>({project:project.slug,feedback}) as unknown as Json;
-      }});wsPublisher.publish('project.feedback.updated',{slug:project.slug,feedback_id:id});wsPublisher.publish('project.changed',{slug:project.slug});return {project:project.slug,feedback};
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      let feedback!: typeof coordProjectFeedback.$inferSelect;
+      await mutateOwnerState(owner, {
+        kind: 'project.feedback.update',
+        payload: { projectId: project.id, id },
+        prepare: async (ctx) => {
+          const current = ctx.snapshot.table('coordProjectFeedback').get(id);
+          if (current?.projectId !== project.id) throw new NotFoundError('Project feedback not found');
+          const full = { ...current, body: this.currentBody(ctx.snapshot, 'coordProjectFeedback', id) };
+          feedback = { ...full, ...patch, updatedAt: nowTs } as typeof coordProjectFeedback.$inferSelect;
+          stageUpdate(ctx, 'coordProjectFeedback', id, { ...patch, updatedAt: nowTs });
+          this.event(ctx, project.id, 'feedback', 'update', 'feedback', id, feedback, sourceHostId);
+          return () => ({ project: project.slug, feedback }) as unknown as Json;
+        },
+      });
+      wsPublisher.publish('project.feedback.updated', { slug: project.slug, feedback_id: id });
+      wsPublisher.publish('project.changed', { slug: project.slug });
+      return { project: project.slug, feedback };
     }
     await this.db
       .update(coordProjectFeedback)
       .set({ ...patch, updatedAt: nowTs })
       .where(and(eq(coordProjectFeedback.projectId, project.id), eq(coordProjectFeedback.id, id)));
-    const row = (await this.db
-      .select()
-      .from(coordProjectFeedback)
-      .where(and(eq(coordProjectFeedback.projectId, project.id), eq(coordProjectFeedback.id, id)))
-      .limit(1))[0]!;
-    await this.projects._recordEvent(project.id, 'feedback', 'update', 'feedback', row.id, row as unknown as Record<string, unknown>, sourceHostId);
+    const row = (
+      await this.db
+        .select()
+        .from(coordProjectFeedback)
+        .where(and(eq(coordProjectFeedback.projectId, project.id), eq(coordProjectFeedback.id, id)))
+        .limit(1)
+    )[0]!;
+    await this.projects._recordEvent(
+      project.id,
+      'feedback',
+      'update',
+      'feedback',
+      row.id,
+      row as unknown as Record<string, unknown>,
+      sourceHostId,
+    );
     wsPublisher.publish('project.feedback.updated', { slug: project.slug, feedback_id: id });
     wsPublisher.publish('project.changed', { slug: project.slug });
     return { project: project.slug, feedback: row };
   }
 
-  async createFeedback(slug: string, payload: Record<string, unknown>, sourceHostId: number | null = null): Promise<{ project: string; feedback: typeof coordProjectFeedback.$inferSelect }> {
+  async createFeedback(
+    slug: string,
+    payload: Record<string, unknown>,
+    sourceHostId: number | null = null,
+  ): Promise<{ project: string; feedback: typeof coordProjectFeedback.$inferSelect }> {
     const project = await this.projects._resolveProject(slug);
     const { type, title, body } = normalizeFeedback(payload);
     const nowTs = nowIso();
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){let feedback!:typeof coordProjectFeedback.$inferSelect;await mutateOwnerState(owner,{kind:'project.feedback.create',payload:{projectId:project.id,type,title},prepare:ctx=>{
-      if(!ctx.snapshot.table('coordProjects').has(project.id))throw new NotFoundError('Project not found');const values={projectId:project.id,type,title,body,status:'open',sourceHostId,createdAt:nowTs,updatedAt:nowTs};
-      ctx.write(async tx=>{const ids=await tx.insert(coordProjectFeedback).values(values);feedback={...values,id:Number(ids[0].insertId)};ctx.draft.upsert('coordProjectFeedback',feedback);this.event(ctx,project.id,'feedback','create','feedback',feedback.id,feedback,sourceHostId);});return ()=>({project:project.slug,feedback}) as unknown as Json;
-    }});wsPublisher.publish('project.feedback.created',{slug:project.slug,feedback_id:feedback.id,type});wsPublisher.publish('project.changed',{slug:project.slug});return {project:project.slug,feedback};}
-    const inserted = await this.db.insert(coordProjectFeedback).values({
-      projectId: project.id,
-      type,
-      title,
-      body,
-      status: 'open',
-      sourceHostId,
-      createdAt: nowTs,
-      updatedAt: nowTs,
-    }).$returningId();
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      let feedback!: typeof coordProjectFeedback.$inferSelect;
+      await mutateOwnerState(owner, {
+        kind: 'project.feedback.create',
+        payload: { projectId: project.id, type, title },
+        prepare: (ctx) => {
+          if (!ctx.snapshot.table('coordProjects').has(project.id))
+            throw new NotFoundError('Project not found');
+          const values = {
+            projectId: project.id,
+            type,
+            title,
+            body,
+            status: 'open',
+            sourceHostId,
+            createdAt: nowTs,
+            updatedAt: nowTs,
+          };
+          ctx.write(async (tx) => {
+            const ids = await tx.insert(coordProjectFeedback).values(values);
+            feedback = { ...values, id: Number(ids[0].insertId) };
+            ctx.draft.upsert('coordProjectFeedback', feedback);
+            this.event(
+              ctx,
+              project.id,
+              'feedback',
+              'create',
+              'feedback',
+              feedback.id,
+              feedback,
+              sourceHostId,
+            );
+          });
+          return () => ({ project: project.slug, feedback }) as unknown as Json;
+        },
+      });
+      wsPublisher.publish('project.feedback.created', { slug: project.slug, feedback_id: feedback.id, type });
+      wsPublisher.publish('project.changed', { slug: project.slug });
+      return { project: project.slug, feedback };
+    }
+    const inserted = await this.db
+      .insert(coordProjectFeedback)
+      .values({
+        projectId: project.id,
+        type,
+        title,
+        body,
+        status: 'open',
+        sourceHostId,
+        createdAt: nowTs,
+        updatedAt: nowTs,
+      })
+      .$returningId();
     const savedId = inserted[0]?.id ?? 0;
-    const rows = await this.db.select().from(coordProjectFeedback).where(eq(coordProjectFeedback.id, savedId)).limit(1);
+    const rows = await this.db
+      .select()
+      .from(coordProjectFeedback)
+      .where(eq(coordProjectFeedback.id, savedId))
+      .limit(1);
     const feedback = rows[0]!;
-    await this.projects._recordEvent(project.id, 'feedback', 'create', 'feedback', savedId, feedback, sourceHostId);
+    await this.projects._recordEvent(
+      project.id,
+      'feedback',
+      'create',
+      'feedback',
+      savedId,
+      feedback,
+      sourceHostId,
+    );
     wsPublisher.publish('project.feedback.created', { slug: project.slug, feedback_id: savedId, type });
     wsPublisher.publish('project.changed', { slug: project.slug });
     return { project: project.slug, feedback };

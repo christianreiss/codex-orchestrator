@@ -65,7 +65,7 @@ describe('runtime owner metadata limits', () => {
       new OwnerStateSnapshot(initial).metadataUsage.metadataBytes,
     );
   });
-  it('does not charge cold bodies and reuses unchanged row measurements', () => {
+  it('charges privately owned current bodies and reuses unchanged row measurements', () => {
     const snapshot = new OwnerStateSnapshot(initial, {
       versions: [setting('untouched'), setting('changed')],
     });
@@ -88,7 +88,8 @@ describe('runtime owner metadata limits', () => {
     const large = new OwnerStateSnapshot(initial, {
       authPayloads: [{ ...payload, body: 'a'.repeat(100_000) } as unknown as StateRow<'authPayloads'>],
     });
-    expect(small.metadataUsage).toEqual(large.metadataUsage);
+    expect(large.metadataUsage.metadataBytes - small.metadataUsage.metadataBytes).toBe(99_999);
+    expect(large.table('authPayloads').get(1)).not.toHaveProperty('body');
   });
   it('validates initial state and limit values', () => {
     const snapshot = new OwnerStateSnapshot(initial, { versions: [setting('a'), setting('b')] });

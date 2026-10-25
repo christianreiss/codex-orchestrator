@@ -1,6 +1,5 @@
-import {persistAuditLog} from './audit-log.js';
+import { persistAuditLog } from './audit-log.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
-import { publicArtifact } from '../control-plane/state/artifact-content.js';
 import { stageUpdate } from '../control-plane/state/rows.js';
 import { adminAudit } from '../control-plane/state/admin.js';
 /**
@@ -10,7 +9,7 @@ import { adminAudit } from '../control-plane/state/admin.js';
 import { eq, asc, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import type { Database } from '../db/client.js';
-import { skills, skillFiles} from '../db/schema.js';
+import { skills, skillFiles } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import { ConflictError, NotFoundError, ServiceUnavailableError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
@@ -41,12 +40,17 @@ function skillUri(slug: string): string {
 
 function normalizeSlug(slug: string): string {
   const normalized = (slug ?? '').trim();
-  if (!normalized) throw new ValidationError('Validation failed', { extra: { errors: { slug: ['slug is required'] } } });
+  if (!normalized)
+    throw new ValidationError('Validation failed', { extra: { errors: { slug: ['slug is required'] } } });
   if (normalized.length > 255) {
-    throw new ValidationError('Validation failed', { extra: { errors: { slug: ['slug must be 255 characters or fewer'] } } });
+    throw new ValidationError('Validation failed', {
+      extra: { errors: { slug: ['slug must be 255 characters or fewer'] } },
+    });
   }
   if (normalized.includes('..') || normalized.includes('/')) {
-    throw new ValidationError('Validation failed', { extra: { errors: { slug: ['slug cannot include path separators'] } } });
+    throw new ValidationError('Validation failed', {
+      extra: { errors: { slug: ['slug cannot include path separators'] } },
+    });
   }
   if (!SLUG_RE.test(normalized)) {
     throw new ValidationError('Validation failed', {
@@ -106,7 +110,7 @@ function quoteYaml(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-function visibleToEngine(row: Pick<typeof skills.$inferSelect,'engine'>, engine: Engine): boolean {
+function visibleToEngine(row: Pick<typeof skills.$inferSelect, 'engine'>, engine: Engine): boolean {
   const rowEngine = row.engine;
   return rowEngine === null || rowEngine === undefined || rowEngine === '' || rowEngine === engine;
 }
@@ -115,11 +119,11 @@ function normalizeSkillFilePath(raw: string): string {
   const path = (raw ?? '').trim();
   const segments = path.split('/');
   if (
-    path === ''
-    || path.length > 512
-    || path.includes('\\')
-    || path.startsWith('/')
-    || segments.some((segment) => segment === '' || segment === '.' || segment === '..')
+    path === '' ||
+    path.length > 512 ||
+    path.includes('\\') ||
+    path.startsWith('/') ||
+    segments.some((segment) => segment === '' || segment === '.' || segment === '..')
   ) {
     throw new ValidationError('invalid skill file path', { param: 'path' });
   }
@@ -178,20 +182,24 @@ export class HostSkillsService {
    * rendering calls it on every sync and must not load full Skill bundles.
    */
   async availableCount(engine: Engine): Promise<number> {
-    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
+    const owner = ownerRuntimeFor(this.db);
+    owner?.assertOwner();
     const [stored, managed] = await Promise.all([
-      owner?owner.state.snapshot().table('skills').all():this.db
-        .select({ slug: skills.slug, deletedAt: skills.deletedAt, engine: skills.engine })
-        .from(skills)
-        .where(sql`${skills.deletedAt} IS NULL`),
+      owner
+        ? owner.state.snapshot().table('skills').all()
+        : this.db
+            .select({ slug: skills.slug, deletedAt: skills.deletedAt, engine: skills.engine })
+            .from(skills)
+            .where(sql`${skills.deletedAt} IS NULL`),
       this.managedSkills(),
     ]);
     const managedSlugs = new Set(managed.map((skill) => skill.slug));
     // Keep the JS filters for db-fake and make engine-null rows shared.
-    const storedCount = stored.filter((row) =>
-      !row.deletedAt
-      && (row.engine === null || row.engine === undefined || row.engine === '' || row.engine === engine)
-      && !managedSlugs.has(row.slug)
+    const storedCount = stored.filter(
+      (row) =>
+        !row.deletedAt &&
+        (row.engine === null || row.engine === undefined || row.engine === '' || row.engine === engine) &&
+        !managedSlugs.has(row.slug),
     ).length;
     return storedCount + managed.length;
   }
@@ -204,12 +212,9 @@ export class HostSkillsService {
    * referenced file change invalidates the wrapper cache; ordinary rows retain
    * the rendered SKILL.md sha used historically. Mirrors
    * HostClaudeArtifactsService.bundle.
-  */
+   */
   async bundle(host: Host, engine: Engine, digests: Record<string, string> = {}): Promise<SkillEnvelope[]> {
-    const [snapshot, managed] = await Promise.all([
-      this.readLiveSnapshot(engine),
-      this.managedSkills(),
-    ]);
+    const [snapshot, managed] = await Promise.all([this.readLiveSnapshot(engine), this.managedSkills()]);
     const { rows, filesBySkillId } = snapshot;
     const managedSlugs = new Set(managed.map((m) => m.slug));
     const out: SkillEnvelope[] = [];
@@ -224,7 +229,8 @@ export class HostSkillsService {
       const renderedSha = createHash('sha256').update(content).digest('hex');
       const sha = effectiveSkillDigest(row, renderedSha);
       const have = digests[row.slug];
-      const unchanged = typeof have === 'string' && SHA_RE.test(have) && safeHashEquals(sha, have.toLowerCase());
+      const unchanged =
+        typeof have === 'string' && SHA_RE.test(have) && safeHashEquals(sha, have.toLowerCase());
       out.push(
         unchanged
           ? { slug: row.slug, sha256: sha, status: 'unchanged' }
@@ -243,7 +249,8 @@ export class HostSkillsService {
       const content = m.manifest;
       const sha = createHash('sha256').update(content).digest('hex');
       const have = digests[m.slug];
-      const unchanged = typeof have === 'string' && SHA_RE.test(have) && safeHashEquals(sha, have.toLowerCase());
+      const unchanged =
+        typeof have === 'string' && SHA_RE.test(have) && safeHashEquals(sha, have.toLowerCase());
       out.push(
         unchanged
           ? { slug: m.slug, sha256: sha, status: 'unchanged' }
@@ -253,26 +260,20 @@ export class HostSkillsService {
     return out;
   }
 
-  async listSkills(host: Host, engine: Engine | null): Promise<{ engine: Engine | null; skills: Record<string, unknown>[] }> {
-    const [snapshot, managed] = await Promise.all([
-      this.readLiveSnapshot(engine),
-      this.managedSkills(),
-    ]);
+  async listSkills(
+    host: Host,
+    engine: Engine | null,
+  ): Promise<{ engine: Engine | null; skills: Record<string, unknown>[] }> {
+    const [snapshot, managed] = await Promise.all([this.readLiveSnapshot(engine), this.managedSkills()]);
     const { rows } = snapshot;
     const managedSlugs = new Set(managed.map((m) => m.slug));
-    const decorated = rows
-      .filter((r) => !managedSlugs.has(r.slug))
-      .map((r) => this.decorate(r));
+    const decorated = rows.filter((r) => !managedSlugs.has(r.slug)).map((r) => this.decorate(r));
     for (const m of managed) decorated.push(this.decorateManaged(m));
     return { engine, skills: decorated };
   }
 
   /** Metadata-only listing for support files attached to one live skill. */
-  async listFiles(
-    rawSlug: string,
-    host: Host,
-    engine: Engine = ENGINE_CODEX,
-  ): Promise<SkillFileSummary[]> {
+  async listFiles(rawSlug: string, host: Host, engine: Engine = ENGINE_CODEX): Promise<SkillFileSummary[]> {
     const snapshot = await this.requireStoredSkillSnapshot(rawSlug, engine);
     const out = snapshot.files.map((file) => ({ path: file.path, sha256: file.sha256 }));
     return out;
@@ -305,7 +306,8 @@ export class HostSkillsService {
 
     const managed = await findManagedSkill(this.db, normalized);
     if (managed) {
-      const status = providedSha && safeHashEquals(managed.sha256, providedSha.toLowerCase()) ? 'unchanged' : 'updated';
+      const status =
+        providedSha && safeHashEquals(managed.sha256, providedSha.toLowerCase()) ? 'unchanged' : 'updated';
       return {
         status,
         slug: managed.slug,
@@ -350,7 +352,10 @@ export class HostSkillsService {
       manifestSha = createHash('sha256').update(row.manifest).digest('hex');
     }
     const canonicalSha = effectiveSkillDigest(row, manifestSha);
-    const status = providedSha && canonicalSha && safeHashEquals(canonicalSha, providedSha.toLowerCase()) ? 'unchanged' : 'updated';
+    const status =
+      providedSha && canonicalSha && safeHashEquals(canonicalSha, providedSha.toLowerCase())
+        ? 'unchanged'
+        : 'updated';
     const result: Record<string, unknown> = {
       status,
       slug: normalized,
@@ -385,7 +390,7 @@ export class HostSkillsService {
     if (descriptionRaw !== undefined && descriptionRaw !== null && typeof descriptionRaw !== 'string') {
       errors['description'] = ['description must be a string'];
     }
-    assertSha256(typeof providedSha === 'string' ? providedSha : providedSha ?? null, true, errors);
+    assertSha256(typeof providedSha === 'string' ? providedSha : (providedSha ?? null), true, errors);
     if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
 
     const validatedSlug = typeof slugRaw === 'string' ? slugRaw : '';
@@ -400,92 +405,164 @@ export class HostSkillsService {
 
     const sha = createHash('sha256').update(manifest).digest('hex');
     if (typeof providedSha === 'string' && providedSha && !safeHashEquals(sha, providedSha.toLowerCase())) {
-      throw new ValidationError('Validation failed', { extra: { errors: { sha256: ['sha256 does not match manifest contents'] } } });
+      throw new ValidationError('Validation failed', {
+        extra: { errors: { sha256: ['sha256 does not match manifest contents'] } },
+      });
     }
 
     const displayName = typeof displayNameRaw === 'string' ? displayNameRaw.trim() : null;
     const description = typeof descriptionRaw === 'string' ? descriptionRaw.trim() : null;
 
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){const result=await mutateOwnerState(owner,{kind:'host.skill.store',payload:{slug,sha,hostId:host.id},prepare:ctx=>{
-      const existing=ctx.snapshot.table('skills').by('slug',slug)[0];if(existing&&isSourceOwnedSkill(existing))throw new ConflictError('source-managed skill cannot be overwritten directly','managed_skill');
-      const name=displayNameRaw===undefined?existing?.displayName??null:displayName,descriptionValue=descriptionRaw===undefined?existing?.description??null:description,now=nowIso();
-      const status=!existing?'created':existing.sha256===sha&&existing.displayName===name&&existing.description===descriptionValue&&existing.engine===null&&!existing.deletedAt?'unchanged':'updated';
-      if(status!=='unchanged'){
-        const values={slug,sha256:sha,manifest,displayName:name,description:descriptionValue,sourceHostId:host.id,engine:null,updatedAt:now,deletedAt:null};
-        if(existing)stageUpdate(ctx,'skills',existing.id,values);else{const row={...values,createdAt:now,sourceType:null,sourceRepository:null,sourcePath:null,sourceRevision:null,sourceLicense:null,bundleSha256:null};ctx.write(async tx=>{const result=await tx.insert(skills).values(row);ctx.draft.upsert('skills',{id:Number(result[0].insertId),...row});});}
-      }
-      adminAudit(ctx,'skill.store',{slug,status},now,host.id);
-      return {status,slug,uri:skillUri(slug),canonical_uri:skillUri(slug),sha256:sha,updated_at:status==='unchanged'?existing!.updatedAt:now,managed:false};
-    }});const status=(result as {status:string}).status;wsPublisher.publish(status==='created'?'skill.stored':'skill.updated',{slug,source_host_id:host.id});return result as Record<string,unknown>;}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = await mutateOwnerState(owner, {
+        kind: 'host.skill.store',
+        payload: { slug, sha, hostId: host.id },
+        prepare: (ctx) => {
+          const existing = ctx.snapshot.table('skills').by('slug', slug)[0];
+          if (existing && isSourceOwnedSkill(existing))
+            throw new ConflictError('source-managed skill cannot be overwritten directly', 'managed_skill');
+          const name = displayNameRaw === undefined ? (existing?.displayName ?? null) : displayName,
+            descriptionValue = descriptionRaw === undefined ? (existing?.description ?? null) : description,
+            now = nowIso();
+          const status = !existing
+            ? 'created'
+            : existing.sha256 === sha &&
+                existing.displayName === name &&
+                existing.description === descriptionValue &&
+                existing.engine === null &&
+                !existing.deletedAt
+              ? 'unchanged'
+              : 'updated';
+          if (status !== 'unchanged') {
+            const values = {
+              slug,
+              sha256: sha,
+              manifest,
+              displayName: name,
+              description: descriptionValue,
+              sourceHostId: host.id,
+              engine: null,
+              updatedAt: now,
+              deletedAt: null,
+            };
+            if (existing) stageUpdate(ctx, 'skills', existing.id, values);
+            else {
+              const row = {
+                ...values,
+                createdAt: now,
+                sourceType: null,
+                sourceRepository: null,
+                sourcePath: null,
+                sourceRevision: null,
+                sourceLicense: null,
+                bundleSha256: null,
+              };
+              ctx.write(async (tx) => {
+                const result = await tx.insert(skills).values(row);
+                ctx.draft.upsert('skills', { id: Number(result[0].insertId), ...row });
+              });
+            }
+          }
+          adminAudit(ctx, 'skill.store', { slug, status }, now, host.id);
+          return {
+            status,
+            slug,
+            uri: skillUri(slug),
+            canonical_uri: skillUri(slug),
+            sha256: sha,
+            updated_at: status === 'unchanged' ? existing!.updatedAt : now,
+            managed: false,
+          };
+        },
+      });
+      const status = (result as { status: string }).status;
+      wsPublisher.publish(status === 'created' ? 'skill.stored' : 'skill.updated', {
+        slug,
+        source_host_id: host.id,
+      });
+      return result as Record<string, unknown>;
+    }
 
     // The unique slug lookup is a locking read. Under REPEATABLE READ it locks
     // either the existing row or the unique-index gap, so an importer cannot
     // insert a source-owned row between the ownership check and this write.
-    const persisted = await this.db.transaction(async (tx) => {
-      const existingRows = await tx
-        .select()
-        .from(skills)
-        .where(eq(skills.slug, slug))
-        .for('update')
-        .limit(1);
-      const existing = existingRows[0];
-      if (existing && isSourceOwnedSkill(existing)) {
-        throw new ConflictError('source-managed skill cannot be overwritten directly', 'managed_skill');
-      }
+    const persisted = await this.db.transaction(
+      async (tx) => {
+        const existingRows = await tx
+          .select()
+          .from(skills)
+          .where(eq(skills.slug, slug))
+          .for('update')
+          .limit(1);
+        const existing = existingRows[0];
+        if (existing && isSourceOwnedSkill(existing)) {
+          throw new ConflictError('source-managed skill cannot be overwritten directly', 'managed_skill');
+        }
 
-      const existingSha = existing?.sha256 ?? null;
-      const displayNameToPersist = displayNameRaw === undefined ? (existing?.displayName ?? null) : displayName;
-      const descriptionToPersist = descriptionRaw === undefined ? (existing?.description ?? null) : description;
-      const metadataChanged =
-        existing !== undefined &&
-        ((existing.displayName ?? null) !== displayNameToPersist ||
-          (existing.description ?? null) !== descriptionToPersist);
-      const scopeChanged = existing !== undefined && existing.engine !== null;
-      const status: 'created' | 'updated' | 'unchanged' = existing
-        ? existingSha && safeHashEquals(existingSha, sha) && !metadataChanged && !scopeChanged && !existing.deletedAt
-          ? 'unchanged'
-          : 'updated'
-        : 'created';
+        const existingSha = existing?.sha256 ?? null;
+        const displayNameToPersist =
+          displayNameRaw === undefined ? (existing?.displayName ?? null) : displayName;
+        const descriptionToPersist =
+          descriptionRaw === undefined ? (existing?.description ?? null) : description;
+        const metadataChanged =
+          existing !== undefined &&
+          ((existing.displayName ?? null) !== displayNameToPersist ||
+            (existing.description ?? null) !== descriptionToPersist);
+        const scopeChanged = existing !== undefined && existing.engine !== null;
+        const status: 'created' | 'updated' | 'unchanged' = existing
+          ? existingSha &&
+            safeHashEquals(existingSha, sha) &&
+            !metadataChanged &&
+            !scopeChanged &&
+            !existing.deletedAt
+            ? 'unchanged'
+            : 'updated'
+          : 'created';
 
-      if (status === 'unchanged') {
-        return { status, savedSha: existingSha ?? sha, savedUpdatedAt: existing?.updatedAt ?? nowIso() };
-      }
+        if (status === 'unchanged') {
+          return { status, savedSha: existingSha ?? sha, savedUpdatedAt: existing?.updatedAt ?? nowIso() };
+        }
 
-      const now = nowIso();
-      if (existing) {
-        await tx
-          .update(skills)
-          .set({
+        const now = nowIso();
+        if (existing) {
+          await tx
+            .update(skills)
+            .set({
+              sha256: sha,
+              displayName: displayNameToPersist,
+              description: descriptionToPersist,
+              manifest,
+              sourceHostId: host.id,
+              engine: null,
+              updatedAt: now,
+              deletedAt: null,
+            })
+            .where(eq(skills.id, existing.id));
+        } else {
+          await tx.insert(skills).values({
+            slug,
             sha256: sha,
             displayName: displayNameToPersist,
             description: descriptionToPersist,
             manifest,
             sourceHostId: host.id,
-            engine: null,
+            createdAt: now,
             updatedAt: now,
             deletedAt: null,
-          })
-          .where(eq(skills.id, existing.id));
-      } else {
-        await tx.insert(skills).values({
-          slug,
-          sha256: sha,
-          displayName: displayNameToPersist,
-          description: descriptionToPersist,
-          manifest,
-          sourceHostId: host.id,
-          createdAt: now,
-          updatedAt: now,
-          deletedAt: null,
-          engine: null,
-        });
-      }
-      return { status, savedSha: sha, savedUpdatedAt: now };
-    }, { isolationLevel: 'repeatable read' });
+            engine: null,
+          });
+        }
+        return { status, savedSha: sha, savedUpdatedAt: now };
+      },
+      { isolationLevel: 'repeatable read' },
+    );
 
     await this.recordLog(host.id, 'skill.store', { slug, status: persisted.status });
-    wsPublisher.publish(persisted.status === 'created' ? 'skill.stored' : 'skill.updated', { slug, source_host_id: host.id });
+    wsPublisher.publish(persisted.status === 'created' ? 'skill.stored' : 'skill.updated', {
+      slug,
+      source_host_id: host.id,
+    });
 
     return {
       status: persisted.status,
@@ -504,38 +581,59 @@ export class HostSkillsService {
       throw new ConflictError('managed skill cannot be deleted directly', 'managed_skill');
     }
 
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){const result=await mutateOwnerState(owner,{kind:'host.skill.delete',payload:{slug,hostId:host.id},prepare:ctx=>{
-      const existing=ctx.snapshot.table('skills').by('slug',slug)[0];if(existing&&isSourceOwnedSkill(existing))throw new ConflictError('source-managed skill cannot be deleted directly','managed_skill');
-      const status=!existing?'missing':existing.deletedAt&&existing.engine===null?'unchanged':'deleted',now=nowIso(),deletedAt=existing?(existing.deletedAt??now):null;
-      if(status==='deleted')stageUpdate(ctx,'skills',existing!.id,{deletedAt,engine:null,updatedAt:now});adminAudit(ctx,'skill.delete',{slug,status},now,host.id);
-      return {status,slug,uri:skillUri(slug),canonical_uri:skillUri(slug),...(deletedAt?{deleted_at:deletedAt}:{}),managed:false};
-    }});if((result as {status:string}).status==='deleted')wsPublisher.publish('skill.deleted',{slug,source_host_id:host.id});return result as Record<string,unknown>;}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = await mutateOwnerState(owner, {
+        kind: 'host.skill.delete',
+        payload: { slug, hostId: host.id },
+        prepare: (ctx) => {
+          const existing = ctx.snapshot.table('skills').by('slug', slug)[0];
+          if (existing && isSourceOwnedSkill(existing))
+            throw new ConflictError('source-managed skill cannot be deleted directly', 'managed_skill');
+          const status = !existing
+              ? 'missing'
+              : existing.deletedAt && existing.engine === null
+                ? 'unchanged'
+                : 'deleted',
+            now = nowIso(),
+            deletedAt = existing ? (existing.deletedAt ?? now) : null;
+          if (status === 'deleted')
+            stageUpdate(ctx, 'skills', existing!.id, { deletedAt, engine: null, updatedAt: now });
+          adminAudit(ctx, 'skill.delete', { slug, status }, now, host.id);
+          return {
+            status,
+            slug,
+            uri: skillUri(slug),
+            canonical_uri: skillUri(slug),
+            ...(deletedAt ? { deleted_at: deletedAt } : {}),
+            managed: false,
+          };
+        },
+      });
+      if ((result as { status: string }).status === 'deleted')
+        wsPublisher.publish('skill.deleted', { slug, source_host_id: host.id });
+      return result as Record<string, unknown>;
+    }
 
-    const persisted = await this.db.transaction(async (tx) => {
-      const rows = await tx
-        .select()
-        .from(skills)
-        .where(eq(skills.slug, slug))
-        .for('update')
-        .limit(1);
-      const existing = rows[0];
-      if (existing && isSourceOwnedSkill(existing)) {
-        throw new ConflictError('source-managed skill cannot be deleted directly', 'managed_skill');
-      }
-      if (!existing) return { status: 'missing' as const, deletedAt: null };
-      if (existing.deletedAt && existing.engine === null) {
-        return { status: 'unchanged' as const, deletedAt: existing.deletedAt };
-      }
+    const persisted = await this.db.transaction(
+      async (tx) => {
+        const rows = await tx.select().from(skills).where(eq(skills.slug, slug)).for('update').limit(1);
+        const existing = rows[0];
+        if (existing && isSourceOwnedSkill(existing)) {
+          throw new ConflictError('source-managed skill cannot be deleted directly', 'managed_skill');
+        }
+        if (!existing) return { status: 'missing' as const, deletedAt: null };
+        if (existing.deletedAt && existing.engine === null) {
+          return { status: 'unchanged' as const, deletedAt: existing.deletedAt };
+        }
 
-      const updatedAt = nowIso();
-      const deletedAt = existing.deletedAt ?? updatedAt;
-      await tx
-        .update(skills)
-        .set({ deletedAt, engine: null, updatedAt })
-        .where(eq(skills.id, existing.id));
-      return { status: 'deleted' as const, deletedAt };
-    }, { isolationLevel: 'repeatable read' });
+        const updatedAt = nowIso();
+        const deletedAt = existing.deletedAt ?? updatedAt;
+        await tx.update(skills).set({ deletedAt, engine: null, updatedAt }).where(eq(skills.id, existing.id));
+        return { status: 'deleted' as const, deletedAt };
+      },
+      { isolationLevel: 'repeatable read' },
+    );
 
     await this.recordLog(host.id, 'skill.delete', { slug, status: persisted.status });
     if (persisted.status === 'deleted') {
@@ -571,11 +669,28 @@ export class HostSkillsService {
   }
 
   private async readLiveSnapshot(engine: Engine | null): Promise<LiveSkillSnapshot> {
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){owner.assertOwner();const metadata=owner.state.snapshot().table('skills').all().filter(row=>!row.deletedAt&&(!engine||visibleToEngine(row,engine))).sort((a,b)=>a.slug.localeCompare(b.slug));
-      const rows:Array<typeof skills.$inferSelect>=[],filesBySkillId=new Map<number,SkillFileView[]>();
-      for(const row of metadata){const snapshot=await this.readStoredSkillSnapshot(row.slug,engine??(row.engine as Engine|null)??ENGINE_CODEX);if(snapshot){rows.push(snapshot.row);if(isSourceOwnedSkill(row))filesBySkillId.set(row.id,snapshot.files);}}
-      return {rows,filesBySkillId};
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const metadata = owner.state
+        .snapshot()
+        .table('skills')
+        .all()
+        .filter((row) => !row.deletedAt && (!engine || visibleToEngine(row, engine)))
+        .sort((a, b) => a.slug.localeCompare(b.slug));
+      const rows: Array<typeof skills.$inferSelect> = [],
+        filesBySkillId = new Map<number, SkillFileView[]>();
+      for (const row of metadata) {
+        const snapshot = await this.readStoredSkillSnapshot(
+          row.slug,
+          engine ?? (row.engine as Engine | null) ?? ENGINE_CODEX,
+        );
+        if (snapshot) {
+          rows.push(snapshot.row);
+          if (isSourceOwnedSkill(row)) filesBySkillId.set(row.id, snapshot.files);
+        }
+      }
+      return { rows, filesBySkillId };
     }
     return this.db.transaction(async (tx) => {
       const selected = await tx
@@ -605,15 +720,28 @@ export class HostSkillsService {
   }
 
   private async readStoredSkillSnapshot(slug: string, engine: Engine): Promise<StoredSkillSnapshot | null> {
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){owner.assertOwner();const metadata=owner.state.snapshot().table('skills').by('slug',slug)[0];if(!metadata||!visibleToEngine(metadata,engine))return null;
-      const identity=`skill:${metadata.id}:${metadata.sha256}:${metadata.bundleSha256}:${metadata.updatedAt}:${metadata.deletedAt}`;
-      return publicArtifact(owner,identity,async()=>{
-        const [row]=await this.db.select().from(skills).where(eq(skills.id,metadata.id)).limit(1);if(!row||row.sha256!==metadata.sha256||row.bundleSha256!==metadata.bundleSha256)throw new Error('Canonical skill changed');
-        const metadataFiles=owner.state.snapshot().table('skillFiles').by('skillId',row.id);
-        const selected=!row.deletedAt&&metadataFiles.length?await this.db.select().from(skillFiles).where(eq(skillFiles.skillId,row.id)).orderBy(asc(skillFiles.path)):[];
-        const files=selected.filter(file=>file.skillId===row.id).map(file=>({path:file.path,sha256:file.sha256,content:file.content}));if(!row.deletedAt&&isSourceOwnedSkill(row))this.assertSourceBundle(row,files);return {row,files};
-      },()=>{const current=owner.state.snapshot().table('skills').get(metadata.id);return current?.sha256===metadata.sha256&&current.bundleSha256===metadata.bundleSha256&&current.updatedAt===metadata.updatedAt&&current.deletedAt===metadata.deletedAt;});
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const metadata = owner.state.snapshot().table('skills').by('slug', slug)[0];
+      if (!metadata || !visibleToEngine(metadata, engine)) return null;
+      const snapshot = owner.state.snapshot(),
+        manifest = snapshot.content('skills', metadata.id, 'manifest');
+      if (typeof manifest !== 'string') throw new Error('Current skill body missing from owner state');
+      const row = { ...metadata, manifest };
+      const files = metadata.deletedAt
+        ? []
+        : snapshot
+            .table('skillFiles')
+            .by('skillId', metadata.id)
+            .map((file) => {
+              const content = snapshot.content('skillFiles', file.id, 'content');
+              if (typeof content !== 'string') throw new Error('Current skill file missing from owner state');
+              return { path: file.path, sha256: file.sha256, content };
+            })
+            .sort((a, b) => a.path.localeCompare(b.path));
+      if (!row.deletedAt && isSourceOwnedSkill(row)) this.assertSourceBundle(row, files);
+      return { row, files };
     }
     return this.db.transaction(async (tx) => {
       const found = await tx.select().from(skills).where(eq(skills.slug, slug)).limit(1);
@@ -678,7 +806,11 @@ export class HostSkillsService {
     };
   }
 
-  private async recordLog(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {
+  private async recordLog(
+    hostId: number | null,
+    action: string,
+    details: Record<string, unknown>,
+  ): Promise<void> {
     await persistAuditLog(this.db, {
       hostId: hostId ?? null,
       action,

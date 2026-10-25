@@ -106,7 +106,15 @@ export interface ResidentRuntimeReport {
     running: boolean;
     fenced: boolean;
     verified: boolean;
-    workload: { accepted: number; peer_claims: number; children: number; receipts: number; writes: number; requests: number; legacy_clients: number };
+    workload: {
+      accepted: number;
+      peer_claims: number;
+      children: number;
+      receipts: number;
+      writes: number;
+      requests: number;
+      legacy_clients: number;
+    };
   } | null;
 }
 
@@ -210,7 +218,8 @@ const EVIDENCE_RETENTION_MS = 10 * 60_000;
 const MAX_TOMBSTONES = 64;
 const SUCCESSOR_WINDOW_MS = 2 * 60_000;
 const TOMBSTONE_RETENTION_MS = 15 * 60_000;
-const SESSION_PATH = /^\/host\/agent-sessions\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\/|$)/;
+const SESSION_PATH =
+  /^\/host\/agent-sessions\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\/|$)/;
 
 /** The agent session a `/host/agent-sessions/<uuid>/…` pathname names, if any. */
 export function sessionIdFromPath(pathname: string): string | null {
@@ -232,6 +241,18 @@ export class CommunicatorRegistry {
   /** The admin-visible views. Mutated in place by the route (heartbeats, counters). */
   readonly views = new Map<string, CommunicatorView>();
   private readonly entries = new Map<string, Entry>();
+  private readonly lifecycle = new Set<(hostId: number) => void>();
+
+  subscribeLifecycle(listener: (hostId: number) => void): () => void {
+    this.lifecycle.add(listener);
+    return () => {
+      this.lifecycle.delete(listener);
+    };
+  }
+
+  private changed(hostId: number): void {
+    for (const listener of this.lifecycle) listener(hostId);
+  }
   private readonly closed = new Map<string, Array<() => void>>();
   private tombstoneList: ConnectionTombstone[] = [];
 
@@ -251,11 +272,17 @@ export class CommunicatorRegistry {
       terminateRequest: null,
       stopping: null,
     });
+    this.changed(view.host_id);
     // Same host and OS user soon after a disconnect is a hint, not a fact: one user
     // can run several owners in separate runtime roots. Record it as a candidate
     // only; identity (`setCapabilities`) is what can promote it to a successor.
     for (const t of this.tombstoneList) {
-      if (t.successor_id === null && t.host_id === view.host_id && t.username === view.username && now - Date.parse(t.ended_at) <= SUCCESSOR_WINDOW_MS) {
+      if (
+        t.successor_id === null &&
+        t.host_id === view.host_id &&
+        t.username === view.username &&
+        now - Date.parse(t.ended_at) <= SUCCESSOR_WINDOW_MS
+      ) {
         t.candidate_ids.push(view.id);
       }
     }
@@ -287,7 +314,8 @@ export class CommunicatorRegistry {
 
   setResidentReport(id: string, report: ResidentRuntimeReport, now = Date.now()): boolean {
     const entry = this.entries.get(id);
-    if (!entry?.capabilities.instance_id || entry.capabilities.instance_id !== report.owner_instance_id) return false;
+    if (!entry?.capabilities.instance_id || entry.capabilities.instance_id !== report.owner_instance_id)
+      return false;
     if (entry.resident && report.sequence <= entry.resident.sequence) return true; // Late diagnostics must not replace a newer report.
     entry.resident = { ...structuredClone(report), received_ms: now };
     return true;
@@ -308,9 +336,16 @@ export class CommunicatorRegistry {
       t.host_id === entry.view.host_id &&
       t.username === entry.view.username &&
       now - Date.parse(t.ended_at) <= SUCCESSOR_WINDOW_MS;
-    const sameProcess = instance ? this.tombstoneList.find((t) => eligible(t) && t.instance_id === instance) : undefined;
+    const sameProcess = instance
+      ? this.tombstoneList.find((t) => eligible(t) && t.instance_id === instance)
+      : undefined;
     const target =
-      sameProcess ?? (runtime ? this.tombstoneList.find((t) => eligible(t) && t.runtime_id === runtime && t.instance_id !== instance) : undefined);
+      sameProcess ??
+      (runtime
+        ? this.tombstoneList.find(
+            (t) => eligible(t) && t.runtime_id === runtime && t.instance_id !== instance,
+          )
+        : undefined);
     if (!target) return;
     target.successor_id = entry.view.id;
     target.successor_basis = sameProcess ? 'same_process' : 'same_runtime';
@@ -326,7 +361,12 @@ export class CommunicatorRegistry {
     // socket may now belong to a replacement, and its words must not stand for the
     // owner we targeted.
     if (ack.instance_id !== request.instance_id) {
-      request.resolve({ accepted: false, pid: ack.pid, reason: 'owner_mismatch', instance_id: ack.instance_id });
+      request.resolve({
+        accepted: false,
+        pid: ack.pid,
+        reason: 'owner_mismatch',
+        instance_id: ack.instance_id,
+      });
       return;
     }
     request.resolve(ack);
@@ -357,7 +397,13 @@ export class CommunicatorRegistry {
    * Called with every dispatched request's outcome. Only a success counts: a
    * 4xx means the bridge token did not authenticate, so nothing was proved.
    */
-  observeDispatch(id: string, method: string, pathname: string, status: number, body?: Buffer | string): void {
+  observeDispatch(
+    id: string,
+    method: string,
+    pathname: string,
+    status: number,
+    body?: Buffer | string,
+  ): void {
     if (status >= 400 || !this.entries.has(id)) return;
     const named = sessionIdFromPath(pathname);
     if (named) {
@@ -366,7 +412,9 @@ export class CommunicatorRegistry {
     }
     if (method === 'POST' && pathname === '/host/agent-sessions' && body) {
       try {
-        const registered = sessionIdFromRegistration(JSON.parse(typeof body === 'string' ? body : body.toString('utf8')));
+        const registered = sessionIdFromRegistration(
+          JSON.parse(typeof body === 'string' ? body : body.toString('utf8')),
+        );
         if (registered) this.observeSession(id, registered, 'POST /host/agent-sessions');
       } catch {
         /* A non-JSON body names no session. */
@@ -402,6 +450,7 @@ export class CommunicatorRegistry {
       this.tombstoneList.unshift(tombstone);
       this.pruneTombstones(now);
     }
+    if (entry) this.changed(entry.view.host_id);
     const waiters = this.closed.get(id);
     this.closed.delete(id);
     for (const resolve of waiters ?? []) resolve();
@@ -434,7 +483,10 @@ export class CommunicatorRegistry {
       /* Already closing: the wait below decides the outcome. */
     }
     const wait = (ms: number) =>
-      Promise.race([done.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms).unref())]);
+      Promise.race([
+        done.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms).unref()),
+      ]);
     if (await wait(graceMs)) return { outcome: 'closed' };
     // The peer ignored the close handshake; drop the transport.
     try {
@@ -457,14 +509,20 @@ export class CommunicatorRegistry {
     id: string,
     actor: string,
     options: { ackMs?: number; closeMs?: number; fenceMs?: number } = {},
-  ): Promise<{ outcome: TerminateOutcome; pid: number | null; started_at: string | null; reason: string | null }> {
+  ): Promise<{
+    outcome: TerminateOutcome;
+    pid: number | null;
+    started_at: string | null;
+    reason: string | null;
+  }> {
     const entry = this.entries.get(id);
     if (!entry) return { outcome: 'not_connected', pid: null, started_at: null, reason: null };
     const { pid, started_at } = entry.capabilities;
     // An owner that never named its process cannot be addressed: the command would
     // go to "whatever answers on this socket".
     const instance = entry.capabilities.instance_id;
-    if (!entry.capabilities.terminate || !entry.handle.send || !instance) return { outcome: 'unsupported', pid, started_at, reason: null };
+    if (!entry.capabilities.terminate || !entry.handle.send || !instance)
+      return { outcome: 'unsupported', pid, started_at, reason: null };
     if (entry.terminateRequest || (entry.stopping && Date.now() < entry.stopping.until)) {
       return { outcome: 'in_progress', pid, started_at, reason: null };
     }
@@ -473,7 +531,11 @@ export class CommunicatorRegistry {
     const answered = new Promise<TerminateAck | null>((resolve) => {
       const timer = setTimeout(() => resolve(null), options.ackMs ?? 5000);
       timer.unref();
-      entry.terminateRequest = { id: requestId, instance_id: instance, resolve: (ack) => (clearTimeout(timer), resolve(ack)) };
+      entry.terminateRequest = {
+        id: requestId,
+        instance_id: instance,
+        resolve: (ack) => (clearTimeout(timer), resolve(ack)),
+      };
     });
     const closed = new Promise<void>((resolve) => {
       const list = this.closed.get(id) ?? [];
@@ -481,7 +543,12 @@ export class CommunicatorRegistry {
       this.closed.set(id, list);
     });
     try {
-      entry.handle.send({ type: 'terminate', request_id: requestId, reason: 'admin', owner_instance_id: instance });
+      entry.handle.send({
+        type: 'terminate',
+        request_id: requestId,
+        reason: 'admin',
+        owner_instance_id: instance,
+      });
     } catch {
       entry.terminateRequest = null;
       return { outcome: 'unacknowledged', pid, started_at, reason: 'send_failed' };
@@ -498,7 +565,12 @@ export class CommunicatorRegistry {
       closed.then(() => true),
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), options.closeMs ?? 10_000).unref()),
     ]);
-    return { outcome: didClose ? 'acknowledged_closed' : 'acknowledged', pid: ack.pid ?? pid, started_at, reason: null };
+    return {
+      outcome: didClose ? 'acknowledged_closed' : 'acknowledged',
+      pid: ack.pid ?? pid,
+      started_at,
+      reason: null,
+    };
   }
 
   snapshot(now = Date.now()): CommunicatorSnapshot[] {

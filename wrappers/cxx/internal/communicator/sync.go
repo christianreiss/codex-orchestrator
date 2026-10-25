@@ -812,6 +812,7 @@ func (s *server) wake() {
 }
 
 func (s *server) invalidateAuth(engine string, account int64) {
+	s.validatedCache.invalidateLocal()
 	s.mu.Lock()
 	for _, state := range s.scopes {
 		if (engine == "" || state.auth.Engine == engine) && (account == 0 || state.auth.AccountID == account) {

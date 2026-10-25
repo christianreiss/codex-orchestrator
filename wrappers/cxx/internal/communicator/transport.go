@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -247,6 +248,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	path.Path = strings.TrimPrefix(req.URL.Path, strings.TrimRight(original.Path, "/"))
 	var candidate frame
 	selected := false
+	cacheProtocol := ValidatedCacheProtocol
 	if strictCache {
 		var err error
 		candidate, err = cacheRequestFrame(req, path.RequestURI())
@@ -265,11 +267,14 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			if !ok || owner.Cache.Protocol != ValidatedCacheProtocol {
 				return ep.bridgeCache(req, cfg, candidate), nil
 			}
+			if cfg.Orchestrator.CommunicatorCacheProtocol == LocalContentCacheProtocol && owner.Cache.LocalProtocol == LocalContentCacheProtocol && localContentCandidate(candidate) {
+				cacheProtocol = LocalContentCacheProtocol
+			}
 		}
 	}
 	local := req.Clone(req.Context())
 	if strictCache {
-		local.Header.Set("X-Cxx-Cache-Protocol", "2")
+		local.Header.Set("X-Cxx-Cache-Protocol", strconv.Itoa(cacheProtocol))
 	}
 	local.URL.Scheme = "http"
 	local.URL.Host = "communicator.local"
@@ -283,7 +288,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 409, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: responseBody([]byte(`{"error":{"code":"communicator_outcome_unknown","message":"Local communicator disconnected; request outcome unknown"}}`)), Request: req}, nil
 	}
 	if err == nil && selected && res.StatusCode < 400 {
-		if res.Header.Get("X-Cxx-Cache-Protocol") != "2" {
+		if res.Header.Get("X-Cxx-Cache-Protocol") != strconv.Itoa(cacheProtocol) {
 			res.Body.Close()
 			return &http.Response{StatusCode: 409, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: responseBody([]byte(`{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}`)), Request: req}, nil
 		}

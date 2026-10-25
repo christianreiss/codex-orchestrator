@@ -37,7 +37,13 @@ import type { Json } from '../control-plane/commands.js';
  *   …
  */
 import { createHash } from 'node:crypto';
-import { codexMcpServers, mergeNativeSettings, nativeRecord, validateCodexConfigDocument, validateCodexFeatureDocument } from './codex-native-settings.js';
+import {
+  codexMcpServers,
+  mergeNativeSettings,
+  nativeRecord,
+  validateCodexConfigDocument,
+  validateCodexFeatureDocument,
+} from './codex-native-settings.js';
 import { desc, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { clientConfigDocuments } from '../db/schema.js';
@@ -64,7 +70,14 @@ import {
   DEFAULT_CLAUDE_PERMISSION_MODE,
 } from './config-normalizer.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_COMMANDS, type Engine } from '../util/engine.js';
-import { GROK_DEFAULT_MODEL, GROK_DEFAULT_CONTEXT_WINDOW, GROK_MODEL_DEFAULT_REASONING_EFFORTS, normalizeGrokContextWindow, normalizeGrokEffort, normalizeGrokModel } from './grok-models.js';
+import {
+  GROK_DEFAULT_MODEL,
+  GROK_DEFAULT_CONTEXT_WINDOW,
+  GROK_MODEL_DEFAULT_REASONING_EFFORTS,
+  normalizeGrokContextWindow,
+  normalizeGrokEffort,
+  normalizeGrokModel,
+} from './grok-models.js';
 import { isSafeVersion, versionCompare } from './wrapper-bin-registry.js';
 import {
   AGENT_MESSAGING_TOOLS,
@@ -78,7 +91,11 @@ import {
 } from './agent-response-style.js';
 import type { Host } from '../db/schema.js';
 import { withClientConfigWriteLock, type ConfigWriteContext } from './client-config-lock.js';
-import { grokNativeOwnedPaths, normalizeGrokNativeSettings, renderGrokNativeToml } from './grok-native-settings.js';
+import {
+  grokNativeOwnedPaths,
+  normalizeGrokNativeSettings,
+  renderGrokNativeToml,
+} from './grok-native-settings.js';
 
 const SCALAR_KEYS: Array<keyof NormalizedSettings> = [
   'model',
@@ -130,12 +147,16 @@ function tomlString(value: string): string {
   const escaped = value
     .replace(/\\/g, '\\\\')
     .replace(/"/g, '\\"')
-    .split(BACKSPACE_CHAR).join('\\b')
+    .split(BACKSPACE_CHAR)
+    .join('\\b')
     .replace(/\t/g, '\\t')
     .replace(/\n/g, '\\n')
     .replace(/\r/g, '\\r')
-    // eslint-disable-next-line no-control-regex -- TOML requires escaping literal control characters.
-    .replace(/[\x00-\x07\x0b\x0c\x0e-\x1f\x7f]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
+    .replace(
+      // eslint-disable-next-line no-control-regex -- TOML requires escaping literal control characters.
+      /[\x00-\x07\x0b\x0c\x0e-\x1f\x7f]/g,
+      (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`,
+    );
   return `"${escaped}"`;
 }
 
@@ -169,7 +190,12 @@ function tomlBareKey(key: string): string {
 
 function isPresentRecord(rec: Record<string, unknown> | null | undefined): boolean {
   if (!rec) return false;
-  return Object.values(rec).some((v) => v !== null && v !== undefined && !(typeof v === 'object' && !Array.isArray(v) && Object.keys(v as object).length === 0));
+  return Object.values(rec).some(
+    (v) =>
+      v !== null &&
+      v !== undefined &&
+      !(typeof v === 'object' && !Array.isArray(v) && Object.keys(v as object).length === 0),
+  );
 }
 
 function addKeyValue(lines: string[], key: string, value: unknown): void {
@@ -227,9 +253,11 @@ export function renderToml(normalized: NormalizedSettings, opts: { profileTables
   if (normalized.native_settings) {
     const document = codexRenderDocument(normalized as unknown as Record<string, unknown>);
     if (opts.profileTables === true && normalized.profiles.length > 0) {
-      document.profiles = Object.fromEntries(sortEntriesByName(normalized.profiles)
-        .filter(profile => typeof profile.name === 'string')
-        .map(profile => [String(profile.name), codexRenderDocument(profile)]));
+      document.profiles = Object.fromEntries(
+        sortEntriesByName(normalized.profiles)
+          .filter((profile) => typeof profile.name === 'string')
+          .map((profile) => [String(profile.name), codexRenderDocument(profile)]),
+      );
     }
     return renderNativeToml(document);
   }
@@ -344,14 +372,21 @@ export function normalizeGrokSettings(raw: unknown): NormalizedSettings {
   const native = normalizeGrokNativeSettings(input.native_settings);
   const models = asRecord(input.models);
   const model = normalizeGrokModel(input.model ?? models.default) ?? GROK_DEFAULT_MODEL;
-  const out = normalizeSettings({ ...input, native_settings: undefined, model: null }, { applyCodexDefaults: false, engine: 'grok' });
+  const out = normalizeSettings(
+    { ...input, native_settings: undefined, model: null },
+    { applyCodexDefaults: false, engine: 'grok' },
+  );
   if (native !== undefined) out.native_settings = native;
   out.model = model;
-  out.reasoning_effort = normalizeGrokEffort(input.reasoning_effort ?? models.default_reasoning_effort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
+  out.reasoning_effort =
+    normalizeGrokEffort(input.reasoning_effort ?? models.default_reasoning_effort, model) ??
+    GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
   for (const [name, settings] of Object.entries(asRecord(native?.model))) {
     const nativeWindow = asRecord(settings).context_window;
     if (nativeWindow !== undefined && !normalizeGrokContextWindow(nativeWindow)) {
-      throw new ValidationError('native_settings.model: unsupported subscription context window', { param: `settings.native_settings.model.${name}.context_window` });
+      throw new ValidationError('native_settings.model: unsupported subscription context window', {
+        param: `settings.native_settings.model.${name}.context_window`,
+      });
     }
   }
   // Native values and fallback defaults stay in their original layer. Persisting
@@ -362,7 +397,9 @@ export function normalizeGrokSettings(raw: unknown): NormalizedSettings {
   out.profiles = [];
   // Grok's native `[ui].permission_mode`; posture writes it, an operator template may too.
   delete out.permissionMode;
-  const mode = normalizeName(input.permission_mode ?? asRecord(input.ui).permission_mode ?? input.permissionMode);
+  const mode = normalizeName(
+    input.permission_mode ?? asRecord(input.ui).permission_mode ?? input.permissionMode,
+  );
   if (mode !== null && (GROK_PERMISSION_MODES as readonly string[]).includes(mode)) out.permissionMode = mode;
   return out;
 }
@@ -372,18 +409,36 @@ export const GROK_PERMISSION_MODES = ['default', 'ask', 'auto', 'always-approve'
 
 /** Native settings first; structured controls, host posture and fleet MCP win. */
 function withGrokNativeMcp(settings: NormalizedSettings): NormalizedSettings {
-  const nativeServers = Object.entries(asRecord(settings.native_settings?.mcp_servers)).map(([name, server]) => ({ ...asRecord(server), name }));
-  const explicitNames = new Set(settings.mcp_servers.map(server => server.name));
-  return { ...settings, mcp_servers: [...nativeServers.filter(server => !explicitNames.has(server.name)), ...settings.mcp_servers] };
+  const nativeServers = Object.entries(asRecord(settings.native_settings?.mcp_servers)).map(
+    ([name, server]) => ({ ...asRecord(server), name }),
+  );
+  const explicitNames = new Set(settings.mcp_servers.map((server) => server.name));
+  return {
+    ...settings,
+    mcp_servers: [
+      ...nativeServers.filter((server) => !explicitNames.has(server.name)),
+      ...settings.mcp_servers,
+    ],
+  };
 }
 
 function grokSettingsDocument(input: NormalizedSettings, includeNativeMcp = true): Record<string, unknown> {
   const settings = includeNativeMcp ? withGrokNativeMcp(input) : input;
   const document = structuredClone(settings.native_settings ?? {});
-  document.models = { ...asRecord(document.models), default: settings.model ?? GROK_DEFAULT_MODEL, default_reasoning_effort: settings.reasoning_effort };
+  document.models = {
+    ...asRecord(document.models),
+    default: settings.model ?? GROK_DEFAULT_MODEL,
+    default_reasoning_effort: settings.reasoning_effort,
+  };
   const model = settings.model ?? GROK_DEFAULT_MODEL;
   const nativeModel = asRecord(asRecord(document.model)[model]);
-  document.model = { ...asRecord(document.model), [model]: { ...nativeModel, context_window: settings.context_window ?? nativeModel.context_window ?? GROK_DEFAULT_CONTEXT_WINDOW } };
+  document.model = {
+    ...asRecord(document.model),
+    [model]: {
+      ...nativeModel,
+      context_window: settings.context_window ?? nativeModel.context_window ?? GROK_DEFAULT_CONTEXT_WINDOW,
+    },
+  };
   if (settings.permissionMode) {
     document.ui = { ...asRecord(document.ui), permission_mode: settings.permissionMode };
   }
@@ -426,10 +481,12 @@ function codexRenderDocument(settings: Record<string, unknown>): Record<string, 
     if (isPresentRecord(nativeRecord(settings[key]))) overlay[key] = settings[key];
   }
   const document = mergeNativeSettings(native, overlay);
-  document.mcp_servers = Object.fromEntries(codexMcpServers(settings).map(server => {
-    const { name, ...entry } = server;
-    return [String(name), entry];
-  }));
+  document.mcp_servers = Object.fromEntries(
+    codexMcpServers(settings).map((server) => {
+      const { name, ...entry } = server;
+      return [String(name), entry];
+    }),
+  );
   if (Object.keys(nativeRecord(document.mcp_servers)).length === 0) delete document.mcp_servers;
   validateCodexConfigDocument(document);
   return document;
@@ -442,7 +499,10 @@ function renderNativeToml(document: Record<string, unknown>): string {
     const entries = Object.entries(value);
     for (const [key, entry] of entries) {
       const object = entry !== null && typeof entry === 'object' && !Array.isArray(entry);
-      const objectArray = Array.isArray(entry) && entry.length > 0 && entry.every(item => item && typeof item === 'object' && !Array.isArray(item));
+      const objectArray =
+        Array.isArray(entry) &&
+        entry.length > 0 &&
+        entry.every((item) => item && typeof item === 'object' && !Array.isArray(item));
       if (!object && !objectArray) addKeyValue(lines, key, entry);
     }
     for (const [key, entry] of entries) {
@@ -451,7 +511,11 @@ function renderNativeToml(document: Record<string, unknown>): string {
       if (entry !== null && typeof entry === 'object' && !Array.isArray(entry)) {
         lines.push('', `[${header}]`);
         table(entry as Record<string, unknown>, nextPath);
-      } else if (Array.isArray(entry) && entry.length > 0 && entry.every(item => item && typeof item === 'object' && !Array.isArray(item))) {
+      } else if (
+        Array.isArray(entry) &&
+        entry.length > 0 &&
+        entry.every((item) => item && typeof item === 'object' && !Array.isArray(item))
+      ) {
         for (const item of entry) {
           lines.push('', `[[${header}]]`);
           table(item as Record<string, unknown>, nextPath);
@@ -464,7 +528,9 @@ function renderNativeToml(document: Record<string, unknown>): string {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function normalizeName(value: unknown): string | null {
@@ -506,7 +572,10 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     opts.securityLevels,
     engine,
   );
-  const normalized = engine === ENGINE_GROK ? normalizeGrokSettings(settingsWithOverrides) : normalizeSettings(settingsWithOverrides, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
+  const normalized =
+    engine === ENGINE_GROK
+      ? normalizeGrokSettings(settingsWithOverrides)
+      : normalizeSettings(settingsWithOverrides, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
   let withManaged = injectManagedMcp(engine === ENGINE_GROK ? withGrokNativeMcp(normalized) : normalized, {
     host: opts.host,
     baseUrl: opts.baseUrl,
@@ -519,23 +588,39 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
   const managedMcpInjected = withManaged.mcp_servers.some(
     (server) => normalizeName(server['name'])?.toLowerCase() === managedServerName,
   );
-  if (engine === ENGINE_CODEX && managedMcpInjected) withManaged = injectManagedCodexNativeSkillPolicy(withManaged);
+  if (engine === ENGINE_CODEX && managedMcpInjected)
+    withManaged = injectManagedCodexNativeSkillPolicy(withManaged);
   const profileFiles = engine === ENGINE_CODEX && codexUsesProfileFiles(opts.host?.clientVersion);
-  let content = engine === ENGINE_GROK ? renderGrokNativeToml(grokSettingsDocument(withManaged, false)) : engine === ENGINE_CLAUDE
-    ? renderClaudeSettings(withManaged)
-    : renderToml(withManaged, { profileTables: !profileFiles });
+  let content =
+    engine === ENGINE_GROK
+      ? renderGrokNativeToml(grokSettingsDocument(withManaged, false))
+      : engine === ENGINE_CLAUDE
+        ? renderClaudeSettings(withManaged)
+        : renderToml(withManaged, { profileTables: !profileFiles });
   const profiles: RenderedProfile[] | undefined = profileFiles
     ? sortEntriesByName(withManaged.profiles).flatMap((profile) => {
         const name = normalizeName(profile['name']);
         if (!name || !PROFILE_FILE_NAME.test(name)) return [];
         let body: string;
         if (profile.native_settings) {
-          const profileInput = applyPostureToSettings(applyHostModelOverrides({ ...profile,
-            profiles: [], orchestrator_mcp_enabled: normalized.orchestrator_mcp_enabled,
-          }, opts.host, ENGINE_CODEX), opts.securityLevels, ENGINE_CODEX);
-          let profileSettings = injectManagedMcp(normalizeSettings(profileInput, { applyCodexDefaults: false, engine: ENGINE_CODEX }), { ...opts, engine: ENGINE_CODEX });
+          const profileInput = applyPostureToSettings(
+            applyHostModelOverrides(
+              { ...profile, profiles: [], orchestrator_mcp_enabled: normalized.orchestrator_mcp_enabled },
+              opts.host,
+              ENGINE_CODEX,
+            ),
+            opts.securityLevels,
+            ENGINE_CODEX,
+          );
+          let profileSettings = injectManagedMcp(
+            normalizeSettings(profileInput, { applyCodexDefaults: false, engine: ENGINE_CODEX }),
+            { ...opts, engine: ENGINE_CODEX },
+          );
           if (managedMcpInjected) profileSettings = injectManagedCodexNativeSkillPolicy(profileSettings);
-          body = injectTrustedProjectToml(renderToml(profileSettings), normalizeHomePath(opts.home, opts.username));
+          body = injectTrustedProjectToml(
+            renderToml(profileSettings),
+            normalizeHomePath(opts.home, opts.username),
+          );
         } else {
           body = renderProfileToml(profile);
         }
@@ -543,13 +628,21 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
       })
     : undefined;
   if (engine === ENGINE_CODEX) {
-    if (managedMcpInjected && !withManaged.native_settings) content = injectManagedCodexSkillPolicyToml(content);
+    if (managedMcpInjected && !withManaged.native_settings)
+      content = injectManagedCodexSkillPolicyToml(content);
     content = injectTrustedProjectToml(content, normalizeHomePath(opts.home, opts.username));
   }
-  const grokOwnedPaths = engine === ENGINE_GROK ? grokNativeOwnedPaths(grokSettingsDocument(withManaged, false)) : undefined;
-  if (grokOwnedPaths?.some(path => path.startsWith('json:')) && opts.host
-      && (!opts.host.grokWrapperVersion || versionCompare(opts.host.grokWrapperVersion, '0.9.66') < 0)) {
-    throw new ValidationError('These Grok native settings require cxx 0.9.66 or newer for exact config ownership; update the wrapper first', { param: 'settings.native_settings' });
+  const grokOwnedPaths =
+    engine === ENGINE_GROK ? grokNativeOwnedPaths(grokSettingsDocument(withManaged, false)) : undefined;
+  if (
+    grokOwnedPaths?.some((path) => path.startsWith('json:')) &&
+    opts.host &&
+    (!opts.host.grokWrapperVersion || versionCompare(opts.host.grokWrapperVersion, '0.9.66') < 0)
+  ) {
+    throw new ValidationError(
+      'These Grok native settings require cxx 0.9.66 or newer for exact config ownership; update the wrapper first',
+      { param: 'settings.native_settings' },
+    );
   }
   return {
     content,
@@ -573,9 +666,19 @@ function injectManagedCodexNativeSkillPolicy(settings: NormalizedSettings): Norm
   if (!native) return settings;
   const skills = nativeRecord(native.skills);
   const configs = Array.isArray(skills.config) ? skills.config : [];
-  return { ...settings, native_settings: { ...native, skills: { ...skills,
-    config: [...configs.filter(config => nativeRecord(config).name !== 'skill-creator'), { name: 'skill-creator', enabled: false }],
-  } } };
+  return {
+    ...settings,
+    native_settings: {
+      ...native,
+      skills: {
+        ...skills,
+        config: [
+          ...configs.filter((config) => nativeRecord(config).name !== 'skill-creator'),
+          { name: 'skill-creator', enabled: false },
+        ],
+      },
+    },
+  };
 }
 
 export function injectManagedCodexSkillPolicyToml(content: string): string {
@@ -652,8 +755,9 @@ export function clampClaudePermissionModeForUser(
 ): { settings: Record<string, unknown>; clamped: ClaudePermissionClamp | null } {
   const user = normalizeName(username ?? null);
   if (user !== 'root') return { settings, clamped: null };
-  const mode = normalizeName(settings['permissionMode'])
-    ?? normalizeName(asRecord(asRecord(settings['native_settings'])['permissions'])['defaultMode']);
+  const mode =
+    normalizeName(settings['permissionMode']) ??
+    normalizeName(asRecord(asRecord(settings['native_settings'])['permissions'])['defaultMode']);
   if (mode !== 'bypassPermissions') return { settings, clamped: null };
   return {
     settings: { ...settings, permissionMode: ROOT_CLAMPED_CLAUDE_PERMISSION_MODE },
@@ -718,9 +822,13 @@ function applyHostModelOverrides(
   if (!host) return settings;
   if (engine === ENGINE_GROK) {
     const out = { ...settings };
-    const model = normalizeGrokModel(host.grokModelOverride) ?? normalizeGrokModel(out.model) ?? GROK_DEFAULT_MODEL;
+    const model =
+      normalizeGrokModel(host.grokModelOverride) ?? normalizeGrokModel(out.model) ?? GROK_DEFAULT_MODEL;
     out.model = model;
-    out.reasoning_effort = normalizeGrokEffort(host.grokReasoningEffortOverride, model) ?? normalizeGrokEffort(out.reasoning_effort, model) ?? GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
+    out.reasoning_effort =
+      normalizeGrokEffort(host.grokReasoningEffortOverride, model) ??
+      normalizeGrokEffort(out.reasoning_effort, model) ??
+      GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
     return out;
   }
   // Claude reads model/effort overrides from the claude_* columns. Unlike
@@ -735,9 +843,8 @@ function applyHostModelOverrides(
     );
     if (claudeModel !== null) {
       out['model'] = claudeModel;
-      const effortLevel = explicitEffort
-        ?? modelEntry(CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS, claudeModel)
-        ?? null;
+      const effortLevel =
+        explicitEffort ?? modelEntry(CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS, claudeModel) ?? null;
       if (effortLevel === null) delete out['effortLevel'];
       else out['effortLevel'] = effortLevel;
     } else if (explicitEffort !== null) {
@@ -750,10 +857,11 @@ function applyHostModelOverrides(
   const modelOverride = normalizeStoredModel(rawModelOverride);
   const effectiveModel = modelOverride ?? normalizeStoredModel(out['model']);
   const effortOverrideRaw = normalizeReasoningEffort(host.reasoningEffortOverride ?? null);
-  const effortOverride = modelOverride !== null
-    ? normalizeStoredCodexEffort(effortOverrideRaw, rawModelOverride)
-      ?? defaultCodexReasoningEffortForModel(modelOverride)
-    : normalizeReasoningEffortForModel(effortOverrideRaw, effectiveModel);
+  const effortOverride =
+    modelOverride !== null
+      ? (normalizeStoredCodexEffort(effortOverrideRaw, rawModelOverride) ??
+        defaultCodexReasoningEffortForModel(modelOverride))
+      : normalizeReasoningEffortForModel(effortOverrideRaw, effectiveModel);
 
   if (modelOverride !== null) out['model'] = modelOverride;
   if (effortOverride !== null) out['model_reasoning_effort'] = effortOverride;
@@ -767,9 +875,10 @@ function applyHostModelOverrides(
       const profile = { ...(entry as Record<string, unknown>) };
       if (normalizeName(profile['name']) !== activeProfile) return profile;
       const profileModel = modelOverride ?? normalizeStoredModel(profile['model']) ?? effectiveModel;
-      const profileEffort = modelOverride !== null
-        ? effortOverride
-        : normalizeReasoningEffortForModel(effortOverrideRaw, profileModel);
+      const profileEffort =
+        modelOverride !== null
+          ? effortOverride
+          : normalizeReasoningEffortForModel(effortOverrideRaw, profileModel);
       if (modelOverride !== null) profile['model'] = modelOverride;
       if (profileEffort !== null) profile['model_reasoning_effort'] = profileEffort;
       else if (modelOverride !== null) delete profile['model_reasoning_effort'];
@@ -820,17 +929,29 @@ function injectManagedMcp(
     const bearerToken = secure ? key : normalizeName(opts.managedMcpToken ?? null);
     if (bearerToken) {
       const name = ENGINE_COMMANDS[opts.engine];
-      const wrapperVersion = opts.engine === ENGINE_CLAUDE ? opts.host?.claudeWrapperVersion
-        : opts.engine === ENGINE_GROK ? opts.host?.grokWrapperVersion : opts.host?.wrapperVersion;
+      const wrapperVersion =
+        opts.engine === ENGINE_CLAUDE
+          ? opts.host?.claudeWrapperVersion
+          : opts.engine === ENGINE_GROK
+            ? opts.host?.grokWrapperVersion
+            : opts.host?.wrapperVersion;
       const communicator = communicatorWrapperReady(wrapperVersion);
-      managedEntries.push(communicator ? {
-        name, command: 'cxx', args: ['communicator', 'mcp', opts.engine],
-        env: { CXX_MCP_BEARER: bearerToken }, startup_timeout_sec: 30,
-      } : {
-        name, url: `${base}/mcp`,
-        http_headers: { Authorization: `Bearer ${bearerToken}`, 'X-Engine': opts.engine },
-        startup_timeout_sec: 30,
-      });
+      managedEntries.push(
+        communicator
+          ? {
+              name,
+              command: 'cxx',
+              args: ['communicator', 'mcp', opts.engine],
+              env: { CXX_MCP_BEARER: bearerToken },
+              startup_timeout_sec: 30,
+            }
+          : {
+              name,
+              url: `${base}/mcp`,
+              http_headers: { Authorization: `Bearer ${bearerToken}`, 'X-Engine': opts.engine },
+              startup_timeout_sec: 30,
+            },
+      );
       for (const reserved of opts.engine !== ENGINE_CODEX
         ? ['codex-memory', 'codex-orchestrator', 'cdx', 'clx', 'cgx']
         : ['codex-memory', 'codex-orchestrator', 'cdx']) {
@@ -881,7 +1002,11 @@ function injectManagedMcp(
     delete native.mcp_servers;
     // Keep the merged servers ephemeral and remove the native source before
     // rendering, so a filtered managed name cannot be resurrected by a merge.
-    effective = { ...settings, native_settings: native, mcp_servers: codexMcpServers(settings as unknown as Record<string, unknown>) };
+    effective = {
+      ...settings,
+      native_settings: native,
+      mcp_servers: codexMcpServers(settings as unknown as Record<string, unknown>),
+    };
   }
   if (managedEntries.length === 0) return effective;
   const filtered = effective.mcp_servers.filter((server) => {
@@ -969,7 +1094,8 @@ function renderClaudeSettings(settings: NormalizedSettings): string {
   const servers = buildClaudeMcpServers(settings);
   if (Object.keys(servers).length > 0) result['mcpServers'] = servers;
   if (settings.env) result['env'] = { ...asRecord(result['env']), ...settings.env };
-  if (settings.statusLine) result['statusLine'] = { ...asRecord(result['statusLine']), ...settings.statusLine };
+  if (settings.statusLine)
+    result['statusLine'] = { ...asRecord(result['statusLine']), ...settings.statusLine };
   if (settings.hooks) result['hooks'] = { ...asRecord(result['hooks']), ...settings.hooks };
   const perms: Record<string, unknown> = { ...asRecord(result['permissions']) };
   if (settings.permissions) {
@@ -1058,7 +1184,11 @@ const CURATION_TOOLS = [
  */
 function managedRingerHooks(): Record<string, unknown[]> {
   const ring = (event: string) => [
-    { hooks: [{ type: 'command', command: `cxx agent poll --hook ${event} 2>/dev/null || true`, timeout: 10 }] },
+    {
+      hooks: [
+        { type: 'command', command: `cxx agent poll --hook ${event} 2>/dev/null || true`, timeout: 10 },
+      ],
+    },
   ];
   return { Stop: ring('Stop'), UserPromptSubmit: ring('UserPromptSubmit') };
 }
@@ -1184,7 +1314,10 @@ export function renderClaudeSettingsPartial(
     partial['advisorModel'] = settings.advisorModel;
     owned.push('advisorModel');
   }
-  return { partial, owned_paths: [...new Set(owned)].filter(path => !owned.some(parent => path.startsWith(`${parent}.`))) };
+  return {
+    partial,
+    owned_paths: [...new Set(owned)].filter((path) => !owned.some((parent) => path.startsWith(`${parent}.`))),
+  };
 }
 
 // The first wrapper release whose `clx` carries the `cxx-agent` stdio server
@@ -1233,9 +1366,12 @@ function hostSupportsClaudeQuotaStatusline(wrapperVersion: string | null | undef
 }
 
 /** Host-aware partial render (applies per-host claude model + managed clx MCP). */
-export function renderClaudeSettingsPartialForHost(
-  opts: HostRenderOptions,
-): { partial: Record<string, unknown>; owned_paths: string[]; sha256: string; clamped: ClaudePermissionClamp | null } {
+export function renderClaudeSettingsPartialForHost(opts: HostRenderOptions): {
+  partial: Record<string, unknown>;
+  owned_paths: string[];
+  sha256: string;
+  clamped: ClaudePermissionClamp | null;
+} {
   assertNativeConfigSupport(opts.settings, opts.host, ENGINE_CLAUDE);
   const posture = applyPostureToSettings(
     applyHostModelOverrides(asRecord(opts.settings), opts.host, ENGINE_CLAUDE),
@@ -1247,7 +1383,10 @@ export function renderClaudeSettingsPartialForHost(
     posture,
     opts.username,
   );
-  const normalized = normalizeSettings(settingsWithOverrides, { applyCodexDefaults: false, engine: ENGINE_CLAUDE });
+  const normalized = normalizeSettings(settingsWithOverrides, {
+    applyCodexDefaults: false,
+    engine: ENGINE_CLAUDE,
+  });
   const withManaged = injectManagedMcp(normalized, {
     host: opts.host,
     baseUrl: opts.baseUrl,
@@ -1262,11 +1401,17 @@ export function renderClaudeSettingsPartialForHost(
   });
   // Older wrappers interpret dots as hierarchy, so a literal map key must not
   // be served as an encoded path until the host can apply it correctly.
-  if (opts.host && owned_paths.some(path => path.startsWith('json:'))
-      && versionCompare(opts.host.claudeWrapperVersion ?? '0', '0.9.66') < 0) {
-    throw new ValidationError('Claude native settings with literal dots in map keys require cxx 0.9.66 or newer; update this host first', {
-      param: 'native_settings',
-    });
+  if (
+    opts.host &&
+    owned_paths.some((path) => path.startsWith('json:')) &&
+    versionCompare(opts.host.claudeWrapperVersion ?? '0', '0.9.66') < 0
+  ) {
+    throw new ValidationError(
+      'Claude native settings with literal dots in map keys require cxx 0.9.66 or newer; update this host first',
+      {
+        param: 'native_settings',
+      },
+    );
   }
   // Component B of the response-verbosity dial: reinforce the CLAUDE.md policy
   // text with Claude Code's own output-style mechanism. Level 0 (or unset)
@@ -1304,7 +1449,10 @@ export function renderClaudeSettingsPartialForHost(
   return { partial, owned_paths, sha256: createHash('sha256').update(json).digest('hex'), clamped };
 }
 
-export function normalizeHomePath(home: string | null | undefined, username: string | null | undefined): string | null {
+export function normalizeHomePath(
+  home: string | null | undefined,
+  username: string | null | undefined,
+): string | null {
   const rawHome = normalizeName(home ?? null);
   if (rawHome) return rawHome;
   const user = normalizeName(username ?? null);
@@ -1363,24 +1511,37 @@ export interface StoreResult extends AdminFetchResult {
 }
 
 export class ClientConfigService {
-  constructor(private readonly db: Database, private readonly configWrite?: ConfigWriteContext) {}
+  constructor(
+    private readonly db: Database,
+    private readonly configWrite?: ConfigWriteContext,
+  ) {}
 
   async adminFetch(engine: Engine = ENGINE_CODEX): Promise<AdminFetchResult> {
     const owner = ownerRuntimeFor(this.db);
     if (owner) {
       owner.assertOwner();
-      const row = [...owner.state.snapshot().table('clientConfigDocuments').by('engine', engine)].sort((a,b) => b.id-a.id)[0];
+      const row = [...owner.state.snapshot().table('clientConfigDocuments').by('engine', engine)].sort(
+        (a, b) => b.id - a.id,
+      )[0];
       if (!row) return { status: 'missing', revision: null };
       const rendered = this.render(row.settings, engine);
       // Legacy authored bodies may differ from today's renderer; load only the
       // exact immutable revision requested, never discover its head through SQL.
       let body = rendered.content;
       if (rendered.sha256 !== row.sha256) {
-        const [content] = await this.db.select({ body: clientConfigDocuments.body }).from(clientConfigDocuments).where(eq(clientConfigDocuments.id, row.id)).limit(1);
-        if (!content) throw new Error('Owned configuration revision is missing durable content');
-        body = content.body;
+        const content = owner.state.snapshot().content('clientConfigDocuments', row.id, 'body');
+        if (typeof content !== 'string') throw new Error('Owned configuration revision is missing content');
+        body = content;
       }
-      return { status: 'ok', revision: String(row.id), sha256: row.sha256, updated_at: row.updatedAt, size_bytes: Buffer.byteLength(body, 'utf8'), content: body, settings: rendered.settings };
+      return {
+        status: 'ok',
+        revision: String(row.id),
+        sha256: row.sha256,
+        updated_at: row.updatedAt,
+        size_bytes: Buffer.byteLength(body, 'utf8'),
+        content: body,
+        settings: rendered.settings,
+      };
     }
     const rows = await this.db
       .select()
@@ -1392,9 +1553,12 @@ export class ClientConfigService {
     if (!row) return { status: 'missing', revision: null };
     const body = row.body;
     const sha = row.sha256 ?? createHash('sha256').update(body).digest('hex');
-    const settings = row.settings && typeof row.settings === 'object'
-      ? engine === ENGINE_GROK ? normalizeGrokSettings(row.settings) : normalizeSettings(row.settings, { applyCodexDefaults: engine === ENGINE_CODEX, engine })
-      : null;
+    const settings =
+      row.settings && typeof row.settings === 'object'
+        ? engine === ENGINE_GROK
+          ? normalizeGrokSettings(row.settings)
+          : normalizeSettings(row.settings, { applyCodexDefaults: engine === ENGINE_CODEX, engine })
+        : null;
     return {
       status: 'ok',
       revision: String(row.id),
@@ -1408,19 +1572,29 @@ export class ClientConfigService {
 
   render(settingsInput: unknown, engine: Engine = ENGINE_CODEX): RenderResult {
     if (engine === ENGINE_CODEX) validateCodexFeatureAuthoring(settingsInput);
-    const normalized = engine === ENGINE_GROK ? normalizeGrokSettings(settingsInput) : normalizeSettings(settingsInput, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
-    const content = engine === ENGINE_GROK ? renderGrokSettings(normalized) : engine === ENGINE_CLAUDE ? renderClaudeSettings(normalized) : renderToml(normalized);
+    const normalized =
+      engine === ENGINE_GROK
+        ? normalizeGrokSettings(settingsInput)
+        : normalizeSettings(settingsInput, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
+    const content =
+      engine === ENGINE_GROK
+        ? renderGrokSettings(normalized)
+        : engine === ENGINE_CLAUDE
+          ? renderClaudeSettings(normalized)
+          : renderToml(normalized);
     return {
       content,
       sha256: createHash('sha256').update(content).digest('hex'),
       size_bytes: Buffer.byteLength(content, 'utf8'),
       settings: normalized,
-      ...(engine === ENGINE_CODEX && { profiles: sortEntriesByName(normalized.profiles).flatMap(profile => {
-        const name = normalizeName(profile.name);
-        if (!name || !PROFILE_FILE_NAME.test(name)) return [];
-        const body = renderProfileToml(profile);
-        return [{ name, content: body, sha256: createHash('sha256').update(body).digest('hex') }];
-      }) }),
+      ...(engine === ENGINE_CODEX && {
+        profiles: sortEntriesByName(normalized.profiles).flatMap((profile) => {
+          const name = normalizeName(profile.name);
+          if (!name || !PROFILE_FILE_NAME.test(name)) return [];
+          const body = renderProfileToml(profile);
+          return [{ name, content: body, sha256: createHash('sha256').update(body).digest('hex') }];
+        }),
+      }),
     };
   }
 
@@ -1434,40 +1608,94 @@ export class ClientConfigService {
       const rendered = this.render(payload.settings, engine);
       if (!rendered.content) throw new ValidationError('config cannot be empty', { param: 'settings' });
       let result!: StoreResult;
-      await mutateOwnerState(owner, { kind: 'config.store', payload: { engine, sourceHostId, settings: rendered.settings as unknown as Json, expectedRevision: payload.expected_revision as Json ?? null, sha256: typeof payload.sha256 === 'string' ? payload.sha256 : null }, prepare(ctx) {
-        const existing = [...ctx.draft.table('clientConfigDocuments').by('engine', engine)].sort((a,b) => b.id-a.id)[0];
-        if (payload.expected_revision !== undefined) {
-          const expected = payload.expected_revision;
-          if (expected !== null && (typeof expected !== 'string' || !/^[1-9]\d*$/.test(expected))) throw new ValidationError('expected_revision must be a saved revision string or null for a missing config', { param: 'expected_revision' });
-          const current = existing ? String(existing.id) : null;
-          if (expected !== current) throw new ConflictError('Configuration changed since it was loaded; reload and review your changes before saving', 'config_revision_conflict', { expected_revision: expected, current_revision: current });
-        }
-        if (payload.sha256 !== undefined && payload.sha256 !== null && payload.sha256 !== '') {
-          if (typeof payload.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(payload.sha256.trim().toLowerCase())) throw new ValidationError('sha256 must be 64 hex characters when provided', { param: 'sha256' });
-          if (existing && existing.sha256.toLowerCase() !== payload.sha256.trim().toLowerCase()) throw new ValidationError('sha256 does not match current saved config.toml (reload before saving)', { param: 'sha256' });
-        }
-        const unchanged = existing && existing.sha256 === rendered.sha256 && settingsHash(existing.settings ?? {}) === settingsHash(rendered.settings);
-        const change = unchanged ? 'unchanged' : existing ? 'updated' : 'created';
-        const at = unchanged ? existing.updatedAt : nowIso();
-        result = { status: 'ok', revision: unchanged ? String(existing.id) : '', sha256: rendered.sha256, updated_at: at, size_bytes: rendered.size_bytes, content: rendered.content, settings: rendered.settings, change };
-        if (!unchanged) {
-          const values = { sha256: rendered.sha256, body: rendered.content, settings: rendered.settings as unknown as Record<string, unknown>, sourceHostId, engine, createdAt: at, updatedAt: at };
-          ctx.write(async tx => {
-            const [inserted] = await tx.insert(clientConfigDocuments).values(values);
-            const id = Number(inserted.insertId);
-            for (const prior of ctx.draft.table('clientConfigDocuments').by('engine', engine)) ctx.draft.removeRow('clientConfigDocuments', prior);
-            ctx.draft.upsert('clientConfigDocuments', { ...values, id });
-            result.revision = String(id);
-          });
-        }
-        return () => result as unknown as Json;
-      } });
-      if (result.change !== 'unchanged') wsPublisher.publish('settings.changed', { kind: 'client_config', change: result.change, engine });
+      await mutateOwnerState(owner, {
+        kind: 'config.store',
+        payload: {
+          engine,
+          sourceHostId,
+          settings: rendered.settings as unknown as Json,
+          expectedRevision: (payload.expected_revision as Json) ?? null,
+          sha256: typeof payload.sha256 === 'string' ? payload.sha256 : null,
+        },
+        prepare(ctx) {
+          const existing = [...ctx.draft.table('clientConfigDocuments').by('engine', engine)].sort(
+            (a, b) => b.id - a.id,
+          )[0];
+          if (payload.expected_revision !== undefined) {
+            const expected = payload.expected_revision;
+            if (expected !== null && (typeof expected !== 'string' || !/^[1-9]\d*$/.test(expected)))
+              throw new ValidationError(
+                'expected_revision must be a saved revision string or null for a missing config',
+                { param: 'expected_revision' },
+              );
+            const current = existing ? String(existing.id) : null;
+            if (expected !== current)
+              throw new ConflictError(
+                'Configuration changed since it was loaded; reload and review your changes before saving',
+                'config_revision_conflict',
+                { expected_revision: expected, current_revision: current },
+              );
+          }
+          if (payload.sha256 !== undefined && payload.sha256 !== null && payload.sha256 !== '') {
+            if (
+              typeof payload.sha256 !== 'string' ||
+              !/^[a-f0-9]{64}$/.test(payload.sha256.trim().toLowerCase())
+            )
+              throw new ValidationError('sha256 must be 64 hex characters when provided', {
+                param: 'sha256',
+              });
+            if (existing && existing.sha256.toLowerCase() !== payload.sha256.trim().toLowerCase())
+              throw new ValidationError(
+                'sha256 does not match current saved config.toml (reload before saving)',
+                { param: 'sha256' },
+              );
+          }
+          const unchanged =
+            existing &&
+            existing.sha256 === rendered.sha256 &&
+            settingsHash(existing.settings ?? {}) === settingsHash(rendered.settings);
+          const change = unchanged ? 'unchanged' : existing ? 'updated' : 'created';
+          const at = unchanged ? existing.updatedAt : nowIso();
+          result = {
+            status: 'ok',
+            revision: unchanged ? String(existing.id) : '',
+            sha256: rendered.sha256,
+            updated_at: at,
+            size_bytes: rendered.size_bytes,
+            content: rendered.content,
+            settings: rendered.settings,
+            change,
+          };
+          if (!unchanged) {
+            const values = {
+              sha256: rendered.sha256,
+              body: rendered.content,
+              settings: rendered.settings as unknown as Record<string, unknown>,
+              sourceHostId,
+              engine,
+              createdAt: at,
+              updatedAt: at,
+            };
+            ctx.write(async (tx) => {
+              const [inserted] = await tx.insert(clientConfigDocuments).values(values);
+              const id = Number(inserted.insertId);
+              for (const prior of ctx.draft.table('clientConfigDocuments').by('engine', engine))
+                ctx.draft.removeRow('clientConfigDocuments', prior);
+              ctx.draft.upsert('clientConfigDocuments', { ...values, id });
+              result.revision = String(id);
+            });
+          }
+          return () => result as unknown as Json;
+        },
+      });
+      if (result.change !== 'unchanged')
+        wsPublisher.publish('settings.changed', { kind: 'client_config', change: result.change, engine });
       return result;
     }
     if (!this.configWrite) {
       return withClientConfigWriteLock(this.db, engine, (tx, _existing, context) =>
-        new ClientConfigService(tx, context).store(payload, sourceHostId, engine));
+        new ClientConfigService(tx, context).store(payload, sourceHostId, engine),
+      );
     }
     const rendered = this.render(payload.settings, engine);
 
@@ -1482,14 +1710,20 @@ export class ClientConfigService {
     if (payload.expected_revision !== undefined) {
       const expected = payload.expected_revision;
       if (expected !== null && (typeof expected !== 'string' || !/^[1-9]\d*$/.test(expected))) {
-        throw new ValidationError('expected_revision must be a saved revision string or null for a missing config', {
-          param: 'expected_revision',
-        });
+        throw new ValidationError(
+          'expected_revision must be a saved revision string or null for a missing config',
+          {
+            param: 'expected_revision',
+          },
+        );
       }
       const current = existing ? String(existing.id) : null;
       if (expected !== current) {
-        throw new ConflictError('Configuration changed since it was loaded; reload and review your changes before saving',
-          'config_revision_conflict', { expected_revision: expected, current_revision: current });
+        throw new ConflictError(
+          'Configuration changed since it was loaded; reload and review your changes before saving',
+          'config_revision_conflict',
+          { expected_revision: expected, current_revision: current },
+        );
       }
     }
 
@@ -1502,10 +1736,9 @@ export class ClientConfigService {
         throw new ValidationError('sha256 must be 64 hex characters when provided', { param: 'sha256' });
       }
       if (existing && existing.sha256.toLowerCase() !== provided) {
-        throw new ValidationError(
-          'sha256 does not match current saved config.toml (reload before saving)',
-          { param: 'sha256' },
-        );
+        throw new ValidationError('sha256 does not match current saved config.toml (reload before saving)', {
+          param: 'sha256',
+        });
       }
     }
 
@@ -1545,7 +1778,9 @@ export class ClientConfigService {
       savedBody = rendered.content;
       savedUpdatedAt = nowTs;
       savedRevision = String(inserted.insertId);
-      this.configWrite.afterCommit(() => wsPublisher.publish('settings.changed', { kind: 'client_config', change, engine }));
+      this.configWrite.afterCommit(() =>
+        wsPublisher.publish('settings.changed', { kind: 'client_config', change, engine }),
+      );
     }
 
     return {

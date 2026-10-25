@@ -13,14 +13,57 @@ export async function writeRunnerTelemetry(
   checkedAt: string,
 ): Promise<void> {
   const suffix = engine === ENGINE_CODEX ? '' : `_${engine}`;
-  const owner=ownerRuntimeFor(db);
-  if(owner){owner.assertOwner();const snapshot=owner.state.snapshot();const values=[{name:`runner_state${suffix}`,value:state},{name:`runner_last_check${suffix}`,value:checkedAt},{name:state==='ok'?`runner_last_ok${suffix}`:`runner_last_fail${suffix}`,value:checkedAt}];
-    if(values.every(({name,value})=>{const prior=snapshot.settings.get(name);return prior&&(prior.updatedAt>checkedAt||prior.version===value&&prior.updatedAt===checkedAt);}))return;
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    owner.assertOwner();
+    const snapshot = owner.state.snapshot();
+    const values = [
+      { name: `runner_state${suffix}`, value: state },
+      { name: `runner_last_check${suffix}`, value: checkedAt },
+      { name: state === 'ok' ? `runner_last_ok${suffix}` : `runner_last_fail${suffix}`, value: checkedAt },
+    ];
+    if (
+      values.every(({ name, value }) => {
+        const prior = snapshot.settings.get(name);
+        return (
+          prior && (prior.updatedAt > checkedAt || (prior.version === value && prior.updatedAt === checkedAt))
+        );
+      })
+    )
+      return;
   }
-  if(owner){await mutateOwnerState(owner,{kind:'auth.runner.telemetry',payload:{engine,state,checkedAt},prepare(c){
-    const values=[{name:`runner_state${suffix}`,version:state,updatedAt:checkedAt},{name:`runner_last_check${suffix}`,version:checkedAt,updatedAt:checkedAt},{name:state==='ok'?`runner_last_ok${suffix}`:`runner_last_fail${suffix}`,version:checkedAt,updatedAt:checkedAt}];
-    for(const row of values){const prior=c.snapshot.table('versions').get(row.name);if(prior&&prior.updatedAt>checkedAt)continue;c.draft.upsert('versions',row);c.write(tx=>tx.insert(versions).values(row).onDuplicateKeyUpdate({set:{version:row.version,updatedAt:row.updatedAt}}));}return null;
-  }});return;}
+  if (owner) {
+    await mutateOwnerState(owner, {
+      kind: 'auth.runner.telemetry',
+      persistence: owner.state.snapshot().setting(`runner_state${suffix}`) === state ? 'volatile' : 'durable',
+      payload: { engine, state, checkedAt },
+      prepare(c) {
+        const values = [
+          { name: `runner_state${suffix}`, version: state, updatedAt: checkedAt },
+          { name: `runner_last_check${suffix}`, version: checkedAt, updatedAt: checkedAt },
+          {
+            name: state === 'ok' ? `runner_last_ok${suffix}` : `runner_last_fail${suffix}`,
+            version: checkedAt,
+            updatedAt: checkedAt,
+          },
+        ];
+        for (const row of values) {
+          const prior = c.snapshot.table('versions').get(row.name);
+          if (prior && prior.updatedAt > checkedAt) continue;
+          c.draft.upsert('versions', row);
+          if (c.persistence !== 'volatile')
+            c.write((tx) =>
+              tx
+                .insert(versions)
+                .values(row)
+                .onDuplicateKeyUpdate({ set: { version: row.version, updatedAt: row.updatedAt } }),
+            );
+        }
+        return null;
+      },
+    });
+    return;
+  }
 
   await upsertVersion(db, `runner_state${suffix}`, state, checkedAt);
   await upsertVersion(db, `runner_last_check${suffix}`, checkedAt, checkedAt);

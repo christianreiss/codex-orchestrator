@@ -213,9 +213,7 @@ const bySlug = (a: SecretMetadata, b: SecretMetadata): number =>
 
 /** Substring match over the fields an agent would search by. */
 function matchesNeedle(row: SecretMetadata, needle: string): boolean {
-  const haystack = [row.slug, row.name, row.description ?? '', row.tags.join(' ')]
-    .join(' ')
-    .toLowerCase();
+  const haystack = [row.slug, row.name, row.description ?? '', row.tags.join(' ')].join(' ').toLowerCase();
   return haystack.includes(needle);
 }
 
@@ -225,10 +223,15 @@ export class SecretsService {
   // ── module switch ─────────────────────────────────────────────────────────
 
   /** Read the `secrets_module_enabled` flag. Absent row means disabled. */
-  private snapshot(){const owner=ownerRuntimeFor(this.deps.db);owner?.assertOwner();return owner?.state.snapshot();}
+  private snapshot() {
+    const owner = ownerRuntimeFor(this.deps.db);
+    owner?.assertOwner();
+    return owner?.state.snapshot();
+  }
 
   async getEnabled(): Promise<boolean> {
-    const state=this.snapshot();if(state)return state.setting(SECRETS_ENABLED_FLAG)==='1';
+    const state = this.snapshot();
+    if (state) return state.setting(SECRETS_ENABLED_FLAG) === '1';
     const rows = await this.deps.db
       .select()
       .from(versions)
@@ -239,7 +242,16 @@ export class SecretsService {
   }
 
   async adminState(): Promise<SecretsModuleState> {
-    const state=this.snapshot();if(state)return {enabled:state.setting(SECRETS_ENABLED_FLAG)==='1',updated_at:state.settings.get(SECRETS_ENABLED_FLAG)?.updatedAt??null,count:state.table('secrets').all().filter(row=>!row.deletedAt).length};
+    const state = this.snapshot();
+    if (state)
+      return {
+        enabled: state.setting(SECRETS_ENABLED_FLAG) === '1',
+        updated_at: state.settings.get(SECRETS_ENABLED_FLAG)?.updatedAt ?? null,
+        count: state
+          .table('secrets')
+          .all()
+          .filter((row) => !row.deletedAt).length,
+      };
     const rows = await this.deps.db
       .select()
       .from(versions)
@@ -254,7 +266,27 @@ export class SecretsService {
   }
 
   async setEnabled(enabled: boolean): Promise<SecretsModuleState> {
-    const owner=ownerRuntimeFor(this.deps.db);if(owner){await mutateOwnerState(owner,{kind:'secrets.enabled',payload:{enabled},prepare:ctx=>{const row={name:SECRETS_ENABLED_FLAG,version:enabled?'1':'0',updatedAt:nowIso()};ctx.draft.upsert('versions',row);ctx.write(async tx=>tx.insert(versions).values(row).onDuplicateKeyUpdate({set:{version:row.version,updatedAt:row.updatedAt}}));adminAudit(ctx,'secrets.enabled',{enabled});return null;}});wsPublisher.publish('settings.changed',{kind:'secrets_module',enabled});return this.adminState();}
+    const owner = ownerRuntimeFor(this.deps.db);
+    if (owner) {
+      await mutateOwnerState(owner, {
+        kind: 'secrets.enabled',
+        payload: { enabled },
+        prepare: (ctx) => {
+          const row = { name: SECRETS_ENABLED_FLAG, version: enabled ? '1' : '0', updatedAt: nowIso() };
+          ctx.draft.upsert('versions', row);
+          ctx.write(async (tx) =>
+            tx
+              .insert(versions)
+              .values(row)
+              .onDuplicateKeyUpdate({ set: { version: row.version, updatedAt: row.updatedAt } }),
+          );
+          adminAudit(ctx, 'secrets.enabled', { enabled });
+          return null;
+        },
+      });
+      wsPublisher.publish('settings.changed', { kind: 'secrets_module', enabled });
+      return this.adminState();
+    }
 
     const now = nowIso();
     const existing = await this.deps.db
@@ -282,7 +314,12 @@ export class SecretsService {
    * AGENTS.md renderer calls it on every host bootstrap.
    */
   async availableCount(): Promise<number> {
-    const state=this.snapshot();if(state)return state.table('secrets').all().filter(row=>!row.deletedAt).length;
+    const state = this.snapshot();
+    if (state)
+      return state
+        .table('secrets')
+        .all()
+        .filter((row) => !row.deletedAt).length;
     const rows = await this.deps.db
       .select({ deletedAt: secrets.deletedAt })
       .from(secrets)
@@ -296,11 +333,13 @@ export class SecretsService {
     const conditions: SQL[] = [];
     if (!opts.includeDeleted) conditions.push(isNull(secrets.deletedAt));
 
-    const rows = this.snapshot()?.table('secrets').all() ?? await this.deps.db
-      .select(METADATA_COLUMNS)
-      .from(secrets)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(asc(secrets.slug));
+    const rows =
+      this.snapshot()?.table('secrets').all() ??
+      (await this.deps.db
+        .select(METADATA_COLUMNS)
+        .from(secrets)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(asc(secrets.slug)));
 
     // Re-check deletion for test doubles that do not evaluate SQL predicates.
     return rows
@@ -334,11 +373,13 @@ export class SecretsService {
       ) as SQL,
     );
 
-    const rows = this.snapshot()?.table('secrets').all() ?? await this.deps.db
-      .select(METADATA_COLUMNS)
-      .from(secrets)
-      .where(and(...conditions))
-      .orderBy(asc(secrets.slug));
+    const rows =
+      this.snapshot()?.table('secrets').all() ??
+      (await this.deps.db
+        .select(METADATA_COLUMNS)
+        .from(secrets)
+        .where(and(...conditions))
+        .orderBy(asc(secrets.slug)));
 
     // Same reasoning as list(): re-apply in process so the fake can prove it.
     return rows
@@ -350,11 +391,9 @@ export class SecretsService {
   }
 
   async findById(id: number, opts: { includeDeleted?: boolean } = {}): Promise<SecretMetadata | null> {
-    const rows = this.snapshot()?.table('secrets').all() ?? await this.deps.db
-      .select(METADATA_COLUMNS)
-      .from(secrets)
-      .where(eq(secrets.id, id))
-      .limit(1);
+    const rows =
+      this.snapshot()?.table('secrets').all() ??
+      (await this.deps.db.select(METADATA_COLUMNS).from(secrets).where(eq(secrets.id, id)).limit(1));
     const row = rows.find((candidate) => candidate.id === id);
     if (!row) return null;
     if (!opts.includeDeleted && row.deletedAt) return null;
@@ -363,11 +402,13 @@ export class SecretsService {
 
   async findBySlug(slug: string, opts: ListOptions = {}): Promise<SecretMetadata | null> {
     const normalized = this.normalizeSlug(slug);
-    const rows = this.snapshot()?.table('secrets').all() ?? await this.deps.db
-      .select(METADATA_COLUMNS)
-      .from(secrets)
-      .where(eq(secrets.slug, normalized))
-      .limit(1);
+    const rows =
+      this.snapshot()?.table('secrets').all() ??
+      (await this.deps.db
+        .select(METADATA_COLUMNS)
+        .from(secrets)
+        .where(eq(secrets.slug, normalized))
+        .limit(1));
     const row = rows.find((candidate) => candidate.slug === normalized);
     if (!row) return null;
     if (!opts.includeDeleted && row.deletedAt) return null;
@@ -381,10 +422,7 @@ export class SecretsService {
     return (await this.list()).map((row) => toSecretListing(row, hostId));
   }
 
-  async searchForHost(
-    query: string,
-    hostId: number | null = null,
-  ): Promise<SecretListing[]> {
+  async searchForHost(query: string, hostId: number | null = null): Promise<SecretListing[]> {
     if (!(await this.getEnabled())) return [];
     return (await this.search(query)).map((row) => toSecretListing(row, hostId));
   }
@@ -408,14 +446,51 @@ export class SecretsService {
     if (!(await this.getEnabled())) {
       throw new NotFoundError('The fleet secrets store is disabled', 'secrets_disabled');
     }
-    const owner=ownerRuntimeFor(this.deps.db);
-    if(owner){let saved:SecretMetadata|undefined,status:'created'|'rotated'|'unchanged'='created';const slug=this.normalizeSlug(input.slug);
-      await mutateOwnerState(owner,{kind:'secret.host.store',payload:{slug,hostId:host.id},authorize:state=>{if(state.setting(SECRETS_ENABLED_FLAG)!=='1')throw new NotFoundError('The fleet secrets store is disabled','secrets_disabled');},prepare:async ctx=>{
-        const existing=ctx.snapshot.table('secrets').by('slug',slug)[0];if(existing)this.assertOwned(existing,host,slug);
-        if(existing&&!existing.deletedAt){const loaded=await this.loadEnvelope(eq(secrets.id,existing.id),row=>row.id===existing.id);if(!loaded)throw new NotFoundError('Secret missing');const patch=await this.buildRotation(loaded,input,engine);saved=toMetadata(stageUpdate(ctx,'secrets',existing.id,patch.values));status=patch.rotated?'rotated':'unchanged';}
-        else{const now=nowIso(),values=this.createValues({...input,slug,sourceHostId:host.id,sourceEngine:engine},now);if(existing)saved=toMetadata(stageUpdate(ctx,'secrets',existing.id,values));else ctx.write(async tx=>{const row={...values,createdAt:now},inserted=await tx.insert(secrets).values(row);const next={id:Number(inserted[0].insertId),...row};ctx.draft.upsert('secrets',next);saved=toMetadata(next);});}
-        adminAudit(ctx,'secret.stored',()=>({slug,status}),nowIso(),host.id);return ()=>({secret:toSecretListing(saved!,host.id),status}) as unknown as Json;
-      }});return {secret:toSecretListing(saved!,host.id),status};
+    const owner = ownerRuntimeFor(this.deps.db);
+    if (owner) {
+      let saved: SecretMetadata | undefined,
+        status: 'created' | 'rotated' | 'unchanged' = 'created';
+      const slug = this.normalizeSlug(input.slug);
+      await mutateOwnerState(owner, {
+        kind: 'secret.host.store',
+        payload: { slug, hostId: host.id },
+        authorize: (state) => {
+          if (state.setting(SECRETS_ENABLED_FLAG) !== '1')
+            throw new NotFoundError('The fleet secrets store is disabled', 'secrets_disabled');
+        },
+        prepare: async (ctx) => {
+          const existing = ctx.snapshot.table('secrets').by('slug', slug)[0];
+          if (existing) this.assertOwned(existing, host, slug);
+          if (existing && !existing.deletedAt) {
+            const loaded = await this.loadEnvelope(
+              eq(secrets.id, existing.id),
+              (row) => row.id === existing.id,
+            );
+            if (!loaded) throw new NotFoundError('Secret missing');
+            const patch = await this.buildRotation(loaded, input, engine);
+            saved = toMetadata(stageUpdate(ctx, 'secrets', existing.id, patch.values));
+            status = patch.rotated ? 'rotated' : 'unchanged';
+          } else {
+            const now = nowIso(),
+              values = this.createValues(
+                { ...input, slug, sourceHostId: host.id, sourceEngine: engine },
+                now,
+              );
+            if (existing) saved = toMetadata(stageUpdate(ctx, 'secrets', existing.id, values));
+            else
+              ctx.write(async (tx) => {
+                const row = { ...values, createdAt: now },
+                  inserted = await tx.insert(secrets).values(row);
+                const next = { id: Number(inserted[0].insertId), ...row };
+                ctx.draft.upsert('secrets', next);
+                saved = toMetadata(next);
+              });
+          }
+          adminAudit(ctx, 'secret.stored', () => ({ slug, status }), nowIso(), host.id);
+          return () => ({ secret: toSecretListing(saved!, host.id), status }) as unknown as Json;
+        },
+      });
+      return { secret: toSecretListing(saved!, host.id), status };
     }
     const slug = this.normalizeSlug(input.slug);
     const existing = await this.loadEnvelope(eq(secrets.slug, slug), (row) => row.slug === slug);
@@ -456,13 +531,27 @@ export class SecretsService {
     if (!(await this.getEnabled())) {
       throw new NotFoundError('The fleet secrets store is disabled', 'secrets_disabled');
     }
-    const owner=ownerRuntimeFor(this.deps.db);
-    if(owner){const normalized=this.normalizeSlug(slug);await mutateOwnerState(owner,{kind:'secret.host.delete',payload:{slug:normalized,hostId:host.id},prepare:ctx=>{if(ctx.snapshot.setting(SECRETS_ENABLED_FLAG)!=='1')throw new NotFoundError('The fleet secrets store is disabled','secrets_disabled');const row=ctx.snapshot.table('secrets').by('slug',normalized)[0];if(!row||row.deletedAt)throw new NotFoundError('Secret not found','secret_not_found');this.assertOwned(row,host,normalized);stageUpdate(ctx,'secrets',row.id,{deletedAt:nowIso(),updatedAt:nowIso()});adminAudit(ctx,'secret.deleted',{slug:normalized},nowIso(),host.id);return null;}});return {slug:normalized,status:'deleted'};}
+    const owner = ownerRuntimeFor(this.deps.db);
+    if (owner) {
+      const normalized = this.normalizeSlug(slug);
+      await mutateOwnerState(owner, {
+        kind: 'secret.host.delete',
+        payload: { slug: normalized, hostId: host.id },
+        prepare: (ctx) => {
+          if (ctx.snapshot.setting(SECRETS_ENABLED_FLAG) !== '1')
+            throw new NotFoundError('The fleet secrets store is disabled', 'secrets_disabled');
+          const row = ctx.snapshot.table('secrets').by('slug', normalized)[0];
+          if (!row || row.deletedAt) throw new NotFoundError('Secret not found', 'secret_not_found');
+          this.assertOwned(row, host, normalized);
+          stageUpdate(ctx, 'secrets', row.id, { deletedAt: nowIso(), updatedAt: nowIso() });
+          adminAudit(ctx, 'secret.deleted', { slug: normalized }, nowIso(), host.id);
+          return null;
+        },
+      });
+      return { slug: normalized, status: 'deleted' };
+    }
     const normalized = this.normalizeSlug(slug);
-    const existing = await this.loadEnvelope(
-      eq(secrets.slug, normalized),
-      (row) => row.slug === normalized,
-    );
+    const existing = await this.loadEnvelope(eq(secrets.slug, normalized), (row) => row.slug === normalized);
     if (!existing || existing.deletedAt) {
       throw new NotFoundError(`No secret with slug '${normalized}'`, 'secret_not_found');
     }
@@ -475,7 +564,7 @@ export class SecretsService {
    * The ownership gate. Refuses with a message that tells the agent what to do
    * instead, because "forbidden" alone invites a retry loop.
    */
-  private assertOwned(row: Pick<Secret,'sourceHostId'>, host: Host, slug: string): void {
+  private assertOwned(row: Pick<Secret, 'sourceHostId'>, host: Host, slug: string): void {
     if (row.sourceHostId === host.id) return;
     if (row.sourceHostId === null || row.sourceHostId === undefined) {
       throw new ConflictError(
@@ -518,40 +607,73 @@ export class SecretsService {
 
   // ── the ONLY two methods that decrypt ─────────────────────────────────────
 
-  private async readOwnedSecret(selector:{id?:number;slug?:string},host:Host|null,engine:Engine|null):Promise<{secret:SecretMetadata;value:string}>{
-    const owner=ownerRuntimeFor(this.deps.db)!;let revealed:{secret:SecretMetadata;value:string}|undefined,failure:string|null=null;
-    await mutateOwnerState(owner,{kind:'secret.read',payload:{...selector,hostId:host?.id??null,engine},prepare:async ctx=>{
-      const row=selector.id!==undefined?ctx.snapshot.table('secrets').get(selector.id):ctx.snapshot.table('secrets').by('slug',selector.slug!)[0];
-      if(host&&ctx.snapshot.setting(SECRETS_ENABLED_FLAG)!=='1')failure='secrets_disabled';
-      else if(!row||row.deletedAt)failure='not_found';
-      else{
-        const loaded=await this.loadEnvelope(eq(secrets.id,row.id),candidate=>candidate.id===row.id);
-        if(!loaded||loaded.deletedAt)throw new Error('Secret envelope disagrees with authoritative metadata');
-        const value=decryptOrNull(loaded.valueEnc,this.requireKeyring());
-        if(value===null)failure='decrypt_failed';else revealed={secret:toMetadata(row),value};
-      }
-      adminAudit(ctx,'secret.read',{slug:row?.slug??selector.slug??null,secret_id:row?.id??selector.id??null,success:failure===null,error_code:failure,engine},nowIso(),host?.id??null);
-      // No plaintext or encrypted credential is recorded in the command receipt.
-      return {audited:true,success:failure===null};
-    }});
-    if(failure==='decrypt_failed')throw new ConflictError('Secret cannot be decrypted with the current keyring','secret_undecryptable');
-    if(failure)throw new NotFoundError(failure==='secrets_disabled'?'The fleet secrets store is disabled':'No such secret',failure==='secrets_disabled'?'secrets_disabled':'secret_not_found');
-    if(!revealed)throw new Error('Secret reveal completed without a value');return revealed;
+  private async readOwnedSecret(
+    selector: { id?: number; slug?: string },
+    host: Host | null,
+    engine: Engine | null,
+  ): Promise<{ secret: SecretMetadata; value: string }> {
+    const owner = ownerRuntimeFor(this.deps.db)!;
+    let revealed: { secret: SecretMetadata; value: string } | undefined,
+      failure: string | null = null;
+    await mutateOwnerState(owner, {
+      kind: 'secret.read',
+      payload: { ...selector, hostId: host?.id ?? null, engine },
+      prepare: async (ctx) => {
+        const row =
+          selector.id !== undefined
+            ? ctx.snapshot.table('secrets').get(selector.id)
+            : ctx.snapshot.table('secrets').by('slug', selector.slug!)[0];
+        if (host && ctx.snapshot.setting(SECRETS_ENABLED_FLAG) !== '1') failure = 'secrets_disabled';
+        else if (!row || row.deletedAt) failure = 'not_found';
+        else {
+          const loaded = await this.loadEnvelope(
+            eq(secrets.id, row.id),
+            (candidate) => candidate.id === row.id,
+          );
+          if (!loaded || loaded.deletedAt)
+            throw new Error('Secret envelope disagrees with authoritative metadata');
+          const value = decryptOrNull(loaded.valueEnc, this.requireKeyring());
+          if (value === null) failure = 'decrypt_failed';
+          else revealed = { secret: toMetadata(row), value };
+        }
+        adminAudit(
+          ctx,
+          'secret.read',
+          {
+            slug: row?.slug ?? selector.slug ?? null,
+            secret_id: row?.id ?? selector.id ?? null,
+            success: failure === null,
+            error_code: failure,
+            engine,
+          },
+          nowIso(),
+          host?.id ?? null,
+        );
+        // No plaintext or encrypted credential is recorded in the command receipt.
+        return { audited: true, success: failure === null };
+      },
+    });
+    if (failure === 'decrypt_failed')
+      throw new ConflictError('Secret cannot be decrypted with the current keyring', 'secret_undecryptable');
+    if (failure)
+      throw new NotFoundError(
+        failure === 'secrets_disabled' ? 'The fleet secrets store is disabled' : 'No such secret',
+        failure === 'secrets_disabled' ? 'secrets_disabled' : 'secret_not_found',
+      );
+    if (!revealed) throw new Error('Secret reveal completed without a value');
+    return revealed;
   }
 
   /** Admin reveal, behind `requireSecretMutationRole`. */
   async revealById(id: number): Promise<{ secret: SecretMetadata; value: string }> {
-    if(ownerRuntimeFor(this.deps.db))return this.readOwnedSecret({id},null,null);
+    if (ownerRuntimeFor(this.deps.db)) return this.readOwnedSecret({ id }, null, null);
     const loaded = await this.loadEnvelope(eq(secrets.id, id), (row) => row.id === id);
     if (!loaded || loaded.deletedAt) {
       throw new NotFoundError('No such secret', 'secret_not_found');
     }
     const value = decryptOrNull(loaded.valueEnc, this.requireKeyring());
     if (value === null) {
-      throw new ConflictError(
-        'Secret cannot be decrypted with the current keyring',
-        'secret_undecryptable',
-      );
+      throw new ConflictError('Secret cannot be decrypted with the current keyring', 'secret_undecryptable');
     }
     return { secret: toMetadata(loaded), value };
   }
@@ -562,11 +684,23 @@ export class SecretsService {
    */
   async getForHost(slug: string, host: Host, engine: Engine | null): Promise<SecretPayload> {
     const normalized = this.normalizeSlug(slug);
-    if(ownerRuntimeFor(this.deps.db)){const {secret,value}=await this.readOwnedSecret({slug:normalized},host,engine);return {slug:secret.slug,name:secret.name,description:secret.description,value,tags:secret.tags,last_rotated_at:secret.lastRotatedAt};}
+    if (ownerRuntimeFor(this.deps.db)) {
+      const { secret, value } = await this.readOwnedSecret({ slug: normalized }, host, engine);
+      return {
+        slug: secret.slug,
+        name: secret.name,
+        description: secret.description,
+        value,
+        tags: secret.tags,
+        last_rotated_at: secret.lastRotatedAt,
+      };
+    }
     const audit = async (success: boolean, message: string | null): Promise<void> => {
       // No credential leaves the service until its minimal security audit commits.
       await this.deps.db.insert(adminEvents).values({
-        type: 'secret.read', hostId: host.id, createdAt: nowIso(),
+        type: 'secret.read',
+        hostId: host.id,
+        createdAt: nowIso(),
         payload: { slug: normalized, success, error_code: message, engine },
       });
     };
@@ -576,10 +710,7 @@ export class SecretsService {
       throw new NotFoundError('The fleet secrets store is disabled', 'secrets_disabled');
     }
 
-    const loaded = await this.loadEnvelope(
-      eq(secrets.slug, normalized),
-      (row) => row.slug === normalized,
-    );
+    const loaded = await this.loadEnvelope(eq(secrets.slug, normalized), (row) => row.slug === normalized);
     if (!loaded || loaded.deletedAt) {
       await audit(false, 'not_found');
       throw new NotFoundError(`No secret with slug '${normalized}'`, 'secret_not_found');
@@ -592,10 +723,7 @@ export class SecretsService {
       // applies to non-envelope legacy rows, which this NOT NULL column never
       // holds.
       await audit(false, 'decrypt_failed');
-      throw new ConflictError(
-        'Secret cannot be decrypted with the current keyring',
-        'secret_undecryptable',
-      );
+      throw new ConflictError('Secret cannot be decrypted with the current keyring', 'secret_undecryptable');
     }
 
     await audit(true, null); // awaited, unguarded: no trail, no secret.
@@ -613,16 +741,56 @@ export class SecretsService {
 
   // ── mutations ─────────────────────────────────────────────────────────────
 
-  private createValues(input:CreateSecretInput,now:string){
-    const slug=this.normalizeSlug(input.slug),name=typeof input.name==='string'?input.name.trim():'';
-    if(!name)throw new ValidationError('name is required',{param:'name'});if(typeof input.value!=='string'||!input.value)throw new ValidationError('value is required',{param:'value'});
-    const tags=sortedLowercase(this.normalizeTags(input.tags));return {slug,name,description:input.description?.trim()||null,valueEnc:encryptSecret(input.value,this.requireKeyring()),sourceHostId:input.sourceHostId??null,sourceEngine:input.sourceEngine??null,tags,tagsText:tags.join(' ')||null,updatedAt:now,lastRotatedAt:now,deletedAt:null};
+  private createValues(input: CreateSecretInput, now: string) {
+    const slug = this.normalizeSlug(input.slug),
+      name = typeof input.name === 'string' ? input.name.trim() : '';
+    if (!name) throw new ValidationError('name is required', { param: 'name' });
+    if (typeof input.value !== 'string' || !input.value)
+      throw new ValidationError('value is required', { param: 'value' });
+    const tags = sortedLowercase(this.normalizeTags(input.tags));
+    return {
+      slug,
+      name,
+      description: input.description?.trim() || null,
+      valueEnc: encryptSecret(input.value, this.requireKeyring()),
+      sourceHostId: input.sourceHostId ?? null,
+      sourceEngine: input.sourceEngine ?? null,
+      tags,
+      tagsText: tags.join(' ') || null,
+      updatedAt: now,
+      lastRotatedAt: now,
+      deletedAt: null,
+    };
   }
   async create(input: CreateSecretInput): Promise<SecretMetadata> {
-    const owner=ownerRuntimeFor(this.deps.db);if(owner){let saved:SecretMetadata|undefined;const slug=this.normalizeSlug(input.slug);
-      await mutateOwnerState(owner,{kind:'secret.create',payload:{slug},prepare:ctx=>{const prior=ctx.snapshot.table('secrets').by('slug',slug)[0];if(prior&&!prior.deletedAt)throw new ConflictError(`A secret with slug '${slug}' already exists`,'secret_slug_taken');const now=nowIso(),values=this.createValues(input,now);
-        if(prior)saved=toMetadata(stageUpdate(ctx,'secrets',prior.id,values));else ctx.write(async tx=>{const row={...values,createdAt:now},inserted=await tx.insert(secrets).values(row);const next={id:Number(inserted[0].insertId),...row};ctx.draft.upsert('secrets',next);saved=toMetadata(next);});adminAudit(ctx,'secret.created',{slug});return ()=>saved as unknown as Json;
-      }});return saved!;}
+    const owner = ownerRuntimeFor(this.deps.db);
+    if (owner) {
+      let saved: SecretMetadata | undefined;
+      const slug = this.normalizeSlug(input.slug);
+      await mutateOwnerState(owner, {
+        kind: 'secret.create',
+        payload: { slug },
+        prepare: (ctx) => {
+          const prior = ctx.snapshot.table('secrets').by('slug', slug)[0];
+          if (prior && !prior.deletedAt)
+            throw new ConflictError(`A secret with slug '${slug}' already exists`, 'secret_slug_taken');
+          const now = nowIso(),
+            values = this.createValues(input, now);
+          if (prior) saved = toMetadata(stageUpdate(ctx, 'secrets', prior.id, values));
+          else
+            ctx.write(async (tx) => {
+              const row = { ...values, createdAt: now },
+                inserted = await tx.insert(secrets).values(row);
+              const next = { id: Number(inserted[0].insertId), ...row };
+              ctx.draft.upsert('secrets', next);
+              saved = toMetadata(next);
+            });
+          adminAudit(ctx, 'secret.created', { slug });
+          return () => saved as unknown as Json;
+        },
+      });
+      return saved!;
+    }
 
     const slug = this.normalizeSlug(input.slug);
     const name = typeof input.name === 'string' ? input.name.trim() : '';
@@ -681,7 +849,8 @@ export class SecretsService {
     id: number,
     input: UpdateSecretInput,
   ): Promise<{ secret: SecretMetadata; rotated: boolean } | null> {
-    const owner=ownerRuntimeFor(this.deps.db),expected=owner?.state.snapshot().table('secrets').get(id);
+    const owner = ownerRuntimeFor(this.deps.db),
+      expected = owner?.state.snapshot().table('secrets').get(id);
     const loaded = await this.loadEnvelope(eq(secrets.id, id), (row) => row.id === id);
     if (!loaded || loaded.deletedAt) return null;
 
@@ -719,23 +888,48 @@ export class SecretsService {
     // Slug is intentionally immutable: it is the lookup key agents hold, and a
     // rename would silently break every agent that learned it. Delete + create.
 
-    if(owner){await mutateOwnerState(owner,{kind:'secret.update',payload:{id},authorize:state=>{if(state.table('secrets').get(id)!==expected)throw new ConflictError('Secret changed during update','secret_changed');},prepare:ctx=>{stageUpdate(ctx,'secrets',id,patch);adminAudit(ctx,'secret.updated',{id,rotated});return null;}});}else
-    await this.deps.db.update(secrets).set(patch).where(eq(secrets.id, id));
+    if (owner) {
+      await mutateOwnerState(owner, {
+        kind: 'secret.update',
+        payload: { id },
+        authorize: (state) => {
+          if (state.table('secrets').get(id) !== expected)
+            throw new ConflictError('Secret changed during update', 'secret_changed');
+        },
+        prepare: (ctx) => {
+          stageUpdate(ctx, 'secrets', id, patch);
+          adminAudit(ctx, 'secret.updated', { id, rotated });
+          return null;
+        },
+      });
+    } else await this.deps.db.update(secrets).set(patch).where(eq(secrets.id, id));
     const secret = await this.findById(id);
     if (!secret) throw new Error('Failed to persist secret');
     return { secret, rotated };
   }
 
   async softDelete(id: number): Promise<SecretMetadata | null> {
-    const owner=ownerRuntimeFor(this.deps.db);if(owner){let result:SecretMetadata|null=null;await mutateOwnerState(owner,{kind:'secret.delete',payload:{id},prepare:ctx=>{const row=ctx.snapshot.table('secrets').get(id);if(!row||row.deletedAt)return null;result=toMetadata(stageUpdate(ctx,'secrets',id,{deletedAt:nowIso(),updatedAt:nowIso()}));adminAudit(ctx,'secret.deleted',{id});return result as unknown as Json;}});return result;}
+    const owner = ownerRuntimeFor(this.deps.db);
+    if (owner) {
+      let result: SecretMetadata | null = null;
+      await mutateOwnerState(owner, {
+        kind: 'secret.delete',
+        payload: { id },
+        prepare: (ctx) => {
+          const row = ctx.snapshot.table('secrets').get(id);
+          if (!row || row.deletedAt) return null;
+          result = toMetadata(stageUpdate(ctx, 'secrets', id, { deletedAt: nowIso(), updatedAt: nowIso() }));
+          adminAudit(ctx, 'secret.deleted', { id });
+          return result as unknown as Json;
+        },
+      });
+      return result;
+    }
 
     const existing = await this.findById(id);
     if (!existing) return null;
     const now = nowIso();
-    await this.deps.db
-      .update(secrets)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(eq(secrets.id, id));
+    await this.deps.db.update(secrets).set({ deletedAt: now, updatedAt: now }).where(eq(secrets.id, id));
     return this.findById(id, { includeDeleted: true });
   }
 
@@ -748,10 +942,20 @@ export class SecretsService {
    *
    * `match` re-checks the predicate in process because `db-fake` ignores WHERE.
    */
-  private async loadEnvelope(
-    where: SQL,
-    match: (row: Secret) => boolean,
-  ): Promise<Secret | null> {
+  private async loadEnvelope(where: SQL, match: (row: Secret) => boolean): Promise<Secret | null> {
+    const owner = ownerRuntimeFor(this.deps.db);
+    if (owner) {
+      owner.assertOwner();
+      const state = owner.state.snapshot();
+      const row = state
+        .table('secrets')
+        .all()
+        .find((candidate) => match({ ...candidate, valueEnc: '' }));
+      if (!row) return null;
+      const valueEnc = state.content('secrets', row.id, 'valueEnc');
+      if (typeof valueEnc !== 'string') throw new Error('Current secret envelope missing from owner state');
+      return { ...row, valueEnc };
+    }
     const rows = await this.deps.db.select().from(secrets).where(where).limit(1);
     return rows.find(match) ?? null;
   }

@@ -43,7 +43,7 @@
 <section class="space-y-4 py-4" aria-labelledby="server-retention-title">
   <div>
     <h3 id="server-retention-title" class="text-h3">Server history</h3>
-    <p class="text-body-sm text-muted-foreground">Keep useful history in the orchestrator database. Active sessions, pending work and unresolved outcomes stay protected.</p>
+    <p class="text-body-sm text-muted-foreground">Keep useful history in the orchestrator database. Active native sessions, paused jobs and unresolved outcomes stay protected. Cleanup waits until records become eligible.</p>
   </div>
   {#if $query.isPending}
     <p role="status">Loading server retention…</p>

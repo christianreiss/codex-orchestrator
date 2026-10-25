@@ -25,20 +25,21 @@ type frame struct {
 	StateFrame
 	cacheDeadline time.Time
 
-	Engine     string            `json:"engine,omitempty"`
-	AccountID  int64             `json:"account_id,omitempty"`
-	Generation int64             `json:"generation,omitempty"`
-	Payload    json.RawMessage   `json:"payload,omitempty"`
-	ID         string            `json:"id,omitempty"`
-	Type       string            `json:"type,omitempty"`
-	Method     string            `json:"method,omitempty"`
-	Path       string            `json:"path,omitempty"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Body       []byte            `json:"body,omitempty"`
-	Status     int               `json:"status,omitempty"`
-	Error      string            `json:"error,omitempty"`
-	Protocol   int               `json:"protocol,omitempty"`
-	Revision   string            `json:"revision,omitempty"`
+	Engine      string            `json:"engine,omitempty"`
+	AccountID   int64             `json:"account_id,omitempty"`
+	Generation  int64             `json:"generation,omitempty"`
+	Payload     json.RawMessage   `json:"payload,omitempty"`
+	ID          string            `json:"id,omitempty"`
+	Type        string            `json:"type,omitempty"`
+	Method      string            `json:"method,omitempty"`
+	Path        string            `json:"path,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Body        []byte            `json:"body,omitempty"`
+	Status      int               `json:"status,omitempty"`
+	Error       string            `json:"error,omitempty"`
+	Protocol    int               `json:"protocol,omitempty"`
+	Revision    string            `json:"revision,omitempty"`
+	CacheScopes []string          `json:"cache_scopes,omitempty"`
 	// Control, RequestID and Reason carry the optional remote-control frames in
 	// control.go; an old server never sets them.
 	Control       []string `json:"control,omitempty"`
@@ -64,6 +65,8 @@ type connection struct {
 	done                 chan struct{}
 	ready                chan struct{}
 	invalidated          func()
+	cacheInvalidated     func([]string)
+	residentChanged      func()
 	// updateAvailable wakes the updater; updateAnnounced records that the
 	// server offered the wrapper_update trigger.
 	updateAvailable func()
@@ -257,8 +260,14 @@ func (c *connection) receive() {
 			if c.authChanged != nil {
 				c.authChanged(f.Engine, f.AccountID)
 			}
+		case "resident_policy_changed":
+			if c.residentChanged != nil {
+				c.residentChanged()
+			}
 		case "invalidate":
-			if c.invalidated != nil {
+			if c.cacheInvalidated != nil {
+				c.cacheInvalidated(f.CacheScopes)
+			} else if c.invalidated != nil {
 				c.invalidated()
 			}
 		case "update_available":

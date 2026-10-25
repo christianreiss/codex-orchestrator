@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from './index.js';
@@ -9,6 +11,8 @@ import {
   cacheManifest,
   cacheSourceAllowed,
   COMMUNICATOR_CACHE_PROTOCOL,
+  LOCAL_CONTENT_CACHE_PROTOCOL,
+  localContentSource,
 } from '../services/communicator-cache.js';
 import { resolveAuthRequestEngine } from './auth/engine-resolution.js';
 import { assertHostEngineEnabled } from '../services/host-engine-policy.js';
@@ -17,7 +21,7 @@ import { ConflictError, ForbiddenError, ValidationError } from '../http/errors.j
 
 const schema = z
   .object({
-    protocol: z.literal(COMMUNICATOR_CACHE_PROTOCOL),
+    protocol: z.union([z.literal(COMMUNICATOR_CACHE_PROTOCOL), z.literal(LOCAL_CONTENT_CACHE_PROTOCOL)]),
     request_id: z.string().uuid(),
     method: z.enum(['GET', 'POST']),
     path: z.string().max(1024),
@@ -77,6 +81,11 @@ export async function registerSyncCacheRoutes(app: FastifyInstance, ctx: RouteCo
       const pathname = new URL(input.path, 'http://cache.local').pathname;
       if (!cacheSourceAllowed(input.method, input.path, input.body))
         throw new ValidationError('Unsupported cache read');
+      if (
+        input.protocol === LOCAL_CONTENT_CACHE_PROTOCOL &&
+        !localContentSource(input.method, input.path, input.body)
+      )
+        throw new ValidationError('Operation requires a live server decision');
       const host = await auth.authenticate(req, { checkApiDisabled: true });
       const headers: Record<string, string> = {};
       for (const [key, value] of Object.entries(input.headers)) {
@@ -100,6 +109,22 @@ export async function registerSyncCacheRoutes(app: FastifyInstance, ctx: RouteCo
       const query = Object.fromEntries(new URL(input.path, 'http://cache.local').searchParams);
       const engine = resolveAuthRequestEngine({ headers, query }, input.body);
       assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
+      const cacheGrantUntil = () => {
+        const deadlines = [host.expiresAt].filter((s): s is string => !!s);
+        if (pathname === '/mcp') {
+          const bearer = parseBearer(headers.authorization);
+          if (bearer && bearer !== headers['x-api-key']) {
+            const state = ownerRuntimeFor(ctx.db)?.state.snapshot();
+            const token = state
+              ?.table('mcpSessionTokens')
+              .by('token', createHash('sha256').update(bearer).digest('hex'))[0];
+            // A legacy SQL-backed caller has no push-coherent token catalogue.
+            if (!token) return new Date(checkedAt).toISOString();
+            deadlines.push(token.expiresAt);
+          }
+        }
+        return deadlines.sort()[0] ?? null;
+      };
       let unsafeDispatched = false;
       const dispatch = (body: Record<string, unknown>) => {
         if (pathname === '/auth/sessions' || (pathname === '/sync/bootstrap' && body.include_auth !== false))
@@ -122,7 +147,10 @@ export async function registerSyncCacheRoutes(app: FastifyInstance, ctx: RouteCo
         let body: unknown;
         // Credential work retains its existing transactions and refresh owner. Content
         // renderers then share one consistent snapshot, rather than a mix of revisions.
-        if (pathname === '/sync/bootstrap') {
+        if (pathname === '/sync/bootstrap' && input.body.include_content === false) {
+          response = await dispatch(input.body);
+          body = response.json();
+        } else if (pathname === '/sync/bootstrap') {
           let authBody: Record<string, unknown> = {};
           if (
             input.body.include_auth !== false ||
@@ -168,7 +196,13 @@ export async function registerSyncCacheRoutes(app: FastifyInstance, ctx: RouteCo
         reply.header('cache-control', 'no-store');
         return {
           data: {
-            protocol: COMMUNICATOR_CACHE_PROTOCOL,
+            protocol: input.protocol,
+            ...(input.protocol === LOCAL_CONTENT_CACHE_PROTOCOL
+              ? {
+                  local_content: host.secure === 1 && !!ownerRuntimeFor(ctx.db),
+                  grant_until: cacheGrantUntil(),
+                }
+              : {}),
             request_id: input.request_id,
             checked_at: new Date(checkedAt).toISOString(),
             ...manifest,

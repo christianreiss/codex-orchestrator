@@ -14,18 +14,50 @@ and changed host credentials or IP policy.
 
 ## Warm-cache launches (cxx 0.9.81)
 
+### Local content RAM cache (cxx 0.9.128, protocol 3)
+
+Signed configs select protocol 3 for reported cxx >=0.9.128, protocol 2 for
+0.9.122–0.9.127, and protocol 1 for older releases. The new client checks the
+owner's `local_content_protocol:3` capability; a busy protocol-2 owner keeps its
+native processes and uses the compatibility confirmation path until safe handoff.
+
+An authorized first content read uses `/sync/cache`. The owner verifies the
+correlated reply, resource digests and real host/MCP-token expiry, then retains
+the complete permitted response in the existing bounded RAM cache. Subsequent
+identical valid reads return locally: **no HTTP request or server confirmation**.
+The key retains engine, credentials, native home and render context; JSON-RPC
+request IDs are rebound for each caller. Concurrent identical misses share a fill.
+
+Public Skills, AGENTS and configuration may use already loaded bytes while
+offline, within any actual authorization deadline. Private Knowledge and project
+reads require the live coherent connection. New native launches, account grants,
+auth uploads, secret disclosure and other privileged actions always require live
+authorization. Warm launches can reuse materialized content while performing the
+existing auth-only admission; an offline cache never authorizes a new launch.
+
+The existing push stream invalidates affected `skills`, `agents`, `config`,
+`knowledge`, `projects` or `policy` scopes. Reconnect and authority changes clear
+local responses. An invalidation racing a fill rejects that fill. All response
+and resource bytes share the existing 64 MiB / 256-scope budget; no disk cache or
+second database is introduced. Owner status exposes `local_hits` alongside the
+existing cache counters. Protocol 2 below remains a compatibility contract.
+
+Resident owners load policy once and wake on policy pushes, reconnect, genuine
+authorization deadlines or actual queued work. They do not poll daemon config
+every five seconds. Transport ping/pong, real provider refresh deadlines and
+bounded error retry remain separate from business polling.
+
 ### Server-confirmed RAM cache (cxx 0.9.122, protocol 2)
 
-Signed configs for reported cxx releases >=0.9.122 select
+Signed configs for reported cxx 0.9.122–0.9.127 select
 `orchestrator.communicator_cache_protocol: 2`; older callers keep protocol 1.
 The protocol-1 description below applies only to those older callers.
 
 Protocol 2 never treats `primed`, a connected socket, a push UUID or a TTL as
 permission to serve bytes. Each selected content/auth/Skill read sends
 `POST /sync/cache` with a fresh UUID and its known resource revisions. The server
-runs the original authorization and read paths, using authoritative database
-reads. Content work runs in a repeatable-read consistent snapshot, shared by
-the existing renderers through an async-scoped database handle. Credential
+runs the original authorization and read paths, using the authoritative owner RAM snapshot. The legacy unowned test adapter
+uses a repeatable-read database snapshot; production reads open no transaction. Credential
 exchange and account admission retain their existing transactions and refresh
 owners, outside the content snapshot. A bootstrap carries its auth candidate
 only once; failure to deliver the subsequent result is an unknown outcome.
@@ -78,6 +110,8 @@ A reachable
 HTTPS server may still confirm a read during a WebSocket outage; an unreachable
 server cannot. Freshness means the server snapshot used for this request,
 not a promise that no change can occur after the snapshot.
+
+### Legacy protocol-1 warm cache
 
 Warm-cache launches have no switch of their own: whenever the transport and
 central sync are on, the signed config carries

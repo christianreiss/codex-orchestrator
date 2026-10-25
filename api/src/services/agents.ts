@@ -1,8 +1,11 @@
 import { versions } from '../db/schema.js';
 import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { stageDelete } from '../control-plane/state/rows.js';
-import { publicArtifact } from '../control-plane/state/artifact-content.js';
-import { servedAgentDocument, stageAgentDocumentMode, pruneAgentDocuments } from '../control-plane/state/agent-documents.js';
+import {
+  servedAgentDocument,
+  stageAgentDocumentMode,
+  pruneAgentDocuments,
+} from '../control-plane/state/agent-documents.js';
 import { adminAudit } from '../control-plane/state/admin.js';
 /**
  * Agents (AGENTS.md / CLAUDE.md) document store. Multi-version: every store
@@ -106,10 +109,17 @@ export class AgentsService {
    * Locate the row currently served for the given engine, honoring the
    * locked mode and falling back to latest-by-engine, then latest-any.
    */
-  private async resolveServed(engine: Engine = ENGINE_CODEX): Promise<typeof agentsDocuments.$inferSelect | null> {
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){owner.assertOwner();const metadata=servedAgentDocument(owner.state.snapshot(),engine);if(!metadata)return null;
-      return publicArtifact(owner,`agents:${metadata.id}:${metadata.sha256}`,async()=>{const [row]=await this.db.select().from(agentsDocuments).where(eq(agentsDocuments.id,metadata.id)).limit(1);if(!row||row.sha256!==metadata.sha256)throw new Error('Canonical agent document changed');return row;},()=>owner.state.snapshot().table('agentsDocuments').get(metadata.id)?.sha256===metadata.sha256);
+  private async resolveServed(
+    engine: Engine = ENGINE_CODEX,
+  ): Promise<typeof agentsDocuments.$inferSelect | null> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const metadata = servedAgentDocument(owner.state.snapshot(), engine);
+      if (!metadata) return null;
+      const body = owner.state.snapshot().content('agentsDocuments', metadata.id, 'body');
+      if (typeof body !== 'string') throw new Error('Current agent document missing from owner state');
+      return { ...metadata, body };
     }
     const state = await this.readState(engine);
     if (state.mode === AGENTS_MODE_LOCKED && state.activeDocumentId !== null) {
@@ -129,11 +139,7 @@ export class AgentsService {
       .orderBy(desc(agentsDocuments.id))
       .limit(1);
     if (latestEngine[0]) return latestEngine[0];
-    const latestAny = await this.db
-      .select()
-      .from(agentsDocuments)
-      .orderBy(desc(agentsDocuments.id))
-      .limit(1);
+    const latestAny = await this.db.select().from(agentsDocuments).orderBy(desc(agentsDocuments.id)).limit(1);
     return latestAny[0] ?? null;
   }
 
@@ -144,7 +150,12 @@ export class AgentsService {
     engine: string;
   }> {
     const id = stateRowId(engine);
-    const owner=ownerRuntimeFor(this.db);if(owner){owner.assertOwner();const row=owner.state.snapshot().table('agentsDocumentState').get(id);return row??{id,mode:AGENTS_MODE_LATEST,activeDocumentId:null,engine};}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const row = owner.state.snapshot().table('agentsDocumentState').get(id);
+      return row ?? { id, mode: AGENTS_MODE_LATEST, activeDocumentId: null, engine };
+    }
     const rows = await this.db
       .select()
       .from(agentsDocumentState)
@@ -171,9 +182,25 @@ export class AgentsService {
     return { id, mode: AGENTS_MODE_LATEST, activeDocumentId: null, engine };
   }
 
-  private async writeState(mode: string, activeId: number | null, engine: Engine = ENGINE_CODEX): Promise<void> {
+  private async writeState(
+    mode: string,
+    activeId: number | null,
+    engine: Engine = ENGINE_CODEX,
+  ): Promise<void> {
     const id = stateRowId(engine);
-    const owner=ownerRuntimeFor(this.db);if(owner){await mutateOwnerState(owner,{kind:'agents.mode',payload:{mode,activeId,engine},prepare:ctx=>{stageAgentDocumentMode(ctx,engine,mode,activeId);adminAudit(ctx,'agents.mode',{engine,mode,active_id:activeId});return null;}});return;}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, {
+        kind: 'agents.mode',
+        payload: { mode, activeId, engine },
+        prepare: (ctx) => {
+          stageAgentDocumentMode(ctx, engine, mode, activeId);
+          adminAudit(ctx, 'agents.mode', { engine, mode, active_id: activeId });
+          return null;
+        },
+      });
+      return;
+    }
     await this.readState(engine); // ensure exists
     await this.db
       .update(agentsDocumentState)
@@ -181,7 +208,23 @@ export class AgentsService {
       .where(eq(agentsDocumentState.id, id));
   }
 
-  private async listVersions(limit = 50): Promise<typeof agentsDocuments.$inferSelect[]> {
+  private async listVersions(limit = 50): Promise<(typeof agentsDocuments.$inferSelect)[]> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const state = owner.state.snapshot();
+      return state
+        .table('agentsDocuments')
+        .all()
+        .slice()
+        .sort((a, b) => b.id - a.id)
+        .slice(0, Math.max(1, Math.min(limit, 200)))
+        .map((row) => {
+          const body = state.content('agentsDocuments', row.id, 'body');
+          if (typeof body !== 'string') throw new Error('Agent version missing from owner state');
+          return { ...row, body };
+        });
+    }
     return await this.db
       .select()
       .from(agentsDocuments)
@@ -191,27 +234,25 @@ export class AgentsService {
 
   async adminFetch(engine: Engine = ENGINE_CODEX): Promise<AgentsAdminView> {
     const state = await this.readState(engine);
-    const latestRows = await this.db
-      .select()
-      .from(agentsDocuments)
-      .orderBy(desc(agentsDocuments.id))
-      .limit(1);
+    const latestRows = await this.listVersions(1);
     const latest = latestRows[0] ?? null;
     const served = await this.resolveServed(engine);
     const versions = await this.listVersions(50);
     const backupLimit = await this.backupLimitGetter();
 
-    const versionPayloads = versions.map((v): AgentsVersionPayload => ({
-      id: v.id,
-      sha256: v.sha256 ?? sha256Hex(v.body),
-      updated_at: v.updatedAt,
-      created_at: v.createdAt,
-      size_bytes: Buffer.byteLength(v.body, 'utf8'),
-      is_latest: latest !== null && latest.id === v.id,
-      is_active: state.activeDocumentId !== null && state.activeDocumentId === v.id,
-      is_served: served !== null && served.id === v.id,
-      builder_mode: v.builderState !== null,
-    }));
+    const versionPayloads = versions.map(
+      (v): AgentsVersionPayload => ({
+        id: v.id,
+        sha256: v.sha256 ?? sha256Hex(v.body),
+        updated_at: v.updatedAt,
+        created_at: v.createdAt,
+        size_bytes: Buffer.byteLength(v.body, 'utf8'),
+        is_latest: latest !== null && latest.id === v.id,
+        is_active: state.activeDocumentId !== null && state.activeDocumentId === v.id,
+        is_served: served !== null && served.id === v.id,
+        builder_mode: v.builderState !== null,
+      }),
+    );
 
     if (served === null) {
       return {
@@ -246,7 +287,10 @@ export class AgentsService {
     };
   }
 
-  async adminFetchVersion(versionId: number, engine: Engine = ENGINE_CODEX): Promise<AgentsVersionPayload & { content: string; builder_state: AgentPolicyComposition | null }> {
+  async adminFetchVersion(
+    versionId: number,
+    engine: Engine = ENGINE_CODEX,
+  ): Promise<AgentsVersionPayload & { content: string; builder_state: AgentPolicyComposition | null }> {
     if (!versionId || versionId <= 0) {
       throw new ValidationError('version_id is required', { param: 'version_id' });
     }
@@ -259,11 +303,7 @@ export class AgentsService {
     if (!row) throw new ValidationError('version_id not found', { param: 'version_id' });
 
     const state = await this.readState(engine);
-    const latestRows = await this.db
-      .select()
-      .from(agentsDocuments)
-      .orderBy(desc(agentsDocuments.id))
-      .limit(1);
+    const latestRows = await this.listVersions(1);
     const latest = latestRows[0] ?? null;
     const served = await this.resolveServed(engine);
 
@@ -293,10 +333,21 @@ export class AgentsService {
   ): Promise<AgentsStoreResult> {
     const rendered = renderAgentPolicyBase(composition);
     const engine: Engine = parseEngine(rawEngine, ENGINE_CODEX);
-    return await this.storeDocument(rendered.content, rendered.sha256, sourceHostId, engine, rendered.composition);
+    return await this.storeDocument(
+      rendered.content,
+      rendered.sha256,
+      sourceHostId,
+      engine,
+      rendered.composition,
+    );
   }
 
-  async store(content: unknown, providedSha: unknown, sourceHostId: number | null = null, rawEngine: unknown = ENGINE_CODEX): Promise<AgentsStoreResult> {
+  async store(
+    content: unknown,
+    providedSha: unknown,
+    sourceHostId: number | null = null,
+    rawEngine: unknown = ENGINE_CODEX,
+  ): Promise<AgentsStoreResult> {
     if (typeof content !== 'string') {
       throw new ValidationError('content is required', { param: 'content' });
     }
@@ -304,7 +355,11 @@ export class AgentsService {
     const engine: Engine = parseEngine(rawEngine, ENGINE_CODEX);
     const body = content;
     const sha = sha256Hex(body);
-    if (typeof providedSha === 'string' && providedSha.trim() !== '' && providedSha.trim().toLowerCase() !== sha) {
+    if (
+      typeof providedSha === 'string' &&
+      providedSha.trim() !== '' &&
+      providedSha.trim().toLowerCase() !== sha
+    ) {
       throw new ValidationError('sha256 does not match AGENTS.md contents', { param: 'sha256' });
     }
     return await this.storeDocument(body, sha, sourceHostId, engine, null);
@@ -317,18 +372,61 @@ export class AgentsService {
     engine: Engine,
     builderState: AgentPolicyComposition | null,
   ): Promise<AgentsStoreResult> {
-
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){const limit=await this.backupLimitGetter();let id=0,pruned=0;
-      const result=await mutateOwnerState(owner,{kind:'agents.store',payload:{sha,engine,sourceHostId},prepare:ctx=>{
-        const existing=[...ctx.snapshot.table('agentsDocuments').by('engine',engine)].sort((a,b)=>b.id-a.id)[0];
-        if(existing&&existing.sha256===sha&&JSON.stringify(existing.builderState??null)===JSON.stringify(builderState))return {status:'unchanged',version_id:existing.id,sha256:sha,updated_at:existing.updatedAt,size_bytes:Buffer.byteLength(body),pruned_count:0};
-        const now=nowIso(),row={sha256:sha,body,builderState:builderState as Record<string,unknown>|null,sourceHostId,engine,createdAt:now,updatedAt:now};
-        ctx.write(async tx=>{const inserted=await tx.insert(agentsDocuments).values(row);id=Number(inserted[0].insertId);ctx.draft.upsert('agentsDocuments',{id,...row});if(limit&&limit>0)pruned=pruneAgentDocuments(ctx,limit,id);});
-        adminAudit(ctx,'agents.stored',()=>({engine,version_id:id,sha256:sha}));
-        return ()=>({status:'created',version_id:id,sha256:sha,updated_at:now,size_bytes:Buffer.byteLength(body),pruned_count:pruned});
-      }}) as unknown as AgentsStoreResult;
-      if(result.status!=='unchanged')wsPublisher.publish('agents.stored',{engine,version_id:result.version_id,sha256:sha});return result;
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const limit = await this.backupLimitGetter();
+      let id = 0,
+        pruned = 0;
+      const result = (await mutateOwnerState(owner, {
+        kind: 'agents.store',
+        payload: { sha, engine, sourceHostId },
+        prepare: (ctx) => {
+          const existing = [...ctx.snapshot.table('agentsDocuments').by('engine', engine)].sort(
+            (a, b) => b.id - a.id,
+          )[0];
+          if (
+            existing &&
+            existing.sha256 === sha &&
+            JSON.stringify(existing.builderState ?? null) === JSON.stringify(builderState)
+          )
+            return {
+              status: 'unchanged',
+              version_id: existing.id,
+              sha256: sha,
+              updated_at: existing.updatedAt,
+              size_bytes: Buffer.byteLength(body),
+              pruned_count: 0,
+            };
+          const now = nowIso(),
+            row = {
+              sha256: sha,
+              body,
+              builderState: builderState as Record<string, unknown> | null,
+              sourceHostId,
+              engine,
+              createdAt: now,
+              updatedAt: now,
+            };
+          ctx.write(async (tx) => {
+            const inserted = await tx.insert(agentsDocuments).values(row);
+            id = Number(inserted[0].insertId);
+            ctx.draft.upsert('agentsDocuments', { id, ...row });
+            if (limit && limit > 0) pruned = pruneAgentDocuments(ctx, limit, id);
+          });
+          adminAudit(ctx, 'agents.stored', () => ({ engine, version_id: id, sha256: sha }));
+          return () => ({
+            status: 'created',
+            version_id: id,
+            sha256: sha,
+            updated_at: now,
+            size_bytes: Buffer.byteLength(body),
+            pruned_count: pruned,
+          });
+        },
+      })) as unknown as AgentsStoreResult;
+      if (result.status !== 'unchanged')
+        wsPublisher.publish('agents.stored', { engine, version_id: result.version_id, sha256: sha });
+      return result;
     }
 
     // Dedup: if the most recent row for this engine is identical content, treat as unchanged.
@@ -352,15 +450,18 @@ export class AgentsService {
     }
 
     const nowTs = nowIso();
-    const inserted = await this.db.insert(agentsDocuments).values({
-      sha256: sha,
-      body,
-      builderState: builderState as Record<string, unknown> | null,
-      sourceHostId,
-      engine,
-      createdAt: nowTs,
-      updatedAt: nowTs,
-    }).$returningId();
+    const inserted = await this.db
+      .insert(agentsDocuments)
+      .values({
+        sha256: sha,
+        body,
+        builderState: builderState as Record<string, unknown> | null,
+        sourceHostId,
+        engine,
+        createdAt: nowTs,
+        updatedAt: nowTs,
+      })
+      .$returningId();
     const newId = inserted[0]?.id ?? null;
 
     // Prune historical versions if backup limit configured.
@@ -382,7 +483,11 @@ export class AgentsService {
     };
   }
 
-  async setServeMode(rawMode: unknown, versionId: number | null, rawEngine: unknown = ENGINE_CODEX): Promise<AgentsAdminView> {
+  async setServeMode(
+    rawMode: unknown,
+    versionId: number | null,
+    rawEngine: unknown = ENGINE_CODEX,
+  ): Promise<AgentsAdminView> {
     const mode = typeof rawMode === 'string' ? rawMode.trim().toLowerCase() : '';
     if (mode !== AGENTS_MODE_LATEST && mode !== AGENTS_MODE_LOCKED) {
       throw new ValidationError('mode must be latest or locked', { param: 'mode' });
@@ -430,40 +535,95 @@ export class AgentsService {
     const body = source.body;
     const sha = source.sha256 ?? sha256Hex(body);
     const nowTs = nowIso();
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){let newId=0;await mutateOwnerState(owner,{kind:'agents.revert',payload:{versionId,engine},prepare:ctx=>{
-      if(!ctx.snapshot.table('agentsDocuments').get(source.id))throw new ValidationError('version_id not found',{param:'version_id'});
-      const row={sha256:sha,body,builderState:source.builderState??null,sourceHostId:null,engine,createdAt:nowTs,updatedAt:nowTs};
-      ctx.write(async tx=>{const inserted=await tx.insert(agentsDocuments).values(row);newId=Number(inserted[0].insertId);ctx.draft.upsert('agentsDocuments',{id:newId,...row});});
-      stageAgentDocumentMode(ctx,engine,AGENTS_MODE_LATEST,null);adminAudit(ctx,'agents.reverted',()=>({engine,version_id:newId,reverted_from:versionId}));return ()=>({id:newId});
-    }});wsPublisher.publish('agents.stored',{engine,version_id:newId,sha256:sha,reverted_from:versionId});return this.adminFetch(engine);}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      let newId = 0;
+      await mutateOwnerState(owner, {
+        kind: 'agents.revert',
+        payload: { versionId, engine },
+        prepare: (ctx) => {
+          if (!ctx.snapshot.table('agentsDocuments').get(source.id))
+            throw new ValidationError('version_id not found', { param: 'version_id' });
+          const row = {
+            sha256: sha,
+            body,
+            builderState: source.builderState ?? null,
+            sourceHostId: null,
+            engine,
+            createdAt: nowTs,
+            updatedAt: nowTs,
+          };
+          ctx.write(async (tx) => {
+            const inserted = await tx.insert(agentsDocuments).values(row);
+            newId = Number(inserted[0].insertId);
+            ctx.draft.upsert('agentsDocuments', { id: newId, ...row });
+          });
+          stageAgentDocumentMode(ctx, engine, AGENTS_MODE_LATEST, null);
+          adminAudit(ctx, 'agents.reverted', () => ({ engine, version_id: newId, reverted_from: versionId }));
+          return () => ({ id: newId });
+        },
+      });
+      wsPublisher.publish('agents.stored', {
+        engine,
+        version_id: newId,
+        sha256: sha,
+        reverted_from: versionId,
+      });
+      return this.adminFetch(engine);
+    }
 
-    const inserted = await this.db.insert(agentsDocuments).values({
-      sha256: sha,
-      body,
-      builderState: source.builderState ?? null,
-      sourceHostId: null,
-      engine,
-      createdAt: nowTs,
-      updatedAt: nowTs,
-    }).$returningId();
+    const inserted = await this.db
+      .insert(agentsDocuments)
+      .values({
+        sha256: sha,
+        body,
+        builderState: source.builderState ?? null,
+        sourceHostId: null,
+        engine,
+        createdAt: nowTs,
+        updatedAt: nowTs,
+      })
+      .$returningId();
     const newId = inserted[0]?.id ?? null;
     await this.writeState(AGENTS_MODE_LATEST, null, engine);
-    wsPublisher.publish('agents.stored', { engine, version_id: newId, sha256: sha, reverted_from: versionId });
+    wsPublisher.publish('agents.stored', {
+      engine,
+      version_id: newId,
+      sha256: sha,
+      reverted_from: versionId,
+    });
     return await this.adminFetch(engine);
   }
 
-  async updateBackupRetention(rawLimit: unknown, setter: (value: number | null) => Promise<void>): Promise<{ backup_limit: number | null; pruned_count: number }> {
+  async updateBackupRetention(
+    rawLimit: unknown,
+    setter: (value: number | null) => Promise<void>,
+  ): Promise<{ backup_limit: number | null; pruned_count: number }> {
     const limit = this.normalizeBackupLimitInput(rawLimit);
-    const owner=ownerRuntimeFor(this.db);
-    if(owner)return await mutateOwnerState(owner,{kind:'agents.retention',payload:{limit},prepare(ctx){
-      const name='agents_backup_limit',at=nowIso();
-      if(limit===null)stageDelete(ctx,'versions',name);
-      else{const value={name,version:String(limit),updatedAt:at};ctx.draft.upsert('versions',value);ctx.write(tx=>tx.insert(versions).values(value).onDuplicateKeyUpdate({set:{version:value.version,updatedAt:at}}));}
-      const pruned=limit!==null&&limit>0?pruneAgentDocuments(ctx,limit,null):0;
-      adminAudit(ctx,'agents.retention',{backup_limit:limit,pruned_count:pruned},at);
-      return {backup_limit:limit,pruned_count:pruned};
-    }}) as {backup_limit:number|null;pruned_count:number};
+    const owner = ownerRuntimeFor(this.db);
+    if (owner)
+      return (await mutateOwnerState(owner, {
+        kind: 'agents.retention',
+        payload: { limit },
+        prepare(ctx) {
+          const name = 'agents_backup_limit',
+            at = nowIso();
+          if (limit === null) stageDelete(ctx, 'versions', name);
+          else {
+            const value = { name, version: String(limit), updatedAt: at };
+            ctx.draft.upsert('versions', value);
+            ctx.write((tx) =>
+              tx
+                .insert(versions)
+                .values(value)
+                .onDuplicateKeyUpdate({ set: { version: value.version, updatedAt: at } }),
+            );
+          }
+          const pruned = limit !== null && limit > 0 ? pruneAgentDocuments(ctx, limit, null) : 0;
+          adminAudit(ctx, 'agents.retention', { backup_limit: limit, pruned_count: pruned }, at);
+          return { backup_limit: limit, pruned_count: pruned };
+        },
+      })) as { backup_limit: number | null; pruned_count: number };
     await setter(limit);
     let prunedCount = 0;
     if (limit !== null && limit > 0) {
@@ -476,7 +636,9 @@ export class AgentsService {
     if (raw === null || raw === undefined || raw === '') return null;
     const asNum = typeof raw === 'number' ? raw : Number(raw);
     if (!Number.isFinite(asNum) || !Number.isInteger(asNum)) {
-      throw new ValidationError('backup_limit must be an integer between 0 and 200', { param: 'backup_limit' });
+      throw new ValidationError('backup_limit must be an integer between 0 and 200', {
+        param: 'backup_limit',
+      });
     }
     if (asNum < 0 || asNum > MAX_BACKUP_LIMIT) {
       throw new ValidationError('backup_limit must be between 0 and 200', { param: 'backup_limit' });
@@ -489,11 +651,23 @@ export class AgentsService {
       throw new ValidationError('version_id is required', { param: 'version_id' });
     }
     const engine: Engine = parseEngine(rawEngine, ENGINE_CODEX);
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){await mutateOwnerState(owner,{kind:'agents.delete',payload:{versionId,engine},prepare:ctx=>{
-      if(servedAgentDocument(ctx.snapshot,engine)?.id===versionId)throw new ValidationError('cannot delete the served version',{param:'version_id'});
-      if(!stageDelete(ctx,'agentsDocuments',versionId))throw new NotFoundError('version_id not found','version_not_found');adminAudit(ctx,'agents.deleted',{engine,version_id:versionId});return null;
-    }});wsPublisher.publish('agents.stored',{engine,deleted_version_id:versionId});return this.adminFetch(engine);}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, {
+        kind: 'agents.delete',
+        payload: { versionId, engine },
+        prepare: (ctx) => {
+          if (servedAgentDocument(ctx.snapshot, engine)?.id === versionId)
+            throw new ValidationError('cannot delete the served version', { param: 'version_id' });
+          if (!stageDelete(ctx, 'agentsDocuments', versionId))
+            throw new NotFoundError('version_id not found', 'version_not_found');
+          adminAudit(ctx, 'agents.deleted', { engine, version_id: versionId });
+          return null;
+        },
+      });
+      wsPublisher.publish('agents.stored', { engine, deleted_version_id: versionId });
+      return this.adminFetch(engine);
+    }
     const served = await this.resolveServed(engine);
     if (served !== null && served.id === versionId) {
       throw new ValidationError('cannot delete the served version', { param: 'version_id' });
@@ -514,7 +688,15 @@ export class AgentsService {
    * non-latest) rows survive. Returns the number of rows deleted.
    */
   private async pruneHistorical(limit: number, protectId: number | null): Promise<number> {
-    const owner=ownerRuntimeFor(this.db);if(owner)return Number(await mutateOwnerState(owner,{kind:'agents.prune',payload:{limit,protectId},prepare:ctx=>pruneAgentDocuments(ctx,limit,protectId)}));
+    const owner = ownerRuntimeFor(this.db);
+    if (owner)
+      return Number(
+        await mutateOwnerState(owner, {
+          kind: 'agents.prune',
+          payload: { limit, protectId },
+          prepare: (ctx) => pruneAgentDocuments(ctx, limit, protectId),
+        }),
+      );
     const all = await this.db
       .select({ id: agentsDocuments.id })
       .from(agentsDocuments)

@@ -137,16 +137,18 @@ export async function createOwnedControlPlane(options: {
     };
     const presence = new ConnectionPresence((error) => ownership.lose(error));
     bindOwnerPresence(runtime, presence);
-    bindOwnerRetention(runtime, hydrated.retention);
+    bindOwnerRetention(runtime, hydrated.retention, options.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 10000);
     const credentials = new ConnectionCredentials(runtime, presence, {
       session: options.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS * 1000,
       relay: AGENT_MESSAGING_RELAY_TOKEN_SECONDS * 1000,
     });
     const legacyDrain = new LegacyDrainRegistry(
       runtime,
-      captureLegacyDrainManifest(hydrated.store.snapshot(), Date.now(), legacyCutover
-        ? filterLegacyCutoverManifest(legacyCutover, hydrated.store.snapshot())
-        : {}),
+      captureLegacyDrainManifest(
+        hydrated.store.snapshot(),
+        Date.now(),
+        legacyCutover ? filterLegacyCutoverManifest(legacyCutover, hydrated.store.snapshot()) : {},
+      ),
       {
         session: options.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS * 1000,
         relay: AGENT_MESSAGING_RELAY_TOKEN_SECONDS * 1000,

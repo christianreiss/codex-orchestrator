@@ -55,6 +55,7 @@ describe('prepared action command identity', () => {
       payload: {},
       prepare(context) {
         retained = context;
+        context.write(async () => {});
         return null;
       },
     });

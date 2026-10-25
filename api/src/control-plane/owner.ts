@@ -46,6 +46,9 @@ export class ControlPlaneOwnership {
       this.connection = connection;
       connection.on('error', this.connectionLost);
       connection.on('end', this.connectionLost);
+      // A genuinely quiet owner must not need SQL keepalive polls to retain
+      // its advisory lock. Connection loss still fences the owner immediately.
+      await connection.query('SET SESSION wait_timeout = 31536000');
       const [rows] = await connection.query<RowDataPacket[]>('SELECT GET_LOCK(?, 0) AS acquired', [
         this.lockName,
       ]);

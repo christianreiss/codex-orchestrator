@@ -63,7 +63,7 @@ func profCacheReply(api *profAPI, raw []byte) (int, []byte) {
 	}
 	template = walk(template, nil)
 	out, _ := json.Marshal(template)
-	reply, _ := json.Marshal(map[string]any{"data": cacheReply{Protocol: 2, RequestID: in.RequestID, CheckedAt: time.Now().UTC(), ValidForMS: 30_000, Status: status, Body: out, Resources: resources}})
+	reply, _ := json.Marshal(map[string]any{"data": cacheReply{Protocol: in.Protocol, LocalContent: in.Protocol == 3, RequestID: in.RequestID, CheckedAt: time.Now().UTC(), ValidForMS: 30_000, Status: status, Body: out, Resources: resources}})
 	return 200, reply
 }
 
@@ -284,7 +284,7 @@ func TestValidatedCacheMcpPreservesFreshRPCID(t *testing.T) {
 	}
 	for _, body := range []string{
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"secret_get"}}`,
-		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"resource_read","arguments":{"uri":"shared://anything"}}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"resource_read","arguments":{"uri":"secret://anything"}}}`,
 		`{"command":"store"}`,
 	} {
 		if cacheCandidate(frame{Method: "POST", Path: "/mcp", Body: []byte(body)}) {

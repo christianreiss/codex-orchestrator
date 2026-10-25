@@ -22,12 +22,35 @@ export function ownerStateInvalidations(payload: unknown): QueryKey[] {
   if (!Array.isArray(tables) || tables.some((name) => typeof name !== "string")) return [[]];
   const keys: QueryKey[] = [];
   for (const name of tables as string[]) {
-    if (name.startsWith("feedback")) keys.push(["feedback"], ["agents"]);
-    else if (name.startsWith("companion")) keys.push(["companion-devices"]);
-    else if (name.startsWith("chatty")) keys.push(["chatty"]);
-    else if (name.startsWith("agentSchedule") || name.startsWith("agentWatchdog")) keys.push(["schedules"], ["watchdogs"], ["agent-messaging"]);
-    else if (name.startsWith("gitDirector")) keys.push(["git-director"]);
+    let events: string[];
+    if (name.startsWith("feedback")) events=["feedback.changed"];
+    else if (name.startsWith("companion")) events=["companion.devices.changed"];
+    else if (name.startsWith("chatty")) events=["chatty.changed"];
+    else if (name.startsWith("agentSchedule") || name.startsWith("agentWatchdog")) events=["schedules.changed","watchdogs.changed"];
+    else if (name.startsWith("git")) events=["git_director.changed"];
+    else if (name.startsWith("coordProject")) events=["project.changed"];
+    else if (name.startsWith("workflow")) events=["workflow.run.changed","workflow.changed"];
+    else if (name.startsWith("agentRole") || name.startsWith("agentPolicy")) events=["agent_roles.changed","agents.stored"];
+    else if (name.startsWith("agentRoom") || name.startsWith("agentScope") || name.startsWith("agentResource")) events=["agent_coordination.changed","agent_room_chat.changed"];
+    else if (name.startsWith("agentBus") || name.startsWith("agentTask") || name.startsWith("agentFreshStart") || name.startsWith("agentName")) events=["agent_messaging.queue.changed","schedules.changed"];
+    else if (name.startsWith("agentSession") || name.startsWith("agentPrompt") || name.startsWith("agentMessage") || name.startsWith("agentNative") || name.startsWith("agentReboot") || name==="sessionHousekeepingReservations") events=["agent_portal.sessions.changed"];
+    else if (name.startsWith("agentChat")) events=["agent_chat.attachment.changed","agent_portal.sessions.changed"];
+    else if (name.startsWith("hostDaemon") || name==="advisorSessions") events=["host.daemon.changed"];
+    else if (name.startsWith("host") || name==="engineDestroyHosts") events=["host.updated"];
+    else if (name.startsWith("auth") || name.startsWith("providerAccount") || name==="grokAuthRefreshState" || name.endsWith("UsageSnapshots")) events=["accounts.updated"];
+    else if (name.startsWith("skill")) events=["skill.updated"];
+    else if (name==="claudeArtifacts") events=["claude_artifact.updated"];
+    else if (name.startsWith("agentsDocument")) events=["agents.stored"];
+    else if (name==="clientConfigDocuments" || name==="versions") events=["settings.changed"];
+    else if (name==="mcpMemories" || name==="sharedMemories") events=["memory.changed"];
+    else if (name.startsWith("admin")) events=["user.updated"];
+    else if (name.startsWith("insecure")) events=["host.updated","settings.changed"];
+    else if (name==="secrets") events=["secret.updated"];
+    else if (name==="openaiApiKeys") events=["api-key.changed"];
+    else if (name.startsWith("wrapper")) events=["version.wrapper_rollout"];
+    else if (["controlPlaneOutbox","installTokens","authSeedTokens","cliAuthRequests","mcpSessionTokens","schemaMigrations","agentTransfers"].includes(name)) events=[];
     else return [[]];
+    for(const event of events) keys.push(...(DEFAULT_INVALIDATIONS[event] ?? [[]]));
   }
   return keys;
 }

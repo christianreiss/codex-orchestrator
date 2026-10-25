@@ -39,17 +39,21 @@ export async function hostPresenceViews(db: Database, rows: readonly MessagingHo
     const now = Date.now();
     return new Map(
       rows.map((host) => {
+        const activity = hostActivity(owner, host.id);
         const active = host.status === 'active' && (!host.expiresAt || Date.parse(host.expiresAt) > now);
         return [
           host.id,
           {
-            presence:
-              active && hostActivity(owner, host.id).connected ? ('online' as const) : ('offline' as const),
+            presence: active && activity.connected ? ('online' as const) : ('offline' as const),
             presence_source: 'connection' as const,
             presence_heartbeat_at: null,
             presence_observed_at: new Date(now).toISOString(),
             presence_fresh_seconds: 0,
-            last_contact_at: host.lastContactAt ?? null,
+            last_contact_at: activity.lastAt
+              ? new Date(
+                  Math.max(activity.lastAt, Date.parse(host.lastContactAt ?? host.createdAt) || 0),
+                ).toISOString()
+              : (host.lastContactAt ?? null),
           },
         ];
       }),

@@ -24,11 +24,14 @@ export interface OutboxIntent {
   availableAt: string;
 }
 export interface CommandPersistence<Tx> {
+  /** Reserve before domain DML. A duplicate rolls back without executing it. */
+  reserve?(tx: Tx, receipt: CommandReceipt): Promise<void>;
   receipt(principal: string, id: string): Promise<CommandReceipt | undefined>;
   transaction(run: (tx: Tx) => Promise<void>): Promise<void>;
   record(tx: Tx, receipt: CommandReceipt, outbox: readonly OutboxIntent[]): Promise<void>;
 }
 export interface PreparedCommand<Tx, Prepared> {
+  persistence?: 'volatile' | 'durable';
   state?: Prepared;
   result: Json | (() => Json);
   /** May finalize generated database IDs, but must return validated state before COMMIT. */
@@ -43,6 +46,8 @@ export interface Command<Snapshot, Tx, Prepared> {
   replayClass?: 'internal' | 'external';
   /** Must use current authority, including when returning a stored result. */
   authorize(snapshot: Snapshot): void;
+  /** Replays still require current credentials, without the already-mutated target. */
+  authorizeReplay?(snapshot: Snapshot): void;
   prepare(
     snapshot: Snapshot,
     revision: Revision,
@@ -53,7 +58,7 @@ export interface CommandState<Snapshot, Prepared> {
   revision(): Revision;
   /** Validate publication before persistence; publish must be synchronous. */
   validate(prepared: Prepared, revision: Revision): void;
-  publish(prepared: Prepared): void;
+  publish(prepared: Prepared, persistence?: 'volatile' | 'durable'): void;
 }
 
 export class CommitUncertainError extends Error {
@@ -61,11 +66,19 @@ export class CommitUncertainError extends Error {
     super('Commit outcome is unknown; owner reconstruction required', { cause });
   }
 }
+export class ReceiptAlreadyExistsError extends Error {}
 export class CommandConflictError extends ConflictError {
-  constructor(message: string) { super(message, 'command_id_conflict'); }
+  constructor(message: string) {
+    super(message, 'command_id_conflict');
+  }
 }
 export class CommandResultExpiredError extends ApiError {
-  constructor() { super('The command was already committed; its retained result has expired', { status: 410, code: 'command_result_expired' }); }
+  constructor() {
+    super('The command was already committed; its retained result has expired', {
+      status: 410,
+      code: 'command_result_expired',
+    });
+  }
 }
 export class OwnerUnavailableError extends Error {}
 
@@ -155,7 +168,9 @@ export class CommandExecutor<Snapshot, Tx, Prepared> {
     o.assertOwner();
     const snapshot = o.state.snapshot();
     command.authorize(snapshot);
-    const existing = await o.persistence.receipt(command.principal, command.id);
+    const existing = o.persistence.reserve
+      ? undefined
+      : await o.persistence.receipt(command.principal, command.id);
     o.assertOwner();
     // Connection proofs and absolute deadlines can change during receipt I/O.
     command.authorize(snapshot);
@@ -167,11 +182,40 @@ export class CommandExecutor<Snapshot, Tx, Prepared> {
     }
     const previous = o.state.revision();
     const revision = { epoch: previous.epoch, sequence: previous.sequence + 1n };
-    const prepared = await command.prepare(snapshot, revision);
+    let prepared: PreparedCommand<Tx, Prepared>;
+    try {
+      prepared = await command.prepare(snapshot, revision);
+    } catch (error) {
+      // A retry can now fail domain validation because its first execution
+      // already changed/deleted the target. Only that exceptional path needs
+      // a cold receipt lookup before reservation.
+      if (o.persistence.reserve) {
+        const prior = await o.persistence.receipt(command.principal, command.id);
+        o.assertOwner();
+        (command.authorizeReplay ?? command.authorize)(snapshot);
+        if (prior) {
+          if (prior.digest !== digest)
+            throw new CommandConflictError('Command ID reused with a different payload');
+          if (prior.resultState === 'expired') throw new CommandResultExpiredError();
+          return structuredClone(prior.result);
+        }
+      }
+      throw error;
+    }
     o.assertOwner();
     command.authorize(snapshot);
     let nextState = prepared.state;
     if (nextState !== undefined) o.state.validate(nextState, revision);
+    if (prepared.persistence === 'volatile') {
+      if (prepared.outbox?.length) throw new Error('Volatile commands cannot stage durable effects');
+      const result = JSON.parse(
+        canonicalCommand(typeof prepared.result === 'function' ? prepared.result() : prepared.result),
+      ) as Json;
+      command.authorize(snapshot);
+      o.assertOwner();
+      if (nextState !== undefined) o.state.publish(nextState, 'volatile');
+      return result;
+    }
     const receipt: CommandReceipt = {
       principal: command.principal,
       id: command.id,
@@ -186,6 +230,7 @@ export class CommandExecutor<Snapshot, Tx, Prepared> {
     try {
       await o.persistence.transaction(async (tx) => {
         o.assertOwner();
+        await o.persistence.reserve?.(tx, receipt);
         nextState = (await prepared.persist(tx)) ?? nextState;
         if (nextState === undefined) throw new Error('Command did not prepare its committed state');
         o.state.validate(nextState, revision);
@@ -203,6 +248,16 @@ export class CommandExecutor<Snapshot, Tx, Prepared> {
       });
     } catch (error) {
       if (error instanceof CommitUncertainError) o.loseOwner(error);
+      if (error instanceof ReceiptAlreadyExistsError) {
+        const prior = await o.persistence.receipt(command.principal, command.id);
+        o.assertOwner();
+        (command.authorizeReplay ?? command.authorize)(snapshot);
+        if (!prior) throw new OwnerUnavailableError('Duplicate receipt could not be reconstructed');
+        if (prior.digest !== digest)
+          throw new CommandConflictError('Command ID reused with a different payload');
+        if (prior.resultState === 'expired') throw new CommandResultExpiredError();
+        return structuredClone(prior.result);
+      }
       throw error;
     }
     try {

@@ -268,14 +268,43 @@ func (s *server) handoff(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *server) signalResidentPolicy() {
+	if s.residentWake == nil {
+		return
+	}
+	select {
+	case s.residentWake <- struct{}{}:
+	default:
+	}
+}
 func (s *server) residentLoop(ctx context.Context) {
 	state := s.residentState
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
 	for {
 		cfg := s.configSnapshot()
 		work, cancel := context.WithTimeout(ctx, 10*time.Second)
-		client := &http.Client{Transport: s.residentTransport(), Timeout: 10 * time.Second}
+		transport := s.residentTransport()
+		s.mu.Lock()
+		connected := s.conn != nil && !s.fallback
+		s.mu.Unlock()
+		var direct *http.Transport
+		if !connected {
+			var err error
+			direct, err = directTransport(cfg)
+			if err != nil {
+				state.mu.Lock()
+				state.lastError = "Resident settings transport unavailable"
+				state.mu.Unlock()
+				cancel()
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(30 * time.Second):
+				}
+				continue
+			}
+			transport = direct
+		}
+		client := &http.Client{Transport: transport, Timeout: 10 * time.Second}
 		req, _ := http.NewRequestWithContext(work, "GET", strings.TrimRight(cfg.Orchestrator.BaseURL, "/")+"/host/daemon/config", nil)
 		req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
 		res, err := client.Do(req)
@@ -289,6 +318,9 @@ func (s *server) residentLoop(ctx context.Context) {
 			res.Body.Close()
 		}
 		cancel()
+		if direct != nil {
+			direct.CloseIdleConnections()
+		}
 		state.mu.Lock()
 		if err != nil {
 			state.lastError = "Resident settings unavailable; retrying"
@@ -311,7 +343,11 @@ func (s *server) residentLoop(ctx context.Context) {
 				executionCtx, stop := context.WithCancel(ctx)
 				state.cancelExecution = stop
 				state.work.Add(1)
-				go func() { defer state.work.Done(); _ = controller.Run(executionCtx, residentExecutionTransport{s}) }()
+				go func() {
+					defer state.work.Done()
+					defer s.signalResidentPolicy()
+					_ = controller.Run(executionCtx, residentExecutionTransport{s})
+				}()
 			}
 		}
 		if err == nil && (!signed || !policy.executionEnabled()) && state.controller != nil {
@@ -338,10 +374,41 @@ func (s *server) residentLoop(ctx context.Context) {
 			}
 			s.mu.Unlock()
 		}
+		// Successful idle policy lives until a push/reconnect or its actual expiry.
+		// Retry only failures and the drain of real execution work.
+		var wake <-chan time.Time
+		var timer *time.Timer
+		delay := time.Duration(0)
+		if err != nil {
+			delay = 30 * time.Second
+		} else if policy.ExpiresAt != "" {
+			if expiry, parseErr := time.Parse(time.RFC3339Nano, policy.ExpiresAt); parseErr == nil && time.Until(expiry) > 0 {
+				delay = time.Until(expiry)
+			}
+		}
+		state.mu.Lock()
+		if state.controller != nil && !policy.executionEnabled() {
+			status := state.controller.Status()
+			if !status.Verified || !status.Workload.Quiet() {
+				delay = time.Second
+			}
+		}
+		state.mu.Unlock()
+		if delay > 0 {
+			timer = time.NewTimer(delay)
+			wake = timer.C
+		}
 		select {
 		case <-ctx.Done():
+			if timer != nil {
+				timer.Stop()
+			}
 			return
-		case <-ticker.C:
+		case <-s.residentWake:
+		case <-wake:
+		}
+		if timer != nil {
+			timer.Stop()
 		}
 	}
 }

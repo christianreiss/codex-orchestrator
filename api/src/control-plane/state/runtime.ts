@@ -94,9 +94,12 @@ export function ownerReadResponseGuard(runtime: OwnerRuntime): () => void {
   return () => checkResponseScope(runtime, scope);
 }
 /** Capture the authenticated request scope for later transport callbacks. */
-export function ownerResponseFinalizer(runtime: OwnerRuntime): (payload: unknown, allowCommitted?: boolean) => unknown {
+export function ownerResponseFinalizer(
+  runtime: OwnerRuntime,
+): (payload: unknown, allowCommitted?: boolean) => unknown {
   const scope = requestScope.getStore();
-  return (payload, allowCommitted = false) => requestScope.run(scope ?? {}, () => finalizeOwnerResponse(runtime, payload, allowCommitted));
+  return (payload, allowCommitted = false) =>
+    requestScope.run(scope ?? {}, () => finalizeOwnerResponse(runtime, payload, allowCommitted));
 }
 export function finalizeOwnerResponse(
   runtime: OwnerRuntime,
@@ -212,6 +215,7 @@ export function withOwnerCommandContext<T>(runtime: OwnerRuntime, run: () => T):
 }
 
 export interface OwnerMutation {
+  readonly persistence?: 'volatile' | 'durable';
   readonly kind: string;
   readonly payload: Json;
   readonly principal?: string;
@@ -223,6 +227,7 @@ export interface OwnerMutation {
   prepare(context: OwnerMutationContext): Json | (() => Json) | Promise<Json | (() => Json)>;
 }
 export interface OwnerMutationContext {
+  readonly persistence?: 'volatile' | 'durable';
   readonly snapshot: OwnerStateSnapshot;
   readonly draft: OwnerStateDraft;
   readonly revision: Revision;
@@ -252,6 +257,12 @@ export async function mutateOwnerState(runtime: OwnerRuntime, mutation: OwnerMut
     replayClass: action || mutation.id ? 'external' : 'internal',
     kind: mutation.kind,
     payload: mutation.payload,
+    authorizeReplay(snapshot) {
+      runtime.assertOwner();
+      principal?.revalidate(snapshot);
+      for (const proof of authorityProofs) proof(snapshot);
+      mutation.authorize?.(snapshot);
+    },
     authorize(snapshot) {
       runtime.assertOwner();
       principal?.revalidate(snapshot);
@@ -271,15 +282,20 @@ export async function mutateOwnerState(runtime: OwnerRuntime, mutation: OwnerMut
           if (!accepting) throw new Error('Owner mutation context is sealed');
         };
         const context: OwnerMutationContext = {
+          persistence: mutation.persistence ?? 'durable',
           snapshot,
           draft,
           revision,
           write(operation) {
             assertAccepting();
+            if (mutation.persistence === 'volatile')
+              throw new Error('Volatile state cannot stage SQL writes');
             writes.push(operation);
           },
           effect(intent) {
             assertAccepting();
+            if (mutation.persistence === 'volatile')
+              throw new Error('Volatile state cannot stage durable effects');
             if (
               !/^[0-9a-f-]{36}$/i.test(intent.id) ||
               !intent.kind ||
@@ -310,6 +326,20 @@ export async function mutateOwnerState(runtime: OwnerRuntime, mutation: OwnerMut
         };
         const result = await mutation.prepare(context);
         action?.afterPrepare?.(context, () => (typeof result === 'function' ? result() : result));
+        if (
+          mutation.persistence === 'volatile' ||
+          (!action && !mutation.id && writes.length === 0 && outbox.length === 0)
+        ) {
+          accepting = false;
+          return {
+            persistence: 'volatile' as const,
+            state: draft.hasChanges() ? draft.seal(revision) : undefined,
+            result,
+            persist: async () => {
+              throw new Error('Volatile state must not enter persistence');
+            },
+          };
+        }
         return {
           result,
           outbox,

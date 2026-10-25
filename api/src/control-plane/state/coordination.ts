@@ -163,15 +163,13 @@ export function stageScopeDispatch(
       scope_id: scopeId,
       title: scope.title,
       cursor: scope.sequence,
-      events: relevant
-        .slice(-50)
-        .map((event) => ({
-          id: event.id,
-          sequence: event.sequence,
-          kind: event.kind,
-          actor: event.actor,
-          ...event.body,
-        })),
+      events: relevant.slice(-50).map((event) => ({
+        id: event.id,
+        sequence: event.sequence,
+        kind: event.kind,
+        actor: event.actor,
+        ...event.body,
+      })),
       events_truncated: relevant.length > 50,
       members: members.slice(0, 50).map((row) => scopeMemberView(row, member.session)),
       member_count: members.length,
@@ -186,7 +184,6 @@ export function stageScopeDispatch(
   }
   for (const event of events) {
     stageUpdate(ctx, 'agentScopeEvents', event.id, { dispatched: 1 });
-    ctx.draft.remove('agentScopeEvents', event.id);
   }
 }
 export function stageScopeReconciliation(

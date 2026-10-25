@@ -1,6 +1,5 @@
-import {persistAuditLog} from './audit-log.js';
+import { persistAuditLog } from './audit-log.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
-import { publicArtifact } from '../control-plane/state/artifact-content.js';
 import { servedAgentDocument } from '../control-plane/state/agent-documents.js';
 /**
  * Host-facing agents + client config retrieval.
@@ -9,7 +8,13 @@ import { advisorConfigured, advisorCxxSupport } from './advisor.js';
 import { eq, desc, ne } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import type { Database } from '../db/client.js';
-import { agentsDocuments, agentsDocumentState, clientConfigDocuments, hostDaemons, workflowRuns } from '../db/schema.js';
+import {
+  agentsDocuments,
+  agentsDocumentState,
+  clientConfigDocuments,
+  hostDaemons,
+  workflowRuns,
+} from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import { nowIso } from '../util/timestamp.js';
 import { buildManagedMemoryRouting } from './managed-memory-routing.js';
@@ -17,7 +22,11 @@ import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINES, type Engine } from '
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
 import { McpSessionService } from './mcp-session.js';
-import { managedMcpAvailability, renderTomlForHost, renderClaudeSettingsPartialForHost } from './client-config.js';
+import {
+  managedMcpAvailability,
+  renderTomlForHost,
+  renderClaudeSettingsPartialForHost,
+} from './client-config.js';
 import { normalizeSettings } from './config-normalizer.js';
 import { HostSkillsService } from './host-skills.js';
 import { ProjectsService } from './projects.js';
@@ -188,7 +197,11 @@ export class HostAgentsService {
     };
   }
 
-  async retrieve(providedSha: string | null, host: Host, engine: Engine = ENGINE_CODEX): Promise<Record<string, unknown>> {
+  async retrieve(
+    providedSha: string | null,
+    host: Host,
+    engine: Engine = ENGINE_CODEX,
+  ): Promise<Record<string, unknown>> {
     const rendered = await this.renderForHost(host, engine, true);
     if (rendered['status'] === 'missing') {
       return rendered;
@@ -256,9 +269,24 @@ export class HostAgentsService {
     engine: Engine = ENGINE_CODEX,
     opts: { home?: string | null; username?: string | null } = {},
   ): Promise<Record<string, unknown>> {
-    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
-    const metadata=owner?.state.snapshot().table('clientConfigDocuments').by('engine',engine)[0];
-    const rows = owner ? metadata ? [await publicArtifact(owner,`config:${metadata.id}:${metadata.sha256}`,async()=>{const [row]=await this.db.select().from(clientConfigDocuments).where(eq(clientConfigDocuments.id,metadata.id)).limit(1);if(!row||row.sha256!==metadata.sha256)throw new Error('Canonical config changed');return row;},()=>owner.state.snapshot().table('clientConfigDocuments').get(metadata.id)?.sha256===metadata.sha256)] : [] : await this.db.select().from(clientConfigDocuments).where(eq(clientConfigDocuments.engine,engine)).orderBy(desc(clientConfigDocuments.id)).limit(1);
+    const owner = ownerRuntimeFor(this.db);
+    owner?.assertOwner();
+    const metadata = owner?.state.snapshot().table('clientConfigDocuments').by('engine', engine)[0];
+    const bodyFromState = metadata
+      ? owner!.state.snapshot().content('clientConfigDocuments', metadata.id, 'body')
+      : undefined;
+    if (metadata && typeof bodyFromState !== 'string')
+      throw new Error('Current configuration missing from owner state');
+    const rows = owner
+      ? metadata
+        ? [{ ...metadata, body: bodyFromState as string }]
+        : []
+      : await this.db
+          .select()
+          .from(clientConfigDocuments)
+          .where(eq(clientConfigDocuments.engine, engine))
+          .orderBy(desc(clientConfigDocuments.id))
+          .limit(1);
     // Native engine settings are not interchangeable: borrowing Codex's base
     // would send a GPT model and Codex-only options to Claude.
     const row = rows.find((candidate) => candidate.engine === engine);
@@ -280,14 +308,15 @@ export class HostAgentsService {
     };
     const settings = row.settings && typeof row.settings === 'object' ? row.settings : null;
     const apiKey = this.resolveApiKey(host);
-    const managedMcpToken = settings && this.publicBaseUrl && apiKey && !host.secure
-      ? (await this.mcpSessions.issue(host.id)).token
-      : null;
+    const managedMcpToken =
+      settings && this.publicBaseUrl && apiKey && !host.secure
+        ? (await this.mcpSessions.issue(host.id)).token
+        : null;
     // Provisioning only: the fleet switch decides whether the bus is wired
     // into the rendered config. Insecure hosts are authorized per operation
     // against their allowed window, not by withholding the MCP server.
-    const agentMessagingEnabled = host.status === 'active'
-      && await this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false);
+    const agentMessagingEnabled =
+      host.status === 'active' && (await this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false));
     if (settings && this.publicBaseUrl && apiKey) {
       rendered = renderTomlForHost({
         settings,
@@ -331,13 +360,16 @@ export class HostAgentsService {
     host: Host,
     opts: { home?: string | null; username?: string | null } = {},
   ): Promise<Record<string, unknown>> {
-    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
-    const rows = owner?owner.state.snapshot().table('clientConfigDocuments').by('engine',ENGINE_CLAUDE):await this.db
-      .select()
-      .from(clientConfigDocuments)
-      .where(eq(clientConfigDocuments.engine, ENGINE_CLAUDE))
-      .orderBy(desc(clientConfigDocuments.id))
-      .limit(1);
+    const owner = ownerRuntimeFor(this.db);
+    owner?.assertOwner();
+    const rows = owner
+      ? owner.state.snapshot().table('clientConfigDocuments').by('engine', ENGINE_CLAUDE)
+      : await this.db
+          .select()
+          .from(clientConfigDocuments)
+          .where(eq(clientConfigDocuments.engine, ENGINE_CLAUDE))
+          .orderBy(desc(clientConfigDocuments.id))
+          .limit(1);
     // Claude-only lookup. There is deliberately NO codex fallback here: a codex
     // client_config carries a codex `model` (e.g. gpt-5.6-terra) that would otherwise
     // leak into Claude's settings.json. When no claude config exists we still
@@ -354,8 +386,8 @@ export class HostAgentsService {
     // Provisioning only: the fleet switch decides whether the bus is wired
     // into the rendered config. Insecure hosts are authorized per operation
     // against their allowed window, not by withholding the MCP server.
-    const agentMessagingEnabled = host.status === 'active'
-      && await this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false);
+    const agentMessagingEnabled =
+      host.status === 'active' && (await this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false));
     const rendered = renderClaudeSettingsPartialForHost({
       settings,
       host,
@@ -391,8 +423,12 @@ export class HostAgentsService {
    * The pure renderer below this seam only knows booleans and reasons; all DB,
    * config, host, and engine policy stays here.
    */
-  private async resolveManagedFeatureContext(host: Host, engine: Engine): Promise<ManagedAgentFeatureContext> {
-    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
+  private async resolveManagedFeatureContext(
+    host: Host,
+    engine: Engine,
+  ): Promise<ManagedAgentFeatureContext> {
+    const owner = ownerRuntimeFor(this.db);
+    owner?.assertOwner();
     const [
       configRows,
       skillCount,
@@ -412,12 +448,14 @@ export class HostAgentsService {
       fleetEngines,
       modelPolicies,
     ] = await Promise.all([
-      owner ? owner.state.snapshot().table('clientConfigDocuments').by('engine',engine) : this.db
-        .select()
-        .from(clientConfigDocuments)
-        .where(eq(clientConfigDocuments.engine, engine))
-        .orderBy(desc(clientConfigDocuments.id))
-        .limit(1),
+      owner
+        ? owner.state.snapshot().table('clientConfigDocuments').by('engine', engine)
+        : this.db
+            .select()
+            .from(clientConfigDocuments)
+            .where(eq(clientConfigDocuments.engine, engine))
+            .orderBy(desc(clientConfigDocuments.id))
+            .limit(1),
       this.skills.availableCount(engine).catch(() => null),
       this.projects.getEnabled().catch(() => null),
       // Both `.catch(() => null)` for the same reason as their neighbours: a
@@ -440,24 +478,30 @@ export class HostAgentsService {
       readFleetEngineState(this.db),
       // A missing settings table must not hide the check: fall back to the
       // unfiltered catalog, which is what an unconfigured policy serves anyway.
-      Promise.all(ENGINES.map((candidate) => readModelPolicy(this.db, candidate).catch(() => buildModelPolicy(candidate)))),
+      Promise.all(
+        ENGINES.map((candidate) =>
+          readModelPolicy(this.db, candidate).catch(() => buildModelPolicy(candidate)),
+        ),
+      ),
     ]);
     // db-fake ignores WHERE, so do not borrow another engine's row in tests.
     const configRow = configRows.find((candidate) => candidate.engine === engine) ?? null;
-    const rawSettings = configRow?.settings && typeof configRow.settings === 'object'
-      ? configRow.settings
-      : engine === ENGINE_CLAUDE
-        ? {}
-        : null;
+    const rawSettings =
+      configRow?.settings && typeof configRow.settings === 'object'
+        ? configRow.settings
+        : engine === ENGINE_CLAUDE
+          ? {}
+          : null;
 
-    const mcp = rawSettings === null
-      ? { enabled: false, reason: 'config_missing' as const }
-      : managedMcpAvailability({
-          settings: normalizeSettings(rawSettings, { applyCodexDefaults: engine === ENGINE_CODEX, engine }),
-          host,
-          baseUrl: this.publicBaseUrl,
-          apiKey: this.resolveApiKey(host),
-        });
+    const mcp =
+      rawSettings === null
+        ? { enabled: false, reason: 'config_missing' as const }
+        : managedMcpAvailability({
+            settings: normalizeSettings(rawSettings, { applyCodexDefaults: engine === ENGINE_CODEX, engine }),
+            host,
+            baseUrl: this.publicBaseUrl,
+            apiKey: this.resolveApiKey(host),
+          });
 
     const state = (enabled: boolean, reason: string, count?: number): ManagedFeatureState => ({
       enabled,
@@ -465,29 +509,32 @@ export class HostAgentsService {
       ...(count === undefined ? {} : { count }),
     });
 
-    const skills = skillCount === null
-      ? state(false, 'service_unavailable')
-      : skillCount === 0
-        ? state(false, 'no_skills', 0)
-        // Claude falls back to native Skills without MCP; Grok stays native.
-        : engine === ENGINE_CODEX && !mcp.enabled
-          ? state(false, mcp.reason, skillCount)
-          : state(true, 'ok', skillCount);
+    const skills =
+      skillCount === null
+        ? state(false, 'service_unavailable')
+        : skillCount === 0
+          ? state(false, 'no_skills', 0)
+          : // Claude falls back to native Skills without MCP; Grok stays native.
+            engine === ENGINE_CODEX && !mcp.enabled
+            ? state(false, mcp.reason, skillCount)
+            : state(true, 'ok', skillCount);
     const memory = state(mcp.enabled, mcp.reason);
-    const projects = projectsEnabled === null
-      ? state(false, 'service_unavailable')
-      : !mcp.enabled
-        ? state(false, mcp.reason)
-        : projectsEnabled
-          ? state(true, 'ok')
-          : state(false, 'projects_disabled');
-    const browseros = engine !== ENGINE_CODEX
-      ? state(false, 'unsupported_engine')
-      : !mcp.enabled
-        ? state(false, mcp.reason)
-        : host.browserosMcpEnabled === 1
-          ? state(true, 'ok')
-          : state(false, 'host_disabled');
+    const projects =
+      projectsEnabled === null
+        ? state(false, 'service_unavailable')
+        : !mcp.enabled
+          ? state(false, mcp.reason)
+          : projectsEnabled
+            ? state(true, 'ok')
+            : state(false, 'projects_disabled');
+    const browseros =
+      engine !== ENGINE_CODEX
+        ? state(false, 'unsupported_engine')
+        : !mcp.enabled
+          ? state(false, mcp.reason)
+          : host.browserosMcpEnabled === 1
+            ? state(true, 'ok')
+            : state(false, 'host_disabled');
 
     // An empty enabled store still needs guidance: `secret_store` is how an
     // agent creates its first credential. Count is diagnostic metadata, not an
@@ -503,11 +550,12 @@ export class HostAgentsService {
 
     // This is operator policy, not an MCP capability. It therefore applies to
     // both engines even when no managed MCP configuration exists for the host.
-    const apiKeysInChat = apiKeysInChatEnabled === null
-      ? state(false, 'service_unavailable')
-      : apiKeysInChatEnabled
-        ? state(true, 'ok')
-        : state(false, 'disabled');
+    const apiKeysInChat =
+      apiKeysInChatEnabled === null
+        ? state(false, 'service_unavailable')
+        : apiKeysInChatEnabled
+          ? state(true, 'ok')
+          : state(false, 'disabled');
 
     // Mirrors the predicate that decides whether the `cxx-agent` MCP server is
     // injected into this host's config (see retrieveConfig / retrieveClaudeSettings
@@ -525,13 +573,14 @@ export class HostAgentsService {
     //
     // Flag-off outranks host-inactive: the fleet switch is the actionable
     // explanation, and it is how the operator thinks about this feature.
-    const agentMessaging = agentMessagingEnabled === null
-      ? state(false, 'service_unavailable')
-      : !agentMessagingEnabled
-        ? state(false, 'master_disabled')
-        : host.status !== 'active'
-          ? state(false, 'host_inactive')
-          : state(true, 'ok');
+    const agentMessaging =
+      agentMessagingEnabled === null
+        ? state(false, 'service_unavailable')
+        : !agentMessagingEnabled
+          ? state(false, 'master_disabled')
+          : host.status !== 'active'
+            ? state(false, 'host_inactive')
+            : state(true, 'ok');
 
     // Unlike Agent Messaging, this one DOES require `mcp.enabled`: the `git_*`
     // tools are served by the orchestrator's own MCP entry, so a host whose
@@ -563,51 +612,95 @@ export class HostAgentsService {
             : state(true, 'ok', transferCount);
 
     const tierEngines = activeHostEngines(host.engines, fleetEngines);
-    const tierTable = buildModelTierTable(tierEngines, Object.fromEntries(modelPolicies.map((policy) => [
-      policy.engine,
-      policy.latest_models.filter((model) => !(policy.disabled_models ?? []).includes(model)),
-    ])));
+    const tierTable = buildModelTierTable(
+      tierEngines,
+      Object.fromEntries(
+        modelPolicies.map((policy) => [
+          policy.engine,
+          policy.latest_models.filter((model) => !(policy.disabled_models ?? []).includes(model)),
+        ]),
+      ),
+    );
     const modelTiers = {
       ...(modelTierCheckEnabled === null
         ? state(false, 'service_unavailable')
         : !modelTierCheckEnabled
           ? state(false, 'disabled')
-          : state(true, 'ok', tierTable.reduce((total, row) => total + row.models.length, 0))),
+          : state(
+              true,
+              'ok',
+              tierTable.reduce((total, row) => total + row.models.length, 0),
+            )),
       table: tierTable,
       configured: configuredModel(host, engine, rawSettings as Record<string, unknown> | null),
     };
 
     const workflowsEnabled = await this.settings.getFlag('workflows_enabled', false).catch(() => false);
-    const workflowsDraining = !workflowsEnabled && (owner ? owner.state.snapshot().table('workflowRuns').all().some(row=>row.status!=='completed') : (await this.db.select({ id: workflowRuns.id }).from(workflowRuns).where(ne(workflowRuns.status, 'completed')).limit(1)).length > 0);
+    const workflowsDraining =
+      !workflowsEnabled &&
+      (owner
+        ? owner.state
+            .snapshot()
+            .table('workflowRuns')
+            .all()
+            .some((row) => row.status !== 'completed')
+        : (
+            await this.db
+              .select({ id: workflowRuns.id })
+              .from(workflowRuns)
+              .where(ne(workflowRuns.status, 'completed'))
+              .limit(1)
+          ).length > 0);
     return {
       engine,
       skills,
-      skillsTransport: engine === ENGINE_CODEX || (engine === ENGINE_CLAUDE && mcp.enabled) ? 'mcp' : 'native',
+      skillsTransport:
+        engine === ENGINE_CODEX || (engine === ENGINE_CLAUDE && mcp.enabled) ? 'mcp' : 'native',
       memory,
       projects,
       browseros,
       secrets,
       apiKeysInChat,
       agentMessaging,
-      hostSpawn: state(mcp.enabled && host.vip === 1 && host.status === 'active' &&
-        await this.settings.getFlag('host_spawn_enabled', false).catch(() => false), 'vip_and_fleet_switch'),
+      hostSpawn: state(
+        mcp.enabled &&
+          host.vip === 1 &&
+          host.status === 'active' &&
+          (await this.settings.getFlag('host_spawn_enabled', false).catch(() => false)),
+        'vip_and_fleet_switch',
+      ),
       gitDirector,
       fileTransfer,
       advisor: !agentMessaging.enabled
         ? state(false, agentMessaging.reason)
         : await this.advisorState(host).catch(() => state(false, 'service_unavailable')),
-      workflows: !agentMessaging.enabled ? state(false, agentMessaging.reason)
-        : !mcp.enabled ? state(false, mcp.reason)
-        : !workflowCxxSupported(hostRunningWrapperVersion(host)) ? state(false, 'workflows_wrapper_outdated')
-        : state(workflowsEnabled || workflowsDraining, workflowsEnabled ? 'ok' : workflowsDraining ? 'workflows_draining' : 'workflows_disabled'),
-      roles: !agentMessaging.enabled ? state(false, agentMessaging.reason)
-        : !mcp.enabled ? state(false, mcp.reason)
-        : !(await this.settings.getFlag(ROLES_ENABLED_KEY, false).catch(() => false)) ? state(false, 'roles_disabled')
-        : rolesCxxSupported(hostRunningWrapperVersion(host)) ? state(true, 'ok') : state(false, 'roles_wrapper_outdated'),
-      feedback: feedbackEnabled === null ? state(false, 'service_unavailable')
-        : !mcp.enabled ? state(false, mcp.reason)
-        : !feedbackEnabled ? state(false, 'feedback_disabled')
-        : state(true, 'ok'),
+      workflows: !agentMessaging.enabled
+        ? state(false, agentMessaging.reason)
+        : !mcp.enabled
+          ? state(false, mcp.reason)
+          : !workflowCxxSupported(hostRunningWrapperVersion(host))
+            ? state(false, 'workflows_wrapper_outdated')
+            : state(
+                workflowsEnabled || workflowsDraining,
+                workflowsEnabled ? 'ok' : workflowsDraining ? 'workflows_draining' : 'workflows_disabled',
+              ),
+      roles: !agentMessaging.enabled
+        ? state(false, agentMessaging.reason)
+        : !mcp.enabled
+          ? state(false, mcp.reason)
+          : !(await this.settings.getFlag(ROLES_ENABLED_KEY, false).catch(() => false))
+            ? state(false, 'roles_disabled')
+            : rolesCxxSupported(hostRunningWrapperVersion(host))
+              ? state(true, 'ok')
+              : state(false, 'roles_wrapper_outdated'),
+      feedback:
+        feedbackEnabled === null
+          ? state(false, 'service_unavailable')
+          : !mcp.enabled
+            ? state(false, mcp.reason)
+            : !feedbackEnabled
+              ? state(false, 'feedback_disabled')
+              : state(true, 'ok'),
       feedbackMode: feedbackMode === 'user' ? 'user' : 'source_developer',
       gitCommitSettings,
       modelTiers,
@@ -620,9 +713,13 @@ export class HostAgentsService {
    * fleet-wide readiness so the host-specific reason wins.
    */
   private async advisorState(host: Host): Promise<ManagedFeatureState> {
-    const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
-    const daemon=owner?owner.state.snapshot().table('hostDaemons').get(host.id):(await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId,host.id)).limit(1))[0];
-    const daemonVersion = daemon && daemonExecutionEnabled(daemon.settings) ? daemon.runtime?.version ?? null : null;
+    const owner = ownerRuntimeFor(this.db);
+    owner?.assertOwner();
+    const daemon = owner
+      ? owner.state.snapshot().table('hostDaemons').get(host.id)
+      : (await this.db.select().from(hostDaemons).where(eq(hostDaemons.hostId, host.id)).limit(1))[0];
+    const daemonVersion =
+      daemon && daemonExecutionEnabled(daemon.settings) ? (daemon.runtime?.version ?? null) : null;
     const support = advisorCxxSupport(hostRunningWrapperVersion(host), daemonVersion);
     return support.enabled ? advisorConfigured(this.db) : support;
   }
@@ -632,9 +729,14 @@ export class HostAgentsService {
     engine: Engine,
     recordMissingOverride = true,
   ): Promise<typeof agentsDocuments.$inferSelect | null> {
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){owner.assertOwner();const metadata=servedAgentDocument(owner.state.snapshot(),engine,host.agentsDocumentIdOverride);if(!metadata)return null;
-      return publicArtifact(owner,`agents:${metadata.id}:${metadata.sha256}`,async()=>{const [row]=await this.db.select().from(agentsDocuments).where(eq(agentsDocuments.id,metadata.id)).limit(1);if(!row||row.sha256!==metadata.sha256)throw new Error('Canonical agent document changed');return row;},()=>owner.state.snapshot().table('agentsDocuments').get(metadata.id)?.sha256===metadata.sha256);
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const metadata = servedAgentDocument(owner.state.snapshot(), engine, host.agentsDocumentIdOverride);
+      if (!metadata) return null;
+      const body = owner.state.snapshot().content('agentsDocuments', metadata.id, 'body');
+      if (typeof body !== 'string') throw new Error('Current agent document missing from owner state');
+      return { ...metadata, body };
     }
     const override = host.agentsDocumentIdOverride;
     if (override && Number(override) > 0) {
@@ -661,7 +763,11 @@ export class HostAgentsService {
     const mode = state[0]?.mode ?? 'latest';
     const activeId = state[0]?.activeDocumentId ?? null;
     if (mode === MODE_LOCKED && activeId !== null) {
-      const active = await this.db.select().from(agentsDocuments).where(eq(agentsDocuments.id, Number(activeId))).limit(1);
+      const active = await this.db
+        .select()
+        .from(agentsDocuments)
+        .where(eq(agentsDocuments.id, Number(activeId)))
+        .limit(1);
       if (active[0]?.engine === engine) return active[0];
     }
     const latestEngine = await this.db
@@ -675,8 +781,31 @@ export class HostAgentsService {
     return latest[0] ?? null;
   }
 
-  private async recordLog(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {
-    const owner=ownerRuntimeFor(this.db);if(owner){await mutateOwnerState(owner,{kind:'agents.audit',payload:{hostId,action},prepare:ctx=>{ctx.write(async tx=>persistAuditLog(tx, {hostId,action,details:JSON.stringify(details),createdAt:nowIso(),engine:null}));return null;}});return;}
+  private async recordLog(
+    hostId: number | null,
+    action: string,
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      await mutateOwnerState(owner, {
+        kind: 'agents.audit',
+        payload: { hostId, action },
+        prepare: (ctx) => {
+          ctx.write(async (tx) =>
+            persistAuditLog(tx, {
+              hostId,
+              action,
+              details: JSON.stringify(details),
+              createdAt: nowIso(),
+              engine: null,
+            }),
+          );
+          return null;
+        },
+      });
+      return;
+    }
     await persistAuditLog(this.db, {
       hostId: hostId ?? null,
       action,
@@ -699,16 +828,29 @@ function safeHashEquals(a: string, b: string): boolean {
  * config, then the engine default. Claude has no fleet default — Claude Code
  * picks its own — so an unpinned Claude host reports none rather than a guess.
  */
-function configuredModel(host: Host, engine: Engine, settings: Record<string, unknown> | null): ConfiguredModel {
+function configuredModel(
+  host: Host,
+  engine: Engine,
+  settings: Record<string, unknown> | null,
+): ConfiguredModel {
   const fleet = settings?.['model'];
   if (engine === ENGINE_CLAUDE) {
-    return { engine, model: normalizeClaudeModel(host.claudeModelOverride ?? null) ?? normalizeClaudeModel(fleet) };
+    return {
+      engine,
+      model: normalizeClaudeModel(host.claudeModelOverride ?? null) ?? normalizeClaudeModel(fleet),
+    };
   }
   if (engine === ENGINE_GROK) {
-    const pick = [host.grokModelOverride, fleet].find((value) => typeof value === 'string' && value.trim() !== '');
+    const pick = [host.grokModelOverride, fleet].find(
+      (value) => typeof value === 'string' && value.trim() !== '',
+    );
     return { engine, model: typeof pick === 'string' ? pick.trim() : GROK_DEFAULT_MODEL };
   }
-  return { engine, model: normalizeStoredModel(host.modelOverride ?? null) ?? normalizeStoredModel(fleet) ?? DEFAULT_CODEX_MODEL };
+  return {
+    engine,
+    model:
+      normalizeStoredModel(host.modelOverride ?? null) ?? normalizeStoredModel(fleet) ?? DEFAULT_CODEX_MODEL,
+  };
 }
 
 /** Hosts below the first cxx that serves `agent_role_*` get no Roles guidance. */

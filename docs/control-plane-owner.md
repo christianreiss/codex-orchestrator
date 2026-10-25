@@ -26,8 +26,13 @@ A stable principal/request ID replays its committed result only after current
 authorization succeeds. Background deadlines run outside the triggering HTTP
 request's authorization and action context.
 
-Bodies, encrypted credentials, attachments and retained history stay out of the
-public metadata snapshot. Explicit content/history reads may access storage.
+Current document bodies and encrypted credentials live privately in the same
+owner state; public metadata never contains them. Auth, Skills/files, AGENTS,
+config, Knowledge, host/project memories, Claude artifacts, secret envelopes and
+admin password verifiers are hydrated with their metadata. Current reads use RAM;
+attachments and requested retained history may access cold storage. Private
+content contributes to the existing byte budget. The redundant artifact pool is
+removed.
 Active signing KeyObjects live in an owner-scoped private registry populated at
 startup. Readiness checks use the verified migration ledger, current ownership,
 and observed runner state, rather than querying or probing on each request.
@@ -45,7 +50,7 @@ default. New and changed rows are projected first, including credential-proof
 invalidation, then measured in serialized UTF-8 bytes. Immutable unchanged rows
 reuse their measured size; validation reads cached table counts and sizes.
 Derived messaging aggregate rows count toward the total and byte budgets.
-Embedded metadata contributes its bytes. Boot additionally bounds the temporary
+Embedded metadata and private current-content bytes contribute to that budget. Boot additionally bounds the temporary
 rows read to build derived indexes, so boot admission can be stricter than a
 running store's row count. These are metadata limits, not an exact process-RSS cap.
 
@@ -164,7 +169,7 @@ text remains encrypted cold content and is never put in shared public artifacts.
 
 Legacy auth rows without an explicit canonical head receive a body-validation
 proof during bounded boot reads, using the original credential validator. The
-proof retains no credentials and binds the digest, engine, refresh timestamp and
+public proof retains no credentials and binds the digest, engine, refresh timestamp and
 ciphertext hash. Canonical inserts derive the same proof; changed bytes or identity
 invalidate it. RAM selection rechecks verification/account state and the moving
 future timestamp limit. Explicit canonical heads keep their existing authority;
@@ -175,17 +180,35 @@ read committed owner metadata directly. Setting and key changes apply immediatel
 owner mode has no routing TTL or database-error fail-open. Command receipt lookups
 revalidate volatile authorization after I/O before replaying a stored result.
 
-Admin AGENTS previews use current host metadata and explicitly read only the
-credential fields needed to preserve recoverability-dependent feature rendering.
-They reject a host change during that read; credential bodies never enter shared
-metadata. This requested content read is separate from routine metadata reads.
+Admin AGENTS previews use current host metadata and private owner credential
+content for recoverability-dependent rendering. Credential bodies never enter
+shared metadata. Shared Knowledge search uses an immutable-view RAM inverted
+index; host/project memory ranking scopes documents before scoring. Unicode
+accent-normalized terms, term frequency and inverse document frequency replace
+MySQL FULLTEXT ranking; ranking is deterministic but need not match old SQL scores.
+
+## Quiet command and maintenance paths
+
+Volatile observations serialize through the owner but neither persist a receipt
+nor notify durable subscribers. A no-op publishes nothing. Durable writes reserve
+the receipt before effects; duplicate reservation rolls back and reads the
+previous result under current authority. Pure preparation can run again; domain
+DML and outbox effects cannot. Runtime publication sequence is independent of the
+persistent owner commit count, so volatile revisions cannot break the next CAS.
+
+Retention reads actual scope, room, session and pending-work eligibility from
+RAM. Protected empty sweeps remain parked until a meaningful dependency or real
+age deadline changes. Actual deletion uses bounded candidate IDs. No SQL scan is
+needed to rediscover protections the owner already knows. Paused and uncertain
+work, including old terminal messages with unknown task outcome, remain protected.
 
 ## Acceptance
 
-Required acceptance includes the full canonical and database suites, restart,
-revocation, duplicate/lost ACK and uncertain-commit interleavings, plus a real
-10-minute idle matrix at 1/20/200 communicators, all three engines and 0/1/5
-admin tabs. Measure application SQL separately from measurement queries and
-MySQL administration. The target is exactly zero idle application statements,
-API CPU at most 1% of one core and incremental database CPU at most 0.5%.
-Short service loops and simulated-clock tests do not establish that acceptance.
+The current execution and evidence contract is [REDESIGN.md](../REDESIGN.md).
+It covers canonical API/Go/frontend checks, real MySQL, restart/replay/security,
+10,000 local hits per engine and the 1/20/200 communicator × 0/1/5 browser matrix.
+Record the actual bounded observation windows and measured application SQL, CPU
+and network. Simulated communicators are labelled; Chromium tabs use real browser
+transports. Controlled idle results do not substitute for post-deploy production
+measurements or prove physical Raspberry Pi performance. Legacy busy owners are
+reported separately and must never be killed to improve a graph.

@@ -1,4 +1,5 @@
-import {persistAuditLog} from './audit-log.js';
+import { searchOwnedMemories } from './runtime-knowledge.js';
+import { persistAuditLog } from './audit-log.js';
 import { executeColdRead } from '../db/fresh-read.js';
 import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { stageUpdate } from '../control-plane/state/rows.js';
@@ -10,7 +11,7 @@ import type { Json } from '../control-plane/commands.js';
 import { eq, and, desc, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { Database } from '../db/client.js';
-import { mcpMemories} from '../db/schema.js';
+import { mcpMemories } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import type { Engine } from '../util/engine.js';
 import { isMissingFulltextIndex } from '../util/mysql-fulltext.js';
@@ -30,14 +31,21 @@ const RESERVED_COCO = /^coco(?:$|[._:-])/i;
 export class McpMemoriesService {
   constructor(private readonly db: Database) {}
 
-  async store(payload: Record<string, unknown>, host: Host, engine: Engine | null = null): Promise<Record<string, unknown>> {
+  async store(
+    payload: Record<string, unknown>,
+    host: Host,
+    engine: Engine | null = null,
+  ): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};
     let memoryKey = this.normalizeKey(payload['id'] ?? payload['memory_id'] ?? payload['key'], true, errors);
 
     const contentRaw = payload['content'] ?? payload['text'] ?? '';
     const content = String(contentRaw ?? '').trim();
     if (!content) errors['content'] = (errors['content'] ?? []).concat('content is required');
-    if (content.length > MAX_CONTENT) errors['content'] = (errors['content'] ?? []).concat(`content must be ${MAX_CONTENT} characters or fewer`);
+    if (content.length > MAX_CONTENT)
+      errors['content'] = (errors['content'] ?? []).concat(
+        `content must be ${MAX_CONTENT} characters or fewer`,
+      );
 
     const metadata = this.normalizeMetadata(payload['metadata'], errors);
     const tags = this.normalizeTags(payload['tags'], errors);
@@ -45,24 +53,89 @@ export class McpMemoriesService {
 
     memoryKey = memoryKey ?? this.generateKey();
     const hostId = host.id;
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){const result=await mutateOwnerState(owner,{kind:'memory.host.store',payload:{hostId,memoryKey},prepare:async ctx=>{
-      const existing=ctx.snapshot.table('mcpMemories').by('hostId',hostId).find(row=>row.memoryKey===memoryKey),now=nowIso();
-      const cold=existing&&!existing.deletedAt?(await this.db.select({content:mcpMemories.content}).from(mcpMemories).where(eq(mcpMemories.id,existing.id)).limit(1))[0]:undefined;
-      const same=existing&&!existing.deletedAt&&cold?.content===content&&JSON.stringify(this.normalizedArray(parseTags(existing.tags)))===JSON.stringify(this.normalizedArray(tags))&&JSON.stringify(this.normalizedAssoc(existing.metadata as Record<string,unknown>|null))===JSON.stringify(this.normalizedAssoc(metadata));
-      const status=!existing||existing.deletedAt?'created':same?'unchanged':'updated';
-      let row={id:existing?.id??0,hostId,memoryKey:memoryKey!,content,metadata:metadata??null,tags:tags.length?tags:null,tagsText:tags.length?tags.join(' '):null,summary:existing?.summary??null,engine,createdAt:existing?.createdAt??now,updatedAt:now,deletedAt:null};
-      if(existing)stageUpdate(ctx,'mcpMemories',existing.id,row);
-      else ctx.write(async tx=>{const {id:_id,...values}=row;const result=await tx.insert(mcpMemories).values(values);row={...row,id:Number(result[0].insertId)};ctx.draft.upsert('mcpMemories',row);});
-      ctx.write(async tx=>persistAuditLog(tx, {hostId,action:'memory.store',details:JSON.stringify({id:memoryKey,status,content_length:content.length,tags:tags.length}),createdAt:now,engine:null}));
-      return ()=>({status,id:memoryKey,memory:this.formatMemory(row)}) as Json;
-    }}) as Record<string,unknown>;
-      wsPublisher.publish(result.status==='created'?'memory.created':'memory.changed',{id:memoryKey,host_id:hostId});return result;}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = (await mutateOwnerState(owner, {
+        kind: 'memory.host.store',
+        payload: { hostId, memoryKey },
+        prepare: async (ctx) => {
+          const existing = ctx.snapshot
+              .table('mcpMemories')
+              .by('hostId', hostId)
+              .find((row) => row.memoryKey === memoryKey),
+            now = nowIso();
+          const cold =
+            existing && !existing.deletedAt
+              ? { content: ctx.snapshot.content('mcpMemories', existing.id, 'content') }
+              : undefined;
+          const same =
+            existing &&
+            !existing.deletedAt &&
+            cold?.content === content &&
+            JSON.stringify(this.normalizedArray(parseTags(existing.tags))) ===
+              JSON.stringify(this.normalizedArray(tags)) &&
+            JSON.stringify(this.normalizedAssoc(existing.metadata as Record<string, unknown> | null)) ===
+              JSON.stringify(this.normalizedAssoc(metadata));
+          const status = !existing || existing.deletedAt ? 'created' : same ? 'unchanged' : 'updated';
+          let row = {
+            id: existing?.id ?? 0,
+            hostId,
+            memoryKey: memoryKey!,
+            content,
+            metadata: metadata ?? null,
+            tags: tags.length ? tags : null,
+            tagsText: tags.length ? tags.join(' ') : null,
+            summary: existing?.summary ?? null,
+            engine,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+            deletedAt: null,
+          };
+          if (same)
+            return { status, id: memoryKey, memory: this.formatMemory({ ...existing, content }) } as Json;
+          if (existing) stageUpdate(ctx, 'mcpMemories', existing.id, row);
+          else
+            ctx.write(async (tx) => {
+              const { id: _id, ...values } = row;
+              const result = await tx.insert(mcpMemories).values(values);
+              row = { ...row, id: Number(result[0].insertId) };
+              ctx.draft.upsert('mcpMemories', row);
+            });
+          ctx.write(async (tx) =>
+            persistAuditLog(tx, {
+              hostId,
+              action: 'memory.store',
+              details: JSON.stringify({
+                id: memoryKey,
+                status,
+                content_length: content.length,
+                tags: tags.length,
+              }),
+              createdAt: now,
+              engine: null,
+            }),
+          );
+          return () => ({ status, id: memoryKey, memory: this.formatMemory(row) }) as Json;
+        },
+      })) as Record<string, unknown>;
+      if (result.status !== 'unchanged')
+        wsPublisher.publish(result.status === 'created' ? 'memory.created' : 'memory.changed', {
+          id: memoryKey,
+          host_id: hostId,
+        });
+      return result;
+    }
 
     const existingRows = await this.db
       .select()
       .from(mcpMemories)
-      .where(and(eq(mcpMemories.hostId, hostId), eq(mcpMemories.memoryKey, memoryKey), isNull(mcpMemories.deletedAt)))
+      .where(
+        and(
+          eq(mcpMemories.hostId, hostId),
+          eq(mcpMemories.memoryKey, memoryKey),
+          isNull(mcpMemories.deletedAt),
+        ),
+      )
       .limit(1);
     const existing = existingRows[0];
 
@@ -71,7 +144,9 @@ export class McpMemoriesService {
       const sameContent = (existing.content ?? '') === content;
       const existingTagsNorm = this.normalizedArray(parseTags(existing.tags));
       const newTagsNorm = this.normalizedArray(tags);
-      const existingMetaNorm = this.normalizedAssoc((existing.metadata as Record<string, unknown> | null) ?? null);
+      const existingMetaNorm = this.normalizedAssoc(
+        (existing.metadata as Record<string, unknown> | null) ?? null,
+      );
       const newMetaNorm = this.normalizedAssoc(metadata);
       const sameTags = JSON.stringify(existingTagsNorm) === JSON.stringify(newTagsNorm);
       const sameMeta = JSON.stringify(existingMetaNorm) === JSON.stringify(newMetaNorm);
@@ -114,8 +189,16 @@ export class McpMemoriesService {
       .limit(1);
     const saved = savedRows[0] ?? null;
 
-    await this.recordLog(hostId, 'memory.store', { id: memoryKey, status, content_length: content.length, tags: tags.length });
-    wsPublisher.publish(status === 'created' ? 'memory.created' : 'memory.changed', { id: memoryKey, host_id: hostId });
+    await this.recordLog(hostId, 'memory.store', {
+      id: memoryKey,
+      status,
+      content_length: content.length,
+      tags: tags.length,
+    });
+    wsPublisher.publish(status === 'created' ? 'memory.created' : 'memory.changed', {
+      id: memoryKey,
+      host_id: hostId,
+    });
 
     return {
       status,
@@ -126,14 +209,39 @@ export class McpMemoriesService {
 
   async retrieve(payload: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};
-    const memoryKey = this.normalizeKey(payload['id'] ?? payload['memory_id'] ?? payload['key'], false, errors);
+    const memoryKey = this.normalizeKey(
+      payload['id'] ?? payload['memory_id'] ?? payload['key'],
+      false,
+      errors,
+    );
     if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
-    if (!memoryKey) throw new ValidationError('Validation failed', { extra: { errors: { id: ['id is required'] } } });
+    if (!memoryKey)
+      throw new ValidationError('Validation failed', { extra: { errors: { id: ['id is required'] } } });
 
+    const state = ownerRuntimeFor(this.db)?.state.snapshot();
+    if (state) {
+      const row = state
+        .table('mcpMemories')
+        .by('hostId', host.id)
+        .find((r) => r.memoryKey === memoryKey && !r.deletedAt);
+      const body = row ? state.content('mcpMemories', row.id, 'content') : undefined;
+      if (row && typeof body !== 'string') throw new Error('Current host memory missing from owner state');
+      return {
+        status: row ? 'found' : 'missing',
+        id: memoryKey,
+        memory: row ? this.formatMemory({ ...row, content: body }) : null,
+      };
+    }
     const rows = await this.db
       .select()
       .from(mcpMemories)
-      .where(and(eq(mcpMemories.hostId, host.id), eq(mcpMemories.memoryKey, memoryKey), isNull(mcpMemories.deletedAt)))
+      .where(
+        and(
+          eq(mcpMemories.hostId, host.id),
+          eq(mcpMemories.memoryKey, memoryKey),
+          isNull(mcpMemories.deletedAt),
+        ),
+      )
       .limit(1);
 
     const status = rows[0] ? 'found' : 'missing';
@@ -161,6 +269,13 @@ export class McpMemoriesService {
     const searchTags = this.normalizedArray(tags);
     if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
 
+    const state = ownerRuntimeFor(this.db)?.state.snapshot();
+    if (state) {
+      const matches = searchOwnedMemories(state, 'mcpMemories', host.id, query, searchTags)
+        .slice(0, limit)
+        .map((row) => this.formatMemory(row, query ? row.score : null));
+      return { status: 'ok', query, limit, degraded: false, count: matches.length, matches };
+    }
     const batchSize = limit * (searchTags.length > 0 ? 3 : 1);
     let degraded = false;
 
@@ -176,7 +291,8 @@ export class McpMemoriesService {
         return rows as unknown as Array<Record<string, unknown>>;
       }
       try {
-        const res = await executeColdRead(this.db,
+        const res = await executeColdRead(
+          this.db,
           sql`SELECT id, host_id, memory_key, content, metadata, tags, summary, created_at, updated_at,
                      MATCH(content, tags_text) AGAINST (${query} IN NATURAL LANGUAGE MODE) AS score
               FROM mcp_memories
@@ -214,14 +330,14 @@ export class McpMemoriesService {
         const rowTags = this.normalizedArray(parseTags((r as { tags?: unknown }).tags ?? null));
         const includesAll = searchTags.every((t) => rowTags.includes(t));
         if (!includesAll) continue;
-        const score = typeof (r as { score?: unknown }).score === 'number' ? ((r as { score: number }).score) : null;
+        const score =
+          typeof (r as { score?: unknown }).score === 'number' ? (r as { score: number }).score : null;
         filtered.push(this.formatMemory(r as never, score));
         if (filtered.length >= limit) break;
       }
       if (filtered.length >= limit || rawResults.length < batchSize) break;
       offset += batchSize;
     }
-
 
     // `degraded` mirrors shared_memory_search: it lets the caller tell "the index
     // is missing so this scan was shallow" apart from "nothing matched".
@@ -258,20 +374,55 @@ export class McpMemoriesService {
 
   async delete(payload: Record<string, unknown>, host: Host): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};
-    const memoryKey = this.normalizeKey(payload['id'] ?? payload['memory_id'] ?? payload['key'], false, errors);
+    const memoryKey = this.normalizeKey(
+      payload['id'] ?? payload['memory_id'] ?? payload['key'],
+      false,
+      errors,
+    );
     if (Object.keys(errors).length) throw new ValidationError('Validation failed', { extra: { errors } });
-    if (!memoryKey) throw new ValidationError('Validation failed', { extra: { errors: { id: ['id is required'] } } });
+    if (!memoryKey)
+      throw new ValidationError('Validation failed', { extra: { errors: { id: ['id is required'] } } });
 
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){const result=await mutateOwnerState(owner,{kind:'memory.host.delete',payload:{hostId:host.id,memoryKey},prepare:ctx=>{
-      const row=ctx.snapshot.table('mcpMemories').by('hostId',host.id).find(row=>row.memoryKey===memoryKey&&!row.deletedAt),status=row?'deleted':'missing',now=nowIso();
-      if(row)stageUpdate(ctx,'mcpMemories',row.id,{deletedAt:now});ctx.write(async tx=>persistAuditLog(tx, {hostId:host.id,action:'memory.delete',details:JSON.stringify({id:memoryKey,status}),createdAt:now,engine:null}));return {status,id:memoryKey};
-    }}) as Record<string,unknown>;if(result.status==='deleted')wsPublisher.publish('memory.deleted',{id:memoryKey,host_id:host.id});return result;}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = (await mutateOwnerState(owner, {
+        kind: 'memory.host.delete',
+        payload: { hostId: host.id, memoryKey },
+        prepare: (ctx) => {
+          const row = ctx.snapshot
+              .table('mcpMemories')
+              .by('hostId', host.id)
+              .find((row) => row.memoryKey === memoryKey && !row.deletedAt),
+            status = row ? 'deleted' : 'missing',
+            now = nowIso();
+          if (row) stageUpdate(ctx, 'mcpMemories', row.id, { deletedAt: now });
+          ctx.write(async (tx) =>
+            persistAuditLog(tx, {
+              hostId: host.id,
+              action: 'memory.delete',
+              details: JSON.stringify({ id: memoryKey, status }),
+              createdAt: now,
+              engine: null,
+            }),
+          );
+          return { status, id: memoryKey };
+        },
+      })) as Record<string, unknown>;
+      if (result.status === 'deleted')
+        wsPublisher.publish('memory.deleted', { id: memoryKey, host_id: host.id });
+      return result;
+    }
 
     const rows = await this.db
       .select()
       .from(mcpMemories)
-      .where(and(eq(mcpMemories.hostId, host.id), eq(mcpMemories.memoryKey, memoryKey), isNull(mcpMemories.deletedAt)))
+      .where(
+        and(
+          eq(mcpMemories.hostId, host.id),
+          eq(mcpMemories.memoryKey, memoryKey),
+          isNull(mcpMemories.deletedAt),
+        ),
+      )
       .limit(1);
 
     if (!rows[0]) {
@@ -317,9 +468,12 @@ export class McpMemoriesService {
       errors['id'] = (errors['id'] ?? []).concat('id is required');
       return null;
     }
-    if (trimmed.length > 128) errors['id'] = (errors['id'] ?? []).concat('id must be 128 characters or fewer');
+    if (trimmed.length > 128)
+      errors['id'] = (errors['id'] ?? []).concat('id must be 128 characters or fewer');
     if (!KEY_RE.test(trimmed)) {
-      errors['id'] = (errors['id'] ?? []).concat('id may only contain letters, numbers, dots, underscores, hyphens, and colons');
+      errors['id'] = (errors['id'] ?? []).concat(
+        'id may only contain letters, numbers, dots, underscores, hyphens, and colons',
+      );
     }
     if (RESERVED_COCO.test(trimmed)) {
       errors['id'] = (errors['id'] ?? []).concat(
@@ -354,7 +508,9 @@ export class McpMemoriesService {
       const t = tag.trim();
       if (!t) continue;
       if (t.length > MAX_TAG_LENGTH) {
-        errors['tags'] = (errors['tags'] ?? []).concat(`tag "${t}" is longer than ${MAX_TAG_LENGTH} characters`);
+        errors['tags'] = (errors['tags'] ?? []).concat(
+          `tag "${t}" is longer than ${MAX_TAG_LENGTH} characters`,
+        );
         continue;
       }
       const k = t.toLowerCase();
@@ -376,7 +532,11 @@ export class McpMemoriesService {
     return sortedAssoc(value);
   }
 
-  private async recordLog(hostId: number | null, action: string, details: Record<string, unknown>): Promise<void> {
+  private async recordLog(
+    hostId: number | null,
+    action: string,
+    details: Record<string, unknown>,
+  ): Promise<void> {
     await persistAuditLog(this.db, {
       hostId: hostId ?? null,
       action,

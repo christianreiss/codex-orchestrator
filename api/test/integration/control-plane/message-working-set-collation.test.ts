@@ -27,7 +27,7 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
       for (const [name, columns, collation] of [
         [
           'agent_bus_messages',
-          'id VARCHAR(36) PRIMARY KEY,status VARCHAR(40),expired_at VARCHAR(40),digest_id VARCHAR(36),reply_to_message_id VARCHAR(36),presence_notice_key VARCHAR(100),target_session_id VARCHAR(36),sender_address_id VARCHAR(36)',
+          'id VARCHAR(36) PRIMARY KEY,status VARCHAR(40),task_result_status VARCHAR(40),expired_at VARCHAR(40),digest_id VARCHAR(36),reply_to_message_id VARCHAR(36),presence_notice_key VARCHAR(100),target_session_id VARCHAR(36),sender_address_id VARCHAR(36)',
           first,
         ],
         ['agent_schedule_runs', 'message_id VARCHAR(36),status VARCHAR(40)', second],
@@ -55,6 +55,7 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
         );
       };
       await add('plain-terminal', 'completed');
+      await add('uncertain-result', 'completed', { task_result_status: 'unknown' });
       await add('unknown-status', null);
       await add('ambiguous', 'ambiguous');
       await add('recent-expired', 'expired', { expired_at: new Date().toISOString() });
@@ -136,7 +137,7 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
         id('plain-terminal'),
       ]);
       const old = `
-        (m.status='expired' AND m.expired_at > ?)
+        m.task_result_status='unknown' OR (m.status='expired' AND m.expired_at > ?)
         OR EXISTS (SELECT 1 FROM agent_bus_messages child WHERE BINARY child.digest_id=BINARY m.id AND child.status='batched')
         OR EXISTS (SELECT 1 FROM agent_bus_messages reply WHERE BINARY reply.reply_to_message_id=BINARY m.id AND reply.status NOT IN ${terminal})
         OR EXISTS (SELECT 1 FROM agent_schedule_runs r WHERE BINARY r.message_id=BINARY m.id AND r.status IN ('waiting','queued','leased','accepted','recovering','capacity_wait'))
@@ -157,6 +158,7 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
       expect(next.map((row) => row.id)).toEqual(
         expect.arrayContaining(
           [
+            'uncertain-result',
             'digest-parent',
             'reply-parent',
             'notice-live',

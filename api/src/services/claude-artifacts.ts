@@ -138,7 +138,8 @@ function buildArtifact(
   slug: string,
   input: StoreArtifactInput,
 ): { body: string; frontmatter: Record<string, unknown> } {
-  const raw = typeof input.body === 'string' ? input.body : typeof input.content === 'string' ? input.content : '';
+  const raw =
+    typeof input.body === 'string' ? input.body : typeof input.content === 'string' ? input.content : '';
   const { frontmatter: parsedFm, content } = parseFrontmatter(raw);
 
   const fm: Record<string, unknown> = { ...parsedFm };
@@ -163,7 +164,11 @@ function buildArtifact(
   if (kind === 'subagent' && asTrimmedString(fm['name']) === undefined) {
     fm['name'] = slug;
   }
-  if (kind === 'output-style' && asTrimmedString(fm['name']) === undefined && asTrimmedString(input.name) !== undefined) {
+  if (
+    kind === 'output-style' &&
+    asTrimmedString(fm['name']) === undefined &&
+    asTrimmedString(input.name) !== undefined
+  ) {
     fm['name'] = asTrimmedString(input.name);
   }
 
@@ -179,10 +184,27 @@ export class ClaudeArtifactsService {
   // pass is a no-op against MySQL (already filtered) but keeps the in-memory
   // test fake — whose `.where()` is a no-op — correct.
   private async rowsForKind(kind: ArtifactKind, includeDeleted: boolean): Promise<ClaudeArtifact[]> {
+    const owner = ownerRuntimeFor(this.db);
+    owner?.assertOwner();
+    if (owner) {
+      const state = owner.state.snapshot();
+      return state
+        .table('claudeArtifacts')
+        .by('kind', kind)
+        .filter((r) => includeDeleted || !r.deletedAt)
+        .sort((a, b) => a.slug.localeCompare(b.slug))
+        .map((r) => {
+          const body = state.content('claudeArtifacts', r.id, 'body');
+          if (typeof body !== 'string') throw new Error('Current Claude artifact missing');
+          return { ...r, body };
+        });
+    }
     const rows = await this.db
       .select()
       .from(claudeArtifacts)
-      .where(and(eq(claudeArtifacts.kind, kind), includeDeleted ? undefined : isNull(claudeArtifacts.deletedAt)))
+      .where(
+        and(eq(claudeArtifacts.kind, kind), includeDeleted ? undefined : isNull(claudeArtifacts.deletedAt)),
+      )
       .orderBy(asc(claudeArtifacts.slug));
     return rows
       .filter((r) => r.kind === kind && (includeDeleted || !r.deletedAt))
@@ -196,6 +218,10 @@ export class ClaudeArtifactsService {
 
   async find(kind: ArtifactKind, rawSlug: string): Promise<ArtifactView | null> {
     const slug = normalizeSlug(rawSlug);
+    if (ownerRuntimeFor(this.db)) {
+      const row = (await this.rowsForKind(kind, true)).find((r) => r.slug === slug);
+      return row ? toView(row) : null;
+    }
     const rows = await this.db
       .select()
       .from(claudeArtifacts)
@@ -235,19 +261,66 @@ export class ClaudeArtifactsService {
     const model = asTrimmedString(frontmatter['model']) ?? null;
     const engine = asTrimmedString(input.engine) ?? null;
 
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){const result=await mutateOwnerState(owner,{kind:'claude.artifact.store',payload:{kind,slug,sha256:computedSha},prepare:ctx=>{
-      const existing=ctx.snapshot.table('claudeArtifacts').by('kind',kind).find(row=>row.slug===slug),now=nowIso();
-      const status=!existing?'created':existing.sha256===computedSha&&existing.displayName===displayName&&existing.description===description&&existing.model===model&&existing.engine===engine&&!existing.deletedAt?'unchanged':'updated';
-      if(status!=='unchanged'){
-        const values={kind,slug,sha256:computedSha,displayName,description,model,frontmatter,body,sourceHostId,engine,updatedAt:now,deletedAt:null};
-        if(existing)stageUpdate(ctx,'claudeArtifacts',existing.id,values);
-        else ctx.write(async tx=>{const row={...values,createdAt:now},inserted=await tx.insert(claudeArtifacts).values(row);ctx.draft.upsert('claudeArtifacts',{id:Number(inserted[0].insertId),...row});});
-        adminAudit(ctx,'claude_artifact.stored',{kind,slug,status});
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = (await mutateOwnerState(owner, {
+        kind: 'claude.artifact.store',
+        payload: { kind, slug, sha256: computedSha },
+        prepare: (ctx) => {
+          const existing = ctx.snapshot
+              .table('claudeArtifacts')
+              .by('kind', kind)
+              .find((row) => row.slug === slug),
+            now = nowIso();
+          const status = !existing
+            ? 'created'
+            : existing.sha256 === computedSha &&
+                existing.displayName === displayName &&
+                existing.description === description &&
+                existing.model === model &&
+                existing.engine === engine &&
+                !existing.deletedAt
+              ? 'unchanged'
+              : 'updated';
+          if (status !== 'unchanged') {
+            const values = {
+              kind,
+              slug,
+              sha256: computedSha,
+              displayName,
+              description,
+              model,
+              frontmatter,
+              body,
+              sourceHostId,
+              engine,
+              updatedAt: now,
+              deletedAt: null,
+            };
+            if (existing) stageUpdate(ctx, 'claudeArtifacts', existing.id, values);
+            else
+              ctx.write(async (tx) => {
+                const row = { ...values, createdAt: now },
+                  inserted = await tx.insert(claudeArtifacts).values(row);
+                ctx.draft.upsert('claudeArtifacts', { id: Number(inserted[0].insertId), ...row });
+              });
+            adminAudit(ctx, 'claude_artifact.stored', { kind, slug, status });
+          }
+          return {
+            status,
+            kind,
+            slug,
+            sha256: computedSha,
+            updated_at: status === 'unchanged' ? existing!.updatedAt : now,
+          };
+        },
+      })) as unknown as StoreArtifactResult;
+      if (result.status !== 'unchanged') {
+        wsPublisher.publish('claude_artifact.stored', { kind, slug, status: result.status });
+        wsPublisher.publish('claude_artifact.updated', { kind, slug });
       }
-      return {status,kind,slug,sha256:computedSha,updated_at:status==='unchanged'?existing!.updatedAt:now};
-    }}) as unknown as StoreArtifactResult;
-    if(result.status!=='unchanged'){wsPublisher.publish('claude_artifact.stored',{kind,slug,status:result.status});wsPublisher.publish('claude_artifact.updated',{kind,slug});}return result;}
+      return result;
+    }
 
     const existingRows = await this.db
       .select()
@@ -323,13 +396,37 @@ export class ClaudeArtifactsService {
   /** Soft-delete via `deleted_at`. Returns false if no live row matched. */
   async softDelete(kind: ArtifactKind, rawSlug: string): Promise<boolean> {
     const slug = normalizeSlug(rawSlug);
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){const deleted=await mutateOwnerState(owner,{kind:'claude.artifact.delete',payload:{kind,slug},prepare:ctx=>{const existing=ctx.snapshot.table('claudeArtifacts').by('kind',kind).find(row=>row.slug===slug);if(!existing||existing.deletedAt)return false;const now=nowIso();stageUpdate(ctx,'claudeArtifacts',existing.id,{deletedAt:now,updatedAt:now});adminAudit(ctx,'claude_artifact.deleted',{kind,slug});return true;}});if(deleted)wsPublisher.publish('claude_artifact.deleted',{kind,slug});return Boolean(deleted);}
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const deleted = await mutateOwnerState(owner, {
+        kind: 'claude.artifact.delete',
+        payload: { kind, slug },
+        prepare: (ctx) => {
+          const existing = ctx.snapshot
+            .table('claudeArtifacts')
+            .by('kind', kind)
+            .find((row) => row.slug === slug);
+          if (!existing || existing.deletedAt) return false;
+          const now = nowIso();
+          stageUpdate(ctx, 'claudeArtifacts', existing.id, { deletedAt: now, updatedAt: now });
+          adminAudit(ctx, 'claude_artifact.deleted', { kind, slug });
+          return true;
+        },
+      });
+      if (deleted) wsPublisher.publish('claude_artifact.deleted', { kind, slug });
+      return Boolean(deleted);
+    }
 
     const rows = await this.db
       .select()
       .from(claudeArtifacts)
-      .where(and(eq(claudeArtifacts.kind, kind), eq(claudeArtifacts.slug, slug), isNull(claudeArtifacts.deletedAt)));
+      .where(
+        and(
+          eq(claudeArtifacts.kind, kind),
+          eq(claudeArtifacts.slug, slug),
+          isNull(claudeArtifacts.deletedAt),
+        ),
+      );
     const existing = rows.find((r) => r.kind === kind && r.slug === slug && !r.deletedAt);
     if (!existing) return false;
 

@@ -1,5 +1,17 @@
 # cgx — Grok Build fleet wrapper
 
+## Local content cache (cxx 0.9.128)
+
+Signed protocol 3 serves valid content hits directly from communicator RAM,
+without server confirmation. Public loaded Skills/config may remain available
+offline; private Knowledge/project reads require a coherent connection. Each
+new native launch still obtains live engine-specific auth/account admission.
+Auth refresh ownership is unchanged, including Grok's central sole refresher.
+Old busy owners retain their native processes and use protocol-2 compatibility.
+See the [current communicator contract](communicator.md#local-content-ram-cache-cxx-09128-protocol-3).
+
+The protocol-2 notes below apply to older wrappers/owners.
+
 From cxx 0.9.122, signed `communicator_cache_protocol:2` enables the
 [server-confirmed RAM cache](communicator.md#server-confirmed-ram-cache-cxx-09122-protocol-2).
 Every selected content/Skill/auth read obtains a fresh server confirmation.

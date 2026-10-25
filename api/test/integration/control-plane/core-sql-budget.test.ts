@@ -77,8 +77,19 @@ describe.skipIf(!config)('owner core SQL budget against real MySQL', () => {
         expect(owner.runtime.state.snapshot().setting(name)).toBe('persisted');
         budget.reset();
         expect(await mutateOwnerState(owner.runtime, mutation)).toEqual({ accepted: true });
-        expect(prepare).toHaveBeenCalledTimes(1);
-        expect(budget.snapshot().map((row) => row.kind)).toEqual(['SELECT']);
+        expect(prepare).toHaveBeenCalledTimes(2);
+        const replay = budget.snapshot();
+        expect(replay.some((row) => row.kind === 'ROLLBACK')).toBe(true);
+        expect(
+          replay.some(
+            (row) => row.kind === 'SELECT' && row.tables.includes('control_plane_command_receipts'),
+          ),
+        ).toBe(true);
+        expect(
+          replay.some(
+            (row) => ['INSERT', 'UPDATE', 'DELETE'].includes(row.kind) && row.tables.includes('versions'),
+          ),
+        ).toBe(false);
         expect(errors).toEqual([]);
       } finally {
         vi.useRealTimers();

@@ -76,13 +76,17 @@ export function projectRoomEventDeletion(
   stageRoomEventDeletion({ draft }, row, remainingLastAt);
 }
 /** Keep rate-limit metadata and exact unfinished conference-delivery dependencies. */
-export function pruneRoomEventMetadata(draft: OwnerStateDraft, now = Date.now()): void {
-  const cutoff = new Date(now - 60000).toISOString(),
-    needed = new Set<string>();
+export function pruneRoomEventMetadata(draft: OwnerStateDraft): void {
   for (const delivery of draft.table('agentRoomDeliveries').all()) {
     const message = delivery.messageId ? draft.table('agentBusMessages').get(delivery.messageId) : undefined,
       event = draft.table('agentRoomEvents').get(delivery.eventId),
       conference = event ? draft.table('agentBusConferences').get(event.roomId) : undefined;
+    if (
+      message &&
+      (['queued', 'leased', 'accepted', 'reboot_hold', 'batched', 'ambiguous'].includes(message.status) ||
+        message.taskResultStatus === 'unknown')
+    )
+      continue;
     if (
       message &&
       conference &&
@@ -90,9 +94,7 @@ export function pruneRoomEventMetadata(draft: OwnerStateDraft, now = Date.now())
       message.senderAddressId === '00000000-0000-4000-8000-000000000001' &&
       !['completed', 'dead', 'expired', 'canceled', 'ambiguous'].includes(message.status)
     )
-      needed.add(delivery.eventId);
-    else draft.remove('agentRoomDeliveries', [delivery.eventId, delivery.addressId]);
+      continue;
+    draft.remove('agentRoomDeliveries', [delivery.eventId, delivery.addressId]);
   }
-  for (const event of draft.table('agentRoomEvents').all())
-    if (event.createdAt <= cutoff && !needed.has(event.id)) draft.remove('agentRoomEvents', event.id);
 }

@@ -32,7 +32,8 @@ describe('exclusive owner lifetime', () => {
     f.owner.assertReady();
     expect(f.owner.heldConnection()).toBe(connection);
     expect(f.pool.getConnection).toHaveBeenCalledOnce();
-    expect(f.connection.query).toHaveBeenCalledTimes(2);
+    expect(f.connection.query).toHaveBeenCalledTimes(3);
+    expect(f.connection.query).toHaveBeenCalledWith('SET SESSION wait_timeout = 31536000');
   });
   it('refuses a second owner and never reuses the rejected connection', async () => {
     const f = fixture(0);

@@ -1,5 +1,13 @@
 # Overview
 
+The 2026-10-25 [stateful redesign](../REDESIGN.md) keeps current content and
+authority in owner RAM, separates volatile observations from durable writes,
+and removes SQL-based retention protection discovery. cxx 0.9.128 protocol 3
+serves valid content hits locally and uses scoped push invalidations. Native
+admission stays live; idle communicators do not poll daemon policy. WebUI
+invalidates affected query families rather than refreshing every view on a
+bookkeeping revision. See [communicator.md](communicator.md) for compatibility.
+
 Server history settings at `/admin/settings#retention` control actual deadline-driven cleanup: audit 14 days, inactive history 24 hours and optional quota history seven days. Current quotas and unresolved work remain protected. The same page keeps local engine housekeeping separate, including all existing host overrides. Docker diagnostics are size-bounded rather than age-bounded. New deployments first install compatible receipt readers, then explicitly arm cold cleanup without creating backups.
 
 Routine HTTP access logging is disabled. Audit history retains authentication,

@@ -23,7 +23,13 @@ class Publisher {
   private backlogCap = 1000;
 
   publish<P>(type: WsEventType | string, payload: P): void {
-    const event: WsEvent<P> = { type, payload, ts: nowIso(), epoch: this.epoch, sequence: (++this.sequence).toString() };
+    const event: WsEvent<P> = {
+      type,
+      payload,
+      ts: nowIso(),
+      epoch: this.epoch,
+      sequence: (++this.sequence).toString(),
+    };
     this.backlog.push(event);
     if (this.backlog.length > this.backlogCap) this.backlog.shift();
     for (const l of this.listeners) {
@@ -54,9 +60,19 @@ export const wsPublisher = new Publisher();
 /** Publish committed metadata changes only; transport activity never enters this stream. */
 export function publishOwnerStateChanges(runtime: OwnerRuntime): () => void {
   let previous = runtime.state.snapshot();
-  return runtime.state.subscribe((snapshot) => {
-    const tables = OWNED_TABLE_NAMES.filter((name) => previous.table(name) !== snapshot.table(name));
+  return runtime.state.subscribe((snapshot, persistence) => {
+    const before = previous;
     previous = snapshot;
+    if (persistence === 'volatile') return;
+    const tables = OWNED_TABLE_NAMES.filter((name) => {
+      if (before.table(name) === snapshot.table(name)) return false;
+      if (name !== 'versions') return true;
+      const old = new Map(before.settings.all().map((row) => [row.name, row.version]));
+      const current = new Map(snapshot.settings.all().map((row) => [row.name, row.version]));
+      return [...new Set([...old.keys(), ...current.keys()])].some(
+        (key) => !key.startsWith('owner_') && old.get(key) !== current.get(key),
+      );
+    });
     if (tables.length) wsPublisher.publish('control_state.changed', { tables });
   });
 }

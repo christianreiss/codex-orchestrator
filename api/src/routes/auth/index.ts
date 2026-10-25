@@ -1,6 +1,6 @@
-import {persistAuditLog} from '../../services/audit-log.js';
+import { persistAuditLog } from '../../services/audit-log.js';
 import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
-import { recordAuthCall,flushAuthCalls,uninstallOwnedHost } from './owner.js';
+import { recordAuthCall, flushAuthCalls, uninstallOwnedHost } from './owner.js';
 import { readQuotaPolicy } from '../../services/quota-policy.js';
 import { ProviderAccountsService } from '../../services/provider-accounts.js';
 import { hostWithCallerWrapper } from '../../services/host-wrapper-capabilities.js';
@@ -83,7 +83,10 @@ import { suspendAgentMessagingRuntimeLocked } from '../../services/agent-messagi
  * configured) verifies it before persisting.
  */
 export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
-  app.addHook('onClose',async()=>{const owner=ownerRuntimeFor(ctx.db);if(owner)await flushAuthCalls(owner);});
+  app.addHook('onClose', async () => {
+    const owner = ownerRuntimeFor(ctx.db);
+    if (owner) await flushAuthCalls(owner);
+  });
   const insecure = createInsecureWindowService({ db: ctx.db, env: ctx.env });
   const hostAuth = createHostAuthService({ db: ctx.db, env: ctx.env, insecure });
   const clientVersions = new ClientVersionsService(new SettingsService(ctx.db), app.log);
@@ -99,21 +102,23 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     ? join(ctx.env.DATA_ROOT, 'wrapper', 'v2', 'bin')
     : resolve(import.meta.dirname, '..', '..', '..', '..', 'storage', 'wrapper', 'v2', 'bin');
   const binaries = createWrapperBinRegistry({ binRoot });
-  const requestVersions = (
-    req: FastifyRequest,
-    host: Host,
-    reuse = false,
-  ): RequestVersionProjector => {
+  const requestVersions = (req: FastifyRequest, host: Host, reuse = false): RequestVersionProjector => {
     const platform = resolveWrapperPlatform(req.headers);
     const publicBaseUrl = resolvePublicBaseUrl(req, ctx.env.PUBLIC_BASE_URL);
     const summaries = new Map<Engine, Promise<VersionSnapshot>>();
     const projections = new Map<Engine, Map<unknown, Promise<VersionSnapshot>>>();
-    const invalidate = () => { summaries.clear(); projections.clear(); };
+    const invalidate = () => {
+      summaries.clear();
+      projections.clear();
+    };
     const summary = (engine: Engine): Promise<VersionSnapshot> => {
       if (!reuse) return versions.summary(engine);
       let pending = summaries.get(engine);
       if (!pending) {
-        pending = versions.summary(engine).catch(error => { invalidate(); throw error; });
+        pending = versions.summary(engine).catch((error) => {
+          invalidate();
+          throw error;
+        });
         summaries.set(engine, pending);
       }
       return pending;
@@ -122,18 +127,22 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       (engine: Engine, submittedWrapperVersion: unknown): Promise<VersionSnapshot> => {
         const cached = projections.get(engine)?.get(submittedWrapperVersion);
         if (cached) return cached;
-        const pending = (async () => applyHostVersionPolicy(
-          await projectWrapperVersionSnapshot({
-            snapshot: await summary(engine),
+        const pending = (async () =>
+          applyHostVersionPolicy(
+            await projectWrapperVersionSnapshot({
+              snapshot: await summary(engine),
+              engine,
+              submittedWrapperVersion,
+              platform,
+              publicBaseUrl,
+              binaries,
+            }),
+            host,
             engine,
-            submittedWrapperVersion,
-            platform,
-            publicBaseUrl,
-            binaries,
-          }),
-          host,
-          engine,
-        ))().catch(error => { invalidate(); throw error; });
+          ))().catch((error) => {
+          invalidate();
+          throw error;
+        });
         if (reuse) {
           const byVersion = projections.get(engine) ?? new Map<unknown, Promise<VersionSnapshot>>();
           byVersion.set(submittedWrapperVersion, pending);
@@ -174,7 +183,11 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const sessionId = opaqueId(payload.session_id, 'session_id');
     let quota = await readQuotaControls(ctx, host.vip === 1, engine);
     const preferred = accountIdFrom(payload.account_id);
-    if (payload.ownership_mode !== undefined && payload.ownership_mode !== 'timed' && payload.ownership_mode !== 'connection')
+    if (
+      payload.ownership_mode !== undefined &&
+      payload.ownership_mode !== 'timed' &&
+      payload.ownership_mode !== 'connection'
+    )
       throw new ValidationError('ownership_mode must be timed or connection', { param: 'ownership_mode' });
     // Old wrappers cannot establish a provider attachment before their first
     // auth confirmation. Connection ownership requires explicit negotiation.
@@ -191,9 +204,33 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     quota = await readQuotaControls(ctx, host.vip === 1, engine, lease.account.id);
     if (engine === ENGINE_GROK) {
       try {
-        const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({ accountId: lease.account.id, sourceHostId: host.id, sessionId, bootstrapSession: true });
-        return { account_id: lease.account.id, account_label: lease.account.label, session_id: sessionId, ownership_mode: 'ownership_mode' in lease ? lease.ownership_mode : 'timed', expires_at: lease.expires_at, access_expires_at: snapshot.expires_at, auth: snapshot.auth, canonical_digest: snapshot.digest, canonical_last_refresh: snapshot.last_refresh, canonical_generation: snapshot.canonical_generation, access_token_digest: snapshot.access_token_digest, verification_state: 'verified', refresh_state: snapshot.refresh_state, usage: { supported: false }, ...quota };
-      } catch (error) { await accounts.release(host.id, engine, sessionId); throw error; }
+        const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({
+          accountId: lease.account.id,
+          sourceHostId: host.id,
+          sessionId,
+          bootstrapSession: true,
+        });
+        return {
+          account_id: lease.account.id,
+          account_label: lease.account.label,
+          session_id: sessionId,
+          ownership_mode: 'ownership_mode' in lease ? lease.ownership_mode : 'timed',
+          expires_at: lease.expires_at,
+          access_expires_at: snapshot.expires_at,
+          auth: snapshot.auth,
+          canonical_digest: snapshot.digest,
+          canonical_last_refresh: snapshot.last_refresh,
+          canonical_generation: snapshot.canonical_generation,
+          access_token_digest: snapshot.access_token_digest,
+          verification_state: 'verified',
+          refresh_state: snapshot.refresh_state,
+          usage: { supported: false },
+          ...quota,
+        };
+      } catch (error) {
+        await accounts.release(host.id, engine, sessionId);
+        throw error;
+      }
     }
     const row = await runnerValidation.resolveCanonicalPayload(engine, lease.account.id);
     const auth = row ? runnerValidation.canonicalAuthFromPayload(row) : null;
@@ -227,8 +264,18 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const heartbeat = await accounts.heartbeat(host.id, engine, sessionId);
     if (engine !== ENGINE_GROK) return heartbeat;
     if (!(await readFleetEngineState(ctx.db))[engine]) return { ...heartbeat, refresh_state: 'suspended' };
-    const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({ accountId: heartbeat.account_id, sourceHostId: host.id, sessionId });
-    return { ...heartbeat, canonical_generation: snapshot.canonical_generation, access_token_digest: snapshot.access_token_digest, access_expires_at: snapshot.expires_at, refresh_state: snapshot.refresh_state };
+    const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({
+      accountId: heartbeat.account_id,
+      sourceHostId: host.id,
+      sessionId,
+    });
+    return {
+      ...heartbeat,
+      canonical_generation: snapshot.canonical_generation,
+      access_token_digest: snapshot.access_token_digest,
+      access_expires_at: snapshot.expires_at,
+      refresh_state: snapshot.refresh_state,
+    };
   });
   app.post('/auth/sessions/release', async (req) => {
     await assertApiNotDisabled(versions);
@@ -276,12 +323,18 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
   });
 
   // DELETE /auth — host uninstall.
-  app.delete('/auth', {config:{ownerResponse:'committed-action'}}, async (req) => {
+  app.delete('/auth', { config: { ownerResponse: 'committed-action' } }, async (req) => {
     const host = await hostAuth.authenticate(req);
     const query = req.query as { force?: string; engine?: string };
     const force = query.force === '1';
     const explicitEngine = typeof query.engine === 'string' && query.engine.trim() !== '';
-    const owner=ownerRuntimeFor(ctx.db);if(owner){const requested=explicitEngine?query.engine!.trim().toLowerCase():undefined;if(requested&&!isEngine(requested))throw new ValidationError('engine must be "codex", "claude" or "grok"',{param:'engine'});return uninstallOwnedHost(owner,host,requested as Engine|undefined,force);}
+    const owner = ownerRuntimeFor(ctx.db);
+    if (owner) {
+      const requested = explicitEngine ? query.engine!.trim().toLowerCase() : undefined;
+      if (requested && !isEngine(requested))
+        throw new ValidationError('engine must be "codex", "claude" or "grok"', { param: 'engine' });
+      return uninstallOwnedHost(owner, host, requested as Engine | undefined, force);
+    }
     if (explicitEngine) {
       const engine = query.engine!.trim().toLowerCase();
       if (!isEngine(engine)) {
@@ -327,25 +380,25 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
                     grokReasoningEffortOverride: null,
                   }
                 : engine === ENGINE_CLAUDE
-                ? {
-                    claudeAuthDigest: null,
-                    claudeLastRefresh: null,
-                    claudeClientVersion: null,
-                    claudeClientVersionOverride: null,
-                    claudeWrapperVersion: null,
-                    claudeModelOverride: null,
-                    claudeReasoningEffortOverride: null,
-                  }
-                : {
-                    authDigest: null,
-                    lastRefresh: null,
-                    clientVersion: null,
-                    clientVersionOverride: null,
-                    wrapperVersion: null,
-                    lanePreference: null,
-                    modelOverride: null,
-                    reasoningEffortOverride: null,
-                  }),
+                  ? {
+                      claudeAuthDigest: null,
+                      claudeLastRefresh: null,
+                      claudeClientVersion: null,
+                      claudeClientVersionOverride: null,
+                      claudeWrapperVersion: null,
+                      claudeModelOverride: null,
+                      claudeReasoningEffortOverride: null,
+                    }
+                  : {
+                      authDigest: null,
+                      lastRefresh: null,
+                      clientVersion: null,
+                      clientVersionOverride: null,
+                      wrapperVersion: null,
+                      lanePreference: null,
+                      modelOverride: null,
+                      reasoningEffortOverride: null,
+                    }),
               updatedAt: now,
             })
             .where(eq(hostsTable.id, host.id));
@@ -446,6 +499,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       await accounts.get(accountId, ENGINE_CLAUDE);
     }
     const svc = new ClaudeUsageService(ctx.db, accountId);
+    const previous = ownerRuntimeFor(ctx.db) ? await svc.latest() : null;
     const row = await svc.store({
       accountId,
       hostId: host.id,
@@ -455,7 +509,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       sevenDayUsedPercent: toFiniteNumber(sevenDay.used_percent),
       sevenDayResetsAt: typeof sevenDay.resets_at === 'string' ? sevenDay.resets_at : null,
     });
-    if (row) {
+    if (row && row.id !== previous?.id) {
       wsPublisher.publish('claude.usage.updated', { fetched_at: row.fetchedAt });
     }
     return { status: row ? 'ok' : 'ignored' };
@@ -490,7 +544,10 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const userInput = extractHostUserInput(payload);
     const users = await syncService.recordHostUser(enforced.id, userInput.username, userInput.hostname);
     const out = await syncService.collect({
-      host: enforced, engine, bootstrap: true, users,
+      host: enforced,
+      engine,
+      bootstrap: true,
+      users,
       versionSnapshot: await projectedVersions.summary(engine),
     });
     out.versions = await projectedVersions(engine, payload.wrapper_version);
@@ -654,7 +711,9 @@ async function handleRetrieve(
       const base = await buildRetrieveBaseResponse(ctx, host, payload, engine, projectVersions);
       base.grok_usage = await readGrokUsageSnapshot(ctx, row?.accountId ?? accountIdFrom(payload.account_id));
       return {
-        ...base, account_pool: true, metadata_only: true,
+        ...base,
+        account_pool: true,
+        metadata_only: true,
         status: snapshot ? 'available' : 'missing',
         verification_state: row?.verificationState ?? 'unknown',
         canonical_generation: row?.generation ?? null,
@@ -667,14 +726,45 @@ async function handleRetrieve(
       };
     }
     const refresh = payload.refresh_if_generation;
-    if (refresh !== undefined && (!Number.isSafeInteger(refresh) || Number(refresh) < 0)) throw new ValidationError('refresh_if_generation must be a non-negative integer', { param: 'refresh_if_generation' });
-    const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner: createRunnerClient({ env: ctx.env }) }).ensureFresh({ accountId: accountIdFrom(payload.account_id), sourceHostId: host.id, sessionId: typeof payload.session_id === 'string' ? payload.session_id : undefined, refreshIfGeneration: refresh === undefined ? undefined : Number(refresh) });
+    if (refresh !== undefined && (!Number.isSafeInteger(refresh) || Number(refresh) < 0))
+      throw new ValidationError('refresh_if_generation must be a non-negative integer', {
+        param: 'refresh_if_generation',
+      });
+    const snapshot = await createGrokAuthOwner({
+      db: ctx.db,
+      keyring: ctx.keyring,
+      runner: createRunnerClient({ env: ctx.env }),
+    }).ensureFresh({
+      accountId: accountIdFrom(payload.account_id),
+      sourceHostId: host.id,
+      sessionId: typeof payload.session_id === 'string' ? payload.session_id : undefined,
+      refreshIfGeneration: refresh === undefined ? undefined : Number(refresh),
+    });
     projectVersions.invalidate();
     const base = await buildRetrieveBaseResponse(ctx, host, payload, engine, projectVersions);
     base.grok_usage = await readGrokUsageSnapshot(ctx, snapshot.row.accountId ?? undefined);
     await touchHostAuthState(ctx.db, host.id, snapshot.row.id, snapshot.digest, engine);
     await touchHostAuthFields(ctx.db, host.id, snapshot.last_refresh, snapshot.digest, engine);
-    return { ...base, account_pool: true, account_id: snapshot.row.accountId, canonical_digest: snapshot.digest, canonical_last_refresh: snapshot.last_refresh, canonical_generation: snapshot.canonical_generation, ...grokProjectionMetadata(snapshot.auth), verification_state: 'verified', refresh_state: snapshot.refresh_state, status: extractDigest(payload, false) === snapshot.digest ? 'valid' : 'outdated', auth: snapshot.auth, usage: { supported: false, short_used_percent: null, short_resets_at: null, weekly_used_percent: null, weekly_resets_at: null } };
+    return {
+      ...base,
+      account_pool: true,
+      account_id: snapshot.row.accountId,
+      canonical_digest: snapshot.digest,
+      canonical_last_refresh: snapshot.last_refresh,
+      canonical_generation: snapshot.canonical_generation,
+      ...grokProjectionMetadata(snapshot.auth),
+      verification_state: 'verified',
+      refresh_state: snapshot.refresh_state,
+      status: extractDigest(payload, false) === snapshot.digest ? 'valid' : 'outdated',
+      auth: snapshot.auth,
+      usage: {
+        supported: false,
+        short_used_percent: null,
+        short_resets_at: null,
+        weekly_used_percent: null,
+        weekly_resets_at: null,
+      },
+    };
   }
   const providedDigest = extractDigest(payload, false);
   const incomingLast =
@@ -692,10 +782,15 @@ async function handleRetrieve(
 
   // Bump api_calls. Atomic SQL increment — avoids lost updates from concurrent
   // requests reading the same stale `host.apiCalls` snapshot.
-  const apiCalls = await recordAuthCall(ctx.db,host);
+  const apiCalls = await recordAuthCall(ctx.db, host);
 
   const versions = await projectVersions(engine, payload.wrapper_version);
-  const quota = await readQuotaControls(ctx, host.vip === 1, engine, accountId ?? canonicalRow?.accountId ?? undefined);
+  const quota = await readQuotaControls(
+    ctx,
+    host.vip === 1,
+    engine,
+    accountId ?? canonicalRow?.accountId ?? undefined,
+  );
   const baseResponse: Record<string, unknown> = {
     account_pool: true,
     account_id: accountId ?? canonicalRow?.accountId ?? undefined,
@@ -709,10 +804,21 @@ async function handleRetrieve(
     cdx_silent: versions.cdx_silent,
     engine,
   };
-  const [chatgpt, claude, advice] = await readAuthQuotaSnapshots(ctx, host, engine, accountId ?? canonicalRow?.accountId ?? undefined, quota.quota_unlimited === true);
+  const [chatgpt, claude, advice] = await readAuthQuotaSnapshots(
+    ctx,
+    host,
+    engine,
+    accountId ?? canonicalRow?.accountId ?? undefined,
+    quota.quota_unlimited === true,
+  );
   if (engine === ENGINE_CODEX) Object.assign(baseResponse, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
-  baseResponse.quota_advice = quotaAdviceSnapshot(quota.quota_unlimited ? { ...advice, mode: 'off' } : advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
+  baseResponse.quota_advice = quotaAdviceSnapshot(
+    quota.quota_unlimited ? { ...advice, mode: 'off' } : advice,
+    activeHostEngines(host.engines, await readFleetEngineState(ctx.db)),
+    chatgpt,
+    claude,
+  );
 
   if (!canonicalRow || !canonicalDigest) {
     return {
@@ -802,7 +908,7 @@ async function buildRetrieveBaseResponse(
 ): Promise<Record<string, unknown>> {
   // Atomic SQL increment — avoids lost updates from concurrent requests
   // reading the same stale `host.apiCalls` snapshot.
-  const apiCalls = await recordAuthCall(ctx.db,host);
+  const apiCalls = await recordAuthCall(ctx.db, host);
 
   const versions = await projectVersions(engine, payload.wrapper_version);
   const quota = await readQuotaControls(ctx, host.vip === 1, engine, accountIdFrom(payload.account_id));
@@ -814,11 +920,23 @@ async function buildRetrieveBaseResponse(
     cdx_silent: versions.cdx_silent,
     engine,
   };
-  const [chatgpt, claude, advice] = await readAuthQuotaSnapshots(ctx, host, engine, accountIdFrom(payload.account_id), quota.quota_unlimited === true);
+  const [chatgpt, claude, advice] = await readAuthQuotaSnapshots(
+    ctx,
+    host,
+    engine,
+    accountIdFrom(payload.account_id),
+    quota.quota_unlimited === true,
+  );
   if (engine === ENGINE_CODEX) Object.assign(baseResponse, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
-  else if (engine === ENGINE_GROK) baseResponse.grok_usage = await readGrokUsageSnapshot(ctx, accountIdFrom(payload.account_id));
-  baseResponse.quota_advice = quotaAdviceSnapshot(quota.quota_unlimited ? { ...advice, mode: 'off' } : advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
+  else if (engine === ENGINE_GROK)
+    baseResponse.grok_usage = await readGrokUsageSnapshot(ctx, accountIdFrom(payload.account_id));
+  baseResponse.quota_advice = quotaAdviceSnapshot(
+    quota.quota_unlimited ? { ...advice, mode: 'off' } : advice,
+    activeHostEngines(host.engines, await readFleetEngineState(ctx.db)),
+    chatgpt,
+    claude,
+  );
   return baseResponse;
 }
 
@@ -1143,7 +1261,7 @@ async function handleStore(
   const now = nowIso();
   // Atomic SQL increment — avoids lost updates from concurrent requests
   // reading the same stale `host.apiCalls` snapshot.
-  const apiCalls = await recordAuthCall(ctx.db,host);
+  const apiCalls = await recordAuthCall(ctx.db, host);
 
   const summary = await projectVersions(engine, payload.wrapper_version);
   const quota = await readQuotaControls(ctx, host.vip === 1, engine, stored.account_id);
@@ -1157,11 +1275,22 @@ async function handleStore(
     cdx_silent: summary.cdx_silent,
     host: buildHostPayload(host, await readFleetEngineState(ctx.db)),
   };
-  const [chatgpt, claude, advice] = await readAuthQuotaSnapshots(ctx, host, engine, stored.account_id, quota.quota_unlimited === true);
+  const [chatgpt, claude, advice] = await readAuthQuotaSnapshots(
+    ctx,
+    host,
+    engine,
+    stored.account_id,
+    quota.quota_unlimited === true,
+  );
   if (engine === ENGINE_CODEX) Object.assign(response, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) response.claude_usage = claude;
   else if (engine === ENGINE_GROK) response.grok_usage = await readGrokUsageSnapshot(ctx, stored.account_id);
-  response.quota_advice = quotaAdviceSnapshot(quota.quota_unlimited ? { ...advice, mode: 'off' } : advice, activeHostEngines(host.engines, await readFleetEngineState(ctx.db)), chatgpt, claude);
+  response.quota_advice = quotaAdviceSnapshot(
+    quota.quota_unlimited ? { ...advice, mode: 'off' } : advice,
+    activeHostEngines(host.engines, await readFleetEngineState(ctx.db)),
+    chatgpt,
+    claude,
+  );
   return response;
 }
 
@@ -1387,18 +1516,54 @@ function codexUsageFields(
 /** Alternative-engine advice uses an enabled verified account of that engine.
  * Never query another provider's history with the current engine's account ID.
  * Read only: advice does not acquire leases or refresh provider credentials. */
-async function readAuthQuotaSnapshots(ctx: RouteContext, host: Host, engine: Engine, accountId: number | undefined, unlimited: boolean) {
+async function readAuthQuotaSnapshots(
+  ctx: RouteContext,
+  host: Host,
+  engine: Engine,
+  accountId: number | undefined,
+  unlimited: boolean,
+) {
   const advice = await readQuotaAdvice(new SettingsService(ctx.db));
   const enabled = activeHostEngines(host.engines, await readFleetEngineState(ctx.db));
   const alternatives = !unlimited && advice.mode !== 'off';
-  const needed: Engine[] = [ENGINE_CODEX, ENGINE_CLAUDE].filter((e) => e === engine || alternatives && enabled.includes(e));
-  const owner=ownerRuntimeFor(ctx.db);owner?.assertOwner();const snapshot=owner?.state.snapshot();
-  const accounts = alternatives && snapshot ? snapshot.table('providerAccounts').all().filter(a=>needed.includes(a.engine as Engine)&&a.state==='enabled'&&!a.mergedIntoAccountId&&a.payloadId!==null&&snapshot.table('authPayloads').get(a.payloadId)?.verificationState==='verified').sort((a,b)=>(b.lastSelectedAt??'').localeCompare(a.lastSelectedAt??'')||b.id-a.id).map(a=>({id:a.id,engine:a.engine})) : alternatives ? await ctx.db.select({ id: providerAccounts.id, engine: providerAccounts.engine })
-    .from(providerAccounts).innerJoin(authPayloads, eq(providerAccounts.payloadId, authPayloads.id))
-    .where(and(inArray(providerAccounts.engine, needed), eq(providerAccounts.state, 'enabled'),
-      isNull(providerAccounts.mergedIntoAccountId), eq(authPayloads.verificationState, 'verified')))
-    .orderBy(desc(providerAccounts.lastSelectedAt), desc(providerAccounts.id)) : [];
-  const idFor = (target: Engine) => target === engine ? accountId : accounts.find((a) => a.engine === target)?.id;
+  const needed: Engine[] = [ENGINE_CODEX, ENGINE_CLAUDE].filter(
+    (e) => e === engine || (alternatives && enabled.includes(e)),
+  );
+  const owner = ownerRuntimeFor(ctx.db);
+  owner?.assertOwner();
+  const snapshot = owner?.state.snapshot();
+  const accounts =
+    alternatives && snapshot
+      ? snapshot
+          .table('providerAccounts')
+          .all()
+          .filter(
+            (a) =>
+              needed.includes(a.engine as Engine) &&
+              a.state === 'enabled' &&
+              !a.mergedIntoAccountId &&
+              a.payloadId !== null &&
+              snapshot.table('authPayloads').get(a.payloadId)?.verificationState === 'verified',
+          )
+          .sort((a, b) => (b.lastSelectedAt ?? '').localeCompare(a.lastSelectedAt ?? '') || b.id - a.id)
+          .map((a) => ({ id: a.id, engine: a.engine }))
+      : alternatives
+        ? await ctx.db
+            .select({ id: providerAccounts.id, engine: providerAccounts.engine })
+            .from(providerAccounts)
+            .innerJoin(authPayloads, eq(providerAccounts.payloadId, authPayloads.id))
+            .where(
+              and(
+                inArray(providerAccounts.engine, needed),
+                eq(providerAccounts.state, 'enabled'),
+                isNull(providerAccounts.mergedIntoAccountId),
+                eq(authPayloads.verificationState, 'verified'),
+              ),
+            )
+            .orderBy(desc(providerAccounts.lastSelectedAt), desc(providerAccounts.id))
+        : [];
+  const idFor = (target: Engine) =>
+    target === engine ? accountId : accounts.find((a) => a.engine === target)?.id;
   const read = async (target: Engine) => {
     if (!needed.includes(target)) return { status: 'unavailable' };
     const id = idFor(target);
@@ -1420,7 +1585,7 @@ async function readChatgptSnapshot(ctx: RouteContext, accountId?: number): Promi
     if (!row) return unavailable;
     return {
       ...normalizeChatGptUsageSnapshot(row),
-      ...await svc.dailyUsage(row),
+      ...(await svc.dailyUsage(row)),
       // Usage snapshots are account-wide, but the active lane is host state.
       // Shape it at the host response boundary instead of leaking the
       // normal-lane default baked into the account snapshot normalizer. The
@@ -1432,7 +1597,10 @@ async function readChatgptSnapshot(ctx: RouteContext, accountId?: number): Promi
   }
 }
 
-async function readGrokUsageSnapshot(ctx: RouteContext, accountId?: number): Promise<Record<string, unknown>> {
+async function readGrokUsageSnapshot(
+  ctx: RouteContext,
+  accountId?: number,
+): Promise<Record<string, unknown>> {
   if (!accountId) return { status: 'unavailable' };
   try {
     return grokUsageAuthFields(await readGrokUsage(ctx.db, accountId));

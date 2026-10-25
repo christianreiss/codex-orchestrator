@@ -1,3 +1,9 @@
+# 2026-10-25
+
+- Keep current Auth, Skills, Knowledge and configuration privately in owner RAM; serve current reads without SQL transactions. Separate volatile presence/freshness from durable changes and reserve idempotency receipts before domain writes. Unchanged quota reports no longer create duplicate history or UI refreshes. Current Knowledge search uses deterministic RAM ranking instead of MySQL FULLTEXT scores.
+- Compute retention protections in RAM, preserve paused/uncertain/native work, and skip empty SQL sweeps. Keep WebUI retention policies and overrides effective; scope dashboard invalidations to affected data.
+- cxx 0.9.128 adds protocol-3 local content hits without server confirmations, scoped push invalidation and event-driven daemon policy. Preserve live admission, private-data coherence, real expiry and compatibility with busy older owners. Document the full plan and verification contract in `REDESIGN.md`.
+
 # 2026-10-24
 
 - Watch missing wrapper publication directories through non-recursive ancestor watches; attach recursively only to the actual binary tree. Avoid filesystem-wide scans when a configured path does not exist.
