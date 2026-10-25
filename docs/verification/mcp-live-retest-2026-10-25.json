@@ -49,5 +49,23 @@
       "resource_read"
     ],
     "terminal_warning": "Session already completed; stale-proof post-finish maintenance warning, fixed and retest tracked separately."
+  },
+  "final_native_canary": {
+    "api_commit": "eab8be5bc056edd4dedd18945a3c0b0704de0fd4",
+    "wrapper": "0.9.130",
+    "native_session_id": "01a1732a-89ee-7500-9ecb-231d3c23d576",
+    "server_session_id": "ab188b01-2fa9-4365-b1b4-9664f3b0089f",
+    "exit_code": 0,
+    "normal_single_call_pass": [
+      "skill_list",
+      "skill_retrieve",
+      "shared_memory_list",
+      "shared_memory_search",
+      "resource_read"
+    ],
+    "finalization_warning": false,
+    "server_status": "completed",
+    "binding_generation": 2,
+    "ended_at": "2026-10-25T13:06:01Z"
   }
 }
