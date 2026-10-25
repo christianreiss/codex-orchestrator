@@ -1,0 +1,84 @@
+{
+  "date": "2026-10-25",
+  "production_host": "docker01.uggs.io",
+  "remote_host": "biest.eulie.de",
+  "candidate_wrapper": "0.9.132",
+  "baseline_mixed_load": {
+    "at": "2026-10-25T15:52:51.344324+00:00",
+    "image": "sha256:84602f51565f72ebadf900d669db604841c4d4f0f7967d71b0d828b7d8185c5c",
+    "seconds": 120.894,
+    "cpu_percent_one_core": {
+      "codex-orchestrator-api-1": 8.917,
+      "codex-orchestrator-mysql-1": 1.498
+    },
+    "prepared_execution_count": 82,
+    "prepared_unattributed_executions": 0
+  },
+  "synthetic_idle": {
+    "seconds": 120.00277847700002,
+    "communicators": 200,
+    "nativeSessions": 200,
+    "engines": [
+      "codex",
+      "claude",
+      "grok"
+    ],
+    "browserTabs": 0,
+    "delegateLiveness": false,
+    "bridgeTtlSeconds": 900,
+    "browserRequests": [],
+    "browserErrors": [],
+    "communicatorFrames": {
+      "state_ping": 1600,
+      "pong": 1600
+    },
+    "browserFrames": {},
+    "businessFrames": {
+      "communicator": {},
+      "browser": {}
+    },
+    "memoryBytes": {
+      "rss": 239542272,
+      "heapTotal": 159191040,
+      "heapUsed": 137728304,
+      "external": 7602391,
+      "arrayBuffers": 641397
+    },
+    "hydrationSql": [],
+    "providerAccounts": 0,
+    "protocolClients": "simulated TCP clients",
+    "sql": [],
+    "failures": [],
+    "processCpuPercent": 2.1991415811308084,
+    "cpuBuckets": [
+      {
+        "seconds": 60.00345530200001,
+        "cpuPercent": 1.707513333762713,
+        "sqlStatements": 0
+      },
+      {
+        "seconds": 59.99953229199999,
+        "cpuPercent": 2.691425980024371,
+        "sqlStatements": 0
+      }
+    ],
+    "profilerEnabled": false,
+    "cpuScope": "Node server plus simulated clients; optional Inspector sampling overhead included",
+    "mysqlCpuPercent": 0.6379693951392407,
+    "mysqlCpuExclusive": true,
+    "mysqlCpuScope": "total isolated MySQL cgroup including baseline and sampler overhead",
+    "reconnect": null,
+    "source": "isolated worktree; sourceManifest records prelaunch content when supplied",
+    "sourceManifest": null
+  },
+  "remote_requests": {
+    "idempotent_codex": "dfa57ee1-8136-4a74-aa21-0c81ce83f726",
+    "idempotent_claude": "8384249c-7a81-4b19-88d5-0acf85a7b4dd",
+    "busy_codex": "2f5bb6e1-6599-4da6-b070-798d27a1d86e",
+    "busy_claude": "a71028fd-77d5-4954-917b-f4ac89ec0f9b",
+    "queued_codex": "99a29d33-7a5f-4490-b6ee-80c8aa425b25",
+    "queued_claude": "494888aa-4d7d-4ec0-918a-8cd842f71dc2"
+  },
+  "remote_durable_results": "All six requests completed with task_result_status=succeeded; checked by agent_message_get",
+  "rollout": "pending"
+}

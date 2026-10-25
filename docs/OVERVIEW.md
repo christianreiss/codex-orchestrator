@@ -13,6 +13,12 @@ and negotiates older-owner support before dispatch. Native-attributed reads
 retain fresh identity checks; host-only content retains local reuse. Agent
 translation and workflow-current reads use the authoritative owner RAM path.
 
+cxx 0.9.132 repairs receiver source transitions, replaced local directory
+watches and fenced-handoff timer scheduling. Native MCP expiry repair does not
+replay an operation with an uncertain dispatch outcome. Server subscriptions
+rebuild only for relevant state changes while retaining live revocation and
+deadline checks; queued commands retain their captured identity and payload.
+
 Server history settings at `/admin/settings#retention` control actual deadline-driven cleanup: audit 14 days, inactive history 24 hours and optional quota history seven days. Current quotas and unresolved work remain protected. The same page keeps local engine housekeeping separate, including all existing host overrides. Docker diagnostics are size-bounded rather than age-bounded. New deployments first install compatible receipt readers, then explicitly arm cold cleanup without creating backups.
 
 Routine HTTP access logging is disabled. Audit history retains authentication,

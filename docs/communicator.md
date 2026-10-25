@@ -4,6 +4,32 @@ cxx 0.9.72 introduces one local communicator per OS user and orchestrator base U
 It is started lazily by a managed request and shared by Codex, Claude and Grok.
 Provider inference still uses each native client's original network path.
 
+cxx 0.9.132 applies connection-owned receiver sources before deriving Portal
+gates and claim budgets. Disabling Portal clears its local pending gate so an
+enabled peer source can continue; enabling another source checks its existing
+queue in the same state revision. Directory Remove/Rename events invalidate
+local watch coverage, and unused watches are removed. Missing coverage retains
+the existing bounded fallback until event watches are installed again.
+
+A prepared resident handoff keeps its durable safety fence until journal
+recovery commits that same handoff; it does not automatically reopen admission.
+While fenced, overdue sync timers are disarmed rather than spinning. Refused
+handoffs wake the scheduler after restoring its previous admission state.
+
+An exact HTTP 401 `agent_bridge_expired` on the native MCP broker can occur
+after a mutation as well as before dispatch. The broker repairs registration
+for the next explicit request and returns the original response unchanged;
+it never repeats that opaque MCP operation. Terminal authorization failures
+and unknown outcomes do not trigger this recovery.
+
+Ended or closing native sessions do not dispatch new broker requests. Terminal
+renewal results fence later registrations, including concurrent callers, and
+sibling request cancellation retains the terminal cause. Watcher overflow also
+wakes local lease observers so a signed sync revocation can hand auth back.
+An explicit `agent_messaging_relay_uncertain` refusal uses the existing
+30-second, cancelable shut-door retry/reconnect delay. It never transfers or
+releases the protected predecessor's accepted work.
+
 cxx 0.9.130 advertises `cache.native_scope_protocol:1` and preserves the paired
 `X-Agent-Session-Id` / `X-Agent-Bridge-Token` through cache proofs and scope keys.
 Clients route native reads through the existing direct proof bridge before

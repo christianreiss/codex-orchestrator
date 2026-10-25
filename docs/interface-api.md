@@ -22,6 +22,16 @@ require current authority. RAM publication sequence and durable commit count are
 independent. Commit-before-publication and uncertain-outcome fencing remain.
 No schema change is required for these paths.
 
+Queued command envelopes capture identity, callbacks and recursively immutable
+payload bytes before admission. Changing caller-owned identity or payload while
+queued or before commit is rejected, keeping receipts aligned with execution.
+Prepared callbacks must use captured immutable inputs.
+
+Owner stream subscriptions skip rebuilding projections when their relevant
+state references and policy values have not changed. Credential, deadline and
+revocation callbacks still validate current authority; this optimization never
+turns a previously authorized snapshot into a reusable authorization grant.
+
 Retention derives scope/room/session protections from current RAM, including
 paused jobs, accepted/unknown work and unended native sessions. Empty eligibility
 checks perform no SQL. Real bounded deletion and requested cold-history queries
