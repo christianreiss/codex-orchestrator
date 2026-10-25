@@ -184,7 +184,7 @@
               <option value="immediate">During the current turn</option>
             </select>
           </div>
-          <p id="publication-timing-help" class="text-body-sm text-muted-foreground">{deliveryTiming === "immediate" ? "Surface this update at the next supported boundary while current work keeps running. A receiver without this capability keeps it queued until updated. Delivery is not a cancellation or a new task." : "Wait until the recipient finishes its current turn."}</p>
+          <p id="publication-timing-help" class="text-body-sm text-muted-foreground">{deliveryTiming === "immediate" ? "Surface this update at the next supported boundary while current work keeps running. Only one immediate update is admitted while the recipient remains busy; further updates stay queued. A receiver without this capability keeps it queued until updated. Delivery is not a cancellation or a new task." : "Wait until the recipient finishes its current turn."}</p>
           <label class="block text-body-sm">Message to subscribers<Textarea class="mt-1" bind:value={content} placeholder="Share a scoped update…" maxlength={maxContentBytes} aria-describedby="publication-size" aria-invalid={contentTooLarge} rows={4} /></label>
           <p id="publication-size" class="text-caption" class:text-destructive={contentTooLarge} class:text-muted-foreground={!contentTooLarge}>{contentBytes.toLocaleString()} / {maxContentBytes.toLocaleString()} UTF-8 bytes{contentTooLarge ? " · Message exceeds the publication limit." : " · 24h delivery expiry"}</p>
           {#if sendError}

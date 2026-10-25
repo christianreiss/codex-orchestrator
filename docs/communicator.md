@@ -76,6 +76,31 @@ Server response authorization permits ordinary extensions of an already
 admitted insecure-host window, while still rejecting shorter or closed windows
 and changed host credentials or IP policy.
 
+## Staged verification and persistent targets
+
+A normal managed launch can reconcile persistent targets from the executable
+being run. This includes native entry scripts and the user `cxx-agent.service`
+worker; a privileged launch can also replace/restart the system daemon. Running
+an unpublished binary from `/tmp` can therefore leave a worker or entry script
+pointing at that temporary file even when wrapper publication is held.
+
+Use an isolated test host/user where possible. On an authorized live rollout,
+coordinate claims for the affected worker, daemon and native entry directory;
+retain staged files until canonical reconciliation is verified. After installing
+the published wrapper, run the following from its canonical path for services
+already required by signed host policy:
+
+```sh
+/usr/local/bin/cxx native-entry install
+/usr/local/bin/cxx agent service install
+sudo /usr/local/bin/cxx daemon install
+```
+
+Check native-entry status, unit `ExecStart`, installed and loaded binary hashes,
+and service health. Preserve existing native sessions and accepted work; restart
+only the coordinated background services. Then remove staged executables. These
+commands are recovery steps, not permission to enable services on another host.
+
 ## Warm-cache launches (cxx 0.9.81)
 
 ### Local content RAM cache (cxx 0.9.128, protocol 3)

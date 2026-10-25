@@ -134,10 +134,46 @@ the deferred row never reached presentation. Two concrete defects were fixed:
   are added.36 focused tests, API typecheck and targeted lint pass.
 
 The wire-fixed Go suite again passed all63 test-bearing packages, build and vet.
-A fresh corrected Claude canary remains a publication gate; the earlier failure
-must not be counted as a successful deferred-delivery test.
+The corrected Claude result is recorded below; the earlier failed deferred test
+is retained as a failure and is not counted as a pass.
 
 A30s mixed-canary production sample at22:08:17Z measured API3.589% of one core,
 MySQL1.445%, and27 SQL questions (0.9/s, including measurement queries). It is not
 an idle acceptance measurement. Unsupported readiness separately has zero-command/
 zero-SQL regression coverage for all three engines.
+
+## Corrected Claude acceptance and remaining assertion limit
+
+Backend `61da4dc4847d991544a4261a018bb488f7780cb5` is staged healthy with544/544
+matching API sources,105 applied migrations and no drift. Corrected Claude
+candidate `5932d9addae5b206ec435a50fcb5c422874806daa74b40fe419730f0a582d0df`
+passed the user timing/no-abort criterion under independent read-only ZK review:
+
+- Native tool started22:40:04.587 and ended22:41:21.589 normally (77s).
+- Immediate message `27a29378-abb1-4855-b28a-81484ae3d0d5` entered the native
+  queue22:40:08.528 during that tool. It entered model context22:41:21.646,
+  38ms after the tool result, before the original final and turn end.
+- Exact original final22:41:25.395: “A message from another agent arrived during
+  the run. It asked me to add an acknowledgement token to this answer.” This is
+  primary evidence of same-turn awareness, not a claim of processing while the
+  shell tool was still running.
+- The model did not echo the requested immediate marker. That strict assertion
+  remains **FAIL**. Delivery/awareness and obeying a peer instruction are separate;
+  no trust policy was weakened, and correctness of that refusal is not asserted.
+- Original turn ended22:41:31.855. Deferred message
+  `21637561-8554-4b30-b482-126e5057f6b1` entered only its successor at22:41:42.299,
+  which returned the deferred marker22:41:44.470. Both records completed with one
+  attempt. Normal `agent_listen` closed the held informational receipt.
+- Fresh helper exited normally, its private runtime/MCPs ended, and original
+  Thea/other natives stayed running. Actual native 250ms/5s stall injection was
+  not performed; exec-inherited socket deadline/partial-write tests cover that
+  fault path. Native hook blocking was separately demonstrated with a6s delay.
+
+The staged launch also rewrote/restarted biest's shared user worker to a `/tmp`
+candidate and updated managed native entry scripts. Temporary binaries remain
+until official worker/daemon/native-entry reconciliation; see
+[the recovery procedure](../communicator.md#staged-verification-and-persistent-targets).
+The group publisher now states the one-immediate-per-busy-period pacing limit;
+its focused browser case passed again. The Go wire test also tolerates a Go-only
+CI checkout without API npm dependencies; actual captured frames were independently
+validated with Node22/tsx against the real schema and its rejection control.
