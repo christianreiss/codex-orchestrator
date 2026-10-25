@@ -618,6 +618,7 @@ func (b *Broker) forwardManagedMCP(w http.ResponseWriter, r *http.Request) {
 	defer stop()
 	b.session.mu.Lock()
 	id, token, base := b.session.ID, b.session.BridgeToken, b.session.BaseURL
+	generation := b.session.registrationGeneration
 	b.session.mu.Unlock()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/mcp", bytes.NewReader(raw))
 	if err != nil {
@@ -636,8 +637,31 @@ func (b *Broker) forwardManagedMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer res.Body.Close()
+	// A bridge proof can expire either before dispatch or during the response
+	// proof after a mutation. Renew the same registration for the next call, but
+	// never replay this opaque MCP operation on the strength of an error code.
+	var response io.Reader = res.Body
+	if res.StatusCode == http.StatusUnauthorized {
+		body, readErr := io.ReadAll(io.LimitReader(res.Body, 16*1024*1024))
+		response = bytes.NewReader(body)
+		var failure struct {
+			Code  string `json:"code"`
+			Error *struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		if readErr == nil && json.Unmarshal(body, &failure) == nil {
+			code := failure.Code
+			if code == "" && failure.Error != nil {
+				code = failure.Error.Code
+			}
+			if code == "agent_bridge_expired" {
+				_ = b.session.recoverRegistration(ctx, generation, false)
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(res.StatusCode)
-	_, _ = io.Copy(w, io.LimitReader(res.Body, 16*1024*1024))
+	_, _ = io.Copy(w, io.LimitReader(response, 16*1024*1024))
 }

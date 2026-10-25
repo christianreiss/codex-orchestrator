@@ -159,7 +159,18 @@ func (s *server) preflightStop() string {
 			}
 		}
 	}
-	refuse := func(reason string) string { s.draining.Store(wasDraining); return reason }
+	refuse := func(reason string) string {
+		s.draining.Store(wasDraining)
+		// The scheduler may have observed the temporary admission fence and
+		// disarmed its timer. A refused handoff must restore that schedule too.
+		if !wasDraining {
+			select {
+			case s.authDirty <- struct{}{}:
+			default:
+			}
+		}
+		return reason
+	}
 	if state.pending != 0 || state.legacyClients != 0 {
 		return refuse("clients_busy")
 	}
