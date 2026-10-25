@@ -1,6 +1,9 @@
 # Open feedback review — 2026-10-25
 
 Initial inventory: 18 nonterminal Orchestrator reports, across all result pages.
+Final central snapshot at 2026-10-25 19:58 UTC: **7 resolved, 3 duplicates,
+8 blocked; zero open or in progress**. Every remaining blocker has a reason and
+new evidence or an explicit explanation of the missing historical evidence.
 Scope: reproduce actionable defects, fix and test them, distinguish duplicate episodes
 and historical reports whose cause cannot be established. No authentication bypass,
 provider refresh replay, claim takeover, or forced restart of another native process.
@@ -39,7 +42,7 @@ provider refresh replay, claim takeover, or forced restart of another native pro
 
 | Report | Result / remaining evidence |
 | --- | --- |
-| ea04a1c6 | Fixed local-host default; post-rollout native MCP probe required. |
+| ea04a1c6 | Resolved: local-host default; actual post-rollout native MCP probe passed. |
 | e7455174 | Duplicate of ea04a1c6. |
 | a1ac490b | Fixed actionable claim connection diagnostics. |
 | 091bf3f0 | Fixed shared native-child identity guidance for all engines. |
@@ -47,7 +50,7 @@ provider refresh replay, claim takeover, or forced restart of another native pro
 | 7ba94e71 | Fixed verification retry deadline race. |
 | 38dd85c6 | Fixed missing-attachment/workspace diagnostics; real Grok Git success remains unverified. |
 | c17d4fca | Event/deadline implementation and wrapper release verified; existing old native processes were preserved. |
-| e16b4dee | Safe exact-owner/continuation recovery documented and tested; no blanket revival of historical unknown operations. |
+| e16b4dee | Blocked: exact-owner/continuation recovery is tested, but historical uncertain emulator outcome lacks proof for safe revival. |
 | 8313331a | Duplicate of resolved terminal-finish report 54aa0b83; source eab8be5b, fresh CLI completion verified. |
 | dded70b9 | Same reported Grok reconnection episode as 7a5b72ee; preserve its additional MCP-read 401 symptom. |
 | 7a5b72ee | Needs versioned Grok broker reproduction after provider login. |
@@ -66,8 +69,26 @@ consent, device flow, refresh, cookies, or credentials were accessed or changed.
 
 ## Deployment and rollback
 
-API-only rollout follows verification, using `scripts/deploy.sh --no-backup
---skip-wrappers --no-cleanup`. Actual source SHA/image/health and final feedback
-statuses are recorded in the corresponding central feedback histories. Prior code
+On docker01, `scripts/deploy.sh --no-backup --skip-wrappers --no-cleanup` completed
+successfully at 19:57 UTC. Deployed source:
+`7590bfb710a60659dc7911ed9770abb6c9934981`; actual running API image:
+`sha256:1dd811a608e0608fbfaca428a0f3568c4541b4a95d5544fe65c38aab995b04b6`.
+Health passed, restarts zero, 104 migrations applied with zero pending/drifted.
+All eight changed implementation files match the running server source map.
+The native MCP probe that failed before deployment now returns an active local
+claim with authenticated host 245; the probe claim was released. The existing
+operation claim survived with the same native instance and no expiration.
+
+The API was rebuilt/recreated; media worker was restarted by the normal owner
+cutover. Existing native agent processes were preserved. No Go or UI source changed;
+Go/frontend suites were not rerun for this server-only batch. The API canonical suite
+and selected real-DB suites ran; the entire DB integration suite was not run.
+
+Actual deployment evidence and final feedback statuses are also recorded centrally. Prior code
 can be rebuilt from 95cdff7125534994a24507bc08285c30197ca5d2. No schema change,
 database dump, or Bareos configuration change is part of this batch.
+
+The private tmpfs MySQL test container/helper were removed after checks. Verified
+cutover metadata and its two temporary rollback image tags were removed after health
+verification, under the operator's backup-cleanup instruction. Their deletion is
+recorded in `/var/tmp/codex-zk-cleanup-20261025.json`; source remains rebuildable from Git.
