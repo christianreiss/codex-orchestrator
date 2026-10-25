@@ -169,9 +169,30 @@ can be lexically future at a canonical millisecond cutoff while already due
 under `Date.parse`; the returned deadline immediately rearmed an empty sweep.
 Real MySQL also showed JavaScript string ordering is not a safe substitute for
 the two database collations. Follow-up report `31b1674b` tracks the narrow
-clock repair; its fix and post-deploy SQL acceptance are pending at this
-checkpoint. No production timestamp rewrite or retention-policy relaxation is
-part of that repair.
+clock repair. Fix `11e6b318ce0aa6e0085eddfd43837f953180c593` changes only the
+clock's deadline arithmetic: canonical millisecond UTC stays exact; other valid
+UTC representations wait until the following second. SQL discovery, selection,
+deletion, indexes and all protection predicates remain unchanged. No production
+timestamp rewrite or retention-policy relaxation is part of the repair.
+
+The follow-up's full API run passed **472 files / 6,063 tests**, with 107 files /
+1,086 DB/opt-in tests skipped. Independent parent MySQL selection: ten tests in
+four files passed. The implementation agent's 47 targeted tests included both
+Unicode collations and 14 UTC forms with transactional rollback/commit. Old
+source failed 17 of the 19 new cases. The bounded queue reproduction changed
+from three empty passes/zero deletes to one productive pass/zero empty passes,
+then no SQL over 180 simulated seconds. A separate reviewer checked 144 more
+calendar/fraction boundaries without finding a new blocker. Typecheck and
+changed-file ESLint passed. Go code did not change in this server-only follow-up.
+The Advisor agreed with the supplied diff/evidence as a reasoning-only review;
+it did not inspect the checkout or run tests.
+
+An independent review also identified a pre-existing invalid-timestamp discovery
+edge. A read-only scan of the seven current cold-history timestamp columns
+found no regex-valid but `Date.parse`-unparsable value (including 88,865 distinct
+receipt timestamps). This edge is not the observed loop and no production data
+was changed. Final follow-up rollout and quiet measurements are recorded after
+the server-only deployment.
 
 The legacy accepted delivery `901c51e1-84fd-4f15-9f06-e39f89549e15` remains
 protected under its original relay owner; its outcome was not invented or

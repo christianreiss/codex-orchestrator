@@ -215,5 +215,32 @@
     "Existing attended remote130 wrappers and127owner/128daemon preserved; fresh132 wrappers independently verified.",
     "Production forced-native-crash/provider-outage/reboot experiments not run.",
     "The first final quiet sample exposed a real retention timestamp loop; follow-up repair and measurement remain pending at this checkpoint."
-  ]
+  ],
+  "retention_fix": {
+    "implementation_sha": "11e6b318ce0aa6e0085eddfd43837f953180c593",
+    "cold_source_sha256": "38d4d7980b0a2f3e8c2b05a5b678e7230fc66452c7b338f3100f88c2d5237c08",
+    "targeted_tests": 47,
+    "baseline_new_regressions_failed": 17,
+    "baseline_new_cases": 19,
+    "full_api_passed": 6063,
+    "full_api_skipped": 1086,
+    "full_api_files_passed": 472,
+    "full_api_files_skipped": 107,
+    "independent_mysql_tests_passed": 10,
+    "extra_boundary_probes": 144,
+    "sql_predicates_and_guards_unchanged": true,
+    "data_rewrite": false,
+    "advisor": "reasoning-only agree; did not run tests",
+    "rollout": "pending"
+  },
+  "current_unparsable_timestamp_check": {
+    "logs": 0,
+    "admin_events": 0,
+    "chatgpt_usage_snapshots": 0,
+    "claude_usage_snapshots": 0,
+    "dashboard_graph_quota_snapshots": 0,
+    "dashboard_graph_claude_quota_snapshots": 0,
+    "control_plane_command_receipts": 0,
+    "scope": "regex-valid distinct timestamps checked with actual Date.parse; no bodies read"
+  }
 }

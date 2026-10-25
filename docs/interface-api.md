@@ -38,6 +38,14 @@ checks perform no SQL. Real bounded deletion and requested cold-history queries
 remain durable operations. WebUI policies, exclusions and host overrides retain
 their existing authority; they are not bypassed by cleanup.
 
+Cold-history timestamps may contain legacy UTC representations. Their SQL
+range predicates remain indexed and unchanged. Clocks conservatively schedule
+noncanonical representations at the following second so text ordering cannot
+immediately rearm an empty batch. Canonical millisecond `Z` deadlines remain
+exact; a SQL-future candidate always produces a strictly future obligation.
+This adds at most one second of representation padding, not a bound on total
+batch/deletion latency. Existing eligibility and protection checks still apply.
+
 `POST /sync/cache` accepts protocol 3 only for pure content reads. It may grant
 communicator-local reuse on secure hosts with a current owner, bounded by actual
 host/token expiry. Auth/admission and mutations remain live. Invalidations use
