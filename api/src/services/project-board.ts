@@ -2331,6 +2331,7 @@ export class ProjectBoardService {
         'project.card.created',
       );
       const card = await this.requireCard(ctx.tx, ctx.project.id, id, false);
+      if (ownerRuntimeFor(this.deps.db)) await this.log(sourceHostId, 'project.todo.create', { slug: ctx.project.slug, todo_id: number });
       return { project: ctx.project.slug, todo: this.todoWire(card, ctx.columns) };
     });
   }
@@ -2353,6 +2354,7 @@ export class ProjectBoardService {
         { card_id: card.id, card_number: Number(card.cardNumber), title: fresh.title, via: 'todo' },
         'project.card.updated',
       );
+      if (ownerRuntimeFor(this.deps.db)) await this.log(sourceHostId, 'project.todo.update', { slug: ctx.project.slug, todo_id: id });
       return { project: ctx.project.slug, todo: this.todoWire(fresh, ctx.columns) };
     });
   }
@@ -2381,6 +2383,7 @@ export class ProjectBoardService {
         if (target) await this.applyMove(ctx, card, target, null, null, null);
       }
       const fresh = await this.requireCard(ctx.tx, ctx.project.id, card.id, false);
+      if (ownerRuntimeFor(this.deps.db)) await this.log(sourceHostId, 'project.todo.done', { slug: ctx.project.slug, todo_id: id, done });
       return { project: ctx.project.slug, todo: this.todoWire(fresh, ctx.columns) };
     });
   }
@@ -2407,6 +2410,7 @@ export class ProjectBoardService {
         { card_id: card.id, card_number: Number(card.cardNumber), via: 'todo' },
         'project.card.deleted',
       );
+      if (ownerRuntimeFor(this.deps.db)) await this.log(sourceHostId, 'project.todo.delete', { slug: ctx.project.slug, todo_id: id });
       return { project: ctx.project.slug, deleted: id };
     });
   }

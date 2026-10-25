@@ -11,7 +11,7 @@ import {
   purgeOwnedEngine,
   ownedDestroyProgress,
 } from '../../../src/control-plane/streams/engine-destroy.js';
-import { LegacyDrainRegistry, captureLegacyDrainManifest } from '../../../src/control-plane/legacy-drain.js';
+import { LegacyDrainRegistry, captureLegacyDrainManifest, legacyDrainDeadline } from '../../../src/control-plane/legacy-drain.js';
 import {
   registerOwnedReceiver,
   updateOwnedReceiver,
@@ -810,6 +810,8 @@ describe('captured legacy protected operations', () => {
     expect(registry.resourceClaim(h.claimId, h.id, 2)).toBe(false);
     expect(registry.resourceClaim(h.claimId, randomUUID(), 1)).toBe(false);
     expect(registry.protectedDeadline(h.id, 1)).toBe(Date.now() + 45000);
+    expect(legacyDrainDeadline(h.state.begin().view(), 'session', h.id))
+      .toBe(registry.deadline(h.state.snapshot(), 'session', h.id));
     expect(registry.counts()).toMatchObject({ legacy_resource_claims: 1, legacy_git_registrations: 1 });
     expect(h.state.revision()).toEqual(revision);
     expect(h.state.snapshot().claims.get(h.claimId)?.ownershipMode).toBe('timed');

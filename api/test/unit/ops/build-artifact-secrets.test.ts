@@ -12,6 +12,9 @@ const ROOT_ENV = resolve(REPO_ROOT, '.env');
 // or copies operator configuration again, this string is what leaks.
 const SENTINEL_KEY = 'BUILD_ARTIFACT_SENTINEL';
 const SENTINEL_VALUE = 'sk-sentinel-4f2a9c31d7b84e60a15c8f7e2d0b6a93';
+// This public Compose default is deliberately included in Chatty's bundled
+// installation docs. A custom runner URL remains an operator-config tripwire.
+const PUBLIC_RUNNER_DEFAULT = 'http://auth-runner:8080/verify';
 
 let createdEnv = false;
 /** Every secret-shaped line the build could have picked up from `../.env`. */
@@ -32,7 +35,12 @@ function envValues(text: string): string[] {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line !== '' && !line.startsWith('#'))
-    .map((line) => line.slice(line.indexOf('=') + 1).trim().replace(/^["']|["']$/g, ''))
+    .map((line) => ({
+      key: line.slice(0, line.indexOf('=')).trim(),
+      value: line.slice(line.indexOf('=') + 1).trim().replace(/^["']|["']$/g, ''),
+    }))
+    .filter(({ key, value }) => key !== 'AUTH_RUNNER_URL' || value !== PUBLIC_RUNNER_DEFAULT)
+    .map(({ value }) => value)
     .filter((value) => value.length >= 12);
 }
 
@@ -61,6 +69,12 @@ afterAll(() => {
 });
 
 describe('the API build never embeds operator configuration', () => {
+  it('distinguishes the public runner default from custom URLs and secret values', () => {
+    expect(envValues(`AUTH_RUNNER_URL=${PUBLIC_RUNNER_DEFAULT}\n`)).toEqual([]);
+    expect(envValues(`AUTH_RUNNER_URL=https://private-runner.example/verify\nTEST_SECRET=${SENTINEL_VALUE}\n`))
+      .toEqual(['https://private-runner.example/verify', SENTINEL_VALUE]);
+  });
+
   it('produces the expected bundle without a .env beside it', () => {
     expect(existsSync(resolve(DIST, 'server.js'))).toBe(true);
     expect(existsSync(resolve(DIST, '.env'))).toBe(false);

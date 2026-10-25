@@ -3435,3 +3435,11 @@ uses a fixed table allowlist and only recorded families with actual deletions fr
 a completed run. `--preview` is read-only. These operations never create dumps,
 volume snapshots or storage archives. Older images that do not understand compact
 receipts are not a supported rollback after compaction; pin compatible code first.
+
+### MCP request validation
+
+The `/mcp` dispatcher answers `ping` with `{}` and rejects empty batches and malformed request IDs with `-32600`. MCP methods accept named object parameters; invalid parameter envelopes return `-32602` before any tool dispatch. Notifications remain unanswered. See [MCP methods](MCP.md#json-rpc-methods).
+
+Root Skill file reads (`skill://<slug>/SKILL.md` and the corresponding host support-file lookup) return the canonical manifest and its manifest digest. They retain engine visibility, deletion and source-bundle integrity checks.
+
+Owner command views share only a private, non-serialized runtime-metadata scope with their published state. Connection-derived and explicitly protected legacy credential deadlines therefore remain valid during composition. A reconstructed snapshot or new owner epoch receives a fresh scope; credential, host, binding and connection revocation checks remain effective.

@@ -5,7 +5,7 @@ import { isTruthyFlagValue } from '../services/settings.js';
 import { ConflictError, UnauthorizedError } from '../http/errors.js';
 import type { Engine } from '../util/engine.js';
 import type { OwnerRuntime } from './state/runtime.js';
-import type { OwnerStateSnapshot } from './state/store.js';
+import { ownerSnapshotScope, type OwnerStateSnapshot } from './state/store.js';
 import { ownedMessagingHost, ownedEngineState } from './state/messaging.js';
 import { receiverState } from '../services/agent-receiver-state.js';
 
@@ -232,7 +232,7 @@ export function legacyGitIdentity(
   ]);
 }
 const runtimes = new WeakMap<OwnerRuntime, LegacyDrainRegistry>();
-const snapshots = new WeakMap<OwnerStateSnapshot, LegacyDrainRegistry>();
+const snapshots = new WeakMap<object, LegacyDrainRegistry>();
 const key = (kind: LegacyDrainRecord['kind'], id: string) => `${kind}:${id}`;
 
 /** Temporary explicit drain proof. It never enters the WebSocket presence registry. */
@@ -273,9 +273,9 @@ export class LegacyDrainRegistry {
       this.changed(copy);
     }
     runtimes.set(runtime, this);
-    snapshots.set(runtime.state.snapshot(), this);
+    snapshots.set(ownerSnapshotScope(runtime.state.snapshot()), this);
     this.unlisten = runtime.state.subscribe((snapshot) => {
-      snapshots.set(snapshot, this);
+      snapshots.set(ownerSnapshotScope(snapshot), this);
       for (const [id, record] of this.records) {
         try {
           this.proof(snapshot, record);
@@ -585,5 +585,5 @@ export function legacyDrainDeadline(
   kind: 'session' | 'relay',
   id: string,
 ): number | undefined {
-  return snapshots.get(snapshot)?.deadline(snapshot, kind, id);
+  return snapshots.get(ownerSnapshotScope(snapshot))?.deadline(snapshot, kind, id);
 }

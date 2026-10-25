@@ -1,5 +1,12 @@
 # 2026-10-25
 
+- Preserve connection-derived and protected legacy credential deadlines in composed owner-state views, so long-running native sessions can still perform Git and other mutations after their original bridge TTL. Reconstructed owners and changed bindings do not inherit those grants.
+
+- Resolve root `SKILL.md` backlinks through the canonical Skill manifest while preserving bundle integrity and engine visibility.
+
+- Commit todo mutations and their audit records in one owner transaction, preventing an error response after a card was already changed.
+- Answer MCP health pings and reject empty batches, malformed request IDs and unsupported parameter envelopes before tool dispatch.
+
 - Pass the private native-session broker socket through Codex’s configured fleet MCP environment allowlist. Git Director and other session-owned tools retain authenticated ownership when Codex filters inherited MCP environment variables.
 - cxx 0.9.129 stops Grok private cleanup helpers from repeatedly scanning every process while an orphan native leader remains alive. Linux helpers wait on process exit through pidfds, then recheck surviving holders before cleanup; older kernels and other platforms retain a bounded fallback.
 

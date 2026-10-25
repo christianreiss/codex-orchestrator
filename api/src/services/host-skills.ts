@@ -279,15 +279,20 @@ export class HostSkillsService {
     return out;
   }
 
-  /** Read one exact support file. Paths are relative and traversal-free. */
+  /** Read an exact support file or the canonical root SKILL.md manifest. */
   async retrieveFile(
     rawSlug: string,
     rawPath: string,
     host: Host,
     engine: Engine = ENGINE_CODEX,
   ): Promise<SkillFileView> {
-    const snapshot = await this.requireStoredSkillSnapshot(rawSlug, engine);
     const path = normalizeSkillFilePath(rawPath);
+    if (path === 'SKILL.md') {
+      const skill = await this.retrieve(rawSlug, null, host, engine);
+      if (typeof skill.manifest !== 'string') throw new NotFoundError('Skill not found', 'skill_not_found');
+      return { path, content: skill.manifest, sha256: createHash('sha256').update(skill.manifest).digest('hex') };
+    }
+    const snapshot = await this.requireStoredSkillSnapshot(rawSlug, engine);
     const file = snapshot.files.find((candidate) => candidate.path === path);
     if (!file) throw new NotFoundError('Skill file not found', 'skill_file_not_found');
     return { path: file.path, sha256: file.sha256, content: file.content };

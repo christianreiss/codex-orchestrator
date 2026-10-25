@@ -114,6 +114,51 @@ function harness(options: { expired?: boolean; insecureUntil?: number } = {}) {
 }
 
 describe('connection-derived credential validity', () => {
+  it('keeps live credential authority in command draft views and revokes it on detach', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(0);
+    const f = harness();
+    try {
+      const attachment = f.attach();
+      await vi.advanceTimersByTimeAsync(7_200_000);
+      const view = f.state.begin().view();
+      expect(ownedBridge(view, f.id, f.token).session.id).toBe(f.id);
+      expect(ownedCredentialDeadline(view, 'session', f.id)).toBeGreaterThan(Date.now());
+      attachment.detach();
+      expect(() => ownedBridge(view, f.id, f.token)).toThrow('expired');
+    } finally { f.close(); }
+  });
+
+  it('does not transfer volatile authority to a reconstructed snapshot with the same epoch', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(0);
+    const f = harness();
+    try {
+      f.attach(); await vi.advanceTimersByTimeAsync(7_200_000);
+      const source = f.state.snapshot();
+      const seed = Object.fromEntries(['versions', 'hosts', 'agentSessions'].map(name => {
+        const table = name as 'versions' | 'hosts' | 'agentSessions';
+        return [name, source.table(table).all()];
+      })) as StateSeed;
+      const reconstructed = new OwnerStateSnapshot(source.revision, seed);
+      expect(() => ownedBridge(reconstructed, f.id, f.token)).toThrow('expired');
+      const restarted = new OwnerStateSnapshot({ epoch: randomUUID(), sequence: 0n }, {}, source);
+      expect(() => ownedBridge(restarted, f.id, f.token)).toThrow('expired');
+    } finally { f.close(); }
+  });
+
+  it('does not inherit a live grant across changed draft bindings', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(0);
+    const f = harness();
+    try {
+      f.attach(); await vi.advanceTimersByTimeAsync(7_200_000);
+      const draft = f.state.begin(), session = draft.table('agentSessions').get(f.id)!;
+      draft.upsert('agentSessions', { ...session, bindingGeneration: session.bindingGeneration + 1 });
+      expect(() => ownedBridge(draft.view(), f.id, f.token)).toThrow('expired');
+      const rotated = f.state.begin();
+      rotated.upsert('agentSessions', { ...session, bridgeTokenHash: sha256('rotated') });
+      expect(() => ownedBridge(rotated.view(), f.id, 'rotated')).toThrow('expired');
+    } finally { f.close(); }
+  });
+
   it('renews and revokes only the affected credential subscribers across a fleet', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);

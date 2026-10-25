@@ -1,0 +1,92 @@
+tool	classification	calls	errors
+feedback_submit	live functional	1	
+feedback_preflight	live functional	1	
+feedback_recheck	expected rejection	1	{'message': 'Select User feedback mode before requesting a GitHub check', 'code': 'validation_failed', 'type': 'invalid_request_error'}
+feedback_list	live functional	2	
+feedback_get	live functional	2	{'message': 'Feedback not found', 'code': 'not_found', 'type': 'not_found_error'}
+feedback_claim	expected rejection	1	{'message': 'Feedback not found', 'code': 'not_found', 'type': 'not_found_error'}
+feedback_update	live functional	1	
+host_spawn_prepare	expected rejection	1	Invalid params: 'fqdn' is required
+host_spawn_status	expected rejection	1	{'message': 'Spawn operation not found', 'code': 'not_found', 'type': 'not_found_error'}
+memory_store	isolated fixture	1	
+memory_retrieve	failed	1	(409, '{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}')
+memory_search	failed	1	(409, '{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}')
+memory_delete	isolated fixture	1	
+shared_memory_list	failed	1	(409, '{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}')
+shared_memory_search	failed	1	(409, '{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}')
+shared_memory_read	failed	1	(409, '{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}')
+shared_memory_write	isolated fixture	1	
+shared_memory_append	isolated fixture	1	
+shared_memory_delete	isolated fixture	1	
+secret_list	live functional	1	
+secret_search	live functional	2	
+secret_get	isolated fixture	1	
+secret_store	isolated fixture	1	
+secret_delete	isolated fixture	1	
+project_list	live functional	1	
+project_bootstrap	isolated fixture	1	
+project_summary	isolated fixture	2	
+project_files	isolated fixture	1	
+project_notes	isolated fixture	1	
+project_feedback_list	isolated fixture	1	
+project_detail	isolated fixture	1	
+project_changes	isolated fixture	1	
+project_create	isolated fixture	1	
+project_update	isolated fixture	1	
+project_archive	isolated fixture	3	
+project_unarchive	isolated fixture	2	
+project_note_delete	isolated fixture	1	
+project_feedback_update	isolated fixture	1	
+project_note_create	isolated fixture	1	
+project_note_upsert	isolated fixture	1	
+project_todo_create	failed	1	Audit writes require the current owner transaction
+project_todo_update	failed	1	Audit writes require the current owner transaction
+project_todo_done	failed	2	Audit writes require the current owner transaction
+project_todo_undone	failed	1	Audit writes require the current owner transaction
+project_feedback_create	isolated fixture	1	
+project_file_list	isolated fixture	1	
+project_file_read	failed	1	(409, '{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}')
+project_file_upsert	isolated fixture	1	
+project_file_delete	isolated fixture	1	
+project_memory_list	failed	1	(409, '{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}')
+project_memory_get	failed	1	(409, '{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}')
+project_memory_upsert	isolated fixture	1	
+project_memory_delete	isolated fixture	1	
+project_memory_search	failed	1	(409, '{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}')
+skill_list	live functional (native MCP); broker failed	1	(401, '{"status":"error","message":"Paired native session credentials required","code":"agent_bridge_unauthorized"}')
+skill_retrieve	live functional (native MCP); broker failed	1	(401, '{"status":"error","message":"Paired native session credentials required","code":"agent_bridge_unauthorized"}')
+skill_store	isolated fixture (native MCP)	0	
+skill_delete	isolated fixture (native MCP)	0	
+workflow_list	live functional	2	
+workflow_get	live functional	1	
+workflow_run_list	live functional	1	
+workflow_run_get	live functional	1	
+resource_list	live functional	1	
+resource_read	isolated fixture	3	(409, '{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}')
+resource_create	isolated fixture	1	
+resource_update	isolated fixture	1	
+resource_delete	isolated fixture	1	
+project_board_list	isolated fixture	2	
+project_card_create	isolated fixture	1	
+project_card_claim	isolated fixture	1	
+project_card_move	isolated fixture	5	{'message': 'No column "verify" on this board. Available: backlog, planning, coding, review, verifying, done, blocked', 'code': 'validation_failed', 'type': 'invalid_request_error', 'param': 'column'}
+project_card_release	isolated fixture	1	
+project_card_update	isolated fixture	1	
+project_card_get	isolated fixture	3	
+git_register	isolated fixture	1	
+git_list	live functional	1	
+git_join	isolated fixture	1	
+git_merge_request	isolated fixture	2	{'message': 'Acquire live path and target-branch claims before requesting this merge', 'code': 'resource_claim_required', 'type': 'conflict_error'}
+git_merge_status	isolated fixture	1	
+git_release	isolated fixture	1	
+transfer_list	live functional	1	
+transfer_put	isolated fixture	1	
+transfer_get	isolated fixture	1	
+transfer_info	isolated fixture	3	
+transfer_delete	isolated fixture	1	
+agent_fresh_start_approve	expected rejection	1	{'message': 'Message not found', 'code': 'agent_messaging_message_not_found', 'type': 'not_found_error'}
+schedule_list	live functional	1	
+schedule_get	isolated fixture	3	{'message': 'Schedule not found', 'code': 'schedule_not_found', 'type': 'not_found_error'}
+schedule_create	isolated fixture	1	
+schedule_update	isolated fixture	1	
+schedule_delete	isolated fixture	1	

@@ -8,7 +8,7 @@ import { ENGINES, type Engine } from '../util/engine.js';
 import type { ConnectionPresence, LiveAttachment } from './presence.js';
 import { mutateOwnerState, type OwnerRuntime } from './state/runtime.js';
 import { stageUpdate } from './state/rows.js';
-import type { OwnerStateSnapshot } from './state/store.js';
+import { ownerSnapshotScope, type OwnerStateSnapshot } from './state/store.js';
 import { legacyDrainDeadline } from './legacy-drain.js';
 
 type Kind = 'session' | 'relay';
@@ -27,7 +27,7 @@ interface Grant {
   deadline: number;
   attachments: Set<string>;
 }
-const snapshots = new WeakMap<OwnerStateSnapshot, ConnectionCredentials>();
+const snapshots = new WeakMap<object, ConnectionCredentials>();
 const runtimes = new WeakMap<OwnerRuntime, ConnectionCredentials>();
 function key(kind: Kind, id: string): string {
   return `${kind}:${id}`;
@@ -140,10 +140,10 @@ export class ConnectionCredentials {
     if (ttl.session < 1000 || ttl.relay < 1000) throw new Error('Credential TTL must be at least one second');
     if (runtimes.has(runtime)) throw new Error('Connection credentials already bound');
     runtimes.set(runtime, this);
-    snapshots.set(runtime.state.snapshot(), this);
+    snapshots.set(ownerSnapshotScope(runtime.state.snapshot()), this);
     this.detach = [
       runtime.state.subscribe((snapshot) => {
-        snapshots.set(snapshot, this);
+        snapshots.set(ownerSnapshotScope(snapshot), this);
         this.revalidate(snapshot);
       }),
       presence.subscribe((change) => {
@@ -316,7 +316,7 @@ export class ConnectionCredentials {
 }
 
 export function ownedCredentialDeadline(snapshot: OwnerStateSnapshot, kind: Kind, id: string): number {
-  const bound = snapshots.get(snapshot);
+  const bound = snapshots.get(ownerSnapshotScope(snapshot));
   const stored =
     kind === 'session'
       ? snapshot.sessions.get(id)?.bridgeExpiresAt

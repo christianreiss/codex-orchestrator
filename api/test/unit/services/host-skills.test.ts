@@ -619,3 +619,34 @@ describe('HostSkillsService source-owned skills', () => {
     await expect(service.listFiles('claude-only', host, 'claude')).resolves.toEqual([]);
   });
 });
+
+
+describe('root skill manifest file alias', () => {
+  it.each(['codex', 'claude', 'grok'] as const)('resolves source-managed SKILL.md backlinks for %s', async engine => {
+    const manifest = '---\nname: backlink\ndescription: fixture\n---\n\nCanonical manifest\n';
+    const service = makeService(false, [skillRow({ slug: 'backlink', manifest, engine, sourceType: 'github:mattpocock/skills',
+      bundleSha256: computeSkillBundleDigest([{ path: 'SKILL.md', sha256: createHash('sha256').update(manifest).digest('hex') }]) })]);
+    expect(await service.retrieveFile('backlink', 'SKILL.md', host, engine)).toEqual({
+      path: 'SKILL.md', content: manifest, sha256: createHash('sha256').update(manifest).digest('hex'),
+    });
+    const resources = new McpResourcesService({ skills: service, memories: {} as never, projects: {} as never });
+    expect((await resources.read('skill://backlink/SKILL.md', host, engine)).contents[0]).toMatchObject({
+      uri: 'skill://backlink/SKILL.md', mimeType: 'text/markdown', text: manifest,
+    });
+  });
+
+  it('also resolves managed root manifests while retaining engine visibility for stored skills', async () => {
+    const service = makeService(false, [skillRow({ slug: 'private-skill', engine: 'claude' })]);
+    const root = await service.retrieve('reboot-safe', null, host, 'codex');
+    const file = await service.retrieveFile('reboot-safe', 'SKILL.md', host, 'codex');
+    expect(file.content).toBe(root.manifest);
+    expect(file.sha256).toBe(root.manifest_sha256);
+    await expect(service.retrieveFile('private-skill', 'SKILL.md', host, 'grok')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('does not expose missing/deleted root manifests or accept traversal', async () => {
+    const service = makeService(false, [skillRow({ slug: 'removed', deletedAt: '2026-10-25T00:00:00Z' })]);
+    for (const slug of ['absent', 'removed']) await expect(service.retrieveFile(slug, 'SKILL.md', host)).rejects.toMatchObject({ status: 404 });
+    await expect(service.retrieveFile('removed', '../SKILL.md', host)).rejects.toMatchObject({ status: 422 });
+  });
+});

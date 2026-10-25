@@ -9,14 +9,14 @@ import type { Host } from '../../../src/db/schema.js';
 // database, filesystem, credential, schedule or another agent. These service
 // doubles test the transport contract, not each service's business semantics.
 const groups = ['feedback', 'memories', 'sharedMemories', 'projects', 'skills', 'resources',
-  'fs', 'secrets', 'gitDirector', 'transfers', 'board', 'schedules', 'taskMessaging', 'workflows'];
+  'fs', 'secrets', 'gitDirector', 'transfers', 'board', 'schedules', 'taskMessaging', 'workflows', 'hostSpawn', 'roles'];
 function harness(fail = false) {
   const calls: Array<{ group: string; method: string; args: unknown[] }> = [];
   const deps = Object.fromEntries(groups.map(group => [group, new Proxy({}, {
     get: (_target, method: string) => async (...args: unknown[]) => {
       calls.push({ group, method, args });
       if (fail) throw new Error('fixture service failure');
-      if (method === 'getEnabled') return true;
+      if (method === 'getEnabled' || method === 'isEnabled') return true;
       return { fixture: 'Grüße 🛠\nJSON "content"', group, method };
     },
   })])) as unknown as ToolDeps;
@@ -41,13 +41,12 @@ const all = harness().registry.list('operator');
 const ajv = new Ajv({ strict: false, allErrors: true });
 const addFormats = createRequire(import.meta.url)('ajv-formats') as (instance: Ajv) => void;
 addFormats(ajv);
-const context = { host: { id: 7 } as Host, engine: 'grok' as const,
-  capability: 'operator' as const, clientIp: null, serverVersion: 'test' };
-
-describe('Grok MCP full server catalogue', () => {
+describe.each(['codex', 'claude', 'grok'] as const)('%s MCP full server catalogue', (engine) => {
+  const context = { host: { id: 7 } as Host, engine,
+    capability: 'operator' as const, clientIp: null, serverVersion: 'test' };
   it('includes all host tools and the optional operator filesystem tools', () => {
-    expect(harness().registry.list('host')).toHaveLength(89);
-    expect(all).toHaveLength(95);
+    expect(harness().registry.list('host')).toHaveLength(92);
+    expect(all).toHaveLength(98);
   });
 
   for (const tool of all) {
@@ -73,14 +72,14 @@ describe('Grok MCP full server catalogue', () => {
     });
   }
 
-  it('passes Grok identity to engine-scoped reads instead of using Codex defaults', async () => {
+  it('passes the caller engine to engine-scoped reads', async () => {
     const cases = ['secret_get',
       'skill_list', 'skill_retrieve', 'resource_list', 'resource_read'];
     for (const name of cases) {
       const { registry, calls } = harness();
       const tool = all.find(t => t.name === name)!;
-      await registry.dispatch(name, sample(tool.inputSchema as Schema), context.host, 'host', 'grok');
-      expect(calls.some(call => call.args.includes('grok')), name).toBe(true);
+      await registry.dispatch(name, sample(tool.inputSchema as Schema), context.host, 'host', engine);
+      expect(calls.some(call => call.args.includes(engine)), name).toBe(true);
     }
   });
 });

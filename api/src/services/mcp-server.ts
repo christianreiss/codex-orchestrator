@@ -65,6 +65,7 @@ export class McpServer {
     }
 
     if (Array.isArray(body)) {
+      if (body.length === 0) return errorResponse(null, -32600, 'Invalid Request');
       const responses: JsonRpcResponse[] = [];
       for (const item of body) {
         const res = await withOwnerRpcResponse(()=>this.handleOne(item, ctx));
@@ -80,13 +81,20 @@ export class McpServer {
       return errorResponse(null, -32600, 'Invalid Request');
     }
     const raw = req as JsonRpcRequest;
-    if (raw.jsonrpc !== '2.0' || typeof raw.method !== 'string') {
-      return errorResponse(raw.id ?? null, -32600, 'Invalid Request');
+    const validId = raw.id === undefined || raw.id === null || typeof raw.id === 'string' ||
+      (typeof raw.id === 'number' && Number.isFinite(raw.id));
+    if (raw.jsonrpc !== '2.0' || typeof raw.method !== 'string' || !validId) {
+      return errorResponse(validId ? raw.id ?? null : null, -32600, 'Invalid Request');
     }
 
     const id = (raw.id === undefined ? null : raw.id) as unknown;
     const method = raw.method;
     const isNotification = raw.id === undefined || raw.id === null;
+    // These methods use named parameters. Reject malformed envelopes before
+    // dispatch instead of silently turning them into an empty argument object.
+    if (raw.params !== undefined && (raw.params === null || typeof raw.params !== 'object' || Array.isArray(raw.params))) {
+      return isNotification ? null : errorResponse(id, -32602, 'Invalid params');
+    }
     const params =
       raw.params && typeof raw.params === 'object' && !Array.isArray(raw.params)
         ? (raw.params as Record<string, unknown>)
@@ -97,6 +105,10 @@ export class McpServer {
     try {
       assertOwnerRequestAuthority();
       switch (method) {
+        case 'ping': {
+          response = okResponse(id, {});
+          break;
+        }
         case 'initialize': {
           response = okResponse(id, {
             protocolVersion: '2025-03-26',

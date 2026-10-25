@@ -326,6 +326,11 @@ export class EntityView<K extends OwnedTableName> {
 type Views = { [K in OwnedTableName]: EntityView<K> };
 const privateContents = new WeakMap<object, CoreContents>();
 const contentSizes = new WeakMap<CoreContents, number>();
+const snapshotScopes = new WeakMap<OwnerStateSnapshot, object>();
+/** Private runtime metadata follows composed views, never serialized state or a reconstructed owner. */
+export function ownerSnapshotScope(snapshot: OwnerStateSnapshot): object {
+  return snapshotScopes.get(snapshot)!;
+}
 export class OwnerStateSnapshot {
   readonly #contents: CoreContents;
   readonly contentBytes: number;
@@ -342,6 +347,8 @@ export class OwnerStateSnapshot {
     contents?: CoreContents,
   ) {
     this.revision = revision(value);
+    snapshotScopes.set(this, previous?.revision.epoch === this.revision.epoch
+      ? ownerSnapshotScope(previous) : Object.freeze({}));
     this.messagingTotals = totals
       ? copy(totals)
       : (previous?.messagingTotals ?? copy(messagingTotalsFromSeed(seed)));

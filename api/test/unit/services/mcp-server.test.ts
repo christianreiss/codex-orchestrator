@@ -336,3 +336,38 @@ describe('McpServer error mapping', () => {
     },
   );
 });
+
+
+describe('McpServer protocol validation', () => {
+  it('answers a health ping with an empty result and preserves its id', async () => {
+    expect(await server.handlePayload({ jsonrpc: '2.0', id: 'probe', method: 'ping' }, ctx))
+      .toEqual({ jsonrpc: '2.0', id: 'probe', result: {} });
+  });
+
+  it('rejects an empty batch with one invalid-request response', async () => {
+    expect(await server.handlePayload([], ctx)).toEqual({
+      jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' },
+    });
+  });
+
+  it.each([true, false, {}, []])('rejects invalid request id %j before dispatch', async (id) => {
+    expect(await server.handlePayload({ jsonrpc: '2.0', id, method: 'prompts/list' }, ctx))
+      .toEqual({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } });
+  });
+
+  it.each([true, 7, 'bad', null, []])('rejects unsupported params %j before dispatch', async (params) => {
+    const calls: unknown[] = [];
+    const guarded = new McpServer({ listAvailable: () => { calls.push('listed'); return []; } } as unknown as McpToolsRegistry, resources);
+    const result = await guarded.handlePayload({ jsonrpc: '2.0', id: 9, method: 'tools/list', params }, ctx);
+    expect(result).toMatchObject({ jsonrpc: '2.0', id: 9, error: { code: -32602, message: 'Invalid params' } });
+    expect(calls).toEqual([]);
+  });
+
+  it('does not dispatch malformed notifications or answer valid ping notifications', async () => {
+    const calls: unknown[] = [];
+    const guarded = new McpServer({ listAvailable: () => { calls.push('listed'); return []; } } as unknown as McpToolsRegistry, resources);
+    expect(await guarded.handlePayload({ jsonrpc: '2.0', method: 'tools/list', params: true }, ctx)).toBeNull();
+    expect(calls).toEqual([]);
+    expect(await guarded.handlePayload({ jsonrpc: '2.0', method: 'ping' }, ctx)).toBeNull();
+  });
+});

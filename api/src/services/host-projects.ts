@@ -911,7 +911,7 @@ export class HostProjectsService {
   async createTodo(slug: string, payload: Record<string, unknown>, host: Host): Promise<unknown> {
     const { title, detail } = this.normalizeTodoPayload(payload);
     const result = await this.board().todoCreate(slug, { title, detail }, host.id);
-    await this.recordLog(host.id, 'project.todo.create', { slug: result.project, todo_id: result.todo.id });
+    if (!ownerRuntimeFor(this.db)) await this.recordLog(host.id, 'project.todo.create', { slug: result.project, todo_id: result.todo.id });
     wsPublisher.publish('project.todo.created', {
       slug: result.project,
       todo_id: result.todo.id,
@@ -923,7 +923,7 @@ export class HostProjectsService {
   async updateTodo(slug: string, id: number, payload: Record<string, unknown>, host: Host): Promise<unknown> {
     const { title, detail } = this.normalizeTodoPayload(payload);
     const result = await this.board().todoUpdate(slug, id, { title, detail }, host.id);
-    await this.recordLog(host.id, 'project.todo.update', { slug: result.project, todo_id: id });
+    if (!ownerRuntimeFor(this.db)) await this.recordLog(host.id, 'project.todo.update', { slug: result.project, todo_id: id });
     wsPublisher.publish('project.todo.updated', {
       slug: result.project,
       todo_id: id,
@@ -934,7 +934,7 @@ export class HostProjectsService {
 
   async setTodoDone(slug: string, id: number, done: boolean, host: Host): Promise<unknown> {
     const result = await this.board().todoSetDone(slug, id, done, host.id);
-    await this.recordLog(host.id, 'project.todo.done', { slug: result.project, todo_id: id, done });
+    if (!ownerRuntimeFor(this.db)) await this.recordLog(host.id, 'project.todo.done', { slug: result.project, todo_id: id, done });
     wsPublisher.publish('project.todo.updated', {
       slug: result.project,
       todo_id: id,
@@ -946,7 +946,7 @@ export class HostProjectsService {
 
   async deleteTodo(slug: string, id: number, host: Host): Promise<unknown> {
     const result = await this.board().todoDelete(slug, id, host.id);
-    await this.recordLog(host.id, 'project.todo.delete', { slug: result.project, todo_id: id });
+    if (!ownerRuntimeFor(this.db)) await this.recordLog(host.id, 'project.todo.delete', { slug: result.project, todo_id: id });
     wsPublisher.publish('project.todo.deleted', {
       slug: result.project,
       todo_id: id,
