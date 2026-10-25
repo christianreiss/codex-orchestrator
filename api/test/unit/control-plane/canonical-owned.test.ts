@@ -5,10 +5,11 @@ import type { Database } from '../../../src/db/client.js';
 import type { RunnerVerifyResult } from '../../../src/services/runner-client.js';
 import { decrypt, encrypt } from '../../../src/security/secret-box.js';
 import { setOwnedGrokState } from '../../../src/control-plane/streams/canonical-state.js';
-import { mutateOwnerState } from '../../../src/control-plane/state/runtime.js';
+import { mutateOwnerState, setOwnerRequestPrincipal, withOwnerRequestScope, withOwnerBackgroundScope } from '../../../src/control-plane/state/runtime.js';
 import { stageUpdate } from '../../../src/control-plane/state/rows.js';
 import * as schema from '../../../src/db/schema.js';
-import { CommandExecutor } from '../../../src/control-plane/commands.js';
+import { ForbiddenError } from '../../../src/http/errors.js';
+import { CommandExecutor, OwnerUnavailableError } from '../../../src/control-plane/commands.js';
 import { DeadlineQueue } from '../../../src/control-plane/deadlines.js';
 import {
   OwnerStateSnapshot,
@@ -216,6 +217,66 @@ describe('canonical credentials under one owner', () => {
       const row = (await db.select().from(schema.grokAuthRefreshState).where(eq(schema.grokAuthRefreshState.accountId, 1)))[0]!;
       expect(row.responseEnc).toBe(original);
       expect(h.spend).not.toHaveBeenCalled();
+    } finally { h.close(); }
+  });
+
+  it('conserves an already rotated response after caller revocation while denying promotion and disclosure', async () => {
+    const h = await grokRefreshFixture();
+    let authorized = true;
+    const call = () => withOwnerRequestScope(async () => {
+      setOwnerRequestPrincipal({ principal: 'fixture:revocable-caller', revalidate() {
+        if (!authorized) throw new ForbiddenError('Fixture caller revoked', 'fixture_caller_revoked');
+      } });
+      return h.owner.ensureFresh({ accountId: 1 });
+    });
+    try {
+      h.setRefresh(async () => {
+        authorized = false; // Request was admitted and the provider spent its RT.
+        return new Response(JSON.stringify(h.replacement), { status: 200 });
+      });
+      await expect(call()).rejects.toMatchObject({ status: 403, code: 'fixture_caller_revoked' });
+      const captured = await h.ledger();
+      expect(JSON.parse(decrypt(captured.responseEnc!, h.keyring)).body).toContain(h.replacement.refresh_token);
+      expect((await h.validation.resolveCanonicalPayload('grok', 1))?.id).toBe(h.base.id);
+      expect(h.runner.verifyGrok).not.toHaveBeenCalled();
+      authorized = true;
+      expect((await call()).canonical_generation).toBe(h.base.generation! + 1);
+      expect(h.spend).toHaveBeenCalledOnce();
+    } finally { h.close(); }
+  });
+
+  it('does not let conservation scope authorize the initial provider spend', async () => {
+    const h = await grokRefreshFixture();
+    try {
+      await expect(withOwnerRequestScope(async () => {
+        setOwnerRequestPrincipal({ principal: 'fixture:revoked-before-intent', revalidate() {
+          throw new ForbiddenError('Fixture caller revoked', 'fixture_caller_revoked');
+        } });
+        return h.owner.ensureFresh({ accountId: 1 });
+      })).rejects.toMatchObject({ status: 403 });
+      expect(h.spend).not.toHaveBeenCalled();
+      expect(await h.ledger()).toMatchObject({ state: 'idle', responseEnc: null });
+    } finally { h.close(); }
+  });
+
+  it.each(['owner_lost', 'account_removed'])('keeps %s fenced while conserving a known response', async failure => {
+    const h = await grokRefreshFixture();
+    try {
+      h.setRefresh(async () => {
+        if (failure === 'owner_lost') h.runtime.assertOwner = () => { throw new OwnerUnavailableError('fixture owner lost'); };
+        else await withOwnerBackgroundScope(() => mutateOwnerState(h.runtime, {
+          kind: 'fixture.remove-grok-account', payload: {}, prepare(c) {
+            stageUpdate(c, 'providerAccounts', 1, { state: 'removed' }); return null;
+          },
+        }));
+        return new Response(JSON.stringify(h.replacement), { status: 200 });
+      });
+      const result = h.owner.ensureFresh({ accountId: 1 });
+      if (failure === 'owner_lost') await expect(result).rejects.toThrow('fixture owner lost');
+      else await expect(result).rejects.toMatchObject({ code: 'grok_generation_conflict' });
+      expect((await h.ledger()).responseEnc).toBeNull();
+      expect(h.spend).toHaveBeenCalledOnce();
+      expect(h.runner.verifyGrok).not.toHaveBeenCalled();
     } finally { h.close(); }
   });
 
