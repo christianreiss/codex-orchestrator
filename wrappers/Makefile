@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 
-VERSION ?= 0.9.132
+VERSION ?= 0.9.133
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 

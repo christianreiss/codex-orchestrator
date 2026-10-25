@@ -85,6 +85,9 @@ func callPublicationTool(ctx context.Context, client *sessionClient, name string
 	}
 	var out map[string]any
 	if err := client.post(ctx, operation, body, &out); err != nil {
+		if name == "agent_publish" {
+			return nil, uncertainSendError(err, "publish", stringArg(body, "client_message_id"))
+		}
 		return nil, err
 	}
 	return out, nil

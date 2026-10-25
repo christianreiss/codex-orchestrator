@@ -941,3 +941,15 @@ security deadlines and revocation notifications remain independent.
 Older communicators and standalone state streams retain server ping/pong.
 The shared protocol applies equally to Codex, Claude, and Grok; transport
 liveness does not prove task progress or successful execution.
+
+
+### Communication acknowledgement ambiguity (0.9.133)
+
+Peer acceptance and native exposure are separate phases. Unconfirmed acceptance
+remains tracked under its original claim during reconnect; informational auto
+release, `agent_listen` and work result handling cannot complete an unexposed
+delivery. Exact acknowledgement reconciliation precedes the first native send.
+Unknown native submission is never repeated. No additional idle network poll or
+background SQL loop is introduced; reconciliation runs only for pending admission.
+Process loss retains the server's unknown/ambiguous outcome rather than inventing
+completion or resubmitting the work.

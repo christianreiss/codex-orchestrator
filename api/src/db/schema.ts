@@ -2704,7 +2704,7 @@ export const agentRoomDeliveries = mysqlTable('agent_room_deliveries', {
   addressId: char('address_id', { length: 36 }).notNull(),
   messageId: char('message_id', { length: 36 }),
   reason: varchar('reason', { length: 80 }),
-}, t => ({ deliveryUnique: uniqueIndex('uq_room_delivery').on(t.eventId, t.addressId) }));
+}, t => ({ deliveryUnique: uniqueIndex('uq_room_delivery').on(t.eventId, t.addressId), messageIdx: index('idx_room_delivery_message').on(t.messageId) }));
 
 // ────────────────────────────────────────────────────────────────────────────
 // agent roles — versioned role packages, assignments and proposals (0081)

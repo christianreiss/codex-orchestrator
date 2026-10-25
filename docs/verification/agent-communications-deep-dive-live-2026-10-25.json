@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-25",
+  "production_host": "docker01.uggs.io",
+  "baseline_source": "af483160530a5f9839462ec4b7a7ae86cb239ab3",
+  "candidate_wrapper": "0.9.133",
+  "deployment": "pending",
+  "baseline_mysql": {
+    "passed": 446,
+    "files": 30
+  },
+  "owner_lifecycle_mysql_passed": 1,
+  "targeted_owner_unit_passed": 146,
+  "room_unit_passed": 21,
+  "native_live": {
+    "codex": "group/feed/shared-room/direct proven before final rollout",
+    "claude": "group/feed/shared-room/direct proven before final rollout",
+    "grok": "accepted work without observed result; no provider recovery claimed"
+  },
+  "feedback_id": "61490e11-cb07-49d0-910c-41bf7273ba64",
+  "full_api": {
+    "passed": 6301,
+    "skipped": 1096,
+    "files_passed": 477
+  },
+  "final_targeted_unit_passed": 227,
+  "combined_mysql": {
+    "passed": 415,
+    "failed": 7,
+    "files_passed": 24,
+    "files_failed": 3,
+    "contaminated_shared_fixture": true
+  },
+  "exclusive_failed_suite_retest": {
+    "passed": 122,
+    "failed": 0,
+    "files": 3
+  },
+  "additional_private_mysql": {
+    "collation_passed": 1,
+    "idempotent_index_and_explain_passed": 1
+  },
+  "go": {
+    "full_exit_code": 1,
+    "packages_passed": 62,
+    "environment_failure": "layout missing sudo in disposable image",
+    "failed_package_retest_with_real_sudo": "passed",
+    "build": "passed",
+    "vet": "passed",
+    "targeted_race": "passed"
+  },
+  "typecheck": "passed",
+  "eslint": {
+    "errors": 0,
+    "preexisting_warnings": 5
+  }
+}

@@ -103,7 +103,7 @@ func (t *channelTracker) releaseSeen(ctx context.Context, seen []string) (releas
 	t.mu.Lock()
 	candidates := make(map[string]*channelPending)
 	for id, p := range t.items {
-		if want[id] && p.workKind == "" {
+		if want[id] && p.workKind == "" && !p.admissionPending() {
 			candidates[id] = p
 		}
 	}

@@ -42,6 +42,7 @@ type channelPending struct {
 	opMu           sync.Mutex // serialize reply/result/listen without blocking lease renewal
 	completionBody map[string]any
 	replyBody      map[string]any
+	admission      map[string]any // unexposed automatic delivery awaiting acceptance confirmation
 	claimID        string
 	workKind       string
 	conferenceID   string
@@ -54,6 +55,9 @@ type channelPending struct {
 func (p *channelPending) setCompletion(body map[string]any) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.admission != nil {
+		return errors.New("delivery acceptance is still pending; no work has been exposed")
+	}
 	if p.replyBody != nil || (p.completionBody != nil && !reflect.DeepEqual(p.completionBody, body)) {
 		return errors.New("a result receipt is still pending; retry the original tool arguments or call agent_listen to confirm it")
 	}
@@ -63,6 +67,9 @@ func (p *channelPending) setCompletion(body map[string]any) error {
 func (p *channelPending) setReply(body map[string]any) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.admission != nil {
+		return errors.New("delivery acceptance is still pending; no work has been exposed")
+	}
 	if p.completionBody != nil || (p.replyBody != nil && !reflect.DeepEqual(p.replyBody, body)) {
 		return errors.New("a reply receipt is still pending; retry the original tool arguments or call agent_listen to confirm it")
 	}
@@ -121,8 +128,17 @@ func newChannelTracker(client *sessionClient) *channelTracker {
 }
 
 func (t *channelTracker) track(parent context.Context, messageID, claimID string, delivery ...map[string]any) *channelPending {
+	return t.trackDelivery(parent, messageID, claimID, false, delivery...)
+}
+func (t *channelTracker) trackAdmission(parent context.Context, messageID, claimID string, delivery map[string]any) *channelPending {
+	return t.trackDelivery(parent, messageID, claimID, true, delivery)
+}
+func (t *channelTracker) trackDelivery(parent context.Context, messageID, claimID string, unexposed bool, delivery ...map[string]any) *channelPending {
 	ctx, cancel := context.WithCancel(parent)
 	pending := &channelPending{claimID: claimID, replyClientID: newUUID(), cancel: cancel}
+	if unexposed && len(delivery) > 0 {
+		pending.admission = delivery[0]
+	}
 	if len(delivery) > 0 {
 		pending.workKind = stringArg(delivery[0], "work_kind")
 		if sender, ok := delivery[0]["sender"].(map[string]any); ok {
@@ -179,7 +195,11 @@ func (t *channelTracker) track(parent context.Context, messageID, claimID string
 			case <-ticker.C:
 				var ignored map[string]any
 				if err := t.client.post(ctx, "deliveries/"+messageID+"/renew", map[string]any{"claim_id": claimID}, &ignored); err != nil {
-					if definitiveChannelRenewalError(err) {
+					definitive := definitiveChannelRenewalError(err)
+					if pending.admissionPending() {
+						definitive = definitiveAdmissionError(err)
+					}
+					if definitive {
 						// A committed result stops being renewable. If its response
 						// was lost, retain correlation for the idempotent storage retry.
 						pending.opMu.Lock()
@@ -244,7 +264,7 @@ func (t *channelTracker) completeOutstanding(ctx context.Context) error {
 }
 
 func releasableByListen(p *channelPending) bool {
-	return p.workKind == "" || p.completion() != nil || p.reply() != nil
+	return !p.admissionPending() && (p.workKind == "" || p.completion() != nil || p.reply() != nil)
 }
 
 // heldWork lists accepted work that listen must not release.
@@ -314,6 +334,9 @@ func (t *channelTracker) completePending(ctx context.Context, messageID string, 
 	defer pending.opMu.Unlock()
 	if t.get(messageID) != pending {
 		return nil
+	}
+	if pending.admissionPending() {
+		return errors.New("delivery acceptance is still pending; no work has been exposed")
 	}
 	if pending.reply() != nil {
 		var ignored map[string]any
@@ -402,7 +425,7 @@ func (t *channelTracker) acknowledge(ctx context.Context, messageID string, pend
 	if outcome == "accepted" {
 		message, _ := ignored["message"].(map[string]any)
 		if stringArg(message, "status") != "accepted" {
-			return errors.New("delivery acceptance was not confirmed")
+			return &APIError{Status: 409, Code: "agent_messaging_acceptance_unconfirmed", Message: "Delivery acceptance returned a non-accepted receipt"}
 		}
 	}
 	return nil
@@ -1066,6 +1089,9 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			if channelState.get(messageID) != pending {
 				return nil, errors.New("this process no longer holds that delivery")
 			}
+			if pending.admissionPending() {
+				return nil, errors.New("delivery acceptance is still pending; no work has been exposed")
+			}
 			if !progressOnly {
 				clientMessageID = pending.replyClientID
 			}
@@ -1286,6 +1312,9 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 		if err := state.completeOutstanding(ctx); err != nil {
 			return nil, err
 		}
+		if pending := state.admissionIDs(); len(pending) > 0 {
+			return map[string]any{"status": "delivery_pending", "pending_deliveries": pending, "message": "Delivery acceptance is being reconciled with the original claim. Nothing has been exposed for execution. Do not act on or resend it; the receiver retries the same acceptance receipt."}, nil
+		}
 		if held := state.heldWork(); len(held) > 0 && !state.receiver.coordinationEnabled() {
 			return workHeldResult(held, state.receiver.health()), nil
 		}
@@ -1452,7 +1481,7 @@ func copyOptional(source, target map[string]any, keys ...string) {
 // Definite rejections must not instruct a retry of an unchanged invalid payload.
 func uncertainSendError(err error, operation, clientID string) error {
 	var apiErr *APIError
-	if errors.As(err, &apiErr) && apiErr.Status >= 400 && apiErr.Status < 500 && apiErr.Status != 408 && apiErr.Status != 429 {
+	if errors.As(err, &apiErr) && apiErr.Status >= 400 && apiErr.Status < 500 && apiErr.Status != 408 && apiErr.Status != 429 && apiErr.Code != "communicator_outcome_unknown" {
 		return err
 	}
 	return fmt.Errorf("%w; retry the same %s with client_message_id=%s", err, operation, clientID)

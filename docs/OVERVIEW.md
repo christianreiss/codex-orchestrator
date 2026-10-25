@@ -1503,3 +1503,10 @@ Activity now shows meaningful changes; generic MCP history and ineffective log-r
 For a self-hosted control-plane rollout run `python3 scripts/deploy-detached.py -- --backup --no-cleanup --service api`. The systemd unit survives SSH/native/API interruption; inspect the printed result.json and deploy.log paths. An accepted launcher is not deployment success. The result includes actual Git provenance and the deploy exit code; HOME/PATH are retained explicitly. Restore old source plus the matching pre-0092 SQL backup to roll back the removed MCP schema; an old image alone cannot audit secret reads and therefore fails closed.
 
 MCP transport health uses the JSON-RPC `ping` method. Empty batches, malformed IDs and non-object parameter envelopes are rejected before dispatch; see [MCP methods](MCP.md#json-rpc-methods).
+
+
+Communication hardening (2026-10-25, cxx 0.9.133): direct/group/conference
+reads retain current disclosure authority; room history follows immutable group
+identity. Complete-message pages use a byte budget and continuation cursors.
+Unconfirmed receiver acceptance retains its original claim across reconnect and
+never authorizes native replay. See `interface-api.md` and `communicator.md`.

@@ -20,6 +20,9 @@ import { nowIso, isoOffsetSeconds } from '../../util/timestamp.js';
 import type { Json } from '../../control-plane/commands.js';
 import {
   mutateOwnerState,
+  addOwnerResponseProof,
+  bindOwnerResponseRuntime,
+  setOwnerRequestPrincipal,
   type OwnerRuntime,
   type OwnerMutationContext,
 } from '../../control-plane/state/runtime.js';
@@ -255,6 +258,35 @@ export class OwnedConferences {
     this.runtime.assertOwner();
     return this.runtime.state.snapshot();
   }
+  private reader(snapshot: OwnerStateSnapshot, id: string, token: string) {
+    bindOwnerResponseRuntime(this.runtime);
+    const first = self(snapshot, id, token);
+    setOwnerRequestPrincipal({
+      principal: `session:${id}`,
+      revalidate(current) {
+        ownedBridge(current, id, token, { generation: first.session.bindingGeneration });
+        const me = self(current, id, token);
+        if (me.address.id !== first.address.id)
+          throw new ConflictError('Address binding changed', 'agent_messaging_binding_stale');
+      },
+    });
+    return first;
+  }
+  private protectMembership(snapshot: OwnerStateSnapshot, roomId: string, addressId: string, chair = false) {
+    const member = ownedConferenceMember(snapshot, roomId, addressId, chair);
+    addOwnerResponseProof(`conference:${roomId}:${addressId}`, (current) => {
+      ownedConference(current, roomId);
+      const active = ownedConferenceMember(current, roomId, addressId, chair);
+      if (
+        active.id !== member.id ||
+        active.createdAt !== member.createdAt ||
+        active.joinedAt !== member.joinedAt
+      )
+        throw new ForbiddenError('Conference membership changed', 'agent_messaging_conference_not_member');
+      if (chair && ownedConference(current, roomId, true).ownerAddressId !== addressId)
+        throw new ForbiddenError('Conference owner changed', 'agent_messaging_conference_not_owner');
+    });
+  }
   private changed(id: string) {
     wsPublisher.publish('agent_messaging.conference.changed', { conference_id: id });
   }
@@ -273,13 +305,15 @@ export class OwnedConferences {
       ttl = normalizeConferenceTtl(input.ttlSeconds),
       maxMembers = normalizeConferenceMaxMembers(input.maxMembers);
     const initial = this.snapshot(),
-      first = self(initial, id, token);
+      first = this.reader(initial, id, token);
     const existing = initial
       .table('agentBusConferences')
       .by('ownerAddressId', first.address.id)
       .find((c) => c.status === 'open' && c.deadlineAt > nowIso());
-    if (existing?.pin && existing.pinExpiresAt && existing.pinExpiresAt > nowIso())
+    if (existing?.pin && existing.pinExpiresAt && existing.pinExpiresAt > nowIso()) {
+      this.protectMembership(initial, existing.id, first.address.id, true);
       return this.openView(initial, existing, first.address, true);
+    }
     const result = await mutateOwnerState(this.runtime, {
       kind: 'conference.open',
       payload: json({ id, topic, purpose, ttl, maxMembers }),
@@ -549,9 +583,9 @@ export class OwnedConferences {
   }
   roster(id: string, token: string, raw: string) {
     const snapshot = this.snapshot(),
-      { address } = self(snapshot, id, token),
+      { address } = this.reader(snapshot, id, token),
       room = ownedConference(snapshot, normalizeUuid(raw, 'conference_id'));
-    ownedConferenceMember(snapshot, room.id, address.id);
+    this.protectMembership(snapshot, room.id, address.id);
     return {
       enabled: true,
       conference_id: room.id,
@@ -565,9 +599,9 @@ export class OwnedConferences {
   }
   list(id: string, token: string) {
     const snapshot = this.snapshot(),
-      { address } = self(snapshot, id, token),
+      { address } = this.reader(snapshot, id, token),
       now = nowIso();
-    return {
+    const result = {
       enabled: true,
       conferences: snapshot
         .table('agentBusConferenceMembers')
@@ -606,6 +640,8 @@ export class OwnedConferences {
         .sort((a, b) => a.created_at.localeCompare(b.created_at))
         .slice(0, 50),
     };
+    for (const room of result.conferences) this.protectMembership(snapshot, room.conference_id, address.id);
+    return result;
   }
   async say(id: string, token: string, input: { conferenceId: string; content: string; to?: string | null }) {
     const conferenceId = normalizeUuid(input.conferenceId, 'conference_id'),

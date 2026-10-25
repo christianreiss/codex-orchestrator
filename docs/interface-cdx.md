@@ -2167,3 +2167,19 @@ rules shared by all three engines.
 Managed Codex configuration allowlists `CXX_AGENT_PORTAL_SOCKET` through the fleet `cdx` MCP entry’s `env_vars`. The `cxx-agent` entry receives its private socket through launch overrides. Codex filters inherited subprocess environments, so relying on inheritance loses the native session identity and causes `git_director_owner_required`. The broker supplies the session credentials; bridge tokens stay out of model configuration. Existing launches need their fleet MCP adapter reloaded with the broker socket, or a normal managed session restart, to adopt the corrected environment.
 
 With cxx 0.9.131, native claim/Git continuation follows the completed exact-transcript proof in `interface-api.md` (Explicit native lock continuation). Connection claims have no TTL; unknown outcomes cannot be renewed, Git merge grants are absolute, and resumed Git registrations require new merge permission.
+
+
+### Communication acceptance reconciliation (cxx 0.9.133)
+
+If the server may have accepted a delivery but its acknowledgement response is
+lost, the receiver retains the original message and claim identity across an
+in-process reconnect. It retries only that acknowledgement; native submission
+starts once acceptance is confirmed. `agent_listen` reports `delivery_pending`
+while acceptance remains unconfirmed and does not complete unseen work. A lost
+MCP process or uncertain native submission never authorizes replay: the durable
+server outcome remains unknown/ambiguous until reconciled.
+
+Read pages may be shorter than the requested count due to their complete-item
+byte budget; continue the returned cursor. Publication errors preserve generated
+idempotency UUIDs so an uncertain send can be inspected or retried with that same
+UUID instead of creating a second publication.

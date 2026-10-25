@@ -3490,3 +3490,26 @@ A resumed native transcript may explicitly continue a connection resource claim 
 These are server coordination fences, not filesystem/process locks: successful continuation does not certify that an arbitrary detached external subprocess stopped. Owners must complete their external operation before reporting lifecycle completion. Genuine unknown operations are not recovered by time or transcript identity alone. Legacy timed Board rows retain their original ownership mode; malformed or missing timed deadlines require explicit resolution rather than automatic reclaim. Connection Board rows are never expired by this compatibility sweep.
 
 If the resumed session already queued an identical acquire with the original client request UUID, continuation cancels that waiting alias atomically and preserves the original grant ID. Cached acquire receipts retain their original waiting ID; status of that released alias returns `continued_by_claim_id` so callers can inspect the continued grant. Different work under the same UUID is rejected.
+
+
+### Communication disclosure and bounded history (2026-10-25)
+
+Direct, group and conference reads retain their session/binding authority through
+the final response boundary. Room history additionally rechecks current membership
+after awaited cold reads and before disclosure. A removed or replaced participant
+cannot finish an already started private-history read. These checks use owner RAM.
+
+Wait, digest and shared-room history pages are bounded by serialized complete-item
+size (512 KiB before MCP embedding), in addition to their count limit. A page may
+therefore contain fewer entries than requested; continue with its returned cursor.
+No message text is truncated and no cursor skips an omitted entry. Delivery
+metadata is included in the room-page budget.
+
+Group room history uses immutable room-event group IDs, never a reused topic slug.
+Unbound legacy publications are no longer reconstructed into shared-room history;
+original recipients retain their original direct mailbox deliveries. An ineligible
+subscriber is reported as skipped without aborting healthy recipients. Unexpected
+authority or persistence errors still fail closed.
+
+Conference deadlines bound fresh task admission. Graceful completion and already
+accepted work keep their existing uncertainty and result protections.

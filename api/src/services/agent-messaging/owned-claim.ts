@@ -23,6 +23,7 @@ import {
   type OwnedMessage,
 } from './owned-delivery.js';
 import { prepareOwnedPresentations } from './owned-presentations.js';
+import { ownedConferenceAdmissionOpen } from './conference-protocol.js';
 
 export interface OwnedClaimOptions {
   targetAddressIds: string[];
@@ -52,12 +53,15 @@ export function ownedClaimCandidates(
 ): OwnedMessage[] {
   const sessionId = options.relayGeneration === null ? options.leaseOwner.slice(8) : null;
   const relevant = options.targetAddressIds.flatMap((id) => snapshot.messages.by('targetAddressId', id));
-  const live = relevant.filter((row) => inFlight(row) || (row.status === 'queued' && row.expiresAt > now));
+  const live = relevant.filter((row) =>
+    ['accepted', 'reboot_hold'].includes(row.status) ||
+    (['queued', 'leased'].includes(row.status) && row.expiresAt > now && ownedConferenceAdmissionOpen(snapshot, row, now)));
   return relevant
     .filter((row) => {
       if (
         row.status !== 'queued' ||
         row.expiresAt <= now ||
+        !ownedConferenceAdmissionOpen(snapshot, row, now) ||
         (row.nextAttemptAt > now && (!sessionId || row.deliverySessionId === sessionId))
       )
         return false;
@@ -191,6 +195,8 @@ export async function claimOwnedDelivery(
         ownedAddress(snapshot, selected.targetAddressId);
         if (selected.expiresAt <= new Date().toISOString())
           throw new ConflictError('Message expired before delivery', 'agent_messaging_message_expired');
+        if (!ownedConferenceAdmissionOpen(snapshot, selected, new Date().toISOString()))
+          throw new ConflictError('Conference deadline has passed', 'agent_messaging_conference_expired');
         if (selected.kind === 'schedule') {
           const run = snapshot.table('agentScheduleRuns').by('messageId', selected.id)[0],
             watchdog = run && snapshot.table('agentWatchdogs').by('scheduleId', run.scheduleId)[0];

@@ -17,6 +17,7 @@ export function stageCoordinationNotice(
   content: string,
   options: {
     roomQuestion?: boolean;
+    expiresAt?: string;
     clientMessageId?: string;
     deliveryClass?: 'notice' | 'coordination';
     ttlSeconds?: number;
@@ -69,7 +70,7 @@ export function stageCoordinationNotice(
       content,
       contentEnc: encrypt(content, keyring),
       clientMessageId: options.clientMessageId ?? randomUUID(),
-      expiresAt: new Date(Date.now() + (options.ttlSeconds ?? 86400) * 1000).toISOString(),
+      expiresAt: options.expiresAt ?? new Date(Date.now() + (options.ttlSeconds ?? 86400) * 1000).toISOString(),
       now,
     }),
     targetSessionId: session.id,

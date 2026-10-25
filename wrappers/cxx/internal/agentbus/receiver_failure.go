@@ -46,7 +46,7 @@ func (t *channelTracker) abandonFailedTurn(ctx context.Context, failure string) 
 	for id, item := range pending {
 		item.opMu.Lock()
 		// An explicit result already being stored outranks inferred failure.
-		if t.get(id) == item && item.completion() == nil && item.reply() == nil {
+		if t.get(id) == item && !item.admissionPending() && item.completion() == nil && item.reply() == nil {
 			item.cancel()
 			code := "native_turn_failed"
 			if failure == "user_stop" {

@@ -1,4 +1,5 @@
 import { persistAuditLog } from '../audit-log.js';
+import { ownedConferenceAdmissionOpen } from './conference-protocol.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq, ne } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
@@ -413,6 +414,10 @@ export async function acknowledgeOwnedDelivery(
     }),
     authorize(snapshot) {
       requireOwnedMessaging(snapshot);
+      const message = snapshot.messages.get(id);
+      if (message?.status === 'leased' && ['accepted', 'completed'].includes(input.outcome) &&
+          !ownedConferenceAdmissionOpen(snapshot, message, nowIso()))
+        throw new ConflictError('Conference deadline has passed', 'agent_messaging_conference_expired');
       if (requireAttachment)
         deliveryAttachment(runtime, snapshot, leaseOwner, requireAttachment.ownerInstanceId);
     },
@@ -468,6 +473,9 @@ export async function acknowledgeOwnedDelivery(
       }
       const now = nowIso(),
         target = snapshot.addresses.get(message.targetAddressId)!;
+      if (message.status === 'leased' && ['accepted', 'completed'].includes(input.outcome) &&
+          !ownedConferenceAdmissionOpen(snapshot, message, now))
+        throw new ConflictError('Conference deadline has passed', 'agent_messaging_conference_expired');
       if (
         message.kind === 'presence_notice' &&
         (relayGeneration !== null ||

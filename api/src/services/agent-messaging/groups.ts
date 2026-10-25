@@ -1,6 +1,6 @@
 import { stageRoomEvent } from '../../control-plane/state/room-heads.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { ownerRuntimeFor,mutateOwnerState,type OwnerMutationContext } from '../../control-plane/state/runtime.js';
+import { ownerRuntimeFor,mutateOwnerState,addOwnerResponseProof,bindOwnerResponseRuntime,type OwnerMutationContext } from '../../control-plane/state/runtime.js';
 import { ownedBridge,ownedAddress,requireOwnedMessaging } from '../../control-plane/state/messaging.js';
 import { stageQueuedMessage,stageServerAddress } from '../../control-plane/state/messages.js';
 import { stageDelete } from '../../control-plane/state/rows.js';
@@ -118,8 +118,21 @@ export class AgentMessagingGroups {
     action: (tx: AgentMessagingDb, actor: AgentBusAddress) => Promise<T>,
     readOnly=false,
   ): Promise<T> {
-    const owner=ownerRuntimeFor(this.core.db);if(owner){const admit=()=>{const snapshot=owner.state.snapshot(),{session}=ownedBridge(snapshot,sessionId,token);if(!session.agentBusAddressId)throw new ConflictError('Agent session has no messaging address','agent_messaging_address_missing');const actor=ownedAddress(snapshot,session.agentBusAddressId);if(actor.currentSessionId!==session.id||actor.bindingGeneration!==session.bindingGeneration)throw new ConflictError('Agent binding changed','agent_binding_changed');return actor;};
-      if(readOnly){const actor=admit();return action(this.core.db,actor);}let value!:T;await mutateOwnerState(owner,{kind:'messaging.group.command',principal:'session:'+sessionId,payload:{},authorize:()=>{admit();},prepare:ctx=>groupCommand.run(ctx,async()=>{value=await action(this.core.db,admit());return ()=>JSON.parse(JSON.stringify(value??null)) as Json;})});return value;}
+    const owner=ownerRuntimeFor(this.core.db);if(owner){const admit=(snapshot=owner.state.snapshot())=>{owner.assertOwner();const {session}=ownedBridge(snapshot,sessionId,token);if(!session.agentBusAddressId)throw new ConflictError('Agent session has no messaging address','agent_messaging_address_missing');const actor=ownedAddress(snapshot,session.agentBusAddressId);if(actor.currentSessionId!==session.id||actor.bindingGeneration!==session.bindingGeneration)throw new ConflictError('Agent binding changed','agent_binding_changed');return actor;};
+      if(readOnly){
+        bindOwnerResponseRuntime(owner);
+        const actor=admit();
+        const proof=(snapshot: Parameters<typeof ownedBridge>[0])=>{
+          const current=admit(snapshot);
+          if(current.id!==actor.id||current.bindingGeneration!==actor.bindingGeneration)
+            throw new ConflictError('Agent binding changed','agent_binding_changed');
+        };
+        addOwnerResponseProof('messaging.group.read:'+sessionId,proof);
+        const result=await action(this.core.db,actor);
+        proof(owner.state.snapshot());
+        return result;
+      }
+      let value!:T;await mutateOwnerState(owner,{kind:'messaging.group.command',principal:'session:'+sessionId,payload:{},authorize:()=>{admit();},prepare:ctx=>groupCommand.run(ctx,async()=>{value=await action(this.core.db,admit());return ()=>JSON.parse(JSON.stringify(value??null)) as Json;})});return value;}
     const auth = await this.core.authenticateBridge(sessionId, token);
     if (!auth.session.agentBusAddressId)
       throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
@@ -573,7 +586,12 @@ export class AgentMessagingGroups {
         target = await this.core.requireAddressLocked(tx, subscription.subscriberAddressId);
         await this.core.assertAddressEligibleLocked(tx, target);
       } catch (error) {
-        if (!(error instanceof NotFoundError)) throw error;
+        // Subscriptions survive temporary host ineligibility. Skip that target,
+        // while propagating owner fences and unrelated authorization failures.
+        if (
+          !(error instanceof NotFoundError) &&
+          !(error instanceof ForbiddenError && error.code === 'agent_messaging_host_ineligible')
+        ) throw error;
         receipts.skipped.push({ address_id: subscription.subscriberAddressId, reason: 'address_ineligible' });
         continue;
       }

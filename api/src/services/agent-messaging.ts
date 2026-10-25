@@ -1,3 +1,5 @@
+import { conferenceAdmissionOpenSql } from './agent-messaging/conference-protocol.js';
+import { readMessagePage } from './agent-messaging/read-page.js';
 import {persistAuditLog} from './audit-log.js';
 import {ownedSelf} from './agent-messaging/owned-discovery.js';
 import { cancelOwnedConversation, stageCancelOwnedConversation } from './agent-messaging/owned-cancel.js';
@@ -52,6 +54,7 @@ import {
   desc,
   eq,
   gt,
+  getTableColumns,
   inArray,
   isNull,
   lte,
@@ -768,11 +771,14 @@ export class AgentMessagingService {
       return { conversation, rows: fetched.slice(0, AGENT_MESSAGING_WAIT_PAGE_SIZE), hasMore: fetched.length > AGENT_MESSAGING_WAIT_PAGE_SIZE };
     });
     const addresses = await this.addressMap(rows.flatMap((row) => [row.senderAddressId, row.targetAddressId]));
+    const metadata = conversationMetadata(conversation);
+    const page = readMessagePage(rows, row => messageForParticipant(row, this.decodeContent(row), addresses.get(row.senderAddressId)!, addresses.get(row.targetAddressId)!),
+      { conversation: metadata, has_more: false, next_sequence: Math.max(0, Math.trunc(afterSequence)) });
     return {
-      conversation: conversationMetadata(conversation),
-      messages: rows.map((row) => messageForParticipant(row, this.decodeContent(row), addresses.get(row.senderAddressId)!, addresses.get(row.targetAddressId)!)),
-      has_more: hasMore,
-      next_sequence: rows.at(-1)?.sequence ?? Math.max(0, Math.trunc(afterSequence)),
+      conversation: metadata,
+      messages: page.messages,
+      has_more: hasMore || page.count < rows.length,
+      next_sequence: rows[page.count - 1]?.sequence ?? Math.max(0, Math.trunc(afterSequence)),
     };
   }
 
@@ -808,7 +814,8 @@ export class AgentMessagingService {
     const members = await this.db.select().from(agentBusMessages).where(and(or(eq(agentBusMessages.digestId, id), sql`${agentBusMessages.supersededById} IN (SELECT member.id FROM agent_bus_messages member WHERE member.digest_id = ${id})`), eq(agentBusMessages.targetAddressId, auth.session.agentBusAddressId!), gt(agentBusMessages.dispatchOrder, after))).orderBy(asc(agentBusMessages.dispatchOrder)).limit(limit + 1);
     const page = members.slice(0, limit);
     const addresses = await this.addressMap(page.flatMap(m => [m.senderAddressId, m.targetAddressId]));
-    return { digest_id: id, messages: page.map(m => messageForParticipant(m, this.decodeContent(m), addresses.get(m.senderAddressId)!, addresses.get(m.targetAddressId)!)), next_after: members.length > limit ? page[page.length - 1]!.dispatchOrder : null };
+    const bounded = readMessagePage(page, m => messageForParticipant(m, this.decodeContent(m), addresses.get(m.senderAddressId)!, addresses.get(m.targetAddressId)!), { digest_id: id, next_after: after });
+    return { digest_id: id, messages: bounded.messages, next_after: members.length > bounded.count ? page[bounded.count - 1]!.dispatchOrder : null };
   }
 
   async cancelConversation(sessionId: string, bridgeToken: string, conversationId: string, reason?: string | null): Promise<Record<string, unknown>> {
@@ -1562,7 +1569,7 @@ export class AgentMessagingService {
       const replayRows = await tx
         .select()
         .from(agentBusMessages)
-        .where(and(inArray(agentBusMessages.targetAddressId, targetAddressIds), eq(agentBusMessages.leaseOwner, leaseOwner), eq(agentBusMessages.claimId, claimId), eq(agentBusMessages.status, 'leased')))
+        .where(and(inArray(agentBusMessages.targetAddressId, targetAddressIds), eq(agentBusMessages.leaseOwner, leaseOwner), eq(agentBusMessages.claimId, claimId), eq(agentBusMessages.status, 'leased'), conferenceAdmissionOpenSql(now)))
         .limit(1)
         .for('update');
       if (replayRows[0]) {
@@ -1615,10 +1622,12 @@ export class AgentMessagingService {
             )
             : lte(agentBusMessages.nextAttemptAt, now),
           gt(agentBusMessages.expiresAt, now),
+          conferenceAdmissionOpenSql(now),
           smartQueue ? sql`NOT EXISTS (
             SELECT 1 FROM agent_bus_messages AS earlier
              WHERE earlier.target_address_id = ${agentBusMessages.targetAddressId}
                AND earlier.status IN ('queued','leased','accepted','reboot_hold')
+               AND (earlier.status IN ('accepted','reboot_hold') OR ${conferenceAdmissionOpenSql(now, 'earlier')})
                AND earlier.id <> ${agentBusMessages.id}
                AND (
                  ((${agentBusMessages.workKind} IS NOT NULL OR ${agentBusMessages.kind} IN ('request','task','schedule'))
@@ -1828,9 +1837,10 @@ export class AgentMessagingService {
         if (!relayId) throw new ConflictError('Relay lease owner is invalid', 'agent_messaging_lease_lost');
         await this.requireRelayGenerationLocked(tx, relayId, relayGeneration);
       }
-      const rows = await tx.select().from(agentBusMessages).where(eq(agentBusMessages.id, id)).limit(1).for('update');
-      const message = rows[0];
-      if (!message) throw new NotFoundError('Message not found', 'agent_messaging_message_not_found');
+      const rows = await tx.select({ ...getTableColumns(agentBusMessages), conferenceOpen: conferenceAdmissionOpenSql(now) }).from(agentBusMessages).where(eq(agentBusMessages.id, id)).limit(1).for('update');
+      const row = rows[0];
+      if (!row) throw new NotFoundError('Message not found', 'agent_messaging_message_not_found');
+      const { conferenceOpen, ...message } = row;
       if (message.leaseOwner !== leaseOwner || message.claimId !== claimId || (relayGeneration != null && message.relayGeneration !== relayGeneration)) {
         throw new ConflictError('Message lease is no longer owned by this delivery', 'agent_messaging_lease_lost');
       }
@@ -1852,6 +1862,9 @@ export class AgentMessagingService {
         return message;
       }
       if (['accepted','completed'].includes(input.outcome) && (!message.leaseUntil || message.leaseUntil <= now)) throw new ConflictError('Delivery lease expired', 'agent_messaging_lease_lost');
+      if (['accepted', 'completed'].includes(input.outcome) && message.status === 'leased' && Number(conferenceOpen) === 0) {
+        throw new ConflictError('Conference deadline has passed', 'agent_messaging_conference_expired');
+      }
       if (['accepted', 'completed'].includes(input.outcome) && message.status === 'leased' && message.expiresAt <= now) {
         throw new ConflictError('Message expired before acceptance', 'agent_messaging_message_expired');
       }
@@ -2369,11 +2382,11 @@ export class AgentMessagingService {
     return { address, session };
   }
 
-  coordinationNoticeOwned(ctx: OwnerMutationContext, session: StateRow<'agentSessions'>, content: string, roomQuestion = false, clientMessageId?: string, noticeOptions: { deliveryClass?: 'notice' | 'coordination'; ttlSeconds?: number } = {}): string | undefined {
+  coordinationNoticeOwned(ctx: OwnerMutationContext, session: StateRow<'agentSessions'>, content: string, roomQuestion = false, clientMessageId?: string, noticeOptions: { deliveryClass?: 'notice' | 'coordination'; ttlSeconds?: number; expiresAt?: string } = {}): string | undefined {
     return stageCoordinationNotice(ctx, this.keyring, session, content, { roomQuestion, clientMessageId, ...noticeOptions });
   }
 
-  async coordinationNotice(tx: AgentMessagingDb, session: AgentSession, content: string, roomQuestion = false, clientMessageId?: string, noticeOptions: { deliveryClass?: 'notice' | 'coordination'; ttlSeconds?: number } = {}): Promise<string | undefined> {
+  async coordinationNotice(tx: AgentMessagingDb, session: AgentSession, content: string, roomQuestion = false, clientMessageId?: string, noticeOptions: { deliveryClass?: 'notice' | 'coordination'; ttlSeconds?: number; expiresAt?: string } = {}): Promise<string | undefined> {
     if (!session.agentBusAddressId || session.endedAt) return;
     const target = await this.requireAddressLocked(tx, session.agentBusAddressId);
     if (target.currentSessionId !== session.id) return;
@@ -2385,7 +2398,7 @@ export class AgentMessagingService {
     await tx.insert(agentBusMessages).values({
       ...newQueuedMessage({ id: messageId, conversationId, sequence: 1, sender, senderSessionId: null, target,
         kind: roomQuestion ? 'message' : 'presence_notice', deliveryClass: roomQuestion ? 'coordination' : noticeOptions.deliveryClass ?? 'notice', content, contentEnc: encrypt(content, this.keyring),
-        clientMessageId: clientMessageId ?? randomUUID(), expiresAt: new Date(Date.now() + (noticeOptions.ttlSeconds ?? 86400) * 1000).toISOString(), now }),
+        clientMessageId: clientMessageId ?? randomUUID(), expiresAt: noticeOptions.expiresAt ?? new Date(Date.now() + (noticeOptions.ttlSeconds ?? 86400) * 1000).toISOString(), now }),
       targetSessionId: session.id,
       targetBindingGeneration: target.bindingGeneration,
     });

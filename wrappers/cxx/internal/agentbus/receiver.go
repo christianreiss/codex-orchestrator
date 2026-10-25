@@ -498,6 +498,12 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				r.setSources(view.Sources)
 			}
 		}
+		if err := r.reconcileAdmissions(ctx); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// Apply source closure before deriving the gate, and source expansion
 		// before budgeting claims, so this revision checks every current queue.
 		gate := "open"
@@ -513,7 +519,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			gate = "held_delivery"
 			onlyWork := true
 			for _, pending := range r.tracker.items {
-				if pending.workKind == "" {
+				if pending.workKind == "" || pending.admissionPending() {
 					onlyWork = false
 					break
 				}
@@ -577,22 +583,11 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				d := claimed.Delivery
 				id := stringArg(d, "message_id")
 				// Anything arriving on a conversation is the peer being alive there.
-				pending := r.tracker.track(parent, id, claimID, d)
-				// Fence execution in the durable queue before writing to the native
-				// adapter. Lost receipts must never requeue a model-started task.
-				if err := r.tracker.acknowledge(ctx, id, pending, "accepted", ""); err != nil {
-					r.tracker.drop(id, pending)
+				r.tracker.trackAdmission(parent, id, claimID, d)
+				// Preserve the original claim across lost acceptance receipts and
+				// in-process reconnects. Native submission remains single-shot.
+				if err := r.reconcileAdmissions(ctx); err != nil {
 					return err
-				}
-				prompt := nativePeerPrompt(d)
-				if err := r.deliver(id, prompt); err != nil {
-					_ = r.tracker.acknowledge(ctx, id, pending, "ambiguous", "native_submission_uncertain")
-					r.tracker.drop(id, pending)
-					return err
-				}
-				if r.queue != nil {
-					r.tracker.markNativeDelivered(pending, time.Now())
-					r.turnBusyAt, r.turnIdleSince = time.Time{}, time.Time{}
 				}
 			} else if claimed.Message != nil {
 				d := claimed.Message

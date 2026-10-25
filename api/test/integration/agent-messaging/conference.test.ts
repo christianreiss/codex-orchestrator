@@ -226,6 +226,48 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     expect((await service.listConferences(invitee.sessionId, invitee.bridgeToken)).conferences).toEqual([]);
   });
 
+  for (const engine of ['codex', 'claude', 'grok'] as const) {
+    for (const phase of ['queued', 'leased', 'accepted'] as const) {
+      it(`${engine}: conference deadline fences ${phase} admission while conserving accepted work`, async () => {
+        const { chair, conferenceId, pin } = await room();
+        const target = await register(engine, `deadline-${phase}`);
+        await service.joinConference(target.sessionId, target.bridgeToken, { pin });
+        const dispatched = await service.conferenceDispatch(chair.sessionId, chair.bridgeToken, {
+          conferenceId, to: target.address, task: 'deadline regression',
+        });
+        const messageId = String(dispatched.message_id), claimId = randomUUID();
+        if (phase !== 'queued') {
+          const delivery = await service.claimForSession(target.sessionId, target.bridgeToken, claimId);
+          expect(delivery?.message_id).toBe(messageId);
+          if (phase === 'accepted') await service.acknowledgeSessionDelivery(target.sessionId, target.bridgeToken,
+            messageId, { claimId, outcome: 'accepted' });
+        }
+        // Existing historical rows retain their old long expiry; admission must
+        // consult the room independently, including already-leased deliveries.
+        await db.update(agentBusMessages).set({ expiresAt: '2099-01-01T00:00:00Z' })
+          .where(eq(agentBusMessages.id, messageId));
+        await db.update(agentBusConferences).set({ deadlineAt: '2000-01-01T00:00:00Z', status: 'adjourning' })
+          .where(eq(agentBusConferences.id, conferenceId));
+        if (phase === 'queued') {
+          expect(await service.claimForSession(target.sessionId, target.bridgeToken, claimId)).toBeNull();
+          const independent = await service.sendMessage(chair.sessionId, chair.bridgeToken, {
+            to: target.address, content: 'unrelated fresh work', kind: 'request', clientMessageId: randomUUID(),
+          });
+          const next = await service.claimForSession(target.sessionId, target.bridgeToken, randomUUID());
+          expect(next?.message_id).toBe((independent.message as { id: string }).id);
+        } else if (phase === 'leased') {
+          await expect(service.acknowledgeSessionDelivery(target.sessionId, target.bridgeToken,
+            messageId, { claimId, outcome: 'accepted' })).rejects.toMatchObject({ code: 'agent_messaging_conference_expired' });
+        } else {
+          await service.acknowledgeSessionDelivery(target.sessionId, target.bridgeToken,
+            messageId, { claimId, outcome: 'completed' });
+          const [message] = await db.select().from(agentBusMessages).where(eq(agentBusMessages.id, messageId));
+          expect(message?.status).toBe('completed');
+        }
+      });
+    }
+  }
+
   it('caps the dispatch grace deadline at the room deadline', async () => {
     const { chair, one, conferenceId } = await room();
     const roomDeadline = new Date(Date.now() + 120_000).toISOString();

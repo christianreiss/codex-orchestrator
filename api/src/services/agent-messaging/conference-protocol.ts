@@ -5,11 +5,13 @@
  * `AgentMessagingService` facade in `../agent-messaging.ts`.
  */
 
-import { type AgentBusConference } from '../../db/schema.js';
+import { sql, type SQLWrapper } from 'drizzle-orm';
+import { agentBusMessages, type AgentBusConference, type AgentBusMessage } from '../../db/schema.js';
+import type { OwnerStateSnapshot } from '../../control-plane/state/store.js';
+import { ConflictError } from '../../http/errors.js';
 import { isoOffsetSeconds } from '../../util/timestamp.js';
 import {
   AGENT_MESSAGING_MAX_TTL_SECONDS,
-  AGENT_MESSAGING_MIN_TTL_SECONDS,
 } from './constants.js';
 
 /**
@@ -58,10 +60,58 @@ export function conferenceInviteBody(conference: AgentBusConference, note: strin
  * satisfy the bus's own TTL bounds.
  */
 export function conferenceMessageExpiry(conference: AgentBusConference, now: string): string {
-  const remaining = Math.ceil((Date.parse(conference.deadlineAt) - Date.parse(now)) / 1000);
-  const ttl = Math.min(
-    AGENT_MESSAGING_MAX_TTL_SECONDS,
-    Math.max(AGENT_MESSAGING_MIN_TTL_SECONDS, Number.isFinite(remaining) ? remaining : AGENT_MESSAGING_MIN_TTL_SECONDS),
-  );
-  return isoOffsetSeconds(ttl);
+  const deadline = Date.parse(conference.deadlineAt), start = Date.parse(now);
+  if (!Number.isFinite(deadline) || !Number.isFinite(start))
+    throw new ConflictError('Invalid conference deadline', 'agent_messaging_conference_expired');
+  const maximum = isoOffsetSeconds(AGENT_MESSAGING_MAX_TTL_SECONDS, new Date(start));
+  return deadline <= Date.parse(maximum) ? conference.deadlineAt : maximum;
+}
+
+/** Admission only: accepted work may still finish and retain its result. */
+export function ownedConferenceAdmissionOpen(snapshot: OwnerStateSnapshot, message: Pick<AgentBusMessage, 'id' | 'conversationId' | 'replyToMessageId' | 'kind' | 'workKind' | 'senderAddressId' | 'targetAddressId'>, now: string): boolean {
+  const parent = message.replyToMessageId ? snapshot.messages.get(message.replyToMessageId) : undefined;
+  if (message.kind === 'reply' && !message.workKind && parent?.workKind && parent.acceptedAt &&
+      parent.conversationId === message.conversationId && parent.senderAddressId === message.targetAddressId &&
+      parent.targetAddressId === message.senderAddressId) return true;
+  const roomOpen = snapshot.table('agentRoomDeliveries').by('messageId', message.id).every(delivery => {
+    const event = snapshot.table('agentRoomEvents').get(delivery.eventId);
+    const conference = event && snapshot.table('agentBusConferences').get(event.roomId);
+    return !conference || Date.parse(conference.deadlineAt) > Date.parse(now);
+  });
+  return roomOpen && snapshot.table('agentBusConferenceMembers').by('conversationId', message.conversationId).every(member => {
+    const conference = snapshot.table('agentBusConferences').get(member.conferenceId);
+    return !conference || Date.parse(conference.deadlineAt) > Date.parse(now);
+  });
+}
+
+/** Indexed lookup in the existing claim/ACK statement, without another SQL round trip. */
+export function conferenceAdmissionOpenSql(now: string, alias?: 'earlier' | 'in_flight') {
+  const column = (name: string, original: SQLWrapper) => alias
+    ? sql`${sql.identifier(alias)}.${sql.identifier(name)}` : sql`${original}`;
+  const message = {
+    id: column('id', agentBusMessages.id), kind: column('kind', agentBusMessages.kind),
+    workKind: column('work_kind', agentBusMessages.workKind),
+    replyToMessageId: column('reply_to_message_id', agentBusMessages.replyToMessageId),
+    conversationId: column('conversation_id', agentBusMessages.conversationId),
+    senderAddressId: column('sender_address_id', agentBusMessages.senderAddressId),
+    targetAddressId: column('target_address_id', agentBusMessages.targetAddressId),
+  };
+  return sql<number>`((${message.kind} = 'reply' AND ${message.workKind} IS NULL AND EXISTS (
+    SELECT 1 FROM agent_bus_messages AS accepted_parent
+    WHERE accepted_parent.id = ${message.replyToMessageId}
+      AND accepted_parent.accepted_at IS NOT NULL AND accepted_parent.work_kind IS NOT NULL
+      AND accepted_parent.conversation_id = ${message.conversationId}
+      AND accepted_parent.sender_address_id = ${message.targetAddressId}
+      AND accepted_parent.target_address_id = ${message.senderAddressId}
+  )) OR (NOT EXISTS (
+    SELECT 1 FROM agent_bus_conference_members AS conference_member
+    INNER JOIN agent_bus_conferences AS conference_room ON conference_room.id = conference_member.conference_id
+    WHERE conference_member.conversation_id = ${message.conversationId}
+      AND conference_room.deadline_at <= ${now}
+  ) AND NOT EXISTS (
+    SELECT 1 FROM agent_room_deliveries AS conference_delivery
+    INNER JOIN agent_room_events AS conference_event ON conference_event.id = conference_delivery.event_id
+    INNER JOIN agent_bus_conferences AS delivery_room ON delivery_room.id = BINARY conference_event.room_id
+    WHERE conference_delivery.message_id = ${message.id} AND delivery_room.deadline_at <= ${now}
+  )))`;
 }

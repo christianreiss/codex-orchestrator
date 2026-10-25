@@ -1,5 +1,7 @@
 # 2026-10-25
 
+- Fence direct, group and conference reads against authority changes through the final response; bind shared history to immutable group IDs. Paginate large communication pages by complete-item byte size, isolate ineligible publication recipients, and prevent new conference work after its deadline. cxx 0.9.133 retains uncertain acceptance correlation without replaying native work.
+
 - Persist Grok refresh replies against their exact original attempt instead of rejecting capture after token rotation. Capture encrypted replies once, retain them across caller revocation, and keep initial-spend, promotion and disclosure checks fenced. Never replay an ambiguous old refresh grant.
 
 - Prevent empty cold-retention SQL loops at legacy UTC timestamp boundaries. Schedule noncanonical timestamp representations conservatively while keeping canonical deadlines, indexed selection, retention policies and deletion guards unchanged.

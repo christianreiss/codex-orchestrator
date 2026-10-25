@@ -491,3 +491,10 @@ high-water mark in versions. Operational guards retain pending, ambiguous and
 unknown outcomes, native lifecycles, claims, paused wakes and referenced data.
 Grok quota storage is one current snapshot per account and is not historical data.
 Superseded auth-generation retention and local session policies remain separate.
+
+
+Migration 0104 adds nonunique `idx_room_delivery_message(message_id)` on
+`agent_room_deliveries`, retaining the existing event/address uniqueness key.
+Conference admission uses this lookup to resolve room-question deadlines; the
+index avoids correlated history scans. The migration is idempotent and uses
+`ALGORITHM=INPLACE, LOCK=NONE`; no rows or payloads are rewritten.

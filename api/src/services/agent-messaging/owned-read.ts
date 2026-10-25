@@ -5,10 +5,12 @@ import { ConflictError, NotFoundError } from '../../http/errors.js';
 import type { Keyring } from '../../security/keyring.js';
 import { decrypt } from '../../security/secret-box.js';
 import type { OwnerRuntime } from '../../control-plane/state/runtime.js';
-import { ownedBridge } from '../../control-plane/state/messaging.js';
+import { setOwnerRequestPrincipal, bindOwnerResponseRuntime } from '../../control-plane/state/runtime.js';
+import { ownedBridge, ownedAddress } from '../../control-plane/state/messaging.js';
 import { normalizeUuid } from './normalize.js';
 import { conversationMetadata, messageForParticipant } from './views.js';
 import { taskResultSchema } from './task-execution.js';
+import { readMessagePage } from './read-page.js';
 import {
   AGENT_MESSAGING_MAILBOX_PAGE_SIZE,
   AGENT_MESSAGING_MISSED_WINDOW_SECONDS,
@@ -17,15 +19,30 @@ import {
 
 function reader(runtime: OwnerRuntime, id: string, token: string) {
   runtime.assertOwner();
+  bindOwnerResponseRuntime(runtime);
   const snapshot = runtime.state.snapshot(),
     session = ownedBridge(snapshot, id, token).session;
-  const address = session.agentBusAddressId && snapshot.addresses.get(session.agentBusAddressId);
+  const address = session.agentBusAddressId && ownedAddress(snapshot, session.agentBusAddressId);
   if (
     !address ||
     address.currentSessionId !== session.id ||
     address.bindingGeneration !== session.bindingGeneration
   )
     throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
+  setOwnerRequestPrincipal({
+    principal: `session:${id}`,
+    revalidate(current) {
+      const bridge = ownedBridge(current, id, token, { generation: session.bindingGeneration });
+      const bound = ownedAddress(current, address.id);
+      if (
+        bridge.session.agentBusAddressId !== address.id ||
+        !bound ||
+        bound.currentSessionId !== id ||
+        bound.bindingGeneration !== session.bindingGeneration
+      )
+        throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
+    },
+  });
   return { snapshot, session, address };
 }
 export async function waitOwnedMessages(
@@ -72,12 +89,17 @@ export async function waitOwnedMessages(
     current.session.bindingGeneration !== auth.session.bindingGeneration
   )
     throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
-  const rows = fetched.slice(0, AGENT_MESSAGING_WAIT_PAGE_SIZE);
-  return {
+  const response = {
     conversation: conversationMetadata(
       current.snapshot.table('agentBusConversations').get(id) ?? conversation,
     ),
-    messages: rows.map((row) => {
+    messages: [] as ReturnType<typeof messageForParticipant>[],
+    has_more: false,
+    next_sequence: after,
+  };
+  const page = readMessagePage(
+    fetched.slice(0, AGENT_MESSAGING_WAIT_PAGE_SIZE),
+    (row) => {
       const sender = current.snapshot.addresses.get(row.senderAddressId),
         target = current.snapshot.addresses.get(row.targetAddressId);
       if (!sender || !target) throw new Error('Message participant absent');
@@ -87,10 +109,13 @@ export async function waitOwnedMessages(
         sender,
         target,
       );
-    }),
-    has_more: fetched.length > AGENT_MESSAGING_WAIT_PAGE_SIZE,
-    next_sequence: rows.at(-1)?.sequence ?? after,
-  };
+    },
+    response,
+  );
+  response.messages = page.messages;
+  response.next_sequence = fetched[page.count - 1]?.sequence ?? after;
+  response.has_more = fetched.length > page.count;
+  return response;
 }
 export async function getOwnedMessage(
   db: Database,
