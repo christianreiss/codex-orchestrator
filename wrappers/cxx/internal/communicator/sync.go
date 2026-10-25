@@ -593,9 +593,16 @@ func (s *server) syncLoop(ctx context.Context) {
 		case <-s.dirty:
 			force = true
 		case <-s.authDirty:
-		case <-events:
+		case event := <-events:
+			forgetReplacedWatch(watcher, watched, event)
 			s.notifyLocal()
 		case <-watchErrors:
+			// An overflow can hide a directory replacement. Rebuild coverage and
+			// inspect every current source before trusting event-only scheduling.
+			for dir := range watched {
+				_ = watcher.Remove(dir)
+				delete(watched, dir)
+			}
 		}
 		if s.draining.Load() {
 			continue
@@ -640,6 +647,7 @@ func (s *server) syncLoop(ctx context.Context) {
 		// Local signed policy can change while the upstream is unavailable.
 		// Install watches before the network gate; they never force a DB refresh.
 		if watcher != nil {
+			pruneUnusedWatches(watcher, watched, jobs)
 			for _, job := range jobs {
 				for _, path := range []string{job.Config, job.AuthPath} {
 					if path == "" {
@@ -853,6 +861,11 @@ func (s *server) localErrorsLocked() map[string]string {
 // Platforms without a file watcher still inspect local files, without forcing
 // successful auth/content scopes to query the owner again.
 func (s *server) nextSyncWake(watching bool) (time.Duration, bool) {
+	// Prepared handoffs deliberately retain their fences until journal recovery.
+	// An overdue deadline cannot advance while draining; do not hot-loop on it.
+	if s.draining.Load() {
+		return 0, false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.conn == nil && !s.fallback {
@@ -908,4 +921,30 @@ func (s *server) nextSyncWake(watching bool) (time.Duration, bool) {
 		delay = 0
 	}
 	return delay, true
+}
+
+// Directory watches follow inodes, not recreated pathnames. Forget coverage on
+// replacement so the existing bounded fallback retries Add until the path exists.
+func forgetReplacedWatch(watcher *fsnotify.Watcher, watched map[string]bool, event fsnotify.Event) {
+	if watched[event.Name] && event.Has(fsnotify.Remove|fsnotify.Rename) {
+		_ = watcher.Remove(event.Name)
+		delete(watched, event.Name)
+	}
+}
+
+func pruneUnusedWatches(watcher *fsnotify.Watcher, watched map[string]bool, jobs map[string]syncJob) {
+	wanted := map[string]bool{}
+	for _, job := range jobs {
+		for _, path := range []string{job.Config, job.AuthPath} {
+			if path != "" {
+				wanted[filepath.Dir(path)] = true
+			}
+		}
+	}
+	for dir := range watched {
+		if !wanted[dir] {
+			_ = watcher.Remove(dir)
+			delete(watched, dir)
+		}
+	}
 }
