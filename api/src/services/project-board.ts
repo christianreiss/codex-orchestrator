@@ -1083,7 +1083,7 @@ export class ProjectBoardService {
       claimedAt: card.claimedAt,
       expiresAt: card.claimExpiresAt,
       releasedAt: card.claimReleasedAt,
-      ownershipMode: ownerRuntimeFor(this.deps.db)?'connection':card.claimOwnershipMode,
+      ownershipMode: card.claimOwnershipMode,
     };
   }
 
@@ -1127,7 +1127,9 @@ export class ProjectBoardService {
       if(nativePrincipal)boardPrincipals.set(ctx,nativePrincipal);
       if(!ctx.snapshot.table('coordProjects').has(project.id))throw new NotFoundError('Project not found');
       const {boardId,columns}=await this.ensureBoard(this.deps.db,project,now);
-      value=await run({tx:this.deps.db,project,boardId,columns,now,actor,publishes});return value as Json;
+      const context = {tx:this.deps.db,project,boardId,columns,now,actor,publishes};
+      await this.sweepTimedClaimsOwned(context);
+      value=await run(context);return value as Json;
     })});for(const pending of publishes)wsPublisher.publish(pending.event,pending.payload);return value;}
     const value = await this.deps.db.transaction(async (tx) => {
       // THE lock. Everything below — provisioning, renewal, the sweep, and the
@@ -1211,6 +1213,20 @@ export class ProjectBoardService {
    * rather than matched loosely — renewing somebody else's claim because two
    * agents share a host would be worse than letting one expire.
    */
+  /** Legacy timed cards retain their original deadline; connection grants never expire here. */
+  private async sweepTimedClaimsOwned(ctx: BoardContext): Promise<void> {
+    const owned = boardCommand.getStore()!;
+    for (const card of owned.draft.table('coordProjectCards').all()) {
+      if (card.projectId !== ctx.project.id || card.claimOwnershipMode !== 'timed' ||
+          !card.claimedAt || card.claimReleasedAt || !card.claimExpiresAt) continue;
+      const deadline = Date.parse(card.claimExpiresAt);
+      if (!Number.isFinite(deadline) || deadline > Date.parse(ctx.now)) continue;
+      const reason = 'Legacy timed claim expired at its original deadline.';
+      stageUpdate(owned, 'coordProjectCards', card.id, { claimReleasedAt: ctx.now, claimReleaseReason: reason, claimUncertaintyReason: null, updatedAt: ctx.now });
+      await this.emit(ctx, 'claim_expired', card, { card_id: card.id, card_number: Number(card.cardNumber), reason, ownership_mode: 'timed' }, 'project.card.released');
+    }
+  }
+
   private async renewActorClaims(
     tx: ProjectBoardDb,
     project: ProjectRow,
@@ -1325,7 +1341,9 @@ export class ProjectBoardService {
       return { held: false, released_at: null, release_reason: 'Holding agent is no longer running.' };
     }
     const state = this.claimStateOf(card);
-    if (!claimIsLive(state, now)) {
+    const invalidTimedDeadline = Boolean(ownerRuntimeFor(this.deps.db) && card.claimOwnershipMode === 'timed' &&
+      card.claimedAt && !card.claimReleasedAt && (!card.claimExpiresAt || !Number.isFinite(Date.parse(card.claimExpiresAt))));
+    if (!claimIsLive(state, now) && !invalidTimedDeadline) {
       return card.claimReleaseReason
         ? { held: false, released_at: card.claimReleasedAt, release_reason: card.claimReleaseReason }
         : null;
@@ -1339,9 +1357,9 @@ export class ProjectBoardService {
       host: card.claimedByHostId === null ? null : (hostLabels.get(Number(card.claimedByHostId)) ?? null),
       worktree_path: card.claimedWorktreePath,
       claimed_at: card.claimedAt,
-      expires_at: ownerRuntimeFor(this.deps.db)?null:card.claimExpiresAt,
-      presence_source: ownerRuntimeFor(this.deps.db)?'connection':'heartbeat',
-      ownership_state: ownerRuntimeFor(this.deps.db)?(!card.claimUncertaintyReason&&this.claimConnected(card)?'active':'uncertain'):'timed',
+      expires_at: card.claimOwnershipMode === 'connection' || invalidTimedDeadline ? null : card.claimExpiresAt,
+      presence_source: card.claimOwnershipMode === 'connection' ? 'connection' : 'heartbeat',
+      ownership_state: invalidTimedDeadline ? 'uncertain' : card.claimOwnershipMode === 'connection' ? (!card.claimUncertaintyReason && this.claimConnected(card) ? 'active' : 'uncertain') : 'timed',
       agent_address_bound: card.claimedAgentBusAddressId !== null,
       yours:
         card.claimedByHostId !== null &&

@@ -296,6 +296,20 @@ describe('owner canonical content metadata', () => {
     await board.todoDelete('owner-project', 1, 1);
     expect(await board.todoRowsFor(42)).toHaveLength(0);
   });
+  it.each([['timed', true], ['timed', false], ['connection', true]] as const)('keeps persisted %s board ownership semantics after restart (expired=%s)', async (mode, expired) => {
+    const now = new Date().toISOString(), h = setup({ coordProjects: [{ id: 42, slug: 'owner-project', aboutJson: { title: 'Owner' }, rosterMarkdown: '', latestEventSeq: 0, createdAt: now, updatedAt: now, archivedAt: null }] } as unknown as StateSeed);
+    const board = new ProjectBoardService({ db: h.db, projects: new HostProjectsService(h.db) });
+    await board.todoCreate('owner-project', { title: 'Legacy', detail: 'Task' }, 1);
+    const card = h.state.snapshot().table('coordProjectCards').all()[0]!;
+    await mutateOwnerState(h.owner, { kind: 'test.legacy-board-claim', payload: {}, prepare(ctx) {
+      ctx.draft.upsert('coordProjectCards', { ...card, claimRole: 'code', claimedByHostId: 1, claimedByUsername: 'old-owner', claimedAt: '2026-01-01T00:00:00Z', claimExpiresAt: expired ? '2026-01-01T00:30:00Z' : '2099-01-01T00:30:00Z', claimReleasedAt: null, claimOwnershipMode: mode, claimUncertaintyReason: 'owner_restart' }); return null;
+    } });
+    const result = await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => board.claimCard({ slug: 'owner-project', card: 1, role: 'code', username: 'root', worktree_path: '/repo' }, { id: 1 } as Host, 'codex'));
+    expect(result.claimed).toBe(mode === 'timed' && expired);
+    const final = h.state.snapshot().table('coordProjectCards').get(card.id)!;
+    expect(final.claimOwnershipMode).toBe(mode === 'timed' && expired ? 'connection' : mode);
+    expect(final.claimNativeInstanceId).toBe(mode === 'timed' && expired ? h.instance : null);
+  });
   it('binds card claims to authenticated native identity and never frees on disconnect', async () => {
     const now = new Date().toISOString(),
       h = setup({

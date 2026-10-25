@@ -1,3 +1,5 @@
+import { resumeNativeFixture } from './helpers/native-resume.js';
+import { mutateOwnerState } from '../src/control-plane/state/runtime.js';
 import { captureLegacyDrainManifest, LegacyDrainRegistry } from '../src/control-plane/legacy-drain.js';
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -24,7 +26,7 @@ const closers: Array<() => void> = [];
 afterEach(() => {
   for (const close of closers.splice(0)) close();
 });
-function setup() {
+function setup(beforeCommit: () => Promise<void> = async () => {}) {
   const sessionId = randomUUID(),
     addressId = randomUUID(),
     instance = randomUUID(),
@@ -116,7 +118,7 @@ function setup() {
       async transaction(run) {
         await run(fake as unknown as PersistenceTransaction);
       },
-      async record() {},
+      async record(_tx, receipt) { if (receipt.kind === 'coordination.claim.status') await beforeCommit(); },
     },
   });
   const owner: OwnerRuntime = {
@@ -187,8 +189,8 @@ describe('connection-owned coordination claims', () => {
     await h.service.reconcileOwned();
     expect(h.state.snapshot().claims.get(result.id)?.state).toBe('uncertain');
     expect(h.state.snapshot().claims.get(result.id)?.uncertaintyReason).toBe('reported_unknown');
-    await h.service.claims.status(h.sessionId, h.token, { claim_id: result.id, renew: true });
-    expect(h.state.snapshot().claims.get(result.id)?.state).toBe('active');
+    await expect(h.service.claims.status(h.sessionId, h.token, { claim_id: result.id, renew: true })).rejects.toThrow('Only the original connected owner');
+    expect(h.state.snapshot().claims.get(result.id)?.state).toBe('uncertain');
     expect(h.select).not.toHaveBeenCalled();
   });
 });
@@ -256,5 +258,71 @@ describe('captured timed claim drain', () => {
     await expect(h.service.claims.status(h.sessionId,h.token,{claim_id:h.acquired.id,renew:true})).rejects.toThrow();
     await expect(h.service.claims.release(h.sessionId,h.token,{claim_id:h.acquired.id,outcome:'completed',reason:'not original process'})).rejects.toThrow();
     expect(h.state.snapshot().claims.get(h.acquired.id)?.state).toBe('uncertain');
+  });
+});
+
+
+describe('explicit same-transcript claim continuation', () => {
+  it('rejects attachment replacement while recovery persistence is in flight', async () => {
+    let armed = false, entered!: () => void, finish!: () => void;
+    const blocked = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    const h = setup(async () => { if (armed) { entered(); await gate; } });
+    const claim = await h.service.claims.acquire(h.sessionId, h.token, { client_request_id: randomUUID(), purpose: 'commit fence', resources: [{ kind: 'path', host_id: 1, path: '/repo' }] });
+    h.live.detach(); await h.service.reconcileOwned();
+    const next = await resumeNativeFixture(h.owner, h.presence, h.sessionId);
+    armed = true;
+    const recovery = h.service.claims.status(next.id, next.token, { claim_id: claim.id, renew: true });
+    await blocked;
+    next.live.detach();
+    h.presence.attach({ connectionId: randomUUID(), hostId: 1, username: 'root', scope: { topic: 'session', session_id: next.id, binding_generation: 3, native_instance_id: randomUUID() } });
+    finish();
+    await expect(recovery).rejects.toThrow('Original native connection');
+    expect(h.state.snapshot().claims.get(claim.id)?.sessionId).toBe(h.sessionId);
+  });
+
+  it('serializes duplicate recovery into one transfer and one durable audit', async () => {
+    const h = setup();
+    const claim = await h.service.claims.acquire(h.sessionId, h.token, { client_request_id: randomUUID(), purpose: 'parallel recovery', resources: [{ kind: 'path', host_id: 1, path: '/repo' }] });
+    h.live.detach(); await h.service.reconcileOwned();
+    const next = await resumeNativeFixture(h.owner, h.presence, h.sessionId);
+    const results = await Promise.all([1, 2].map(() => h.service.claims.status(next.id, next.token, { claim_id: claim.id, renew: true })));
+    expect(results.every(result => result.state === 'active' && result.session_id === next.id)).toBe(true);
+    expect(h.fake.tables.get(schema.logs)?.filter(row => row.action === 'resource_claim.resumed')).toHaveLength(1);
+  });
+  it('does not recover an operator-unknown outcome committed before recovery admission', async () => {
+    const h = setup();
+    const claim = await h.service.claims.acquire(h.sessionId, h.token, { client_request_id: randomUUID(), purpose: 'raced unknown outcome', resources: [{ kind: 'path', host_id: 1, path: '/repo' }] });
+    h.live.detach(); await h.service.reconcileOwned();
+    const next = await resumeNativeFixture(h.owner, h.presence, h.sessionId);
+    const unknown = h.service.claims.release(null, null, { claim_id: claim.id, outcome: 'unknown', reason: 'Operator cannot establish outcome' }, 1);
+    const recovery = h.service.claims.status(next.id, next.token, { claim_id: claim.id, renew: true });
+    const results = await Promise.allSettled([unknown, recovery]);
+    expect(results[0].status).toBe('fulfilled'); expect(results[1].status).toBe('rejected');
+    expect(h.state.snapshot().claims.get(claim.id)).toMatchObject({ sessionId: h.sessionId, state: 'uncertain', uncertaintyReason: 'reported_unknown' });
+  });
+
+  it.each(['same', 'foreign-transcript', 'old-running', 'unknown-outcome', 'foreign-user'])('recovers only proven completed original lifecycle (%s)', async (scenario) => {
+    const h = setup();
+    const claim = await h.service.claims.acquire(h.sessionId, h.token, { client_request_id: randomUUID(), purpose: 'continue fixture', resources: [{ kind: 'path', host_id: 1, path: '/repo' }] });
+    h.live.detach(); await h.service.reconcileOwned();
+    const next = await resumeNativeFixture(h.owner, h.presence, h.sessionId);
+    await mutateOwnerState(h.owner, { kind: 'test.resume-scenario', payload: {}, prepare(ctx) {
+      if (scenario === 'foreign-transcript') ctx.draft.upsert('agentSessions', { ...ctx.snapshot.sessions.get(next.id)!, upstreamSessionId: randomUUID() });
+      if (scenario === 'foreign-user') ctx.draft.upsert('agentSessions', { ...ctx.snapshot.sessions.get(h.sessionId)!, username: 'somebody-else' });
+      if (scenario === 'old-running') ctx.draft.upsert('agentSessions', { ...ctx.snapshot.sessions.get(h.sessionId)!, endedAt: null, status: 'running' });
+      if (scenario === 'unknown-outcome') ctx.draft.upsert('agentResourceClaims', { ...ctx.snapshot.claims.get(claim.id)!, uncertaintyReason: 'reported_unknown' });
+      return null;
+    } });
+    await expect(h.service.claims.status(next.id, next.token, { claim_id: claim.id })).rejects.toThrow('another session');
+    const recover = () => h.service.claims.status(next.id, next.token, { claim_id: claim.id, renew: true });
+    if (scenario === 'same') {
+      expect(await recover()).toMatchObject({ id: claim.id, session_id: next.id, state: 'active', expires_at: null });
+      expect(h.state.snapshot().claims.get(claim.id)?.nativeInstanceId).toBe(next.instance);
+      await expect(h.service.claims.release(h.sessionId, h.token, { claim_id: claim.id, outcome: 'completed', reason: 'stale owner' })).rejects.toThrow();
+    } else {
+      await expect(recover()).rejects.toThrow();
+      expect(h.state.snapshot().claims.get(claim.id)?.sessionId).toBe(h.sessionId);
+    }
   });
 });

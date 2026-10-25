@@ -1907,7 +1907,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'git_merge_status',
         description:
-          'Poll a waiting merge request, or renew a lease you are still using. A "wait" is re-decided against current state each time you call and the answer is written back to the same request_id, so keep polling the id you were given — this is how a queued request is promoted once the holder releases, since nothing is pushed to you. If you hold an "allow" and your merge is taking a while, call this to extend the lease before it expires.',
+          'Poll a waiting request or inspect a merge grant. Current owner-mode grants expire after 15 minutes and status does not extend them; an expired grant requires a new request. Waiting requests retain their request_id and are re-evaluated when relevant state changes. Legacy timed deployments may renew an unexpired grant.',
         inputSchema: {
           type: 'object',
           additionalProperties: false,

@@ -859,8 +859,10 @@ All three engine config GET/store routes share the revision contract: `revision`
     history. Records a non-broadcast `secret.revealed` admin event.
 - **Project board** — cards as the unit of coordinated work on a project, with
   claim/lease semantics mirroring the Git Director. A card carries a role, a
-  holder and an expiry; a claim is reclaimed when its holder's agent session
-  ends, or when it goes unrenewed past its TTL. Delivery to hosts is MCP-only
+  holder and ownership mode. Legacy `timed` cards retain their deadline and are
+  reclaimed atomically on the next board mutation after expiry. Current
+  `connection` cards do not expire on silence or disconnect; they remain uncertain
+  until their original owner or an operator releases them. Delivery to hosts is MCP-only
   (`project_board_list`, `project_card_create`, `project_card_claim`,
   `project_card_move`, `project_card_release`, `project_card_update`,
   `project_card_get`). Advisory throughout: a role that does not match a lane
@@ -932,9 +934,10 @@ All three engine config GET/store routes share the revision contract: `revision`
   `username`, `engine` and current `head_sha` and retry the same
   `client_request_id`. Uncertain or expired claims keep the generic
   reserved/uncertain refusal. Live bound sessions
-  survive registration TTL, while ended or stale sessions are reclaimed on
-  sweep. `git_merge_status` also refreshes an active registration before sweeping;
-  an expired merge lease still requires a new request.
+  survive registration TTL. Connection-owned registrations become uncertain on
+  disconnect and retain exclusion; legacy timed registrations retain their
+  compatibility rules. Owner-mode merge grants expire after 15 minutes and
+  `git_merge_status` never extends them; an expired grant requires a new request.
   `git_join` preserves declared paths when `paths` is omitted; an explicit
   `paths: []` clears previous write scope for read-only work.
   A merge decision compares the request's `changed_paths` with two sets, using
@@ -3458,3 +3461,14 @@ Root Skill file reads (`skill://<slug>/SKILL.md` and the corresponding host supp
 Owner command views share only a private, non-serialized runtime-metadata scope with their published state. Connection-derived and explicitly protected legacy credential deadlines therefore remain valid during composition. A reconstructed snapshot or new owner epoch receives a fresh scope; credential, host, binding and connection revocation checks remain effective.
 
 Native session finish runs its post-finish fleet coordination maintenance outside the ended native session request scope. The authenticated finish retains committed-action response authorization; invalid bridge credentials and unrelated binding changes remain rejected.
+
+
+### Explicit native lock continuation (cxx 0.9.131)
+
+A resumed native transcript may explicitly continue a connection resource claim with `resource_claim_status({claim_id,renew:true})` after the previous managed lifecycle reported `completed` and detached. Recovery requires the same nonempty native transcript, canonical agent address, host, username, engine and host-credential fingerprint; the current address binding and exact native attachment are fenced again at commit. It transfers the same claim ID/resources and atomically records the old/new session audit. Read-only status does not transfer ownership. A running, failed, foreign or still-attached lifecycle cannot be adopted. A `reported_unknown` outcome stays uncertain; renewing never clears it. The proven original owner may report the operation ended with an explicit release, or an operator may resolve it.
+
+`git_register` supports the same completed-transcript continuation for an uncertain connection registration. Rebinding withdraws all prior pending/allowed merge requests in the same transaction, so the resumed owner must obtain a fresh merge grant. Git mutations and release require the actual authenticated native session binding; host authentication alone cannot release another agent's registration. Operator-only eviction retains its separate authorization.
+
+These are server coordination fences, not filesystem/process locks: successful continuation does not certify that an arbitrary detached external subprocess stopped. Owners must complete their external operation before reporting lifecycle completion. Genuine unknown operations are not recovered by time or transcript identity alone. Legacy timed Board rows retain their original ownership mode; malformed or missing timed deadlines require explicit resolution rather than automatic reclaim. Connection Board rows are never expired by this compatibility sweep.
+
+If the resumed session already queued an identical acquire with the original client request UUID, continuation cancels that waiting alias atomically and preserves the original grant ID. Cached acquire receipts retain their original waiting ID; status of that released alias returns `continued_by_claim_id` so callers can inspect the continued grant. Different work under the same UUID is rejected.

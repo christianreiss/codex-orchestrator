@@ -1,3 +1,5 @@
+import { persistAuditLog } from './audit-log.js';
+import { resumedNativeAttachment } from '../control-plane/state/native-resume.js';
 import { normalizeRemote } from './git-director/remote-normalization.js';
 export { normalizeRemote } from './git-director/remote-normalization.js';
 import { legacyDrainFor } from '../control-plane/legacy-drain.js';
@@ -425,11 +427,11 @@ export class GitDirectorService {
     const principal = currentNativePrincipal();
     const check = (snapshot = this.snapshot()) => {
       if (!snapshot || !this.registrationProof(row,snapshot)) throw new ConflictError('The original native instance must reattach; this registration retains exclusion.', 'git_director_owner_uncertain');
-      if (row.ownershipMode === 'timed' && (principal || requireCaller)) {
-        if (!principal) throw new ConflictError('Authenticated original session required for legacy registration changes', 'git_director_owner_required');
+      if (principal || requireCaller) {
+        if (!principal) throw new ConflictError('Authenticated original session required for registration changes', 'git_director_owner_required');
         const {session} = ownedBridge(snapshot,principal.sessionId,principal.bridgeToken);
         if (session.id !== row.agentSessionId || session.bindingGeneration !== row.agentBindingGeneration)
-          throw new ConflictError('Legacy registration belongs to another session binding','git_director_owner_uncertain');
+          throw new ConflictError('Registration belongs to another session binding','git_director_owner_uncertain');
       }
     };
     check();
@@ -935,7 +937,18 @@ export class GitDirectorService {
         };
       }
 
-      if (owner && existing && ['active','uncertain'].includes(existing.status) && (existing.agentSessionId !== session!.id || existing.agentBindingGeneration !== session!.bindingGeneration || existing.nativeInstanceId !== attachment!.scope.native_instance_id)) throw new ConflictError('Existing registration retains exclusion until its original owner releases it', 'git_director_owner_uncertain');
+      const resume = owner && state && session && existing?.ownershipMode === 'connection' &&
+        existing.status === 'uncertain' && existing.agentSessionId && existing.agentBindingGeneration !== null && existing.nativeInstanceId &&
+        ['owner_restart','disconnected'].includes(existing.uncertaintyReason ?? '') &&
+        resumedNativeAttachment(owner,state,existing.agentSessionId,existing.agentBindingGeneration,session);
+      if (resume && owner && session && existing?.agentSessionId && existing.agentBindingGeneration !== null) {
+        const previousId = existing.agentSessionId, previousGeneration = existing.agentBindingGeneration;
+        this.ownedContext.getStore()!.checks.push(snapshot => {
+          if (!resumedNativeAttachment(owner,snapshot,previousId,previousGeneration,session))
+            throw new ConflictError('Native continuation proof changed','git_director_owner_uncertain');
+        });
+      }
+      if (owner && existing && ['active','uncertain'].includes(existing.status) && !resume && (existing.agentSessionId !== session!.id || existing.agentBindingGeneration !== session!.bindingGeneration || existing.nativeInstanceId !== attachment!.scope.native_instance_id)) throw new ConflictError('Existing registration retains exclusion until its original owner releases it', 'git_director_owner_uncertain');
       const rebound =
         existing.username !== username ||
         (address?.id ?? null) !== (existing.agentBusAddressId ?? null) ||
@@ -972,6 +985,7 @@ export class GitDirectorService {
           updatedAt: now,
         });
       this.publish(tx, 'worktree', clone.id);
+      if (resume) this.ownedContext.getStore()!.ctx.write(owned => persistAuditLog(owned, { hostId: host.id, engine, action: 'git_registration.resumed', details: JSON.stringify({ worktree_id: existing.id, previous_session_id: existing.agentSessionId, session_id: session!.id, withdrawn_request_ids: reboundRequests.map(r => r.id) }), createdAt: now }));
       if (rebound) await this.notify(tx, { kind: 'registration_rebound', clone, worktree: existing, audience: 'owners', includeActor: true, detail: { withdrawn_request_ids: reboundRequests.map(r => r.id) } });
       return {
         registered: true,
@@ -1566,7 +1580,7 @@ export class GitDirectorService {
 
       if (requestId) {
         const request = await this.requireRequest(tx, requestId, host);
-        if (this.snapshot(tx)) { const registration=this.snapshot(tx)!.table('gitWorktrees').get(request.worktreeId); if(!registration) throw new ConflictError('Registration missing','git_director_owner_uncertain'); this.requireRegistrationProof(registration); }
+        if (this.snapshot(tx)) { const registration=this.snapshot(tx)!.table('gitWorktrees').get(request.worktreeId); if(!registration) throw new ConflictError('Registration missing','git_director_owner_uncertain'); this.requireRegistrationProof(registration, true); }
         cloneId = request.cloneId;
         if (args.outcome !== undefined) {
           const [owner] = (this.rows(tx, 'gitWorktrees')?.filter(row => row.id === request.worktreeId) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId)));
@@ -1606,7 +1620,7 @@ export class GitDirectorService {
         const worktree = await this.worktreeForPath(tx, host, normalizePath(worktreePath));
         const clone = await this.cloneForWorktree(tx, host, normalizePath(worktreePath));
         if (!worktree || !clone) throw new NotFoundError('Worktree not registered', 'git_director_worktree_not_found');
-        if (this.snapshot(tx)) this.requireRegistrationProof(worktree);
+        if (this.snapshot(tx)) this.requireRegistrationProof(worktree, true);
         cloneId = clone.id;
         const live = args.outcome !== undefined && requestId && !deregister ? [] : await this.liveRequestsForWorktree(tx, worktree.id, now);
         if (live.length > 0) {

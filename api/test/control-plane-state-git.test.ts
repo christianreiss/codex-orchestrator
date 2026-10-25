@@ -1,3 +1,5 @@
+import { resumeNativeFixture } from './helpers/native-resume.js';
+import { mutateOwnerState } from '../src/control-plane/state/runtime.js';
 import { captureLegacyDrainManifest, LegacyDrainRegistry } from '../src/control-plane/legacy-drain.js';
 import { withNativePrincipal } from '../src/control-plane/state/native-principal.js';
 import { randomUUID } from 'node:crypto';
@@ -161,6 +163,24 @@ function setup() {
   };
 }
 describe('connection-owned Git registrations', () => {
+  it('requires the actual native owner to release a connection registration', async () => {
+    const h = setup(), args = { worktree_path: '/repo', clone_dir: '/repo/.git', engine: 'codex', username: 'root', branch: 'work' };
+    const registered = await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.register(args, h.host));
+    await expect(h.git.release({ worktree_path: '/repo', deregister: true }, h.host)).rejects.toThrow('Authenticated original session');
+    expect(h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))?.status).toBe('active');
+    const foreignId = randomUUID(), foreignAddress = randomUUID(), foreignToken = 'foreign-native';
+    await mutateOwnerState(h.owner, { kind: 'test.foreign-native', payload: {}, prepare(ctx) {
+      const session = ctx.snapshot.sessions.get(h.sessionId)!;
+      ctx.draft.upsert('agentSessions', { ...session, id: foreignId, agentBusAddressId: foreignAddress, bridgeTokenHash: sha256(foreignToken) });
+      const address = ctx.snapshot.addresses.get(session.agentBusAddressId!)!;
+      ctx.draft.upsert('agentBusAddresses', { ...address, id: foreignAddress, address: 'agent:' + foreignAddress, currentSessionId: foreignId });
+      return null;
+    } });
+    h.presence.attach({ connectionId: randomUUID(), hostId: 1, username: 'root', scope: { topic: 'session', session_id: foreignId, binding_generation: 1, native_instance_id: randomUUID() } });
+    await expect(withNativePrincipal({ sessionId: foreignId, bridgeToken: foreignToken }, () => h.git.release({ worktree_path: '/repo', deregister: true }, h.host))).rejects.toThrow('another session binding');
+    await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.release({ worktree_path: '/repo', deregister: true }, h.host));
+  });
+
   it('registers once then reads occupancy without SQL or commands, preserving uncertain exclusion', async () => {
     const h = setup();
     const args = {
@@ -195,7 +215,7 @@ describe('connection-owned Git registrations', () => {
       h.git.register(args, h.host),
     );
     expect(h.state.snapshot().table('gitWorktrees').get(row.id)?.status).toBe('active');
-    await h.git.release({ worktree_path: '/repo', deregister: true }, h.host);
+    await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.release({ worktree_path: '/repo', deregister: true }, h.host));
     expect(h.state.snapshot().table('gitWorktrees').get(row.id)?.status).toBe('released');
     expect(h.select).not.toHaveBeenCalled();
   });
@@ -221,7 +241,7 @@ describe('connection-owned Git registrations', () => {
         h.host,
       ),
     );
-    const request = await h.git.requestMerge(
+    const request = await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.requestMerge(
       {
         worktree_path: '/repo',
         target_branch: 'main',
@@ -229,7 +249,7 @@ describe('connection-owned Git registrations', () => {
         changed_paths: ['src/main.ts'],
       },
       h.host,
-    );
+    ));
     expect(request.verdict).toBe('allow');
     h.select.mockClear();
     const deadline = request.lease_expires_at,
@@ -267,7 +287,7 @@ describe('captured timed Git registration drain',()=>{
     for(let n=0;n<5;n++)await h.git.list({worktree_path:'/repo',scope:'clone'},h.host);
     expect(command).not.toHaveBeenCalled();expect(h.select).not.toHaveBeenCalled();
     await expect(withNativePrincipal({sessionId:h.sessionId,bridgeToken:h.token},()=>h.git.register({...h.args,worktree_path:'/new'},h.host))).rejects.toThrow();
-    await h.git.release({worktree_path:'/repo',deregister:true},h.host);
+    await withNativePrincipal({sessionId:h.sessionId,bridgeToken:h.token},()=>h.git.release({worktree_path:'/repo',deregister:true},h.host));
     expect(h.state.snapshot().table('gitWorktrees').get(h.id)?.status).toBe('released');
   });
   it('reports a captured registration after backup outlasts its old TTL only after exact native proof returns',async()=>{
@@ -296,5 +316,31 @@ describe('captured timed Git registration drain',()=>{
     const changed=await legacy();changed.edit(draft=>draft.upsert('agentSessions',{...draft.table('agentSessions').get(changed.sessionId)!,bindingGeneration:2}));
     await expect(changed.git.release({worktree_path:'/repo',deregister:true},changed.host)).rejects.toThrow();
     expect(changed.state.snapshot().table('gitWorktrees').get(changed.id)?.status).toBe('uncertain');
+  });
+});
+
+
+describe('exact transcript Git continuation', () => {
+  it.each(['same', 'foreign-transcript', 'old-attached'])('rebinds only a completed detached lifecycle and never carries merge permission (%s)', async (scenario) => {
+    const h = setup();
+    await h.service.claims.acquire(h.sessionId, h.token, { client_request_id: randomUUID(), purpose: 'merge continuation', resources: [{ kind: 'path', host_id: 1, path: '/repo' }, { kind: 'git', host_id: 1, common_dir: '/repo/.git', branch: 'main' }] });
+    const args = { worktree_path: '/repo', clone_dir: '/repo/.git', engine: 'codex', username: 'root', branch: 'work' };
+    const registered = await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.register(args, h.host));
+    const lease = await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.requestMerge({ worktree_path: '/repo', target_branch: 'main', client_request_id: randomUUID(), changed_paths: ['src/main.ts'] }, h.host));
+    expect(lease.verdict).toBe('allow');
+    if (scenario !== 'old-attached') h.live.detach();
+    const next = await resumeNativeFixture(h.owner, h.presence, h.sessionId);
+    if (scenario === 'foreign-transcript') await mutateOwnerState(h.owner, { kind: 'test.foreign-transcript', payload: {}, prepare(ctx) { ctx.draft.upsert('agentSessions', { ...ctx.snapshot.sessions.get(next.id)!, upstreamSessionId: randomUUID() }); return null; } });
+    await h.git.reconcileOwned();
+    const register = () => withNativePrincipal({ sessionId: next.id, bridgeToken: next.token }, () => h.git.register(args, h.host));
+    if (scenario === 'same') {
+      expect(await register()).toMatchObject({ registered: true, rebound: true, worktree_id: registered.worktree_id, withdrawn_request_ids: [lease.request_id] });
+      expect(h.state.snapshot().table('gitMergeRequests').get(String(lease.request_id))?.verdict).toBe('withdrawn');
+      expect(h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))?.agentSessionId).toBe(next.id);
+      await expect(withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.release({ worktree_path: '/repo', deregister: true }, h.host))).rejects.toThrow();
+    } else {
+      await expect(register()).rejects.toThrow('retains exclusion');
+      expect(h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))?.agentSessionId).toBe(h.sessionId);
+    }
   });
 });

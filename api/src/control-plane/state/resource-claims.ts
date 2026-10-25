@@ -59,6 +59,7 @@ export function claimContinuouslyHeld(
   );
 }
 export function ownedClaimView(claim: OwnedResourceClaim, owner?: OwnerRuntime) {
+  const continuedBy = claim.state === 'released' && (claim.blockers as Array<{ id: string; state: string }>).find(row => row.state === 'continued');
   const drain = owner && claim.ownershipMode === 'timed' && legacyDrainFor(owner);
   const deadline = drain && drain.resourceClaim(claim.id, claim.sessionId, claim.generation)
     ? drain.protectedDeadline(claim.sessionId, claim.generation) : null;
@@ -84,6 +85,7 @@ export function ownedClaimView(claim: OwnedResourceClaim, owner?: OwnerRuntime) 
         (resource) => resource.kind === 'path' || resource.kind === 'git',
       ),
     response_received: Boolean(claim.repliedAt),
+    ...(continuedBy ? { continued_by_claim_id: continuedBy.id } : {}),
   };
 }
 export function stageClaimAnnouncement(

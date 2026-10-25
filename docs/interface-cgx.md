@@ -1459,3 +1459,5 @@ Signed connection-state configurations explicitly request connection ownership
 when reserving a provider account. Legacy configurations retain renewable timed
 grants. See [communicator.md](communicator.md) for attachment and compatibility
 rules shared by all three engines.
+
+With cxx 0.9.131, native claim/Git continuation follows the completed exact-transcript proof in `interface-api.md` (Explicit native lock continuation). Connection claims have no TTL; unknown outcomes cannot be renewed, Git merge grants are absolute, and resumed Git registrations require new merge permission.

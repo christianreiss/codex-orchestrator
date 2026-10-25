@@ -2165,3 +2165,5 @@ rules shared by all three engines.
 ### Native identity for fleet MCP
 
 Managed Codex configuration allowlists `CXX_AGENT_PORTAL_SOCKET` through the fleet `cdx` MCP entry’s `env_vars`. The `cxx-agent` entry receives its private socket through launch overrides. Codex filters inherited subprocess environments, so relying on inheritance loses the native session identity and causes `git_director_owner_required`. The broker supplies the session credentials; bridge tokens stay out of model configuration. Existing launches need their fleet MCP adapter reloaded with the broker socket, or a normal managed session restart, to adopt the corrected environment.
+
+With cxx 0.9.131, native claim/Git continuation follows the completed exact-transcript proof in `interface-api.md` (Explicit native lock continuation). Connection claims have no TTL; unknown outcomes cannot be renewed, Git merge grants are absolute, and resumed Git registrations require new merge permission.
