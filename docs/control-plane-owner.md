@@ -212,3 +212,16 @@ and network. Simulated communicators are labelled; Chromium tabs use real browse
 transports. Controlled idle results do not substitute for post-deploy production
 measurements or prove physical Raspberry Pi performance. Legacy busy owners are
 reported separately and must never be killed to improve a graph.
+
+## Production handshake correction (2026-10-25)
+
+Owner-mode signed configs advertise `communicator_state_protocol:1` by default
+when communicator transport is enabled. Previously the optional bakery setting
+was never supplied by production callers, so clients lacked the declaration
+although the API offered the stream. An explicit false setting is still honored.
+Delivery requires the authenticated live stream for the exact native/relay
+instance and binding generation. That actual proof is authoritative even if an
+old cached configuration omitted the redundant capability declaration. Detached,
+revoked and wrong-generation identities remain fenced; executor contract checks
+for work delivery remain unchanged. This does not grant HTTP-only legacy clients
+new delivery authority.

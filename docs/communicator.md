@@ -42,6 +42,10 @@ and resource bytes share the existing 64 MiB / 256-scope budget; no disk cache o
 second database is introduced. Owner status exposes `local_hits` alongside the
 existing cache counters. Protocol 2 below remains a compatibility contract.
 
+Owner-mode signed configs also select `communicator_state_protocol:1`; the API
+honors actual authenticated attachments when an old cached config omitted the
+capability declaration. It still refuses detached or wrong-generation execution.
+
 Resident owners load policy once and wake on policy pushes, reconnect, genuine
 authorization deadlines or actual queued work. They do not poll daemon config
 every five seconds. Transport ping/pong, real provider refresh deadlines and

@@ -1,3 +1,5 @@
+import { claimOwnedDelivery } from '../../../src/services/agent-messaging/owned-claim.js';
+import type { Keyring } from '../../../src/security/keyring.js';
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -84,10 +86,43 @@ function runtime(seed: unknown = {}) {
   });
   bindOwnerPresence(owner, presence);
   close.push(() => presence.close());
-  return { owner, persistence, committed, receipts };
+  return { owner, presence, persistence, committed, receipts };
 }
 
 describe('quiet owner runtime', () => {
+  it('uses actual live relay proof when old metadata omits the protocol claim, and refuses a detached relay', async () => {
+    const relayId = randomUUID(),
+      instance = randomUUID();
+    const f = runtime({
+      versions: [{ name: 'agent_messaging_enabled', version: '1', updatedAt: new Date().toISOString() }],
+      agentBusRelays: [
+        { id: relayId, hostId: 1, status: 'active', generation: 1, instanceId: instance, capabilities: {} },
+      ],
+    });
+    const connection = f.presence.attach({
+      connectionId: randomUUID(),
+      hostId: 1,
+      username: 'fixture',
+      scope: { topic: 'relay', relay_id: relayId, binding_generation: 1, native_instance_id: instance },
+    });
+    const options = {
+      targetAddressIds: [],
+      leaseOwner: `relay:${relayId}:1`,
+      claimId: randomUUID(),
+      relayGeneration: 1,
+      skipReceiveCapable: true,
+      informationalOnly: false,
+      smartQueue: true,
+      peerBatch: false,
+    };
+    await expect(claimOwnedDelivery({} as Database, f.owner, {} as Keyring, options)).resolves.toBeNull();
+    expect(f.persistence.transaction).not.toHaveBeenCalled();
+    connection.detach();
+    await expect(claimOwnedDelivery({} as Database, f.owner, {} as Keyring, options)).rejects.toMatchObject({
+      code: 'agent_messaging_lease_lost',
+    });
+  });
+
   it('keeps identical Claude usage from different hosts in RAM without SQL or duplicate history', async () => {
     const now = new Date().toISOString();
     const row = {

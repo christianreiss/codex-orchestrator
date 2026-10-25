@@ -1043,9 +1043,11 @@ describe('owned wrapper bakery', () => {
           binaries: fakeBinaries(),
           signing: makeSigningService(signer),
           installationId: 'owner',
+          communicatorEnabled: true,
         });
         const first = await service.bakeForHost(host, engine, 'https://co.example'),
           second = await service.bakeForHost(host, engine, 'https://co.example');
+        expect(first.payload.orchestrator.communicator_state_protocol).toBe(1);
         expect(first.bumped).toBe(false);
         expect(second.configVersion).toBe(first.configVersion);
         expect(select).not.toHaveBeenCalled();

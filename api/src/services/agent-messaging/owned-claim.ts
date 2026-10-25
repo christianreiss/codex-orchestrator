@@ -102,6 +102,9 @@ function authorizeClaim(
   snapshot: OwnerStateSnapshot,
   options: OwnedClaimOptions,
 ): string {
+  // An authenticated protocol-1 stream proves the capability directly. Old
+  // signed configs omitted its declaration; never substitute that stale claim
+  // for the exact live attachment/native/generation proof checked here.
   const instance = deliveryAttachment(runtime, snapshot, options.leaseOwner);
   if (options.relayGeneration === null) {
     const session = snapshot.sessions.get(options.leaseOwner.slice(8))!;
@@ -113,20 +116,10 @@ function authorizeClaim(
       (receiver.generation !== options.receiverGeneration || !ownedReceiverReady(runtime, session, 'peer'))
     )
       throw new ConflictError('Receiver generation is unavailable', 'receiver_generation_changed');
-    if (jsonRecord(session.adapterCapabilities)?.control_state_protocol !== 1)
-      throw new ConflictError(
-        'Connection delivery requires a current communicator',
-        'adapter_upgrade_required',
-      );
   } else {
     const relay = snapshot.table('agentBusRelays').get(options.leaseOwner.split(':')[1]!)!;
     if (relay.generation !== options.relayGeneration)
       throw new ConflictError('Relay generation changed', 'agent_messaging_lease_lost');
-    if (jsonRecord(relay.capabilities)?.control_state_protocol !== 1)
-      throw new ConflictError(
-        'Connection delivery requires a current communicator',
-        'adapter_upgrade_required',
-      );
   }
   return instance;
 }

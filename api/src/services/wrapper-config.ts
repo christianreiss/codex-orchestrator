@@ -585,7 +585,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         ...(deps.communicatorEnabled && deps.communicatorSyncEnabled
           ? { communicator_sync_protocol: 1 }
           : {}),
-        ...(deps.communicatorEnabled && deps.communicatorStateEnabled
+        ...(deps.communicatorEnabled && (deps.communicatorStateEnabled ?? !!owner)
           ? { communicator_state_protocol: 1 }
           : {}),
         ...(deps.communicatorRuntimeEnabled ? { communicator_runtime_protocol: 1 } : {}),

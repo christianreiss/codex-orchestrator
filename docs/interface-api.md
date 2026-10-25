@@ -1,5 +1,13 @@
 # API Interface (Source of Truth)
 
+## Owner stream negotiation
+
+When communicator transport is enabled, owner-mode signed configs advertise
+`communicator_state_protocol:1` unless explicitly disabled. Delivery checks the
+actual authenticated stream/native instance/binding generation, including when
+old cached capability metadata omits that declaration. A detached legacy HTTP
+client gains no new delivery authority. Executor-contract checks still apply.
+
 ## Quiet runtime (2026-10-25)
 
 Read, volatile observation and durable mutation have separate execution paths.

@@ -1,5 +1,7 @@
 # 2026-10-25
 
+- Advertise the existing control-state stream in owner-mode signed configs. Honor the exact authenticated stream attachment when old cached capability metadata omits that declaration; preserve detached/native/generation fencing and executor-contract checks. This removes repeated upgrade errors without granting HTTP-only clients delivery authority.
+
 - Keep current Auth, Skills, Knowledge and configuration privately in owner RAM; serve current reads without SQL transactions. Separate volatile presence/freshness from durable changes and reserve idempotency receipts before domain writes. Unchanged quota reports no longer create duplicate history or UI refreshes. Current Knowledge search uses deterministic RAM ranking instead of MySQL FULLTEXT scores.
 - Compute retention protections in RAM, preserve paused/uncertain/native work, and skip empty SQL sweeps. Keep WebUI retention policies and overrides effective; scope dashboard invalidations to affected data.
 - cxx 0.9.128 adds protocol-3 local content hits without server confirmations, scoped push invalidation and event-driven daemon policy. Preserve live admission, private-data coherence, real expiry and compatibility with busy older owners. Document the full plan and verification contract in `REDESIGN.md`.

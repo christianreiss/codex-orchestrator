@@ -50,18 +50,16 @@ describe.skipIf(!handle)('owned messaging lifecycle on MySQL', () => {
       credentials: ConnectionCredentials | undefined,
       presence: ConnectionPresence | undefined;
     const budget = installSqlBudget(handle!.pool);
-    const [inserted] = await handle!.db
-      .insert(schema.hosts)
-      .values({
-        fqdn: `messaging-${suffix}.test`,
-        apiKey: 'fixture-host-key',
-        apiKeyHash: sha256('fixture-host-key'),
-        secure: 1,
-        status: 'active',
-        engines: ENGINES.join(','),
-        createdAt: now,
-        updatedAt: now,
-      });
+    const [inserted] = await handle!.db.insert(schema.hosts).values({
+      fqdn: `messaging-${suffix}.test`,
+      apiKey: 'fixture-host-key',
+      apiKeyHash: sha256('fixture-host-key'),
+      secure: 1,
+      status: 'active',
+      engines: ENGINES.join(','),
+      createdAt: now,
+      updatedAt: now,
+    });
     const hostId = Number(inserted.insertId);
     const [host] = await handle!.db.select().from(schema.hosts).where(eq(schema.hosts.id, hostId));
     const names = Array.from({ length: 8 }, (_, n) => ({
@@ -356,6 +354,21 @@ describe.skipIf(!handle)('owned messaging lifecycle on MySQL', () => {
             return null;
           },
         });
+        // A live authenticated stream is the protocol proof even when a cached
+        // signed config omitted the redundant declaration (production rollout).
+        const oldCapabilities = store.snapshot().sessions.get(peerId)!.adapterCapabilities;
+        await mutateOwnerState(runtime, {
+          kind: 'fixture.old_capability_metadata',
+          persistence: 'volatile',
+          payload: {},
+          prepare(c) {
+            const current = c.snapshot.sessions.get(peerId)!;
+            const capabilities = { ...(current.adapterCapabilities as Record<string, unknown>) };
+            delete capabilities.control_state_protocol;
+            c.draft.upsert('agentSessions', { ...current, adapterCapabilities: capabilities });
+            return null;
+          },
+        });
         const batchClaim = randomUUID(),
           batch = await claimOwnedDelivery(handle!.db, runtime, keyring, {
             targetAddressIds: [peerAddress],
@@ -368,6 +381,18 @@ describe.skipIf(!handle)('owned messaging lifecycle on MySQL', () => {
             peerBatch: true,
           });
         expect(batch?.kind).toBe('digest');
+        await mutateOwnerState(runtime, {
+          kind: 'fixture.restore_capability_metadata',
+          persistence: 'volatile',
+          payload: {},
+          prepare(c) {
+            c.draft.upsert('agentSessions', {
+              ...c.snapshot.sessions.get(peerId)!,
+              adapterCapabilities: oldCapabilities,
+            });
+            return null;
+          },
+        });
         const presentation = JSON.parse(batch!.content);
         expect(presentation).toMatchObject({ presentation: 'peer_batch_v1', total: 2, next_after: null });
         expect(presentation.entries.map((entry: { message_id: string }) => entry.message_id)).toEqual(

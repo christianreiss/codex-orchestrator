@@ -81,3 +81,39 @@ No new SQL dump, storage archive, cron, watchdog or monitoring service is part o
 this redesign. Bareos retains responsibility for recovery backups. Rollback must
 preserve newly accepted work: use compatible images or repair forward, never
 restore old database contents over new receipts/results.
+
+## First production pass and handshake repair
+
+Implementation `3120c9cb` booted as exact preflight-tested image
+`bf7aec22abbb0083f8d705a843f8397aebd3b006420a4a828690e2f6993acd62`;
+health/readiness verified all 103 migrations, signer 1 and four cxx 0.9.128 platforms.
+The first 30-second sample had zero application SQL, but 6.854% API CPU and
+1.475% MySQL CPU. Repeated `adapter_upgrade_required` exposed missing production
+wiring: the optional state-protocol bakery flag was never passed by live callers.
+Owner-mode configs now advertise the existing stream, and exact authenticated
+attachments take precedence over a missing cached declaration. Detached/native/
+generation fencing and work executor contracts remain mandatory.
+
+The repair passed Node 22 typecheck/lint, 43 targeted unit checks and the real
+MySQL messaging, SQL-budget/restart and legacy-grant tests. The initial focused
+DB attempt preceded its migrations and failed an invitation assertion; the same
+suite passed after the required migration setup. No assertion was removed.
+
+Actual production content responses passed 10,000 subsequent local cache hits
+for Codex and Claude: one cold server exchange per engine, about one second per
+10,001 reads. These are ephemeral cache-library consumers using the existing
+root owner's transport; push/revocation and actual native process launch are
+covered by the isolated real-process tests, not claimed from this focused probe.
+No credentials/native homes were copied and no paid inference was invoked.
+
+Codex/Claude live admissions and releases succeeded. Grok live admission reports
+`grok_refresh_uncertain`: account 7 has remained `owner_lost_after_intent` since
+2026-10-24T20:03:42Z, before this redesign and unchanged by the probe. A fresh
+subscription login is required; the uncertain rotating refresh token is not
+retried or reset. This is an explicit outstanding external-auth prerequisite.
+
+All ten previously open session IDs, 86 pending/uncertain work IDs and eleven
+paused schedule IDs survived the cutover. The original local owner PID/start
+identity and auth encryption-key fingerprint matched. The existing Advisor
+service was restored with its existing volumes and image; it installed cxx
+0.9.128 and all three engine binaries, without launching an advisor task.
