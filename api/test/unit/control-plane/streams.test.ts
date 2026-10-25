@@ -106,6 +106,112 @@ function harness(extra: StateSeed = {}) {
   return { state, provider, presence, runtime, execute, id, address, receiver, session, publish };
 }
 describe('owner state projections', () => {
+  it('does no projection authorization for unrelated publications across 100 streams', async () => {
+    const h = harness();
+    const authorize = vi.spyOn(h.provider.authorization, 'session');
+    const changed = vi.fn();
+    for (let n = 0; n < 100; n++) {
+      const projection = await h.provider.open(
+        { topic: 'session', session_id: h.id },
+        { bridge_token: 'bridge' },
+      );
+      const off = projection.subscribe(changed);
+      cleanups.push(() => {
+        off();
+        void projection.detach();
+      });
+    }
+    authorize.mockClear();
+    changed.mockClear();
+    const started = performance.now();
+    for (let n = 0; n < 100; n++) h.publish('versions', { name: 'unrelated', version: String(n) });
+    console.info(
+      JSON.stringify({
+        benchmark: '100 streams x 100 unrelated publications',
+        authorizationCalls: authorize.mock.calls.length,
+        elapsedMs: performance.now() - started,
+      }),
+    );
+    expect(authorize.mock.calls.length).toBe(0);
+    expect(changed).not.toHaveBeenCalled();
+    h.publish('versions', { name: 'api_disabled', version: '1' });
+    expect(authorize).toHaveBeenCalled();
+    expect(changed.mock.calls.length).toBeGreaterThanOrEqual(100);
+  });
+  it.each(['api_disabled', 'codex_engine_disabled', 'agent_messaging_enabled', 'agent_portal_enabled'])(
+    'observes global %s changes through the publication filter',
+    async (key) => {
+      const h = harness();
+      const projection = await h.provider.open(
+        { topic: 'receiver', session_id: h.id, receiver_generation: h.receiver },
+        { bridge_token: 'bridge' },
+      );
+      const changed = vi.fn(),
+        off = projection.subscribe(changed);
+      cleanups.push(() => {
+        off();
+        void projection.detach();
+      });
+      h.publish('versions', { name: key, version: key.endsWith('_enabled') ? '0' : '1' });
+      expect(changed).toHaveBeenCalled();
+    },
+  );
+  it('ignores foreign receiver work but observes source and own work changes', async () => {
+    const h = harness();
+    const projection = await h.provider.open(
+      { topic: 'receiver', session_id: h.id, receiver_generation: h.receiver },
+      { bridge_token: 'bridge' },
+    );
+    const changed = vi.fn(),
+      off = projection.subscribe(changed);
+    cleanups.push(() => {
+      off();
+      void projection.detach();
+    });
+    const authorize = vi.spyOn(h.provider.authorization, 'session');
+    const message = {
+      id: randomUUID(),
+      targetAddressId: randomUUID(),
+      status: 'queued',
+      updatedAt: new Date().toISOString(),
+      nextAttemptAt: null,
+      leaseUntil: null,
+    };
+    h.publish('agentBusMessages', message);
+    expect(authorize.mock.calls.length).toBe(0);
+    expect(changed).not.toHaveBeenCalled();
+    h.publish('agentBusMessages', { ...message, targetAddressId: h.address });
+    expect(changed).toHaveBeenCalledTimes(1);
+    h.publish('agentSessions', { ...h.session, receiver: { ...h.session.receiver!, portal_closed: true } });
+    expect(changed).toHaveBeenCalledTimes(2);
+    expect((projection.snapshot() as { sources: string[] }).sources).toEqual(['peer']);
+  });
+  it('keeps credential renewal and absolute expiry callbacks independent of table changes', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    const streams = new ControlStateStreams(h.provider, {
+      send: vi.fn(),
+      bufferedBytes: () => 0,
+      error: vi.fn(),
+    });
+    streams.delegateTransportLiveness();
+    cleanups.push(() => streams.close());
+    await streams.receive({
+      type: 'state_open',
+      protocol: 1,
+      stream_id: randomUUID(),
+      scope: { topic: 'session', session_id: h.id },
+      auth: { bridge_token: 'bridge' },
+    });
+    const authorize = vi.spyOn(h.provider.authorization, 'session');
+    await vi.advanceTimersByTimeAsync(300000);
+    expect(authorize).toHaveBeenCalled();
+    expect(streams.size()).toBe(1);
+    h.publish('agentSessions', { ...h.session, expiresAt: new Date(Date.now() + 5000).toISOString() });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(streams.size()).toBe(0);
+  });
+
   it('keeps idle transport pings free of persistence and exposes generation-bound presence', async () => {
     vi.useFakeTimers();
     const h = harness();

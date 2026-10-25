@@ -1,3 +1,4 @@
+import type { OwnerStateSnapshot } from '../state/store.js';
 import { relayCommunicatorUsername } from './authorization.js';
 import { ownerCredentials } from '../credentials.js';
 import { randomUUID } from 'node:crypto';
@@ -220,11 +221,91 @@ export class OwnerStateProvider implements StateProvider {
         });
       return json(value);
     };
+    // These are projection inputs, never cached authorization. Table references
+    // also cover deletion; selected setting values avoid waking every stream for
+    // an unrelated versions write. Deadline and credential callbacks bypass this
+    // filter, so time-dependent work and revocation still revalidate live RAM.
+    const inputs = (state: OwnerStateSnapshot): unknown[] => {
+      const common: unknown[] = [
+        state.table('hosts'),
+        ...[
+          'api_disabled',
+          'reverse_dns_enabled',
+          'agent_messaging_enabled',
+          'agent_portal_enabled',
+          'codex_engine_disabled',
+          'claude_engine_disabled',
+          'grok_engine_disabled',
+        ].map((key) => state.setting(key)),
+      ];
+      if (scope.topic === 'session' || scope.topic === 'receiver') {
+        const session = scope.session_id ? state.sessions.get(scope.session_id) : undefined;
+        common.push(
+          session,
+          session?.agentBusAddressId ? state.addresses.get(session.agentBusAddressId) : undefined,
+        );
+        if (scope.native_instance_id) common.push(state.table('agentNativeControls').get(scope.session_id!));
+        const addressId = session?.agentBusAddressId;
+        if (scope.topic === 'receiver')
+          common.push(
+            'peer',
+            ...(addressId ? state.messages.by('targetAddressId', addressId) : []),
+            'portal',
+            ...state.table('agentMessages').by('sessionId', scope.session_id!),
+          );
+        else {
+          const watchdogs = addressId ? state.table('agentWatchdogs').by('targetAddressId', addressId) : [];
+          const runs = [
+            ...(addressId ? state.table('agentScheduleRuns').by('targetAddressId', addressId) : []),
+            ...watchdogs.flatMap((row) => state.table('agentScheduleRuns').by('scheduleId', row.scheduleId)),
+          ];
+          common.push(
+            state.table('agentNativeControls').get(scope.session_id!),
+            // schedulePolicy excludes schedules associated with any watchdog.
+            state.table('agentWatchdogs'),
+            'schedules',
+            ...(addressId ? state.table('agentSchedules').by('targetAddressId', addressId) : []),
+            'runs',
+            ...runs,
+            'messages',
+            ...runs.map((row) => (row.messageId ? state.messages.get(row.messageId) : undefined)),
+            'prompts',
+            ...state.table('agentPrompts').by('sessionId', scope.session_id!),
+            state.setting(`quota_policy_${session?.engine}`),
+          );
+          for (const watchdog of watchdogs)
+            common.push(state.setting(`quota_policy_account_${watchdog.quotaAccountId}`));
+        }
+      } else if (scope.topic === 'relay') {
+        const addresses = state.addresses
+          .by('hostId', this.authorization.hostId)
+          .filter((row) => row.username === this.username);
+        common.push(
+          state.table('agentBusRelays').get(scope.relay_id!),
+          'addresses',
+          ...addresses,
+          'messages',
+          ...addresses.flatMap((row) => state.messages.by('targetAddressId', row.id)),
+          'daemon-sessions',
+          ...state.table('hostDaemonSessions').by('hostId', this.authorization.hostId),
+          state.daemons.get(this.authorization.hostId),
+        );
+      } else if (scope.topic === 'provider') {
+        const lease = state.table('providerAccountSessions').get(scope.provider_session_id!);
+        common.push(lease, lease ? state.accounts.get(lease.accountId) : undefined);
+      } else
+        common.push(
+          state.daemons.get(this.authorization.hostId),
+          ...state.table('hostDaemonSessions').by('hostId', this.authorization.hostId),
+        );
+      return common;
+    };
     return {
       authorize: () => ({ deadline: authorize().deadline }),
       snapshot,
       subscribe: (changed) => {
         let previous = '';
+        let previousInputs = inputs(this.runtime.state.snapshot());
         const check = () => {
           if (stopped) return;
           try {
@@ -237,7 +318,16 @@ export class OwnerStateProvider implements StateProvider {
           changed();
         };
         wake = check;
-        const unsubscribe = this.runtime.state.subscribe(check);
+        const unsubscribe = this.runtime.state.subscribe((state) => {
+          const nextInputs = inputs(state);
+          if (
+            nextInputs.length === previousInputs.length &&
+            nextInputs.every((value, i) => value === previousInputs[i])
+          )
+            return;
+          previousInputs = nextInputs;
+          check();
+        });
         const unsubscribeCredentials = scope.session_id
           ? credentials.subscribe('session', scope.session_id, check)
           : scope.relay_id

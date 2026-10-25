@@ -105,6 +105,14 @@ export function canonicalCommand(value: Json): string {
   );
 }
 
+function immutablePayload(value: Json): Json {
+  if (value !== null && typeof value === 'object') {
+    for (const child of Object.values(value)) immutablePayload(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 /** One linearized mutation path; no timer, polling query or empty transaction. */
 export class CommandExecutor<Snapshot, Tx, Prepared> {
   private tail: Promise<unknown> = Promise.resolve();
@@ -135,17 +143,44 @@ export class CommandExecutor<Snapshot, Tx, Prepared> {
       command.kind.length > 191
     )
       return Promise.reject(new TypeError('Command requires a bounded principal and stable request ID'));
-    // Capture inputs before queueing so callers cannot change a waiting command.
+    // Capture the envelope and callbacks before queueing. Payload bytes are
+    // detached recursively; callbacks may still close over caller-owned inputs,
+    // so reject mutation of the submitted envelope at every authority boundary.
     let digest: string;
+    let captured: Command<Snapshot, Tx, Prepared>;
     try {
+      const payload = canonicalCommand(command.payload);
+      const envelope = Object.freeze({ ...command, payload: immutablePayload(JSON.parse(payload) as Json) });
+      const unchanged = () => {
+        if (
+          command.principal !== envelope.principal ||
+          command.id !== envelope.id ||
+          command.kind !== envelope.kind ||
+          canonicalCommand(command.payload) !== payload
+        )
+          throw new TypeError('Submitted command envelope changed while queued or executing');
+      };
+      captured = Object.freeze({
+        ...envelope,
+        authorize(snapshot: Snapshot) {
+          unchanged();
+          envelope.authorize(snapshot);
+          unchanged();
+        },
+        authorizeReplay(snapshot: Snapshot) {
+          unchanged();
+          (envelope.authorizeReplay ?? envelope.authorize)(snapshot);
+          unchanged();
+        },
+      });
       digest = createHash('sha256')
-        .update(canonicalCommand({ kind: command.kind, payload: command.payload }))
+        .update(canonicalCommand({ kind: envelope.kind, payload: envelope.payload }))
         .digest('hex');
     } catch (error) {
       return Promise.reject(error);
     }
     this.pending++;
-    const task = this.tail.then(() => this.run(command, digest));
+    const task = this.tail.then(() => this.run(captured, digest));
     this.tail = task.then(
       () => undefined,
       () => undefined,
