@@ -1,0 +1,73 @@
+{
+  "source_sha": "7942d30588f9f850b01c3d1b76545ba3859fa455",
+  "host": "docker01.uggs.io",
+  "api_image": "sha256:84602f51565f72ebadf900d669db604841c4d4f0f7967d71b0d828b7d8185c5c",
+  "published_wrapper": "0.9.131",
+  "platforms": [
+    "linux-amd64",
+    "linux-arm64",
+    "darwin-amd64",
+    "darwin-arm64"
+  ],
+  "health": {
+    "api": "healthy",
+    "media_worker": "healthy",
+    "auth_runner": "healthy",
+    "migrations_applied": 103,
+    "pending": 0,
+    "drifted": 0
+  },
+  "unknown_outcome_live_retests": [
+    {
+      "engine": "codex",
+      "agent_id": "90c54d31-f99e-4843-b280-af9d13f69031",
+      "baseline_claim_id": "766b8e3e-9fe0-41c1-91cc-72afe3d0e670",
+      "retest_claim_id": "50c88d7a-420d-485b-9abf-8b1aa9f7b13d"
+    },
+    {
+      "engine": "claude",
+      "agent_id": "47d4cc5d-1fb0-460d-835e-8ef8187b67f2",
+      "baseline_claim_id": "8ae06841-b125-4544-9ab8-1f5e132486d5",
+      "retest_claim_id": "ce46da87-1a41-4eb1-914d-0bc661fe6c04"
+    },
+    {
+      "engine": "grok",
+      "agent_id": "fc017163-c7ae-4f61-bd01-4b8c8c1b91d9",
+      "baseline_claim_id": "b44789df-e306-424f-8542-03277cb67515",
+      "retest_claim_id": "730e1c0f-42e4-4c75-a305-db04f2094efd"
+    }
+  ],
+  "common_retest_result": {
+    "baseline_renew_unknown": "incorrectly active",
+    "postdeploy_renew_unknown": "claim_not_active",
+    "state_after_denial": "uncertain",
+    "uncertainty_reason": "reported_unknown",
+    "owner_completed_release": "released",
+    "fixtures_cleaned": true
+  },
+  "git_cross_engine": {
+    "owner_agent_id": "90c54d31-f99e-4843-b280-af9d13f69031",
+    "foreign_agent_id": "47d4cc5d-1fb0-460d-835e-8ef8187b67f2",
+    "worktree_id": "9fa2ff8c-ace2-468a-aed6-14d4e669b61d",
+    "foreign_error_code": "git_director_owner_uncertain",
+    "foreign_error_text": "Registration belongs to another session binding",
+    "owner_recheck": "active, same binding and HEAD",
+    "owner_deregistered": true,
+    "fixture_path_removed": true,
+    "path_claim_released": true,
+    "workspace_restored": true
+  },
+  "legacy_board": {
+    "claim_card_id": "facf73a8-eb84-448a-9051-8ed10d922e0b",
+    "project_id": 29,
+    "card_number": 11,
+    "mode": "timed",
+    "old_expiry": "2026-10-07T12:31:43Z",
+    "postdeploy_read_claim": null,
+    "released_at": "2026-10-25T15:32:18Z",
+    "release_reason": "Legacy timed claim expired at its original deadline.",
+    "column_before": "backlog",
+    "column_after": "backlog"
+  },
+  "same_native_resume_evidence": "Owner services with real MySQL, atomic rollback and commit-boundary race fixtures; no production native transcript was interrupted to create a new lifecycle transfer."
+}
