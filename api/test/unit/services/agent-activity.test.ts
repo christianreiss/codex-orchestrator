@@ -47,6 +47,24 @@ describe('native activity observation', () => {
     // A silent receiver still ends it.
     expect(activityView({ ...session, activity }, later).state).toBe('unknown');
   });
+  it('uses explicit connection authority without renewing the legacy heartbeat', () => {
+    const later = now + 600_000;
+    const activity = acceptActivity(session, { ...input, receiver_bound: true }, later, true);
+    expect(activityView({ ...session, activity }, later + 600_000, false, true)).toMatchObject({
+      state: 'working', expires_at: null,
+    });
+    expect(activityView({ ...session, activity }, later, false, false).state).toBe('unknown');
+    expect(() => acceptActivity(session, input, now, false)).toThrow(/no longer owns/);
+    // Legacy observations still expire independently of an attached transport.
+    const oldEvidence = acceptActivity(session, input, later, true);
+    expect(activityView({ ...session, activity: oldEvidence }, later + 45_000, false, true).state).toBe('unknown');
+  });
+  it.each([
+    { binding_generation: 2 }, { native_session_id: 'other' },
+    { generation: '22222222-2222-4222-8222-222222222222' }, { source: 'grok-session' },
+  ])('connection presence never bypasses the exact observer identity %j', (patch) => {
+    expect(() => acceptActivity(session, { ...input, ...patch } as ActivityInput, now, true)).toThrow(/no longer owns/);
+  });
   it('does not refresh hook evidence or duplicate receipts', () => {
     const activity = acceptActivity(session, { ...input, evidence_age_ms: 40_000 }, now)!;
     expect(activity.expires_at).toBe(new Date(now + 5000).toISOString());

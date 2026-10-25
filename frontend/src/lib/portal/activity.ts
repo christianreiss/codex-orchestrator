@@ -5,7 +5,8 @@ export function liveActivity(agent: Agent, now: number): ActivityState | null {
   if (!agent.activity) return null; // Older server.
   const a = agent.activity;
   if (a.source === "portal-question" && agent.pending_prompt) return "waiting";
-  if (!a.expires_at || !(Date.parse(a.expires_at) > now)) return "unknown";
+  const connectionBound = agent.presence_source === "connection" && a.expires_at === null;
+  if (connectionBound ? ["offline", "ended"].includes(agent.presence) : !(Date.parse(a.expires_at ?? "") > now)) return "unknown";
   const receiver = agent.receiver;
   if (
     receiver &&

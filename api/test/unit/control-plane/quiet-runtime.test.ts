@@ -1,3 +1,5 @@
+import { OwnedPortal } from '../../../src/services/agent-portal/owned.js';
+import { sha256 } from '../../../src/security/hash.js';
 import { claimOwnedDelivery } from '../../../src/services/agent-messaging/owned-claim.js';
 import type { Keyring } from '../../../src/security/keyring.js';
 import { randomUUID } from 'node:crypto';
@@ -90,6 +92,41 @@ function runtime(seed: unknown = {}) {
 }
 
 describe('quiet owner runtime', () => {
+  it.each(['codex', 'claude', 'grok'] as const)('%s activity uses its attached receiver, not a stale heartbeat, with no SQL', async (engine) => {
+    const id = randomUUID(), generation = randomUUID(), native = randomUUID(), token = 'fixture-token';
+    const old = new Date(Date.now() - 3600_000).toISOString();
+    const f = runtime({
+      versions: [{ name: 'agent_portal_enabled', version: '1' }],
+      hosts: [{ id: 1, fqdn: 'fixture', status: 'active', secure: 1, engines: 'codex,claude,grok', apiKey: 'fixture-host' }],
+      agentSessions: [{ id, hostId: 1, engine, endedAt: null, bindingGeneration: 1,
+        upstreamSessionId: native, bridgeTokenHash: sha256(token), hostAuthFingerprint: sha256('fixture-host'),
+        bridgeExpiresAt: new Date(Date.now() + 3600_000).toISOString(),
+        receiver: { generation, native_session_id: native,
+          protocol: { codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' }[engine],
+          heartbeat_at: old, failure: null, probes: { portal: {} } },
+      }],
+    });
+    const connection = f.presence.attach({ connectionId: randomUUID(), hostId: 1, username: 'fixture',
+      scope: { topic: 'receiver', session_id: id, binding_generation: 1, receiver_generation: generation } });
+    const db = { select: vi.fn(() => { throw new Error('unexpected SQL read'); }) } as unknown as Database;
+    const service = new OwnedPortal(f.owner, db, {} as Env, {} as Keyring);
+    const input = { generation, binding_generation: 1, native_session_id: native, sequence: 1,
+      state: 'working' as const, wait_reason: null, evidence_age_ms: 0, receiver_bound: true,
+      source: { codex: 'codex-thread', claude: 'claude-hooks', grok: 'grok-session' }[engine] as 'codex-thread' | 'claude-hooks' | 'grok-session' };
+    await expect(service.activity(id, token, input)).resolves.toEqual({ accepted: true });
+    await expect(service.activity(id, token, input)).resolves.toEqual({ accepted: false });
+    expect((await service.list()).sessions[0]).toMatchObject({ activity: { state: 'working', expires_at: null } });
+    expect(f.owner.state.snapshot().sessions.get(id)?.receiver).toMatchObject({ heartbeat_at: old });
+    await expect(service.activity(id, token, { ...input, sequence: 2, binding_generation: 2 })).rejects.toMatchObject({ code: 'agent_activity_binding_changed' });
+    connection.detach();
+    expect((await service.list()).sessions[0]).toMatchObject({ activity: { state: 'unknown' } });
+    await expect(service.activity(id, token, { ...input, sequence: 2 })).rejects.toMatchObject({ code: 'agent_activity_binding_changed' });
+    expect(f.persistence.transaction).not.toHaveBeenCalled();
+    expect(f.persistence.receipt).not.toHaveBeenCalled();
+    expect(f.committed).not.toHaveBeenCalled();
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
   it('uses actual live relay proof when old metadata omits the protocol claim, and refuses a detached relay', async () => {
     const relayId = randomUUID(),
       instance = randomUUID();

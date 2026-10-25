@@ -33,6 +33,13 @@ const agent = {
   },
 } as Agent;
 describe("native chat activity", () => {
+  it("keeps connection-bound activity current without fabricating an expiry", () => {
+    const connected = { ...agent, presence_source: "connection" as const, activity: { ...agent.activity!, expires_at: null } };
+    assert.equal(liveActivity(connected, now + 3600_000), "working");
+    assert.equal(liveActivity({ ...connected, presence: "offline" }, now), "unknown");
+    assert.equal(liveActivity({ ...connected, presence: "ended" }, now), "unknown");
+    assert.equal(liveActivity({ ...agent, activity: { ...agent.activity!, expires_at: null } }, now), "unknown");
+  });
   it("shows native work without a portal-owned turn and keeps sending independent", () => {
     assert.equal(presenceView(agent, now).label, "Working");
     assert.equal(groupFor(agent, now), "working");

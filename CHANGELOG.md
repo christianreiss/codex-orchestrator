@@ -1,5 +1,7 @@
 # 2026-10-25
 
+- Use exact receiver connections for native activity admission and display, removing repeated stale-heartbeat refusals without adding SQL or heartbeat traffic. Keep legacy evidence expiry and binding checks; the Agents UI honors connection-bound activity.
+
 - Fix successful native session shutdown returning a stale-binding error when post-finish coordination maintenance runs.
 
 - cxx 0.9.130 preserves paired native MCP credentials and isolates their cache scopes. Negotiate native-scope and expanded-read support before using an older communicator; retain fresh proof and never replay a lost receipt. Native-scoped reads remain live while host-only content keeps local caching. Fix owner-mode agent translation and workflow-current reads without opening SQL transactions or weakening binding checks.

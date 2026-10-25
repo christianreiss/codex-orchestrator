@@ -101,6 +101,15 @@ describe("message_canceled", () => {
 });
 
 describe("AI reading and processing receipts", () => {
+  it("uses connection-bound activity for only the current turn", () => {
+    const sent = event("user_message", { message_id: "m1" });
+    const index = deliveryIndex([sent, event("message_processing", { message_id: "m1" })]);
+    const active = { presence: "working", presence_source: "connection" as const, active_turn_id: "m1", activity: { state: "working", expires_at: null } };
+    assert.equal(deliveryFor(sent, index, active), "processing");
+    assert.equal(deliveryFor(sent, index, { ...active, presence: "offline" }), "read");
+    assert.equal(deliveryFor(sent, index, { ...active, active_turn_id: "m2" }), "read");
+    assert.equal(deliveryFor(sent, index, { ...active, activity: { state: "unknown", expires_at: null } }), "read");
+  });
   it("requires an explicit AI receipt, not acceptance or an unrelated reply", () => {
     const sent = event("user_message", { message_id: "m1" });
     assert.equal(deliveryFor(sent, deliveryIndex([sent, event("message_accepted", { message_id: "m1" }), event("assistant_message", { text: "other" })])), "delivered");

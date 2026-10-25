@@ -27,7 +27,7 @@ export const activityInputSchema = z
     source: z.enum(['codex-thread', 'grok-session', 'claude-hooks']),
     evidence_age_ms: z.number().int().nonnegative().max(86_400_000),
     // The observer reports changes only, so the observation stays current for
-    // as long as the same receiver keeps heartbeating. Without it (older
+    // as long as the same receiver remains current. Without it (older
     // wrappers), an observation expires on its own and must be resent.
     receiver_bound: z.boolean().optional(),
   })
@@ -53,11 +53,13 @@ function record(raw: unknown): ActivityRecord | null {
   return typeof value.sequence === 'number' && typeof value.expires_at === 'string' ? value : null;
 }
 
-/** Pure reducer; callers hold the session row lock. Duplicate receipts never extend expiry. */
+/** Pure reducer. The owner supplies exact connection authority; legacy callers
+ * retain heartbeat freshness. Duplicate receipts never extend expiry. */
 export function acceptActivity(
   session: Session,
   input: ActivityInput,
   now = Date.now(),
+  receiverConnected?: boolean,
 ): ActivityRecord | null {
   const receiver = receiverState(session.receiver);
   const source = { codex: 'codex-thread', claude: 'claude-hooks', grok: 'grok-session' }[session.engine];
@@ -69,7 +71,9 @@ export function acceptActivity(
     receiver?.generation !== input.generation ||
     receiver.native_session_id !== input.native_session_id ||
     receiver.failure ||
-    !(Date.parse(receiver.heartbeat_at) <= now && Date.parse(receiver.heartbeat_at) > now - RECEIVER_FRESH_MS)
+    !(receiverConnected ?? (
+      Date.parse(receiver.heartbeat_at) <= now && Date.parse(receiver.heartbeat_at) > now - RECEIVER_FRESH_MS
+    ))
   ) {
     throw new ConflictError(
       'Activity observer no longer owns this session',
@@ -94,7 +98,12 @@ export function acceptActivity(
   };
 }
 
-export function activityView(session: Session, now = Date.now(), question = false) {
+export function activityView(
+  session: Session,
+  now = Date.now(),
+  question = false,
+  receiverConnected?: boolean,
+) {
   const value = record(session.activity);
   const receiver = receiverState(session.receiver);
   const valid =
@@ -104,8 +113,9 @@ export function activityView(session: Session, now = Date.now(), question = fals
     !receiver.failure &&
     value.native_session_id === session.upstreamSessionId &&
     value.binding_generation === session.bindingGeneration &&
-    Date.parse(receiver.heartbeat_at) <= now &&
-    Date.parse(receiver.heartbeat_at) > now - RECEIVER_FRESH_MS &&
+    (receiverConnected ?? (
+      Date.parse(receiver.heartbeat_at) <= now && Date.parse(receiver.heartbeat_at) > now - RECEIVER_FRESH_MS
+    )) &&
     Date.parse(value.received_at) <= now &&
     (value.receiver_bound === true || Date.parse(value.expires_at) > now);
   const state = valid ? value.state : 'unknown';
@@ -115,12 +125,14 @@ export function activityView(session: Session, now = Date.now(), question = fals
     wait_reason: portalWait ? 'input' : valid ? value.wait_reason : null,
     source: portalWait ? 'portal-question' : (value?.source ?? null),
     changed_at: value?.changed_at ?? null,
-    // A receiver-bound observation lasts exactly as long as the receiver is fresh.
+    // Connection-owned observations end on disconnect; legacy ones retain a deadline.
     expires_at: portalWait
       ? null
-      : value?.receiver_bound === true && receiver
-        ? new Date(Date.parse(receiver.heartbeat_at) + RECEIVER_FRESH_MS).toISOString()
-        : (value?.expires_at ?? null),
+      : value?.receiver_bound === true && receiverConnected !== undefined
+        ? null
+        : value?.receiver_bound === true && receiver
+          ? new Date(Date.parse(receiver.heartbeat_at) + RECEIVER_FRESH_MS).toISOString()
+          : (value?.expires_at ?? null),
     reason:
       portalWait || (valid && state !== 'unknown') ? null : value ? 'expired_or_unavailable' : 'unsupported',
   };

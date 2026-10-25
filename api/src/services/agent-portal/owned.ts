@@ -444,9 +444,18 @@ export class OwnedPortal {
       relay_active: relay === 1,
     };
   }
+  private activityConnected(session: Readonly<StateRow<'agentSessions'>>): boolean {
+    const receiver = receiverState(session.receiver);
+    return Boolean(
+      receiver && !receiver.failure && !session.endedAt && (
+        ownerPresence(this.runtime).hasReceiver(session.id, session.bindingGeneration, receiver.generation) ||
+        legacyDrainFor(this.runtime)?.receiver(session.id, session.bindingGeneration, receiver.generation)
+      ),
+    );
+  }
   async activity(id: string, token: string, input: ActivityInput) {
     const session = this.authenticate(id, token),
-      next = acceptActivity(session, input, Date.now());
+      next = acceptActivity(session, input, Date.now(), this.activityConnected(session));
     if (!next) return { accepted: false };
     return mutateOwnerState(this.runtime, {
       kind: 'portal.activity',
@@ -456,7 +465,8 @@ export class OwnedPortal {
         this.authority(s, id, token);
       },
       prepare: (ctx) => {
-        const value = acceptActivity(ctx.snapshot.sessions.get(id)!, input, Date.now());
+        const current = ctx.snapshot.sessions.get(id)!;
+        const value = acceptActivity(current, input, Date.now(), this.activityConnected(current));
         if (!value) return { accepted: false };
         stageUpdate(ctx, 'agentSessions', id, { activity: value });
         return { accepted: true };
@@ -1328,7 +1338,7 @@ export class OwnedPortal {
                 ? 'listening'
                 : 'idle',
         presence_source: 'connection',
-        activity: activityView(session, at ?? Date.now(), !!prompt),
+        activity: activityView(session, at ?? Date.now(), !!prompt, this.activityConnected(session)),
         relay_ready: listening,
         receiver: ownedReceiverView(this.runtime, session),
         relay_enabled: session.relayEnabled === 1,

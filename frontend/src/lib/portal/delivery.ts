@@ -42,7 +42,7 @@ export function deliveryFor(event: EventRow, index: Map<string, Delivery>, activ
   // A stored start is historical evidence. Show ongoing work only while the
   // server still reports this exact turn as working, never for an older bubble.
   const workingFresh = activity?.presence_source === "connection"
-    ? activity.activity?.state === "working" && Date.parse(activity.activity.expires_at ?? "") > now
+    ? activity.activity?.state === "working" && (activity.activity.expires_at === null || Date.parse(activity.activity.expires_at ?? "") > now)
     : Number.isFinite(Date.parse(activity?.heartbeat_at ?? "")) && now - Date.parse(activity!.heartbeat_at!) >= 0 && now - Date.parse(activity!.heartbeat_at!) < 45_000;
   if (resolved === "processing") return activity?.presence === "working" && activity.active_turn_id === messageId && workingFresh ? "processing" : "read";
   if (resolved) return resolved;

@@ -2912,11 +2912,15 @@ return `{accepted:true}`. This endpoint does not renew liveness, mark work compl
 change portal turn ownership, or act as watchdog progress.
 
 Session list/companion responses add `activity: {state, wait_reason, source,
-changed_at, expires_at, reason}`. The latest observation is durable JSON on
-`agent_sessions.activity`; expiry is server receipt time plus 45 seconds minus
-reported evidence age. A `receiver_bound` observation (cxx 0.9.121+, which reports
-changes only) instead stays current while the same receiver generation is fresh, and
-its `expires_at` is that receiver's heartbeat plus 45 seconds. Receiver failure, changed native binding and expired evidence
+changed_at, expires_at, reason}`. In owner mode the latest observation stays in
+RAM; legacy mode persists JSON on `agent_sessions.activity`. Legacy evidence
+expires at server receipt time plus 45 seconds minus reported evidence age.
+A `receiver_bound` observation (cxx 0.9.121+, which reports changes only) stays
+current while the exact receiver generation is connected (including the protected
+legacy-drain proof). Owner responses use `expires_at: null`, with disconnect
+invalidation instead of a fabricated deadline. Admission and display retain engine,
+native-session, binding and receiver-generation checks. Legacy responses retain
+the receiver heartbeat plus 45 seconds. Receiver failure, changed native binding and expired evidence
 project Unknown. A still-open portal question supplies a `portal-question` input
 wait when native state is Idle/Unknown; fresh Working takes precedence. Activity
 transitions publish `agent_portal.sessions.changed`, without transcript events or
