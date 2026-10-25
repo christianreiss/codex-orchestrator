@@ -1,3 +1,8 @@
+import { claimOwnedDelivery } from '../../../src/services/agent-messaging/owned-claim.js';
+import {
+  acceptOwnedClaudeTurnProof,
+  ownedClaudeTurnIdle,
+} from '../../../src/control-plane/state/receiver-turn-proof.js';
 import { ConnectionCredentials } from '../../../src/control-plane/credentials.js';
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -247,6 +252,124 @@ describe('owner state projections', () => {
     await Promise.resolve();
     expect(frames.at(-1)?.type).toBe('state_close');
     expect(h.presence.hasSession(h.id, 3)).toBe(false);
+  });
+  it('wakes deferred Claude work when only the authoritative idle proof commits after an empty claim', async () => {
+    const h = harness(),
+      instance = randomUUID(),
+      epoch = randomUUID();
+    h.publish('agentSessions', {
+      ...h.session,
+      engine: 'claude',
+      receiver: {
+        ...(h.session.receiver as Record<string, unknown>),
+        protocol: 'claude-channel-v1',
+        delivery_timing_v1: true,
+      },
+    });
+    const native = h.presence.attach({
+      connectionId: randomUUID(),
+      hostId: 1,
+      username: 'user',
+      scope: {
+        topic: 'session',
+        session_id: h.id,
+        binding_generation: 3,
+        native_instance_id: instance,
+      },
+    });
+    const draft = h.state.begin();
+    draft.upsert('agentNativeControls', {
+      sessionId: h.id,
+      instanceId: instance,
+      bindingGeneration: 3,
+      status: 'ready',
+    } as never);
+    h.state.publish(draft.seal({ ...h.state.revision(), sequence: h.state.revision().sequence + 1n }));
+    const p = await h.provider.open(
+      { topic: 'receiver', session_id: h.id, binding_generation: 3, receiver_generation: h.receiver },
+      { bridge_token: 'bridge' },
+    );
+    const changed = vi.fn(),
+      off = p.subscribe(changed);
+    cleanups.push(() => {
+      off();
+      native.detach();
+      void p.detach();
+    });
+    const proof = (state: 'unknown' | 'active' | 'idle', sequence: number) => {
+      const current = h.state.snapshot().sessions.get(h.id)!;
+      const accepted = acceptOwnedClaudeTurnProof(h.runtime, current, {
+        epoch,
+        state,
+        sequence,
+        native_instance_id: instance,
+        binding_generation: 3,
+      });
+      h.publish('agentSessions', { ...current, activity: { turn_proof: accepted } });
+    };
+    proof('unknown', 1);
+    proof('active', 2);
+    h.publish('agentBusMessages', {
+      id: randomUUID(),
+      targetAddressId: h.address,
+      kind: 'message',
+      workKind: null,
+      deliveryTiming: 'after_turn',
+      status: 'queued',
+      dispatchOrder: 1,
+      nextAttemptAt: '2000-01-01T00:00:00Z',
+      expiresAt: '2099-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    });
+    const before = (p.snapshot() as { work_revision: string }).work_revision;
+    // Local Stop opens the wrapper gate before the asynchronous activity POST
+    // commits. The actual owner claim must remain an empty RAM read meanwhile.
+    expect(
+      await claimOwnedDelivery({} as never, h.runtime, {} as never, {
+        targetAddressIds: [h.address],
+        leaseOwner: `session:${h.id}`,
+        claimId: randomUUID(),
+        relayGeneration: null,
+        skipReceiveCapable: false,
+        receiverGeneration: h.receiver,
+        informationalOnly: false,
+        deliveryTimingEnabled: true,
+        smartQueue: false,
+        peerBatch: false,
+      }),
+    ).toBeNull();
+    expect(h.execute).not.toHaveBeenCalled();
+    changed.mockClear();
+    proof('idle', 3);
+    expect(ownedClaudeTurnIdle(h.runtime, h.state.snapshot(), h.state.snapshot().sessions.get(h.id)!)).toBe(
+      true,
+    );
+    expect((p.snapshot() as { work_revision: string }).work_revision).not.toBe(before);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(h.execute).not.toHaveBeenCalled();
+    const idleRevision = (p.snapshot() as { work_revision: string }).work_revision;
+    // Heartbeat/proof freshness alone is not another reason to poll the queue.
+    changed.mockClear();
+    proof('idle', 4);
+    const idle = h.state.snapshot().sessions.get(h.id)!;
+    h.publish('agentSessions', {
+      ...idle,
+      activity: {
+        ...(idle.activity as Record<string, unknown>),
+        observed_at: new Date().toISOString(),
+        expires_at: '2099-01-01T00:00:00Z',
+      },
+    });
+    expect((p.snapshot() as { work_revision: string }).work_revision).toBe(idleRevision);
+    expect(changed).not.toHaveBeenCalled();
+    proof('active', 5);
+    expect(changed).toHaveBeenCalledTimes(1);
+    const activeRevision = (p.snapshot() as { work_revision: string }).work_revision;
+    changed.mockClear();
+    proof('active', 6);
+    expect((p.snapshot() as { work_revision: string }).work_revision).toBe(activeRevision);
+    expect(changed).not.toHaveBeenCalled();
+    expect(h.execute).not.toHaveBeenCalled();
   });
   it('wakes receiver on committed work and real retry deadline, but not unrelated settings', async () => {
     vi.useFakeTimers();

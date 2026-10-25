@@ -153,7 +153,6 @@ func (r *autoReceiver) observeActivity(ctx context.Context, engine, nativeID, ge
 				"receiver_bound": true}
 			if timingEnabled && a.TurnProof != nil {
 				proof := *a.TurnProof
-				body["native_instance_id"] = proof.NativeInstanceID
 				if proofEpoch != proof.Epoch {
 					proofEpoch = proof.Epoch
 					proofBaseline = proof.Sequence

@@ -1,3 +1,4 @@
+import { ownedClaudeTurnIdle } from '../state/receiver-turn-proof.js';
 import type { OwnerStateSnapshot } from '../state/store.js';
 import { relayCommunicatorUsername } from './authorization.js';
 import { ownerCredentials } from '../credentials.js';
@@ -152,7 +153,12 @@ export class OwnerStateProvider implements StateProvider {
           const work = [...peer, ...portal]
             .filter((m) => ['queued', 'leased', 'accepted'].includes(m.status))
             .map((m) => [m.id, m.status, m.updatedAt, 'deliveryTiming' in m ? m.deliveryTiming : null, due(m.nextAttemptAt), due(m.leaseUntil)]);
-          const fingerprint = canonicalCommand(json([sources, work]));
+          // A local Stop can open the receiver gate before its asynchronous
+          // authoritative proof commits. Wake once when admission actually
+          // changes, without treating activity heartbeats as new queued work.
+          const claudeIdle = session.engine === 'claude' && receiver?.delivery_timing_v1 === true
+            ? ownedClaudeTurnIdle(this.runtime, state, session) : null;
+          const fingerprint = canonicalCommand(json([sources, work, claudeIdle]));
           if (lastWork !== fingerprint) {
             lastWork = fingerprint;
             workRevision++;

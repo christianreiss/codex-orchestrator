@@ -1,10 +1,13 @@
 package agentbus
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -148,5 +151,101 @@ func TestActivityObserverIndependentOfDelivery(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("observer did not stop")
+	}
+}
+
+// Capture the actual observer HTTP payload, then pass those bytes through the
+// real TypeScript API schema when Node is available. The optional artifact lets
+// the host run that same validator when the Go build image has no Node runtime.
+func TestClaudeActivityObserverWireMatchesStrictAPISchema(t *testing.T) {
+	const generation = "11111111-1111-4111-8111-111111111111"
+	const epoch = "22222222-2222-4222-8222-222222222222"
+	const instance = "33333333-3333-4333-8333-333333333333"
+	socket := filepath.Join(t.TempDir(), "broker.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stage atomic.Int32
+	reports := make(chan json.RawMessage, 8)
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/host/agent-sessions/session/receiver/activity-hook":
+			json.NewEncoder(w).Encode(map[string]any{"state": "idle", "wait_reason": nil, "source": "claude-hooks", "evidence_age_ms": 0,
+				"turn_proof": map[string]any{"epoch": epoch, "sequence": 7 + stage.Load(), "state": "idle", "native_instance_id": instance, "binding_generation": 7}})
+		case "/host/agent-sessions/session/activity":
+			var body json.RawMessage
+			if json.NewDecoder(r.Body).Decode(&body) != nil {
+				w.WriteHeader(400)
+				return
+			}
+			reports <- body
+			stage.Store(1)
+			w.Write([]byte(`{"accepted":true}`))
+		default:
+			t.Errorf("wrong wire endpoint: %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	})}
+	go server.Serve(listener)
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	receiver := &autoReceiver{client: sessionClientAt(socket, "session", time.Second), generation: generation, deliveryTimingV1: true}
+	done := make(chan struct{})
+	go func() { defer close(done); receiver.observeActivity(ctx, "claude", "native-claude", generation, 7) }()
+	var captured []json.RawMessage
+	for _, expected := range []string{"unknown", "idle"} {
+		select {
+		case raw := <-reports:
+			captured = append(captured, raw)
+			var body map[string]json.RawMessage
+			if json.Unmarshal(raw, &body) != nil {
+				t.Fatal("invalid JSON")
+			}
+			if _, exists := body["native_instance_id"]; exists {
+				t.Error("observer sent redundant top-level native_instance_id rejected by strict activityInputSchema")
+			}
+			var proof struct {
+				State    string `json:"state"`
+				Instance string `json:"native_instance_id"`
+				Sequence int    `json:"sequence"`
+			}
+			if json.Unmarshal(body["turn_proof"], &proof) != nil || proof.State != expected || proof.Instance != instance {
+				t.Fatalf("lost ordered native proof: %s", raw)
+			}
+		case <-ctx.Done():
+			t.Fatal("missing observer payload")
+		}
+	}
+	cancel()
+	<-done
+	wire, err := json.Marshal(captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact := os.Getenv("CXX_ACTIVITY_SCHEMA_FIXTURE"); artifact != "" {
+		if err := os.WriteFile(artifact, wire, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Log("Node absent: validate exported actual observer fixture against activityInputSchema on host")
+		return
+	}
+	apiRoot, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "api"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The negative control proves the real strict parser rejects the original
+	// extra-field regression, rather than silently stripping unknown fields.
+	script := `import {readFileSync} from 'node:fs'; import {activityInputSchema} from './src/services/agent-activity.ts';
+for (const body of JSON.parse(readFileSync(0,'utf8'))) { activityInputSchema.parse(body); if(activityInputSchema.safeParse({...body,native_instance_id:body.turn_proof.native_instance_id}).success) throw Error('strict-schema control failed'); }`
+	command := exec.Command(node, "--import", "tsx", "--input-type=module", "-e", script)
+	command.Dir = apiRoot
+	command.Stdin = bytes.NewReader(wire)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("actual Go observer payload rejected by actual API schema: %v\n%s", err, output)
 	}
 }

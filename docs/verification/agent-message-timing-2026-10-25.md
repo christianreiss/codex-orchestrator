@@ -93,3 +93,51 @@ healthy with zero restarts; 105 applied, zero pending/drifted migrations and all
 Actual candidate CLI → existing broker → new server capability test returned
 requested immediate, effective null and receiver_capability_missing for an old
 receiver. Its synthetic message was canceled: one canceled, zero ambiguous.
+
+## Full receiver canaries and corrected Claude gates
+
+Candidate134 Codex passed the complete CLI → parent broker → live server → fresh
+receiver → native TUI path. Original60s tool exited0; immediate marker appeared
+in original turn `01a1751a-2bd0-7f70-8d10-ab93d8d64515`, deferred marker only in
+successor `01a1751b-852f-75f2-9ced-6308472ad188`. Both messages completed with
+one attempt. One separately authorized administrative `agent_listen` closed the
+deferred informational receipt after native consumption; it is outside timing
+assertions. Fresh helper exited normally/auth unchanged and claims were released.
+The root daemon was normally promoted to the staged candidate, with all six
+pre-existing native PIDs preserved. Its managed Codex entry points to the candidate
+until official release reconciliation; the candidate must not be removed first.
+
+Candidate134 Grok likewise passed the full cross-engine sender/broker/server/
+receiver pipeline on biest. Original prompt `7cf6dd2c-029a-4f4d-a635-3faca7ede622`
+contained only base+immediate markers; the75s tool completed in75024ms, exit0,
+no signal/timeout. Deferred message `4ca7bc4e-065e-4058-8a7e-41b0251e5a08`
+ran only later and replied exactly the deferred marker. Both records completed;
+one separately authorized administrative listen closed the immediate receipt.
+The fresh helper exited0, its access-only runtime was removed, and its claim was
+released. Existing Natascha, host daemon128 and canonical binary133 were preserved.
+
+The first Claude full-pipeline canary correctly FAILED its deferred assertion.
+Immediate notice was visible during a75s tool; that tool completed uninterrupted
+and its original final contained the immediate marker. A6s synchronous hook delay
+shifted the next tool start by6s and blocked it until hook completion. However,
+the deferred row never reached presentation. Two concrete defects were fixed:
+
+- The Go observer added a redundant top-level native instance field rejected by
+  the strict API schema. Production change: remove that one field; retain nested
+  proof. Actual captured Go bootstrap+fresh-idle payloads now pass the real TS
+  schema, and restoring the old field is a negative control that fails.
+- An actual provider/claim/presence regression reproduced claim-before-proof:
+  null claim/no owner command, then valid server idle proof without a message
+  change, but no receiver wake. Receiver work revision now includes only the
+  authoritative Claude-idle boolean for capable receivers. True/false changes
+  wake; unchanged proof/heartbeat/active state does not. No clocks, timers or SQL
+  are added.36 focused tests, API typecheck and targeted lint pass.
+
+The wire-fixed Go suite again passed all63 test-bearing packages, build and vet.
+A fresh corrected Claude canary remains a publication gate; the earlier failure
+must not be counted as a successful deferred-delivery test.
+
+A30s mixed-canary production sample at22:08:17Z measured API3.589% of one core,
+MySQL1.445%, and27 SQL questions (0.9/s, including measurement queries). It is not
+an idle acceptance measurement. Unsupported readiness separately has zero-command/
+zero-SQL regression coverage for all three engines.
