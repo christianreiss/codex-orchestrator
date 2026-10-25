@@ -99,8 +99,107 @@ CPU minimum. Conservative host-table invalidations still exist.
 
 ## Rollout
 
-The production rollout and fresh native post-rollout observations are pending
-at this source checkpoint; publication alone will not be recorded as E2E proof.
+Deployed source: `ef2d21fbdf71daabb3e9a25de3badbaa9d639d9f`. Production API
+image: `sha256:707b635a22673fccac54c86f1de2300eee2942e62852d81e11509f6f3009a0f9`.
+API, media worker and auth runner were healthy with zero container restarts.
+Migration verification: 103 applied, zero pending/drifted. The five inspected
+live source-map entries (commands, credentials, mutation runtime, stream
+provider, native lock continuation) exactly matched the checkout.
+
+cxx 0.9.132 was published and independently hashed on all four platforms.
+Root's normal update replaced the installed 0.9.130 binary and its refusing
+background worker. A quiet-sync-checked pidfd SIGTERM replaced only root's old
+on-demand owner; successor PID 2827318 and worker PID 2825322 both ran 0.9.132.
+The attended native session retained its original identity and binding 1;
+its explicit resource claim remained active after both API and owner exchanges.
+Ordinary Skill/memory calls succeeded without the earlier batch workaround.
+
+Fresh real Codex and Claude processes on biest loaded 0.9.132, each performed
+the four separate MCP reads, exited zero and were independently confirmed
+`completed`/ended with terminal binding 2 in server state. Existing attended
+sessions continued to work; their loaded 0.9.130 supervisors, biest's old
+0.9.127 owner and 0.9.128 daemon were deliberately preserved. Those versions
+are compatibility evidence, not a claim that every old process was upgraded.
+
+### Fresh headless ownership canaries
+
+The documented `native_session_id` field is nullable for tools-only headless
+starts. Codex's JSONL `thread.started` is not attached to the provider transcript
+by this path; Claude's headless path does not install the attended SessionStart
+hook. Current ownership instead uses the wrapper's exact live native-instance
+attachment. No authority check was weakened to accommodate null provider IDs.
+
+Both engines then ran a second, disposable repository canary through **normal
+native MCP tools**: context binding, atomic path/Git claim, register, join,
+claim status, deregister and completed release all passed. No application
+repository, remote, merge, push or foreign work was changed.
+
+| Engine | Fresh managed session | Claim independently confirmed released | Git registration independently confirmed released |
+| --- | --- | --- | --- |
+| Codex | `52edf7e7-ae0c-4cb6-a05e-ebc5acad194f` | `5e66d7fa-fb84-4caa-a46d-5500795950f1` | `6c5ef9fe-25f3-4fdb-a7f8-431af1acc53d` |
+| Claude | `3c777067-e7c5-4826-8555-825000caf627` | `646cb1d9-6958-4f14-a7a1-4c48919412ee` | `ddeeffe1-3f3b-4d6a-bc2f-3ba4be7749b7` |
+
+Both registrations returned `agent_address_bound:true` and connection ownership.
+The server independently confirmed both sessions completed, with no remaining
+active fixture claim or registration. Peers removed the private clean fixtures.
+These headless canaries prove tool/owner authority, not attended inbound
+delivery or provider transcript recovery; the earlier attended delivery cases
+cover the former. A separate safe RAM check rejected detached and mismatched
+bindings for both engines while accepting null provider IDs with a live exact
+native-instance attachment.
+
+### Production load and retained uncertainty
+
+A 120.913-second post-rollout window containing updates/native canaries measured
+API 5.279% and MySQL 1.520% of one core. It had 64 prepared executions, only
+one a receipt SELECT. A separate 180.927-second Git-canary window measured API
+11.610% and MySQL 1.715%, with 354 prepared and 970 non-prepared statements
+during actual fixture/claim/session mutations. Neither is called idle or a
+causal CPU A/B comparison. Every prepared execution was attributed.
+
+Root's 0.9.132 owner plus refusing worker used 0.900% and 0.083% of one core
+over a 120-second active verification interval. The final quiet window is
+recorded in the accompanying JSON after measurement.
+
+The first 180.932-second window without synthetic test jobs **failed the SQL
+acceptance gate**: API 4.852%, MySQL 1.711%, 1,322 digest statements plus 726
+binary prepared executions. It exposed 216 repeated audit clock/sweep passes
+but only five log DELETEs. Legacy whole/short-fraction UTC VARCHAR timestamps
+can be lexically future at a canonical millisecond cutoff while already due
+under `Date.parse`; the returned deadline immediately rearmed an empty sweep.
+Real MySQL also showed JavaScript string ordering is not a safe substitute for
+the two database collations. Follow-up report `31b1674b` tracks the narrow
+clock repair; its fix and post-deploy SQL acceptance are pending at this
+checkpoint. No production timestamp rewrite or retention-policy relaxation is
+part of that repair.
+
+The legacy accepted delivery `901c51e1-84fd-4f15-9f06-e39f89549e15` remains
+protected under its original relay owner; its outcome was not invented or
+cleared. The new refusing worker's last three-minute log window contained six
+`agent_messaging_relay_uncertain` responses, spaced 30.007–30.009 seconds apart.
+This verifies live backoff, not successful recovery of that historical task.
+
+No production native crash, host reboot, provider outage or arbitrary lost-ACK
+chaos experiment was forced. Fault-specific guarantees above come from explicit
+isolated/race/MySQL regressions. Browser/mobile and external Skill side effects
+were not rerun as part of this transport verification. An absolute fleet-wide
+CPU minimum or zero SQL during real durable work is not claimed.
+
+### Cleanup and feedback
+
+The synthetic MySQL container/tmpfs, four clean merged review worktrees and
+1.3 GiB of disposable test cache were removed. Both verified cutover metadata
+directories and four rollback tags were removed per the operator's backup
+instruction; running images were preserved. Source is retained in origin/main;
+old images can be rebuilt from Git, and Bareos remains the operator's data
+recovery system. No Bareos restore drill was performed here. The old custom
+backup timer remains disabled. Cleanup receipt:
+`/var/tmp/codex-zk-cleanup-20261025.json`.
+
+Eight deduplicated fleet reports were resolved with source/test/deployment
+evidence: `bdb0eb8b`, `420a872e`, `da2d0e2f`, `885d620f`, `2126a2e3`,
+`8b5a1526`, `28b769b8`, `61cc9d18`. Legacy-owner runtime evidence was appended
+to existing report `2a4f9ba8`; its earlier status was not reopened speculatively.
 
 Production data was not copied into the synthetic MySQL instance. No locks,
 accepted work or recovery records were cleared by this verification. Bareos was

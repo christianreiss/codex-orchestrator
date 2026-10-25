@@ -80,5 +80,140 @@
     "queued_claude": "494888aa-4d7d-4ec0-918a-8cd842f71dc2"
   },
   "remote_durable_results": "All six requests completed with task_result_status=succeeded; checked by agent_message_get",
-  "rollout": "pending"
+  "rollout": "initial transport/ownership fixes deployed; follow-up retention boundary fix pending",
+  "deployed_source_sha": "ef2d21fbdf71daabb3e9a25de3badbaa9d639d9f",
+  "api_image": "sha256:707b635a22673fccac54c86f1de2300eee2942e62852d81e11509f6f3009a0f9",
+  "published_wrapper": "0.9.132",
+  "wrapper_sha256": {
+    "linux-amd64": "3a21a80fb5ef75ba8047ef4c6ffd14faf6fb90c7b0d09ace59c61dc57eb61aff",
+    "linux-arm64": "c48cf9ab904014cfc6d9821c88affa5c150ccbb3ca8d2568fabb1c5a6332d86e",
+    "darwin-amd64": "aa0a9d9c068d3ffd78ada9d559e437d214a841171a22750c5a1d25a1bb2a5b47",
+    "darwin-arm64": "5148935a821ec2b64b8df18e5dff60573f11c8d54e6646d01a9f29177532fa92"
+  },
+  "fresh_headless_read_sessions": [
+    {
+      "engine": "codex",
+      "session_id": "1dd5b461-5bdc-4e63-be42-dacc10b79855",
+      "loaded_wrapper": "0.9.132",
+      "provider_native_id_api": null,
+      "server_finish": "completed",
+      "terminal_binding": 2
+    },
+    {
+      "engine": "claude",
+      "session_id": "8a4d4833-79ed-4f89-bd96-ae24f741af93",
+      "loaded_wrapper": "0.9.132",
+      "provider_native_id_api": null,
+      "server_finish": "completed",
+      "terminal_binding": 2
+    }
+  ],
+  "fresh_git_ownership": [
+    {
+      "engine": "codex",
+      "session_id": "52edf7e7-ae0c-4cb6-a05e-ebc5acad194f",
+      "claim_id": "5e66d7fa-fb84-4caa-a46d-5500795950f1",
+      "registration_id": "6c5ef9fe-25f3-4fdb-a7f8-431af1acc53d",
+      "loaded_wrapper": "0.9.132",
+      "agent_address_bound": true,
+      "ownership_mode": "connection",
+      "claim_final_state": "released",
+      "registration_final_state": "released",
+      "server_finish": "completed",
+      "terminal_binding": 2,
+      "fixture_removed": true
+    },
+    {
+      "engine": "claude",
+      "session_id": "3c777067-e7c5-4826-8555-825000caf627",
+      "claim_id": "646cb1d9-6958-4f14-a7a1-4c48919412ee",
+      "registration_id": "ddeeffe1-3f3b-4d6a-bc2f-3ba4be7749b7",
+      "loaded_wrapper": "0.9.132",
+      "agent_address_bound": true,
+      "ownership_mode": "connection",
+      "claim_final_state": "released",
+      "registration_final_state": "released",
+      "server_finish": "completed",
+      "terminal_binding": 2,
+      "fixture_removed": true
+    }
+  ],
+  "root_runtime": {
+    "owner_pid": 2827318,
+    "worker_pid": 2825322,
+    "loaded_version": "0.9.132",
+    "existing_native_binding_unchanged": true,
+    "existing_claim_active_after_api_and_owner_replacement": true
+  },
+  "post_rollout_update_load": {
+    "at": "2026-10-25T16:37:29.185883+00:00",
+    "seconds": 120.913,
+    "image": "sha256:707b635a22673fccac54c86f1de2300eee2942e62852d81e11509f6f3009a0f9",
+    "cpu_percent_one_core": {
+      "codex-orchestrator-api-1": 5.279,
+      "codex-orchestrator-mysql-1": 1.52
+    },
+    "prepared_execution_count": 64,
+    "prepared_unattributed_executions": 0,
+    "digest_statement_count": 115
+  },
+  "post_rollout_git_canary_load": {
+    "at": "2026-10-25T16:43:37.545094+00:00",
+    "seconds": 180.927,
+    "image": "sha256:707b635a22673fccac54c86f1de2300eee2942e62852d81e11509f6f3009a0f9",
+    "cpu_percent_one_core": {
+      "codex-orchestrator-api-1": 11.61,
+      "codex-orchestrator-mysql-1": 1.715
+    },
+    "prepared_execution_count": 354,
+    "prepared_unattributed_executions": 0,
+    "digest_statement_count": 970
+  },
+  "retention_boundary_before_fix": {
+    "at": "2026-10-25T16:50:44.112235+00:00",
+    "seconds": 180.932,
+    "image": "sha256:707b635a22673fccac54c86f1de2300eee2942e62852d81e11509f6f3009a0f9",
+    "cpu_percent_one_core": {
+      "codex-orchestrator-api-1": 4.852,
+      "codex-orchestrator-mysql-1": 1.711
+    },
+    "prepared_execution_count": 726,
+    "prepared_unattributed_executions": 0,
+    "digest_statement_count": 1322,
+    "repeated_audit_clock_sweeps": 216
+  },
+  "root_quiet_cpu": {
+    "seconds": 120.00016560405493,
+    "scope": "root132shared communicator and refusing132worker; no synthetic test jobs; excludes native models/host daemon",
+    "processes": [
+      {
+        "pid": 2827318,
+        "cpu_seconds": 0.54,
+        "cpu_percent_one_core": 0.44999937898565107
+      },
+      {
+        "pid": 2825322,
+        "cpu_seconds": 0.09,
+        "cpu_percent_one_core": 0.0749998964976085
+      }
+    ]
+  },
+  "legacy_accepted_work_preserved": {
+    "message_id": "901c51e1-84fd-4f15-9f06-e39f89549e15",
+    "status": "accepted",
+    "worker_backoff_observed_seconds": [
+      30.007,
+      30.007,
+      30.007,
+      30.007,
+      30.009
+    ]
+  },
+  "cleanup_receipt": "/var/tmp/codex-zk-cleanup-20261025.json",
+  "limitations": [
+    "Tools-only headless lacks provider transcript correlation/inbound receiver by documented contract; live native-instance ownership independently tested.",
+    "Existing attended remote130 wrappers and127owner/128daemon preserved; fresh132 wrappers independently verified.",
+    "Production forced-native-crash/provider-outage/reboot experiments not run.",
+    "The first final quiet sample exposed a real retention timestamp loop; follow-up repair and measurement remain pending at this checkpoint."
+  ]
 }
