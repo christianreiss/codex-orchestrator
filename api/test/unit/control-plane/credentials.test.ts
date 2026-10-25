@@ -118,6 +118,26 @@ function harness(options: { expired?: boolean; insecureUntil?: number } = {}) {
 }
 
 describe('connection-derived credential validity', () => {
+  it('skips fleet credential scans for unrelated publications while preserving revocation', () => {
+    vi.useFakeTimers(); vi.setSystemTime(0);
+    const f = harness();
+    try {
+      f.attach();
+      const revalidate = vi.spyOn(f.credentials as unknown as { revalidate(snapshot: OwnerStateSnapshot): void }, 'revalidate');
+      const publish = (revoked: boolean) => {
+        const draft = f.state.begin();
+        if (revoked) draft.upsert('hosts', { ...draft.table('hosts').get(1)!, status: 'disabled' });
+        else draft.upsert('versions', { name: 'unrelated', version: '1', updatedAt: '' });
+        f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+      };
+      publish(false);
+      expect(revalidate.mock.calls.length).toBe(0);
+      publish(true);
+      expect(revalidate).toHaveBeenCalledOnce();
+      expect(() => ownedBridge(f.state.snapshot(), f.id, f.token)).toThrow();
+    } finally { f.close(); }
+  });
+
   it('keeps live credential authority in command draft views and revokes it on detach', async () => {
     vi.useFakeTimers(); vi.setSystemTime(0);
     const f = harness();

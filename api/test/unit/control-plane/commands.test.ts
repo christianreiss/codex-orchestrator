@@ -69,6 +69,86 @@ function fixture() {
 }
 
 describe('authoritative command path', () => {
+  it.each(['principal', 'id', 'kind', 'nested payload'])(
+    'rejects a changed %s before executing a queued command',
+    async (field) => {
+      const f = fixture(),
+        command = f.command('captured');
+      command.payload = { nested: { values: [1] } };
+      const prepare = vi.spyOn(command, 'prepare');
+      const pending = f.executor.execute(command);
+      if (field === 'nested payload')
+        (command.payload as { nested: { values: number[] } }).nested.values[0] = 2;
+      else command[field as 'principal' | 'id' | 'kind'] = 'changed';
+      await expect(pending).rejects.toThrow('envelope changed');
+      expect(prepare).not.toHaveBeenCalled();
+      expect(f.persist.transaction).not.toHaveBeenCalled();
+      expect(f.durable.size).toBe(0);
+    },
+  );
+  it('rejects caller-owned payload changes before the persistence commit boundary', async () => {
+    const f = fixture(), command = f.command('commit-closure');
+    const input = { nested: { value: 1 } };
+    command.payload = input;
+    command.prepare = (_, revision) => ({
+      result: input,
+      persist: async () => {
+        input.nested.value = 2;
+        return { revision, value: input.nested.value };
+      },
+    });
+    await expect(f.executor.execute(command)).rejects.toThrow('envelope changed');
+    expect(f.persist.transaction).toHaveBeenCalledTimes(1);
+    expect(f.durable.size).toBe(0);
+    expect(f.publish).not.toHaveBeenCalled();
+  });
+  it('captures callbacks and provides a detached recursively frozen payload', async () => {
+    const f = fixture(),
+      command = f.command('callbacks');
+    command.payload = { nested: { values: [1] } };
+    command.prepare = function (snapshot, revision) {
+      expect(this.payload).not.toBe(command.payload);
+      expect(Object.isFrozen((this.payload as { nested: unknown }).nested)).toBe(true);
+      expect(Object.isFrozen((this.payload as { nested: { values: unknown } }).nested.values)).toBe(true);
+      return {
+        state: { revision, value: snapshot.value + 1 },
+        result: this.payload,
+        persist: async () => {},
+      };
+    };
+    const pending = f.executor.execute(command);
+    command.prepare = () => {
+      throw new Error('replacement callback must not run');
+    };
+    expect(await pending).toEqual({ nested: { values: [1] } });
+  });
+  it('rolls back mutation of caller-owned payload captured by an async prepare closure', async () => {
+    const f = fixture(),
+      command = f.command('closure');
+    const input = { nested: { value: 1 } };
+    command.payload = input;
+    let resume!: () => void;
+    let preparing!: () => void;
+    const started = new Promise<void>((resolve) => {
+      preparing = resolve;
+    });
+    const waiting = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    command.prepare = async (_, revision) => {
+      preparing();
+      await waiting;
+      return { state: { revision, value: input.nested.value }, result: input, persist: async () => {} };
+    };
+    const pending = f.executor.execute(command);
+    await started;
+    input.nested.value = 2;
+    resume();
+    await expect(pending).rejects.toThrow('envelope changed');
+    expect(f.persist.transaction).not.toHaveBeenCalled();
+    expect(f.state().value).toBe(0);
+  });
+
   it('keeps a compact receipt as a fail-closed duplicate-execution fence', async () => {
     const f = fixture(), command = f.command('expired');
     const prepare = vi.spyOn(command, 'prepare');

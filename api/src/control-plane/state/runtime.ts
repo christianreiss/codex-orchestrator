@@ -237,6 +237,9 @@ export interface OwnerMutationContext {
 
 /** Service commands compose typed rows and explicit persistence; no SQL introspection. */
 export async function mutateOwnerState(runtime: OwnerRuntime, mutation: OwnerMutation): Promise<Json> {
+  // Capture callbacks too: queued prepare closures must not dispatch through a
+  // caller-mutated mutation object. The executor checks payload mutations.
+  mutation = Object.freeze({ ...mutation });
   if (activeCommand.getStore())
     throw new Error('Nested owner command is forbidden; share its draft and persistence transaction');
   runtime.assertOwner();

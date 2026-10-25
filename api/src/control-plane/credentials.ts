@@ -141,9 +141,27 @@ export class ConnectionCredentials {
     if (runtimes.has(runtime)) throw new Error('Connection credentials already bound');
     runtimes.set(runtime, this);
     snapshots.set(ownerSnapshotScope(runtime.state.snapshot()), this);
+    const inputs = (snapshot: OwnerStateSnapshot): unknown[] => [
+      snapshot.table('hosts'),
+      snapshot.table('agentSessions'),
+      snapshot.table('agentBusAddresses'),
+      snapshot.table('agentBusRelays'),
+      ...[
+        'api_disabled',
+        'agent_messaging_enabled',
+        'agent_portal_enabled',
+        'codex_engine_disabled',
+        'claude_engine_disabled',
+        'grok_engine_disabled',
+      ].map((key) => snapshot.setting(key)),
+    ];
+    let previous = inputs(runtime.state.snapshot());
     this.detach = [
       runtime.state.subscribe((snapshot) => {
         snapshots.set(ownerSnapshotScope(snapshot), this);
+        const next = inputs(snapshot);
+        if (next.every((value, index) => value === previous[index])) return;
+        previous = next;
         this.revalidate(snapshot);
       }),
       presence.subscribe((change) => {
