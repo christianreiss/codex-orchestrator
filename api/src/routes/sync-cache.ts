@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { addOwnerResponseProof, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { ownedBridge } from '../control-plane/state/messaging.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from './index.js';
@@ -43,6 +44,7 @@ const forwardHeaders = new Set([
   'mcp-session-id',
   'mcp-protocol-version',
   'x-agent-bridge-token',
+  'x-agent-session-id',
   'x-agent-relay-token',
 ]);
 
@@ -109,6 +111,26 @@ export async function registerSyncCacheRoutes(app: FastifyInstance, ctx: RouteCo
       const query = Object.fromEntries(new URL(input.path, 'http://cache.local').searchParams);
       const engine = resolveAuthRequestEngine({ headers, query }, input.body);
       assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
+      const nativeId = headers['x-agent-session-id'],
+        nativeToken = headers['x-agent-bridge-token'];
+      const owner = ownerRuntimeFor(ctx.db);
+      if (pathname === '/mcp' && nativeId && nativeToken && owner) {
+        const native = ownedBridge(owner.state.snapshot(), nativeId, nativeToken).session;
+        const checkNative = (snapshot: ReturnType<typeof owner.state.snapshot>) => {
+          const current = ownedBridge(snapshot, nativeId, nativeToken, {
+            generation: native.bindingGeneration,
+          }).session;
+          if (current.hostId !== host.id || current.engine !== engine)
+            throw new ForbiddenError(
+              'Native session does not belong to this MCP host and engine',
+              'agent_bridge_host_mismatch',
+            );
+        };
+        checkNative(owner.state.snapshot());
+        // The nested MCP response guard ends at app.inject. Keep the same
+        // native authority fence on the outer proof envelope until delivery.
+        addOwnerResponseProof('cache-native', checkNative);
+      }
       const cacheGrantUntil = () => {
         const deadlines = [host.expiresAt].filter((s): s is string => !!s);
         if (pathname === '/mcp') {
@@ -199,7 +221,10 @@ export async function registerSyncCacheRoutes(app: FastifyInstance, ctx: RouteCo
             protocol: input.protocol,
             ...(input.protocol === LOCAL_CONTENT_CACHE_PROTOCOL
               ? {
-                  local_content: host.secure === 1 && !!ownerRuntimeFor(ctx.db),
+                  local_content:
+                    host.secure === 1 &&
+                    !!ownerRuntimeFor(ctx.db) &&
+                    localContentSource(input.method, input.path, input.body, input.headers),
                   grant_until: cacheGrantUntil(),
                 }
               : {}),

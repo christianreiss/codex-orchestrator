@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { cacheManifest, cacheSourceAllowed } from '../../../src/services/communicator-cache.js';
+import { cacheManifest, cacheSourceAllowed, localContentSource } from '../../../src/services/communicator-cache.js';
 
 describe('communicator cache manifests', () => {
+  it('keeps native principal reads live while preserving host-only local content', () => {
+    const body = { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'skill_list' } };
+    expect(localContentSource('POST', '/mcp', body)).toBe(true);
+    const nativeHeaders: Record<string, string>[] = [
+      { 'x-agent-session-id': 'native' },
+      { 'x-agent-bridge-token': 'bridge' },
+      { 'X-Agent-Session-Id': 'native', 'X-Agent-Bridge-Token': 'bridge' },
+    ];
+    for (const headers of nativeHeaders) expect(localContentSource('POST', '/mcp', body, headers)).toBe(false);
+  });
+
   it('confirms bytes but keeps live status and quota in every response', () => {
     const input = { status: 'updated', quota: 12, config: { content: 'managed content' } };
     const first = cacheManifest(input, {}, 'codex', true, Date.now());

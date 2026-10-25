@@ -15,6 +15,34 @@ import (
 // Match the existing proof response bound, above the native MCP input limit.
 const cacheBridgeBodyLimit = 32 * 1024 * 1024
 
+// Protocol 2 alone does not advertise which MCP reads an older owner selected.
+// Check before application dispatch; a missing receipt afterwards is never a
+// reason to execute the same operation a second time.
+func ownerSupportsCacheRead(owner Owner, source frame) bool {
+	if nativeScopedMCP(source) && owner.Cache.NativeScopeProtocol != 1 {
+		return false
+	}
+	if strings.Split(source.Path, "?")[0] != "/mcp" || owner.Cache.LocalProtocol == LocalContentCacheProtocol {
+		return true
+	}
+	var rpc struct {
+		Method string
+		Params struct {
+			Name, URI string
+			Arguments struct {
+				URI string `json:"uri"`
+			}
+		}
+	}
+	if json.Unmarshal(source.Body, &rpc) != nil {
+		return false
+	}
+	if rpc.Method == "resources/read" {
+		return strings.HasPrefix(rpc.Params.URI, "skill://")
+	}
+	return rpc.Method == "tools/call" && (rpc.Params.Name == "skill_list" || rpc.Params.Name == "skill_retrieve" || rpc.Params.Name == "resource_read" && strings.HasPrefix(rpc.Params.Arguments.URI, "skill://"))
+}
+
 // Classification happens before dispatch, including for bodies without GetBody.
 // Restore consumed bytes so writes outside the narrow cache allowlist retain
 // their original body and execute through the owner exactly once.

@@ -37,6 +37,7 @@ import { relayDigestRecoveryTargets, restoreRelayDigests } from './agent-messagi
 import { idleSessionPoll } from './agent-messaging/idle-session.js';
 import { type AgentDiscoveryFilters } from './agent-messaging/discovery.js';
 import { translateAgent } from './agent-messaging/names.js';
+import { translateOwnedAgent } from '../control-plane/state/names.js';
 import { listHostInventory, type HostInventoryFilters } from './agent-messaging/host-inventory.js';
 import { jsonRecord } from './agent-messaging/normalize.js';
 import { agentFreshStartGrants, agentTaskResults } from '../db/schema.js';
@@ -1376,6 +1377,15 @@ export class AgentMessagingService {
 
   async translate(value: string, sessionId?: string, bridgeToken?: string): Promise<Record<string, unknown>> {
     if (sessionId && bridgeToken) await this.authenticateBridge(sessionId, bridgeToken);
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      const snapshot = owner.state.snapshot();
+      requireOwnedMessaging(snapshot);
+      const result = translateOwnedAgent(snapshot, value, nowIso());
+      ownedAddress(snapshot, String(result.uuid));
+      return result;
+    }
     return await this.db.transaction(async tx => {
       await this.requireEnabledLocked(tx);
       const result = await translateAgent(tx, value);

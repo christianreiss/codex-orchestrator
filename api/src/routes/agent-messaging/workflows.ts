@@ -45,7 +45,8 @@ export function registerWorkflowBridgeRoutes(app: FastifyInstance, workflows: Wo
   app.post('/host/agent-sessions/:id/agent-messaging/workflows/run-current', async req => {
     const authenticated = await actor(req);
     z.object({}).strict().parse(req.body ?? {});
-    await messaging.coordinationTransaction(authenticated.session_id!, (req.headers['x-agent-bridge-token'] as string), tx => messaging.workflowTarget(tx, authenticated.address_id!));
+    // runCurrent authenticates and checks collaboration through its owner-aware
+    // read scope. A second bus transaction bypasses that scope on owned servers.
     return workflows.runCurrent(authenticated);
   });
 }

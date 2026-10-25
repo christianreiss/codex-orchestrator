@@ -264,7 +264,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			// active native leases indefinitely; it must neither serve these
 			// reads nor execute admission once before a second direct attempt.
 			owner, ok := OwnerStatus(req.Context(), ep.base)
-			if !ok || owner.Cache.Protocol != ValidatedCacheProtocol {
+			if !ok || owner.Cache.Protocol != ValidatedCacheProtocol || !ownerSupportsCacheRead(owner, candidate) {
 				return ep.bridgeCache(req, cfg, candidate), nil
 			}
 			if cfg.Orchestrator.CommunicatorCacheProtocol == LocalContentCacheProtocol && owner.Cache.LocalProtocol == LocalContentCacheProtocol && localContentCandidate(candidate) {

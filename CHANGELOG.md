@@ -1,5 +1,7 @@
 # 2026-10-25
 
+- cxx 0.9.130 preserves paired native MCP credentials and isolates their cache scopes. Negotiate native-scope and expanded-read support before using an older communicator; retain fresh proof and never replay a lost receipt. Native-scoped reads remain live while host-only content keeps local caching. Fix owner-mode agent translation and workflow-current reads without opening SQL transactions or weakening binding checks.
+
 - Preserve connection-derived and protected legacy credential deadlines in composed owner-state views, so long-running native sessions can still perform Git and other mutations after their original bridge TTL. Reconstructed owners and changed bindings do not inherit those grants.
 
 - Resolve root `SKILL.md` backlinks through the canonical Skill manifest while preserving bundle integrity and engine visibility.

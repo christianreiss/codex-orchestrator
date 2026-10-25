@@ -4,6 +4,20 @@ cxx 0.9.72 introduces one local communicator per OS user and orchestrator base U
 It is started lazily by a managed request and shared by Codex, Claude and Grok.
 Provider inference still uses each native client's original network path.
 
+cxx 0.9.130 advertises `cache.native_scope_protocol:1` and preserves the paired
+`X-Agent-Session-Id` / `X-Agent-Bridge-Token` through cache proofs and scope keys.
+Clients route native reads through the existing direct proof bridge before
+dispatch when an older owner lacks that capability. Expanded shared-memory and
+project reads likewise require the owner's protocol-3 selection capability;
+cache protocol 2 alone does not advertise those operations. Missing receipts
+after dispatch still fail as unknown outcomes and are never retried.
+
+Native-scoped MCP reads obtain a fresh server identity decision for every read.
+Protocol 3 remains a compatible fresh-reply carrier for existing clients, but
+neither side grants local response reuse from a host-only content grant. This
+preserves bridge expiry, binding and revocation checks. Host-only local content
+hits retain their existing behavior; owner-mode authorization remains RAM-based.
+
 For high local `cxx` CPU, inspect the command as well as the executable name:
 `__cxx-grok-private-reaper` is a Grok private-directory cleanup helper, separate
 from `communicator serve`. cxx 0.9.129 replaces its Linux 100 ms process scans

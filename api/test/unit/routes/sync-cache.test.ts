@@ -6,9 +6,19 @@ import {
   requiresAuthoritativeReads,
   scopedDatabase,
 } from '../../../src/db/fresh-read.js';
-import { ForbiddenError } from '../../../src/http/errors.js';
+import { ForbiddenError, UnauthorizedError } from '../../../src/http/errors.js';
 import { buildRouteApp } from '../../helpers/build-route-app.js';
 import { randomUUID } from 'node:crypto';
+import { sha256 } from '../../../src/security/hash.js';
+import {
+  bindOwnerRuntime,
+  finalizeOwnerResponse,
+  withOwnerRequestScope,
+  type OwnerRuntime,
+} from '../../../src/control-plane/state/runtime.js';
+import { OwnerStateSnapshot, OwnerStateStore } from '../../../src/control-plane/state/store.js';
+import type { StateSeed } from '../../../src/control-plane/state/catalog.js';
+import { DeadlineQueue } from '../../../src/control-plane/deadlines.js';
 
 const state = vi.hoisted(() => ({ allowed: true, enabled: true }));
 vi.mock('../../../src/services/host-auth.js', () => ({
@@ -21,7 +31,8 @@ vi.mock('../../../src/services/host-auth.js', () => ({
   }),
 }));
 vi.mock('../../../src/services/engine-switch.js', () => ({ readFleetEngineState: async () => ({}) }));
-vi.mock('../../../src/services/host-engine-policy.js', () => ({
+vi.mock('../../../src/services/host-engine-policy.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/services/host-engine-policy.js')>()),
   assertHostEngineEnabled: () => {
     if (!state.enabled) throw new ForbiddenError('engine disabled');
   },
@@ -40,8 +51,15 @@ afterEach(async () => {
   await app?.close();
 });
 
-async function setup(admissionAuth?: Record<string, unknown>) {
+async function setup(
+  admissionAuth?: Record<string, unknown>,
+  nativePair?: { session: string; token: string },
+) {
   app = await buildRouteApp();
+  const errors: Error[] = [];
+  app.addHook('onError', async (_req, _reply, error) => {
+    errors.push(error);
+  });
   const seen: Array<{ path: string; body: unknown; snapshot: boolean }> = [];
   const base = {
     tag: () => false,
@@ -58,6 +76,13 @@ async function setup(admissionAuth?: Record<string, unknown>) {
       expect(requiresAuthoritativeReads()).toBe(true);
       seen.push({ path, body: req.body, snapshot: db.tag() });
       const input = req.body as Record<string, unknown>;
+      if (
+        path === '/mcp' &&
+        nativePair &&
+        (req.headers['x-agent-session-id'] !== nativePair.session ||
+          req.headers['x-agent-bridge-token'] !== nativePair.token)
+      )
+        throw new UnauthorizedError('Paired native credentials required', 'agent_bridge_unauthorized');
       if (path === '/auth/sessions' && admissionAuth)
         return {
           account_id: 1,
@@ -77,7 +102,7 @@ async function setup(admissionAuth?: Record<string, unknown>) {
     });
   }
   await app.ready();
-  return { seen };
+  return { seen, db, errors };
 }
 function input(path = '/config/retrieve', body: Record<string, unknown> = {}) {
   return {
@@ -85,13 +110,131 @@ function input(path = '/config/retrieve', body: Record<string, unknown> = {}) {
     request_id: randomUUID(),
     method: 'POST',
     path,
-    body: { engine: 'codex', ...body },
-    headers: {},
-    known: {},
+    body: { engine: 'codex', ...body } as Record<string, unknown>,
+    headers: {} as Record<string, string>,
+    known: {} as Record<string, string>,
   };
 }
 
 describe('strict communicator cache route', () => {
+  it('rechecks native binding on the outer cache response after the nested MCP request completed', async () => {
+    const { db, errors } = await setup(undefined, { session: 'native-session', token: 'native-token' });
+    const session = {
+      id: 'native-session',
+      hostId: 1,
+      engine: 'codex',
+      endedAt: null,
+      bridgeTokenHash: sha256('native-token'),
+      hostAuthFingerprint: sha256('host-key'),
+      bridgeExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      bindingGeneration: 1,
+    };
+    const state = new OwnerStateStore(
+      new OwnerStateSnapshot({ epoch: randomUUID(), sequence: 0n }, {
+        versions: [{ name: 'agent_messaging_enabled', version: '1' }],
+        hosts: [
+          {
+            id: 1,
+            apiKey: 'host-key',
+            secure: 1,
+            status: 'active',
+            engines: 'codex',
+            expiresAt: null,
+            insecureEnabledUntil: null,
+          },
+        ],
+        agentSessions: [session],
+      } as unknown as StateSeed),
+    );
+    const deadlines = new DeadlineQueue((error) => {
+      throw error;
+    });
+    const owner: OwnerRuntime = {
+      state,
+      deadlines,
+      assertOwner() {},
+      execute: async () => {
+        throw new Error('Unexpected write');
+      },
+    };
+    bindOwnerRuntime(db, owner);
+    try {
+      await withOwnerRequestScope(async () => {
+        const request = input('/mcp', {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name: 'skill_list' },
+        });
+        request.headers = {
+          authorization: 'Bearer own',
+          'x-agent-session-id': session.id,
+          'x-agent-bridge-token': 'native-token',
+        };
+        const reply = await app.inject({ method: 'POST', url: '/sync/cache', payload: request });
+        expect(reply.statusCode, errors.map((error) => error.stack).join('\n')).toBe(200);
+        expect(() => finalizeOwnerResponse(owner, reply.body)).not.toThrow();
+        const draft = state.begin();
+        draft.upsert('agentSessions', {
+          ...state.snapshot().sessions.get(session.id)!,
+          bindingGeneration: 2,
+        });
+        state.publish(draft.seal({ ...state.revision(), sequence: state.revision().sequence + 1n }));
+        expect(() => finalizeOwnerResponse(owner, reply.body)).toThrow('binding generation changed');
+      });
+    } finally {
+      deadlines.close();
+    }
+  });
+
+  it.each(['codex', 'claude', 'grok'])(
+    'preserves paired %s native identity through the original authenticated MCP route',
+    async (engine) => {
+      const { seen } = await setup(undefined, { session: 'fixture-session', token: 'fixture-bridge' });
+      const request = input('/mcp', {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'skill_list', arguments: {} },
+      });
+      delete request.body.engine;
+      request.headers = {
+        authorization: 'Bearer own',
+        'x-engine': engine,
+        'x-agent-session-id': 'fixture-session',
+        'x-agent-bridge-token': 'fixture-bridge',
+      };
+      const accepted = await app.inject({ method: 'POST', url: '/sync/cache', payload: request });
+      expect(accepted.statusCode).toBe(200);
+      expect(seen).toHaveLength(1);
+      request.headers['x-agent-session-id'] = 'wrong-session';
+      expect((await app.inject({ method: 'POST', url: '/sync/cache', payload: request })).statusCode).toBe(
+        401,
+      );
+      delete request.headers['x-agent-session-id'];
+      expect((await app.inject({ method: 'POST', url: '/sync/cache', payload: request })).statusCode).toBe(
+        401,
+      );
+    },
+  );
+
+  it('retains protocol-3 fresh-reply compatibility for native readers without local authority', async () => {
+    const { seen } = await setup();
+    const request = {
+      ...input('/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'skill_list' } }),
+      protocol: 3,
+      headers: {
+        authorization: 'Bearer own',
+        'x-agent-session-id': 'fixture',
+        'x-agent-bridge-token': 'fixture',
+      },
+    };
+    const reply = await app.inject({ method: 'POST', url: '/sync/cache', payload: request });
+    expect(reply.statusCode).toBe(200);
+    expect(reply.json().data.local_content).toBe(false);
+    expect(seen).toHaveLength(1);
+  });
+
   it('confirms one live admission with an uncached native refresh package', async () => {
     const auth = {
       claudeAiOauth: {

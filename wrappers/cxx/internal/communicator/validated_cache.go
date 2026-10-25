@@ -134,7 +134,7 @@ func cacheHeaders(headers map[string]string) map[string]string {
 	for key, value := range headers {
 		key = strings.ToLower(key)
 		switch key {
-		case "authorization", "content-type", "accept", "user-agent", "x-engine", "x-agent-bridge-token", "x-agent-relay-token", "x-wrapper-version", "x-cxx-version", "x-wrapper-platform", "mcp-session-id", "mcp-protocol-version":
+		case "authorization", "content-type", "accept", "user-agent", "x-engine", "x-agent-session-id", "x-agent-bridge-token", "x-agent-relay-token", "x-wrapper-version", "x-cxx-version", "x-wrapper-platform", "mcp-session-id", "mcp-protocol-version":
 			out[key] = value
 		}
 	}
@@ -216,7 +216,7 @@ func (c *validatedRAM) replace(key string, sequence uint64, resources map[string
 func (c *validatedRAM) status() map[string]any {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return map[string]any{"protocol": ValidatedCacheProtocol, "bytes": c.size, "entries": len(c.reads), "hits": c.hits, "misses": c.misses, "confirmations": c.confirmations, "local_content_protocol": LocalContentCacheProtocol, "local_hits": c.localHits}
+	return map[string]any{"protocol": ValidatedCacheProtocol, "bytes": c.size, "entries": len(c.reads), "hits": c.hits, "misses": c.misses, "confirmations": c.confirmations, "local_content_protocol": LocalContentCacheProtocol, "native_scope_protocol": 1, "local_hits": c.localHits}
 }
 
 func cacheCandidate(f frame) bool {
@@ -337,6 +337,20 @@ func localContentCandidate(f frame) bool {
 	return true
 }
 
+// Host content grants do not prove a native session's current binding or
+// credential deadline. Attributed MCP reads retain a fresh server decision.
+func nativeScopedMCP(f frame) bool {
+	if strings.Split(f.Path, "?")[0] != "/mcp" {
+		return false
+	}
+	for key, value := range f.Headers {
+		if value != "" && (strings.EqualFold(key, "x-agent-session-id") || strings.EqualFold(key, "x-agent-bridge-token")) {
+			return true
+		}
+	}
+	return false
+}
+
 // Invalidate the existing RAM entries, including in-flight fills. No second cache.
 func (c *validatedRAM) invalidateLocal(scopes ...string) {
 	c.mu.Lock()
@@ -437,9 +451,12 @@ func (c *validatedRAM) readMode(ctx context.Context, f frame, exchange func(cont
 	}
 	defer release()
 	started := time.Now()
+	// Protocol 3 also carries fresh replies for older native clients. Its
+	// host-only grant never permits replay of a native principal's response.
+	localAllowed := protocol == LocalContentCacheProtocol && !nativeScopedMCP(f)
 	c.mu.Lock()
 	generation := c.generation
-	if protocol == LocalContentCacheProtocol {
+	if localAllowed {
 		if local := c.reads[key].local; local != nil && (local.until.IsZero() || cacheBefore(local.until)) && (local.offline || online != nil && online()) {
 			c.localHits++
 			result = rebindContent(local.reply, f)
@@ -534,7 +551,7 @@ func (c *validatedRAM) readMode(ctx context.Context, f frame, exchange func(cont
 	result.Headers["x-cxx-cache-protocol"] = strconv.Itoa(protocol)
 	result.Headers["cache-control"] = "no-store"
 	result.cacheDeadline = deadline
-	if protocol == LocalContentCacheProtocol && reply.LocalContent && coherent && online() {
+	if localAllowed && reply.LocalContent && coherent && online() {
 		until := time.Time{}
 		if reply.GrantUntil != nil {
 			absolute, parseErr := time.Parse(time.RFC3339Nano, *reply.GrantUntil)

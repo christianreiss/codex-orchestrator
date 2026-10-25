@@ -33,6 +33,15 @@ communicator-local reuse on secure hosts with a current owner, bounded by actual
 host/token expiry. Auth/admission and mutations remain live. Invalidations use
 the existing push connection and scoped cache families. See [REDESIGN.md](../REDESIGN.md).
 
+From cxx 0.9.130, `/sync/cache` forwards both native MCP identity headers to the
+original MCP authenticator. Native-attributed reads always require a fresh
+confirmation: protocol 3 can carry that reply but `local_content` is false.
+The owner advertises `cache.native_scope_protocol:1`; clients use the existing
+HTTPS confirmation bridge before dispatch if an older owner cannot preserve
+that scope. The two identity headers also participate in the cache key.
+Agent-name translation and workflow-current discovery use owner RAM without
+SQL transactions, retaining host/engine, bridge and current-binding checks.
+
 ## Current owner-mode contract
 
 Routine HTTP request/completion logs are disabled; request errors remain logged.

@@ -124,9 +124,16 @@ export function cacheSourceAllowed(method: string, path: string, body: Record<st
 }
 
 /** Admission, auth material and disclosure of secrets are never local decisions. */
-export function localContentSource(method: string, path: string, body: Record<string, unknown>): boolean {
+export function localContentSource(
+  method: string,
+  path: string,
+  body: Record<string, unknown>,
+  headers: Record<string, string> = {},
+): boolean {
   if (!cacheSourceAllowed(method, path, body)) return false;
   const route = new URL(path, 'http://cache.local').pathname;
+  if (route === '/mcp' && Object.entries(headers).some(([key, value]) =>
+    value && ['x-agent-session-id', 'x-agent-bridge-token'].includes(key.toLowerCase()))) return false;
   if (['/auth', '/auth/sessions'].includes(route)) return false;
   if (route === '/sync/bootstrap')
     return body.include_auth === false && body.session_id === undefined && body.auth_candidate === undefined;
