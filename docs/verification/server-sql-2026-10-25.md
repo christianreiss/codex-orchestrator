@@ -140,8 +140,9 @@ external replay after a target stops preparing, replay revocation, command
 serialization, owner failures and quiet RAM rejection. TypeScript and changed-file
 ESLint passed. An initial run from the repository root could not resolve the
 storage helper's `--import tsx`; the complete 28-file run from the canonical API
-working directory passed without changing the test. The full 6,013-test suite
-above predates this one-condition follow-up; it was not repeated for that patch.
+working directory passed without changing the test. The initial full 6,013-test suite predates this one-condition follow-up. A second
+complete run on the follow-up then passed **471 files / 6,016 tests** with the
+same 105 DB/opt-in files / 1,083 tests skipped (296.66 seconds, four workers).
 
 The follow-up real-MySQL run passed three files / three tests: owner core
 (restart/replay plus 50 refused internal attempts with no query/execute), Portal
