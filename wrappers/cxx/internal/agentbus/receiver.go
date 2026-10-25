@@ -89,6 +89,18 @@ func (r *autoReceiver) setGate(gate string) {
 	r.mu.Unlock()
 }
 
+func (r *autoReceiver) setSources(sources []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sources = slices.Clone(sources)
+	if !slices.Contains(sources, "portal") {
+		// Explicit source closure revokes the gate for both heartbeat and
+		// connection-owned receivers, preserving independent peer reception.
+		r.pendingPortal = nil
+		r.portalReplyBody = nil
+	}
+}
+
 // Gate evidence is a bounded snapshot, never a scheduling input. Older strict
 // heartbeat schemas receive only the generation unless registration opted in.
 func (r *autoReceiver) heartbeatRequest(generation string, claimGate bool) map[string]any {
@@ -448,14 +460,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				for _, source := range health.Receiver.Sources {
 					registered.Sources = append(registered.Sources, source.Source)
 				}
-				if !slices.Contains(registered.Sources, "portal") {
-					// Explicit source closure revokes the gate; it must not block
-					// the independently enabled peer source after a reconnect.
-					r.mu.Lock()
-					r.pendingPortal = nil
-					r.portalReplyBody = nil
-					r.mu.Unlock()
-				}
+				r.setSources(registered.Sources)
 			}
 			lastBeat = time.Now()
 			// Naming is optional metadata. Missing files or an older API must not
@@ -472,6 +477,29 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			r.lastBeatOK = lastBeat
 			r.mu.Unlock()
 		}
+		var stateChanged <-chan struct{}
+		var revision string
+		if state != nil {
+			var view struct {
+				WorkRevision string   `json:"work_revision"`
+				Sources      []string `json:"sources"`
+			}
+			frame, changed, live := state.Snapshot(&view)
+			stateChanged = changed
+			if !live {
+				return errors.New("receiver state disconnected")
+			}
+			revision = view.WorkRevision
+			if revision == "" {
+				revision = frame.Revision
+			}
+			if view.Sources != nil {
+				registered.Sources = view.Sources
+				r.setSources(view.Sources)
+			}
+		}
+		// Apply source closure before deriving the gate, and source expansion
+		// before budgeting claims, so this revision checks every current queue.
 		gate := "open"
 		coordinationOnly := false
 		r.mu.Lock()
@@ -510,30 +538,10 @@ func (r *autoReceiver) connection(parent context.Context) error {
 		}
 		r.setGate(gate)
 		busy := gate != "open" && gate != "work_active"
-		var stateChanged <-chan struct{}
 		if state != nil {
-			var view struct {
-				WorkRevision string   `json:"work_revision"`
-				Sources      []string `json:"sources"`
-			}
-			frame, changed, live := state.Snapshot(&view)
-			stateChanged = changed
-			if !live {
-				return errors.New("receiver state disconnected")
-			}
-			revision := view.WorkRevision
-			if revision == "" {
-				revision = frame.Revision
-			}
 			if revision != stateRevision || gate != lastGate {
 				stateClaims = len(registered.Sources)
 				stateRevision = revision
-			}
-			if view.Sources != nil {
-				registered.Sources = view.Sources
-				r.mu.Lock()
-				r.sources = slices.Clone(view.Sources)
-				r.mu.Unlock()
 			}
 			if gate != lastGate {
 				if err := state.Update(map[string]any{"generation": generation, "gate": r.heartbeatRequest(generation, true)["claim_gate"], "capacity": !busy, "informational_only": coordinationOnly}); err != nil {
