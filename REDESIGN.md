@@ -1,6 +1,7 @@
 # Stateful orchestrator redesign
 
-Status: approved implementation plan; implementation in progress, production acceptance pending.
+Status: implemented, pushed and deployed; quiet-path production verification passed.
+Outstanding external prerequisite: Grok subscription re-login, pre-existing since 2026-10-24.
 Decision date: 2026-10-25. Target: the existing docker01.uggs.io stack and its managed wrappers.
 
 ## Product goal
@@ -250,7 +251,8 @@ This section records scope, not an acceptance claim.
 - [x] Implement communicator-local cache hits and targeted protocol-3 updates.
 - [x] Remove default polling and broad/no-op invalidation chains.
 - [x] Pass functional, security, restart, quiet and compatibility checks; four-platform publication is verified during the rollout.
-- [ ] Push, deploy, verify and deliver the repeatable quiet-check/report.
+- [x] Push, deploy, verify and deliver the repeatable quiet-check/report.
+- [ ] Confirm Grok live admission after the operator completes its pre-existing required subscription re-login.
 
 The existing `.env.pre-advisor-20261017` is unrelated pre-existing data and must
 remain untouched and uncommitted. No new redesign code has been deployed at the

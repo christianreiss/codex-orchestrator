@@ -1,7 +1,7 @@
 # Stateful redesign verification — 2026-10-25
 
-Target: docker01.uggs.io. Production rollout and final production measurements
-are pending while this receipt is being assembled. See [REDESIGN.md](../REDESIGN.md).
+Target: docker01.uggs.io. Production implementation `8a96bf6b` is deployed and quiet-path verification passed.
+Grok subscription re-login remains the explicit external prerequisite. See [REDESIGN.md](../REDESIGN.md).
 
 ## Functional gates
 
@@ -66,10 +66,13 @@ A 30-second mixed-workload sample measured API **5.832%**, MySQL **38.100%** of
 one core. Its SQL included contact writes and retention discovery. This sample
 is not a controlled idle benchmark.
 
-The existing local owner is cxx 0.9.127, PID 4014766, serving three native leases.
-It must drain normally; publication of a new wrapper does not prove that every
-busy old process was replaced. New clients retain the protocol-2 compatibility
-adapter while such an owner is active.
+At preflight the local owner was cxx 0.9.127, PID 4014766, with three local
+lease connections. Automatic update subsequently replaced it with cxx 0.9.128,
+PID 1409800, with three local lease connections. This counter measures local
+connections; native processes are checked separately. The three pre-existing
+`codex` process IDs 1927348, 2441982 and 3243370 were still running with start
+times before both cutovers. No native-process stop command was issued. Other
+older clients retain the protocol-2 compatibility path while they drain.
 
 `/root/orchestrator-quiet-check.sh --seconds 30 --output /root/quiet-result.json`
 uses [scripts/quiet-check.py](../scripts/quiet-check.py). It is read-only, resets
@@ -117,3 +120,35 @@ paused schedule IDs survived the cutover. The original local owner PID/start
 identity and auth encryption-key fingerprint matched. The existing Advisor
 service was restored with its existing volumes and image; it installed cxx
 0.9.128 and all three engine binaries, without launching an advisor task.
+
+## Final deployed verification
+
+- Production API implementation: `8a96bf6b0ef8a6c9f531fb844bd7834331ec1a71`.
+- Image: `a843d200f08e040bbd3f7664bade977ff485632997f536ca0bd8741949fa31f0`, booted with its normal command in isolation before cutover; final runtime source map matched 540 source files.
+- All public readiness checks passed: exclusive owner, 103 migrations, runner, signer and four cxx 0.9.128 platforms.
+- Two successive bounded production windows: **60.213 s / 0.897% API CPU / 1.266% MySQL CPU**, and **60.167 s / 1.006% API CPU / 1.296% MySQL CPU**, each with **zero application SQL statements**. CPU is percent of one core. MySQL includes its own background and sampler overhead; this is a real mixed-client production sample, not universal controlled idle or a zero-CPU claim.
+- Actual owner cxx 0.9.128, over its real Unix HTTP endpoint: **20,002 reads, two server confirmations, 20,000 local hits**, 14.823 s, 172,906 retained cache bytes. The live signed config selected cache protocol 3 and state protocol 1. Earlier focused cache-library probes also passed.
+- API Node RSS was **196,708 KiB** (about 192 MiB). Its virtual address reservation is not resident document RAM.
+- All 10 captured session IDs, 86 pending/uncertain work IDs and 11 paused schedule IDs remained present after the final cutover. Encryption and signing-key fingerprints matched. The local owner upgraded automatically; the existing native processes continued.
+- Effective retention policy remains armed: audit 14 days, inactive history 24 hours, quota history seven days. No new SQL dump/storage archive was made. Temporary test databases/containers and Go/browser caches/images were removed; the pre-existing unrelated `.env.pre-advisor-20261017` was untouched.
+
+Repeated `adapter_upgrade_required` errors disappeared after the handshake repair.
+Remaining reconnect exceptions include genuinely uncertain old relay work, one
+stale receiver binding and one ineligible host; these are retained authorization/
+work-state decisions, not reasons to clear accepted work. No all-host native
+restart or universal wrapper upgrade is claimed.
+
+The repeatable script is `/root/orchestrator-quiet-check.sh`; the secret-free
+measurement receipt is `/root/orchestrator-redesign-result-20261025.json`.
+The existing pre-flight preservation branch is untouched; there is only the main
+checkout, with no task worktree left behind.
+
+Checks outside this scoped acceptance were not run: full tracing-tag/staticcheck/
+govulncheck suites, the full Go race suite beyond the changed local-cache tests,
+Firefox/WebKit browser suites, and physical ARM/Raspberry Pi execution. All four
+wrapper platforms were cross-compiled and published. The isolated Go fixtures
+exercise real native-process startup; live admission/release probes invoke no
+paid inference. Grok remains pending the operator's fresh subscription login.
+
+Portal delivery was unavailable because this deliberately bare-engine session
+has no portal binding/tool. Milestone updates were delivered in the conversation.
