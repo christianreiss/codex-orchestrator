@@ -1,5 +1,5 @@
 import { stageUpdate } from '../../control-plane/state/rows.js';
-import {ownerRuntimeFor,mutateOwnerState} from '../../control-plane/state/runtime.js';
+import {ownerRuntimeFor,mutateOwnerState,withOwnerBackgroundScope} from '../../control-plane/state/runtime.js';
 import {legacyDrainFor} from '../../control-plane/legacy-drain.js';
 import { and, eq, gt } from 'drizzle-orm';
 import { agentSessions, providerAccountSessions } from '../../db/schema.js';
@@ -342,7 +342,12 @@ export async function registerAgentPortalAdminHostRoutes(
     const messagingResult = messagingEnabled ? await messaging.finishSession(id, token, body.status, body.watchdog_failure) : null;
     if (messagingEnabled) {
       const coordination = new AgentCoordination(ctx.db, ctx.env, ctx.keyring, messaging);
-      if (await coordination.enabled()) await coordination.tick();
+      if (await coordination.enabled()) {
+        // Finish has fenced the native binding. Fleet maintenance must not
+        // inherit the ended session's response proofs into its next command.
+        if (ownerRuntimeFor(ctx.db)) await withOwnerBackgroundScope(() => coordination.tick());
+        else await coordination.tick();
+      }
     }
     return {
       enabled: Boolean(portalResult || messagingResult),

@@ -36,5 +36,18 @@
     "No supervisor/MCP restart or deploy performed here",
     "No claim that all91 tools were rerun; this is targeted retest of failures"
   ],
-  "cleanup": "Own retest project archived;todo done;file,project memory,host scratch and shared memory deleted and verified"
+  "cleanup": "Own retest project archived;todo done;file,project memory,host scratch and shared memory deleted and verified",
+  "fresh_native_canary": {
+    "wrapper": "0.9.130",
+    "native_session_id": "01a17321-4f28-7263-9620-e20ec69404bb",
+    "exit_code": 0,
+    "normal_single_call_pass": [
+      "skill_list",
+      "skill_retrieve",
+      "shared_memory_list",
+      "shared_memory_search",
+      "resource_read"
+    ],
+    "terminal_warning": "Session already completed; stale-proof post-finish maintenance warning, fixed and retest tracked separately."
+  }
 }

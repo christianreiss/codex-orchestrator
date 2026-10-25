@@ -3452,3 +3452,5 @@ The `/mcp` dispatcher answers `ping` with `{}` and rejects empty batches and mal
 Root Skill file reads (`skill://<slug>/SKILL.md` and the corresponding host support-file lookup) return the canonical manifest and its manifest digest. They retain engine visibility, deletion and source-bundle integrity checks.
 
 Owner command views share only a private, non-serialized runtime-metadata scope with their published state. Connection-derived and explicitly protected legacy credential deadlines therefore remain valid during composition. A reconstructed snapshot or new owner epoch receives a fresh scope; credential, host, binding and connection revocation checks remain effective.
+
+Native session finish runs its post-finish fleet coordination maintenance outside the ended native session request scope. The authenticated finish retains committed-action response authorization; invalid bridge credentials and unrelated binding changes remain rejected.

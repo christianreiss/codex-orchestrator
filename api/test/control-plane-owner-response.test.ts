@@ -9,7 +9,13 @@ import { createAdminAuthService } from '../src/services/admin-auth.js';
 import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { registerAgentPortalAdminHostRoutes } from '../src/routes/agent-portal/admin-host.js';
+import { AgentPortalService } from '../src/services/agent-portal.js';
+import { AgentMessagingService } from '../src/services/agent-messaging.js';
+import { AgentCoordination } from '../src/services/agent-coordination/index.js';
+import { testKeyring } from './helpers/test-keyring.js';
+import { ConflictError } from '../src/http/errors.js';
 import type { Database } from '../src/db/client.js';
 import type { StateSeed } from '../src/control-plane/state/catalog.js';
 import {
@@ -21,6 +27,7 @@ import { CommandExecutor } from '../src/control-plane/commands.js';
 import type { PersistenceTransaction } from '../src/control-plane/persistence.js';
 import {
   bindOwnerRuntime,
+  addOwnerResponseProof,
   mutateOwnerState,
   type OwnerRuntime,
   withOwnerRpcResponse,
@@ -590,3 +597,64 @@ it.each([false, true])(
     }
   },
 );
+
+describe('terminal session maintenance', () => {
+  it.each([true, false])('does not inherit ended-session proofs (allowed=%s)', async (allowed) => {
+    const f = await setup();
+    const ticks: string[] = [];
+    const spies = [
+      vi.spyOn(AgentPortalService.prototype, 'isEnabled').mockResolvedValue(true),
+      vi.spyOn(AgentMessagingService.prototype, 'isEnabled').mockResolvedValue(true),
+      vi
+        .spyOn(AgentMessagingService.prototype, 'finishSession')
+        .mockResolvedValue({ enabled: true, status: 'completed' }),
+      vi.spyOn(AgentCoordination.prototype, 'enabled').mockResolvedValue(true),
+      vi.spyOn(AgentCoordination.prototype, 'tick').mockImplementation(async () => {
+        await mutateOwnerState(f.runtime, {
+          kind: 'test.maintenance',
+          payload: {},
+          prepare() {
+            ticks.push('maintenance');
+            return null;
+          },
+        });
+      }),
+      vi.spyOn(AgentPortalService.prototype, 'finishAgent').mockImplementation(async () => {
+        if (!allowed) throw new ConflictError('Session binding changed', 'receiver_binding_changed');
+        addOwnerResponseProof('terminal-session', (state) => {
+          if (state.setting('test.finished') === '1')
+            throw new ConflictError('Session binding changed', 'receiver_binding_changed');
+        });
+        await mutateOwnerState(f.runtime, {
+          kind: 'test.finish',
+          responseAuthorization: 'commit',
+          payload: {},
+          prepare(ctx) {
+            ctx.draft.upsert('versions', {
+              name: 'test.finished',
+              version: '1',
+              updatedAt: new Date().toISOString(),
+            });
+            return { status: 'completed' };
+          },
+        });
+        return { status: 'completed' };
+      }),
+    ];
+    try {
+      await registerAgentPortalAdminHostRoutes(f.app, { db: f.db, env: f.env, keyring: testKeyring() });
+      const response = await f.app.inject({
+        method: 'POST',
+        url: '/host/agent-sessions/' + randomUUID() + '/finish',
+        headers: { 'x-agent-bridge-token': 'fixture-token' },
+        payload: { status: 'completed' },
+      });
+      expect(response.statusCode, response.body).toBe(allowed ? 200 : 409);
+      expect(ticks).toEqual(allowed ? ['maintenance'] : []);
+      expect(f.runtime.state.snapshot().setting('test.finished')).toBe(allowed ? '1' : null);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+      await f.close();
+    }
+  });
+});
