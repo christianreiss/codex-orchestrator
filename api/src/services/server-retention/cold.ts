@@ -89,8 +89,20 @@ export async function coldClock(
     );
     const at = (future as unknown as Array<{ at: string | null }>)[0]?.at;
     if (at) {
-      const due = Date.parse(at) + task.delay;
-      if (Number.isFinite(due)) next = next === null ? due : Math.min(next, due);
+      const parsed = Date.parse(at);
+      if (!Number.isFinite(parsed)) continue;
+      // Keep the indexed text predicates unchanged. Alternate accepted UTC
+      // forms (short/long fractions or +00:00) need not sort like their
+      // millisecond ISO instant under MySQL's timestamp column collation.
+      // The next second is selectable for every form, at most 1s later. Exact
+      // canonical ...mmmZ deadlines keep their existing precision.
+      const selectable =
+        at !== new Date(parsed).toISOString() ? Math.floor(parsed / 1000) * 1000 + 1000 : parsed;
+      const deadline = selectable + task.delay;
+      // A SQL-future observation must name a future obligation, including a
+      // conservative rearm if another accepted text form crosses this boundary.
+      const due = deadline > now ? deadline : Math.floor(now / 1000) * 1000 + 1000;
+      next = next === null ? due : Math.min(next, due);
     }
   }
   return { past, next };
