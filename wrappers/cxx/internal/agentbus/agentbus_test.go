@@ -713,6 +713,9 @@ func TestRelayBacksOffHardWhileTheAllowedWindowIsClosed(t *testing.T) {
 	if got := retryDelay(&APIError{Status: http.StatusConflict, Code: "agent_messaging_disabled"}); got != 30*time.Second {
 		t.Fatalf("fleet-disabled retried after %v, want 30s", got)
 	}
+	if got := retryDelay(&APIError{Status: http.StatusConflict, Code: "agent_messaging_relay_uncertain"}); got != 30*time.Second {
+		t.Fatalf("uncertain relay ownership retried after %v, want 30s", got)
+	}
 	if got := retryDelay(&APIError{Status: http.StatusBadGateway, Code: "upstream_hiccup"}); got != 3*time.Second {
 		t.Fatalf("transient failure retried after %v, want 3s", got)
 	}
@@ -762,6 +765,8 @@ func TestReconnectDelayMatchesTheRegisterBackoff(t *testing.T) {
 		{"rate limited with hint", &APIError{Status: http.StatusTooManyRequests, RetryAfter: 45 * time.Second}, 45 * time.Second},
 		{"closed window", &APIError{Status: http.StatusForbidden, Code: "agent_messaging_insecure_window_closed"}, 30 * time.Second},
 		{"fleet disabled", &APIError{Status: http.StatusConflict, Code: "agent_messaging_disabled"}, 30 * time.Second},
+		{"uncertain relay", &APIError{Status: http.StatusConflict, Code: "agent_messaging_relay_uncertain"}, 30 * time.Second},
+		{"wrapped uncertain relay", errors.Join(errors.New("register failed"), &APIError{Status: http.StatusConflict, Code: "agent_messaging_relay_uncertain"}), 30 * time.Second},
 	} {
 		if got := reconnectDelay(tc.err); got != tc.want {
 			t.Fatalf("%s reconnected after %v, want %v", tc.name, got, tc.want)
@@ -773,6 +778,24 @@ func TestReconnectDelayMatchesTheRegisterBackoff(t *testing.T) {
 	}
 	if got := reconnectDelay(nil); got != 2*time.Second {
 		t.Fatalf("clean poll exit reconnected after %v, want 2s", got)
+	}
+}
+
+func TestUncertainRelayBackoffRemainsCancelable(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan bool, 1)
+	go func() {
+		done <- waitContext(ctx, retryDelay(&APIError{Status: http.StatusConflict, Code: "agent_messaging_relay_uncertain"}))
+	}()
+	cancel()
+	select {
+	case elapsed := <-done:
+		if elapsed {
+			t.Fatal("uncertain relay backoff elapsed instead of honoring cancellation")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("uncertain relay backoff ignored cancellation")
 	}
 }
 
