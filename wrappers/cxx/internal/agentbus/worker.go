@@ -1139,9 +1139,11 @@ func retryDelay(err error) time.Duration {
 	// window is refused for as long as the window stays closed, which is
 	// minutes to hours; retrying every 3 seconds would make every such host
 	// hammer the API and burn its own request-rate budget for nothing.
+	// Uncertain relay ownership also requires reconciliation, not fast retries.
 	switch {
 	case apiErr.Code == "agent_messaging_disabled",
 		apiErr.Code == "agent_messaging_insecure_window_closed",
+		apiErr.Code == "agent_messaging_relay_uncertain",
 		apiErr.Status == http.StatusServiceUnavailable:
 		return 30 * time.Second
 	}
