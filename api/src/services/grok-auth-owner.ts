@@ -1,6 +1,6 @@
 import {persistAuditLog} from './audit-log.js';
 import { canonicalState, setOwnedGrokState, patchCanonicalPayload, canonicalTransaction } from '../control-plane/streams/canonical-state.js';
-import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { ownerRuntimeFor, withOwnerBackgroundScope } from '../control-plane/state/runtime.js';
 import { ownerPresence } from '../control-plane/presence.js';
 import { ownedProviderSession } from '../control-plane/streams/provider-leases.js';
 import { randomUUID } from 'node:crypto';
@@ -208,7 +208,10 @@ export function createGrokAuthOwner(deps: GrokAuthOwnerDeps) {
         }
         // Rotation has happened. Capture before parsing, checking identity or
         // calling the runner, so later failures cannot discard replacement RTs.
-        await setState('refreshing', { ...attempt, responseEnc: encrypt(JSON.stringify({ body, received_at: receivedAt }), deps.keyring) });
+        // This is conservation of a completed server-owned spend. Caller
+        // revocation must still deny candidate promotion and disclosure below,
+        // but cannot discard replacement material the provider already issued.
+        await withOwnerBackgroundScope(() => setState('refreshing', { ...attempt, responseEnc: encrypt(JSON.stringify({ body, received_at: receivedAt }), deps.keyring) }));
       }
 
       let replacement: Record<string, unknown>;
