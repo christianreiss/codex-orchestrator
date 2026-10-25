@@ -69,6 +69,20 @@ function fixture() {
 }
 
 describe('authoritative command path', () => {
+  it('recovers a stable external receipt when its committed target no longer prepares', async () => {
+    const f = fixture();
+    f.persist.reserve = vi.fn(async () => {});
+    const command = { ...f.command('external-retry'), replayClass: 'external' as const };
+    await expect(f.executor.execute(command)).resolves.toEqual({ value: 1 });
+    command.prepare = () => { throw new Error('already deleted'); };
+    await expect(f.executor.execute(command)).resolves.toEqual({ value: 1 });
+    expect(f.persist.receipt).toHaveBeenCalledTimes(1);
+    expect(f.persist.transaction).toHaveBeenCalledTimes(1);
+    command.authorizeReplay = () => { throw new Error('revoked'); };
+    await expect(f.executor.execute(command)).rejects.toThrow('revoked');
+    expect(f.state().value).toBe(1);
+  });
+
   it('keeps a compact receipt as a fail-closed duplicate-execution fence', async () => {
     const f = fixture(), command = f.command('expired');
     const prepare = vi.spyOn(command, 'prepare');

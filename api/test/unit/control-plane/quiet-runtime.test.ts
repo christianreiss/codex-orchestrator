@@ -92,6 +92,21 @@ function runtime(seed: unknown = {}) {
 }
 
 describe('quiet owner runtime', () => {
+  it.each([false, true])('only caller-addressable failures need cold replay recovery (stable id=%s)', async (stableId) => {
+    const f = runtime();
+    const request = { kind: 'fixture.refusal', payload: {},
+      ...(stableId ? { id: randomUUID() } : {}),
+      prepare() { throw new Error('previous relay work is unresolved'); },
+    };
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await expect(mutateOwnerState(f.owner, request)).rejects.toThrow('previous relay work is unresolved');
+    }
+    expect(f.persistence.transaction).not.toHaveBeenCalled();
+    expect(f.persistence.record).not.toHaveBeenCalled();
+    expect(f.persistence.receipt).toHaveBeenCalledTimes(stableId ? 20 : 0);
+    expect(f.owner.state.revision().sequence).toBe(0n);
+  });
+
   it.each(['codex', 'claude', 'grok'] as const)('%s activity uses its attached receiver, not a stale heartbeat, with no SQL', async (engine) => {
     const id = randomUUID(), generation = randomUUID(), native = randomUUID(), token = 'fixture-token';
     const old = new Date(Date.now() - 3600_000).toISOString();

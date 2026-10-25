@@ -3,6 +3,18 @@
 Target: docker01.uggs.io. Production implementation `8a96bf6b` is deployed and quiet-path verification passed.
 The operator completed Grok re-login; live admission and release now pass. See [REDESIGN.md](../REDESIGN.md).
 
+## Production SQL measurement correction (2026-10-25, later audit)
+
+The original production script measured statement digests only. The later
+[server/SQL audit](verification/server-sql-2026-10-25.md) verified that MySQL 8.4
+counts binary prepared executions separately. Original production “zero SQL”
+wording below means **zero observed application digest statements**, not a
+complete count of all executions. Historical prepared counts cannot be recovered
+for those windows. CPU/network measurements remain valid. Controlled fixture
+SQL budgets intercept both `query()` and `execute()` and are not invalidated by
+this production-sampler limitation. The updated script records both counter
+families and reports unattributed closed/evicted prepared instances.
+
 ## Functional gates
 
 - Node 22.23.3 typecheck passed. ESLint: zero errors; 228 existing/source warnings remain.
@@ -126,7 +138,7 @@ service was restored with its existing volumes and image; it installed cxx
 - Production API implementation: `8a96bf6b0ef8a6c9f531fb844bd7834331ec1a71`.
 - Image: `a843d200f08e040bbd3f7664bade977ff485632997f536ca0bd8741949fa31f0`, booted with its normal command in isolation before cutover; final runtime source map matched 540 source files.
 - All public readiness checks passed: exclusive owner, 103 migrations, runner, signer and four cxx 0.9.128 platforms.
-- Two successive bounded production windows: **60.213 s / 0.897% API CPU / 1.266% MySQL CPU**, and **60.167 s / 1.006% API CPU / 1.296% MySQL CPU**, each with **zero application SQL statements**. CPU is percent of one core. MySQL includes its own background and sampler overhead; this is a real mixed-client production sample, not universal controlled idle or a zero-CPU claim.
+- Two successive bounded production windows: **60.213 s / 0.897% API CPU / 1.266% MySQL CPU**, and **60.167 s / 1.006% API CPU / 1.296% MySQL CPU**, each with **zero application digest statements** (prepared executions were not counted; see correction above). CPU is percent of one core. MySQL includes its own background and sampler overhead; this is a real mixed-client production sample, not universal controlled idle or a zero-CPU claim.
 - Actual owner cxx 0.9.128, over its real Unix HTTP endpoint: **20,002 reads, two server confirmations, 20,000 local hits**, 14.823 s, 172,906 retained cache bytes. The live signed config selected cache protocol 3 and state protocol 1. Earlier focused cache-library probes also passed.
 - API Node RSS was **196,708 KiB** (about 192 MiB). Its virtual address reservation is not resident document RAM.
 - All 10 captured session IDs, 86 pending/uncertain work IDs and 11 paused schedule IDs remained present after the final cutover. Encryption and signing-key fingerprints matched. The local owner upgraded automatically; the existing native processes continued.

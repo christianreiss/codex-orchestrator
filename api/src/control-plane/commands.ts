@@ -186,10 +186,10 @@ export class CommandExecutor<Snapshot, Tx, Prepared> {
     try {
       prepared = await command.prepare(snapshot, revision);
     } catch (error) {
-      // A retry can now fail domain validation because its first execution
-      // already changed/deleted the target. Only that exceptional path needs
-      // a cold receipt lookup before reservation.
-      if (o.persistence.reserve) {
+      // A caller-addressable retry can fail because its first execution
+      // already changed/deleted the target. Internal attempts have fresh
+      // server-generated IDs: their refusal cannot recover a previous result.
+      if (o.persistence.reserve && command.replayClass !== 'internal') {
         const prior = await o.persistence.receipt(command.principal, command.id);
         o.assertOwner();
         (command.authorizeReplay ?? command.authorize)(snapshot);

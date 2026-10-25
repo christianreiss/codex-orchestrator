@@ -225,3 +225,13 @@ old cached configuration omitted the redundant capability declaration. Detached,
 revoked and wrong-generation identities remain fenced; executor contract checks
 for work delivery remain unchanged. This does not grant HTTP-only legacy clients
 new delivery authority.
+
+### Refused internal attempts and SQL observation
+
+Internal `mutateOwnerState` calls without an action or caller ID receive a new
+server-generated UUID. A preparation refusal for such an attempt cannot recover
+an earlier result and does not query receipts. Stable external IDs still perform
+cold receipt recovery when a previously committed target no longer prepares;
+current replay authority and duplicate-reservation fences remain mandatory.
+Production SQL observation must include binary prepared-execution counters:
+MySQL 8.4 does not include those executions in statement digest summaries.

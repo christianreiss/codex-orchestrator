@@ -1,5 +1,7 @@
 # 2026-10-25
 
+- Keep refused internal attempts in RAM instead of looking up receipts for fresh server-generated IDs. Preserve stable external replay recovery. Count MySQL binary prepared executions alongside digests in the quiet-check diagnostic and qualify earlier digest-only production evidence.
+
 - Use exact receiver connections for native activity admission and display, removing repeated stale-heartbeat refusals without adding SQL or heartbeat traffic. Keep legacy evidence expiry and binding checks; the Agents UI honors connection-bound activity.
 
 - Fix successful native session shutdown returning a stale-binding error when post-finish coordination maintenance runs.

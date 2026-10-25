@@ -101,3 +101,48 @@ Pre-rollout checks:
   Android activity reader still applies legacy expiry/heartbeat rules; mobile
   activity-display compatibility needs a separate app update and is not claimed
   repaired by this server rollout.
+
+## Production sampler correction
+
+The deeper audit found binary prepared `execute()` traffic in
+`performance_schema.prepared_statements_instances` and the global
+`statement/com/Execute` counter, absent from SQL digest rows. The initial sparse
+SQL lists above were incomplete: CPU/network values remain valid, but those
+lists cannot establish a full SQL rate or “zero SQL.” Historical production
+claims in the earlier redesign report are explicitly qualified as digest-only.
+
+`scripts/quiet-check.py` now records the global binary-execution delta (including
+closed/evicted prepared instances), separately attributes retained/new prepared
+instances, and flags unattributed executions. Breakdown labels expose operations,
+known table names and statement hashes; raw prepared SQL/parameters are never
+printed. Three Python regressions prove enabled-instrumentation enforcement, binary-only visibility, recreated-instance
+accounting, no-op/reset handling and literal redaction. A real one-second smoke
+sample observed a receipt SELECT that the old digest-only path missed.
+The isolated fixtures' `installSqlBudget` intercepts query and execute, so their
+zero-SQL assertions remain valid.
+
+The first complete five-minute window (300.805 s) measured 4.423% API CPU and
+1.448% MySQL CPU, with 162 digest executions plus 203 prepared executions:
+365 total / 1.213 per second. All 203 prepared executions were attributed:
+101 receipt SELECTs and 34 each receipt INSERT, receipt-result UPDATE and owner
+sequence UPDATE. It included actual native admission/finish and work changes.
+No slow retention sweep recurred; aggregate measured SQL time was 0.341 s.
+
+The prepared receipt reads exposed another avoidable path: every refused internal
+relay registration checked cold receipts for its fresh server-generated UUID.
+The executor now skips that recovery only for internal commands. External stable
+IDs retain recovery after a committed target changes/deletes and retain current
+authority checks. A 20-refusal regression failed before the change with 20 cold
+reads, and now expects none; the paired external case still expects 20 checks.
+
+Follow-up command-path checks: 28 files / 223 tests passed, including stable
+external replay after a target stops preparing, replay revocation, command
+serialization, owner failures and quiet RAM rejection. TypeScript and changed-file
+ESLint passed. An initial run from the repository root could not resolve the
+storage helper's `--import tsx`; the complete 28-file run from the canonical API
+working directory passed without changing the test. The full 6,013-test suite
+above predates this one-condition follow-up; it was not repeated for that patch.
+
+The follow-up real-MySQL run passed three files / three tests: owner core
+(restart/replay plus 50 refused internal attempts with no query/execute), Portal
+and messaging contracts. Its temporary database used synthetic fixtures only.
