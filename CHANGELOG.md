@@ -1,6 +1,7 @@
 # 2026-10-25
 
 - Pass the private native-session broker socket through Codex’s configured fleet MCP environment allowlist. Git Director and other session-owned tools retain authenticated ownership when Codex filters inherited MCP environment variables.
+- cxx 0.9.129 stops Grok private cleanup helpers from repeatedly scanning every process while an orphan native leader remains alive. Linux helpers wait on process exit through pidfds, then recheck surviving holders before cleanup; older kernels and other platforms retain a bounded fallback.
 
 - Advertise the existing control-state stream in owner-mode signed configs. Honor the exact authenticated stream attachment when old cached capability metadata omits that declaration; preserve detached/native/generation fencing and executor-contract checks. This removes repeated upgrade errors without granting HTTP-only clients delivery authority.
 

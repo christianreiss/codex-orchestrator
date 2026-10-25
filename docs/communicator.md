@@ -4,6 +4,13 @@ cxx 0.9.72 introduces one local communicator per OS user and orchestrator base U
 It is started lazily by a managed request and shared by Codex, Claude and Grok.
 Provider inference still uses each native client's original network path.
 
+For high local `cxx` CPU, inspect the command as well as the executable name:
+`__cxx-grok-private-reaper` is a Grok private-directory cleanup helper, separate
+from `communicator serve`. cxx 0.9.129 replaces its Linux 100 ms process scans
+with kernel process-exit waits; an existing helper needs to exit before the
+new implementation applies. Stopping only a verified helper preserves its
+private directory and does not stop the native client or communicator.
+
 cxx 0.9.127 sends `ownership_mode: "connection"` when signed configuration
 requires a provider attachment. Older configurations retain timed provider
 grants. Ordinary HTTP request frames omit unset `stream_id`; the API also

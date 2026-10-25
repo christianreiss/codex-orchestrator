@@ -174,9 +174,7 @@ func RunPrivateReaper(args []string) int {
 	}
 	// Some native programs close inherited descriptors. Their private home in
 	// the process environment is an independent conservative liveness fence.
-	for privateDirectoryInUse(dir) {
-		time.Sleep(100 * time.Millisecond)
-	}
+	waitPrivateDirectoryIdle(dir)
 	if err := os.RemoveAll(dir); err != nil {
 		fmt.Fprintln(os.Stderr, "Grok private cleanup failed")
 		return 1
