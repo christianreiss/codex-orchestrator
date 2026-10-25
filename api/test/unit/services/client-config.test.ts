@@ -1010,6 +1010,8 @@ describe('managed MCP communicator migration', () => {
       const result = renderTomlForHost(options);
       expect(result.content).toContain('communicator');
       expect(result.content).toContain('CXX_MCP_BEARER');
+      if (engine === 'codex') expect(result.content).toContain('env_vars = ["CXX_AGENT_PORTAL_SOCKET"]');
+      else expect(result.content).not.toContain('CXX_AGENT_PORTAL_SOCKET');
       expect(result.content).not.toContain('https://orch.example/mcp');
     }
     const legacy = renderTomlForHost({ ...options, host: { ...host as object, wrapperVersion: '0.9.70', claudeWrapperVersion: '0.9.70', grokWrapperVersion: '0.9.70' } as never });

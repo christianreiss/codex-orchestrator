@@ -943,6 +943,9 @@ function injectManagedMcp(
               command: 'cxx',
               args: ['communicator', 'mcp', opts.engine],
               env: { CXX_MCP_BEARER: bearerToken },
+              // Codex filters inherited MCP environments; the private socket
+              // binds native-owned tools without putting bridge tokens in config.
+              ...(opts.engine === ENGINE_CODEX ? { env_vars: ['CXX_AGENT_PORTAL_SOCKET'] } : {}),
               startup_timeout_sec: 30,
             }
           : {
