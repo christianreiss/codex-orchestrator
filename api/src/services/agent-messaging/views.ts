@@ -34,6 +34,7 @@ export function newQueuedMessage(input: {
   target: AgentBusAddress;
   kind: string;
   deliveryClass?: string;
+  deliveryTiming?: 'immediate' | 'after_turn';
   content: string;
   contentEnc: string;
   clientMessageId: string;
@@ -55,6 +56,7 @@ export function newQueuedMessage(input: {
     targetEngine: input.target.engine,
     kind: input.kind,
     deliveryClass: input.deliveryClass ?? 'information',
+    deliveryTiming: input.deliveryTiming ?? 'after_turn',
     executionContractVersion: ['request', 'schedule', 'task'].includes(input.kind) ? 2 : 1,
     workKind: ['request', 'schedule', 'task'].includes(input.kind) ? input.kind : null,
     contentEnc: input.contentEnc,
@@ -163,6 +165,7 @@ export function messageMetadata(message: MessageViewRow, sender?: AgentBusAddres
     target: target ? { ...publicAddress(target), name: message.targetName ?? null } : { id: message.targetAddressId, engine: message.targetEngine },
     kind: message.kind,
     delivery_class: message.deliveryClass ?? 'information',
+    delivery_timing: message.deliveryTiming ?? 'after_turn',
     coalesce_key: message.coalesceKey,
     related_work_id: message.relatedWorkId,
     event_count: message.eventCount ?? 1,
@@ -208,6 +211,7 @@ export function deliveryView(message: MessageViewRow, content: string, sender: A
     reply_to_message_id: message.replyToMessageId,
     kind: message.kind,
     delivery_class: message.deliveryClass ?? 'information',
+    delivery_timing: message.deliveryTiming ?? 'after_turn',
     coalesce_key: message.coalesceKey,
     related_work_id: message.relatedWorkId,
     event_count: message.eventCount ?? 1,

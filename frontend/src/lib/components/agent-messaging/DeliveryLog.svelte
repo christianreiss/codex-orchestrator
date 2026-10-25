@@ -148,6 +148,8 @@
             <div class="min-w-0">
               <p class="truncate text-body font-medium">{routeLabel(message.sender)} → {routeLabel(message.target)}</p>
               <p class="text-caption text-muted-foreground">#{message.sequence} · {message.kind} · {message.delivery_class ?? "information"} · {formatBytes(message.content_bytes)} · attempt {message.attempts} · <Timestamp value={message.created_at} /></p>
+              <p class="text-caption text-muted-foreground">Requested delivery: {message.delivery_timing === "immediate" ? "During the current turn" : "After the current turn"}</p>
+              {#if message.timing_fallback_reason === "receiver_capability_missing"}<p class="text-caption text-warning-muted-foreground">Waiting for a receiver update; immediate delivery is not available yet.</p>{/if}
               {#if (message.event_count ?? 1) > 1}<p class="text-caption text-muted-foreground">{message.event_count} grouped events · first <Timestamp value={message.event_first_at ?? message.created_at} /> · last <Timestamp value={message.event_last_at ?? message.created_at} /></p>{/if}
               {#if message.kind === "digest"}<a data-sveltekit-reload class="text-caption underline" href={retained(message.id)}>View retained originals</a>{/if}
               {#if message.digest_id}<p class="text-caption text-muted-foreground">Retained original · <a data-sveltekit-reload class="underline" href={retained(message.digest_id)}>digest and originals</a> · presentation is not a read receipt</p>{/if}

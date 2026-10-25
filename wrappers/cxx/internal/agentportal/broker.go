@@ -55,6 +55,8 @@ type Broker struct {
 	hookActivity         ActivityObservation
 	hookActivityAt       time.Time
 	hookActivityNativeID string
+	turnProof            ClaudeTurnProof
+	turnProofNativeID    string
 }
 
 func (s *Session) StartBroker(parent context.Context) (*Broker, error) {
@@ -228,6 +230,10 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"native_session_id": id})
 		return
 	}
+	if strings.HasSuffix(r.URL.Path, "/receiver/channel-deliver") {
+		b.channelDeliver(w, r, raw)
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/receiver/activity-hook") {
 		b.activityHook(w, raw)
 		return
@@ -345,7 +351,7 @@ func (b *Broker) allowedPath(path string) bool {
 	if path == sessionBase+"/activity" || path == sessionBase+"/watchdog/activity" || path == sessionBase+"/heartbeat" || path == sessionBase+"/events" || path == sessionBase+"/commands/claim" {
 		return true
 	}
-	for _, op := range []string{"register", "heartbeat", "stop", "ack", "status", "claim", "native", "activity-hook"} {
+	for _, op := range []string{"register", "heartbeat", "stop", "ack", "status", "claim", "native", "activity-hook", "channel-deliver"} {
 		if path == sessionBase+"/receiver/"+op {
 			return true
 		}

@@ -1,5 +1,15 @@
 # cgx — Grok Build fleet wrapper
 
+## Sender-selected delivery timing (cxx 0.9.134)
+
+Informational messaging accepts `delivery_timing: immediate | after_turn` (default
+`after_turn`). Grok uses the non-cancelling native interjection extension and a
+correlated actor event for explicit immediate updates. It never substitutes
+`sendNow: true`, cancellation, or an external parallel turn. If the original turn
+ends in the race, Grok may queue its own sequential fallback. Admission is not
+proof of consumption or reading. See [the shared timing contract](agent-messaging-timing.md)
+for capability, uncertainty, ordering and work-admission limits.
+
 ## Local content cache (cxx 0.9.128)
 
 Signed protocol 3 serves valid content hits directly from communicator RAM,

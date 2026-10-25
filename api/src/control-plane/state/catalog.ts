@@ -302,6 +302,10 @@ export function workingSetPredicate(name: OwnedTableName): SQL | undefined {
               WHERE reply.reply_to_message_id IS NOT NULL
                 AND reply.status NOT IN ('completed','delivered','digested','dead','expired','canceled','superseded')
             UNION
+            SELECT BINARY dependent.related_work_id FROM agent_bus_messages dependent
+              WHERE dependent.related_work_id IS NOT NULL
+                AND dependent.status IN ('queued','leased','accepted','batched','reboot_hold')
+            UNION
             SELECT BINARY r.message_id FROM agent_schedule_runs r
               WHERE r.message_id IS NOT NULL AND r.status IN ('waiting','queued','leased','accepted','recovering','capacity_wait')
             UNION

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"reflect"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
@@ -99,6 +100,8 @@ func (r *autoReceiver) observeActivity(ctx context.Context, engine, nativeID, ge
 	var seq int64
 	var last activityObservation
 	var sent time.Time
+	var proofEpoch string
+	var proofBaseline uint64
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for ctx.Err() == nil {
@@ -122,6 +125,15 @@ func (r *autoReceiver) observeActivity(ctx context.Context, engine, nativeID, ge
 		if err != nil {
 			a = activityObservation{State: "unknown", Source: source}
 		}
+		if engine == "claude" {
+			r.mu.Lock()
+			currentGeneration := r.generation
+			r.mu.Unlock()
+			if currentGeneration != "" && currentGeneration != generation {
+				return
+			}
+			r.observeClaudeTurn(a)
+		}
 		reason := func(v *string) string {
 			if v == nil {
 				return ""
@@ -131,11 +143,30 @@ func (r *autoReceiver) observeActivity(ctx context.Context, engine, nativeID, ge
 		// Changes only: a receiver_bound observation stays current on the server
 		// while this receiver keeps heartbeating. Resending an unchanged state
 		// every 15 s was about 0.7 requests/s fleet-wide.
-		if sent.IsZero() || a.State != last.State || reason(a.WaitReason) != reason(last.WaitReason) {
+		r.mu.Lock()
+		timingEnabled := r.deliveryTimingV1
+		r.mu.Unlock()
+		if sent.IsZero() || a.State != last.State || reason(a.WaitReason) != reason(last.WaitReason) || (timingEnabled && !reflect.DeepEqual(a.TurnProof, last.TurnProof)) {
 			seq++
 			body := map[string]any{"generation": generation, "binding_generation": binding, "native_session_id": nativeID,
 				"sequence": seq, "state": a.State, "wait_reason": a.WaitReason, "source": a.Source, "evidence_age_ms": a.EvidenceAgeMS,
 				"receiver_bound": true}
+			if timingEnabled && a.TurnProof != nil {
+				proof := *a.TurnProof
+				body["native_instance_id"] = proof.NativeInstanceID
+				if proofEpoch != proof.Epoch {
+					proofEpoch = proof.Epoch
+					proofBaseline = proof.Sequence
+				}
+				// A restarted observer cannot re-anchor an already cached idle
+				// Stop. Pin unknown at the first observed sequence; only a new
+				// lifecycle event may establish the next boundary.
+				if proof.Sequence <= proofBaseline {
+					proof.State = "unknown"
+				}
+
+				body["turn_proof"] = proof
+			}
 			sendCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			var out map[string]any
 			err = r.client.sessionPost(sendCtx, "activity", body, &out)
@@ -162,11 +193,21 @@ func reportActivityHook(stdin io.Reader) error {
 	if err := json.NewDecoder(io.LimitReader(stdin, 1<<20)).Decode(&h); err != nil {
 		return err
 	}
-	client, err := sessionClientFromEnv(500 * time.Millisecond)
+	timeout := activityHookTimeout(h.Event)
+	client, err := sessionClientFromEnv(timeout)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return client.receiver(ctx, "activity-hook", agentportal.ActivityHook{NativeID: h.SessionID, Event: h.Event, Tool: h.Tool}, nil)
+}
+
+// Turn boundaries must outlive the broker's bounded serialized channel callback.
+// Other telemetry hooks keep their existing half-second budget.
+func activityHookTimeout(event string) time.Duration {
+	if event == "UserPromptSubmit" || event == "Stop" {
+		return 5 * time.Second
+	}
+	return 500 * time.Millisecond
 }

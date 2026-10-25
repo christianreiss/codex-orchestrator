@@ -158,7 +158,8 @@ func (q *grokQueue) call(method string, params any, out any) error {
 			continue
 		}
 		if detail, ok := response["error"].(map[string]any); ok {
-			return fmt.Errorf("Grok ACP %s failed (code %v)", method, detail["code"])
+			code, _ := detail["code"].(float64)
+			return &nativeRPCError{method: method, code: int(code)}
 		}
 		raw, err := json.Marshal(response["result"])
 		if err != nil {
@@ -277,5 +278,41 @@ func (q *grokQueue) send(id, content string) error {
 		}
 		// PromptResponse closes the model turn, not the admission handshake.
 		// Its success never fabricates agent_reply or portal completion.
+	}
+}
+
+// Grok's official x.ai/interject extension buffers text for the current
+// session's next non-cancelling safe point. A turn-end race is owned by the
+// native actor, which queues the stranded text after that turn. sendNow is
+// deliberately never enabled: it is not this interjection contract.
+func (q *grokQueue) sendImmediate(id, content string) (string, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.thread == "" {
+		return "", errors.New("Grok native session identity missing")
+	}
+	_ = q.conn.SetDeadline(time.Now().Add(8 * time.Second))
+	rpcID, err := q.sendRPC("_x.ai/interject", map[string]any{"sessionId": q.thread, "text": content, "interjectionId": id})
+	if err != nil {
+		return "", err
+	}
+	for {
+		event, err := q.readACP()
+		if err != nil {
+			return "", fmt.Errorf("Grok interjection admission uncertain: %w", err)
+		}
+		params, _ := event["params"].(map[string]any)
+		meta, _ := params["_meta"].(map[string]any)
+		replay, _ := meta["replay"].(bool)
+		if !replay && strings.TrimPrefix(stringArg(event, "method"), "_") == "x.ai/session/interjection" && stringArg(params, "sessionId") == q.thread && stringArg(params, "interjectionId") == id {
+			return "grok:interjection-admitted", nil
+		}
+		if stringArg(event, "id") == rpcID {
+			if detail, ok := event["error"].(map[string]any); ok {
+				code, _ := detail["code"].(float64)
+				return "", &nativeRPCError{method: "_x.ai/interject", code: int(code)}
+			}
+			// The queued RPC reply alone is not correlated actor admission evidence.
+		}
 	}
 }

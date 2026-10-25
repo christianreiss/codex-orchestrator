@@ -24,6 +24,7 @@ export interface ReceiverState {
   /** Negotiated once per connection; replaying registration preserves it. */
   activity_v1?: boolean;
   queue_delivery_v1?: boolean;
+  delivery_timing_v1?: boolean;
   peer_batch_v1?: boolean;
   claim_gate_v1?: boolean;
   claim_gate?: ReceiverClaimGate & { observed_at: string };
@@ -77,6 +78,7 @@ export function receiverView(raw: unknown, now = Date.now()) {
     heartbeat_at: s.heartbeat_at,
     failure: s.failure,
     queue_delivery_v1: s.queue_delivery_v1 === true,
+    delivery_timing_v1: s.delivery_timing_v1 === true,
     peer_batch_v1: s.peer_batch_v1 === true,
     claim_gate_v1: s.claim_gate_v1 === true,
     ...(showGate ? {

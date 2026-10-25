@@ -17,6 +17,7 @@ import type { AgentMessagingDb } from './types.js';
 import { newQueuedMessage } from './views.js';
 
 export const queuePolicySchema = z.object({
+  delivery_timing: z.enum(['immediate', 'after_turn']).optional(),
   delivery_class: z.enum(['information', 'progress', 'notice', 'coordination']).optional(),
   coalesce_key: z.string().trim().min(1).max(128).optional(),
   related_work_id: z.string().uuid().optional(),
@@ -28,11 +29,13 @@ export const DIGEST_MAX_ENTRIES = 20;
 export function queuePolicy(input: QueuePolicy | undefined, work = false) {
   const v = queuePolicySchema.parse(input ?? {});
   const deliveryClass = v.delivery_class ?? 'information';
+  const deliveryTiming = v.delivery_timing ?? 'after_turn';
+  if (work && deliveryTiming === 'immediate') throw new ValidationError('Work cannot be delivered during an active turn');
   if (v.coalesce_key && !['progress', 'notice'].includes(deliveryClass))
     throw new ValidationError('Only progress and notices can be coalesced');
   if (work && (deliveryClass !== 'information' || v.coalesce_key || v.related_work_id))
     throw new ValidationError('Work requests cannot be condensed or routed as coordination');
-  return { deliveryClass, coalesceKey: v.coalesce_key ?? null, relatedWorkId: v.related_work_id ?? null };
+  return { deliveryClass, deliveryTiming, coalesceKey: v.coalesce_key ?? null, relatedWorkId: v.related_work_id ?? null };
 }
 export function smartQueueAllowed(env: Env, hostId: number, receiver: unknown): boolean {
   if (peerBatchAllowed(env, receiver)) return true;
@@ -56,6 +59,7 @@ export function peerBatchAllowed(env: Env, receiver: unknown): boolean {
 
 export function assertQueuePolicyReplay(message: AgentBusMessage, policy: ReturnType<typeof queuePolicy>) {
   if (
+    (message.deliveryTiming ?? 'after_turn') !== policy.deliveryTiming ||
     (message.deliveryClass ?? 'information') !== policy.deliveryClass ||
     (message.coalesceKey ?? null) !== policy.coalesceKey ||
     (message.relatedWorkId ?? null) !== policy.relatedWorkId
@@ -133,6 +137,7 @@ export async function coalescePendingRepeats(
         gt(agentBusMessages.expiresAt, now),
         inArray(agentBusMessages.kind, ['message', 'reply']),
         eq(agentBusMessages.deliveryClass, policy.deliveryClass),
+        eq(agentBusMessages.deliveryTiming, policy.deliveryTiming),
         sql`BINARY ${agentBusMessages.coalesceKey} = BINARY ${policy.coalesceKey}`,
         policy.relatedWorkId
           ? eq(agentBusMessages.relatedWorkId, policy.relatedWorkId)
@@ -196,6 +201,7 @@ export async function prepareSmartDigest(
     gt(agentBusMessages.expiresAt, now),
     inArray(agentBusMessages.kind, ['message', 'reply', 'publication', 'presence_notice']),
     sql`${agentBusMessages.deliveryClass} <> 'coordination'`,
+    eq(agentBusMessages.deliveryTiming, 'after_turn'),
   );
   // A singleton keyed update must not add several round-trips under the bus
   // lock. Find only real duplicate streams, in one indexed queue scan.
@@ -431,4 +437,25 @@ export async function presentDigest(tx: AgentMessagingDb, root: AgentBusMessage,
     .update(agentBusMessages)
     .set({ status: 'digested', presentedAt: now, updatedAt: now })
     .where(and(eq(agentBusMessages.digestId, root.id), eq(agentBusMessages.status, 'batched')));
+}
+
+/** Immediate delivery cannot admit work or presentation aggregates in parallel. */
+export function isImmediateInformation(row: Pick<AgentBusMessage, 'kind' | 'workKind' | 'deliveryTiming'>): boolean {
+  return row.deliveryTiming === 'immediate' && !row.workKind && ['message', 'reply', 'publication'].includes(row.kind);
+}
+
+/** Effective timing is current eligibility policy, never proof of native acceptance. */
+export function deliveryTimingReceipt(requested: string | undefined, capable: boolean) {
+  const timing = requested ?? 'after_turn';
+  return { requested_delivery_timing: timing, effective_delivery_timing: timing === 'immediate' && !capable ? null : timing,
+    timing_fallback_reason: timing === 'immediate' && !capable ? 'receiver_capability_missing' : null };
+}
+
+/** Freeze per-request policy values while preserving legacy default replay hashes. */
+export function captureQueuePolicy(input: QueuePolicy | undefined): QueuePolicy | undefined {
+  if (!input) return undefined;
+  const captured = { ...input };
+  if (captured.delivery_timing === 'after_turn') delete captured.delivery_timing;
+  for (const key of Object.keys(captured) as Array<keyof QueuePolicy>) if (captured[key] === undefined) delete captured[key];
+  return Object.keys(captured).length ? captured : undefined;
 }

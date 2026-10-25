@@ -1,5 +1,11 @@
 # Overview
 
+Agent messages can select `delivery_timing: "immediate" | "after_turn"` independently
+of their delivery class. The default waits for a native turn boundary; immediate
+informational updates use supported non-cancelling input paths while current work
+continues. Work requests still wait for normal admission. See
+[delivery timing](agent-messaging-timing.md) for capability, ordering and receipt limits.
+
 Authentication screens share one branded `AuthShell` for sign-in, recovery, CLI
 approval and setup. Provider connection in Accounts, host dialogs and setup uses
 the same `SeedAuthPanel`: select the engine once, then upload credentials or

@@ -20,22 +20,32 @@ import (
 )
 
 type autoReceiver struct {
-	connectionOwned bool
-	queueDeliveryV1 bool
-	queuePolicyV1   bool
-	client          *sessionClient
-	tracker         *channelTracker
-	output          *mcpWriter
-	mu              sync.Mutex
-	generation      string
-	pendingPortal   map[string]any
-	portalReplyMu   sync.Mutex
-	portalReplyBody map[string]any
-	lastPong        time.Time
-	pendingPing     string
-	queue           nativeDelivery
-	boundNativeID   string
-	sessionName     sessionNameReporter
+	connectionOwned            bool
+	queueDeliveryV1            bool
+	queuePolicyV1              bool
+	deliveryTimingV1           bool
+	immediateUsed              bool
+	immediateBudgetInitialized bool
+	immediateBudgetEpoch       string
+	immediateBudgetSequence    uint64
+	immediateBudgetProofKnown  bool
+	immediateUnsupported       bool
+	lastTimingFallback         string
+	claudeActivity             activityObservation
+	client                     *sessionClient
+	tracker                    *channelTracker
+	output                     *mcpWriter
+	mu                         sync.Mutex
+	generation                 string
+	pendingPortal              map[string]any
+	portalReplyMu              sync.Mutex
+	portalReplyBody            map[string]any
+	lastPong                   time.Time
+	pendingPing                string
+	queue                      nativeDelivery
+	boundNativeID              string
+	nativeDeliveryID           string
+	sessionName                sessionNameReporter
 	// connected, lastBeatOK, gate and gateSince are this process's own account of
 	// whether it can wake the session. They exist so agent_listen can tell "on the
 	// line" from "the line is dead" without a server round trip: a model that
@@ -172,6 +182,10 @@ func (r *autoReceiver) health() map[string]any {
 		state = "unavailable"
 	}
 	out := map[string]any{"state": state, "sources": slices.Clone(r.sources)}
+	out["delivery_timing_v1"] = r.deliveryTimingV1 && !r.immediateUnsupported
+	if r.lastTimingFallback != "" {
+		out["timing_fallback_reason"] = r.lastTimingFallback
+	}
 	if state == "ready" && !slices.Contains(r.sources, "peer") {
 		out["state"] = "unavailable"
 		out["reason"] = "peer_source_unavailable"
@@ -232,6 +246,7 @@ func (r *autoReceiver) run(ctx context.Context, stderr io.Writer) {
 }
 
 func (r *autoReceiver) connection(parent context.Context) error {
+	r.initializeImmediateBudget()
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	generation := newUUID()
@@ -351,10 +366,15 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			QueueDelivery        bool `json:"queue_delivery_v1"`
 			QueuePolicy          bool `json:"queue_policy_v1"`
 			ClaimGate            bool `json:"claim_gate_v1"`
+			DeliveryTiming       bool `json:"delivery_timing_v1"`
 		} `json:"capabilities"`
 		BindingGeneration int `json:"binding_generation"`
 	}
+	nativeTimingReady := r.timingNativeReady(ctx)
 	capabilities := map[string]any{"queue_delivery_v1": true, "peer_batch_v1": true, "claim_gate_v1": true}
+	if nativeTimingReady {
+		capabilities["delivery_timing_v1"] = true
+	}
 	registration := map[string]any{"generation": generation, "protocol": protocol, "native_session_id": nativeID, "capabilities": capabilities}
 	for {
 		err := r.client.receiver(ctx, "register", registration, &registered)
@@ -369,7 +389,9 @@ func (r *autoReceiver) connection(parent context.Context) error {
 		// batch features on strict older servers. A second validation refusal
 		// permits the legacy registration, with the same generation/identity.
 		// Never fall back after an ambiguous transport failure.
-		if _, ok := capabilities["claim_gate_v1"]; ok {
+		if _, ok := capabilities["delivery_timing_v1"]; ok {
+			delete(capabilities, "delivery_timing_v1")
+		} else if _, ok := capabilities["claim_gate_v1"]; ok {
 			delete(capabilities, "claim_gate_v1")
 		} else if _, ok := registration["capabilities"]; ok {
 			delete(registration, "capabilities")
@@ -379,7 +401,10 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	}
 	r.mu.Lock()
 	r.generation = generation
+	r.nativeDeliveryID = nativeID
 	r.queueDeliveryV1 = registered.Capabilities.QueueDelivery
+	r.deliveryTimingV1 = registered.Capabilities.DeliveryTiming && nativeTimingReady
+	r.immediateUnsupported = !nativeTimingReady
 	r.queuePolicyV1 = registered.Capabilities.QueuePolicy || registered.Capabilities.QueueDelivery
 	r.sources = slices.Clone(registered.Sources)
 	r.mu.Unlock()
@@ -498,6 +523,9 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				r.setSources(view.Sources)
 			}
 		}
+		if err := r.releaseCompletedImmediate(ctx); err != nil {
+			return err
+		}
 		if err := r.reconcileAdmissions(ctx); err != nil {
 			return err
 		}
@@ -538,11 +566,25 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			if (gate == "open" || gate == "work_active") && status != "idle" {
 				gate = "thread_" + status
 			}
+			if status == "idle" {
+				r.mu.Lock()
+				r.immediateUsed = false
+				r.mu.Unlock()
+			}
 			if gate == "held_delivery" {
 				r.releaseAfterNativeTurn(ctx, status, time.Now())
 			}
 		}
+		if r.deliveryTimingV1 && r.queue == nil && (gate == "open" || gate == "work_active") {
+			r.mu.Lock()
+			activity := claudeTurnState(r.claudeActivity)
+			r.mu.Unlock()
+			if activity != "idle" {
+				gate = "thread_" + activity
+			}
+		}
 		r.setGate(gate)
+		immediateOnly := r.immediateClaimAllowed(gate)
 		busy := gate != "open" && gate != "work_active"
 		if state != nil {
 			if revision != stateRevision || gate != lastGate {
@@ -556,11 +598,15 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				lastGate = gate
 			}
 		}
-		if !busy && len(registered.Sources) > 0 && (state == nil || stateClaims > 0) {
+		claimSources := registered.Sources
+		if immediateOnly {
+			claimSources = slices.DeleteFunc(slices.Clone(claimSources), func(source string) bool { return source == "portal" })
+		}
+		if (!busy || immediateOnly) && len(claimSources) > 0 && (state == nil || stateClaims > 0) {
 			if state != nil {
 				stateClaims--
 			}
-			source := registered.Sources[nextSource%len(registered.Sources)]
+			source := claimSources[nextSource%len(claimSources)]
 			nextSource++
 			var claimed struct {
 				Probe    map[string]any `json:"probe"`
@@ -569,8 +615,12 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			}
 			claimID := newUUID()
 			claimBody := map[string]any{"generation": generation, "source": source, "claim_id": claimID}
+			if immediateOnly {
+				claimBody["immediate_only"] = true
+				claimBody["informational_only"] = true
+			}
 			if r.coordinationEnabled() {
-				claimBody["informational_only"] = coordinationOnly
+				claimBody["informational_only"] = coordinationOnly || immediateOnly
 			}
 			if err := r.client.receiver(ctx, "claim", claimBody, &claimed); err != nil {
 				return err
@@ -581,6 +631,9 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				return errors.New("receiver server requires chat probes; update the server")
 			} else if claimed.Delivery != nil {
 				d := claimed.Delivery
+				if immediateOnly && !immediateInformation(d) {
+					return errors.New("busy receiver refused non-immediate or work delivery")
+				}
 				id := stringArg(d, "message_id")
 				// Anything arriving on a conversation is the peer being alive there.
 				r.tracker.trackAdmission(parent, id, claimID, d)
@@ -590,6 +643,9 @@ func (r *autoReceiver) connection(parent context.Context) error {
 					return err
 				}
 			} else if claimed.Message != nil {
+				if immediateOnly {
+					return errors.New("busy receiver refused portal work during immediate informational claim")
+				}
 				d := claimed.Message
 				id := stringArg(d, "message_id")
 				r.mu.Lock()
@@ -611,7 +667,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			}
 		}
 		delay := time.Second
-		if state != nil && !busy {
+		if state != nil && (!busy || immediateOnly) && len(claimSources) > 0 {
 			if stateClaims > 0 {
 				continue
 			}
@@ -666,7 +722,9 @@ func peerDeliveryGuidance(kind string) string {
 
 // Replies can end an exchange. Asking for a reply to every delivery creates
 // fresh messages indefinitely, even though each individual lease completes.
-const peerReplyGuidance = "Use agent_reply with message_id only when an answer is needed. Do not acknowledge an acknowledgement or answer a closing acknowledgement. To finish a delivery without sending a peer message, call agent_listen once, then yield."
+const peerReplyGuidance = "Use agent_reply with message_id only when an answer is needed. Do not acknowledge an acknowledgement or answer a closing acknowledgement. For an immediate informational update, continue your current work and leave the delivery pending until a natural turn boundary; a substantive reply may be sent now without ending that work. Otherwise, to finish a delivery without sending a peer message, call agent_listen once, then yield."
+
+const immediatePeerReplyGuidance = "This is an immediate informational update inserted at a native boundary during your current turn. Read it in the context of your ongoing work and continue that work. Do not cancel a tool, end your current turn solely to finish this update, or start parallel work. Reply with agent_reply and this message_id only when a substantive answer is needed, then continue your current work. Never acknowledge an acknowledgement, a closing reply or a publication. Otherwise leave this informational delivery pending while you continue; finish it with normal agent_listen only at a natural turn boundary, when you are ready to yield. No immediate completion call is required."
 
 func nativePeerPrompt(delivery map[string]any) string {
 	if stringArg(delivery, "work_kind") != "" {
@@ -683,6 +741,9 @@ func nativePeerPrompt(delivery map[string]any) string {
 	}
 
 	raw, _ := json.Marshal(delivery)
+	if immediateInformation(delivery) {
+		return peerDeliveryGuidance(stringArg(delivery, "kind")) + " " + immediatePeerReplyGuidance + "\n" + string(raw)
+	}
 	if stringArg(delivery, "kind") == "digest" {
 		var batch struct {
 			Presentation string `json:"presentation"`

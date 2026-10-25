@@ -64,7 +64,7 @@ async function fixtures(page: Page, manage = true) {
     if (path === "/admin/agent-messaging/publish") {
       const body = request.postDataJSON(); state.bodies.push({ path, body });
       if (state.dropPublish-- > 0) return route.abort("failed");
-      return json({ publication_id: "44444444-4444-4444-8444-444444444444", topic: body.topic, created: state.bodies.filter((item) => item.body.client_message_id === body.client_message_id).length === 1, recipient_count: body.topic === SERVER ? 1 : 2, deliveries: body.topic === SERVER ? [{ address_id: GROK, message_id: "server-message" }] : [{ address_id: CODEX, message_id: "codex-message" }, { address_id: CLAUDE, message_id: "claude-message" }], skipped: [{ address_id: "55555555-5555-4555-8555-555555555555", reason: "engine_disabled" }] });
+      return json({ publication_id: "44444444-4444-4444-8444-444444444444", topic: body.topic, delivery_timing: body.delivery_timing ?? "after_turn", created: state.bodies.filter((item) => item.body.client_message_id === body.client_message_id).length === 1, recipient_count: body.topic === SERVER ? 1 : 2, deliveries: body.topic === SERVER ? [{ address_id: GROK, message_id: "server-message" }] : [{ address_id: CODEX, message_id: "codex-message" }, { address_id: CLAUDE, message_id: "claude-message" }], skipped: [{ address_id: "55555555-5555-4555-8555-555555555555", reason: "engine_disabled" }] });
     }
     return json({});
   });
@@ -126,6 +126,24 @@ test("editing a failed publication creates a new ID and Server followers are exp
   await expect(page.getByRole("status", { name: "Publication receipt" })).toContainText("1 recipient queued");
   expect(state.bodies[1].body.client_message_id).not.toBe(state.bodies[0].body.client_message_id);
   expect(state.bodies[1].body.topic).toBe(SERVER);
+});
+
+test("delivery timing defaults to after-turn and an edited timing has a new retry identity", async ({ page }) => {
+  const state = await fixtures(page); state.dropPublish = 1; await open(page);
+  const timing = page.getByLabel("Delivery timing", { exact: true });
+  await expect(timing).toHaveValue("after_turn");
+  await page.getByLabel("Message to subscribers").fill("Important coordination update");
+  await page.getByRole("button", { name: "Publish to subscribers", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Retry publication" })).toBeVisible();
+  expect(state.bodies[0].body.delivery_timing).toBe("after_turn");
+  await timing.selectOption("immediate");
+  await expect(page.getByText("Surface this update at the next supported boundary", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Publish to subscribers", exact: true }).click();
+  expect(state.bodies[1].body.delivery_timing).toBe("immediate");
+  expect(state.bodies[1].body.client_message_id).not.toBe(state.bodies[0].body.client_message_id);
+  const receipt = page.getByRole("status", { name: "Publication receipt" });
+  await expect(receipt).toContainText("Requested timing: During the current turn");
+  await expect(receipt).toContainText("Queued is not yet delivered");
 });
 
 test("creating a group never enrolls agents and preserves a shareable group link", async ({ page }) => {

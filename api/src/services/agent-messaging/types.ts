@@ -48,6 +48,7 @@ export interface MessageDelivery {
   reply_to_message_id: string | null;
   kind: string;
   delivery_class?: string;
+  delivery_timing?: string;
   coalesce_key?: string | null;
   related_work_id?: string | null;
   event_count?: number;

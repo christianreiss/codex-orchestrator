@@ -1,3 +1,5 @@
+import { deliveryTimingReceipt, captureQueuePolicy } from './smart-queue.js';
+import { receiverState } from '../agent-receiver-state.js';
 import { randomUUID } from 'node:crypto';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
@@ -67,6 +69,7 @@ export async function sendOwnedMessage(
   token: string,
   input: OwnedSendInput,
 ): Promise<Record<string, unknown>> {
+  input = { ...input, queue: captureQueuePolicy(input.queue) };
   runtime.assertOwner();
   const first = ownedBridge(runtime.state.snapshot(), sessionId, token).session;
   if (!first.agentBusAddressId)
@@ -219,6 +222,7 @@ export async function sendOwnedMessage(
                   message.expiresAt > now &&
                   ['message', 'reply'].includes(message.kind) &&
                   message.deliveryClass === policy.deliveryClass &&
+                  (message.deliveryTiming ?? 'after_turn') === policy.deliveryTiming &&
                   message.coalesceKey === policy.coalesceKey &&
                   message.relatedWorkId === policy.relatedWorkId,
               )
@@ -294,6 +298,8 @@ export async function sendOwnedMessage(
   return {
     created,
     ...result,
+    ...deliveryTimingReceipt(String(result.message.delivery_timing ?? 'after_turn'), !!target?.currentSessionId &&
+      receiverState(current.sessions.get(target.currentSessionId)?.receiver)?.delivery_timing_v1 === true),
     recipient_presence: presence,
     observed_at: nowIso(),
     delivery_hint: deliveryHint(presence),

@@ -1,3 +1,5 @@
+import { deliveryTimingReceipt, captureQueuePolicy } from './smart-queue.js';
+import { receiverState } from '../agent-receiver-state.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
@@ -63,6 +65,7 @@ export async function replyOwnedMessage(
   parentMessageId: string,
   input: OwnedReplyInput,
 ): Promise<Record<string, unknown>> {
+  input = { ...input, queue: captureQueuePolicy(input.queue) };
   const parentId = normalizeUuid(parentMessageId, 'message_id'),
     clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id'),
     content = normalizeMessageBody(input.content),
@@ -141,7 +144,7 @@ export async function replyOwnedMessage(
             'agent_messaging_relay_target_mismatch',
           );
       }
-      let policy = queuePolicy(input.taskResult ? { delivery_class: 'coordination' } : input.queue);
+      let policy = queuePolicy(input.taskResult ? { ...input.queue, delivery_class: 'coordination' } : input.queue);
       if (
         (relay && (parent.workKind || parent.deliveryClass === 'coordination')) ||
         (!input.queue && parent.deliveryClass === 'coordination')
@@ -293,6 +296,7 @@ export async function replyOwnedMessage(
                   row.expiresAt > now &&
                   ['message', 'reply'].includes(row.kind) &&
                   row.deliveryClass === policy.deliveryClass &&
+                  (row.deliveryTiming ?? 'after_turn') === policy.deliveryTiming &&
                   row.coalesceKey === policy.coalesceKey &&
                   row.relatedWorkId === policy.relatedWorkId,
               )
@@ -393,6 +397,8 @@ export async function replyOwnedMessage(
     ...result,
     created,
     message: result.message,
+    ...deliveryTimingReceipt(String(result.message.delivery_timing ?? 'after_turn'), !!target?.currentSessionId &&
+      receiverState(current.sessions.get(target.currentSessionId)?.receiver)?.delivery_timing_v1 === true),
     recipient_presence: presence,
     observed_at: nowIso(),
     delivery_hint: deliveryHint(presence),

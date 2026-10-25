@@ -1,5 +1,26 @@
 # API Interface (Source of Truth)
 
+## Message delivery timing
+
+Direct send/reply and group publication inputs accept optional `delivery_timing`
+(`immediate` or `after_turn`, default `after_turn`). It is normalized into durable
+message policy and idempotency checks independently of `delivery_class`.
+Work requests cannot select immediate delivery. Informational immediate messages
+are excluded from deferred digests; coalescing remains timing-specific.
+
+Receipts expose `requested_delivery_timing`, `effective_delivery_timing` (nullable)
+and `timing_fallback_reason`; publication eligibility is per recipient. Missing
+`delivery_timing_v1` receiver capability means queued/null with
+`receiver_capability_missing`, not an immediate success. This receipt describes
+supported policy, not reading or actual current-turn consumption.
+
+Receiver registration negotiates `delivery_timing_v1`; busy claims use optional
+`immediate_only` to select one eligible informational message without accepting
+parallel work. Exact native/receiver authorization is revalidated at commit.
+Claude's separate ordered `turn_proof` activity evidence governs turn boundaries,
+without replacing existing activity-progress freshness or creating SQL probes.
+See [delivery timing](agent-messaging-timing.md) for ordering and native limits.
+
 ## Owner stream negotiation
 
 When communicator transport is enabled, owner-mode signed configs advertise

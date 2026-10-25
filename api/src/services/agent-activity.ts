@@ -1,3 +1,4 @@
+import { receiverTurnProofSchema } from '../control-plane/state/receiver-turn-proof.js';
 import { z } from 'zod';
 import { ConflictError } from '../http/errors.js';
 import { receiverState, RECEIVER_FRESH_MS } from './agent-receiver-state.js';
@@ -30,6 +31,7 @@ export const activityInputSchema = z
     // as long as the same receiver remains current. Without it (older
     // wrappers), an observation expires on its own and must be resent.
     receiver_bound: z.boolean().optional(),
+    turn_proof: receiverTurnProofSchema.optional(),
   })
   .strict()
   .refine(

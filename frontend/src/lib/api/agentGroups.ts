@@ -34,14 +34,17 @@ export interface AgentSubscription {
   created_at: string;
 }
 export interface AgentPublication {
+  delivery_timing?: 'immediate' | 'after_turn';
+  requested_delivery_timing?: 'immediate' | 'after_turn';
   publication_id: string;
   topic: string;
   created: boolean;
   recipient_count: number;
-  deliveries: Array<{ address_id: string; message_id: string }>;
+  deliveries: Array<{ address_id: string; message_id: string; requested_delivery_timing?: 'immediate' | 'after_turn'; effective_delivery_timing?: 'immediate' | 'after_turn' | null; timing_fallback_reason?: string | null }>;
   skipped: Array<{ address_id: string; reason: string }>;
 }
 export interface AgentPublishInput {
+  delivery_timing?: 'immediate' | 'after_turn';
   topic: string;
   content: string;
   client_message_id: string;

@@ -1,3 +1,4 @@
+import { acceptOwnedClaudeTurnProof } from '../../control-plane/state/receiver-turn-proof.js';
 import { historyRetentionHours } from '../server-retention/policy.js';
 import { recordMessagingRowChange } from '../../control-plane/state/messaging-totals.js';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -463,12 +464,14 @@ export class OwnedPortal {
       payload: json({ id, input }),
       authorize: (s) => {
         this.authority(s, id, token);
+        acceptOwnedClaudeTurnProof(this.runtime, s.sessions.get(id)!, input.turn_proof);
       },
       prepare: (ctx) => {
         const current = ctx.snapshot.sessions.get(id)!;
+        const turnProof = acceptOwnedClaudeTurnProof(this.runtime, current, input.turn_proof);
         const value = acceptActivity(current, input, Date.now(), this.activityConnected(current));
         if (!value) return { accepted: false };
-        stageUpdate(ctx, 'agentSessions', id, { activity: value });
+        stageUpdate(ctx, 'agentSessions', id, { activity: { ...value, ...(turnProof ? { turn_proof: turnProof } : {}) } });
         return { accepted: true };
       },
     });

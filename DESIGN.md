@@ -332,6 +332,13 @@ For step 1, verify documentation links/anchors, route inventory coverage, source
 
 ## 10. Exception register
 
+Message timing slice (2026-10-25): the existing Agent Messaging group publisher
+offers a persistent Delivery timing label, default after-turn, with non-cancellation
+help and requested-timing receipts. Per-recipient capability waits remain visible;
+queued is not delivered/read. Delivery history shows the requested policy. Applicable
+rules: NAV-3, VIS-1/3/4, INT-2/3/5/6/7, ACC-1/3/4. No exception. A timing edit after
+an uncertain send is a new draft/receipt ID; unchanged retries preserve the ID.
+
 Authentication presentation slice (2026-10-25): `AuthShell` owns branding, heading,
 bounded task surface and footer spacing for sign-in, reset, CLI approval and setup.
 `SeedAuthPanel` remains the single provider-credential UI in Accounts, host dialogs

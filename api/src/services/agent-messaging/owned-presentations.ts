@@ -112,6 +112,7 @@ export async function prepareOwnedPresentations(
   const routine = possible.some(
     (row) =>
       row.senderAddressId === SERVER_ADDRESS_ID &&
+      (row.deliveryTiming ?? 'after_turn') === 'after_turn' &&
       unpresented(row) &&
       ['presence_notice', 'publication', 'digest'].includes(row.kind),
   );
@@ -126,6 +127,7 @@ export async function prepareOwnedPresentations(
   const information = possible.filter(
     (row) =>
       row.status === 'queued' &&
+      (row.deliveryTiming ?? 'after_turn') === 'after_turn' &&
       !row.workKind &&
       row.expiresAt > now &&
       ['message', 'reply', 'publication', 'presence_notice'].includes(row.kind),
@@ -197,6 +199,7 @@ export async function prepareOwnedPresentations(
           .filter(
             (row) =>
               row.senderAddressId === SERVER_ADDRESS_ID &&
+              (row.deliveryTiming ?? 'after_turn') === 'after_turn' &&
               row.status === 'queued' &&
               unpresented(row) &&
               ['presence_notice', 'publication', 'digest'].includes(row.kind),
@@ -267,6 +270,7 @@ export async function prepareOwnedPresentations(
           .filter(
             (row) =>
               row.status === 'queued' &&
+              (row.deliveryTiming ?? 'after_turn') === 'after_turn' &&
               !row.workKind &&
               row.expiresAt > now &&
               (options.peer

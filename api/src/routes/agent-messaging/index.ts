@@ -297,7 +297,7 @@ export async function registerAgentMessagingRoutes(
       conversationId: body.conversation_id,
       ttlSeconds: body.ttl_seconds,
       kind: body.kind,
-      queue: body.delivery_class || body.coalesce_key || body.related_work_id ? { delivery_class: body.delivery_class, coalesce_key: body.coalesce_key, related_work_id: body.related_work_id } : undefined,
+      queue: body.delivery_timing || body.delivery_class || body.coalesce_key || body.related_work_id ? { delivery_timing: body.delivery_timing, delivery_class: body.delivery_class, coalesce_key: body.coalesce_key, related_work_id: body.related_work_id } : undefined,
     });
   });
   app.post('/host/agent-sessions/:id/agent-messaging/reply', async (req) => {
@@ -313,7 +313,7 @@ export async function registerAgentMessagingRoutes(
       ttlSeconds: body.ttl_seconds,
       claimId: body.claim_id,
       taskResult: body.task_result,
-      queue: body.delivery_class || body.coalesce_key || body.related_work_id ? { delivery_class: body.delivery_class, coalesce_key: body.coalesce_key, related_work_id: body.related_work_id } : undefined,
+      queue: body.delivery_timing || body.delivery_class || body.coalesce_key || body.related_work_id ? { delivery_timing: body.delivery_timing, delivery_class: body.delivery_class, coalesce_key: body.coalesce_key, related_work_id: body.related_work_id } : undefined,
     });
   });
   app.post('/host/agent-sessions/:id/agent-messaging/wait', async (req, reply) => {
@@ -493,10 +493,10 @@ export async function registerAgentMessagingRoutes(
   app.post('/host/agent-sessions/:id/agent-messaging/deliveries/claim', async (req, reply) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
-    const body = z.object({ claim_id: z.string().uuid(), wait_seconds: z.number().int().min(0).max(25).optional(), informational_only: z.boolean().optional() }).strict().parse(req.body ?? {});
+    const body = z.object({ claim_id: z.string().uuid(), wait_seconds: z.number().int().min(0).max(25).optional(), informational_only: z.boolean().optional(), immediate_only: z.boolean().optional() }).strict().parse(req.body ?? {});
     const deadline = Date.now() + (body.wait_seconds ?? 20) * 1000;
     while (true) {
-      const delivery = await messaging.claimForSession(id, token, body.claim_id, undefined, body.informational_only);
+      const delivery = await messaging.claimForSession(id, token, body.claim_id, undefined, body.informational_only || body.immediate_only, body.immediate_only);
       if (delivery || Date.now() >= deadline || clientGone(reply)) return { delivery };
       await delay(400);
     }

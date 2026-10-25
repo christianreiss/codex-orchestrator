@@ -529,8 +529,9 @@ func TestReceiverHealthAndReconnectsDoNotDeliverChatProbes(t *testing.T) {
 						defer ws.Close()
 						for {
 							var req struct {
-								ID     int    `json:"id"`
-								Method string `json:"method"`
+								ID     int            `json:"id"`
+								Method string         `json:"method"`
+								Params map[string]any `json:"params"`
 							}
 							if websocket.JSON.Receive(ws, &req) != nil {
 								return
@@ -541,6 +542,10 @@ func TestReceiverHealthAndReconnectsDoNotDeliverChatProbes(t *testing.T) {
 							result := map[string]any{}
 							switch req.Method {
 							case "initialize":
+							case "turn/steer":
+								if len(req.Params) != 0 {
+									nativeDeliveries.Add(1)
+								}
 							case "thread/loaded/list":
 								result["data"] = []string{"native"}
 							case "thread/turns/list":
@@ -590,7 +595,8 @@ func TestReceiverHealthAndReconnectsDoNotDeliverChatProbes(t *testing.T) {
 									if json.Unmarshal([]byte(stringArg(frame, "payload")), &req) != nil {
 										return
 									}
-									if stringArg(req, "method") != "_x.ai/sessions/list" {
+									params, _ := req["params"].(map[string]any)
+									if stringArg(req, "method") != "_x.ai/sessions/list" && !(stringArg(req, "method") == "_x.ai/interject" && len(params) == 0) {
 										nativeDeliveries.Add(1)
 									}
 									result := map[string]any{"sessions": []any{map[string]any{"sessionId": "native", "resident": true, "activity": "idle"}}}
@@ -634,7 +640,7 @@ func TestReceiverHealthAndReconnectsDoNotDeliverChatProbes(t *testing.T) {
 							if claims.Add(1) == 2 {
 								cancel()
 							}
-						case "status", "stop", "get", "self":
+						case "status", "stop", "get", "self", "activity-hook":
 							// Watchdog status is transport metadata, never a chat probe.
 							if path.Base(req.URL.Path) == "get" {
 								out["watchdog"] = nil

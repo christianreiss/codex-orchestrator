@@ -11,6 +11,7 @@ const createSchema = z
 const publishSchema = z
   .object({
     topic: z.string(),
+    delivery_timing: z.enum(['immediate', 'after_turn']).optional(),
     content: z.string(),
     client_message_id: z.string().uuid(),
     ttl_seconds: z.number().int().nullable().optional(),
@@ -76,6 +77,7 @@ export function registerAgentGroupRoutes(
       content: body.content,
       clientMessageId: body.client_message_id,
       ttlSeconds: body.ttl_seconds,
+      deliveryTiming: body.delivery_timing,
     });
     if (result.created)
       await audit(req, 'agent_messaging.publication.created', {
@@ -137,6 +139,7 @@ export function registerAgentGroupRoutes(
       content: body.content,
       clientMessageId: body.client_message_id,
       ttlSeconds: body.ttl_seconds,
+      deliveryTiming: body.delivery_timing,
     });
   });
 }

@@ -148,6 +148,7 @@ func runSend(args []string, stdin io.Reader, stdout, stderr io.Writer, request b
 	flags := newFlagSet(name, stderr)
 	to := flags.String("to", "", "target agent address")
 	clientID := flags.String("client-message-id", "", "stable UUID for retrying this send")
+	timing := flags.String("delivery-timing", "", "immediate or after_turn (default after_turn; informational only)")
 	stdinFlag := flags.Bool("stdin", false, "read message body from stdin")
 	conversation := flags.String("conversation", "", "existing conversation UUID")
 	ttl := flags.Int("ttl-seconds", 0, "queued TTL (60..604800)")
@@ -187,6 +188,11 @@ func runSend(args []string, stdin io.Reader, stdout, stderr io.Writer, request b
 	}
 	if *ttl != 0 {
 		body["ttl_seconds"] = *ttl
+	}
+	if *timing != "" {
+		if err := copyDeliveryTiming(map[string]any{"delivery_timing": *timing}, body, request); err != nil {
+			return err
+		}
 	}
 	var sent map[string]any
 	if err := client.post(context.Background(), "send", body, &sent); err != nil {
@@ -250,6 +256,7 @@ func runReply(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	flags := newFlagSet("cxx agent reply", stderr)
 	messageID := flags.String("message-id", "", "message being answered")
 	clientID := flags.String("client-message-id", "", "stable UUID for retrying this reply")
+	timing := flags.String("delivery-timing", "", "immediate or after_turn (default after_turn; informational only)")
 	stdinFlag := flags.Bool("stdin", false, "read reply from stdin")
 	ttl := flags.Int("ttl-seconds", 0, "queued TTL")
 	if err := flags.Parse(args); err != nil {
@@ -270,6 +277,11 @@ func runReply(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return err
 	}
 	body := map[string]any{"message_id": *messageID, "content": content, "client_message_id": retryID}
+	if *timing != "" {
+		if err := copyDeliveryTiming(map[string]any{"delivery_timing": *timing}, body, false); err != nil {
+			return err
+		}
+	}
 	if *ttl != 0 {
 		body["ttl_seconds"] = *ttl
 	}

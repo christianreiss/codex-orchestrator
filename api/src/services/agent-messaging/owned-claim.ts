@@ -1,3 +1,4 @@
+import { ownedClaudeTurnIdle } from '../../control-plane/state/receiver-turn-proof.js';
 import { eq } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import { agentBusMessages } from '../../db/schema.js';
@@ -22,6 +23,7 @@ import {
   ownedFreshStartAllowed,
   type OwnedMessage,
 } from './owned-delivery.js';
+import { isImmediateInformation } from './smart-queue.js';
 import { prepareOwnedPresentations } from './owned-presentations.js';
 import { ownedConferenceAdmissionOpen } from './conference-protocol.js';
 
@@ -33,6 +35,8 @@ export interface OwnedClaimOptions {
   skipReceiveCapable: boolean;
   receiverGeneration?: string;
   informationalOnly: boolean;
+  immediateOnly?: boolean;
+  deliveryTimingEnabled?: boolean;
   smartQueue: boolean;
   peerBatch: boolean;
 }
@@ -53,9 +57,9 @@ export function ownedClaimCandidates(
 ): OwnedMessage[] {
   const sessionId = options.relayGeneration === null ? options.leaseOwner.slice(8) : null;
   const relevant = options.targetAddressIds.flatMap((id) => snapshot.messages.by('targetAddressId', id));
-  const live = relevant.filter((row) =>
+  const live = relevant.filter((row) => (row.status !== 'queued' || row.deliveryTiming !== 'immediate' || options.deliveryTimingEnabled === true) && (
     ['accepted', 'reboot_hold'].includes(row.status) ||
-    (['queued', 'leased'].includes(row.status) && row.expiresAt > now && ownedConferenceAdmissionOpen(snapshot, row, now)));
+    (['queued', 'leased'].includes(row.status) && row.expiresAt > now && ownedConferenceAdmissionOpen(snapshot, row, now))));
   return relevant
     .filter((row) => {
       if (
@@ -65,6 +69,8 @@ export function ownedClaimCandidates(
         (row.nextAttemptAt > now && (!sessionId || row.deliverySessionId === sessionId))
       )
         return false;
+      if ((row.deliveryTiming === 'immediate' && options.deliveryTimingEnabled !== true) ||
+          (options.immediateOnly && !isImmediateInformation(row))) return false;
       if ((!options.smartQueue && row.kind === 'digest') || (options.informationalOnly && isWork(row)))
         return false;
       if (
@@ -77,6 +83,16 @@ export function ownedClaimCandidates(
       const peers = live.filter(
         (other) => other.targetAddressId === row.targetAddressId && other.id !== row.id,
       );
+      if (options.immediateOnly && row.relatedWorkId &&
+          !snapshot.messages.get(row.relatedWorkId)?.acceptedAt) return false;
+      if (options.immediateOnly) return !peers.some(other => {
+        if (!isImmediateInformation(other)) return false;
+        if (inFlight(other)) return true;
+        if (!options.smartQueue) return other.dispatchOrder < row.dispatchOrder;
+        return row.deliveryClass === 'coordination'
+          ? other.deliveryClass === 'coordination' && other.dispatchOrder < row.dispatchOrder
+          : other.deliveryClass === 'coordination' || other.dispatchOrder < row.dispatchOrder;
+      });
       if (!options.smartQueue)
         return !peers.some((other) => inFlight(other) || other.dispatchOrder < row.dispatchOrder);
       const order = presentationOrder(snapshot, row);
@@ -101,6 +117,12 @@ export function ownedClaimCandidates(
         : a.dispatchOrder - b.dispatchOrder;
     });
 }
+function afterTurnReady(runtime: OwnerRuntime, snapshot: OwnerStateSnapshot, options: OwnedClaimOptions): boolean {
+  if (options.immediateOnly || options.relayGeneration !== null) return true;
+  const session = snapshot.sessions.get(options.leaseOwner.slice(8));
+  return !session || session.engine !== 'claude' || receiverState(session.receiver)?.delivery_timing_v1 !== true ||
+    ownedClaudeTurnIdle(runtime, snapshot, session);
+}
 function authorizeClaim(
   runtime: OwnerRuntime,
   snapshot: OwnerStateSnapshot,
@@ -115,6 +137,8 @@ function authorizeClaim(
     if (!session.agentBusAddressId || !options.targetAddressIds.includes(session.agentBusAddressId))
       throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
     const receiver = receiverState(session.receiver);
+    if (options.immediateOnly && receiver?.delivery_timing_v1 !== true)
+      throw new ConflictError('Receiver does not support immediate delivery', 'delivery_timing_unsupported');
     if (
       receiver &&
       (receiver.generation !== options.receiverGeneration || !ownedReceiverReady(runtime, session, 'peer'))
@@ -165,6 +189,7 @@ export async function claimOwnedDelivery(
   const options = { ...rawOptions, claimId: normalizeUuid(rawOptions.claimId, 'claim_id') };
   runtime.assertOwner();
   authorizeClaim(runtime, runtime.state.snapshot(), options);
+  if (!afterTurnReady(runtime, runtime.state.snapshot(), options)) return null;
   const initial = runtime.state.snapshot();
   const replay = initial.messages
     .all()
@@ -176,7 +201,7 @@ export async function claimOwnedDelivery(
         ['leased', 'accepted'].includes(row.status),
     );
   if (replay && replay.status === 'accepted') return null; // The executor already owns this work; never present it again.
-  await prepareOwnedPresentations(db, runtime, keyring, options.targetAddressIds, {
+  if (!options.immediateOnly) await prepareOwnedPresentations(db, runtime, keyring, options.targetAddressIds, {
     smart: options.smartQueue,
     peer: options.peerBatch,
     relay: options.skipReceiveCapable,
@@ -191,8 +216,12 @@ export async function claimOwnedDelivery(
     payload: JSON.parse(JSON.stringify(request)) as Json,
     authorize(snapshot) {
       authorizeClaim(runtime, snapshot, options);
+      if (!afterTurnReady(runtime, snapshot, options)) throw new ConflictError('Receiver activity changed', 'receiver_activity_changed');
       if (selected) {
         ownedAddress(snapshot, selected.targetAddressId);
+        if (selected.deliveryTiming === 'immediate' && (options.relayGeneration !== null ||
+            receiverState(snapshot.sessions.get(options.leaseOwner.slice(8))?.receiver)?.delivery_timing_v1 !== true))
+          throw new ConflictError('Receiver does not support immediate delivery', 'delivery_timing_unsupported');
         if (selected.expiresAt <= new Date().toISOString())
           throw new ConflictError('Message expired before delivery', 'agent_messaging_message_expired');
         if (!ownedConferenceAdmissionOpen(snapshot, selected, new Date().toISOString()))
@@ -219,6 +248,7 @@ export async function claimOwnedDelivery(
             row.status === 'leased',
         );
       if (existing) {
+        if (options.immediateOnly && !isImmediateInformation(existing)) return null;
         if (options.informationalOnly && isWork(existing)) return null;
         assertOwnedDelivery(snapshot, existing, options.claimId, options.leaseOwner, options.relayGeneration);
         deliveryAttachment(runtime, snapshot, options.leaseOwner, existing.ownerInstanceId);

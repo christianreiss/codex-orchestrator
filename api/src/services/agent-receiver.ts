@@ -70,7 +70,7 @@ export class AgentReceiverService {
   async register(
     id: string,
     token: string,
-    input: { generation: string; protocol: ReceiverState['protocol']; native_session_id: string; capabilities?: { queue_delivery_v1?: boolean; peer_batch_v1?: boolean; claim_gate_v1?: boolean } },
+    input: { generation: string; protocol: ReceiverState['protocol']; native_session_id: string; capabilities?: { delivery_timing_v1?: boolean; queue_delivery_v1?: boolean; peer_batch_v1?: boolean; claim_gate_v1?: boolean } },
   ) {
     const owner=ownerRuntimeFor(this.db);if(owner){const result=await registerOwnedReceiver(owner,this.env,id,token,input);this.changed(id);return result;}
     const auth = await this.authenticate(id, token);
@@ -102,6 +102,7 @@ export class AgentReceiverService {
         peer_batch_v1: peerBatchAllowed(this.env, input.capabilities),
         queue_delivery_v1: smartQueueAllowed(this.env, auth.hostId, input.capabilities),
         claim_gate_v1: input.capabilities?.claim_gate_v1 === true,
+        delivery_timing_v1: input.capabilities?.delivery_timing_v1 === true,
         heartbeat_at: now,
         failure: null,
         probes: Object.fromEntries(sources.map((source) => [source, {}])),
@@ -144,7 +145,7 @@ export class AgentReceiverService {
       binding_generation: bound.bindingGeneration,
     } : null;
     return { receiver: receiverView(state), sources: Object.keys(state.probes) as ReceiverSource[],
-      capabilities: { activity_v1: state.activity_v1 === true, queue_policy_v1: true, queue_delivery_v1: state.queue_delivery_v1 === true, peer_batch_v1: state.peer_batch_v1 === true, claim_gate_v1: state.claim_gate_v1 === true }, binding_generation: bound?.bindingGeneration ?? 0, identity };
+      capabilities: { activity_v1: state.activity_v1 === true, queue_policy_v1: true, queue_delivery_v1: state.queue_delivery_v1 === true, peer_batch_v1: state.peer_batch_v1 === true, delivery_timing_v1: state.delivery_timing_v1 === true, claim_gate_v1: state.claim_gate_v1 === true }, binding_generation: bound?.bindingGeneration ?? 0, identity };
   }
 
   async update(
@@ -294,8 +295,9 @@ export class AgentReceiverService {
     return { receiver: receiverView((await this.authenticate(id, token)).receiver) };
   }
 
-  async claim(id: string, token: string, generation: string, source: ReceiverSource, claimId: string, informationalOnly = false) {
-    const owner=ownerRuntimeFor(this.db);if(owner){assertOwnedReceiverClaim(owner,id,token,generation,source);if(source==='peer'){await this.messaging.notifyPresenceReturn(id);return{delivery:await this.messaging.claimForSession(id,token,claimId,generation,informationalOnly)};}return{message:await this.portal.claimMessage(id,token,claimId,undefined,generation)};}
+  async claim(id: string, token: string, generation: string, source: ReceiverSource, claimId: string, informationalOnly = false, immediateOnly = false) {
+    if(immediateOnly && source !== 'peer') throw new ConflictError('Immediate delivery is only available for peer information', 'delivery_timing_unsupported');
+    const owner=ownerRuntimeFor(this.db);if(owner){assertOwnedReceiverClaim(owner,id,token,generation,source);if(source==='peer'){await this.messaging.notifyPresenceReturn(id);return{delivery:await this.messaging.claimForSession(id,token,claimId,generation,informationalOnly || immediateOnly,immediateOnly)};}return{message:await this.portal.claimMessage(id,token,claimId,undefined,generation)};}
     if (z.string().uuid().safeParse(id).success && z.string().uuid().safeParse(claimId).success &&
       await idleSessionPoll(this.db, id, this.env, { bridgeToken: token, receiverGeneration: generation, requireReceiver: true, source })) {
       return source === 'peer' ? { delivery: null } : { message: null };
@@ -319,7 +321,7 @@ export class AgentReceiverService {
     });
     if (source === 'peer') {
       await this.messaging.notifyPresenceReturn(id);
-      return { delivery: await this.messaging.claimForSession(id, token, claimId, generation, informationalOnly) };
+      return { delivery: await this.messaging.claimForSession(id, token, claimId, generation, informationalOnly || immediateOnly, immediateOnly) };
     }
     return { message: await this.portal.claimMessage(id, token, claimId, undefined, generation) };
   }

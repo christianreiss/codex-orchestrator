@@ -173,7 +173,7 @@ function response(runtime: OwnerRuntime, id: string) {
       queue_policy_v1: true,
       queue_delivery_v1: state.queue_delivery_v1 === true,
       peer_batch_v1: state.peer_batch_v1 === true,
-      claim_gate_v1: state.claim_gate_v1 === true,
+      delivery_timing_v1: state.delivery_timing_v1 === true, claim_gate_v1: state.claim_gate_v1 === true,
     },
     binding_generation: session.bindingGeneration,
     identity,
@@ -188,7 +188,7 @@ export async function registerOwnedReceiver(
     generation: string;
     protocol: ReceiverState['protocol'];
     native_session_id: string;
-    capabilities?: { queue_delivery_v1?: boolean; peer_batch_v1?: boolean; claim_gate_v1?: boolean };
+    capabilities?: { delivery_timing_v1?: boolean; queue_delivery_v1?: boolean; peer_batch_v1?: boolean; claim_gate_v1?: boolean };
   },
 ) {
   const drain = legacyDrainFor(runtime),
@@ -258,6 +258,7 @@ export async function registerOwnedReceiver(
         peer_batch_v1: peerBatchAllowed(env, input.capabilities),
         queue_delivery_v1: smartQueueAllowed(env, session.hostId, input.capabilities),
         claim_gate_v1: input.capabilities?.claim_gate_v1 === true,
+        delivery_timing_v1: input.capabilities?.delivery_timing_v1 === true,
         heartbeat_at: now,
         failure: null,
         probes: Object.fromEntries(sources.map((source) => [source, {}])),

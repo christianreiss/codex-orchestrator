@@ -96,7 +96,7 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
     await pool.end();
   });
 
-  async function peer(engine: Engine = 'codex', capable = true, batch = false) {
+  async function peer(engine: Engine = 'codex', capable = true, batch = false, timing = false) {
     const id = randomUUID(),
       token = randomBytes(32).toString('base64url'),
       generation = randomUUID(),
@@ -116,7 +116,7 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
       generation,
       protocol: protocols[engine],
       native_session_id: native,
-      capabilities: capable ? { queue_delivery_v1: true, ...(batch ? { peer_batch_v1: true } : {}) } : undefined,
+      capabilities: capable ? { delivery_timing_v1: timing, queue_delivery_v1: true, ...(batch ? { peer_batch_v1: true } : {}) } : undefined,
     });
     return { id, token, generation, address: address.address, addressId: address.id };
   }
@@ -144,6 +144,77 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
   ) {
     return service.acknowledgeSessionDelivery(p.id, p.token, d.message_id, { claimId: d.claim_id, outcome });
   }
+  for (const engine of ENGINES) {
+    it(`${engine}: immediate timing preserves active work and atomically caps concurrent informational claims`, async () => {
+      const source = await peer(), target = await peer(engine, true, false, true);
+      await send(source, target, 'held task', { kind: 'request' });
+      const held = (await claim(target))!;
+      await ack(target, held, 'accepted');
+      const deferred = await send(source, target, 'after current turn');
+      const clientId = randomUUID();
+      const first = await send(source, target, 'show during current turn', {
+        clientMessageId: clientId, queue: { delivery_timing: 'immediate' },
+      });
+      await send(source, target, 'second immediate', { queue: { delivery_timing: 'immediate' } });
+      await expect(send(source, target, 'show during current turn', { clientMessageId: clientId,
+        queue: { delivery_timing: 'after_turn' } })).rejects.toMatchObject({ code: 'agent_messaging_idempotency_conflict' });
+      await expect(send(source, target, 'no parallel task', { kind: 'request', queue: { delivery_timing: 'immediate' } })).rejects.toThrow();
+      const attempts = await Promise.all([1, 2].map(() => service.claimForSession(target.id, target.token,
+        randomUUID(), target.generation, true, true)));
+      expect(attempts.filter(Boolean)).toHaveLength(1);
+      const immediate = attempts.find(Boolean)!;
+      expect(immediate.message_id).toBe(first.message.id);
+      expect(immediate.delivery_timing).toBe('immediate');
+      expect((await db.select().from(schema.agentBusMessages).where(eq(schema.agentBusMessages.id, held.message_id)))[0]?.status).toBe('accepted');
+      expect((await db.select().from(schema.agentBusMessages).where(eq(schema.agentBusMessages.id, deferred.message.id)))[0]?.status).toBe('queued');
+    });
+    it(`${engine}: unnegotiated immediate remains durable without blocking after-turn work`, async () => {
+      const source = await peer(), target = await peer(engine, false);
+      const receipt = await service.sendMessage(source.id, source.token, { to: target.address, content: 'wait for capability',
+        clientMessageId: randomUUID(), queue: { delivery_timing: 'immediate' } });
+      expect(receipt).toMatchObject({ requested_delivery_timing: 'immediate', effective_delivery_timing: null,
+        timing_fallback_reason: 'receiver_capability_missing' });
+      const ordinary = await send(source, target, 'ordinary work', { kind: 'request' });
+      expect((await claim(target))?.message_id).toBe(ordinary.message.id);
+      expect((await db.select().from(schema.agentBusMessages).where(eq(schema.agentBusMessages.id, (receipt.message as { id: string }).id)))[0]).toMatchObject({ status: 'queued', deliveryTiming: 'immediate' });
+    });
+  }
+
+  it('holds immediate progress until its explicitly related work has been admitted', async () => {
+    const source = await peer(), target = await peer('codex', true, false, true);
+    const work = await send(source, target, 'causal work', { kind: 'request' });
+    const progress = await send(source, target, 'causal immediate progress', { queue: {
+      delivery_timing: 'immediate', delivery_class: 'progress', related_work_id: work.message.id } });
+    expect(await service.claimForSession(target.id, target.token, randomUUID(), target.generation, true, true)).toBeNull();
+    const admitted = (await claim(target))!;
+    expect(admitted.message_id).toBe(work.message.id);
+    await ack(target, admitted, 'accepted');
+    expect((await service.claimForSession(target.id, target.token, randomUUID(), target.generation, true, true))?.message_id).toBe(progress.message.id);
+  });
+
+  it('does not coalesce identical progress keys across delivery timing', async () => {
+    const source = await peer(), target = await peer('codex', true, false, true);
+    const first = await send(source, target, 'after turn progress', { queue: { delivery_class: 'progress', coalesce_key: 'same' } });
+    const immediate = await send(source, target, 'immediate progress', { queue: { delivery_class: 'progress', coalesce_key: 'same', delivery_timing: 'immediate' } });
+    const rows = await db.select().from(schema.agentBusMessages).where(inArray(schema.agentBusMessages.id, [first.message.id, immediate.message.id]));
+    expect(rows.map(row => row.status)).toEqual(['queued', 'queued']);
+    expect(new Set(rows.map(row => row.deliveryTiming))).toEqual(new Set(['after_turn', 'immediate']));
+  });
+  it('keeps immediate originals outside after-turn peer digests', async () => {
+    const source = await peer(), target = await peer('codex', true, true, true);
+    const deferred = [], immediate = [];
+    for (let n = 0; n < 2; n++) {
+      deferred.push((await send(source, target, `deferred ${n}`)).message.id);
+      immediate.push((await send(source, target, `immediate ${n}`, { queue: { delivery_timing: 'immediate' } })).message.id);
+    }
+    await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(eq(schema.agentBusMessages.targetAddressId, target.addressId));
+    const digest = (await claim(target))!;
+    expect(digest).toMatchObject({ kind: 'digest', delivery_timing: 'after_turn' });
+    expect(JSON.parse(digest.content).entries.map((entry: { message_id: string }) => entry.message_id)).toEqual(deferred);
+    const originals = await db.select().from(schema.agentBusMessages).where(inArray(schema.agentBusMessages.id, immediate));
+    expect(originals.every(row => row.status === 'queued' && row.deliveryTiming === 'immediate')).toBe(true);
+  });
+
   it('batches eight actual Advisor completion hooks without dropping any turn', async () => {
     env.CXX_QUEUE_DELIVERY_V1_ENABLED = false;
     const source = await peer(), target = await peer('codex', true, true);

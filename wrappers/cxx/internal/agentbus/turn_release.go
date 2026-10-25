@@ -389,7 +389,7 @@ func (t *channelTracker) releaseNativeTurn(ctx context.Context, busyAt time.Time
 	t.mu.Lock()
 	var seen []string
 	for id, p := range t.items {
-		if p.workKind == "" && !p.nativeAt.IsZero() && p.nativeAt.Before(busyAt) {
+		if p.workKind == "" && p.nativeTurn == "" && !p.nativeAt.IsZero() && p.nativeAt.Before(busyAt) {
 			seen = append(seen, id)
 		}
 	}

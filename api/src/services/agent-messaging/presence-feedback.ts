@@ -1,3 +1,5 @@
+import { deliveryTimingReceipt } from './smart-queue.js';
+import { receiverState } from '../agent-receiver-state.js';
 import { randomUUID } from 'node:crypto';
 import { and, asc, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { agentBusAddresses, agentBusConversations, agentBusMessages, agentSessions, type AgentBusAddress } from '../../db/schema.js';
@@ -16,12 +18,12 @@ export function deliveryHint(presence: AgentAddressPresence): string {
   return 'Stored by the server; recipient is offline. Delivery is waiting; a background worker may resume the existing conversation.';
 }
 
-export async function recipientSnapshot(tx: AgentMessagingDb, address: AgentBusAddress, env: Env, now = new Date()) {
+export async function recipientSnapshot(tx: AgentMessagingDb, address: AgentBusAddress, env: Env, now = new Date(), requestedTiming?: string) {
   const [session] = address.currentSessionId
     ? await tx.select().from(agentSessions).where(eq(agentSessions.id, address.currentSessionId)).limit(1)
     : [];
   const presence = deriveAddressPresence(address, session, new Date(now.getTime() - env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000).toISOString(), now.getTime());
-  return { recipient_presence: presence, observed_at: now.toISOString(), delivery_hint: deliveryHint(presence) };
+  return { ...(requestedTiming === undefined ? {} : deliveryTimingReceipt(requestedTiming, receiverState(session?.receiver)?.delivery_timing_v1 === true)), recipient_presence: presence, observed_at: now.toISOString(), delivery_hint: deliveryHint(presence) };
 }
 
 /** Called under the bus gate, before FIFO selection. Session-scoped mail must never wake a replacement. */

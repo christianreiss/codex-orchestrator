@@ -1,5 +1,16 @@
 # `clx` Wrapper Interface
 
+## Sender-selected delivery timing (cxx 0.9.134)
+
+Informational messaging accepts `delivery_timing: immediate | after_turn` (default
+`after_turn`). Deferred Claude delivery requires observed native root idle proof;
+an immediate channel insertion requires active proof and never cancels work.
+The broker orders synchronous lifecycle-hook updates against the final channel
+write using exact native identity, binding, epoch and sequence. Unknown callback
+outcomes, including their actual timing, remain unknown and are never replayed.
+See [the shared timing contract](agent-messaging-timing.md) for hook assumptions,
+receiver updates, budgets, ordering and work-admission restrictions.
+
 ## Local content cache (cxx 0.9.128)
 
 Signed protocol 3 serves valid content hits directly from communicator RAM,

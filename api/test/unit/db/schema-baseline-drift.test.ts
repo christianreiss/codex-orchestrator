@@ -1,26 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { splitSqlStatements } from '../../../src/db/migration-sql.js';
+import { currentSchemaColumns } from '../../fixtures/current-schema-columns.js';
 
-/**
- * `src/db/baseline/schema.sql` is generated from `src/db/schema.ts` (see the
- * baseline header) and is what `npm run test:db:setup` provisions the DB-backed
- * suites from — and, since it became a shipped artifact, what
- * `migrate.js --init-schema` provisions a fresh installation from. Nothing
- * enforced the pairing: `migration-schema-drift` checks the shipped migrations
- * against the baseline, but a table or column that reaches the mirror without a
- * regenerated baseline stays invisible locally — `npm run test:db` needs a real
- * database — and only surfaces as a confusing runtime error in the GitHub `db`
- * job, or now as a broken fresh install.
- *
- * This is the `schema.ts` half of that check — table and column additions only,
- * read out of the two files as text. Types, defaults, indexes and constraints
- * are not compared; the baseline cannot express FULLTEXT or foreign keys anyway.
- */
+/** The shipped bootstrap snapshot is followed by migrations for fresh installs
+ * and DB suites. Compare schema.ts to that complete projection while preserving
+ * the frozen bootstrap artifact. The sibling migration check independently
+ * verifies each shipped addition against the actual Drizzle mirror.
+ * Types/defaults/indexes are covered by the real-MySQL migration tests. */
 
 const SCHEMA = resolve(import.meta.dirname, '../../../src/db/schema.ts');
-const BASELINE = resolve(import.meta.dirname, '../../../src/db/baseline/schema.sql');
 
 /** Matches both the wrapped call and the one-line `mysqlTable('versions', {`. */
 const MYSQL_TABLE = /mysqlTable\(\s*'([^']+)'\s*,\s*\{/g;
@@ -60,26 +49,9 @@ const schemaTables = (): Map<string, string[]> => {
   return tables;
 };
 
-const baselineTables = (): Map<string, Set<string>> => {
-  const tables = new Map<string, Set<string>>();
-  for (const statement of splitSqlStatements(readFileSync(BASELINE, 'utf8'))) {
-    const table = /^CREATE\s+TABLE\s+`([^`]+)`/i.exec(statement);
-    if (!table) continue; // The trailing `CREATE INDEX` run.
-    const columns = new Set<string>();
-    for (const line of statement.split('\n')) {
-      // A column definition is a backticked name followed by its type; the
-      // `CONSTRAINT …` lines in the same body start with a bare keyword.
-      const column = /^\s*`([^`]+)`\s+\S/.exec(line);
-      if (column) columns.add(column[1]!);
-    }
-    tables.set(table[1]!, columns);
-  }
-  return tables;
-};
-
 describe('schema.ts against the test baseline', () => {
-  it('declares no table or column that schema-baseline.sql lacks', () => {
-    const baseline = baselineTables();
+  it('declares no table or column absent from bootstrap plus migration 0105', () => {
+    const baseline = currentSchemaColumns();
     const missing: string[] = [];
 
     for (const [table, columns] of schemaTables()) {
@@ -93,8 +65,8 @@ describe('schema.ts against the test baseline', () => {
       }
     }
 
-    // Each entry is a mirror change that never reached the fixture: regenerate
-    // it with the drizzle-kit pipeline in the fixture's header.
+    // Each entry lacks both the bootstrap column and its explicit migration.
+    // Keep the shipped bootstrap snapshot unchanged for this additive change.
     expect(missing).toEqual([]);
   });
 

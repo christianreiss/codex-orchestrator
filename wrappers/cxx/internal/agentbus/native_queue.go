@@ -266,3 +266,30 @@ func (q *nativeQueue) watchdogFailure() (string, string, error) {
 	}
 	return "crash", "", nil
 }
+
+// sendImmediate uses the native steering precondition documented by the installed
+// app-server schema. It never starts/cancels a turn and is never retried: a lost
+// reply is uncertain admission, not permission to replay.
+func (q *nativeQueue) sendImmediate(id, content string) (string, error) {
+	if q.thread == "" {
+		return "", errors.New("native thread identity missing")
+	}
+	turn, err := q.latestTurn()
+	if err != nil {
+		return "", err
+	}
+	if turn == nil || turn.ID == "" || turn.Status != "inProgress" {
+		return "", errors.New("immediate delivery requires a confirmed active native turn")
+	}
+	var out struct {
+		TurnID string `json:"turnId"`
+	}
+	err = q.call("turn/steer", map[string]any{"threadId": q.thread, "expectedTurnId": turn.ID, "clientUserMessageId": id, "input": []any{map[string]any{"type": "text", "text": content}}}, &out)
+	if err != nil {
+		return "", err
+	}
+	if out.TurnID != turn.ID {
+		return "", errors.New("native steering admission receipt missing or uncorrelated")
+	}
+	return turn.ID, nil
+}

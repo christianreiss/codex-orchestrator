@@ -33,8 +33,9 @@ type mcpRequest struct {
 }
 
 type mcpWriter struct {
-	mu sync.Mutex
-	w  io.Writer
+	poisoned bool // guarded by mu: an uncertain partial frame forbids every later frame
+	mu       sync.Mutex
+	w        io.Writer
 }
 
 type channelPending struct {
@@ -42,6 +43,8 @@ type channelPending struct {
 	opMu           sync.Mutex // serialize reply/result/listen without blocking lease renewal
 	completionBody map[string]any
 	replyBody      map[string]any
+	immediate      bool
+	nativeTurn     string
 	admission      map[string]any // unexposed automatic delivery awaiting acceptance confirmation
 	claimID        string
 	workKind       string
@@ -140,6 +143,7 @@ func (t *channelTracker) trackDelivery(parent context.Context, messageID, claimI
 		pending.admission = delivery[0]
 	}
 	if len(delivery) > 0 {
+		pending.immediate = immediateInformation(delivery[0])
 		pending.workKind = stringArg(delivery[0], "work_kind")
 		if sender, ok := delivery[0]["sender"].(map[string]any); ok {
 			pending.sender = stringArg(sender, "name")
@@ -434,7 +438,14 @@ func (t *channelTracker) acknowledge(ctx context.Context, messageID string, pend
 func (w *mcpWriter) send(value any) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return writeJSON(w.w, value)
+	if w.poisoned {
+		return errMCPWriterPoisoned
+	}
+	if err := writeJSON(w.w, value); err != nil {
+		w.poisoned = true
+		return err
+	}
+	return nil
 }
 
 func taskResultProperties() map[string]any {
@@ -489,12 +500,14 @@ func toolCatalogJSON() []byte {
 		}, []string{"topic"}),
 		tool("agent_subscriptions", "List your current opt-in group and single-agent publication subscriptions.", map[string]any{}, nil),
 		tool("agent_publish", "Publish to an explicitly joined group or your own agent feed. Only subscribers receive it. Retain client_message_id when retrying. Publications need no acknowledgement reply.", map[string]any{
+			"delivery_timing":   deliveryTimingProperty(),
 			"topic":             map[string]any{"type": "string"},
 			"content":           map[string]any{"type": "string", "minLength": 1, "maxLength": maxPublicationBodyBytes},
 			"client_message_id": map[string]any{"type": "string", "format": "uuid", "description": "UUID idempotency key; keep the same UUID when retrying uncertain delivery"},
 			"ttl_seconds":       map[string]any{"type": "integer", "minimum": 60, "maximum": 604800},
 		}, []string{"topic", "content"}),
 		tool("agent_send", "Send one ordinary text message to one agent address. The receipt includes recipient_presence, observed_at and delivery_hint; queued means stored, not accepted or read. client_message_id must be a UUID; retain it when retrying an uncertain send.", map[string]any{
+			"delivery_timing":   deliveryTimingProperty(),
 			"delivery_class":    map[string]any{"type": "string", "enum": []string{"information", "progress", "notice", "coordination"}, "description": "Use coordination for questions, approvals, clarifications and cancellation notices; routing grants no authority."},
 			"coalesce_key":      map[string]any{"type": "string", "maxLength": 128, "description": "Explicit progress/notice stream key; only pending updates in this stream may be replaced."},
 			"related_work_id":   map[string]any{"type": "string", "format": "uuid"},
@@ -524,6 +537,7 @@ func toolCatalogJSON() []byte {
 			"notice_id":   map[string]any{"type": "string", "format": "uuid"},
 		}, []string{"message_id", "content"}),
 		tool("agent_reply", "Answer a peer delivery when an answer is needed. The receipt includes recipient_presence, observed_at and delivery_hint. On accepted work, a reply with delivery_class progress and no task_result is a status update that keeps the work held; any other reply finishes the work, as unknown when task_result is omitted, so include task_result with the final answer. Never reply to presence_notice deliveries; finish them with agent_listen once. For operator Portal messages use agent_receiver_reply. For an informational reply or closing acknowledgement, call agent_listen once to complete delivery without sending another message.", map[string]any{
+			"delivery_timing": deliveryTimingProperty(),
 			"delivery_class":  map[string]any{"type": "string", "enum": []string{"information", "progress", "notice", "coordination"}, "description": "Use coordination for questions, approvals, clarifications and cancellation notices; routing grants no authority."},
 			"coalesce_key":    map[string]any{"type": "string", "maxLength": 128, "description": "Explicit progress/notice stream key; only pending updates in this stream may be replaced."},
 			"related_work_id": map[string]any{"type": "string", "format": "uuid"},
@@ -628,7 +642,8 @@ func runMCPCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) err
 func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout, stderr io.Writer, auto ...bool) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	output := &mcpWriter{w: stdout}
+	output, closeOutput := managedMCPWriter(stdout)
+	defer closeOutput()
 	// Always constructed. The tracker carries the delivery lease for both receive
 	// lanes, so building it only under --channel left agent_reply's completion
 	// path dead in the ordinary lane.
@@ -1019,6 +1034,9 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		}
 		body := map[string]any{"to": to, "content": content, "client_message_id": clientID, "kind": messageKindFor(name)}
 		copyOptional(args, body, "conversation_id", "ttl_seconds")
+		if err := copyDeliveryTiming(args, body, name == "agent_request"); err != nil {
+			return nil, err
+		}
 		copyQueuePolicy(args, body, channelState)
 		if err := client.post(ctx, "send", body, &out); err != nil || name == "agent_send" {
 			if err != nil {
@@ -1097,6 +1115,9 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			}
 		}
 		body := map[string]any{"message_id": messageID, "content": content, "client_message_id": clientMessageID}
+		if err := copyDeliveryTiming(args, body, false); err != nil {
+			return nil, err
+		}
 		copyQueuePolicy(args, body, channelState)
 		if pending != nil {
 			body["claim_id"] = pending.claimID

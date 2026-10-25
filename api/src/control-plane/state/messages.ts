@@ -27,6 +27,7 @@ export function stageQueuedMessage(
     awaitingPresence: 0,
     kind: 'message',
     deliveryClass: 'information',
+    deliveryTiming: 'after_turn',
     coalesceKey: null,
     relatedWorkId: null,
     eventCount: 1,

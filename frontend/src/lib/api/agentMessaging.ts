@@ -125,6 +125,10 @@ export interface AgentConversation extends AgentConversationMetadata {
 }
 
 export interface AgentMessageMetadata {
+  delivery_timing?: 'immediate' | 'after_turn';
+  requested_delivery_timing?: 'immediate' | 'after_turn';
+  effective_delivery_timing?: 'immediate' | 'after_turn' | null;
+  timing_fallback_reason?: string | null;
   delivery_class?: 'information' | 'progress' | 'notice' | 'coordination';
   coalesce_key?: string | null;
   related_work_id?: string | null;

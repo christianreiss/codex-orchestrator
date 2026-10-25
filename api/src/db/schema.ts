@@ -1828,6 +1828,7 @@ export const agentBusMessages = mysqlTable(
     targetEngine: varchar('target_engine', { length: 16 }).notNull(),
     kind: varchar('kind', { length: 16 }).notNull().default('message'),
     deliveryClass: varchar('delivery_class', { length: 16 }).notNull().default('information'),
+    deliveryTiming: varchar('delivery_timing', { length: 16 }).notNull().default('after_turn'),
     coalesceKey: varchar('coalesce_key', { length: 128 }),
     relatedWorkId: char('related_work_id', { length: 36 }),
     eventCount: int('event_count', { unsigned: true }).notNull().default(1),

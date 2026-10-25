@@ -66,11 +66,12 @@ describe('group and publication HTTP capabilities', () => {
     const publish = vi
       .spyOn(AgentMessagingService.prototype, 'publishAdmin')
       .mockResolvedValue({
+        requested_delivery_timing: 'after_turn',
         publication_id: ID,
         topic: 'group:demo',
         created: true,
         recipient_count: 1,
-        deliveries: [{ address_id: ID, message_id: ID }],
+        deliveries: [{ address_id: ID, message_id: ID, requested_delivery_timing: 'after_turn', effective_delivery_timing: 'after_turn', timing_fallback_reason: null }],
         skipped: [],
       });
     const { app, db } = await appFor('owner');

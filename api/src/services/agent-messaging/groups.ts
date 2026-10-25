@@ -43,6 +43,8 @@ import {
 } from './normalize.js';
 import type { AgentMessagingDb } from './types.js';
 import { resolveWorkflowRunGroup, rejectManagedWorkflowGroupMutation, ownedWorkflowRunGroup } from '../workflow-run-group.js';
+import { receiverState } from '../agent-receiver-state.js';
+import { queuePolicy, deliveryTimingReceipt } from './smart-queue.js';
 import { newQueuedMessage } from './views.js';
 
 export const SERVER_ADDRESS_ID = '00000000-0000-4000-8000-000000000001';
@@ -94,6 +96,7 @@ interface PublicationInput {
   content: string;
   clientMessageId: string;
   ttlSeconds?: number | null;
+  deliveryTiming?: 'immediate' | 'after_turn';
 }
 interface Receipts {
   deliveries: Array<{ address_id: string; message_id: string }>;
@@ -477,6 +480,21 @@ export class AgentMessagingGroups {
     return this.core.requireAddressLocked(tx, SERVER_ADDRESS_ID);
   }
 
+  private async timingReceipts(tx: AgentMessagingDb, receipts: Receipts, timing: 'immediate' | 'after_turn') {
+    const snapshot = this.snapshot();
+    const deliveries = await Promise.all(receipts.deliveries.map(async delivery => {
+      let capable = false;
+      if (timing === 'immediate') {
+        const address = snapshot ? snapshot.addresses.get(delivery.address_id) : (await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, delivery.address_id)))[0];
+        if (address?.currentSessionId) {
+          const session = snapshot ? snapshot.sessions.get(address.currentSessionId) : (await tx.select().from(agentSessions).where(eq(agentSessions.id, address.currentSessionId)))[0];
+          capable = receiverState(session?.receiver)?.delivery_timing_v1 === true;
+        }
+      }
+      return { ...delivery, ...deliveryTimingReceipt(timing, capable) };
+    }));
+    return { ...receipts, deliveries };
+  }
   private async publish(
     tx: AgentMessagingDb,
     sender: AgentBusAddress,
@@ -492,7 +510,8 @@ export class AgentMessagingGroups {
     }
     const ttl = normalizeMessageTtl(input.ttlSeconds);
     const clientId = normalizeUuid(input.clientMessageId, 'client_message_id');
-    const digest = sha256(JSON.stringify({ topic, content, ttl }));
+    const deliveryTiming = queuePolicy({ delivery_timing: input.deliveryTiming }).deliveryTiming;
+    const digest = sha256(JSON.stringify({ topic, content, ttl, ...(deliveryTiming === 'immediate' ? { deliveryTiming } : {}) }));
     const existing=this.snapshot()?.table('agentBusPublications').all().filter(r=>r.senderAddressId===sender.id&&r.clientMessageId===clientId)??await tx
       .select()
       .from(agentBusPublications)
@@ -508,11 +527,12 @@ export class AgentMessagingGroups {
         throw new ConflictError('Publication retry payload differs', 'agent_messaging_publication_conflict');
       const receipts = existing[0].receipts as Receipts;
       return {
+        requested_delivery_timing: deliveryTiming,
         publication_id: existing[0].id,
         topic,
         created: false,
         recipient_count: receipts.deliveries.length,
-        ...receipts,
+        ...await this.timingReceipts(tx, receipts, deliveryTiming),
       };
     }
     await this.requireTopic(tx, topic);
@@ -617,6 +637,7 @@ export class AgentMessagingGroups {
           senderSessionId: sessionId,
           target,
           kind: 'publication',
+          deliveryTiming,
           content: body,
           contentEnc: encrypt(body, this.core.keyring),
           clientMessageId: randomUUID(),
@@ -642,11 +663,12 @@ export class AgentMessagingGroups {
       createdAt: now,
     };const ctx=groupCommand.getStore();if(ctx){ctx.draft.upsert('agentBusPublications',publication);ctx.write(async owned=>owned.insert(agentBusPublications).values(publication));}else await tx.insert(agentBusPublications).values(publication);
     return {
+      requested_delivery_timing: deliveryTiming,
       publication_id: publicationId,
       topic,
       created: true,
       recipient_count: receipts.deliveries.length,
-      ...receipts,
+      ...await this.timingReceipts(tx, receipts, deliveryTiming),
     };
   }
 
@@ -661,6 +683,7 @@ export class AgentMessagingGroups {
     return result;
   }
   async publishForAgent(sessionId: string, token: string, input: PublicationInput) {
+    input = { ...input };
     return this.notify(
       await this.asAgent(sessionId, token, (tx, sender) => this.publish(tx, sender, sessionId, input)),
     );
@@ -751,6 +774,7 @@ export class AgentMessagingGroups {
   }
 
   async publishAdmin(input: PublicationInput) {
+    input = { ...input };
     return this.notify(
       await this.transaction(async (tx) => {
         await this.core.requireEnabledLocked(tx);

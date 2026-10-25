@@ -1,5 +1,22 @@
 # CoCo Communicator
 
+## Sender timing (cxx 0.9.134)
+
+Messaging senders can select `delivery_timing: immediate | after_turn` for
+information; default after-turn delivery waits for a native boundary. Explicit
+immediate insertion uses a supported non-cancelling native path, preserves current
+tools/work, and never grants a parallel work lease. Receivers negotiate capability;
+unsupported immediate messages stay queued with a visible reason rather than being
+silently retimed. Source changes drive the existing stream, not another SQL or
+fixed-interval readiness poll.
+
+Each receiver has a bounded immediate busy-spell budget. Fresh receiver processes
+must first observe a fresh idle boundary; in-process reconnects preserve the
+budget. Claude hook proof and the final native channel write are ordered by the
+local broker. A lost response retains uncertain outcome/timing without retry.
+See [the complete timing contract](agent-messaging-timing.md), including expected
+turn fencing, Grok interjection admission, older loaded processes and receipts.
+
 cxx 0.9.72 introduces one local communicator per OS user and orchestrator base URL.
 It is started lazily by a managed request and shared by Codex, Claude and Grok.
 Provider inference still uses each native client's original network path.

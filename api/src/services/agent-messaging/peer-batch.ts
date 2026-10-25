@@ -35,6 +35,7 @@ export async function preparePeerBatch(tx: AgentMessagingDb, target: AgentBusAdd
   const pending = and(
     eq(agentBusMessages.targetAddressId, target.id),
     eq(agentBusMessages.status, 'queued'),
+    eq(agentBusMessages.deliveryTiming, 'after_turn'),
     eq(agentBusMessages.attempts, 0),
     isNull(agentBusMessages.workKind),
     isNull(agentBusMessages.taskResultStatus),

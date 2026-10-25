@@ -363,10 +363,10 @@ describe('served document byte invariance', () => {
     // 2026-10-20: explicit workflow participant questions are the narrow agent-answer exception.
     // 2026-10-20: reboot-safe procedure pointer and long-session quota catalog fallback.
     // 2026-10-21: ordinary Portal updates and explicit actionable attention criteria.
-    // 2026-10-25: shared native children and connection-proof recovery guidance.
-    expect(out.features_sha256).toBe('35cac4d134134cc95d8a0c34d6930fd48ec023b2c01ded43b55d958dd42d0d5d');
-    expect(out.managed_sha256).toBe('4388c146b47c036ed71429851aa6d8d08fc50554a3a2f5c11c7dec347df841e6');
-    expect(sha256(out.body)).toBe('cca2287cfe9016bee7d12dfe8567b7b8c02ecc95b7e59c2093498fbaacde7bc4');
+    // 2026-10-25: shared native children, connection-proof recovery and non-interrupting immediate delivery.
+    expect(out.features_sha256).toBe('2da44a087bd7c62ab089d422bb7b0de700346b0f96a4112b9021f671e96779a2');
+    expect(out.managed_sha256).toBe('d558190196fd9d859e085523b73f80c277e82eebdfbb4a07ffe5280e7507bc26');
+    expect(sha256(out.body)).toBe('e10a30840ffff57f39748e0a5949e97d0293875a80307fb5b3af5e4855e16bd0');
   });
 });
 
@@ -1018,6 +1018,8 @@ describe('managed Agent Messaging guidance', () => {
       expect(body).toContain('reply is informational by default');
       expect(body).toContain('Never acknowledge an acknowledgement');
       expect(body).toContain('Austausch beendet');
+      expect(body).toContain('Immediate information: keep work running');
+      expect(body).toContain('pending until reply or natural turn end');
       expect(body).toMatch(/Complete that delivery with `agent_listen` once and yield, without sending\s+another peer message/);
     }
   });

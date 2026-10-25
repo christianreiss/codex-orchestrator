@@ -21,6 +21,7 @@ const receiverUpdate = z
       .optional(),
     capacity: z.boolean().optional(),
     informational_only: z.boolean().optional(),
+    immediate_only: z.boolean().optional(),
   })
   .strict();
 const relayUpdate = z.object({ capacity: z.number().int().min(0).max(64) }).strict();
@@ -150,7 +151,7 @@ export class OwnerStateProvider implements StateProvider {
           // one finite RAM claim; a false negative could strand durable work.
           const work = [...peer, ...portal]
             .filter((m) => ['queued', 'leased', 'accepted'].includes(m.status))
-            .map((m) => [m.id, m.status, m.updatedAt, due(m.nextAttemptAt), due(m.leaseUntil)]);
+            .map((m) => [m.id, m.status, m.updatedAt, 'deliveryTiming' in m ? m.deliveryTiming : null, due(m.nextAttemptAt), due(m.leaseUntil)]);
           const fingerprint = canonicalCommand(json([sources, work]));
           if (lastWork !== fingerprint) {
             lastWork = fingerprint;
@@ -166,7 +167,7 @@ export class OwnerStateProvider implements StateProvider {
           state.messages
             .by('targetAddressId', a.id)
             .filter((m) => ['queued', 'leased', 'accepted'].includes(m.status))
-            .map((m) => [m.id, m.status, m.updatedAt, due(m.nextAttemptAt), due(m.leaseUntil)]),
+            .map((m) => [m.id, m.status, m.updatedAt, 'deliveryTiming' in m ? m.deliveryTiming : null, due(m.nextAttemptAt), due(m.leaseUntil)]),
         );
         const fingerprint = canonicalCommand(
           json([

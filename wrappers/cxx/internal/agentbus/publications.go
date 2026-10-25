@@ -72,6 +72,9 @@ func callPublicationTool(ctx context.Context, client *sessionClient, name string
 				messageID = newUUID()
 			}
 			body["client_message_id"], body["content"] = messageID, content
+			if err := copyDeliveryTiming(args, body, false); err != nil {
+				return nil, err
+			}
 			if ttl, present := args["ttl_seconds"]; present && ttl != nil {
 				seconds := intArg(args, "ttl_seconds", -1)
 				if seconds < 60 || seconds > 604800 {

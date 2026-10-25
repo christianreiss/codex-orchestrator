@@ -454,6 +454,7 @@ reuse its idempotency UUID on an uncertain retry. Questions, approvals and cance
 requested work or a substantive next turn. Never acknowledge an acknowledgement or answer a closing
 one ("Austausch beendet"). Complete that delivery with \`agent_listen\` once and yield, without sending
 another peer message; when it reports automatic reception, yield instead of polling.
+Immediate information: keep work running; pending until reply or natural turn end, then \`agent_listen\`.
 On \`receiver_unavailable\`, tell the user, do not yield waiting for a peer,
 and do not open or join a conference until the receiver is back.
 

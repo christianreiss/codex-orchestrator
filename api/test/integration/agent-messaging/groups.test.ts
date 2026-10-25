@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   agentBusAddresses,
+  agentSessions,
   agentBusSubscriptions,
   agentBusMessages,
   agentBusPublications,
@@ -144,6 +145,25 @@ describe.skipIf(!handle)('persistent opt-in publications against MySQL', { timeo
     expect(mailbox.pending).toEqual([expect.objectContaining({ message_id: sent.deliveries[0]!.message_id, kind: 'publication', from: expect.objectContaining({ engine: 'server', fqdn: null }) })]);
     expect(JSON.stringify(mailbox)).not.toContain('Server notice');
   });
+
+  for (const engine of ['codex', 'claude', 'grok'] as const) {
+    it(`${engine}: publication timing persists and reports mixed receiver capability per recipient`, async () => {
+      const sender = await register(engine, 'timing-sender'), capable = await register('codex', 'timing-capable');
+      const legacy = await register('grok', 'timing-legacy'), topic = await group([sender, capable, legacy]);
+      await db.update(agentSessions).set({ receiver: { generation: randomUUID(), heartbeat_at: new Date().toISOString(),
+        probes: { peer: {} }, delivery_timing_v1: true } }).where(eq(agentSessions.id, capable.sessionId));
+      const input = { topic, content: 'publish during current turn', clientMessageId: randomUUID(), deliveryTiming: 'immediate' as const };
+      const result = await service.publish(sender.sessionId, sender.token, input);
+      expect(result.requested_delivery_timing).toBe('immediate');
+      expect(result.deliveries.find(row => row.address_id === capable.addressId)).toMatchObject({
+        requested_delivery_timing: 'immediate', effective_delivery_timing: 'immediate', timing_fallback_reason: null });
+      expect(result.deliveries.find(row => row.address_id === legacy.addressId)).toMatchObject({
+        requested_delivery_timing: 'immediate', effective_delivery_timing: null, timing_fallback_reason: 'receiver_capability_missing' });
+      for (const delivery of result.deliveries) expect((await message(delivery.message_id)).deliveryTiming).toBe('immediate');
+      await expect(service.publish(sender.sessionId, sender.token, { ...input, deliveryTiming: 'after_turn' }))
+        .rejects.toMatchObject({ code: 'agent_messaging_publication_conflict' });
+    });
+  }
 
   it('routes each of Codex, Claude and Grok to the two other group members, then Server to all three', async () => {
     const agents = await Promise.all(ENGINES.map((engine) => register(engine, engine)));

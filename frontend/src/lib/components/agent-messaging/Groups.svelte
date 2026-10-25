@@ -36,6 +36,7 @@
   let createOpen = $state(false);
   let content = $state("");
   let recipientMode = $state("group");
+  let deliveryTiming = $state<"immediate" | "after_turn">("after_turn");
   let subscriptionSearch = $state("");
   let receipt = $state<AgentPublication | null>(null);
   let sendError = $state<string | null>(null);
@@ -49,7 +50,7 @@
     const text = [item.topic, item.subscriber_address, item.subscriber_engine, addressLabel(item.subscriber_address_id), topicLabel(item.topic)].join(" ").toLowerCase();
     return text.includes(subscriptionSearch.trim().toLowerCase());
   }));
-  const draftChanged = $derived(pendingAttempt !== null && (pendingAttempt.topic !== topic || pendingAttempt.content !== content.trim()));
+  const draftChanged = $derived(pendingAttempt !== null && (pendingAttempt.topic !== topic || pendingAttempt.content !== content.trim() || (pendingAttempt.delivery_timing ?? "after_turn") !== deliveryTiming));
   const managedGroup = $derived(!!($detail.data?.group.workflow_managed || $detail.data?.group.workflow_run_id));
   const composeUnavailable = $derived((recipientMode === "group" && managedGroup) || !enabled || !topic || (recipientMode === "group" && (!$detail.data || $detail.data.group.slug !== selectedSlug || $detail.isError || $groups.isError)));
 
@@ -84,7 +85,7 @@
   async function send(event: SubmitEvent) {
     event.preventDefault();
     if (!canManage || composeUnavailable || !content.trim() || contentTooLarge || $publish.isPending) return;
-    if (!pendingAttempt || draftChanged) pendingAttempt = { topic, content: content.trim(), client_message_id: crypto.randomUUID() };
+    if (!pendingAttempt || draftChanged) pendingAttempt = { topic, content: content.trim(), delivery_timing: deliveryTiming, client_message_id: crypto.randomUUID() };
     const attempt = pendingAttempt;
     sendError = null;
     try {
@@ -176,6 +177,14 @@
             </select>
           </label>
           <p class="break-all font-mono text-caption text-muted-foreground">{topic || "Choose a group above"}</p>
+          <div class="text-body-sm">
+            <label for="publication-timing">Delivery timing</label>
+            <select id="publication-timing" class="mt-1 min-h-9 w-full rounded border border-input bg-card px-3 text-body-sm" bind:value={deliveryTiming} disabled={$publish.isPending} aria-describedby="publication-timing-help">
+              <option value="after_turn">After the current turn</option>
+              <option value="immediate">During the current turn</option>
+            </select>
+          </div>
+          <p id="publication-timing-help" class="text-body-sm text-muted-foreground">{deliveryTiming === "immediate" ? "Surface this update at the next supported boundary while current work keeps running. A receiver without this capability keeps it queued until updated. Delivery is not a cancellation or a new task." : "Wait until the recipient finishes its current turn."}</p>
           <label class="block text-body-sm">Message to subscribers<Textarea class="mt-1" bind:value={content} placeholder="Share a scoped update…" maxlength={maxContentBytes} aria-describedby="publication-size" aria-invalid={contentTooLarge} rows={4} /></label>
           <p id="publication-size" class="text-caption" class:text-destructive={contentTooLarge} class:text-muted-foreground={!contentTooLarge}>{contentBytes.toLocaleString()} / {maxContentBytes.toLocaleString()} UTF-8 bytes{contentTooLarge ? " · Message exceeds the publication limit." : " · 24h delivery expiry"}</p>
           {#if sendError}
@@ -191,12 +200,13 @@
         {#if receipt}
           <div class="mt-4 rounded-md border bg-muted/25 p-3" role="status" aria-label="Publication receipt">
             <p class="text-body font-medium">{receipt.recipient_count} {receipt.recipient_count === 1 ? "recipient" : "recipients"} queued{!receipt.created ? " · Existing publication" : ""}</p>
+            <p class="text-body-sm text-muted-foreground">Requested timing: {(receipt.requested_delivery_timing ?? receipt.delivery_timing) === "immediate" ? "During the current turn" : "After the current turn"}. Queued is not yet delivered.</p>
             <p class="break-all font-mono text-caption text-muted-foreground">{receipt.publication_id}</p>
             <p class="text-caption text-muted-foreground">{topicLabel(receipt.topic)} · {receipt.skipped.length} skipped · Queued means waiting for engine acceptance.</p>
             <details class="mt-2">
               <summary class="cursor-pointer text-caption font-medium">Recipient receipts</summary>
               <ul class="mt-2 space-y-1 text-caption">
-                {#each receipt.deliveries as delivery (delivery.address_id)}<li class="break-all">{addressLabel(delivery.address_id)} · queued · {delivery.message_id}</li>{/each}
+                {#each receipt.deliveries as delivery (delivery.address_id)}<li class="break-all">{addressLabel(delivery.address_id)} · queued{delivery.timing_fallback_reason === "receiver_capability_missing" ? " · Waiting for a receiver update" : ""} · {delivery.message_id}</li>{/each}
                 {#each receipt.skipped as skipped (skipped.address_id)}<li class="break-all text-warning-muted-foreground">{addressLabel(skipped.address_id)} · skipped: {skipped.reason}</li>{/each}
               </ul>
             </details>

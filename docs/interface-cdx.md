@@ -1,5 +1,15 @@
 # cdx Wrapper Interface (Source of Truth)
 
+## Sender-selected delivery timing (cxx 0.9.134)
+
+Informational messaging accepts `delivery_timing: immediate | after_turn` (default
+`after_turn`). Codex uses correlated, expected-turn-guarded native steering for
+explicit immediate updates, never cancellation or a second turn scheduler.
+Unknown submission is retained without replay. Capability is negotiated for the
+loaded receiver; an installed update alone does not upgrade existing sessions.
+See [the shared timing contract](agent-messaging-timing.md) for ordering, limits,
+work-admission restrictions and truthful queued/capability receipts.
+
 ## Local content cache (cxx 0.9.128)
 
 Signed protocol 3 serves valid content hits directly from communicator RAM,

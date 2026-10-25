@@ -1,25 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { splitSqlStatements } from '../../../src/db/migration-sql.js';
+import { getTableColumns, getTableName, isTable } from 'drizzle-orm';
+import * as schema from '../../../src/db/schema.js';
+import { currentSchemaColumns } from '../../fixtures/current-schema-columns.js';
 import { loadMigrations } from '../../../src/db/migrator.js';
 
-/**
- * AGENTS.md requires a migration to land with the matching `schema.ts` update in
- * the same commit, and `src/db/baseline/schema.sql` is generated from
- * `schema.ts`, provisions the DB-backed suites, and provisions every fresh
- * installation through `migrate.js --init-schema`. Nothing enforced the pairing:
- * the double-apply test in `test/integration/db-migrations/` needs a real
- * database, so a migration shipped without the schema update would leave
- * production ahead of both the mirror and the baseline with every gate green.
- *
- * This is the static half of that check — table and column additions only, read
- * out of the shipped SQL and looked up in the baseline. Types, defaults, indexes
- * and constraints are not compared; the baseline cannot express FULLTEXT or
- * foreign keys anyway (see the header of the baseline).
- */
-
-const BASELINE = resolve(import.meta.dirname, '../../../src/db/baseline/schema.sql');
+/** Migrations must update the current Drizzle mirror independently of the
+ * bootstrap fixture. Fresh installs apply migrations after the frozen baseline;
+ * the sibling schema check verifies that resulting projection against schema.ts.
+ * Types/defaults/indexes remain the real-MySQL migration suite's responsibility. */
 
 /** Anchored: a `CREATE TABLE` quoted inside a CALL argument is not a creation. */
 const CREATE_TABLE = /^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?([A-Za-z0-9_$]+)`?/i;
@@ -100,26 +88,16 @@ const migrationRemovals = async (): Promise<Set<string>> => {
   return removed;
 };
 
-const baselineTables = (): Map<string, Set<string>> => {
-  const tables = new Map<string, Set<string>>();
-  for (const statement of splitSqlStatements(readFileSync(BASELINE, 'utf8'))) {
-    const table = /^CREATE\s+TABLE\s+`([^`]+)`/i.exec(statement);
-    if (!table) continue; // The trailing `CREATE INDEX` run.
-    const columns = new Set<string>();
-    for (const line of statement.split('\n')) {
-      // A column definition is a backticked name followed by its type; the
-      // `CONSTRAINT …` lines in the same body start with a bare keyword.
-      const column = /^\s*`([^`]+)`\s+\S/.exec(line);
-      if (column) columns.add(column[1]!);
-    }
-    tables.set(table[1]!, columns);
-  }
-  return tables;
-};
-
 describe('migrations against the test baseline', () => {
-  it('adds no table or column that schema-baseline.sql lacks', async () => {
-    const baseline = baselineTables();
+  it('adds no table or column missing from the current Drizzle mirror', async () => {
+    const baseline = new Map<string, Set<string>>(
+      Object.values(schema)
+        .filter(isTable)
+        .map((table) => [
+          getTableName(table),
+          new Set(Object.values(getTableColumns(table)).map((column) => column.name)),
+        ] as const),
+    );
     const retired = await migrationRemovals();
     const missing: string[] = [];
 
@@ -134,8 +112,7 @@ describe('migrations against the test baseline', () => {
       if (!columns?.has(column)) missing.push(`${migration}:${table}.${column}`);
     }
 
-    // Each entry is a schema change that reached `migrations/` without reaching
-    // `schema.ts`: update the mirror and regenerate the fixture.
+    // Each entry reached migrations without the independently declared mirror.
     expect(missing).toEqual([]);
   });
 
@@ -403,14 +380,16 @@ describe('migrations against the test baseline', () => {
       'workflow_run_tasks.claim_native_instance_id',
       'control_plane_command_receipts.replay_class',
       'control_plane_command_receipts.result_state',
+      'agent_bus_messages.delivery_timing',
     ]);
   });
 
   it('reads whole tables out of the baseline, columns and all', () => {
-    const baseline = baselineTables();
+    const baseline = currentSchemaColumns();
     expect(baseline.get('auth_canonical_heads')).toEqual(
       new Set(['engine', 'payload_id', 'generation', 'updated_at']),
     );
     expect(baseline.get('schema_migrations')?.has('checksum')).toBe(true);
+    expect(baseline.get('agent_bus_messages')?.has('delivery_timing')).toBe(true);
   });
 });

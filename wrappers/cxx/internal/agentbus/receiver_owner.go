@@ -84,6 +84,10 @@ func (o *receiverOwner) serve(ctx context.Context, stderr io.Writer) error {
 	o.mu.Unlock()
 	defer func() { o.mu.Lock(); o.owned = false; o.mu.Unlock() }()
 	server := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == ownerDeliverPath {
+			o.serveChannelDelivery(w, r)
+			return
+		}
 		if r.Method == http.MethodPost && (r.URL.Path == ownerHeldPath || r.URL.Path == ownerReleasePath) {
 			o.serveTurn(w, r, ownerCtx)
 			return

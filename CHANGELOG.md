@@ -1,5 +1,7 @@
 # 2026-10-25
 
+- cxx 0.9.134 adds explicit message delivery timing: informational updates can surface during a native turn without cancelling current work, or wait for its end (the default). Preserve work-admission limits, identity and uncertain-submission fences; expose requested timing and unavailable receiver capability in receipts and the group publisher. Keep immediate messages out of deferred digests and coalescing lanes. Migration 0105 persists timing.
+
 - Unify sign-in, password recovery and CLI approval around one branded authentication frame, shared action styling and responsive session details. Keep provider selection consistent across credential upload and one-time commands for Codex, Claude and Grok; make file selection keyboard-accessible and keep errors beside the task.
 
 - Clear remaining feedback defects: default local claim resources to the authenticated host, explain native-proof and Git workspace recovery without weakening ownership, document shared native-child identity, skip invalid legacy retention clock stamps by index cursor, and schedule auth retries after rescan with bounded overdue recovery.

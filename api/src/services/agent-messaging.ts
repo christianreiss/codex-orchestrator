@@ -23,7 +23,7 @@ import { preparePeerBatch, presentationOrder } from './agent-messaging/peer-batc
 import { ApiError } from '../http/errors.js';
 import { activeRolesForAddresses, roleLabelsForAddress } from './roles/assignments.js';
 import { newQueuedMessage } from './agent-messaging/views.js';
-import { queuePolicy, assertQueuePolicyReplay, validateRelatedWork, smartQueueAllowed, peerBatchAllowed, prepareSmartDigest, restoreUnpresentedDigests, presentDigest, coalescePendingRepeats, type QueuePolicy } from './agent-messaging/smart-queue.js';
+import { captureQueuePolicy, isImmediateInformation, queuePolicy, assertQueuePolicyReplay, validateRelatedWork, smartQueueAllowed, peerBatchAllowed, prepareSmartDigest, restoreUnpresentedDigests, presentDigest, coalescePendingRepeats, type QueuePolicy } from './agent-messaging/smart-queue.js';
 import { WORKFLOWS_MIN_CXX_VERSION } from './managed-workflows-skill.js';
 import { compareWrapperVersions, hostRunningWrapperVersion } from './wrapper-rollout.js';
 import { expireRebootHandoffs } from './reboot-handoffs.js';
@@ -375,7 +375,7 @@ export class AgentMessagingService {
 
   private async sendReceipt(result: { created: boolean; message: AgentBusMessage; content: string; sender: AgentBusAddress; target: AgentBusAddress }) {
     const [target] = await this.db.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, result.target.id)).limit(1);
-    const snapshot = await recipientSnapshot(this.db, target ?? result.target, this.env);
+    const snapshot = await recipientSnapshot(this.db, target ?? result.target, this.env, new Date(), result.message.deliveryTiming);
     if (result.message.status !== 'queued' && result.message.status !== 'leased') {
       snapshot.delivery_hint = `Stored receipt; message status is ${result.message.status}. Recipient presence is ${snapshot.recipient_presence}. This is not proof of reading.`;
     }
@@ -453,7 +453,7 @@ export class AgentMessagingService {
   getAdminGroup(slug: string) { return this.groups.detailAdmin(slug); }
   createAdminGroup(input: {slug: string; title: string; description?: string | null}) { return this.groups.createAdmin(input); }
   listAdminSubscriptions() { return this.groups.subscriptionsAdmin(); }
-  publishAdmin(input: {topic: string; content: string; clientMessageId: string; ttlSeconds?: number | null}) { return this.groups.publishAdmin(input); }
+  publishAdmin(input: {topic: string; content: string; clientMessageId: string; ttlSeconds?: number | null; deliveryTiming?: 'immediate' | 'after_turn'}) { return this.groups.publishAdmin(input); }
   noticeAddresses(addressIds: string[], content: string, noticeId?: string) { return this.groups.noticeAddresses(addressIds, content, noticeId); }
   noticeAddressesOwned(command: import('../control-plane/state/runtime.js').OwnerMutationContext, addressIds: string[], content: string) { return this.groups.noticeAddressesOwned(command,addressIds,content); }
   listGroups(sessionId: string, token: string) { return this.groups.listForAgent(sessionId, token); }
@@ -464,7 +464,7 @@ export class AgentMessagingService {
   subscribe(sessionId: string, token: string, topic: string) { return this.groups.subscribe(sessionId, token, topic, true); }
   unsubscribe(sessionId: string, token: string, topic: string) { return this.groups.subscribe(sessionId, token, topic, false); }
   subscriptions(sessionId: string, token: string) { return this.groups.subscriptionsForAgent(sessionId, token); }
-  publish(sessionId: string, token: string, input: {topic: string; content: string; clientMessageId: string; ttlSeconds?: number | null}) { return this.groups.publishForAgent(sessionId, token, input); }
+  publish(sessionId: string, token: string, input: {topic: string; content: string; clientMessageId: string; ttlSeconds?: number | null; deliveryTiming?: 'immediate' | 'after_turn'}) { return this.groups.publishForAgent(sessionId, token, input); }
 
   async sendMessage(
     sessionId: string,
@@ -479,6 +479,7 @@ export class AgentMessagingService {
       queue?: QueuePolicy;
     },
   ): Promise<Record<string, unknown>> {
+    input = { ...input, queue: captureQueuePolicy(input.queue) };
     const owner = ownerRuntimeFor(this.db);
     if (owner) return sendOwnedMessage(this.db, owner, this.keyring, sessionId, bridgeToken, input);
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
@@ -617,6 +618,7 @@ export class AgentMessagingService {
     parentMessageId: string,
     input: { content: string; clientMessageId: string; ttlSeconds?: number | null; claimId?: string; taskResult?: TaskResult; queue?: QueuePolicy },
   ): Promise<Record<string, unknown>> {
+    input = { ...input, queue: captureQueuePolicy(input.queue) };
     const owner = ownerRuntimeFor(this.db);
     if (owner) return replyOwnedMessage(this.db, owner, this.keyring, {kind:'session',id:sessionId,token:bridgeToken}, parentMessageId, input);
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
@@ -625,7 +627,7 @@ export class AgentMessagingService {
     const content = normalizeMessageBody(input.content);
     const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
     const ttlSeconds = normalizeMessageTtl(input.ttlSeconds);
-    let policy = queuePolicy(input.taskResult ? { delivery_class: 'coordination' } : input.queue);
+    let policy = queuePolicy(input.taskResult ? { ...input.queue, delivery_class: 'coordination' } : input.queue);
     const parentId = normalizeUuid(parentMessageId, 'message_id');
     const result = await this.db.transaction(async (tx) => {
       await this.requireEnabledLocked(tx);
@@ -835,17 +837,17 @@ export class AgentMessagingService {
     return result;
   }
 
-  async claimForSession(sessionId: string, bridgeToken: string, claimId: string, receiverGeneration?: string, informationalOnly = false): Promise<MessageDelivery | null> {
+  async claimForSession(sessionId: string, bridgeToken: string, claimId: string, receiverGeneration?: string, informationalOnly = false, immediateOnly = false): Promise<MessageDelivery | null> {
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     const addressId = authenticated.session.agentBusAddressId;
     if (!addressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
-    if (ownerRuntimeFor(this.db)) return this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly, smartQueueAllowed(this.env, authenticated.host.id, authenticated.session.receiver), peerBatchAllowed(this.env, authenticated.session.receiver));
+    if (ownerRuntimeFor(this.db)) return this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly, smartQueueAllowed(this.env, authenticated.host.id, authenticated.session.receiver), peerBatchAllowed(this.env, authenticated.session.receiver), immediateOnly, receiverState(authenticated.session.receiver)?.delivery_timing_v1 === true);
     if (!authenticated.session.receiveHeartbeatAt) {
       throw new ConflictError('Agent session is not receive-capable', 'agent_messaging_adapter_unavailable');
     }
     normalizeUuid(claimId, 'claim_id');
     if (await idleSessionPoll(this.db, sessionId, this.env, { bridgeToken, receiverGeneration })) return null;
-    return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly, smartQueueAllowed(this.env, authenticated.host.id, authenticated.session.receiver), peerBatchAllowed(this.env, authenticated.session.receiver));
+    return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly, smartQueueAllowed(this.env, authenticated.host.id, authenticated.session.receiver), peerBatchAllowed(this.env, authenticated.session.receiver), immediateOnly, receiverState(authenticated.session.receiver)?.delivery_timing_v1 === true);
   }
 
   /**
@@ -1521,9 +1523,13 @@ export class AgentMessagingService {
     informationalOnly = false,
     smartQueue = false,
     peerBatch = false,
+    immediateOnly = false,
+    deliveryTimingEnabled = false,
   ): Promise<MessageDelivery | null> {
+    informationalOnly ||= immediateOnly;
+    if (immediateOnly && !deliveryTimingEnabled) throw new ConflictError('Receiver does not support immediate delivery', 'delivery_timing_unsupported');
     const owner = ownerRuntimeFor(this.db);
-    if (owner) return claimOwnedDelivery(this.db, owner, this.keyring, { targetAddressIds, leaseOwner, claimId: rawClaimId, relayGeneration, skipReceiveCapable, receiverGeneration, informationalOnly, smartQueue, peerBatch });
+    if (owner) return claimOwnedDelivery(this.db, owner, this.keyring, { targetAddressIds, leaseOwner, claimId: rawClaimId, relayGeneration, skipReceiveCapable, receiverGeneration, informationalOnly: informationalOnly || immediateOnly, immediateOnly, deliveryTimingEnabled, smartQueue, peerBatch });
     const claimId = normalizeUuid(rawClaimId, 'claim_id');
     const now = nowIso();
     const leaseUntil = isoOffsetSeconds(AGENT_MESSAGING_LEASE_SECONDS);
@@ -1573,6 +1579,8 @@ export class AgentMessagingService {
         .limit(1)
         .for('update');
       if (replayRows[0]) {
+        if (immediateOnly && !isImmediateInformation(replayRows[0])) return null;
+        if (replayRows[0].deliveryTiming === 'immediate' && !deliveryTimingEnabled) return null;
         if (informationalOnly && (replayRows[0].workKind || ['request', 'task', 'schedule'].includes(replayRows[0].kind))) return null;
         const target = await this.requireAddressLocked(tx, replayRows[0].targetAddressId);
         const sender = await this.requireAddressLocked(tx, replayRows[0].senderAddressId);
@@ -1623,10 +1631,23 @@ export class AgentMessagingService {
             : lte(agentBusMessages.nextAttemptAt, now),
           gt(agentBusMessages.expiresAt, now),
           conferenceAdmissionOpenSql(now),
-          smartQueue ? sql`NOT EXISTS (
+          immediateOnly ? sql`NOT EXISTS (
+            SELECT 1 FROM agent_bus_messages AS active_immediate
+            WHERE active_immediate.target_address_id = ${agentBusMessages.targetAddressId}
+              AND active_immediate.id <> ${agentBusMessages.id}
+              AND active_immediate.delivery_timing = 'immediate'
+              AND active_immediate.work_kind IS NULL AND active_immediate.kind IN ('message','reply','publication')
+              AND (active_immediate.status IN ('leased','accepted','reboot_hold') OR
+                (active_immediate.status = 'queued' AND active_immediate.expires_at > ${now}
+                  AND ${smartQueue ? sql`(
+                    (${agentBusMessages.deliveryClass} = 'coordination' AND active_immediate.delivery_class = 'coordination' AND active_immediate.dispatch_order < ${agentBusMessages.dispatchOrder}) OR
+                    (${agentBusMessages.deliveryClass} <> 'coordination' AND (active_immediate.delivery_class = 'coordination' OR active_immediate.dispatch_order < ${agentBusMessages.dispatchOrder})))`
+                    : sql`active_immediate.dispatch_order < ${agentBusMessages.dispatchOrder}`}))
+          )` : smartQueue ? sql`NOT EXISTS (
             SELECT 1 FROM agent_bus_messages AS earlier
              WHERE earlier.target_address_id = ${agentBusMessages.targetAddressId}
                AND earlier.status IN ('queued','leased','accepted','reboot_hold')
+               AND (earlier.status <> 'queued' OR earlier.delivery_timing <> 'immediate' OR ${deliveryTimingEnabled ? 1 : 0}=1)
                AND (earlier.status IN ('accepted','reboot_hold') OR ${conferenceAdmissionOpenSql(now, 'earlier')})
                AND earlier.id <> ${agentBusMessages.id}
                AND (
@@ -1641,7 +1662,9 @@ export class AgentMessagingService {
                        (${agentBusMessages.kind} = 'digest' AND earlier.kind = 'digest' AND ${earlierOrder} < ${candidateOrder}) OR
                        (${agentBusMessages.kind} <> 'digest' AND (earlier.kind = 'digest' OR ${earlierOrder} < ${candidateOrder}))))))
                )
-          )` : strictFifoDeliveryReady(),
+          )` : strictFifoDeliveryReady(now, deliveryTimingEnabled),
+          ...(deliveryTimingEnabled ? [] : [eq(agentBusMessages.deliveryTiming, 'after_turn')]),
+          ...(immediateOnly ? [eq(agentBusMessages.deliveryTiming, 'immediate'), isNull(agentBusMessages.workKind), inArray(agentBusMessages.kind, ['message','reply','publication']), sql`(${agentBusMessages.relatedWorkId} IS NULL OR EXISTS (SELECT 1 FROM agent_bus_messages related_work WHERE related_work.id = ${agentBusMessages.relatedWorkId} AND related_work.accepted_at IS NOT NULL))`] : []),
           ...(!smartQueue ? [sql`${agentBusMessages.kind} <> 'digest'`] : []),
           ...(informationalOnly ? [sql`${agentBusMessages.workKind} IS NULL AND ${agentBusMessages.kind} NOT IN ('request','task','schedule')`] : []),
         ))

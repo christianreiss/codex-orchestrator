@@ -773,8 +773,11 @@ func TestUnreadableConfigCommandsAreStructuredActionableAndSanitized(t *testing.
 			t.Fatalf("doctor exit = %d, want 1; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 		}
 		out := stdout.String()
+		// Long temporary paths can wrap the repair command at the terminal
+		// width. Check its words without coupling this assertion to that path.
+		normalized := strings.Join(strings.Fields(out), " ")
 		for _, want := range []string{"CDX DOCTOR", "FAIL CONFIG", "GUIDANCE", "cdx doctor", "VERDICT", "FAIL RESULT"} {
-			if !strings.Contains(out, want) {
+			if !strings.Contains(normalized, want) {
 				t.Fatalf("blocked doctor missing %q:\n%s", want, out)
 			}
 		}

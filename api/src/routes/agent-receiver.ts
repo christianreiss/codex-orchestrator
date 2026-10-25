@@ -56,14 +56,14 @@ export async function registerAgentReceiverRoutes(app: FastifyInstance, ctx: Rou
             generation,
             protocol: z.enum(['codex-queue-v1', 'claude-channel-v1', 'grok-acp-v1']),
             native_session_id: z.string().min(1).max(255),
-            capabilities: z.object({ queue_delivery_v1: z.boolean().optional(), peer_batch_v1: z.boolean().optional(), claim_gate_v1: z.boolean().optional() }).strict().optional(),
+            capabilities: z.object({ delivery_timing_v1: z.boolean().optional(), queue_delivery_v1: z.boolean().optional(), peer_batch_v1: z.boolean().optional(), claim_gate_v1: z.boolean().optional() }).strict().optional(),
           })
           .strict()
           .parse(req.body),
       );
     if (op === 'claim') {
-      const body = z.object({ generation, source, claim_id: z.string().uuid(), informational_only: z.boolean().optional() }).strict().parse(req.body);
-      const claim = () => service.claim(id, token, body.generation, body.source, body.claim_id, body.informational_only);
+      const body = z.object({ generation, source, claim_id: z.string().uuid(), informational_only: z.boolean().optional(), immediate_only: z.boolean().optional() }).strict().parse(req.body);
+      const claim = () => service.claim(id, token, body.generation, body.source, body.claim_id, body.informational_only, body.immediate_only);
       const wake = armWake(wakesReceiver(id));
       let result: Awaited<ReturnType<typeof claim>>;
       try {
