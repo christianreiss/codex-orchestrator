@@ -125,22 +125,42 @@ leave dirty changes in place, update context, cancel the waiting claim and acqui
 resources for the new worktree. A system resource never becomes available merely
 because nobody answered. If owners release, polling can grant the waiting claim.
 
-Leases last 60 seconds. The broker tracks explicitly acquired active claims and
-renews them on the wrapper heartbeat, independently of long model turns. It drops
-its renewal entry on release or an uncertain renewal. Renewal is driven by the
-15-second heartbeat, not by tool activity, and is the same for cdx, clx and cgx.
-Native child agents (Codex subagents, Claude Task agents) share the parent's
-session and broker, so a claim any of them acquires or reads as active is renewed
-by that one broker; no per-child renewal is needed. Each claim renews concurrently
-with its own 5-second budget; only a definitive answer (non-active state,
-`claim_not_active`, stale binding, not found) drops it, while timeouts, transport
-errors and 5xx retry on the next tick, which does not back off while claims are
-held. An agent that renews explicitly keeps working the same way. Check status before each
-protected mutation. `resource_claim_release` reports completed, canceled or unknown
-with a reason. Unknown, expired lease, ended session or stale binding retain the
-resource as uncertain. They are never automatically reassigned or revived.
-The owning binding may confirm the operation ended; the operator may resolve an
-uncertain claim with evidence in the WebUI, recorded in the audit log.
+New owned claims use a proven native connection (`ownership_mode: connection`),
+not a renewable 60-second lease. Their public `expires_at` is null while the exact
+native session/generation/instance attachment holds ownership. Legacy timed claims
+retain their bounded compatibility drain; their timestamps never establish a new
+connection grant. Check status before each protected mutation.
+
+Native engine children can share the parent's session and broker. A separate
+transcript or worktree is not a separate fleet identity. Children read `agent_self`
+and report a shared binding to the parent; the parent serializes global naming,
+workspace/context changes, identity binding and shared-claim release. Use distinct
+task resource paths and coordinate claim IDs with the parent. The shared address
+alone does not identify a filesystem writer or explain a historical generation rebind.
+
+`resource_claim_release` reports completed, canceled or unknown with a reason.
+Unknown outcomes, ended owners and lost attachments retain resources as uncertain;
+there is no general self-takeover based on a matching session or agent name.
+An exact original native attachment may recover a disconnected/owner-restart claim.
+A different lifecycle can continue it only after the old lifecycle reported completed,
+detached and the server proves the same native transcript, address, host, username,
+engine and host-credential fingerprint. Use the existing claim ID with
+`resource_claim_status({claim_id, renew:true})`; read-only status never transfers it.
+`reported_unknown`, running/failed/foreign lifecycles and ambiguous external operations
+remain blocked. The proven original owner may confirm the operation ended, or an
+operator may resolve it with evidence and an audit record.
+
+`claim_connection_required` retains HTTP 409 and includes `extra.claim_connection`
+with the caller's session ID, binding generation, authenticated host ID/FQDN, engine,
+a native-transcript-bound flag, proof state and safe recovery instructions. Proof
+states distinguish missing session attachment, missing native instance, a missing
+original instance and a currently present native connection; the last state alone
+does not authorize adopting an older claim. No credential, native-instance UUID or
+foreign owner's proof is exposed. Run `cxx communicator status` and the engine's
+`cdx doctor`/`clx doctor`/`cgx doctor` read-only on that host. A stale owner is a
+possible diagnosis, not proof: coordinate any shared-owner restart with its users.
+Session naming/context updates do not create attachment proof. After reconnect,
+retry acquire with its original request UUID, or renew the existing claim ID.
 
 Git Director takes the same coordination gate before clone locks. It rejects
 conflicting/uncertain claims and requires live path and target-branch claims from
@@ -205,10 +225,24 @@ claims for explicit resolution. Production rollout requires its own authorizatio
 
 ## Claim and workspace refinements (2026-10-24)
 
-Waiting claims begin with a 180-second expiry and may renew without authorizing a write. Negotiation remains 120 seconds; uncertain active claims cannot be renewed or taken over. Blockers include purpose, resources, owner address/name and, for uncertain outcomes, the supported audited operator endpoint `/admin/agent-messaging/scopes/resolve`. Owner metadata is loaded only for overlapping claims. A live same-session Git lease does not block its own claims.
+Legacy timed waiting claims begin with a 180-second expiry and may renew without authorizing a write; new connection-owned claims retain their native attachment fence. Negotiation remains 120 seconds; uncertain claims cannot be taken over; only the proven reconnect/completed-transcript recovery described above may renew them. Blockers include purpose, resources, owner address/name and, for uncertain outcomes, the supported audited operator endpoint `/admin/agent-messaging/scopes/resolve`. Owner metadata is loaded only for overlapping claims. A live same-session Git lease does not block its own claims.
 
 Unmanaged SSH targets use `{kind:"remote",fqdn:"mx1.example.org",service:"mail"}`. FQDN case and one trailing dot normalize. The operator's literal canonical FQDN is the shared key across caller hosts; DNS aliases/IPs are not inferred. `service:"*"` reserves all services of that FQDN. These claims do not create fleet membership or access credentials, and do not permit worktree isolation on a system target.
 
 An origin-omitting workspace refresh preserves repository identity only when its canonical common directory is unchanged. Explicit null/empty origin clears it. Project discovery without Git includes local descendant directories with path-segment boundaries; missing peer metadata still marks coverage limited.
 
 Use `agent_git_remote` for a fleet SSH target whose own path and target-branch claims belong to the calling managed session. Supply actual absolute checkout/common-directory facts. The authenticated bridge carries origin provenance to the remote registration without a helper identity or remote host-key impersonation. It never executes Git, SSH or deployment commands.
+
+
+Local `path`, `git` and `service` resources may omit `host_id`; only the
+authenticated caller's host is used as the default. An explicit positive fleet
+host is preserved. `remote` resources still require their explicit canonical
+FQDN/service and never inherit a fleet host. Null, zero and malformed explicit
+host IDs remain invalid. Defaulted and explicit-current-host retries normalize
+to the same resources under the same request UUID.
+
+Git registration without proven native broker scope now names
+`cxx communicator status` and the original managed native connection as recovery.
+A checkout/workspace mismatch instead names `agent_context_update`, including
+the actual absolute root/common directory for a nested repository. None of
+these diagnostics bypasses a registration, claim or merge exclusion.

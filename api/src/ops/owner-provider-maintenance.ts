@@ -17,6 +17,7 @@ import {
 } from './auth-verification-worker.js';
 import { quotaNoticeId } from './quota-worker.js';
 import type { OwnerMaintenanceHandler } from './owner-maintenance-handlers.js';
+import { OWNER_WORK_RETRY_MS } from './owner-worker.js';
 
 /** Provider I/O only for a changed input or an actual verification deadline. */
 export function createOwnerProviderMaintenance(
@@ -73,15 +74,16 @@ export function createOwnerProviderMaintenance(
         telemetry: { write: (engine, status, at) => writeRunnerTelemetry(ctx.db, engine, status, at) },
       });
       const attempt = scheduleMemory.get(engine);
-      if (attempt)
-        return {
-          retryAt: Math.max(
-            Date.now() + 1,
-            attempt.lastAttemptMs +
-              probeBackoffSeconds(attempt.attempts, ttlSeconds, maxIntervalSeconds) * 1000 +
-              1,
-          ),
-        };
+      if (attempt) {
+        const remaining =
+          attempt.lastAttemptMs +
+          probeBackoffSeconds(attempt.attempts, ttlSeconds, maxIntervalSeconds) * 1000 +
+          1 - Date.now();
+        // A slow attempt or skipped probe can leave an elapsed attempt deadline.
+        // Reconcile after the existing recovery bound; never spin at 1ms or
+        // forget a pending retry that has no persisted future probe obligation.
+        return { retryAfterMs: remaining <= 0 ? OWNER_WORK_RETRY_MS : remaining };
+      }
       return { observed: true };
     },
     async 'quota-notices'(work) {

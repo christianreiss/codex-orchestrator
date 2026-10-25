@@ -44,6 +44,8 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
   const sessions: string[] = [];
   const suffix = randomUUID();
   beforeAll(async () => {
+    // This suite is runnable on its own; self/remote-Git requires the seeded name leases.
+    await runMigrations(handle!.pool);
     const db = handle!.db,
       now = new Date().toISOString();
     await db.insert(hosts).values({
@@ -150,8 +152,10 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       payload: { target_host_id: target.id, claim_id: claim.id, common_dir: common, branch: 'main', operation,
         args: { worktree_path: path, ...args }, ...overrides } });
     try {
-      for (const invalid of [path + '/../foreign', path + '//../foreign', path + '/bad\0path'])
-        expect((await call('register', { worktree_path: invalid })).statusCode).toBe(422);
+      for (const invalid of [path + '/../foreign', path + '//../foreign', path + '/bad\0path']) {
+        const response = await call('register', { worktree_path: invalid });
+        expect(response.statusCode, response.body).toBe(422);
+      }
       expect((await call('register', {}, { claim_id: randomUUID() })).statusCode).toBe(409);
       const registered = await call('register', { branch: 'main', head_sha: 'a'.repeat(40), repo_root: path });
       expect(registered.statusCode, registered.body).toBe(200);

@@ -427,7 +427,14 @@ at-least-once; "queued" means stored, never read; untaken messages expire.
 
 **Session name.** On every first turn, even a question, and after resume, call \`agent_self\` and
 \`agent_session_name\` (the task's purpose in the operator's language, at most 160 characters, no host,
-path or credential) before responding.
+path or credential) before responding. A native child sharing the parent's binding follows the
+shared-child rule below instead of renaming that session.
+
+**Native children.** Native engine subagents may share the parent's authenticated MCP session.
+A separate native transcript or worktree does not establish another fleet identity. Read \`agent_self\`;
+the parent coordinates session naming, \`agent_context_update\`, binding and shared-claim release.
+Children use coordinated task-specific claims; they never change shared globals independently.
+A shared UUID explains attribution limits, not historical files or a session/generation rebind.
 
 **Peers.** Launch names ("(Claudia) Task title") work as recipients; \`agent_translate\` maps them to
 UUIDs, which are what durable references keep. Refresh peers with \`agent_list\`
@@ -508,6 +515,12 @@ recorded HEAD; never copy uncommitted changes or take over the resource. System 
 Use \`resource_claim_status\` to check validity before each protected operation. The wrapper renews
 explicitly active claims; \`resource_claim_release\` ends them with completed/canceled/unknown.
 Unknown outcome retains the resource as uncertain until confirmed ended or operator-resolved.
+On \`claim_connection_required\`, inspect host/generation/proof details; run read-only
+\`cxx communicator status\` and the engine's \`doctor\` there. Reconnect the original process;
+naming/context updates do not restore proof. Coordinate shared-owner restarts with its users.
+Retry the same acquire request UUID; renew the existing claim ID only for proven reconnect or
+completed-transcript continuation. Missing proof or same identity never permits takeover;
+unknown operation outcomes require explicit original-owner completion or operator resolution.
 A claim is not an OS sandbox: direct shell writes rely on this protocol. Never continue a mutation
 with an invalid claim. Acquire path and target-branch claims before a Git Director merge request.`,
     'mcp',

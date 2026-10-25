@@ -150,8 +150,9 @@ describe('connection-owned coordination claims', () => {
     const result = await h.service.claims.acquire(h.sessionId, h.token, {
       client_request_id: randomUUID(),
       purpose: 'edit owner fixture',
-      resources: [{ kind: 'path', host_id: 1, path: '/repo' }],
+      resources: [{ kind: 'path', path: '/repo' }],
     });
+    expect(result.resources).toEqual([{kind:'path',host_id:1,path:'/repo'}]);
     expect(result.state).toBe('active');
     expect(result.expires_at).toBeNull();
     const command = vi.spyOn(h.owner, 'execute');

@@ -1,5 +1,7 @@
 # 2026-10-25
 
+- Clear remaining feedback defects: default local claim resources to the authenticated host, explain native-proof and Git workspace recovery without weakening ownership, document shared native-child identity, skip invalid legacy retention clock stamps by index cursor, and schedule auth retries after rescan with bounded overdue recovery.
+
 - Fence direct, group and conference reads against authority changes through the final response; bind shared history to immutable group IDs. Paginate large communication pages by complete-item byte size, isolate ineligible publication recipients, and prevent new conference work after its deadline. cxx 0.9.133 retains uncertain acceptance correlation without replaying native work.
 
 - Persist Grok refresh replies against their exact original attempt instead of rejecting capture after token rotation. Capture encrypted replies once, retain them across caller revocation, and keep initial-spend, promotion and disclosure checks fenced. Never replay an ambiguous old refresh grant.

@@ -29,7 +29,7 @@ const closers: Array<() => void> = [];
 afterEach(() => {
   for (const close of closers.splice(0)) close();
 });
-function setup() {
+function setup(engine: 'codex' | 'claude' | 'grok' = 'codex') {
   const sessionId = randomUUID(),
     addressId = randomUUID(),
     instance = randomUUID(),
@@ -45,7 +45,7 @@ function setup() {
         apiKeyHash: null,
         status: 'active',
         secure: 1,
-        engines: 'codex',
+        engines: engine,
         internalRole: null,
         expiresAt: null,
       },
@@ -59,7 +59,7 @@ function setup() {
         id: sessionId,
         hostId: 1,
         agentBusAddressId: addressId,
-        engine: 'codex',
+        engine,
         username: 'root',
         cwd: '/repo',
         workspace: null,
@@ -78,7 +78,7 @@ function setup() {
         id: addressId,
         address: `agent:${addressId}`,
         hostId: 1,
-        engine: 'codex',
+        engine,
         currentSessionId: sessionId,
         bindingGeneration: 1,
         enabled: 1,
@@ -343,4 +343,13 @@ describe('exact transcript Git continuation', () => {
       expect(h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))?.agentSessionId).toBe(h.sessionId);
     }
   });
+});
+
+it.each(['codex','claude','grok'] as const)('%s explains missing native Git proof without creating registrations',async engine=>{
+ const h=setup(engine),args={worktree_path:'/repo',clone_dir:'/repo/.git',repo_root:'/repo',engine,username:'root',branch:'work'};
+ await expect(h.git.register(args,h.host)).rejects.toMatchObject({code:'git_director_owner_required',message:expect.stringContaining('cxx communicator status')});
+ await expect(withNativePrincipal({sessionId:h.sessionId,bridgeToken:h.token},()=>h.git.register({...args,worktree_path:'/nested'},h.host))).rejects.toMatchObject({code:'git_director_owner_required',message:expect.stringContaining('agent_context_update')});
+ h.live.detach();
+ await expect(withNativePrincipal({sessionId:h.sessionId,bridgeToken:h.token},()=>h.git.register(args,h.host))).rejects.toMatchObject({code:'git_director_owner_required',message:expect.stringContaining('cxx communicator status')});
+ expect(h.state.snapshot().table('gitWorktrees').all()).toHaveLength(0);
 });

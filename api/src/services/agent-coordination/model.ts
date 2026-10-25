@@ -71,6 +71,23 @@ export const acquireSchema = z
     resources: z.array(resourceSchema).min(1).max(64),
   })
   .strict();
+/** Local targets inherit only the authenticated caller's host, never a payload hint. */
+export function parseAcquireForHost(input: unknown, hostId: number) {
+  z.number().int().positive().parse(hostId);
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return acquireSchema.parse(input);
+  const body = input as Record<string, unknown>;
+  if (!Array.isArray(body.resources)) return acquireSchema.parse(input);
+  return acquireSchema.parse({
+    ...body,
+    resources: body.resources.map((value: unknown) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+      const resource = value as Record<string, unknown>;
+      return ['path', 'git', 'service'].includes(String(resource.kind)) && resource.host_id === undefined
+        ? { ...resource, host_id: hostId }
+        : resource;
+    }),
+  });
+}
 export const claimStatusSchema = z
   .object({
     claim_id: z.string().uuid(),

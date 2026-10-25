@@ -1510,3 +1510,10 @@ reads retain current disclosure authority; room history follows immutable group
 identity. Complete-message pages use a byte budget and continuation cursors.
 Unconfirmed receiver acceptance retains its original claim across reconnect and
 never authorizes native replay. See `interface-api.md` and `communicator.md`.
+
+
+Feedback cleanup (2026-10-25): local claim resources can omit the current host;
+explicit remote targets remain distinct. Native-child shared identity and
+connection-proof recovery are documented in `agent-coordination.md`. Invalid
+legacy retention clock stamps cannot mask a valid successor, and provider
+verification retry waits are anchored after rescan without a millisecond loop.

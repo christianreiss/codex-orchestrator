@@ -71,6 +71,14 @@ import { wsPublisher } from '../ws/publisher.js';
 
 /** The `versions` row that switches the whole module on. Absent means off. */
 export const GIT_DIRECTOR_ENABLED_FLAG = 'git_director_enabled';
+
+function nativeRegistrationRequired(message: string, workspaceMismatch = false) {
+  const recovery = workspaceMismatch
+    ? ' Bind the actual absolute checkout and common directory with agent_context_update before registering a nested repository or worktree.'
+    : ' Run cxx communicator status; use the original managed native process and its private MCP broker, then retry. agent_self or naming alone does not establish connection proof.';
+  return new ConflictError(message + recovery, 'git_director_owner_required');
+}
+
 /** Optional `versions` row naming the model used for contended verdicts. */
 export const GIT_DIRECTOR_MODEL_KEY = 'git_director_model';
 
@@ -428,7 +436,7 @@ export class GitDirectorService {
     const check = (snapshot = this.snapshot()) => {
       if (!snapshot || !this.registrationProof(row,snapshot)) throw new ConflictError('The original native instance must reattach; this registration retains exclusion.', 'git_director_owner_uncertain');
       if (principal || requireCaller) {
-        if (!principal) throw new ConflictError('Authenticated original session required for registration changes', 'git_director_owner_required');
+        if (!principal) throw nativeRegistrationRequired('Authenticated original session required for registration changes');
         const {session} = ownedBridge(snapshot,principal.sessionId,principal.bridgeToken);
         if (session.id !== row.agentSessionId || session.bindingGeneration !== row.agentBindingGeneration)
           throw new ConflictError('Registration belongs to another session binding','git_director_owner_uncertain');
@@ -890,7 +898,7 @@ export class GitDirectorService {
           ...bindingWire(address), expires_at: this.registrationExpiresAt(existing), ownership_mode: 'timed',
           presence_source: 'legacy_drain', peers: await this.peerWire(tx,clone.id,existing.id,now) };
       }
-      if (owner && (!session || !attachment)) throw new ConflictError('A current native instance attachment is required for registration', 'git_director_owner_required');
+      if (owner && (!session || !attachment)) throw nativeRegistrationRequired('A current native instance attachment is required for registration');
       if (owner && session && attachment) this.ownedContext.getStore()!.checks.push(snapshot => { const current=snapshot.sessions.get(session.id); if (!current || current.endedAt || current.bindingGeneration!==session.bindingGeneration || !nativeClaimAttachment(owner,current,attachment.scope.native_instance_id)) throw new ConflictError('Native instance disconnected before registration commit','git_director_owner_uncertain'); });
       const ownership = owner ? { ownershipMode: 'connection', nativeInstanceId: attachment!.scope.native_instance_id!, uncertaintyReason: null } : {};
 
@@ -1877,9 +1885,9 @@ export class GitDirectorService {
     const cwdHash = sha256(worktreePath);
     const snapshot = this.snapshot(tx), owner = ownerRuntimeFor(tx);
     if(snapshot&&owner){
-      const principal=currentNativePrincipal();if(!principal)throw new ConflictError('Authenticated native session required for registration','git_director_owner_required');
+      const principal=currentNativePrincipal();if(!principal)throw nativeRegistrationRequired('Authenticated native session required for registration');
       const {session}=ownedBridge(snapshot,principal.sessionId,principal.bridgeToken),workspace=readWorkspace(session.workspace);
-      if(session.hostId!==host.id||session.engine!==engine||username&&session.username!==username||(workspace?.git_root??workspace?.cwd??session.cwd)!==worktreePath)throw new ConflictError('Registration differs from authenticated native session','git_director_owner_required');
+      if(session.hostId!==host.id||session.engine!==engine||username&&session.username!==username||(workspace?.git_root??workspace?.cwd??session.cwd)!==worktreePath)throw nativeRegistrationRequired('Registration differs from authenticated native session', true);
       const attachment=nativeClaimAttachment(owner,session),address=session.agentBusAddressId?snapshot.addresses.get(session.agentBusAddressId):undefined;
       if((!attachment&&!legacyDrainFor(owner)?.session(session.id,session.bindingGeneration))||address?.currentSessionId!==session.id||address.bindingGeneration!==session.bindingGeneration)return null;
       this.ownedContext.getStore()?.checks.push(current=>{const checked=ownedBridge(current,principal.sessionId,principal.bridgeToken).session;if(checked.bindingGeneration!==session.bindingGeneration)throw new ConflictError('Native binding changed','git_director_owner_uncertain');});

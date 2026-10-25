@@ -84,10 +84,20 @@ export async function coldClock(
       sql`SELECT ${sql.identifier(task.column)} AS at FROM ${sql.identifier(task.table)} WHERE ${base} AND ${sql.identifier(task.column)}<=${cutoff} ORDER BY ${sql.identifier(task.column)} LIMIT 1`,
     );
     past ||= (old as unknown as unknown[]).length > 0;
-    const [future] = await tx.execute(
-      sql`SELECT ${sql.identifier(task.column)} AS at FROM ${sql.identifier(task.table)} WHERE ${base} AND ${sql.identifier(task.column)}>${cutoff} ORDER BY ${sql.identifier(task.column)} LIMIT 1`,
-    );
-    const at = (future as unknown as Array<{ at: string | null }>)[0]?.at;
+    // Keep the ordinary indexed minimum cheap. Only malformed legacy values
+    // require additional bounded pages; a timestamp cursor also skips duplicate
+    // invalid values without offset scans or normalizing the indexed column.
+    let cursor = cutoff, limit = 1, at: string | undefined;
+    while (true) {
+      const [future] = await tx.execute(
+        sql`SELECT ${sql.identifier(task.column)} AS at FROM ${sql.identifier(task.table)} WHERE ${base} AND ${sql.identifier(task.column)}>${cursor} ORDER BY ${sql.identifier(task.column)} LIMIT ${sql.raw(String(limit))}`,
+      );
+      const rows = future as unknown as Array<{ at: string }>;
+      at = rows.find(row => Number.isFinite(Date.parse(row.at)))?.at;
+      if (at || !rows.length || (limit > 1 && rows.length < limit)) break;
+      cursor = rows.at(-1)!.at;
+      limit = 64;
+    }
     if (at) {
       const parsed = Date.parse(at);
       if (!Number.isFinite(parsed)) continue;

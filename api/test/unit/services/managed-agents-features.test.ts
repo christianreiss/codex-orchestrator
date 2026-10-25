@@ -271,7 +271,8 @@ describe('served document size budget', () => {
       // 2026-10-20: +500 for the opt-in Workflows pointer; shared-chat guidance was condensed first.
       // +400 bytes for the required pre-heavy-work quota check and recovery invariant.
       // 2026-10-21: +550 for ordinary proactive Portal updates and explicit attention criteria.
-      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(28_900);
+      // 2026-10-25: +1100 for shared-native-child safety and exact-proof recovery.
+      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(30_000);
       expect(out.body).toContain('Before heavy work or large delegation call `quota_get`');
       expect(out.body).toContain('report unavailable and continue authorized work');
       expect(out.body).toContain('`#reboot-safe` before `agent_reboot`');
@@ -281,8 +282,8 @@ describe('served document size budget', () => {
         const next = out.body.indexOf('\n## ', start + 1);
         return out.body.slice(start, next === -1 ? undefined : next);
       };
-      expect(section('Scope Coordination').length).toBeLessThan(1_800);
-      expect(section('Agent Messaging').length).toBeLessThan(5_150);
+      expect(section('Scope Coordination').length).toBeLessThan(2_400);
+      expect(section('Agent Messaging').length).toBeLessThan(5_850);
       expect(section('Git Director').length).toBeLessThan(3_100);
       expect(section('File Transfer').length).toBeLessThan(1_400);
       // 2026-10-19: +50 to name `cxx-agent` as the server: agents searched the orchestrator MCP.
@@ -362,9 +363,10 @@ describe('served document byte invariance', () => {
     // 2026-10-20: explicit workflow participant questions are the narrow agent-answer exception.
     // 2026-10-20: reboot-safe procedure pointer and long-session quota catalog fallback.
     // 2026-10-21: ordinary Portal updates and explicit actionable attention criteria.
-    expect(out.features_sha256).toBe('e5b7ef3b2d47252e08f86d0493c406290d84fff6380ce76fe8b6c7e596d8b1c5');
-    expect(out.managed_sha256).toBe('4b1add7cfd4954ff28812102b03860c6331fe014886400b9518b5076e664c062');
-    expect(sha256(out.body)).toBe('6096ba64de1f68c9651179bfcc324c1e20469dd8918241fecbb2e22504002c46');
+    // 2026-10-25: shared native children and connection-proof recovery guidance.
+    expect(out.features_sha256).toBe('35cac4d134134cc95d8a0c34d6930fd48ec023b2c01ded43b55d958dd42d0d5d');
+    expect(out.managed_sha256).toBe('4388c146b47c036ed71429851aa6d8d08fc50554a3a2f5c11c7dec347df841e6');
+    expect(sha256(out.body)).toBe('cca2287cfe9016bee7d12dfe8567b7b8c02ecc95b7e59c2093498fbaacde7bc4');
   });
 });
 
@@ -1188,5 +1190,20 @@ describe('managed workflow guidance parity', () => {
     expect(out.sections.workflows).toMatchObject({ present: true });
     const unavailable = renderManagedAgentFeatures('# Fleet', { ...enabledContext, workflows: disabled('workflows_wrapper_outdated') });
     expect(unavailable.body).not.toContain('## Workflows');
+  });
+});
+
+
+describe('shared native-child and connection-proof guidance', () => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s keeps global identity changes with the parent', engine => {
+    const out = renderManagedAgentFeatures('# Rules', context(engine, { agentMessaging: enabled() }));
+    for (const text of ["Native engine subagents may share the parent's authenticated MCP session",
+      'A separate native transcript or worktree does not establish',
+      'instead of renaming that session', 'the parent coordinates session naming',
+      'A shared UUID explains attribution limits', 'historical files or a session/generation rebind',
+      'claim_connection_required', 'cxx communicator status', 'do not restore proof',
+      'same acquire request UUID', 'completed-transcript continuation', 'never permits takeover'])
+      expect(out.body).toContain(text);
+    expect(renderManagedAgentFeatures(out.body, context(engine, { agentMessaging: enabled() })).body).toBe(out.body);
   });
 });

@@ -142,4 +142,31 @@ describe('owner-driven worker deadlines', () => {
     expect(f.error).not.toHaveBeenCalled();
     await worker.close();
   });
+  it.each([0, -1, NaN, Infinity])('rejects invalid relative retry %s with bounded recovery', async (retryAfterMs) => {
+    const f = fixture();
+    const run = vi.fn(async () => ({ retryAfterMs }));
+    const worker = createOwnerWorker(f.runtime, {
+      name: 'invalid-relative', tables: ['versions'], select: f.select, run, error: f.error, retryMs: 5000,
+    });
+    f.write('1000');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.error).toHaveBeenCalledTimes(1);
+    expect(f.deadlines.next()).toBe(6000);
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(run).toHaveBeenCalledTimes(1);
+    await worker.close();
+  });
+  it('keeps rejecting nonfuture absolute retry deadlines', async () => {
+    const f = fixture();
+    const worker = createOwnerWorker(f.runtime, {
+      name: 'invalid-absolute', tables: ['versions'], select: f.select,
+      run: async () => ({ retryAt: Date.now() }), error: f.error,
+    });
+    f.write('1000');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.error).toHaveBeenCalledTimes(1);
+    expect(f.deadlines.next()).toBe(31000);
+    await worker.close();
+  });
+
 });

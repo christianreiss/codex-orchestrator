@@ -3105,6 +3105,17 @@ agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduce
 `agent_context_get/update`, `agent_room_list/read/send`, and
 `resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
 The feature starts disabled and never grants permission for the reserved action.
+
+Native engine children may share this authenticated launch binding; distinct child
+transcripts/worktrees do not provide independent identity. Parent coordination owns
+global naming/context/binding changes and shared-claim release.
+`claim_connection_required` (409) includes `extra.claim_connection` containing only
+the caller's host ID/FQDN, engine, session/generation, native-session-bound flag,
+proof state and read-only diagnostic/reconnect instructions. It does not disclose
+credentials, native-instance IDs or another owner's proof and does not relax any
+ownership check. See the coordination contract for exact-instance reconnect,
+completed-transcript continuation and operations whose outcome remains unknown.
+
 Server-owned advisor sessions are outside it: no registration `scope_context`,
 `agent_context_get` → `enabled:false, reason:"internal_host"`, and claim/room
 mutations → 403 `agent_coordination_not_applicable`.
@@ -3513,3 +3524,14 @@ authority or persistence errors still fail closed.
 
 Conference deadlines bound fresh task admission. Graceful completion and already
 accepted work keep their existing uncertainty and result protections.
+
+
+Local resource-claim input defaults (2026-10-25): omitted `host_id` on path/git/
+service resources is derived after authenticating the session, in both owner
+and legacy admission. Explicit other-host IDs and strict external remote
+resources retain their existing meaning. Explicit null/zero/invalid IDs are
+rejected; existing native ownership proofs are still mandatory.
+
+Claim ownership diagnostics include short recovery actions in the error text
+as well as caller-only structured `claim_connection` metadata, so older MCP
+clients that expose only the message still receive actionable guidance.

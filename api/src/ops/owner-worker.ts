@@ -10,7 +10,8 @@ export interface OwnerWorkObligation {
   /** Changes whenever the durable input giving rise to this obligation changes. */
   revision: string;
 }
-export type OwnerWorkResult = void | { retryAt: number } | { observed: true };
+export type OwnerWorkResult = void | { retryAt: number } | { retryAfterMs: number } | { observed: true };
+export const OWNER_WORK_RETRY_MS = 30_000;
 export interface OwnerWorkerOptions {
   name: string;
   tables: readonly OwnedTableName[];
@@ -26,7 +27,7 @@ const token = (work: OwnerWorkObligation) => JSON.stringify([work.key, work.revi
 /** Event/deadline worker. No timer exists when there is no known obligation. */
 export function createOwnerWorker(runtime: OwnerRuntime, options: OwnerWorkerOptions) {
   const queueKey = `worker:${options.name}`;
-  const retryMs = Math.max(1000, options.retryMs ?? 30_000);
+  const retryMs = Math.max(1000, options.retryMs ?? OWNER_WORK_RETRY_MS);
   let stopped = false;
   let active: Promise<void> | undefined;
   let selected: readonly OwnerWorkObligation[] = [];
@@ -83,9 +84,13 @@ export function createOwnerWorker(runtime: OwnerRuntime, options: OwnerWorkerOpt
           observed.add(token(current));
           rescan(true);
         } else if (result) {
-          if (!Number.isFinite(result.retryAt) || result.retryAt <= Date.now())
+          // Relative waits start after the await and owner-state rescan. A valid
+          // short delay must not become invalid while its result is consumed.
+          const now = Date.now();
+          const retryAt = 'retryAfterMs' in result ? now + result.retryAfterMs : result.retryAt;
+          if (!Number.isFinite(retryAt) || retryAt <= now)
             throw new Error(`${options.name} returned a nonfuture retry deadline`);
-          retries.set(token(current), result.retryAt);
+          retries.set(token(current), retryAt);
         } else if (selected.some((work) => token(work) === token(current) && work.dueAt <= Date.now())) {
           throw new Error(`${options.name} completed without retiring its due owner-state obligation`);
         }
