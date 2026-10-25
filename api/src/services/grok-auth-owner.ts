@@ -142,6 +142,10 @@ export function createGrokAuthOwner(deps: GrokAuthOwnerDeps) {
         await setState('idle', { attemptId: null, basePayloadId: null, baseGeneration: null, pendingPayloadId: null, responseEnc: null, nextAttemptAt: null, errorCode: null });
         return snapshot(base, 'idle');
       }
+      // Captured material belongs to its recorded predecessor, never whichever
+      // head a later caller happens to resolve. Keep it durable on conflicts.
+      if (state?.responseEnc && (state.basePayloadId !== base.id || state.baseGeneration !== base.generation))
+        throw new ConflictError('Grok canonical changed after refresh response capture', 'grok_generation_conflict');
       if (state?.state === 'pending_verification' && state.pendingPayloadId) return verifyPending(state.pendingPayloadId);
       if (state?.state === 'refreshing' && !state.responseEnc) {
         await setState('uncertain', { errorCode: 'owner_lost_after_intent' });
@@ -171,7 +175,8 @@ export function createGrokAuthOwner(deps: GrokAuthOwnerDeps) {
           throw loginRequired('Grok subscription refresh token is missing');
         }
         const endpoint = await discoverEndpoint(request, deadline);
-        await setState('refreshing', { attemptId: randomUUID(), basePayloadId: base.id, baseGeneration: base.generation, pendingPayloadId: null, responseEnc: null, errorCode: null, nextAttemptAt: null, startedAt: nowIso() });
+        const attempt = { attemptId: randomUUID(), basePayloadId: base.id, baseGeneration: base.generation };
+        await setState('refreshing', { ...attempt, pendingPayloadId: null, responseEnc: null, errorCode: null, nextAttemptAt: null, startedAt: nowIso() });
         await audit('grok.auth.refresh.started');
         let response: Response;
         try {
@@ -203,7 +208,7 @@ export function createGrokAuthOwner(deps: GrokAuthOwnerDeps) {
         }
         // Rotation has happened. Capture before parsing, checking identity or
         // calling the runner, so later failures cannot discard replacement RTs.
-        await setState('refreshing', { responseEnc: encrypt(JSON.stringify({ body, received_at: receivedAt }), deps.keyring) });
+        await setState('refreshing', { ...attempt, responseEnc: encrypt(JSON.stringify({ body, received_at: receivedAt }), deps.keyring) });
       }
 
       let replacement: Record<string, unknown>;

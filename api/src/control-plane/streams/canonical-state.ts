@@ -1,7 +1,7 @@
 import { deriveCanonicalBodyProof } from '../state/canonical-metadata.js';
 import type { Keyring } from '../../security/keyring.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import { authPayloads, grokAuthRefreshState } from '../../db/schema.js';
 import { ownerRuntimeFor, mutateOwnerState, type OwnerMutationContext } from '../state/runtime.js';
@@ -102,13 +102,69 @@ export async function patchCanonicalPayload(
   }
   await db.update(authPayloads).set(patch).where(eq(authPayloads.id, id));
 }
+type GrokRefreshPatch = Partial<typeof grokAuthRefreshState.$inferSelect>;
+type GrokRefreshProof = Pick<
+  typeof grokAuthRefreshState.$inferSelect,
+  'state' | 'attemptId' | 'basePayloadId' | 'baseGeneration'
+>;
+function assertGrokResponseAttempt(prior: GrokRefreshProof | undefined, patch: GrokRefreshPatch): void {
+  if (
+    !prior ||
+    prior.state !== 'refreshing' ||
+    !patch.attemptId ||
+    patch.basePayloadId == null ||
+    patch.baseGeneration == null ||
+    prior.attemptId !== patch.attemptId ||
+    prior.basePayloadId !== patch.basePayloadId ||
+    prior.baseGeneration !== patch.baseGeneration
+  )
+    throw new ConflictError(
+      'Grok refresh attempt changed before response capture',
+      'grok_generation_conflict',
+    );
+}
+/** A response is write-once evidence of this exact spend, not permission to
+ * advance a head. Never overwrite another attempt or previously captured bytes. */
+async function persistGrokResponse(tx: Pick<Database, 'update'>, accountId: number, patch: GrokRefreshPatch) {
+  const [result] = await tx
+    .update(grokAuthRefreshState)
+    .set({
+      responseEnc: patch.responseEnc,
+      updatedAt: patch.updatedAt ?? new Date().toISOString(),
+    })
+    .where(
+      and(
+        eq(grokAuthRefreshState.accountId, accountId),
+        eq(grokAuthRefreshState.state, 'refreshing'),
+        eq(grokAuthRefreshState.attemptId, patch.attemptId!),
+        eq(grokAuthRefreshState.basePayloadId, patch.basePayloadId!),
+        eq(grokAuthRefreshState.baseGeneration, patch.baseGeneration!),
+        isNull(grokAuthRefreshState.responseEnc),
+      ),
+    );
+  if (result.affectedRows !== 1)
+    throw new ConflictError(
+      'Grok refresh attempt changed or response is already captured',
+      'grok_generation_conflict',
+    );
+}
+
 export async function setOwnedGrokState(
   db: Database,
   accountId: number,
   patch: Partial<typeof grokAuthRefreshState.$inferSelect>,
 ) {
   const owner = ownerRuntimeFor(db);
+  if (patch.accountId !== undefined && patch.accountId !== accountId)
+    throw new ConflictError('Grok refresh account changed', 'grok_generation_conflict');
+  const capture = patch.state === 'refreshing' && typeof patch.responseEnc === 'string';
   if (!owner) {
+    if (capture) {
+      const [prior] = await db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, accountId));
+      assertGrokResponseAttempt(prior, patch);
+      await persistGrokResponse(db, accountId, patch);
+      return;
+    }
     await db
       .insert(grokAuthRefreshState)
       .values({ accountId, state: 'idle', updatedAt: new Date().toISOString(), ...patch })
@@ -122,12 +178,20 @@ export async function setOwnedGrokState(
       const account = c.snapshot.table('providerAccounts').get(accountId);
       if (!account || account.engine !== 'grok' || account.state === 'removed' || account.mergedIntoAccountId)
         throw new ConflictError('Grok account changed', 'grok_generation_conflict');
+      const prior = c.snapshot.table('grokAuthRefreshState').get(accountId);
+      if (capture) {
+        // Rotation already happened. Persist its known response against the
+        // original attempt even if the canonical head advanced in the meantime.
+        assertGrokResponseAttempt(prior, patch);
+        c.draft.upsert('grokAuthRefreshState', { ...prior!, updatedAt: patch.updatedAt ?? new Date().toISOString() });
+        c.write(tx => persistGrokResponse(tx, accountId, patch));
+        return null;
+      }
       if (
         patch.state === 'refreshing' &&
         (account.payloadId !== patch.basePayloadId || account.generation !== patch.baseGeneration)
       )
         throw new ConflictError('Grok canonical changed before refresh', 'grok_generation_conflict');
-      const prior = c.snapshot.table('grokAuthRefreshState').get(accountId);
       if (prior) stageUpdate(c, 'grokAuthRefreshState', accountId, patch);
       else {
         const row = {
