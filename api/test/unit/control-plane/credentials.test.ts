@@ -5,7 +5,7 @@ import { ConnectionPresence } from '../../../src/control-plane/presence.js';
 import { DeadlineQueue } from '../../../src/control-plane/deadlines.js';
 import { CommandExecutor } from '../../../src/control-plane/commands.js';
 import { OwnerStateSnapshot, OwnerStateStore } from '../../../src/control-plane/state/store.js';
-import { ownedBridge } from '../../../src/control-plane/state/messaging.js';
+import { ownedBridge, ownedRelay } from '../../../src/control-plane/state/messaging.js';
 import type { OwnerRuntime } from '../../../src/control-plane/state/runtime.js';
 import type { StateRow, StateSeed } from '../../../src/control-plane/state/catalog.js';
 import { sha256 } from '../../../src/security/hash.js';
@@ -36,6 +36,10 @@ function harness(options: { expired?: boolean; insecureUntil?: number } = {}) {
         reverseDnsMode: 0,
       } as StateRow<'hosts'>,
     ],
+    agentBusRelays: [{ id, hostId: 1, username: 'root', status: 'active', tokenHash: sha256(token),
+      tokenExpiresAt: new Date(options.expired ? -1 : 900_000).toISOString(),
+      hostAuthFingerprint: sha256('a'.repeat(64)), generation: 1, instanceId: randomUUID(),
+      stopRequestedAt: null, stoppedAt: null } as StateRow<'agentBusRelays'>],
     agentSessions: [
       {
         id,
@@ -156,6 +160,32 @@ describe('connection-derived credential validity', () => {
       const rotated = f.state.begin();
       rotated.upsert('agentSessions', { ...session, bridgeTokenHash: sha256('rotated') });
       expect(() => ownedBridge(rotated.view(), f.id, 'rotated')).toThrow('expired');
+    } finally { f.close(); }
+  });
+
+  it('revokes a held session draft when connection credentials close', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(0);
+    const f = harness();
+    try {
+      f.attach(); await vi.advanceTimersByTimeAsync(7_200_000);
+      const view = f.state.begin().view();
+      expect(() => ownedBridge(view, f.id, f.token)).not.toThrow();
+      f.credentials.close();
+      expect(() => ownedBridge(view, f.id, f.token)).toThrow('expired');
+    } finally { f.close(); }
+  });
+
+  it('keeps relay draft grants live only while their attachment remains connected', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(0);
+    const f = harness();
+    try {
+      const attachment = f.presence.attach({ connectionId: randomUUID(), hostId: 1, username: 'root',
+        scope: { topic: 'relay', relay_id: f.id } });
+      await vi.advanceTimersByTimeAsync(7_200_000);
+      const view = f.state.begin().view();
+      expect(ownedRelay(view, f.id, f.token).relay.id).toBe(f.id);
+      attachment.detach();
+      expect(() => ownedRelay(view, f.id, f.token)).toThrow('expired');
     } finally { f.close(); }
   });
 
