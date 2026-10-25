@@ -252,3 +252,24 @@ Final API suite: 6,080 passed, 1,087 skipped; 472 passing files, 108 skipped.
 Separate synthetic MySQL verification: 29 passed, including audit/receipt
 rollback and static retry without provider replay. Go is unchanged since the
 verified 0.9.132 build. Final deployment status is recorded below.
+
+
+Final server-only rollout completed at 18:13 UTC on docker01, source
+`8d98df3a9b3662c6806203c8f4fd96cbe2422135`, API image
+`sha256:8dc676c4448f16f0f56f1b3101f719e77e7c29b5445e669f602f91b5ac9f2843`.
+Both changed source files match the running source map exactly. API, runner and
+media worker healthy, restart count zero; 103 migrations applied, none pending
+or drifted. The explicit parent claim remained active across the exchange.
+
+Remote attended Codex and Claude each passed all four normal MCP read canaries
+after this cutover with unchanged native sessions/binding 1. Durable results:
+`11cf53e0-5b81-4d86-a3ba-b45e0361bbc2` and
+`a8c2bb29-3b93-4dc5-936c-8dad8565dd5e`, both succeeded. Independent final
+security review found no additional blocker; it did not repeat the full suites.
+
+The single fresh Grok login expired without authorization/upload. Account 7
+therefore remains uncertain; a new device flow awaits operator readiness.
+This prevents an all-engines/provider-complete success claim. Its old grant
+was never replayed. The isolated MySQL fixture and merged task worktree were
+removed. Verified rollout metadata and two rollback tags were removed according
+to the backup instruction, preserving running images. Cleanup receipt updated.

@@ -259,7 +259,14 @@
     "api_tests_passed": 6080,
     "api_tests_skipped": 1087,
     "isolated_mysql_tests_passed": 29,
-    "account_7_recovery": "pending fresh dedicated login; no old grant replay",
-    "deployment": "pending"
+    "account_7_recovery": "blocked: dedicated device flow expired; fresh login requires operator readiness; no old grant replay",
+    "deployment": "verified",
+    "deployed_source_sha": "8d98df3a9b3662c6806203c8f4fd96cbe2422135",
+    "api_image": "sha256:8dc676c4448f16f0f56f1b3101f719e77e7c29b5445e669f602f91b5ac9f2843",
+    "source_map_parity": true,
+    "post_cutover_remote_results": {
+      "codex": "succeeded",
+      "claude": "succeeded"
+    }
   }
 }
