@@ -242,5 +242,24 @@
     "dashboard_graph_claude_quota_snapshots": 0,
     "control_plane_command_receipts": 0,
     "scope": "regex-valid distinct timestamps checked with actual Date.parse; no bodies read"
+  },
+  "retention_followup_observed": {
+    "source_sha": "029c0b9be400d67103a37ed31aba4905b80d757f",
+    "seconds": 241.525,
+    "sql_statements": 167,
+    "api_cpu_percent_one_core": 7.588,
+    "mysql_cpu_percent_one_core": 1.323,
+    "natural_log_id": 1576816,
+    "productive_passes": 1,
+    "repeated_empty_loop": false,
+    "controlled_idle": false
+  },
+  "grok_followup": {
+    "source_before_docs": "635450ed09a65a48f309f2f4ea312d8b4fef602b",
+    "api_tests_passed": 6080,
+    "api_tests_skipped": 1087,
+    "isolated_mysql_tests_passed": 29,
+    "account_7_recovery": "pending fresh dedicated login; no old grant replay",
+    "deployment": "pending"
   }
 }

@@ -1,5 +1,7 @@
 # 2026-10-25
 
+- Persist Grok refresh replies against their exact original attempt instead of rejecting capture after token rotation. Capture encrypted replies once, retain them across caller revocation, and keep initial-spend, promotion and disclosure checks fenced. Never replay an ambiguous old refresh grant.
+
 - Prevent empty cold-retention SQL loops at legacy UTC timestamp boundaries. Schedule noncanonical timestamp representations conservatively while keeping canonical deadlines, indexed selection, retention policies and deletion guards unchanged.
 
 - cxx 0.9.132 applies receiver source changes before claim gating, rebuilds replaced auth-directory watches, and stops overdue timer spin during a fenced handoff. Expired native MCP registration repairs the next explicit call without replaying the failed operation; terminal failures stop further renewal and preserve their original cause. Back off refused uncertain-relay registrations for 30 seconds. Scope server stream work to relevant state changes and capture queued command identity before execution. Preserve global revocation, deadlines, idempotency and uncertain-work fences.

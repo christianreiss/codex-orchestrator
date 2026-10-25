@@ -225,3 +225,30 @@ to existing report `2a4f9ba8`; its earlier status was not reopened speculatively
 Production data was not copied into the synthetic MySQL instance. No locks,
 accepted work or recovery records were cleared by this verification. Bareos was
 not changed; rollout uses `--no-backup`.
+
+
+### Final retention measurement and Grok follow-up
+
+Retention source 029c0b9be400d67103a37ed31aba4905b80d757f removed naturally
+due log row 1576816 in one productive pass at 17:24:02.022 UTC. Over 241.525
+seconds: 167 SQL statements, API CPU 7.588% and MySQL CPU 1.323% of one core.
+One old-deadline lookup, one future lookup, one batch read and one delete; no
+repeated empty retention loop. Real work occurred: this is no controlled idle
+CPU comparison and no absolute fleet minimum.
+
+Grok account 7 was already uncertain (owner_lost_after_intent, payload 766,
+generation 88), without a captured response or pending payload. No old refresh
+grant was replayed or reset. A distinct dedicated device login on biest is
+pending operator completion; Grok provider recovery is not yet established.
+
+Independent review found response capture reused the initial-intent head check.
+The fix captures an encrypted response once against the exact original attempt
+and predecessor. Only conservation after provider spend uses background server
+scope. Initial spend, promotion and disclosure remain fenced; removed accounts
+and lost owner epochs still reject capture. Requester revocation conserves the
+response without disclosure or promotion.
+
+Final API suite: 6,080 passed, 1,087 skipped; 472 passing files, 108 skipped.
+Separate synthetic MySQL verification: 29 passed, including audit/receipt
+rollback and static retry without provider replay. Go is unchanged since the
+verified 0.9.132 build. Final deployment status is recorded below.

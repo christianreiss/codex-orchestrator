@@ -483,8 +483,9 @@ canonical storage. Runtime projections remove refresh tokens from every scope
 and unselected bearer keys; the selected runtime credential uses `external`
 mode. Runtime projections and native enrichment are never canonical uploads.
 
-The server owns refresh for managed Grok accounts. A per-account MySQL
-connection lock serializes owners; a durable `grok_auth_refresh_state` fence
+The server owns refresh for managed Grok accounts. The exclusive API owner
+serializes each account in RAM; standalone legacy paths use a MySQL connection
+lock. A durable `grok_auth_refresh_state` fence
 records intent before the token request. A successful raw response is encrypted
 immediately, and the replacement is staged in the auth ledger before static
 verification and compare-and-swap promotion. Retryable verification rechecks the
@@ -492,6 +493,16 @@ staged replacement, never resends the original refresh token. Ambiguous spends
 remain `uncertain`; invalid grants require login. A verified distinct login can
 recover the account. OAuth discovery is constrained to `https://auth.x.ai`;
 uploaded issuer URLs cannot redirect credentials to another endpoint.
+
+Opening a refresh attempt requires the current canonical head. Capturing a
+successful reply instead matches that exact recorded attempt and predecessor,
+with a write-once SQL condition; a later head change cannot discard known
+replacement material or authorize promotion against a different predecessor.
+Only the private response capture runs as a fenced server obligation after the
+spend. Caller revocation still denies candidate promotion and disclosure;
+unauthorized initial spends, lost owners and removed accounts remain blocked.
+Capture does not start another provider request. A response already lost before
+this repair cannot be reconstructed: recovery requires a verified distinct login.
 
 Startup, `status` and `doctor` use `/auth` with `metadata_only: true` to inspect
 local canonical metadata without refreshing provider credentials or allocating an
