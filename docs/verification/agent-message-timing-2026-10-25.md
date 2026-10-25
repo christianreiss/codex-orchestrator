@@ -51,7 +51,7 @@ Codex 0.164.0, installed wrapper 0.9.133, isolated native TUI:
 - Deferred marker appeared only in successor
   `01a174f2-cfa9-79e3-a274-8999c8ea82df`, with no additional commands.
 - This proves native primitives, not the complete candidate-134 server path.
-  Evidence: `/tmp/rosa-native-timing-20261025/verified-summary.json`.
+  Evidence: `/var/tmp/rosa-message-timing-evidence-20261025/codex-native-summary.json`.
 - Normal managed startup reconciled/restarted the docker01 host daemon to the
   already published wrapper 0.9.133. No existing native turn was targeted.
 
@@ -177,3 +177,38 @@ The group publisher now states the one-immediate-per-busy-period pacing limit;
 its focused browser case passed again. The Go wire test also tolerates a Go-only
 CI checkout without API npm dependencies; actual captured frames were independently
 validated with Node22/tsx against the real schema and its rejection control.
+
+## Published release and closeout
+
+Release `0.9.134`, source `7b6d6101ca698418ae77865ab83d77c02bf9837f`,
+is published for Linux/macOS amd64/arm64. The final API image is
+`sha256:3118ff78f96e03e855d5dd19306bc99dc095c8894479e5b920eb1dc0959a9046`.
+Final live checks confirm544/544 API source parity, matching static index, healthy
+API/runner/MySQL/media worker and105 applied migrations with no pending/drift.
+
+Official Linux binary SHA256 is
+`8e3a1d148b172acc93bf2ee78a89fff42449a19dd3f2ce3dec7675cee11be8df`.
+Both docker01 and biest now have that installed and loaded in the system daemon
+and user worker, with canonical native entry scripts. Sigrid independently
+verified biest after Thea reconciled it. Existing native sessions were preserved;
+older already-running native/MCP/on-demand processes retain their loaded version
+until normal restart. Existing shells may need a new login for PATH activation.
+No native macOS canary was run. No authentication or verification was weakened.
+
+The release meets the requested timing/no-interruption criterion across all three
+engines. The Claude immediate-marker assertion above remains failed; this is not
+a claim that every assertion passed. Fresh capable receivers are required for
+immediate delivery, with one immediate slot per continuous busy period.
+
+Cleanup removed nine own generated directories (3,540,389,888 allocated bytes),
+the private tmpfs MySQL test container and six own deployment rollback tags.
+No production database/storage data or Bareos backups were deleted, and no new
+database/storage backup was created. Published historical wrapper versions remain.
+Concise evidence and exact cleanup inventory are retained under
+`/var/tmp/rosa-message-timing-evidence-20261025` (mode0700); removed caches and
+fixtures can be regenerated from the repository and published binaries.
+
+A final30s quiet sample at23:25:29Z measured API1.414% and MySQL1.416% of one
+core, seven SQL questions (0.233/s including measurement traffic), one SELECT,
+zero prepared executions and zero INSERT/UPDATE/DELETE. This bounded sample is
+not a long soak or a claim of zero database activity.
