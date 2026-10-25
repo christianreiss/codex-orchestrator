@@ -1,7 +1,7 @@
 # Stateful redesign verification — 2026-10-25
 
 Target: docker01.uggs.io. Production implementation `8a96bf6b` is deployed and quiet-path verification passed.
-Grok subscription re-login remains the explicit external prerequisite. See [REDESIGN.md](../REDESIGN.md).
+The operator completed Grok re-login; live admission and release now pass. See [REDESIGN.md](../REDESIGN.md).
 
 ## Functional gates
 
@@ -109,11 +109,11 @@ root owner's transport; push/revocation and actual native process launch are
 covered by the isolated real-process tests, not claimed from this focused probe.
 No credentials/native homes were copied and no paid inference was invoked.
 
-Codex/Claude live admissions and releases succeeded. Grok live admission reports
-`grok_refresh_uncertain`: account 7 has remained `owner_lost_after_intent` since
+Codex/Claude live admissions and releases succeeded. During that first pass, Grok live admission reported
+`grok_refresh_uncertain`: account 7 had remained `owner_lost_after_intent` since
 2026-10-24T20:03:42Z, before this redesign and unchanged by the probe. A fresh
 subscription login is required; the uncertain rotating refresh token is not
-retried or reset. This is an explicit outstanding external-auth prerequisite.
+retried or reset. This prerequisite was resolved by the operator login verified below.
 
 All ten previously open session IDs, 86 pending/uncertain work IDs and eleven
 paused schedule IDs survived the cutover. The original local owner PID/start
@@ -148,7 +148,18 @@ govulncheck suites, the full Go race suite beyond the changed local-cache tests,
 Firefox/WebKit browser suites, and physical ARM/Raspberry Pi execution. All four
 wrapper platforms were cross-compiled and published. The isolated Go fixtures
 exercise real native-process startup; live admission/release probes invoke no
-paid inference. Grok remains pending the operator's fresh subscription login.
+paid inference. The subsequent operator login completed the remaining Grok live-admission check.
 
 Portal delivery was unavailable because this deliberately bare-engine session
 has no portal binding/tool. Milestone updates were delivered in the conversation.
+
+## Grok login verified after operator recovery
+
+On 2026-10-25 at 11:17:37 UTC the server accepted a new dedicated login from
+`biest.eulie.de` for the existing enabled Grok account 7: canonical generation 88,
+payload 766, verification `verified`, refresh state `idle`, error code cleared.
+Its access expiry is 2026-10-25T17:17:36Z. A subsequent real `/auth/sessions`
+probe through the existing Advisor communicator returned HTTP 200 with verified
+auth; `/auth/sessions/release` also returned HTTP 200. No paid inference or forced
+refresh was performed. This verifies central acceptance and admission; the
+operator's interactive `cgx` launch on biest is a separate client-side check.
