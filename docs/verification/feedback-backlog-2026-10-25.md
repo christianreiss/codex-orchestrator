@@ -4,6 +4,12 @@ Initial inventory: 18 nonterminal Orchestrator reports, across all result pages.
 Final central snapshot at 2026-10-25 19:58 UTC: **7 resolved, 3 duplicates,
 8 blocked; zero open or in progress**. Every remaining blocker has a reason and
 new evidence or an explicit explanation of the missing historical evidence.
+
+Follow-up20:26UTC: the operator completed a fresh Grok login (account7/gen89,
+verified/idle) and a fresh normal Grok inference passed independently on biest.
+Report ca015ff1 is now resolved: the original inventory stands at **8 resolved,
+3 duplicates and 7 blocked**. This does not establish the causes of the historical
+Grok bridge episodes or resume older accepted native work.
 Scope: reproduce actionable defects, fix and test them, distinguish duplicate episodes
 and historical reports whose cause cannot be established. No authentication bypass,
 provider refresh replay, claim takeover, or forced restart of another native process.
