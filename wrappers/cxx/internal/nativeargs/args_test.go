@@ -170,3 +170,35 @@ func TestNativeAuthAndNestedResumeHelpOracle(t *testing.T) {
 		}
 	}
 }
+
+// Official Grok AgentArgs.mode is optional; None dispatches Headless, not Stdio.
+// An opaque option value named stdio must never authorize that default service.
+func TestGrokAgentDefaultHeadlessRequiresExplicitStdioMode(t *testing.T) {
+	for _, tc := range []struct {
+		args    []string
+		blocked bool
+	}{
+		{[]string{"agent"}, true},
+		{[]string{"--debug", "agent"}, true},
+		{[]string{"agent", "--no-leader"}, true},
+		{[]string{"agent", "--model", "stdio"}, true},
+		{[]string{"agent", "--agent-profile=stdio", "--debug"}, true},
+		{[]string{"agent", "-mstdio"}, true},
+		{[]string{"agent", "stdio"}, false},
+		{[]string{"agent", "--no-leader", "stdio"}, false},
+		{[]string{"--debug", "agent", "--model", "grok-4.6", "stdio"}, false},
+		{[]string{"agent", "--agent-profile", "headless", "stdio"}, false},
+		{[]string{"agent", "stdio", "--debug-file", "/tmp/native-help-only.log"}, false},
+		{[]string{"agent", "--model", "stdio", "stdio"}, false},
+		{[]string{"agent", "--debug-file=leader", "stdio"}, false},
+	} {
+		before := strings.Join(tc.args, "\x00")
+		got := UnsupportedService("grok", tc.args)
+		if (got != "") != tc.blocked {
+			t.Errorf("%q unsupported=%q blocked=%v", tc.args, got, tc.blocked)
+		}
+		if strings.Join(tc.args, "\x00") != before {
+			t.Fatal("service guard rewrote native grammar")
+		}
+	}
+}

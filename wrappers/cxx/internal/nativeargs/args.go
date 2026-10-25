@@ -268,15 +268,23 @@ func UnsupportedService(engine string, args []string) string {
 		}
 	} else if engine == "grok" {
 		if command == "agent" {
+			mode := ""
 			for i := at + 1; i < len(args) && args[i] != "--"; i++ {
 				if strings.HasPrefix(args[i], "-") {
 					i = ValueEnd(engine, args, i)
 					continue
 				}
-				if args[i] == "serve" || args[i] == "leader" || args[i] == "headless" {
-					return "agent " + args[i]
-				}
+				mode = args[i]
 				break
+			}
+			// Grok defaults an absent AgentCmd to Headless. Only an explicit
+			// stdio mode selects the stdin/stdout session lifecycle; an opaque
+			// option value named stdio must not authorize the headless default.
+			if mode == "" {
+				return "agent (default headless)"
+			}
+			if mode == "serve" || mode == "leader" || mode == "headless" {
+				return "agent " + mode
 			}
 		}
 		if command == "cursor-worker" {

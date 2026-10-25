@@ -10,6 +10,14 @@ ends in the race, Grok may queue its own sequential fallback. Admission is not
 proof of consumption or reading. See [the shared timing contract](agent-messaging-timing.md)
 for capability, uncertainty, ordering and work-admission limits.
 
+## Native agent transport selection (cxx 0.9.134)
+
+Managed `grok agent` requires an explicit supported transport. Omitted mode is
+native headless mode and is refused before configuration or auth admission, just
+like explicit `agent headless`. For an ACP stdio client use
+`cxx native grok -- agent --no-leader stdio`; options and opaque option values are
+preserved. The wrapper does not silently turn headless mode into stdio.
+
 ## Local content cache (cxx 0.9.128)
 
 Signed protocol 3 serves valid content hits directly from communicator RAM,

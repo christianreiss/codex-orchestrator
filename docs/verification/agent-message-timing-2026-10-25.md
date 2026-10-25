@@ -72,3 +72,24 @@ Claude model/tool continuity canary.
 The server rollout is separate from publication of wrapper 0.9.134. Candidate receiver
 canaries must be recorded before declaring the feature complete. Existing loaded receivers are not upgraded by replacing a binary.
 Uncertain admission is never replayed or described as read/consumed.
+
+## Native entry guard follow-up
+
+Feedback `e0ec1f6f-1c9d-403b-b4d1-09eaa97f3a4c`: Grok 1.0.50 defaults bare
+`agent` to headless, which bypassed the wrapper's explicit-headless refusal.
+A passive driver consequently timed out before initialize and left only its own
+idle probe processes. The original owner verified PID identity/cwd/start times,
+stopped those two processes, and released its retained claim as canceled. No
+provider prompt or shared/Natascha process was involved; no admin clear occurred.
+Actual native help plus corrected managed stdio initialize/probe then passed and
+exited normally. The guard now refuses the omitted mode without rewriting native
+grammar. Regression first failed, then nativeargs/app-Grok race tests ×3 and
+build/vet passed. No additional auth or refresh authority is introduced.
+
+Live backend-only rollout: commit `f773f74958a91d9ec28789022841d1e926cb212a`,
+API image `sha256:b76687942eaf6384914657c0f2aed5e8e4f28da858070df8bb2dfbb6000a0e33`,
+healthy with zero restarts; 105 applied, zero pending/drifted migrations and all
+544 embedded API sources match. Published wrapper remains 0.9.133 at this stage.
+Actual candidate CLI → existing broker → new server capability test returned
+requested immediate, effective null and receiver_capability_missing for an old
+receiver. Its synthetic message was canceled: one canceled, zero ambiguous.

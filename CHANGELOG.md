@@ -1,6 +1,6 @@
 # 2026-10-25
 
-- cxx 0.9.134 adds explicit message delivery timing: informational updates can surface during a native turn without cancelling current work, or wait for its end (the default). Preserve work-admission limits, identity and uncertain-submission fences; expose requested timing and unavailable receiver capability in receipts and the group publisher. Keep immediate messages out of deferred digests and coalescing lanes. Migration 0105 persists timing.
+- cxx 0.9.134 adds explicit message delivery timing: informational updates can surface during a native turn without cancelling current work, or wait for its end (the default). Preserve work-admission limits, identity and uncertain-submission fences; expose requested timing and unavailable receiver capability in receipts and the group publisher. Keep immediate messages out of deferred digests and coalescing lanes. Migration 0105 persists timing. Refuse Grok's implicit headless `agent` mode before config/auth admission, matching the existing explicit headless guard; ACP callers must select `stdio`.
 
 - Unify sign-in, password recovery and CLI approval around one branded authentication frame, shared action styling and responsive session details. Keep provider selection consistent across credential upload and one-time commands for Codex, Claude and Grok; make file selection keyboard-accessible and keep errors beside the task.
 
