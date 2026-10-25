@@ -564,13 +564,24 @@ func retryAmbiguous(parent context.Context, attemptTimeout time.Duration, operat
 	return err
 }
 
-func (s *Session) bridgeJSON(ctx context.Context, method, path string, body, out any) error {
+func (s *Session) bridgeJSON(ctx context.Context, method, path string, body, out any) (err error) {
 	if s == nil || s.ID == "" || (!s.localBroker && s.BridgeToken == "") {
 		return errors.New("agent portal: no active bridge session")
 	}
 	if s.localBroker {
 		return doJSON(ctx, s.http, s.BaseURL, method, path, body, "", "", out)
 	}
+	// A concurrent terminal response cancels every active bridge request. Keep
+	// that durable verdict instead of losing it behind the sibling's cancellation.
+	defer func() {
+		if errors.Is(err, context.Canceled) {
+			s.mu.Lock()
+			if s.terminalErr != nil {
+				err = s.terminalErr
+			}
+			s.mu.Unlock()
+		}
+	}()
 	finishing := method == http.MethodPost && path == "/host/agent-sessions/"+url.PathEscape(s.ID)+"/finish"
 	ctx, cancel, err := s.beginBridgeRequest(ctx, finishing)
 	if err != nil {
@@ -787,7 +798,7 @@ func doJSON(ctx context.Context, client *http.Client, baseURL, method, path stri
 	return nil
 }
 
-func (s *Session) recoverRegistration(ctx context.Context, observedGeneration uint64, finishing bool) error {
+func (s *Session) recoverRegistration(ctx context.Context, observedGeneration uint64, finishing bool) (err error) {
 	if s == nil || s.localBroker || s.hostAPIKey == "" {
 		return errors.New("agent portal: bridge recovery is unavailable")
 	}
@@ -796,6 +807,9 @@ func (s *Session) recoverRegistration(ctx context.Context, observedGeneration ui
 		return err
 	}
 	defer release()
+	// Record a permanent renewal verdict before releasing the single-flight gate:
+	// queued callers must not race another registration after a terminal result.
+	defer func() { s.rememberTerminal(err) }()
 	s.mu.Lock()
 	if len(s.registrationBody) == 0 {
 		s.mu.Unlock()
