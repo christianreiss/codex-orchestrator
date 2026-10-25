@@ -111,3 +111,71 @@ installed only inside a disposable container, layout passed separately. Thus all
 Build, vet and targeted race tests passed. No host sudo/PATH change was made.
 
 Final TypeScript check passed on all source changes and added tests.
+
+
+Later remote read-only evidence located through the exact process open-file
+paths confirms Grok `401/unauthorized` at 18:16:09.623/.633 UTC, immediately
+before this native session's final `turn_ended` at 18:16:09.670 UTC. Only event
+timestamps/types and allowlisted error codes were read; no auth files, tokens,
+prompts or consuming TTY reads. This proves the provider-auth blocker, not the
+absence of a possible additional ACP completion stall. Accepted work is retained.
+
+
+## Verified production rollout
+
+At 18:52 UTC docker01 completed the normal full-stack rollout without data
+backups: source c46951149b891cbc303b7ffd4b8ce08611a656f9, API image
+sha256:2c94f79565317893c1887778aaa8b23e5be9f1bee37ebded6562f7406bab2b54.
+API/runner/media worker healthy, restart counts zero. Migration 0104 applied in
+28 ms; 104 applied, none pending/drifted. The production lookup index exists.
+Five representative changed source files match the running source map exactly.
+
+All four published cxx 0.9.133 binaries match their manifest SHA256. Root's
+normal minimal updater installed the same linux-amd64 binary (7bc32a4b...),
+which reports source c4695114. Existing native sessions/receivers were not
+terminated; older loaded binaries remain until their normal restart. Fresh
+Codex/Claude 0.9.133 launch evidence is recorded separately below.
+
+After the cutover, both remote attended engines read the actual newest marker
+from publication 69271a5f-96cd-41ef-9c95-02979fb37d54, unsubscribed only the
+two test topics, reread empty subscriptions and were denied further room reads
+with forbidden / Room membership required. Their MCP output exposes the error
+wording, not a numeric HTTP status. Parent requests
+52260347-51e9-44b3-943b-3977b884184e and
+393df326-2644-428a-b398-265af16015dd have durable succeeded results.
+
+A post-unsubscribe publication had zero recipients. The parent deleted group
+78b0890b-ee40-4b84-b24b-af4c53017e20, recreated the identical slug as new ID
+5e2c5c0f-0ac0-4fec-b2b8-be4620597660 and read exactly zero history events
+(next_before null), despite old publications still existing. This new group was
+then deleted too. No temporary subscriptions/groups remain.
+
+The isolated MySQL/tmpfs, helpers and disposable test cache were removed. The
+verified cutover directory and two rollback tags were removed per the operator
+backup instruction; running images were retained. Receipt:
+/var/tmp/codex-zk-cleanup-20261025.json. Data were not backed up by deployment;
+Bareos was untouched and no restore drill was run. Previous code can be rebuilt
+from Git; the additive nonunique index can remain during a code rollback.
+
+
+### Fresh installed-wrapper canaries
+
+Normal minimal update on biest installed cxx 0.9.133/c4695114 with the exact
+7bc32a4b264dfb6d8b2b58631e6d898c07a46f5b0081fae1055c31f645729835 hash.
+Live /proc evidence confirmed new wrapper processes loaded 0.9.133. One fresh
+Codex and one fresh Claude tools-only test each performed four normal MCP reads
+(self, context, skill list, shared memory search), all successful, CLI exit zero.
+
+Codex managed session 5e9cef99-a9a2-4b8c-a05f-23c70bd602a9; Claude
+a56ab6b3-52e3-4835-8984-efafb7d9d0ed. Parent read-only production SQL independently
+confirms both status completed, ended_at 18:56:52/53 UTC, binding 2 and address
+current_session_id NULL. Tools-only provider-native ID null is the expected
+headless contract, not an inbound-receiver test. Parent request
+5eb60c2f-540e-4110-beef-26ca8f180c68 has durable succeeded outcome.
+
+Existing attended remote receiver processes deliberately remained on older
+loaded versions (owner 0.9.127, daemon 0.9.128, parent wrapper 0.9.130); the
+newly installed binary does not hot-replace them. Thus server hardening is live,
+new-launch wrapper behavior is verified, and old receiver code rolls over on
+normal restart. No accepted session was stopped to make an all-process upgrade
+claim. Grok provider401 remains the explicit operator-login blocker.

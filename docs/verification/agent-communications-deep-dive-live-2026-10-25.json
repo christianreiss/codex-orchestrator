@@ -3,7 +3,7 @@
   "production_host": "docker01.uggs.io",
   "baseline_source": "af483160530a5f9839462ec4b7a7ae86cb239ab3",
   "candidate_wrapper": "0.9.133",
-  "deployment": "pending",
+  "deployment": "verified",
   "baseline_mysql": {
     "passed": 446,
     "files": 30
@@ -14,7 +14,7 @@
   "native_live": {
     "codex": "group/feed/shared-room/direct proven before final rollout",
     "claude": "group/feed/shared-room/direct proven before final rollout",
-    "grok": "accepted work without observed result; no provider recovery claimed"
+    "grok": "blocked: exact runtime logs401/unauthorized18:16:09Z, final native turn_ended18:16:09.670Z; accepted work retained, no native result"
   },
   "feedback_id": "61490e11-cb07-49d0-910c-41bf7273ba64",
   "full_api": {
@@ -52,5 +52,76 @@
   "eslint": {
     "errors": 0,
     "preexisting_warnings": 5
+  },
+  "deployed_source_sha": "c46951149b891cbc303b7ffd4b8ce08611a656f9",
+  "api_image": "sha256:2c94f79565317893c1887778aaa8b23e5be9f1bee37ebded6562f7406bab2b54",
+  "services_healthy": true,
+  "restart_counts": 0,
+  "migrations": {
+    "applied": 104,
+    "pending": 0,
+    "drifted": 0,
+    "new_migration_ms": 28
+  },
+  "source_map_parity": true,
+  "published_platforms": {
+    "linux-amd64": {
+      "version": "0.9.133",
+      "sha256": "7bc32a4b264dfb6d8b2b58631e6d898c07a46f5b0081fae1055c31f645729835",
+      "size_bytes": 18768056
+    },
+    "linux-arm64": {
+      "version": "0.9.133",
+      "sha256": "9a625eac44a024989f64883be797c2f62b10bb2166cd60085cf518a91738945b",
+      "size_bytes": 17694904
+    },
+    "darwin-amd64": {
+      "version": "0.9.133",
+      "sha256": "4ca192a0e3fbdf28f1fe395b933e33463d6589a1c9570f7c6b80b212e418699a",
+      "size_bytes": 18795392
+    },
+    "darwin-arm64": {
+      "version": "0.9.133",
+      "sha256": "17949291f3e04e2b01fa72e5a61860dd536e14172f2f310500577c4ebbce78d6",
+      "size_bytes": 17777506
+    }
+  },
+  "root_installed_version": "0.9.133",
+  "loaded_old_receivers_restarted": false,
+  "post_cutover_remote_results": {
+    "codex": "succeeded",
+    "claude": "succeeded",
+    "both_unsubscribe_fence": "forbidden / Room membership required"
+  },
+  "slug_reuse_live": {
+    "old_room": "78b0890b-ee40-4b84-b24b-af4c53017e20",
+    "new_room": "5e2c5c0f-0ac0-4fec-b2b8-be4620597660",
+    "new_history_count": 0,
+    "both_groups_removed": true
+  },
+  "temporary_database_removed": true,
+  "backup_cleanup_receipt": "/var/tmp/codex-zk-cleanup-20261025.json",
+  "fresh_133_canaries": {
+    "host": "biest.eulie.de",
+    "installed_sha256": "7bc32a4b264dfb6d8b2b58631e6d898c07a46f5b0081fae1055c31f645729835",
+    "proc_loaded_133": true,
+    "codex": {
+      "managed_session": "5e9cef99-a9a2-4b8c-a05f-23c70bd602a9",
+      "normal_mcp_reads_passed": 4,
+      "cli_exit": 0,
+      "db_status": "completed",
+      "db_binding": 2,
+      "db_address_current_session": null
+    },
+    "claude": {
+      "managed_session": "a56ab6b3-52e3-4835-8984-efafb7d9d0ed",
+      "normal_mcp_reads_passed": 4,
+      "cli_exit": 0,
+      "db_status": "completed",
+      "db_binding": 2,
+      "db_address_current_session": null
+    },
+    "tools_only_provider_native_id_null_expected": true,
+    "old_attended_receivers_not_restarted": true
   }
 }
