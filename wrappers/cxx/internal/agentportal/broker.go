@@ -616,6 +616,17 @@ func (b *Broker) forwardManagedMCP(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	stop := context.AfterFunc(r.Context(), cancel)
 	defer stop()
+	ctx, endRequest, err := b.session.beginBridgeRequest(ctx, false)
+	if err != nil {
+		var failure *PortalError
+		if errors.As(err, &failure) {
+			writeBrokerError(w, failure.Status, failure.Code, failure.Message)
+		} else {
+			writeBrokerError(w, 502, "broker_request_failed", "MCP session unavailable")
+		}
+		return
+	}
+	defer endRequest()
 	b.session.mu.Lock()
 	id, token, base := b.session.ID, b.session.BridgeToken, b.session.BaseURL
 	generation := b.session.registrationGeneration
@@ -656,7 +667,7 @@ func (b *Broker) forwardManagedMCP(w http.ResponseWriter, r *http.Request) {
 				code = failure.Error.Code
 			}
 			if code == "agent_bridge_expired" {
-				_ = b.session.recoverRegistration(ctx, generation, false)
+				b.session.rememberTerminal(b.session.recoverRegistration(ctx, generation, false))
 			}
 		}
 	}

@@ -230,3 +230,32 @@ func TestRefusedHandoffRearmsSchedulerAfterTemporaryFence(t *testing.T) {
 		t.Fatal("scheduler was not rearmed after temporary fence")
 	}
 }
+
+func TestWatchErrorWakesLeaseObserversWithoutForcingNetworkPass(t *testing.T) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	dir := t.TempDir()
+	if err := watcher.Add(dir); err != nil {
+		t.Fatal(err)
+	}
+	watched := map[string]bool{dir: true}
+	s := &server{dirty: make(chan struct{}, 1)}
+	changed := s.localChanges()
+	s.recoverWatchCoverage(watcher, watched)
+	select {
+	case <-changed:
+	default:
+		t.Fatal("watch overflow left local lease observers asleep")
+	}
+	if len(watched) != 0 || len(watcher.WatchList()) != 0 {
+		t.Fatal("watch error retained stale coverage")
+	}
+	select {
+	case <-s.dirty:
+		t.Fatal("watch error forced a network content pass")
+	default:
+	}
+}

@@ -597,12 +597,7 @@ func (s *server) syncLoop(ctx context.Context) {
 			forgetReplacedWatch(watcher, watched, event)
 			s.notifyLocal()
 		case <-watchErrors:
-			// An overflow can hide a directory replacement. Rebuild coverage and
-			// inspect every current source before trusting event-only scheduling.
-			for dir := range watched {
-				_ = watcher.Remove(dir)
-				delete(watched, dir)
-			}
+			s.recoverWatchCoverage(watcher, watched)
 		}
 		if s.draining.Load() {
 			continue
@@ -946,5 +941,15 @@ func pruneUnusedWatches(watcher *fsnotify.Watcher, watched map[string]bool, jobs
 			_ = watcher.Remove(dir)
 			delete(watched, dir)
 		}
+	}
+}
+
+// Overflow has no corresponding file event. Wake local lease observers as well
+// as rebuilding watch coverage, so signed policy changes cannot strand a lease.
+func (s *server) recoverWatchCoverage(watcher *fsnotify.Watcher, watched map[string]bool) {
+	s.notifyLocal()
+	for dir := range watched {
+		_ = watcher.Remove(dir)
+		delete(watched, dir)
 	}
 }

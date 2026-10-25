@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestManagedMCPExpiryRepairsNextCallWithoutReplayingMutation(t *testing.T) {
@@ -79,5 +81,112 @@ func TestManagedMCPNeverRecoversOrReplaysUnknownOrTerminalResponses(t *testing.T
 				t.Fatalf("opaque outcome changed: calls=%d response=%d %s", calls.Load(), w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestManagedMCPRejectsInactiveSessionsWithoutUpstream(t *testing.T) {
+	for _, state := range []string{"closing", "finished", "terminal"} {
+		t.Run(state, func(t *testing.T) {
+			var calls atomic.Int32
+			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1) }))
+			defer remote.Close()
+			session := recoverySession("codex", remote.URL, remote.Client())
+			switch state {
+			case "closing":
+				session.closing = true
+			case "finished":
+				session.finished = true
+			case "terminal":
+				session.terminalErr = sessionFinishedError()
+			}
+			b := &Broker{ctx: context.Background(), session: session}
+			for range 2 {
+				w := httptest.NewRecorder()
+				b.ServeHTTP(w, httptest.NewRequest("POST", "/_mcp", strings.NewReader(`{}`)))
+				if w.Code != 409 {
+					t.Fatalf("inactive request not rejected: %d", w.Code)
+				}
+			}
+			if calls.Load() != 0 {
+				t.Fatal("inactive session contacted upstream")
+			}
+		})
+	}
+}
+
+func TestManagedMCPTerminalRenewalStopsRepeatedAndConcurrentRecovery(t *testing.T) {
+	for _, concurrency := range []int32{1, 8} {
+		t.Run(fmt.Sprintf("callers_%d", concurrency), func(t *testing.T) {
+			var calls, registrations atomic.Int32
+			allEntered := make(chan struct{})
+			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/host/agent-sessions" {
+					registrations.Add(1)
+					w.WriteHeader(409)
+					fmt.Fprint(w, `{"code":"agent_session_finished"}`)
+					return
+				}
+				if calls.Add(1) == concurrency {
+					close(allEntered)
+				}
+				<-allEntered
+				w.WriteHeader(401)
+				fmt.Fprint(w, `{"code":"agent_bridge_expired"}`)
+			}))
+			defer remote.Close()
+			session := recoverySession("codex", remote.URL, remote.Client())
+			b := &Broker{ctx: context.Background(), session: session}
+			var wg sync.WaitGroup
+			for range concurrency {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					w := httptest.NewRecorder()
+					b.ServeHTTP(w, httptest.NewRequest("POST", "/_mcp", strings.NewReader(`{}`)))
+				}()
+			}
+			wg.Wait()
+			for range 3 {
+				w := httptest.NewRecorder()
+				b.ServeHTTP(w, httptest.NewRequest("POST", "/_mcp", strings.NewReader(`{}`)))
+				if w.Code != 409 {
+					t.Fatalf("terminal verdict was not retained: %d", w.Code)
+				}
+			}
+			if registrations.Load() != 1 || calls.Load() != concurrency {
+				t.Fatalf("terminal renewal repeated or MCP replayed: registrations=%d calls=%d", registrations.Load(), calls.Load())
+			}
+			if !session.isInactive() {
+				t.Fatal("terminal renewal did not deactivate session")
+			}
+		})
+	}
+}
+
+func TestConcurrentBridgeCancellationRetainsTerminalReason(t *testing.T) {
+	started := make(chan struct{})
+	var calls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		}
+		return responseFor(r, 403, `{"code":"agent_bridge_host_mismatch"}`), nil
+	})}
+	session := recoverySession("codex", "http://portal.invalid", client)
+	canceled := make(chan error, 1)
+	go func() { canceled <- session.Heartbeat(context.Background(), "", "") }()
+	<-started
+	if err := session.Heartbeat(context.Background(), "", ""); !portalErrorCode(err, "agent_bridge_host_mismatch") {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-canceled:
+		if !portalErrorCode(err, "agent_bridge_host_mismatch") {
+			t.Fatalf("terminal reason lost to sibling cancellation: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("sibling request was not canceled")
 	}
 }
