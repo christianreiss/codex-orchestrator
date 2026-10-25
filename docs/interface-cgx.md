@@ -469,6 +469,13 @@ cleanup helper is ready before private credentials are created and waits until
 login/upload users exit, including after the launching process is killed. The
 `GROK_SEED_AUTH_PATH` override remains caller-owned and is never removed.
 
+From cxx 0.9.129, Linux private cleanup helpers wait on a matching process's
+pidfd after the inherited directory lease is released. They rescan after exit
+to protect surviving users and descendants, rather than scanning `/proc` every
+100 ms for the lifetime of an orphan leader. Kernels without pidfds and other
+platforms retain a one-second conservative fallback. A process still using the
+private home continues to prevent deletion; elapsed time never authorizes cleanup.
+
 The encrypted canonical envelope contains `last_refresh`, the complete
 `grok_auth` scope map, `grok_scope`, and a derived `auths` bearer entry for
 `cli-chat-proxy.grok.com`. Unknown native fields and unselected scopes survive

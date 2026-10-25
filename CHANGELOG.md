@@ -1,5 +1,7 @@
 # 2026-10-25
 
+- cxx 0.9.129 stops Grok private cleanup helpers from repeatedly scanning every process while an orphan native leader remains alive. Linux helpers wait on process exit through pidfds, then recheck surviving holders before cleanup; older kernels and other platforms retain a bounded fallback.
+
 - Advertise the existing control-state stream in owner-mode signed configs. Honor the exact authenticated stream attachment when old cached capability metadata omits that declaration; preserve detached/native/generation fencing and executor-contract checks. This removes repeated upgrade errors without granting HTTP-only clients delivery authority.
 
 - Keep current Auth, Skills, Knowledge and configuration privately in owner RAM; serve current reads without SQL transactions. Separate volatile presence/freshness from durable changes and reserve idempotency receipts before domain writes. Unchanged quota reports no longer create duplicate history or UI refreshes. Current Knowledge search uses deterministic RAM ranking instead of MySQL FULLTEXT scores.

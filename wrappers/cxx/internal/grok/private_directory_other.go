@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func privateDirectoryInUse(dir string) bool {
@@ -15,4 +16,10 @@ func privateDirectoryInUse(dir string) bool {
 		return true
 	}
 	return strings.Contains(string(raw), "GROK_HOME="+dir) || strings.Contains(string(raw), "GROK_AUTH_PATH="+dir)
+}
+
+func waitPrivateDirectoryIdle(dir string) {
+	for privateDirectoryInUse(dir) {
+		time.Sleep(time.Second)
+	}
 }
