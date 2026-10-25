@@ -34,7 +34,7 @@
 
 <dl
   class={cn(
-    "grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 border-y border-border/70 bg-muted/40 px-3 py-2 text-body-sm",
+    "grid min-w-0 grid-cols-1 gap-x-4 gap-y-1 border-y py-4 text-body-sm sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-y-3 [&>dd]:mb-3 [&>dd]:min-w-0 [&>dd]:break-words sm:[&>dd]:mb-0",
     className,
   )}
 >
@@ -42,7 +42,7 @@
   <dd class="break-all font-mono text-foreground">{session.fqdn || "—"}</dd>
 
   <dt class="font-medium text-muted-foreground">Source IP</dt>
-  <dd class="font-mono text-foreground">{session.ip || "unknown"}</dd>
+  <dd class="break-all font-mono text-foreground">{session.ip || "unknown"}</dd>
 
   <dt class="font-medium text-muted-foreground">Requested</dt>
   <dd class="text-foreground">
@@ -53,8 +53,8 @@
   </dd>
 
   <dt class="font-medium text-muted-foreground">Scope</dt>
-  <dd class={cn("flex items-center gap-1.5 font-medium", scopeTone)}>
-    <ScopeIcon class="h-4 w-4" aria-hidden="true" />
+  <dd class={cn("flex items-start gap-1.5 font-medium", scopeTone)}>
+    <ScopeIcon class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
     {scopeLabel}
   </dd>
 

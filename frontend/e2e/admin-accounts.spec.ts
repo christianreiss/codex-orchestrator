@@ -168,3 +168,37 @@ for (const mobile of [false, true]) {
     expect(axe.violations).toEqual([]);
   });
 }
+
+for (const engine of ["codex", "claude", "grok"] as const) {
+  for (const theme of ["light", "dark"] as const) {
+    test(`provider credential layout ${engine} ${theme}`, async ({ page }, testInfo) => {
+      await fixtures(page);
+      await page.setViewportSize({ width: theme === "dark" ? 320 : 1440, height: 900 });
+      await page.addInitScript(value => localStorage.setItem("codex.theme", value), theme);
+      await page.route("**/admin/auth/seed-command", async route => {
+        const selected = route.request().postDataJSON().engine;
+        await route.fulfill({ json: { status: "ok", data: { command: `echo fixture-${selected}`, expires_at: "2026-10-26T12:00:00Z" } } });
+      });
+      await page.goto("/admin/accounts");
+      await page.getByRole("button", { name: "Add account", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      const label = engine === "codex" ? "Codex" : engine === "claude" ? "Claude" : "Grok";
+      await dialog.getByRole("radio", { name: label, exact: true }).click();
+      if (engine === "codex") await dialog.getByText("ChatGPT session", { exact: true }).click();
+      await expect(dialog.getByLabel("Or choose a credentials file")).toBeVisible();
+      await dialog.getByLabel("Or choose a credentials file").focus();
+      await expect(dialog.getByLabel("Or choose a credentials file")).toBeFocused();
+      expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+      const { default: AxeBuilder } = await import("@axe-core/playwright");
+      expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([]);
+      await dialog.evaluate(el => { el.scrollTop = 0; });
+      await page.screenshot({ path: testInfo.outputPath(`provider-${engine}-${theme}.png`), fullPage: true });
+      await dialog.getByRole("tab", { name: "One-time command" }).click();
+      await expect(dialog.getByRole("radiogroup", { name: "Engine", exact: true })).toHaveCount(1);
+      await dialog.getByRole("button", { name: "Generate", exact: true }).click();
+      await expect(dialog.locator("#seed-cmd-output")).toHaveText(`echo fixture-${engine}`);
+      await dialog.getByRole("radio", { name: engine === "grok" ? "Claude" : "Grok", exact: true }).click();
+      await expect(dialog.locator("#seed-cmd-output")).toHaveCount(0);
+    });
+  }
+}

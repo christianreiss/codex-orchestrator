@@ -1,5 +1,11 @@
 # Overview
 
+Authentication screens share one branded `AuthShell` for sign-in, recovery, CLI
+approval and setup. Provider connection in Accounts, host dialogs and setup uses
+the same `SeedAuthPanel`: select the engine once, then upload credentials or
+generate a one-time command. Provider-specific ownership instructions remain
+visible, errors stay with the task, and file selection supports keyboard access.
+
 The 2026-10-25 [stateful redesign](../REDESIGN.md) keeps current content and
 authority in owner RAM, separates volatile observations from durable writes,
 and removes SQL-based retention protection discovery. cxx 0.9.128 protocol 3

@@ -35,7 +35,6 @@
   import { Textarea } from "$lib/components/ui/textarea";
   import { useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
-  import Upload from "@lucide/svelte/icons/upload";
   import {
     createSeedCommandMutation,
     createUploadAuthMutation,
@@ -97,6 +96,9 @@
   let command = $state<string | null>(null);
   let commandExpiresAt = $state<string | null>(null);
   let result = $state<{ engine: AuthEngine; state: string } | null>(null);
+  let taskError = $state<string | null>(null);
+  // A generated command belongs to its selected engine, not the next selection.
+  $effect(() => { engine; command = null; commandExpiresAt = null; taskError = null; });
 
   const isApiKeyMode = $derived(engine === "codex" && uploadMode === "apikey");
   const busy = $derived($uploadAuth.isPending);
@@ -131,6 +133,7 @@
       payload = text;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to read file";
+      taskError = msg;
       toast.error(msg);
     } finally {
       fileBusy = false;
@@ -150,6 +153,7 @@
 
   /** Uploads whatever is pasted. Reports the outcome rather than throwing. */
   export async function submit(): Promise<SeedOutcome> {
+    taskError = null;
     if (engineOff) {
       toast.error(fleetDisabledTitle(engineLabel(engine)));
       return "error";
@@ -193,6 +197,7 @@
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Upload failed";
+      taskError = msg;
       toast.error(msg);
       return "error";
     }
@@ -203,6 +208,7 @@
   }
 
   async function generateCommand(): Promise<void> {
+    taskError = null;
     if (engineOff) {
       toast.error(fleetDisabledTitle(engineLabel(engine)));
       return;
@@ -220,6 +226,7 @@
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to mint command";
+      taskError = msg;
       toast.error(msg);
     }
   }
@@ -237,7 +244,8 @@
             title={engineLabel(option)}
             description={$fleet.isEnabled(option) ? undefined : FLEET_DISABLED_TAG}
             checked={engine === option}
-            disabled={!$fleet.isEnabled(option)}
+            disabled={!$fleet.isEnabled(option) || busy || $seedCmd.isPending}
+            class="rounded-md"
             onSelect={() => (engine = option)}
           />
         {/each}
@@ -300,22 +308,31 @@
   </Alert>
 {/if}
 
+<div class="space-y-6">
+  {@render enginePicker("seed-provider")}
+  <div class="space-y-1">
+    <h3 class="text-base font-semibold">Connect {engineLabel(engine)}</h3>
+    <p class="text-body-sm text-muted-foreground">Choose how to provide credentials. Verification confirms when the account is ready.</p>
+  </div>
+
+{#if taskError}
+  <Alert variant="destructive"><AlertTitle>Could not complete this step</AlertTitle><AlertDescription>{taskError}</AlertDescription></Alert>
+{/if}
+
 <Tabs.Root value={activeTab} onValueChange={(v) => (activeTab = v as "upload" | "command")}>
   <Tabs.List class="grid w-full grid-cols-2">
-    <Tabs.Trigger value="upload">Upload</Tabs.Trigger>
-    <Tabs.Trigger value="command">One-time command</Tabs.Trigger>
+    <Tabs.Trigger value="upload" class="h-auto min-h-9 whitespace-normal text-center">Upload</Tabs.Trigger>
+    <Tabs.Trigger value="command" class="h-auto min-h-9 whitespace-normal text-center">One-time command</Tabs.Trigger>
   </Tabs.List>
 
   <Tabs.Content value="upload" class="space-y-4 pt-3">
-    {@render enginePicker("seed-upload")}
-
     {#if engine === "codex"}
       <div class="space-y-2">
         <Label>Credential type</Label>
         <RadioGroup
           value={uploadMode}
           onValueChange={(v) => (uploadMode = v as UploadMode)}
-          class="flex gap-4"
+          class="flex flex-wrap gap-x-4 gap-y-2"
         >
           <label class="flex items-center gap-2 text-body">
             <RadioGroupItem value="apikey" id="seed-upload-mode-apikey" />
@@ -373,23 +390,19 @@
         {/if}
       </div>
 
-      <div class="flex items-center gap-2">
-        <Label
-          for="seed-upload-file"
-          class="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-3 text-body hover:bg-accent"
-        >
-          <Upload class="h-4 w-4" />
-          {fileBusy ? "Reading…" : "Pick file"}
-        </Label>
+      <div class="space-y-1.5">
+        <Label for="seed-upload-file">Or choose a credentials file</Label>
         <input
           id="seed-upload-file"
           type="file"
           accept=".json,.txt,text/plain,application/json"
-          class="hidden"
+          class="block min-h-9 w-full min-w-0 rounded border border-input bg-card p-2 text-body-sm file:mr-3 file:rounded file:border-0 file:bg-muted file:px-3 file:py-1 file:text-foreground"
+          aria-describedby="seed-upload-file-hint"
+          disabled={fileBusy || busy}
           onchange={handleFile}
         />
-        <p class="text-body-sm text-muted-foreground">
-          Reads the file into the textarea — does not auto-submit.
+        <p id="seed-upload-file-hint" class="text-body-sm text-muted-foreground">
+          {fileBusy ? "Reading file…" : "Reads the file into the textarea — does not auto-submit."}
         </p>
       </div>
     {/if}
@@ -407,8 +420,6 @@
   </Tabs.Content>
 
   <Tabs.Content value="command" class="space-y-4 pt-3">
-    {@render enginePicker("seed-cmd")}
-
     {#if command}
       <ReadonlyCodeBlock
         id="seed-cmd-output"
@@ -420,9 +431,8 @@
       />
     {:else}
       <p class="text-body-sm text-muted-foreground">
-        Click <em>Generate</em> to mint a short-lived bash one-liner. The operator
-        runs it on the host once; the curl will POST credentials back through
-        the runner.
+        Generate a short-lived command, then run it once in your host's terminal
+        to connect {engineLabel(engine)}. Return here after completing the login.
       </p>
     {/if}
     {#if engine === "grok"}
@@ -441,3 +451,4 @@
     </div>
   </Tabs.Content>
 </Tabs.Root>
+</div>

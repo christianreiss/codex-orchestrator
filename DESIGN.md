@@ -332,6 +332,15 @@ For step 1, verify documentation links/anchors, route inventory coverage, source
 
 ## 10. Exception register
 
+Authentication presentation slice (2026-10-25): `AuthShell` owns branding, heading,
+bounded task surface and footer spacing for sign-in, reset, CLI approval and setup.
+`SeedAuthPanel` remains the single provider-credential UI in Accounts, host dialogs
+and setup, with one engine selector above its method tabs and keyboard-accessible
+file input. CLI approval details stack at narrow widths. Applicable rules: NAV-2/3,
+VIS-1/2/3/4/5, INT-2/3/4/5/7, ACC-1/3/4/5. No new exception. Browser captures,
+automated checks and outstanding manual acceptance are recorded with delivery;
+shared composition alone does not certify every setup step or provider login.
+
 No design exceptions were approved at adoption; EX-1 was added 2026-10-19. The baseline debt in section 8 is pending migration, not a permanent exemption. Use this format for subsequent reviewed decisions:
 
 | Exception ID | Rule | Exact surface | User need / alternative | Verification | Owner / decision date | Review or removal condition |

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
   import { page } from "$app/state";
@@ -163,7 +162,6 @@
   const description = $derived(
     phase === "reset" ? "Request a one-time reset link for your admin account." : "Authenticate to access the admin console.",
   );
-  const linkClass = "block w-full text-center text-body-sm text-muted-foreground underline-offset-2 hover:underline";
 </script>
 
 <AuthShell {title} {description}>
@@ -173,6 +171,7 @@
     {/if}
 
     <form
+      aria-busy={submitting || probing}
       class="space-y-4"
       onsubmit={(e) => {
         e.preventDefault();
@@ -212,9 +211,9 @@
         </div>
       {:else}
         <Button type="submit" class="w-full" disabled={submitting || probing}>
-          {#if phase === "username"}Continue
-          {:else if phase === "password"}Sign in
-          {:else if phase === "reset"}{resetRequested ? "Send another link" : "Send reset link"}
+          {#if phase === "username"}{probing ? "Checking…" : "Continue"}
+          {:else if phase === "password"}{submitting ? "Signing in…" : "Sign in"}
+          {:else if phase === "reset"}{submitting ? "Sending…" : resetRequested ? "Send another link" : "Send reset link"}
           {:else}<Fingerprint class="h-4 w-4" /> Authenticate with passkey{/if}
         </Button>
       {/if}
@@ -226,22 +225,19 @@
       {/if}
 
       {#if phase === "password" || phase === "passkey"}
-        <button type="button" class={linkClass} onclick={() => back("reset")}>
+        <Button type="button" variant="link" class="w-full" onclick={() => back("reset")}>
           {phase === "passkey" ? "Lost your passkey?" : "Forgot password?"}
-        </button>
+        </Button>
       {/if}
       {#if phase !== "username"}
-        <button type="button" class={linkClass} onclick={() => back("username")}>
+        <Button type="button" variant="link" class="w-full" onclick={() => back("username")}>
           {phase === "reset" ? "Back to sign in" : "Use a different username"}
-        </button>
+        </Button>
       {/if}
     </form>
   </div>
 
   {#snippet footer()}
     <p class="text-center text-body-sm text-muted-foreground">Need help? Contact your fleet administrator.</p>
-    <p class="flex items-center justify-center gap-2 text-body-sm text-muted-foreground">
-      <BrandMark class="h-5 w-5" /> Codex Orchestrator
-    </p>
   {/snippet}
 </AuthShell>

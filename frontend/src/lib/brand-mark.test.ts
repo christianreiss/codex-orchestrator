@@ -13,6 +13,9 @@ const ERROR_LOGO = resolve(ROOT, "public/admin/error-logo.svg");
 
 const SURFACES = [
   "frontend/src/lib/components/layout/Sidebar.svelte",
+  "frontend/src/lib/components/page/AuthShell.svelte",
+] as const;
+const AUTH_PAGES = [
   "frontend/src/routes/login/+page.svelte",
   "frontend/src/routes/password/reset/+page.svelte",
   "frontend/src/routes/cli-auth/verify/+page.svelte",
@@ -54,6 +57,10 @@ describe("Switchyard brand mark", () => {
       const contents = source(path);
       assert.match(contents, /import BrandMark from "\$lib\/components\/brand\/BrandMark\.svelte";/, path);
       assert.match(contents, /<BrandMark\b/, path);
+    }
+    for (const path of AUTH_PAGES) {
+      assert.match(source(path), /<AuthShell\b/, `${path} uses the branded shared frame`);
+      assert.doesNotMatch(source(path), /<BrandMark\b/, `${path} must not duplicate the frame branding`);
     }
 
     const stale = svelteSources()

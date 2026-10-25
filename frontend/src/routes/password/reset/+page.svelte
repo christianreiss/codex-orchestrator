@@ -1,6 +1,5 @@
 <script lang="ts">
   import { page } from "$app/state";
-  import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import { base } from "$app/paths";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -69,13 +68,8 @@
           {submitting ? "Resetting…" : "Reset password"}
         </Button>
       </form>
-      <a class="block text-center text-body-sm text-muted-foreground underline-offset-2 hover:underline" href={`${base}/login`}>Back to sign in</a>
+      <Button variant="link" class="w-full" href={`${base}/login`}>Back to sign in</Button>
     {/if}
   </div>
 
-  {#snippet footer()}
-    <p class="flex items-center justify-center gap-2 text-body-sm text-muted-foreground">
-      <BrandMark class="h-5 w-5" /> Codex Orchestrator
-    </p>
-  {/snippet}
 </AuthShell>

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { Label } from "$lib/components/ui/label";
@@ -162,19 +161,19 @@
         {/if}
 
         <div class="grid grid-cols-2 gap-2">
-          <Button type="button" variant="destructive" disabled={busy} onclick={doDeny}>
+          <Button type="button" variant="outline" disabled={busy} onclick={doDeny}>
             {#if acting === "deny"}<Loader2 class="h-4 w-4 animate-spin" />{:else}<XCircle class="h-4 w-4" />{/if}
             Deny
           </Button>
-          <Button type="button" class="bg-success text-success-foreground hover:bg-success/90 focus-visible:ring-success" disabled={!canApprove} onclick={doApprove}>
+          <Button type="button" disabled={!canApprove} onclick={doApprove}>
             {#if acting === "approve"}<Loader2 class="h-4 w-4 animate-spin" />{:else}<Check class="h-4 w-4" />{/if}
             Approve
           </Button>
         </div>
 
-        <button type="button" class="block w-full text-center text-body-sm text-muted-foreground underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50" onclick={reset} disabled={busy}>
+        <Button type="button" variant="link" class="w-full" onclick={reset} disabled={busy}>
           Use a different code
-        </button>
+        </Button>
       </div>
     {/if}
   {:else if phase === "approved"}
@@ -201,9 +200,6 @@
   {#snippet footer()}
     <p class="text-center text-body-sm text-muted-foreground">
       You are approving a CLI device-code login. Only continue if you started this flow yourself.
-    </p>
-    <p class="flex items-center justify-center gap-2 text-body-sm text-muted-foreground">
-      <BrandMark class="h-5 w-5" /> Codex Orchestrator
     </p>
   {/snippet}
 </AuthShell>
