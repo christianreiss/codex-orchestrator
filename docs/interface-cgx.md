@@ -165,12 +165,19 @@ credential values. See [MCP verification](archive/grok-mcp-verification.md).
 | `doctor` / `--doctor` | The status card plus a doctor report: paths, native CLI vs fleet target, `config.toml` parse and owned keys, managed `AGENTS.md`, native skill drift, auth, `/auth` latency, disk, cron and session environment. Never reads or changes credentials; exit 1 on any failed check. |
 | `login [retry]` | Native subscription device login in a throwaway home, uploaded to the central owner; `retry` re-sends a protected pending login within 24 hours. |
 | `logout` | Erase pending login material. |
-| `update` / `--update` / `-U` | Wrapper self-update (downgrade- and loop-guarded), then the server's target Grok CLI, shell alias, content sync and version report. The CLI is reinstalled only when its version differs from the target. |
+| `update` / `--update` / `-U` | Wrapper self-update (downgrade- and loop-guarded), then the server's target Grok CLI, shell alias, observed-version report and content sync. The CLI is reinstalled only when its version differs from the target. |
 | `cron [install\|remove\|run]` / `--cron …` | Manage or run the host-wide `cxx cron` schedule. The coordinator's per-engine Grok tick runs the same maintenance as `update` without forcing a CLI reinstall, reports versions even when content sync fails, and prints one `cron: …` result line. |
 | `uninstall` / `--uninstall` | Refuse a multi-user host without root or passwordless sudo; best-effort server delete; then remove fleet skills, owned config keys, the managed `AGENTS.md` (only if unchanged), pending login, signed config and the private Grok installs. Shared cxx aliases and cron are removed only on a confirmed server result. Native history and unwrapped credentials stay. |
 | `auth-upload-auto` | Accepted no-op for shared callers: managed Grok runtimes hold no canonical refresh token to upload. |
 | `auth-reconcile` | Refused before configuration or network work: Grok credentials are server-owned; explicit local recovery is supported only by Codex and Claude. |
 | `help` / `--wrapper-help` | Wrapper help. Native help (`cgx --help`, `cgx help`, `cgx mcp --help`) goes straight to the native CLI without a lease or sync. |
+
+From cxx 0.9.137, both explicit updates and maintenance ticks report the actual
+installed Grok CLI before requesting version-gated configuration. This also repairs
+a stale server version after an external installation when updates are disabled;
+the offered target is never reported as an installed version. The existing report
+retry runs before sync. Report and content/auth failures remain independently
+visible and fail the command; a failed report does not claim confirmed delivery.
 
 Flags: `-W`/`--wrapper-version` (the shared version block with the signing-key line),
 `--config FILE`, `--skip-boot`/`--silent`/`--no-banner`, `--minimal-output`,

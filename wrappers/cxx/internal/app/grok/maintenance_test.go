@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -151,5 +152,145 @@ func TestMaintenanceAliasesKeepConcurrentSyncFlag(t *testing.T) {
 		if err != nil || !o.concurrent {
 			t.Fatalf("lost flag %v: %+v %v", args, o, err)
 		}
+	}
+}
+
+func TestMaintenanceReportsObservedVersionBeforeGatedSync(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		for _, action := range []string{"disable", "no_update", "update"} {
+			t.Run(action+map[bool]string{false: "/cron", true: "/update"}[force], func(t *testing.T) {
+				fixture := newVersionGateMaintenanceFixture(t, action, 0, false)
+				var stdout, stderr bytes.Buffer
+				if err := maintenance(context.Background(), fixture.cfg, fixture.client, force, &stdout, &stderr); err != nil {
+					t.Fatalf("installed version did not recover gated sync: %v; stderr=%s", err, &stderr)
+				}
+				fixture.assert(t, []string{"check", "report", "sync"}, true)
+				if !strings.Contains(stdout.String(), "grok 1.0.70, no updates, reported=true") {
+					t.Fatalf("reported target instead of actual override: %s", &stdout)
+				}
+			})
+		}
+	}
+}
+
+func TestMaintenanceVersionReportRetryStillPrecedesSync(t *testing.T) {
+	fixture := newVersionGateMaintenanceFixture(t, "no_update", 1, false)
+	if err := maintenance(context.Background(), fixture.cfg, fixture.client, true, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	fixture.assert(t, []string{"check", "report", "report", "sync"}, true)
+}
+
+func TestMaintenanceKeepsReportAndAuthFailuresVisible(t *testing.T) {
+	for _, reportFailures := range []int{0, 2} {
+		t.Run(map[int]string{0: "auth", 2: "report-and-auth"}[reportFailures], func(t *testing.T) {
+			fixture := newVersionGateMaintenanceFixture(t, "disable", reportFailures, true)
+			var stdout, stderr bytes.Buffer
+			err := maintenance(context.Background(), fixture.cfg, fixture.client, false, &stdout, &stderr)
+			if err == nil || !strings.Contains(err.Error(), "fixture auth denied") {
+				t.Fatalf("sync refusal hidden: %v", err)
+			}
+			wantEvents := []string{"check", "report", "sync"}
+			if reportFailures > 0 {
+				wantEvents = []string{"check", "report", "report", "sync"}
+				if !strings.Contains(err.Error(), "/cron/report failed after retry") || !strings.Contains(stdout.String(), "reported=false") {
+					t.Fatalf("unconfirmed version report became success: %v; %s", err, &stdout)
+				}
+			}
+			fixture.assert(t, wantEvents, reportFailures == 0)
+		})
+	}
+}
+
+type versionGateMaintenanceFixture struct {
+	cfg      *config.Config
+	client   *orchestrator.Client
+	mu       sync.Mutex
+	events   []string
+	reported bool
+	cli      string
+}
+
+func newVersionGateMaintenanceFixture(t *testing.T, action string, reportFailures int, authDenied bool) *versionGateMaintenanceFixture {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GROK_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("CXX_CRON_COORDINATED", "1")
+	t.Setenv("CXX_COMMUNICATOR_SYNC", "1")
+	f := &versionGateMaintenanceFixture{cfg: &config.Config{Engine: config.EngineGrok}, cli: filepath.Join(t.TempDir(), "grok")}
+	if err := os.WriteFile(f.cli, []byte("#!/bin/sh\nprintf 'grok 1.0.70\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CGX_GROK_BIN", f.cli)
+	f.cfg.Host.EnginesList = []string{config.EngineGrok}
+	reports := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/cron/check":
+			f.events = append(f.events, "check")
+			var request orchestrator.CronCheckRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Error(err)
+			}
+			if request.Engine != "grok" || request.ClientVersion != "1.0.70" {
+				t.Errorf("check lost installed version: %+v", request)
+			}
+			_ = json.NewEncoder(w).Encode(orchestrator.CronCheckResponse{Action: action, TargetVersion: "99.0.0"})
+		case "/cron/report":
+			f.events = append(f.events, "report")
+			reports++
+			var request orchestrator.CronReportRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Error(err)
+			}
+			if request.Engine != "grok" || request.ClientVersion != "1.0.70" || request.WrapperVersion != Version {
+				t.Errorf("report used target instead of observed native version: %+v", request)
+			}
+			if reports <= reportFailures {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				_, _ = w.Write([]byte(`{"status":"error","message":"fixture report rejected"}`))
+				return
+			}
+			f.reported = true
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		case "/sync/bootstrap":
+			f.events = append(f.events, "sync")
+			if authDenied {
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"status":"error","message":"fixture auth denied"}`))
+				return
+			}
+			if !f.reported {
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				_, _ = w.Write([]byte(`{"status":"error","message":"grok native settings require CLI 1.0.70; observed 1.0.50"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"status":"ok","grok_skills":[]}`))
+		case "/host/users":
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	f.client = &orchestrator.Client{BaseURL: server.URL, HTTP: server.Client()}
+	return f
+}
+
+func (f *versionGateMaintenanceFixture) assert(t *testing.T, wantEvents []string, reported bool) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if strings.Join(f.events, ",") != strings.Join(wantEvents, ",") || f.reported != reported {
+		t.Fatalf("maintenance order=%v reported=%t, want %v reported=%t", f.events, f.reported, wantEvents, reported)
+	}
+	raw, err := os.ReadFile(f.cli)
+	if err != nil || !strings.Contains(string(raw), "1.0.70") {
+		t.Fatalf("native override changed despite update policy: %q, %v", raw, err)
 	}
 }
