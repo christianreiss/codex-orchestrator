@@ -28,6 +28,20 @@ class RoomChatsTest {
             assertFalse(roomHasActiveAgent(mixed))
         }
     }
+    @Test fun memberPresenceFollowsTheOnlineAgentRules() {
+        fun agent(id: String, presence: String, readOnly: Boolean = false) =
+            JSONObject().put("id", id).put("portal_session_id", "p-$id").put("presence", presence).put("read_only", readOnly)
+        fun member(session: String?, reachable: Boolean = true) = JSONObject().put("session_id", session ?: JSONObject.NULL).put("reachable", reachable)
+        val agents = listOf(agent("w", "working"), agent("l", "listening"), agent("i", "idle"), agent("ro", "idle", true), agent("gone", "ended"))
+        assertEquals("working", roomMemberPresence(member("w"), agents))
+        assertEquals("listening", roomMemberPresence(member("l"), agents))
+        assertEquals("idle", roomMemberPresence(member("i"), agents))
+        assertEquals("working", roomMemberPresence(member("p-w"), agents))
+        for (session in listOf("ro", "gone", "unlisted", null)) assertEquals(session, "offline", roomMemberPresence(member(session), agents))
+        assertEquals("offline", roomMemberPresence(member("w", reachable = false), agents))
+        assertEquals("available", roomMemberPresence(member("w"), null))
+        assertEquals("offline", roomMemberPresence(member("w", reachable = false), null))
+    }
     @Test fun roomMembersMustAlsoBeOnlineAgentsByTheChatsRules() {
         fun agent(id: String, presence: String, readOnly: Boolean = false) =
             JSONObject().put("id", id).put("presence", presence).put("read_only", readOnly)

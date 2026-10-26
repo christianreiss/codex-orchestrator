@@ -1,5 +1,6 @@
 package io.uggs.orchestrator
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -70,6 +71,19 @@ import org.json.JSONObject
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(room?.let { "${roomLabel(it)} · ${it.optJSONArray("members")?.length() ?: 0} participants" }.orEmpty(), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = { details = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Details") }
+        }
+        room?.optJSONArray("members")?.objects()?.takeIf { it.isNotEmpty() }?.let { members ->
+            val agents = model.agents.takeIf { model.overviewAvailable() }
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp).testTag("room-members"), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                members.forEach { member ->
+                    val presence = roomMemberPresence(member, agents)
+                    Column(Modifier.widthIn(min = 56.dp, max = 88.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        MemberAvatar(member, presence)
+                        Text(roomPersonLabel(member), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(roomPresenceLabel(presence), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    }
+                }
+            }
         }
         HorizontalDivider()
         state.error?.let { message ->
@@ -191,10 +205,12 @@ import org.json.JSONObject
             if (room.optString("description").isNotBlank()) Text(room.optString("description"))
             Text("Participants", style = MaterialTheme.typography.titleMedium)
             room.optJSONArray("members")?.objects()?.forEach { member ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                val presence = roomMemberPresence(member, model.agents.takeIf { model.overviewAvailable() })
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    MemberAvatar(member, presence)
                     Column(Modifier.weight(1f)) {
                         Text(member.optString("name"))
-                        Text(if (!member.optBoolean("chat_capable")) "Update cxx to answer here" else if (member.optBoolean("reachable")) "Available" else "Offline", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (!member.optBoolean("chat_capable")) "Update cxx to answer here" else roomPresenceLabel(presence), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (writable && room.optString("kind") in setOf("group", "conference")) IconButton(onClick = { remove = member }, enabled = !state.busy) { CompanionIcon(CompanionSymbol.Close, "Remove ${member.optString("name")}") }
                 }

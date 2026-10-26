@@ -30,6 +30,18 @@ internal fun roomHasActiveAgent(room: JSONObject, agents: List<JSONObject>? = nu
         it.optBoolean("reachable", false) && (online == null || it.optString("session_id") in online)
     } == true
 }
+/**
+ * Live state of one room member by the same rules as [roomHasActiveAgent]:
+ * `working`, `listening` or `idle` for an online agent, `offline` otherwise, and
+ * `available` when only the roster's `reachable` flag is known (no agent overview).
+ */
+internal fun roomMemberPresence(member: JSONObject, agents: List<JSONObject>? = null): String {
+    if (!member.optBoolean("reachable", false)) return "offline"
+    if (agents == null) return "available"
+    val session = member.optString("session_id").takeIf { it.isNotBlank() && it != "null" } ?: return "offline"
+    val agent = agents.firstOrNull { it.optString("id") == session || it.optString("portal_session_id") == session }
+    return if (agent != null && isOnlineActiveAgent(agent)) agent.optString("presence") else "offline"
+}
 internal fun mergeRoomEvents(old: List<JSONObject>, fresh: List<JSONObject>): List<JSONObject> =
     (old + fresh).associateBy { it.getString("id") }.values.sortedWith(compareBy({ it.optString("created_at") }, { it.optString("id") }))
 

@@ -1,5 +1,20 @@
 # Android companion
 
+## Member presence in rooms (0.5.6)
+
+Rooms show a member strip above the timeline and use the same avatars in Details.
+Each avatar is the engine icon with a presence badge: working (amber), listening
+(green), idle (blue) or offline (hollow ring). The state is also written under the
+name and spoken by accessibility services, so colour is never the only signal.
+Presence follows the Chats rules: a member counts as online only when its session
+is a listed agent that is not closed, not read-only and listening, working or idle,
+**and** the roster says `reachable: true`. Without an agent overview the roster flag
+alone yields "Available". This APK-only change needs no server rollout.
+
+Not included yet: how far each agent has read. The server stores read positions
+only for operators (`agent_room_reads`), so per-agent read markers need a server
+change.
+
 ## Resolved host reviews (0.5.5)
 
 An open host-access review closes automatically when a fresh approval snapshot

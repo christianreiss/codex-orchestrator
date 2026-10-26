@@ -1,3 +1,7 @@
+# 2026-10-26
+
+- Android 0.5.6 shows who is working in groups, conferences and scope rooms: a member strip above the timeline and the Details list carry the engine icon with a presence badge (working, listening, idle, offline) and the state written out, using the same online-agent rules as the Chats tab. APK-only; no server rollout.
+
 # 2026-10-25
 
 - cxx 0.9.134 adds explicit message delivery timing: informational updates can surface during a native turn without cancelling current work, or wait for its end (the default). Preserve work-admission limits, identity and uncertain-submission fences; expose requested timing and unavailable receiver capability in receipts and the group publisher. Keep immediate messages out of deferred digests and coalescing lanes. Migration 0105 persists timing. Refuse Grok's implicit headless `agent` mode before config/auth admission, matching the existing explicit headless guard; ACP callers must select `stdio`.

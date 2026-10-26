@@ -1,15 +1,19 @@
 package io.uggs.orchestrator
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 import java.util.Locale
@@ -43,6 +47,29 @@ import java.util.Locale
         Row(Modifier.padding(horizontal = 7.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             CompanionIcon(CompanionSymbol.Computer, modifier = Modifier.size(12.dp))
             Text(shortName, modifier = Modifier.weight(1f, fill = false), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+internal fun roomPresenceLabel(presence: String) = when (presence) {
+    "working" -> "Working"; "listening" -> "Listening"; "idle" -> "Idle"; "available" -> "Available"; else -> "Offline"
+}
+
+/** Engine icon with a presence badge; the state is also spoken and written next to it, never colour alone. */
+@Composable internal fun MemberAvatar(member: JSONObject, presence: String, size: Dp = 40.dp) {
+    val description = "${roomPersonLabel(member)}: ${roomPresenceLabel(presence)}"
+    val ring = MaterialTheme.colorScheme.surface
+    val outline = MaterialTheme.colorScheme.outline
+    Box(Modifier.size(size).clearAndSetSemantics { contentDescription = description }) {
+        Surface(Modifier.fillMaxSize(), shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainer) {
+            Box(contentAlignment = Alignment.Center) { EngineIcon(member) }
+        }
+        val dot = Modifier.align(Alignment.BottomEnd).size(14.dp).background(ring, CircleShape).padding(2.dp)
+        when (presence) {
+            "working" -> Box(dot.background(Color(0xFFE0A100), CircleShape))
+            "listening", "available" -> Box(dot.background(Color(0xFF2E9E5B), CircleShape))
+            "idle" -> Box(dot.background(MaterialTheme.colorScheme.primary, CircleShape))
+            else -> Box(dot.border(1.5.dp, outline, CircleShape))
         }
     }
 }
