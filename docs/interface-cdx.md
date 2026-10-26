@@ -151,13 +151,24 @@ refresh ownership and native isolation differ. See [Grok interface](interface-cg
 
 ### Native command maintenance (cxx 0.9.66)
 
-The native command catalog was checked against Codex CLI **0.163.0** on
-2026-10-16 and the [official CLI reference](https://learn.chatgpt.com/docs/cli/reference).
+The native command catalog was checked against Codex CLI **0.164.0** on
+2026-10-26 and the [official CLI reference](https://learn.chatgpt.com/docs/cli/reference).
 `e` (exec) and `a` (apply) are reserved native aliases, including help passthrough,
 so a matching fleet profile cannot shadow them. The removed `mcp-server` command
 is no longer advertised as supported. Native command detection consumes current
 root option values, including `--add-dir` and `--remote-auth-token-env`, before
 classifying an auth command or headless run.
+
+From cxx **0.9.137**, `migrate-nfs-db` is reserved as a native command,
+including help and its required `--staging-dir` value. Executing it is refused
+before auth/config work: it replaces configured SQLite databases in place and
+requires every client on every host to stay stopped through cutover. A managed
+cross-host quiescence protocol is not integrated. Use separately coordinated
+native maintenance; this guard neither stops clients nor migrates databases.
+The native shim also refuses `codex update` with `cdx update` guidance so the
+native self-updater cannot bypass fleet pins; its help remains available.
+`doctor` is recognized by native argument/model-policy readers without changing
+`cdx doctor`'s existing wrapper ownership.
 
 Native dispatch, identity additions, workspace capture, model/effort readers and
 receiver config extraction share the same argument boundaries. Separate

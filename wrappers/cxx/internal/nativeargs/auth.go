@@ -29,7 +29,7 @@ func ValidateAuth(engine string, args []string) error {
 	loginBools := "--with-api-key --with-access-token --device-auth"
 	loginValues := "--experimental_issuer --experimental_client-id"
 	if engine == "grok" {
-		rootValues = "--model --single --rules --system-prompt-override --reasoning-effort --allow --deny --cwd --debug-file --leader-socket --agent --agents --prompt-file --prompt-json --output-format --json-schema --max-turns --permission-mode --tools --disallowed-tools --session-id --sandbox --worktree-ref --load --compaction-mode --compaction-detail --background-wait-timeout --storage-mode --client-identifier --hunk-tracker-mode --installer --resume --worktree"
+		rootValues = "--add-dir --model --single --rules --system-prompt-override --reasoning-effort --allow --deny --cwd --debug-file --leader-socket --agent --agents --prompt-file --prompt-json --output-format --json-schema --max-turns --permission-mode --tools --disallowed-tools --session-id --sandbox --worktree-ref --load --compaction-mode --compaction-detail --background-wait-timeout --storage-mode --client-identifier --hunk-tracker-mode --installer --resume --worktree"
 		rootBools = "--debug --always-approve --continue --fork-session --restore-code --no-plan --no-subagents --disable-web-search --verbatim --include-partial-messages --no-ask-user --experimental-memory --no-memory --memory-flush --no-wait-for-background --terminal --fs-read --fs-write --no-auto-update --todo-gate --no-alt-screen --minimal --fullscreen --log-sampling --force-login --oauth --leader --no-leader --trust --trust-folder"
 		globals = "--debug --debug-file --leader-socket"
 		loginBools = "--legacy --oauth --oidc --device-auth --device-code"

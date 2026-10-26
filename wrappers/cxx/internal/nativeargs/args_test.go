@@ -79,6 +79,7 @@ func TestNativeHelpOracle(t *testing.T) {
 				}{
 					{[]string{"--image", "a.png", "login", "--help"}, "Codex CLI"},
 					{[]string{"agents", "--help"}, "Browse all agent sessions on the shared local app-server daemon"},
+					{[]string{"migrate-nfs-db", "--staging-dir", "login", "--help"}, "[experimental] Migrate configured SQLite databases"},
 					{[]string{"--image", "a.png", "agents", "--help"}, "Codex CLI"},
 					{[]string{"--model", "agents", "--help"}, "Codex CLI"},
 					{[]string{"--image", "-", "login", "--help"}, "Codex CLI"},
@@ -96,6 +97,8 @@ func TestNativeHelpOracle(t *testing.T) {
 					{[]string{"--debug", "login", "--help"}, "Sign in to Grok"},
 					{[]string{"--debug-file", "login", "--help"}, "Grok Build TUI"},
 					{[]string{"--worktree", "login", "--help"}, "Grok Build TUI"},
+					{[]string{"--add-dir", "login", "--help"}, "Grok Build TUI"},
+					{[]string{"worker", "--name", "login", "--help"}, "Run this machine as a Cursor private worker"},
 					{[]string{"--print=--rules", "--help"}, "Grok Build TUI"},
 					{[]string{"--allowed-tools", "update", "--help"}, "Grok Build TUI"},
 					{[]string{"hello", "login", "--help"}, "Sign in to Grok"},
@@ -119,6 +122,12 @@ func TestNativeHelpOracle(t *testing.T) {
 				}
 				if strings.HasPrefix(tc.heading, "Browse all agent sessions") {
 					wantCommand = "agents"
+				}
+				if strings.HasPrefix(tc.heading, "[experimental] Migrate configured SQLite") {
+					wantCommand = "migrate-nfs-db"
+				}
+				if strings.HasPrefix(tc.heading, "Run this machine as a Cursor private worker") {
+					wantCommand = "worker"
 				}
 				got, _ := Command(engine, tc.args)
 				if got != wantCommand {

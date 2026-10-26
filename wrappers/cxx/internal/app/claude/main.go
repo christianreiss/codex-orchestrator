@@ -340,7 +340,7 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 		ui.Say(stderr, "claude", ui.ToneFail, "update", "Claude installation is fleet-managed; use clx update to install the pinned version")
 		return 2
 	}
-	if command := unsupportedNativeService(args); native && command != "" {
+	if command := unsupportedNativeService(args); command != "" && (native || command == "--bg" || command == "--background") {
 		ui.Say(stderr, "clx", ui.ToneFail, command, "this Claude service cannot inherit managed authentication/settings; service lifecycle integration is required. Native --help remains available")
 		return 2
 	}

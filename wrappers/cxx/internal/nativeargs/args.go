@@ -18,7 +18,7 @@ type spec struct {
 	arity arity
 }
 
-// Sources: Codex rust-v0.163.0 SharedCliOptions/TuiCli and Grok Build 1.0.60
+// Sources: Codex rust-v0.164.0 SharedCliOptions/TuiCli and Grok Build 1.0.70
 // help/PagerArgs. Comma-delimited vectors take one argv value unless num_args
 // explicitly says otherwise. An attached/equal value ends a variadic occurrence.
 var codex = map[string]spec{}
@@ -47,7 +47,7 @@ func init() {
 		{"--output-last-message", "-o"},
 		{"--experimental_issuer"},
 		{"--experimental_client-id"},
-		{"--listen"},
+		{"--listen"}, {"--staging-dir"},
 		{"--thread-source"}, {"--cyber-access-program"}, {"--color"}, {"--base"}, {"--commit"}, {"--title"},
 	} {
 		add(codex, required, names...)
@@ -63,7 +63,7 @@ func init() {
 		{"--reasoning-effort", "--effort"},
 		{"--allow", "--allowedTools", "--allowed-tools"},
 		{"--deny", "--disallowedTools"},
-		{"--cwd"},
+		{"--cwd"}, {"--add-dir"},
 		{"--debug-file"},
 		{"--leader-socket"},
 		{"--agent"},
@@ -89,6 +89,8 @@ func init() {
 		{"--installer"},
 		{"--local-workspace-attach"},
 		{"--local-workspace-cwd"},
+		{"--name"}, {"--worker-dir"}, {"--max-agents"}, {"--pool-name"}, {"--label"}, {"--labels-file"},
+		{"--api-key"}, {"--auth-token-file"}, {"--on-session-start"}, {"--on-session-end"}, {"--management-addr"}, {"--idle-release-timeout"},
 		{"--agent-profile"}, {"--plugin-dir"}, {"--grok-ws-origin"}, {"--grok-ws-url"}, {"--cli-chat-proxy-base-url"}, {"--xai-api-base-url"}, {"--bind"}, {"--secret"}, {"--remote"},
 	} {
 		add(grok, required, names...)
@@ -96,6 +98,7 @@ func init() {
 	add(grok, optional, "--resume", "-r")
 	add(grok, optional, "--worktree", "-w")
 	add(grok, optional, "--local-workspace")
+	add(grok, optional, "--pool")
 	// Boolean aliases also need canonical names for headless/security readers.
 	for _, names := range [][]string{
 		{"--continue", "-c"},
@@ -219,9 +222,9 @@ func Has(engine string, args []string, names ...string) bool {
 	return false
 }
 
-var codexCommands = strings.Fields("exec e review login logout mcp app-server completion sandbox debug apply a resume fork cloud features help agents archive unarchive delete queue plugin remote-control exec-server migrate-rollouts")
+var codexCommands = strings.Fields("exec e review login logout mcp app-server completion sandbox debug apply a resume fork cloud features help agents archive unarchive delete queue plugin remote-control exec-server migrate-rollouts migrate-nfs-db update doctor")
 
-var grokCommands = strings.Fields("agent clone completions cursor-worker dashboard doctor du disk-usage export help inspect leader login logout mcp memory models plugin sessions setup trace update usage version v worktree wrap install upgrade")
+var grokCommands = strings.Fields("agent clone completions cursor-worker worker dashboard doctor du disk-usage export help inspect leader login logout mcp memory models plugin sessions setup trace update usage version v worktree wrap install upgrade")
 
 // Command returns an unconsumed native command. Both providers accept one
 // initial prompt before a subcommand. Unknown Codex positionals retain their
@@ -260,7 +263,7 @@ func Command(engine string, args []string) (string, int) {
 func UnsupportedService(engine string, args []string) string {
 	command, at := Command(engine, args)
 	if engine == "codex" {
-		if command == "app-server" || command == "exec-server" || command == "remote-control" || command == "agents" {
+		if command == "app-server" || command == "exec-server" || command == "remote-control" || command == "agents" || command == "migrate-nfs-db" {
 			return command
 		}
 		if Has(engine, args, "--remote") {
@@ -287,7 +290,7 @@ func UnsupportedService(engine string, args []string) string {
 				return "agent " + mode
 			}
 		}
-		if command == "cursor-worker" {
+		if command == "cursor-worker" || command == "worker" {
 			return command
 		}
 		if Has(engine, args, "--leader-socket") {

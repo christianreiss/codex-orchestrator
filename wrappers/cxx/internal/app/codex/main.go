@@ -258,7 +258,7 @@ func isProfileShorthand(sub string) bool {
 // interpret as profile shorthand and whose `--help` invocations are passed
 // straight through to the upstream codex CLI.
 //
-// Re-synced against `codex --help` on codex-cli 0.162.1, 2026-10-12. `update`
+// Re-synced against `codex --help` on codex-cli 0.164.0, 2026-10-26. `update`
 // and `doctor` are absent on purpose: both are wrapperOwnedSubcommands above,
 // because the fleet pins the Codex version and cdx runs its own doctor.
 var reservedCodexSubcommands = map[string]bool{
@@ -288,6 +288,7 @@ var reservedCodexSubcommands = map[string]bool{
 	"remote-control":   true,
 	"exec-server":      true,
 	"migrate-rollouts": true,
+	"migrate-nfs-db":   true,
 }
 
 // isHelpPassthrough returns true when argv requests upstream Codex help text.
@@ -458,11 +459,19 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 			}
 		}
 	}
+	if native && nativeSubcommand(serviceArgs) == "update" {
+		fmt.Fprintln(stderr, "codex: installation is fleet-managed; use cdx update to install the pinned version")
+		return 2
+	}
 	if err := nativeargs.ValidateAuth("codex", serviceArgs); err != nil {
 		fmt.Fprintln(stderr, "codex:", err)
 		return 2
 	}
 	if service := nativeargs.UnsupportedService("codex", serviceArgs); service != "" {
+		if service == "migrate-nfs-db" {
+			fmt.Fprintln(stderr, "cdx: migrate-nfs-db replaces SQLite databases and requires all clients on every host to remain stopped through cutover; coordinated maintenance is not integrated. Native --help remains available")
+			return 2
+		}
 		fmt.Fprintf(stderr, "cdx: %s requires a separate managed auth/session lifecycle and is not supported; native --help remains available\n", service)
 		return 2
 	}

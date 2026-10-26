@@ -182,7 +182,7 @@ baked one requests background maintenance immediately, so an engine an operator
 enabled or disabled is provisioned on this launch (cdx parity). Maintenance appends `alias grok='cgx'` to
 existing `~/.bashrc`/`~/.zshrc`, as cdx and clx do for their engines.
 
-### Native argument boundaries (Grok Build 1.0.60)
+### Native argument boundaries (Grok Build 1.0.70)
 
 Managed native dispatch recognizes global options before subcommands, including
 `--debug login` / `--debug-file FILE update`; authentication remains centrally
@@ -203,7 +203,12 @@ so invalid native argv cannot clear a pending login. Supported global diagnostic
 options are retained; a native version request never routes into auth cleanup.
 The native CLI retains semantic config/provider validation.
 
-Public `cursor-worker`, `agent serve`, `agent leader`, `agent headless` commands
+From cxx **0.9.137**, native `--add-dir DIR` keeps a required, opaque
+value across dispatch, auth, identity and model-policy readers. Native worker
+options retain their own required or optional boundaries, including
+`--pool [NAME]`; option values named `login`, `worker` or flags stay data.
+
+Public `worker`, `cursor-worker`, `agent serve`, `agent leader`, `agent headless` commands
 and explicit external `--leader-socket` targets are refused before configuration/auth work. A persistent Cursor worker or an
 existing external leader/relay cannot inherit this launch's private leased-account
 broker, session identity and teardown. Native `--help` remains available;
