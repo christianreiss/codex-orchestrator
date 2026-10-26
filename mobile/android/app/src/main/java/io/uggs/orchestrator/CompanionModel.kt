@@ -61,6 +61,28 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     var notifications by mutableStateOf(true); private set
     var selected by mutableStateOf<String?>(null); private set
     var lastSync by mutableStateOf(0L); private set
+    var quotaEngines by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    var quotaError by mutableStateOf<String?>(null); private set
+    var quotaLoading by mutableStateOf(false); private set
+    private val quotaMutex = Mutex()
+    suspend fun refreshQuotas() = quotaMutex.withLock {
+        if (!foreground || connection == null || (!can("admin.read") || !can("auth.read_metadata"))) return
+        val owner = connection
+        val current = generation
+        quotaLoading = true
+        try {
+            val snapshot = api().request("/quotas")
+            if (connection == owner && generation == current && can("admin.read") && can("auth.read_metadata")) {
+                quotaEngines = snapshot.getJSONArray("engines").objects(); quotaError = null
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) {
+            if (connection == owner && generation == current) {
+                quotaError = if (e is ApiException && e.status == 404) "Quotas require a server update." else "Could not refresh quotas. Try again."
+                if (e is ApiException && e.status in setOf(401, 403)) quotaEngines = emptyList()
+            }
+        } finally { quotaLoading = false }
+    }
     var online by mutableStateOf(false); private set
     var notice by mutableStateOf<String?>(null); private set
     var error by mutableStateOf<String?>(null); private set
@@ -309,6 +331,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         } else null
         if (current != generation || epoch != revision || !foreground) return false
         capabilities = caps
+        if ("admin.read" !in caps || "auth.read_metadata" !in caps) { quotaEngines = emptyList(); quotaError = null }
         if ("hosts" in scopes || me != null) hosts = hostSnapshot?.optJSONArray("hosts")?.objects() ?: emptyList()
         permissionsKnown = true
         if (loadAgents) portalAvailable = !portalDisabled
@@ -602,6 +625,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         uploadJobs.values.forEach { it.cancel() }; uploadJobs.clear()
         chatUploads.values.flatten().forEach { it.file.delete() }; chatUploads=emptyMap(); chatDrafts=emptyMap(); replyTargets=emptyMap(); chatSends.clear(); noticeOperations.clear()
         java.io.File(getApplication<Application>().cacheDir,"chat-downloads").deleteRecursively()
+        quotaEngines = emptyList(); quotaError = null
         store.clear(); connection = null; selected = null; events = emptyList(); pendingChats = emptyMap(); agents = emptyList(); hosts = emptyList(); pendingStart = null; approvals = emptyList(); capabilities = emptySet()
         activeWindows = emptyList(); fleetWindow = null
         unreadStore.clear(); unreadSessions = emptySet(); unreadReplyCounts = emptyMap(); permissionsKnown = false

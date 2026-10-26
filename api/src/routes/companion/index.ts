@@ -1,3 +1,5 @@
+import { registerCompanionQuotas } from './quotas.js';
+import { companionQuotas } from '../../services/companion/quotas.js';
 import { CompanionChanges } from '../../services/companion/changes.js';
 import { subscribeActivityObservations } from '../../services/agent-activity.js';
 import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
@@ -164,6 +166,13 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       if (req.headers.origin || req.headers['sec-fetch-site'])
         throw new ForbiddenError('Native companion API only', 'native_only');
       await checkEnabled();
+    });
+    registerCompanionQuotas(app, {
+      authorize: async req => {
+        await auth(req, 'admin.read');
+        await auth(req, 'auth.read_metadata');
+      },
+      read: () => companionQuotas(ctx),
     });
     registerCompanionRooms(app, ctx);
     app.get(

@@ -1,5 +1,25 @@
 # API Interface (Source of Truth)
 
+## Android engine quotas (0.5.9)
+
+`GET /companion/v1/quotas` uses the paired-device Bearer token and requires
+`admin.read` and `auth.read_metadata`, rechecked before returning the snapshot. It returns `engines` for
+Codex, Claude and Grok, each with `engine`, `label`, `enabled` and `accounts`.
+Each account exposes only `id`, `label`, `state`, `fetched_at`, `stale`, and
+`windows` (`kind`, `used_percent`, `resets_at`, `limit_seconds`). Removed accounts
+are excluded. Codex/Claude retain short and weekly windows; Grok retains its
+current weekly/monthly window. Suspended engines remain readable as snapshots.
+The read makes no provider call, account-maintenance change or credential read.
+
+Android shows the Quotas tab to users with both read capabilities, refreshes on entry,
+every 60 seconds while visible, and manually. Snapshot age over ten minutes,
+expired reset times and server-marked stale readings show Stale; missing windows
+show Unavailable, never zero. Times use the device timezone. Connection loss or
+refresh failure leaves the last snapshot visibly marked; quota data is not
+persisted. Older servers return 404 and the tab explains that an update is needed.
+API rollout is required before installing the APK to use this tab.
+
+
 ## Message delivery timing
 
 Direct send/reply and group publication inputs accept optional `delivery_timing`
