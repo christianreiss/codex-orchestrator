@@ -39,6 +39,7 @@ describe('config-normalizer constants', () => {
     // (catalog, binary, and a live call all reject it) and heals the same way.
     expect(SUPPORTED_MODELS).toEqual([
       'gpt-6.1-sol',
+      'gpt-6.1-terra',
       'gpt-6-astra',
       'gpt-6-sol',
       'gpt-6-luna',
@@ -53,9 +54,10 @@ describe('config-normalizer constants', () => {
   });
 
   it('matches the current Codex CLI model effort catalog and defaults', () => {
-    // Mirrors codex-cli 0.162.1 models_cache.json, 2026-10-12.
+    // Mirrors codex-cli 0.164.0 models_cache.json, 2026-10-26.
     expect(MODEL_REASONING_EFFORTS).toEqual({
       'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+      'gpt-6.1-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -65,6 +67,7 @@ describe('config-normalizer constants', () => {
     });
     expect(CODEX_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
       'gpt-6.1-sol': 'low',
+      'gpt-6.1-terra': 'low',
       'gpt-6-astra': 'medium',
       'gpt-6-sol': 'medium',
       'gpt-6-luna': 'medium',

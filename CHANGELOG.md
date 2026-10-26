@@ -7,6 +7,8 @@
 
 - cxx 0.9.137 updates native command/value boundaries for Codex 0.164.0, Claude Code 2.1.310 and Grok Build 1.0.70. Refuse unintegrated SQLite cutover, background/worker/gateway lifetimes before auth/config work, while preserving safe help and Claude `agents --json` listing. Keep command-shaped option values opaque and route native Codex self-update attempts to the fleet updater.
 - Pin runner source builds to Codex 0.164.0, Claude Code 2.1.310 and Grok Build 1.0.70 with verified Linux amd64/arm64 artifacts. Host installation targets and minimum versions remain independent; deployment requires a separate runner rebuild/recreation.
+- Offer GPT-6.1 Terra in Codex configuration, host pickers, gateway catalogs and signed launch menus with the verified native low default and low-through-ultra efforts. Keep GPT-5.6 Terra selectable; only the opt-in latest-family policy selects its successor.
+
 - Correct remaining retired Codex references to the current documented successors (`gpt-5.4` → GPT-6 Sol, mini → GPT-6 Luna). Preserve compatible efforts across fleet, host, profile and native subagent settings; otherwise use the successor default, while keeping custom IDs and already migrated selections intact.
 - Recalibrate fleet model classes against current cross-engine evidence: Grok 4.7 and its identical Fast variant are Tier 3; Grok 4.6 and 4.5 are Tier 2. Managed Agents previews and launch ordering use the same table; Codex and Claude family classes remain unchanged.
 

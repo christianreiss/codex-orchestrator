@@ -1476,6 +1476,11 @@ default. It keeps the newest version per family across WebUI choices, gateways
 and new managed CLI starts, upgrading old choices without rewriting saved
 preferences. Existing sessions keep their model. Managed hosts need cxx >= 0.9.94
 and a configuration sync; direct provider binaries are outside this policy.
+Codex includes public GPT-6.1 Terra, using its native `low` default and
+`low|medium|high|xhigh|max|ultra` efforts. It is available in the existing fleet,
+host and profile selectors and signed launch menus. GPT-5.6 Terra remains selectable;
+Only current models resolves that family to GPT-6.1 Terra without rewriting the
+stored choice. Native CLI and provider API effort contracts remain separate.
 See `interface-api.md` → Fleet model policy.
 
 Model Class Check guidance rates the whole assignment before scouting or planning. Whole-stack cleanup assessment is Tier 4 even when read-only; all four task definitions remain visible on hosts with only lower-tier models. Two-tier gaps stop unless the operator explicitly overrides the identified mismatch. This is agent guidance, not runtime enforcement.
