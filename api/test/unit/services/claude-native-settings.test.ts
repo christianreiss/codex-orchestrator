@@ -12,6 +12,34 @@ const normalize = (native: Record<string, unknown>, structured: Record<string, u
   normalizeSettings({ native_settings: native, ...structured }, { applyCodexDefaults: false, engine: 'claude' });
 
 describe('Claude native user settings', () => {
+  it.each([false, true])('preserves allowNestedUserNamespaces=%s without claiming sibling settings', allowNestedUserNamespaces => {
+    const native = { sandbox: { allowNestedUserNamespaces, enabled: true }, env: { 'sandbox.allowNestedUserNamespaces': 'opaque' } };
+    const settings = normalize(native);
+    expect(settings.native_settings).toEqual(native);
+    expect(JSON.parse(new ClientConfigService({} as never).render(settings, 'claude').content)).toMatchObject(native);
+    const rendered = renderClaudeSettingsPartialForHost({
+      host: { claudeClientVersion: '2.1.305', claudeWrapperVersion: '0.9.66' } as never,
+      settings, baseUrl: null, apiKey: null,
+    });
+    expect(rendered.partial).toMatchObject(native);
+    expect(rendered.owned_paths).toContain('sandbox.allowNestedUserNamespaces');
+    expect(rendered.owned_paths).not.toContain('sandbox');
+    expect(rendered.owned_paths).toContain('json:["env","sandbox.allowNestedUserNamespaces"]');
+    const removed = renderClaudeSettingsPartial(normalize({ sandbox: { enabled: true } }));
+    expect(removed.partial.sandbox).toEqual({ enabled: true });
+    expect(removed.owned_paths).toContain('sandbox.enabled');
+    expect(removed.owned_paths).not.toContain('sandbox.allowNestedUserNamespaces');
+  });
+
+  it.each(['false', 0, null, {}, []])('rejects non-boolean allowNestedUserNamespaces=%j', allowNestedUserNamespaces => {
+    expect(() => normalize({ sandbox: { allowNestedUserNamespaces } })).toThrow('native_settings.sandbox.allowNestedUserNamespaces');
+  });
+
+  it('directs Desktop-only SSH host commands to their actual consumer', () => {
+    expect(() => normalize({ sshHostCommands: [{ id: 'devbox', name: 'Dev box', command: 'acme-dev create' }] }))
+      .toThrow('Only Claude Desktop 3.6556.0 or newer reads this setting');
+  });
+
   it.each([false, true])('preserves explicit idleCompaction=%s through preview and host rendering', idleCompaction => {
     const native = { idleCompaction };
     const settings = normalize(native);
@@ -258,9 +286,10 @@ describe('Claude native user settings', () => {
       hard_deny: ['Never delete production data'],
       classifyAllShell: true,
     };
-    await service.store({ settings: { native_settings: { autoMode, env: { CUSTOM: 'first' }, permissions: { defaultMode: 'plan' }, idleCompaction: false } } }, null, 'claude');
+    await service.store({ settings: { native_settings: { autoMode, env: { CUSTOM: 'first' }, permissions: { defaultMode: 'plan' }, idleCompaction: false, sandbox: { allowNestedUserNamespaces: false, enabled: true } } } }, null, 'claude');
     const first = await service.adminFetch('claude');
     expect(first.settings?.native_settings?.idleCompaction).toBe(false);
+    expect(first.settings?.native_settings?.sandbox).toEqual({ allowNestedUserNamespaces: false, enabled: true });
     expect(first.settings?.native_settings?.autoMode).toEqual(autoMode);
     expect(JSON.parse(first.content!).autoMode).toEqual(autoMode);
     const beforeInvalid = structuredClone(row);
@@ -273,16 +302,18 @@ describe('Claude native user settings', () => {
     expect(row).toEqual(beforeInvalid);
     expect(first.settings?.env).toBeUndefined();
     expect(first.settings?.permissionMode).toBeUndefined();
-    const changed = await service.store({ settings: { ...first.settings, native_settings: { autoMode: { ...autoMode, soft_deny: ['Replacement rule without defaults'] }, env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual' }, idleCompaction: true } } }, null, 'claude');
+    const changed = await service.store({ settings: { ...first.settings, native_settings: { autoMode: { ...autoMode, soft_deny: ['Replacement rule without defaults'] }, env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual' }, idleCompaction: true, sandbox: { allowNestedUserNamespaces: true, enabled: true } } } }, null, 'claude');
     expect(JSON.parse(changed.content)).toMatchObject({ env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual' }, idleCompaction: true });
     const second = await service.adminFetch('claude');
     expect(second.settings?.native_settings?.idleCompaction).toBe(true);
+    expect(second.settings?.native_settings?.sandbox).toEqual({ allowNestedUserNamespaces: true, enabled: true });
     expect(second.settings?.native_settings?.autoMode).toEqual({ ...autoMode, soft_deny: ['Replacement rule without defaults'] });
     await service.store({ settings: { ...second.settings, native_settings: {} } }, null, 'claude');
     const cleared = await service.adminFetch('claude');
     expect(cleared.settings?.native_settings).toBeUndefined();
     const rendered = JSON.parse(cleared.content!);
     expect(rendered).not.toHaveProperty('idleCompaction');
+    expect(rendered).not.toHaveProperty('sandbox');
     expect(rendered.env).toBeUndefined();
     expect(rendered.autoMode).toBeUndefined();
     expect(rendered.permissions.defaultMode).not.toBe('manual');

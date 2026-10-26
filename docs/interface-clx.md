@@ -969,8 +969,21 @@ on. Removing the key withdraws fleet ownership without changing local sibling
 settings. Claude Code introduced it in 2.1.290, below the existing 2.1.296
 minimum for native settings; this addition does not raise that minimum.
 
+`sandbox.allowNestedUserNamespaces` is an optional boolean, default `false`,
+introduced in Claude Code 2.1.305. Configuring either boolean value requires a
+reported CLI version of at least 2.1.305; other native settings retain 2.1.296.
+Setting it to `true` permits sandboxed commands to escape the sandbox, so protected
+paths and credential restrictions are no longer a security boundary. Native
+project settings cannot enable it, and `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`
+ignores a true value from every scope. Removing it withdraws only that owned leaf.
+No value is inserted by the fleet.
+
+`sshHostCommands` is rejected with a Desktop-scope explanation: only Claude
+Desktop 3.6556.0 or newer reads it; accepting it in a CLI settings parser would
+not make it functional in managed CLI sessions.
+
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
-checked against Claude Code 2.1.301 on 2026-10-16. Validation rejects unknown
+checked against Claude Code 2.1.310 on 2026-10-26. Validation rejects unknown
 root keys and fields in fixed nested objects, invalid types/enums, malformed
 hook events and handlers, and unsafe JSON keys with HTTP 422. Diagnostics name
 the full `native_settings` path, including array indices; literal dotted keys

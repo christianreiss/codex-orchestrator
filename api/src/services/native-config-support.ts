@@ -47,7 +47,9 @@ export function assertNativeConfigSupport(settings: unknown, host: Host | null, 
   if (!root && !profile && !codex163) return;
   const raw = engine === 'codex' ? host.clientVersion : host.claudeClientVersion;
   const observed = typeof raw === 'string' ? raw.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] : undefined;
-  const minimum = codex163 ? '0.163.0' : NATIVE_CONFIG_MIN_VERSIONS[engine];
+  const claudeNestedNamespaces = engine === 'claude'
+    && Object.hasOwn(record(record(value.native_settings).sandbox), 'allowNestedUserNamespaces');
+  const minimum = codex163 ? '0.163.0' : claudeNestedNamespaces ? '2.1.305' : NATIVE_CONFIG_MIN_VERSIONS[engine];
   if (!observed || versionCompare(observed, minimum) < 0) {
     throw new ValidationError(`${engine} native settings require CLI ${minimum} or newer; observed ${observed ?? 'unreported'}. Run ${engine === 'codex' ? 'cdx' : 'clx'} update (or cron run to report an already installed version), then retry sync.`, {
       param: root ? 'settings.native_settings' : profile ? 'settings.profiles' : 'settings',

@@ -109,6 +109,39 @@ func TestMergeIdleCompactionBooleanAndWithdrawal(t *testing.T) {
 	}
 }
 
+func TestMergeNestedUserNamespacesBooleanAndWithdrawal(t *testing.T) {
+	user := []byte(`{"sandbox":{"enabled":true,"filesystem":{"denyRead":["/private"]}},"env":{"sandbox.allowNestedUserNamespaces":"opaque"}}`)
+	local := parseObj(t, user)
+	state := emptyState()
+	for _, value := range []bool{false, true} {
+		partial := map[string]any{"sandbox": map[string]any{"allowNestedUserNamespaces": value}}
+		out, next, err := MergeSettings(user, partial, []string{"sandbox.allowNestedUserNamespaces"}, state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		merged := parseObj(t, out)
+		sandbox := merged["sandbox"].(map[string]any)
+		if got, exists := sandbox["allowNestedUserNamespaces"]; !exists || got != value {
+			t.Fatalf("allowNestedUserNamespaces = %v (present %v), want %v", got, exists, value)
+		}
+		delete(sandbox, "allowNestedUserNamespaces")
+		if !reflect.DeepEqual(merged, local) {
+			t.Fatalf("local settings changed: %v", merged)
+		}
+		user, state = out, next
+	}
+	out, state, err := MergeSettings(user, map[string]any{}, []string{}, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged := parseObj(t, out); !reflect.DeepEqual(merged, local) {
+		t.Fatalf("withdrawal must remove only the fleet leaf: %v", merged)
+	}
+	if len(state.KeyPaths) != 0 {
+		t.Fatalf("ownership retained after withdrawal: %v", state.KeyPaths)
+	}
+}
+
 func TestMergePermissionsUnionAndPrevFleetStrip(t *testing.T) {
 	// User has their own deny rule + one the fleet injected last run (rm -rf).
 	user := []byte(`{"permissions":{"deny":["Bash(sudo *)","Bash(rm -rf *)"]}}`)

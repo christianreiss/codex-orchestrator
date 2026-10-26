@@ -130,6 +130,30 @@ test("native JSON validates, previews and saves each engine without losing separ
   await page.reload(); await openAdvanced(page, ["codex"]); await expect(page.locator("#codex-native-settings textarea")).toHaveValue("{}");
 });
 
+test("Claude nested namespaces stay opt-in and can be previewed, changed and removed", async ({ page }) => {
+  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["claude"]);
+  const card = page.locator("#claude-native-settings"), editor = card.getByRole("textbox");
+  await expect(card).toContainText("It defaults to false");
+  await expect(card).toContainText("escape the sandbox");
+  await expect(card).toContainText("Desktop-only sshHostCommands");
+  await expect(card.getByRole("link", { name: "Claude 2.1.310 settings" })).toBeVisible();
+  expect(shared.configs.claude.settings.native_settings).not.toHaveProperty("sandbox");
+  for (const allowNestedUserNamespaces of [false, true]) {
+    const native = { sandbox: { enabled: true, allowNestedUserNamespaces }, env: { LOCAL_SIBLING: "kept" } };
+    await editor.fill(JSON.stringify(native));
+    await card.getByRole("button", { name: "Validate and preview" }).click();
+    await expect(card).toContainText("claude validated configuration");
+    await card.getByRole("button", { name: "Save native settings" }).click();
+    await expect.poll(() => shared.configs.claude.settings.native_settings).toEqual(native);
+    await expect(card.getByRole("button", { name: "Save native settings" })).toBeDisabled();
+  }
+  await editor.fill(JSON.stringify({ sandbox: { enabled: true }, env: { LOCAL_SIBLING: "kept" } }));
+  await card.getByRole("button", { name: "Save native settings" }).click();
+  await expect.poll(() => shared.configs.claude.settings.native_settings).toEqual({ sandbox: { enabled: true }, env: { LOCAL_SIBLING: "kept" } });
+  await page.reload(); await openAdvanced(page, ["claude"]);
+  await expect(editor).not.toHaveValue(/allowNestedUserNamespaces/);
+});
+
 test("dirty drafts survive remote changes, validation failure and a store revision race", async ({ page }) => {
   const shared = state(); const refresh = await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page);
   const card = page.locator("#codex-native-settings"), editor = card.getByRole("textbox");

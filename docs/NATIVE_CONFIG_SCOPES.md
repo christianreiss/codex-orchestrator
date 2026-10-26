@@ -10,7 +10,7 @@ can be authored centrally. Coverage was reviewed on 2026-10-16 against Codex
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
 | Codex | Current user configuration and named profile layers | System `requirements.toml`, MDM and cloud Agent Security policy; repository config | Requirements enforce constraints with separate authority and platform/cloud applicability. Writing them as user defaults would not enforce them. Repository policy belongs to that repository. |
-| Claude | Current user `settings.json`; managed MCP entries and existing native artifact collections | General `managed-settings.json`/drop-ins and cloud enterprise policy; global preferences/state in `~/.claude.json`; project/local settings | Native global state also contains sign-in and project trust. Native `/config` owns its local preferences. Enterprise policies take precedence over defaults and require a separate policy deployment contract. The existing narrow channels-policy drop-in remains supported. |
+| Claude | Current user `settings.json`; managed MCP entries and existing native artifact collections | General `managed-settings.json`/drop-ins and cloud enterprise policy; global preferences/state in `~/.claude.json`; project/local settings; Desktop-only `sshHostCommands` | Native global state also contains sign-in and project trust. Native `/config` owns its local preferences. Enterprise policies take precedence over defaults and require a separate policy deployment contract. The existing narrow channels-policy drop-in remains supported. |
 | Grok | Current user `config.toml`, including references to local sandbox profiles | `managed_config.toml`, signed `requirements.toml`/MDM, `pager.toml`, custom sandbox profile files and project configuration | Managed defaults and enforced signed requirements have different precedence. Machine-local UI customizations and filesystem-specific sandbox artifacts remain provisioned on their host; the config editor may select an existing profile. |
 
 These exclusions preserve the engines' native configuration layering; they do
@@ -48,7 +48,12 @@ government-cloud guidance and the new realtime voices. This checks both root and
 profile settings, including structured feature/notice controls, using exact field
 paths. Opaque plugin/MCP names never trigger a version gate. Existing supported
 values retain the 0.162.1 floor. Claude native settings require
-2.1.296. Older or unreported versions receive an actionable config validation
+2.1.296, or 2.1.305 when `native_settings.sandbox.allowNestedUserNamespaces`
+is present (including `false`). This opt-in boolean defaults to false; true
+allows sandbox escape and disables the sandbox as a security boundary. Only
+user/managed settings can enable it; subprocess environment scrubbing overrides true.
+Claude Desktop 3.6556.0+ owns `sshHostCommands`; CLI defaults reject it with a scope explanation.
+Older or unreported versions receive an actionable config validation
 error with observed and required versions. Empty extensions and existing
 structured-only settings do not raise either fleet-wide minimum. Grok already
 enforces its 1.0.50 native floor. Literal-key ownership independently requires

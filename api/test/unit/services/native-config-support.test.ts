@@ -90,3 +90,28 @@ describe('Codex 0.163 conditional capability floor', () => {
     } })).not.toThrow();
   });
 });
+
+
+describe('Claude nested user namespaces conditional capability floor', () => {
+  const render = (version: string | null, settings: unknown) => renderClaudeSettingsPartialForHost({
+    settings, host: { claudeClientVersion: version, claudeWrapperVersion: '0.9.66' } as never, baseUrl: null, apiKey: null,
+  });
+  it.each([false, true])('requires 2.1.305 even when the configured boolean is %s', allowNestedUserNamespaces => {
+    const settings = { native_settings: { sandbox: { allowNestedUserNamespaces } } };
+    for (const version of ['2.1.296', '2.1.304', null]) {
+      expect(() => render(version, settings)).toThrow(/2\.1\.305.*observed.*clx update/);
+    }
+    expect(render('2.1.305 (Claude Code)', settings).partial.sandbox).toEqual({ allowNestedUserNamespaces });
+    expect(() => render('2.1.310', settings)).not.toThrow();
+    expect(JSON.parse(new ClientConfigService({} as never).render(settings, 'claude').content).sandbox)
+      .toEqual({ allowNestedUserNamespaces });
+  });
+  it('keeps existing fields and opaque names at the old floor and withdraws the gate on removal', () => {
+    expect(() => render('2.1.296', { native_settings: { sandbox: { enabled: true },
+      env: { 'sandbox.allowNestedUserNamespaces': 'opaque' },
+      modelSettings: { allowNestedUserNamespaces: { effortLevel: 'high' } },
+    } })).not.toThrow();
+    expect(() => render(null, { native_settings: {} })).not.toThrow();
+    expect(() => render('2.1.296', { native_settings: { sandbox: {} } })).not.toThrow();
+  });
+});

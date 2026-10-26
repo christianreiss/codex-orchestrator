@@ -1,4 +1,4 @@
-/** Public user-scope settings from Claude Code 2.1.301, verified 2026-10-16.
+/** Public user-scope settings from Claude Code 2.1.310, verified 2026-10-26.
  * Source: https://code.claude.com/docs/en/settings-reference
  * Only key names, JSON types and fixed enum values are recorded here. Native
  * settings remain opt-in; this registry does not activate any feature.
@@ -221,6 +221,7 @@ export const CLAUDE_NATIVE_NESTED_SETTING_RULES: Readonly<Record<string, ClaudeN
   "sandbox.autoAllowBashIfSandboxed": {"type": "boolean"},
   "sandbox.excludedCommands": {"type": "array", "items": "string"},
   "sandbox.allowUnsandboxedCommands": {"type": "boolean"},
+  "sandbox.allowNestedUserNamespaces": {"type": "boolean"},
   "sandbox.filesystem": {"type": "object"},
   "sandbox.filesystem.allowWrite": {"type": "array", "items": "string"},
   "sandbox.filesystem.denyWrite": {"type": "array", "items": "string"},

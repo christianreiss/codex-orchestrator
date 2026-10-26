@@ -23,7 +23,7 @@
   const parse = (text: string) => profiles ? parseNativeProfiles(text) : parseNativeSettings(text);
   const references = {
     codex: { version: "0.163.0", url: "https://developers.openai.com/codex/config-reference/" },
-    claude: { version: "2.1.301", url: "https://code.claude.com/docs/en/settings-reference" },
+    claude: { version: "2.1.310", url: "https://code.claude.com/docs/en/settings-reference" },
     grok: { version: "1.0.60", url: "https://docs.x.ai/build/settings/reference" },
   };
   const qc = useQueryClient();
@@ -111,6 +111,13 @@
     Model and effort use the controls above; existing fleet controls take precedence for settings they own.
     {/if}
   </p>
+  {#if engine === "claude" && !profiles}
+    <p class="mt-2 max-w-3xl text-body-sm text-muted-foreground">
+      sandbox.allowNestedUserNamespaces requires Claude Code 2.1.305 or newer. It defaults to false.
+      Setting it to true lets sandboxed commands escape the sandbox; protected paths and credentials are no longer a security boundary.
+      Desktop-only sshHostCommands is configured in Claude Desktop.
+    </p>
+  {/if}
   <p class="mt-1 text-caption text-muted-foreground">
     Reference: <a class="underline underline-offset-2" href={references[engine].url} target="_blank" rel="noreferrer">{ENGINE_META[engine].label} {references[engine].version} settings</a>
   </p>

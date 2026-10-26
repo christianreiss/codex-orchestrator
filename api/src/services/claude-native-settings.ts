@@ -25,6 +25,7 @@ const reserved: Readonly<Record<string, string>> = {
   effortLevel: 'Use the reasoning effort control, or modelSettings for per-model defaults.',
   apiKeyHelper: 'Authentication is owned by the managed launch and overrides apiKeyHelper.',
   autoUpdatesChannel: 'Native updates are disabled; use the fleet Claude version control.',
+  sshHostCommands: 'Only Claude Desktop 3.6556.0 or newer reads this setting; configure it through Desktop user or managed settings, not fleet CLI defaults.',
 };
 const forbiddenKeys = new Set(['__proto__', 'prototype', 'constructor']);
 const efforts = ['low', 'medium', 'high', 'xhigh'];
@@ -70,7 +71,7 @@ function jsonCopy(value: unknown, path: string, depth = 0): unknown {
   return fail(path, 'expected a JSON value');
 }
 
-// Public fixed-object grammar, verified against the 2.1.301 native schema and
+// Public fixed-object grammar, verified against the 2.1.310 native schema and
 // https://code.claude.com/docs/en/{settings-reference,hooks,plugins/marketplace-reference}.
 // Maps deliberately validate their values without interpreting names as paths.
 const text = z.string();
