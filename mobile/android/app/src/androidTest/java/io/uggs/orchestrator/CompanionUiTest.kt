@@ -43,6 +43,22 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class CompanionUiTest {
+    @Test fun chatStatusTracksOnlineAndWorkingWithoutRequiringAReceiver() {
+        waitForAgentRows(session)
+        compose.onNodeWithText("Online · Can receive messages").assertIsDisplayed()
+        presence.set("working"); reachable.set(false); changed("agents")
+        compose.waitUntil(10000) {
+            compose.onAllNodesWithText("Working · Receiver unavailable").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("agent-status:$session", useUnmergedTree = true).assertIsDisplayed()
+        screenshot("chat-agent-working-indicator")
+        presence.set("idle"); changed("agents")
+        compose.waitUntil(10000) {
+            compose.onAllNodesWithText("Working · Receiver unavailable").fetchSemanticsNodes().isEmpty()
+        }
+        compose.onAllNodesWithText("Online · Receiver unavailable").onFirst().assertIsDisplayed()
+    }
+
     @Test fun quotaTabShowsProviderUsageAndUnavailableEngines() {
         waitForAgentRows(session)
         val usage = "Weekly · " + String.format(java.util.Locale.getDefault(), "%.1f%% used", 25.0)

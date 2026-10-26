@@ -5,6 +5,23 @@ import java.time.Instant
 
 private fun instant(value: String): Long? = runCatching { Instant.parse(value).toEpochMilli() }.getOrNull()
 
+internal enum class ChatAgentStatus(val label: String) {
+    ONLINE("Online"), WORKING("Working"), OFFLINE("Offline"), UNKNOWN("Unknown")
+}
+
+/** Connection freshness gates live claims; receiver readiness only gates delivery. */
+internal fun chatAgentStatus(agent: JSONObject, now: Long, fresh: Boolean): ChatAgentStatus {
+    if (!fresh) return ChatAgentStatus.UNKNOWN
+    if (isClosedAgent(agent) || agent.optString("presence") == "offline") return ChatAgentStatus.OFFLINE
+    if (!isOnlineActiveAgent(agent)) return ChatAgentStatus.UNKNOWN
+    return when (nativeActivity(agent, now)) {
+        "working" -> ChatAgentStatus.WORKING
+        "idle", "waiting" -> ChatAgentStatus.ONLINE
+        "unknown" -> ChatAgentStatus.UNKNOWN
+        else -> if (agent.optString("presence") == "working") ChatAgentStatus.WORKING else ChatAgentStatus.ONLINE
+    }
+}
+
 fun nativeActivity(agent: JSONObject, now: Long): String? {
     val a = agent.optJSONObject("activity") ?: return null
     if (a.optString("source") == "portal-question" && agent.optJSONObject("pending_prompt") != null) return "waiting"

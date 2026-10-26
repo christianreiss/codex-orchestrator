@@ -1,5 +1,14 @@
 # Android companion
 
+## Chat agent indicators (Android 0.5.11)
+
+Direct-chat rows show a green **Online**, amber **Working**, or gray **Offline**
+indicator with a text label. Activity expiry or a stale/disconnected app snapshot
+shows **Unknown**, never a cached live claim. Native activity takes precedence over
+legacy presence; waiting agents remain online and show **Waiting for you**.
+Receiver readiness remains separate from work status. Existing active-chat filters
+are unchanged. APK-only; no API rollout required.
+
 ## Shared read state (Android 0.5.10)
 
 Agent conversation read positions now synchronize across devices paired to the same

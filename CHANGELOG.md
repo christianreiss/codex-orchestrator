@@ -1,5 +1,7 @@
 # 2026-10-26
 
+- Android 0.5.11 adds labeled online/working/offline indicators to direct-chat rows. Show unknown for expired activity or stale app snapshots; preserve waiting-for-you and receiver availability details. APK-only; active-chat filters stay unchanged.
+
 - Android 0.5.10 synchronizes read replies across devices paired to the same administrator, including live views and silent protocol-gated badge cleanup. Preserve newer unread replies, offline markers, account isolation and old-server compatibility. Shared room reads now refresh other connected views. Requires API migration 0108 and the updated APK.
 
 - Hide revoked Android devices from the personal Account device list, including after reload and immediately after a confirmed revocation. Retain server records; show the empty state when no active paired devices remain.

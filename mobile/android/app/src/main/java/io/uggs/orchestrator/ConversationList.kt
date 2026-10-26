@@ -119,7 +119,7 @@ import java.time.Instant
                 }
             }
             itemsIndexed(visible, key = { _, agent -> "agent:" + agent.getString("id") }) { index, agent ->
-                AgentRow(agent, now, attention(agent), model.unreadReplyCount(agent.getString("id")), index < visible.lastIndex) { model.openSession(agent.getString("id")) }
+                AgentRow(agent, now, fresh, attention(agent), model.unreadReplyCount(agent.getString("id")), index < visible.lastIndex) { model.openSession(agent.getString("id")) }
             }
             itemsIndexed(shared, key = { _, room -> "room:" + room.getString("id") }) { _, room ->
                 RoomRow(room, model.can("agent_messaging.reveal_content")) { model.openRoom(room) }
@@ -145,7 +145,7 @@ import java.time.Instant
     if (createRoom) NewRoomSheet(model) { createRoom = false }
 }
 
-@Composable private fun AgentRow(agent: JSONObject, now: Long, attention: Boolean, unreadCount: Int, divider: Boolean, onClick: () -> Unit) {
+@Composable private fun AgentRow(agent: JSONObject, now: Long, fresh: Boolean, attention: Boolean, unreadCount: Int, divider: Boolean, onClick: () -> Unit) {
     val important = hasUrgentNotice(agent)
     val badgeColor = if (important) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
     val badgeContentColor = if (important) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary
@@ -171,7 +171,7 @@ import java.time.Instant
                         }
                         if (directory != null) Text(directory, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Text(activityDetail(agent, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    AgentStatusIndicator(agent, now, fresh)
                     if (summary != null) Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (agent.optBoolean("daemon_session") && summary == null) Text(remoteStatus(agent.optString("remote_status")), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (attention || important) Text(agent.optJSONObject("attention")?.optString("severity")?.takeIf { it.isNotBlank() } ?: if (important) "Important" else "Reply needed", style = MaterialTheme.typography.labelSmall, color = badgeColor)
@@ -192,5 +192,27 @@ import java.time.Instant
             }
             if (divider) HorizontalDivider(Modifier.padding(start = 80.dp, end = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
         }
+    }
+}
+
+@Composable internal fun AgentStatusIndicator(agent: JSONObject, now: Long, fresh: Boolean) {
+    val status = chatAgentStatus(agent, now, fresh)
+    val color = when (status) {
+        ChatAgentStatus.ONLINE -> Color(0xFF2E9E5B)
+        ChatAgentStatus.WORKING -> Color(0xFFD69A20)
+        ChatAgentStatus.OFFLINE, ChatAgentStatus.UNKNOWN -> MaterialTheme.colorScheme.outline
+    }
+    val detail = when {
+        !fresh -> "Reconnect to update"
+        status == ChatAgentStatus.ONLINE && nativeActivity(agent, now) == "waiting" -> "Waiting for you"
+        status in setOf(ChatAgentStatus.ONLINE, ChatAgentStatus.WORKING) ->
+            if (isReachable(agent)) "Can receive messages" else "Receiver unavailable"
+        else -> null
+    }
+    Row(Modifier.testTag("agent-status:" + agent.optString("id")),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.size(8.dp).background(color, CircleShape))
+        Text(listOfNotNull(status.label, detail).joinToString(" · "),
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
