@@ -4,7 +4,7 @@ import mysql from 'mysql2/promise';
 import { drizzle } from 'drizzle-orm/mysql2';
 import { eq, inArray } from 'drizzle-orm';
 import { getTestDb, readDbConfig } from '../../helpers/test-db.js';
-import { loadBaseline } from '../../../src/db/migrator.js';
+import { runMigrations } from '../../../src/db/migrator.js';
 import { testKeyring } from '../../helpers/test-keyring.js';
 import { installSqlBudget } from '../../helpers/sql-budget.js';
 import * as schema from '../../../src/db/schema.js';
@@ -36,7 +36,7 @@ describe.skipIf(!handle)('owned portal MySQL', () => {
     await base!.pool.query(`CREATE DATABASE \`${database}\``);
     const pool = mysql.createPool({ ...readDbConfig()!, database });
     scoped = { pool, db: drizzle(pool, { schema, mode: 'default' }) as NonNullable<typeof base>['db'] };
-    for (const statement of await loadBaseline()) await pool.query(statement);
+    await runMigrations(pool, { initSchema: true, appliedBy: 'portal-owner-test' });
   });
   afterAll(async () => {
     await scoped?.pool.end();

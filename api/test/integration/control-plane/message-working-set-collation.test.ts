@@ -27,7 +27,7 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
       for (const [name, columns, collation] of [
         [
           'agent_bus_messages',
-          'id VARCHAR(36) PRIMARY KEY,status VARCHAR(40),task_result_status VARCHAR(40),expired_at VARCHAR(40),digest_id VARCHAR(36),reply_to_message_id VARCHAR(36),presence_notice_key VARCHAR(100),target_session_id VARCHAR(36),sender_address_id VARCHAR(36)',
+          'id VARCHAR(36) PRIMARY KEY,status VARCHAR(40),task_result_status VARCHAR(40),expired_at VARCHAR(40),digest_id VARCHAR(36),reply_to_message_id VARCHAR(36),related_work_id VARCHAR(36),presence_notice_key VARCHAR(100),target_session_id VARCHAR(36),sender_address_id VARCHAR(36)',
           first,
         ],
         ['agent_schedule_runs', 'message_id VARCHAR(36),status VARCHAR(40)', second],
@@ -70,6 +70,11 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
       await add('terminal-reply', 'completed', { reply_to_message_id: id('terminal-reply-parent') });
       await add('null-reply-parent', 'completed');
       await add('null-reply', null, { reply_to_message_id: id('null-reply-parent') });
+      for (const status of ['queued', 'leased', 'accepted', 'batched', 'reboot_hold', 'completed', null]) {
+        const parent = `related-work-${status}`;
+        await add(parent, 'completed');
+        await add(`dependent-${status}`, status, { related_work_id: id(parent) });
+      }
       for (const [table, statuses] of [
         [
           'agent_schedule_runs',
@@ -140,6 +145,7 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
         m.task_result_status='unknown' OR (m.status='expired' AND m.expired_at > ?)
         OR EXISTS (SELECT 1 FROM agent_bus_messages child WHERE BINARY child.digest_id=BINARY m.id AND child.status='batched')
         OR EXISTS (SELECT 1 FROM agent_bus_messages reply WHERE BINARY reply.reply_to_message_id=BINARY m.id AND reply.status NOT IN ${terminal})
+        OR EXISTS (SELECT 1 FROM agent_bus_messages dependent WHERE BINARY dependent.related_work_id=BINARY m.id AND dependent.status IN ('queued','leased','accepted','batched','reboot_hold'))
         OR EXISTS (SELECT 1 FROM agent_schedule_runs r WHERE BINARY r.message_id=BINARY m.id AND r.status IN ('waiting','queued','leased','accepted','recovering','capacity_wait'))
         OR EXISTS (SELECT 1 FROM agent_watchdogs w WHERE BINARY w.message_id=BINARY m.id AND w.status IN ('watching','recovering','capacity_wait'))
         OR (m.presence_notice_key IS NOT NULL AND EXISTS (SELECT 1 FROM agent_sessions recipient WHERE BINARY recipient.id=BINARY SUBSTRING_INDEX(m.presence_notice_key,':',1) AND recipient.ended_at IS NULL) AND EXISTS (SELECT 1 FROM agent_sessions sender WHERE BINARY sender.id=BINARY m.target_session_id AND sender.ended_at IS NULL))
@@ -161,6 +167,7 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
             'uncertain-result',
             'digest-parent',
             'reply-parent',
+            ...['queued', 'leased', 'accepted', 'batched', 'reboot_hold'].map(status => `related-work-${status}`),
             'notice-live',
             'notice-no-colon',
             'conference-open-room-delivered',
@@ -168,6 +175,8 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
           ].map(id),
         ),
       );
+      expect(next.map((row) => row.id)).not.toContain(id('related-work-completed'));
+      expect(next.map((row) => row.id)).not.toContain(id('related-work-null'));
       const compiled = query.toSQL();
       const [plan] = await connection.query<import('mysql2/promise').RowDataPacket[]>(
         `EXPLAIN ${compiled.sql}`,
