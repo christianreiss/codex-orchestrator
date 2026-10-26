@@ -3,17 +3,16 @@ export const DEFAULT_CODEX_MODEL = 'gpt-6-astra';
 export const DEFAULT_CODEX_REASONING_EFFORT = 'medium';
 
 export const FORCE_UPGRADE_MODEL = DEFAULT_CODEX_MODEL;
+/** Compatibility export; actual migrations preserve valid effort or use the successor default. */
 export const FORCE_UPGRADE_REASONING_EFFORT = 'high';
 
 export const LEGACY_MODEL_UPGRADES: Readonly<Record<string, string>> = {
   // Deprecated before its 2026-10-14 retirement; native catalog replacement.
   'gpt-5.5': 'gpt-6.1-sol',
-  // Retired upstream 2026-08-31 (`retirement_at` on its catalog `upgrade`
-  // block). Unlike the rows below it does NOT go to FORCE_UPGRADE_MODEL: the
-  // catalog names `gpt-5.6-luna` as the replacement, so honour that. The forced
-  // `high` migration effort is valid on Luna.
-  'gpt-5.4-mini': 'gpt-5.6-luna',
-  'gpt-5.4': FORCE_UPGRADE_MODEL,
+  // Current Codex model/workspace guidance, verified 2026-10-26:
+  // https://learn.chatgpt.com/docs/models
+  'gpt-5.4-mini': 'gpt-6-luna',
+  'gpt-5.4': 'gpt-6-sol',
   'gpt-5.3-codex': FORCE_UPGRADE_MODEL,
   'gpt-5.2': FORCE_UPGRADE_MODEL,
   'gpt-5.2-codex': FORCE_UPGRADE_MODEL,

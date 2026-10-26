@@ -32,7 +32,8 @@ import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, validateCodex
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
 import { CLAUDE_LEGACY_MODEL_UPGRADES as CLAUDE_MODEL_UPGRADES, CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_ENV_KEYS, normalizeClaudeModelReference } from './claude-models.js';
 import { normalizeClaudeNativeSettings } from './claude-native-settings.js';
-import { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, FORCE_UPGRADE_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
+import { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
+import { MODEL_REASONING_EFFORTS, CODEX_MODEL_DEFAULT_REASONING_EFFORTS } from './codex-model-capabilities.js';
 export { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, FORCE_UPGRADE_MODEL, FORCE_UPGRADE_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
 
 /**
@@ -88,29 +89,7 @@ export const REASONING_EFFORTS: readonly string[] = [
   'ultra',
 ];
 
-export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
-  'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-  'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-  'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-  'gpt-6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
-  'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-  'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-  'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
-};
-
-/**
- * `default_reasoning_level` as reported by the Codex CLI model catalog.
- * Verified against codex-cli 0.162.1 models_cache.json, 2026-10-12.
- */
-export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string>> = {
-  'gpt-6.1-sol': 'low',
-  'gpt-6-astra': 'medium',
-  'gpt-6-sol': 'medium',
-  'gpt-6-luna': 'medium',
-  'gpt-5.6-sol': 'low',
-  'gpt-5.6-terra': 'medium',
-  'gpt-5.6-luna': 'medium',
-};
+export { MODEL_REASONING_EFFORTS, CODEX_MODEL_DEFAULT_REASONING_EFFORTS } from './codex-model-capabilities.js';
 
 export { CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS } from './claude-models.js';
 
@@ -271,11 +250,11 @@ export function defaultCodexReasoningEffortForModel(model: string | null): strin
   return modelEntry(CODEX_MODEL_DEFAULT_REASONING_EFFORTS, model) ?? null;
 }
 
-/** Keep valid GPT-5.5 effort on its replacement; retain older migration policy. */
+/** Preserve compatible effort; only known retired references receive successor defaults. */
 export function normalizeStoredCodexEffort(value: unknown, rawModel: unknown): string | null {
   const model = normalizeStoredModel(rawModel);
-  if (isLegacyModelUpgrade(rawModel) && normalizeString(rawModel) !== 'gpt-5.5') return FORCE_UPGRADE_REASONING_EFFORT;
-  return normalizeReasoningEffortForModel(value, model);
+  return normalizeReasoningEffortForModel(value, model)
+    ?? (isLegacyModelUpgrade(rawModel) ? defaultCodexReasoningEffortForModel(model) : null);
 }
 
 /** Claude settings.json `effortLevel`, constrained by the selected Claude model. */

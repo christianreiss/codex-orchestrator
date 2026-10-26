@@ -506,8 +506,9 @@ The fleet starts on `gpt-6-astra` at its native `medium` effort.
 | `gpt-5.6-luna` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
 
 `gpt-5.4-mini` was retired upstream on 2026-08-31 and is no longer offered; a
-stored override naming it heals to `gpt-5.6-luna`, the replacement the Codex
-model catalog names, at the retained `high` migration effort. `gpt-5.5` is
+stored override naming it heals to `gpt-6-luna`, the current documented
+replacement. `gpt-5.4` heals to `gpt-6-sol`. Known retired selections preserve
+a compatible effort; otherwise they use the successor's native default. `gpt-5.5` is
 already deprecated and hidden in the native catalog: it is no longer offered,
 before its 2026-10-14T19:00:00Z retirement. Stored selections heal to the catalog
 replacement `gpt-6.1-sol`, preserving a valid effort (otherwise using `low`).
@@ -519,8 +520,8 @@ codex-cli 0.162.1's model cache on 2026-10-12 and the
 `gpt-5.3-codex-spark` is retired: it left the catalog and
 binary, a live `codex exec -m gpt-5.3-codex-spark` is rejected ("not supported
 when using Codex with a ChatGPT account"), and its quota bucket is gone. A stored
-override naming it heals to `gpt-6-astra` at the retained `high` migration
-effort.
+override naming it heals to `gpt-6-astra`, preserving compatible effort or
+using its native default (`medium`).
 
 The GET response's `catalog` is the machine-readable source of truth for these
 model/effort pairs. POST accepts strict
