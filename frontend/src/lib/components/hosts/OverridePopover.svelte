@@ -19,7 +19,7 @@
   import { Label } from "$lib/components/ui/label";
   import Pencil from "@lucide/svelte/icons/pencil";
 
-  type Option = { value: string; label: string };
+  type Option = { value: string; label: string; disabled?: boolean };
   type Props = {
     label: string;
     /** Current host-level override, or null/undefined when inheriting. */
@@ -59,16 +59,20 @@
   let open = $state(false);
   let draft = $state("");
   let busy = $state(false);
+  let error = $state("");
 
   $effect(() => {
-    if (open) draft = override ?? "";
+    if (open) { draft = override ?? ""; error = ""; }
   });
 
   async function save(): Promise<void> {
     busy = true;
+    error = "";
     try {
       await onSave(draft.trim() === "" ? null : draft.trim());
       open = false;
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Could not save override";
     } finally {
       busy = false;
     }
@@ -76,9 +80,12 @@
 
   async function clearOverride(): Promise<void> {
     busy = true;
+    error = "";
     try {
       await onSave(null);
       open = false;
+    } catch (err) {
+      error = err instanceof Error ? err.message : "Could not save override";
     } finally {
       busy = false;
     }
@@ -121,7 +128,7 @@
             </Select.Trigger>
             <Select.Content>
               {#each visibleOptions as o (o.value)}
-                <Select.Item value={o.value} label={o.label} />
+                <Select.Item value={o.value} label={o.label} disabled={o.disabled} aria-disabled={o.disabled ? true : undefined} />
               {/each}
             </Select.Content>
           </Select.Root>
@@ -134,13 +141,14 @@
           />
         {/if}
       </div>
+      {#if error}<p role="alert" class="text-body-sm text-destructive">{error}</p>{/if}
       <div class="flex justify-end gap-2">
         {#if override}
           <Button variant="ghost" size="sm" onclick={clearOverride} disabled={busy}>
             Clear
           </Button>
         {/if}
-        <Button size="sm" onclick={save} disabled={busy}>
+        <Button size="sm" onclick={save} disabled={busy || options?.find(option => option.value === draft)?.disabled}>
           {busy ? "Saving…" : "Save"}
         </Button>
       </div>

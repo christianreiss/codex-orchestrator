@@ -540,6 +540,17 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 		if exit := ensureCLIForLaunch(ctx, cfg, f, logger, stderr); exit != 0 {
 			return exit
 		}
+		modelArgs := serviceArgs
+		if sub == "execute" {
+			modelArgs = append(append([]string{}, subArgs...), passthrough...)
+		}
+		if !native && isProfileShorthand(sub) && codex.HasProfile(sub) {
+			modelArgs = append([]string{"--profile", sub}, append(subArgs, passthrough...)...)
+		}
+		if err := codex.CheckModelSupport(ctx, cfg, modelArgs); err != nil {
+			ui.Say(stderr, "cdx", ui.ToneFail, "model", err.Error())
+			return 2
+		}
 	}
 	if exe, exeErr := os.Executable(); exeErr == nil {
 		layoutCtx, layoutCancel := context.WithTimeout(ctx, 150*time.Millisecond)

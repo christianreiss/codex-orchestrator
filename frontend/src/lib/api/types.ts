@@ -698,6 +698,7 @@ export interface ClaudeConfigResponse {
   size_bytes?: number;
   content?: string;
   settings?: ClaudeConfigSettings;
+  validation_error?: { code: 'validation_failed'; message: string; param?: string };
 }
 
 /**
@@ -1152,6 +1153,7 @@ export interface ModelDefaultsCatalogEntry {
   default_effort: string | null;
   context_windows?: number[];
   default_context_window?: number;
+  min_cli_version?: string;
 }
 
 export interface ModelDefaultsValue {

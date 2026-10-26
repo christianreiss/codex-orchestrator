@@ -226,7 +226,7 @@ func loadPreferences(engine, home string, args []string, end OptionEnd) (map[str
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
-	if len(raw) == 0 {
+	if len(raw) == 0 && engine != "codex" {
 		return result, nil
 	}
 	tree, err := toml.LoadBytes(raw)
@@ -251,10 +251,12 @@ func loadPreferences(engine, home string, args []string, end OptionEnd) (map[str
 	}
 	if profile != "" {
 		result["profile"] = true
+		result["profile_name"] = profile
 		if strings.ContainsAny(profile, "/\\") || profile == "." || profile == ".." {
 			return nil, fmt.Errorf("fleet model policy: invalid profile name")
 		}
 		if raw, err := os.ReadFile(filepath.Join(home, profile+".config.toml")); err == nil {
+			result["profile_sidecar"] = true
 			t, err := toml.LoadBytes(raw)
 			if err != nil {
 				return nil, err

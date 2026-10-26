@@ -19,9 +19,9 @@ const efforts = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 describe('public Codex GPT-6.1 Terra', () => {
   it('offers native metadata through defaults, gateway and signed menus without changing fleet defaults', async () => {
     expect(modelDefaultsCatalog('codex').find(entry => entry.model === model))
-      .toEqual({ model, persistent_efforts: efforts, default_effort: 'low' });
+      .toEqual({ model, persistent_efforts: efforts, default_effort: 'low', min_cli_version: '0.159.0' });
     expect(modelLaunchCatalog('codex').models.find(entry => entry.model === model))
-      .toEqual({ model, efforts, session_efforts: [], default_effort: 'low' });
+      .toEqual({ model, efforts, session_efforts: [], default_effort: 'low', min_cli_version: '0.159.0' });
     expect(modelLaunchCatalog('codex').default_model).toBe('gpt-6-astra');
     expect(resolveRequestedModel(model)).toBe(model);
     expect(buildModelList().data.map(entry => entry.id)).toContain(model);

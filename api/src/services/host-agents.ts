@@ -320,6 +320,7 @@ export class HostAgentsService {
     if (settings && this.publicBaseUrl && apiKey) {
       rendered = renderTomlForHost({
         settings,
+        modelPolicy: engine === ENGINE_CODEX ? await readModelPolicy(this.db, engine) : undefined,
         host,
         baseUrl: this.publicBaseUrl,
         apiKey,

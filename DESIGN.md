@@ -215,7 +215,7 @@ This is a source audit, not a live visual acceptance report. All 39 `+page.svelt
 | `/admin` | Entry redirect | Load redirects to dashboard; layout gates auth/setup | Signed-out, new fleet and unreachable paths |
 | `/admin/dashboard` | Prioritize attention; overview | `PageShell`, `Section`, `StatStrip`, attention/usage tables | Unknown/stale usage versus healthy zero |
 | `/admin/hosts` | Find/register hosts; list | `PageShell`, `Toolbar`, `HostsTable`, add/seed sheets | Filter retention, loading and no matches |
-| `/admin/hosts/[id]` | Diagnose/manage one host; detail | `PageShell`, attention, engine/access/advanced/delete sections | Long identity, accessible repair, disabled engine |
+| `/admin/hosts/[id]` | Diagnose/manage one host; detail | `PageShell`, attention, engine/access/advanced/delete sections | Long identity, accessible repair, disabled engine; native model minimum and upgrade repair |
 | `/admin/agents` | Operate agents; conversation / graph | `PageShell`, `ClientsWorkspace`, `GraphView`, inspector; coordination status links to Settings | Both views, reconnect, focus and non-graph access; independent setting state when room loading fails |
 | `/admin/projects` | Browse/create projects; list | `PageShell`, `Toolbar`, `DataTable`, settings sheet | Selection scope and bulk destructive action |
 | `/admin/projects/[slug]` | Project entry redirect | Redirect to board | Encoded slugs and back navigation |

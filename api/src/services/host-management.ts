@@ -1,3 +1,5 @@
+import { readModelPolicy } from './model-policy.js';
+import { assertCodexModelVersion } from './codex-model-support.js';
 import {persistAuditLog} from './audit-log.js';
 import { projectHostDeletion } from '../control-plane/state/deletion.js';
 import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/state/runtime.js';
@@ -1170,6 +1172,9 @@ export class HostManagementService {
             { param: 'model_override' },
           );
         }
+        const policy = await readModelPolicy(this.db, ENGINE_CODEX);
+        const effectiveModel = policy.latest_only ? policy.replacements[normalizedModel] ?? normalizedModel : normalizedModel;
+        assertCodexModelVersion(effectiveModel, host.clientVersion, 'model_override');
         patch.modelOverride = normalizedModel;
       }
     }

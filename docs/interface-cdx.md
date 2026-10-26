@@ -1932,11 +1932,20 @@ provider registration, endpoint reachability or successful token exchange; those
 remain native runtime checks. The same OAuth checks apply to legacy structured
 MCP entries before preview/store, even without `native_settings`. No login or
 connection is made during authoring.
-MITM actions and hooks are validated
-against their native schema, including nonempty operations/actions and explicit
-`version=2` for scoped ports/schemes or credential placeholders. Validation
-errors identify fields without echoing values. Auth state, managed MCP and host
-security posture retain their existing owners.
+MITM actions and hooks are validated against their native schema and the
+[0.164 hook validator](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/network-proxy/src/mitm_hook.rs).
+This includes exact nonempty hosts, HTTP/HTTPS schemes, nonzero ports, nonempty
+methods and path matchers, native `literal:`/`pattern:` glob syntax, query/header
+constraints and the reserved body matcher. Header injection in hook-selected actions rejects User-Agent,
+invalid placeholders and ambiguous secret sources; secret files must be absolute
+for their native host. `version=2` remains required for scoped ports/schemes or
+credential placeholders. Extension methods and empty header-value matcher arrays
+retain their native meaning rather than being restricted to a fixed allowlist.
+Validation identifies fields without echoing values and never resolves a secret.
+An actual env/file secret, its final header value, proxy reachability and request
+matching remain native runtime checks. Parsing is not proof of a successful proxy
+or credential substitution. Auth state, managed MCP and host security posture
+retain their existing owners.
 
 Only configured new fields raise the host native floor to 0.164.0, including
 false/empty values and profile extensions. Literal plugin, MCP, action, hook and
@@ -2279,3 +2288,11 @@ Read pages may be shorter than the requested count due to their complete-item
 byte budget; continue the returned cursor. Publication errors preserve generated
 idempotency UUIDs so an uncertain send can be inspected or retried with that same
 UUID instead of creating a second publication.
+
+### GPT-6.1 Terra native availability
+
+`gpt-6.1-terra` requires Codex CLI **0.159.0** or newer ([OpenAI models reference](https://learn.chatgpt.com/docs/models), checked 2026-10-26). Native catalog entries optionally carry `min_cli_version`; absent fields remain compatible and introduce no minimum for other/custom IDs. This requirement is separate from gateway API capabilities, runner pins and the fleet-wide Codex 0.125.0 floor.
+
+Fleet authoring remains possible before host provisioning. Strict host config delivery checks effective root/profile models after host overrides and latest-family mapping against the reported installed version. Explicit Terra overrides reject old or unreported versions with upgrade guidance. Signed bootstrap/config baking remains available and omits incompatible catalog choices while preserving the configured selection. Older wrappers do not provide the new explicit-argv guard and should be upgraded for that coverage.
+
+cxx 0.9.137 checks the actual installed native version for launchpad and managed Codex model/profile selections, including older signed catalogs without the optional field. An unavailable configured/default selection stays visible and cannot silently fall back. Installation, update, cron version reporting, sync-only recovery, help and diagnostics remain available. Model changes inside an already running native TUI remain owned by Codex.

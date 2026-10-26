@@ -28,6 +28,7 @@
   const modelOverride = createModelOverrideMutation(qc);
   const agentsVersion = createAgentsVersionMutation(qc);
   const grokDefaults = modelDefaultsQuery("grok");
+  const codexDefaults = modelDefaultsQuery("codex");
 
   const engines = $derived(hostEngines(host));
   const digest = (value: string | null | undefined) => (value ? value.slice(0, 16) + "…" : "—");
@@ -37,6 +38,18 @@
       ?? (grokModel === "grok-4.5" ? ["low", "medium", "high"] : ["low", "medium", "high", "xhigh"]))
       .map((value) => ({ value, label: REASONING_EFFORT_OPTIONS.find((option) => option.value === value)?.label ?? value })),
   );
+  const codexModels = $derived(CODEX_MODELS.map(option => {
+    const minimum = $codexDefaults.data?.catalog?.find(entry => entry.model === option.value)?.min_cli_version
+      ?? (option.value === "gpt-6.1-terra" ? "0.159.0" : undefined);
+    const observed = host.client_version?.match(/\b(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?/);
+    const required = minimum?.split(".").map(Number);
+    const supported = !minimum || Boolean(observed && required && (
+      Number(observed[1]) > required[0] || Number(observed[1]) === required[0] && (
+      Number(observed[2]) > required[1] || Number(observed[2]) === required[1] && (
+      Number(observed[3]) > required[2] || Number(observed[3]) === required[2] && !observed[4]))));
+    return { ...option, disabled: !supported };
+  }));
+  const codexUpgradeNeeded = $derived(codexModels.some(option => option.disabled));
   let agentsOpen = $state(false);
 
   const model = (engine: "codex" | "claude" | "grok") => (value: string | null) => runQuiet($modelOverride.mutateAsync({ id, engine, model: value }));
@@ -50,7 +63,10 @@
     {#if engines.includes("codex")}
       <EnginePanel engine="codex" digest={digest(host.canonical_digest)}>
         <OverridePopover label="Version" override={host.client_version_override} inheritedValue={host.client_version} inheritedLabel="detected" placeholder={overview?.versions.client_version ?? "0.30.0"} pending={$codexVersion.isPending} onSave={(v) => runQuiet($codexVersion.mutateAsync({ id, version: v }))} />
-        <OverridePopover label="Model" override={host.model_override} options={CODEX_MODELS} pending={$modelOverride.isPending} onSave={model("codex")} />
+        <OverridePopover label="Model" override={host.model_override} options={codexModels} pending={$modelOverride.isPending} onSave={model("codex")} />
+        {#if codexUpgradeNeeded}
+          <p class="text-body-sm text-muted-foreground">GPT-6.1 Terra requires Codex CLI 0.159.0 or newer. Run cdx update on this host, or cron run to report an installed version.</p>
+        {/if}
         <OverridePopover label="Reasoning effort" override={host.reasoning_effort_override} options={REASONING_EFFORT_OPTIONS} pending={$modelOverride.isPending} onSave={effort("codex")} />
       </EnginePanel>
     {/if}

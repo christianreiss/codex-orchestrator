@@ -9,13 +9,13 @@ import { getTestDb } from '../helpers/test-db.js';
 const handle = await getTestDb();
 describe.skipIf(!handle)('correct invalid authored native settings on MySQL', () => {
   const ids: number[] = [];
-  beforeAll(async () => { await runMigrations(handle!.pool, { initSchema: true, appliedBy: 'config-admin-recovery-test' }); });
+  beforeAll(async () => { await runMigrations(handle!.pool, { initSchema: true, appliedBy: 'config-admin-recovery-test' }); }, 120_000);
   afterAll(async () => {
     if (handle) {
       for (const id of ids) await handle.db.delete(clientConfigDocuments).where(eq(clientConfigDocuments.id, id));
       await handle.pool.end();
     }
-  });
+  }, 120_000);
   it.each(['codex', 'claude', 'grok'] as const)('%s preserves the invalid snapshot and enforces correction/revision checks', async engine => {
     const service = new ClientConfigService(handle!.db);
     const settings = { native_settings: { unknown_saved_option: 'keep raw authored value' } };

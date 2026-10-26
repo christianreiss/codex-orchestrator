@@ -25,3 +25,8 @@ export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, stri
   'gpt-5.6-terra': 'medium',
   'gpt-5.6-luna': 'medium',
 };
+
+/** Native CLI availability, not an API model minimum. Official models reference, 2026-10-26. */
+export const CODEX_MODEL_MIN_CLI_VERSIONS: Readonly<Record<string, string>> = {
+  'gpt-6.1-terra': '0.159.0',
+};

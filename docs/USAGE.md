@@ -228,10 +228,12 @@ cdx status --minimal
 ```
 
 Passing flags through to Codex works the same way you’d pass them to `codex`; `cdx` forwards your args to the Codex CLI.
-Known Codex subcommands (`exec`, `e`, `review`, `login`, `logout`, `mcp`, `app-server`, `completion`, `sandbox`, `debug`, `apply`, `a`, `resume`, `fork`, `cloud`, `features`, `help`, `agents`, `archive`, `unarchive`, `delete`, `queue`, `plugin`, `remote-control`, `exec-server`, `migrate-rollouts`) are reserved by the wrapper and always treated as commands. If a profile uses one of those names, run it explicitly with `cdx --profile <name> ...`.
+Known Codex subcommands (`exec`, `e`, `review`, `login`, `logout`, `mcp`, `app-server`, `completion`, `sandbox`, `debug`, `apply`, `a`, `resume`, `fork`, `cloud`, `features`, `help`, `agents`, `archive`, `unarchive`, `delete`, `queue`, `plugin`, `remote-control`, `exec-server`, `migrate-rollouts`, `migrate-nfs-db`) are reserved by the wrapper and always treated as commands. If a profile uses one of those names, run it explicitly with `cdx --profile <name> ...`.
 
 `e` is the native alias for `exec`, and `a` is the alias for `apply`.
 The removed native `mcp-server` command is no longer reserved or supported.
+`migrate-nfs-db` execution requires coordinated multi-host SQLite quiescence and is
+refused before auth/config work; its native help remains available.
 
 Claude maintenance commands, including `clx purge --dry-run`, preserve native
 arguments and use managed auth without creating an interactive fleet session.

@@ -1,5 +1,7 @@
 # 2026-10-26
 
+- cxx 0.9.137 enforces GPT-6.1 Terra's native Codex minimum of 0.159.0 across fleet/host selection, effective profiles, signed launch menus and actual native starts, while preserving update and recovery paths for older clients. Validate MITM actions with the native consumer semantics only when selected by hooks; preserve unused action definitions.
+
 - Reject native-invalid Codex OAuth combinations before saving, including confidential clients without IDs and EMA connections missing an issuer or using remote/stdio/alternate credentials. Preserve ordinary confidential HTTP OAuth without requiring EMA; no authentication is performed by validation.
 
 - Accept positive safe-integer context windows for custom Grok/BYOK model definitions instead of applying subscription-only window limits. Keep supported subscription model restrictions, literal model names, sibling settings and strict corrective-read validation intact.

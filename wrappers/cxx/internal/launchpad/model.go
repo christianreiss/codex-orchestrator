@@ -70,6 +70,9 @@ func newPicker(engines []Engine, last *Selection, caps terminalui.Caps) *picker 
 	}
 	p.frame, p.branch = p.doneFrames(), branchFrames
 	p.transition = 6
+	if len(p.current().Models) > 0 {
+		p.notice = p.current().Models[p.cursors[p.focus].model].Unavailable
+	}
 	return p
 }
 
@@ -152,6 +155,9 @@ func (p *picker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (p *picker) key(k string) (tea.Model, tea.Cmd) {
 	p.notice = ""
+	if len(p.current().Models) > 0 {
+		p.notice = p.current().Models[p.cursors[p.focus].model].Unavailable
+	}
 	switch k {
 	case "ctrl+c", "q":
 		return p.cancel()
@@ -222,6 +228,7 @@ func (p *picker) moveModel(c *cursor, models []Model, delta int) tea.Cmd {
 		want = efforts[c.effort]
 	}
 	c.model = next
+	p.notice = models[next].Unavailable
 	c.effort = 0
 	snapped := snapEffort(models[next], want)
 	for i, effort := range models[next].Efforts {
@@ -244,6 +251,10 @@ func (p *picker) choose(mode Mode) (tea.Model, tea.Cmd) {
 	}
 	c := p.cursors[p.focus]
 	m := e.Models[c.model]
+	if m.Unavailable != "" {
+		p.notice = m.Unavailable
+		return p, nil
+	}
 	s := Selection{Engine: e.Name, Model: m.ID, Mode: mode}
 	if c.effort < len(m.Efforts) {
 		s.Effort = m.Efforts[c.effort]

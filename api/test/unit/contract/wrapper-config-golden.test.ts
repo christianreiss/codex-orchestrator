@@ -496,7 +496,7 @@ describe('wrapper config golden fixtures', () => {
       const result = await bake({ ...fixture, rows: { ...fixture.rows, latestOnly: true } });
       const options = result.payload.engine_options as { model_policy: { latest_only: boolean; latest_models: string[]; replacements: Record<string, string> }; model_catalog: { models: { model: string }[] } };
       expect(options.model_policy.latest_only).toBe(true);
-      expect(options.model_catalog.models.map(entry => entry.model).sort()).toEqual([...options.model_policy.latest_models].sort());
+      expect(options.model_catalog.models.map(entry => entry.model).sort()).toEqual(options.model_policy.latest_models.filter(model => fixture.engine !== 'codex' || model !== 'gpt-6.1-terra').sort());
       expect(Object.keys(options.model_policy.replacements).length).toBeGreaterThan(options.model_policy.latest_models.length);
     }
   });

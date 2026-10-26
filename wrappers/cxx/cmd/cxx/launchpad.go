@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"golang.org/x/term"
 
@@ -44,9 +45,17 @@ func runLaunchpad(stdout, stderr io.Writer) (code int, ok bool) {
 			return config.LoadForEngine(path, key, false, engine)
 		},
 		Installed: engineInstalled,
-		Local:     launchpad.LocalPreferences,
-		Quota:     launchpad.LocalWeekly,
-		Last:      last,
+		Version: func(engine string) string {
+			if engine != config.EngineCodex {
+				return ""
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			return codex.Version(ctx)
+		},
+		Local: launchpad.LocalPreferences,
+		Quota: launchpad.LocalWeekly,
+		Last:  last,
 	})
 	if len(engines) == 0 {
 		return 0, false

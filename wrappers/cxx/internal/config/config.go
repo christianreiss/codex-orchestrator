@@ -211,6 +211,7 @@ type ModelCatalog struct {
 }
 
 type ModelCatalogEntry struct {
+	MinCLIVersion  string   `json:"min_cli_version,omitempty"`
 	Model          string   `json:"model"`
 	Efforts        []string `json:"efforts"`
 	SessionEfforts []string `json:"session_efforts"`

@@ -35,6 +35,7 @@ type Model struct {
 	ID            string
 	Efforts       []string
 	DefaultEffort string
+	Unavailable   string
 }
 
 // Engine is one launchable engine with its menu and starting cursor.
@@ -63,6 +64,8 @@ type Sources struct {
 	Load func(engine string) (*config.Config, error)
 	// Installed reports whether the engine's native CLI can be launched.
 	Installed func(engine string) bool
+	// Version is the observed installed CLI version, never the offered update pin.
+	Version func(engine string) string
 	// Local returns the model and effort the native settings already select.
 	Local func(engine string) (model, effort string)
 	// Quota reads the last verified weekly observation, without provider probes.
@@ -108,25 +111,76 @@ func assigned(cfg *config.Config, engine string) bool {
 }
 
 func menu(engine string, cfg *config.Config, src Sources) []Model {
-	if cfg.EngineOptions.ModelPolicy != nil && cfg.EngineOptions.ModelPolicy.LatestOnly && (cfg.EngineOptions.ModelCatalog == nil || len(cfg.EngineOptions.ModelCatalog.Models) == 0) {
+	catalog := cfg.EngineOptions.ModelCatalog
+	knownSelection := false
+	candidates := []string{overrideModel(engine, cfg)}
+	if catalog != nil {
+		candidates = append(candidates, catalog.DefaultModel)
+	}
+	if src.Last != nil && src.Last.Engine == engine {
+		candidates = append(candidates, src.Last.Model)
+	}
+	if src.Local != nil {
+		local, _ := src.Local(engine)
+		candidates = append(candidates, local)
+	}
+	for _, id := range candidates {
+		if policy := cfg.EngineOptions.ModelPolicy; policy != nil && policy.LatestOnly {
+			if next := policy.Replacements[id]; next != "" {
+				id = next
+			}
+		}
+		knownSelection = knownSelection || config.ModelMinimum(engine, id, catalog) != ""
+	}
+	if cfg.EngineOptions.ModelPolicy != nil && cfg.EngineOptions.ModelPolicy.LatestOnly && (catalog == nil || len(catalog.Models) == 0) && !knownSelection {
 		return nil
 	}
-	if catalog := cfg.EngineOptions.ModelCatalog; catalog != nil && len(catalog.Models) > 0 {
+	if catalog != nil && (len(catalog.Models) > 0 || knownSelection) {
 		models := make([]Model, 0, len(catalog.Models))
+		observed := ""
+		if src.Version != nil {
+			observed = src.Version(engine)
+		}
 		for _, entry := range catalog.Models {
 			if strings.TrimSpace(entry.Model) == "" {
 				continue
 			}
 			m := Model{ID: entry.Model}
+			if err := config.CheckModelVersion(engine, entry.Model, observed, catalog); err != nil {
+				m.Unavailable = err.Error()
+			}
 			m.Efforts = append(append(m.Efforts, entry.Efforts...), entry.SessionEfforts...)
 			if entry.DefaultEffort != nil {
 				m.DefaultEffort = *entry.DefaultEffort
 			}
 			models = append(models, m)
 		}
-		if len(models) > 0 {
-			return models
+		// A missing incompatible entry must not turn an explicit/default/local
+		// selection into the first available model on older signed catalogs.
+		candidates := []string{catalog.DefaultModel, overrideModel(engine, cfg)}
+		if src.Last != nil && src.Last.Engine == engine {
+			candidates = append(candidates, src.Last.Model)
 		}
+		if src.Local != nil {
+			local, _ := src.Local(engine)
+			candidates = append(candidates, local)
+		}
+		for _, id := range candidates {
+			if policy := cfg.EngineOptions.ModelPolicy; policy != nil && policy.LatestOnly {
+				if next := policy.Replacements[id]; next != "" {
+					id = next
+				}
+			}
+			if _, exists := findModel(models, id); exists || config.ModelMinimum(engine, id, catalog) == "" {
+				continue
+			}
+			reason := id + " is unavailable in the signed catalog; run cdx update or cdx cron run to refresh it"
+			if err := config.CheckModelVersion(engine, id, observed, catalog); err != nil {
+				reason = err.Error()
+			}
+			models = append(models, Model{ID: id, Unavailable: reason})
+		}
+		return models
 	}
 	model := overrideModel(engine, cfg)
 	effort := overrideEffort(engine, cfg)
@@ -139,8 +193,16 @@ func menu(engine string, cfg *config.Config, src Sources) []Model {
 			effort = localEffort
 		}
 	}
+	observed := ""
+	if src.Version != nil {
+		observed = src.Version(engine)
+	}
+	unavailable := ""
+	if err := config.CheckModelVersion(engine, model, observed, nil); err != nil {
+		unavailable = err.Error()
+	}
 	// An empty ID means "whatever the native config selects": no --model flag.
-	return []Model{{ID: model, Efforts: fallbackEfforts[engine], DefaultEffort: effort}}
+	return []Model{{ID: model, Efforts: fallbackEfforts[engine], DefaultEffort: effort, Unavailable: unavailable}}
 }
 
 // start picks the cursor: the last launchpad choice for this engine, then the

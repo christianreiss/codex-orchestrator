@@ -101,6 +101,7 @@ describe('ModelDefaultsService', () => {
       },
       {
         model: 'gpt-6.1-terra',
+        min_cli_version: '0.159.0',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
         default_effort: 'low',
       },

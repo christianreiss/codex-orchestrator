@@ -1,3 +1,5 @@
+import type { ModelPolicy } from './model-policy.js';
+import { assertCodexSettingsModelSupport } from './codex-model-support.js';
 import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import type { Json } from '../control-plane/commands.js';
 /**
@@ -555,6 +557,7 @@ export interface HostRenderOptions {
   baseUrl: string | null | undefined;
   apiKey: string | null | undefined;
   engine?: Engine;
+  modelPolicy?: ModelPolicy;
   managedMcpToken?: string | null;
   home?: string | null;
   username?: string | null;
@@ -574,6 +577,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     opts.securityLevels,
     engine,
   );
+  if (engine === ENGINE_CODEX) assertCodexSettingsModelSupport(settingsWithOverrides, opts.host, opts.modelPolicy);
   const normalized =
     engine === ENGINE_GROK
       ? normalizeGrokSettings(settingsWithOverrides)

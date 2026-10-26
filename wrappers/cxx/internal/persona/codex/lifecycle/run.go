@@ -202,6 +202,11 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	}
 
 	cfg := opts.Config
+	if !opts.SyncOnly {
+		if err := codex.CheckModelSupport(ctx, cfg, opts.ExtraArgs); err != nil {
+			return 2, err
+		}
+	}
 	commStats := communicator.NewLifecycleStats(cfg.Orchestrator.BaseURL)
 	if communicator.StrictCache(cfg) && !opts.SyncOnly && (opts.SkipAuthSync || opts.SkipCredentialExchange) {
 		return 1, errors.New("cache protocol 2 requires fresh content and auth confirmation before a new launch")

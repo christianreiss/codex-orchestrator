@@ -47,5 +47,5 @@ describe.skipIf(!handle)('actual retention candidate queries on mixed legacy col
       await connection.query(`DROP DATABASE IF EXISTS \`${database}\``);
       connection.release();
     }
-  });
+  }, 120_000); // Includes creating, altering and dropping the isolated schema.
 });

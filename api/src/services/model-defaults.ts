@@ -1,5 +1,7 @@
 import { clientConfigDocuments } from '../db/schema.js';
 import { ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/state/runtime.js';
+import { versionCompare } from './wrapper-bin-registry.js';
+import { CODEX_MODEL_MIN_CLI_VERSIONS } from './codex-model-capabilities.js';
 import { modelTier } from './model-tiers.js';
 import { readModelPolicy, applyModelPolicy, type ModelPolicy } from './model-policy.js';
 import type { Database } from '../db/client.js';
@@ -23,6 +25,7 @@ export interface ModelDefaultsCatalogEntry {
   model: string;
   persistent_efforts: string[];
   default_effort: string | null;
+  min_cli_version?: string;
   context_windows?: number[];
   default_context_window?: number;
 }
@@ -53,6 +56,7 @@ const CODEX_CATALOG: readonly ModelDefaultsCatalogEntry[] = SUPPORTED_MODELS.map
       model,
       persistent_efforts: [...efforts],
       default_effort: defaultEffort,
+      ...(CODEX_MODEL_MIN_CLI_VERSIONS[model] ? { min_cli_version: CODEX_MODEL_MIN_CLI_VERSIONS[model] } : {}),
     };
   },
 );
@@ -103,6 +107,7 @@ export interface LaunchCatalogModel {
   /** Efforts valid for one session that the fleet never persists (Claude `max`). */
   session_efforts: string[];
   default_effort: string | null;
+  min_cli_version?: string;
 }
 
 export interface LaunchCatalog {
@@ -116,11 +121,16 @@ export interface LaunchCatalog {
  * defaults catalog; session-only choices are separate capabilities, including
  * Claude Opus 4.6 / Sonnet 4.6 `max` despite their persistent ceiling of `high`.
  */
-export function modelLaunchCatalog(engine: Engine, policy?: ModelPolicy): LaunchCatalog {
+export function modelLaunchCatalog(engine: Engine, policy?: ModelPolicy, observedVersion?: string | null): LaunchCatalog {
   return {
     default_model: policy?.latest_only ? policy.replacements[defaultModel(engine)]! : defaultModel(engine),
     models: modelDefaultsCatalog(engine)
       .filter(entry => !policy?.latest_only || (policy.latest_models.includes(entry.model) && !policy.disabled_models?.includes(entry.model)))
+      .filter(entry => {
+        if (observedVersion === undefined || !entry.min_cli_version) return true;
+        const observed = observedVersion?.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0];
+        return Boolean(observed && versionCompare(observed, entry.min_cli_version) >= 0);
+      })
       // Stable sorting preserves catalog precedence within each capability tier.
       .sort((a, b) => (modelTier(engine, b.model) ?? 0) - (modelTier(engine, a.model) ?? 0))
       .map((entry) => ({
@@ -129,6 +139,7 @@ export function modelLaunchCatalog(engine: Engine, policy?: ModelPolicy): Launch
         session_efforts:
           engine === ENGINE_CLAUDE ? claudeSessionEfforts(entry.model) : [],
         default_effort: entry.default_effort,
+        ...(entry.min_cli_version ? { min_cli_version: entry.min_cli_version } : {}),
       })),
   };
 }

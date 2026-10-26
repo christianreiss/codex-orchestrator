@@ -797,3 +797,17 @@ describe('InsecureWindowAdminService', () => {
     expect(mock.rows('admin_events').some((e) => e.type === 'insecure.domain.revoked')).toBe(true);
   });
 });
+
+
+describe('Terra host override installed-version boundary', () => {
+ it.each([null, '0.158.9', '0.159.0'])('checks observed %s without blocking clearing or reporting', async version => {
+   const mock=createMockDb();
+   const svc=new HostManagementService({db:mock.db,env:buildEnv(),keyring:await buildKeyring(),events:makeAdminEventsWriter(mock.db)});
+   const registered=await svc.register({fqdn:'terra-version.test',engines:['codex']});
+   const row=mock.rows('hosts')[0]!;
+   row.client_version=version;
+   if(version==='0.159.0') await expect(svc.setModelOverrides(registered.host.id,{model_override:'gpt-6.1-terra'})).resolves.toMatchObject({modelOverride:'gpt-6.1-terra'});
+   else await expect(svc.setModelOverrides(registered.host.id,{model_override:'gpt-6.1-terra'})).rejects.toThrow(/0.159.0.*cdx update/);
+   await expect(svc.setModelOverrides(registered.host.id,{model_override:null})).resolves.toMatchObject({modelOverride:null});
+ });
+});

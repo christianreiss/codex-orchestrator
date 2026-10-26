@@ -160,3 +160,25 @@ test('an idle connected host view makes no periodic HTTP reads for ten minutes',
   expect(reads.slice(before)).toEqual([]);
   await expect(page.getByText('Live', { exact: true })).toBeVisible();
 });
+
+
+test('Terra host override explains its minimum and disables incompatible installed versions', async ({ page }) => {
+  const { host } = await fixture(page);
+  host.client_version = '0.158.9';
+  await page.goto('/admin/hosts/1');
+  await openAdvanced(page);
+  const codex = page.getByRole('region', { name: 'Codex engine overrides' });
+  await expect(codex.getByText(/Terra requires Codex CLI 0.159.0/)).toBeVisible();
+  await codex.getByRole('button', { name: 'Edit', exact: true }).nth(1).click();
+  await page.getByRole('button', { name: 'Model', exact: true }).click();
+  await expect(page.getByRole('option', { name: 'GPT-6.1 Terra', exact: true })).toHaveAttribute('aria-disabled', 'true');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  host.client_version = '0.159.0';
+  await page.reload();
+  await openAdvanced(page);
+  await expect(codex.getByText(/Terra requires Codex CLI/)).toHaveCount(0);
+  await codex.getByRole('button', { name: 'Edit', exact: true }).nth(1).click();
+  await page.getByRole('button', { name: 'Model', exact: true }).click();
+  await expect(page.getByRole('option', { name: 'GPT-6.1 Terra', exact: true })).not.toHaveAttribute('aria-disabled', 'true');
+});

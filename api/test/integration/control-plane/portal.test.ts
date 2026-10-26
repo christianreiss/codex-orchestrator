@@ -37,14 +37,14 @@ describe.skipIf(!handle)('owned portal MySQL', () => {
     const pool = mysql.createPool({ ...readDbConfig()!, database });
     scoped = { pool, db: drizzle(pool, { schema, mode: 'default' }) as NonNullable<typeof base>['db'] };
     await runMigrations(pool, { initSchema: true, appliedBy: 'portal-owner-test' });
-  });
+  }, 120_000); // This fixture provisions a complete, separate MySQL schema.
   afterAll(async () => {
     await scoped?.pool.end();
     if (base) {
       await base.pool.query(`DROP DATABASE IF EXISTS \`${database}\``);
       await base.pool.end();
     }
-  });
+  }, 120_000); // Dropping the isolated schema is real DDL too.
   it('keeps idle reads SQL-free, fences exact offers and commits prompt/event/receipt metadata for all engines', async () => {
     const keyring = testKeyring(),
       now = new Date().toISOString(),

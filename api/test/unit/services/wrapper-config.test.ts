@@ -274,6 +274,19 @@ beforeAll(async () => {
 });
 
 describe('wrapper-config', () => {
+  it.each([null, '0.158.9', '0.159.0'])('keeps provisioning available while filtering Terra for observed %s', async (version) => {
+    const { privateKey } = generateKeyPairSync('ed25519');
+    const signer: WrapperSigner = { kid: '1', fingerprint: FAKE_FINGERPRINT, publicKey: 'pk', sign: payload => cryptoSign(null, Buffer.from(payload), privateKey) };
+    const host = fakeHost({ clientVersion: version, modelOverride: 'gpt-6.1-terra' });
+    const svc = createWrapperConfigService({ db: makeFakeDb({ hosts: [host], agents: [], agentsState: [], clientConfigs: [], skills: [], updates: [] }), keyring: makeKeyring(), binaries: fakeBinaries(), signing: makeSigningService(signer), installationId: 'terra-bootstrap' });
+    const { payload } = await svc.bakeForHost(host, 'codex', 'https://co.example');
+    expect(payload.engine_options.model_override).toBe('gpt-6.1-terra');
+    const catalog = payload.engine_options.model_catalog as { models: { model: string; min_cli_version?: string }[] };
+    const terra = catalog.models.find(entry => entry.model === 'gpt-6.1-terra');
+    if (version === '0.159.0') expect(terra?.min_cli_version).toBe('0.159.0');
+    else expect(terra).toBeUndefined();
+  });
+
   it.each(['codex', 'claude', 'grok'] as const)(
     'negotiates strict cache only with capable %s wrappers',
     async (engine) => {

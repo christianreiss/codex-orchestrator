@@ -429,7 +429,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
       model_override: host.modelOverride ?? null,
       reasoning_effort_override: host.reasoningEffortOverride ?? null,
       admin_theme_hint: opts.adminTheme,
-      model_catalog: modelLaunchCatalog(engine, policy),
+      model_catalog: modelLaunchCatalog(engine, policy, host.clientVersion),
       ...(policy.latest_only ? { model_policy: policy } : {}),
     };
   }

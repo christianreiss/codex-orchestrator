@@ -3603,3 +3603,14 @@ check. A failed preview or stale save retains the draft. These corrective reads
 never approve invalid settings for host sync: preview, store and native host
 rendering remain strict. Only validation failures become corrective-read metadata;
 unrelated read, missing-content and renderer errors still fail normally.
+
+
+### Native model version metadata
+
+Codex defaults and signed launch catalogs optionally advertise `min_cli_version`.
+The host launch catalog omits entries whose minimum exceeds the observed installed
+CLI version, including an unreported version; desired update pins are not evidence.
+Model defaults remain authorable before provisioning. Host Terra overrides and
+strict rendered root/profile settings require Codex 0.159.0 or newer, after latest
+family mapping. Signed bootstrap remains available for update/recovery. See
+[the Codex availability contract](interface-cdx.md#gpt-61-terra-native-availability).

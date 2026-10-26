@@ -70,9 +70,9 @@ describe('Codex 0.164 native configuration', () => {
     { mcp_servers: native164.mcp_servers },
     { mcp_enterprise_managed_auth: native164.mcp_enterprise_managed_auth },
     { permissions: { 'profile.with.dots': { network: { mitm: { version: 2 } } } } },
-    { permissions: { p: { network: { mitm: { hooks: { x: { host: 'example.test', action: ['strip'], methods: [], path_prefixes: [], ports: [] } } } } } } },
-    { permissions: { p: { network: { mitm: { hooks: { x: { host: 'example.test', action: ['strip'], methods: [], path_prefixes: [], schemes: [] } } } } } } },
-    { permissions: { p: { network: { mitm: { version: 2, actions: { x: { inject_request_headers: [{ name: 'Authorization', placeholder: '' }] } } } } } } },
+    { permissions: { p: { network: { mitm: { hooks: { x: { host: 'example.test', action: ['strip'], methods: ['GET'], path_prefixes: ['/'], ports: [] } } } } } } },
+    { permissions: { p: { network: { mitm: { hooks: { x: { host: 'example.test', action: ['strip'], methods: ['GET'], path_prefixes: ['/'], schemes: [] } } } } } } },
+    { permissions: { p: { network: { mitm: { version: 2, actions: { x: { inject_request_headers: [{ name: 'Authorization', placeholder: 'credential-placeholder', secret_env_var: 'TEST_TOKEN' }] } } } } } } },
   ];
   it.each(fields)('requires 0.164 for new fields including empty/false: %j', value => {
     for (const input of [{ native_settings: value }, { profiles: [{ name: 'new', native_settings: value }] }]) {
@@ -108,11 +108,11 @@ describe('Codex 0.164 native configuration', () => {
     { tui: { presets: { '0': { label: 'missing input' } } } },
     { features: { runtime_agent_instances: { mode: 'unknown' } } },
     { permissions: { p: { network: { mitm: { version: 1 } } } } },
-    { permissions: { p: { network: { mitm: { version: 2, hooks: { x: { host: 'example.test', action: ['strip'], methods: [], path_prefixes: [], ports: [65536] } } } } } } },
+    { permissions: { p: { network: { mitm: { version: 2, hooks: { x: { host: 'example.test', action: ['strip'], methods: ['GET'], path_prefixes: ['/'], ports: [65536] } } } } } } },
     { permissions: { p: { network: { mitm: { version: 2, actions: { x: { unexpected: true } } } } } } },
     { permissions: { p: { network: { mitm: { actions: { x: {} } } } } } },
-    { permissions: { p: { network: { mitm: { hooks: { x: { host: 'example.test', action: ['strip'], methods: [], path_prefixes: [], ports: [443] } } } } } } },
-    { permissions: { p: { network: { mitm: { hooks: { x: { host: 'example.test', action: [], methods: [], path_prefixes: [] } } } } } } },
+    { permissions: { p: { network: { mitm: { hooks: { x: { host: 'example.test', action: ['strip'], methods: ['GET'], path_prefixes: ['/'], ports: [443] } } } } } } },
+    { permissions: { p: { network: { mitm: { hooks: { x: { host: 'example.test', action: [], methods: ['GET'], path_prefixes: ['/'] } } } } } } },
     { permissions: { p: { network: { mitm: { actions: { x: { inject_request_headers: [{ name: 'Authorization', placeholder: 'x' }] } } } } } } },
     { mcp_servers: { x: { url: 'https://example.test', oauth: { token_endpoint_auth_method: 'client_secret_basic' } } } },
     { mcp_servers: { x: { url: 'https://example.test', auth: 'ema_auth', oauth: { token_endpoint_auth_method: 'client_secret_basic', client_secret: '' } } } },

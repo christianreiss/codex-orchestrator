@@ -94,3 +94,13 @@ ownership manifest on the next sync. The editor rejects conflicting edits and
 protects a concurrently changed profile from removal. Saves retain the config
 document revision check, including for sidecar-only changes that leave the root
 TOML digest unchanged.
+
+
+### Native model availability
+
+Fleet model authoring is independent of a host installation. Host-specific Codex
+rendering checks effective root/profile choices and latest-family mapping against
+the reported installed CLI version. Desired version pins do not establish support.
+Signed bootstrap remains available for recovery; launchpad and wrapper execution
+check the actual native binary and retain unavailable selections without fallback.
+See [Terra native availability](interface-cdx.md#gpt-61-terra-native-availability).

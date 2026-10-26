@@ -7,7 +7,7 @@ export function modelOptionsEngine(options: ModelOption[]): Engine | null {
   if (options.some(option => option.value.startsWith('grok-'))) return 'grok';
   return null;
 }
-export function filterModelOptions(options: ModelOption[], policy?: ModelPolicy): ModelOption[] {
+export function filterModelOptions<T extends ModelOption>(options: T[], policy?: ModelPolicy): T[] {
   if (!policy?.latest_only) return options;
   return options.filter(option => !Object.hasOwn(policy.replacements, option.value) || policy.latest_models.includes(option.value));
 }

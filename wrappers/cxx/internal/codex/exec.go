@@ -194,6 +194,9 @@ func Run(ctx context.Context, cfg *config.Config, args []string) (int, error) {
 //     upstream prompt_toolkit-based CLI doesn't probe cursor position over a
 //     pipe (the probe never returns and hangs the child).
 func RunCapture(ctx context.Context, cfg *config.Config, args []string) (int, []byte, error) {
+	if err := CheckModelSupport(ctx, cfg, args); err != nil {
+		return 2, nil, err
+	}
 	teardown, err := PreExec(ctx, cfg)
 	if err != nil {
 		return 1, nil, err
@@ -207,6 +210,9 @@ func RunCapture(ctx context.Context, cfg *config.Config, args []string) (int, []
 // completed PreExec and arranged to call its teardown. Lifecycle uses this so
 // the boot screen's "Ready" line is printed only after wrapper-side setup.
 func RunCapturePrepared(ctx context.Context, cfg *config.Config, args []string) (exitCode int, captured []byte, runErr error) {
+	if err := CheckModelSupport(ctx, cfg, args); err != nil {
+		return 2, nil, err
+	}
 	authSessionLease, err := StartAuthSession(cfg != nil && !cfg.Host.Secure)
 	if err != nil {
 		return 1, nil, fmt.Errorf("acquire auth session lease: %w", err)

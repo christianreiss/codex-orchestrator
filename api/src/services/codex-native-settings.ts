@@ -7,6 +7,7 @@
  * deliberately retains removed keys in that schema for compatibility.
  */
 import { Ajv } from 'ajv';
+import { validateCodexMitmSettings } from './codex-native-mitm.js';
 import schema from './codex-config-schema.json' with { type: 'json' };
 import { ValidationError } from '../http/errors.js';
 import { MODEL_REASONING_EFFORTS, CODEX_MODEL_DEFAULT_REASONING_EFFORTS } from './codex-model-capabilities.js';
@@ -73,8 +74,6 @@ export type CodexApprovalPolicy = string | { granular: Record<string, boolean> }
 
 const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false });
 const validate = ajv.compile(schema);
-// PermissionsToml is flattened upstream and its emitted schema is opaque.
-const validateMitm = ajv.compile({ definitions: schema.definitions, $ref: '#/definitions/NetworkMitmToml' });
 const validateOAuth = ajv.compile({ definitions: schema.definitions, $ref: '#/definitions/McpServerOAuthConfig' });
 const retiredRootKeys = new Set([
   'personality', 'profile', 'profiles', 'model_max_output_tokens',
@@ -183,37 +182,8 @@ function validateCodexNativeSemantics(out: NativeSettings, path: string): void {
   validateCodexMcpOAuthSemantics(nativeRecord(out.mcp_servers), path);
   for (const [name, value] of Object.entries(nativeRecord(out.permissions))) {
     const network = nativeRecord(nativeRecord(value).network);
-    if (!Object.hasOwn(network, 'mitm')) continue;
-    const field = `${path}.permissions.${name}.network.mitm`;
-    const mitm = nativeRecord(network.mitm);
-    if (!validateMitm(network.mitm)) {
-      const error = validateMitm.errors?.[0];
-      const location = error?.instancePath.replaceAll('/', '.') ?? '';
-      const property = error?.keyword === 'additionalProperties' ? `.${String(error.params.additionalProperty)}` : '';
-      throw new ValidationError(`${field}${location}${property}: ${error?.message ?? 'invalid MITM configuration'}`, { param: `${field}${location}${property}` });
-    }
-    for (const [actionName, value] of Object.entries(nativeRecord(mitm.actions))) {
-      const action = nativeRecord(value);
-      const injected = Array.isArray(action.inject_request_headers) ? action.inject_request_headers : [];
-      const stripped = Array.isArray(action.strip_request_headers) ? action.strip_request_headers : [];
-      if (injected.length === 0 && stripped.length === 0) {
-        throw new ValidationError(`${field}.actions.${actionName}: must define at least one operation`, { param: `${field}.actions.${actionName}` });
-      }
-      if (mitm.version !== 2 && injected.some(header => Object.hasOwn(nativeRecord(header), 'placeholder'))) {
-        throw new ValidationError(`${field}: credential placeholders require version=2`, { param: field });
-      }
-    }
-    for (const [hookName, value] of Object.entries(nativeRecord(mitm.hooks))) {
-      const hook = nativeRecord(value);
-      if (Array.isArray(hook.ports) && hook.ports.some(port => Number(port) > 65535)) {
-        throw new ValidationError(`${field}.hooks.${hookName}.ports: port must be at most 65535`, { param: `${field}.hooks.${hookName}.ports` });
-      }
-      if ((hook.action as unknown[]).length === 0) {
-        throw new ValidationError(`${field}.hooks.${hookName}.action: must not be empty`, { param: `${field}.hooks.${hookName}.action` });
-      }
-      if (mitm.version !== 2 && [hook.ports, hook.schemes].some(items => Array.isArray(items) && items.length > 0)) {
-        throw new ValidationError(`${field}: scoped ports and schemes require version=2`, { param: field });
-      }
+    if (Object.hasOwn(network, 'mitm')) {
+      validateCodexMitmSettings(network.mitm, `${path}.permissions.${name}.network.mitm`);
     }
   }
   const idp = nativeRecord(nativeRecord(out.mcp_enterprise_managed_auth).idp);
