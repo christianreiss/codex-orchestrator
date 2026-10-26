@@ -1,5 +1,7 @@
 # 2026-10-26
 
+- Accept positive safe-integer context windows for custom Grok/BYOK model definitions instead of applying subscription-only window limits. Keep supported subscription model restrictions, literal model names, sibling settings and strict corrective-read validation intact.
+
 - Keep invalid saved native engine settings readable for correction, preserving their exact authored values and historical body/hash. Show the validation problem on Engines and in the editor; preview, saving and host delivery remain strict and revision-checked.
 
 - Support Claude Code `sandbox.allowNestedUserNamespaces` in native settings, with its 2.1.305 version requirement and sandbox-escape consequence explained beside the editor. Leave the default off; reject Desktop-only `sshHostCommands` with an explicit scope explanation.

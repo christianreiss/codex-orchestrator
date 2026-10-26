@@ -74,6 +74,7 @@ import {
   GROK_DEFAULT_MODEL,
   GROK_DEFAULT_CONTEXT_WINDOW,
   GROK_MODEL_DEFAULT_REASONING_EFFORTS,
+  GROK_SUPPORTED_MODELS,
   normalizeGrokContextWindow,
   normalizeGrokEffort,
   normalizeGrokModel,
@@ -383,7 +384,8 @@ export function normalizeGrokSettings(raw: unknown): NormalizedSettings {
     GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
   for (const [name, settings] of Object.entries(asRecord(native?.model))) {
     const nativeWindow = asRecord(settings).context_window;
-    if (nativeWindow !== undefined && !normalizeGrokContextWindow(nativeWindow)) {
+    if (GROK_SUPPORTED_MODELS.some(model => model === name)
+      && nativeWindow !== undefined && !normalizeGrokContextWindow(nativeWindow)) {
       throw new ValidationError('native_settings.model: unsupported subscription context window', {
         param: `settings.native_settings.model.${name}.context_window`,
       });
