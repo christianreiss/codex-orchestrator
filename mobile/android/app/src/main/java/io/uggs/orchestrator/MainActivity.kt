@@ -104,6 +104,7 @@ class MainActivity : ComponentActivity() {
     }, bottomBar = {
         if (model.connection != null && !inConversation) NavigationBar {
             NavigationBarItem(selected = homeTab == "chats", onClick = { homeTab = "chats" }, icon = { CompanionIcon(CompanionSymbol.Chat) }, label = { Text("Chats") }, modifier = Modifier.testTag("tab-chats"))
+            if (model.can("admin.read") && model.can("auth.read_metadata")) NavigationBarItem(selected = homeTab == "quotas", onClick = { homeTab = "quotas" }, icon = { CompanionIcon(CompanionSymbol.Quotas) }, label = { Text("Quotas") }, modifier = Modifier.testTag("tab-quotas"))
             if (model.can("admin.read")) NavigationBarItem(selected = homeTab == "hosts", onClick = { homeTab = "hosts" }, icon = { CompanionIcon(CompanionSymbol.Computer) }, label = { Text("Hosts") }, modifier = Modifier.testTag("tab-hosts"))
             if (model.can("hosts.activate_insecure")) NavigationBarItem(selected = homeTab == "authorizations", onClick = { homeTab = "authorizations" },
                 icon = { BadgedBox(badge = { if (requests.isNotEmpty()) Badge { Text(requests.size.toString()) } }) { CompanionIcon(CompanionSymbol.Shield) } },
@@ -130,6 +131,7 @@ class MainActivity : ComponentActivity() {
                 else -> overviewState.SaveableStateProvider(model.connection!!.deviceId) {
                     when {
                         homeTab == "authorizations" && model.can("hosts.activate_insecure") -> AuthorizationsScreen(model, fresh, clock, onReview = { review = it })
+                        homeTab == "quotas" && model.can("admin.read") && model.can("auth.read_metadata") -> QuotasScreen(model)
                         homeTab == "hosts" && model.can("admin.read") -> HostsScreen(model, fresh)
                         else -> NowScreen(model, agents, fresh, activityClock)
                     }

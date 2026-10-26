@@ -43,6 +43,16 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class CompanionUiTest {
+    @Test fun quotaTabShowsProviderUsageAndUnavailableEngines() {
+        waitForAgentRows(session)
+        val usage = "Weekly · " + String.format(java.util.Locale.getDefault(), "%.1f%% used", 25.0)
+        compose.onNodeWithTag("tab-quotas").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText(usage).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Main subscription").assertIsDisplayed()
+        compose.onNodeWithText(usage).assertIsDisplayed()
+        compose.onNodeWithText("Claude").assertIsDisplayed()
+    }
+
     @Test fun connectedServerStatusRemainsVisibleInChatsAndConnectionDetails() {
         waitForAgentRows(session)
         compose.onNodeWithText("Server · Connected").assertIsDisplayed()
@@ -483,6 +493,8 @@ class CompanionUiTest {
                 })
                 if (path == "/agents/$session/attachments/test-photo/content") return MockResponse().setHeader("Content-Type", "image/png").setBody(okio.Buffer().write(photoBytes))
                 val body = when {
+                    path == "/quotas" -> """{"engines":[{"engine":"codex","label":"Codex","enabled":true,"accounts":[{"id":1,"label":"Main subscription","state":"enabled","fetched_at":"${Instant.now()}","stale":false,"windows":[{"kind":"weekly","used_percent":25,"resets_at":"${Instant.now().plusSeconds(3600)}","limit_seconds":604800}]}]},{"engine":"claude","label":"Claude","enabled":true,"accounts":[]},{"engine":"grok","label":"Grok","enabled":true,"accounts":[]}]}"""
+
                     path == "/rooms/create" -> { roomCreated.set(JSONObject(request.body.readUtf8())); sharedRooms.set(true); JSONObject().put("room_id", roomId).toString() }
                     path == "/rooms/manage" -> { roomClosed.set(true); "{}" }
                     path == "/rooms/candidates" -> """{"addresses":[]}"""
@@ -509,7 +521,7 @@ class CompanionUiTest {
                     path == "/me" -> {
                         meRequested.set(true)
                         while (holdMe.get()) Thread.sleep(20)
-                        val capabilities = mutableListOf("agent_portal.read", "agent_portal.manage", "hosts.activate_insecure", "admin.read", "agent_messaging.manage", "agent_messaging.read")
+                        val capabilities = mutableListOf("agent_portal.read", "agent_portal.manage", "hosts.activate_insecure", "admin.read", "auth.read_metadata", "agent_messaging.manage", "agent_messaging.read")
                         if (roomPermission.get()) capabilities.add("agent_messaging.reveal_content")
                         if (!authorizationAllowed.get()) capabilities.remove("hosts.activate_insecure")
                         if (transcriptAllowed.get()) capabilities.add("agent_portal.reveal_transcript")
