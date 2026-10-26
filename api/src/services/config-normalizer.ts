@@ -48,12 +48,13 @@ export { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, FORCE_UPGRADE_MODE
  * is served by the codex runner shelling out to `codex exec` under ChatGPT
  * auth, so an entry with `supported_in_api: false` would still be servable.
  *
- * Verified against models_cache.json from codex-cli 0.162.1, 2026-10-12.
+ * Verified against models_cache.json from codex-cli 0.164.0, 2026-10-26.
  * GPT-5.5 is already hidden and deprecated, before its October 14 retirement;
  * the fleet migrates it now to the catalog replacement, GPT-6.1 Sol.
  */
 export const SUPPORTED_MODELS: readonly string[] = [
   'gpt-6.1-sol',
+  'gpt-6.1-terra',
   'gpt-6-astra',
   'gpt-6-sol',
   'gpt-6-luna',

@@ -1,5 +1,7 @@
 # 2026-10-26
 
+- Offer GPT-6.1 Terra in Codex configuration, host pickers, gateway catalogs and signed launch menus with the verified native low default and low-through-ultra efforts. Keep GPT-5.6 Terra selectable; only the opt-in latest-family policy selects its successor.
+
 - Correct remaining retired Codex references to the current documented successors (`gpt-5.4` → GPT-6 Sol, mini → GPT-6 Luna). Preserve compatible efforts across fleet, host, profile and native subagent settings; otherwise use the successor default, while keeping custom IDs and already migrated selections intact.
 
 - cxx 0.9.136 replaces the unconditional stale Communicator `kill` hint with quiet-retirement and coordinated-restart guidance that preserves active native work. Clarify safe claim and Git registration recovery after resuming the exact native transcript, without relaxing ownership checks. Isolate Communicator subprocess tests from inherited native broker sockets and make instance CLI fixtures work for unprivileged developers.

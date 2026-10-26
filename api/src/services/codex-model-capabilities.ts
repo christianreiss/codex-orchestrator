@@ -2,6 +2,7 @@
  * Shared by structured and native-reference migrations; API effort semantics are separate. */
 export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
   'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  'gpt-6.1-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'gpt-6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -16,6 +17,7 @@ export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>
  */
 export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string>> = {
   'gpt-6.1-sol': 'low',
+  'gpt-6.1-terra': 'low',
   'gpt-6-astra': 'medium',
   'gpt-6-sol': 'medium',
   'gpt-6-luna': 'medium',
@@ -23,4 +25,3 @@ export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, stri
   'gpt-5.6-terra': 'medium',
   'gpt-5.6-luna': 'medium',
 };
-

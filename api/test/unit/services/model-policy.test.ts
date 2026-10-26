@@ -14,7 +14,7 @@ function database(engine: Engine, disabled = '') {
 }
 describe('current model policy', () => {
   it('keeps the newest numeric version of every family, including single-generation families and Grok Fast', () => {
-    expect(buildModelPolicy('codex', true).latest_models).toEqual(['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-luna', 'gpt-5.6-terra']);
+    expect(buildModelPolicy('codex', true).latest_models).toEqual(['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-astra', 'gpt-6-luna']);
     expect(buildModelPolicy('claude', true).latest_models).toEqual(['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
     expect(buildModelPolicy('grok', true).latest_models).toEqual(['grok-4.7', 'grok-4.7-build-fast']);
   });

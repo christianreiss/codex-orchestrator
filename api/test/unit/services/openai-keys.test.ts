@@ -138,6 +138,7 @@ describe('openai-models', () => {
     expect(list.object).toBe('list');
     expect(list.data.map((m) => m.id)).toEqual([
       'gpt-6.1-sol',
+      'gpt-6.1-terra',
       'gpt-6-astra',
       'gpt-6-sol',
       'gpt-6-luna',

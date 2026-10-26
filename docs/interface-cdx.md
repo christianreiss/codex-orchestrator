@@ -487,6 +487,7 @@ The fleet starts on `gpt-6-astra` at its native `medium` effort.
 | Models | Persistent efforts | Default effort |
 |---|---|---|
 | `gpt-6.1-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
+| `gpt-6.1-terra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-6-astra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | `gpt-6-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | `gpt-6-luna` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
@@ -503,14 +504,25 @@ before its 2026-10-14T19:00:00Z retirement. Stored selections heal to the catalo
 replacement `gpt-6.1-sol`, preserving a valid effort (otherwise using `low`).
 This covers fleet settings, host overrides, profile sidecars, review/subagent
 models, and memory extraction/consolidation models; unknown custom provider IDs
-remain untouched. The seven current rows and their efforts were verified against
-codex-cli 0.162.1's model cache on 2026-10-12 and the
+remain untouched. The eight current rows and their efforts were verified against
+codex-cli 0.164.0's model cache on 2026-10-26 and the
 [official model guidance](https://learn.chatgpt.com/docs/models).
 `gpt-5.3-codex-spark` is retired: it left the catalog and
 binary, a live `codex exec -m gpt-5.3-codex-spark` is rejected ("not supported
 when using Codex with a ChatGPT account"), and its quota bucket is gone. A stored
 override naming it heals to `gpt-6-astra`, preserving compatible effort or
 using its native default (`medium`).
+
+GPT-6.1 Terra is a public Codex model from CLI 0.159.0. Its 0.164.0 native
+account catalog refreshed on 2026-10-26 at 18:39:04 UTC reports `visibility=list`,
+no upgrade, default `low`, and `low|medium|high|xhigh|max|ultra`. This is the
+subscription/native backend contract; the provider API's separate default and
+effort list do not replace it. The earlier cache and bundled release omitted
+Terra, so a missing earlier cache entry is not retirement evidence. Existing
+GPT-5.6 Terra stays available; the opt-in latest-family policy resolves it to
+GPT-6.1 Terra without rewriting stored selections. Fleet default remains Astra
+at medium. Native context metadata reports 500,000 default / 872,000 maximum;
+Codex owns dynamic context selection, and the fleet adds no fixed context override.
 
 The GET response's `catalog` is the machine-readable source of truth for these
 model/effort pairs. POST accepts strict

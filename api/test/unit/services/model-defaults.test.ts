@@ -100,6 +100,11 @@ describe('ModelDefaultsService', () => {
         default_effort: 'low',
       },
       {
+        model: 'gpt-6.1-terra',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        default_effort: 'low',
+      },
+      {
         model: 'gpt-6-astra',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
         default_effort: 'medium',
