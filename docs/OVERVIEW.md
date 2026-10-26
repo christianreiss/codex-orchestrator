@@ -980,10 +980,10 @@ The auth-runner image pins Codex 0.162.1 to serve that catalog; updating only th
 `/admin/account` has one local tab row: Profile, Security, Appearance and Devices.
 Profile is read-only. Security discloses the password form on demand and lists
 passkeys; Appearance saves the theme immediately with pending/failure feedback;
-Devices lists paired Android devices and confirms named revocations. The existing
+Devices lists paired Android devices and confirms named revocations. Phone pairing shows a host-style timeline for code creation and server-confirmed pairing, correlated to the reserved device UUID. Existing live events update it; offline users can check status manually. Expiry and creation/status errors keep a recovery action visible. The existing
 `#profile`, `#security`, `#appearance` and `#devices` links select the corresponding
 tab, including on reload and browser back/forward. In-page tab changes preserve
-password drafts. No account-management API contract changes.
+password drafts. The pairing response adds the reserved `device_id`; native QR/exchange request payloads stay compatible.
 
 ## Account management
 

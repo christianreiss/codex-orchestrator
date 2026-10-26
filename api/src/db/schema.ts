@@ -2219,6 +2219,7 @@ export type AgentTransferEvent = typeof agentTransferEvents.$inferSelect;
 
 // Android companion: independent revocable device authentication and durable push.
 export const companionPairings = mysqlTable('companion_pairings', {
+  deviceId: char('device_id', { length: 36 }),
   tokenHash: char('token_hash', { length: 64 }).primaryKey(),
   userId: bigint('user_id', { mode: 'number', unsigned: true }).notNull(),
   expiresAt: varchar('expires_at', { length: 100 }).notNull(),

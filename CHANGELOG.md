@@ -1,5 +1,7 @@
 # 2026-10-26
 
+- Show host-style progress in phone pairing: code creation, waiting for the phone, and server-confirmed success for the exact reserved device. Hide consumed QR codes, explain expiry/offline status, and offer manual status checking. Migration 0107 adds the nullable reserved device UUID; existing native pairing payloads remain compatible.
+
 - Organize personal Account settings into Profile, Security, Appearance and Devices tabs with bookmark/history support and retained drafts. Show identity and device status first, disclose the password form on demand, confirm device revocation, and keep action/save failures visible.
 
 - Android 0.5.8 always shows the app-to-server connection status in the header and Connection sheet: connected, connecting, or disconnected while reconnecting. Connected requires a live socket and a fresh synchronized data snapshot. APK-only; no API rollout.

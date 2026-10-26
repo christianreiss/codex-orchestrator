@@ -85,9 +85,11 @@ describe.skipIf(!config)('owner companion lifecycle on real MySQL', () => {
         });
         const ctx = { db, env, keyring } as RouteContext;
         const devices = new CompanionDevices(ctx);
-        const pairing = JSON.parse((await devices.pair(userId)).qr) as { token: string };
+        const receipt = await devices.pair(userId);
+        const pairing = JSON.parse(receipt.qr) as { token: string };
         const credential = await devices.exchange(pairing.token, 'Owner test');
         deviceId = credential.device_id;
+        expect(deviceId).toBe(receipt.device_id);
         await expect(devices.exchange(pairing.token, 'Replay')).rejects.toThrow();
         await devices.patch(deviceId, { fcm_token: 'test-fcm-token' });
         budget.reset();

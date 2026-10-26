@@ -53,5 +53,13 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
   )
     throw new Error('Migration 0106 must create agent_room_agent_reads; cannot project the bootstrap schema');
   tables.set(created[0]!.table, new Set(created[0]!.columns));
+  const pairing = resolve(import.meta.dirname, '../../src/db/migrations/0107_companion_pairing_device.sql');
+  const pairingColumns = splitSqlStatements(readFileSync(pairing, 'utf8')).flatMap((statement) =>
+    [...statement.matchAll(/ALTER\s+TABLE\s+`?([A-Za-z0-9_$]+)`?\s+ADD\s+COLUMN\s+`?([A-Za-z0-9_$]+)`?/gi)]
+      .map((match) => ({ table: match[1]!, column: match[2]! })),
+  );
+  if (pairingColumns.length !== 1 || pairingColumns[0]!.table !== 'companion_pairings' || pairingColumns[0]!.column !== 'device_id')
+    throw new Error('Migration 0107 must declare companion_pairings.device_id; cannot project the bootstrap schema');
+  tables.get('companion_pairings')!.add('device_id');
   return tables;
 }

@@ -11,7 +11,7 @@ describe('owner companion notification obligations', () => {
     vi.useFakeTimers();
     vi.setSystemTime('2026-10-24T10:00:00Z');
     const seed = {
-      companionPairings: [{ tokenHash: 'pair', userId: 1, expiresAt: '2026-10-24T11:00:00Z' }],
+      companionPairings: [{ tokenHash: 'pair', deviceId: null, userId: 1, expiresAt: '2026-10-24T11:00:00Z' }],
       versions: [{ name: 'owner_portal_event_id', version: '0', updatedAt: new Date().toISOString() }],
     } satisfies StateSeed;
     const f = await ownerWorkerFixture(seed);

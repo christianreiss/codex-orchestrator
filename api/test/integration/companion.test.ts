@@ -127,7 +127,8 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
   const authorization = () => `Bearer ${connection.token}`;
 
   it('consumes a QR token exactly once under concurrent exchange', async () => {
-    const pairing = JSON.parse((await devices.pair(userId)).qr);
+    const receipt = await devices.pair(userId);
+    const pairing = JSON.parse(receipt.qr);
     const results = await Promise.allSettled([
       devices.exchange(pairing.token, 'Phone'),
       devices.exchange(pairing.token, 'Other phone'),
@@ -140,6 +141,19 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       .from(companionDevices)
       .where(eq(companionDevices.id, connection.device_id));
     expect(stored!.tokenHash).not.toEqual(connection.token);
+    expect(connection.device_id).toBe(receipt.device_id);
+  });
+  it('replaces a pairing without confusing receipts and accepts legacy outstanding codes', async () => {
+    const first = await devices.pair(userId);
+    const second = await devices.pair(userId);
+    expect(second.device_id).not.toBe(first.device_id);
+    await expect(devices.exchange(JSON.parse(first.qr).token, 'Replaced')).rejects.toMatchObject({ code: 'pairing_invalid' });
+    const paired = await devices.exchange(JSON.parse(second.qr).token, 'Current');
+    expect(paired.device_id).toBe(second.device_id);
+    const legacy = await devices.pair(userId);
+    await db.update(companionPairings).set({ deviceId: null }).where(eq(companionPairings.userId, userId));
+    const legacyDevice = await devices.exchange(JSON.parse(legacy.qr).token, 'Legacy');
+    expect(legacyDevice.device_id).toMatch(/^[a-f0-9-]{36}$/);
   });
   it('rejects expired pairing codes', async () => {
     const pairing = JSON.parse((await devices.pair(userId)).qr);

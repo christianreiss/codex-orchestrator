@@ -2124,7 +2124,7 @@ and receives only their current capabilities, enforced strictly on every request
 Device credentials expire after one year; pairing again creates a new device.
 
 - `GET /admin/companion/devices` — own devices, timestamps and push configuration readiness; requires `account.self_manage`.
-- `POST /admin/companion/pairings` — own single-use five-minute QR JSON (`version:1`, HTTPS `server`, random `token`); creates an audit entry and replaces outstanding codes for that user.
+- `POST /admin/companion/pairings` — own single-use five-minute QR JSON (`version:1`, HTTPS `server`, random `token`); returns `{qr, expires_at, device_id}` with the UUID reserved for this exact exchange (not a credential), creates an audit entry and replaces outstanding codes for that user. The browser confirms pairing only when that UUID appears in its own devices snapshot, refreshed by existing `companion.devices.changed`/owner events or manual Check status; no polling or inferred scan/connection progress. Migration 0107 stores the nullable reserved UUID; pre-upgrade grants retain random UUID creation on exchange.
 - `DELETE /admin/companion/devices/{id}` — revoke an owned device and clear its FCM token; audited, publishes `companion.devices.changed`.
 - `POST /companion/v1/pair` — `{token,name}` exchanges a QR token once for `{device_id,token,firebase,capabilities}`; the token is never logged or stored in plaintext.
 - `GET /companion/v1/hosts` — `admin.read`; daemon-enabled host cards with `host_id`, `fqdn`, `default_cwd`, ready `engines`, safe `health`, `free_slots` and `startable`. No credential/runtime payloads.

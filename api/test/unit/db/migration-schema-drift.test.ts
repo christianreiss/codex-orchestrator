@@ -382,6 +382,7 @@ describe('migrations against the test baseline', () => {
       'control_plane_command_receipts.replay_class',
       'control_plane_command_receipts.result_state',
       'agent_bus_messages.delivery_timing',
+      'companion_pairings.device_id',
     ]);
   });
 

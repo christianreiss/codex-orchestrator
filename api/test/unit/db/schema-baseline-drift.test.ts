@@ -50,7 +50,7 @@ const schemaTables = (): Map<string, string[]> => {
 };
 
 describe('schema.ts against the test baseline', () => {
-  it('declares no table or column absent from bootstrap plus migrations 0105 and 0106', () => {
+  it('declares no table or column absent from bootstrap plus migrations 0105–0107', () => {
     const baseline = currentSchemaColumns();
     const missing: string[] = [];
 

@@ -49,6 +49,7 @@ export class CompanionDevices {
 
   async pair(userId: number) {
     const token = randomBytes(32).toString('hex');
+    const deviceId = randomUUID();
     const server = companionBaseUrl(this.ctx.env.PUBLIC_BASE_URL);
     const expiresAt = isoOffsetSeconds(300);
     const owner = ownerRuntimeFor(this.ctx.db);
@@ -56,31 +57,33 @@ export class CompanionDevices {
       await mutateOwnerState(owner, { kind: 'companion.pair', payload: { userId }, prepare(context) {
         if (!context.draft.table('adminUsers').get(userId)?.active) throw new UnauthorizedError('Account disabled', 'admin_disabled');
         for (const pairing of context.draft.table('companionPairings').by('userId', userId)) stageDelete(context, 'companionPairings', pairing.tokenHash);
-        const row = { tokenHash: sha256(token), userId, expiresAt }; context.draft.upsert('companionPairings', row);
+        const row = { tokenHash: sha256(token), userId, expiresAt, deviceId }; context.draft.upsert('companionPairings', row);
         context.write(async tx => { await tx.insert(companionPairings).values(row); });
         adminAudit(context, 'companion.pairing.created', { admin_user_id: userId }); return null;
       } });
-      return { qr: JSON.stringify({ version: 1, server, token }), expires_at: expiresAt };
+      return { qr: JSON.stringify({ version: 1, server, token }), expires_at: expiresAt, device_id: deviceId };
     }
     await this.ctx.db.transaction(async (tx) => {
       await tx.select().from(adminUsers).where(eq(adminUsers.id, userId)).for('update');
       await tx.delete(companionPairings).where(eq(companionPairings.userId, userId));
-      await tx.insert(companionPairings).values({ tokenHash: sha256(token), userId, expiresAt });
+      await tx.insert(companionPairings).values({ tokenHash: sha256(token), userId, expiresAt, deviceId });
       await makeAdminEventsWriter(tx as unknown as RouteContext['db']).append('companion.pairing.created', {
         admin_user_id: userId,
       });
     });
-    return { qr: JSON.stringify({ version: 1, server, token }), expires_at: expiresAt };
+    return { qr: JSON.stringify({ version: 1, server, token }), expires_at: expiresAt, device_id: deviceId };
   }
 
   async exchange(token: string, name: string) {
     const owner = ownerRuntimeFor(this.ctx.db);
     if (owner) {
-      const credential = randomBytes(32).toString('hex'), id = randomUUID();
+      const credential = randomBytes(32).toString('hex');
+      let id = '';
       let capabilities: ReturnType<typeof capabilitiesForRole> = [];
       await mutateOwnerState(owner, { kind: 'companion.exchange', payload: { tokenHash: sha256(token), name }, prepare: async context => {
         const pairing = context.draft.table('companionPairings').get(sha256(token));
         if (!pairing || pairing.expiresAt <= nowIso()) throw new UnauthorizedError('Pairing code expired or already used', 'pairing_invalid');
+        id = pairing.deviceId ?? randomUUID();
         const user = context.draft.table('adminUsers').get(pairing.userId);
         if (!user?.active) throw new UnauthorizedError('Account disabled', 'admin_disabled');
         const latest = Number(context.snapshot.setting('owner_portal_event_id') ?? 0);
@@ -107,7 +110,7 @@ export class CompanionDevices {
         .orderBy(desc(agentEvents.id))
         .limit(1);
       const credential = randomBytes(32).toString('hex');
-      const id = randomUUID();
+      const id = pairing.deviceId ?? randomUUID();
       await tx.insert(companionDevices).values({
         id,
         userId: user.id,

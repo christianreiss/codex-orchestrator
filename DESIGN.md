@@ -244,7 +244,7 @@ This is a source audit, not a live visual acceptance report. All 39 `+page.svelt
 | `/admin/api-keys` | Issue and revoke gateway keys; list + configuration | `PageShell`, API-key section, Configure panel | Reveal/copy, revoke, disabled surface/backend, legacy anchors |
 | `/admin/secrets` | Manage agent-readable credentials; list | `PageShell`, secrets section, secret dialog | Reveal/copy, store switch off/empty, permission denial |
 | `/admin/settings` | Set fleet behavior, server retention and local housekeeping; settings | Narrow `PageShell`, `Section`, policy/session/retention controls and Agent coordination | Immediate-save truth, read-only/stale states, scope clarity; reconcile coordination state before retrying an ambiguous save |
-| `/admin/account` | Manage own identity/security; tabbed settings | `PageShell`, one `Tabs` row (Profile/Security/Appearance/Devices), `Section`, existing account components; hash-selected, draft-preserving panels | Direct links/history, hidden panels inert, password disclosure, device revoke confirmation, pairing expiry, inline failures, all theme modes |
+| `/admin/account` | Manage own identity/security; tabbed settings | `PageShell`, one `Tabs` row (Profile/Security/Appearance/Devices), `Section`, existing account components; hash-selected, draft-preserving panels | Direct links/history, hidden panels inert, password disclosure, device revoke confirmation, receipt-correlated pairing timeline/completion/expiry, inline failures, all theme modes |
 | `/admin/manual` | Find help; help index | `PageShell`, `Section`, `StateBlock`, `ManualSidebar` | Findability and missing content |
 | `/admin/manual/[slug]` | Read help; article | `PageShell`, `ManualSidebar`, `ArticleView` | Heading structure, code, long links, unknown slug |
 | `/admin/login` | Sign in; authentication | `AuthShell`, `FormField`, passkey/password steps | Keyboard, password manager, failure/recovery |
@@ -374,3 +374,11 @@ Applicable rules: NAV-2/3/4, VIS-1/3/4/5, INT-2/3/4/5/6/7 and ACC-1/3/4/5.
 No design exception. Automated and visual evidence is recorded with delivery;
 manual screen-reader, zoom/text resizing and independent usability review remain
 separate acceptance gates.
+
+Phone pairing progress slice (2026-10-26): the Account Devices dialog follows the
+host-install timeline pattern while showing only observed milestones (code ready,
+exact reserved device paired). Scanning and phone connectivity are not inferred.
+Success removes the one-time QR/code and offers Done. Existing centralized live
+invalidation refreshes devices; unavailable live updates offer manual Check status.
+Expiry and status/create failures remain visible with recovery. Applicable rules:
+NAV-3, VIS-3/4, INT-3/4/5/6/7, ACC-1/3/4. No exception.
