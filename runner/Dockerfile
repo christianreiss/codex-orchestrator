@@ -21,12 +21,12 @@ RUN apt-get update \
 #
 # The SHA256s are the release assets' published digests. A tag can be moved;
 # a digest cannot, so the download is verified before anything is unpacked.
-ARG CODEX_TAG=rust-v0.163.0
-ARG CODEX_VERSION=0.163.0
+ARG CODEX_TAG=rust-v0.164.0
+ARG CODEX_VERSION=0.164.0
 ARG CODEX_ASSET_AMD64=codex-x86_64-unknown-linux-musl.tar.gz
 ARG CODEX_ASSET_ARM64=codex-aarch64-unknown-linux-musl.tar.gz
-ARG CODEX_SHA256_AMD64=beb339e8ecd9ba057a6bb2dc81ad8ca474812edfbf0fc5056ca818797648dde4
-ARG CODEX_SHA256_ARM64=a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4
+ARG CODEX_SHA256_AMD64=90dd0b03b28afcb7fa733a4f73b413db2916a47347efd43fb669cc1c774ee8e4
+ARG CODEX_SHA256_ARM64=29a507a2a3fd8f6cd94b96b762d281d299d15d7902dee6132d314b78cf9108eb
 ARG TARGETARCH
 RUN set -euo pipefail; \
     arch="${TARGETARCH:-amd64}"; \
@@ -68,11 +68,11 @@ RUN set -euo pipefail; \
     npm --version
 
 # --- Claude Code CLI (exact latest-normal release, verified) ---
-# Latest normal release as of 2026-10-16; vendor conservative stable is 2.1.292.
+# Latest normal release as of 2026-10-26; vendor conservative stable is 2.1.308.
 # No `|| true`. The previous form installed whatever npm served that minute and
 # swallowed the failure, so a registry hiccup produced an image that claimed
 # dual-engine readiness with no `claude` on PATH at all.
-ARG CLAUDE_CODE_VERSION=2.1.301
+ARG CLAUDE_CODE_VERSION=2.1.310
 RUN set -euo pipefail; \
     npm install -g --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
     command -v claude >/dev/null || { echo "claude not on PATH after install" >&2; exit 1; }; \
@@ -88,7 +88,7 @@ WORKDIR /app
 # Official Grok native npm artifact, pinned by version AND sha512 integrity.
 # Extract only package/bin/grok.br; Node's built-in Brotli avoids installers.
 COPY install-grok.mjs /tmp/install-grok.mjs
-ARG GROK_VERSION=1.0.60
+ARG GROK_VERSION=1.0.70
 RUN set -eu; GROK_VERSION="${GROK_VERSION}" node /tmp/install-grok.mjs "${TARGETARCH:-amd64}"; \
     grok --version | grep -F "grok ${GROK_VERSION} "; \
     rm /tmp/install-grok.mjs
