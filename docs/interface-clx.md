@@ -1044,7 +1044,7 @@ before applying its replacement leaves.
 The public picker and inference gateway now include Haiku 5.5 and the still-active
 Opus 4.6 and Opus 4.5 (`claude-opus-4-5-20251101`). Selecting Opus 4.6 no longer
 silently upgrades it to 4.8. Haiku 5.5 has a 1M context window and 128k output
-limit; use Claude Code 2.1.293 or later. The runner image pins 2.1.296. Restricted
+limit; use Claude Code 2.1.293 or later. The runner image pins 2.1.310. Restricted
 Mythos models remain outside the public catalog; plan/provider entitlements are
 still checked upstream.
 
