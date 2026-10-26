@@ -195,3 +195,20 @@ test("Codex profiles create, preview and remove sidecars separately from root se
   await card.getByRole("button", { name: "Save profiles", exact: true }).click();
   await expect.poll(() => shared.configs.codex.settings.profiles).toEqual([]);
 });
+
+test("Grok 1.0.70 native defaults preserve false values, argument arrays and removal", async ({ page }) => {
+  const shared = state(); shared.configs.grok.settings.native_settings = {};
+  await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["grok"]);
+  const card = page.locator("#grok-native-settings"), editor = card.getByRole("textbox");
+  await expect(card.getByRole("link", { name: "Grok 1.0.70 settings" })).toBeVisible();
+  const value = { keys: { vim: "off" }, features: { worktree_inherits_main_approvals: false }, hooks: { Stop: [{ hooks: [{ type: "command", command: "echo", args: ["login", "--background"] }] }] }, ui: { notifications: { program_status: { children: false } } } };
+  await editor.fill(JSON.stringify(value));
+  await card.getByRole("button", { name: "Validate and preview" }).click();
+  await expect(card).toContainText("grok validated configuration");
+  await card.getByRole("button", { name: "Save native settings" }).click();
+  await expect.poll(() => shared.configs.grok.settings.native_settings).toEqual(value);
+  await page.reload(); await openAdvanced(page, ["grok"]);
+  await expect(editor).toHaveValue(/"children": false/);
+  await editor.fill("{}"); await card.getByRole("button", { name: "Save native settings" }).click();
+  await expect.poll(() => shared.configs.grok.settings.native_settings).toEqual({});
+});

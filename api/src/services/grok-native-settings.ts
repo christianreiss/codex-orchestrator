@@ -9,6 +9,9 @@ const deprecated: Record<string, string> = {
   'ui.approval_mode': 'ui.permission_mode',
   'ui.ui_theme': 'ui.theme',
   'ui.show_timestamps': 'ui.timestamps',
+  'ui.vim_mode': 'keys.vim',
+  'ui.collapsed_edit_blocks': 'ui.tool_call_density',
+  'ui.group_tool_verbs': 'ui.tool_call_density',
 };
 
 export function grokRecord(value: unknown): RecordValue {
@@ -73,13 +76,17 @@ function validate(value: unknown, path: string[], candidates = fields): void {
     || (path[0] === 'memory_v2' && removedMemoryV2.has(path[1]!)))) {
     fail(path, 'removed in Grok Build 1.0.51; use memory.enabled to turn memory on or off');
   }
+  if (path.length === 2 && ((path[0] === 'ui' && path[1] === 'simple_mode')
+    || (path[0] === 'memory_v2' && path[1] === 'compact_index_enabled'))) {
+    fail(path, 'retired and has no effect; omit this setting');
+  }
   const matching = candidates.filter(field => field.parts.length >= path.length && patternMatches(field.parts, path));
   const exact = matching.find(field => field.parts.length === path.length);
   if (!matching.length) fail(path, 'unknown Grok setting');
   if (exact && deprecated[exact.key]) fail(path, `deprecated; use ${deprecated[exact.key]}`);
   if (exact && !exact.types.some(type => matches(value, type))) fail(path, `expected ${exact.types.join(' or ')}`);
   const children = matching.filter(field => field.parts.length > path.length);
-  if (children.length) {
+  if (children.length && !(exact && !isRecord(value) && !Array.isArray(value))) {
     if (Array.isArray(value)) {
       if (!children.some(field => field.parts[path.length] === '[]')) fail(path, 'expected a table');
       for (const item of value) validate(item, [...path, '[]'], children);
@@ -95,6 +102,10 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
   if (raw === undefined) return undefined;
   if (!isRecord(raw)) fail([], 'expected an object');
   const value = clone(raw, []) as RecordValue;
+  if ('experiments' in value) fail(['experiments'], 'native per-machine rollout patches and assignment state are outside fleet user defaults; use unconditional settings or supported version_overrides');
+  for (const root of ['worker', 'cursor_worker']) {
+    if (root in value) fail([root], 'independent Cursor worker services are not integrated with managed auth, session and receiver ownership');
+  }
   for (const [key, item] of Object.entries(value)) validate(item, [key]);
   for (const [key, control] of [['default', 'model'], ['default_reasoning_effort', 'reasoning_effort']]) {
     if (key! in grokRecord(value.models)) fail(['models', key!], `use settings.${control}; the fleet model controls own this setting`);
@@ -145,6 +156,12 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
     if (statusLine.type === 'command' && (typeof statusLine.command !== 'string' || !statusLine.command.trim())) fail(['ui', 'status_line', 'command'], 'command status lines require a nonempty command');
   }
   for (const [name, model] of Object.entries(grokRecord(value.model))) {
+    for (const key of ['compactions_remaining', 'send_compactions_remaining']) {
+      const remaining = grokRecord(model)[key];
+      if (typeof remaining === 'number' && (remaining < 0 || remaining > 255)) fail(['model', name, key], 'expected 0–255 or boolean');
+    }
+    const at = grokRecord(model).compaction_at_tokens;
+    if (typeof at === 'number' && at < 0) fail(['model', name, 'compaction_at_tokens'], 'expected nonnegative token count or boolean');
     if ('notice' in grokRecord(model) && typeof grokRecord(grokRecord(model).notice).text !== 'string') fail(['model', name, 'notice', 'text'], 'notice requires text (use an empty string to clear it)');
   }
   // Native range/type constraints that otherwise silently clamp or drop input.
@@ -156,6 +173,7 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
     [['subagents', 'max_depth'], 1, Number.MAX_SAFE_INTEGER],
     [['ui', 'status_line', 'padding'], 0, 16],
     [['ui', 'status_line', 'refresh_interval'], 1, 86400],
+    [['memory_v2', 'daily_token_cap'], 1000000, Number.MAX_SAFE_INTEGER],
   ];
   for (const [path, min, max] of ranges) {
     const item = path.reduce<unknown>((v, key) => grokRecord(v)[key], value);

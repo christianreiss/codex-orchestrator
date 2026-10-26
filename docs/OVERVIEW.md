@@ -1,5 +1,12 @@
 # Overview
 
+Grok native user defaults are audited against Build 1.0.70. The existing Engines
+JSON editor supports current Vim, hook, terminal-status, model/media and feature
+settings, with conditional native-version checks. Migration 0110 repairs retired
+controls without replacing saved body/hash snapshots. Native experiments and
+independent Cursor-worker services keep separate ownership; see the
+[Grok configuration contract](interface-cgx.md#native-configuration-maintenance-2026-10-26).
+
 cxx 0.9.136 explains quiet retirement and coordinated recovery for replaced
 Communicator owners instead of recommending an unconditional kill. Claim and Git
 Director errors point resumed exact transcripts to explicit recovery while keeping

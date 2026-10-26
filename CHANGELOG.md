@@ -1,5 +1,7 @@
 # 2026-10-26
 
+- Support Grok Build 1.0.70 native defaults end-to-end, including Vim keys, hook arguments, terminal program status, current feature/model/media settings and conditional client-version checks. Migration 0110 replaces retired Vim/density settings and removes ineffective controls while preserving unrelated settings and saved body/hash snapshots. Explain unsupported native experiment and independent worker scopes.
+
 - cxx 0.9.136 replaces the unconditional stale Communicator `kill` hint with quiet-retirement and coordinated-restart guidance that preserves active native work. Clarify safe claim and Git registration recovery after resuming the exact native transcript, without relaxing ownership checks. Isolate Communicator subprocess tests from inherited native broker sockets and make instance CLI fixtures work for unprivileged developers.
 
 - cxx 0.9.135 shows Communicator statistics at native session startup and exit for cdx/clx/cgx and their explicit cxx forms: started by this wrapper or reused, owner PID, and current client count. Report owner changes and unavailable/unknown samples truthfully. Local status-only probes have a 200 ms budget and never start or stop an owner; suppressed boot/footer output stays suppressed.
