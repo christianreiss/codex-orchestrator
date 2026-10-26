@@ -24,7 +24,12 @@ test('pairs and revokes an Android device from Account', async ({ page }) => {
   expect(paired).toBe(1);
   await page.screenshot({ path: 'test-results/companion-pairing.png' });
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Revoke', exact: true }).click();
+  await page.getByRole('button', { name: 'Revoke Pixel test', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Revoke Pixel test?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Revoke Pixel test', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Revoke Pixel test', exact: true }).click();
+  await page.getByRole('button', { name: 'Revoke device', exact: true }).click();
   await expect(page.getByText('Revoked', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Revoke', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Revoke Pixel test', exact: true })).toHaveCount(0);
 });

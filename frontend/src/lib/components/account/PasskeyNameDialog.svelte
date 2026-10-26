@@ -12,6 +12,7 @@
     initialValue?: string;
     submitLabel?: string;
     submitting?: boolean;
+    submitError?: string;
     onSubmit: (name: string) => void | Promise<void>;
     onCancel?: () => void;
   };
@@ -24,6 +25,7 @@
     initialValue = "",
     submitLabel = "Save",
     submitting = false,
+    submitError = "",
     onSubmit,
     onCancel,
   }: Props = $props();
@@ -81,6 +83,7 @@
           <p class="text-body-sm text-destructive">{error}</p>
         {/if}
       </div>
+      {#if submitError}<p role="alert" class="text-body-sm text-destructive">{submitError}</p>{/if}
       <Dialog.Footer>
         <Button
           type="button"

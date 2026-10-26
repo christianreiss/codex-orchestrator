@@ -22,6 +22,7 @@
   import Check from "@lucide/svelte/icons/check";
   import X from "@lucide/svelte/icons/x";
 
+  let actionError = $state("");
   const qc = useQueryClient();
   const passkeysQuery = createQuery<Passkey[]>({ queryKey: accountKeys.passkeys, queryFn: () => listPasskeys() });
 
@@ -42,6 +43,7 @@
       toast.error("This browser does not support passkeys.");
       return;
     }
+    actionError = "";
     registering = true;
     try {
       const options = await passkeyRegisterOptions();
@@ -52,6 +54,7 @@
       void qc.invalidateQueries({ queryKey: accountKeys.passkeys });
       toast.success("Passkey registered. Give it a name.");
     } catch (err) {
+      actionError = err instanceof Error ? err.message : "Could not update passkeys.";
       if (err instanceof ApiError) toast.error(err.message);
       else if (err instanceof Error) {
         // DOMException: NotAllowedError comes through as a normal Error here.
@@ -65,6 +68,7 @@
 
   async function onNamePendingPasskey(name: string) {
     if (!pendingPasskey) return;
+    actionError = "";
     nameSubmitting = true;
     try {
       await renamePasskey(pendingPasskey.id, name);
@@ -73,6 +77,7 @@
       pendingPasskey = null;
       await qc.invalidateQueries({ queryKey: accountKeys.passkeys });
     } catch (err) {
+      actionError = err instanceof Error ? err.message : "Could not update passkeys.";
       toast.error(err instanceof ApiError ? err.message : "Could not save name.");
     } finally {
       nameSubmitting = false;
@@ -99,6 +104,7 @@
       toast.error("Name is required.");
       return;
     }
+    actionError = "";
     inlineSubmitting = true;
     try {
       await renamePasskey(editingId, trimmed);
@@ -106,6 +112,7 @@
       cancelEdit();
       await qc.invalidateQueries({ queryKey: accountKeys.passkeys });
     } catch (err) {
+      actionError = err instanceof Error ? err.message : "Could not update passkeys.";
       toast.error(err instanceof ApiError ? err.message : "Rename failed.");
     } finally {
       inlineSubmitting = false;
@@ -122,6 +129,7 @@
 
   async function confirmDelete() {
     if (!deleteTarget) return;
+    actionError = "";
     deleteSubmitting = true;
     try {
       await deletePasskey(deleteTarget.id);
@@ -129,6 +137,8 @@
       deleteOpen = false;
       await qc.invalidateQueries({ queryKey: accountKeys.passkeys });
     } catch (err) {
+      actionError = err instanceof Error ? err.message : "Could not update passkeys.";
+      deleteOpen = false;
       toast.error(err instanceof ApiError ? err.message : "Delete failed.");
     } finally {
       deleteSubmitting = false;
@@ -148,6 +158,7 @@
 </script>
 
 <div class="space-y-3">
+  {#if actionError}<p role="alert" class="text-body-sm text-destructive">{actionError}</p>{/if}
   <div class="flex flex-wrap items-start justify-between gap-2">
     <p class="max-w-xl text-body-sm text-muted-foreground">
       Sign in without a password using a hardware key or device biometrics. Once you have a passkey, you must sign in with it.
@@ -228,6 +239,7 @@
   description="The credential is now registered. Give it a label so you can recognise it later."
   submitLabel="Save name"
   submitting={nameSubmitting}
+  submitError={actionError}
   onSubmit={onNamePendingPasskey}
   onCancel={() => (pendingPasskey = null)}
 />

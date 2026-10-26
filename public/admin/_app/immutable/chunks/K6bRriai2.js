@@ -1,1 +1,0 @@
-import{Bt as e,_t as t}from"./CzH8FBiu.js";import"./DgmhB8M1.js";function n(n){let r=e(n());return t(()=>{r.set(n())}),{subscribe:r.subscribe}}export{n as t};
