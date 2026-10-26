@@ -4,7 +4,7 @@ import { drizzle } from 'drizzle-orm/mysql2';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
 import * as schema from '../../../src/db/schema.js';
-import { loadBaseline } from '../../../src/db/migrator.js';
+import { runMigrations } from '../../../src/db/migrator.js';
 import { ControlPlaneOwnership } from '../../../src/control-plane/owner.js';
 import { OwnerPersistence } from '../../../src/control-plane/persistence.js';
 import { CommandExecutor } from '../../../src/control-plane/commands.js';
@@ -35,12 +35,7 @@ describe.skipIf(!config)('Grok owned response capture on real MySQL', () => {
     try {
       await admin.query(`CREATE DATABASE \`${database}\``);
       pool = mysql.createPool({ ...config!, database, connectionLimit: 4 });
-      const connection = await pool.getConnection();
-      try {
-        for (const statement of await loadBaseline()) await connection.query(statement);
-      } finally {
-        connection.release();
-      }
+      await runMigrations(pool, { initSchema: true, appliedBy: 'grok-response-capture-test' });
       const db = drizzle(pool, { schema, mode: 'default' }),
         keyring = testKeyring();
       const now = new Date().toISOString();
