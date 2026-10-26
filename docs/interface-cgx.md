@@ -316,8 +316,11 @@ subagents, plugins, goals, memory, native command/HTTP hooks, notification hooks
 and built-in or command status lines. Features are configured only when an
 operator supplies them; support does not turn experimental features on.
 
-The field/type registry is audited against Grok Build **1.0.70 stable** and the bundled
-complete reference (SHA-256 `ebd97fec98bb00bfdfa37befddf31dd8a14e3f277db887c7b643888867865db7`).
+The field/type registry is audited against Grok Build **1.0.70**, selected by
+the official stable-pointer distribution and npm latest. The verified native
+binary reports the embedded label `alpha` (`grok 1.0.70 (f50904eaee6c) [alpha]`);
+distribution selection and embedded build channel are separate observations.
+The audit uses its bundled complete reference (SHA-256 `ebd97fec98bb00bfdfa37befddf31dd8a14e3f277db887c7b643888867865db7`).
 The older [public source reference](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md)
 is supplemented by the matching bundled configuration, hooks and status-line guides and
 [current settings reference](https://docs.x.ai/build/settings/reference).
