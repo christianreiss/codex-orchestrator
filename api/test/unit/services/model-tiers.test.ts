@@ -28,11 +28,13 @@ describe('modelTier', () => {
     [ENGINE_CLAUDE, 'claude-fable-5-1', 4],
     [ENGINE_CODEX, 'gpt-6-luna', 1],
     [ENGINE_CODEX, 'gpt-5.6-terra', 2],
+    [ENGINE_CODEX, 'gpt-6.1-terra', 2],
     [ENGINE_CODEX, 'gpt-6.1-sol', 3],
     [ENGINE_CODEX, 'gpt-6-astra', 4],
-    [ENGINE_GROK, 'grok-4.6', 1],
-    [ENGINE_GROK, 'grok-4.7-build-fast', 1],
-    [ENGINE_GROK, 'grok-4.7', 2],
+    [ENGINE_GROK, 'grok-4.5', 2],
+    [ENGINE_GROK, 'grok-4.6', 2],
+    [ENGINE_GROK, 'grok-4.7-build-fast', 3],
+    [ENGINE_GROK, 'grok-4.7', 3],
   ] as const)('%s %s is Tier %d', (engine, model, tier) => {
     expect(modelTier(engine, model)).toBe(tier);
   });
@@ -53,14 +55,18 @@ describe('buildModelTierTable', () => {
     expect(table.flatMap((row) => row.models.map((entry) => entry.engine))).not.toContain(ENGINE_CODEX);
     expect(table.find((row) => row.tier === 2)?.models).toEqual([
       { engine: ENGINE_CLAUDE, model: 'claude-sonnet-5-5' },
+    ]);
+    expect(table.find((row) => row.tier === 3)?.models).toEqual([
+      { engine: ENGINE_CLAUDE, model: 'claude-opus-5-5' },
       { engine: ENGINE_GROK, model: 'grok-4.7' },
+      { engine: ENGINE_GROK, model: 'grok-4.7-build-fast' },
     ]);
     expect(table.flatMap((row) => row.models.map((entry) => entry.model))).not.toContain('grok-4.6');
   });
 
   it('omits empty tiers', () => {
     const table = buildModelTierTable([ENGINE_GROK], latest);
-    expect(table.map((row) => row.tier)).toEqual([1, 2]);
+    expect(table.map((row) => row.tier)).toEqual([3]);
     expect(buildModelTierTable([], latest)).toEqual([]);
   });
 });
@@ -87,7 +93,7 @@ describe('renderModelTierGuidance', () => {
     expect(text).toContain('never abort on a guess');
   });
 
-  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('keeps all task definitions with only low-tier %s models', (engine) => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('keeps all task definitions with only one available %s model', (engine) => {
     const models = { codex: 'gpt-6-luna', claude: 'claude-haiku-5-5', grok: 'grok-4.7' };
     const text = renderModelTierGuidance(
       buildModelTierTable([engine], { [engine]: [models[engine]] }), { engine, model: models[engine] },

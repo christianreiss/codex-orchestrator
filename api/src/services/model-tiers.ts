@@ -17,11 +17,13 @@ export const MODEL_TIER_CHECK_ENABLED_KEY = 'model_tier_check_enabled';
 
 const CODEX_FAMILY_TIERS: Readonly<Record<string, ModelTier>> = { luna: 1, terra: 2, sol: 3, astra: 4 };
 const CLAUDE_FAMILY_TIERS: Readonly<Record<string, ModelTier>> = { haiku: 1, sonnet: 2, opus: 3, fable: 4 };
+// Audited 2026-10-26 against current provider positioning and software-engineering
+// evaluations; rationale and exact subscription Fast identity: docs/model-tiers.md.
 const GROK_MODEL_TIERS: Readonly<Record<string, ModelTier>> = {
-  'grok-4.7': 2,
-  'grok-4.7-build-fast': 1,
-  'grok-4.6': 1,
-  'grok-4.5': 1,
+  'grok-4.7': 3,
+  'grok-4.7-build-fast': 3,
+  'grok-4.6': 2,
+  'grok-4.5': 2,
 };
 
 export const MODEL_TIER_WORK: Readonly<Record<ModelTier, string>> = {

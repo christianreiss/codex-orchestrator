@@ -3115,6 +3115,12 @@ Host-authenticated `POST /host/daemon/migration` accepts `{request_id: UUID, com
 
 ## Fleet model policy
 
+The managed Agents preview and native launch catalog share the capability classes
+in `model-tiers.ts`. The [2026-10-26 tier review](model-tiers.md) records Grok
+4.7 and its subscription Fast variant as Tier 3, and Grok 4.6/4.5 as Tier 2.
+These are fleet task-routing judgments supported by provider evidence; model
+availability, selected effort and account entitlement retain their own controls.
+
 - `GET /admin/model-policy/:engine` (`settings.read`) returns
   `{engine, latest_only, latest_models, replacements, disabled_models?}` for
   `codex|claude|grok`. `replacements` maps each supported model to the newest

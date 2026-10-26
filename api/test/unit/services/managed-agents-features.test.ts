@@ -255,9 +255,9 @@ describe('served document size budget', () => {
       modelTiers: {
         ...enabled(),
         table: [
-          { tier: 1, models: [{ engine: ENGINE_CODEX, model: 'gpt-6-luna' }, { engine: ENGINE_CLAUDE, model: 'claude-haiku-5-5' }, { engine: ENGINE_GROK, model: 'grok-4.7-build-fast' }] },
-          { tier: 2, models: [{ engine: ENGINE_CODEX, model: 'gpt-5.6-terra' }, { engine: ENGINE_CLAUDE, model: 'claude-sonnet-5-5' }, { engine: ENGINE_GROK, model: 'grok-4.7' }] },
-          { tier: 3, models: [{ engine: ENGINE_CODEX, model: 'gpt-6.1-sol' }, { engine: ENGINE_CLAUDE, model: 'claude-opus-5-5' }] },
+          { tier: 1, models: [{ engine: ENGINE_CODEX, model: 'gpt-6-luna' }, { engine: ENGINE_CLAUDE, model: 'claude-haiku-5-5' }] },
+          { tier: 2, models: [{ engine: ENGINE_CODEX, model: 'gpt-5.6-terra' }, { engine: ENGINE_CLAUDE, model: 'claude-sonnet-5-5' }] },
+          { tier: 3, models: [{ engine: ENGINE_CODEX, model: 'gpt-6.1-sol' }, { engine: ENGINE_CLAUDE, model: 'claude-opus-5-5' }, { engine: ENGINE_GROK, model: 'grok-4.7' }, { engine: ENGINE_GROK, model: 'grok-4.7-build-fast' }] },
           { tier: 4, models: [{ engine: ENGINE_CODEX, model: 'gpt-6-astra' }, { engine: ENGINE_CLAUDE, model: 'claude-fable-5-1' }] },
         ],
         configured: { engine: ENGINE_CLAUDE, model: 'claude-opus-5-5' },
