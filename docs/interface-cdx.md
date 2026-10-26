@@ -1868,6 +1868,50 @@ This is agent-executed guidance shared by all three engines, adopted on the next
 sync/launch, not wrapper-enforced automation. See
 [Automatic repository delivery](interface-api.md#automatic-repository-delivery).
 
+## Native configuration maintenance (Codex 0.164.0)
+
+Audited on 2026-10-26 against release `rust-v0.164.0`, commit
+`6aaac694803004a63c6f393d153c96d22521a6b9`. The vendored
+[schema](https://raw.githubusercontent.com/openai/codex/rust-v0.164.0/codex-rs/core/config.schema.json)
+is byte-identical to the current official schema, SHA-256
+`ea611ee3f12a6df314b3e49585015ec6e2ebc7c3f072ccbf63c21306a4cdb5dc`.
+The existing Engines JSON editor and profile editor support the new TUI presets
+and `open_presets` binding, model-request hooks, remote-plugin provisioning
+metadata, EMA OAuth authentication methods and IdP secrets, MITM v2 fields,
+and current feature switches including structured `runtime_agent_instances`.
+No optional feature or native default is enabled implicitly.
+
+`runtime_agent_instances` remains an upstream declaration/experimental surface,
+not a claim of integrated fleet authentication. The 0.164.0 source's
+[`RuntimeAuthProvider`](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/runtime-agent-instance/src/auth.rs)
+is an OpenAI-client adapter (Bearer plus `x-openai-agent-assertion`, or
+`Authorization: AgentAssertion`), explicitly excluded from third-party endpoints.
+It is separate from the orchestrator's paired MCP session/bridge headers. The
+released core/app-server source does not demonstrate a consumer of that adapter;
+this audit proves configuration preservation and parsing, not provider runtime
+auth operation, registration or entitlement. No fleet auth setting is changed.
+
+The API also enforces native rules that the emitted JSON schema only describes:
+preset slots are single digits and input is limited to 8,000 UTF-8 bytes;
+MCP token authentication methods require `auth="ema_auth"`, a client ID and
+secret; IdP token methods require a secret. MITM actions and hooks are validated
+against their native schema, including nonempty operations/actions and explicit
+`version=2` for scoped ports/schemes or credential placeholders. Validation
+errors identify fields without echoing values. Auth state, managed MCP and host
+security posture retain their existing owners.
+
+Only configured new fields raise the host native floor to 0.164.0, including
+false/empty values and profile extensions. Literal plugin, MCP, action, hook and
+permission-profile names are opaque. Existing fields retain their earlier floors;
+admin previews and update/report routes remain available before host upgrades.
+Migration `0109` removes exactly the now-removed `realtime_conversation`,
+`stable_environment_tools` and `worktrees` feature flags from every saved Codex
+root/profile structured/native settings object. Other engines, sibling settings,
+profile order, literal dotted names and historical body/hash snapshots survive.
+New authoring rejects those flags; the next revision-checked save updates body
+and hash together. The native parser was exercised with disposable homes, without
+login, inference or active-session changes.
+
 ## Native configuration maintenance (Codex 0.163.0)
 
 ### Async compaction (experimental, default off)
@@ -1897,9 +1941,8 @@ injected into individual profiles. Existing sessions are not restarted by the sw
 
 `POST /admin/config/render` and `/admin/config/store` accept the optional
 `settings.native_settings` JSON object. It uses the official native config
-schema, vendored from <https://learn.chatgpt.com/docs/config-schema.json> on
-2026-10-16, byte-identical to the [0.163.0 release schema](https://raw.githubusercontent.com/openai/codex/rust-v0.163.0/codex-rs/core/config.schema.json)
-(SHA-256 `e9dd16b9d1710e57b020e42da4af6d6606e8f44cb028a2e94196dee3890d9170`).
+schema, currently vendored from the 0.164.0 release as documented above.
+The preceding 0.163.0 audit established the retained authoring architecture.
 The JSON schema covers native root settings and nested settings including agents,
 apps, hooks, browser/desktop controls, history, service tiers, providers, MCP
 transport/tool configuration, and structured feature options. Schema-defined
@@ -1912,8 +1955,8 @@ compaction options, new code-mode/credential/connector/output/subagent feature
 switches, `multi_agent_v2.disable_native_tools` and `preserve_fork_prefix`, plugin
 `_default.enabled`, the global leader key, clearing selection after copy,
 Windows `allow_mxc`, government-cloud notice visibility and expanded realtime
-voices. The schema reference in the editor identifies 0.163.0. This adds authoring
-support; the subsequent async-compaction fleet default is described above.
+voices. The schema reference in the editor identifies 0.163.0. These options remain supported alongside 0.164.0 additions; the current
+async-compaction default remains native and opt-in as described above.
 
 The API rejects invalid types, unknown schema properties, unsafe object keys,
 and removed/deprecated native keys with HTTP 422 and a field path. It does not

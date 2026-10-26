@@ -455,8 +455,10 @@ export function normalizeSettings(
       input.profiles.forEach((profile, i) => scopes.push([asRecord(profile), `settings.profiles[${i}]`]));
     }
     for (const [scope, path] of scopes) {
-      if (Object.hasOwn(asRecord(scope.features), 'shell_zsh_fork')) {
-        throw new ValidationError(`${path}.features.shell_zsh_fork is removed in Codex 0.163.0; omit it`, { param: `${path}.features.shell_zsh_fork` });
+      for (const key of ['shell_zsh_fork', 'realtime_conversation', 'stable_environment_tools', 'worktrees']) {
+        if (Object.hasOwn(asRecord(scope.features), key)) {
+          throw new ValidationError(`${path}.features.${key} is removed in Codex ${key === 'shell_zsh_fork' ? '0.163.0' : '0.164.0'}; omit it`, { param: `${path}.features.${key}` });
+        }
       }
     }
   }
