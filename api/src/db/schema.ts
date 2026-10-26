@@ -2693,6 +2693,13 @@ export const agentRoomReads = mysqlTable('agent_room_reads', {
   adminId: int('admin_id', { unsigned: true }).notNull(),
   readAt: varchar('read_at', { length: 100 }).notNull(),
 }, t => ({ readerUnique: uniqueIndex('uq_room_read').on(t.roomId, t.adminId) }));
+/** Per-agent read position in a shared room (0106): newest event time shown through chats/read. */
+export const agentRoomAgentReads = mysqlTable('agent_room_agent_reads', {
+  roomId: char('room_id', { length: 36 }).notNull(),
+  addressId: char('address_id', { length: 36 }).notNull(),
+  readThrough: varchar('read_through', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, t => ({ readerUnique: uniqueIndex('uq_room_agent_read').on(t.roomId, t.addressId) }));
 export const agentRoomOperations = mysqlTable('agent_room_operations', {
   id: char('id', { length: 36 }).primaryKey(),
   actor: varchar('actor', { length: 80 }).notNull(),

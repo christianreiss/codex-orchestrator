@@ -253,6 +253,23 @@ describe('private room history authority', () => {
   );
 });
 
+it('asks the owner to record an agent read position and neither fails nor claims it when that fails', async () => {
+  const f = roomFixture('codex'),
+    execute = vi.spyOn(f.owner, 'execute').mockRejectedValue(new Error('owner unavailable'));
+  const pending = f.service.read(f.actor, { room_id: f.roomId });
+  await f.started;
+  f.unblock();
+  const out = await pending;
+  expect(out.events).toHaveLength(1);
+  const through = out.events[0]!.created_at;
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(execute.mock.calls[0]![0]).toMatchObject({
+    kind: 'room.agent-read-position',
+    payload: { roomId: f.roomId, through },
+  });
+  expect(out.room.members.find((m) => m.id === f.address)?.read_through).toBeNull();
+});
+
 it.each(['codex', 'claude', 'grok'])(
   'bounds %s room history by bytes without truncating events',
   async (engine) => {

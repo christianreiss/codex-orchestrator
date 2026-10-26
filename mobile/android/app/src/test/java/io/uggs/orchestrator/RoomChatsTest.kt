@@ -42,6 +42,20 @@ class RoomChatsTest {
         assertEquals("available", roomMemberPresence(member("w"), null))
         assertEquals("offline", roomMemberPresence(member("w", reachable = false), null))
     }
+    @Test fun readMarkersSitUnderTheNewestEventAnAgentHasSeen() {
+        fun event(id: String, at: String) = JSONObject().put("id", id).put("created_at", at)
+        fun member(id: String, through: String?) = JSONObject().put("id", id).put("read_through", through ?: JSONObject.NULL)
+        val events = listOf(event("a", "2026-10-26T05:00:00.000Z"), event("b", "2026-10-26T05:10:00.000Z"), event("c", "2026-10-26T05:20:00.000Z"))
+        val markers = roomReadMarkers(events, listOf(
+            member("exact", "2026-10-26T05:10:00.000Z"), member("between", "2026-10-26T05:15:00.000Z"), member("all", "2026-10-26T06:00:00.000Z"),
+            member("early", "2026-10-26T04:00:00.000Z"), member("never", null),
+        ))
+        assertEquals(listOf("exact", "between"), markers["b"]!!.map { it.getString("id") })
+        assertEquals(listOf("all"), markers["c"]!!.map { it.getString("id") })
+        assertNull(markers["a"])
+        assertEquals(setOf("b", "c"), markers.keys)
+        assertTrue(roomReadMarkers(emptyList(), listOf(member("all", "2026-10-26T06:00:00.000Z"))).isEmpty())
+    }
     @Test fun roomMembersMustAlsoBeOnlineAgentsByTheChatsRules() {
         fun agent(id: String, presence: String, readOnly: Boolean = false) =
             JSONObject().put("id", id).put("presence", presence).put("read_only", readOnly)

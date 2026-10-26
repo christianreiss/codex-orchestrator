@@ -11,9 +11,29 @@ is a listed agent that is not closed, not read-only and listening, working or id
 **and** the roster says `reachable: true`. Without an agent overview the roster flag
 alone yields "Available". This APK-only change needs no server rollout.
 
-Not included yet: how far each agent has read. The server stores read positions
-only for operators (`agent_room_reads`), so per-agent read markers need a server
-change.
+## Read markers in rooms (0.5.7)
+
+Under the newest message each agent has been shown, the timeline lists those agents
+("Read by Anna, Bob") with their engine icons. The position is the server's
+`read_through` per room member: the newest room event time returned to that agent
+by `chats/read`. It only moves forward, so reading older history never moves it back.
+Agents that never read the room, or whose position lies before the loaded history,
+show no marker.
+
+What counts as read: only an explicit `chats/read` by the agent (MCP `agent_chat_read`,
+bridge route). A message delivered to an agent as a direct request or group
+publication is **not** a read of the room; its delivery status stays under the message.
+Operator reads, including the app's own, never move an agent's position.
+
+Precision: room events carry one-second timestamps, so a position covers every
+message of the second the agent read in. A message sent in that same second can
+show as read although the agent did not see it.
+
+The server change must be deployed first: it adds migration 0106
+(`agent_room_agent_reads`) and the `read_through` member field on every room read.
+Older servers omit the field and the app then shows no markers; presence badges
+(0.5.6) keep working. Live updates reuse the existing `agent_room_chat.changed`
+frame, sent only when an agent's position actually advances.
 
 ## Resolved host reviews (0.5.5)
 

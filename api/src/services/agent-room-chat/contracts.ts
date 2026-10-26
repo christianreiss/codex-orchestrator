@@ -53,6 +53,8 @@ export interface RoomMember {
   reachable: boolean;
   chat_capable: boolean;
   role: string;
+  /** Newest room event time shown to this agent through chats/read; null if never read. */
+  read_through?: string | null;
 }
 export interface Room {
   id: string;

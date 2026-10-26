@@ -74,6 +74,7 @@ describe.skipIf(!handle)('shared room chats with MySQL', { timeout: 120000 }, ()
         await db.execute(sql`DELETE FROM agent_bus_conference_members WHERE conference_id=${id}`);
         await db.delete(agentBusConferences).where(eq(agentBusConferences.id, id));
         await db.execute(sql`DELETE FROM agent_room_reads WHERE room_id=${id}`);
+        await db.execute(sql`DELETE FROM agent_room_agent_reads WHERE room_id=${id}`);
         await db.execute(sql`DELETE FROM agent_chat_attachments WHERE session_id=${id}`);
       }
     }
@@ -180,6 +181,39 @@ describe.skipIf(!handle)('shared room chats with MySQL', { timeout: 120000 }, ()
         reply_to: event.id,
       }),
     ).rejects.toThrow('Reply target');
+  });
+  it('records each agent read position, only forward, and shows it per member', async () => {
+    const id = await create();
+    // Event times have one-second resolution and same-second events order by random id;
+    // space the sends so their order is unambiguous.
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 1100));
+    const first = await service.send(admin, { room_id: id, client_request_id: randomUUID(), content: 'one' });
+    await tick();
+    const second = await service.send(admin, { room_id: id, client_request_id: randomUUID(), content: 'two' });
+    await tick();
+    const position = (room: { members: { id: string; read_through?: string | null }[] }, i: number) =>
+      room.members.find((m) => m.id === members[i]!.addressId)?.read_through;
+    // Operator reads are not agent reads.
+    const operator = await service.read(admin, { room_id: id });
+    expect(position(operator.room, 0)).toBeNull();
+    expect(position(operator.room, 1)).toBeNull();
+    const newest = (await service.read(actor(0), { room_id: id })).events.at(-1)!;
+    expect(newest.id).toBe(second.id);
+    const afterRead = await service.read(admin, { room_id: id });
+    expect(position(afterRead.room, 0)).toBe(newest.created_at);
+    expect(position(afterRead.room, 1)).toBeNull();
+    // Reading older history never moves the position backwards.
+    const older = await service.read(actor(0), {
+      room_id: id,
+      limit: 1,
+      before: Buffer.from(JSON.stringify({ time: second.created_at, id: second.id })).toString('base64url'),
+    });
+    expect(older.events.map((e) => e.id)).toEqual([first.id]);
+    expect(position(older.room, 0)).toBe(newest.created_at);
+    // A later message is unread until that agent reads again.
+    const third = await service.send(admin, { room_id: id, client_request_id: randomUUID(), content: 'three' });
+    expect(position((await service.read(actor(1), { room_id: id })).room, 0)).toBe(newest.created_at);
+    expect(position((await service.read(admin, { room_id: id })).room, 1)).toBe(third.created_at);
   });
   it('binds files to their room and author; unpublished files are private', async () => {
     const id = await create(),

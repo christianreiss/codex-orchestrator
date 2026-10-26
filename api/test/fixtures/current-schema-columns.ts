@@ -38,5 +38,20 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
     if (!columns) throw new Error(`Migration 0105 extends missing bootstrap table ${table}`);
     columns.add(column);
   }
+  // Migration 0106 creates agent_room_agent_reads; project it the same way.
+  const roomReads = resolve(import.meta.dirname, '../../src/db/migrations/0106_agent_room_agent_reads.sql');
+  const created = splitSqlStatements(readFileSync(roomReads, 'utf8')).flatMap((statement) => {
+    const table = /^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?([A-Za-z0-9_$]+)`?/i.exec(statement);
+    return table
+      ? [{ table: table[1]!, columns: [...statement.matchAll(/^\s+([a-z_][a-z0-9_]*)\s+(?:char|varchar|int)\b/gim)].map((c) => c[1]!) }]
+      : [];
+  });
+  if (
+    created.length !== 1 ||
+    created[0]!.table !== 'agent_room_agent_reads' ||
+    created[0]!.columns.join() !== 'room_id,address_id,read_through,updated_at'
+  )
+    throw new Error('Migration 0106 must create agent_room_agent_reads; cannot project the bootstrap schema');
+  tables.set(created[0]!.table, new Set(created[0]!.columns));
   return tables;
 }

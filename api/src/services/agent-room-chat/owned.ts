@@ -341,6 +341,27 @@ export class OwnedRoomChat {
       return { read_at: readAt };
     });
   }
+  /** Agent read position (cold table): the write runs in the owner transaction, never on the read handle. */
+  async recordAgentRead(actor: RoomActor, roomId: string, through: string): Promise<boolean> {
+    return this.command(actor, 'room.agent-read-position', { roomId, through }, async (ctx, session) => {
+      const addressId = session?.agentBusAddressId;
+      if (!addressId) return false;
+      this.room(ctx.draft.view(), roomId, session);
+      const [old] = await this.core.db
+        .select()
+        .from(schema.agentRoomAgentReads)
+        .where(and(eq(schema.agentRoomAgentReads.roomId, roomId), eq(schema.agentRoomAgentReads.addressId, addressId)));
+      if (old && old.readThrough >= through) return false;
+      const updatedAt = nowIso();
+      ctx.write(async (tx) =>
+        tx
+          .insert(schema.agentRoomAgentReads)
+          .values({ roomId, addressId, readThrough: through, updatedAt })
+          .onDuplicateKeyUpdate({ set: { readThrough: sql`GREATEST(read_through, ${through})`, updatedAt } }),
+      );
+      return true;
+    });
+  }
   private pending(snapshot: OwnerStateSnapshot, roomId: string) {
     return snapshot
       .table('agentRoomDeliveries')

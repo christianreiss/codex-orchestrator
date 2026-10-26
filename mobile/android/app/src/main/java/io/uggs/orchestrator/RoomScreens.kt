@@ -55,6 +55,7 @@ import org.json.JSONObject
     val uploads = model.chatUploads["room:$id"] ?: emptyList()
     val writable = fresh && model.can("agent_messaging.manage") && model.can("agent_messaging.reveal_content") && room?.optString("status") == "open"
     val last = state.events.lastOrNull()
+    val readMarkers = remember(state.events, room) { roomReadMarkers(state.events, room?.optJSONArray("members")?.objects().orEmpty()) }
     LaunchedEffect(id, state.events.size) {
         if (!positioned && state.events.isNotEmpty()) {
             scroll.scrollToItem(state.events.lastIndex + if (state.nextBefore != null) 1 else 0)
@@ -114,6 +115,7 @@ import org.json.JSONObject
                         val member = room?.optJSONArray("members")?.objects()?.find { it.optString("id") == delivery.optString("address_id") }
                         Text("${member?.optString("name") ?: "Agent"}: ${delivery.optString("status").replace('_', ' ')}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    readMarkers[event.getString("id")]?.let { ReadByRow(it) }
                 }
             }
         }
@@ -234,4 +236,18 @@ import org.json.JSONObject
     if (confirm) AlertDialog(onDismissRequest = { if (!state.busy) confirm = false }, title = { Text("End this conference?") }, text = { Text("Outstanding answers finish before the room closes. Its history stays available.") }, confirmButton = {
         TextButton(modifier = Modifier.testTag("confirm-close-room"), enabled = !state.busy, onClick = { state.operate("/rooms/manage", JSONObject().put("room_id", room.getString("id")).put("action", "close")) { confirm = false; dismiss(); model.refreshNow() } }) { Text("End conference") }
     }, dismissButton = { TextButton(onClick = { confirm = false }) { Text("Keep open") } })
+}
+
+/** Small engine icons plus the names, so the marker is never an icon alone. */
+@Composable private fun ReadByRow(readers: List<JSONObject>) {
+    val names = readers.map(::roomPersonLabel)
+    val label = if (names.size <= 3) names.joinToString(", ") else "${names.take(2).joinToString(", ")} +${names.size - 2}"
+    Row(Modifier.testTag("room-read-by").semantics(mergeDescendants = true) { contentDescription = "Read by ${names.joinToString(", ")}" }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        readers.take(5).forEach { reader ->
+            Surface(Modifier.size(20.dp), shape = androidx.compose.foundation.shape.CircleShape, color = MaterialTheme.colorScheme.surfaceContainer) {
+                Box(contentAlignment = Alignment.Center) { EngineIcon(reader, Modifier.size(14.dp)) }
+            }
+        }
+        Text("Read by $label", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }

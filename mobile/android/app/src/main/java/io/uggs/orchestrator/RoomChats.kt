@@ -42,6 +42,20 @@ internal fun roomMemberPresence(member: JSONObject, agents: List<JSONObject>? = 
     val agent = agents.firstOrNull { it.optString("id") == session || it.optString("portal_session_id") == session }
     return if (agent != null && isOnlineActiveAgent(agent)) agent.optString("presence") else "offline"
 }
+/**
+ * Where each agent stopped reading: a member is listed under the newest loaded event at or
+ * before its server `read_through` time. Members that never read, or whose position lies
+ * before the loaded history, have no marker. [events] must be sorted oldest first.
+ */
+internal fun roomReadMarkers(events: List<JSONObject>, members: List<JSONObject>): Map<String, List<JSONObject>> {
+    val out = LinkedHashMap<String, MutableList<JSONObject>>()
+    for (member in members) {
+        val through = member.optString("read_through").takeIf { it.isNotBlank() && it != "null" } ?: continue
+        val last = events.lastOrNull { it.optString("created_at") <= through } ?: continue
+        out.getOrPut(last.getString("id")) { mutableListOf() }.add(member)
+    }
+    return out
+}
 internal fun mergeRoomEvents(old: List<JSONObject>, fresh: List<JSONObject>): List<JSONObject> =
     (old + fresh).associateBy { it.getString("id") }.values.sortedWith(compareBy({ it.optString("created_at") }, { it.optString("id") }))
 

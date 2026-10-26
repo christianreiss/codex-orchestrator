@@ -208,6 +208,36 @@ describe('owner canonical content metadata', () => {
     });
   });
 
+  it('records an agent read position in the owner transaction and shows it per member', async () => {
+    const h = setup(),
+      bus = { isEnabled: async () => true } as AgentMessagingService,
+      service = new AgentRoomChat(h.db, loadTestEnv(), testKeyring(), bus),
+      operator = { adminId: 7, name: 'Operator' },
+      agent = { sessionId: h.sessionId, token: h.token };
+    const address = h.state.snapshot().table('agentSessions').get(h.sessionId)!.agentBusAddressId!;
+    const created = await service.create(operator, {
+      client_request_id: randomUUID(),
+      kind: 'group',
+      title: 'Owner read position',
+      members: [address],
+    });
+    const roomId = String(created.room_id);
+    const sent = await service.send(operator, { room_id: roomId, client_request_id: randomUUID(), content: 'Please read' });
+    const position = async () =>
+      (await service.read(operator, { room_id: roomId })).room.members.find((m) => m.id === address)?.read_through;
+    expect(await position()).toBeNull();
+    const inserts = () => h.fake.inserts.filter((i) => i.table === schema.agentRoomAgentReads);
+    const read = await service.read(agent, { room_id: roomId });
+    expect(read.events.map((e) => e.id)).toEqual([sent.id]);
+    expect(read.room.members.find((m) => m.id === address)?.read_through).toBe(sent.created_at);
+    expect(inserts()).toHaveLength(1);
+    expect(inserts()[0]!.values).toMatchObject({ roomId, addressId: address, readThrough: sent.created_at });
+    expect(await position()).toBe(sent.created_at);
+    // A repeated read of the same history writes nothing new.
+    await service.read(agent, { room_id: roomId });
+    expect(inserts()).toHaveLength(1);
+  });
+
   it('commits project content and event cursors together without retaining bodies', async () => {
     const now = new Date().toISOString(),
       h = setup({

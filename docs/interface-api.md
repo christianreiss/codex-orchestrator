@@ -3248,7 +3248,7 @@ All results use the standard envelope and `Cache-Control: no-store`.
 
 - `GET /companion/v1/rooms` — `agent_messaging.read`; `offset` pagination, returning `rooms`, `has_more`, `next_offset` and `enabled`.
 - `GET /companion/v1/rooms/candidates` — `agent_messaging.manage`; existing safe address inventory for participant selection.
-- `POST /companion/v1/rooms/read` — `agent_messaging.reveal_content`; `{room_id,before?,limit?}` returns `{room,events,next_before}`. Reads are audited without message bodies.
+- `POST /companion/v1/rooms/read` — `agent_messaging.reveal_content`; `{room_id,before?,limit?}` returns `{room,events,next_before}`. Reads are audited without message bodies. `room.members[].read_through` is the newest room event time that agent has been shown through `chats/read` (null if never); an agent's own read advances it, an operator's never does.
 - `POST /companion/v1/rooms/seen` — `agent_messaging.reveal_content`; `{room_id,through}` advances the existing monotonic operator read timestamp, clamped to server time.
 - `POST /companion/v1/rooms/send` — `agent_messaging.manage` and `agent_messaging.reveal_content`; the shared room send contract (`room_id`, `client_request_id`, `content`, optional attachment IDs, `reply_to`, `recipients` or `ask_all`). Uses the paired operator identity and existing idempotency/delivery semantics.
 - `POST /companion/v1/rooms/create` — the same two capabilities; shared group/conference creation contract and stable `client_request_id`.

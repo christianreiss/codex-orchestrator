@@ -14,6 +14,7 @@ import {
   agentBusSubscriptions,
   agentRoomDeliveries,
   agentRoomEvents,
+  agentRoomAgentReads,
   agentRoomOperations,
   agentRoomReads,
   agentScopeEvents,
@@ -319,7 +320,9 @@ export class AgentRoomChat {
     }
     const before = (time: AnyMySqlColumn, id: AnyMySqlColumn) =>
       cursor ? or(lt(time, cursor.time), and(eq(time, cursor.time), lt(id, cursor.id))) : undefined;
-    return this.run(actor, async (tx, session) => {
+    let advanced = false;
+    let deferred: { addressId: string; through: string } | undefined;
+    const result = await this.run(actor, async (tx, session) => {
       const owned = this.owned();
       const room = owned ? owned.access(actor, body.room_id).room : await this.room(tx, body.room_id, session);
       const rows = await tx
@@ -418,8 +421,35 @@ export class AgentRoomChat {
       // Membership may change while cold history is being read. Session authority
       // alone does not authorize disclosure of a room the caller has left.
       if (owned) owned.access(actor, body.room_id);
+      // An agent's read position only moves forward; operators keep their own receipts.
+      const marks = await tx.select().from(agentRoomAgentReads).where(eq(agentRoomAgentReads.roomId, room.id));
+      const newest = page.at(-1)?.created_at;
+      if (session?.agentBusAddressId && newest) {
+        const mine = marks.find((m) => m.addressId === session.agentBusAddressId);
+        if (!mine || mine.readThrough < newest) {
+          // The owner handle is read-only: its write goes through an owner command below.
+          if (owned) deferred = { addressId: session.agentBusAddressId, through: newest };
+          else
+            await tx
+              .insert(agentRoomAgentReads)
+              .values({ roomId: room.id, addressId: session.agentBusAddressId, readThrough: newest, updatedAt: nowIso() })
+              .onDuplicateKeyUpdate({ set: { readThrough: sql`GREATEST(read_through, ${newest})`, updatedAt: nowIso() } });
+          // Owner mode reports the new position only once its command has stored it.
+          if (!owned) {
+            if (mine) mine.readThrough = newest;
+            else marks.push({ roomId: room.id, addressId: session.agentBusAddressId, readThrough: newest, updatedAt: nowIso() });
+            advanced = true;
+          }
+        }
+      }
       return {
-        room,
+        room: {
+          ...room,
+          members: room.members.map((m) => ({
+            ...m,
+            read_through: marks.find((x) => x.addressId === m.id)?.readThrough ?? null,
+          })),
+        },
         events: page,
         next_before:
           events.length > page.length && page[0]
@@ -427,6 +457,19 @@ export class AgentRoomChat {
             : null,
       };
     });
+    if (deferred) {
+      // Best effort: a failed write must not fail the read. The position is then neither
+      // stored nor reported, and the agent's next read records it.
+      try {
+        advanced = await this.owned()!.recordAgentRead(actor, result.room.id, deferred.through);
+      } catch {
+        advanced = false;
+      }
+      const member = advanced ? result.room.members.find((m) => m.id === deferred!.addressId) : undefined;
+      if (member) member.read_through = deferred.through;
+    }
+    if (advanced) wsPublisher.publish('agent_room_chat.changed', { room_id: result.room.id });
+    return result;
   }
   async markRead(actor: RoomActor, roomId: string, through: string) {
     const owned=this.owned();if(owned)return owned.markRead(actor,roomId,through);

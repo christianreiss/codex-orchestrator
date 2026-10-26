@@ -565,6 +565,7 @@ export class ServerRetentionService {
           continue;
         await tx.execute(sql`UPDATE agent_chat_attachments SET status = 'retired' WHERE session_id = ${id}`);
         await tx.execute(sql`DELETE FROM agent_room_reads WHERE room_id = ${id}`);
+        await tx.execute(sql`DELETE FROM agent_room_agent_reads WHERE room_id = ${id}`);
         await tx.execute(sql`DELETE FROM agent_bus_conference_members WHERE conference_id = ${id}`);
         purgedConferences += await remove(tx, sql`DELETE FROM agent_bus_conferences WHERE id = ${id}`);
         this.projection?.patchWhere('agentChatAttachments', (row) => row.sessionId === id, {
