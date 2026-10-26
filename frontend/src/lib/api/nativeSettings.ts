@@ -8,6 +8,7 @@ export interface EngineConfig {
   revision: string | null;
   settings?: EngineSettings | null;
   content?: string;
+  validation_error?: { code: "validation_failed"; message: string; param?: string };
 }
 export interface EngineConfigRender {
   profiles?: { name: string; content: string; sha256: string }[];

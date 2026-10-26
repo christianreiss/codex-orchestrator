@@ -1567,3 +1567,9 @@ snapshots (`sync_reads:true`, returned `read_cursor`), live invalidation and sil
 protocol-gated read pushes. Older servers retain local behavior; deployment requires
 migration 0108 and the new APK on each device. Room read advances invalidate other
 views. Markers only advance and contain no transcript content.
+
+
+Invalid saved native settings remain available for correction on Engines. The
+configuration read returns their historical revision/body/hash and exact authored
+JSON with `validation_error`; the page exposes the problem before its native-options
+disclosure. Preview, save, host rendering and concurrent-save checks remain strict.

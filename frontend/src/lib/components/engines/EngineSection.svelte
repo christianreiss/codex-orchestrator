@@ -4,6 +4,11 @@
    * (default model, current-models policy, version), then a collapsed Advanced
    * block. Off engines stay editable; the notice says why they are not live.
    */
+  import { derived } from "svelte/store";
+  import { createQuery } from "@tanstack/svelte-query";
+  import { authStore } from "$lib/stores/auth";
+  import { nativeSettingsApi, nativeSettingsKeys } from "$lib/api/nativeSettings";
+  import { Button } from "$lib/components/ui/button";
   import { base } from "$app/paths";
   import { Section } from "$lib/components/page";
   import { Badge } from "$lib/components/ui/badge";
@@ -25,6 +30,10 @@
   type Props = { engine: Engine; advancedOpen?: boolean };
   let { engine, advancedOpen = $bindable(false) }: Props = $props();
 
+  const config = createQuery(derived(authStore, auth => ({
+    queryKey: nativeSettingsKeys.config(engine), queryFn: () => nativeSettingsApi.get(engine),
+    enabled: auth.can("content.read"),
+  })));
   const meta = $derived(ENGINE_META[engine]);
   const fleet = useFleetEngines();
   const accounts = accountsQuery();
@@ -51,6 +60,13 @@
         <span class="basis-full text-warning-muted-foreground" role="status">Off for the whole fleet. These settings stay editable and apply when it is turned back on.</span>
       {/if}
     </p>
+
+    {#if $config.data?.validation_error}
+      <div class="py-3 text-body-sm" role="alert">
+        <p class="text-destructive">Saved configuration needs correction. New host configuration is blocked until the invalid values are fixed.</p>
+        <Button variant="link" size="sm" onclick={() => advancedOpen = true}>Review native settings</Button>
+      </div>
+    {/if}
 
     <div class="space-y-2 py-3" class:opacity-70={off}>
       <QuickModelDefaults {engine} />

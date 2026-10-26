@@ -1,5 +1,7 @@
 # 2026-10-26
 
+- Keep invalid saved native engine settings readable for correction, preserving their exact authored values and historical body/hash. Show the validation problem on Engines and in the editor; preview, saving and host delivery remain strict and revision-checked.
+
 - Support Claude Code `sandbox.allowNestedUserNamespaces` in native settings, with its 2.1.305 version requirement and sandbox-escape consequence explained beside the editor. Leave the default off; reject Desktop-only `sshHostCommands` with an explicit scope explanation.
 - Support Codex 0.164.0 native settings through the existing Engines and profile editors, with exact client-version gates and native preset, EMA and MITM validation. Migration 0109 removes only three retired feature flags from saved Codex root/profile settings; optional features remain opt-in.
 - Support Grok Build 1.0.70 native defaults end-to-end, including Vim keys, hook arguments, terminal program status, current feature/model/media settings and conditional client-version checks. Migration 0110 replaces retired Vim/density settings and removes ineffective controls while preserving unrelated settings and saved body/hash snapshots. Explain unsupported native experiment and independent worker scopes.
