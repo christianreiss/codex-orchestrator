@@ -1,8 +1,8 @@
 /**
- * Codex 0.163.0 native configuration, audited 2026-10-16.
+ * Codex 0.164.0 native configuration, audited 2026-10-26.
  * Schema: https://learn.chatgpt.com/docs/config-schema.json (redirect target of
  * https://developers.openai.com/codex/config-schema.json).
- * Original SHA-256: e9dd16b9d1710e57b020e42da4af6d6606e8f44cb028a2e94196dee3890d9170.
+ * Original SHA-256: ea611ee3f12a6df314b3e49585015ec6e2ebc7c3f072ccbf63c21306a4cdb5dc.
  * Feature retirement comes from `codex features list`, not the schema: upstream
  * deliberately retains removed keys in that schema for compatibility.
  */
@@ -31,6 +31,9 @@ export const CODEX_RETIRED_FEATURE_KEYS: readonly string[] = [
   "multi_agent_mode",
   "personality",
   "plugin_hooks",
+  "realtime_conversation",
+  "stable_environment_tools",
+  "worktrees",
   "remote_compaction_v2",
   "remote_control",
   "remote_models",
@@ -67,7 +70,10 @@ export const CODEX_RETIRED_FEATURE_KEYS: readonly string[] = [
 export type NativeSettings = Record<string, unknown>;
 export type CodexApprovalPolicy = string | { granular: Record<string, boolean> };
 
-const validate = new Ajv({ strict: false, allErrors: true, validateFormats: false }).compile(schema);
+const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false });
+const validate = ajv.compile(schema);
+// PermissionsToml is flattened upstream and its emitted schema is opaque.
+const validateMitm = ajv.compile({ definitions: schema.definitions, $ref: '#/definitions/NetworkMitmToml' });
 const retiredRootKeys = new Set([
   'personality', 'profile', 'profiles', 'model_max_output_tokens',
   'model_supports_reasoning_summaries', 'experimental_instructions_file',
@@ -146,6 +152,74 @@ export function validateCodexConfigDocument(out: NativeSettings, opts: { partial
     const property = error?.keyword === 'additionalProperties' ? `.${String(error.params.additionalProperty)}` : '';
     // Only describe paths/rules, never echo settings (which may hold credentials).
     throw new ValidationError(`${path}${location}${property}: ${error?.message ?? 'invalid Codex configuration'}`, { param: `${path}${location}${property}` });
+  }
+  validateCodexNativeSemantics(out, path);
+}
+
+/** Native constraints described by the schema but enforced outside JSON Schema. */
+function validateCodexNativeSemantics(out: NativeSettings, path: string): void {
+  const presets = nativeRecord(nativeRecord(out.tui).presets);
+  for (const [slot, value] of Object.entries(presets)) {
+    const field = `${path}.tui.presets.${slot}`;
+    if (!/^[0-9]$/.test(slot)) {
+      throw new ValidationError(`${field}: preset slot must be a single digit (0 through 9)`, { param: field });
+    }
+    const input = nativeRecord(value).input;
+    if (typeof input === 'string' && Buffer.byteLength(input, 'utf8') > 8000) {
+      throw new ValidationError(`${field}.input: preset input exceeds 8000 UTF-8 bytes`, { param: `${field}.input` });
+    }
+  }
+  for (const [name, value] of Object.entries(nativeRecord(out.mcp_servers))) {
+    const server = nativeRecord(value);
+    const oauth = nativeRecord(server.oauth);
+    if (Object.hasOwn(oauth, 'token_endpoint_auth_method')) {
+      const field = `${path}.mcp_servers.${name}.oauth.token_endpoint_auth_method`;
+      if (server.auth !== 'ema_auth' || typeof oauth.client_secret !== 'string' || oauth.client_secret.trim() === ''
+        || typeof oauth.client_id !== 'string' || oauth.client_id.trim() === '') {
+        throw new ValidationError(`${field}: EMA token authentication requires auth=ema_auth, a nonempty OAuth client_id and client_secret`, { param: field });
+      }
+    }
+  }
+  for (const [name, value] of Object.entries(nativeRecord(out.permissions))) {
+    const network = nativeRecord(nativeRecord(value).network);
+    if (!Object.hasOwn(network, 'mitm')) continue;
+    const field = `${path}.permissions.${name}.network.mitm`;
+    const mitm = nativeRecord(network.mitm);
+    if (!validateMitm(network.mitm)) {
+      const error = validateMitm.errors?.[0];
+      const location = error?.instancePath.replaceAll('/', '.') ?? '';
+      const property = error?.keyword === 'additionalProperties' ? `.${String(error.params.additionalProperty)}` : '';
+      throw new ValidationError(`${field}${location}${property}: ${error?.message ?? 'invalid MITM configuration'}`, { param: `${field}${location}${property}` });
+    }
+    for (const [actionName, value] of Object.entries(nativeRecord(mitm.actions))) {
+      const action = nativeRecord(value);
+      const injected = Array.isArray(action.inject_request_headers) ? action.inject_request_headers : [];
+      const stripped = Array.isArray(action.strip_request_headers) ? action.strip_request_headers : [];
+      if (injected.length === 0 && stripped.length === 0) {
+        throw new ValidationError(`${field}.actions.${actionName}: must define at least one operation`, { param: `${field}.actions.${actionName}` });
+      }
+      if (mitm.version !== 2 && injected.some(header => Object.hasOwn(nativeRecord(header), 'placeholder'))) {
+        throw new ValidationError(`${field}: credential placeholders require version=2`, { param: field });
+      }
+    }
+    for (const [hookName, value] of Object.entries(nativeRecord(mitm.hooks))) {
+      const hook = nativeRecord(value);
+      if (Array.isArray(hook.ports) && hook.ports.some(port => Number(port) > 65535)) {
+        throw new ValidationError(`${field}.hooks.${hookName}.ports: port must be at most 65535`, { param: `${field}.hooks.${hookName}.ports` });
+      }
+      if ((hook.action as unknown[]).length === 0) {
+        throw new ValidationError(`${field}.hooks.${hookName}.action: must not be empty`, { param: `${field}.hooks.${hookName}.action` });
+      }
+      if (mitm.version !== 2 && [hook.ports, hook.schemes].some(items => Array.isArray(items) && items.length > 0)) {
+        throw new ValidationError(`${field}: scoped ports and schemes require version=2`, { param: field });
+      }
+    }
+  }
+  const idp = nativeRecord(nativeRecord(out.mcp_enterprise_managed_auth).idp);
+  if ((Object.hasOwn(idp, 'token_endpoint_auth_method') || Object.hasOwn(idp, 'client_secret'))
+    && (typeof idp.client_secret !== 'string' || idp.client_secret.trim() === '')) {
+    const field = `${path}.mcp_enterprise_managed_auth.idp.${Object.hasOwn(idp, 'token_endpoint_auth_method') ? 'token_endpoint_auth_method' : 'client_secret'}`;
+    throw new ValidationError(`${field}: token authentication requires a nonempty IdP client_secret`, { param: field });
   }
 }
 

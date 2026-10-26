@@ -1,6 +1,7 @@
 # 2026-10-26
 
 - Support Claude Code `sandbox.allowNestedUserNamespaces` in native settings, with its 2.1.305 version requirement and sandbox-escape consequence explained beside the editor. Leave the default off; reject Desktop-only `sshHostCommands` with an explicit scope explanation.
+- Support Codex 0.164.0 native settings through the existing Engines and profile editors, with exact client-version gates and native preset, EMA and MITM validation. Migration 0109 removes only three retired feature flags from saved Codex root/profile settings; optional features remain opt-in.
 
 - cxx 0.9.136 replaces the unconditional stale Communicator `kill` hint with quiet-retirement and coordinated-restart guidance that preserves active native work. Clarify safe claim and Git registration recovery after resuming the exact native transcript, without relaxing ownership checks. Isolate Communicator subprocess tests from inherited native broker sockets and make instance CLI fixtures work for unprivileged developers.
 

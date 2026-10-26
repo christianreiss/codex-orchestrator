@@ -4,8 +4,8 @@ The Engines page authors fleet **user defaults**: Codex `config.toml` and named
 profile sidecars, Claude `settings.json`, and Grok `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
-can be authored centrally. Coverage was reviewed on 2026-10-16 against Codex
-0.163.0, Claude Code 2.1.301 and Grok Build 1.0.60.
+can be authored centrally. Coverage was reviewed on 2026-10-26 for Codex 0.164.0; the preceding
+Claude Code 2.1.301 and Grok Build 1.0.60 scope reviews remain separate.
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -47,7 +47,12 @@ options, plugin defaults, global leader binding, selection clearing, Windows MXC
 government-cloud guidance and the new realtime voices. This checks both root and
 profile settings, including structured feature/notice controls, using exact field
 paths. Opaque plugin/MCP names never trigger a version gate. Existing supported
-values retain the 0.162.1 floor. Claude native settings require
+values retain the 0.162.1 floor. New 0.164.0 fields require 0.164.0 only
+when configured: TUI presets/open-presets binding, model-request hooks, hook
+content trust metadata, remote-plugin provisioning metadata, new feature
+switches/runtime-agent options, EMA token authentication methods/IdP secrets
+and MITM version/scoped ports/schemes/credential placeholders. Both root and
+profile fields are checked; map names remain opaque. Claude native settings require
 2.1.296, or 2.1.305 when `native_settings.sandbox.allowNestedUserNamespaces`
 is present (including `false`). This opt-in boolean defaults to false; true
 allows sandbox escape and disables the sandbox as a security boundary. Only
