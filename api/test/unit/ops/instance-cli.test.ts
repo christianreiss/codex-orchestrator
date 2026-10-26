@@ -43,7 +43,8 @@ if 'config' in a and '--services' in a:
     if 'caddy' in a: print('caddy')
 elif 'config' in a:
     os.makedirs(os.environ['DATA_ROOT'] + '/store', exist_ok=True)
-    print(json.dumps({'name': 'codex-orchestrator', 'services': {'api': {'volumes': [{'target': '/app/storage',
+    # The fixture runs without root; its storage belongs to this test process.
+    print(json.dumps({'name': 'codex-orchestrator', 'services': {'api': {'user': f'{os.getuid()}:{os.getgid()}', 'volumes': [{'target': '/app/storage',
             'source': os.environ['DATA_ROOT'] + '/store'}]}}}))
 elif 'ps' in a and '-q' in a:
     if os.environ.get('EXISTING_API') and 'api' in a: print('previous-api')

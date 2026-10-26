@@ -422,8 +422,11 @@ example `sudo` without `XDG_RUNTIME_DIR` and no `/run/user/<uid>`) a `"hint"` na
 `XDG_RUNTIME_DIR` to retry with. From cxx 0.9.107, when the owner's `version` is a release older
 than the `cxx` running `status`/`doctor`, its line also carries `"stale_owner":
 {"current_version", "remedy"}`: `sudo cxx daemon install` for a `resident` owner
-(it refreshes `/usr/local/lib/cxx-daemon/cxx`), otherwise `kill <pid>` so the next
-managed call starts the installed binary. This is a warning; it does not make
+(it refreshes `/usr/local/lib/cxx-daemon/cxx`). For an on-demand owner, allow native
+sessions and finite work to finish so the replaced-executable quiet gate below
+can retire it. If an older owner remains, coordinate its restart only after
+verifying there are no native sessions or in-flight work across the whole owner.
+A version mismatch alone does not establish that stopping it is safe. This is a warning; it does not make
 `doctor` fail. The host's Operations tab shows
 live server connections and their users, versions and sync timestamps.
 

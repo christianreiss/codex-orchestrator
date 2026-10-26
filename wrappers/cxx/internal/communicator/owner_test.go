@@ -125,7 +125,7 @@ func TestDoctorWarnsAboutStaleOwner(t *testing.T) {
 	if failed := statusReport(&out, "0.9.100"); failed {
 		t.Fatalf("stale owner alone failed doctor: %s", out.String())
 	}
-	for base, want := range map[string]string{"https://stale-resident.example": "sudo cxx daemon install", "https://stale-ondemand.example": "kill 77"} {
+	for base, want := range map[string]string{"https://stale-resident.example": "sudo cxx daemon install", "https://stale-ondemand.example": "owner PID 77"} {
 		line := statusLineFor(t, out.String(), base)
 		stale, _ := line["stale_owner"].(map[string]any)
 		remedy, _ := stale["remedy"].(string)
@@ -137,5 +137,19 @@ func TestDoctorWarnsAboutStaleOwner(t *testing.T) {
 	statusReport(&out, "dev")
 	if strings.Contains(out.String(), "stale_owner") {
 		t.Fatalf("unversioned build flagged an owner: %s", out.String())
+	}
+}
+
+// An installed update is not evidence that an owner has no active work. Status
+// and transfer preflight share this advice, so neither should suggest a blind kill.
+func TestStaleOnDemandOwnerRemedyRequiresWholeOwnerQuiet(t *testing.T) {
+	remedy := (Owner{PID: 77, Mode: "on_demand"}).Remedy()
+	for _, want := range []string{"native sessions and finite work", "retires when quiet", "across the whole owner", "version mismatch alone is not permission"} {
+		if !strings.Contains(remedy, want) {
+			t.Fatalf("remedy %q lacks %q", remedy, want)
+		}
+	}
+	if strings.Contains(remedy, "kill ") {
+		t.Fatalf("remedy recommends an unverified owner interruption: %s", remedy)
 	}
 }

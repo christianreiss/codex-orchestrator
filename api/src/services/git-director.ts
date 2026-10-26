@@ -1,5 +1,6 @@
 import { persistAuditLog } from './audit-log.js';
 import { resumedNativeAttachment } from '../control-plane/state/native-resume.js';
+import { GIT_RECOVERY_GUIDANCE } from './agent-coordination/recovery-guidance.js';
 import { normalizeRemote } from './git-director/remote-normalization.js';
 export { normalizeRemote } from './git-director/remote-normalization.js';
 import { legacyDrainFor } from '../control-plane/legacy-drain.js';
@@ -434,12 +435,12 @@ export class GitDirectorService {
   private requireRegistrationProof(row: GitWorktree, requireCaller = false): void {
     const principal = currentNativePrincipal();
     const check = (snapshot = this.snapshot()) => {
-      if (!snapshot || !this.registrationProof(row,snapshot)) throw new ConflictError('The original native instance must reattach; this registration retains exclusion.', 'git_director_owner_uncertain');
+      if (!snapshot || !this.registrationProof(row,snapshot)) throw new ConflictError('The original native instance must reattach; this registration retains exclusion.' + GIT_RECOVERY_GUIDANCE, 'git_director_owner_uncertain');
       if (principal || requireCaller) {
         if (!principal) throw nativeRegistrationRequired('Authenticated original session required for registration changes');
         const {session} = ownedBridge(snapshot,principal.sessionId,principal.bridgeToken);
         if (session.id !== row.agentSessionId || session.bindingGeneration !== row.agentBindingGeneration)
-          throw new ConflictError('Registration belongs to another session binding','git_director_owner_uncertain');
+          throw new ConflictError('Registration belongs to another session binding.' + GIT_RECOVERY_GUIDANCE,'git_director_owner_uncertain');
       }
     };
     check();
@@ -956,7 +957,7 @@ export class GitDirectorService {
             throw new ConflictError('Native continuation proof changed','git_director_owner_uncertain');
         });
       }
-      if (owner && existing && ['active','uncertain'].includes(existing.status) && !resume && (existing.agentSessionId !== session!.id || existing.agentBindingGeneration !== session!.bindingGeneration || existing.nativeInstanceId !== attachment!.scope.native_instance_id)) throw new ConflictError('Existing registration retains exclusion until its original owner releases it', 'git_director_owner_uncertain');
+      if (owner && existing && ['active','uncertain'].includes(existing.status) && !resume && (existing.agentSessionId !== session!.id || existing.agentBindingGeneration !== session!.bindingGeneration || existing.nativeInstanceId !== attachment!.scope.native_instance_id)) throw new ConflictError('Existing registration retains exclusion until its original owner releases it.' + GIT_RECOVERY_GUIDANCE, 'git_director_owner_uncertain');
       const rebound =
         existing.username !== username ||
         (address?.id ?? null) !== (existing.agentBusAddressId ?? null) ||

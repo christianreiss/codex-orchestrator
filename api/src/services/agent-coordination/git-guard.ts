@@ -14,6 +14,7 @@ import {
 import { ConflictError } from '../../http/errors.js';
 import type { AgentMessagingDb } from '../agent-messaging/types.js';
 import { overlaps, type Resource } from './model.js';
+import { CLAIM_RECOVERY_GUIDANCE } from './recovery-guidance.js';
 
 /** Same ordering as scope transactions: bus gate before clone/worktree rows. */
 export async function lockClaimGate(tx: AgentMessagingDb) {
@@ -97,7 +98,7 @@ export async function guardGitMutation(
     throw new ConflictError(
       'Resources are reserved or uncertain; coordinate with owners before merging: ' +
         conflicts.map((c) => `${c.id} session=${c.sessionId} state=${c.state} purpose=${c.purpose}`).join('; ') +
-        '. For uncertain claims, ask an operator to verify the operation ended and use POST /admin/agent-messaging/scopes/resolve with an audited reason.',
+        '.' + CLAIM_RECOVERY_GUIDANCE,
       'resource_claim_conflict',
       { claim_ids: conflicts.map((c) => c.id), blockers: conflicts.map((c) => ({
         id: c.id, session_id: c.sessionId, state: c.state, purpose: c.purpose, resources: c.resources,

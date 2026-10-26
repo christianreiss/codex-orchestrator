@@ -106,7 +106,7 @@ func newMCPFixture(t *testing.T) *mcpFixture {
 		remote.ServeHTTP(w, r)
 	}))
 	t.Cleanup(upstream.Close)
-	f.env = append(os.Environ(), "XDG_RUNTIME_DIR="+runtimeRoot, "CXX_MCP_BEARER=fixture")
+	f.env = append(communicatorEnvironment(os.Environ()), "XDG_RUNTIME_DIR="+runtimeRoot, "CXX_MCP_BEARER=fixture")
 	for _, engine := range []string{"codex", "claude", "grok"} {
 		cfg := config.Config{SchemaVersion: 1, Engine: engine, IssuedAt: "2026-10-13T00:00:00Z", Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "fixture-host-key", InstallationID: "fixture", CommunicatorProtocol: 1}, Host: config.Host{ID: 1, FQDN: "fixture.example", Secure: true}, Wrapper: config.Wrapper{Version: "0.9.76", Track: "stable", BinaryURL: upstream.URL + "/download", BinarySHA256: strings.Repeat("0", 64)}}
 		path := filepath.Join(root, engine+".json")
@@ -255,6 +255,25 @@ func (f *mcpFixture) start(engine string) *mcpChild {
 }
 
 func (c *mcpChild) send(line string) { fmt.Fprintln(c.in, line) }
+
+func TestMCPFixtureIgnoresInheritedNativeBroker(t *testing.T) {
+	// A managed test runner has a real broker capability. Substitute an invalid
+	// one so a regression cannot contact the runner's live session.
+	t.Setenv("CXX_AGENT_PORTAL_SOCKET", filepath.Join(t.TempDir(), "foreign-broker.sock"))
+	t.Setenv("CXX_AGENT_BEARER", "foreign-fixture-capability")
+	f := newMCPFixture(t)
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		c := f.start(engine)
+		c.send(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+		line, ok := c.next(t, 15*time.Second)
+		var reply struct {
+			Result struct{ Method string }
+		}
+		if !ok || json.Unmarshal([]byte(line), &reply) != nil || reply.Result.Method != "tools/list" {
+			t.Fatalf("%s did not reach its isolated MCP fixture: %s", engine, line)
+		}
+	}
+}
 
 func TestMCPAdapterPreservesLargeNumericReplyIDs(t *testing.T) {
 	f := newMCPFixture(t)

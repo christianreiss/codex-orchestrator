@@ -1,5 +1,11 @@
 # Overview
 
+cxx 0.9.136 explains quiet retirement and coordinated recovery for replaced
+Communicator owners instead of recommending an unconditional kill. Claim and Git
+Director errors point resumed exact transcripts to explicit recovery while keeping
+ownership fences intact. See [Communicator recovery](communicator.md) and
+[the API contract](interface-api.md).
+
 cxx 0.9.135 includes local Communicator start/exit statistics for all native
 engines: owner startup/reuse, PID and current client count, with bounded probes
 and explicit unknown/unavailable states. See the

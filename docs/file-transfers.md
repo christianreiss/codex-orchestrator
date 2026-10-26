@@ -80,8 +80,11 @@ owner's `mode`:
 - `resident`: refresh the service copy from the installed `cxx` and restart it
   with `sudo cxx daemon install`. (`cxx communicator stop` only runs
   `systemctl stop cxx-daemon.service` and does not refresh the copy.)
-- `on_demand`: `kill <pid>` (SIGTERM closes the owner and cuts its in-flight
-  requests); the next managed call starts a new owner from the installed `cxx`.
+- `on_demand`: allow native sessions and finite work to finish. A replaced owner
+  retires when quiet; the next managed call starts the installed `cxx`. If an older
+  owner remains, coordinate its restart only after verifying no native sessions
+  or in-flight work across the whole owner. Its version alone does not prove that
+  it is safe to interrupt.
 
 Smaller files, unversioned (`dev`) owners and owners whose status cannot be read
 (none running, direct HTTPS) proceed unchanged. Downloads are not checked: they

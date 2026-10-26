@@ -323,7 +323,7 @@ describe('captured timed Git registration drain',()=>{
 describe('exact transcript Git continuation', () => {
   it.each(['same', 'foreign-transcript', 'old-attached'])('rebinds only a completed detached lifecycle and never carries merge permission (%s)', async (scenario) => {
     const h = setup();
-    await h.service.claims.acquire(h.sessionId, h.token, { client_request_id: randomUUID(), purpose: 'merge continuation', resources: [{ kind: 'path', host_id: 1, path: '/repo' }, { kind: 'git', host_id: 1, common_dir: '/repo/.git', branch: 'main' }] });
+    const claim = await h.service.claims.acquire(h.sessionId, h.token, { client_request_id: randomUUID(), purpose: 'merge continuation', resources: [{ kind: 'path', host_id: 1, path: '/repo' }, { kind: 'git', host_id: 1, common_dir: '/repo/.git', branch: 'main' }] });
     const args = { worktree_path: '/repo', clone_dir: '/repo/.git', engine: 'codex', username: 'root', branch: 'work' };
     const registered = await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.register(args, h.host));
     const lease = await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.requestMerge({ worktree_path: '/repo', target_branch: 'main', client_request_id: randomUUID(), changed_paths: ['src/main.ts'] }, h.host));
@@ -334,10 +334,21 @@ describe('exact transcript Git continuation', () => {
     await h.git.reconcileOwned();
     const register = () => withNativePrincipal({ sessionId: next.id, bridgeToken: next.token }, () => h.git.register(args, h.host));
     if (scenario === 'same') {
+      await expect(withNativePrincipal({ sessionId: next.id, bridgeToken: next.token }, () => h.git.release({ worktree_path: '/repo', deregister: true }, h.host))).rejects.toMatchObject({
+        code: 'git_director_owner_uncertain', message: expect.stringContaining('git_register'),
+      });
       expect(await register()).toMatchObject({ registered: true, rebound: true, worktree_id: registered.worktree_id, withdrawn_request_ids: [lease.request_id] });
       expect(h.state.snapshot().table('gitMergeRequests').get(String(lease.request_id))?.verdict).toBe('withdrawn');
       expect(h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))?.agentSessionId).toBe(next.id);
       await expect(withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.release({ worktree_path: '/repo', deregister: true }, h.host))).rejects.toThrow();
+      await expect(withNativePrincipal({ sessionId: next.id, bridgeToken: next.token }, () => h.git.requestMerge({ worktree_path: '/repo', target_branch: 'main', client_request_id: randomUUID(), changed_paths: ['src/main.ts'] }, h.host))).rejects.toMatchObject({
+        code: 'resource_claim_conflict', message: expect.stringContaining('resource_claim_status({claim_id,renew:true})'),
+      });
+      expect(await h.service.claims.status(next.id, next.token, { claim_id: claim.id, renew: true })).toMatchObject({ state: 'active', session_id: next.id });
+      const fresh = await withNativePrincipal({ sessionId: next.id, bridgeToken: next.token }, () => h.git.requestMerge({ worktree_path: '/repo', target_branch: 'main', client_request_id: randomUUID(), changed_paths: ['src/main.ts'] }, h.host));
+      expect(fresh.verdict).toBe('allow');
+      expect(fresh.request_id).not.toBe(lease.request_id);
+      await withNativePrincipal({ sessionId: next.id, bridgeToken: next.token }, () => h.git.release({ worktree_path: '/repo', deregister: true }, h.host));
     } else {
       await expect(register()).rejects.toThrow('retains exclusion');
       expect(h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))?.agentSessionId).toBe(h.sessionId);

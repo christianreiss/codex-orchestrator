@@ -1,5 +1,7 @@
 # 2026-10-26
 
+- cxx 0.9.136 replaces the unconditional stale Communicator `kill` hint with quiet-retirement and coordinated-restart guidance that preserves active native work. Clarify safe claim and Git registration recovery after resuming the exact native transcript, without relaxing ownership checks. Isolate Communicator subprocess tests from inherited native broker sockets and make instance CLI fixtures work for unprivileged developers.
+
 - cxx 0.9.135 shows Communicator statistics at native session startup and exit for cdx/clx/cgx and their explicit cxx forms: started by this wrapper or reused, owner PID, and current client count. Report owner changes and unavailable/unknown samples truthfully. Local status-only probes have a 200 ms budget and never start or stop an owner; suppressed boot/footer output stays suppressed.
 
 - Android 0.5.11 adds labeled online/working/offline indicators to direct-chat rows. Show unknown for expired activity or stale app snapshots; preserve waiting-for-you and receiver availability details. APK-only; active-chat filters stay unchanged.

@@ -114,7 +114,7 @@ func TestStaleOwnerRefusesLargeUploadBeforeAnyRecord(t *testing.T) {
 		t.Fatalf("resume through stale owner: %v", err)
 	}
 	c.Owner = ownerStub(t, `{"version":"0.9.90","pid":77,"mode":"on_demand"}`)
-	if _, err = c.Put(context.Background(), path, 600, false); !errors.As(err, &refused) || !strings.Contains(refused.Remedy(), "kill 77") {
+	if _, err = c.Put(context.Background(), path, 600, false); !errors.As(err, &refused) || !strings.Contains(refused.Remedy(), "owner PID 77") || !strings.Contains(refused.Remedy(), "across the whole owner") || strings.Contains(refused.Remedy(), "kill ") {
 		t.Fatalf("on-demand stale owner: %v", err)
 	}
 }

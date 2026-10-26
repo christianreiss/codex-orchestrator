@@ -318,9 +318,14 @@ describe('explicit same-transcript claim continuation', () => {
     await expect(h.service.claims.status(next.id, next.token, { claim_id: claim.id })).rejects.toThrow('another session');
     const recover = () => h.service.claims.status(next.id, next.token, { claim_id: claim.id, renew: true });
     if (scenario === 'same') {
+      await expect(h.service.claims.release(next.id, next.token, { claim_id: claim.id, outcome: 'completed', reason: 'continued operation ended' })).rejects.toMatchObject({
+        code: 'claim_owner_uncertain',
+        message: expect.stringContaining('resource_claim_status({claim_id,renew:true})'),
+      });
       expect(await recover()).toMatchObject({ id: claim.id, session_id: next.id, state: 'active', expires_at: null });
       expect(h.state.snapshot().claims.get(claim.id)?.nativeInstanceId).toBe(next.instance);
       await expect(h.service.claims.release(h.sessionId, h.token, { claim_id: claim.id, outcome: 'completed', reason: 'stale owner' })).rejects.toThrow();
+      await expect(h.service.claims.release(next.id, next.token, { claim_id: claim.id, outcome: 'completed', reason: 'continued operation ended' })).resolves.toMatchObject({ state: 'released' });
     } else {
       await expect(recover()).rejects.toThrow();
       expect(h.state.snapshot().claims.get(claim.id)?.sessionId).toBe(h.sessionId);

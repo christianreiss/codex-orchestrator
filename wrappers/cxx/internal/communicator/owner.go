@@ -110,11 +110,12 @@ func releaseTriple(v string) ([3]int, bool) {
 
 // Remedy names the supported way to replace this owner with the installed cxx.
 // A resident owner runs the root-owned service copy, which only
-// `cxx daemon install` refreshes; an on-demand owner has no stop command, and
-// after SIGTERM the next managed call starts the installed binary.
+// `cxx daemon install` refreshes. An on-demand owner retires after replacement
+// only once native sessions and finite work are quiet; a version mismatch alone
+// does not prove it is safe to interrupt that owner.
 func (o Owner) Remedy() string {
 	if o.Mode == "resident" {
 		return "refresh the resident service copy (/usr/local/lib/cxx-daemon/cxx) from the installed cxx and restart it: sudo cxx daemon install"
 	}
-	return fmt.Sprintf("stop the owner with 'kill %d' (its in-flight requests are cut); the next managed call starts a new owner from the installed cxx. If it runs from /usr/local/lib/cxx-daemon/cxx, run 'sudo cxx daemon install' instead", o.PID)
+	return fmt.Sprintf("allow native sessions and finite work to finish: an on-demand owner whose executable was replaced retires when quiet, then the next managed call starts the installed cxx. If owner PID %d remains, coordinate a restart only after verifying no native sessions or in-flight work across the whole owner; a version mismatch alone is not permission to stop it. If it runs from /usr/local/lib/cxx-daemon/cxx, run 'sudo cxx daemon install' instead", o.PID)
 }

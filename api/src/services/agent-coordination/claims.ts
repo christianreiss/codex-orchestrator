@@ -1,4 +1,5 @@
 import { claimConnectionError } from './claim-connection-error.js';
+import { CLAIM_RECOVERY_GUIDANCE } from './recovery-guidance.js';
 import type { OwnerStateSnapshot } from '../../control-plane/state/store.js';
 import type { ScopeSession } from '../../control-plane/state/coordination.js';
 import { canonicalCommand } from '../../control-plane/commands.js';
@@ -416,12 +417,12 @@ export class ResourceClaims {
       .parse(input);
     const owner = ownerRuntimeFor(this.core.db);
     if (owner) {
-      const result = await mutateOwnerState(owner,{ kind: 'coordination.claim.release', principal: id ? `session:${id}` : `admin:${operatorId ?? 'unknown'}`, payload: body, authorize: snapshot => { const session = coordinationSession(owner,snapshot,id,token,true); const claim = snapshot.claims.get(body.claim_id); if (session && claim && claim.state !== 'released' && (claim.sessionId !== session.id || claim.generation !== session.bindingGeneration || !claimContinuouslyHeld(owner,snapshot,claim))) throw new ConflictError('Original owner proof required to release this claim','claim_owner_uncertain'); }, prepare: ctx => {
+      const result = await mutateOwnerState(owner,{ kind: 'coordination.claim.release', principal: id ? `session:${id}` : `admin:${operatorId ?? 'unknown'}`, payload: body, authorize: snapshot => { const session = coordinationSession(owner,snapshot,id,token,true); const claim = snapshot.claims.get(body.claim_id); if (session && claim && claim.state !== 'released' && (claim.sessionId !== session.id || claim.generation !== session.bindingGeneration || !claimContinuouslyHeld(owner,snapshot,claim))) throw new ConflictError('Original owner proof required to release this claim.' + CLAIM_RECOVERY_GUIDANCE,'claim_owner_uncertain'); }, prepare: ctx => {
         const session = coordinationSession(owner,ctx.snapshot,id,token,true), claim = ctx.draft.table('agentResourceClaims').get(body.claim_id);
         if (!claim) throw new NotFoundError('Claim not found');
         if (session && (claim.sessionId !== id || claim.generation !== session.bindingGeneration)) throw new ForbiddenError('Claim belongs to a different session binding');
         if (!session && !operatorId) throw new ForbiddenError('Operator required');
-        if (session && claim.state !== 'released' && !claimContinuouslyHeld(owner,ctx.snapshot,claim)) throw new ConflictError('Original native connection required to release this claim','claim_owner_uncertain');
+        if (session && claim.state !== 'released' && !claimContinuouslyHeld(owner,ctx.snapshot,claim)) throw new ConflictError('Original native connection required to release this claim.' + CLAIM_RECOVERY_GUIDANCE,'claim_owner_uncertain');
         if (operatorId) adminAudit(ctx,'agent_coordination.resolved',{claim_id:claim.id,admin_user_id:operatorId,outcome:body.outcome,reason:body.reason});
         const state = body.outcome === 'unknown' ? 'uncertain' : 'released';
         if (claim.state === 'released') return ownedClaimView(claim, owner) as Json;

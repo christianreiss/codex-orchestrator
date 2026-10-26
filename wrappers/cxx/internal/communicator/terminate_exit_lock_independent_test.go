@@ -110,7 +110,7 @@ func TestIndependentRemoteTerminateExitLockAndSurvivingClients(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	env := append(os.Environ(), "XDG_RUNTIME_DIR="+runtimeRoot, "CXX_MCP_BEARER=fixture")
+	env := append(communicatorEnvironment(os.Environ()), "XDG_RUNTIME_DIR="+runtimeRoot, "CXX_MCP_BEARER=fixture")
 	cfg := config.Config{SchemaVersion: 1, Engine: "codex", IssuedAt: "2026-10-13T00:00:00Z", Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "fixture-host-key", InstallationID: "fixture", CommunicatorProtocol: 1}, Host: config.Host{ID: 1, FQDN: "fixture.example", Secure: true}, Wrapper: config.Wrapper{Version: "0.9.71", Track: "stable", BinaryURL: upstream.URL + "/download", BinarySHA256: strings.Repeat("0", 64)}}
 	path := filepath.Join(root, "codex.json")
 	raw, _ := json.Marshal(cfg)
