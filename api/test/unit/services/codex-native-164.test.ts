@@ -20,6 +20,7 @@ const native164 = {
   permissions: { 'example.profile': { network: { mitm: { version: 2, hooks: { x: { host: 'example.test', schemes: ['https'], ports: [443], methods: ['GET'], path_prefixes: ['/'], action: ['strip'] } }, actions: { strip: { strip_request_headers: ['X-Example'], inject_request_headers: [{ name: 'Authorization', secret_env_var: 'TEST_TOKEN', placeholder: 'token-placeholder' }] } } } } } },
   mcp_servers: { 'example.mcp': { url: 'https://example.test/mcp', auth: 'ema_auth', oauth: {
     client_id: 'test-client', client_secret: 'test-secret', token_endpoint_auth_method: 'client_secret_post',
+    authorization_server_issuer: 'https://issuer.example.test',
   } } },
   mcp_enterprise_managed_auth: { idp: { issuer: 'https://example.test', client_id: 'test-idp',
     client_secret: 'test-secret', token_endpoint_auth_method: 'client_secret_basic' } },
