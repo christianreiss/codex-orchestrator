@@ -93,9 +93,9 @@ class MainActivity : ComponentActivity() {
                         HostBadge(current)
                         current?.let { Text(activityDetail(it, activityClock), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
-                    if (model.connection != null && !fresh) {
-                        if (model.showingSavedChats) Text("Saved chats", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(if (model.connecting) "Connecting…" else "Reconnecting…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (model.connection != null) {
+                        ServerConnectionStatus(fresh, model.connecting)
+                        if (!fresh && model.showingSavedChats) Text("Saved chats", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 if (model.connection != null) IconButton(onClick = { more = true }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.MoreVertical, "More") }
@@ -139,6 +139,17 @@ class MainActivity : ComponentActivity() {
     }
     review?.let { request -> ApprovalSheet(model, request, fresh, clock, onDismiss = { review = null }) }
     if (more) MoreSheet(model, onDismiss = { more = false })
+}
+
+@Composable internal fun ServerConnectionStatus(connected: Boolean, connecting: Boolean) {
+    val label = when {
+        connected -> "Server · Connected"
+        connecting -> "Server · Connecting…"
+        else -> "Server · Disconnected · Reconnecting…"
+    }
+    Text(label, modifier = Modifier.testTag("server-connection-status"),
+        style = MaterialTheme.typography.bodySmall,
+        color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @Composable private fun ErrorStrip(message: String, retry: () -> Unit, dismiss: () -> Unit) {
@@ -191,6 +202,10 @@ class MainActivity : ComponentActivity() {
     ModalBottomSheet(onDismissRequest = onDismiss, shape = SheetShape, dragHandle = { BottomSheetDefaults.DragHandle() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Connection", style = MaterialTheme.typography.titleLarge)
+            // Re-evaluate freshness while this sheet is open, including a silent server timeout.
+            var connectionClock by remember { mutableLongStateOf(0L) }
+            LaunchedEffect(Unit) { while (true) { connectionClock++; kotlinx.coroutines.delay(1000) } }
+            key(connectionClock) { ServerConnectionStatus(model.fresh(), model.connecting) }
             Text(model.connection?.server?.removePrefix("https://") ?: "", style = MaterialTheme.typography.bodyMedium)
             Text(pushStatus, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(verticalAlignment = Alignment.CenterVertically) { Text("Alerts", Modifier.weight(1f)); Switch(checked = model.notifications, onCheckedChange = model::updateNotifications, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = "Alerts" }) }

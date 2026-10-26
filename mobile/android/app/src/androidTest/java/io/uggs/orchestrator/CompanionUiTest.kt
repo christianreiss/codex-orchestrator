@@ -43,6 +43,13 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class CompanionUiTest {
+    @Test fun connectedServerStatusRemainsVisibleInChatsAndConnectionDetails() {
+        waitForAgentRows(session)
+        compose.onNodeWithText("Server · Connected").assertIsDisplayed()
+        compose.onNodeWithContentDescription("More").performClick()
+        compose.onAllNodesWithText("Server · Connected").onLast().assertIsDisplayed()
+    }
+
     @Test fun roomsDisappearWhenTheirLastActiveMemberLeaves() {
         waitForAgentRows(session)
         sharedRooms.set(true); changed("rooms")
@@ -310,7 +317,7 @@ class CompanionUiTest {
         compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isNotEmpty() }
         networkAvailable.set(false)
         live.getAndSet(null)?.close(1012, "Fixture network loss")
-        compose.waitUntil(10000) { compose.onAllNodesWithText("Reconnecting…").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Server · Disconnected · Reconnecting…").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
         compose.onNodeWithTag("close-window:7").assertIsNotEnabled()
         Assert.assertEquals(0L, closedWindows.get())
@@ -630,10 +637,10 @@ class CompanionUiTest {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
             compose.waitUntil(10000) { meRequested.get() && compose.onAllNodesWithText("Loading your chats…").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("Connecting…").assertIsDisplayed()
+            compose.onNodeWithText("Server · Connecting…").assertIsDisplayed()
             compose.onNodeWithText("Loading your chats…").assertIsDisplayed()
             compose.onNodeWithText("Retry connection").assertDoesNotExist()
-            compose.onNodeWithText("Reconnecting…").assertDoesNotExist()
+            compose.onNodeWithText("Server · Disconnected · Reconnecting…").assertDoesNotExist()
             compose.onNodeWithText("Waiting for chats").assertDoesNotExist()
             compose.onNodeWithTag("agent:$session").assertDoesNotExist()
             compose.onNodeWithTag("approval:42").assertDoesNotExist()
@@ -647,7 +654,7 @@ class CompanionUiTest {
         compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() && compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("agent:$session").assertIsDisplayed()
         compose.onNodeWithText("Review next · 1").assertIsDisplayed()
-        compose.onNodeWithText("Connecting…").assertDoesNotExist()
+        compose.onNodeWithText("Server · Connecting…").assertDoesNotExist()
         compose.onNodeWithText("Loading your chats…").assertDoesNotExist()
         compose.onNodeWithText("Retry connection").assertDoesNotExist()
     }
@@ -657,10 +664,10 @@ class CompanionUiTest {
         networkAvailable.set(false)
         scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
-            compose.waitUntil(10000) { compose.onAllNodesWithText("Reconnecting…").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("Reconnecting…").assertIsDisplayed()
+            compose.waitUntil(10000) { compose.onAllNodesWithText("Server · Disconnected · Reconnecting…").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Server · Disconnected · Reconnecting…").assertIsDisplayed()
             compose.onNodeWithText("Retry connection").assertIsDisplayed()
-            compose.onNodeWithText("Connecting…").assertDoesNotExist()
+            compose.onNodeWithText("Server · Connecting…").assertDoesNotExist()
             compose.onNodeWithText("Loading your chats…").assertDoesNotExist()
             compose.onNodeWithTag("agent:$session").assertDoesNotExist()
             compose.onNodeWithTag("approval:42").assertDoesNotExist()
@@ -674,7 +681,7 @@ class CompanionUiTest {
         compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() && compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("agent:$session").assertIsDisplayed()
         compose.onNodeWithText("Review next · 1").assertIsDisplayed()
-        compose.onNodeWithText("Reconnecting…").assertDoesNotExist()
+        compose.onNodeWithText("Server · Disconnected · Reconnecting…").assertDoesNotExist()
         compose.onNodeWithText("Retry connection").assertDoesNotExist()
     }
     @Test fun firebaseRegistersWithSelectedProject() {
@@ -1125,12 +1132,12 @@ class CompanionUiTest {
         networkAvailable.set(false)
         live.getAndSet(null)?.close(1012, "Fixture network loss")
         try {
-            compose.waitUntil(10000) { compose.onAllNodesWithText("Reconnecting…", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10000) { compose.onAllNodesWithText("Server · Disconnected · Reconnecting…", substring = true).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("agent:$session").assertIsDisplayed()
             Assert.assertEquals(setOf(session), unreadIds())
             screenshot("unread-reconnecting")
         } finally { networkAvailable.set(true) }
-        compose.waitUntil(15000) { compose.onAllNodesWithText("Reconnecting…", substring = true).fetchSemanticsNodes().isEmpty() }
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Server · Disconnected · Reconnecting…", substring = true).fetchSemanticsNodes().isEmpty() }
         waitForUnreadBadge(1)
         compose.onNodeWithTag("agent:$session").performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
@@ -1264,7 +1271,7 @@ class CompanionUiTest {
         compose.onNodeWithTag("tab-hosts").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("spawn:7").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("spawn:7").assertIsEnabled()
-        compose.onNodeWithText("Connecting…").assertDoesNotExist()
+        compose.onNodeWithText("Server · Connecting…").assertDoesNotExist()
     }
     @Test fun reconnectAndResumeCatchUpWhilePreservingDraft() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
@@ -1282,7 +1289,7 @@ class CompanionUiTest {
         scenario.moveToState(Lifecycle.State.RESUMED)
         try {
             compose.waitUntil(10000) { meRequested.get() && compose.onAllNodesWithText("Connecting — draft kept").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("Connecting…").assertIsDisplayed()
+            compose.onNodeWithText("Server · Connecting…").assertIsDisplayed()
             compose.onNodeWithText("Connecting — draft kept").assertIsDisplayed()
             compose.onNodeWithContentDescription("Send").assertIsNotEnabled()
             compose.onNode(hasSetTextAction()).assertTextContains("Keep this draft")

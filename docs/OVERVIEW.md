@@ -981,6 +981,8 @@ Fleet → Accounts manages any number of ChatGPT and Claude subscriptions indepe
 
 ## Android companion
 
+Android 0.5.8 displays server connection status in every paired screen header and the Connection sheet. Connected requires the existing live-socket and 30-second data-freshness gate; connection loss shows Disconnected / Reconnecting until synchronization succeeds.
+
 Android 0.5.5 automatically closes an open host-access review when a fresh
 snapshot shows the request is resolved or expired, including decisions made on
 another device. A disconnected review stays open with disabled actions.

@@ -1,5 +1,7 @@
 # 2026-10-26
 
+- Android 0.5.8 always shows the app-to-server connection status in the header and Connection sheet: connected, connecting, or disconnected while reconnecting. Connected requires a live socket and a fresh synchronized data snapshot. APK-only; no API rollout.
+
 - Shared rooms record how far each agent has read: `chats/read` by an agent stores the newest room event time it was shown (`agent_room_agent_reads`, migration 0106, cold table; forward-only, removed with the conference or when the room has no events left) and every room read returns it as `read_through` per member. Android 0.5.7 shows "Read by" markers with engine icons under that message. Delivery of a message to an agent is not a room read. Owner mode records the position in an owner command and never fails the read if that write fails. Needs the API rollout (migration) before the APK shows anything.
 
 - Android 0.5.6 shows who is working in groups, conferences and scope rooms: a member strip above the timeline and the Details list carry the engine icon with a presence badge (working, listening, idle, offline) and the state written out, using the same online-agent rules as the Chats tab. APK-only; no server rollout.
