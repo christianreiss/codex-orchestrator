@@ -9,6 +9,7 @@
 import { Ajv } from 'ajv';
 import schema from './codex-config-schema.json' with { type: 'json' };
 import { ValidationError } from '../http/errors.js';
+import { MODEL_REASONING_EFFORTS, CODEX_MODEL_DEFAULT_REASONING_EFFORTS } from './codex-model-capabilities.js';
 import { upgradeCodexModelId } from './codex-model-upgrades.js';
 
 export const CODEX_RETIRED_FEATURE_KEYS: readonly string[] = [
@@ -120,12 +121,21 @@ export function normalizeCodexNativeSettings(value: unknown): NativeSettings | u
   }
   // Model ids live in several native scopes, including profile sidecars. Migrate
   // known deprecated choices only; provider-specific and future ids pass through.
+  const agents = nativeRecord(out.agents);
+  const rawSubagentModel = agents.default_subagent_model;
   for (const [record, keys] of [
     [out, ['review_model', 'experimental_realtime_ws_model']],
     [nativeRecord(out.agents), ['default_subagent_model']],
     [nativeRecord(out.memories), ['extract_model', 'consolidation_model']],
   ] as const) {
     for (const key of keys) if (typeof record[key] === 'string') record[key] = upgradeCodexModelId(record[key]);
+  }
+  if (typeof rawSubagentModel === 'string' && agents.default_subagent_model !== rawSubagentModel) {
+    const model = String(agents.default_subagent_model);
+    const rawEffort = agents.default_subagent_reasoning_effort;
+    const effort = typeof rawEffort === 'string' ? rawEffort.trim().toLowerCase() : '';
+    agents.default_subagent_reasoning_effort = MODEL_REASONING_EFFORTS[model]?.includes(effort)
+      ? effort : CODEX_MODEL_DEFAULT_REASONING_EFFORTS[model];
   }
   validateCodexConfigDocument(out);
   return out;

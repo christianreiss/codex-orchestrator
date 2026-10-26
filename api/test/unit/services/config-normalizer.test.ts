@@ -83,10 +83,9 @@ describe('config-normalizer constants', () => {
     expect(LEGACY_MODEL_UPGRADES['gpt-5.1-codex-max']).toBe(FORCE_UPGRADE_MODEL);
     expect(LEGACY_MODEL_UPGRADES['gpt-5.3-codex']).toBe(FORCE_UPGRADE_MODEL);
     expect(LEGACY_MODEL_UPGRADES['gpt-5.2']).toBe(FORCE_UPGRADE_MODEL);
-    expect(LEGACY_MODEL_UPGRADES['gpt-5.4']).toBe(FORCE_UPGRADE_MODEL);
-    // Retired 2026-08-31. Unlike the rows above it targets the replacement the
-    // CLI catalog names, not the fleet default.
-    expect(LEGACY_MODEL_UPGRADES['gpt-5.4-mini']).toBe('gpt-5.6-luna');
+    expect(LEGACY_MODEL_UPGRADES['gpt-5.4']).toBe('gpt-6-sol');
+    // Retired 2026-08-31; current model guidance names GPT-6 Luna.
+    expect(LEGACY_MODEL_UPGRADES['gpt-5.4-mini']).toBe('gpt-6-luna');
     // The forced migration effort must be one the replacement accepts.
     expect(MODEL_REASONING_EFFORTS['gpt-5.6-luna']).toContain(FORCE_UPGRADE_REASONING_EFFORT);
     expect(LEGACY_MODEL_UPGRADES['gpt-5.3-codex-spark']).toBe(FORCE_UPGRADE_MODEL);
@@ -144,7 +143,7 @@ describe('normalizeStoredModel', () => {
   });
 
   it('upgrades legacy models', () => {
-    expect(normalizeStoredModel('gpt-5.4')).toBe(FORCE_UPGRADE_MODEL);
+    expect(normalizeStoredModel('gpt-5.4')).toBe('gpt-6-sol');
     expect(normalizeStoredModel('gpt-5.1-codex-max')).toBe(FORCE_UPGRADE_MODEL);
     expect(isLegacyModelUpgrade('gpt-5.1-codex-max')).toBe(true);
     expect(normalizeStoredModel('gpt-5.3-codex')).toBe(FORCE_UPGRADE_MODEL);
@@ -359,13 +358,13 @@ describe('normalizeSettings()', () => {
     ]);
   });
 
-  it('force-upgrades legacy models with high reasoning', () => {
+  it('upgrades legacy models while preserving compatible reasoning', () => {
     const s = normalizeSettings({
       model: 'gpt-5.1-codex-max',
       model_reasoning_effort: 'medium',
     });
     expect(s.model).toBe(FORCE_UPGRADE_MODEL);
-    expect(s.model_reasoning_effort).toBe(FORCE_UPGRADE_REASONING_EFFORT);
+    expect(s.model_reasoning_effort).toBe('medium');
   });
 
   it('drops obsolete feature keys', () => {
@@ -430,12 +429,11 @@ describe('normalizeSettings()', () => {
     });
     expect(s.profiles).toEqual([
       { name: 'max', model: 'gpt-5.6-terra', model_reasoning_effort: 'xhigh' },
-      // A stored profile on the retired mini heals to its replacement, and
-      // takes the retained `high` migration effort rather than its own.
+      // A retired mini profile keeps its compatible authored effort.
       {
         name: 'tiny',
-        model: 'gpt-5.6-luna',
-        model_reasoning_effort: FORCE_UPGRADE_REASONING_EFFORT,
+        model: 'gpt-6-luna',
+        model_reasoning_effort: 'xhigh',
       },
     ]);
   });
