@@ -48,6 +48,7 @@ type endpoint struct {
 	leaseCancel        context.CancelFunc
 	setupErr           error
 	anchor             *config.Config
+	startedPIDs        map[int]struct{} // Owners spawned by this wrapper, including concurrent startup candidates.
 }
 
 // sessionRuntimeRoot is the logind runtime directory that XDG_RUNTIME_DIR
@@ -411,6 +412,12 @@ func (ep *endpoint) ensure(ctx context.Context) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	ep.mu.Lock()
+	if ep.startedPIDs == nil {
+		ep.startedPIDs = make(map[int]struct{})
+	}
+	ep.startedPIDs[cmd.Process.Pid] = struct{}{}
+	ep.mu.Unlock()
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 	failure := func(reason string) error {

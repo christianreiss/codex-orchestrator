@@ -202,6 +202,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	}
 
 	cfg := opts.Config
+	commStats := communicator.NewLifecycleStats(cfg.Orchestrator.BaseURL)
 	if communicator.StrictCache(cfg) && !opts.SyncOnly && (opts.SkipAuthSync || opts.SkipCredentialExchange) {
 		return 1, errors.New("cache protocol 2 requires fresh content and auth confirmation before a new launch")
 	}
@@ -576,6 +577,9 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			} else {
 				ui.PrintBootScreen(updateprogress.Output(ctx, os.Stderr), state)
 			}
+			if !opts.SyncOnly {
+				ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), footerCaps(ui.DetectCaps(themeFromConfig(cfg)), opts.Minimal), ui.Notice{Prefix: "cdx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.Start()})
+			}
 		} else if state.QuotaWarn != "" {
 			// Headless path: surface the quota warning so cron/CI logs capture
 			// it. The boot-screen path already renders this text inline.
@@ -752,6 +756,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			EngineName:    "codex",
 			EngineVersion: codex.Version(ctx),
 		})
+		ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), caps, ui.Notice{Prefix: "cdx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.End()})
 	}
 
 	return exitCode, runErr

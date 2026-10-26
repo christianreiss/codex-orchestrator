@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -104,7 +105,7 @@ func TestEnsureWaitsForAReplacementAtTheResolvedPath(t *testing.T) {
 	}
 	// A clean child exit means another owner holds the lock and is still binding.
 	script := filepath.Join(newRoot, "fake-cxx")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$$\" > \"$0.pid\"\nexit 0\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	previous := executable
@@ -132,6 +133,17 @@ func TestEnsureWaitsForAReplacementAtTheResolvedPath(t *testing.T) {
 	}
 	if ep.localSocket() != moved {
 		t.Fatalf("endpoint names %s, want %s", ep.localSocket(), moved)
+	}
+	rawPID, err := os.ReadFile(script + ".pid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(rawPID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, recorded := ep.startedPIDs[pid]; !recorded {
+		t.Fatal("spawned owner candidate is missing from launch statistics")
 	}
 }
 

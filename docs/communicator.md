@@ -1,5 +1,30 @@
 # CoCo Communicator
 
+## Native session statistics (cxx 0.9.135)
+
+The normal cdx/clx/cgx startup and exit displays include a Communicator line,
+also for `cxx codex`, `cxx claude`, `cxx grok` and managed native entrypoints:
+
+```text
+cdx communicator: start: already running | pid=1234 | clients=3
+cdx communicator: end: running | pid=1234 | clients=2
+```
+
+Startup says `started for this session` only when the answering owner's PID
+matches a process this wrapper actually spawned. A concurrent startup candidate
+losing the owner lock does not make an existing owner newly started. Exit reports
+`owner changed` when the PID or owner instance differs from the startup sample.
+These are instantaneous counts of the owner's active client leases, shared across
+engines and MCP clients; they are not counts of model agents. The exit sample is
+taken before the wrapper process exits, so its own lease may still be included.
+
+Each sample reads only the existing local status endpoint with a 200 ms total
+budget. It does not start/stop an owner, join a lease, extend idle lifetime or
+contact the API. A failed sample says `unavailable | clients=unknown`; absent
+configuration says `not configured`, and an old status without the count reports
+`clients=unknown`. Normal silent/skip-boot behavior remains silent. Sync/status,
+helper and machine-protocol commands do not gain session-statistic banners.
+
 ## Sender timing (cxx 0.9.134)
 
 Messaging senders can select `delivery_timing: immediate | after_turn` for

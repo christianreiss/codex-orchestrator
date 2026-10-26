@@ -1,5 +1,10 @@
 # Overview
 
+cxx 0.9.135 includes local Communicator start/exit statistics for all native
+engines: owner startup/reuse, PID and current client count, with bounded probes
+and explicit unknown/unavailable states. See the
+[statistics contract](communicator.md#native-session-statistics-cxx-09135).
+
 Agent messages can select `delivery_timing: "immediate" | "after_turn"` independently
 of their delivery class. The default waits for a native turn boundary; immediate
 informational updates use supported non-cancelling input paths while current work

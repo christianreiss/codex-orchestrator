@@ -19,6 +19,8 @@ type Owner struct {
 	Version              string `json:"version"`
 	PID                  int    `json:"pid"`
 	Mode                 string `json:"mode"`
+	InstanceID           string `json:"owner_instance_id"`
+	Clients              *int   `json:"sessions"`
 	Cache                struct {
 		Protocol            int `json:"protocol"`
 		LocalProtocol       int `json:"local_content_protocol"`
@@ -31,12 +33,16 @@ type Owner struct {
 // not routed through a local owner (no signed capability, runtime-only, an
 // unusable socket) or no owner answers: callers then proceed as before.
 func OwnerStatus(ctx context.Context, base string) (Owner, bool) {
+	return ownerStatus(ctx, base, false)
+}
+
+func ownerStatus(ctx context.Context, base string, allowRuntimeOnly bool) (Owner, bool) {
 	ep := endpointFor(strings.TrimRight(base, "/"))
 	if ep == nil {
 		return Owner{}, false
 	}
 	ep.mu.Lock()
-	unusable := ep.runtimeOnly || ep.setupErr != nil
+	unusable := (ep.runtimeOnly && !allowRuntimeOnly) || ep.setupErr != nil
 	runtime := ep.anchor != nil && ep.anchor.Orchestrator.CommunicatorRuntimeProtocol == residency.Protocol
 	socket := ep.socket
 	ep.mu.Unlock()

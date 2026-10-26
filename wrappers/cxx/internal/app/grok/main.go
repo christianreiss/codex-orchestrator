@@ -581,6 +581,7 @@ func acquireContentLease(ctx context.Context) (*ipc.Lock, error) {
 }
 
 func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o options, stdout, stderr io.Writer) (exitCode int, runErr error) {
+	commStats := communicator.NewLifecycleStats(cfg.Orchestrator.BaseURL)
 	if err := requireSupportedNativeCLI(ctx); err != nil {
 		return 1, err
 	}
@@ -701,6 +702,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			authStatus, authTone = "private runtime cleanup failed", terminalui.ToneFail
 		}
 		terminalui.PrintExitFooter(stderr, caps, "cgx", terminalui.ExitFooter{RunDuration: time.Since(started), ExitCode: exitCode, AuthStatus: authStatus, AuthTone: authTone, EngineName: "grok", EngineVersion: version})
+		terminalui.PrintNotice(stderr, caps, terminalui.Notice{Prefix: "cgx", Tone: terminalui.ToneDim, Topic: "communicator", Message: commStats.End()})
 	}()
 	rt, err := native.NewRuntime(baseHome, cfg, client, pool, contentLock)
 	if err != nil {
@@ -913,6 +915,11 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	version, versionErr = native.ProbeVersion(ctx, path)
 	if !o.skipBoot {
 		terminalui.PrintBootScreen(stderr, startupScreen(startupInput{Config: cfg, Auth: &initial, EngineVersion: version, VersionErr: versionErr, WrapperVersion: Version, Home: rt.Home, EffectiveHome: true, LaunchArgs: args, Sync: sync, Minimal: minimal}))
+		caps := terminalui.DetectCapsFor(stderr, stringValue(cfg.EngineOptions.AdminThemeHint))
+		if minimal {
+			caps.IsTTY = false
+		}
+		terminalui.PrintNotice(stderr, caps, terminalui.Notice{Prefix: "cgx", Tone: terminalui.ToneDim, Topic: "communicator", Message: commStats.Start()})
 	}
 	started = time.Now()
 	code := execute(activityCtx, path, args, env, stdout, stderr, rt)

@@ -1,5 +1,10 @@
 # cgx — Grok Build fleet wrapper
 
+From cxx 0.9.135, normal native-session startup and exit show Communicator owner
+origin/PID and current client counts, using bounded local-only observations. See
+[session statistics](communicator.md#native-session-statistics-cxx-09135) for count,
+unknown, owner-replacement and silent-output semantics shared with cdx/clx.
+
 ## Sender-selected delivery timing (cxx 0.9.134)
 
 Informational messaging accepts `delivery_timing: immediate | after_turn` (default
