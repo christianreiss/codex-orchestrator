@@ -1020,8 +1020,8 @@ func status(ctx context.Context, cfg *config.Config, client *orchestrator.Client
 }
 
 // maintenance is the cron tick (force=false) and `cgx update` (force=true):
-// wrapper self-update, native CLI convergence, shell alias, content sync and
-// a version report that is sent even when the content sync fails.
+// wrapper self-update, native CLI convergence, shell alias, observed-version
+// report and content sync. A failed sync does not suppress the version report.
 func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.Client, force bool, stdout, stderr io.Writer, concurrent ...bool) error {
 	_ = native.Prune() // Keep the just-published previous prefix until the next tick.
 	path, _ := native.FindCLI()
@@ -1089,15 +1089,6 @@ func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.C
 	if err := native.EnsureShellAliases(); err != nil {
 		warn(client, "shell alias", err)
 	}
-	syncErr := syncManaged(ctx, cfg, client, concurrent...)
-	if errors.Is(syncErr, ipc.ErrHeld) {
-		syncErr = errors.New("managed sync paused by an active session; retry when it finishes or use --allow-concurrent-sync")
-	}
-	if !hostcron.IsCoordinated() {
-		if err := hostcron.Install(ctx, cfg); err != nil {
-			syncErr = errors.Join(syncErr, err)
-		}
-	}
 	var reportErr error
 	reported := false
 	for attempt := 1; attempt <= 2; attempt++ {
@@ -1111,6 +1102,17 @@ func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.C
 				return ctx.Err()
 			case <-time.After(2 * time.Second):
 			}
+		}
+	}
+	// Publish the observed installed CLI before requesting version-gated config.
+	// Preserve sync and report failures independently so a later tick can retry.
+	syncErr := syncManaged(ctx, cfg, client, concurrent...)
+	if errors.Is(syncErr, ipc.ErrHeld) {
+		syncErr = errors.New("managed sync paused by an active session; retry when it finishes or use --allow-concurrent-sync")
+	}
+	if !hostcron.IsCoordinated() {
+		if err := hostcron.Install(ctx, cfg); err != nil {
+			syncErr = errors.Join(syncErr, err)
 		}
 	}
 	label := "cron"

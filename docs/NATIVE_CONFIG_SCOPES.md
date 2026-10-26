@@ -54,11 +54,11 @@ structured-only settings do not raise either fleet-wide minimum. Grok already
 enforces its 1.0.50 native floor. Literal-key ownership independently requires
 cxx 0.9.66 where documented.
 
-Admin validation and previews require no host. Before host sync, `cdx update` or
-`clx update` installs and reports the actual CLI version. Maintenance cron reports
+Admin validation and previews require no host. Before host sync, `cdx update`,
+`clx update` and `cgx update` install and report the actual CLI version. Maintenance cron reports
 the observed installed version before retrieving version-gated configuration,
 including after an update. Its update/check/report routes remain usable when
-config rendering is gated. Run `cdx cron run` or `clx cron run` to refresh a stale
+config rendering is gated. Run `cdx cron run`, `clx cron run` or `cgx cron run` to refresh a stale
 version report after an external installation. A config error is not proof that
 an update succeeded or that a running session adopted new settings.
 
