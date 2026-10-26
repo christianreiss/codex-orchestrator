@@ -46,7 +46,7 @@ var claudeTopLevelSubcommands = map[string]struct{}{
 	"upgrade":     {},
 }
 
-// Native root parser flags verified against Claude Code 2.1.296 on 2026-10-12.
+// Native root parser flags verified against Claude Code 2.1.310 on 2026-10-26.
 // Required, optional and variadic values have different consumption rules: a
 // command-looking value must never become a subcommand or an auth operation.
 var claudeGlobalOptionsWithValue = map[string]struct{}{
@@ -70,6 +70,8 @@ var claudeGlobalOptionsWithValue = map[string]struct{}{
 	"--channels":                           {},
 	"--client-data-url":                    {},
 	"--correlation-id":                     {},
+	"--config":                             {},
+	"--cwd":                                {},
 	"--dangerously-load-development-channels": {},
 	"--debug-file":                         {},
 	"--deep-link-cwd-b64":                  {},
@@ -183,20 +185,32 @@ func NativeOptionValueEnd(args []string, at int) int {
 	return at
 }
 
-// UnsupportedNativeService identifies service commands whose child launches
-// cannot inherit the managed settings/auth overlay. Native help remains usable.
-// Claude 2.1.296 rejects --settings before remote-control and handles daemon and
-// self-hosted-runner before root settings parsing. A separate service lifecycle
-// is required; pretending these are interactive sessions would lose auth scope.
+// UnsupportedNativeService identifies independent services and background starts
+// whose lifetime cannot inherit the managed settings/auth overlay. Required and
+// optional option values remain opaque; native help is the only general bypass.
 func UnsupportedNativeService(args []string) string {
+	background := ""
+	help := false
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--" {
 			break
 		}
 		if args[i] == "--help" || args[i] == "-h" {
-			return ""
+			help = true
+		}
+		if args[i] == "--bg" || args[i] == "--background" {
+			background = args[i]
 		}
 		i = NativeOptionValueEnd(args, i)
+	}
+	// Background preprocessing can run before the ordinary help parser. Root
+	// --help documents the flag safely; never treat --bg ... --help as proof
+	// that the native process will only show help.
+	if background != "" {
+		return background
+	}
+	if help {
+		return ""
 	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -205,14 +219,42 @@ func UnsupportedNativeService(args []string) string {
 		}
 		if !strings.HasPrefix(arg, "-") {
 			switch arg {
-			case "daemon", "remote-control", "rc", "remote", "bridge", "sync", "self-hosted-runner":
+			case "daemon", "remote-control", "rc", "remote", "bridge", "sync", "self-hosted-runner", "gateway", "respawn", "attach":
 				return arg
+			case "agents":
+				if !nativeAgentList(args[i+1:]) {
+					return arg
+				}
 			}
 			break
 		}
 		i = NativeOptionValueEnd(args, i)
 	}
 	return ""
+}
+
+// Only this documented agents form lists sessions and exits without a dispatch
+// UI. Do not let an unknown option or --json used as another option's value
+// authorize a background agent view. The native parser still checks values.
+func nativeAgentList(args []string) bool {
+	json := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--json":
+			json = true
+		case "--all":
+		case "--cwd":
+			if i+1 >= len(args) || args[i+1] == "--" {
+				return false
+			}
+			i++
+		default:
+			if !strings.HasPrefix(args[i], "--cwd=") {
+				return false
+			}
+		}
+	}
+	return json
 }
 
 // prepareRuntimeAuthSettings adds a highest-precedence CLI settings overlay

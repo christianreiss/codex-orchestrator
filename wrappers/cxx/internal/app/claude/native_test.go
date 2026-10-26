@@ -136,14 +136,14 @@ func TestNativeRequiredFlagValuesAreNotSessionFlags(t *testing.T) {
 }
 
 func TestNativeServicesRefuseUnsupportedManagedLifecycleBeforeConfig(t *testing.T) {
-	for _, command := range []string{"daemon", "remote-control", "rc", "remote", "bridge", "self-hosted-runner"} {
+	for _, command := range []string{"daemon", "remote-control", "rc", "remote", "bridge", "self-hosted-runner", "gateway", "agents", "respawn", "attach", "--bg", "--background"} {
 		for _, run := range []func([]string, io.Writer, io.Writer) int{RunNative, Run} {
 			var out, errOut bytes.Buffer
 			if exit := run([]string{command}, &out, &errOut); exit != 2 || !strings.Contains(errOut.String(), "cannot inherit managed authentication/settings") {
 				t.Fatalf("%s: exit=%d out=%s err=%s", command, exit, out.String(), errOut.String())
 			}
 		}
-		if unsupportedNativeService([]string{command, "--help"}) != "" || !isHelpPassthrough([]string{command, "--help"}) {
+		if command != "--bg" && command != "--background" && (unsupportedNativeService([]string{command, "--help"}) != "" || !isHelpPassthrough([]string{command, "--help"})) {
 			t.Fatalf("help incorrectly refused: %s", command)
 		}
 	}
@@ -179,5 +179,17 @@ func TestNativeSyncAliasIsNotWrapperSync(t *testing.T) {
 	f, pos, _ = invocationFlags([]string{"--execute", "daemon"}, false)
 	if command, _ := resolveCommand(f, pos); command != "execute" {
 		t.Fatal("wrapper prompt changed")
+	}
+}
+
+func TestBackgroundHelpCannotBypassEarlyServiceGuard(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, run := range []func([]string, io.Writer, io.Writer) int{RunNative, Run} {
+		for _, flag := range []string{"--bg", "--background"} {
+			var out, stderr bytes.Buffer
+			if code := run([]string{flag, "--help"}, &out, &stderr); code != 2 || !strings.Contains(stderr.String(), "cannot inherit managed authentication/settings") {
+				t.Fatalf("%s help bypass: %d %s", flag, code, stderr.String())
+			}
+		}
 	}
 }

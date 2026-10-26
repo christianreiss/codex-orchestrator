@@ -78,7 +78,7 @@ func TestNativeAuthCommandsKeepManagedBoundaryAndGlobalArgs(t *testing.T) {
 }
 
 func TestNativeCommandAliasesAndCurrentOptionValues(t *testing.T) {
-	for _, command := range []string{"e", "a"} {
+	for _, command := range []string{"e", "a", "migrate-nfs-db"} {
 		if isProfileShorthand(command) || !isHelpPassthrough([]string{command, "--help"}) {
 			t.Fatalf("native alias treated as profile: %s", command)
 		}
@@ -152,5 +152,26 @@ func TestNativeLoginStatusIgnoresRootAndOptionValues(t *testing.T) {
 		if loginStatusInvocation(nil, args) {
 			t.Fatalf("native option/root prompt became status: %q", args)
 		}
+	}
+}
+
+func TestNativeMaintenanceCannotMigrateOrSelfUpdateBeforeConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, tc := range []struct {
+		args    []string
+		message string
+	}{
+		{[]string{"migrate-nfs-db", "--staging-dir", "login"}, "all clients on every host"},
+		{[]string{"--config", "model=fixture", "migrate-nfs-db"}, "all clients on every host"},
+		{[]string{"update"}, "fleet-managed; use cdx update"},
+	} {
+		var out, stderr bytes.Buffer
+		if code := RunNative(tc.args, &out, &stderr); code != 2 || !strings.Contains(stderr.String(), tc.message) {
+			t.Fatalf("%q: %d %s", tc.args, code, stderr.String())
+		}
+	}
+	var out, stderr bytes.Buffer
+	if code := Run([]string{"migrate-nfs-db"}, &out, &stderr); code != 2 || !strings.Contains(stderr.String(), "all clients on every host") {
+		t.Fatalf("wrapper migration: %d %s", code, stderr.String())
 	}
 }

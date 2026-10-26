@@ -116,7 +116,7 @@ func TestNativeGlobalOptionsKeepManagedAuthAndUpdates(t *testing.T) {
 
 func TestNativeServiceRefusalPrecedesConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	for _, args := range [][]string{{"agent"}, {"agent", "--no-leader"}, {"agent", "--model", "stdio"}, {"--debug", "cursor-worker", "start"}, {"--leader-socket", "/unmanaged/leader.sock"}, {"agent", "--agent-profile", "leader", "serve"}, {"agent", "headless"}, {"agent", "leader"}} {
+	for _, args := range [][]string{{"agent"}, {"agent", "--no-leader"}, {"agent", "--model", "stdio"}, {"--debug", "cursor-worker", "start"}, {"worker", "start"}, {"--add-dir", "login", "worker", "controller"}, {"--leader-socket", "/unmanaged/leader.sock"}, {"agent", "--agent-profile", "leader", "serve"}, {"agent", "headless"}, {"agent", "leader"}} {
 		var out, stderr bytes.Buffer
 		if code := RunNative(args, &out, &stderr); code != 2 || !strings.Contains(stderr.String(), "separate managed auth/session lifecycle") {
 			t.Fatalf("%q: %d %s", args, code, stderr.String())

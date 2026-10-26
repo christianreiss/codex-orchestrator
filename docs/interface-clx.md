@@ -139,7 +139,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 ### Native command maintenance (cxx 0.9.66)
 
 The native dispatch and flag grammar were checked against Claude Code
-**2.1.296** on 2026-10-12 and the
+**2.1.310** on 2026-10-26 and the
 [official CLI reference](https://code.claude.com/docs/en/cli-reference).
 `purge` is forwarded as a native maintenance command; it retains its native
 confirmation and `--dry-run` behavior. Recognized native maintenance commands
@@ -157,7 +157,19 @@ argument, avoiding the native conflict between file and inline forms.
 
 **Service integration boundary:** managed starts explicitly refuse `daemon`,
 `remote-control` (including `rc`, `remote`, `bridge` and native `sync` aliases),
-and `self-hosted-runner`, while native `--help` remains available. Claude rejects
+and `self-hosted-runner`, while native `--help` remains available.
+From cxx **0.9.137**, this includes `--bg`/`--background`, `gateway`,
+`respawn`, `attach` and the dispatch-capable `agents` view. Background starts
+return before their workers stop, so the launching process cannot own their
+temporary auth/settings overlay, account lease or native identity. Attaching to
+an existing worker does not transfer those ownership contracts. The explicitly
+read-only `agents --json` listing remains available, optionally with `--all`
+and `--cwd PATH`; unsupported agent-view options receive the lifecycle refusal.
+Plain native `--help` documents the background flags. `--bg`/`--background`
+combined with help still receive the refusal because native background
+preprocessing can precede ordinary help parsing.
+Command-looking and flag-looking option values remain opaque, including
+`--cwd --json` (a directory value, not permission to open the agent view). Claude rejects
 `--settings` before Remote Control because it cannot carry those settings into
 its child sessions; daemon and self-hosted-runner use a separate early parser.
 Supporting these services therefore requires a separate persistent auth/session

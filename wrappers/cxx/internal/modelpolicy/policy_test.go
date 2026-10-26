@@ -137,3 +137,21 @@ func TestLegacyCodexProfileArray(t *testing.T) {
 		t.Fatalf("legacy profile: %q %v", got, err)
 	}
 }
+
+func TestNewNativeMaintenanceCommandsKeepOriginalArgv(t *testing.T) {
+	for _, tc := range []struct {
+		engine string
+		args   []string
+	}{
+		{"codex", []string{"migrate-nfs-db", "--staging-dir", "login"}},
+		{"codex", []string{"doctor"}},
+		{"codex", []string{"update"}},
+		{"grok", []string{"--add-dir", "login", "worker", "status"}},
+	} {
+		cfg := fixture(tc.engine, "old", "new")
+		got, err := modelpolicy.Apply(cfg, tc.args, t.TempDir(), nil, nil)
+		if err != nil || !reflect.DeepEqual(got, tc.args) {
+			t.Fatalf("%s %q rewritten: %q %v", tc.engine, tc.args, got, err)
+		}
+	}
+}

@@ -30,7 +30,7 @@ func Apply(cfg *config.Config, args []string, home string, optionEnd OptionEnd, 
 	}
 	if engine != "claude" {
 		command, _ := nativeargs.Command(engine, args)
-		reserved := " login logout mcp app-server completion completions sandbox debug apply a cloud features help agents archive unarchive delete queue plugin exec-server migrate-rollouts clone cursor-worker dashboard doctor du disk-usage export inspect leader memory models sessions setup trace update usage version v worktree wrap install upgrade "
+		reserved := " login logout mcp app-server completion completions sandbox debug apply a cloud features help agents archive unarchive delete queue plugin exec-server migrate-rollouts migrate-nfs-db clone cursor-worker worker dashboard doctor du disk-usage export inspect leader memory models sessions setup trace update usage version v worktree wrap install upgrade "
 		if command != "" && strings.Contains(reserved, " "+command+" ") {
 			return args, nil
 		}
