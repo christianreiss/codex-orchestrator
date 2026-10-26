@@ -294,7 +294,7 @@ describe('owner SQL foreign-key projections', () => {
     expect(draft.table('sharedMemories').get(1)?.sourceHostId).toBeNull();
     expect(draft.table('secrets').get(1)?.sourceHostId).toBeNull();
   });
-  it('removes chatty state only for the deleted administrator', () => {
+  it('removes chatty and shared-read state only for the deleted administrator', () => {
     const h = harness({
       chattySessions: [
         { id: 'mine', userId: 1 },
@@ -302,6 +302,7 @@ describe('owner SQL foreign-key projections', () => {
       ],
       chattyRuns: [{ id: 'run', userId: 1 }],
       chattyActions: [{ id: 'action', userId: 1 }],
+      companionReads: [{ userId: 1, sessionId: 'mine', readCursor: 10, updatedAt: '' }, { userId: 2, sessionId: 'other', readCursor: 20, updatedAt: '' }],
     });
     const draft = h.state.begin();
     projectAdminUserDeletion(draft, 1);
@@ -313,6 +314,7 @@ describe('owner SQL foreign-key projections', () => {
     ).toEqual([2]);
     expect(draft.table('chattyRuns').size).toBe(0);
     expect(draft.table('chattyActions').size).toBe(0);
+    expect(draft.table('companionReads').all().map(row => row.userId)).toEqual([2]);
   });
 });
 

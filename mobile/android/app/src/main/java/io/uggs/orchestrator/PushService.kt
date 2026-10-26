@@ -56,7 +56,7 @@ fun configurePush(context: Context, connection: Connection) {
 private fun registerPushToken(context: Context, token: String) {
     val connection = ConnectionStore(context).load() ?: return
     CoroutineScope(Dispatchers.IO).launch {
-        runCatching { Api(connection.server, connection.token).request("/device", "PATCH", JSONObject().put("fcm_token", token)) }
+        runCatching { Api(connection.server, connection.token).request("/device", "PATCH", JSONObject().put("fcm_token", token).put("read_sync_protocol", 1)) }
             .onSuccess { PushStatus.state.value = "Notifications registered" }
             .onFailure { PushStatus.state.value = "Could not register this device with the server. Reopen to retry." }
     }
@@ -265,6 +265,13 @@ internal fun showCompanionNotification(context: Context, data: Map<String, Strin
     val target = data["target_id"]?.takeIf { it.isNotBlank() && it.length <= 256 } ?: return
     val scope = unreadScope(connection.server, connection.deviceId)
     val seen = context.getSharedPreferences("push-seen", Context.MODE_PRIVATE)
+    if (data["kind"] == "read") {
+        val cursor = data["event_cursor"]?.toLongOrNull()?.takeIf { it > 0 } ?: return
+        val store = UnreadStore(context)
+        if (!store.observeSharedRead(connection, target, cursor)) return
+        reconcileUnreadNotifications(context, if (replyNotificationsEnabled(context, scope)) connection else null, store.unreadIds())
+        return
+    }
     if (data["kind"] == "reply") {
         val store = UnreadStore(context).apply { activate(connection) }
         val cursor = data["event_cursor"]?.toLongOrNull()?.takeIf { it > 0 }

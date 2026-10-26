@@ -1,5 +1,22 @@
 # Android companion
 
+## Shared read state (Android 0.5.10)
+
+Agent conversation read positions now synchronize across devices paired to the same
+administrator. A visible reply advances the local watermark immediately and queues
+an opt-in `sync_reads:true` agents snapshot; failed uploads retry on reconnect from
+persisted local markers. A persistent pending-receipt queue drains in batches of 500; `processed_read_cursors` settles each submitted batch independently of the authoritative `read_cursor`. Unknown or rejected positions do not cause refresh loops. Only real authorized assistant event positions advance the
+server watermark; older devices and out-of-order snapshots cannot move it backward.
+Returned `read_cursor` values merge into each device ledger before unread counts.
+Newer replies remain unread, and delayed old pushes cannot resurrect a cleared badge.
+Rooms already share administrator read positions; read advances now invalidate other
+connected views. No message bodies are stored in read state.
+
+Requires the API with migration 0108. `/me` advertises the protocol; older servers
+retain device-local behavior. Push registration advertises protocol 1, so only new
+APKs receive silent read pushes. These remove existing badges without showing a new
+notification; unavailable/offline push converges on the next authenticated snapshot.
+
 ## Android engine quotas (0.5.9)
 
 `GET /companion/v1/quotas` uses the paired-device Bearer token and requires

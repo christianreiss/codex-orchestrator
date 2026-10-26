@@ -4,6 +4,55 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class UnreadStoreTest {
+    @Test fun coveringSharedReadCannotBeUndoneByAnOldCount() {
+        val state = ReplyUnreadLedger()
+        state.sharedReads(mapOf("s" to 100L))
+        state.observe(mapOf("s" to 100L), counts = mapOf("s" to 1))
+        assertTrue(state.unreadIds().isEmpty())
+        state.push("s", null, "unknown-cursor")
+        state.observe(mapOf("s" to 100L), pruneMissing = false, counts = mapOf("s" to 1))
+        assertEquals(1, state.unreadReplyCount("s"))
+    }
+    @Test fun moreThanFiveHundredReceiptsDrainInBatchesAndPersistAcrossRestart() {
+        var state = ReplyUnreadLedger()
+        val ids = (1..1201).associate { "s$it" to it.toLong() }
+        state.observe(ids)
+        ids.forEach { (id, cursor) -> state.read(id, cursor) }
+        val first = state.readCursors(pendingOnly = true)
+        assertEquals(500, first.size)
+        state.sharedReads(first)
+        state = ReplyUnreadLedger(state.json())
+        assertEquals(500, state.readCursors(pendingOnly = true).size)
+        state.sharedReads(state.readCursors(pendingOnly = true))
+        assertEquals(201, state.readCursors(pendingOnly = true).size)
+        state.sharedReads(state.readCursors(pendingOnly = true))
+        assertFalse(state.hasPendingReads())
+        state.read("s1", 2000)
+        assertEquals(mapOf("s1" to 2000L), state.readCursors(pendingOnly = true))
+        state.settle(mapOf("s1" to 1L))
+        assertTrue(state.hasPendingReads())
+        state.settle(mapOf("s1" to 2000L))
+        assertFalse(state.hasPendingReads())
+    }
+    @Test fun twoDevicesMergeReadsWithoutLosingNewerRepliesOrAcceptingDelayedPushes() {
+        val phone = ReplyUnreadLedger()
+        val tablet = ReplyUnreadLedger()
+        phone.observe(mapOf("chat" to 10L), counts = mapOf("chat" to 1))
+        tablet.observe(mapOf("chat" to 10L), counts = mapOf("chat" to 1))
+        phone.read("chat", 10)
+        tablet.sharedReads(phone.readCursors())
+        assertTrue(tablet.unreadIds().isEmpty())
+        assertFalse(tablet.push("chat", 10, "late-old-reply"))
+        tablet.push("chat", 20, "new-reply")
+        tablet.sharedReads(mapOf("chat" to 10L))
+        assertEquals(setOf("chat"), tablet.unreadIds())
+        tablet.sharedReads(mapOf("chat" to 20L))
+        assertTrue(tablet.unreadIds().isEmpty())
+        val restored = ReplyUnreadLedger(tablet.json())
+        restored.sharedReads(mapOf("chat" to 10L))
+        assertEquals(mapOf("chat" to 20L), restored.readCursors())
+        assertTrue(restored.unreadIds().isEmpty())
+    }
     @Test fun closureClearsOldReplyBadgesAndRejectsDelayedPushesWithoutInventingAReadReceipt() {
         val state = ReplyUnreadLedger()
         state.observe(mapOf("a" to 10L), counts = mapOf("a" to 1))

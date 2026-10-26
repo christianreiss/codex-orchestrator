@@ -26,6 +26,7 @@ import { decodeSummaryPayload, eventSummary, notificationKind } from './summary.
 
 const TABLES = [
   'companionDevices',
+  'companionReads',
   'companionPairings',
   'companionNotifications',
   'companionFollows',
@@ -65,28 +66,21 @@ export class OwnerCompanionPush {
       ? d
       : undefined;
   }
-  private visible(snapshot: OwnerStateSnapshot, target: string, userId: number): boolean {
+  private visible(snapshot: OwnerStateSnapshot, target: string, userId: number, allBindings = false): boolean {
     if (!isTruthyFlagValue(snapshot.setting('agent_portal_enabled'))) return false;
-    const binding = snapshot
-      .table('hostDaemonPortalBindings')
-      .all()
-      .find((b) => b.daemonSessionId === target);
-    if (binding && snapshot.table('hostDaemonSessions').get(target)?.owner !== `admin:${userId}`)
+    const bindings = snapshot.table('hostDaemonPortalBindings').by('daemonSessionId', target);
+    if (bindings.length && snapshot.table('hostDaemonSessions').get(target)?.owner !== `admin:${userId}`)
       return false;
-    const session = snapshot.table('agentSessions').get(binding?.portalSessionId ?? target);
-    const host = session && snapshot.table('hosts').get(session.hostId);
-    return (
-      !!session &&
-      !!host &&
-      !host.internalRole &&
-      !isTruthyFlagValue(snapshot.setting(`${session.engine}_engine_disabled`)) &&
-      (!session.endedAt ||
-        Date.parse(session.expiresAt ?? '') > Date.now() ||
-        snapshot
-          .table('agentChatNotices')
-          .all()
-          .some((n) => n.sessionId === session.id && !n.resolvedAt))
-    );
+    // Shared reads belong to the logical conversation across native resumptions.
+    const physical = bindings.length ? (allBindings ? bindings : bindings.slice(0, 1)).map(b => b.portalSessionId) : [target];
+    return physical.some(id => {
+      const session = snapshot.table('agentSessions').get(id);
+      const host = session && snapshot.table('hosts').get(session.hostId);
+      return !!session && !!host && !host.internalRole &&
+        !isTruthyFlagValue(snapshot.setting(`${session.engine}_engine_disabled`)) &&
+        (!session.endedAt || Date.parse(session.expiresAt ?? '') > Date.now() ||
+          snapshot.table('agentChatNotices').all().some(n => n.sessionId === session.id && !n.resolvedAt));
+    });
   }
   private eligible(snapshot: OwnerStateSnapshot, job: Job): Device | undefined {
     const d = this.device(snapshot, job.deviceId);
@@ -102,8 +96,8 @@ export class OwnerCompanionPush {
     }
     if (
       !roleHasCapability(user.accessLevel, 'agent_portal.reveal_transcript') ||
-      !this.visible(snapshot, job.targetId, d.userId) ||
-      companionVisible(this.owner, d.id, job.targetId)
+      !this.visible(snapshot, job.targetId, d.userId, job.kind === 'read') ||
+      (job.kind !== 'read' && companionVisible(this.owner, d.id, job.targetId))
     )
       return;
     if (
@@ -118,6 +112,9 @@ export class OwnerCompanionPush {
         .some((f) => f.deviceId === d.id && f.daemonSessionId === job.targetId)
     )
       return;
+    const read = snapshot.table('companionReads').get([d.userId, job.targetId])?.readCursor ?? 0;
+    if (job.kind === 'read' && (d.readSyncProtocol !== 1 || read <= 0)) return;
+    if (job.kind === 'reply' && Number(/^event:(\d+)$/.exec(job.sourceKey)?.[1] ?? Infinity) <= read) return;
     const source = /^notice:([0-9a-f-]{36}):(important|critical|blocker)$/.exec(job.sourceKey);
     if (source) {
       const notice = snapshot.table('agentChatNotices').get(source[1]!);
@@ -363,7 +360,9 @@ export class OwnerCompanionPush {
       kind: job.kind,
       target_id: job.targetId,
     };
-    if (job.kind !== 'approval') {
+    if (job.kind === 'read') {
+      data.event_cursor = String(snapshot.table('companionReads').get([device.userId, job.targetId])?.readCursor ?? 0);
+    } else if (job.kind !== 'approval') {
       const source = /^notice:([0-9a-f-]{36}):/.exec(job.sourceKey),
         notice = source ? snapshot.table('agentChatNotices').get(source[1]!) : undefined;
       const eventId = notice?.eventId ?? Number(/^event:(\d+)$/.exec(job.sourceKey)?.[1]);

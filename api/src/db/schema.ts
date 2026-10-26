@@ -2230,6 +2230,7 @@ export const companionDevices = mysqlTable('companion_devices', {
   userId: bigint('user_id', { mode: 'number', unsigned: true }).notNull(),
   name: varchar('name', { length: 100 }).notNull(),
   tokenHash: char('token_hash', { length: 64 }).notNull(),
+  readSyncProtocol: tinyint('read_sync_protocol').notNull().default(0),
   fcmTokenEnc: longtext('fcm_token_enc'),
   notifications: tinyint('notifications').notNull().default(1),
   eventCursor: bigint('event_cursor', { mode: 'number', unsigned: true }).notNull().default(0),
@@ -2245,6 +2246,13 @@ export const companionFollows = mysqlTable('companion_follows', {
   deviceId: char('device_id', { length: 36 }).notNull(),
   sessionId: char('session_id', { length: 36 }).notNull(),
 }, (t) => ({ pk: primaryKey({ columns: [t.deviceId, t.sessionId] }) }));
+
+export const companionReads = mysqlTable('companion_reads', {
+  userId: bigint('user_id', { mode: 'number', unsigned: true }).notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
+  sessionId: char('session_id', { length: 36 }).notNull(),
+  readCursor: bigint('read_cursor', { mode: 'number', unsigned: true }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({ pk: primaryKey({ columns: [t.userId, t.sessionId] }) }));
 
 export const companionNotifications = mysqlTable('companion_notifications', {
   id: char('id', { length: 36 }).primaryKey(),

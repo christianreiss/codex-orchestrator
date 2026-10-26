@@ -61,5 +61,11 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
   if (pairingColumns.length !== 1 || pairingColumns[0]!.table !== 'companion_pairings' || pairingColumns[0]!.column !== 'device_id')
     throw new Error('Migration 0107 must declare companion_pairings.device_id; cannot project the bootstrap schema');
   tables.get('companion_pairings')!.add('device_id');
+  const shared = resolve(import.meta.dirname, '../../src/db/migrations/0108_companion_shared_reads.sql');
+  const sharedSql = readFileSync(shared, 'utf8');
+  if (!/CREATE TABLE IF NOT EXISTS companion_reads/i.test(sharedSql) || !/ADD COLUMN read_sync_protocol/i.test(sharedSql))
+    throw new Error('Migration 0108 must declare shared reads and device protocol');
+  tables.set('companion_reads', new Set(['user_id', 'session_id', 'read_cursor', 'updated_at']));
+  tables.get('companion_devices')!.add('read_sync_protocol');
   return tables;
 }

@@ -339,9 +339,11 @@ describe.skipIf(!handle)('companion remote conversations with MySQL', () => {
       method: 'POST',
       url: '/companion/v1/agents',
       headers: headers(),
-      payload: { read_cursors: { [logical]: card.reply_cursor } },
+      payload: { read_cursors: { [logical]: card.reply_cursor }, sync_reads: true },
     });
+    expect(read.statusCode, read.body).toBe(200);
     expect(read.json().data.agents.find((s: { id: string }) => s.id === logical).unread_reply_count).toBe(0);
+    expect((await snapshot()).find(s => s.id === logical)).toMatchObject({ read_cursor: card.reply_cursor, unread_reply_count: 0 });
   });
   it('does not expose transcript or start rights after a role downgrade', async () => {
     await ctx.db.update(adminUsers).set({ accessLevel: 'viewer' }).where(eq(adminUsers.id, userId));

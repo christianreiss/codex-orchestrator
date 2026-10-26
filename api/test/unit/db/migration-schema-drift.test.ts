@@ -245,6 +245,7 @@ describe('migrations against the test baseline', () => {
       'control_plane_command_receipts',
       'control_plane_outbox',
       'agent_room_agent_reads',
+      'companion_reads',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
@@ -383,6 +384,7 @@ describe('migrations against the test baseline', () => {
       'control_plane_command_receipts.result_state',
       'agent_bus_messages.delivery_timing',
       'companion_pairings.device_id',
+      'companion_devices.read_sync_protocol',
     ]);
   });
 

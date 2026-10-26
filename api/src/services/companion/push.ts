@@ -9,6 +9,7 @@ import {
   agentEvents,
   agentChatNotices,
   companionDevices,
+  companionReads,
   companionFollows,
   companionDaemonFollows,
   hostDaemonPortalBindings,
@@ -218,7 +219,7 @@ export class CompanionPush {
             (!ownerByRemote.has(job.targetId) ||
               ownerByRemote.get(job.targetId) === `admin:${row.user.id}`) &&
             roleHasCapability(row.user.accessLevel, 'agent_portal.reveal_transcript');
-          if (row.device.visibleSessionId === job.targetId && (row.device.visibleUntil ?? '') > nowIso())
+          if (job.kind !== 'read' && row.device.visibleSessionId === job.targetId && (row.device.visibleUntil ?? '') > nowIso())
             eligible = false;
           if (job.kind === 'reply') {
             const [follow] = await db
@@ -243,6 +244,11 @@ export class CompanionPush {
           }
         }
       }
+      if (row && eligible && (job.kind === 'read' || job.kind === 'reply')) {
+        const [read] = await db.select().from(companionReads).where(and(eq(companionReads.userId, row.user.id), eq(companionReads.sessionId, job.targetId)));
+        if (job.kind === 'read' && (row.device.readSyncProtocol !== 1 || !read)) eligible = false;
+        if (job.kind === 'reply' && Number(/^event:(\d+)$/.exec(job.sourceKey)?.[1] ?? Infinity) <= (read?.readCursor ?? 0)) eligible = false;
+      }
       const noticeSource = /^notice:([0-9a-f-]{36}):(important|critical|blocker)$/.exec(job.sourceKey);
       const [sourceNotice] = noticeSource ? await db.select().from(agentChatNotices).where(eq(agentChatNotices.id, noticeSource[1]!)) : [];
       if (noticeSource && (!sourceNotice || sourceNotice.resolvedAt || sourceNotice.severity !== noticeSource[2])) eligible = false;
@@ -260,7 +266,10 @@ export class CompanionPush {
           kind: job.kind,
           target_id: job.targetId,
         };
-        if (job.kind !== 'approval') {
+        if (job.kind === 'read') {
+          const [read] = await db.select().from(companionReads).where(and(eq(companionReads.userId, row.user.id), eq(companionReads.sessionId, job.targetId)));
+          data.event_cursor = String(read?.readCursor ?? 0);
+        } else if (job.kind !== 'approval') {
           // Resolve the outbox's source event, never the session's latest preview:
           // another reply may have arrived while this delivery was retrying.
           const eventId = sourceNotice?.eventId ?? /^event:(\d+)$/.exec(job.sourceKey)?.[1];

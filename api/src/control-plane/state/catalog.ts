@@ -104,6 +104,7 @@ export const TABLE_POLICY = {
   schemaMigrations: 'owned',
   companionPairings: 'owned',
   companionDevices: 'owned',
+  companionReads: 'owned',
   companionFollows: 'owned',
   companionNotifications: 'owned',
   agentSchedules: 'owned',

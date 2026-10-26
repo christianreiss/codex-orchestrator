@@ -1,5 +1,7 @@
 # 2026-10-26
 
+- Android 0.5.10 synchronizes read replies across devices paired to the same administrator, including live views and silent protocol-gated badge cleanup. Preserve newer unread replies, offline markers, account isolation and old-server compatibility. Shared room reads now refresh other connected views. Requires API migration 0108 and the updated APK.
+
 - Hide revoked Android devices from the personal Account device list, including after reload and immediately after a confirmed revocation. Retain server records; show the empty state when no active paired devices remain.
 
 - Show host-style progress in phone pairing: code creation, waiting for the phone, and server-confirmed success for the exact reserved device. Hide consumed QR codes, explain expiry/offline status, and offer manual status checking. Migration 0107 adds the nullable reserved device UUID; existing native pairing payloads remain compatible.

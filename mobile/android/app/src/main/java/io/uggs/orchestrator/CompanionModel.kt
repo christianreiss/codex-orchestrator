@@ -119,6 +119,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun activityNow(): Long = if (activityServerAt > 0) activityServerAt + (SystemClock.elapsedRealtime() - activitySnapshotAt).coerceAtLeast(0) else System.currentTimeMillis()
     private var reconnect: Job? = null
     private var pendingOpen: String? = null
+    private var serverReadSync = false
     private var permissionsKnown = false
     private var portalAvailable = true
     private val unreadPreferences = app.getSharedPreferences(UnreadStore.PREFERENCES, Context.MODE_PRIVATE)
@@ -186,8 +187,10 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (!foreground || !fresh() || showingCachedTranscript || selected != id || !canReadSession(id) || replyCursor <= 0) return
         if (events.none { it.optString("type") == "assistant_message" && it.optLong("cursor") == replyCursor &&
                 !it.optJSONObject("payload")?.optString("text").isNullOrBlank() }) return
+        if (unreadStore.readCursor(id) >= replyCursor) return
         unreadStore.markRead(id, replyCursor)
         refreshUnreadState()
+        if (serverReadSync) invalidate(setOf("agents"))
     }
     private fun failure(e: Exception) {
         if (e is CancellationException) throw e
@@ -299,6 +302,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         val me = if ("me" in scopes) client.request("/me") else null
         val caps = me?.optJSONArray("capabilities")?.strings() ?: capabilities
         if (current != generation || epoch != revision || !foreground) return false
+        if (me != null) serverReadSync = me.optInt("read_sync_protocol", 0) >= 1
         if ("rooms" in scopes || me != null) {
             roomChats.refresh(client, caps) { current == generation && epoch == revision && foreground }
             if (current != generation || epoch != revision || !foreground) return false
@@ -313,7 +317,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         val requests = if (loadApprovals && "hosts.activate_insecure" in caps) client.request("/approvals") else null
         var portalDisabled = false
         val snapshot = if (loadAgents && "agent_portal.read" in caps) {
-            try { client.request("/agents", "POST", JSONObject().put("read_cursors", unreadStore.readCursors())) }
+            try { client.request("/agents", "POST", JSONObject().put("read_cursors", unreadStore.readCursors(pendingOnly = serverReadSync)).apply { if (serverReadSync) put("sync_reads", true) }) }
             catch (e: ApiException) {
                 if (e.status == 403 && current == generation && epoch == revision) { discardChatCache(); clearTranscript(); agents = emptyList() }
                 if (e.status == 503 && e.code == "agent_portal_disabled") { portalDisabled = true; null } else throw e
@@ -355,7 +359,8 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
             activitySnapshotAt = SystemClock.elapsedRealtime()
         }
         if (loadAgents && snapshot != null && "agent_portal.reveal_transcript" in caps && !portalDisabled) {
-            if (!unreadStore.observeReplies(agents, unreadRevision)) pendingScopes.add("agents")
+            if (!unreadStore.observeReplies(agents, unreadRevision, snapshot.optJSONObject("processed_read_cursors"))) pendingScopes.add("agents")
+            if (serverReadSync && unreadStore.hasPendingReads()) pendingScopes.add("agents")
         }
         if (!transcriptAllowed) { discardChatCache(); clearTranscript() }
         else if (nextEvents != null && selected == id) {
@@ -628,7 +633,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         quotaEngines = emptyList(); quotaError = null
         store.clear(); connection = null; selected = null; events = emptyList(); pendingChats = emptyMap(); agents = emptyList(); hosts = emptyList(); pendingStart = null; approvals = emptyList(); capabilities = emptySet()
         activeWindows = emptyList(); fleetWindow = null
-        unreadStore.clear(); unreadSessions = emptySet(); unreadReplyCounts = emptyMap(); permissionsKnown = false
+        serverReadSync = false; unreadStore.clear(); unreadSessions = emptySet(); unreadReplyCounts = emptyMap(); permissionsKnown = false
         syncUnreadNotifications(getApplication(), null, emptySet())
         online = false; lastSync = 0; reconnectAttempt = 0; pendingOpen = null; highlightApproval = null
         stopLive()

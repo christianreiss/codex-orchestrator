@@ -16,6 +16,7 @@ import {
   agentChatAttachments,
   agentSessions,
   companionDevices,
+  companionReads,
   companionFollows,
   companionNotifications,
   companionPairings,
@@ -24,6 +25,7 @@ import {
   insecureDomainAllows,
   logs,
 } from '../../src/db/schema.js';
+import { companionReadCursors } from '../../src/services/companion/reads.js';
 import { CompanionDevices } from '../../src/services/companion/devices.js';
 import { CompanionPush } from '../../src/services/companion/push.js';
 import { InsecureWindowAdminService } from '../../src/services/insecure-window-admin.js';
@@ -642,6 +644,51 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
     expect(
       await db.select().from(companionDevices).where(eq(companionDevices.id, connection.device_id)),
     ).toEqual(before);
+  });
+  it('shares monotonic reply reads across paired devices and keeps accounts and future replies separate', async () => {
+    const [host] = await db.select().from(hosts).where(eq(hosts.id, hostId));
+    await portal.setEnabled(true);
+    const registered = await portal.registerAgent(host!, { engine: 'codex', username: 'test', cwd: '/tmp/shared-read', invocationKind: 'interactive' });
+    if (!registered.enabled) throw new Error('Registration disabled');
+    const id = registered.session_id;
+    const put = async (type = 'assistant_message') => {
+      const [row] = await db.insert(agentEvents).values({ sessionId: id, clientEventId: randomUUID(), eventType: type, source: 'bridge', payloadEnc: encrypt(JSON.stringify({ text: 'Reply' }), ctx.keyring), createdAt: nowIso() });
+      return row.insertId;
+    };
+    const first = await put();
+    const second = await put();
+    const grant = await devices.pair(userId);
+    const tablet = await devices.exchange(JSON.parse(grant.qr).token, 'Read-sync tablet');
+    await devices.patch(tablet.device_id, { fcm_token: 'tablet-test-token', read_sync_protocol: 1 });
+    const snapshot = async (token: string, markers?: Record<string, number>) => {
+      const res = await app.inject({ method: markers ? 'POST' : 'GET', url: '/companion/v1/agents', headers: { authorization: `Bearer ${token}` }, ...(markers ? { payload: { read_cursors: markers, sync_reads: true } } : {}) });
+      expect(res.statusCode, res.body).toBe(200);
+      if (markers) expect(res.json().data.processed_read_cursors).toEqual(markers);
+      return res.json().data.agents.find((row: { id: string }) => row.id === id);
+    };
+    try {
+      expect(await snapshot(tablet.token)).toMatchObject({ read_cursor: 0, unread_reply_count: 2 });
+      expect(await snapshot(connection.token, { [id]: first })).toMatchObject({ read_cursor: first, unread_reply_count: 1 });
+      expect(await snapshot(tablet.token)).toMatchObject({ read_cursor: first, unread_reply_count: 1 });
+      await Promise.all([snapshot(connection.token, { [id]: second }), snapshot(tablet.token, { [id]: first })]);
+      expect(await snapshot(tablet.token)).toMatchObject({ read_cursor: second, unread_reply_count: 0 });
+      const third = await put();
+      expect(await snapshot(connection.token, { [id]: Number.MAX_SAFE_INTEGER })).toMatchObject({ read_cursor: second, reply_cursor: third, unread_reply_count: 1 });
+      const unrelated = await db.insert(agentEvents).values({ sessionId, clientEventId: randomUUID(), eventType: 'assistant_message', source: 'bridge', payloadEnc: encrypt('{}', ctx.keyring), createdAt: nowIso() });
+      expect(await snapshot(tablet.token, { [id]: unrelated[0].insertId })).toMatchObject({ read_cursor: second, unread_reply_count: 1 });
+      const [otherUser] = await db.insert(adminUsers).values({ name: 'Other reader', username: `reader-${randomUUID()}`, email: `${randomUUID()}@example.test`, passwordHash: 'test', accessLevel: 'owner', active: 1, createdAt: nowIso(), updatedAt: nowIso() });
+      try { expect(await companionReadCursors(ctx, otherUser.insertId, [{ id }], new Map())).toEqual({}); }
+      finally { await db.delete(adminUsers).where(eq(adminUsers.id, otherUser.insertId)); }
+      const jobs = await db.select().from(companionNotifications).where(eq(companionNotifications.deviceId, tablet.device_id));
+      expect(jobs.filter(j => j.kind === 'read')).toHaveLength(2);
+      expect(jobs.every(j => j.targetId === id)).toBe(true);
+      await devices.revoke(userId, tablet.device_id);
+      await expect(companionReadCursors(ctx, userId, [{ id }], new Map(), { [id]: third }, tablet.device_id)).rejects.toMatchObject({ code: 'device_revoked' });
+      expect((await db.select().from(companionReads).where(eq(companionReads.sessionId, id)))[0]?.readCursor).toBe(second);
+    } finally {
+      await db.delete(companionNotifications).where(eq(companionNotifications.deviceId, tablet.device_id));
+      await db.delete(companionDevices).where(eq(companionDevices.id, tablet.device_id));
+    }
   });
   it('validates bounded UUID read maps and preserves snapshot permission and portal gates', async () => {
     const request = {

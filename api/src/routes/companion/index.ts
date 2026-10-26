@@ -18,6 +18,7 @@ import {
 } from '../../db/schema.js';
 import { CompanionDevices } from '../../services/companion/devices.js';
 import { startCompanionPush } from '../../services/companion/push.js';
+import { companionReadCursors } from '../../services/companion/reads.js';
 import { companionPreviews } from '../../services/companion/summary.js';
 import { CompanionRemote, companionStartSchema, contactPrompt } from '../../services/companion/remote.js';
 import { CompanionLive } from '../../services/companion/live.js';
@@ -38,6 +39,7 @@ const safeReadCursor = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGE
 const sessionUuid = z.string().uuid();
 const readSnapshot = z
   .object({
+    sync_reads: z.boolean().optional(),
     read_cursors: z
       .unknown()
       .refine((value) => {
@@ -199,6 +201,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       const { device, user } = await auth(req);
       return {
         device_id: device.id,
+        read_sync_protocol: 1,
         name: user.name,
         capabilities: capabilitiesForRole(user.accessLevel),
         firebase: devices.firebase(),
@@ -220,6 +223,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       const { device } = await auth(req);
       const body = z
         .object({
+          read_sync_protocol: z.literal(1).optional(),
           fcm_token: z.string().min(1).max(4096).nullable().optional(),
           notifications: z.boolean().optional(),
           visible_session_id: z.string().uuid().nullable().optional(),
@@ -235,39 +239,50 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
     });
     const agentsSnapshot = async (
       user: { id: number; accessLevel: string },
+      deviceId: string,
       readCursors?: Record<string, number>,
+      syncReads = false,
     ) => {
       const snapshot = await portal.listAgentsSnapshot();
       const reveal = capabilitiesForRole(user.accessLevel).includes('agent_portal.reveal_transcript');
       const projection = await remote.project(user.id, snapshot.sessions);
+      const sharedReads = reveal ? await companionReadCursors(ctx, user.id, projection.sessions, projection.aliases, syncReads ? readCursors : undefined, deviceId) : {};
+      const effectiveReads: Record<string, number> = syncReads ? {} : { ...readCursors };
+      for (const [id, cursor] of Object.entries(sharedReads)) effectiveReads[id] = Math.max(effectiveReads[id] ?? 0, cursor);
       const sessions = (
         reveal
-          ? await companionPreviews(ctx, projection.sessions, readCursors, projection.aliases)
+          ? await companionPreviews(ctx, projection.sessions, effectiveReads, projection.aliases)
           : projection.sessions
       ).map((session) =>
         reveal
-          ? session
+          ? { ...session, read_cursor: sharedReads[String(session.id)] ?? 0 }
           : {
               ...session,
               session_name: null,
               task_title: null,
               preview: null,
               reply_cursor: null,
+              read_cursor: null,
               unread_reply_count: null,
               pending_prompt: null,
               notices: [],
               attention: session.attention ? { since: (session.attention as { since: string }).since } : null,
             },
       );
-      return { agents: sessions, generated_at: snapshot.generated_at, timings: portal.timings() };
+      return { agents: sessions, generated_at: snapshot.generated_at, timings: portal.timings(), ...(syncReads && reveal ? { processed_read_cursors: readCursors ?? {} } : {}) };
     };
     app.get('/companion/v1/agents', async (req) => {
-      const { user } = await auth(req, 'agent_portal.read');
+      const { user, device } = await auth(req, 'agent_portal.read');
       await requirePortal();
-      return agentsSnapshot(user);
+      const result = await agentsSnapshot(user, device.id);
+      const current = await auth(req, 'agent_portal.read');
+      const currentCapabilities = capabilitiesForRole(current.user.accessLevel);
+      const snapshotCapabilities = capabilitiesForRole(user.accessLevel);
+      if (currentCapabilities.join(',') !== snapshotCapabilities.join(',')) throw new ForbiddenError('Permissions changed; refresh the snapshot');
+      return result;
     });
     app.post('/companion/v1/agents', async (req) => {
-      const { user } = await auth(req, 'agent_portal.read');
+      const { user, device } = await auth(req, 'agent_portal.read');
       await requirePortal();
       const parsed = readSnapshot.safeParse(req.body);
       if (!parsed.success)
@@ -280,7 +295,12 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
             param: 'read_cursors',
           },
         );
-      return agentsSnapshot(user, parsed.data.read_cursors);
+      const result = await agentsSnapshot(user, device.id, parsed.data.read_cursors, parsed.data.sync_reads);
+      const current = await auth(req, 'agent_portal.read');
+      const currentCapabilities = capabilitiesForRole(current.user.accessLevel);
+      const snapshotCapabilities = capabilitiesForRole(user.accessLevel);
+      if (currentCapabilities.join(',') !== snapshotCapabilities.join(',')) throw new ForbiddenError('Permissions changed; refresh the snapshot');
+      return result;
     });
     app.get('/companion/v1/agents/:id/events', async (req) => {
       const { user } = await auth(req, 'agent_portal.reveal_transcript');

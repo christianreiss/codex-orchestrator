@@ -87,7 +87,7 @@ export class CompanionDevices {
         const user = context.draft.table('adminUsers').get(pairing.userId);
         if (!user?.active) throw new UnauthorizedError('Account disabled', 'admin_disabled');
         const latest = Number(context.snapshot.setting('owner_portal_event_id') ?? 0);
-        const row = { id, userId: user.id, name, tokenHash: sha256(credential), eventCursor: latest, createdAt: nowIso(), lastSeenAt: nowIso(), expiresAt: isoOffsetSeconds(365 * 86400), fcmTokenEnc: null, notifications: 1, visibleSessionId: null, visibleUntil: null, revokedAt: null };
+        const row = { id, userId: user.id, name, tokenHash: sha256(credential), eventCursor: latest, createdAt: nowIso(), lastSeenAt: nowIso(), expiresAt: isoOffsetSeconds(365 * 86400), fcmTokenEnc: null, readSyncProtocol: 0, notifications: 1, visibleSessionId: null, visibleUntil: null, revokedAt: null };
         context.draft.upsert('companionDevices', row); context.write(async tx => { await tx.insert(companionDevices).values(row); });
         stageDelete(context, 'companionPairings', pairing.tokenHash); adminAudit(context, 'companion.device.paired', { device_id: id, admin_user_id: user.id });
         capabilities = capabilitiesForRole(user.accessLevel); return null;
@@ -186,18 +186,18 @@ export class CompanionDevices {
       .where(eq(companionDevices.userId, userId));
   }
 
-  async patch(id: string, input: { fcm_token?: string | null; notifications?: boolean; visible_session_id?: string | null }) {
+  async patch(id: string, input: { read_sync_protocol?: 1; fcm_token?: string | null; notifications?: boolean; visible_session_id?: string | null }) {
     const owner = ownerRuntimeFor(this.ctx.db);
     if (!owner) {
-      await this.ctx.db.update(companionDevices).set({ lastSeenAt: nowIso(), ...(input.fcm_token !== undefined ? { fcmTokenEnc: input.fcm_token ? encrypt(input.fcm_token, this.ctx.keyring) : null } : {}), ...(input.notifications !== undefined ? { notifications: Number(input.notifications) } : {}), ...(input.visible_session_id !== undefined ? { visibleSessionId: input.visible_session_id, visibleUntil: input.visible_session_id ? isoOffsetSeconds(45) : null } : {}) }).where(eq(companionDevices.id, id));
+      await this.ctx.db.update(companionDevices).set({ lastSeenAt: nowIso(), ...(input.read_sync_protocol !== undefined ? { readSyncProtocol: input.read_sync_protocol } : {}), ...(input.fcm_token !== undefined ? { fcmTokenEnc: input.fcm_token ? encrypt(input.fcm_token, this.ctx.keyring) : null } : {}), ...(input.notifications !== undefined ? { notifications: Number(input.notifications) } : {}), ...(input.visible_session_id !== undefined ? { visibleSessionId: input.visible_session_id, visibleUntil: input.visible_session_id ? isoOffsetSeconds(45) : null } : {}) }).where(eq(companionDevices.id, id));
     } else {
       observeCompanion(owner, id, input.visible_session_id);
       const current = owner.state.snapshot().table('companionDevices').get(id);
       if (!current || current.revokedAt) throw new UnauthorizedError('Device revoked', 'device_revoked');
-      if (input.fcm_token === undefined && (input.notifications === undefined || Number(input.notifications) === current.notifications)) return;
+      if ((input.read_sync_protocol === undefined || input.read_sync_protocol === current.readSyncProtocol) && input.fcm_token === undefined && (input.notifications === undefined || Number(input.notifications) === current.notifications)) return;
       await mutateOwnerState(owner, { kind: 'companion.settings', payload: { id, notifications: input.notifications ?? null, tokenChanged: input.fcm_token !== undefined }, prepare: context => {
         const row = context.draft.table('companionDevices').get(id); if (!row || row.revokedAt) throw new UnauthorizedError('Device revoked', 'device_revoked');
-        stageUpdate(context, 'companionDevices', id, { ...(input.fcm_token !== undefined ? { fcmTokenEnc: input.fcm_token ? encrypt(input.fcm_token, this.ctx.keyring) : null } : {}), ...(input.notifications !== undefined ? { notifications: Number(input.notifications) } : {}) }); return null;
+        stageUpdate(context, 'companionDevices', id, { ...(input.read_sync_protocol !== undefined ? { readSyncProtocol: input.read_sync_protocol } : {}), ...(input.fcm_token !== undefined ? { fcmTokenEnc: input.fcm_token ? encrypt(input.fcm_token, this.ctx.keyring) : null } : {}), ...(input.notifications !== undefined ? { notifications: Number(input.notifications) } : {}) }); return null;
       } });
     }
     wsPublisher.publish('companion.devices.changed', {});

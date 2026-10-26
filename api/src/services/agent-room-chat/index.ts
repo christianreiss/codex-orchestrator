@@ -475,15 +475,21 @@ export class AgentRoomChat {
     const owned=this.owned();if(owned)return owned.markRead(actor,roomId,through);
     if (!actor.adminId || !Number.isFinite(Date.parse(through)))
       throw new ValidationError('Valid read position required');
-    return this.run(actor, async (tx, session) => {
+    let advanced = false;
+    const result = await this.run(actor, async (tx, session) => {
       await this.room(tx, roomId, session);
+      const [old] = await tx.select().from(agentRoomReads).where(and(eq(agentRoomReads.roomId, roomId), eq(agentRoomReads.adminId, actor.adminId!)));
       const readAt = new Date(Math.min(Date.now(), Date.parse(through))).toISOString();
+      if (old && old.readAt >= readAt) return { read_at: old.readAt };
+      advanced = true;
       await tx
         .insert(agentRoomReads)
         .values({ roomId, adminId: actor.adminId!, readAt })
         .onDuplicateKeyUpdate({ set: { readAt: sql`GREATEST(read_at, ${readAt})` } });
       return { read_at: readAt };
     });
+    if (advanced) wsPublisher.publish('agent_room_chat.changed', { room_id: roomId });
+    return result;
   }
   async send(actor: RoomActor, input: unknown) {
     const owned=this.owned();if(owned){const result=await owned.send(actor,input);wsPublisher.publish('agent_room_chat.changed', {room_id:roomSendSchema.parse(input).room_id});return result;}

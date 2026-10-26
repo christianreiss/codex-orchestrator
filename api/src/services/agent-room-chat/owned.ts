@@ -1,3 +1,4 @@
+import { wsPublisher } from '../../ws/publisher.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import * as schema from '../../db/schema.js';
@@ -310,12 +311,15 @@ export class OwnedRoomChat {
   async markRead(actor: RoomActor, roomId: string, through: string) {
     if (!actor.adminId || !Number.isFinite(Date.parse(through)))
       throw new ValidationError('Valid read position required');
-    return this.command(actor, 'room.read-position', { roomId, through }, async (ctx, session) => {
+    let advanced = false;
+    const result = await this.command(actor, 'room.read-position', { roomId, through }, async (ctx, session) => {
       this.room(ctx.draft.view(), roomId, session);
       const old = ctx.draft.table('agentRoomReads').get([roomId, actor.adminId!]),
         readAt = [old?.readAt ?? '', new Date(Math.min(Date.now(), Date.parse(through))).toISOString()]
           .sort()
           .at(-1)!;
+      if (old && old.readAt >= readAt) return { read_at: old.readAt };
+      advanced = true;
       const head = roomHead(ctx.draft.view(), roomId);
       let unreadCount = 0;
       if (head?.lastAt && head.lastAt > readAt) {
@@ -340,6 +344,8 @@ export class OwnedRoomChat {
       );
       return { read_at: readAt };
     });
+    if (advanced) wsPublisher.publish('agent_room_chat.changed', { room_id: roomId });
+    return result;
   }
   /** Agent read position (cold table): the write runs in the owner transaction, never on the read handle. */
   async recordAgentRead(actor: RoomActor, roomId: string, through: string): Promise<boolean> {

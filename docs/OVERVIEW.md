@@ -1543,3 +1543,9 @@ explicit remote targets remain distinct. Native-child shared identity and
 connection-proof recovery are documented in `agent-coordination.md`. Invalid
 legacy retention clock stamps cannot mask a valid successor, and provider
 verification retry waits are anchored after rescan without a millisecond loop.
+
+Android 0.5.10 shares chat read watermarks per administrator through opt-in agents
+snapshots (`sync_reads:true`, returned `read_cursor`), live invalidation and silent
+protocol-gated read pushes. Older servers retain local behavior; deployment requires
+migration 0108 and the new APK on each device. Room read advances invalidate other
+views. Markers only advance and contain no transcript content.

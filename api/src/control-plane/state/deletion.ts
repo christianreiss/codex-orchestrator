@@ -31,7 +31,7 @@ export function projectHostDeletion(draft: OwnerStateDraft, hostId: number): voi
 }
 
 export function projectAdminUserDeletion(draft: OwnerStateDraft, userId: number): void {
-  for (const table of ['chattySessions', 'chattyRuns', 'chattyActions'] as const) {
+  for (const table of ['chattySessions', 'chattyRuns', 'chattyActions', 'companionReads'] as const) {
     for (const row of draft.table(table).by('userId', userId)) draft.removeRow(table, row);
   }
   // chatty_events and shared_memory_revisions are cold and have no owner projection.
