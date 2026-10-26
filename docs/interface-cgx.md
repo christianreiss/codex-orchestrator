@@ -295,7 +295,7 @@ is deliberately not derived: its interplay with the isolated managed runtime is
 unverified and Grok runs unsandboxed when a profile cannot be applied; the
 enforcement report lists it under `not_enforced`.
 
-## Native configuration maintenance (2026-10-16)
+## Native configuration maintenance (2026-10-26)
 
 The config API accepts `settings.native_settings`, a JSON object with the native
 `config.toml` table shape. The Grok validator preserves documented fields through
@@ -304,9 +304,10 @@ subagents, plugins, goals, memory, native command/HTTP hooks, notification hooks
 and built-in or command status lines. Features are configured only when an
 operator supplies them; support does not turn experimental features on.
 
-The field/type registry is audited against Grok Build **1.0.60 stable** and the
-[official complete reference](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md),
-supplemented by the matching configuration, hooks and status-line guides and
+The field/type registry is audited against Grok Build **1.0.70 stable** and the bundled
+complete reference (SHA-256 `ebd97fec98bb00bfdfa37befddf31dd8a14e3f277db887c7b643888867865db7`).
+The older [public source reference](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md)
+is supplemented by the matching bundled configuration, hooks and status-line guides and
 [current settings reference](https://docs.x.ai/build/settings/reference).
 The existing native floor remains Grok Build 1.0.50, including the
 `ui.timestamps` setting. `pager.toml`, custom
@@ -338,7 +339,38 @@ The saved `content`/`sha256` remain the historical snapshot until the next norma
 save; host rendering and validation previews use the migrated settings immediately.
 The accidental `model.<id>.6.api_key` registry path is also rejected; documented
 `model.<id>.api_key` remains supported. `features.tool_search` is not accepted:
-the current web reference and stable 1.0.60 consumer disagree.
+the web reference and stable 1.0.70 consumer disagree (native inspect reports an unknown field).
+
+The 1.0.70 audit adds `keys.vim` (`off|nav`), diagnostics/error reporting,
+web UI endpoint, current opt-in feature switches, memory daily token cap, model
+vision and boolean/integer compaction headers, image/video endpoint credentials,
+command-hook argument arrays, and program-status notification strings/tables.
+`compactions_remaining` integers are 0–255; `daily_token_cap` is at least 1,000,000.
+These settings remain absent until an operator configures them. Literal model
+names do not affect feature-version detection.
+
+New input rejects ineffective `ui.simple_mode` and `memory_v2.compact_index_enabled`,
+and directs retired Vim/density keys to `keys.vim` / `ui.tool_call_density`.
+Idempotent migration 0110 updates root and version-override layers: a valid
+canonical Vim value wins; legacy true/false becomes nav/off otherwise. Explicit
+canonical density wins; collapsed edits select compact-ungrouped, otherwise an
+explicit false collapse/group value selects compact-shells. Group true alone
+selects no level. Retired keys and known invalid compaction header shapes are
+removed; unrelated siblings and historical body/hash pairs remain intact.
+
+Native `experiments` patches remain outside this user-default editor: their
+per-machine assignments and dismissal state are a separate rollout mechanism,
+and their late model/update arms could bypass fleet ownership. `worker` and
+`cursor_worker` settings are rejected explicitly because independent Cursor
+worker services do not share the managed auth/session/receiver lifecycle.
+
+New fields raise the required reported version only when configured: command
+hook args/program status require 1.0.63, inherited worktree approvals 1.0.67,
+Vim keys 1.0.68, and additions without a proven earlier introduction 1.0.70.
+False and empty values count. Version overrides are checked when applicable to
+the observed host; a future layer does not block an older host that skips it.
+Run `cgx update` or `cgx cron run` to install/report before retrying gated sync;
+update and version-report routes remain available. No base installer floor changes.
 
 Omit absent values; TOML has no `null`.
 

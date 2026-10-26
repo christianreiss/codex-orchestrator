@@ -36,8 +36,54 @@ function needsCodex163(value: Record<string, unknown>): boolean {
     || codex163Voices.has(String(record(value.realtime).voice));
 }
 
+/** Audit additions only; Grok's existing installer floor remains 1.0.50. */
+function grokNativeMinimum(native: Record<string, unknown>, observed?: string, includeOverrides = true): string | null {
+  let minimum: string | null = null;
+  const require = (version: string) => { if (!minimum || versionCompare(version, minimum) > 0) minimum = version; };
+  const has = (root: Record<string, unknown>, key: string) => Object.hasOwn(root, key);
+  const features = record(native.features);
+  if (has(record(native.keys), 'vim')) require('1.0.68');
+  if (has(features, 'worktree_inherits_main_approvals')) require('1.0.67');
+  if (has(record(record(native.ui).notifications), 'program_status')) require('1.0.63');
+  for (const groups of Object.values(record(native.hooks))) {
+    if (Array.isArray(groups)) for (const group of groups) {
+      const handlers = record(group).hooks;
+      if (Array.isArray(handlers) && handlers.some(handler => has(record(handler), 'args'))) require('1.0.63');
+    }
+  }
+  if (['ask_answer_rows', 'cursor_marketplace', 'subagent_bundle', 'workflow_conversion', 'workspace_dashboard'].some(key => has(features, key))
+    || has(record(native.diagnostics), 'error_reporting') || has(record(native.endpoints), 'web_base_url')
+    || has(record(native.memory_v2), 'daily_token_cap')) require('1.0.70');
+  for (const model of Object.values(record(native.model))) {
+    const fields = record(model);
+    if (has(fields, 'vision') || has(fields, 'compactions_remaining') || has(fields, 'send_compactions_remaining') || typeof fields.compaction_at_tokens === 'boolean') require('1.0.70');
+  }
+  for (const tool of ['image_gen', 'video_gen']) {
+    const fields = record(record(native.toolset)[tool]);
+    if (has(fields, 'base_url') || has(fields, 'env_key')) require('1.0.70');
+  }
+  if (includeOverrides && Array.isArray(native.version_overrides)) for (const layer of native.version_overrides) {
+    const patch = record(layer);
+    if (observed && ((typeof patch.minimum_version === 'string' && versionCompare(observed, patch.minimum_version) < 0)
+      || (typeof patch.maximum_version === 'string' && versionCompare(observed, patch.maximum_version) > 0))) continue;
+    const required = grokNativeMinimum(patch, observed, false);
+    if (required) require(required);
+  }
+  return minimum;
+}
+
 export function assertNativeConfigSupport(settings: unknown, host: Host | null, engine: Engine): void {
-  if (!host || engine === 'grok') return;
+  if (!host) return;
+  if (engine === 'grok') {
+    const native = record(record(settings).native_settings);
+    const raw = host.grokClientVersion;
+    const observed = typeof raw === 'string' ? raw.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] : undefined;
+    const minimum = grokNativeMinimum(native, observed);
+    if (minimum && (!observed || versionCompare(observed, minimum) < 0)) {
+      throw new ValidationError(`grok native settings require CLI ${minimum} or newer; observed ${observed ?? 'unreported'}. Run cgx update (or cron run to report an already installed version), then retry sync.`, { param: 'settings.native_settings' });
+    }
+    return;
+  }
   const value = record(settings);
   const root = Object.keys(record(value.native_settings)).length > 0;
   const profile = engine === 'codex' && Array.isArray(value.profiles)

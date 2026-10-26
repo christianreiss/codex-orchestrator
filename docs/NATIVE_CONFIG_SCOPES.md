@@ -4,8 +4,8 @@ The Engines page authors fleet **user defaults**: Codex `config.toml` and named
 profile sidecars, Claude `settings.json`, and Grok `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
-can be authored centrally. Coverage was reviewed on 2026-10-26 for Codex 0.164.0; the preceding
-Claude Code 2.1.301 and Grok Build 1.0.60 scope reviews remain separate.
+can be authored centrally. Coverage was reviewed on 2026-10-26 against Codex
+0.164.0, Claude Code 2.1.310 and Grok Build 1.0.70.
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -61,7 +61,14 @@ Claude Desktop 3.6556.0+ owns `sshHostCommands`; CLI defaults reject it with a s
 Older or unreported versions receive an actionable config validation
 error with observed and required versions. Empty extensions and existing
 structured-only settings do not raise either fleet-wide minimum. Grok already
-enforces its 1.0.50 native floor. Literal-key ownership independently requires
+enforces its 1.0.50 native floor. Grok additions use exact conditional floors:
+1.0.63 for hook args/program status, 1.0.67 for inherited worktree approvals,
+1.0.68 for Vim keys, and 1.0.70 for additions without a proven earlier release.
+Only applicable version overrides contribute to the floor. Native experiments
+and independent Cursor-worker settings are rejected because they require separate
+rollout-state and auth/session-lifecycle ownership. Project Grok configuration
+remains native-owned and supports MCP/plugins/permissions plus
+`mcp.max_output_bytes`. Literal-key ownership independently requires
 cxx 0.9.66 where documented.
 
 Admin validation and previews require no host. Before host sync, `cdx update` or
