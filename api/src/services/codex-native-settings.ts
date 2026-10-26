@@ -75,6 +75,7 @@ const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false });
 const validate = ajv.compile(schema);
 // PermissionsToml is flattened upstream and its emitted schema is opaque.
 const validateMitm = ajv.compile({ definitions: schema.definitions, $ref: '#/definitions/NetworkMitmToml' });
+const validateOAuth = ajv.compile({ definitions: schema.definitions, $ref: '#/definitions/McpServerOAuthConfig' });
 const retiredRootKeys = new Set([
   'personality', 'profile', 'profiles', 'model_max_output_tokens',
   'model_supports_reasoning_summaries', 'experimental_instructions_file',
@@ -179,17 +180,7 @@ function validateCodexNativeSemantics(out: NativeSettings, path: string): void {
       throw new ValidationError(`${field}.input: preset input exceeds 8000 UTF-8 bytes`, { param: `${field}.input` });
     }
   }
-  for (const [name, value] of Object.entries(nativeRecord(out.mcp_servers))) {
-    const server = nativeRecord(value);
-    const oauth = nativeRecord(server.oauth);
-    if (Object.hasOwn(oauth, 'token_endpoint_auth_method')) {
-      const field = `${path}.mcp_servers.${name}.oauth.token_endpoint_auth_method`;
-      if (server.auth !== 'ema_auth' || typeof oauth.client_secret !== 'string' || oauth.client_secret.trim() === ''
-        || typeof oauth.client_id !== 'string' || oauth.client_id.trim() === '') {
-        throw new ValidationError(`${field}: EMA token authentication requires auth=ema_auth, a nonempty OAuth client_id and client_secret`, { param: field });
-      }
-    }
-  }
+  validateCodexMcpOAuthSemantics(nativeRecord(out.mcp_servers), path);
   for (const [name, value] of Object.entries(nativeRecord(out.permissions))) {
     const network = nativeRecord(nativeRecord(value).network);
     if (!Object.hasOwn(network, 'mitm')) continue;
@@ -230,6 +221,57 @@ function validateCodexNativeSemantics(out: NativeSettings, path: string): void {
     && (typeof idp.client_secret !== 'string' || idp.client_secret.trim() === '')) {
     const field = `${path}.mcp_enterprise_managed_auth.idp.${Object.hasOwn(idp, 'token_endpoint_auth_method') ? 'token_endpoint_auth_method' : 'client_secret'}`;
     throw new ValidationError(`${field}: token authentication requires a nonempty IdP client_secret`, { param: field });
+  }
+}
+
+/** Shared by native settings and the legacy structured MCP authoring surface. */
+export function validateCodexMcpOAuthSemantics(servers: NativeSettings, path = 'settings'): void {
+  for (const [name, value] of Object.entries(servers)) {
+    const server = nativeRecord(value);
+    const oauth = nativeRecord(server.oauth);
+    const field = `${path}.mcp_servers.${name}`;
+    if (Object.hasOwn(server, 'oauth') && !validateOAuth(server.oauth)) {
+      throw new ValidationError(`${field}.oauth: invalid native OAuth fields or types`, { param: `${field}.oauth` });
+    }
+    if (Object.hasOwn(oauth, 'token_endpoint_auth_method')) {
+      const field = `${path}.mcp_servers.${name}.oauth.token_endpoint_auth_method`;
+      if (server.auth !== 'ema_auth' || typeof oauth.client_secret !== 'string' || oauth.client_secret.trim() === ''
+        || typeof oauth.client_id !== 'string' || oauth.client_id.trim() === '') {
+        throw new ValidationError(`${field}: EMA token authentication requires auth=ema_auth, a nonempty OAuth client_id and client_secret`, { param: field });
+      }
+    }
+    // mcp_types.rs validates confidential clients independently of EMA's method.
+    // mcp_ema.rs additionally checks these fields when establishing a connection.
+    if (Object.hasOwn(server, 'oauth') && (typeof server.url !== 'string' || Object.hasOwn(server, 'command'))) {
+      throw new ValidationError(`${field}.oauth: OAuth requires streamable HTTP`, { param: `${field}.oauth` });
+    }
+    if (Object.hasOwn(oauth, 'client_secret')) {
+      if (typeof oauth.client_secret !== 'string' || oauth.client_secret.trim() === '') {
+        throw new ValidationError(`${field}.oauth.client_secret: must not be empty`, { param: `${field}.oauth.client_secret` });
+      }
+      if (typeof oauth.client_id !== 'string' || oauth.client_id.trim() === '') {
+        throw new ValidationError(`${field}.oauth.client_secret: requires a nonempty oauth.client_id`, { param: `${field}.oauth.client_secret` });
+      }
+    }
+    if (Object.hasOwn(oauth, 'authorization_server_issuer') && server.auth !== 'ema_auth') {
+      throw new ValidationError(`${field}.oauth.authorization_server_issuer: requires auth=ema_auth`, { param: `${field}.oauth.authorization_server_issuer` });
+    }
+    if (server.auth === 'ema_auth') {
+      if (server.environment_id !== undefined && server.environment_id !== 'local') {
+        throw new ValidationError(`${field}.environment_id: ema_auth requires a host-owned local MCP connection`, { param: `${field}.environment_id` });
+      }
+      if (typeof server.url !== 'string' || Object.hasOwn(server, 'command')) {
+        throw new ValidationError(`${field}.auth: ema_auth requires streamable HTTP`, { param: `${field}.auth` });
+      }
+      if (Object.hasOwn(oauth, 'client_secret')
+        && (typeof oauth.authorization_server_issuer !== 'string' || oauth.authorization_server_issuer.trim() === '')) {
+        throw new ValidationError(`${field}.oauth.authorization_server_issuer: confidential ema_auth requires a nonempty issuer`, { param: `${field}.oauth.authorization_server_issuer` });
+      }
+      if (Object.hasOwn(server, 'bearer_token_env_var') || Object.hasOwn(server, 'http_headers_helper')
+        || Object.keys(nativeRecord(server.http_headers)).length > 0 || Object.keys(nativeRecord(server.env_http_headers)).length > 0) {
+        throw new ValidationError(`${field}.auth: ema_auth cannot be combined with alternate HTTP credentials`, { param: `${field}.auth` });
+      }
+    }
   }
 }
 

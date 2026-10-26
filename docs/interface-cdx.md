@@ -1917,8 +1917,22 @@ auth operation, registration or entitlement. No fleet auth setting is changed.
 
 The API also enforces native rules that the emitted JSON schema only describes:
 preset slots are single digits and input is limited to 8,000 UTF-8 bytes;
-MCP token authentication methods require `auth="ema_auth"`, a client ID and
-secret; IdP token methods require a secret. MITM actions and hooks are validated
+MCP OAuth settings require streamable HTTP. Every configured client secret must
+be nonempty and have a nonempty client ID, including ordinary OAuth without EMA.
+Token authentication methods additionally require `auth="ema_auth"` and a secret;
+IdP token methods require a secret. EMA requires a local (`environment_id="local"`,
+also the native default) host-owned HTTP connection, without alternate HTTP
+credential fields. Confidential EMA also requires a nonempty
+`oauth.authorization_server_issuer`; that issuer field is exclusive to EMA.
+These checks mirror the native parse and connection validators in
+[0.164 `mcp_types.rs`](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/config/src/mcp_types.rs)
+and [`mcp_ema.rs`](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/config/src/mcp_ema.rs).
+Preserving and parsing valid configuration does not prove trusted IdP provenance,
+provider registration, endpoint reachability or successful token exchange; those
+remain native runtime checks. The same OAuth checks apply to legacy structured
+MCP entries before preview/store, even without `native_settings`. No login or
+connection is made during authoring.
+MITM actions and hooks are validated
 against their native schema, including nonempty operations/actions and explicit
 `version=2` for scoped ports/schemes or credential placeholders. Validation
 errors identify fields without echoing values. Auth state, managed MCP and host

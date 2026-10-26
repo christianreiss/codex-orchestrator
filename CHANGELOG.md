@@ -1,5 +1,7 @@
 # 2026-10-26
 
+- Reject native-invalid Codex OAuth combinations before saving, including confidential clients without IDs and EMA connections missing an issuer or using remote/stdio/alternate credentials. Preserve ordinary confidential HTTP OAuth without requiring EMA; no authentication is performed by validation.
+
 - Accept positive safe-integer context windows for custom Grok/BYOK model definitions instead of applying subscription-only window limits. Keep supported subscription model restrictions, literal model names, sibling settings and strict corrective-read validation intact.
 
 - Keep invalid saved native engine settings readable for correction, preserving their exact authored values and historical body/hash. Show the validation problem on Engines and in the editor; preview, saving and host delivery remain strict and revision-checked.

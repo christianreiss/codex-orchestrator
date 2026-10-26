@@ -28,7 +28,7 @@
 
 import { createHash } from 'node:crypto';
 import { ValidationError } from '../http/errors.js';
-import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, validateCodexFeatureDocument, type CodexApprovalPolicy } from './codex-native-settings.js';
+import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, validateCodexFeatureDocument, validateCodexMcpOAuthSemantics, type CodexApprovalPolicy } from './codex-native-settings.js';
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
 import { CLAUDE_LEGACY_MODEL_UPGRADES as CLAUDE_MODEL_UPGRADES, CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_ENV_KEYS, normalizeClaudeModelReference } from './claude-models.js';
 import { normalizeClaudeNativeSettings } from './claude-native-settings.js';
@@ -482,6 +482,12 @@ export function normalizeSettings(
     profiles: normalizeProfiles(settings.profiles),
     mcp_servers: normalizeMcpServers(settings.mcp_servers),
   };
+
+  if (isCodex) {
+    validateCodexMcpOAuthSemantics(Object.fromEntries(out.mcp_servers
+      .filter(server => typeof server.name === 'string')
+      .map(server => [server.name as string, server])));
+  }
 
   if (engine === 'claude') {
     const native = normalizeClaudeNativeSettings(settings.native_settings);
