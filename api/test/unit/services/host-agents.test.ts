@@ -423,6 +423,27 @@ describe('HostAgentsService API keys in chat policy', () => {
 });
 
 describe('HostAgentsService Model Class Check', () => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('renders the audited cross-engine classes in the %s admin preview', async engine => {
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, 'Retain operator rules\n', engine)]],
+      [clientConfigDocuments, [configRow(1, engine, { orchestrator_mcp_enabled: false })]],
+    ]);
+    const configured = { codex: 'gpt-6.1-sol', claude: 'claude-sonnet-5-5', grok: 'grok-4.7-build-fast' };
+    const host = makeHost({ engines: 'codex,claude,grok', status: 'active', modelOverride: configured.codex,
+      claudeModelOverride: configured.claude, grokModelOverride: configured.grok });
+    const out = await makeService(db).renderCurrent(host, engine);
+    const body = String(out['content']);
+    expect(body).toContain(`configured ${engine} model is \`${configured[engine]}\` (Tier ${engine === ENGINE_CLAUDE ? 2 : 3})`);
+    const tierThree = body.split('\n').find(line => line.startsWith('| 3 |'))!;
+    expect(tierThree).toContain('`grok-4.7`');
+    expect(tierThree).toContain('`grok-4.7-build-fast`');
+    expect(tierThree).toContain('`gpt-6.1-sol`');
+    expect(tierThree).toContain('`claude-opus-5-5`');
+    for (const tier of [1, 2]) expect(body.split('\n').find(line => line.startsWith(`| ${tier} |`)))
+      .not.toContain('`grok-4.7-build-fast`');
+    expect(logDetails(db, 'agents.retrieve')).toEqual([]);
+  });
+
   it('serves tiers for the active engines by default and names the configured model', async () => {
     const db = makeDb([
       [agentsDocuments, [agentsRow(4, 'Canonical AGENTS body\n')]],
