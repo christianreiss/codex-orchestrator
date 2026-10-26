@@ -890,30 +890,43 @@ test("engine policy settings stay sequential and show the effective scaling tier
   await expect(page.getByRole("button", { name: "Save scaling" })).toBeVisible();
 });
 
-test("account is one page with profile, security, appearance and devices sections", async ({ page }) => {
+test("account tabs preserve drafts, deep links and browser history", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/admin/account");
   await expect(page.getByRole("heading", { name: "Account", level: 1 })).toBeVisible();
-  const sections = page.locator("main").getByRole("heading", { level: 2 });
-  await expect(sections).toHaveText(["Profile", "Security", "Appearance", "Android devices"]);
-  for (const id of ["profile", "security", "appearance", "devices"]) await expect(page.locator(`section#${id}`)).toBeVisible();
-  await expect(page.getByRole("form", { name: "Change password" })).toBeVisible();
-  await expect(page.getByLabel("Current password")).toBeVisible();
-  await expect(page.getByRole("table", { name: "Registered passkeys" })).toBeVisible();
+  await expect(page.getByRole("tab", { selected: true })).toHaveText("Profile");
+  await expect(page.getByRole("heading", { name: "Security", level: 2 })).not.toBeVisible();
+  await page.getByRole("tab", { name: "Security", exact: true }).click();
+  await expect(page).toHaveURL(/#security$/);
+  await expect(page.getByLabel("Current password")).not.toBeVisible();
+  await page.locator("summary").filter({ hasText: "Change password" }).click();
+  await page.getByLabel("Current password").fill("draft-password");
   await expect(page.getByText("Operator laptop", { exact: true })).toBeVisible();
-  await expect(page.getByText("Hardware key", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Appearance", exact: true }).click();
   await expect(page.getByRole("radio", { name: /System/ })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("tab", { selected: true })).toHaveText("Security");
+  await expect(page.getByLabel("Current password")).toHaveValue("draft-password");
+  await page.goForward();
+  await expect(page.getByRole("tab", { selected: true })).toHaveText("Appearance");
+  await page.reload();
+  await expect(page.getByRole("tab", { selected: true })).toHaveText("Appearance");
   await expectNoSeriousAxeFindings(page);
-
-  // Retired sub-pages land on their section. Needs `routes/[...legacy]/+page.ts` to stop
-  // reading `url.hash` in `load` (SvelteKit throws), which today breaks every retired URL.
   await page.goto("/admin/account/passkeys");
   await expect(page).toHaveURL(/\/admin\/account#security$/);
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.reload();
-  await expect(page.getByRole("heading", { name: "Security", level: 2 })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(page.getByRole("tab", { selected: true })).toHaveText("Security");
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(page.getByRole("tab", { name: "Devices", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  await page.getByRole("tab", { name: "Profile", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("tab", { name: "Security", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("tab", { selected: true })).toHaveText("Security");
+  await page.goto("/admin/account#unknown");
+  await expect(page.getByRole("tab", { selected: true })).toHaveText("Profile");
 });
 
 test("the user menu reaches each account section", async ({ page }) => {

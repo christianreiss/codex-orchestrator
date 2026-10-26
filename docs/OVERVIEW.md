@@ -975,6 +975,16 @@ Web and Android shared conversation directories move adjourned conferences to Hi
 GPT-6.1 Sol (`gpt-6.1-sol`) is selectable for Codex fleet defaults, host overrides, and OpenAI-compatible inference; its native default effort is `low`, with `low|medium|high|xhigh|max|ultra` available.
 The auth-runner image pins Codex 0.162.1 to serve that catalog; updating only the API leaves older runner binaries in place. See `auth-runner.md` for rebuild requirements and execution diagnostics.
 
+## Personal account settings
+
+`/admin/account` has one local tab row: Profile, Security, Appearance and Devices.
+Profile is read-only. Security discloses the password form on demand and lists
+passkeys; Appearance saves the theme immediately with pending/failure feedback;
+Devices lists paired Android devices and confirms named revocations. The existing
+`#profile`, `#security`, `#appearance` and `#devices` links select the corresponding
+tab, including on reload and browser back/forward. In-page tab changes preserve
+password drafts. No account-management API contract changes.
+
 ## Account management
 
 Fleet → Accounts manages any number of ChatGPT and Claude subscriptions independently: add or replace credentials through the shared auth panel, rename, verify, pause/resume, or remove after sessions drain. Quota percentages and active host assignments are shown separately for every account in Accounts and the dashboard. New CLI sessions balance short and weekly utilization; overlapping sessions sharing native credentials stay on one account. Existing canonical credentials migrate to the first account for their engine. Client uploads with distinct provider identities can enroll additional verified accounts; fresh opaque login tokens reuse the sole or assigned account, while additional opaque accounts require explicit Add account/seed enrollment, and no ChatGPT account is required for a Claude-only fleet. See `interface-api.md` for lease and credential APIs.

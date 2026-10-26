@@ -2,6 +2,8 @@
 
 - Android 0.5.9 adds a Quotas tab for Codex, Claude and Grok, grouped by account with usage bars, reset times and snapshot freshness. Requires the new read-only `GET /companion/v1/quotas` endpoint (`admin.read` + `auth.read_metadata`); no provider refresh or credential disclosure. Refresh on entry, every minute while visible, or manually.
 
+- Organize personal Account settings into Profile, Security, Appearance and Devices tabs with bookmark/history support and retained drafts. Show identity and device status first, disclose the password form on demand, confirm device revocation, and keep action/save failures visible.
+
 - Android 0.5.8 always shows the app-to-server connection status in the header and Connection sheet: connected, connecting, or disconnected while reconnecting. Connected requires a live socket and a fresh synchronized data snapshot. APK-only; no API rollout.
 
 - Shared rooms record how far each agent has read: `chats/read` by an agent stores the newest room event time it was shown (`agent_room_agent_reads`, migration 0106, cold table; forward-only, removed with the conference or when the room has no events left) and every room read returns it as `read_through` per member. Android 0.5.7 shows "Read by" markers with engine icons under that message. Delivery of a message to an agent is not a room read. Owner mode records the position in an owner command and never fails the read if that write fails. Needs the API rollout (migration) before the APK shows anything.

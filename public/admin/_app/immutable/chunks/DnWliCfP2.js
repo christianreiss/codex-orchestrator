@@ -1,1 +1,0 @@
-import{t as e}from"./CSERAk_c.js";import{o as t}from"./P5YF4R3p.js";var n={all:()=>[`accounts`]},r={list:()=>t.get(`/admin/accounts`),update:(e,n)=>t.patch(`/admin/accounts/${e}`,n),remove:e=>t.delete(`/admin/accounts/${e}`),verify:e=>t.post(`/admin/accounts/${e}/verify`,{})};function i(){return e({queryKey:n.all(),queryFn:r.list})}export{n,i as r,r as t};

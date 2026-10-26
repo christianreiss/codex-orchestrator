@@ -1,0 +1,1 @@
+import{Vt as e,vt as t}from"./D6Zcd1Pp.js";import"./P1YpIdqe.js";function n(n){let r=e(n());return t(()=>{r.set(n())}),{subscribe:r.subscribe}}export{n as t};

@@ -244,7 +244,7 @@ This is a source audit, not a live visual acceptance report. All 39 `+page.svelt
 | `/admin/api-keys` | Issue and revoke gateway keys; list + configuration | `PageShell`, API-key section, Configure panel | Reveal/copy, revoke, disabled surface/backend, legacy anchors |
 | `/admin/secrets` | Manage agent-readable credentials; list | `PageShell`, secrets section, secret dialog | Reveal/copy, store switch off/empty, permission denial |
 | `/admin/settings` | Set fleet behavior, server retention and local housekeeping; settings | Narrow `PageShell`, `Section`, policy/session/retention controls and Agent coordination | Immediate-save truth, read-only/stale states, scope clarity; reconcile coordination state before retrying an ambiguous save |
-| `/admin/account` | Manage own identity/security; settings | `PageShell`, `Section`, profile/password/passkey/theme/device components | Device pairing, recovery, all theme modes |
+| `/admin/account` | Manage own identity/security; tabbed settings | `PageShell`, one `Tabs` row (Profile/Security/Appearance/Devices), `Section`, existing account components; hash-selected, draft-preserving panels | Direct links/history, hidden panels inert, password disclosure, device revoke confirmation, pairing expiry, inline failures, all theme modes |
 | `/admin/manual` | Find help; help index | `PageShell`, `Section`, `StateBlock`, `ManualSidebar` | Findability and missing content |
 | `/admin/manual/[slug]` | Read help; article | `PageShell`, `ManualSidebar`, `ArticleView` | Heading structure, code, long links, unknown slug |
 | `/admin/login` | Sign in; authentication | `AuthShell`, `FormField`, passkey/password steps | Keyboard, password manager, failure/recovery |
@@ -363,3 +363,14 @@ INT-2/3/4/5/6/7, ACC-1/3/4 and PERF-1. Shared inputs/buttons/dialogs, retained
 drafts, policy-revision conflicts and size-versus-age wording are mandatory.
 No new design exception. Browser evidence and remaining manual-review limits
 must be recorded with delivery; this inventory entry is not a usability claim.
+
+### Personal account tabs slice (2026-10-26)
+
+One local tab row separates Profile, Security, Appearance and Devices. Existing
+hash links select panels; inactive panels remain mounted but hidden and inert to
+preserve drafts. The password form is disclosed on demand. Device revocation
+names its target and requires confirmation; failures remain beside the task.
+Applicable rules: NAV-2/3/4, VIS-1/3/4/5, INT-2/3/4/5/6/7 and ACC-1/3/4/5.
+No design exception. Automated and visual evidence is recorded with delivery;
+manual screen-reader, zoom/text resizing and independent usability review remain
+separate acceptance gates.

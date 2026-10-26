@@ -16,6 +16,7 @@
   let next = $state("");
   let confirm = $state("");
   let submitting = $state(false);
+  let saved = $state(false);
   let formError = $state<string | null>(null);
   let fieldErrors = $state<Record<string, string | undefined>>({});
 
@@ -36,10 +37,12 @@
   async function onSubmit(event: SubmitEvent) {
     event.preventDefault();
     formError = null;
+    saved = false;
     if (!validate()) return;
     submitting = true;
     try {
       await changePassword({ current_password: current, new_password: next, confirm_password: confirm });
+      saved = true;
       toast.success("Password changed");
       current = next = confirm = "";
     } catch (err) {
@@ -65,7 +68,8 @@
       toast.success("Reset email sent if a recovery address is configured.");
       resetOpen = false;
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Could not request a reset.");
+      formError = err instanceof ApiError ? err.message : "Could not request a reset.";
+      resetOpen = false;
     } finally {
       resetSubmitting = false;
     }
@@ -73,6 +77,7 @@
 </script>
 
 <form class="max-w-md space-y-3" onsubmit={onSubmit} novalidate aria-label="Change password">
+  {#if saved}<p role="status" class="text-body-sm text-success">Password changed.</p>{/if}
   {#if formError}
     <Alert variant="destructive"><AlertDescription>{formError}</AlertDescription></Alert>
   {/if}

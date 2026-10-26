@@ -49,10 +49,10 @@
     {$themeQuery.error instanceof Error ? $themeQuery.error.message : "Failed to load appearance preference."}
   </p>
 {:else}
-  <RadioGroup value={selected} onValueChange={choose} disabled={$themeQuery.isLoading || $mutation.isPending} class="divide-y rounded-md border" aria-label="Theme">
+  <RadioGroup value={selected} onValueChange={choose} disabled={$themeQuery.isLoading || $mutation.isPending} class="grid grid-cols-1 gap-2 sm:grid-cols-3" aria-label="Theme">
     {#each options as option (option.value)}
       {@const Icon = option.icon}
-      <Label for={`theme-${option.value}`} class="flex min-h-12 cursor-pointer items-center gap-3 px-3 hover:bg-muted/50">
+      <Label for={`theme-${option.value}`} class="flex min-h-16 cursor-pointer items-center gap-3 rounded-md border p-3 hover:bg-muted/50 has-[[data-state=checked]]:border-primary">
         <RadioGroupItem id={`theme-${option.value}`} value={option.value} />
         <Icon class="h-4 w-4 text-muted-foreground" />
         <span>
@@ -62,7 +62,15 @@
       </Label>
     {/each}
   </RadioGroup>
-  <p class="mt-2 text-body-sm text-muted-foreground">
-    Saved to your account.{#if resolved} Rendering in <span class="font-medium text-foreground">{resolved}</span> mode.{/if}
+  <p class="mt-3 text-body-sm text-muted-foreground" role="status">
+    {#if $themeQuery.isPending}Loading appearance…
+    {:else if $mutation.isPending}Saving appearance…
+    {:else if $mutation.isError}Preview applied on this device; account preference was not confirmed.
+    {:else if $mutation.isSuccess}Appearance saved to your account.
+    {:else}Changes save immediately to your account.{/if}
+    {#if resolved} Rendering in <span class="font-medium text-foreground">{resolved}</span> mode.{/if}
   </p>
+  {#if $mutation.isError}
+    <p class="mt-2 text-body-sm text-destructive" role="alert">{$mutation.error instanceof Error ? $mutation.error.message : "Could not save appearance."} Select an option to try again.</p>
+  {/if}
 {/if}
