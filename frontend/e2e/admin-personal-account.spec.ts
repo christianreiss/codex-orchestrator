@@ -35,14 +35,14 @@ test('devices distinguish empty, failed loading and failed actions', async ({ pa
   await installFixtures(page);
   await page.route('**/admin/companion/devices', route => route.fulfill({ json: { devices: [], push_configured: true } }));
   await page.goto('/admin/account#devices');
-  await expect(page.getByText('No paired devices yet', { exact: true })).toBeVisible();
+  await expect(page.getByText('No paired devices', { exact: true })).toBeVisible();
   await page.route('**/admin/companion/pairings', route => route.fulfill({ status: 503, json: { status: 'error', message: 'Pairing unavailable' } }));
   await page.getByRole('button', { name: 'Pair Android device', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'Pairing unavailable' })).toBeVisible();
   await page.route('**/admin/companion/devices', route => route.fulfill({ status: 503, json: { status: 'error', message: 'Device list unavailable' } }));
   await page.reload();
   await expect(page.getByText('Device list unavailable', { exact: true })).toBeVisible({ timeout: 15000 });
-  await expect(page.getByText('No paired devices yet', { exact: true })).not.toBeVisible();
+  await expect(page.getByText('No paired devices', { exact: true })).not.toBeVisible();
 });
 
 test('expired pairing codes disappear and cannot be copied', async ({ page }) => {

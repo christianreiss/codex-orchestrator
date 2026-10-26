@@ -1,5 +1,7 @@
 # 2026-10-26
 
+- Hide revoked Android devices from the personal Account device list, including after reload and immediately after a confirmed revocation. Retain server records; show the empty state when no active paired devices remain.
+
 - Show host-style progress in phone pairing: code creation, waiting for the phone, and server-confirmed success for the exact reserved device. Hide consumed QR codes, explain expiry/offline status, and offer manual status checking. Migration 0107 adds the nullable reserved device UUID; existing native pairing payloads remain compatible.
 
 - Android 0.5.9 adds a Quotas tab for Codex, Claude and Grok, grouped by account with usage bars, reset times and snapshot freshness. Requires the new read-only `GET /companion/v1/quotas` endpoint (`admin.read` + `auth.read_metadata`); no provider refresh or credential disclosure. Refresh on entry, every minute while visible, or manually.

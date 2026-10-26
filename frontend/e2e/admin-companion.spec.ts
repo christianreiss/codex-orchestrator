@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 test('pairs and revokes an Android device from Account', async ({ page }) => {
-  const devices = [{ id: 'c9d58569-a10f-49e4-b331-9e1633a84176', name: 'Pixel test', created_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), revoked_at: null as string | null }];
+  const devices = [{ id: 'c9d58569-a10f-49e4-b331-9e1633a84176', name: 'Pixel test', created_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), revoked_at: null as string | null },
+    { id: 'retired', name: 'Retired phone', created_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), revoked_at: new Date().toISOString() }];
   let paired = 0;
   await page.route('**/admin/**', async route => {
     if (route.request().resourceType() === 'document') return route.continue();
@@ -19,6 +20,8 @@ test('pairs and revokes an Android device from Account', async ({ page }) => {
   await page.goto('/admin/account#devices');
   await expect(page.getByRole('heading', { name: 'Android devices', exact: true })).toBeVisible();
   await expect(page.getByText('Push delivery is not configured.', { exact: false })).toBeVisible();
+  await expect(page.getByText('Retired phone', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('list', { name: 'Paired Android devices' }).getByRole('listitem')).toHaveCount(1);
   await page.getByRole('button', { name: 'Pair Android device', exact: true }).click();
   await expect(page.getByRole('img', { name: 'One-time Android pairing QR code' })).toBeVisible();
   expect(paired).toBe(1);
@@ -30,6 +33,12 @@ test('pairs and revokes an Android device from Account', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Revoke Pixel test', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Revoke Pixel test', exact: true }).click();
   await page.getByRole('button', { name: 'Revoke device', exact: true }).click();
-  await expect(page.getByText('Revoked', { exact: true })).toBeVisible();
+  await expect(page.getByText('Pixel test', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Retired phone', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('No paired devices', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Revoke Pixel test', exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText('No paired devices', { exact: true })).toBeVisible();
+  await expect(page.getByText('Retired phone', { exact: true })).toHaveCount(0);
+  expect(devices).toHaveLength(2);
 });

@@ -20,7 +20,7 @@
     queryFn: () => api.get<{ devices: Device[]; push_configured: boolean }>("/admin/companion/devices"),
 
   });
-  const list = $derived($devices.data?.devices ?? []);
+  const list = $derived(($devices.data?.devices ?? []).filter((device) => !device.revoked_at));
   let open = $state(false);
   let revokeOpen = $state(false);
   let target = $state<Device | null>(null);
@@ -124,20 +124,18 @@
   {:else if $devices.isError}
     <StateBlock state="error" message={$devices.error.message} onRetry={() => $devices.refetch()} />
   {:else if list.length === 0}
-    <StateBlock state="empty" message="No paired devices yet" />
+    <StateBlock state="empty" message="No paired devices" />
   {:else}
     <ul aria-label="Paired Android devices" class="divide-y border-y">
       {#each list as device (device.id)}
         <li class="flex flex-wrap items-center justify-between gap-3 py-4">
           <div class="min-w-0">
-            <div class="flex flex-wrap items-center gap-2"><p class="break-words text-body font-medium">{device.name}</p><Badge variant={device.revoked_at ? "secondary" : "outline"}>{device.revoked_at ? "Revoked" : "Paired"}</Badge></div>
+            <div class="flex flex-wrap items-center gap-2"><p class="break-words text-body font-medium">{device.name}</p><Badge variant="outline">Paired</Badge></div>
             <p class="text-body-sm text-muted-foreground">
-              {#if device.revoked_at}Revoked <Timestamp value={device.revoked_at} />{:else}Last connected <Timestamp value={device.last_seen_at} fallback="Never connected" />{/if}
+              Last connected <Timestamp value={device.last_seen_at} fallback="Never connected" />
             </p>
           </div>
-          {#if !device.revoked_at}
             <Button size="sm" variant="outline" class="text-destructive" disabled={busy} aria-label={`Revoke ${device.name}`} onclick={() => { target = device; revokeOpen = true; }}>Revoke</Button>
-          {/if}
         </li>
       {/each}
     </ul>
