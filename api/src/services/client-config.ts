@@ -1499,7 +1499,9 @@ export interface AdminFetchResult {
   updated_at?: string | null;
   size_bytes?: number;
   content?: string;
+  /** Raw authored settings when validation_error is present; never treat them as renderable. */
   settings?: NormalizedSettings | null;
+  validation_error?: { code: 'validation_failed'; message: string; param?: string };
 }
 
 export interface StoreResult extends AdminFetchResult {
@@ -1527,11 +1529,12 @@ export class ClientConfigService {
         (a, b) => b.id - a.id,
       )[0];
       if (!row) return { status: 'missing', revision: null };
-      const rendered = this.render(row.settings, engine);
+      const inspected = this.inspectAdminSettings(row.settings, engine);
+      const rendered = inspected.rendered;
       // Legacy authored bodies may differ from today's renderer; load only the
       // exact immutable revision requested, never discover its head through SQL.
-      let body = rendered.content;
-      if (rendered.sha256 !== row.sha256) {
+      let body = rendered?.content ?? '';
+      if (!rendered || rendered.sha256 !== row.sha256) {
         const content = owner.state.snapshot().content('clientConfigDocuments', row.id, 'body');
         if (typeof content !== 'string') throw new Error('Owned configuration revision is missing content');
         body = content;
@@ -1543,7 +1546,8 @@ export class ClientConfigService {
         updated_at: row.updatedAt,
         size_bytes: Buffer.byteLength(body, 'utf8'),
         content: body,
-        settings: rendered.settings,
+        settings: inspected.settings,
+        ...(inspected.validation_error && { validation_error: inspected.validation_error }),
       };
     }
     const rows = await this.db
@@ -1556,12 +1560,8 @@ export class ClientConfigService {
     if (!row) return { status: 'missing', revision: null };
     const body = row.body;
     const sha = row.sha256 ?? createHash('sha256').update(body).digest('hex');
-    const settings =
-      row.settings && typeof row.settings === 'object'
-        ? engine === ENGINE_GROK
-          ? normalizeGrokSettings(row.settings)
-          : normalizeSettings(row.settings, { applyCodexDefaults: engine === ENGINE_CODEX, engine })
-        : null;
+    const inspected = row.settings && typeof row.settings === 'object'
+      ? this.inspectAdminSettings(row.settings, engine) : { settings: null };
     return {
       status: 'ok',
       revision: String(row.id),
@@ -1569,8 +1569,33 @@ export class ClientConfigService {
       updated_at: row.updatedAt,
       size_bytes: Buffer.byteLength(body, 'utf8'),
       content: body,
-      settings,
+      settings: inspected.settings,
+      ...(inspected.validation_error && { validation_error: inspected.validation_error }),
     };
+  }
+
+  private inspectAdminSettings(settings: unknown, engine: Engine): {
+    settings: NormalizedSettings | null;
+    rendered?: RenderResult;
+    validation_error?: AdminFetchResult['validation_error'];
+  } {
+    try {
+      // Preserve supported historical read migrations before applying current
+      // rendering checks; authoring-only coercion rules still govern new writes.
+      const normalized = engine === ENGINE_GROK ? normalizeGrokSettings(settings)
+        : normalizeSettings(settings, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
+      const rendered = this.render(normalized, engine);
+      return { settings: rendered.settings, rendered };
+    } catch (error) {
+      if (!(error instanceof ValidationError)) throw error;
+      // A successful read is not proof the saved values remain valid. Keep the
+      // authored JSON available for correction without normalizing away evidence.
+      return {
+        settings: settings && typeof settings === 'object' && !Array.isArray(settings)
+          ? structuredClone(settings) as NormalizedSettings : null,
+        validation_error: { code: 'validation_failed', message: error.message, ...(error.param && { param: error.param }) },
+      };
+    }
   }
 
   render(settingsInput: unknown, engine: Engine = ENGINE_CODEX): RenderResult {

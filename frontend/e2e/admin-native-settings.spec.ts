@@ -2,7 +2,7 @@ import { ownerStream } from "./owner-stream";
 import { expect, test, type Page } from "@playwright/test";
 
 type Engine = "codex" | "claude" | "grok";
-type Config = { status: "ok" | "missing"; revision: string | null; sha256?: string; settings: Record<string, unknown>; content?: string };
+type Config = { status: "ok" | "missing"; revision: string | null; sha256?: string; settings: Record<string, unknown>; content?: string; validation_error?: { code: "validation_failed"; message: string; param?: string } };
 const LABEL: Record<Engine, string> = { codex: "Codex", claude: "Claude", grok: "Grok" };
 /** /engines shows one engine per tab; the tab lives in the URL and survives a reload. */
 async function selectEngine(page: Page, engine: Engine) {
@@ -53,6 +53,7 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
       const body = req.postDataJSON();
       if (match[2] === "render") {
         shared.renders.push(engine);
+        if ((body.settings.native_settings ?? {}).unknown_saved_option !== undefined) return json({ status: "error", message: "native_settings.unknown_saved_option is unsupported" }, 422);
         if (shared.fail === engine) return json({ status: "error", message: "native_settings.removed_option is deprecated" }, 422);
         if (shared.race) { shared.race = false; current.revision = "99"; }
         return json({ settings: body.settings, content: `${engine} validated configuration`, sha256: "b".repeat(64), profiles: (body.settings.profiles ?? []).map((p: { name: string }) => ({ name: p.name, content: `profile ${p.name}`, sha256: "c".repeat(64) })) });
@@ -235,4 +236,43 @@ test("Grok 1.0.70 native defaults preserve false values, argument arrays and rem
   await expect(editor).toHaveValue(/"children": false/);
   await editor.fill("{}"); await card.getByRole("button", { name: "Save native settings" }).click();
   await expect.poll(() => shared.configs.grok.settings.native_settings).toEqual({});
+});
+
+for (const engine of ["codex", "claude", "grok"] as Engine[]) test(`${engine} invalid saved native settings remain editable and recover without dropping values`, async ({ page }) => {
+  const shared = state();
+  const native = { unknown_saved_option: "preserve this authored value" };
+  shared.configs[engine].settings.native_settings = native;
+  shared.configs[engine].validation_error = { code: "validation_failed", message: "native_settings.unknown_saved_option is unsupported", param: "native_settings.unknown_saved_option" };
+  await fixture(page, shared); await page.goto(`/admin/engines?engine=${engine}`); await selectEngine(page, engine);
+  await expect(page.getByText("Saved configuration needs correction.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Review native settings" }).click();
+  const card = page.locator(`#${engine}-native-settings`), editor = card.getByRole("textbox");
+  await expect(editor).toHaveValue(JSON.stringify(native, null, 2));
+  await expect(card).toContainText("Saved configuration is invalid");
+  await card.getByRole("button", { name: "Validate and preview" }).click();
+  await expect(card.getByRole("alert")).toContainText("unknown_saved_option is unsupported");
+  await expect(editor).toHaveValue(JSON.stringify(native, null, 2));
+  expect(shared.writes).toEqual([]);
+  await editor.fill("{}");
+  await card.getByRole("button", { name: "Save native settings" }).click();
+  await expect.poll(() => shared.writes.at(-1)?.body).toMatchObject({ expected_revision: "1", sha256: "a".repeat(64), settings: { native_settings: {}, model: `${engine}-current` } });
+  await expect(card).not.toContainText("Saved configuration is invalid");
+  await expect(page.getByRole("button", { name: "Review native settings" })).toHaveCount(0);
+  await page.reload(); await openAdvanced(page, [engine]); await expect(editor).toHaveValue("{}");
+});
+
+test("malformed saved native JSON remains visible without becoming an edited draft", async ({ page }) => {
+  const shared = state(); shared.configs.codex.settings.native_settings = [];
+  shared.configs.codex.validation_error = { code: "validation_failed", message: "native_settings must be an object", param: "native_settings" };
+  await fixture(page, shared); await page.goto("/admin/engines");
+  await page.getByRole("button", { name: "Review native settings" }).click();
+  const card = page.locator("#codex-native-settings"), editor = card.getByRole("textbox");
+  await expect(editor).toHaveValue("[]");
+  await expect(card.getByRole("button", { name: "Reload native settings" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Validate and preview" })).toBeDisabled();
+  await editor.fill("{}"); await card.getByRole("button", { name: "Save native settings" }).click();
+  await expect.poll(() => shared.writes).toHaveLength(1);
+  await expect(card).not.toContainText("Saved configuration is invalid");
+  await expect(card.getByRole("button", { name: "Save native settings" })).toBeDisabled();
+  await expect(editor).toHaveValue("{}");
 });

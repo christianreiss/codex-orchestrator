@@ -3584,3 +3584,22 @@ rejected; existing native ownership proofs are still mandatory.
 Claim ownership diagnostics include short recovery actions in the error text
 as well as caller-only structured `claim_connection` metadata, so older MCP
 clients that expose only the message still receive actionable guidance.
+
+
+## Correcting invalid saved native settings
+
+Admin configuration reads (`GET /admin/config`, `/admin/claude/config` and
+`/admin/grok/config`, including retrieve aliases) can return `status: "ok"`
+with optional `validation_error: {code: "validation_failed", message, param?}`.
+Here `ok` means the stored revision was read, not that it is valid under the
+current native schema. `settings` retains the exact authored JSON when validation
+fails; `content`, `sha256`, revision and update metadata retain the historical
+snapshot. Error text names the invalid path without repeating its value.
+
+The Engines page shows an actionable notice outside the collapsed native options
+and keeps the saved JSON editable with its validation problem. Correcting or
+removing the invalid value uses the normal preview/store endpoints and revision
+check. A failed preview or stale save retains the draft. These corrective reads
+never approve invalid settings for host sync: preview, store and native host
+rendering remain strict. Only validation failures become corrective-read metadata;
+unrelated read, missing-content and renderer errors still fail normally.

@@ -19,7 +19,8 @@
   const currentModels = $derived(filterModelOptions(CODEX_MODELS, $policy.data));
   const sectionId = $derived(`${engine}-${profiles ? "profile" : "native"}-settings`);
   const settingsLabel = $derived(profiles ? "profiles" : "native settings");
-  const readSettings = (settings: EngineConfig["settings"]) => profiles ? editableProfilesOf(settings) : nativeSettingsOf(settings);
+  const readSettings = (settings: EngineConfig["settings"]) => profiles ? editableProfilesOf(settings)
+    : settings && Object.hasOwn(settings, "native_settings") ? settings.native_settings : nativeSettingsOf(settings);
   const parse = (text: string) => profiles ? parseNativeProfiles(text) : parseNativeSettings(text);
   const references = {
     codex: { version: "0.164.0", url: "https://developers.openai.com/codex/config-reference/" },
@@ -44,7 +45,9 @@
     try { return { value: parse(draft), error: null }; }
     catch (e) { return { value: null, error: e instanceof Error ? e.message : "Invalid JSON" }; }
   });
-  const dirty = $derived(baseline !== null && !sameSettings(parsed.value, readSettings(baseline.settings)));
+  const dirty = $derived(baseline !== null && (parsed.error
+    ? draft !== JSON.stringify(readSettings(baseline.settings), null, 2)
+    : !sameSettings(parsed.value, readSettings(baseline.settings))));
   const conflict = $derived(baseline !== null && $query.data !== undefined
     && !sameSettings(readSettings(baseline.settings), readSettings($query.data.settings)) && dirty);
 
@@ -142,13 +145,16 @@
         <label for={`${sectionId}-json`} class="block text-caption font-medium">{ENGINE_META[engine].label} {settingsLabel} JSON</label>
         <textarea id={`${sectionId}-json`} class="min-h-48 w-full rounded-md border bg-background p-3 font-mono text-caption focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
           bind:value={draft} spellcheck={false} readonly={!canManage} disabled={$mutation.isPending}
-          aria-invalid={Boolean(parsed.error)} aria-describedby={`${sectionId}-feedback`}
+          aria-invalid={Boolean(parsed.error || error || (!dirty && baseline.validation_error))} aria-describedby={`${sectionId}-feedback`}
           oninput={() => { error = null; saved = false; }}></textarea>
         <div id={`${sectionId}-feedback`} class="text-body-sm" aria-live="polite">
+          {#if baseline.validation_error}
+            <p class="text-destructive">Saved configuration is invalid: {baseline.validation_error.message} Correct the saved values, then validate and save. Your draft is retained.</p>
+          {/if}
           {#if parsed.error}<p class="text-destructive">{parsed.error}</p>{/if}
           {#if error}<p role="alert" class="text-destructive">{error}</p>{/if}
           {#if conflict}<p class="text-warning-muted-foreground">Native settings changed elsewhere. Your draft is kept; copy it before loading the saved settings.</p>{/if}
-          {#if !error && !parsed.error && !conflict}
+          {#if !error && !parsed.error && !conflict && !baseline.validation_error}
             <p class="text-muted-foreground">{dirty ? "Unsaved changes" : saved ? "Saved" : baseline.status === "missing" ? "No fleet configuration saved yet" : "Saved settings loaded"}</p>
           {/if}
         </div>
