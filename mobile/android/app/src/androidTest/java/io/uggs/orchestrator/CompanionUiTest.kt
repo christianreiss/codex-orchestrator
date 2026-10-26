@@ -43,6 +43,23 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class CompanionUiTest {
+    @Test fun websocketAddsAndRemovesAgentsWithoutManualRefresh() {
+        waitForAgentRows(session)
+        extraAgents.add(agentFixture("live-new-agent", "Live new agent", "live.example", "Just connected", "claude"))
+        changed("agents")
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithTag("agent:live-new-agent").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Just connected").assertIsDisplayed()
+        extraAgents.removeAll { it.getString("id") == "live-new-agent" }
+        changed("agents")
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithTag("agent:live-new-agent").fetchSemanticsNodes().isEmpty()
+        }
+        compose.onNodeWithTag("agent:$session").assertIsDisplayed()
+        compose.onNodeWithText("Server · Connected").assertIsDisplayed()
+    }
+
     @Test fun chatStatusTracksOnlineAndWorkingWithoutRequiringAReceiver() {
         waitForAgentRows(session)
         compose.onNodeWithText("Online · Can receive messages").assertIsDisplayed()

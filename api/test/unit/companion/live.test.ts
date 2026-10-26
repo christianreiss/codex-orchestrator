@@ -70,6 +70,30 @@ describe('companion live invalidations', () => {
     wake(); await vi.advanceTimersByTimeAsync(60);
     expect(socket.frames.at(-1)).toMatchObject({ type: 'changed', scopes: ['me', 'agents', 'approvals'] });
   });
+  it.each([
+    'agent_portal.sessions.changed',
+    'agent_messaging.message.changed',
+  ])('pushes agent lifecycle and message invalidations for %s without waiting for a heartbeat', async type => {
+    const socket = await connect();
+    socket.frames = [];
+    wsPublisher.publish(type, { session_id: 'private-id', text: 'private-message' });
+    await vi.advanceTimersByTimeAsync(60);
+    expect(socket.frames).toEqual([expect.objectContaining({ type: 'changed', scopes: ['agents'] })]);
+    expect(JSON.stringify(socket.frames)).not.toMatch(/private-id|private-message/);
+  });
+  it('delivers changes queued during an in-flight reconciliation', async () => {
+    const socket = await connect();
+    socket.frames = [];
+    let complete!: (value: { agents: string; approvals: string }) => void;
+    vi.mocked(sources.revisions).mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+    wsPublisher.publish('agent_portal.sessions.changed', {});
+    await vi.advanceTimersByTimeAsync(60);
+    wsPublisher.publish('agent_messaging.message.changed', {});
+    complete({ agents: 'new-agent', approvals: 'initial' });
+    await vi.advanceTimersByTimeAsync(60);
+    expect(socket.frames.filter(frame => frame.type === 'changed')).toHaveLength(2);
+    expect(socket.frames.every(frame => frame.scopes?.includes('agents'))).toBe(true);
+  });
   it.each([false, true])('refreshes remote conversation presence when only daemon health changes (host access %s)', async (hostAccess) => {
     vi.mocked(sources.authorize).mockResolvedValue(['agent_portal.read', ...(hostAccess ? ['admin.read'] : [])]);
     vi.mocked(sources.revisions).mockResolvedValue({ agents: 'unchanged', approvals: 'unchanged', hosts: 'online' });

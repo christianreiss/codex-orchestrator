@@ -196,7 +196,7 @@ reopen wins, the app refreshes instead of claiming the new window was closed.
 
 Actions require a fresh connection and are disabled while another mutation is
 pending. Offline rows are marked as possibly stale. Deadlines expire locally;
-WebSocket invalidations and five-second server reconciliation update grants,
+WebSocket invalidations and server deadline notifications update grants,
 external decisions, closures and permission changes without opening chats or
 changing unread state. Errors retain the window and allow refresh/retry.
 
@@ -333,6 +333,13 @@ under **More**. Desktop retains the full session inventory and administration.
 
 ## Live updates
 
+The app holds one authenticated WebSocket while visible. New agents, agent exits,
+activity changes, direct replies and room messages trigger server-pushed scope
+invalidations and automatic authorized reads; no manual refresh or periodic app
+list polling is needed. In the background Android uses FCM instead of holding an
+unbounded socket. Returning to the app or reconnecting always reloads a complete
+authorized snapshot and resumes the selected transcript from its event cursor.
+
 Version 0.4.12 completes in-flight refreshes even while further agent/host
 metadata invalidations arrive, then reads the queued changes. This prevents busy
 fleets from leaving chat history empty, replies unseen or host readiness stale.
@@ -349,13 +356,13 @@ This presentation-only APK update needs no server rollout.
 
 Version 0.3.0 keeps one foreground WebSocket at `/companion/v1/ws` for overview,
 approvals and the open chat. `hello` starts a full refresh; `changed` carries a
-`scopes` array (`me`, `agents`, `approvals`, `hosts`) and triggers the corresponding REST
+`scopes` array (`me`, `agents`, `approvals`, `hosts`, `rooms`) and triggers the corresponding REST
 reads. Chat resumes from its last durable event cursor. The socket carries no
 transcript content or admin event payloads. The existing SSE endpoint remains
 available to older APKs.
 
-Server changes invalidate immediately; one shared five-second reconciliation
-also catches expired requests and lost agent readiness. Authorized heartbeats
+Server changes invalidate immediately; owner presence and deadline notifications
+also catch expired requests and lost agent readiness. Transport heartbeats
 arrive every 15 seconds. The app stops showing Live after a lost connection or
 30 seconds without a frame, reconnects with a 1–30 second backoff, and reconciles
 before enabling actions again. Refreshes are serialized; responses superseded by
