@@ -386,6 +386,14 @@ update and version-report routes remain available. No base installer floor chang
 
 Omit absent values; TOML has no `null`.
 
+Native custom/BYOK `model.<id>.context_window` values accept any positive safe
+integer token count, including 128,000. The subscription catalog's 256,000/500,000
+allowlist applies only to its exact supported model IDs, not to opaque custom
+names. Fleet model/context controls still select subscription models. Custom
+definition siblings survive save, edit and withdrawal; invalid counts remain
+visible through corrective admin reads and are rejected by preview/store.
+Source: Grok 1.0.70 bundled `26-config-reference.md`, `model.<id>.context_window`.
+
 Model and effort belong to the structured controls: native `models.default` and
 `models.default_reasoning_effort` are rejected with the corresponding control
 path. An explicit structured context window takes precedence over the selected

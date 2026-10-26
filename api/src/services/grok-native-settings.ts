@@ -156,6 +156,10 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
     if (statusLine.type === 'command' && (typeof statusLine.command !== 'string' || !statusLine.command.trim())) fail(['ui', 'status_line', 'command'], 'command status lines require a nonempty command');
   }
   for (const [name, model] of Object.entries(grokRecord(value.model))) {
+    const context = grokRecord(model).context_window;
+    if (context !== undefined && (!Number.isSafeInteger(context) || (context as number) <= 0)) {
+      fail(['model', name, 'context_window'], 'expected a positive safe integer token count');
+    }
     for (const key of ['compactions_remaining', 'send_compactions_remaining']) {
       const remaining = grokRecord(model)[key];
       if (typeof remaining === 'number' && (remaining < 0 || remaining > 255)) fail(['model', name, key], 'expected 0–255 or boolean');
