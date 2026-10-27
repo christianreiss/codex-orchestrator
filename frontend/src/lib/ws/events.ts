@@ -26,6 +26,7 @@ export function ownerStateInvalidations(payload: unknown): QueryKey[] {
     if (name.startsWith("feedback")) events=["feedback.changed"];
     else if (name.startsWith("companion")) events=["companion.devices.changed"];
     else if (name.startsWith("chatty")) events=["chatty.changed"];
+    else if (name === "agentWorkStates" || name === "agentWorkDependencies") events=["supervisor.changed"];
     else if (name.startsWith("agentSchedule") || name.startsWith("agentWatchdog")) events=["schedules.changed","watchdogs.changed"];
     else if (name.startsWith("git")) events=["git_director.changed"];
     else if (name.startsWith("coordProject")) events=["project.changed"];
@@ -211,7 +212,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "quota.policy.updated": [["settings", "quota-policy"], ["accounts"]],
   "accounts.updated": [["accounts"], ["overview"], ["hosts"]],
   "host.spawn.state_changed": [["settings", "host-spawn"], ["hosts"]],
-  "settings.changed": [["settings"], ["claude-settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"]],
+  "settings.changed": [["supervisor"], ["settings"], ["claude-settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"]],
   // Fleet engine master switch. Settings covers the switch rows and the
   // exposed API surfaces; hosts, overview, accounts, setup, messaging and the
   // runner card all render per-engine state that the switch suspends.
@@ -233,7 +234,8 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // Agent Messaging state, address discovery, relays and delivery lifecycle.
   "schedules.recovery.warning": [["schedules"]],
   "schedules.changed": [["schedules"], ["watchdogs"]],
-  "watchdogs.changed": [["watchdogs"], ["agent-messaging"], ["agent-portal"]],
+  "supervisor.changed": [["supervisor"]],
+  "watchdogs.changed": [["supervisor"], ["watchdogs"], ["agent-messaging"], ["agent-portal"]],
   "agent_room_chat.changed": [["agent-messaging"]],
   "agent_coordination.changed": [["agent-coordination-state"], ["agent-scopes"], ["topology"], ["agent-messaging"]],
   "agent_messaging.state.changed": [["agent-messaging"]],

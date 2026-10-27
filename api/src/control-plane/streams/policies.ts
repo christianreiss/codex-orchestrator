@@ -2,6 +2,8 @@ import type { OwnerStateSnapshot } from '../state/store.js';
 import type { StateRow } from '../state/catalog.js';
 import { DEFAULT_QUOTA_POLICY, quotaPolicySchema } from '../../services/quota-policy.js';
 
+import { supervisorCanMonitor } from '../../services/agent-supervisor/policy.js';
+
 const live = ['watching', 'recovering', 'capacity_wait'];
 const active = ['waiting', 'queued', 'leased', 'accepted', 'recovering', 'capacity_wait'];
 const timeoutOrder = (
@@ -87,7 +89,8 @@ export function watchdogPolicy(s: OwnerStateSnapshot, session: StateRow<'agentSe
     !!row &&
     quotaAllowed(s, session.engine, row.quotaAccountId, row.quotaWindow) &&
     Date.parse(row.deadlineAt) > now &&
-    !prompt;
+    !prompt &&
+    (row?.createdBy !== 'supervisor' || supervisorCanMonitor(s, session));
   const run = row
     ? [...s.table('agentScheduleRuns').by('scheduleId', row.scheduleId)].sort((a, b) =>
         b.createdAt.localeCompare(a.createdAt),
@@ -133,6 +136,7 @@ export function watchdogPolicy(s: OwnerStateSnapshot, session: StateRow<'agentSe
       row!.sessionId === session.id &&
       !session.closeRequestedAt &&
       ['capacity', 'hang', 'crash'].includes(row!.lastError ?? ''),
+    supervisor: row?.createdBy === 'supervisor',
     binding_generation: session.bindingGeneration ?? 0,
   };
 }

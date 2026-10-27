@@ -20,6 +20,7 @@ type watchdogSnapshot struct {
 	ServerTime    time.Time `json:"server_time"`
 	PolicyTimeout int       `json:"progress_timeout_seconds"`
 	Generation    int       `json:"binding_generation"`
+	Supervisor    bool      `json:"supervisor"`
 	Stop          bool      `json:"terminate_requested"`
 	Watchdog      *struct {
 		ID       string    `json:"id"`
@@ -45,7 +46,7 @@ func (f *watchdogFeed) policy(now time.Time) (schedulewatch.Policy, bool) {
 	if f.received.IsZero() || now.Sub(f.received) >= 45*time.Second || !s.Watchdog.Deadline.After(s.ServerTime.Add(now.Sub(f.received))) {
 		return schedulewatch.Policy{}, true
 	}
-	return schedulewatch.Policy{TimeoutSeconds: s.PolicyTimeout, BindingGeneration: s.Generation, TerminateRequested: s.Stop}, true
+	return schedulewatch.Policy{TimeoutSeconds: s.PolicyTimeout, BindingGeneration: s.Generation, TerminateRequested: s.Stop, Supervisor: s.Supervisor}, true
 }
 func (s *Session) startWatchdogFeed(ctx context.Context) func() {
 	ctx, cancel := context.WithCancel(ctx)
@@ -144,7 +145,9 @@ func (s *Session) consumeWatchdogFeed(ctx context.Context) error {
 }
 func (s *Session) reportWatchdog(ctx context.Context, progress time.Time, failure string) error {
 	body := map[string]any{"last_progress_at": progress.UTC().Format(time.RFC3339Nano)}
-	if failure != "" {
+	if failure == "termination_unconfirmed" {
+		body["failure"], body["termination_unconfirmed"] = "blocked", true
+	} else if failure != "" {
 		body["failure"] = failure
 	}
 	var ignored map[string]any

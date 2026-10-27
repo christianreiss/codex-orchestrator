@@ -2303,3 +2303,9 @@ UUID instead of creating a second publication.
 Fleet authoring remains possible before host provisioning. Strict host config delivery checks effective root/profile models after host overrides and latest-family mapping against the reported installed version. Explicit Terra overrides reject old or unreported versions with upgrade guidance. Signed bootstrap/config baking remains available and omits incompatible catalog choices while preserving the configured selection. Older wrappers do not provide the new explicit-argv guard and should be upgraded for that coverage.
 
 cxx 0.9.137 checks the actual installed native version for launchpad and managed Codex model/profile selections, including older signed catalogs without the optional field. An unavailable configured/default selection stays visible and cannot silently fall back. Installation, update, cron version reporting, sync-only recovery, help and diagnostics remain available. Model changes inside an already running native TUI remain owned by Codex.
+
+## External task supervision (cxx 0.9.139)
+
+See [Fleet task supervisor](agent-supervisor.md) for the disabled-by-default fleet
+switch, `agent_work_state`, durable dependencies and bounded same-session recovery.
+Applies equally to Codex, Claude and Grok; native resume stays engine-specific.

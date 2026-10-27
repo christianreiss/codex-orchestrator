@@ -112,6 +112,8 @@ export const TABLE_POLICY = {
   agentTaskResults: 'owned',
   agentFreshStartGrants: 'owned',
   agentWatchdogs: 'owned',
+  agentWorkStates: 'owned',
+  agentWorkDependencies: 'owned',
   hostDaemons: 'owned',
   hostDaemonSessions: 'owned',
   hostDaemonOperations: 'owned',
@@ -310,6 +312,10 @@ export function workingSetPredicate(name: OwnedTableName): SQL | undefined {
             UNION
             SELECT BINARY r.message_id FROM agent_schedule_runs r
               WHERE r.message_id IS NOT NULL AND r.status IN ('waiting','queued','leased','accepted','recovering','capacity_wait')
+            UNION
+            SELECT BINARY edge.message_id FROM agent_work_dependencies edge WHERE edge.message_id IS NOT NULL AND edge.status IN ('waiting','attention')
+            UNION
+            SELECT BINARY dependent.waiting_for_message_id FROM agent_work_states dependent WHERE dependent.waiting_for_message_id IS NOT NULL AND dependent.state='waiting_agent'
             UNION
             SELECT BINARY w.message_id FROM agent_watchdogs w
               WHERE w.message_id IS NOT NULL AND w.status IN ('watching','recovering','capacity_wait')

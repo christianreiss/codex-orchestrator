@@ -383,7 +383,7 @@ func (t *channelTracker) ensureListenBind(ctx context.Context) error {
 		// The server preserves the stored adapter_protocol when the field is
 		// omitted, so the pump's identity survives a listen bind untouched.
 		body["adapter_protocol"] = "cxx-agent-listen-v1"
-		body["adapter_capabilities"] = map[string]any{"listen": true, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 2, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1, "suspend_recovery_version": 1}
+		body["adapter_capabilities"] = map[string]any{"listen": true, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 2, "execution_contract_version": 2, "watchdog_protocol_version": 1, "supervisor_protocol_version": 1, "reboot_protocol_version": 1, "suspend_recovery_version": 1}
 	}
 	var ignored map[string]any
 	if err := t.client.post(ctx, "bind", body, &ignored); err != nil {
@@ -462,6 +462,7 @@ func toolCatalogJSON() []byte {
 		tool("advisor_ask", "Ask the server-hosted Fleet Advisor for a second opinion (verify, tier_check, classify, general). Without advisor_session_id it opens a new advisor on the engine/model you pick (default: strongest available); with it, asks a follow-up. The answer arrives later as a peer message headed ADVISOR/1. Put diffs and errors in question; pass larger files as cxx transfer ids.", map[string]any{"question": map[string]any{"type": "string", "minLength": 1, "maxLength": 90000}, "kind": map[string]any{"type": "string", "enum": []string{"verify", "tier_check", "classify", "general"}}, "transfer_ids": map[string]any{"type": "array", "maxItems": 10, "items": map[string]any{"type": "string"}}, "advisor_session_id": map[string]any{"type": "string", "description": "Continue this advisor instead of opening a new one"}, "engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok"}, "description": "Optional; see advisor_status for what is available"}, "model": map[string]any{"type": "string", "description": "Optional; default is the strongest available model"}, "client_message_id": map[string]any{"type": "string", "description": "Stable UUID for idempotent retries"}}, []string{"question", "client_message_id"}),
 		tool("advisor_close", "Confirm you are done with an advisor and close it. Advisors also close after their idle timeout.", map[string]any{"advisor_session_id": map[string]any{"type": "string"}}, []string{"advisor_session_id"}),
 		tool("advisor_status", "List your advisors with state and latest verdict, or read one by advisor_session_id; also reports availability and the engines/models you may pick.", map[string]any{"advisor_session_id": map[string]any{"type": "string"}}, nil),
+		tool("agent_work_state", "Read your supervisor state with empty arguments. Report working, waiting_agent, waiting_user, completed or canceled for your current authorized task. Register dependencies before waiting and notify dependents using original work IDs. Does not authorize new work.", map[string]any{"task_key": map[string]any{"type": "string", "maxLength": 255}, "state": map[string]any{"type": "string", "enum": []string{"working", "waiting_agent", "waiting_user", "completed", "canceled"}}, "reason": map[string]any{"type": "string", "maxLength": 1000}, "waiting_for": map[string]any{"type": "string"}, "message_id": map[string]any{"type": "string"}, "coordinator": map[string]any{"type": "string"}, "version": map[string]any{"type": "integer", "minimum": 1}}, nil),
 		tool("agent_self", "Read your authenticated current launch name, agent UUID, native session and binding. Call on your first turn before your first response, and after resume or recovery; environment hints and old transcript names may be stale.", map[string]any{}, nil),
 		tool("agent_reboot", "Prepare one planned Linux host reboot and resume this exact native session once. Requires operator authorization, root/passwordless sudo and a continuation checkpoint. Never rearm after resume. Rejects competing recovery.", map[string]any{"request_id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"}, "continuation": map[string]any{"type": "string"}}, []string{"request_id", "reason", "continuation"}),
 		tool("agent_reboot_status", "Inspect the current session planned reboot handoff.", map[string]any{}, nil),
@@ -720,7 +721,7 @@ func runMCPProtocol(client *sessionClient, channel bool, stdin io.Reader, stdout
 			if !automatic && channel && initialized && !channelActive && req.Method == "notifications/initialized" {
 				var bound map[string]any
 				if err := client.post(ctx, "bind", map[string]any{
-					"adapter_protocol": "claude-channel-preview-v1", "adapter_capabilities": map[string]any{"channel": true, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 2, "execution_contract_version": 2, "watchdog_protocol_version": 1, "reboot_protocol_version": 1, "suspend_recovery_version": 1}, "receive_capable": true,
+					"adapter_protocol": "claude-channel-preview-v1", "adapter_capabilities": map[string]any{"channel": true, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 2, "execution_contract_version": 2, "watchdog_protocol_version": 1, "supervisor_protocol_version": 1, "reboot_protocol_version": 1, "suspend_recovery_version": 1}, "receive_capable": true,
 				}, &bound); err != nil {
 					return fmt.Errorf("activate Claude channel adapter: %w", err)
 				}
@@ -971,6 +972,10 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		return callWorkflowTool(ctx, client, name, args)
 	case "agent_role_activate", "agent_role_current", "agent_role_release", "agent_role_propose", "agent_role_proposals", "agent_role_review":
 		return callRoleTool(ctx, client, name, args)
+	case "agent_work_state":
+		var out map[string]any
+		err := client.post(ctx, "work-state", args, &out)
+		return out, err
 	case "agent_self":
 		err := client.post(ctx, "self", map[string]any{}, &out)
 		return out, err

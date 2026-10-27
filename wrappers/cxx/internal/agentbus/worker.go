@@ -298,7 +298,7 @@ func newRelayClient(cfg *config.Config) (*relayClient, error) {
 
 func (c *relayClient) register(ctx context.Context, username, instanceID, version string) (*relayRegistration, error) {
 	var out relayRegistration
-	capabilities := map[string]any{"host_daemon": c.daemon, "execution_contract_version": 2, "watchdog_protocol_version": 1, "headless": true, "codex_exec_resume": true, "claude_print_resume": true, "grok_json_resume": true}
+	capabilities := map[string]any{"host_daemon": c.daemon, "execution_contract_version": 2, "watchdog_protocol_version": 1, "supervisor_protocol_version": 1, "headless": true, "codex_exec_resume": true, "claude_print_resume": true, "grok_json_resume": true}
 	if c.stateProtocol == 1 {
 		capabilities["control_state_protocol"] = 1
 	}

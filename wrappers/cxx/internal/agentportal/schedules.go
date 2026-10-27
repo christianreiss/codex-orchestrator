@@ -27,7 +27,7 @@ func (s *Session) WithScheduleWatch(ctx context.Context) context.Context {
 				if !w.Watchdog.Deadline.After(view.observedServerTime) {
 					return policy, errors.New("watchdog expired")
 				}
-				return schedulewatch.Policy{TimeoutSeconds: w.PolicyTimeout, BindingGeneration: w.Generation, TerminateRequested: w.Stop}, nil
+				return schedulewatch.Policy{TimeoutSeconds: w.PolicyTimeout, BindingGeneration: w.Generation, TerminateRequested: w.Stop, Supervisor: w.Supervisor}, nil
 			}
 			if view.Schedule != nil {
 				return *view.Schedule, nil
@@ -47,7 +47,7 @@ func (s *Session) WithScheduleWatch(ctx context.Context) context.Context {
 				if err != nil {
 					return schedulewatch.Policy{}, err
 				}
-				return schedulewatch.Policy{TimeoutSeconds: fresh.PolicyTimeout, BindingGeneration: fresh.Generation, TerminateRequested: fresh.Stop}, nil
+				return schedulewatch.Policy{TimeoutSeconds: fresh.PolicyTimeout, BindingGeneration: fresh.Generation, TerminateRequested: fresh.Stop, Supervisor: fresh.Supervisor}, nil
 			}
 		}
 		err := s.bridgeJSON(ctx, http.MethodPost, "/host/agent-sessions/"+url.PathEscape(s.ID)+"/schedule-policy", map[string]any{}, &policy)
@@ -60,7 +60,11 @@ func (s *Session) WithScheduleWatch(ctx context.Context) context.Context {
 		s.watchdog.mu.Lock()
 		active := s.watchdog.snapshot.Watchdog != nil
 		if failure != "" {
-			s.watchdog.failure = failure
+			if failure == "termination_unconfirmed" {
+				s.watchdog.failure = "blocked"
+			} else {
+				s.watchdog.failure = failure
+			}
 		}
 		s.watchdog.mu.Unlock()
 		if !active {

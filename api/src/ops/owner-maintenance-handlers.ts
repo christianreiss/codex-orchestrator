@@ -1,4 +1,5 @@
 import { SchedulesService } from '../services/schedules.js';
+import { AgentSupervisor } from '../services/agent-supervisor.js';
 import { WatchdogsService } from '../services/watchdogs.js';
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../routes/index.js';
@@ -37,6 +38,10 @@ export function createAuxiliaryMaintenanceHandlers(
       await service.tick();
       await service.sweepStale();
       return { observed: true };
+    },
+    supervisor: async () => {
+      await new AgentSupervisor(ctx.db, ctx.keyring).tick();
+      return { retryAfterMs: 60_000 };
     },
     watchdogs: async () => {
       await new WatchdogsService(ctx.db, ctx.keyring).tick();

@@ -222,3 +222,54 @@ func TestNoTimeoutPolicyIsNotReReadEveryTick(t *testing.T) {
 		t.Fatalf("policy reads = %d over ~20 ticks, want 1", got)
 	}
 }
+
+func TestSupervisorDoesNotKillAnUnconfirmedProcessAfterGrace(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("proc required")
+	}
+	prior, grace := pollInterval, supervisorStopGrace
+	pollInterval, supervisorStopGrace = 20*time.Millisecond, 60*time.Millisecond
+	defer func() { pollInterval, supervisorStopGrace = prior, grace }()
+	var blocked atomic.Bool
+	// This shell has no child tools; it deliberately ignores TERM while blocked in read.
+	cmd := exec.Command("sh", "-c", `trap '' TERM; echo ready; read x`)
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := WithPolicy(context.Background(), func(context.Context) (Policy, error) {
+		return Policy{TimeoutSeconds: 60, BindingGeneration: 1, TerminateRequested: true, Supervisor: true}, nil
+	})
+	WithReporter(ctx, func(_ context.Context, _ time.Time, failure string) error {
+		if failure == "termination_unconfirmed" {
+			blocked.Store(true)
+		}
+		return nil
+	})
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	ready := make([]byte, 6)
+	if _, err = out.Read(ready); err != nil {
+		t.Fatal(err)
+	}
+	stop := Start(ctx, cmd)
+	defer stop()
+	deadline := time.Now().Add(time.Second)
+	for !blocked.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !blocked.Load() {
+		t.Fatal("unconfirmed exit was not escalated")
+	}
+	// A killed shell cannot accept input and print again.
+	if _, err = in.Write([]byte("continue\n")); err != nil {
+		t.Fatal("supervisor killed the unconfirmed process", err)
+	}
+}

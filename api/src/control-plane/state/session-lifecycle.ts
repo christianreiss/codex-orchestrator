@@ -191,6 +191,14 @@ export function stageSessionWatchdogs(
         now,
       );
     else if (row.status === 'watching') {
+      if (row.createdBy === 'supervisor') {
+        const work = context.draft.table('agentWorkStates').get(target.id);
+        if (work && !work.incidentAt) {
+          const deadlineAt = new Date(Date.parse(now) + 7200000).toISOString();
+          stageUpdate(context, 'agentWorkStates', work.addressId, {incidentAt:now,deadlineAt});
+          stageUpdate(context, 'agentWatchdogs', row.id, {deadlineAt});
+        }
+      }
       const at = watchdogRetryTime(new Date(now));
       stageUpdate(context, 'agentWatchdogs', row.id, {
         status: cause === 'capacity' ? 'capacity_wait' : 'recovering',

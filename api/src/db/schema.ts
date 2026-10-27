@@ -2333,6 +2333,42 @@ export const agentFreshStartGrants = mysqlTable('agent_fresh_start_grants', {
   consumedAt: varchar('consumed_at', { length: 100 }),
 });
 
+export const agentWorkDependencies = mysqlTable('agent_work_dependencies', {
+  id: char('id', {length:36}).primaryKey(),
+  waiterAddressId: char('waiter_address_id', {length:36}).notNull(),
+  dependencyAddressId: char('dependency_address_id', {length:36}).notNull(),
+  messageId: char('message_id', {length:36}),
+  workflowTaskId: char('workflow_task_id', {length:36}),
+  status: varchar('status', {length:24}).notNull().default('waiting'),
+  reminderAt: varchar('reminder_at', {length:100}),
+  createdAt: varchar('created_at', {length:100}).notNull(),
+  updatedAt: varchar('updated_at', {length:100}).notNull(),
+}, t=>({waiterIdx:index('idx_agent_work_deps_waiter').on(t.waiterAddressId,t.status)}));
+
+export const agentWorkStates = mysqlTable('agent_work_states', {
+  addressId: char('address_id', { length: 36 }).primaryKey(),
+  sessionId: char('session_id', { length: 36 }).notNull(),
+  bindingGeneration: int('binding_generation').notNull(),
+  nativeSessionId: varchar('native_session_id', { length: 255 }).notNull(),
+  taskKey: varchar('task_key', { length: 255 }).notNull(),
+  model: varchar('model', {length:255}),
+  turnId: varchar('turn_id', {length:255}),
+  state: varchar('state', { length: 24 }).notNull(),
+  reason: varchar('reason', { length: 1000 }),
+  waitingForAddressId: char('waiting_for_address_id', { length: 36 }),
+  waitingForMessageId: char('waiting_for_message_id', { length: 36 }),
+  coordinatorAddressId: char('coordinator_address_id', { length: 36 }),
+  lastProgressAt: varchar('last_progress_at', { length: 100 }).notNull(),
+  reminderAt: varchar('reminder_at', { length: 100 }),
+  incidentAt: varchar('incident_at', { length: 100 }),
+  deadlineAt: varchar('deadline_at', { length: 100 }),
+  paused: tinyint('paused').notNull().default(0),
+  escalation: varchar('escalation', { length: 100 }),
+  watchdogId: char('watchdog_id', { length: 36 }),
+  version: int('version').notNull().default(1),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, t => ({ sessionIdx: index('idx_agent_work_session').on(t.sessionId), waitIdx: index('idx_agent_work_wait').on(t.waitingForAddressId) }));
+
 export const agentWatchdogs = mysqlTable('agent_watchdogs', {
   quotaAccountId: bigint('quota_account_id', { mode: 'number', unsigned: true }),
   quotaWindow: varchar('quota_window', { length: 8 }),

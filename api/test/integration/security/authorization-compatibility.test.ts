@@ -272,6 +272,8 @@ describe('the exceptions are exceptions, not holes', () => {
     // is the fleet's conversations, and for the writes it is instructing, or
     // ending, someone else's running agent.
     expect([...ALWAYS_ENFORCED_ROUTES].sort()).toEqual([
+      'POST /admin/agent-supervisor/state',
+      'POST /admin/agent-supervisor/pause',
       'GET /admin/workflow-definitions/state',
       'POST /admin/workflow-definitions/state',
       'GET /admin/workflow-definitions',

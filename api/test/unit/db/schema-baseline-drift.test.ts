@@ -50,7 +50,7 @@ const schemaTables = (): Map<string, string[]> => {
 };
 
 describe('schema.ts against the test baseline', () => {
-  it('declares no table or column absent from bootstrap plus migrations 0105–0108', () => {
+  it('declares no table or column absent from bootstrap plus migrations 0105–0111', () => {
     const baseline = currentSchemaColumns();
     const missing: string[] = [];
 
@@ -76,7 +76,7 @@ describe('schema.ts against the test baseline', () => {
     const tables = schemaTables();
 
     // Bump this with the table you added, in the same commit.
-    expect(tables.size).toBe(137);
+    expect(tables.size).toBe(139);
     expect([...tables].filter(([, columns]) => columns.length === 0)).toEqual([]);
     expect(tables.get('auth_canonical_heads')).toEqual(['engine', 'payload_id', 'generation', 'updated_at']);
   });

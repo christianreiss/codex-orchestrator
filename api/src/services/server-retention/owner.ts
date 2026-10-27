@@ -70,6 +70,8 @@ export function bindOwnerRetention(
     'agentSessions',
     'agentSchedules',
     'agentWatchdogs',
+    'agentWorkStates',
+    'agentWorkDependencies',
     'agentRebootHandoffs',
     'agentRoleProposals',
     'agentBusMessages',
@@ -103,6 +105,8 @@ export function bindOwnerRetention(
     agentBusAddresses: ['hostId', 'currentSessionId', 'archivedAt', 'enabled'],
     agentSchedules: ['targetAddressId', 'deletedAt'],
     agentWatchdogs: ['targetAddressId', 'status'],
+    agentWorkStates: ['addressId','sessionId','state','escalation'],
+    agentWorkDependencies: ['waiterAddressId','dependencyAddressId','status'],
     agentRebootHandoffs: ['addressId', 'oldSessionId', 'newSessionId', 'status'],
     agentRoleProposals: ['authorAddressId', 'reviewerAddressId', 'status'],
     agentBusMessages: [

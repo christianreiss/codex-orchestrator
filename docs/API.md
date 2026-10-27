@@ -1376,3 +1376,10 @@ days. Open work and necessary baselines stay protected. External command results
 expire to compact duplicate-execution fences after 14 days. Explicit internal
 receipts expire after seven days when unreferenced. See interface-api.md for
 activation, compatibility, protection and no-backup offline maintenance.
+
+## Fleet task supervisor
+
+- `GET /admin/agent-supervisor` — read configured/effective state, work states, outstanding dependencies and incident budgets; optional `target=agent:UUID`. Requires `agent_messaging.read`.
+- `POST /admin/agent-supervisor/state` — set `{enabled:boolean}`. Requires `agent_messaging.manage`; disabling stops supervisor-owned future recovery.
+- `POST /admin/agent-supervisor/pause` — pause `{target,version}` with an optimistic work-state version. Requires `agent_messaging.manage`.
+- `POST /host/agent-sessions/{id}/agent-messaging/work-state` — current bridge only: `{}` reads state; `{task_key,state,reason?,waiting_for?,message_id?,coordinator?,version?}` reports current work. See [the supervisor contract](agent-supervisor.md).

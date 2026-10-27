@@ -18,9 +18,11 @@ type Policy struct {
 	TimeoutSeconds     int  `json:"progress_timeout_seconds"`
 	BindingGeneration  int  `json:"binding_generation"`
 	TerminateRequested bool `json:"terminate_requested"`
+	Supervisor         bool `json:"supervisor"`
 }
 
 var pollInterval = 5 * time.Second
+var supervisorStopGrace = 60 * time.Second
 
 // While the last answer named no timeout and no termination, the server is
 // asked again only this often. Every live session asked every 5 s (the largest
@@ -240,7 +242,7 @@ func Start(ctx context.Context, cmd *exec.Cmd) func() {
 				request, c := context.WithTimeout(childCtx, 4*time.Second)
 				fresh, err := w.read(request)
 				c()
-				if err != nil || fresh.TimeoutSeconds != policy.TimeoutSeconds || fresh.BindingGeneration != generation || (policy.TerminateRequested && !fresh.TerminateRequested) {
+				if err != nil || fresh.Supervisor != policy.Supervisor || fresh.TimeoutSeconds != policy.TimeoutSeconds || fresh.BindingGeneration != generation || (policy.TerminateRequested && !fresh.TerminateRequested) {
 					reset(ctx)
 					continue
 				}
@@ -249,12 +251,20 @@ func Start(ctx context.Context, cmd *exec.Cmd) func() {
 					continue
 				}
 				_ = terminate(cmd.Process)
-				timer := time.NewTimer(10 * time.Second)
+				grace := 10 * time.Second
+				if policy.Supervisor {
+					grace = supervisorStopGrace
+				}
+				timer := time.NewTimer(grace)
 				select {
 				case <-childCtx.Done():
 					timer.Stop()
 					return
 				case <-timer.C:
+					if policy.Supervisor {
+						ReportFailure(ctx, "termination_unconfirmed") // no confirmed exit: never resume a second process
+						return
+					}
 					_ = cmd.Process.Kill()
 					return
 				}

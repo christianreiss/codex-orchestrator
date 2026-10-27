@@ -364,9 +364,10 @@ describe('served document byte invariance', () => {
     // 2026-10-20: reboot-safe procedure pointer and long-session quota catalog fallback.
     // 2026-10-21: ordinary Portal updates and explicit actionable attention criteria.
     // 2026-10-25: shared native children, connection-proof recovery and non-interrupting immediate delivery.
-    expect(out.features_sha256).toBe('2da44a087bd7c62ab089d422bb7b0de700346b0f96a4112b9021f671e96779a2');
-    expect(out.managed_sha256).toBe('d558190196fd9d859e085523b73f80c277e82eebdfbb4a07ffe5280e7507bc26');
-    expect(sha256(out.body)).toBe('e10a30840ffff57f39748e0a5949e97d0293875a80307fb5b3af5e4855e16bd0');
+    // 2026-10-27: task/wait supervision and compact explicit-result guidance.
+    expect(out.features_sha256).toBe('72b18759dbad4fb1211161f9ac16a18e07badf95eed41968048151b37c0bcd70');
+    expect(out.managed_sha256).toBe('57a84cc7f9eaf446ac563e492e7a2dcf64f92715f9905ad1b7e4d4f714d8819f');
+    expect(sha256(out.body)).toBe('1d94f87f819e31179e94ad440fa67eae19de1776d061d5ff0d946d9154ec7598');
   });
 });
 

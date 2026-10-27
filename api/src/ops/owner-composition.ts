@@ -89,6 +89,7 @@ export async function composeOwnerServices(
     'quota-notices',
     'schedules',
     'watchdogs',
+    'supervisor',
     'portal-retention',
   ];
   for (const operation of operations)

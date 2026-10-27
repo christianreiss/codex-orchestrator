@@ -24,6 +24,7 @@ import { decrypt, encrypt } from '../../security/secret-box.js';
 import type { Keyring } from '../../security/keyring.js';
 import { nextOccurrence, scheduleInput, type ScheduleInput } from './timing.js';
 import { SCHEDULE_TARGET_GRACE_SECONDS } from './staleness.js';
+import { recoveryBudget } from '../agent-supervisor/policy.js';
 import { recoveryDelaySeconds } from './recovery.js';
 import { quotaSnapshot, quotaResumeGate } from '../quota-observation.js';
 import { readFleetEngineState } from '../engine-switch.js';
@@ -106,6 +107,17 @@ async function advance(
   ) {
     if (message?.status !== 'accepted' && run.status !== 'accepted')
       set({ status: message?.status === 'completed' ? 'completed' : 'canceled' });
+    return;
+  }
+  const supervisorWork = watchdog ? draft.table('agentWorkStates').all().find(w => w.watchdogId === watchdog.id) : undefined;
+  if (supervisorWork && !supervisorWork.model) {
+    if(watchdog)stageStopWatchdog(context,watchdog,'blocked','supervisor_model_unknown',timestamp);
+    if(message?.status!=='accepted')set({status:'blocked',lastError:'supervisor_model_unknown'});
+    return;
+  }
+  if (supervisorWork && (supervisorWork.paused || (supervisorWork.deadlineAt && supervisorWork.deadlineAt <= timestamp))) {
+    if (watchdog) stageStopWatchdog(context, watchdog, 'blocked', supervisorWork.paused ? 'supervisor_paused' : 'recovery_deadline', timestamp);
+    if (message?.status !== 'accepted') set({status:'blocked',lastError:'supervisor_budget'});
     return;
   }
   const quotaGate = async () => {
@@ -204,6 +216,10 @@ async function advance(
         nextAttemptAt: new Date(retry).toISOString(),
       });
       return;
+    }
+    if (supervisorWork && recoveryBudget(supervisorWork, run.recoveryCount + 1, now.getTime())) {
+      if (watchdog) stageStopWatchdog(context, watchdog, 'blocked', 'recovery_limit', timestamp);
+      set({status:'blocked',lastError:'recovery_limit'}); return;
     }
     if (run.nextAttemptAt > timestamp || !(await quotaGate())) return;
     stageUpdate(context, 'agentBusMessages', message.id, {

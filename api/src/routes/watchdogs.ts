@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import type { RouteContext } from './index.js';
+import { AgentSupervisor } from '../services/agent-supervisor.js';
 import { WatchdogsService } from '../services/watchdogs.js';
 import { createHostAuthService } from '../services/host-auth.js';
 import { createInsecureWindowService } from '../services/insecure-window.js';
@@ -13,6 +14,22 @@ import { ForbiddenError } from '../http/errors.js';
 export async function registerWatchdogRoutes(app: FastifyInstance, ctx: RouteContext) {
   await registerQuotaRoutes(app, ctx);
   const service = new WatchdogsService(ctx.db, ctx.keyring);
+  const supervisor = new AgentSupervisor(ctx.db, ctx.keyring);
+  app.get('/admin/agent-supervisor', { preHandler: app.requireAdmin }, req => supervisor.list(z.object({target:z.string().optional()}).parse(req.query).target));
+  app.post('/admin/agent-supervisor/state', { preHandler: app.requireAdmin }, req => supervisor.setEnabled(z.object({enabled:z.boolean()}).strict().parse(req.body).enabled, req.admin!.user.id));
+  app.post('/admin/agent-supervisor/pause', { preHandler: app.requireAdmin }, req => {
+    const v = z.object({target:z.string(),version:z.number().int().positive()}).strict().parse(req.body);
+    return supervisor.pause(v.target, v.version);
+  });
+  app.post('/host/agent-sessions/:id/agent-messaging/work-state', async req => {
+    const { id } = z.object({id:z.string().uuid()}).parse(req.params);
+    const token = z.string().min(1).parse(req.headers['x-agent-bridge-token']);
+    if (Object.keys((req.body ?? {}) as object).length === 0) {
+      const session = await service.bridge(id, token);
+      return supervisor.list(`agent:${session.agentBusAddressId}`);
+    }
+    return supervisor.report(id, token, req.body);
+  });
   const trackStream = createSseLifecycle(app);
   const hostAuth = createHostAuthService({
     db: ctx.db,
