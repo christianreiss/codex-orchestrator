@@ -70,6 +70,11 @@ Tools expose strict argument schemas and call domain services directly. The
 registry covers hosts, provider accounts, engine switches, models/configuration,
 skills, fleet instructions, Claude artifacts, projects, notes, board cards, shared
 memory, users, gateway-key state, metadata, schedules and watchdog suspension.
+It also reads workflow runs and manages workflow definitions, agent roles and
+proposals, fleet/account quota policies, quota advice/scaling, and server retention.
+These administrative mutations require a prepared target snapshot and explicit
+confirmation. A cleanup receipt confirms admission of a guarded asynchronous
+retention pass; read its run status before claiming deletion completed.
 Credentials, identity verification, provider login, uploads and other operations
 owned by an existing UI use an explicit interactive handoff. Such a link is not a
 claim that Chatty executed the operation.
@@ -80,7 +85,8 @@ routes and stale entries. Some tools deliberately narrow a route: schedule pause
 can only set enabled=false; it cannot edit a prompt or reactivate work.
 
 There is no generic HTTP, SQL, shell, agent-message or work-dispatch tool.
-Chatty cannot start host tasks, create/reactivate schedules, enable recovery or
+Chatty is an application administrator, not a system runner. It cannot start host
+tasks or workflow runs, create/reactivate schedules, enable task recovery or
 start daemon sessions. MCP descriptions in its knowledge are explanatory data,
 not permission to invoke the full fleet MCP surface.
 

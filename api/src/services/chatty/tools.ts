@@ -1,5 +1,10 @@
 import { visibleHost } from '../internal-hosts.js';
 import { z } from 'zod';
+import { define } from './tool-definition.js';
+import { handoffTool } from './handoff-tools.js';
+import { workflowTools } from './workflow-tools.js';
+import { roleRetentionTools } from './role-retention-tools.js';
+import { quotaTools } from './quota-tools.js';
 import { eq, like, desc, and } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
 import type { Capability } from '../../security/capabilities.js';
@@ -61,71 +66,7 @@ export interface ChattyTool {
   href?: (args: Record<string, unknown>) => string;
 }
 
-/** The subset of Zod used in this registry; unknown types fail at registration. */
-export function jsonSchema(s: z.ZodTypeAny): Record<string, unknown> {
-  const d = s._def;
-  if (s instanceof z.ZodOptional || s instanceof z.ZodDefault) return jsonSchema(d.innerType);
-  if (s instanceof z.ZodNullable) return { anyOf: [jsonSchema(d.innerType), { type: 'null' }] };
-  if (s instanceof z.ZodString)
-    return {
-      type: 'string',
-      ...(d.description ? { description: d.description } : {}),
-      ...Object.fromEntries(
-        d.checks
-          .filter((c: { kind: string }) => ['min', 'max'].includes(c.kind))
-          .map((c: { kind: string; value: number }) => [
-            c.kind === 'min' ? 'minLength' : 'maxLength',
-            c.value,
-          ]),
-      ),
-    };
-  if (s instanceof z.ZodNumber)
-    return { type: d.checks.some((c: { kind: string }) => c.kind === 'int') ? 'integer' : 'number' };
-  if (s instanceof z.ZodBoolean) return { type: 'boolean' };
-  if (s instanceof z.ZodEnum) return { type: 'string', enum: d.values };
-  if (s instanceof z.ZodLiteral) return { const: d.value };
-  if (s instanceof z.ZodRecord) return { type: 'object', additionalProperties: true };
-  if (s instanceof z.ZodArray) return { type: 'array', items: jsonSchema(d.type) };
-  if (s instanceof z.ZodObject) {
-    const fields = d.shape() as Record<string, z.ZodTypeAny>;
-    return {
-      type: 'object',
-      properties: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, jsonSchema(v)])),
-      required: Object.entries(fields)
-        .filter(([, v]) => !v.isOptional())
-        .map(([k]) => k),
-      additionalProperties: false,
-    };
-  }
-  throw new Error(`Unsupported Chatty tool schema: ${d.typeName}`);
-}
-
-function define<S extends z.ZodRawShape>(
-  name: string,
-  description: string,
-  capability: Capability,
-  shape: S,
-  run: (ctx: ToolContext, args: z.infer<z.ZodObject<S>>) => Promise<unknown>,
-  options: {
-    confirm?: boolean;
-    snapshot?: (ctx: ToolContext, args: z.infer<z.ZodObject<S>>) => Promise<unknown>;
-    href?: (args: z.infer<z.ZodObject<S>>) => string;
-  } = {},
-): ChattyTool {
-  const schema = z.object(shape).strict();
-  return {
-    name,
-    description,
-    capability,
-    parameters: jsonSchema(schema),
-    write: !!options.snapshot,
-    confirm: options.confirm ?? false,
-    parse: (args) => schema.parse(args),
-    run: (ctx, args) => run(ctx, schema.parse(args)),
-    snapshot: options.snapshot ? (ctx, args) => options.snapshot!(ctx, schema.parse(args)) : undefined,
-    href: options.href ? (args) => options.href!(schema.parse(args)) : undefined,
-  };
-}
+export { jsonSchema } from './tool-definition.js';
 const id = z.number().int().positive();
 const slug = z.string().min(1).max(191);
 const text = z.string().min(1).max(60000);
@@ -910,32 +851,9 @@ export function administrationTools(): ChattyTool[] {
           dataRoot: c.env.DATA_ROOT ?? '/app/storage',
         }).list(),
     ),
-    define(
-      'interactive_handoff',
-      'Open the existing interface for credentials, identity verification, uploads or operations not directly exposed as Chatty tools. Does not perform an action.',
-      'chatty.use',
-      {
-        destination: z.enum([
-          'accounts',
-          'api-keys',
-          'secrets',
-          'users',
-          'account/passkeys',
-          'authoring',
-          'settings',
-          'projects',
-          'transfers',
-          'agent-sessions',
-          'git-director',
-          'hosts',
-        ]),
-      },
-      async (_c, a) => ({
-        href: `/admin/${a.destination}`,
-        instruction: 'Complete this operation in the linked interface. Chatty has not executed it.',
-      }),
-    ),
+    handoffTool(),
   );
+  tools.push(...workflowTools(), ...roleRetentionTools(), ...quotaTools());
   return tools;
 }
 

@@ -1,5 +1,7 @@
 # 2026-10-27
 
+- Expand Chatty administration with confirmed workflow-definition, agent-role, retention and quota-policy mutations, read access to workflow runs, and current handoff destinations. Preserve the boundary against host work dispatch and task recovery activation. Bind new mutations to owner-state snapshots and durable receipts.
+
 - Include maintained installation, runtime, Android, workflow and coordination guides plus component READMEs in Chatty knowledge builds. Give both API images the same source inputs and document how to activate and verify a rebuilt corpus.
 
 - Align current operator guides and in-app help with the code: document API-owned quota collection, normal-only lane steering, installer prerequisites/order and rollback bundles, current console hubs and bootstrap guards, and Grok billing usage display. Add missing feature-guide links and a documentation maintenance source/check map.

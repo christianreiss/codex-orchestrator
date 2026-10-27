@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { administrationProjection } from './administration-projection.js';
 import { eq } from 'drizzle-orm';
 import { chattyActions } from '../../db/schema.js';
 import {
@@ -23,6 +24,8 @@ export function ownerToolProjection(
   args: Record<string, unknown>,
   s: OwnerStateSnapshot,
 ): unknown {
+  const administration = administrationProjection(name, args, s);
+  if (administration !== undefined) return administration;
   const selected: (readonly unknown[])[] = [];
   const add = (table: OwnedTableName, predicate: (row: Record<string, unknown>) => boolean = () => true) =>
     selected.push(
