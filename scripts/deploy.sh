@@ -316,7 +316,7 @@ publish_wrappers() {
   chmod 0644 "${stage}/keys/signing.pub"
 
   img="codex-orchestrator/wrapper-build:${version}"
-  # --pull: the image pins GOTOOLCHAIN=local, so a stale cached golang:1.25
+  # --pull: the image pins GOTOOLCHAIN=local, so a stale cached Go builder
   # older than wrappers/cxx/go.mod fails instead of downloading a toolchain.
   docker build --pull -q -f "${repo_root}/wrappers/Dockerfile.build" -t "${img}" "${repo_root}/wrappers" >/dev/null \
     || fail "could not build the wrapper toolchain image"
@@ -440,7 +440,7 @@ log "compose status"
 log "checking database"
 # shellcheck disable=SC2016 # Expand MYSQL_* inside the mysql container.
 "${compose[@]}" exec -T mysql sh -lc \
-  'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "SELECT 1;" >/dev/null'
+  'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u"$MYSQL_USER" "$MYSQL_DATABASE" -e "SELECT 1;" >/dev/null'
 
 if [[ "${deploys_api}" -eq 1 ]]; then
   log "verifying schema is fully migrated"
@@ -451,7 +451,7 @@ if [[ "${wrappers_published}" -eq 1 ]]; then
   log "verifying the api serves cxx ${wrapper_version}"
   # shellcheck disable=SC2016 # Expand MYSQL_* inside the mysql container.
   served="$("${compose[@]}" exec -T mysql sh -lc \
-    'mysql -N -B -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "SELECT CONCAT(name, \"=\", version) FROM versions WHERE name IN (\"wrapper_version_codex\", \"wrapper_version_claude\", \"wrapper_version_grok\")"' \
+    'MYSQL_PWD="$MYSQL_PASSWORD" mysql -N -B -u"$MYSQL_USER" "$MYSQL_DATABASE" -e "SELECT CONCAT(name, \"=\", version) FROM versions WHERE name IN (\"wrapper_version_codex\", \"wrapper_version_claude\", \"wrapper_version_grok\")"' \
     2>/dev/null)"
   for name in wrapper_version_codex wrapper_version_claude wrapper_version_grok; do
     grep -qx "${name}=${wrapper_version}" <<<"${served}" \

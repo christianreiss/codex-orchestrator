@@ -15,6 +15,29 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+func TestRelayHTTPClientRejectsForeignRedirect(t *testing.T) {
+	reached := make(chan struct{}, 1)
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached <- struct{}{} }))
+	defer sink.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, sink.URL, http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+	client, err := newRelayClient(&config.Config{Orchestrator: config.Orchestrator{BaseURL: origin.URL, APIKey: "private"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.http.CloseIdleConnections()
+	if _, err := client.register(context.Background(), "user", "instance", "dev"); err == nil {
+		t.Fatal("foreign redirect accepted")
+	}
+	select {
+	case <-reached:
+		t.Fatal("foreign server received request")
+	default:
+	}
+}
+
 func TestDaemonConnectionUsesRelayDialerAndTrust(t *testing.T) {
 	for _, secure := range []bool{false, true} {
 		t.Run(map[bool]string{false: "http", true: "https"}[secure], func(t *testing.T) {

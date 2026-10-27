@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"io"
 	"net"
 	"net/http"
@@ -537,7 +538,7 @@ func RunAuthAccessor(ctx context.Context, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Grok subscription authentication pending or requires login")
 		return 1
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	raw, err := httpguard.ReadLimit(resp.Body, 1<<20)
 	if err != nil {
 		return 1
 	}

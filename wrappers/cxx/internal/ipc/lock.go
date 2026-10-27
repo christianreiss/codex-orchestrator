@@ -194,9 +194,14 @@ func acquirePath(path string, operation int, writeOwner bool, dirMode, fileMode 
 	}
 	// Do not O_TRUNC before acquiring flock: a failed contender would erase
 	// the owning process's PID metadata even though it never obtained the lock.
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, fileMode)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, fileMode)
 	if err != nil {
 		return nil, fmt.Errorf("open lock %s: %w", path, err)
+	}
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, fmt.Errorf("lock %s must be a regular file", path)
 	}
 	if err := syscall.Flock(int(f.Fd()), operation); err != nil {
 		_ = f.Close()

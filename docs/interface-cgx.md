@@ -1,5 +1,12 @@
 # cgx — Grok Build fleet wrapper
 
+From cxx 0.9.138, shared HTTP calls refuse cross-origin authenticated redirects
+and oversized JSON documents. Update downloads send host keys only to the exact
+orchestrator origin and reject HTTPS downgrades. A broken explicit engine config
+makes host-wide `cxx sync` fail while the other installed engines still run.
+See the [shared HTTP contract](wrapper-v2-architecture.md#shared-http-trust-and-replay-cxx-09138)
+and [review findings](wrapper-review-2026-10-26.md).
+
 From cxx 0.9.135, normal native-session startup and exit show Communicator owner
 origin/PID and current client counts, using bounded local-only observations. See
 [session statistics](communicator.md#native-session-statistics-cxx-09135) for count,

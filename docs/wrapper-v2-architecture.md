@@ -1,5 +1,35 @@
 # Wrapper bakery v2 — architecture
 
+## Shared HTTP trust and replay (cxx 0.9.138)
+
+`internal/httpguard` owns origin comparison, authenticated redirect policy,
+artifact redirect policy, bounded complete JSON reads and explicit caller-selected
+retries. The Codex and Claude orchestrator adapters retain engine-specific
+requests and typed errors; Grok uses the Claude adapter. Portal, relay, resident
+policy and MCP HTTP clients use the same origin rule. Existing clients that refuse
+all redirects keep that stricter policy. Unix-socket clients remain local.
+
+Authenticated redirects must preserve scheme, hostname and effective port; a
+foreign 307/308 is refused before it can replay credentials in a request body.
+Base URLs must be absolute HTTP(S), without URL credentials, query or fragment.
+Explicit signed HTTP installations remain supported. Artifact GETs may redirect
+to CDNs after stripping credentials; crossing back cannot restore them, and an
+HTTPS hop can never downgrade to HTTP. Initial download keys require the exact
+orchestrator origin. Byte integrity still comes from the signed SHA-256.
+
+Only the caller decides whether a request may be retried: stable operation IDs
+and existing per-call retry counts remain essential for mutations. The shared
+executor clamps negative retries to zero and excessive counts to five, uses
+`GetBody` for replay, bounds fallback buffering, closes failed bodies, and makes
+backoff cancellable. Error diagnostics read at most 2 KiB without draining an
+unbounded error stream. Normal persona JSON responses retain their 64 MiB limit
+and now reject overflow before parsing. Complete-document readers use cap+1 and
+reject trailing JSON. Smaller limits remain on config, transfer, broker, policy
+and housekeeping responses.
+
+See the [2026-10-26 review](wrapper-review-2026-10-26.md) for other findings,
+regression coverage and deployment verification.
+
 ## Owner-mode configuration identity
 
 In single-owner mode, `config_version` is a positive 52-bit SHA-256-derived fingerprint of the served semantic configuration. It is opaque, not monotonic and not an antirollback counter. `issued_at`, `expires_at`, `config_version`, and `etag` are excluded from this fingerprint; all policy, credential, document, and binary fields participate. The signed full-payload etag remains authoritative for integrity. Fetching or renewing an unchanged config performs no host-version write and cannot trigger a state-change/fetch loop. Legacy mode retains its persisted incrementing counter. Codex, Claude, and Grok wrappers accept the opaque value without ordering comparisons.

@@ -3,6 +3,7 @@ package ipv4
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -132,4 +133,123 @@ func TestProxyHTTPForward(t *testing.T) {
 	if string(body) != "ok-/ping" {
 		t.Fatalf("body = %q, want ok-/ping", body)
 	}
+}
+
+func TestProxyConnectPreservesReadAheadPayload(t *testing.T) {
+	backend, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	go func() {
+		conn, err := backend.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		conn.SetDeadline(time.Now().Add(2 * time.Second))
+		payload := make([]byte, 4)
+		if _, err := io.ReadFull(conn, payload); err == nil {
+			conn.Write(payload)
+		}
+	}()
+	p, err := Start(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+	u, _ := url.Parse(p.URL)
+	conn, err := net.Dial("tcp4", u.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(2 * time.Second))
+	// One write forces net/http's request reader to buffer tunnel bytes too.
+	if _, err := fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\nPING", backend.Addr(), backend.Addr()); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(conn)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if line == "\r\n" {
+			break
+		}
+	}
+	got := make([]byte, 4)
+	if _, err := io.ReadFull(reader, got); err != nil || string(got) != "PING" {
+		t.Fatalf("read-ahead lost: %q, %v", got, err)
+	}
+}
+
+func TestProxyStripsHopHeadersInBothDirections(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, name := range []string{"X-Request-Hop", "Proxy-Authorization", "Proxy-Connection"} {
+			if r.Header.Get(name) != "" {
+				t.Errorf("forwarded %s", name)
+			}
+		}
+		w.Header().Set("Connection", "X-Response-Hop")
+		w.Header().Set("X-Response-Hop", "private")
+		w.Write([]byte("ok"))
+	}))
+	defer backend.Close()
+	p, err := Start(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+	u, _ := url.Parse(p.URL)
+	transport := &http.Transport{Proxy: http.ProxyURL(u)}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: 3 * time.Second}
+	req, _ := http.NewRequest("GET", backend.URL, nil)
+	req.Header.Set("Connection", "X-Request-Hop")
+	req.Header.Set("X-Request-Hop", "private")
+	req.Header.Set("Proxy-Authorization", "private")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.Header.Get("X-Response-Hop") != "" {
+		t.Error("forwarded response connection header")
+	}
+}
+
+func TestProxyCancellationClosesHijackedTunnels(t *testing.T) {
+	backend, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	closed := make(chan struct{})
+	go func() {
+		defer close(closed)
+		conn, err := backend.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = io.Copy(io.Discard, conn)
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p, err := Start(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+	conn, _ := dialProxyConnect(t, p.URL, backend.Addr().String())
+	defer conn.Close()
+	cancel()
+	select {
+	case <-closed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancellation left a hijacked tunnel open")
+	}
+	p.Stop() // safe after context cancellation and safe to repeat
 }

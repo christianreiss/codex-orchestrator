@@ -126,7 +126,7 @@ func queueReceipt(base string, value providerRelease) (bool, error) {
 
 func (s *server) providerReleaseHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method", 405)
+		http.Error(w, "method", http.StatusMethodNotAllowed)
 		return
 	}
 	var value providerRelease

@@ -5,7 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
-	"io"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"net/http"
 	"os"
 	"sort"
@@ -114,7 +114,7 @@ func (s *server) refreshPolicy(ctx context.Context) {
 	if res.StatusCode != 200 {
 		return
 	}
-	raw, err := io.ReadAll(io.LimitReader(res.Body, 2*1024*1024))
+	raw, err := httpguard.ReadLimit(res.Body, 2*1024*1024)
 	if err != nil {
 		return
 	}

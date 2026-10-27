@@ -23,6 +23,20 @@ func TestAcquireReleaseRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSharedLeaseRejectsFIFO(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lease.lock")
+	if err := syscall.Mkfifo(path, 0600); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := TryAcquireSharedPath(path)
+	if lease != nil {
+		lease.Release()
+	}
+	if err == nil {
+		t.Fatal("FIFO accepted as a session lease")
+	}
+}
+
 func TestInheritOnExecClearsCloseOnExecFlag(t *testing.T) {
 	lease, err := AcquireSharedPath(filepath.Join(t.TempDir(), "inherited.lock"))
 	if err != nil {

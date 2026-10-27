@@ -17,6 +17,35 @@ import (
 
 const testBridgeToken = "bridge-123456789012345678901234567890123456"
 
+func TestPortalHTTPClientRejectsForeignRedirect(t *testing.T) {
+	reached := make(chan struct{}, 1)
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached <- struct{}{} }))
+	defer sink.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, sink.URL, http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+	client, err := newHTTPClient(nil, false, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.CloseIdleConnections()
+	req, _ := http.NewRequest("POST", origin.URL, strings.NewReader(`{"token":"private"}`))
+	req.Header.Set("X-API-Key", "private")
+	resp, err := client.Do(req)
+	if resp != nil {
+		resp.Body.Close()
+	}
+	if err == nil {
+		t.Fatal("foreign redirect accepted")
+	}
+	select {
+	case <-reached:
+		t.Fatal("foreign server received request")
+	default:
+	}
+}
+
 func TestSessionFromEnvironmentRequiresPrivateSocket(t *testing.T) {
 	for _, key := range []string{envSocket, envBaseURL, envSessionID, envBridgeToken, envCABundle, envAllowInsecure, envEngine} {
 		t.Setenv(key, "")

@@ -1,5 +1,9 @@
 # Overview
 
+cxx 0.9.138 hardens shared HTTP trust, retries, JSON limits, destruction, locks,
+host sync and the IPv4 proxy across the three engine paths. See the
+[wrapper review](wrapper-review-2026-10-26.md) for findings, checks and rollout limits.
+
 Grok native user defaults are audited against Build 1.0.70. The existing Engines
 JSON editor supports current Vim, hook, terminal-status, model/media and feature
 settings, with conditional native-version checks. Migration 0110 repairs retired

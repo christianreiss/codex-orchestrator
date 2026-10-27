@@ -367,7 +367,6 @@ func headers(h http.Header) map[string]string {
 	}
 	return out
 }
-func rawJSON(value any) json.RawMessage { raw, _ := json.Marshal(value); return raw }
 
 // handshakeRejection asks the server again, outside the WebSocket library, why it
 // refused the upgrade. The library reports only "bad status" and discards the

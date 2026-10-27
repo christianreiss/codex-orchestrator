@@ -18,6 +18,8 @@ import (
 const PrivateReaperCommand = "__cxx-grok-private-reaper"
 const privateLeaseName = ".cxx-private-lease"
 
+var ErrPrivateDirectoryBusy = errors.New("Grok private directory still has an active holder")
+
 // PrivateDirectory starts an independent cleaner before any credentials are
 // written. The cleaner owns no secret and survives the launcher being killed.
 type PrivateDirectory struct {
@@ -114,7 +116,7 @@ func (p *PrivateDirectory) Close() error {
 		case err := <-p.done:
 			p.closeErr = errors.Join(p.closeErr, err)
 		case <-time.After(5 * time.Second):
-			p.closeErr = errors.Join(p.closeErr, errors.New("Grok private directory still has an active holder"))
+			p.closeErr = errors.Join(p.closeErr, ErrPrivateDirectoryBusy)
 		}
 	})
 	return p.closeErr
@@ -209,33 +211,50 @@ func SweepPrivateDirectories() error {
 				continue
 			}
 			dir := filepath.Join(root, entry.Name())
-			info, err := os.Lstat(dir)
-			if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 {
-				continue
-			}
-			stat, ok := info.Sys().(*syscall.Stat_t)
-			if !ok || stat.Uid != uint32(os.Getuid()) {
-				continue
-			}
-			// Only the new guard's marker authorizes cleanup, never arbitrary temp files.
-			marker := filepath.Join(dir, privateLeaseName)
-			info, err = os.Lstat(marker)
-			if err != nil || !info.Mode().IsRegular() {
-				continue
-			}
-			lock, err := ipc.TryAcquireExclusivePath(marker)
-			if errors.Is(err, ipc.ErrHeld) {
-				continue
-			}
-			if err != nil {
+			_, err = RemoveIdlePrivateDirectory(dir)
+			if err != nil && !errors.Is(err, ErrPrivateDirectoryBusy) {
 				result = errors.Join(result, err)
-				continue
 			}
-			if !privateDirectoryInUse(dir) {
-				result = errors.Join(result, os.RemoveAll(dir))
-			}
-			_ = lock.Release()
 		}
 	}
 	return result
+}
+
+// RemoveIdlePrivateDirectory removes only recognized runtime directories owned
+// by this UID. Both maintenance and engine destruction use the same lifetime
+// fence. A matching filename alone never authorizes deleting shared temp data.
+// Unrecognized paths are left alone; an active owned path returns Busy.
+func RemoveIdlePrivateDirectory(dir string) (bool, error) {
+	name := filepath.Base(dir)
+	if !filepath.IsAbs(dir) || (!strings.HasPrefix(name, "session-") && !strings.HasPrefix(name, "cgx-runtime-") && !strings.HasPrefix(name, "cgx-login-")) {
+		return false, nil
+	}
+	info, err := os.Lstat(dir)
+	if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 {
+		return false, nil
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uint32(os.Getuid()) {
+		return false, nil
+	}
+	marker := filepath.Join(dir, privateLeaseName)
+	info, err = os.Lstat(marker)
+	if err != nil || !info.Mode().IsRegular() {
+		return false, nil
+	}
+	lock, err := ipc.TryAcquireExclusivePath(marker)
+	if errors.Is(err, ipc.ErrHeld) {
+		return false, ErrPrivateDirectoryBusy
+	}
+	if err != nil {
+		return false, err
+	}
+	defer lock.Release()
+	if privateDirectoryInUse(dir) {
+		return false, ErrPrivateDirectoryBusy
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return false, err
+	}
+	return true, nil
 }

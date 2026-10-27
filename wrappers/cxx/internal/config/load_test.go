@@ -22,6 +22,14 @@ func testKeypair(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 	return pub, priv
 }
 
+func TestVerifyDetachedRejectsMalformedPublicKeyWithoutPanicking(t *testing.T) {
+	for _, length := range []int{0, 1, 31, 33} {
+		if err := VerifyDetached([]byte(`{}`), make([]byte, ed25519.SignatureSize), make(ed25519.PublicKey, length)); err == nil {
+			t.Fatalf("accepted key length %d", length)
+		}
+	}
+}
+
 // writeUnsignedConfig writes a valid config payload without the .sig sidecar.
 func writeUnsignedConfig(t *testing.T, dir string) string {
 	t.Helper()

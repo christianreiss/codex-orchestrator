@@ -68,10 +68,10 @@ func TestNativeHelpOracle(t *testing.T) {
 			if binary == "" {
 				t.Skip("native help oracle not configured")
 			}
-			cases := []struct {
+			var cases []struct {
 				args    []string
 				heading string
-			}{}
+			}
 			if engine == "codex" {
 				cases = []struct {
 					args    []string

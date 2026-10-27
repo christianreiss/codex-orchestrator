@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/housekeeping"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/transfers"
@@ -274,6 +276,10 @@ func syncEngines(passthrough []string, stdout, stderr io.Writer, runCodex, runCl
 	for _, engine := range engines {
 		path, err := configPathFor(engine.name)
 		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) || explicitConfigPath(engine.name) {
+				fmt.Fprintf(stderr, "cxx sync: %s config: %v\n", engine.name, err)
+				worst = max(worst, 1)
+			}
 			continue
 		}
 		found = true
@@ -290,33 +296,23 @@ func syncEngines(passthrough []string, stdout, stderr io.Writer, runCodex, runCl
 }
 
 func configPathFor(engine string) (string, error) {
-	var envName, filename string
-	if engine == "grok" {
-		envName, filename = "CGX_CONFIG_PATH", "cgx.json"
-	} else if engine == "claude" {
-		envName, filename = "CLX_CONFIG_PATH", "clx.json"
-	} else {
-		envName, filename = "CDX_CONFIG_PATH", "cdx.json"
-	}
-	if value := strings.TrimSpace(os.Getenv(envName)); value != "" {
-		if _, err := os.Stat(value); err != nil {
-			return "", err
-		}
-		return value, nil
-	}
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		base = filepath.Join(home, ".config")
-	}
-	path := filepath.Join(base, "codex-orchestrator", filename)
-	if _, err := os.Stat(path); err != nil {
+	path, err := config.DefaultPathForEngine(engine)
+	if err != nil {
 		return "", err
 	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s is not a regular config file", path)
+	}
 	return path, nil
+}
+
+func explicitConfigPath(engine string) bool {
+	name := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[engine]
+	return strings.TrimSpace(os.Getenv(name)) != ""
 }
 
 // personaForProgramName recognizes the stable aliases and the versioned

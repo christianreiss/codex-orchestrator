@@ -26,9 +26,15 @@ const idleTunnelTimeout = 10 * time.Minute
 
 // Proxy is a started IPv4-forcing proxy.
 type Proxy struct {
-	URL    string
-	server *http.Server
-	wg     sync.WaitGroup
+	URL       string
+	server    *http.Server
+	wg        sync.WaitGroup
+	transport *http.Transport
+	mu        sync.Mutex
+	closed    bool
+	tunnels   map[net.Conn]struct{}
+	done      chan struct{}
+	stopOnce  sync.Once
 }
 
 // Start spins up the proxy on a kernel-assigned 127.0.0.1 port.
@@ -67,9 +73,10 @@ func Start(ctx context.Context) (*Proxy, error) {
 	// /tree → /tree/ slash redirect before dispatching), which kills every
 	// HTTPS tunnel — and HTTPS is essentially all of Codex's API traffic. A
 	// bare handler sees CONNECT verbatim.
+	p := &Proxy{URL: fmt.Sprintf("http://127.0.0.1:%d", addr.Port), transport: transport, tunnels: map[net.Conn]struct{}{}, done: make(chan struct{})}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodConnect {
-			handleConnect(w, r, dial4)
+			handleConnect(w, r, dial4, p)
 			return
 		}
 		handleHTTP(w, r, transport)
@@ -80,11 +87,18 @@ func Start(ctx context.Context) (*Proxy, error) {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       idleTunnelTimeout,
 	}
-	p := &Proxy{URL: fmt.Sprintf("http://127.0.0.1:%d", addr.Port), server: srv}
+	p.server = srv
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
 		_ = srv.Serve(ln)
+	}()
+	go func() {
+		select {
+		case <-ctx.Done():
+			p.Stop()
+		case <-p.done:
+		}
 	}()
 	return p, nil
 }
@@ -94,13 +108,24 @@ func (p *Proxy) Stop() {
 	if p == nil || p.server == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = p.server.Shutdown(ctx)
-	p.wg.Wait()
+	p.stopOnce.Do(func() {
+		p.mu.Lock()
+		p.closed = true
+		for conn := range p.tunnels {
+			_ = conn.Close()
+		}
+		p.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = p.server.Shutdown(ctx)
+		_ = p.server.Close()
+		p.transport.CloseIdleConnections()
+		p.wg.Wait()
+		close(p.done)
+	})
 }
 
-func handleConnect(w http.ResponseWriter, r *http.Request, dial func(ctx context.Context, network, addr string) (net.Conn, error)) {
+func handleConnect(w http.ResponseWriter, r *http.Request, dial func(ctx context.Context, network, addr string) (net.Conn, error), p *Proxy) {
 	host := r.URL.Host
 	if !strings.Contains(host, ":") {
 		host += ":443"
@@ -122,18 +147,40 @@ func handleConnect(w http.ResponseWriter, r *http.Request, dial func(ctx context
 	// "200 OK" below plus the tunneled bytes would then arrive as chunked body,
 	// corrupting the handshake. Hijack first, then write the single CONNECT-OK
 	// status line ourselves.
-	src, _, err := hj.Hijack()
+	src, buffered, err := hj.Hijack()
 	if err != nil {
 		return
 	}
 	defer src.Close()
-	_, _ = src.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
+	p.tunnels[src], p.tunnels[dst] = struct{}{}, struct{}{}
+	p.mu.Unlock()
+	defer func() { p.mu.Lock(); delete(p.tunnels, src); delete(p.tunnels, dst); p.mu.Unlock() }()
 
 	sc := &idleConn{Conn: src, timeout: idleTunnelTimeout}
 	dc := &idleConn{Conn: dst, timeout: idleTunnelTimeout}
+	if _, err := sc.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+		return
+	}
+	// Hijack returns net/http's buffered reader too. A client may have sent its
+	// TLS hello in the same packet as CONNECT; do not discard those bytes.
+	if n := buffered.Reader.Buffered(); n > 0 {
+		if _, err := io.CopyN(dc, buffered, int64(n)); err != nil {
+			return
+		}
+	}
 
-	go io.Copy(dc, sc) //nolint:errcheck
-	io.Copy(sc, dc)    //nolint:errcheck
+	go func() {
+		_, _ = io.Copy(dc, sc)
+		if tcp, ok := dst.(*net.TCPConn); ok {
+			_ = tcp.CloseWrite()
+		}
+	}()
+	io.Copy(sc, dc) //nolint:errcheck
 }
 
 // idleConn wraps a net.Conn and resets its read/write deadlines on every
@@ -158,15 +205,14 @@ func (c *idleConn) Write(b []byte) (int, error) {
 func handleHTTP(w http.ResponseWriter, r *http.Request, transport *http.Transport) {
 	// Forward absolute-form HTTP request.
 	r.RequestURI = ""
-	for _, h := range []string{"Proxy-Connection", "Connection"} {
-		r.Header.Del(h)
-	}
+	stripHopHeaders(r.Header)
 	resp, err := transport.RoundTrip(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
+	stripHopHeaders(resp.Header)
 	for k, vv := range resp.Header {
 		for _, v := range vv {
 			w.Header().Add(k, v)
@@ -174,4 +220,15 @@ func handleHTTP(w http.ResponseWriter, r *http.Request, transport *http.Transpor
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+func stripHopHeaders(header http.Header) {
+	for _, value := range header.Values("Connection") {
+		for _, name := range strings.Split(value, ",") {
+			header.Del(strings.TrimSpace(name))
+		}
+	}
+	for _, name := range []string{"Connection", "Proxy-Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "TE", "Trailer", "Transfer-Encoding", "Upgrade"} {
+		header.Del(name)
+	}
 }

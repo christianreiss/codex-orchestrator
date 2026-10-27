@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"io"
 	"log/slog"
 	"net/http"
@@ -291,7 +292,7 @@ func newRelayClient(cfg *config.Config) (*relayClient, error) {
 	return &relayClient{
 		baseURL: strings.TrimRight(cfg.Orchestrator.BaseURL, "/"), apiKey: cfg.Orchestrator.APIKey,
 		stateProtocol: cfg.Orchestrator.CommunicatorStateProtocol,
-		http:          &http.Client{Transport: communicator.Wrap(transport), Timeout: 40 * time.Second},
+		http:          &http.Client{Transport: communicator.Wrap(transport), Timeout: 40 * time.Second, CheckRedirect: httpguard.Redirect},
 	}, nil
 }
 

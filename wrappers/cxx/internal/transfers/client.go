@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"io"
 	"net/http"
 	"net/url"
@@ -148,7 +149,7 @@ func (c *Client) metadata(ctx context.Context, method, path string, input any) (
 	return decode(resp.Body)
 }
 func decode(r io.Reader) (response, error) {
-	raw, err := io.ReadAll(io.LimitReader(r, 1<<20))
+	raw, err := httpguard.ReadLimit(r, 1<<20)
 	if err != nil {
 		return response{}, err
 	}

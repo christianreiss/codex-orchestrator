@@ -10,7 +10,7 @@
 # python3 is not optional: `wrappers/Makefile` shells out to
 # `scripts/merge-manifest.py` and `scripts/publish-release.py`, which own the
 # manifest merge and the immutable-version publish rules.
-FROM golang:1.25-bookworm
+FROM golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c
 
 # `make` is not in the golang image. Everything else the Makefile touches
 # (sha256sum, base64, wc, sed, awk) is coreutils, already present.

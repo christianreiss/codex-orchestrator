@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativewriter"
 	"io"
@@ -659,7 +660,7 @@ func (b *Broker) forwardManagedMCP(w http.ResponseWriter, r *http.Request) {
 	// never replay this opaque MCP operation on the strength of an error code.
 	var response io.Reader = res.Body
 	if res.StatusCode == http.StatusUnauthorized {
-		body, readErr := io.ReadAll(io.LimitReader(res.Body, 16*1024*1024))
+		body, readErr := httpguard.ReadLimit(res.Body, 16*1024*1024)
 		response = bytes.NewReader(body)
 		var failure struct {
 			Code  string `json:"code"`

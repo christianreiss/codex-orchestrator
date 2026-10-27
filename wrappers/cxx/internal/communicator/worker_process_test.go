@@ -367,5 +367,5 @@ func TestDedicatedWorkersConvergeAllEnginesWithoutMaintenance(t *testing.T) {
 			body.Close()
 		}
 	}
-	t.Log(fmt.Sprintf("30 concurrent callers, %d engine content operations; native credentials retained", requests.Load()))
+	t.Logf("30 concurrent callers, %d engine content operations; native credentials retained", requests.Load())
 }

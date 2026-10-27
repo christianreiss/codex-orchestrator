@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"io/fs"
@@ -240,17 +241,7 @@ func Prefetch(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, t
 }
 
 func safeRedirect(next *http.Request, via []*http.Request) error {
-	if len(via) >= 10 {
-		return errors.New("stopped after 10 redirects")
-	}
-	if len(via) > 0 {
-		origin := via[0].URL
-		if !strings.EqualFold(next.URL.Host, origin.Host) ||
-			(strings.EqualFold(origin.Scheme, "https") && strings.EqualFold(next.URL.Scheme, "http")) {
-			next.Header.Del("X-API-Key")
-		}
-	}
-	return nil
+	return httpguard.ArtifactRedirect(next, via)
 }
 
 func VerifyChecksum(path, expected string) error {
@@ -432,11 +423,11 @@ func HTTPClient(cfg *config.Config) (*http.Client, error) {
 		}
 		tlsConfig.RootCAs = pool
 	}
-	return &http.Client{Timeout: downloadTimeout, Transport: communicator.Wrap(&http.Transport{DialContext: ipv4.PreferDialContext(), TLSClientConfig: tlsConfig})}, nil
+	return &http.Client{Timeout: downloadTimeout, CheckRedirect: httpguard.Redirect, Transport: communicator.Wrap(&http.Transport{DialContext: ipv4.PreferDialContext(), TLSClientConfig: tlsConfig})}, nil
 }
 
 func sameHost(rawURL, baseURL string) bool {
 	a, errA := url.Parse(rawURL)
 	b, errB := url.Parse(baseURL)
-	return errA == nil && errB == nil && strings.EqualFold(a.Host, b.Host)
+	return errA == nil && errB == nil && httpguard.SameOrigin(a, b)
 }

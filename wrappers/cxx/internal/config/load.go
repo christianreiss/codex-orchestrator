@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,6 +134,9 @@ func DefaultPathForEngine(engine string) (string, error) {
 // VerifyDetached checks an Ed25519 signature. The signature file may contain
 // raw bytes or a base64-encoded string (one line) — we accept either.
 func VerifyDetached(payload, sigRaw []byte, pubkey ed25519.PublicKey) error {
+	if len(pubkey) != ed25519.PublicKeySize {
+		return errors.New("invalid Ed25519 public key length")
+	}
 	sig := sigRaw
 	// Try base64 decode if the file is short enough to plausibly be encoded.
 	if decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(sigRaw))); err == nil && len(decoded) == ed25519.SignatureSize {
@@ -174,8 +177,8 @@ func (c *Config) ValidateForEngine(expectedEngine string) error {
 	if c.Orchestrator.BaseURL == "" {
 		return errors.New("orchestrator.base_url is required")
 	}
-	if u, err := url.Parse(c.Orchestrator.BaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return fmt.Errorf("orchestrator.base_url invalid: %q", c.Orchestrator.BaseURL)
+	if _, err := httpguard.BaseURL(c.Orchestrator.BaseURL); err != nil {
+		return err
 	}
 	if len(c.Orchestrator.APIKey) < 8 {
 		return errors.New("orchestrator.api_key too short")

@@ -149,6 +149,43 @@ func TestHostSyncWithoutAnyInstalledEngineFails(t *testing.T) {
 	}
 }
 
+func TestHostSyncReportsBrokenEngineAndContinuesHealthyEngines(t *testing.T) {
+	for _, broken := range []string{"codex", "claude", "grok"} {
+		t.Run(broken, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", dir)
+			for _, name := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH"} {
+				t.Setenv(name, "")
+			}
+			for engine, name := range map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"} {
+				path := filepath.Join(dir, engine+".json")
+				if engine != broken {
+					if err := os.WriteFile(path, []byte(`{}`), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				t.Setenv(name, path)
+			}
+			calls := 0
+			run := func([]string, io.Writer, io.Writer) int { calls++; return 0 }
+			var stderr bytes.Buffer
+			if code := syncEngines(nil, io.Discard, &stderr, run, run, run); code != 1 || calls != 2 || !strings.Contains(stderr.String(), broken+" config") {
+				t.Fatalf("exit=%d calls=%d stderr=%s", code, calls, stderr.String())
+			}
+		})
+	}
+}
+
+func TestConfigPathRejectsNonRegularFile(t *testing.T) {
+	t.Setenv("CGX_CONFIG_PATH", t.TempDir())
+	if _, err := configPathFor("grok"); err == nil {
+		t.Fatal("directory accepted as config")
+	}
+	if _, err := configPathFor("unknown"); err == nil {
+		t.Fatal("unknown engine fell back to Codex")
+	}
+}
+
 func TestHostSyncRejectsUnknownArguments(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if got := runHostSync([]string{"--nope"}, &stdout, &stderr); got != 2 {

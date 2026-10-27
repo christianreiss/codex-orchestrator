@@ -159,7 +159,7 @@ func (o *receiverOwner) serveChannelDelivery(w http.ResponseWriter, req *http.Re
 	}
 	r := o.tracker.receiver
 	if r == nil {
-		http.Error(w, "receiver unavailable", 409)
+		http.Error(w, "receiver unavailable", http.StatusConflict)
 		return
 	}
 	r.mu.Lock()
@@ -167,7 +167,7 @@ func (o *receiverOwner) serveChannelDelivery(w http.ResponseWriter, req *http.Re
 	r.mu.Unlock()
 	pending := o.tracker.get(input.MessageID)
 	if queue != nil || nativeID != input.NativeID || pending == nil || pending.admissionPending() || output == nil {
-		http.Error(w, "channel delivery ownership changed", 409)
+		http.Error(w, "channel delivery ownership changed", http.StatusConflict)
 		return
 	}
 	attempted, err := output.sendGuarded(req.Context(), time.UnixMilli(input.WriteDeadlineMS), map[string]any{"jsonrpc": "2.0", "method": "notifications/claude/channel", "params": map[string]any{"content": input.Content, "meta": map[string]string{"message_id": input.MessageID}}})

@@ -5,6 +5,8 @@ One static Go binary (`cxx`) serves Codex, Claude, and Grok. Enabled hosts insta
 as `cxx codex ...`, `cxx claude ...`, and `cxx grok ...`. Engine configs, auth, locks, and native
 CLI state remain separate.
 
+Security, architecture and release evidence: [2026-10-26 wrapper review](../docs/wrapper-review-2026-10-26.md).
+
 Layout:
 
 - `cxx/` — the single Go module and multicall command.
@@ -29,7 +31,7 @@ automatically; `cxx codex ...` / `cxx claude ...` / `cxx grok ...` do so explici
 cxx --version                 # wrapper version, commit, signing-key status
 cxx sync                      # write fleet-managed content for every installed engine
 cxx update                    # verify + install the wrapper target, then re-exec into `cxx sync`
-cxx cron [install|remove|run [--due]]   # the shared 15-minute maintenance schedule / tick
+cxx cron [install|remove|run [--due]]   # shared nightly schedule / cooldown-aware tick
 cxx portal [status|notify|resolve|say|ask|wait|accept|leave]   # agent portal relay (#afk)
 cxx agent [list|send|request|wait|reply|message|cancel|listen|poll|status|service|worker|mcp]
 cxx claude-quota-statusline   # Claude Code statusLine command that relays quota readings
@@ -134,6 +136,9 @@ The release version is `VERSION` in this Makefile and is stamped into the binary
 with `-ldflags -X main.Version=...`. Bumping it is the whole release step:
 `scripts/deploy.sh` builds, verifies and publishes any `VERSION` the server does
 not serve yet, then recreates the api so hosts update.
+
+Builds require Go 1.26.9 or newer; CI and the bakery container pin Go 1.26.9.
+Vulnerability checks cover both the default artifact and `cxx_otel`.
 
 Build:
 

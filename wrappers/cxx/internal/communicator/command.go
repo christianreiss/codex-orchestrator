@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 	"io"
 	"net"
@@ -82,7 +83,7 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 	if err != nil {
 		return err
 	}
-	client := &http.Client{Transport: Wrap(direct), Timeout: 120 * time.Second}
+	client := &http.Client{Transport: Wrap(direct), Timeout: 120 * time.Second, CheckRedirect: httpguard.Redirect}
 	var brokerClient *http.Client
 	if socket := os.Getenv("CXX_AGENT_PORTAL_SOCKET"); socket != "" {
 		brokerClient = &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -118,7 +119,7 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 		if err != nil {
 			return 0, nil, err
 		}
-		body, err := io.ReadAll(io.LimitReader(res.Body, 16*1024*1024))
+		body, err := httpguard.ReadLimit(res.Body, 16*1024*1024)
 		res.Body.Close()
 		if err == nil && res.StatusCode >= 400 {
 			err = fmt.Errorf("CoCo MCP HTTP %d", res.StatusCode)

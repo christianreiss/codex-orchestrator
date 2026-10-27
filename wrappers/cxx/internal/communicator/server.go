@@ -601,7 +601,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !binary {
 		body, err = bufferedBody(r, 8*1024*1024)
 		if err != nil {
-			http.Error(w, err.Error(), 413)
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
 			return
 		}
 	}

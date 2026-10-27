@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
 )
 
 // Options injects everything that touches the outside world, so tests run
@@ -84,11 +85,11 @@ func (r *run) residue(what string, err error) {
 	r.res.Residue = append(r.res.Residue, fmt.Sprintf("%s: %v", what, err))
 }
 
-// tree removes a file or directory tree. Anything outside Home, Home itself
-// and the filesystem root are refused so a bad env override cannot widen it.
+// tree removes a file or directory tree. Dedicated native homes may be outside
+// Home, but Home and its ancestors must never be removed by an env override.
 func (r *run) tree(path string) {
 	path = filepath.Clean(path)
-	if path == "" || !filepath.IsAbs(path) || path == string(filepath.Separator) || path == filepath.Clean(r.opt.Home) {
+	if !filepath.IsAbs(path) || ancestorOfHome(path, r.opt.Home) {
 		r.residue(path, errors.New("refused: unsafe path"))
 		return
 	}
@@ -102,13 +103,31 @@ func (r *run) tree(path string) {
 	r.res.Removed = append(r.res.Removed, path)
 }
 
+func ancestorOfHome(target, home string) bool {
+	// Resolve parent symlinks: RemoveAll follows intermediate components, but
+	// removes a final symlink itself, so do not resolve that last component.
+	if parent, err := filepath.EvalSymlinks(filepath.Dir(target)); err == nil {
+		target = filepath.Join(parent, filepath.Base(target))
+	}
+	if resolved, err := filepath.EvalSymlinks(home); err == nil {
+		home = resolved
+	}
+	rel, err := filepath.Rel(target, home)
+	return err != nil || rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
 func (r *run) glob(pattern string) {
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return
 	}
 	for _, m := range matches {
-		r.tree(m)
+		removed, err := grok.RemoveIdlePrivateDirectory(m)
+		if err != nil {
+			r.residue(m, err)
+		} else if removed {
+			r.res.Removed = append(r.res.Removed, m)
+		}
 	}
 }
 

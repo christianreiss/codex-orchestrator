@@ -1,5 +1,5 @@
 // Package orchestrator is the HTTP client cdx uses to talk to the central
-// orchestrator. All endpoint shapes are stable contracts owned by the PHP side.
+// orchestrator. Endpoint shapes follow the Node API contracts in docs/interface-api.md.
 package orchestrator
 
 import (
@@ -15,9 +15,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"log/slog"
-	"math/rand"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -25,6 +23,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipv4"
 )
 
@@ -53,11 +52,8 @@ type Options struct {
 }
 
 func New(opts Options) (*Client, error) {
-	if strings.TrimSpace(opts.BaseURL) == "" {
-		return nil, errors.New("orchestrator base URL required")
-	}
-	if _, err := url.Parse(opts.BaseURL); err != nil {
-		return nil, fmt.Errorf("orchestrator base URL invalid: %w", err)
+	if _, err := httpguard.BaseURL(opts.BaseURL); err != nil {
+		return nil, err
 	}
 
 	tlsCfg := &tls.Config{InsecureSkipVerify: opts.AllowInsecure}
@@ -89,7 +85,7 @@ func New(opts Options) (*Client, error) {
 	return &Client{
 		BaseURL:   strings.TrimRight(opts.BaseURL, "/"),
 		APIKey:    opts.APIKey,
-		HTTP:      &http.Client{Transport: communicator.Wrap(transport), Timeout: timeout},
+		HTTP:      &http.Client{Transport: communicator.Wrap(transport), Timeout: timeout, CheckRedirect: httpguard.Redirect},
 		UserAgent: userAgent,
 		Logger:    opts.Logger,
 	}, nil
@@ -98,6 +94,13 @@ func New(opts Options) (*Client, error) {
 // Do executes a request with bounded exponential backoff. retries=0 means try
 // exactly once. 5xx / network errors are retried; 4xx are returned immediately.
 func (c *Client) Do(ctx context.Context, req *http.Request, retries int) (*http.Response, error) {
+	base, err := httpguard.BaseURL(c.BaseURL)
+	if err != nil || !httpguard.SameOrigin(req.URL, base) {
+		if req.Body != nil {
+			req.Body.Close()
+		}
+		return nil, errors.New("refusing authenticated request outside orchestrator origin")
+	}
 	if c.APIKey != "" {
 		req.Header.Set("X-API-Key", c.APIKey)
 	}
@@ -112,52 +115,16 @@ func (c *Client) Do(ctx context.Context, req *http.Request, retries int) (*http.
 	}
 	req.Header.Set("X-Wrapper-Version", buildinfo.Version)
 
-	if retries < 0 {
-		retries = 0
-	}
-
-	var lastErr error
-	for attempt := 0; attempt <= retries; attempt++ {
-		// Clone the body for retries since net/http drains it.
-		clone := req.Clone(req.Context())
-		if req.Body != nil {
-			buf, err := io.ReadAll(req.Body)
-			if err != nil {
-				return nil, err
-			}
-			req.Body = io.NopCloser(bytes.NewReader(buf))
-			clone.Body = io.NopCloser(bytes.NewReader(buf))
+	return httpguard.Do(ctx, c.HTTP, req, retries, func(resp *http.Response, raw []byte) error {
+		return &HTTPError{
+			StatusCode: resp.StatusCode,
+			Code:       parseErrorCode(raw),
+			Scope:      parseErrorScope(raw),
+			Method:     req.Method,
+			Path:       req.URL.Path,
+			Body:       strings.TrimSpace(string(raw)),
 		}
-
-		resp, err := c.HTTP.Do(clone.WithContext(ctx))
-		if err != nil {
-			lastErr = err
-		} else if resp.StatusCode < 500 {
-			return resp, nil
-		} else {
-			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-			lastErr = &HTTPError{
-				StatusCode: resp.StatusCode,
-				Code:       parseErrorCode(raw),
-				Scope:      parseErrorScope(raw),
-				Method:     req.Method,
-				Path:       req.URL.Path,
-				Body:       strings.TrimSpace(string(raw)),
-			}
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
-		}
-		if attempt < retries {
-			backoff := time.Duration(1<<attempt) * 200 * time.Millisecond
-			jitter := time.Duration(rand.Int63n(int64(backoff / 2)))
-			select {
-			case <-time.After(backoff + jitter):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-		}
-	}
-	return nil, lastErr
+	})
 }
 
 // JSON is a convenience for POSTing JSON and decoding a JSON response envelope.
@@ -185,7 +152,6 @@ func (c *Client) JSON(ctx context.Context, method, path string, in any, out any,
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		io.Copy(io.Discard, resp.Body)
 		return &HTTPError{
 			StatusCode: resp.StatusCode,
 			Code:       parseErrorCode(raw),
@@ -198,7 +164,7 @@ func (c *Client) JSON(ctx context.Context, method, path string, in any, out any,
 	if out == nil {
 		return nil
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	raw, err := httpguard.ReadLimit(resp.Body, httpguard.MaxJSONBytes)
 	if err != nil {
 		return err
 	}

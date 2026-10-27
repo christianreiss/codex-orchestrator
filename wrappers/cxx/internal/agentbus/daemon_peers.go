@@ -11,10 +11,6 @@ import (
 	"time"
 )
 
-func runDaemonPeers(ctx context.Context, version string, mu *sync.Mutex, active map[string]context.CancelFunc, stderr io.Writer) {
-	runDaemonPeersControlled(ctx, version, mu, active, stderr, nil)
-}
-
 func runDaemonPeersControlled(ctx context.Context, version string, mu *sync.Mutex, active map[string]context.CancelFunc, stderr io.Writer, controller *ResidentController) {
 	instanceID := newUUID()
 	for ctx.Err() == nil {

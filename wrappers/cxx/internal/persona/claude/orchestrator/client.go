@@ -14,9 +14,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"log/slog"
-	"math/rand"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,6 +22,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipv4"
 )
 
@@ -51,12 +50,10 @@ type Options struct {
 }
 
 func New(opts Options) (*Client, error) {
-	if strings.TrimSpace(opts.BaseURL) == "" {
-		return nil, errors.New("orchestrator base URL required")
+	if _, err := httpguard.BaseURL(opts.BaseURL); err != nil {
+		return nil, err
 	}
-	if _, err := url.Parse(opts.BaseURL); err != nil {
-		return nil, fmt.Errorf("orchestrator base URL invalid: %w", err)
-	}
+
 	tlsCfg := &tls.Config{InsecureSkipVerify: opts.AllowInsecure}
 	if opts.CABundlePath != "" {
 		pem, err := os.ReadFile(opts.CABundlePath)
@@ -84,13 +81,20 @@ func New(opts Options) (*Client, error) {
 	return &Client{
 		BaseURL:   strings.TrimRight(opts.BaseURL, "/"),
 		APIKey:    opts.APIKey,
-		HTTP:      &http.Client{Transport: communicator.Wrap(transport), Timeout: timeout},
+		HTTP:      &http.Client{Transport: communicator.Wrap(transport), Timeout: timeout, CheckRedirect: httpguard.Redirect},
 		UserAgent: userAgent,
 		Logger:    opts.Logger,
 	}, nil
 }
 
 func (c *Client) Do(ctx context.Context, req *http.Request, retries int) (*http.Response, error) {
+	base, err := httpguard.BaseURL(c.BaseURL)
+	if err != nil || !httpguard.SameOrigin(req.URL, base) {
+		if req.Body != nil {
+			req.Body.Close()
+		}
+		return nil, errors.New("refusing authenticated request outside orchestrator origin")
+	}
 	if c.APIKey != "" {
 		req.Header.Set("X-API-Key", c.APIKey)
 	}
@@ -105,45 +109,16 @@ func (c *Client) Do(ctx context.Context, req *http.Request, retries int) (*http.
 	}
 	req.Header.Set("X-Wrapper-Version", buildinfo.Version)
 
-	var lastErr error
-	for attempt := 0; attempt <= retries; attempt++ {
-		clone := req.Clone(req.Context())
-		if req.Body != nil {
-			buf, err := io.ReadAll(req.Body)
-			if err != nil {
-				return nil, err
-			}
-			req.Body = io.NopCloser(bytes.NewReader(buf))
-			clone.Body = io.NopCloser(bytes.NewReader(buf))
+	return httpguard.Do(ctx, c.HTTP, req, retries, func(resp *http.Response, raw []byte) error {
+		return &HTTPError{
+			StatusCode: resp.StatusCode,
+			Code:       parseErrorCode(raw),
+			Scope:      parseErrorScope(raw),
+			Method:     req.Method,
+			Path:       req.URL.Path,
+			Body:       strings.TrimSpace(string(raw)),
 		}
-		resp, err := c.HTTP.Do(clone.WithContext(ctx))
-		if err != nil {
-			lastErr = err
-		} else if resp.StatusCode < 500 {
-			return resp, nil
-		} else {
-			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-			lastErr = &HTTPError{
-				StatusCode: resp.StatusCode,
-				Code:       parseErrorCode(raw),
-				Scope:      parseErrorScope(raw),
-				Method:     req.Method,
-				Path:       req.URL.Path,
-				Body:       strings.TrimSpace(string(raw)),
-			}
-			resp.Body.Close()
-		}
-		if attempt < retries {
-			backoff := time.Duration(1<<attempt) * 200 * time.Millisecond
-			jitter := time.Duration(rand.Int63n(int64(backoff / 2)))
-			select {
-			case <-time.After(backoff + jitter):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-		}
-	}
-	return nil, lastErr
+	})
 }
 
 func (c *Client) JSON(ctx context.Context, method, path string, in any, out any, retries int) error {
@@ -182,7 +157,7 @@ func (c *Client) JSON(ctx context.Context, method, path string, in any, out any,
 	if out == nil {
 		return nil
 	}
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	raw, err := httpguard.ReadLimit(resp.Body, httpguard.MaxJSONBytes)
 	if err != nil {
 		return err
 	}

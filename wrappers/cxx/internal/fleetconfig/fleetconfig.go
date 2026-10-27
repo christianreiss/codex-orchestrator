@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"io"
 	"net/http"
 	"os"
@@ -99,7 +100,7 @@ func fetchWithKey(ctx context.Context, seed *config.Config, engine string, pubke
 			Value string `json:"value"`
 		} `json:"signature"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 2*1024*1024)).Decode(&envelope); err != nil {
+	if err := httpguard.Decode(resp.Body, 2*1024*1024, &envelope); err != nil {
 		return nil, fmt.Errorf("decode %s config bundle: %w", engine, err)
 	}
 	if len(envelope.Payload) == 0 || strings.TrimSpace(envelope.Signature.Value) == "" {

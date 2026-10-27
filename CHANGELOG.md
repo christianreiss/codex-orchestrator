@@ -1,3 +1,7 @@
+# 2026-10-27
+
+- **cxx 0.9.138 — wrapper review and hardening across cdx/clx/cgx:** authenticated HTTP calls now refuse foreign-origin redirects (including replayed auth bodies), update downloads never attach host keys across schemes/ports and refuse TLS downgrades, and shared bounded retry/JSON handling fixes the Claude/Grok negative-retry panic and oversized-prefix acceptance. Engine destruction refuses home ancestors and uses ownership/lifetime checks for Grok temp cleanup. Host sync reports broken explicit configs, locks reject special files, and the IPv4 proxy retains buffered CONNECT bytes, strips connection/proxy headers and closes tunnels on cancellation. Refreshes the Go 1.26 toolchain and patched HTTP2/gRPC/OpenTelemetry dependencies, with vulnerability checks for both normal and traced builds. Includes regression tests and the [review evidence and rollout contract](docs/wrapper-review-2026-10-26.md).
+
 # 2026-10-26
 
 - cxx 0.9.137 enforces GPT-6.1 Terra's native Codex minimum of 0.159.0 across fleet/host selection, effective profiles, signed launch menus and actual native starts, while preserving update and recovery paths for older clients. Validate MITM actions with the native consumer semantics only when selected by hooks; preserve unused action definitions.

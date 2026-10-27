@@ -83,3 +83,20 @@ func TestSafeRedirectDropsAPIKeyAcrossHosts(t *testing.T) {
 		t.Fatalf("same-host API key changed: %q", got)
 	}
 }
+
+func TestDownloadAuthRequiresMatchingOrigin(t *testing.T) {
+	for _, tc := range []struct {
+		target, base string
+		want         bool
+	}{
+		{"https://fleet.example:443/cxx", "https://FLEET.example", true},
+		{"http://fleet.example/cxx", "https://fleet.example", false},
+		{"https://fleet.example:444/cxx", "https://fleet.example", false},
+		{"https://cdn.example/cxx", "https://fleet.example", false},
+		{"https://user@fleet.example/cxx", "https://fleet.example", false},
+	} {
+		if got := sameHost(tc.target, tc.base); got != tc.want {
+			t.Errorf("%s => %v", tc.target, got)
+		}
+	}
+}

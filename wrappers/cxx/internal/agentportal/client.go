@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"io"
 	"net/http"
 	"net/url"
@@ -923,7 +924,7 @@ func newHTTPClient(caBundlePath *string, allowInsecure bool, timeout time.Durati
 	}
 	// Every call already has a bounded context. A client-wide eight-second
 	// timeout would abort the documented 20-25 second command long poll.
-	return &http.Client{Transport: communicator.Wrap(transport)}, nil
+	return &http.Client{Transport: communicator.Wrap(transport), CheckRedirect: httpguard.Redirect}, nil
 }
 
 func currentUsername() string {

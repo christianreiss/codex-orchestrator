@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"io"
 	"net/http"
 	"net/url"
@@ -315,7 +316,7 @@ func (s *server) residentLoop(ctx context.Context) {
 			}
 			transport = direct
 		}
-		client := &http.Client{Transport: transport, Timeout: 10 * time.Second}
+		client := &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: httpguard.Redirect}
 		req, _ := http.NewRequestWithContext(work, "GET", strings.TrimRight(cfg.Orchestrator.BaseURL, "/")+"/host/daemon/config", nil)
 		req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
 		res, err := client.Do(req)
@@ -324,7 +325,7 @@ func (s *server) residentLoop(ctx context.Context) {
 			if res.StatusCode != 200 {
 				err = errors.New("resident settings unavailable")
 			} else {
-				err = json.NewDecoder(io.LimitReader(res.Body, 65536)).Decode(&policy)
+				err = httpguard.Decode(res.Body, 65536, &policy)
 			}
 			res.Body.Close()
 		}

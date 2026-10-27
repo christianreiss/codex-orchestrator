@@ -51,13 +51,12 @@ type profFile struct {
 	Path, Content string
 }
 type profSkill struct {
-	Slug         string
-	Content      string
-	Files        []profFile
-	Bundle       bool
-	SHA          string // bundle digest (wrapper compares against this)
-	ManifestSHA  string
-	approxFrames int
+	Slug        string
+	Content     string
+	Files       []profFile
+	Bundle      bool
+	SHA         string // bundle digest (wrapper compares against this)
+	ManifestSHA string
 }
 
 type profEvent struct {

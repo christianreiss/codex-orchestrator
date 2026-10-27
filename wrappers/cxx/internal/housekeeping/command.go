@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/update"
@@ -46,7 +47,7 @@ func (s remoteServer) call(ctx context.Context, action, token string, report *Re
 	if resp.StatusCode != 200 {
 		return Protection{}, fmt.Errorf("housekeeping %s: %s", action, refusal(resp))
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, err := httpguard.ReadLimit(resp.Body, 8<<20)
 	if err != nil {
 		return Protection{}, err
 	}
