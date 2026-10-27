@@ -1,6 +1,6 @@
 # 2026-10-27
 
-- Expand Chatty administration with confirmed workflow-definition, agent-role, retention and quota-policy mutations, read access to workflow runs, and current handoff destinations. Preserve the boundary against host work dispatch and task recovery activation. Bind new mutations to owner-state snapshots and durable receipts.
+- Expand Chatty administration with confirmed workflow-definition, agent-role, retention, quota-policy and supervisor-configuration mutations, read access to workflow runs, and current handoff destinations. Preserve the boundary against host work dispatch and task recovery activation. Bind new mutations to owner-state snapshots and durable receipts.
 
 - Include maintained installation, runtime, Android, workflow and coordination guides plus component READMEs in Chatty knowledge builds. Give both API images the same source inputs and document how to activate and verify a rebuilt corpus.
 

@@ -5,6 +5,7 @@ import { handoffTool } from './handoff-tools.js';
 import { workflowTools } from './workflow-tools.js';
 import { roleRetentionTools } from './role-retention-tools.js';
 import { quotaTools } from './quota-tools.js';
+import { supervisorTools } from './supervisor-tools.js';
 import { eq, like, desc, and } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
 import type { Capability } from '../../security/capabilities.js';
@@ -853,7 +854,7 @@ export function administrationTools(): ChattyTool[] {
     ),
     handoffTool(),
   );
-  tools.push(...workflowTools(), ...roleRetentionTools(), ...quotaTools());
+  tools.push(...workflowTools(), ...roleRetentionTools(), ...quotaTools(), ...supervisorTools());
   return tools;
 }
 

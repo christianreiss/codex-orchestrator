@@ -43,6 +43,7 @@ Keep these aligned with implementation and executable tests.
 | Authentication | [Auth runner](auth-runner.md), [credential resilience](auth-resilience.md) |
 | Communicator | [Local communicator](communicator.md), [resident runtime](communicator-resident-runtime.md) |
 | Agent conversations | [Operator chat](agent-chat.md), [smart queue](smart-queue.md), [Android companion](android-companion.md) |
+| Agent supervision | [Fleet task supervisor](agent-supervisor.md) |
 | Agent coordination | [Project/host rooms and resource claims](agent-coordination.md), [message timing](agent-messaging-timing.md) |
 | Shared work | [Workflows](workflows.md), [file transfers](file-transfers.md), [agent roles](agent-roles.md) |
 | Server ownership | [Control-plane owner](control-plane-owner.md), [owner cutover](owner-cutover.md) |

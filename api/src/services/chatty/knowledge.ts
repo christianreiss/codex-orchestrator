@@ -23,7 +23,7 @@ const GUIDES = new Set([
   'README', 'OVERVIEW', 'API', 'ADMIN', 'INSTALL', 'USAGE', 'LOGIN', 'SECURITY',
   'MCP', 'CONFIG_BUILDER', 'NATIVE_CONFIG_SCOPES', 'auth-runner', 'auth-resilience',
   'chatty', 'wrapper-v2-architecture', 'communicator', 'communicator-resident-runtime',
-  'agent-chat', 'smart-queue', 'android-companion', 'agent-coordination',
+  'agent-chat', 'agent-supervisor', 'smart-queue', 'android-companion', 'agent-coordination',
   'agent-messaging-timing', 'agent-roles', 'workflows', 'file-transfers',
   'control-plane-owner', 'owner-cutover', 'host-runtime-policy', 'reboot-resume',
   'model-tiers', 'documentation-maintenance',

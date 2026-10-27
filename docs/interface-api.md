@@ -2720,6 +2720,13 @@ request. 503 means no usable AI access. Queue admission has no success semantics
 only a committed action receipt proves a mutation. Detailed lifecycle, supported
 tools, exclusions and rollout requirements: [Chatty](chatty.md).
 
+The typed administration registry includes confirmed mutations for workflow
+definitions, roles/proposals, quota policies/scaling, server retention and fleet
+supervisor configuration. Workflow runs and recovery are observable; launching
+work, creating/reactivating schedules and activating task recovery remain
+excluded. Retention-run success is admission of an asynchronous product cleanup,
+not evidence that deletion completed.
+
 Route-level Zod validation errors return HTTP 422 with `validation_failed`, including invalid Agent Messaging discovery limits (1–50). They are client argument errors rather than HTTP 500 transport failures.
 
 ## Android remote conversations (0.4.10)

@@ -28,7 +28,10 @@ export const HANDOFF_TARGETS = {
   messages: '/admin/agent-messaging',
   reports: '/admin/reports',
 } as const;
-const destinations = Object.keys(HANDOFF_TARGETS) as [keyof typeof HANDOFF_TARGETS, ...(keyof typeof HANDOFF_TARGETS)[]];
+const destinations = Object.keys(HANDOFF_TARGETS) as [
+  keyof typeof HANDOFF_TARGETS,
+  ...(keyof typeof HANDOFF_TARGETS)[],
+];
 
 export function handoffTool() {
   return define(

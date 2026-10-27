@@ -7,14 +7,20 @@ describe('Chatty product handoffs', () => {
     const tool = handoffTool();
     expect(tool.write).toBe(false);
     const cases = {
-      workflows: '/admin/workflows', limits: '/admin/limits', roles: '/admin/library?type=roles',
-      retention: '/admin/settings#retention', supervisor: '/admin/settings#agent-supervisor',
-      'agent-sessions': '/admin/agents', users: '/admin/people',
-      'account/passkeys': '/admin/account#security', authoring: '/admin/library',
+      workflows: '/admin/workflows',
+      limits: '/admin/limits',
+      roles: '/admin/library?type=roles',
+      retention: '/admin/settings#retention',
+      supervisor: '/admin/settings#agent-supervisor',
+      'agent-sessions': '/admin/agents',
+      users: '/admin/people',
+      'account/passkeys': '/admin/account#security',
+      authoring: '/admin/library',
     };
     for (const [destination, href] of Object.entries(cases)) {
       expect(await tool.run({} as ToolContext, { destination })).toEqual({
-        href, instruction: 'Complete this operation in the linked interface. Chatty has not executed it.',
+        href,
+        instruction: 'Complete this operation in the linked interface. Chatty has not executed it.',
       });
     }
     expect(Object.values(HANDOFF_TARGETS).every((href) => href.startsWith('/admin/'))).toBe(true);
