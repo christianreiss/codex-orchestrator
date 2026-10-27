@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
+  import { buttonVariants } from '$lib/components/ui/button';
   import { attachmentBase, uploadChatFile, type UploadItem } from '$lib/portal/chat-files';
   let { session, items, onitems, disabled = false }: {session: string; items: UploadItem[]; onitems: (session: string, items: UploadItem[]) => void; disabled?: boolean} = $props();
   let error = $state('');
@@ -43,8 +44,8 @@
 </script>
 <div class="border-t px-4 py-2 text-caption">
   <div class="flex flex-wrap items-center gap-3">
-    <label class="cursor-pointer rounded-md border px-2 py-1">Attach files<input type="file" multiple class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
-    <label class="cursor-pointer rounded-md border px-2 py-1">Photo<input type="file" accept="image/*" capture="environment" class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
+    <label class={`${buttonVariants({variant:'outline'})} file-picker cursor-pointer focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2`}>Attach files<input type="file" multiple class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
+    <label class={`${buttonVariants({variant:'outline'})} file-picker cursor-pointer focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2`}>Photo<input type="file" accept="image/*" capture="environment" class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
     {#if recording}<button type="button" class="text-destructive" onclick={stop}>Stop {recording} recording</button>
     {:else}<button type="button" disabled={disabled} onclick={() => record('audio')}>Record audio</button><button type="button" disabled={disabled} onclick={() => record('video')}>Record video</button>{/if}
   </div>
@@ -58,3 +59,9 @@
     {#if item.error}<p class="text-destructive">{item.error}</p>{/if}
   {/each}
 </div>
+
+<style>
+  @media (any-pointer: coarse) {
+    .file-picker { min-height: 44px; min-width: 44px; }
+  }
+</style>

@@ -33,7 +33,7 @@
           onclick={() => step.reachable && onSelect(step.id)}
           aria-current={active ? "step" : undefined}
           class={cn(
-            "flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "relative flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             active && "bg-primary/10 font-medium text-foreground",
             !active && step.reachable && "text-muted-foreground hover:bg-muted hover:text-foreground",
             !step.reachable && "cursor-not-allowed text-muted-foreground/40",

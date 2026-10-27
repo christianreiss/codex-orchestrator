@@ -1,6 +1,7 @@
 <script lang="ts">
   /** Search plus the sectioned article list, shared by the manual index and every article. */
   import { base } from "$app/paths";
+  import { MediaQuery } from "svelte/reactivity";
   import { createQuery } from "@tanstack/svelte-query";
   import { StateBlock } from "$lib/components/page";
   import ArticleList from "./ArticleList.svelte";
@@ -19,12 +20,18 @@
 
   let query = $state("");
   let debouncedQuery = $state("");
+  let browseOpen = $state(false);
+  const wide = new MediaQuery("(min-width: 1024px)");
+  $effect(() => {
+    void activeSlug;
+    browseOpen = false;
+  });
 
   const articles = $derived($manifestQuery.data?.articles ?? []);
   const filtered = $derived(filterArticles(articles, debouncedQuery));
 </script>
 
-<aside aria-label="Manual navigation" class="lg:sticky lg:top-4 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto lg:pr-2">
+{#snippet navigation()}
   {#if activeSlug}
     <a href={`${base}/manual`} class="mb-3 inline-flex items-center gap-1 text-body-sm font-medium text-muted-foreground hover:text-foreground">
       <ChevronLeft class="h-3.5 w-3.5" /> Manual home
@@ -47,5 +54,16 @@
     />
   {:else}
     <ArticleList articles={filtered} {activeSlug} query={debouncedQuery} />
+  {/if}
+{/snippet}
+
+<aside aria-label="Manual navigation" class="lg:sticky lg:top-4 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto lg:pr-2">
+  {#if activeSlug}
+    <details open={wide.current || browseOpen} ontoggle={(event) => { if (!wide.current) browseOpen = event.currentTarget.open; }}>
+      <summary class="min-h-11 cursor-pointer content-center rounded-sm text-body font-medium lg:hidden">Browse manual</summary>
+      <div class="pt-3 lg:pt-0">{@render navigation()}</div>
+    </details>
+  {:else}
+    {@render navigation()}
   {/if}
 </aside>

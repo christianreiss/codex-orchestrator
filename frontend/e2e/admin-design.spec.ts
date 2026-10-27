@@ -3,7 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 const routes: { source: string; path: string }[] = JSON.parse(readFileSync("e2e/design-routes.json", "utf8"));
-import { installFixtures } from "./admin-fixtures";
+import { fixture, installFixtures } from "./admin-fixtures";
 
 const sizes = [{ width: 320, height: 844 }, { width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 1440, height: 900 }, { width: 1920, height: 1080 }];
 const variants = ["/admin/library?type=commands", "/admin/library?type=output-styles", "/admin/library?type=memories", "/admin/library/subagents/design-fixture", "/admin/library/commands/design-fixture", "/admin/library/output-styles/design-fixture", "/admin/agents?view=graph", "/admin/agent-messaging?view=addresses", "/admin/agent-messaging?view=groups", "/admin/agent-messaging?view=conferences", "/admin/agent-messaging?view=deliveries"];
@@ -105,7 +105,7 @@ test("draft survives rejection and navigation cancel, then clears only after sav
 });
 
 test("coarse pointer controls stay usable on phones and hybrid desktops", async ({ browser }) => {
-  for (const width of [390, 1440]) {
+  for (const width of [320, 390, 768, 1440]) {
     const context = await browser.newContext({ hasTouch: true, viewport: { width, height: 900 } });
     const page = await context.newPage();
     await installFixtures(page);
@@ -115,8 +115,68 @@ test("coarse pointer controls stay usable on phones and hybrid desktops", async 
     const bounds = await add.boundingBox();
     expect(bounds!.height).toBeGreaterThanOrEqual(44);
     expect(bounds!.width).toBeGreaterThanOrEqual(44);
+    const navigation = width < 768
+      ? page.getByRole("navigation", { name: "Mobile primary navigation" })
+      : page.getByRole("complementary", { name: "Fleet workspace" });
+    for (const link of await navigation.getByRole("link").all()) {
+      if (!(await link.isVisible())) continue;
+      const target = await link.boundingBox();
+      // Firefox can report a 44 CSS px edge as 43.99998474121094.
+      expect(Number(target!.height.toFixed(3)), await link.getAttribute("href")).toBeGreaterThanOrEqual(44);
+      expect(Number(target!.width.toFixed(3)), await link.getAttribute("href")).toBeGreaterThanOrEqual(44);
+    }
+    expect(await navigation.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+    if (width < 768) {
+      const pausedUpdates = page.getByRole("button", { name: "Live updates are disabled; reload to refresh displayed information", exact: true });
+      await expect(pausedUpdates.locator("svg")).toBeVisible();
+      const overviewLabel = navigation.getByRole("link", { name: "Overview", exact: true }).locator("span");
+      expect(await overviewLabel.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+    }
+    if (width < 768) {
+      await page.getByRole("button", { name: /Open navigation menu/ }).click();
+      const menu = page.getByRole("dialog");
+      for (const name of ["Password & passkeys", "Appearance", "Android devices"]) {
+        const link = menu.getByRole("link", { name, exact: true });
+        await link.scrollIntoViewIfNeeded();
+        const target = await link.boundingBox();
+        expect(target!.height, name).toBeGreaterThanOrEqual(44);
+        expect(target!.width, name).toBeGreaterThanOrEqual(44);
+      }
+    }
     await context.close();
   }
+});
+
+test("touch hit areas preserve recognizable switch and checkbox shapes", async ({ browser }) => {
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  await installFixtures(page, (path) => {
+    if (path !== "/admin/projects") return undefined;
+    const data = structuredClone(fixture(path));
+    const projects = data.projects as Record<string, unknown>[];
+    return { ...data, projects: [...projects, { ...projects[0], slug: "archived-review", name: "Archived review", archived_at: "2026-10-26T00:00:00Z" }] };
+  });
+  await page.goto("/admin/engines");
+  const control = page.getByRole("switch").first();
+  const target = await control.boundingBox();
+  expect(target!.height).toBeGreaterThanOrEqual(44);
+  expect(target!.width).toBeGreaterThanOrEqual(44);
+  const track = await control.locator(':scope > span[aria-hidden="true"]').boundingBox();
+  expect(track!.height).toBe(24);
+  expect(track!.width).toBe(44);
+  await page.goto("/admin/projects");
+  const checkbox = page.getByRole("checkbox", { name: "Show archived projects" });
+  await expect(checkbox).not.toBeChecked();
+  const box = await checkbox.boundingBox();
+  expect(box!.height).toBeGreaterThanOrEqual(44);
+  expect(box!.width).toBeGreaterThanOrEqual(44);
+  const mark = await checkbox.locator(':scope > span[aria-hidden="true"]').boundingBox();
+  expect(mark!.height).toBe(20);
+  expect(mark!.width).toBe(20);
+  await checkbox.focus();
+  await page.keyboard.press("Space");
+  await expect(checkbox).toBeChecked();
+  await context.close();
 });
 
 test("list context survives a detail roundtrip and Back", async ({ page }) => {

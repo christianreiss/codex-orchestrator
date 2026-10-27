@@ -86,17 +86,19 @@
     {/each}
     {#if card.due_at}
       <Badge variant={dueState === "overdue" ? "destructive" : dueState === "soon" ? "default" : "outline"}>
-        due <Timestamp value={card.due_at} />
+        <span>due <Timestamp value={card.due_at} /></span>
       </Badge>
     {/if}
     {#if held}
       <!-- The expiry is the useful part, not the fact of a claim: it is what
            tells an operator whether to wait or to force a release. -->
       <Badge variant="secondary">
-        {card.claim?.role ?? "held"} · {holder}
-        {#if card.claim?.expires_at}
-          · expires <Timestamp value={card.claim.expires_at} />
-        {/if}
+        <span>
+          {card.claim?.role ?? "held"} · {holder}
+          {#if card.claim?.expires_at}
+            · expires <Timestamp value={card.claim.expires_at} />
+          {/if}
+        </span>
       </Badge>
     {:else if card.claim?.release_reason}
       <span class="text-caption text-muted-foreground">{card.claim.release_reason}</span>

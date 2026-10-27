@@ -17,7 +17,7 @@
   bind:checked
   bind:indeterminate
   class={cn(
-    "peer relative h-5 w-5 shrink-0 rounded-md border border-primary/70 ring-offset-background after:absolute after:-inset-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground data-[state=indeterminate]:bg-primary data-[state=indeterminate]:text-primary-foreground",
+    "peer relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md ring-offset-background after:absolute after:-inset-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
     className,
   )}
   {...rest}
@@ -29,12 +29,12 @@
     checked: boolean;
     indeterminate: boolean;
   })}
-    <div class="flex h-full w-full items-center justify-center text-current">
+    <span aria-hidden="true" class={cn("pointer-events-none flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-primary/70", (isChecked || isIndeterminate) && "bg-primary text-primary-foreground")}>
       {#if isIndeterminate}
         <Minus class="h-3.5 w-3.5" />
       {:else if isChecked}
         <Check class="h-3.5 w-3.5" />
       {/if}
-    </div>
+    </span>
   {/snippet}
 </CheckboxPrimitive.Root>

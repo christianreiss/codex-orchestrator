@@ -12,14 +12,14 @@
     id === "all" ? list.counts.total : id === "online" ? list.counts.online : id === "offline" ? list.counts.offline : id === "attention" ? list.counts.attention : undefined;
 </script>
 
-<div class="inline-flex h-9 max-w-full overflow-x-auto rounded-md border border-input bg-card max-sm:flex max-sm:w-full" role="group" aria-label="Show hosts">
+<div class="grid min-h-9 w-full max-w-full grid-cols-2 gap-1 rounded-md bg-card sm:inline-flex sm:w-auto sm:gap-0 sm:border sm:border-input" role="group" aria-label="Show hosts">
   {#each STATUS_OPTIONS as option (option.id)}
     {@const active = list.status === option.id}
     <button
       type="button"
       aria-pressed={active}
       class={cn(
-        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-r border-input px-3 text-body-sm max-sm:flex-1 max-sm:justify-center max-sm:gap-1 max-sm:px-1.5 transition-colors last:border-r-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        "inline-flex min-h-9 min-w-0 items-center justify-center gap-1.5 border-input px-3 py-1 text-body-sm max-sm:flex-wrap max-sm:rounded-md max-sm:border max-sm:px-2 sm:shrink-0 sm:whitespace-nowrap sm:border-r transition-colors sm:last:border-r-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
       )}
       onclick={() => list.setStatus(option.id)}

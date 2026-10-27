@@ -55,6 +55,7 @@
   {onRetry}
   key={(row: HostRow) => row.host.id}
   filtered={list.filtered && list.all.length > 0}
+  onClearFilters={() => list.clear()}
   emptyTitle="No hosts yet"
   emptyDescription="Add a host to start routing work through it."
   emptyIcon={Server}
@@ -75,7 +76,7 @@
     {@const warnings = items.filter((item) => item.tone === "warning")}
     <Table.Row class="cursor-pointer" onclick={(event: MouseEvent) => open(event, host.id)} data-host-id={host.id}>
       <Table.Cell class="max-w-[16rem]">
-        <a href={`${base}/hosts/${host.id}`} class="block truncate font-medium hover:underline">{host.fqdn}</a>
+        <a href={`${base}/hosts/${host.id}`} class="block whitespace-normal font-medium [overflow-wrap:anywhere] hover:underline">{host.fqdn}</a>
         <span class="block truncate font-mono text-caption text-muted-foreground">{host.ip4 ?? host.ip6 ?? "no address"} · #{host.id}</span>
       </Table.Cell>
       <Table.Cell>
@@ -135,7 +136,7 @@
         <li class="rounded-md border bg-card p-3">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
-              <a href={`${base}/hosts/${host.id}`} class="block truncate font-medium hover:underline">{host.fqdn}</a>
+              <a href={`${base}/hosts/${host.id}`} class="block whitespace-normal font-medium [overflow-wrap:anywhere] hover:underline">{host.fqdn}</a>
               <span class="block truncate font-mono text-caption text-muted-foreground">{host.ip4 ?? host.ip6 ?? "no address"} · #{host.id}</span>
             </div>
             <span class="inline-flex shrink-0 flex-wrap items-center justify-end gap-1.5">

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { PageShell, Section } from "$lib/components/page";
@@ -16,6 +17,22 @@
     { value: "devices", label: "Devices" },
   ];
   const current = $derived(tabs.find((tab) => `#${tab.value}` === page.url.hash)?.value ?? "profile");
+  let tabScroller = $state<HTMLDivElement>();
+  $effect(() => {
+    void current;
+    const scroller = tabScroller;
+    if (!scroller) return;
+    let canceled = false;
+    const revealSelected = () => {
+      if (!canceled) scroller.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+    // Font loading and viewport changes can resize the row after navigation.
+    const observer = new ResizeObserver(revealSelected);
+    observer.observe(scroller);
+    if (scroller.firstElementChild) observer.observe(scroller.firstElementChild);
+    void tick().then(revealSelected);
+    return () => { canceled = true; observer.disconnect(); };
+  });
   function selectTab(value: string) {
     if (value === current || !tabs.some((tab) => tab.value === value)) return;
     void goto(`${page.url.pathname}${page.url.search}#${value}`, { noScroll: true, keepFocus: true });
@@ -26,11 +43,13 @@
 
 <PageShell title="Account" description="Your profile, sign-in security, appearance and paired devices." width="narrow">
   <Tabs.Root value={current} onValueChange={selectTab} class="space-y-6">
-    <Tabs.List aria-label="Account settings" class="grid w-full grid-cols-4 sm:w-fit">
-      {#each tabs as tab (tab.value)}
-        <Tabs.Trigger value={tab.value} class="min-h-11 px-1.5 sm:px-4">{tab.label}</Tabs.Trigger>
-      {/each}
-    </Tabs.List>
+    <div bind:this={tabScroller} class="max-w-full overflow-x-auto p-1 -m-1">
+      <Tabs.List aria-label="Account settings" class="w-max justify-start">
+        {#each tabs as tab (tab.value)}
+          <Tabs.Trigger value={tab.value} class="min-h-11 shrink-0 px-4">{tab.label}</Tabs.Trigger>
+        {/each}
+      </Tabs.List>
+    </div>
 
     <!-- Keep drafts mounted across tab changes; inactive panels are hidden and inert. -->
     <Tabs.Content value="profile" class={current !== "profile" ? "hidden" : ""} inert={current !== "profile"}>

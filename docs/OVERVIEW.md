@@ -1,5 +1,10 @@
 # Overview
 
+The 2026-10-27 [WebUI review](ui-review-2026-10-27.md) improves touch controls,
+narrow-screen navigation and reading, filter recovery and truthful account counts.
+It records rendered coverage separately from remaining manual accessibility and
+operator acceptance work.
+
 cxx 0.9.138 hardens shared HTTP trust, retries, JSON limits, destruction, locks,
 host sync and the IPv4 proxy across the three engine paths. See the
 [wrapper review](wrapper-review-2026-10-26.md) for findings, checks and rollout limits.

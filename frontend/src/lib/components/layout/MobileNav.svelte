@@ -50,7 +50,7 @@
       {@const active = isActive(item, path)}
       <li>
         <a href={`${base}${item.route}`} class={cn("flex h-full min-w-0 flex-col items-center justify-center gap-1 rounded-md text-caption transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")} aria-current={active ? "page" : undefined}>
-          <Icon class="h-5 w-5" /> <span class="max-w-full truncate px-1">{item.label}</span>
+          <Icon class="h-5 w-5" /> <span class="max-w-full truncate">{item.label}</span>
         </a>
       </li>
     {/each}

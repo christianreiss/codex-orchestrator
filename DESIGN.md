@@ -258,7 +258,7 @@ This is a source audit, not a live visual acceptance report. All 39 `+page.svelt
 | Entry / trigger | Pattern and existing owner | Required migration coverage |
 | --- | --- | --- |
 | Initial auth / setup probe | Layout loading/redirecting state or `AuthShell` “API unreachable” | No setup/login redirect loop on transient failure; retry keeps intended location |
-| Unknown route / unexpected page error | Catch-all throws 404; no custom `+error.svelte` at baseline | Assess framework fallback; make title, recovery and keyboard path match failure pattern |
+| Unknown route / unexpected page error | Catch-all throws 404; current `+error.svelte` uses `PageShell` and `StateBlock` with retry and Overview recovery | Check title, recovery and keyboard path in the surrounding frame |
 | Sidebar, top bar (incl. live-updates, temporary-access and unhandled-reports indicators), mobile menu, hub/project navigation | App shell, registry, `HubTabs`, `ProjectTabsNav` | All destinations reachable at touch widths; no contradictory active locations; indicators hidden at zero and without the read capability |
 | Cmd/Ctrl-K, global search, shortcuts help | Command palette, search modal, shortcuts components | Focus entry/exit, no results, accessible selection; shortcuts do not intercept typing |
 | Chatty assistant | Shared shell assistant and chatty components | Availability/role gates, drafts, errors and confirmation of concrete changes |
@@ -374,6 +374,26 @@ Applicable rules: NAV-2/3/4, VIS-1/3/4/5, INT-2/3/4/5/6/7 and ACC-1/3/4/5.
 No design exception. Automated and visual evidence is recorded with delivery;
 manual screen-reader, zoom/text resizing and independent usability review remain
 separate acceptance gates.
+
+### Visual usability review slice (2026-10-27)
+
+The existing route inventory remains complete. Account tabs now keep intrinsic
+label widths inside a local scroller and reveal the selected tab after keyboard
+or hash navigation. Setup step completion text is contained by its own button;
+the document must not inherit the step rail's width. Manual articles collapse
+optional browsing on narrow screens while retaining the persistent desktop
+sidebar and a single search/navigation instance.
+
+Shared touch targets preserve switch/checkbox artwork inside their larger hit
+areas. Navigation and upload controls retain visible focus and touch targets;
+mobile connection states use distinct glyphs as well as color. Hosts filters
+wrap, filtered-empty results offer a reset, and host identities remain readable.
+Account counts require actual data and identify retained stale observations.
+Messaging filters show labels and their selected meaning before opening a menu;
+board date prose wraps in reading order. Applicable rules: NAV-2/3/4, VIS-1/2/3/4,
+INT-1/2/5/6/7, ACC-1/3/4. No exception. See the
+[review evidence](docs/ui-review-2026-10-27.md) for actual coverage and remaining
+manual acceptance limits; these changes do not certify every inventory state.
 
 Phone pairing progress slice (2026-10-26): the Account Devices dialog follows the
 host-install timeline pattern while showing only observed milestones (code ready,

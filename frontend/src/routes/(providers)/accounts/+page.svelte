@@ -39,7 +39,7 @@
   // provider (add, replace, verify) is refused by the server until it is on.
   const offEngines = $derived(ENGINES.filter((engine) => !$fleet.isEnabled(engine)));
   const addDisabled = $derived(scope === "all" ? offEngines.length === ENGINES.length : !$fleet.isEnabled(scope));
-  const countLabel = $derived(search.trim() || scope !== "all" ? `${visible.length} of ${accounts.length}` : "");
+  const countLabel = $derived($query.data && (search.trim() || scope !== "all") ? `${visible.length} of ${accounts.length}` : "");
 
   const change = createMutation({
     mutationFn: async (input: { account: ProviderAccount; action: "state" | "rename" | "remove" | "verify"; label?: string }) => {
@@ -67,7 +67,12 @@
   {#snippet actions()}
     {#if canManage}<Button disabled={addDisabled} title={addDisabled ? "Enable an engine under Engines before adding an account." : undefined} onclick={() => (dialog = { kind: "add" })}>Add account</Button>{/if}
   {/snippet}
-  {#snippet subheader()}<StatStrip items={stats} />{/snippet}
+  {#snippet subheader()}
+    {#if $query.data}
+      <StatStrip items={stats} />
+      {#if $query.isError}<p class="text-body-sm text-warning" role="status">Account counts reflect the last successful load.</p>{/if}
+    {/if}
+  {/snippet}
 
   <Toolbar bind:search searchPlaceholder="Search accounts" count={countLabel}>
     {#snippet filters()}<EngineFilter value={scope} isEnabled={(engine) => $fleet.isEnabled(engine)} onChange={(next) => (scope = next)} />{/snippet}

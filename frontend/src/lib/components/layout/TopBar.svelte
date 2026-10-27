@@ -12,6 +12,9 @@
   import Palette from "@lucide/svelte/icons/palette";
   import Search from "@lucide/svelte/icons/search";
   import Sun from "@lucide/svelte/icons/sun";
+  import Pause from "@lucide/svelte/icons/pause";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import WifiOff from "@lucide/svelte/icons/wifi-off";
   import { page } from "$app/state";
   import { base } from "$app/paths";
   import { goto } from "$app/navigation";
@@ -117,7 +120,11 @@
       <Tooltip.Provider>
         <Tooltip.Root>
           <Tooltip.Trigger class={["h-9 items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring", wsIndicator.tone === "online" ? "hidden sm:inline-flex" : "inline-flex min-w-9 justify-center"]} aria-label={wsIndicator.tooltip}>
-            <span class={["h-2.5 w-2.5 rounded-full sm:hidden", wsIndicator.tone === "offline" ? "bg-destructive" : "bg-warning"]} aria-hidden="true"></span>
+            <span class={["sm:hidden", wsIndicator.tone === "offline" ? "text-destructive" : "text-warning"]} aria-hidden="true">
+              {#if $wsStatus === "closed"}<WifiOff class="h-4 w-4" />
+              {:else if $wsStatus === "disabled"}<Pause class="h-4 w-4" />
+              {:else}<RefreshCw class="h-4 w-4" />{/if}
+            </span>
             <StatusPill class="hidden sm:inline-flex" tone={wsIndicator.tone} label={wsIndicator.label} />
           </Tooltip.Trigger>
           <Tooltip.Content>{wsIndicator.tooltip}</Tooltip.Content>
