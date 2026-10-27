@@ -67,7 +67,7 @@ function inspect(
     status: normalizeSessionStatus(input.status) ?? session.status,
     upstreamSessionId: upstream,
     adapterProtocol: normalizeOptionalText(input.adapterProtocol, 32) ?? session.adapterProtocol,
-    adapterCapabilities: input.adapterCapabilities ?? session.adapterCapabilities,
+    adapterCapabilities: input.adapterCapabilities ? {...input.adapterCapabilities, ...((session.adapterCapabilities as Record<string,unknown>|null)?.supervisor_model ? {supervisor_model:(session.adapterCapabilities as Record<string,unknown>).supervisor_model} : {})} : session.adapterCapabilities,
   };
   const continuity = input.continuity ?? (upstream ? 'native' : address.continuity);
   const changed =

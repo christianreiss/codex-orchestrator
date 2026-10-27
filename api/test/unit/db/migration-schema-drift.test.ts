@@ -246,6 +246,8 @@ describe('migrations against the test baseline', () => {
       'control_plane_outbox',
       'agent_room_agent_reads',
       'companion_reads',
+      'agent_work_states',
+      'agent_work_dependencies',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',

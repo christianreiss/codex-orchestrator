@@ -500,3 +500,14 @@ Migration 0104 adds nonunique `idx_room_delivery_message(message_id)` on
 Conference admission uses this lookup to resolve room-question deadlines; the
 index avoids correlated history scans. The migration is idempotent and uses
 `ALGORITHM=INPLACE, LOCK=NONE`; no rows or payloads are rewritten.
+
+## External task supervision (cxx 0.9.139)
+
+See [Fleet task supervisor](agent-supervisor.md) for the disabled-by-default fleet
+switch, `agent_work_state`, durable dependencies and bounded same-session recovery.
+Applies equally to Codex, Claude and Grok; native resume stays engine-specific.
+
+## Supervisor state (migration 0111)
+
+- **agent_work_states** — current native-task state per agent. `address_id` CHAR(36) PK, `session_id` CHAR(36), `binding_generation` INT, `native_session_id` VARCHAR(255), `task_key` VARCHAR(255), `model` VARCHAR(255) NULL, `turn_id` VARCHAR(255) NULL, `state` VARCHAR(24), `reason` VARCHAR(1000) NULL, `waiting_for_address_id` CHAR(36) NULL, `waiting_for_message_id` CHAR(36) NULL, `coordinator_address_id` CHAR(36) NULL, `last_progress_at` VARCHAR(100), `reminder_at` VARCHAR(100) NULL, `incident_at` VARCHAR(100) NULL, `deadline_at` VARCHAR(100) NULL, `paused` TINYINT default 0, `escalation` VARCHAR(100) NULL, `watchdog_id` CHAR(36) NULL, `version` INT default 1, `updated_at` VARCHAR(100).
+- **agent_work_dependencies** — accepted request/workflow edges, including several outstanding workers per coordinator. `id` CHAR(36) PK, `waiter_address_id` CHAR(36), `dependency_address_id` CHAR(36), `message_id` CHAR(36) NULL, `workflow_task_id` CHAR(36) NULL, `status` VARCHAR(24) default waiting, `reminder_at` VARCHAR(100) NULL, `created_at` VARCHAR(100), `updated_at` VARCHAR(100). References are retained as diagnostic metadata; no cascade can erase unfinished handoffs.

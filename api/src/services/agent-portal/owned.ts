@@ -1,3 +1,4 @@
+import { stageSupervisorArm } from '../agent-supervisor/arm.js';
 import { acceptOwnedClaudeTurnProof } from '../../control-plane/state/receiver-turn-proof.js';
 import { historyRetentionHours } from '../server-retention/policy.js';
 import { recordMessagingRowChange } from '../../control-plane/state/messaging-totals.js';
@@ -690,6 +691,7 @@ export class OwnedPortal {
               taskTitleEventId: inserted.id,
             });
           });
+        if (options.terminal && !session.endedAt && ['capacity','crash','hang'].includes(options.terminal.watchdogFailure??(options.terminal.status==='failed'?'crash':'')))stageSupervisorArm(ctx,session,this.keyring,now);
         if (options.terminal && !session.endedAt)
           stagePortalSessionFinish(
             ctx,

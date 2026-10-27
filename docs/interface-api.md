@@ -3614,3 +3614,16 @@ Model defaults remain authorable before provisioning. Host Terra overrides and
 strict rendered root/profile settings require Codex 0.159.0 or newer, after latest
 family mapping. Signed bootstrap remains available for update/recovery. See
 [the Codex availability contract](interface-cdx.md#gpt-61-terra-native-availability).
+
+## External task supervision (cxx 0.9.139)
+
+See [Fleet task supervisor](agent-supervisor.md) for the disabled-by-default fleet
+switch, `agent_work_state`, durable dependencies and bounded same-session recovery.
+Applies equally to Codex, Claude and Grok; native resume stays engine-specific.
+
+## Fleet task supervisor
+
+- `GET /admin/agent-supervisor` — read configured/effective state, work states, outstanding dependencies and incident budgets; optional `target=agent:UUID`. Requires `agent_messaging.read`.
+- `POST /admin/agent-supervisor/state` — set `{enabled:boolean}`. Requires `agent_messaging.manage`; disabling stops supervisor-owned future recovery.
+- `POST /admin/agent-supervisor/pause` — pause `{target,version}` with an optimistic work-state version. Requires `agent_messaging.manage`.
+- `POST /host/agent-sessions/{id}/agent-messaging/work-state` — current bridge only: `{}` reads state; `{task_key,state,reason?,waiting_for?,message_id?,coordinator?,version?}` reports current work. See [the supervisor contract](agent-supervisor.md).

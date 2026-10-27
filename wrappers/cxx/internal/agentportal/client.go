@@ -222,13 +222,16 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	}
 	body := map[string]any{
 		"engine":               input.Engine,
-		"adapter_capabilities": map[string]any{"control_state_protocol": 1, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 2, "execution_contract_version": 2, "watchdog_protocol_version": 1, "launch_identity_version": 1, "reboot_protocol_version": 1, "suspend_recovery_version": 1},
+		"adapter_capabilities": map[string]any{"control_state_protocol": 1, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 2, "execution_contract_version": 2, "watchdog_protocol_version": 1, "supervisor_protocol_version": 1, "launch_identity_version": 1, "reboot_protocol_version": 1, "suspend_recovery_version": 1},
 		"username":             username,
 		"cwd":                  cwd,
 		"workspace":            captureWorkspace(parent, cwd),
 		"invocation_kind":      input.InvocationKind,
 		"resumed":              input.Resumed,
 		"upstream_session_id":  emptyToNil(upstreamSessionID),
+	}
+	if model := supervisorModel(cfg, input); model != "" {
+		body["adapter_capabilities"].(map[string]any)["supervisor_model"] = model
 	}
 	// The server verifies this lease against the authenticated host and engine.
 	if lease := os.Getenv("CXX_PROVIDER_SESSION_ID"); lease != "" {

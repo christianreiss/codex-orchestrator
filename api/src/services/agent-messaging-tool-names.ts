@@ -30,6 +30,7 @@ export const AGENT_MESSAGING_TOOLS = [
   'watchdog_finish',
   'agent_session_name',
   'agent_self',
+  'agent_work_state',
   'agent_context_get',
   'agent_context_update',
   'agent_chat_list',

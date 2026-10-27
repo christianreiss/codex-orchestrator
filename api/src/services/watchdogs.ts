@@ -1,3 +1,5 @@
+import { stageSupervisorArm } from './agent-supervisor/arm.js';
+import { watchdogPolicy } from '../control-plane/streams/policies.js';
 import {addOwnerResponseProof} from '../control-plane/state/runtime.js';
 import {ownedBridge,ownedAddress} from '../control-plane/state/messaging.js';
 import { adminAudit } from '../control-plane/state/admin.js';
@@ -446,8 +448,9 @@ export class WatchdogsService {
   async snapshot(sessionId: string, token: string) {
     const session = await this.bridge(sessionId, token);
     const state = ownerRuntimeFor(this.db)?.state.snapshot();
+    if (state) return { server_time: new Date().toISOString(), ...watchdogPolicy(state, state.sessions.get(sessionId)!) };
     const [row] = session.agentBusAddressId
-      ? state ? state.table('agentWatchdogs').by('targetAddressId', session.agentBusAddressId).filter(row => row.nativeSessionId === session.upstreamSessionId && WATCHDOG_LIVE.includes(row.status)).slice(0,1) : await this.db
+      ? await this.db
           .select()
           .from(agentWatchdogs)
           .where(
@@ -459,7 +462,7 @@ export class WatchdogsService {
           )
           .limit(1)
       : [];
-    const [prompt] = state ? state.table('agentPrompts').by('sessionId', sessionId).filter(row => row.status === 'open').slice(0,1) : await this.db
+    const [prompt] = await this.db
       .select({ id: agentPrompts.id })
       .from(agentPrompts)
       .where(and(eq(agentPrompts.sessionId, sessionId), eq(agentPrompts.status, 'open')))
@@ -492,6 +495,7 @@ export class WatchdogsService {
         native_session_id: z.string().optional(),
         retry_not_before: z.string().datetime().optional(),
         quota_limit: z.boolean().optional(),
+        termination_unconfirmed: z.boolean().optional(),
       })
       .strict()
       .parse(raw);
@@ -590,7 +594,7 @@ export class WatchdogsService {
     });
     return this.snapshot(sessionId, token);
   }
-  private async activityOwned(sessionId: string, token: string, v: { last_progress_at: string; failure?: 'capacity'|'crash'|'hang'|'user_stop'|'blocked'; retry_not_before?: string; quota_limit?: boolean }) {
+  private async activityOwned(sessionId: string, token: string, v: { last_progress_at: string; failure?: 'capacity'|'crash'|'hang'|'user_stop'|'blocked'; retry_not_before?: string; quota_limit?: boolean; termination_unconfirmed?:boolean }) {
     const owner = ownerRuntimeFor(this.db)!, session = await this.bridge(sessionId, token);
     const quota = v.failure === 'capacity' && session.providerAccountId && session.upstreamSessionId ? quotaInterruption(await quotaSnapshot(this.db, session.providerAccountId, session.engine as Engine), v.quota_limit === true, v.retry_not_before) : null;
     if (quota && session.providerAccountId && session.upstreamSessionId) {
@@ -605,6 +609,7 @@ export class WatchdogsService {
     if (!quota && !v.failure && (!current || progress <= current.lastProgressAt)) return this.snapshot(sessionId, token);
     await mutateOwnerState(owner, { kind: 'watchdog.activity', payload: { sessionId, progress, failure: v.failure ?? null }, prepare: async context => {
       const live = await this.bridge(sessionId, token);
+      if(v.failure && ['capacity','crash','hang'].includes(v.failure))stageSupervisorArm(context,context.draft.table('agentSessions').get(sessionId)!,this.keyring,now);
       const row = context.draft.table('agentWatchdogs').by('targetAddressId', live.agentBusAddressId!).find(row => row.nativeSessionId === live.upstreamSessionId && WATCHDOG_LIVE.includes(row.status));
       if (quota && live.providerAccountId && live.upstreamSessionId) {
         const message = !row ? context.draft.table('agentBusMessages').by('deliverySessionId', sessionId).filter(item => item.targetAddressId === live.agentBusAddressId).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0] : undefined;
@@ -614,9 +619,17 @@ export class WatchdogsService {
       }
       if (!row) return null;
       if (row.deadlineAt <= now) { stageStopWatchdog(context, row, 'expired', 'deadline', now); return null; }
-      if (v.failure === 'blocked' || v.failure === 'user_stop') { stageStopWatchdog(context, row, v.failure === 'blocked' ? 'blocked' : 'disabled', v.failure === 'blocked' ? 'provider_error' : 'user_stop', now); return null; }
+      if (v.failure === 'blocked' || v.failure === 'user_stop') { stageStopWatchdog(context, row, v.failure === 'blocked' ? 'blocked' : 'disabled', v.failure === 'blocked' ? (v.termination_unconfirmed ? 'termination_unconfirmed' : 'provider_error') : 'user_stop', now); return null; }
       if (progress > row.lastProgressAt) stageUpdate(context, 'agentWatchdogs', row.id, { lastProgressAt: progress, updatedAt: now });
       if (v.failure && row.status === 'watching') {
+        if (row.createdBy === 'supervisor') {
+          const work = context.draft.table('agentWorkStates').get(row.targetAddressId);
+          if (work && !work.incidentAt) {
+            const deadlineAt = new Date(Date.parse(now) + 7200000).toISOString();
+            stageUpdate(context,'agentWorkStates',work.addressId,{incidentAt:now,deadlineAt});
+            stageUpdate(context,'agentWatchdogs',row.id,{deadlineAt});
+          }
+        }
         const at = watchdogRetryTime(new Date(now), quota?.reset_at ? quota.retry_at : v.retry_not_before);
         stageUpdate(context, 'agentWatchdogs', row.id, { status: v.failure === 'capacity' ? 'capacity_wait' : 'recovering', lastError: v.failure, updatedAt: now });
         stageUpdate(context, 'agentSchedules', row.scheduleId, { atTime: at, nextDueAt: at, updatedAt: now });

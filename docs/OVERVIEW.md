@@ -1587,3 +1587,9 @@ Invalid saved native settings remain available for correction on Engines. The
 configuration read returns their historical revision/body/hash and exact authored
 JSON with `validation_error`; the page exposes the problem before its native-options
 disclosure. Preview, save, host rendering and concurrent-save checks remain strict.
+
+## External task supervision (cxx 0.9.139)
+
+See [Fleet task supervisor](agent-supervisor.md) for the disabled-by-default fleet
+switch, `agent_work_state`, durable dependencies and bounded same-session recovery.
+Applies equally to Codex, Claude and Grok; native resume stays engine-specific.

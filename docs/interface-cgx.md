@@ -1573,3 +1573,9 @@ Read pages may be shorter than the requested count due to their complete-item
 byte budget; continue the returned cursor. Publication errors preserve generated
 idempotency UUIDs so an uncertain send can be inspected or retried with that same
 UUID instead of creating a second publication.
+
+## External task supervision (cxx 0.9.139)
+
+See [Fleet task supervisor](agent-supervisor.md) for the disabled-by-default fleet
+switch, `agent_work_state`, durable dependencies and bounded same-session recovery.
+Applies equally to Codex, Claude and Grok; native resume stays engine-specific.

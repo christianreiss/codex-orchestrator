@@ -21,6 +21,8 @@ export function retentionFacts(state: OwnerStateSnapshot, cutoff: string, presen
   for (const job of state.table('agentSchedules').all()) if (!job.deletedAt) add(job.targetAddressId);
   for (const job of state.table('agentWatchdogs').all())
     if (liveWatchdogs.has(job.status)) add(job.targetAddressId);
+  for(const work of state.table('agentWorkStates').all())if(['working','waiting_agent','waiting_user'].includes(work.state) || work.escalation){add(work.addressId);protectedSessions.add(work.sessionId);}
+  for(const edge of state.table('agentWorkDependencies').all())if(['waiting','attention'].includes(edge.status)){add(edge.waiterAddressId);add(edge.dependencyAddressId);}
   for (const row of state.table('agentRebootHandoffs').all())
     if (liveReboots.has(row.status)) {
       add(row.addressId);

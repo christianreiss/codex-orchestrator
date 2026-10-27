@@ -136,6 +136,7 @@ export const DEEP_NAV: DeepNavEntry[] = [
   { href: "/library?type=commands", label: "Library / Commands", icon: Terminal, description: "Claude slash commands", keywords: ["slash", "claude"] },
   { href: "/library?type=output-styles", label: "Library / Reply styles", icon: Library, description: "How Claude words its replies (output styles)", keywords: ["output styles", "claude"] },
   { href: "/settings#hosts", label: "Settings / Hosts", icon: Server, description: "Fleet-wide host behavior: auto-update, DNS, temporary access", keywords: ["policies", "auto-update", "insecure", "dns"] },
+  { href: "/settings#agent-supervisor", label: "Settings / Agent supervisor", icon: Network, description: "External recovery and missing handoffs", keywords: ["supervisor", "capacity", "hang", "handoff", "recovery"] },
   { href: "/settings#agent-coordination", label: "Settings / Agent coordination", icon: Network, description: "Fleet-wide project and host rooms and resource claims", keywords: ["coordination", "project rooms", "host rooms", "resource claims", "enable"] },
   { href: "/settings#retention", label: "Settings / Data retention", icon: Activity, description: "Server history, audit retention and local session cleanup", keywords: ["prune", "logs", "retention", "cleanup"] },
   { href: "/account#security", label: "Account / Password & passkeys", icon: Lock, description: "Change your password or manage passkeys", keywords: ["password", "passkeys", "webauthn", "security"] },

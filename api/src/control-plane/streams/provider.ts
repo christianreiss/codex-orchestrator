@@ -240,6 +240,7 @@ export class OwnerStateProvider implements StateProvider {
           'reverse_dns_enabled',
           'agent_messaging_enabled',
           'agent_portal_enabled',
+          'agent_supervisor_enabled',
           'codex_engine_disabled',
           'claude_engine_disabled',
           'grok_engine_disabled',
@@ -268,6 +269,7 @@ export class OwnerStateProvider implements StateProvider {
           ];
           common.push(
             state.table('agentNativeControls').get(scope.session_id!),
+            addressId ? state.table('agentWorkStates').get(addressId) : undefined,
             // schedulePolicy excludes schedules associated with any watchdog.
             state.table('agentWatchdogs'),
             'schedules',

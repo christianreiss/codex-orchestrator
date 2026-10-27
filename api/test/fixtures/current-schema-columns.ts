@@ -67,5 +67,14 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
     throw new Error('Migration 0108 must declare shared reads and device protocol');
   tables.set('companion_reads', new Set(['user_id', 'session_id', 'read_cursor', 'updated_at']));
   tables.get('companion_devices')!.add('read_sync_protocol');
+  const supervisor=resolve(import.meta.dirname,'../../src/db/migrations/0111_agent_supervisor.sql');
+  const newTables=splitSqlStatements(readFileSync(supervisor,'utf8')).map(statement=>{
+    const name=/^CREATE TABLE IF NOT EXISTS ([a-z_]+)/i.exec(statement)?.[1];
+    if(!name)throw new Error('Migration 0111 must create the supervisor tables');
+    const columns=[...statement.matchAll(/(?:^|,)\s*([a-z_]+)\s+(?:CHAR|VARCHAR|TINYINT|INT)\b/gim)].map(m=>m[1]!);
+    if(!columns.length)throw new Error('Migration 0111 columns could not be read');
+    tables.set(name,new Set(columns));return name;
+  });
+  if(newTables.join()!=='agent_work_states,agent_work_dependencies')throw new Error('Migration 0111 supervisor table inventory changed');
   return tables;
 }

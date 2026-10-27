@@ -170,6 +170,10 @@ function decorate(
         progress_timeout_seconds: run.progressTimeoutSeconds,
       });
       const watchdog = snapshot.table('agentWatchdogs').by('scheduleId', run.scheduleId)[0];
+      if (watchdog?.createdBy === 'supervisor') {
+        const work=snapshot.table('agentWorkStates').get(message.targetAddressId);
+        if(work?.model)delivery.target.daemon_model=work.model;
+      }
       if (watchdog)
         Object.assign(delivery.target, {
           watchdog_id: watchdog.id,

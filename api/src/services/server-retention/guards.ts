@@ -8,6 +8,8 @@ export function protectedAddress(id: SQL): SQL {
   id = sql`${id} COLLATE utf8mb4_unicode_ci`;
   return sql`(
     EXISTS (SELECT 1 FROM agent_schedules j WHERE j.target_address_id = ${id} AND j.deleted_at IS NULL)
+    OR EXISTS (SELECT 1 FROM agent_work_states w WHERE w.address_id = ${id} AND (w.state IN ('working','waiting_agent','waiting_user') OR w.escalation IS NOT NULL))
+    OR EXISTS (SELECT 1 FROM agent_work_dependencies d WHERE (d.waiter_address_id = ${id} OR d.dependency_address_id = ${id}) AND d.status IN ('waiting','attention'))
     OR EXISTS (SELECT 1 FROM agent_watchdogs w WHERE w.target_address_id = ${id} AND w.status IN ('watching','recovering','capacity_wait'))
     OR EXISTS (SELECT 1 FROM agent_reboot_handoffs r WHERE r.address_id = ${id} AND r.status IN ('prepared','armed','resuming'))
     OR EXISTS (SELECT 1 FROM agent_role_proposals p WHERE (p.author_address_id = ${id} OR p.reviewer_address_id = ${id}) AND p.status NOT IN ('applied','rejected','withdrawn','superseded'))

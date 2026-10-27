@@ -21,6 +21,7 @@
     type TopologyDisconnect,
   } from "$lib/api/topology";
   import { actionReason, ageLabel, COMMUNICATOR_APPEARANCE, communicatorAppearance, communicatorLabel, shortId, type ActionPhase, type GraphItem } from "$lib/topology/model";
+  import SupervisorStatus from "./SupervisorStatus.svelte";
   import ConfirmAction from "./ConfirmAction.svelte";
   import type { Presence } from "$lib/portal/types";
 
@@ -377,6 +378,7 @@
       <p class="text-caption text-muted-foreground">{agent.username}@{agent.host}</p>
       {#if agent.task_title}<p class="text-body-sm">{agent.task_title}</p>{/if}
       {#if onchat}<Button size="sm" onclick={() => onchat?.(agent.id)}>Chat</Button>{/if}
+      {#if agent.address}<SupervisorStatus target={agent.address}/>{/if}
       <details><summary class="cursor-pointer text-caption">Session details</summary>
       <div class="rounded-md border p-3 text-body-sm">
         {#if agent.association.state === "unattributed"}

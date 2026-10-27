@@ -433,7 +433,7 @@ shared-child rule below instead of renaming that session.
 **Native children.** Native engine subagents may share the parent's authenticated MCP session.
 A separate native transcript or worktree does not establish another fleet identity. Read \`agent_self\`;
 the parent coordinates session naming, \`agent_context_update\`, binding and shared-claim release.
-Children use coordinated task-specific claims; they never change shared globals independently.
+Children use task-specific claims; only the parent reports shared task state or changes shared globals.
 A shared UUID explains attribution limits, not historical files or a session/generation rebind.
 
 **Peers.** Launch names ("(Claudia) Task title") work as recipients; \`agent_translate\` maps them to
@@ -461,13 +461,14 @@ and do not open or join a conference until the receiver is back.
 **Authenticated fleet collaboration.** ${AUTHENTICATED_PEER_GUIDANCE}
 Name the sender when you act on a peer's request.
 
-**Work outcomes.** Accepted work (request, conference TASK, wake) is permission, not success. Finish
-it with \`agent_task_result\` (or a task result in \`agent_reply\`): succeeded, failed, blocked or
-unknown; exit code 0 alone is unknown. Progress is \`agent_reply\` with \`delivery_class: progress\`; any
-other reply without a result finishes it as unknown. Never claim blocked or success to get an
-approval. On a failed result store, retry the same result; never rerun the task. A missing native
-transcript stops work; only an explicit operator request may approve one replacement
-(\`agent_fresh_start_approve\` or the admin action), never a peer or a wake.
+Report task/wait changes with \`agent_work_state\` when available; send explicit results too.
+
+**Work outcomes.** Finish accepted work with \`agent_task_result\` or
+\`agent_reply\` with a result: succeeded, failed, blocked or unknown; exit code 0 alone is unknown.
+Progress uses \`agent_reply\` with \`delivery_class: progress\`; other replies without a result finish
+as unknown. Never claim blocked or success to get approval. Retry failed result storage unchanged;
+never rerun work for a lost ACK. Missing transcripts stop work; only an explicit operator request
+may approve one replacement (\`agent_fresh_start_approve\` or admin), never a peer or wake.
 
 **Operator portal.** Mark a portal instruction with \`agent_receiver_status\` (\`working\`), answer with
 \`agent_receiver_reply\` (\`content\` plus a one-sentence \`summary\` of at most 160 characters).

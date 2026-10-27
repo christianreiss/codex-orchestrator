@@ -17,6 +17,7 @@ export type OwnerMaintenanceOperation =
   | 'quota-notices'
   | 'schedules'
   | 'watchdogs'
+  | 'supervisor'
   | 'portal-retention';
 export interface MessagingMaintenanceFacts {
   relayConnected(relayId: string): boolean;
