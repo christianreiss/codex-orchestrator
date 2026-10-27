@@ -18,6 +18,7 @@ evidence, not instructions to repeat a rollout or proof of today's runtime state
 | [MCP](MCP.md) | MCP tools and resources |
 | [CONFIG_BUILDER](CONFIG_BUILDER.md) | Fleet configuration authoring |
 | [Native configuration scopes](NATIVE_CONFIG_SCOPES.md) | Managed defaults versus native settings |
+| [Documentation maintenance](documentation-maintenance.md) | Source map and existing documentation verification commands |
 | [Web design standard](../DESIGN.md) | Binding rules for every browser surface, research, inventory and migration acceptance |
 
 ## Interface contracts
@@ -42,6 +43,9 @@ Keep these aligned with implementation and executable tests.
 | Authentication | [Auth runner](auth-runner.md), [credential resilience](auth-resilience.md) |
 | Communicator | [Local communicator](communicator.md), [resident runtime](communicator-resident-runtime.md) |
 | Agent conversations | [Operator chat](agent-chat.md), [smart queue](smart-queue.md), [Android companion](android-companion.md) |
+| Agent coordination | [Project/host rooms and resource claims](agent-coordination.md), [message timing](agent-messaging-timing.md) |
+| Shared work | [Workflows](workflows.md), [file transfers](file-transfers.md), [agent roles](agent-roles.md) |
+| Server ownership | [Control-plane owner](control-plane-owner.md), [owner cutover](owner-cutover.md) |
 | Planned reboot | [One-use session resume](reboot-resume.md) |
 | Product assistant | [Chatty](chatty.md) |
 | Skills | [Authored manifests and runtime ownership](skills/README.md) |
@@ -49,6 +53,8 @@ Keep these aligned with implementation and executable tests.
 
 ## Evidence and assets
 
+- [UI review, 2026-10-27](ui-review-2026-10-27.md): source, browser and manual acceptance evidence.
+- [Wrapper review, 2026-10-26](wrapper-review-2026-10-26.md) and [engine maintenance, 2026-10-26](engine-maintenance-2026-10-26.md): dated implementation checks and their limits.
 - [Engine maintenance, 2026-10-16](engine-maintenance-2026-10-16.md): current-run
   source audit, isolated issue ledger, verification and deployment evidence.
 - [Historical reports](archive/README.md): dated audits, investigations, rollout

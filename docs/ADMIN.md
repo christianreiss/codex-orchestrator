@@ -8,13 +8,13 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 - `ADMIN_ACCESS_MODE` accepts `cookie` (default) or `open`, and `api/src/routes/cli-auth/index.ts` is the only file that reads it: any value except `open` makes `/cli/auth/verify` require an admin session. It has no effect on `/admin/*`.
 - There is no client-certificate gate here any more. The bundled `caddy` profile terminates TLS and reverse-proxies; it does not request client certificates, and this server neither issues nor verifies them.
 - `authMtlsPlugin` (`api/src/http/plugins/auth-mtls.ts`) publishes the `X-MTLS-*` claims an upstream proxy may forward into `req.mtls` — `present` is just a non-empty `X-MTLS-Fingerprint` — and only when the connecting peer is inside `TRUSTED_PROXY_CIDRS`, because a direct caller can set those headers too. Nothing else in `api/src` consults `req.mtls`.
-- Admin login enforcement starts only after at least one active admin exists (`countAdmins(true) > 0`).
-- If login is enforced:
+- `requireAdmin` always requires a valid session for an active user. First-run exceptions use separate bootstrap guards while `admin_users` is empty.
+- After the installation is claimed:
   - `/admin/` redirects to `/admin/login` when no valid session.
   - `/admin/login` redirects to `/admin/` when already authenticated.
   - API endpoints require session except `/admin/auth/status`, `/admin/auth/login`, `/admin/auth/login/method`, `/admin/auth/logout`, `/admin/auth/password/request`, `/admin/auth/password/reset`, `/admin/auth/passkey/login/options`, and `/admin/auth/passkey/login`.
-- While no admin user exists at all (fresh/userless install), `POST /admin/users` accepts an unauthenticated request so the first admin can be created. That is the only bootstrap bypass; every other admin API route still requires a session.
-- Passkey login is implemented and issues the same session cookie as password login; the API adds no certificate check around it, though a deployment running the bundled Caddy reaches the login page through that proxy's cert gate. The login UI is username-first: passkey users must complete WebAuthn and are not offered password login.
+- While no admin user exists at all (fresh/userless install), `POST /admin/users` accepts an unauthenticated request so the first admin can be created. The four `/admin/setup/*` routes also allow pre-owner access and become session/capability guarded after the first user exists.
+- Passkey login is implemented and issues the same session cookie as password login; the API and bundled Caddy add no client-certificate check around it. The login UI is username-first: passkey users must complete WebAuthn and are not offered password login.
 - Session cookie:
   - Name: `ADMIN_SESSION_COOKIE` (default `codex_admin_session`).
   - TTL: `ADMIN_SESSION_TTL_MINUTES` (default `43200`), converted to seconds and clamped to `300..604800`, so the default lands on the seven-day cap.
@@ -50,28 +50,31 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 - Only the first two block: infrastructure is not fixable from a browser, and nothing else can be written without the session the owner claim issues. Everything after has **Skip**, because "no" is a complete answer to most of it.
 - The `auth` step drops out of the rail entirely when the engines answer is `[]`. An empty array is a real answer ("none"); `null` means "not asked yet".
 - `setup_wizard_state` is one JSON blob in the `versions` K/V table — no new table, no migration. Progress writes pass `publish: false`, so they never emit `settings.changed`; anything that changes real state must invalidate `["setup","status"]` itself (`invalidateSetup` in `frontend/src/lib/api/setup.ts`).
-- The dashboard resume card is `frontend/src/routes/dashboard/OnboardingCard.svelte`. It renders only while the wizard is unfinished (`completed_at` and `dismissed_at` both null) **and** at least one `next_actions` entry is incomplete, deep-links back to `?step=<last_step>`, and offers **Dismiss**, which hides it permanently.
+- The dashboard resume notice is `frontend/src/lib/components/dashboard/OnboardingNotice.svelte`. It appears while the wizard is unfinished and next actions remain, or whenever `fleet_defaults` is incomplete. Resume selects the earliest pending wizard step, falling back to `last_step`. Dismiss marks the wizard dismissed; missing fleet defaults keep the notice visible even after dismissal or completion.
 - `next_actions` are `auth_<engine>` (one per engine in `default_engines`: the wizard's engine answer, else `DEFAULT_HOST_ENGINES`), `fleet_defaults` (open while no Codex `client_config_documents` row exists), `first_host`, and `first_sync`. Dashboard card items link to each `href`. The auth entries link to `/admin/setup?step=auth` — not `/admin/api-keys`, which manages proxy bearer keys and has never had canonical-auth UI. An auth entry counts as complete only for **verified** canonical auth.
-- The credentials form is `frontend/src/lib/components/setup/SeedAuthPanel.svelte`, mounted by both the wizard and the Hosts → More → **Seed canonical auth** dialog, which keys it on `open` so each opening mounts a fresh panel. Between them they are the product's only canonical-auth UI. The panel reads `verification_state` from `POST /admin/auth/upload` and distinguishes verified / pending / failed rather than reporting unconditional success, and says up front when the auth runner is down instead of letting every attempt fail with an identical 503.
+- The credentials form is `frontend/src/lib/components/setup/SeedAuthPanel.svelte`, shared by the wizard, the Hosts → More → **Seed canonical auth** dialog, and Accounts credential dialogs (`frontend/src/lib/components/accounts/AccountDialogs.svelte`). The host dialog keys it on `open` so each opening mounts a fresh panel. The panel reads `verification_state` from `POST /admin/auth/upload` and distinguishes verified / pending / failed rather than reporting unconditional success, and says up front when the auth runner is down instead of letting every attempt fail with an identical 503.
 
 ## Navigation & Presentation
 - One registry (`frontend/src/lib/nav.ts`) drives navigation, mobile Menu, the
-  command palette, title, breadcrumb, and active state. Its direct groups are
-  **Monitor** (Overview, Active Clients, Activity), **Fleet** (Hosts, Engines, Policies),
-  **Coordinate** (Projects, Agent Messaging, Git Director, File Transfer, Agent Portal), **Knowledge**
-  (Skills, Fleet Instructions, Memories, Subagents, Commands, Output Styles),
-  and **Access** (API Access, Secrets, Admin Users). Manual and Account stay in
-  the sidebar footer. There is no generic Settings or Authoring destination.
-- Legacy Settings and Authoring URLs issue 308 client redirects to the direct
-  owner route. Mapping lives in `frontend/src/lib/legacy-admin-routes.ts`.
-- Fleet Instructions (`/admin/instructions`) opens with a **Generation** switch:
+  command palette, title, breadcrumb, and active state. Nine hubs are grouped under
+  **Operate** (Overview, Hosts, Agents, Projects, Coordination, Activity) and
+  **Configure** (Providers, Library, Access & Settings). Coordination contains
+  Messages, Timed wake-ups, Git merges, Shared files and Workflows; Providers
+  contains Accounts, Engines and Usage limits; Activity contains Activity and Reports.
+  Access & Settings contains separate People, API keys, Secrets and Settings pages.
+  Manual and Account stay in the sidebar footer.
+- Settings is a live page at `/admin/settings`. Retired Clients, Topology,
+  Instructions, Memories and Authoring URLs map to their current owners through
+  `frontend/src/lib/legacy-admin-routes.ts`; old Settings section links are mapped
+  individually rather than redirecting every Settings URL.
+- Agent rules (`/admin/library/agent-rules`) opens with a **Generation** switch:
   *Generated* composes the policy modules and custom instructions, *Manual*
   swaps the builder for a raw Markdown editor, and *Disabled* stops serving the
   generated modules. It is fleet-wide, applies the moment it is picked, and
   saves no version — the stored module selection survives a trip through
   Disabled and comes back untouched. None of the three positions removes the
   mandatory fleet policy or the host capability guidance from what agents read.
-- Memories opens **Memory Atlas** at `/admin/memories`. The default graph and equivalent paginated list
+- The Library Memories type opens **Memory Atlas** at `/admin/library?type=memories`. The default graph and equivalent paginated list
   cover host, project, and shared memory in one filterable workspace; selecting
   a memory opens its Overview, Content, Metadata, and Activity inspector. The
   canvas shows the newest 150 memories from the loaded page and refuses optional
@@ -79,7 +82,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   loaded page. Host, project, and tag filter choices are capped to the top 200
   values and disclose when that cap is active.
 - Desktop uses grouped sidebar navigation. Mobile keeps Overview, Hosts,
-  Projects, and Activity in the persistent bottom bar; its Menu sheet contains
+  Projects, and Agents in the persistent bottom bar; its Menu sheet contains
   all remaining workspace, help, appearance, password, passkey, and sign-out
   actions, so no capability depends on a desktop-only control.
 - Route-aware breadcrumbs and browser titles come from `frontend/src/lib/nav.ts`.
@@ -305,15 +308,12 @@ Admin routes:
 
 ## Agent session operations
 
-- Active Clients provides agent-session settings and Remote sessions. The saved
-  shared switch and wrapper/Android contracts remain unchanged.
+- Agents (`/admin/agents`) combines Live conversations and a Graph view. Agent-session controls live under Settings → Agents (`/admin/settings#agents`); Remote sessions are available from Agents.
 - The legacy `/go` webchat, magic links and portal-user APIs are removed.
 - Account → Android devices pairs the native companion for FCM, chat and host approvals.
 - Disabling shared sessions cancels queued/leased operator input without replay.
-- `relay_ready` is the operator-visible truth for writability: it requires a
-  live wrapper heartbeat and fresh cooperative `#afk` polling. A registered
-  process without that poll loop remains visible but cannot accept commands.
-- **Active Clients** (`/admin/clients`) uses the authenticated admin
+- Writability requires an available receiver with a ready portal source (or the legacy `relay_ready` signal). Native receiver state is distinct from activity; browser connectivity alone does not establish readiness. Connection-owned presence uses its live connection rather than expiring solely on heartbeat age.
+- **Agents → Live** (`/admin/agents`) uses the authenticated admin
   session cookie, so an operator already signed
   in to the console does not need a second identity to see what the fleet is
   doing. It lists every wrapper with its derived presence, the age of the turn
@@ -323,10 +323,10 @@ Admin routes:
   and says so rather than showing a bare list.
 - The directory separates **Online** (fresh wrapper contact) from **Listening**
   (an open instruction relay) and **Working** (a recently accepted instruction).
-  Search host, user, task, branch, or directory; filter both engines and session
+  Search host, user, task, branch, or directory; filter Codex, Claude and Grok engines and session
   states; open the detail pane for heartbeat and relay timestamps. Presence
-  indicators use the same styling in Active Clients and Android.
-- Status refreshes every 15 seconds and ages against the server snapshot clock.
+  indicators use the same styling in Agents and Android.
+- Owner events refresh presence and metadata; scoped SSE refreshes the selected timeline. Reconnection resnapshots active queries. Displayed ages use the server snapshot clock.
   A failed refresh preserves the last rows and selected timeline, labels them
   as last known, and disables instruction actions until status recovers. Drafts
   stay with their session, including after a failed send. Timeline reconnection
@@ -335,7 +335,7 @@ Admin routes:
   reconnection. Only the current prompt version has active answer buttons.
   An uncertain send keeps its original request identity and question context
   so retrying after a lost response cannot become a duplicate plain message.
-- Active Clients can send instructions, answer prompts and close sessions through admin identities. The retired portal identity column remains empty for historical SQL replay.
+- Agents can send instructions, answer prompts and close sessions through admin identities. The retired portal identity column remains empty for historical SQL replay.
 - **Ask to close** is queued for the agent to honour and needs an open relay;
   **Force close** writes an event and a terminal state and no queue row, which is
   why it is the only one that still works once the agent has gone offline. A

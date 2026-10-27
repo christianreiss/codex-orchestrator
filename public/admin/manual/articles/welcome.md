@@ -2,24 +2,24 @@
 
 title: Welcome to Orchestrator
 section: Orientation
-verified: 2026-10-17
+verified: 2026-10-27
 sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/lib/nav.ts, frontend/src/routes/+page.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/(activity)/activity/+page.svelte, frontend/src/lib/components/layout/Sidebar.svelte, frontend/src/lib/components/layout/TopBar.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/routes/+layout.svelte, wrappers/cxx
 ---
 
 Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
 subscription login, centralized renewal, native receiver, and gateway details.
 
-Codex Orchestrator is a self-hosted service that keeps **OpenAI Codex** and **Anthropic Claude Code** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared agents document (`AGENTS.md` for Codex, `CLAUDE.md` for Claude), serves canonical skills through MCP, and surfaces ChatGPT quota state for operators. Each host gets its own API key delivered in signed per-engine config consumed by one `cxx` wrapper; relative `cdx` and `clx` aliases select the enabled persona without sharing a token across machines.
+Codex Orchestrator is a self-hosted service that keeps **OpenAI Codex**, **Anthropic Claude Code** and **xAI Grok Build** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared agents document (`AGENTS.md` for Codex, `CLAUDE.md` for Claude), serves canonical skills through MCP, and surfaces ChatGPT quota state for operators. Each host gets its own API key delivered in signed per-engine config consumed by one `cxx` wrapper; relative `cdx`, `clx` and `cgx` aliases select the enabled persona without sharing a token across machines.
 
 This manual is the in-app operator reference. Every article is written from the live codebase — filenames in each *Source references* footer point at the exact code the article describes.
 
 ## Who uses this admin
 
-The admin surface is gated by `app.requireAdmin` (the Fastify decorator added by `api/src/http/plugins/auth-admin.ts`). It reads the cookie named by `ADMIN_SESSION_COOKIE` (default `codex_admin_session`), hashes the token, joins `adminSessions` + `adminUsers`, and checks expiry and `user.active`. `ADMIN_SESSION_TTL_MINUTES` defaults to `43200` (30 days) in `api/src/env.ts`. At login, `AdminAuthService.sessionTtlSeconds()` clamps that down to 5 min – 7 days, so a freshly created session starts at 7 days; every subsequent authenticated request then rolls `expiresAt` forward by the same TTL, this time clamped to 30 days by the plugin itself, so an actively used session keeps renewing out to 30 days from its last request. `requireAdmin` itself is mode-unaware: it does not inspect `ADMIN_ACCESS_MODE`. Transport-layer concerns (proxy-forwarded mTLS claims via the separate `auth-mtls` plugin) are handled outside this decorator, and no route authorizes on them.
+The admin surface is gated by `app.requireAdmin` (the Fastify decorator added by `api/src/http/plugins/auth-admin.ts`). It reads the cookie named by `ADMIN_SESSION_COOKIE` (default `codex_admin_session`), hashes the token, joins `adminSessions` + `adminUsers`, and checks expiry and `user.active`. `ADMIN_SESSION_TTL_MINUTES` defaults to `43200` (30 days) in `api/src/env.ts`. Login and authenticated requests share `adminSessionTtlSeconds()`, clamped to 5 minutes–7 days. The default therefore creates a seven-day session, and subsequent authenticated requests renew it by that same capped lifetime. `requireAdmin` itself is mode-unaware: it does not inspect `ADMIN_ACCESS_MODE`. Transport-layer concerns (proxy-forwarded mTLS claims via the separate `auth-mtls` plugin) are handled outside this decorator, and no route authorizes on them.
 
 `ADMIN_ACCESS_MODE` (`cookie` default, or `open`) is declared in `env.ts` and consumed by `cli-auth/index.ts` for the CLI login guard; it does not affect the cookie check that `requireAdmin` performs.
 
-Once at least one admin exists (`AdminAuthService.countAdmins`), a valid session cookie is required for every gated route. Role labels are stored on `admin_users.access_level` — `owner`, `admin`, `viewer`, `fleet_operator` (`ROLE_FLEET`), `trusted_user` (`ROLE_TRUSTED`), and the legacy `user`. `requireAdmin` only authenticates; what each role may *do* is decided by the capability layer in `api/src/security/` — every admin route names one capability, and the role → capability matrix is the sole place a role string is compared against anything. The roster is managed in the **People** section of **Access** (`/access#people`; these are the admin users); see [Roles and capabilities](/admin/manual/roles).
+Every route guarded by `requireAdmin` requires a valid session cookie. Public login/recovery endpoints and first-owner/setup endpoints use separate guards; while `admin_users` is empty, the bootstrap endpoints allow the first owner to be created. Role labels are stored on `admin_users.access_level` — `owner`, `admin`, `viewer`, `fleet_operator` (`ROLE_FLEET`), `trusted_user` (`ROLE_TRUSTED`), and the legacy `user`. `requireAdmin` only authenticates; what each role may *do* is decided by the capability layer in `api/src/security/` — every admin route names one capability, and the role → capability matrix is the sole place a role string is compared against anything. The roster is managed in the **People** page of **Access & Settings** (`/people`; these are the admin users); see [Roles and capabilities](/admin/manual/roles).
 
 ## How the admin is laid out
 
@@ -33,13 +33,13 @@ The desktop sidebar is nine always-visible entries in two sections. Each entry o
 | | Hosts | Hosts |
 | | Agents | Agents (Live and Graph views) |
 | | Projects | Projects |
-| | Coordination | Messages, Timed wake-ups, Git merges, Shared files |
+| | Coordination | Messages, Timed wake-ups, Git merges, Shared files, Workflows |
 | | Activity | Activity (configuration and system changes), Reports |
-| **Configure** | Providers | Accounts, Engines (including Model defaults) |
+| **Configure** | Providers | Accounts, Engines (including Model defaults), Usage limits |
 | | Library | Skills, Agent rules, Memories; Claude-native: Subagents, Commands, Reply styles |
-| | Access & Settings | Access (People, API keys, Secrets), Settings |
+| | Access & Settings | People, API keys, Secrets, Settings |
 
-Manual, Account and Shortcuts sit at the foot of the sidebar. On a phone the bottom bar keeps Overview, Hosts, Projects and Agents; the other hubs are under Menu. The command palette (Ctrl/Cmd-K) still jumps straight to any individual page. The active destination and breadcrumb identify your current location. **Overview** opens with a "Needs attention" list, then one line of fleet numbers, provider usage as a single table, an Engines table, and the verification runner. **Agents** is one page with a Live / Graph view toggle. **Engines** holds fleet model and update controls; **Settings** holds fleet-wide behaviour (hosts, agents, data retention). **Git merges** (the Git Director) arbitrates merges between agents sharing a clone, **Shared files** (file transfer) is the expiring pool of files agents hand each other, **Timed wake-ups** is wake/cron, and **Messages** is agent messaging. **Activity** holds the audit trail of configuration and system changes, and **Reports** is the inbox for bugs and requests about the orchestrator itself (feedback). The **Library** is one page with a type filter; Subagents, Commands, and Reply styles (output styles) are Claude-native collections, and **Agent rules** (fleet instructions) is the shared `AGENTS.md` / `CLAUDE.md` document.
+Manual, Account and Shortcuts sit at the foot of the sidebar. On a phone the bottom bar keeps Overview, Hosts, Projects and Agents; the other hubs are under Menu. The command palette (Ctrl/Cmd-K) still jumps straight to any individual page. The active destination and breadcrumb identify your current location. **Overview** shows host and stored-account counts, then Provider, Engines and Runner tabs. The selected tab is kept in the URL; Refresh reloads overview, accounts and runner state together. **Agents** is one page with a Live / Graph view toggle. **Engines** holds fleet model and update controls; **Settings** holds fleet-wide behaviour (hosts, agents, data retention). **Git merges** (the Git Director) arbitrates merges between agents sharing a clone, **Shared files** (file transfer) is the expiring pool of files agents hand each other, **Timed wake-ups** is wake/cron, and **Messages** is agent messaging. **Activity** holds the audit trail of configuration and system changes, and **Reports** is the inbox for bugs and requests about the orchestrator itself (feedback). The **Library** is one page with a type filter; Subagents, Commands, and Reply styles (output styles) are Claude-native collections, and **Agent rules** (fleet instructions) is the shared `AGENTS.md` / `CLAUDE.md` document.
 
 The footer provides **Manual**, **Account**, **Shortcuts**, and an account menu whose links jump to the Security, Appearance, and Android devices sections of the single **Account** page (`/account#security`, `#appearance`, `#devices`), plus sign-out. On phones, Overview, Hosts, Projects, and Agents stay in the bottom bar; **Menu** opens the remaining destinations and account actions. Menu is highlighted when the current page belongs to that group.
 
@@ -61,7 +61,7 @@ Then dip into whichever section you need. The left rail is grouped so you can fi
 
 - **Paths** like `api/src/services/host-auth.ts` refer to files in this repository. They are deliberate pointers you can open in your editor.
 - **Routes** are shown as method + path as registered in `api/src/routes/**`. Mounted by `api/src/routes/index.ts`.
-- **Engines** — "Codex" and "Claude" — follow the `Engine` union in `api/src/util/engine.ts`: `ENGINE_CODEX` and `ENGINE_CLAUDE`. A host may run either or both.
+- **Engines** — Codex, Claude and Grok — follow the `Engine` union in `api/src/util/engine.ts`: `ENGINE_CODEX`, `ENGINE_CLAUDE` and `ENGINE_GROK`. A host may run any nonempty subset.
 
 ## When an article is wrong
 

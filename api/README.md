@@ -2,28 +2,37 @@
 
 Node 22 + Fastify 5 + Drizzle + TypeScript backend for the Codex Orchestrator.
 
-Replaces the prior PHP monolith under `../src/` and the `public/index.php` router.
-The HTTP API contract and MySQL schema are preserved exactly so existing wrappers
-(`cdx`, `clx`), the SvelteKit WebUI, and OpenAI/Anthropic-SDK consumers see no
-behavior change.
+Serves the fleet API, SvelteKit admin SPA and inference gateway surfaces for
+Codex (`cdx`), Claude (`clx`) and Grok (`cgx`). The active contracts are
+[API](../docs/interface-api.md), [database](../docs/interface-db.md) and
+[MCP](../docs/MCP.md). Historical PHP compatibility is retained only where those
+contracts describe it.
 
 ## Layout
 
-- `src/server.ts` — Fastify bootstrap and plugin registration.
-- `src/db/schema.ts` — Drizzle schema mirroring every legacy PHP migration.
+- `src/server.ts` — acquires storage/database ownership, hydrates current state, composes services, registers Fastify plugins/routes and starts maintenance.
+- `src/control-plane/` — sole API owner, command serialization, receipts/outbox, connection presence, bounded current state and protected response completion.
+- `src/ops/` — boot/migrations, owner maintenance obligations, provider usage, retention and shutdown. Quota refresh runs in the API owner; the standalone quota writer is retired.
+- `src/db/schema.ts` — Drizzle mirror of the current schema; idempotent SQL under `src/db/migrations/` is applied by the migration runner, not `drizzle:push`. See [database operations](src/db/README.md).
 - `src/security/` — secret-box (libsodium, `sbox:v1` compat), password (bcrypt/phpass/argon2), keyring.
 - `src/http/envelope/` — three envelope formatters (standard / openai / anthropic).
 - `src/http/plugins/` — auth preflights, request-id, CORS.
-- `src/routes/` — one sub-tree per resource group; each exports `register(app)`.
-- `src/services/` — domain layer (no god-services; ~30 focused services).
+- `src/routes/` — resource-group routes mounted by `src/routes/index.ts`.
+- `src/services/` — domain facades and cohesive service slices, including engine accounts/auth, policy/config, messaging, workflows, projects, secrets and wrapper delivery.
 - `src/ws/` — admin WebSocket server (`/admin/ws`) + event publisher.
+
+Current state is hydrated under a database-specific MySQL named lock and a
+shared-storage kernel lock. Durable commands commit before publishing state or
+acknowledging results; ownership loss fences the process. Read
+[owner architecture](../docs/control-plane-owner.md) and
+[cutover/recovery](../docs/owner-cutover.md) before changing persistence or rollout.
 
 ## Local dev
 
 ```sh
 cd api
 npm install
-npm run dev      # tsx watch
+node --env-file=../.env --import tsx --watch src/server.ts
 npm run test
 npm run typecheck
 npm run build    # esbuild -> dist/server.js
@@ -65,6 +74,12 @@ library declarations remain available for the supported Node 22 runtime.
 
 ## Environment
 
-Reads the parent project's `.env`. Required: `ENCRYPTION_ACTIVE_KEY`, `DB_*`.
-New keys: `LISTEN_PORT` (default 8080), `LISTEN_HOST`, `LOG_LEVEL`,
-`LOG_PRETTY`, `STATIC_ROOT` (defaults to `../public/admin`).
+The server validates `process.env` in `src/env.ts`; it does not load `.env`
+itself. Docker Compose injects configuration; the local command above explicitly
+loads the parent `.env`. `npm run dev` uses the already supplied environment.
+Provide the `DB_*` connection values and `ENCRYPTION_ACTIVE_KEY` (or the legacy
+`AUTH_ENCRYPTION_KEY` alias). Keep the encryption key consistent with stored data.
+`LISTEN_PORT` defaults to 8080 and `LISTEN_HOST` to `0.0.0.0`; `LOG_LEVEL`,
+`LOG_PRETTY` and `STATIC_ROOT` control logging and the admin asset directory
+(default `public/admin` under the repository root). See
+[installation configuration](../docs/INSTALL.md) for the full environment setup.

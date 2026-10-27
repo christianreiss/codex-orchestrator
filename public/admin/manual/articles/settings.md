@@ -24,15 +24,16 @@ Use these canonical destinations from the sidebar or command palette:
 
 | Destination | URL | Contents |
 |---|---|---|
-| **Engines** | `/engines` | Engine master switches (Codex, Claude, Grok on/off for the whole fleet), then one section per engine with its state and usage, default model and effort, the **Only current models** policy, the CLI version, and a collapsed **Advanced** block (native settings, Codex silent mode and compaction, Claude client settings); below those, **Usage limits**, **Usage-based scaling**, and **Host agent rollout**. |
+| **Engines** | `/engines` | Engine master switches (Codex, Claude, Grok on/off for the whole fleet), then Codex, Claude and Grok tabs with each engine's state and usage, default model and effort, the **Only current models** policy, the CLI version, and a collapsed **Advanced** block (native settings, Codex silent mode and compaction, Claude client settings). |
+| **Usage limits** | `/limits` | Quota enforcement (`#quota-enforcement`), quota warnings, provider recommendations and usage-based scaling (`#scaling-rules`). |
 | **Settings** | `/settings` | Fleet-wide behaviour in three sections. **Hosts** (`#hosts`): update hosts automatically (auto-update), look up host names (reverse DNS), allow temporary-access requests (insecure approval), let agents set up new hosts, and remove inactive hosts. **Agents** (`#agents`): agent sessions, how agents treat API keys pasted in chat, the model-tier self-check, and role checks (authorization mode). **Data retention** (`#retention`): remove old logs automatically and session housekeeping. |
 | **API keys** (in Access & Settings) | `/api-keys` | Issued keys first; **Configure** opens *Service availability & routing*: the **Routing** table, **Backend defaults**, and the global **All API traffic** control. |
 
 Each engine's section on Engines (`/engines#codex-defaults`, `#claude-defaults`, `#grok-defaults`; the former Quick Settings page redirects to `/engines#defaults`) saves the default model and effort immediately ("Selections save automatically"). Selecting a model also selects its catalog default effort; only supported effort levels appear, and models without effort support show **No effort setting**. A failed save restores the confirmed selection and refreshes the server state before another change, and a failed read offers **Retry** (for example *Retry Codex defaults*). Clients receive defaults on their next sync; per-host exceptions (host overrides) take precedence.
 
-Rarely changed settings sit in each engine's collapsed **Advanced** disclosure, which opens by itself when a link such as `/engines#claude-client` points inside it. **Usage limits** is `/engines#quota-enforcement`, **Usage-based scaling** is `#scaling-rules`, and **Host agent rollout** is `#cxx-rollout`. The **Per-host exceptions** button in the page header opens Hosts, where individual model and version choices take precedence over fleet defaults.
+Rarely changed settings sit in each engine's collapsed **Advanced** disclosure, which opens by itself when a link such as `/engines#claude-client` points inside it. **Usage limits** is `/limits#quota-enforcement`, **Usage-based scaling** is `/limits#scaling-rules`, and **Host agent rollout** is `/settings#cxx-rollout`. Old Engines anchors redirect to these owners. The **Per-host exceptions** button in the page header opens Hosts, where individual model and version choices take precedence over fleet defaults.
 
-Old `/settings?tab=…`, `/policies`, `/api-keys`, `/quick-settings`, and `/authoring/settings` bookmarks redirect to the corresponding destination (`/authoring/settings` goes to `/engines#claude-client`).
+Old `/settings?tab=…`, `/policies`, `/quick-settings`, and `/authoring/settings` bookmarks redirect to the corresponding destination (`/authoring/settings` goes to `/engines#claude-client`).
 
 ### Only current models
 
@@ -213,7 +214,7 @@ The Grok on/off switch is under **Engine master switches** above. `GET/POST /adm
 | Grok 4.6 (`grok-4.6`) | `low`, `medium`, `high`, `xhigh` | `high` |
 | Grok 4.5 (`grok-4.5`) | `low`, `medium`, `high` | `high` |
 
-These are native supported IDs; subscription availability is provider-owned. Codex lanes/profiles and Claude client settings do not apply, and Grok subscription quota is not tracked.
+These are native supported IDs; subscription availability is provider-owned. Codex lanes/profiles and Claude client settings do not apply, and Grok subscription usage is fetched server-side and shown in Overview and Accounts; wrapper quota enforcement remains unavailable.
 
 #### Grok version
 

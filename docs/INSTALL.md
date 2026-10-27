@@ -19,9 +19,11 @@ wrapper exposed through the `cdx` / `clx` / `cgx` aliases.
 
 - **Docker**, with the Compose v2 plugin. The legacy `docker-compose` binary will
   not do.
-- **`curl`, `openssl`, and coreutils** — present on every mainstream distribution.
-- That is the whole list. A Go toolchain, `make` and `python3` are used when they
-  happen to be installed, and built in a container when they are not.
+- **Python 3, `curl`, `openssl`, `awk`, `flock`, `tar`, and GNU coreutils**
+  (including `du`, `df`, `realpath`, and `sha256sum`) on the host. The installer
+  checks these before proceeding; Python validates rollback configuration.
+- A host Go toolchain and `make` are optional: wrapper compilation uses a
+  container when they are absent.
 - Internet egress at build time. The auth-runner image pulls the Codex CLI from
   GitHub releases, Node from nodejs.org, and `@anthropic-ai/claude-code` plus
   the official `@xai-official/grok-linux-{x64,arm64}` Grok package from npm. An
@@ -55,7 +57,7 @@ Twelve, in order, each independently re-runnable:
 
 | Step | What it does |
 |------|--------------|
-| `prereqs` | Docker, Compose v2, curl, openssl. Reports whether wrapper builds will use the host toolchain or a container. |
+| `prereqs` | Checks the host commands listed above and Docker/Compose v2. Reports whether wrapper builds will use the host toolchain or a container. |
 | `secrets` | `.env` from `.env.example` at mode 0600; generates `AUTH_ENCRYPTION_KEY`, `INSTALLATION_ID`, database credentials, and one runner shared secret written to both names. |
 | `urls` | `PUBLIC_BASE_URL`, `CODEX_SYNC_BASE_URL`, `CADDY_DOMAIN`, and `AUTH_RUNNER_CODEX_BASE_URL` (not prompted: `--runner-url`, else the stored value, else the public URL). |
 | `dataroot` | Prompts for `DATA_ROOT` (default `/var/docker_data/<public host>`) and creates the directory tree. |
@@ -63,8 +65,8 @@ Twelve, in order, each independently re-runnable:
 | `wrappers` | Generates this installation's Ed25519 keypair, then cross-compiles and publishes `cxx` for four platforms with that public key baked in. |
 | `datatier` | Builds images, starts `mysql` and `auth-runner`, waits for both to be healthy. |
 | `schema` | `migrate.js --init-schema` — creates the schema on an empty database, then migrates. |
-| `apptier` | Starts `api` (and `caddy`), waits for health, starts `quota-cron` without waiting. Starts only — image building happens in `datatier`. |
 | `signer` | Imports the private signing key encrypted into the database, then deletes the plaintext copy. |
+| `apptier` | Starts `api`, `media-worker`, and configured `caddy`, waiting for health when Compose supports it. Provider usage runs inside the API owner. Starts only — image building happens in `datatier`. |
 | `owner` | Creates the first owner through the one-time claim and signs it in. |
 | `verify` | `/healthz`, all six critical `/readyz` checks, and the public URL. |
 
@@ -234,13 +236,12 @@ Prefer `bin/install.sh` to generate `.env`. If you edit manually instead:
      imported and no exporter connection exists. Endpoint, headers and sampling
      use the standard `OTEL_EXPORTER_OTLP_*` / `OTEL_TRACES_SAMPLER*` variables
      read by the SDK itself. See `docs/wrapper-v2-architecture.md`.
-   - Usage telemetry: `quota-cron` is a default Compose service. It refreshes
-     once at boot then polls on `CHATGPT_USAGE_CRON_INTERVAL` (default 900).
-     Configure `CHATGPT_BASE_URL` and `CHATGPT_USAGE_TIMEOUT` as needed. Its
-     healthcheck reads `CHATGPT_USAGE_HEALTH_PATH` and goes unhealthy when no
-     successful snapshot arrives within `CHATGPT_USAGE_CRON_INTERVAL + 300s`,
-     unless `CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS` overrides it. A fresh install
-     is expected to sit unhealthy here until provider auth is seeded.
+   - Usage telemetry: ChatGPT refresh obligations run inside the sole API
+     owner, using `CHATGPT_USAGE_CRON_INTERVAL` (default 900 seconds) and the
+     service's five-minute cooldown. Configure `CHATGPT_BASE_URL` and
+     `CHATGPT_USAGE_TIMEOUT` as needed. The former `quota-cron` Compose service
+     and standalone quota writer are retired. Missing provider auth leaves
+     usage unavailable until seeded; it does not require another container.
    - Debug/ops: `CODEX_SYNC_BASE_URL` (runner probes), `CODEX_DEBUG`, and
      `ENV_FILE` if you keep the env file elsewhere.
 
@@ -336,8 +337,7 @@ The installer does this. To do it yourself:
 ```bash
 docker compose up -d --wait mysql auth-runner
 docker compose run --rm -T api node migrate.js --init-schema
-docker compose up -d --wait api
-docker compose up -d quota-cron
+docker compose up -d --wait api media-worker
 ```
 
 For normal instance updates use `bin/orchestrator update` above. The lower-level
@@ -348,12 +348,16 @@ scripts/deploy.sh --backup
 ```
 
 It checks the git worktree, fast-forwards from the configured upstream,
-optionally writes a MySQL dump, builds the compose services, restarts with
+quiesces writers for cutover, optionally creates a database/storage rollback
+bundle with `--backup`, builds the compose services, restarts with
 `--wait` when supported, verifies MySQL, `auth-runner` and `/healthz`, scans
 fresh logs for critical failures, and prunes unused Docker build artifacts. Add
 `--caddy` when this checkout owns the bundled Caddy profile, `--service api` for
 an API-only restart, or `--skip-git` only when intentionally deploying a local
 uncommitted tree.
+
+The default and `--no-backup` create no database/storage archive or credential
+copy. Use `--backup` explicitly when a local rollback bundle is required.
 
 It also publishes the `cxx` wrapper matrix. When `VERSION` in
 `wrappers/Makefile` is not yet the served version, it builds all four platforms
@@ -366,7 +370,7 @@ if wrapper sources changed since the served binary's commit without a
 `VERSION` bump it warns and continues. `--skip-wrappers` opts out, and the step
 refuses to run while a signing-key rotation leaves more than one active key.
 
-- Starts `api`, `auth-runner`, `mysql`, `media-worker` and `quota-cron`. Add `--profile caddy`
+- Starts `api`, `auth-runner`, `mysql`, and `media-worker`. Add `--profile caddy`
   for the TLS proxy.
 - API defaults to `http://localhost:8488`.
 - Setup wizard: `/admin/setup`. Nine steps from a bare console to a configured
@@ -472,12 +476,19 @@ running old and new anchors side by side until every client has the new one.
 
 ## Backups
 
-- `scripts/deploy.sh --backup` writes a one-off MySQL dump before a rollout. Set
+- `scripts/deploy.sh --backup` quiesces writers and creates a private rollback
+  bundle with a transactional database dump (`database.sql`), application
+  storage archive (`store.tar.gz`), resolved Compose configuration, previous
+  container/image metadata, and the runtime env file when present. It writes
+  checksums for the database, storage, and Compose files. Set
   `CODEX_DEPLOY_BACKUP_DIR` to choose a destination; the default is `./backups`.
-- A dump alone is not a restorable backup. Also keep `.env` (the encryption key
-  every secretbox column depends on) and `${DATA_ROOT}/store`, which holds the
-  wrapper binary matrix and any live file-transfer payloads; neither is in
-  MySQL.
+- Without `--backup`, deployment still quiesces writers but creates no
+  database/storage archive or credential copy. This differs from
+  `bin/orchestrator update`, whose rollback bundle is described above.
+- For external backups, retain the matching database, `.env` (including the
+  encryption key every secretbox column depends on), and `${DATA_ROOT}/store`,
+  which holds wrapper artifacts and live file-transfer payloads. A database
+  dump alone cannot restore those files or decrypt secrets without the key.
 
 ## The first-run wizard
 

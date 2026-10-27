@@ -122,8 +122,12 @@ usable and reports automatic reception unavailable. Headless worker deliveries
 use a protected prompt file and native JSON output. Native `-r/--resume`,
 `-c/--continue`, and `-s/--session-id` keep their meanings; `-s` creates a new session.
 
-Grok has no verified comparable subscription quota windows, so quota comparison
-and automatic quota-based switching remain unavailable for Grok. `cgx uninstall`
+Grok startup, status, and doctor display the server's stored subscription billing
+usage when its reset is still in the future, retaining the provider's weekly or
+monthly period. Missing or expired resets keep usage unavailable. This display
+does not enable Grok quota hard-fail or automatic quota-based account switching;
+see [the usage contract](../docs/interface-cgx.md#subscription-usage-in-the-dashboard).
+`cgx uninstall`
 refuses on a multi-user host without root or passwordless sudo, then removes
 wrapper-owned state and unused private binaries, preserving unwrapped credentials
 and native history; the shared cxx aliases and cron are removed only on a
