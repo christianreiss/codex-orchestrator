@@ -46,6 +46,19 @@ artifact has a corpus digest and per-source path, heading and digest; it is not
 a public static asset. Runtime source reads require Chatty access. Development
 can build the same corpus from the checkout.
 
+The maintained source set includes installation and security guides, all engine
+interfaces, communicator and owner/recovery contracts, Android, workflows,
+coordination, file transfers, and component READMEs. Dated audits and design
+proposals are excluded from the default corpus. Both Dockerfiles require the
+repository root as build context (`docker build -f api/Dockerfile .` for the
+API-only image), so they receive the same knowledge inputs.
+
+`npm run build` in `api/` regenerates the artifact from the current files. The
+running coordinator caches its loaded bundle: editing Markdown alone does not
+refresh an existing process. Deploy the rebuilt API image and recreate the API
+to activate a new corpus. `GET /admin/chatty/status` reports `knowledge_version`;
+compare it with the generated artifact's `version` when verifying a rollout.
+
 Weighted term search discounts common terms and expands German product aliases.
 There is no embedding service or external index. The model can search and read
 sources; only source IDs actually retrieved during the run become citation cards.

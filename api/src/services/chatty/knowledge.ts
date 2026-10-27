@@ -17,15 +17,29 @@ export interface KnowledgeBundle {
   version: string;
   sources: KnowledgeSource[];
 }
-const DOCS = /^(interface-.+|OVERVIEW|API|ADMIN|auth-runner|chatty|wrapper-v2-architecture)\.md$/;
+// Current guides only: dated audits, design proposals and rollout evidence are
+// historical context, not the product contract Chatty should answer from.
+const GUIDES = new Set([
+  'README', 'OVERVIEW', 'API', 'ADMIN', 'INSTALL', 'USAGE', 'LOGIN', 'SECURITY',
+  'MCP', 'CONFIG_BUILDER', 'NATIVE_CONFIG_SCOPES', 'auth-runner', 'auth-resilience',
+  'chatty', 'wrapper-v2-architecture', 'communicator', 'communicator-resident-runtime',
+  'agent-chat', 'smart-queue', 'android-companion', 'agent-coordination',
+  'agent-messaging-timing', 'agent-roles', 'workflows', 'file-transfers',
+  'control-plane-owner', 'owner-cutover', 'host-runtime-policy', 'reboot-resume',
+  'model-tiers', 'documentation-maintenance',
+].map((name) => `${name}.md`));
+const COMPONENT_GUIDES = [
+  'README.md', 'api/README.md', 'wrappers/README.md', 'runner/README.md',
+  'docs/skills/README.md', 'docs/contracts/README.md',
+];
 
 export function buildKnowledge(repo: string): KnowledgeBundle {
-  const files: string[] = [];
+  const files = [...COMPONENT_GUIDES];
   for (const dir of ['docs', 'public/admin/manual/articles']) {
     const full = resolve(repo, dir);
     if (!existsSync(full)) continue;
     for (const name of readdirSync(full).sort())
-      if (name.endsWith('.md') && (dir !== 'docs' || DOCS.test(name))) files.push(`${dir}/${name}`);
+      if (name.endsWith('.md') && (dir !== 'docs' || GUIDES.has(name) || /^interface-.+\.md$/.test(name))) files.push(`${dir}/${name}`);
   }
   const sources: KnowledgeSource[] = [];
   for (const path of files) {

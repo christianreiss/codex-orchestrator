@@ -26,6 +26,9 @@ RUN npm ci --no-audit --no-fund
 COPY api ./
 COPY docs /app/docs
 COPY public/admin/manual /app/public/admin/manual
+COPY README.md /app/README.md
+COPY wrappers/README.md /app/wrappers/README.md
+COPY runner/README.md /app/runner/README.md
 RUN npm run typecheck && ORCHESTRATOR_BUILD_COMMIT="$ORCHESTRATOR_BUILD_COMMIT" ORCHESTRATOR_BUILD_DIRTY="$ORCHESTRATOR_BUILD_DIRTY" npm run build
 
 # The build emits dist/package.json and dist/package-lock.json holding the exact

@@ -1,5 +1,7 @@
 # 2026-10-27
 
+- Include maintained installation, runtime, Android, workflow and coordination guides plus component READMEs in Chatty knowledge builds. Give both API images the same source inputs and document how to activate and verify a rebuilt corpus.
+
 - Align current operator guides and in-app help with the code: document API-owned quota collection, normal-only lane steering, installer prerequisites/order and rollback bundles, current console hubs and bootstrap guards, and Grok billing usage display. Add missing feature-guide links and a documentation maintenance source/check map.
 
 - **WebUI visual and usability review:** repair clipped touch filters, small navigation/upload targets and distorted switches/checkboxes; keep narrow account tabs readable, setup steps inside their own scroller, and direct manual articles above optional browsing. Host identities wrap and filtered lists offer a reset. Account loading/failure no longer reports invented zero totals; messaging filters explain their current values, and board deadlines retain readable order. Includes browser regressions and the [review coverage and acceptance limits](docs/ui-review-2026-10-27.md).

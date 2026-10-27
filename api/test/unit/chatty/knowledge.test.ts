@@ -1,4 +1,6 @@
 import { resolve } from 'node:path';
+import { readFileSync, statSync } from 'node:fs';
+import { signature } from '../../../src/services/chatty/contracts.js';
 import { describe, it, expect } from 'vitest';
 import { buildKnowledge, searchKnowledge } from '../../../src/services/chatty/knowledge.js';
 
@@ -43,6 +45,53 @@ describe('Chatty product knowledge', () => {
       expect(source.sha256).toHaveLength(64);
       expect(source.path).not.toMatch(/\.env|storage\//);
     }
+  });
+  it('includes current operator and runtime guides with the exact current file digest', () => {
+    const repo = resolve(import.meta.dirname, '../../../..');
+    const paths = [
+      'docs/INSTALL.md', 'docs/SECURITY.md', 'docs/LOGIN.md', 'docs/USAGE.md',
+      'docs/MCP.md', 'docs/communicator.md', 'docs/control-plane-owner.md',
+      'docs/owner-cutover.md', 'docs/android-companion.md', 'docs/workflows.md',
+      'docs/agent-coordination.md', 'docs/file-transfers.md',
+      'docs/documentation-maintenance.md',
+      'api/README.md', 'wrappers/README.md', 'runner/README.md',
+      'docs/skills/README.md', 'docs/contracts/README.md',
+    ];
+    for (const path of paths) {
+      const sources = bundle.sources.filter((source) => source.path === path);
+      expect(sources.length, path).toBeGreaterThan(0);
+      const digest = signature(readFileSync(resolve(repo, path), 'utf8'));
+      expect(sources.every((source) => source.sha256 === digest), path).toBe(true);
+    }
+    expect(bundle.sources.some((source) => /docs\/(archive|verification)\/|\d{4}-\d{2}-\d{2}/.test(source.path))).toBe(false);
+  });
+  it.each(['Dockerfile', 'api/Dockerfile'])('%s supplies every file source to the knowledge build', (dockerfile) => {
+    const repo = resolve(import.meta.dirname, '../../../..');
+    const text = readFileSync(resolve(repo, dockerfile), 'utf8').split(/FROM .* AS prod-deps/i)[0]!;
+    const copies: Array<{ source: string; target: string; directory: boolean }> = [];
+    let workdir = '/';
+    for (const line of text.split('\n')) {
+      if (line.startsWith('WORKDIR ')) workdir = resolve(workdir, line.slice(8));
+      if (!line.startsWith('COPY ') || line.includes('--from=')) continue;
+      const parts = line.slice(5).trim().split(/\s+/);
+      const destination = parts.pop()!;
+      for (const source of parts) {
+        const directory = statSync(resolve(repo, source)).isDirectory();
+        copies.push({ source, directory, target: resolve(workdir, destination) });
+      }
+    }
+    for (const path of new Set(bundle.sources.map((source) => source.path).filter((path) => !path.includes('://')))) {
+      expect(copies.some((copy) => copy.directory
+        ? path.startsWith(`${copy.source}/`) && resolve(copy.target, path.slice(copy.source.length + 1)) === `/app/${path}`
+        : copy.source === path && copy.target === `/app/${path}`), path).toBe(true);
+    }
+  });
+  it('makes recent operational corrections available as supporting knowledge', () => {
+    const install = bundle.sources.filter((source) => source.path === 'docs/INSTALL.md').map((source) => source.body).join('\n');
+    expect(install).toContain('rollback');
+    expect(install).toContain('standalone quota writer are retired');
+    expect(searchKnowledge(bundle, 'database storage rollback bundle', 8).some((source) => source.path === 'docs/INSTALL.md')).toBe(true);
+    expect(searchKnowledge(bundle, 'Grok subscription billing usage weekly monthly', 8).some((source) => source.path === 'wrappers/README.md')).toBe(true);
   });
   it('retrieves supporting evidence in the top five for at least 90% of 40 DE/EN questions', () => {
     const missed = CASES.flatMap(([de, en, evidence]) =>
