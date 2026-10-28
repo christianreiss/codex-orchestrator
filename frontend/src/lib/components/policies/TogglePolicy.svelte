@@ -29,7 +29,7 @@
     "model-tier-check": { query: modelTierCheckQuery, mutation: modelTierCheckMutation,
       label: "Agents check their model against the task", term: "model-tier self-check",
       help: "Before starting, agents compare their model tier with the assignment and recommend a stronger model if it falls short.",
-      details: "On by default. Agents one tier below the task name a stronger model and continue; two or more tiers below, they stop and recommend one. Whole-stack cleanup assessment is Tier 4, including scouting. Overrides must explicitly acknowledge the mismatch. Recommendations use only the latest enabled models of each host's active engines. This is agent guidance, not a runtime block. Managed documents update on the next sync or launch." },
+      details: "On by default. Agents one tier below the task name a stronger model and continue; two or more tiers below, they stop and recommend one. Read-only scouting takes the tier of the decisions it feeds, never Tier 4 by default. Overrides must explicitly acknowledge the mismatch. Recommendations use only the latest enabled models of each host's active engines. This is agent guidance, not a runtime block. Managed documents update on the next sync or launch." },
     "insecure-approval": { query: insecureApprovalQuery, mutation: insecureApprovalMutation,
       label: "Allow temporary-access requests", term: "insecure-host approvals",
       help: "Hosts without a secure connection can ask an admin to open a time-limited access window.",

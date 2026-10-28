@@ -22,7 +22,7 @@ describe('modelTier', () => {
 
   it.each([
     [ENGINE_CLAUDE, 'claude-haiku-5-5', 1],
-    [ENGINE_CLAUDE, 'claude-sonnet-5', 2],
+    [ENGINE_CLAUDE, 'claude-sonnet-5', 3],
     [ENGINE_CLAUDE, 'claude-opus-5-5[1m]', 3],
     [ENGINE_CLAUDE, 'opus', 3],
     [ENGINE_CLAUDE, 'claude-fable-5-1', 4],
@@ -53,11 +53,10 @@ describe('buildModelTierTable', () => {
   it('lists only the latest models of the active engines in canonical order', () => {
     const table = buildModelTierTable([ENGINE_GROK, ENGINE_CLAUDE], latest);
     expect(table.flatMap((row) => row.models.map((entry) => entry.engine))).not.toContain(ENGINE_CODEX);
-    expect(table.find((row) => row.tier === 2)?.models).toEqual([
-      { engine: ENGINE_CLAUDE, model: 'claude-sonnet-5-5' },
-    ]);
+    expect(table.find((row) => row.tier === 2)).toBeUndefined();
     expect(table.find((row) => row.tier === 3)?.models).toEqual([
       { engine: ENGINE_CLAUDE, model: 'claude-opus-5-5' },
+      { engine: ENGINE_CLAUDE, model: 'claude-sonnet-5-5' },
       { engine: ENGINE_GROK, model: 'grok-4.7' },
       { engine: ENGINE_GROK, model: 'grok-4.7-build-fast' },
     ]);
@@ -99,7 +98,8 @@ describe('renderModelTierGuidance', () => {
       buildModelTierTable([engine], { [engine]: [models[engine]] }), { engine, model: models[engine] },
     );
     for (const tier of [1, 2, 3, 4]) expect(text).toContain(`| ${tier} |`);
-    expect(text).toContain('Whole-stack cleanup assessment is Tier 4');
+    expect(text).not.toContain('Whole-stack cleanup assessment is Tier 4');
+    expect(text).toContain('takes the tier of the decisions it feeds');
     expect(text).toContain('`scout and prepare`');
     expect(text).toContain('stop before scouting or planning');
     expect(text).toContain('if none fits, say so');

@@ -39,6 +39,22 @@ It corroborates naming, not current entitlement or current subscription capabili
 The current official guide supplies the same-model relationship. Public API efforts
 are not copied into the subscription catalog by this review.
 
+## Sonnet 2 → 3 (2026-10-28)
+
+A seven-agent fleet review (4 Codex, 3 Claude) with the operator's report that Sonnet and Sol are
+the daily drivers moved the Sonnet family from Tier 2 to Tier 3, beside Opus, Sol and Grok 4.7.
+Opus stays at 3 and Terra at 2; Tier 4 stays for exceptional open-ended work, and the advisor still
+picks the last row as its strongest model. This is operational evidence, not a benchmark: no
+head-to-head Sonnet 5.5 / Opus 5.5 / Sol results were available, and provider pages only position
+the families. The mechanical argument is stronger than the capability one: at Tier 2 a Sonnet session
+stopped on every Tier 4 assignment while Sol, doing the same work, proceeded.
+
+Rule changes in the same review: the "whole-stack cleanup, including `scout and prepare`, is Tier 4
+even read-only" shortcut is gone; the tier follows the judgment the work needs. Security and
+irreversibility set verification and authorization separately from the tier. The two-tier stop is
+kept (it is operator policy), but with Sonnet, Sol and Opus at 3 only Tier 1-2 models can reach it.
+Dropping it altogether was proposed and left as an operator decision.
+
 ## Retained family classes
 
 Codex retains Luna 1, Terra 2, Sol 3 and Astra 4. Current
@@ -48,11 +64,11 @@ repeatable work, efficient everyday work, complex technical work and the most
 demanding end-to-end reasoning. `gpt-6.1-terra` inherits the Terra class when its
 separate catalog addition lands; this review does not alter its capability metadata.
 
-Claude retains Haiku 1, Sonnet 2, Opus 3 and Fable 4. The current
+Claude is Haiku 1, Sonnet 3, Opus 3 and Fable 4 (see Sonnet reclassification below). The current
 [provider overview](https://platform.claude.com/docs/en/models/overview) positions
 Haiku for latency-sensitive volume, Sonnet for balanced speed and intelligence,
 Opus for sustained agentic coding, and Fable for demanding long-horizon reasoning.
-No new evidence justified changing those family mappings.
+
 
 The source table in `api/src/services/model-tiers.ts` drives managed Agents
 previews, available-model recommendations and launch sorting. Tests require every

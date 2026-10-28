@@ -16,7 +16,9 @@ export type ModelTier = 1 | 2 | 3 | 4;
 export const MODEL_TIER_CHECK_ENABLED_KEY = 'model_tier_check_enabled';
 
 const CODEX_FAMILY_TIERS: Readonly<Record<string, ModelTier>> = { luna: 1, terra: 2, sol: 3, astra: 4 };
-const CLAUDE_FAMILY_TIERS: Readonly<Record<string, ModelTier>> = { haiku: 1, sonnet: 2, opus: 3, fable: 4 };
+// Sonnet sits with Opus and Sol (2026-10-28): the operator's daily driver for cross-cutting work.
+// At Tier 2 it stopped on every Tier 4 assignment while Sol, doing the same work, proceeded.
+const CLAUDE_FAMILY_TIERS: Readonly<Record<string, ModelTier>> = { haiku: 1, sonnet: 3, opus: 3, fable: 4 };
 // Audited 2026-10-26 against current provider positioning and software-engineering
 // evaluations; rationale and exact subscription Fast identity: docs/model-tiers.md.
 const GROK_MODEL_TIERS: Readonly<Record<string, ModelTier>> = {
@@ -30,7 +32,7 @@ export const MODEL_TIER_WORK: Readonly<Record<ModelTier, string>> = {
   1: 'Lookups, renames, single-file edits, formatting, mechanical changes',
   2: 'Feature work, multi-file changes, debugging with a clear reproduction',
   3: 'Cross-cutting refactors, concurrency, security-sensitive or migration work',
-  4: 'Architecture, multi-factor redesigns, ambiguous research and open-ended diagnosis',
+  4: 'Architecture, multi-factor redesigns, exceptionally open-ended diagnosis',
 };
 
 /** Tier of a model id, or null for an unknown or custom-provider id. */
@@ -110,9 +112,9 @@ state it and proceed; never abort on a guess.
 | --- | --- | --- |
 ${rows.join('\n')}
 
-Rate the whole assignment's highest judgment. Whole-stack cleanup assessment is Tier 4,
-including \`scout and prepare\`, even read-only. Operator-prescribed mechanical inventory can be Tier 1.
-For Tier 3/4, state task tier, model tier and reason before starting.
+Rate by judgment needed, not keywords: read-only scouting (\`scout and prepare\`)
+takes the tier of the decisions it feeds; mechanical inventory can be Tier 1. Security or
+irreversibility sets checks, not tier. For Tier 3/4, state task tier, model tier, reason.
 
 Report \`Underclassed: Tier <n> required, running <model> (Tier <m>). Recommended: <model>.\`
 with the lowest fitting available model, own engine first; if none fits, say so.
