@@ -485,6 +485,21 @@ drains in-flight work for up to the terminate bound and exits. Lease holders red
 and start the installed binary; a request refused while draining is a definitive
 "not sent". Residents are replaced by the root handoff instead.
 
+The quiet gate is per OS user, not per owner: `agentquiet.Busy` probes the
+`.cxx-housekeeping.lock` of all three engines. On a workstation where some managed
+Codex or Claude session is always running, a replaced on-demand owner therefore never
+retires; it keeps serving its clients and starts its workers from the installed path,
+that is from the newer binary (observed 2026-10-28 on biest.eulie.de: a 0.9.127 owner,
+three days old, `executable_replaced: true` with five leased sessions, while a running
+`clx` session held the Claude lock). This is deliberate and unchanged: retiring under live sessions would force
+them onto a newer binary mid-session. Remedy: let those sessions end, or use the
+targeted terminate from the console after verifying no in-flight work. Grok sessions
+hold that lock only while cgx sets up the private runtime (`grok.NewRuntime` releases
+it); their lifetime lease is `~/.grok/.cgx-sessions.lock`, which the gate does not
+probe, so the gate does not see a running Grok session. Orphaned Grok leaders hold
+neither lock and never close the gate; they are removed by the Grok orphan reaper
+(`docs/interface-cgx.md` → Orphan reaper).
+
 From cxx 0.9.77, reconnect and owner replacement are independent of the engine
 whose config first started the owner. If that file is missing, invalid, suspended
 or disables the transport, another signed config from active sync scopes or the

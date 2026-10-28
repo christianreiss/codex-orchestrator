@@ -3,11 +3,13 @@ package housekeeping
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grokreap"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
@@ -131,7 +133,10 @@ func render(w io.Writer, r Result) {
 		return
 	}
 	fmt.Fprintf(w, "housekeeping %s: %s; %.2f → %.2f GiB, %d candidates, %d protected, %d removed", r.Engine, r.Outcome, float64(r.BytesBefore)/(1<<30), float64(r.BytesAfter)/(1<<30), r.Candidates, r.Protected, r.Deleted)
-	if r.Reason != "" {
+	switch {
+	case r.Reason != "" && r.Detail != "":
+		fmt.Fprintf(w, " (%s: %s)", r.Reason, r.Detail)
+	case r.Reason != "":
 		fmt.Fprintf(w, " (%s)", r.Reason)
 	}
 	fmt.Fprintln(w)
@@ -166,9 +171,34 @@ func Command(args []string, selected string, stdout, stderr io.Writer) int {
 			id = args[i]
 		}
 	}
-	if action != "run" && action != "status" && action != "pin" && action != "unpin" {
-		fmt.Fprintln(stderr, "usage: cxx housekeeping status|run [--dry-run] [--engine ENGINE] [--json] | pin|unpin UUID --engine ENGINE")
+	if action != "run" && action != "status" && action != "pin" && action != "unpin" && action != "reap" {
+		fmt.Fprintln(stderr, "usage: cxx housekeeping status|run [--dry-run] [--engine ENGINE] [--json] | pin|unpin UUID --engine ENGINE | reap [--dry-run] [--json]")
 		return 2
+	}
+	if action == "reap" {
+		// Only Grok leaves detached native leaders and private runtimes behind;
+		// see docs/interface-cgx.md (Orphan reaper).
+		if (engine != "" && engine != "grok") || id != "" {
+			fmt.Fprintln(stderr, "housekeeping reap applies to grok only")
+			return 2
+		}
+		suspended := false
+		if !dry {
+			path, err := config.DefaultPathForEngine("grok")
+			if err == nil {
+				var key ed25519.PublicKey
+				if key, err = signing.PublicKey(); err == nil {
+					var cfg *config.Config
+					cfg, _, err = fleetconfig.LoadOrRecover(context.Background(), path, key, "grok")
+					suspended = err == nil && cfg.EngineSuspended("grok")
+				}
+			}
+			if err != nil {
+				fmt.Fprintln(stderr, "housekeeping reap: grok config unavailable:", err)
+				return 1
+			}
+		}
+		return grokreap.Command(dry, jsonOut, suspended, stdout, stderr)
 	}
 	if engine != "" && engine != "codex" && engine != "claude" && engine != "grok" {
 		fmt.Fprintln(stderr, "unknown housekeeping engine")

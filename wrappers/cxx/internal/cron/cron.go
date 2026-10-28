@@ -27,6 +27,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/buildinfo"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grokreap"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/housekeeping"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
@@ -86,6 +87,7 @@ var (
 	refreshRunConfigs      = refreshAuthoritative
 	reconcileRunSchedule   = reconcileSchedule
 	runHousekeeping        = housekeeping.Automatic
+	reapOrphans            = grokreap.Automatic
 )
 
 // Install reconciles aliases first, then writes exactly one cxx schedule and
@@ -246,6 +248,11 @@ func run(ctx context.Context, seed *config.Config, minimal, due bool, stdout, st
 		errs = append(errs, err)
 	}
 	for _, cfg := range configs {
+		// Orphaned native leaders count as running natives for housekeeping;
+		// reap them first so a leftover can no longer defer it (grok only).
+		if err := reapOrphans(runCtx, cfg, stdout); err != nil {
+			errs = append(errs, fmt.Errorf("orphan reaper: %w", err))
+		}
 		if err := runHousekeeping(runCtx, cfg, stdout); err != nil {
 			errs = append(errs, fmt.Errorf("session housekeeping: %w", err))
 		}
