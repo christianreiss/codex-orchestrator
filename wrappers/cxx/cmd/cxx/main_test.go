@@ -21,6 +21,35 @@ func TestBareCXXRequiresEngine(t *testing.T) {
 	}
 }
 
+// Emergency mode is intercepted before communicator setup and native-entry
+// reconciliation, so a host with no usable signed config refuses without
+// creating any state under HOME.
+func TestEmergencyRefusesWithoutSignedConfigAndWritesNothing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("CDX_CONFIG_PATH", "")
+	var stdout, stderr bytes.Buffer
+	if got := run("cxx", []string{"emergency", "codex", "--", "--version"}, &stdout, &stderr); got != 1 {
+		t.Fatalf("exit = %d, want 1; stderr=%q", got, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "refusing to run codex") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("emergency mode touched HOME: %v (err=%v)", entries, err)
+	}
+}
+
+func TestSelectorHelpListsEmergency(t *testing.T) {
+	var out bytes.Buffer
+	printSelectorHelp(&out)
+	if !strings.Contains(out.String(), "cxx emergency codex|claude|grok") {
+		t.Fatalf("help = %q", out.String())
+	}
+}
+
 func TestGlobalVersionUsesCommonIdentity(t *testing.T) {
 	oldVersion, oldCommit, oldDate := Version, Commit, BuildDate
 	t.Cleanup(func() { Version, Commit, BuildDate = oldVersion, oldCommit, oldDate })

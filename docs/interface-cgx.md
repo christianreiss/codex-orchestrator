@@ -229,6 +229,18 @@ broker, session identity and teardown. Native `--help` remains available;
 normal managed sessions retain their wrapper-owned private leader. No public
 worker registration or background service is enabled by this support boundary.
 
+## Emergency mode (cxx 0.9.141)
+
+`cxx emergency grok [--] [native arguments]` execs the plain native `grok` with
+no Orchestrator involvement on secure hosts (verified `cgx.json` with
+`host.secure=true`; otherwise exit 1). Gate and environment scrubbing match
+[Codex emergency mode](interface-cdx.md#emergency-mode-cxx-09141). Grok
+credentials are server-owned and normally projected into a private leased
+`GROK_HOME`, which emergency mode does not create, so it requires a native login:
+`$GROK_HOME/auth.json` (default `~/.grok/auth.json`) must exist, else it exits 1
+before launching. The binary comes from `CGX_GROK_BIN`, the read-only
+`~/.cgx/state/grok-bin` cache, `$GROK_HOME/bin/grok`, then `grok` on `PATH`.
+
 ## Bare `cxx` launchpad (cxx 0.9.65)
 
 From cxx 0.9.70 the shared picker uses the Obsidian compass with dark cards,

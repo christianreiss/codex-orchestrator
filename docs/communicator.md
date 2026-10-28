@@ -808,6 +808,15 @@ the identity fields can only ever produce candidates. Every
 control requires `agent_portal.manage` (or `agent_messaging.manage` for the daemon
 stop), which stay enforced under `compatible` authorization.
 
+## Emergency bypass (cxx 0.9.141)
+
+`cxx emergency <engine>` never touches the communicator. It is intercepted
+before `communicator.Configure`, takes no sync job, lease, auth session or
+housekeeping gate, and replaces the process with the native CLI, so a wedged
+communicator, journal or lease cannot block it. It is available only on hosts
+whose verified signed config says `host.secure=true`. See
+[Emergency mode](interface-cdx.md#emergency-mode-cxx-09141).
+
 ## Rollout and checks
 
 Which cxx release a host's signed config and `/cron/check` name is subject to the

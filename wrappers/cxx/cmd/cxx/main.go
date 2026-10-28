@@ -29,6 +29,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/emergency"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
@@ -47,6 +48,12 @@ func main() {
 func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 	if len(args) > 0 && args[0] == grok.PrivateReaperCommand {
 		return grok.RunPrivateReaper(args[1:])
+	}
+	// Emergency mode must run before anything that touches the Orchestrator,
+	// the communicator or native entry points, so it is intercepted first. Only
+	// the bare `cxx` name takes it: `cdx emergency` stays a Codex prompt.
+	if len(args) > 0 && args[0] == "emergency" && personaForProgramName(invokedAs) == "common" {
+		return emergency.Run(args[1:], stdout, stderr)
 	}
 	setPersonaBuildInfo()
 	if len(args) > 0 && args[0] == "communicator-worker" {
@@ -373,6 +380,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx claude [clx arguments]")
 	fmt.Fprintln(w, "  cxx grok [cgx arguments]")
 	fmt.Fprintln(w, "  cxx native codex|claude|grok -- [native arguments]")
+	fmt.Fprintln(w, "  cxx emergency codex|claude|grok [--] [native arguments]  (secure hosts: native CLI, no Orchestrator)")
 	fmt.Fprintln(w, "  cxx native-entry status|install|remove")
 	fmt.Fprintln(w, "  cxx update [--minimal]")
 	fmt.Fprintln(w, "  cxx sync")

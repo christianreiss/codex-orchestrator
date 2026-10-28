@@ -959,6 +959,38 @@ participate in these leases and is the explicit coordination boundary.
    writeback, marker, or insecure-purge failure makes an otherwise successful
    wrapper invocation non-zero instead of hiding behind the Codex exit status.
 
+### Emergency mode (cxx 0.9.141)
+
+`cxx emergency codex [--] [native arguments]` is the escape hatch for a broken
+Orchestrator or wrapper sync. It replaces the process with the plain native
+`codex` and bypasses everything cxx adds: no network call, config or auth
+sync, quota check, lease, auth session, communicator, receiver, skills or MCP
+injection, and no argv, env or `config.toml` rewriting. Nothing is written to
+disk, including the `cdx-codex-bin` path cache.
+
+- **Invocation:** only the bare `cxx` name takes it (`cdx emergency` remains a
+  Codex prompt). It is intercepted before communicator setup and native-entry
+  reconciliation. The managed `codex` PATH shim still routes through the full
+  wrapper, so use `cxx emergency codex`.
+- **Gate:** the Ed25519-verified `cdx.json` must say `host.secure=true`. A
+  signature-valid but expired config counts. A missing, unsigned, tampered or
+  wrong-engine config, or `secure=false`, refuses with exit 1 and launches
+  nothing. Insecure hosts purge their credentials after each run, so the native
+  CLI could not authenticate there anyway.
+- **Binary:** `CDX_CODEX_BIN` (a bad override is an error, never a fallthrough),
+  the existing `cdx-codex-bin` cache read-only, then `codex` on `PATH` outside
+  managed shims and the wrapper.
+- **Environment:** `CDX_*`/`CLX_*`/`CGX_*`/`CXX_*` variables are removed, as are
+  `OPENAI_*`/`ANTHROPIC_*` base URLs and keys that point at the Orchestrator.
+  The operator's own provider settings pass through.
+- **Not cleaned up:** previously synced `~/.codex/config.toml`, `AGENTS.md` and
+  MCP entries stay as they are. The signed `host.secure` value can lag the live `/auth`
+  value; emergency mode is for when the live value is unavailable.
+
+Refusal and error exits: 1 (refused or cannot start), 2 (usage). The same
+subcommand serves `claude` and `grok`; see `interface-clx.md` and
+`interface-cgx.md` for their binaries and the Grok login precondition.
+
 ## Refusal modes
 
 - Missing or tampered signature → `config signature invalid`; exit 2 without launching `codex`. An unverifiable config is never used to seed a refetch.

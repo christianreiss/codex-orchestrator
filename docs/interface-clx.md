@@ -366,6 +366,20 @@ No unattended prerequisite package-manager or global npm mutation runs.
 See [shared background maintenance](interface-cdx.md#background-maintenance)
 for cadence, cooldowns, logs, and recovery commands.
 
+### Emergency mode (cxx 0.9.141)
+
+`cxx emergency claude [--] [native arguments]` runs the plain native `claude`
+with no Orchestrator involvement on secure hosts (verified `clx.json` with
+`host.secure=true`; otherwise exit 1). Behaviour, gate and environment scrubbing
+match [Codex emergency mode](interface-cdx.md#emergency-mode-cxx-09141). Claude
+specifics: the binary comes from `CLX_CLAUDE_BIN`, the read-only
+`~/.clx/state/claude-bin` cache (which also covers the pinned private copy under
+`~/.cxx/engines/claude`), then `claude`/`claude-code` on `PATH`. The `--settings`
+overlay, `modelpolicy` rewriting and `DISABLE_AUTOUPDATER` injection are not
+applied, and `~/.claude` (including `CLAUDE.md` and `settings.json`) is left as
+last synced. Only the bare `cxx` name takes the subcommand; `clx emergency` is
+still a Claude prompt.
+
 ## Environment variables
 
 Every `CLX_*` / `CDX_*` variable the `clx` binary reads. The list is enforced
