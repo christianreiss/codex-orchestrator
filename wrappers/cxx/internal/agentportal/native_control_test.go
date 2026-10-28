@@ -5,6 +5,7 @@ package agentportal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/google/uuid"
 	"golang.org/x/net/websocket"
@@ -59,6 +60,9 @@ func TestNativeControlRoundTripForEveryEngine(t *testing.T) {
 			supervisor.Close()
 			if ctx.Err() == nil {
 				t.Fatal("operator stop did not cancel launch retries")
+			}
+			if !errors.Is(context.Cause(ctx), ErrPortalStop) {
+				t.Fatalf("operator stop cause %v", context.Cause(ctx))
 			}
 			if exits.Load() != 1 {
 				t.Fatalf("exit receipts: %d", exits.Load())

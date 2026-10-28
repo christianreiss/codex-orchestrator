@@ -814,7 +814,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			}
 		}
 		if err := connection.Close(state, summary); err != nil {
-			fmt.Fprintln(stderr, "cgx: agent portal cleanup failed")
+			fmt.Fprintf(stderr, "cgx: agent portal cleanup failed: %v\n", err)
 		}
 	}()
 	args, identityErr = agentportal.AppendIdentityArgs(config.EngineGrok, args, identity)
@@ -842,7 +842,10 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		return 1, err
 	}
 	env := rt.Environment(os.Environ())
-	sessionCtx, stop := context.WithCancel(ctx)
+	// The cause names why the wrapper ended the session, so the native and
+	// leader exit reports can say so instead of reporting a start failure.
+	sessionCtx, stopSession := context.WithCancelCause(ctx)
+	stop := func() { stopSession(nil) }
 	activityCtx := sessionCtx
 	refreshDone := make(chan struct{})
 	authFailure := make(chan error, 1)
@@ -860,10 +863,10 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 				cancel()
 				if native.FatalAuthError(err) {
 					select {
-					case authFailure <- errors.New("Grok account lease or subscription auth ended; resume through cgx after login"):
+					case authFailure <- errGrokAuthEnded:
 					default:
 					}
-					stop()
+					stopSession(errGrokAuthEnded)
 					return
 				}
 			}
@@ -876,10 +879,10 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			stopWatch, err := communicator.WatchAuth(communicator.WithSyncConfig(sessionCtx, cfg), client.BaseURL, "grok", "", account, session, rt.Socket, func(status communicator.AuthStatus) {
 				if status.Fatal {
 					select {
-					case authFailure <- errors.New("Grok account lease or subscription auth ended; resume through cgx after login"):
+					case authFailure <- errGrokAuthEnded:
 					default:
 					}
-					stop()
+					stopSession(errGrokAuthEnded)
 				}
 			}, func(c context.Context) func() {
 				refreshCtx, cancel := context.WithCancel(c)
@@ -923,13 +926,23 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			return 1, fmt.Errorf("Grok private leader failed to start; diagnostics: %s", leaderLog.Path())
 		}
 		activityCtx = schedulewatch.WithActivity(sessionCtx, leader)
-		leaderDone := make(chan error, 1)
-		go func() { err := leader.Wait(); leaderSupervisor.Close(); leaderDone <- err }()
+		leaderDone := make(chan bool, 1)
+		go func() {
+			err := leader.Wait()
+			leaderSupervisor.Close()
+			// Wait has drained the leader's stderr, so this line is the last in
+			// its log: an abnormal exit never leaves an empty diagnostics file.
+			line, failed := leaderExitReport(sessionCtx, err)
+			if line != "" {
+				_, _ = io.WriteString(leaderLog, line+"\n")
+			}
+			leaderDone <- failed
+		}()
 		defer func() {
 			select {
-			case err := <-leaderDone:
-				if err != nil {
-					fmt.Fprintf(stderr, "cgx: Grok private leader failed; diagnostics: %s\n", leaderLog.Path())
+			case failed := <-leaderDone:
+				if failed {
+					fmt.Fprintf(stderr, "cgx: Grok private leader exited unexpectedly; diagnostics: %s\n", leaderLog.Path())
 				}
 			default:
 				stop()
@@ -1022,19 +1035,57 @@ func execute(ctx context.Context, path string, args, env []string, stdout, stder
 	}
 	err := cmd.Start()
 	closeLease()
-	if err == nil {
-		supervisor.StartControl()
-		stopWatch := schedulewatch.Start(ctx, cmd)
-		err = cmd.Wait()
-		supervisor.Close()
-		stopWatch()
+	if err != nil {
+		code, resultErr := supervisor.Result(err)
+		if resultErr == nil {
+			return code
+		}
+		fmt.Fprintln(stderr, "cgx: native Grok failed to start")
+		return 1
 	}
+	supervisor.StartControl()
+	stopWatch := schedulewatch.Start(ctx, cmd)
+	err = cmd.Wait()
+	supervisor.Close()
+	stopWatch()
 	code, resultErr := supervisor.Result(err)
 	if resultErr == nil {
 		return code
 	}
-	fmt.Fprintln(stderr, "cgx: native Grok failed to start")
+	// Wait reports the context instead of the exit status only when the wrapper
+	// ended a running Grok that then shut down cleanly; that is not a start failure.
+	if ctx.Err() != nil {
+		fmt.Fprintf(stderr, "cgx: native Grok stopped: %s\n", stopReason(ctx))
+		return 1
+	}
+	fmt.Fprintf(stderr, "cgx: native Grok supervision failed: %v\n", resultErr)
 	return 1
+}
+
+// errGrokAuthEnded is both the session's cancel cause and run's final error.
+var errGrokAuthEnded = errors.New("Grok account lease or subscription auth ended; resume through cgx after login")
+
+// stopReason names who ended a launch whose context was cancelled without a
+// signal: a fatal auth status, a portal stop request, or the launch's own end.
+func stopReason(ctx context.Context) string {
+	cause := context.Cause(ctx)
+	if cause == nil || cause == context.Canceled {
+		return "the managed session ended"
+	}
+	return cause.Error()
+}
+
+// leaderExitReport returns the diagnostics line for the private leader's exit
+// and whether it ended on its own with an error. A leader terminated because
+// the session was already ending did not fail; its line says why it was stopped.
+func leaderExitReport(sessionCtx context.Context, err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+	if sessionCtx.Err() != nil {
+		return fmt.Sprintf("cgx: Grok private leader stopped with the session (%s): %v", stopReason(sessionCtx), err), false
+	}
+	return fmt.Sprintf("cgx: Grok private leader exited unexpectedly: %v", err), true
 }
 
 func status(ctx context.Context, cfg *config.Config, client *orchestrator.Client, doctor bool, o options, stdout io.Writer) error {

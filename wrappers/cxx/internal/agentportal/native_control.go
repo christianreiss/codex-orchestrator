@@ -22,8 +22,13 @@ import (
 // request/s fleet-wide (2026-10-23) for requests that almost never exist.
 var nativeControlPollEvery = 10 * time.Second
 
+// ErrPortalStop is the launch context's cancel cause after an accepted portal
+// stop request, so wrappers can report who ended the native process.
+var ErrPortalStop = errors.New("stop requested through the agent portal")
+
 func (s *Session) withNativeControl(ctx context.Context) context.Context {
-	runCtx, cancelNative := context.WithCancel(ctx)
+	runCtx, cancelRun := context.WithCancelCause(ctx)
+	cancelNative := func() { cancelRun(ErrPortalStop) }
 	return nativeprocess.WithControl(runCtx, func(stop func() error) func() {
 		id := make([]byte, 16)
 		if _, err := rand.Read(id); err != nil {
