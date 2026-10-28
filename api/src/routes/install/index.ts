@@ -3,7 +3,7 @@ import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { requestHost } from '../../control-plane/state/admission.js';
 import { HostSpawnService, hostSpawnCompletionScript } from '../../services/host-spawn.js';
 import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../services/pooled-auth-store.js';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { hosts as hostsTable, hostSpawns} from '../../db/schema.js';
 import type { RouteContext } from '../index.js';
@@ -179,18 +179,20 @@ ui_result_fail`);
     emitInstaller(reply, body, 200, row.expiresAt);
   };
 
-  app.get<{ Params: { token: string } }>('/install/:token', async (req, reply) =>
-    installLauncherHandler(req.params.token, '/install/', reply),
-  );
-  app.get<{ Params: { token: string } }>('/install/v2/:token', async (req, reply) =>
-    installLauncherHandler(req.params.token, '/install/v2/', reply),
-  );
-  app.post<{ Params: { token: string } }>('/install/:token', async (req, reply) =>
-    installClaimHandler(req.params.token, reply),
-  );
-  app.post<{ Params: { token: string } }>('/install/v2/:token', async (req, reply) =>
-    installClaimHandler(req.params.token, reply),
-  );
+  // These handlers answer through `reply` themselves. An async route that
+  // resolves to anything but the reply makes Fastify send a second time, and the
+  // uncaught ERR_HTTP_HEADERS_SENT that follows kills the API process.
+  const answered =
+    (run: (token: string, reply: FastifyReply) => Promise<void>) =>
+    async (req: FastifyRequest<{ Params: { token: string } }>, reply: FastifyReply): Promise<FastifyReply> => {
+      await run(req.params.token, reply);
+      return reply;
+    };
+
+  app.get<{ Params: { token: string } }>('/install/:token', answered((token, reply) => installLauncherHandler(token, '/install/', reply)));
+  app.get<{ Params: { token: string } }>('/install/v2/:token', answered((token, reply) => installLauncherHandler(token, '/install/v2/', reply)));
+  app.post<{ Params: { token: string } }>('/install/:token', answered(installClaimHandler));
+  app.post<{ Params: { token: string } }>('/install/v2/:token', answered(installClaimHandler));
 
   const seedScriptHandler = async (token: string, reply: FastifyReply): Promise<void> => {
     if (!SEED_TOKEN_RE.test(token)) return shellishSeedError(reply, 'Seed token not found', 'seed_not_found');
@@ -220,12 +222,8 @@ ui_result_fail`);
     emitSeed(reply, body, 200, row.expiresAt);
   };
 
-  app.get<{ Params: { token: string } }>('/seed/auth/:token', async (req, reply) =>
-    seedScriptHandler(req.params.token, reply),
-  );
-  app.get<{ Params: { token: string } }>('/seed/v2/auth/:token', async (req, reply) =>
-    seedScriptHandler(req.params.token, reply),
-  );
+  app.get<{ Params: { token: string } }>('/seed/auth/:token', answered(seedScriptHandler));
+  app.get<{ Params: { token: string } }>('/seed/v2/auth/:token', answered(seedScriptHandler));
 
   const seedStoreHandler = async (token: string, body: unknown): Promise<Record<string, unknown>> => {
     if (!SEED_TOKEN_RE.test(token)) throw new NotFoundError('Seed token not found');

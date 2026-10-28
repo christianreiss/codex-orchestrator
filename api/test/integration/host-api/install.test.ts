@@ -380,6 +380,35 @@ describe('GET + POST /install/:token', () => {
   });
 });
 
+describe('installer routes over a real socket', () => {
+  // `inject` never reaches node's ServerResponse, so it cannot see the second
+  // send that used to throw an uncaught ERR_HTTP_HEADERS_SENT and kill the API.
+  it.each([`/install/${installToken}`, `/install/v2/${installToken}`, `/seed/auth/${seedToken}`])('answers GET %s once and keeps the process alive', async url => {
+    const uncaught: unknown[] = [];
+    const record = (err: unknown) => void uncaught.push(err);
+    process.on('uncaughtException', record);
+    process.on('unhandledRejection', record);
+    // The production owner-response boundary awaits in onSend, so the handler's
+    // promise settles while the first send is still in flight.
+    const slowOnSend = (a: { addHook: (name: 'onSend', fn: (...args: any[]) => Promise<unknown>) => void }) =>
+      a.addHook('onSend', async (_req, _reply, payload) => (await new Promise(resolve => setTimeout(resolve, 20)), payload));
+    const app = await buildHostApiTestApp({ db: createDbFake() as any, env, keyring: makeKeyring(), configure: slowOnSend });
+    try {
+      await app.listen({ host: '127.0.0.1', port: 0 });
+      const { port } = app.server.address() as { port: number };
+      const res = await fetch(`http://127.0.0.1:${port}${url}`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-installer-error') ?? res.headers.get('x-seed-error')).toBeTruthy();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      expect(uncaught).toEqual([]);
+    } finally {
+      process.off('uncaughtException', record);
+      process.off('unhandledRejection', record);
+      await app.close();
+    }
+  });
+});
+
 describe('GET /seed/auth/:token errors', () => {
   it('serves an unknown seed token as a 200 error script with its reason header', async () => {
     const db = createDbFake();

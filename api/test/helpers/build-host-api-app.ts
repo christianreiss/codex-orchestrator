@@ -17,6 +17,8 @@ export interface HostApiTestAppOptions {
   db: Database;
   env: Env;
   keyring: Keyring;
+  /** Runs before the routes register, e.g. to add a hook the production server has. */
+  configure?: (app: FastifyInstance) => void;
 }
 
 export async function buildHostApiTestApp(opts: HostApiTestAppOptions): Promise<FastifyInstance> {
@@ -81,6 +83,7 @@ export async function buildHostApiTestApp(opts: HostApiTestAppOptions): Promise<
   });
 
   await app.register(envelopePlugin);
+  opts.configure?.(app);
   await registerHostApiRoutes(app, { db: opts.db, env: opts.env, keyring: opts.keyring });
 
   return app;
