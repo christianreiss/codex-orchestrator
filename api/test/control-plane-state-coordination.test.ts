@@ -19,6 +19,7 @@ import { bindOwnerRuntime, type OwnerRuntime } from '../src/control-plane/state/
 import { AgentCoordination } from '../src/services/agent-coordination/index.js';
 import type { AgentMessagingService } from '../src/services/agent-messaging.js';
 import { sha256 } from '../src/security/hash.js';
+import { decrypt } from '../src/security/secret-box.js';
 import { createDbFake } from './helpers/db-fake.js';
 import { loadTestEnv, testKeyring } from './helpers/test-keyring.js';
 
@@ -26,13 +27,20 @@ const closers: Array<() => void> = [];
 afterEach(() => {
   for (const close of closers.splice(0)) close();
 });
-function setup(beforeCommit: () => Promise<void> = async () => {}) {
+function setup(beforeCommit: () => Promise<void> = async () => {}, peerCount = 0) {
   const sessionId = randomUUID(),
     addressId = randomUUID(),
     instance = randomUUID(),
     now = new Date().toISOString(),
     key = 'owner-coordination-host',
     token = 'bridge-proof';
+  const peerSeeds = Array.from({ length: peerCount }, (_, index) => ({
+    id: randomUUID(),
+    addressId: randomUUID(),
+    instance: randomUUID(),
+    token: `peer-proof-${index}`,
+    name: `Peer ${index + 1}`,
+  }));
   const seed = {
     hosts: [
       {
@@ -69,8 +77,36 @@ function setup(beforeCommit: () => Promise<void> = async () => {}) {
         upstreamSessionId: null,
         adapterCapabilities: { scope_protocol_version: 1 },
       },
+      ...peerSeeds.map((peer) => ({
+        id: peer.id,
+        hostId: 1,
+        agentBusAddressId: peer.addressId,
+        engine: 'codex',
+        username: 'root',
+        cwd: '/repo',
+        workspace: null,
+        launchName: peer.name,
+        bindingGeneration: 1,
+        bridgeTokenHash: sha256(peer.token),
+        hostAuthFingerprint: sha256(key),
+        bridgeExpiresAt: '2099-01-01T00:00:00Z',
+        endedAt: null,
+        upstreamSessionId: null,
+        adapterCapabilities: { scope_protocol_version: 1 },
+      })),
     ],
     agentBusAddresses: [
+      ...peerSeeds.map((peer) => ({
+        id: peer.addressId,
+        address: `agent:${peer.addressId}`,
+        hostId: 1,
+        engine: 'codex',
+        currentSessionId: peer.id,
+        bindingGeneration: 1,
+        enabled: 1,
+        archivedAt: null,
+        launchName: peer.name,
+      })),
       {
         id: addressId,
         address: `agent:${addressId}`,
@@ -92,6 +128,21 @@ function setup(beforeCommit: () => Promise<void> = async () => {}) {
       ]),
     ),
   );
+  // MySQL assigns agent_bus_messages.dispatch_order by auto-increment; the fake
+  // would echo the UUID primary key, so CLAIM/1 notices need a numeric one here.
+  const insert = fake.insert.bind(fake) as (table: unknown) => { values: (values: unknown) => Promise<unknown> };
+  let dispatchOrder = 0;
+  fake.insert = ((table: unknown) =>
+    table !== schema.agentBusMessages
+      ? insert(table)
+      : {
+          values: (values: Record<string, unknown>) => {
+            const done = insert(table).values(values).then(() => [
+              { insertId: ++dispatchOrder, affectedRows: 1 },
+            ]);
+            return Object.assign(done, { onDuplicateKeyUpdate: () => done });
+          },
+        }) as typeof fake.insert;
   const db = fake as unknown as Database,
     select = vi.spyOn(fake, 'select');
   const state = new OwnerStateStore(
@@ -141,8 +192,18 @@ function setup(beforeCommit: () => Promise<void> = async () => {}) {
       scope: { topic: 'session', session_id: sessionId, binding_generation: 1, native_instance_id: native },
     });
   const live = attach();
+  const peers = peerSeeds.map((peer) => {
+    const attachPeer = () =>
+      presence.attach({
+        connectionId: randomUUID(),
+        hostId: 1,
+        username: 'root',
+        scope: { topic: 'session', session_id: peer.id, binding_generation: 1, native_instance_id: peer.instance },
+      });
+    return { ...peer, attach: attachPeer, live: attachPeer() };
+  });
   const service = new AgentCoordination(db, loadTestEnv(), testKeyring(), {} as AgentMessagingService);
-  return { owner, state, select, fake, service, sessionId, token, instance, presence, attach, live };
+  return { owner, state, select, fake, service, sessionId, token, instance, presence, attach, live, peers };
 }
 describe('connection-owned coordination claims', () => {
   it('acquires once then answers repeated healthy status and context reads without SQL or commands', async () => {
@@ -276,6 +337,142 @@ describe('connection-owned coordination claims', () => {
       await h.service.reconcileOwned();
       expect(h.state.snapshot().claims.get(claim.id)).toMatchObject({ state: 'uncertain', uncertaintyReason: 'reported_unknown' });
     });
+  });
+});
+
+describe('waiting claim queue', () => {
+  const heavy = [{ kind: 'service', service: 'heavy-build' }];
+  const acquire = (h: ReturnType<typeof setup>, id: string, token: string, purpose = 'heavy build') =>
+    h.service.claims.acquire(id, token, { client_request_id: randomUUID(), purpose, resources: heavy });
+  const release = (h: ReturnType<typeof setup>, id: string | null, token: string | null, claimId: string, operator?: number) =>
+    h.service.claims.release(id, token, { claim_id: claimId, outcome: 'completed', reason: 'build finished' }, operator);
+  const stateOf = (h: ReturnType<typeof setup>, claimId: string) => h.state.snapshot().claims.get(claimId)?.state;
+  const notices = (h: ReturnType<typeof setup>, sessionId: string) =>
+    h.fake.inserts
+      .filter((row) => row.table === schema.agentBusMessages)
+      .map((row) => row.values as { targetSessionId: string; contentEnc: string })
+      .filter((row) => row.targetSessionId === sessionId)
+      .map((row) => decrypt(row.contentEnc, testKeyring()))
+      .filter((content) => content.startsWith('CLAIM/1\n'));
+
+  it('grants a waiter on release so the releasing owner cannot overtake it by re-acquiring', async () => {
+    const h = setup(undefined, 1), [b] = h.peers;
+    const first = await acquire(h, h.sessionId, h.token);
+    const waiting = await acquire(h, b!.id, b!.token);
+    expect(waiting.state).toBe('waiting');
+    await release(h, h.sessionId, h.token, first.id);
+    expect(stateOf(h, waiting.id)).toBe('active');
+    const again = await acquire(h, h.sessionId, h.token);
+    expect(again.state).toBe('waiting');
+    expect(again.blockers).toEqual([expect.objectContaining({ id: waiting.id, session_id: b!.id, state: 'active' })]);
+  });
+
+  it('queues a re-acquisition behind an earlier waiter that is not yet granted', async () => {
+    const h = setup(undefined, 1), [b] = h.peers;
+    const first = await acquire(h, h.sessionId, h.token);
+    const waiting = await acquire(h, b!.id, b!.token);
+    // The release outcome is unknown, so the resource stays excluded and nobody is granted.
+    await h.service.claims.release(h.sessionId, h.token, { claim_id: first.id, outcome: 'unknown', reason: 'lost track' });
+    expect(stateOf(h, waiting.id)).toBe('waiting');
+    const again = await acquire(h, h.sessionId, h.token);
+    expect(again.state).toBe('waiting');
+    expect(again.blockers).toEqual(expect.arrayContaining([expect.objectContaining({ id: waiting.id, state: 'waiting' })]));
+    await release(h, null, null, first.id, 7);
+    expect(stateOf(h, waiting.id)).toBe('active');
+    expect(stateOf(h, again.id)).toBe('waiting');
+  });
+
+  it('grants several waiters strictly in arrival order', async () => {
+    const h = setup(undefined, 3), [b, c, d] = h.peers;
+    const first = await acquire(h, h.sessionId, h.token);
+    const second = await acquire(h, b!.id, b!.token);
+    const third = await acquire(h, c!.id, c!.token);
+    const fourth = await acquire(h, d!.id, d!.token);
+    expect([second.state, third.state, fourth.state]).toEqual(['waiting', 'waiting', 'waiting']);
+    expect((third.blockers as Array<{ id: string }>).map((row) => row.id)).toEqual(expect.arrayContaining([first.id, second.id]));
+    // A later waiter polling cannot jump ahead of an earlier one.
+    expect((await h.service.claims.status(d!.id, d!.token, { claim_id: fourth.id })).state).toBe('waiting');
+    await release(h, h.sessionId, h.token, first.id);
+    expect([stateOf(h, second.id), stateOf(h, third.id), stateOf(h, fourth.id)]).toEqual(['active', 'waiting', 'waiting']);
+    expect((await h.service.claims.status(d!.id, d!.token, { claim_id: fourth.id })).state).toBe('waiting');
+    await release(h, b!.id, b!.token, second.id);
+    expect([stateOf(h, third.id), stateOf(h, fourth.id)]).toEqual(['active', 'waiting']);
+    await release(h, c!.id, c!.token, third.id);
+    expect(stateOf(h, fourth.id)).toBe('active');
+  });
+
+  it('lets the holder re-enter its own resource before releasing it, keeping its slot ahead of waiters', async () => {
+    // Deliberate trade-off: a nested (or shared parent/child) claim on resources the
+    // session already holds must not deadlock behind waiters queued on that grant.
+    // The consequence: acquiring the next claim before releasing the current one
+    // keeps the slot; only release-then-acquire hands it to the queue.
+    const h = setup(undefined, 1), [b] = h.peers;
+    const outer = await acquire(h, h.sessionId, h.token);
+    const waiting = await acquire(h, b!.id, b!.token);
+    const nested = await acquire(h, h.sessionId, h.token, 'nested step');
+    expect(nested.state).toBe('active');
+    await release(h, h.sessionId, h.token, outer.id);
+    expect(stateOf(h, waiting.id)).toBe('waiting');
+    await release(h, h.sessionId, h.token, nested.id);
+    expect(stateOf(h, waiting.id)).toBe('active');
+  });
+
+  it('skips a disconnected waiter without dropping its place for when it returns', async () => {
+    const h = setup(undefined, 2), [b, c] = h.peers;
+    const first = await acquire(h, h.sessionId, h.token);
+    const early = await acquire(h, b!.id, b!.token);
+    b!.live.detach();
+    const late = await acquire(h, c!.id, c!.token);
+    expect((late.blockers as Array<{ id: string }>).map((row) => row.id)).toEqual([first.id]);
+    await release(h, h.sessionId, h.token, first.id);
+    expect([stateOf(h, early.id), stateOf(h, late.id)]).toEqual(['waiting', 'active']);
+    b!.attach();
+    const polled = await h.service.claims.status(b!.id, b!.token, { claim_id: early.id });
+    expect(polled.state).toBe('waiting');
+    expect(polled.blockers).toEqual([expect.objectContaining({ id: late.id, state: 'active' })]);
+  });
+
+  it('promotes the queue head during reconciliation when an ended owner is released', async () => {
+    const h = setup(undefined, 1), [b] = h.peers;
+    const first = await acquire(h, h.sessionId, h.token);
+    const waiting = await acquire(h, b!.id, b!.token);
+    h.live.detach();
+    await h.service.reconcileOwned();
+    expect(stateOf(h, first.id)).toBe('uncertain');
+    const draft = h.state.begin(), revision = h.state.revision();
+    draft.upsert('agentSessions', { ...draft.table('agentSessions').get(h.sessionId)!, endedAt: new Date().toISOString() });
+    h.state.publish(draft.seal({ ...revision, sequence: revision.sequence + 1n }));
+    await h.service.reconcileOwned();
+    expect([stateOf(h, first.id), stateOf(h, waiting.id)]).toEqual(['released', 'active']);
+  });
+
+  it('notifies the claimant once when its waiting claim becomes active, and the holder only about conflicts', async () => {
+    const h = setup(undefined, 2), [b, c] = h.peers;
+    const first = await acquire(h, h.sessionId, h.token);
+    const waiting = await acquire(h, b!.id, b!.token);
+    await acquire(h, c!.id, c!.token);
+    // The holder hears about both requesters; an earlier waiter is not asked to coordinate.
+    expect(notices(h, h.sessionId)).toHaveLength(2);
+    expect(notices(h, b!.id)).toEqual([]);
+    await release(h, h.sessionId, h.token, first.id);
+    await h.service.reconcileOwned();
+    await h.service.claims.status(b!.id, b!.token, { claim_id: waiting.id });
+    const granted = notices(h, b!.id);
+    expect(granted).toHaveLength(1);
+    expect(granted[0]).toContain(`Your waiting resource claim ${waiting.id} for heavy build is now active`);
+    expect(notices(h, c!.id)).toEqual([]);
+  });
+
+  it('notifies a waiting claimant when an operator releases its claim', async () => {
+    const h = setup(undefined, 1), [b] = h.peers;
+    await acquire(h, h.sessionId, h.token);
+    const waiting = await acquire(h, b!.id, b!.token);
+    await h.service.claims.release(null, null, { claim_id: waiting.id, outcome: 'canceled', reason: 'slot reassigned' }, 7);
+    expect(stateOf(h, waiting.id)).toBe('released');
+    const refused = notices(h, b!.id);
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toContain(`An operator released your waiting resource claim ${waiting.id}`);
+    expect(refused[0]).toContain('Reason: slot reassigned');
   });
 });
 
