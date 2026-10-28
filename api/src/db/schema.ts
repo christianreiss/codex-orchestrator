@@ -1759,6 +1759,8 @@ export const agentBusConferences = mysqlTable(
     purpose: varchar('purpose', { length: 1024 }),
     pin: char('pin', { length: 4 }),
     pinExpiresAt: varchar('pin_expires_at', { length: 100 }),
+    // Migration 0116: set only by open-or-join; unique so racing openers converge.
+    rendezvousKey: char('rendezvous_key', { length: 64 }),
     status: varchar('status', { length: 16 }).notNull().default('open'),
     maxMembers: int('max_members', { unsigned: true }).notNull().default(8),
     deadlineAt: varchar('deadline_at', { length: 100 }).notNull(),
@@ -1770,6 +1772,7 @@ export const agentBusConferences = mysqlTable(
   (t) => ({
     retentionIdx: index('idx_agent_conferences_retention').on(t.adjournedAt),
     pinUnique: uniqueIndex('uq_agent_bus_conferences_pin').on(t.pin),
+    rendezvousUnique: uniqueIndex('uq_agent_bus_conferences_rendezvous').on(t.rendezvousKey),
     ownerIdx: index('idx_agent_bus_conferences_owner').on(t.ownerAddressId, t.status),
     statusIdx: index('idx_agent_bus_conferences_status').on(t.status, t.deadlineAt),
   }),

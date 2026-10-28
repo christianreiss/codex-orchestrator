@@ -5,6 +5,8 @@
  * `AgentMessagingService` facade in `../agent-messaging.ts`.
  */
 
+import { createHash } from 'node:crypto';
+
 import { sql, type SQLWrapper } from 'drizzle-orm';
 import { agentBusMessages, type AgentBusConference, type AgentBusMessage } from '../../db/schema.js';
 import type { OwnerStateSnapshot } from '../../control-plane/state/store.js';
@@ -39,6 +41,31 @@ export function conferenceEnvelope(
   const header = parts.join(' ');
   const text = body.trim();
   return text ? `${header}\n${text}` : header;
+}
+
+/**
+ * The rendezvous key of an open-or-join room: who may converge on it and on what.
+ *
+ * `identity` is the caller's `repositoryIdentity` -- the same repository identity
+ * that decides which project scope room a session belongs to -- so only agents
+ * working in the same repository (or, with no repository remote, on the same host
+ * and checkout or directory) can find each other. The topic must already be
+ * normalized with `normalizeConferenceTopicKey`. Hashed to a fixed width so the
+ * unique index never depends on topic length, and so the key reveals nothing.
+ */
+export function conferenceRendezvousKey(identity: string, topicKey: string): string {
+  return createHash('sha256').update(`conference-rendezvous/v1\0${identity}\0${topicKey}`).digest('hex');
+}
+
+/** A deadlock or duplicate on the rendezvous index means another opener won the race. */
+export function isRendezvousRaceError(error: unknown): boolean {
+  for (let current: unknown = error, depth = 0; current && typeof current === 'object' && depth < 4; depth += 1) {
+    const candidate = current as { code?: unknown; errno?: unknown; cause?: unknown };
+    if (['ER_DUP_ENTRY', 'ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT'].includes(String(candidate.code))) return true;
+    if (candidate.errno === 1062 || candidate.errno === 1213 || candidate.errno === 1205) return true;
+    current = candidate.cause;
+  }
+  return false;
 }
 
 export function conferenceInviteBody(conference: AgentBusConference, note: string): string {

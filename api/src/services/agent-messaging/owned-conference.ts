@@ -34,8 +34,15 @@ import { stageQueuedMessage } from '../../control-plane/state/messages.js';
 import { stageConferenceCharge } from './owned-delivery.js';
 import { resolveOwnedRecipient } from './owned-send.js';
 import { SERVER_ADDRESS_ID } from './groups.js';
-import { conferenceEnvelope, conferenceInviteBody, conferenceMessageExpiry } from './conference-protocol.js';
 import {
+  conferenceEnvelope,
+  conferenceInviteBody,
+  conferenceMessageExpiry,
+  conferenceRendezvousKey,
+} from './conference-protocol.js';
+import { repositoryIdentity } from '../agent-coordination/model.js';
+import {
+  normalizeConferenceTopicKey,
   normalizeConferencePin,
   normalizeConferenceMaxMembers,
   normalizeConferenceTtl,
@@ -290,6 +297,13 @@ export class OwnedConferences {
   private changed(id: string) {
     wsPublisher.publish('agent_messaging.conference.changed', { conference_id: id });
   }
+  /**
+   * Open a conference, or with `joinExisting` open-or-join (see
+   * `ConferenceCoordinator.open`). The owner serializes commands, so the
+   * decision and the room it opens or joins are one atomic step: two racing
+   * callers cannot both find "no room" and each open one. The rendezvous key's
+   * unique index backs this up in SQL.
+   */
   async open(
     id: string,
     token: string,
@@ -298,14 +312,24 @@ export class OwnedConferences {
       purpose?: string | null;
       ttlSeconds?: number | null;
       maxMembers?: number | null;
+      joinExisting?: boolean | null;
     } = {},
   ) {
     const topic = normalizeOptionalText(input.topic, 255),
       purpose = normalizeOptionalText(input.purpose, 1024),
       ttl = normalizeConferenceTtl(input.ttlSeconds),
-      maxMembers = normalizeConferenceMaxMembers(input.maxMembers);
+      maxMembers = normalizeConferenceMaxMembers(input.maxMembers),
+      joinExisting = input.joinExisting === true;
+    if (joinExisting && !topic)
+      throw new ValidationError('join_existing needs a topic: it is what agents rendezvous on', {
+        param: 'topic',
+      });
+    const topicKey = joinExisting ? normalizeConferenceTopicKey(topic!) : null;
     const initial = this.snapshot(),
       first = this.reader(initial, id, token);
+    const rendezvousKey = joinExisting
+      ? conferenceRendezvousKey(repositoryIdentity(first.session), topicKey!)
+      : null;
     const existing = initial
       .table('agentBusConferences')
       .by('ownerAddressId', first.address.id)
@@ -314,11 +338,17 @@ export class OwnedConferences {
       this.protectMembership(initial, existing.id, first.address.id, true);
       return this.openView(initial, existing, first.address, true);
     }
+    let chairId: string | undefined;
     const result = await mutateOwnerState(this.runtime, {
       kind: 'conference.open',
-      payload: json({ id, topic, purpose, ttl, maxMembers }),
+      payload: json({ id, topic, purpose, ttl, maxMembers, rendezvousKey }),
       authorize: (s) => {
         self(s, id, token);
+        if (chairId && ownedAddressPresence(this.runtime, s, ownedAddress(s, chairId)) !== 'listening')
+          throw new ConflictError(
+            'Conference chair is not listening',
+            'agent_messaging_conference_chair_not_listening',
+          );
       },
       prepare: (ctx) => {
         const { address } = self(ctx.snapshot, id, token),
@@ -327,6 +357,58 @@ export class OwnedConferences {
           .table('agentBusConferences')
           .by('ownerAddressId', address.id)
           .find((c) => c.status === 'open' && c.deadlineAt > now);
+        if (!old && rendezvousKey) {
+          // Release a stale key first (room adjourned, adjourning or expired) so it
+          // cannot block the INSERT below, the way expired PINs are swept.
+          const rooms = ctx.draft.table('agentBusConferences').all();
+          for (const room of rooms)
+            if (room.rendezvousKey === rendezvousKey && (room.status !== 'open' || room.deadlineAt <= now))
+              stageUpdate(ctx, 'agentBusConferences', room.id, { rendezvousKey: null, updatedAt: now });
+          const live = (room: AgentBusConference) => room.status === 'open' && room.deadlineAt > now;
+          const mine = ctx.snapshot
+            .table('agentBusConferenceMembers')
+            .by('addressId', address.id)
+            .filter((m) => m.state !== 'left')
+            .flatMap((m) => {
+              const room = ctx.snapshot.table('agentBusConferences').get(m.conferenceId);
+              return room && live(room) && room.topic && normalizeConferenceTopicKey(room.topic) === topicKey
+                ? [room]
+                : [];
+            })
+            .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+          const found = mine ?? rooms.find((room) => room.rendezvousKey === rendezvousKey && live(room));
+          if (found) {
+            const seated = this.seat(ctx, {
+              room: found,
+              address,
+              sessionId: id,
+              viaPin: true,
+              idempotent: true,
+              purpose,
+              body: '',
+              now,
+            });
+            chairId = seated.chair.id;
+            return json({
+              enabled: true,
+              conference_id: found.id,
+              // A participant never receives the room PIN; only the chair does.
+              pin: null,
+              expires_at: found.deadlineAt,
+              deadline_at: found.deadlineAt,
+              topic: found.topic,
+              max_members: found.maxMembers,
+              reused: true,
+              joined: true,
+              role: 'participant',
+              chair: publicAddress(seated.chair),
+              self: publicAddress(address),
+              roster: roster(ctx.draft.view(), found.id).map((r) =>
+                publicConferenceMember(r.member, r.address, r.fqdn),
+              ),
+            });
+          }
+        }
         const pin = freePin(ctx, now);
         if (old) {
           const updated = stageUpdate(ctx, 'agentBusConferences', old.id, {
@@ -345,6 +427,7 @@ export class OwnedConferences {
             purpose,
             pin,
             pinExpiresAt: deadline,
+            rendezvousKey,
             status: 'open',
             maxMembers,
             deadlineAt: deadline,
@@ -379,6 +462,8 @@ export class OwnedConferences {
       topic: room.topic,
       max_members: room.maxMembers,
       reused,
+      joined: false,
+      role: 'owner',
       self: publicAddress(address),
       roster: roster(snapshot, room.id).map((r) => publicConferenceMember(r.member, r.address, r.fqdn)),
     };
@@ -481,6 +566,63 @@ export class OwnedConferences {
     this.changed(conferenceId);
     return { enabled: true, conference_id: conferenceId, results };
   }
+  /**
+   * Seat `address` in `room` and stage its HELLO to the chair. Shared by `join`
+   * and open-or-join; see `ConferenceCoordinator.seatLocked` for the contract.
+   */
+  private seat(
+    ctx: OwnerMutationContext,
+    input: {
+      room: AgentBusConference;
+      address: AgentBusAddress;
+      sessionId: string;
+      viaPin: boolean;
+      idempotent: boolean;
+      purpose: string | null;
+      body: string;
+      now: string;
+    },
+  ) {
+    const { room, address, now, purpose, body } = input;
+    const chair = ownedAddress(ctx.snapshot, room.ownerAddressId);
+    if (chair.id === address.id)
+      throw new ValidationError('The chair is already in the conference', { param: 'pin' });
+    const members = ctx.snapshot.table('agentBusConferenceMembers').by('conferenceId', room.id),
+      prior = members.find((m) => m.addressId === address.id);
+    if (input.idempotent && prior && (prior.state === 'seated' || prior.state === 'dispatched'))
+      return { chair, member: prior, sent: false };
+    if (ownedAddressPresence(this.runtime, ctx.snapshot, chair) !== 'listening')
+      throw new ConflictError(
+        'The conference chair has no live receiver',
+        'agent_messaging_conference_chair_not_listening',
+      );
+    if ((!prior || prior.state === 'left') && !input.viaPin)
+      throw new ForbiddenError('Not invited to this conference', 'agent_messaging_conference_not_member');
+    if ((!prior || prior.state === 'left') && members.filter((m) => m.state !== 'left').length >= room.maxMembers)
+      throw new ConflictError('Conference is full', 'agent_messaging_conference_full');
+    const member = prior
+      ? stageUpdate(ctx, 'agentBusConferenceMembers', prior.id, {
+          state: prior.state === 'dispatched' ? 'dispatched' : 'seated',
+          joinedAt: ['invited', 'left'].includes(prior.state) ? now : prior.joinedAt,
+          purpose: purpose ?? prior.purpose,
+          mode: mode(address),
+          leftAt: null,
+          updatedAt: now,
+        })
+      : insertMember(ctx, { ...memberRow(room.id, address, now), purpose });
+    stageConferenceMessage(ctx, this.keyring, {
+      conference: room,
+      member,
+      sender: address,
+      target: chair,
+      senderSessionId: input.sessionId,
+      verb: 'HELLO',
+      headers: { purpose: purpose ?? undefined },
+      body,
+      now,
+    });
+    return { chair, member, sent: true };
+  }
   async join(
     id: string,
     token: string,
@@ -525,46 +667,19 @@ export class OwnedConferences {
             'Conference PIN not found or expired',
             'agent_messaging_conference_pin_not_found',
           );
-        const room = ownedConference(ctx.snapshot, selected, true),
-          chair = ownedAddress(ctx.snapshot, room.ownerAddressId);
-        chairId = chair.id;
-        if (chair.id === address.id)
-          throw new ValidationError('The chair is already in the conference', { param: 'pin' });
-        if (ownedAddressPresence(this.runtime, ctx.snapshot, chair) !== 'listening')
-          throw new ConflictError(
-            'The conference chair has no live receiver',
-            'agent_messaging_conference_chair_not_listening',
-          );
-        const members = ctx.snapshot.table('agentBusConferenceMembers').by('conferenceId', room.id),
-          prior = members.find((m) => m.addressId === address.id);
-        if ((!prior || prior.state === 'left') && !pin)
-          throw new ForbiddenError('Not invited to this conference', 'agent_messaging_conference_not_member');
-        if (
-          (!prior || prior.state === 'left') &&
-          members.filter((m) => m.state !== 'left').length >= room.maxMembers
-        )
-          throw new ConflictError('Conference is full', 'agent_messaging_conference_full');
-        const member = prior
-          ? stageUpdate(ctx, 'agentBusConferenceMembers', prior.id, {
-              state: prior.state === 'dispatched' ? 'dispatched' : 'seated',
-              joinedAt: ['invited', 'left'].includes(prior.state) ? now : prior.joinedAt,
-              purpose: purpose ?? prior.purpose,
-              mode: mode(address),
-              leftAt: null,
-              updatedAt: now,
-            })
-          : insertMember(ctx, { ...memberRow(room.id, address, now), purpose });
-        stageConferenceMessage(ctx, this.keyring, {
-          conference: room,
-          member,
-          sender: address,
-          target: chair,
-          senderSessionId: id,
-          verb: 'HELLO',
-          headers: { purpose: purpose ?? undefined },
+        const room = ownedConference(ctx.snapshot, selected, true);
+        const seated = this.seat(ctx, {
+          room,
+          address,
+          sessionId: id,
+          viaPin: !!pin,
+          idempotent: false,
+          purpose,
           body,
           now,
         });
+        const chair = seated.chair;
+        chairId = chair.id;
         return json({
           enabled: true,
           conference_id: room.id,

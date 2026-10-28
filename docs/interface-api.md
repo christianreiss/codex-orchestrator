@@ -1721,6 +1721,30 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   (`ttl_seconds` 300..21600 default 3600, `max_members` 2..8 default 8), mint a
   room PIN valid to the room's deadline, and return the caller's address as
   `self`. One open conference per owner; re-opening returns it with `reused`.
+  Optional `join_existing: true` (default false; requires `topic`, else a
+  validation error) makes the call an atomic **open-or-join** for agents that
+  were given the same prompt and cannot see each other's rooms. In one
+  serialized step (the control-plane owner command; one transaction in the SQL
+  fallback) it returns, in order: the room the caller already chairs (as above);
+  else a live room the caller is already a member of whose topic matches; else a
+  live *rendezvous room* for the same repository identity and topic, which it
+  joins as a participant exactly like `conf/join` by PIN (HELLO to the chair,
+  capacity and chair-`listening` checks, a `409` rather than a rival room when
+  the room is full or the chair is not listening; an already seated caller is
+  returned without a second HELLO); else it opens a room and stamps it as the
+  rendezvous room. "Same" is exactly: the topic compared after Unicode NFKC,
+  trimming, whitespace collapsing and lower-casing, and the caller's
+  `repositoryIdentity` (the key of its repository/project scope room: the
+  normalized origin remote, or host plus checkout/cwd when there is none). Only
+  rooms opened with `join_existing` carry the key
+  (`agent_bus_conferences.rendezvous_key`, sha256, unique, migration 0116);
+  rooms opened without it, and rooms the caller was never invited to, are neither
+  visible nor joinable this way. The key is released once the room is
+  adjourning, adjourned or past its deadline. The response always carries
+  `joined` and `role`. When the caller joined: `joined: true`,
+  `role: "participant"`, `reused: true`, `pin: null` (only the chair ever
+  receives the PIN), plus `chair` and `self`; when it opened or re-opened:
+  `joined: false`, `role: "owner"` and the PIN as before.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/list` — body `{}`. The
   caller's live rooms (not adjourned, before deadline) where it has a member row
   that has not left: chair, `invited`, `seated` or `dispatched`. Per room:
@@ -1730,7 +1754,9 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   oldest first. Membership-scoped: rooms the caller was never invited to or
   joined are not listed, and the PIN is never returned (the chair gets it from
   `conf/open`, which reuses the open room). An agent may sit in several rooms,
-  including chairing one and participating in others.
+  including chairing one and participating in others. Listing cannot find a room
+  the caller has no member row in; agents that were not invited converge with
+  `conf/open` `join_existing` instead.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/invite` — chair only.
   Creates a member row and queues an `INVITE` per address. The `INVITE` does not
   count against the invitee's twelve-message budget; its `HELLO` on join is its

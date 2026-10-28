@@ -76,5 +76,10 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
     tables.set(name,new Set(columns));return name;
   });
   if(newTables.join()!=='agent_work_states,agent_work_dependencies')throw new Error('Migration 0111 supervisor table inventory changed');
+  // Migration 0116 adds the open-or-join rendezvous key to conferences.
+  const rendezvous = readFileSync(resolve(import.meta.dirname, '../../src/db/migrations/0116_conference_rendezvous_key.sql'), 'utf8');
+  if (!/ADD COLUMN rendezvous_key CHAR\(64\) NULL/i.test(rendezvous))
+    throw new Error('Migration 0116 must declare agent_bus_conferences.rendezvous_key; cannot project the bootstrap schema');
+  tables.get('agent_bus_conferences')!.add('rendezvous_key');
   return tables;
 }

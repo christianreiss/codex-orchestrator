@@ -396,7 +396,13 @@ export class AgentMessagingService {
   async openConference(
     sessionId: string,
     bridgeToken: string,
-    input: { topic?: string | null; purpose?: string | null; ttlSeconds?: number | null; maxMembers?: number | null } = {},
+    input: {
+      topic?: string | null;
+      purpose?: string | null;
+      ttlSeconds?: number | null;
+      maxMembers?: number | null;
+      joinExisting?: boolean | null;
+    } = {},
   ): Promise<Record<string, unknown>> {
     return this.conference.open(sessionId, bridgeToken, input);
   }

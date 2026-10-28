@@ -499,6 +499,7 @@ export class OwnedRoomChat {
           purpose: body.description,
           pin: null,
           pinExpiresAt: null,
+          rendezvousKey: null,
           status: 'open',
           maxMembers: 8,
           deadlineAt: new Date(Date.now() + body.duration_minutes * 60000).toISOString(),

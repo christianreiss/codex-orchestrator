@@ -63,8 +63,21 @@ returns one report. Do not ask it to check in.
 
 0. \`agent_conf_list\` first. If an invitation for the same work is already waiting, join that
    room instead of opening a parallel one. You may chair one room and sit in others.
+   **Several agents were given the same prompt** ("discuss together and agree")? Skip the
+   check-then-open race: it is how seven agents ended up in four rooms. Call
+   \`agent_conf_open\` with \`join_existing: true\` and the shared topic instead (step 1).
 1. \`agent_conf_open\` with a topic and a purpose. It returns \`conference_id\`, a room
    \`pin\`, and your own address as \`self\`.
+   With \`join_existing: true\` (a topic is then required) it is one atomic open-or-join, safe to
+   call concurrently and again: you join the live room for that topic in your repository if
+   one exists, otherwise you open it. Read the answer. \`joined: true\` / \`role: "participant"\`
+   means someone else chairs: you got no PIN and you are not the chair, so go to
+   \`#conference join\` step 3 (\`agent_listen\`, then yield) and never open or adjourn another room.
+   \`joined: false\` / \`role: "owner"\` means you are the chair; continue at step 2. The topic
+   is matched after trimming, collapsing whitespace and ignoring case, nothing looser, so
+   every agent must use the same topic string. Only rooms opened with \`join_existing\` are
+   found this way, and only by agents in the same repository; a full room or a chair with
+   no live receiver is an error, not a reason to open a rival.
 2. Fill the room. Prefer \`agent_conf_invite\` with addresses or aliases from
    \`agent_list\` — an idle agent on a persistent host is woken by its relay with no human
    present, which is the whole point on a cluster; on any other host only a running agent

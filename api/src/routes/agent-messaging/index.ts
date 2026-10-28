@@ -363,6 +363,7 @@ export async function registerAgentMessagingRoutes(
         purpose: z.string().nullable().optional(),
         ttl_seconds: z.number().int().min(300).max(21600).nullable().optional(),
         max_members: z.number().int().min(2).max(8).nullable().optional(),
+        join_existing: z.boolean().nullable().optional(),
       })
       .strict()
       .parse(req.body ?? {});
@@ -371,6 +372,7 @@ export async function registerAgentMessagingRoutes(
       purpose: body.purpose,
       ttlSeconds: body.ttl_seconds,
       maxMembers: body.max_members,
+      joinExisting: body.join_existing,
     });
   });
   app.post('/host/agent-sessions/:id/agent-messaging/conf/invite', async (req) => {

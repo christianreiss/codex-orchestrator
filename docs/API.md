@@ -437,7 +437,10 @@ Session operations use the short-lived bridge bearer in
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/open` — open a conference
   and become its chair. Mints a multi-use room PIN and returns the caller's own
   address. One open conference per owner; re-opening returns it with
-  `reused: true`.
+  `reused: true`. `join_existing: true` (needs `topic`) makes it an atomic
+  open-or-join: the caller joins the live room for that topic in its repository
+  (`joined: true`, `role: "participant"`, no PIN) or opens it; see
+  `docs/interface-api.md`.
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/list` — the caller's live
   rooms (chair, invited or member) with role, state, member count and budget.
   Membership-scoped; never returns a PIN.

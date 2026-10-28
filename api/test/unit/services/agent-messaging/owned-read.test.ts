@@ -341,6 +341,7 @@ describe.each(engines)('%s conference read authority', (engine) => {
         purpose: 'PRIVATE PURPOSE',
         pin: '1234',
         pinExpiresAt: '2099-01-01T00:00:00.000Z',
+        rendezvousKey: null,
         status: 'open',
         maxMembers: 10,
         deadlineAt: '2099-01-01T00:00:00.000Z',
