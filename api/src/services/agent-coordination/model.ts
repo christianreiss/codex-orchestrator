@@ -58,6 +58,36 @@ export function overlaps(a: Resource, b: Resource): boolean {
     (a.service === b.service || a.service === '*' || b.service === '*')
   );
 }
+/** Whether holding `a` already includes all of `b` (path descendants, branch-less Git, `*` service). */
+export function covers(a: Resource, b: Resource): boolean {
+  if (a.kind === 'remote' || b.kind === 'remote')
+    return a.kind === 'remote' && b.kind === 'remote' && a.fqdn === b.fqdn && (a.service === b.service || a.service === '*');
+  if (a.host_id !== b.host_id || a.kind !== b.kind) return false;
+  if (a.kind === 'path' && b.kind === 'path')
+    return a.path === b.path || b.path.startsWith(a.path === '/' ? '/' : a.path + '/');
+  if (a.kind === 'git' && b.kind === 'git') return a.common_dir === b.common_dir && (!a.branch || a.branch === b.branch);
+  return a.kind === 'service' && b.kind === 'service' && (a.service === b.service || a.service === '*');
+}
+/**
+ * Claims queue in arrival order: `created_at`, then `id` as a deterministic
+ * tiebreak. A new claim is behind every claim that already exists.
+ */
+export function claimArrivalOrder(
+  a: { createdAt: string; id: string },
+  b: { createdAt: string; id: string },
+): number {
+  return Date.parse(a.createdAt) - Date.parse(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+/**
+ * A waiting claim ahead in the queue blocks a later claim, except where the
+ * later claim only re-enters resources its own session already holds: the
+ * earlier waiter is queued behind that holder anyway, and refusing the holder's
+ * nested claim would deadlock it against its own grant.
+ */
+export function waiterBlocks(subject: Resource[], waiter: Resource[], held: Resource[]): boolean {
+  const contested = subject.filter((resource) => waiter.some((other) => overlaps(resource, other)));
+  return contested.length > 0 && !contested.every((resource) => held.some((grant) => covers(grant, resource)));
+}
 export function repositoryIdentity(session: { hostId: number; cwd: string; workspace: unknown }): string {
   const w = readWorkspace(session.workspace);
   return w?.repository_key

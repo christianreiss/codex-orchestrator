@@ -15,7 +15,14 @@ import {
   coordinationProtocol,
   type ScopeSession,
 } from './coordination.js';
-import { overlaps, NEGOTIATION_SECONDS, type Resource } from '../../services/agent-coordination/model.js';
+import {
+  claimArrivalOrder,
+  overlaps,
+  waiterBlocks,
+  NEGOTIATION_SECONDS,
+  type Resource,
+} from '../../services/agent-coordination/model.js';
+import { stageCoordinationNotice } from './coordination-notices.js';
 import { readWorkspace } from '../../services/agent-messaging/workspace.js';
 
 export type OwnedResourceClaim = Readonly<StateRow<'agentResourceClaims'>>;
@@ -121,6 +128,7 @@ export function claimOwnerEnded(snapshot: OwnerStateSnapshot, claim: StateRow<'a
   );
 }
 export function claimReconciliationNeeded(owner: OwnerRuntime, snapshot: OwnerStateSnapshot): boolean {
+  // Promotion is part of reconciliation, so a free queue head must schedule it.
   return snapshot.claims.all().some((claim) => {
     if (claimOwnerEnded(snapshot, claim)) return true;
     if (claim.state === 'active') return !claimContinuouslyHeld(owner, snapshot, claim);
@@ -135,7 +143,7 @@ export function claimReconciliationNeeded(owner: OwnerRuntime, snapshot: OwnerSt
     const attachment = nativeClaimAttachment(owner, session, claim.nativeInstanceId)!;
     const report = ownerPresence(owner).details(attachment.id) as { active_claim_ids?: unknown } | undefined;
     return Array.isArray(report?.active_claim_ids) && report.active_claim_ids.includes(claim.id);
-  });
+  }) || Boolean(promotableClaim(owner, snapshot));
 }
 export function stageClaimReconciliation(
   ctx: OwnerMutationContext,
@@ -200,8 +208,17 @@ export function stageClaimReconciliation(
       changed = true;
     }
   }
-  return changed;
+  // Recoveries and releases above may have changed the head of a queue.
+  return stageClaimPromotion(ctx, owner, keyring) || changed;
 }
+/**
+ * Blockers of a claim on `resources`: overlapping active/uncertain claims, legacy
+ * presence and merge leases, and overlapping waiting claims ahead of it in arrival
+ * order. `exclude` names the claim being evaluated (absent for a new acquisition,
+ * which queues behind every existing waiter). A waiter whose owner is not
+ * continuously connected neither blocks nor is promoted; it keeps its arrival
+ * position for when its original attachment returns.
+ */
 export function ownedClaimBlockers(
   owner: OwnerRuntime,
   snapshot: OwnerStateSnapshot,
@@ -210,17 +227,26 @@ export function ownedClaimBlockers(
   caller?: ScopeSession,
 ) {
   const result: Array<Record<string, unknown> & { id: string; session_id: string; state: string }> = [];
-  for (const claim of snapshot.claims.all()) {
-    if (!['active', 'uncertain'].includes(claim.state) || claim.id === exclude) continue;
-    if (
+  const subject = exclude ? snapshot.claims.get(exclude) : undefined;
+  const ownGrant = (claim: OwnedResourceClaim) =>
+    Boolean(
       caller &&
-      claim.sessionId === caller.id &&
-      claim.generation === caller.bindingGeneration &&
-      claim.state === 'active' &&
-      claimContinuouslyHeld(owner, snapshot, claim)
-    )
-      continue;
+        claim.sessionId === caller.id &&
+        claim.generation === caller.bindingGeneration &&
+        claim.state === 'active' &&
+        claimContinuouslyHeld(owner, snapshot, claim),
+    );
+  let held: Resource[] | undefined;
+  for (const claim of snapshot.claims.all()) {
+    if (!['active', 'uncertain', 'waiting'].includes(claim.state) || claim.id === exclude) continue;
+    if (ownGrant(claim)) continue;
     if (!(claim.resources as Resource[]).some((a) => resources.some((b) => overlaps(a, b)))) continue;
+    if (claim.state === 'waiting') {
+      if (subject && claimArrivalOrder(claim, subject) >= 0) continue;
+      if (!claimContinuouslyHeld(owner, snapshot, claim)) continue;
+      held ??= snapshot.claims.all().filter(ownGrant).flatMap((row) => row.resources as Resource[]);
+      if (!waiterBlocks(resources, claim.resources as Resource[], held)) continue;
+    }
     const session = snapshot.sessions.get(claim.sessionId),
       address = session?.agentBusAddressId ? snapshot.addresses.get(session.agentBusAddressId) : undefined;
     result.push({
@@ -283,4 +309,73 @@ export function ownedClaimBlockers(
       result.push({ id: lease.id, session_id: 'legacy', state: 'legacy_merge_lease' });
   }
   return result;
+}
+/**
+ * The first waiting claim, in arrival order, that may become active now: its
+ * owner is continuously connected and nothing (including an earlier waiter)
+ * blocks it. Waiting claims never promote while coordination is off.
+ */
+function promotableClaim(owner: OwnerRuntime, snapshot: OwnerStateSnapshot): OwnedResourceClaim | undefined {
+  if (snapshot.setting('agent_coordination_enabled') !== '1') return undefined;
+  const waiting = snapshot.claims
+    .all()
+    .filter((claim) => claim.state === 'waiting')
+    .sort(claimArrivalOrder);
+  for (const claim of waiting) {
+    const session = snapshot.sessions.get(claim.sessionId);
+    if (!session || session.bindingGeneration !== claim.generation || !claimContinuouslyHeld(owner, snapshot, claim))
+      continue;
+    if (!ownedClaimBlockers(owner, snapshot, claim.resources as Resource[], claim.id, session).length) return claim;
+  }
+  return undefined;
+}
+/**
+ * Stage one waiting→active transition: the scope announcement and a non-waking
+ * CLAIM/1 notice to the claimant. The state guard makes it once per transition.
+ */
+export function stageClaimActivation(
+  ctx: OwnerMutationContext,
+  keyring: Keyring,
+  claim: OwnedResourceClaim,
+): OwnedResourceClaim {
+  const activated = stageUpdate(ctx, 'agentResourceClaims', claim.id, {
+    state: 'active',
+    blockers: [],
+    updatedAt: new Date().toISOString(),
+  });
+  stageClaimAnnouncement(ctx, keyring, claim.sessionId, { action: 'active', claim_id: claim.id, purpose: claim.purpose });
+  const session = ctx.draft.table('agentSessions').get(claim.sessionId);
+  if (session)
+    stageCoordinationNotice(
+      ctx,
+      keyring,
+      session,
+      `CLAIM/1\nYour waiting resource claim ${claim.id} for ${claim.purpose} is now active; its blockers have ended. Check resource_claim_status with claim_id ${claim.id} before each protected mutation and release it with resource_claim_release when the operation ends. This is coordination, not work authorization.`,
+    );
+  return activated;
+}
+/** Promote every eligible waiting claim in arrival order; each sees the earlier promotions. */
+export function stageClaimPromotion(ctx: OwnerMutationContext, owner: OwnerRuntime, keyring: Keyring): boolean {
+  let changed = false;
+  for (let claim = promotableClaim(owner, ctx.draft.view()); claim; claim = promotableClaim(owner, ctx.draft.view())) {
+    stageClaimActivation(ctx, keyring, claim);
+    changed = true;
+  }
+  return changed;
+}
+/** Tell a waiting claimant that an operator released its claim before it became active. */
+export function stageWaitingClaimRefusal(
+  ctx: OwnerMutationContext,
+  keyring: Keyring,
+  claim: OwnedResourceClaim,
+  reason: string,
+): void {
+  const session = ctx.draft.table('agentSessions').get(claim.sessionId);
+  if (session)
+    stageCoordinationNotice(
+      ctx,
+      keyring,
+      session,
+      `CLAIM/1\nAn operator released your waiting resource claim ${claim.id} for ${claim.purpose} before it became active. Reason: ${reason}\nIt will not become active. Acquire a new claim with a new client_request_id if the work is still needed. This is coordination, not work authorization.`,
+    );
 }

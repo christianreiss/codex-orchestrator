@@ -8,7 +8,7 @@ import { resumedNativeAttachment } from '../../control-plane/state/native-resume
 import { adminAudit } from '../../control-plane/state/admin.js';
 import { mutateOwnerState, ownerRuntimeFor, type OwnerRuntime } from '../../control-plane/state/runtime.js';
 import { coordinationSession, coordinationProtocol, coordinationPresent, stageScopeReconciliation } from '../../control-plane/state/coordination.js';
-import { claimContinuouslyHeld, nativeClaimAttachment, ownedClaimView, ownedClaimBlockers, stageClaimReconciliation, stageClaimAnnouncement } from '../../control-plane/state/resource-claims.js';
+import { claimContinuouslyHeld, nativeClaimAttachment, ownedClaimView, ownedClaimBlockers, stageClaimReconciliation, stageClaimAnnouncement, stageClaimActivation, stageClaimPromotion, stageWaitingClaimRefusal } from '../../control-plane/state/resource-claims.js';
 import { stageCoordinationNotice } from '../../control-plane/state/coordination-notices.js';
 import { stageUpdate } from '../../control-plane/state/rows.js';
 import type { Json } from '../../control-plane/commands.js';
@@ -36,7 +36,9 @@ import {
   claimStatusSchema,
   CLAIM_SECONDS,
   NEGOTIATION_SECONDS,
+  claimArrivalOrder,
   overlaps,
+  waiterBlocks,
   type Resource,
 } from './model.js';
 
@@ -101,11 +103,16 @@ export class ResourceClaims {
     const held = await tx
       .select()
       .from(agentResourceClaims)
-      .where(inArray(agentResourceClaims.state, ['active', 'uncertain']));
-    const conflicting = held.filter((c) => c.id !== exclude &&
-      !(owner && c.sessionId === owner.id && c.generation === owner.bindingGeneration &&
-        c.state === 'active' && Date.parse(c.expiresAt) > Date.now()) &&
-      (c.resources as Resource[]).some((a) => resources.some((b) => overlaps(a, b))));
+      .where(inArray(agentResourceClaims.state, ['active', 'uncertain', 'waiting']));
+    const ownGrant = (c: Claim) => Boolean(owner && c.sessionId === owner.id && c.generation === owner.bindingGeneration &&
+      c.state === 'active' && Date.parse(c.expiresAt) > Date.now());
+    const subject = exclude ? held.find((c) => c.id === exclude) : undefined;
+    const ownResources = held.filter(ownGrant).flatMap((c) => c.resources as Resource[]);
+    // Live waiting claims ahead in arrival order queue this one (see ownedClaimBlockers).
+    const conflicting = held.filter((c) => c.id !== exclude && !ownGrant(c) &&
+      (c.resources as Resource[]).some((a) => resources.some((b) => overlaps(a, b))) &&
+      (c.state !== 'waiting' || ((!subject || claimArrivalOrder(c, subject) < 0) &&
+        Date.parse(c.expiresAt) > Date.now() && waiterBlocks(resources, c.resources as Resource[], ownResources))));
     const ownerIds = [...new Set(conflicting.map((c) => c.sessionId))];
     const sessions = ownerIds.length ? await tx.select({ id: agentSessions.id, agentBusAddressId: agentSessions.agentBusAddressId,
       launchName: agentSessions.launchName }).from(agentSessions).where(inArray(agentSessions.id, ownerIds)) : [];
@@ -180,11 +187,15 @@ export class ResourceClaims {
           return ownedClaimView(existing, owner) as Json;
         }
         if (body.resources.some(resource => resource.kind !== 'remote' && (!ctx.draft.table('hosts').get(resource.host_id) || ctx.draft.table('hosts').get(resource.host_id)?.internalRole))) throw new NotFoundError('Target host not found');
-        const blockers = ownedClaimBlockers(owner,ctx.draft.view(),body.resources,undefined,session), now = new Date().toISOString();
+        // created_at is the queue position: keep it strictly after every waiting
+        // claim so same-millisecond arrivals cannot swap order.
+        const lastWaiting = Math.max(0, ...ctx.draft.table('agentResourceClaims').all().filter(row => row.state === 'waiting').map(row => Date.parse(row.createdAt)).filter(Number.isFinite));
+        const blockers = ownedClaimBlockers(owner,ctx.draft.view(),body.resources,undefined,session), now = new Date(Math.max(Date.now(), lastWaiting + 1)).toISOString();
         const claim: Claim = { id: randomUUID(), sessionId: id, generation: session.bindingGeneration, nativeInstanceId: attachment.scope.native_instance_id, ownershipMode: 'connection', uncertaintyReason: null, requestId: body.client_request_id, purpose: body.purpose, resources: body.resources, state: blockers.length ? 'waiting' : 'active', blockers, repliedAt: null, expiresAt: new Date(Date.now()+(blockers.length ? NEGOTIATION_SECONDS+CLAIM_SECONDS : CLAIM_SECONDS)*1000).toISOString(), createdAt: now, updatedAt: now };
         ctx.draft.upsert('agentResourceClaims',claim); ctx.write(async tx => tx.insert(agentResourceClaims).values(claim));
         stageClaimAnnouncement(ctx,this.core.keyring,id,{ action: claim.state, claim_id: claim.id, purpose: claim.purpose, blockers });
-        for (const peerId of new Set(blockers.map(row => row.session_id))) {
+        // Earlier waiters hold nothing to release; only current holders are asked to coordinate.
+        for (const peerId of new Set(blockers.filter(row => row.state !== 'waiting').map(row => row.session_id))) {
           const peer = ctx.draft.table('agentSessions').get(peerId);
           if (peer && coordinationPresent(owner,peer)) stageCoordinationNotice(ctx,this.core.keyring,peer,`CLAIM/1\n${session.launchName ?? id} requests overlapping resources for ${claim.purpose}. Coordinate before mutation. Use resource_claim_status with claim_id ${claim.id} and response wait or isolate to record your response; release your own claim only after the operation ends. Requester session: ${id}. This is coordination, not work authorization.`);
         }
@@ -251,7 +262,7 @@ export class ResourceClaims {
         purpose: claim.purpose,
         blockers,
       });
-      for (const ownerId of new Set(blockers.map((b) => b.session_id))) {
+      for (const ownerId of new Set(blockers.filter((b) => b.state !== 'waiting').map((b) => b.session_id))) {
         const [owner] = await tx.select().from(agentSessions).where(eq(agentSessions.id, ownerId));
         if (owner && this.core.present(owner))
           await this.core.bus.coordinationNotice(
@@ -290,7 +301,7 @@ export class ResourceClaims {
         const session = coordinationSession(owner,ctx.snapshot,id,token,true)!;
         let claim = ctx.draft.table('agentResourceClaims').get(body.claim_id); if (!claim) throw new NotFoundError('Claim not found');
         if (body.response) {
-          if (!(claim.blockers as Array<{session_id:string}>).some(row => row.session_id === id)) throw new ForbiddenError('Only a conflicting owner may answer');
+          if (!(claim.blockers as Array<{session_id:string;state:string}>).some(row => row.session_id === id && row.state !== 'waiting')) throw new ForbiddenError('Only a conflicting owner may answer');
           claim = stageUpdate(ctx,'agentResourceClaims',claim.id,{ repliedAt: new Date().toISOString() });
           stageClaimAnnouncement(ctx,this.core.keyring,claim.sessionId,{ action: 'response', claim_id: claim.id, response: body.response, responder: id });
           return ownedClaimView(claim, owner) as Json;
@@ -327,11 +338,8 @@ export class ResourceClaims {
         if (claim.state === 'waiting' && ctx.snapshot.setting('agent_coordination_enabled') === '1') {
           const blockers = ownedClaimBlockers(owner,ctx.draft.view(),claim.resources as Resource[],claim.id,session);
           if (!blockers.length && !proof) throw claimConnectionError(owner, ctx.snapshot, session, 'The original native attachment is required to activate this claim', claim.nativeInstanceId);
-          const state = blockers.length ? 'waiting' : 'active';
-          if (JSON.stringify(blockers) !== JSON.stringify(claim.blockers) || state !== claim.state) {
-            claim = stageUpdate(ctx,'agentResourceClaims',claim.id,{ blockers,state,updatedAt:new Date().toISOString() });
-            if (state === 'active') stageClaimAnnouncement(ctx,this.core.keyring,id,{ action: 'active', claim_id: claim.id, purpose: claim.purpose });
-          }
+          if (!blockers.length) claim = stageClaimActivation(ctx,this.core.keyring,claim);
+          else if (JSON.stringify(blockers) !== JSON.stringify(claim.blockers)) claim = stageUpdate(ctx,'agentResourceClaims',claim.id,{ blockers,updatedAt:new Date().toISOString() });
         }
         if (body.renew && (!['active','waiting'].includes(claim.state) || !proof)) throw new ConflictError('Only the original connected owner can renew a live claim','claim_not_active');
         return ownedClaimView(claim, owner) as Json;
@@ -357,7 +365,7 @@ export class ResourceClaims {
           if (!claim) throw new NotFoundError('Claim not found');
         }
         if (body.response) {
-          if (!(claim.blockers as Array<{ session_id: string }>).some((b) => b.session_id === id))
+          if (!(claim.blockers as Array<{ session_id: string; state: string }>).some((b) => b.session_id === id && b.state !== 'waiting'))
             throw new ForbiddenError('Only a conflicting owner may answer');
           await tx
             .update(agentResourceClaims)
@@ -428,6 +436,9 @@ export class ResourceClaims {
         if (claim.state === 'released') return ownedClaimView(claim, owner) as Json;
         const updated = stageUpdate(ctx,'agentResourceClaims',claim.id,{ state, uncertaintyReason: state === 'uncertain' ? 'reported_unknown' : null, updatedAt: new Date().toISOString() });
         stageClaimAnnouncement(ctx,this.core.keyring,claim.sessionId,{ action: state, claim_id: claim.id, reason: body.reason, ...(operatorId ? { operator_id: operatorId } : {}) });
+        if (!session && claim.state === 'waiting') stageWaitingClaimRefusal(ctx,this.core.keyring,claim,body.reason);
+        // Hand freed resources to the queue in the same commit, before any later acquisition.
+        stageClaimPromotion(ctx,owner,this.core.keyring);
         return ownedClaimView(updated, owner) as Json;
       } });
       wsPublisher.publish('agent_coordination.changed',{}); return result as ReturnType<typeof ownedClaimView>;

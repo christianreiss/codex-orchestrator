@@ -3164,6 +3164,11 @@ agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduce
 `agent_context_get/update`, `agent_room_list/read/send`, and
 `resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
 The feature starts disabled and never grants permission for the reserved action.
+Waiting claims queue in arrival order: earlier overlapping waiters appear in
+`blockers` with `state: "waiting"`, and release, operator resolution and
+reconciliation grant waiters server-side in that order. The claimant receives one
+non-waking `CLAIM/1` notice when its waiting claim becomes active, or when an
+operator releases it while it is still waiting.
 
 Native engine children may share this authenticated launch binding; distinct child
 transcripts/worktrees do not provide independent identity. Parent coordination owns
