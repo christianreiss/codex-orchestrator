@@ -9,11 +9,27 @@ import type { Database } from '../db/client.js';
 import { mcpSessionTokens, hosts } from '../db/schema.js';
 import type { Host } from '../db/schema.js';
 import { isoOffsetSeconds, nowIso, parseIso } from '../util/timestamp.js';
-import { ownerRuntimeFor, mutateOwnerState, setOwnerRequestPrincipal } from '../control-plane/state/runtime.js';
+import { ownerRuntimeFor, mutateOwnerState, setOwnerRequestPrincipal, type OwnerMutationContext } from '../control-plane/state/runtime.js';
 import { requestHost } from '../control-plane/state/admission.js';
 import { UnauthorizedError } from '../http/errors.js';
 
 const DEFAULT_TTL_SECONDS = 8 * 60 * 60;
+
+/*
+ * A token row names only its host, not the host key it was minted under, so a
+ * host key rotation must revoke the host's tokens itself; otherwise a token
+ * issued under the old key keeps authenticating `/mcp` for up to 8 hours
+ * (feedback e099e458). Bridge and relay bearers are fenced by the host key
+ * fingerprint instead. Call both next to the `host_auth_rotated` suspension.
+ */
+export function stageRevokeHostMcpSessions(ctx: OwnerMutationContext, hostId: number): void {
+  for (const row of ctx.draft.table('mcpSessionTokens').by('hostId', hostId)) ctx.draft.removeRow('mcpSessionTokens', row);
+  ctx.write(async (tx) => tx.delete(mcpSessionTokens).where(eq(mcpSessionTokens.hostId, hostId)));
+}
+
+export async function revokeHostMcpSessionsLocked(tx: Pick<Database, 'delete'>, hostId: number): Promise<void> {
+  await tx.delete(mcpSessionTokens).where(eq(mcpSessionTokens.hostId, hostId));
+}
 
 export class McpSessionService {
   constructor(private readonly db: Database) {}

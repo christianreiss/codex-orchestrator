@@ -411,8 +411,16 @@ signed-config repair read can run before an owner exists, but subsequent auth
 and control requests use the communicator whenever the recovered config enables it.
 
 `cxx communicator status` reports protocol, version, PID, connected clients,
-forwarded/coalesced requests, last sync and connection error. `doctor` returns
-nonzero when an enabled communicator is absent. When the wrapper refuses the local socket
+forwarded/coalesced requests, last sync and connection error. `connected` is
+the control transport (authenticated with the signed host key) and
+`sync_scopes[].auth.state` is provider-auth synchronization; neither proves that
+managed MCP calls are accepted, because each forwarded `/mcp` frame carries the
+native client's own bearer and is judged per frame. `mcp` reports what forwarded
+MCP calls experienced: `state` (`unknown` before the first call, `ok`,
+`unauthorized` while the newest answer was 401/403, `failing` for another error
+status), `last_status`, `last_at`, `last_ok_at` and `last_failure`
+(`status`, bounded machine `code`, `at`; never a body or credential). `doctor` returns
+nonzero when an enabled communicator is absent or `mcp.state` is `unauthorized`. When the wrapper refuses the local socket
 (for example a leaked `XDG_RUNTIME_DIR=/run/user/0` that is not private to the user), the line for that
 server carries `"error"` with the refusal instead of an empty `"socket"`, and `doctor` fails. Status
 always prints at least one line: an owner that cannot be reached, answers non-200 or

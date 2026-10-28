@@ -23,6 +23,7 @@ import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { InsecureWindowService } from './insecure-window.js';
 import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
+import { revokeHostMcpSessionsLocked, stageRevokeHostMcpSessions } from './mcp-session.js';
 import { NotFoundError } from '../http/errors.js';
 import { ENGINE_CODEX, ENGINE_GROK } from '../util/engine.js';
 import { ModelDefaultsService } from './model-defaults.js';
@@ -85,6 +86,7 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
     };
     if (current) {
       suspendOwnedMessaging(ctx, current.id, 'host_auth_rotated');
+      stageRevokeHostMcpSessions(ctx, current.id);
       for (const row of ctx.draft.table('installTokens').by('hostId', current.id)) ctx.draft.removeRow('installTokens', row);
       ctx.draft.upsert('hosts', { ...current, ...patch });
       ctx.write(async tx => tx.delete(installTokens).where(eq(installTokens.hostId, current.id)));
@@ -159,6 +161,7 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
           // that authentication generation and fence all bus runtime together;
           // a secure/same-engine rotation is just as definitive as a demotion.
           await suspendAgentMessagingRuntimeLocked(tx, locked.id, 'host_auth_rotated');
+          await revokeHostMcpSessionsLocked(tx, locked.id);
           await tx.delete(installTokens).where(eq(installTokens.hostId, locked.id));
           await tx
             .update(hostsTable)

@@ -310,22 +310,7 @@ func mcpBatchReplies(ids []json.RawMessage, status int, body []byte) []json.RawM
 // tool failure invites a fresh retry even when the server already committed it.
 // Forward only a bounded machine code, never an upstream body or credentials.
 func mcpFailure(id json.RawMessage, status int, body []byte) []byte {
-	var failure struct {
-		Code  string `json:"code"`
-		Error struct {
-			Code string `json:"code"`
-		} `json:"error"`
-	}
-	_ = json.Unmarshal(body, &failure)
-	code := failure.Code
-	if code == "" {
-		code = failure.Error.Code
-	}
-	if len(code) > 128 || strings.IndexFunc(code, func(r rune) bool {
-		return r != '_' && r != '-' && r != '.' && (r < 'a' || r > 'z') && (r < '0' || r > '9')
-	}) >= 0 {
-		code = ""
-	}
+	code := upstreamErrorCode(body)
 	if status < 400 {
 		code = "communicator_outcome_unknown"
 	} else if code == "" {
@@ -501,6 +486,11 @@ func statusReport(out io.Writer, version string) bool {
 			failed = true
 		}
 		if status["connected"] != true && status["https_fallback"] != true {
+			failed = true
+		}
+		// A connected transport does not prove MCP calls are accepted: each
+		// frame carries the native client's own bearer (feedback e099e458).
+		if mcp, ok := status["mcp"].(map[string]any); ok && mcp["state"] == "unauthorized" {
 			failed = true
 		}
 		if update, ok := status["update"].(map[string]any); ok && update["state"] == "failed" {

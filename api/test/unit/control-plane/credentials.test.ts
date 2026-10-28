@@ -6,6 +6,7 @@ import { DeadlineQueue } from '../../../src/control-plane/deadlines.js';
 import { CommandExecutor } from '../../../src/control-plane/commands.js';
 import { OwnerStateSnapshot, OwnerStateStore } from '../../../src/control-plane/state/store.js';
 import { ownedBridge, ownedRelay } from '../../../src/control-plane/state/messaging.js';
+import { heartbeatOwnedRelay } from '../../../src/control-plane/streams/relay.js';
 import type { OwnerRuntime } from '../../../src/control-plane/state/runtime.js';
 import type { StateRow, StateSeed } from '../../../src/control-plane/state/catalog.js';
 import { sha256 } from '../../../src/security/hash.js';
@@ -292,6 +293,63 @@ describe('connection-derived credential validity', () => {
     expect(() => ownedBridge(f.state.snapshot(), f.id, f.token)).toThrow('Invalid agent bridge');
     expect(f.deadlines.size()).toBe(0);
     f.close();
+  });
+  // Feedback e099e458 (b): the 401 agent_messaging_relay_expired bursts every
+  // ~900 s are relays that heartbeat over HTTP without a relay state-stream
+  // attachment. The owner heartbeat renews no stored expiry, so such a relay
+  // lapses exactly AGENT_MESSAGING_RELAY_TOKEN_SECONDS after registration.
+  it('does not extend an unattached relay through HTTP heartbeats', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const f = harness();
+    try {
+      const draft = f.state.begin();
+      draft.upsert('hostDaemons', {
+        hostId: 1,
+        settings: { enabled: false, resident_enabled: true, username: 'root' },
+        runtime: null,
+        enabledAt: null,
+        updatedAt: '',
+      } as unknown as StateRow<'hostDaemons'>);
+      f.state.publish(draft.seal({ ...f.state.revision(), sequence: 1n }));
+      const runtime = { state: f.state, deadlines: f.deadlines, assertOwner() {} } as unknown as OwnerRuntime;
+      for (let t = 0; t < 900_000; t += 20_000) {
+        vi.setSystemTime(t);
+        expect(heartbeatOwnedRelay(runtime, f.id, f.token).expires_at).toBe(new Date(900_000).toISOString());
+      }
+      vi.setSystemTime(900_000);
+      expect(() => heartbeatOwnedRelay(runtime, f.id, f.token)).toThrow('Agent relay credential expired');
+      // The same relay with a live state attachment keeps its authority.
+      vi.setSystemTime(0);
+      f.presence.attach({ connectionId: randomUUID(), hostId: 1, username: 'root', scope: { topic: 'relay', relay_id: f.id } });
+      await vi.advanceTimersByTimeAsync(3_600_000);
+      expect(Date.parse(heartbeatOwnedRelay(runtime, f.id, f.token).expires_at)).toBeGreaterThan(Date.now());
+    } finally {
+      f.close();
+    }
+  });
+  // Feedback e099e458 (c): bridge and relay bearers do not survive a host key
+  // rotation, even while a live attachment holds a volatile grant.
+  it('revokes live bridge and relay authority when the host key rotates', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const f = harness();
+    try {
+      f.attach();
+      f.presence.attach({ connectionId: randomUUID(), hostId: 1, username: 'root', scope: { topic: 'relay', relay_id: f.id } });
+      expect(() => ownedBridge(f.state.snapshot(), f.id, f.token)).not.toThrow();
+      expect(() => ownedRelay(f.state.snapshot(), f.id, f.token)).not.toThrow();
+      const draft = f.state.begin(),
+        host = f.state.snapshot().hosts.get(1)!;
+      draft.upsert('hosts', { ...host, apiKey: 'b'.repeat(64), apiKeyHash: 'b'.repeat(64) });
+      f.state.publish(draft.seal({ ...f.state.revision(), sequence: 1n }));
+      expect(f.state.snapshot().hosts.get(1)!.authFingerprint).not.toBe(host.authFingerprint);
+      expect(() => ownedBridge(f.state.snapshot(), f.id, f.token)).toThrow('host credential changed');
+      expect(() => ownedRelay(f.state.snapshot(), f.id, f.token)).toThrow('host credential changed');
+      expect(f.deadlines.size()).toBe(0);
+    } finally {
+      f.close();
+    }
   });
   it('requires host authority and the same token and binding for finite reconnect renewal', async () => {
     vi.useFakeTimers();

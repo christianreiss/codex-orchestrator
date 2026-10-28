@@ -48,6 +48,7 @@ import {
 } from './config-normalizer.js';
 import { coerceCodexVersionToMinimum, GROK_MIN_CLIENT_VERSION, isSemanticVersion, isSupportedGrokVersion } from './client-versions.js';
 import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
+import { revokeHostMcpSessionsLocked, stageRevokeHostMcpSessions } from './mcp-session.js';
 import { PROVISIONING_WINDOW_MINUTES } from './insecure-window.js';
 import { ModelDefaultsService } from './model-defaults.js';
 import { readFleetEngineState } from './engine-switch.js';
@@ -315,6 +316,7 @@ export class HostManagementService {
       if (previous) {
         hostId = previous.id;
         suspendOwnedMessaging(ctx, hostId, 'host_auth_rotated', undefined, now);
+        stageRevokeHostMcpSessions(ctx, hostId);
         ctx.draft.upsert('hosts', { ...previous, ...patch });
         ctx.write(async tx => tx.update(hosts).set(patch).where(eq(hosts.id, hostId)));
         finish();
@@ -442,6 +444,7 @@ export class HostManagementService {
         // the new host key; otherwise accepted native work can outlive its
         // credential and sit uncertain until lease maintenance catches up.
         await suspendAgentMessagingRuntimeLocked(tx, locked.id, 'host_auth_rotated');
+        await revokeHostMcpSessionsLocked(tx, locked.id);
         secure = req.secure ?? locked.secure === 1;
         const lockedEngines =
           req.engines && req.engines.length
