@@ -97,7 +97,7 @@ describe('config-normalizer constants', () => {
   it('maps legacy Claude models onto current gate ids', () => {
     expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-opus-20240229']).toBe('claude-opus-4-8');
     expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-opus-4-20250514']).toBe('claude-opus-4-8');
-    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-5-sonnet-20241022']).toBe('claude-sonnet-5');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-5-sonnet-20241022']).toBe('claude-sonnet-5-5');
     expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-haiku-20240307']).toBe('claude-haiku-4-5-20251001');
   });
 

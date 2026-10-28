@@ -28,6 +28,7 @@ import { sha256 } from '../security/hash.js';
 import { nowIso, isoOffsetSeconds } from '../util/timestamp.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINES, ENGINE_LABELS, isEngine, type Engine } from '../util/engine.js';
 import { normalizeGrokEffort, normalizeGrokModel } from './grok-models.js';
+import { normalizeClaudeModelReference } from './claude-models.js';
 import { NotFoundError, ValidationError, ApiError, ConflictError } from '../http/errors.js';
 import type { AdminEventsWriter } from './admin-events-writer.js';
 import {
@@ -1197,8 +1198,9 @@ export class HostManagementService {
         ?? defaultCodexReasoningEffortForModel(patch.modelOverride ?? null);
     }
     if (payload.includeClaudeOverride) {
+      // Known retired IDs store as their official successor; custom IDs stay verbatim.
       patch.claudeModelOverride = payload.claude_model_override
-        ? payload.claude_model_override.trim() || null
+        ? normalizeClaudeModelReference(payload.claude_model_override) || null
         : null;
     }
     if (payload.grok_model_override !== undefined) {

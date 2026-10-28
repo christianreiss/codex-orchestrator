@@ -274,6 +274,17 @@ beforeAll(async () => {
 });
 
 describe('wrapper-config', () => {
+  it('signs a stored retired Claude override as its official successor and keeps custom ids', async () => {
+    const { privateKey } = generateKeyPairSync('ed25519');
+    const signer: WrapperSigner = { kid: '1', fingerprint: FAKE_FINGERPRINT, publicKey: 'pk', sign: payload => cryptoSign(null, Buffer.from(payload), privateKey) };
+    for (const [stored, signed] of [['claude-sonnet-4-20250514', 'claude-sonnet-5-5'], ['claude-sonnet-5', 'claude-sonnet-5'], ['vendor/claude-3-5-sonnet', 'vendor/claude-3-5-sonnet']] as const) {
+      const host = fakeHost({ claudeModelOverride: stored });
+      const svc = createWrapperConfigService({ db: makeFakeDb({ hosts: [host], agents: [], agentsState: [], clientConfigs: [], skills: [], updates: [] }), keyring: makeKeyring(), binaries: fakeBinaries(), signing: makeSigningService(signer), installationId: 'claude-legacy' });
+      const { payload } = await svc.bakeForHost(host, 'claude', 'https://co.example');
+      expect(payload.engine_options.claude_model_override).toBe(signed);
+    }
+  });
+
   it.each([null, '0.158.9', '0.159.0'])('keeps provisioning available while filtering Terra for observed %s', async (version) => {
     const { privateKey } = generateKeyPairSync('ed25519');
     const signer: WrapperSigner = { kid: '1', fingerprint: FAKE_FINGERPRINT, publicKey: 'pk', sign: payload => cryptoSign(null, Buffer.from(payload), privateKey) };

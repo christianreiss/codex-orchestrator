@@ -1074,7 +1074,20 @@ deprecated Sonnet 4.5 (replacement: Sonnet 5.5). This also covers native
 `modelSettings`, fallback/advisor/allowlist models, picker entries, model
 remappings, model environment variables, and hook models. Explicit current
 per-model settings win when an old entry migrates onto the same model. Unknown
-custom deployment IDs remain intact. The API-key auth probe uses active Haiku
+custom deployment IDs remain intact.
+
+Since 2026-10-28 every retired or deprecated Sonnet ID (Sonnet 3, 3.5, 3.7, 4
+including `claude-sonnet-4-0` and `claude-sonnet-4-20250514`, and 4.5) migrates
+to `claude-sonnet-5-5`, the "Recommended replacement" on the
+[deprecations page](https://platform.claude.com/docs/en/about-claude/model-deprecations)
+checked that day. This applies to fleet and host model values, native model
+fields, the signed per-host `claude_model_override`, latest-family replacements
+and the `/anthropic/v1` gateway. Sonnet 5 and Sonnet 5.5 accept the same
+persistent efforts, so a stored effort is kept; a migrated value without one
+runs at Sonnet 5.5's CLI default (`medium`, filled in for host overrides). An already stored `claude-sonnet-5`
+is active and stays unchanged: earlier migrations cannot be told apart from a
+deliberate choice. No database migration is needed because legacy values
+normalize on store and render. The API-key auth probe uses active Haiku
 4.5 with a small output budget and no thinking, replacing the retired Sonnet 4
 probe; OAuth probes continue through the native CLI.
 

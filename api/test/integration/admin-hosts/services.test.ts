@@ -811,3 +811,19 @@ describe('Terra host override installed-version boundary', () => {
    await expect(svc.setModelOverrides(registered.host.id,{model_override:null})).resolves.toMatchObject({modelOverride:null});
  });
 });
+
+describe('Claude host override legacy migration', () => {
+  it.each([
+    ['claude-sonnet-4-20250514', 'claude-sonnet-5-5'],
+    ['claude-3-5-sonnet-latest[1m]', 'claude-sonnet-5-5[1m]'],
+    ['claude-sonnet-5', 'claude-sonnet-5'],
+    ['vendor/custom-deployment', 'vendor/custom-deployment'],
+  ])('stores %s as %s', async (input, stored) => {
+    const mock = createMockDb();
+    const svc = new HostManagementService({ db: mock.db, env: buildEnv(), keyring: await buildKeyring(), events: makeAdminEventsWriter(mock.db) });
+    const registered = await svc.register({ fqdn: 'claude-legacy.test', engines: ['claude'] });
+    mock.rows('hosts')[0]!.claude_client_version = '2.1.312';
+    await svc.setModelOverrides(registered.host.id, { claude_model_override: input, includeClaudeOverride: true });
+    expect(mock.rows('hosts')[0]!.claude_model_override).toBe(stored);
+  });
+});

@@ -42,16 +42,21 @@ export type ClaudeModel = (typeof CLAUDE_SUPPORTED_MODELS)[number];
 /**
  * Legacy / vendor-public-id aliases that map onto our short ids. Keeps the
  * Anthropic SDK's "current generation" model names working out of the box.
+ * Successors follow the "Recommended replacement" column of
+ * https://platform.claude.com/docs/en/about-claude/model-deprecations (checked
+ * 2026-10-28): every retired or deprecated Sonnet maps to `claude-sonnet-5-5`,
+ * Opus to `claude-opus-4-8`, Haiku and Claude 1/Instant to Haiku 4.5. Active
+ * models (including an already stored `claude-sonnet-5`) are never rewritten.
  */
 export const CLAUDE_LEGACY_MODEL_UPGRADES: Record<string, ClaudeModel> = {
   'claude-3-opus-20240229': 'claude-opus-4-8',
-  'claude-3-5-sonnet-20240620': 'claude-sonnet-5',
-  'claude-3-5-sonnet-20241022': 'claude-sonnet-5',
-  'claude-3-5-sonnet-latest': 'claude-sonnet-5',
+  'claude-3-5-sonnet-20240620': 'claude-sonnet-5-5',
+  'claude-3-5-sonnet-20241022': 'claude-sonnet-5-5',
+  'claude-3-5-sonnet-latest': 'claude-sonnet-5-5',
   'claude-3-haiku-20240307': 'claude-haiku-4-5-20251001',
   'claude-3-5-haiku-latest': 'claude-haiku-4-5-20251001',
   'claude-opus-4-20250514': 'claude-opus-4-8',
-  'claude-sonnet-4-20250514': 'claude-sonnet-5',
+  'claude-sonnet-4-20250514': 'claude-sonnet-5-5',
   'claude-sonnet-4-5': 'claude-sonnet-5-5',
   'claude-sonnet-4-5-20250929': 'claude-sonnet-5-5',
   'claude-sonnet-4-5-latest': 'claude-sonnet-5-5',
@@ -61,10 +66,10 @@ export const CLAUDE_LEGACY_MODEL_UPGRADES: Record<string, ClaudeModel> = {
   'claude-sonnet-4-0': 'claude-sonnet-5-5',
   'claude-3-7-sonnet-20250219': 'claude-sonnet-5-5',
   'claude-3-7-sonnet': 'claude-sonnet-5-5',
-  'claude-3-5-sonnet': 'claude-sonnet-5',
+  'claude-3-5-sonnet': 'claude-sonnet-5-5',
   'claude-3-5-haiku': 'claude-haiku-4-5-20251001',
   'claude-3-7-sonnet-latest': 'claude-sonnet-5-5',
-  'claude-3-sonnet-20240229': 'claude-sonnet-5',
+  'claude-3-sonnet-20240229': 'claude-sonnet-5-5',
   'claude-3-5-haiku-20241022': 'claude-haiku-4-5-20251001',
   'claude-2.0': 'claude-opus-4-8',
   'claude-2.1': 'claude-opus-4-8',
