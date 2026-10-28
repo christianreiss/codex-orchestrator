@@ -755,6 +755,9 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
 
 
 describe('Grok metadata-only probes', () => {
+  // Grok follows the latest release, so a cold release cache may ask the npm registry; only provider calls are forbidden.
+  const providerCalls = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.filter(([url]) => !String(url).includes('registry.npmjs.org'));
+
   it('reports missing account metadata without refreshing or returning credentials', async () => {
     const apiKey = 'sk-grok-metadata'; const db = seedDb(apiKey);
     db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'grok' })]);
@@ -767,7 +770,7 @@ describe('Grok metadata-only probes', () => {
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({ account_pool: true, metadata_only: true, status: 'missing', verification_state: 'unknown', pool_verified_accounts: 0, grok_usage: { status: 'unavailable' } });
       expect(response.json()).not.toHaveProperty('auth');
-      expect(fetch).not.toHaveBeenCalled();
+      expect(providerCalls(fetch)).toEqual([]);
       expect(db.updates.filter(entry => entry.table === authPayloads)).toEqual([]);
       expect(db.inserts.filter(entry => entry.table === hostAuthStates)).toEqual([]);
     } finally { leasable.mockRestore(); await app.close(); }
@@ -789,7 +792,7 @@ describe('Grok metadata-only probes', () => {
       expect(body).not.toHaveProperty('auth');
       expect(await probe()).toMatchObject({ status: 'missing', pool_verified_accounts: 0 });
       expect(leasable).toHaveBeenCalledWith('grok');
-      expect(fetch).not.toHaveBeenCalled();
+      expect(providerCalls(fetch)).toEqual([]);
       expect(db.inserts.map(entry => entry.table)).not.toContain(providerAccountSessions);
       expect(db.updates.map(entry => entry.table)).not.toContain(providerAccounts);
     } finally { leasable.mockRestore(); await app.close(); }
