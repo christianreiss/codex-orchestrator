@@ -652,12 +652,46 @@ Sharing the operator's original home could silently switch managed accounts.
 
 The original home remains the logical account-guard scope. Sessions share the
 original **sessions root** so UUID/title resume, `--continue`, transcripts, and
-prompt history remain available. Recognized user config, rules, skills, commands,
-personas, agents, plugins, and hooks are preserved by an explicit asset allowlist;
-auth files, auth locks, and MCP credentials are never shared into the managed
-runtime. Fleet hooks live in a real owned hooks directory with user hooks copied
-alongside them. Direct credential overrides and metered-key fallbacks are removed
-from managed subprocess environments.
+prompt history remain available. The rest of the original home reaches the
+private one through an explicit allowlist (`runtime.go`), decided per class
+against the Grok Build 1.0.50 and 1.0.70 home contract:
+
+| Class | Entries | Why |
+| --- | --- | --- |
+| Linked | `sessions worktrees memory memory-v2 rules skills commands personas roles agents plugins installed-plugins plugin-data marketplace-cache workflows` | User content or native state that must persist. No native sandbox profile refuses these links. |
+| Linked, copied under a sandbox | `bundled bundles` (built-in bundle caches) | Linked so bundle updates persist. Grok 1.0.70 refuses every write-denying sandbox profile (`workspace`, `read-only`, `strict` and custom profiles) on a linked cache ("symlink component"). When `--sandbox`, `GROK_SANDBOX`, the merged `[sandbox] profile` or a requirements/managed layer selects anything but `off`, the launch uses a private copy instead. |
+| Read-only snapshot | `config.toml AGENTS.md CLAUDE.md Claude.md claude.md GROK.md pager.toml lsp.json requirements.toml managed_config.toml managed_config.sig.json managed_identity.sig.json sandbox.toml sandbox_grants.toml trusted_folders.toml trusted-plugins trusted-hook-projects hooks-paths disabled-hooks`, plus `hooks/*.json` | Native replaces these files by atomic rename, so a link would not persist a change. Sandbox profiles also refuse linked protected files. The signature sidecars keep a synced `requirements.toml` signed. |
+| Never carried | `auth.json`, auth locks, `mcp_credentials.json`, `settings_cache.json`, `models_cache.json`, `managed_config_cache.json`, `managed_config_refresh.json`, `agent_id`, `version.json`, `bin/`, `downloads/`, `logs/`, `grove/`, `worktrees.db`, `extensions` and lock files | Credentials, or caches and sync state bound to the operator's own account. The leased account rebuilds them. Grove's daemon lifetime is unverified. |
+
+Folder trust is the operator's own. The private home sees the original
+`trusted_folders.toml` (including explicit untrust), so user, project, plugin and
+agent hooks, project MCP/LSP servers and project instructions follow the
+decisions already made. The fleet grants no trust and never changes
+`[folder_trust]`. A folder trusted inside a managed session stays trusted for
+that session only; a private session never writes the operator's trust store,
+sandbox grants or policy files. To persist trust, run the native binary
+directly, outside managed entry, once in that folder. After the first `cgx`
+launch has installed it, `"$(cat ~/.cgx/state/grok-bin)" --trust inspect`
+records trust in the original store without starting a session.
+
+The fleet receiver and watchdog hooks (`SessionStart` → `cxx agent
+native-session`; `StopFailure`, `StopCancelled`, `SessionEnd` → `cxx agent
+watchdog-event`) are merged into the private `managed_config.toml`. Grok 1.0.64+
+holds back user hooks in untrusted folders. It loads `managed_config.toml` hooks
+before trust, so receiver binding does not depend on folder trust. Grok 1.0.50
+reads the same layer. Organization content in the snapshot is merged, not
+replaced; the native order stays `managed_config.toml` < `config.toml` <
+`requirements.toml`. A user-level managed file is distribution, not
+enforcement: the operator can still disable these hooks, and an
+organization's `allow_managed_hooks_only` pin skips them. If the copied
+`managed_config.toml` cannot be parsed, it stays byte-for-byte. The hooks then
+fall back to `hooks/cxx-receiver.json` and the launch prints that they wait for
+folder trust. Earlier runtimes copied a hyphenated
+`managed-config.toml` that no native release reads, dropped `trusted_folders.toml`,
+`sandbox.toml` and `pager.toml`, and linked `bundled`.
+
+Direct credential overrides and metered-key fallbacks are removed from managed
+subprocess environments.
 
 Managed runtimes disable Grok's implicit Claude and Cursor MCP imports through
 their private config and process environment. This prevents another engine's
