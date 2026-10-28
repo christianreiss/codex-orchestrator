@@ -379,6 +379,43 @@ describe('owner canonical content metadata', () => {
     h.attach();
     expect((await run()).claimed).toBe(true);
   });
+  it('accepts the workspace bound by agent_context_update as the card worktree and names a differing field', async () => {
+    const now = new Date().toISOString(),
+      h = setup({ coordProjects: [{ id: 42, slug: 'owner-project', aboutJson: { title: 'Owner' }, rosterMarkdown: '', latestEventSeq: 0, createdAt: now, updatedAt: now, archivedAt: null }] } as unknown as StateSeed);
+    const board = new ProjectBoardService({ db: h.db, projects: new HostProjectsService(h.db) }),
+      host = { id: 1 } as Host;
+    await board.todoCreate('owner-project', { title: 'First', detail: 'Task' }, 1);
+    await board.todoCreate('owner-project', { title: 'Second', detail: 'Task' }, 1);
+    // The session launched in /repo, then rebound itself to a linked worktree
+    // (nested repository: cwd below the worktree root). session.cwd stays /repo.
+    await h.service.update(h.sessionId, h.token, {
+      workspace: { cwd: '/tmp/worktrees/task/mobile', git_status: 'repository', git_root: '/tmp/worktrees/task', git_common_dir: '/repo/.git', branch: 'task' },
+      project_slug: 'owner-project',
+    });
+    expect(h.state.snapshot().sessions.get(h.sessionId)?.cwd).toBe('/repo');
+    const claim = (args: Record<string, unknown>, onHost: Host = host, engine = 'codex') =>
+      withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () =>
+        board.claimCard({ slug: 'owner-project', role: 'code', ...args }, onHost, engine),
+      );
+    expect((await claim({ card: 1, username: 'root', worktree_path: '/tmp/worktrees/task' })).claimed).toBe(true);
+    expect((await claim({ card: 2, worktree_path: '/tmp/worktrees/task/mobile' })).claimed).toBe(true);
+    expect((await claim({ card: 1 })).claimed).toBe(true);
+    const cards = h.state.snapshot().table('coordProjectCards').all();
+    expect(cards.map((card) => card.claimedWorktreePath)).toEqual(['/tmp/worktrees/task', '/tmp/worktrees/task']);
+    expect(cards.every((card) => card.claimSessionId === h.sessionId && card.claimedByUsername === 'root')).toBe(true);
+    // A genuinely different actor stays refused, and the error names the field.
+    const mismatch = async (args: Record<string, unknown>, field: string, onHost?: Host, engine?: string) => {
+      const error = await claim({ card: 1, ...args }, onHost, engine).then(() => null, (e: unknown) => e as { code?: string; message: string; extra?: { fields?: string[] } });
+      expect(error?.code).toBe('card_identity_mismatch');
+      expect(error?.message).toContain(field);
+      expect(error?.extra?.fields).toEqual([field]);
+    };
+    await mismatch({ worktree_path: '/repo' }, 'worktree_path');
+    await mismatch({ worktree_path: '/tmp/worktrees/other' }, 'worktree_path');
+    await mismatch({ username: 'mallory', worktree_path: '/tmp/worktrees/task' }, 'username');
+    await mismatch({}, 'engine', host, 'claude');
+    await mismatch({}, 'host', { id: 2 } as Host);
+  });
   it('keeps admin memory ETags, shared revisions and audit changes in the owner transaction', async () => {
     const now = new Date().toISOString(),
       h = setup({
