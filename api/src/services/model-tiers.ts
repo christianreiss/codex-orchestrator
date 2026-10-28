@@ -11,28 +11,27 @@
  */
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINES, type Engine } from '../util/engine.js';
 
-export type ModelTier = 1 | 2 | 3 | 4;
+export type ModelTier = 1 | 2 | 3 | 4 | 5;
 
 export const MODEL_TIER_CHECK_ENABLED_KEY = 'model_tier_check_enabled';
 
-const CODEX_FAMILY_TIERS: Readonly<Record<string, ModelTier>> = { luna: 1, terra: 2, sol: 3, astra: 4 };
-// Sonnet sits with Opus and Sol (2026-10-28): the operator's daily driver for cross-cutting work.
-// At Tier 2 it stopped on every Tier 4 assignment while Sol, doing the same work, proceeded.
-const CLAUDE_FAMILY_TIERS: Readonly<Record<string, ModelTier>> = { haiku: 1, sonnet: 3, opus: 3, fable: 4 };
-// Audited 2026-10-26 against current provider positioning and software-engineering
-// evaluations; rationale and exact subscription Fast identity: docs/model-tiers.md.
+const CODEX_FAMILY_TIERS: Readonly<Record<string, ModelTier>> = { luna: 1, terra: 2, sol: 3, astra: 5 };
+// Operator ruling 2026-10-28 (docs/model-tiers.md): Sonnet and Sol are the daily drivers at 3,
+// Opus alone at 4, Fable and Astra at 5. No benchmark backs the ordering.
+const CLAUDE_FAMILY_TIERS: Readonly<Record<string, ModelTier>> = { haiku: 1, sonnet: 3, opus: 4, fable: 5 };
 const GROK_MODEL_TIERS: Readonly<Record<string, ModelTier>> = {
-  'grok-4.7': 3,
-  'grok-4.7-build-fast': 3,
+  'grok-4.7': 2,
+  'grok-4.7-build-fast': 2,
   'grok-4.6': 2,
-  'grok-4.5': 2,
+  'grok-4.5': 1,
 };
 
 export const MODEL_TIER_WORK: Readonly<Record<ModelTier, string>> = {
-  1: 'Lookups, renames, single-file edits, formatting, mechanical changes',
-  2: 'Feature work, multi-file changes, debugging with a clear reproduction',
+  1: 'Lookups, renames, single-file edits, formatting',
+  2: 'Feature work, multi-file changes, debugging with a clear repro',
   3: 'Cross-cutting refactors, concurrency, security-sensitive or migration work',
-  4: 'Architecture, multi-factor redesigns, exceptionally open-ended diagnosis',
+  4: 'Architecture, complex multi-factor redesigns',
+  5: 'Open-ended diagnosis, frontier review',
 };
 
 /** Tier of a model id, or null for an unknown or custom-provider id. */
@@ -72,7 +71,7 @@ export function buildModelTierTable(
   modelsByEngine: Readonly<Partial<Record<Engine, readonly string[]>>>,
 ): ModelTierRow[] {
   const rows: ModelTierRow[] = [];
-  for (const tier of [1, 2, 3, 4] as const) {
+  for (const tier of [1, 2, 3, 4, 5] as const) {
     const models: ModelTierEntry[] = [];
     for (const engine of ENGINES) {
       if (!engines.includes(engine)) continue;
@@ -98,7 +97,7 @@ export function renderModelTierGuidance(table: readonly ModelTierRow[], configur
       ? `This host's configured ${configured.engine} model is \`${configured.model}\`, which has no fleet tier.`
       : `No ${configured.engine} model is pinned for this host.`;
   // Task definitions survive even when this host has no model at that tier.
-  const rows = ([1, 2, 3, 4] as const).map((tier) => {
+  const rows = ([1, 2, 3, 4, 5] as const).map((tier) => {
     const models = table.find((row) => row.tier === tier)?.models ?? [];
     return `| ${tier} | ${MODEL_TIER_WORK[tier]} | ${models.map((entry) => `\`${entry.model}\``).join(', ') || 'None available'} |`;
   });
@@ -114,7 +113,7 @@ ${rows.join('\n')}
 
 Rate by judgment needed, not keywords: read-only scouting (\`scout and prepare\`)
 takes the tier of the decisions it feeds; mechanical inventory can be Tier 1. Security or
-irreversibility sets checks, not tier. For Tier 3/4, state task tier, model tier, reason.
+irreversibility sets checks, not tier. For Tier 3+, state task tier, model tier, reason.
 
 Report \`Underclassed: Tier <n> required, running <model> (Tier <m>). Recommended: <model>.\`
 with the lowest fitting available model, own engine first; if none fits, say so.

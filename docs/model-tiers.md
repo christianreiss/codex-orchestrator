@@ -1,11 +1,35 @@
 # Fleet model capability classes
 
-Reviewed **2026-10-26** for the engine-maintenance run. Classes are the fleet's
+## Current table — operator ruling 2026-10-28 (five tiers)
+
+| Tier | Models | Class |
+| --- | --- | --- |
+| 5 | Astra, Fable | Frontier reasoning, exceptional complexity |
+| 4 | Opus | Advanced reasoning, architecture, complex engineering |
+| 3 | Sonnet, Sol | Strong autonomous engineering, complex implementation |
+| 2 | Terra, Grok 4.6, Grok 4.7, Grok 4.7 Fast | Routine to moderately complex tasks |
+| 1 | Haiku, Luna, Grok 4.5 | Simple, bounded tasks |
+
+The operator set this table after a seven-agent fleet review (4 Codex, 3 Claude) had first put Sonnet,
+Opus and Sol together in Tier 3: that flattened three models nobody considers equal. It is a judgment
+of routing, not a benchmark result; no head-to-head Sonnet 5.5 / Opus 5.5 / Sol data was available.
+It overrides the Grok placements and the Tier 4 family mappings recorded below, which stay as the
+history of how the table got here. The Model Class Check rule keeps its two-tier stop: a model stops
+on work two or more tiers above it, so Sonnet and Sol stop on Tier 5 work, Opus never stops (Tier 5 is
+one above), and Terra and the Grok 2s stop from Tier 4. Read-only scouting takes the tier of the decisions
+it feeds, and security or irreversibility sets verification and authorization separately from the tier.
+The advisor's "strongest" model is the first model of the highest populated tier.
+
+---
+
+History. Reviewed **2026-10-26** for the engine-maintenance run. Classes are the fleet's
 task-routing judgment, not provider-certified ratings or an account-access claim.
 They group capability across providers. Reasoning effort and serving speed remain
 separate controls; a faster serving variant does not imply a weaker model.
 
-## Grok corrections
+## Grok corrections (2026-10-26, superseded 2026-10-28)
+
+Tier numbers in this section and the next are the superseded four-tier values.
 
 | Model | Previous → current | Evidence and decision |
 | --- | --- | --- |
@@ -39,7 +63,7 @@ It corroborates naming, not current entitlement or current subscription capabili
 The current official guide supplies the same-model relationship. Public API efforts
 are not copied into the subscription catalog by this review.
 
-## Sonnet 2 → 3 (2026-10-28)
+## Sonnet 2 → 3 (2026-10-28, interim step before the five-tier ruling)
 
 A seven-agent fleet review (4 Codex, 3 Claude) with the operator's report that Sonnet and Sol are
 the daily drivers moved the Sonnet family from Tier 2 to Tier 3, beside Opus, Sol and Grok 4.7.
@@ -57,14 +81,14 @@ Dropping it altogether was proposed and left as an operator decision.
 
 ## Retained family classes
 
-Codex retains Luna 1, Terra 2, Sol 3 and Astra 4. Current
+Codex was Luna 1, Terra 2, Sol 3 and Astra 4 (Astra is now 5). Current
 [model selection guidance](https://learn.chatgpt.com/docs/model-selection) and
 [model documentation](https://learn.chatgpt.com/docs/models) distinguish focused
 repeatable work, efficient everyday work, complex technical work and the most
 demanding end-to-end reasoning. `gpt-6.1-terra` inherits the Terra class when its
 separate catalog addition lands; this review does not alter its capability metadata.
 
-Claude is Haiku 1, Sonnet 3, Opus 3 and Fable 4 (see Sonnet reclassification below). The current
+Claude was Haiku 1, Sonnet 3, Opus 3 and Fable 4 (Opus is now 4, Fable 5). The current
 [provider overview](https://platform.claude.com/docs/en/models/overview) positions
 Haiku for latency-sensitive volume, Sonnet for balanced speed and intelligence,
 Opus for sustained agentic coding, and Fable for demanding long-horizon reasoning.
