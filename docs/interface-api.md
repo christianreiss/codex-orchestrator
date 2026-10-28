@@ -987,7 +987,23 @@ All three engine config GET/store routes share the revision contract: `revision`
   supplies it; missing or ambiguous matches remain unbound. The address must also
   match the worktree directory (session `workspace.git_root`/`cwd`), so an agent
   that launched in the original checkout binds a linked worktree only after
-  `agent_context_update` moves its scope there. Registration replies carry
+  `agent_context_update` moves its scope there. One exception keeps a parent
+  binding: a separate repository nested inside the session's
+  `workspace.git_root` (a submodule or vendored clone) registers directly when
+  `clone_dir` is passed explicitly and names neither the parent's
+  `workspace.git_common_dir` nor the nested toplevel itself; a linked worktree
+  of the parent, or any path outside it, still needs `agent_context_update`
+  (`git_director_owner_required`). `clone_dir` must be
+  `git rev-parse --path-format=absolute --git-common-dir`: merge guards match a
+  git claim's `common_dir` against it, and a registration whose `clone_dir`
+  equals `repo_root` carries `clone_dir_hint`. A `remote_url` whose normalized
+  key differs from the one recorded for an existing clone is refused with
+  `git_director_remote_mismatch` (409, extra `recorded_remote_url`,
+  `remote_url`, `live_registrations`) while that clone has any `active` or
+  `uncertain` registration, so a typo cannot re-home a clone in use; other
+  spellings of the same repository are accepted, and a genuine move is accepted
+  once every live registration has released with `deregister: true`.
+  Registration replies carry
   `agent_address_bound` (as in `git_list`) and, when false, a `binding_hint`
   naming that repair. An unbound registration cannot have claims attributed to
   it: when only live active claims block a merge and the worktree has no live
@@ -1007,6 +1023,19 @@ All three engine config GET/store routes share the revision contract: `revision`
   `unknown`; legacy timed registrations retain their
   compatibility rules. Owner-mode merge grants expire after 15 minutes and
   `git_merge_status` never extends them; an expired grant requires a new request.
+  An API restart marks connection-owned registrations `uncertain`/`owner_restart`.
+  A `git_merge_request`/`git_merge_status` on a registration that is not
+  `active` is refused before the claim guard with `git_director_owner_uncertain`
+  (extra `status`, `uncertainty_reason`), naming the state and the recovery:
+  from the exact owning session, re-run `git_register` or call `git_join`, renew
+  uncertain claims, retry the same `client_request_id`. `git_join` by the exact
+  owning session restores such a registration to `active` and clears
+  `uncertainty_reason` together (never `active` with a stale reason), reporting
+  `restored_registration: {status, uncertainty_reason}`. When the registration
+  changes while an arbiter judged the request, `git_director_worktree_changed`
+  names what changed in its message and in extra `changed` (`status`, `clone`,
+  `worktree_path`, `ownership_proof`/`expires_at`, `binding`); HEAD is not part of
+  that check.
   `git_join` preserves declared paths when `paths` is omitted; an explicit
   `paths: []` clears previous write scope for read-only work.
   A merge decision compares the request's `changed_paths` with two sets, using
@@ -1049,7 +1078,12 @@ All three engine config GET/store routes share the revision contract: `revision`
   `worktrees_truncated`), `lease_count`, `leases` (id, worktree, branch,
   verdict, expiry; no reason or overlap) and `stale_count` (capped at 25).
   `detail: "full"` restores the complete entries (declared paths, lease reasons
-  and overlap, `stale` rows). `scope: "clone"` defaults to `full`.
+  and overlap, `stale` rows). `scope: "clone"` defaults to `full`. Optional
+  narrowing filters apply within any scope, before paging and `total`:
+  `remote_url` keeps clones whose recorded remote normalizes to the same
+  repository (ssh/scp/https spellings match; clones without a recorded remote
+  never match) and `clone_dir` keeps the clone with that exact git common dir.
+  Neither requires a registration. Without them the default page is unchanged.
   **Agent notifications.** With Messaging enabled, routine registration, scope,
   and module bookkeeping remains available through audit, WebSocket invalidation
   and `git_list`; it does not broadcast to ordinary native sessions. `git_join`
