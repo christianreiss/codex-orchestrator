@@ -48,6 +48,8 @@ type server struct {
 	lastUsed         time.Time
 	requests, shared uint64
 	lastError        string
+	// mcp is what forwarded /mcp frames experienced; see mcp_health.go.
+	mcp mcpHealth
 	// refusal is the server's host-credential verdict (401 / 403 host_*) on the last
 	// refused handshake; nil once a connection succeeds or fails for another reason.
 	refusal      *handshakeRefusal
@@ -479,7 +481,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/_comm/status":
 		residentView := s.residentView()
 		s.mu.Lock()
-		status := map[string]any{"protocol": Protocol, "version": s.version, "pid": os.Getpid(), "connected": s.conn != nil, "https_fallback": s.fallback, "sessions": s.leases, "requests": s.requests, "coalesced": s.shared, "last_error": s.lastError, "synced_at": s.lastSync, "sync_protocol": SyncProtocol, "sync_scopes": s.scopeViewsLocked(), "local_errors": s.localErrorsLocked()}
+		status := map[string]any{"protocol": Protocol, "version": s.version, "pid": os.Getpid(), "connected": s.conn != nil, "https_fallback": s.fallback, "sessions": s.leases, "requests": s.requests, "coalesced": s.shared, "last_error": s.lastError, "synced_at": s.lastSync, "sync_protocol": SyncProtocol, "sync_scopes": s.scopeViewsLocked(), "local_errors": s.localErrorsLocked(), "mcp": s.mcp.view()}
 		if s.conn != nil {
 			s.conn.mu.Lock()
 			if s.conn.stateEnabled {
@@ -690,6 +692,9 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.writeUnavailable(w, unknown)
 		return
+	}
+	if routed == "/mcp" {
+		s.noteMCPResult(result.Status, result.Body)
 	}
 	// The handler already finished. Retrying a write would repeat it. Idempotent
 	// reads can move to the unbounded HTTPS transfer and still return one body.

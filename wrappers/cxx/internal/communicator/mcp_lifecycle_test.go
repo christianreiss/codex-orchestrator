@@ -155,6 +155,11 @@ func (f *mcpFixture) dispatch(body []byte) (int, []byte) {
 		raw, _ := json.Marshal(replies)
 		return 200, raw
 	}
+	// The API's credential refusal for one frame (routes/communicator.ts): the
+	// control connection stays up while this bearer is rejected.
+	if bytes.Contains(trimmed, []byte(`"method":"unauthorized"`)) {
+		return 401, []byte(`{"code":"communicator_mcp_host_mismatch","message":"MCP credential does not belong to this connection"}`)
+	}
 	reply := f.one(trimmed)
 	if reply == nil {
 		return 202, nil
