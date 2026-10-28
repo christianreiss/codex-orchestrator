@@ -70,6 +70,19 @@ describe('Grok exact conditional native version floors', () => {
     expect(() => check('1.0.50', { ui: { theme: 'keys.vim' }, model: { 'features.ask_answer_rows': { temperature: 0.1 } } })).not.toThrow();
     expect(() => check(null, {})).not.toThrow();
   });
+  it('refuses features.zdr_access_enabled on hosts whose CLI no longer has it, without blocking older or unreported hosts', () => {
+    const zdr = { features: { zdr_access_enabled: true } };
+    expect(() => check('1.0.50', zdr)).not.toThrow();
+    expect(() => check('1.0.63', zdr)).not.toThrow();
+    expect(() => check(null, zdr)).not.toThrow();
+    expect(() => check('1.0.64', zdr)).toThrow('features.zdr_access_enabled was removed in Grok Build 1.0.64; observed 1.0.64');
+    expect(() => check('grok 1.0.70', { features: { zdr_access_enabled: false } })).toThrow('maximum_version = "1.0.63"');
+    // A layer limited to older clients is skipped by newer hosts, exactly as native does.
+    const layered = { version_overrides: [{ maximum_version: '1.0.63', features: { zdr_access_enabled: true } }] };
+    expect(() => check('1.0.70', layered)).not.toThrow();
+    expect(() => check('1.0.50', layered)).not.toThrow();
+    expect(() => check('1.0.70', { version_overrides: [{ minimum_version: '1.0.60', features: { zdr_access_enabled: true } }] })).toThrow('removed in Grok Build 1.0.64');
+  });
   it('checks applicable version patches while allowing older hosts to skip future layers', () => {
     expect(() => check('1.0.50', { version_overrides: [{ minimum_version: '1.0.68', keys: { vim: 'off' } }] })).not.toThrow();
     expect(() => check('1.0.67', { version_overrides: [{ maximum_version: '1.0.67', keys: { vim: 'off' } }] })).toThrow('1.0.68');

@@ -985,7 +985,24 @@ the fleet-managed keys (`model`, `modelSettings.<model>.effortLevel`, the compat
 legacy `effortLevel`, `mcpServers.<name>`, `env.<VAR>`, `statusLine`,
 `hooks.<Event>`, `permissions.{allow,ask,deny}`, `permissions.defaultMode`,
 `advisorModel`) and `owned_paths` are the leaf-granular dot-paths the fleet owns
-this run.
+this run. An optional `omitted: [{ path, value, reason }]` lists configured
+values withheld for this host because Claude Code would ignore them; wrappers
+ignore it, and the withheld key is not owned, so a previously written value is
+removed.
+
+Structured `advisorModel` accepts the native advisor aliases `opus`, `sonnet`
+and `fable` (case-insensitive) or a full Claude catalog model ID such as
+`claude-opus-5-5`; known legacy IDs are canonicalized. Store and preview reject
+with HTTP 422 (`param: settings.advisorModel`) an unknown value, an advisor
+whose native `advisor_rank` is below 2, or a session model whose rank exceeds the
+advisor's, because Claude Code would silently run without an advisor. Unknown
+ranks remain permissive, matching the native gate. `native_settings.advisorModel`
+may name custom IDs; it is checked only against the same rank rule
+(`param: native_settings.advisorModel`). Host rendering checks the effective
+host model, including a `claude_model_override`: an advisor that host's model
+outranks is omitted for that host only and reported in `omitted`, while the
+stored fleet value is unchanged. A stored invalid value stays visible as an admin
+read `validation_error` instead of being normalized away.
 
 ### Additional native user settings
 
@@ -1039,8 +1056,12 @@ Deprecated keys `includeCoAuthoredBy`, `disableArtifact`, `voiceEnabled`,
 `keybindingFlavor`, `taskOutputMaxChars`, `ignorePatterns`,
 `permissionExplainerEnabled`, and `teammateDefaultModel` are rejected with
 replacement/removal guidance. `model` and top-level `effortLevel` belong in the
-existing model controls. `apiKeyHelper` and `autoUpdatesChannel` cannot be set
-here because managed authentication and fleet version selection own them.
+existing model controls. `apiKeyHelper`, `autoUpdatesChannel` and
+`minimumVersion` cannot be set here because managed authentication and fleet
+version selection own them: managed launches disable native updates and refuse
+native install/update, so `minimumVersion` would have no effect. Idempotent
+migration 0115 removes stored `native_settings.minimumVersion` values without
+touching siblings or historical body/hash snapshots.
 Managed-only policy keys return an actionable scope error; putting them in user
 settings would not apply them. Global preferences that belong in `~/.claude.json`
 are also rejected by this user-settings field.

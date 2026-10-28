@@ -72,12 +72,31 @@ function grokNativeMinimum(native: Record<string, unknown>, observed?: string, i
   return minimum;
 }
 
+/**
+ * `features.zdr_access_enabled` is consumed through 1.0.63 and absent from the
+ * 1.0.64+ binaries (npm archive bisect, 2026-10-28). It still works on the
+ * 1.0.50 fleet baseline, so it is gated per observed host instead of rejected.
+ */
+const GROK_ZDR_REMOVED_IN = '1.0.64';
+function grokZdrApplies(native: Record<string, unknown>, observed: string): boolean {
+  if (Object.hasOwn(record(native.features), 'zdr_access_enabled')) return true;
+  return Array.isArray(native.version_overrides) && native.version_overrides.some(layer => {
+    const patch = record(layer);
+    if ((typeof patch.minimum_version === 'string' && versionCompare(observed, patch.minimum_version) < 0)
+      || (typeof patch.maximum_version === 'string' && versionCompare(observed, patch.maximum_version) > 0)) return false;
+    return Object.hasOwn(record(patch.features), 'zdr_access_enabled');
+  });
+}
+
 export function assertNativeConfigSupport(settings: unknown, host: Host | null, engine: Engine): void {
   if (!host) return;
   if (engine === 'grok') {
     const native = record(record(settings).native_settings);
     const raw = host.grokClientVersion;
     const observed = typeof raw === 'string' ? raw.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] : undefined;
+    if (observed && versionCompare(observed, GROK_ZDR_REMOVED_IN) >= 0 && grokZdrApplies(native, observed)) {
+      throw new ValidationError(`grok native setting features.zdr_access_enabled was removed in Grok Build ${GROK_ZDR_REMOVED_IN}; observed ${observed}. Remove it, or keep it for older hosts in a version_overrides layer with maximum_version = "1.0.63", then retry sync.`, { param: 'settings.native_settings.features.zdr_access_enabled' });
+    }
     const minimum = grokNativeMinimum(native, observed);
     if (minimum && (!observed || versionCompare(observed, minimum) < 0)) {
       throw new ValidationError(`grok native settings require CLI ${minimum} or newer; observed ${observed ?? 'unreported'}. Run cgx update (or cron run to report an already installed version), then retry sync.`, { param: 'settings.native_settings' });

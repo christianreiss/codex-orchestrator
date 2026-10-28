@@ -18,7 +18,12 @@ not disable externally provisioned policy. Config editors do not distribute
 referenced files. A path setting can be authored centrally while its referenced
 file must already exist where the native engine expects it. Authentication,
 account refresh, updater selection and managed MCP ownership continue through
-their existing fleet controls.
+their existing fleet controls. Native updater keys are therefore rejected in the
+user-settings editors with that reason: Claude `autoUpdatesChannel` and
+`minimumVersion`; Grok `cli.auto_update = true`, `cli.channel`,
+`cli.minimum_version`, `cli.maximum_version`, `cli.required_minimum_version`,
+`cli.required_maximum_version`, `cli.npm_registry` and `cli.installer` (root and
+`version_overrides`). Migration 0115 removed previously stored values.
 
 Use the official native mechanisms for the separate scopes:
 

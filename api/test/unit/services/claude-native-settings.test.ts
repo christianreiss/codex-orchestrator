@@ -385,6 +385,10 @@ describe('Claude native user settings', () => {
     expect(() => normalize({ managedMcpServers: {} })).toThrow('requires native managed settings');
     expect(() => normalize({ autoConnectIde: true })).toThrow('belongs in ~/.claude.json');
     expect(() => normalize({ apiKeyHelper: 'echo secret' })).toThrow('Authentication is owned');
+    expect(() => normalize({ autoUpdatesChannel: 'stable' })).toThrow('native_settings.autoUpdatesChannel: Native updates are disabled; use the fleet Claude version control.');
+    expect(() => normalize({ minimumVersion: '2.1.300' })).toThrow('native_settings.minimumVersion: Native updates are disabled; use the fleet Claude version control.');
+    expect(() => new ClientConfigService({} as never).render({ native_settings: { minimumVersion: '2.1.300' } }, 'claude'))
+      .toThrow(expect.objectContaining({ status: 422, param: 'native_settings.minimumVersion' }));
     expect(() => normalize({ model: 'retired-model' })).toThrow('Use the model control');
     expect(() => normalize({ sandbox: { network: { allowManagedDomainsOnly: true } } })).toThrow('requires native managed settings');
   });

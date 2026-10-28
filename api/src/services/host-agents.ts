@@ -407,6 +407,8 @@ export class HostAgentsService {
       sha256: rendered.sha256,
       partial: rendered.partial,
       owned_paths: rendered.owned_paths,
+      // Configured values withheld for this host (e.g. an advisor its model override outranks).
+      ...(rendered.omitted && { omitted: rendered.omitted }),
     };
   }
 

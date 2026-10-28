@@ -436,6 +436,25 @@ Native `version_overrides` accept validated version bounds and ordinary native
 patches. Conditional model, posture and MCP changes are rejected because those
 layers would bypass the corresponding fleet controls.
 
+Native updater policy is fleet-owned. Besides `cli.auto_update = true`, root and
+version-override layers reject `cli.channel`, `cli.minimum_version`,
+`cli.maximum_version`, `cli.npm_registry` and `cli.installer` (managed launches
+never run the native updater) and `cli.required_minimum_version` /
+`cli.required_maximum_version` (a bound outside the fleet target would make every
+managed launch refuse to start). `compat.claude|codex|cursor.sessions` is
+rejected as inert: the bundled compat guide documents it as staged with no
+consumer. Idempotent migration 0115 removes these exact stored paths from root
+and version-override layers; unrelated siblings, other engines and historical
+body/hash pairs remain intact.
+
+`features.zdr_access_enabled` disappeared from the binary in 1.0.64 (bisect of
+the SHA512-verified npm archives 1.0.60–1.0.70) but still works on the 1.0.50
+baseline, so it stays accepted and stored. Host sync refuses it, naming the
+observed version, for a host that reports 1.0.64 or newer when the key is at the
+root or in a layer applicable to that version. Unreported hosts are not blocked
+by this check. To keep it for older hosts, move it into a layer with
+`maximum_version = "1.0.63"`, which newer hosts skip.
+
 `owned_paths` remains a string array. Existing paths keep their dotted encoding;
 ambiguous nested paths use `json:["model","grok-4.7","extra_headers","X.Team"]`.
 This encoding requires **cxx 0.9.66**; host rendering rejects it for older or
