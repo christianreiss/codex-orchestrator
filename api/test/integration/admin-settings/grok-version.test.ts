@@ -19,12 +19,12 @@ async function buildApp() {
 }
 
 describe('Grok admin version controls', () => {
-  it('reports the native baseline without creating a global lock', async () => {
+  it('follows latest by default without creating a global lock', async () => {
     const { app, db } = await buildApp();
     const response = await app.inject({ method: 'GET', url: '/admin/grok/version' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({
-      client_version: '1.0.50',
+      client_version: 'latest',
       client_version_lock: null,
       client_version_enforce_exact: false,
     });
@@ -85,7 +85,7 @@ describe('Grok admin version controls', () => {
       available_client: { name: 'codex-cli', version: '0.137.0' },
       claude_available_client: { name: 'claude-cli', version: '2.1.170' },
       grok_available_client: { name: 'grok-cli', version: '1.0.50' },
-      grok_versions: { client_version: '1.0.50', client_version_lock: null },
+      grok_versions: { client_version: 'latest', client_version_lock: null },
     });
     expect(upstream).toHaveBeenCalledTimes(3);
     await app.close();

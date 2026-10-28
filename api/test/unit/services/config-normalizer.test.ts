@@ -71,7 +71,7 @@ describe('config-normalizer constants', () => {
     expect(CODEX_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
       'gpt-6.1-sol': 'low',
       'gpt-6.1-terra': 'low',
-      'gpt-6-astra': 'medium',
+      'gpt-6-astra': 'low',
       'gpt-6-sol': 'medium',
       'gpt-6-luna': 'medium',
       // Sol's catalog `default_reasoning_level` is `low`, not `medium`.
@@ -359,7 +359,7 @@ describe('normalizeReasoningEffort', () => {
   });
 
   it('returns each model native Codex default effort', () => {
-    expect(defaultCodexReasoningEffortForModel('gpt-6-astra')).toBe('medium');
+    expect(defaultCodexReasoningEffortForModel('gpt-6-astra')).toBe('low');
     expect(defaultCodexReasoningEffortForModel('gpt-5.6-sol')).toBe('low');
     expect(defaultCodexReasoningEffortForModel('gpt-5.6-terra')).toBe('medium');
     expect(defaultCodexReasoningEffortForModel('unknown')).toBeNull();
@@ -381,7 +381,7 @@ describe('normalizeSettings()', () => {
     const s = normalizeSettings({});
     expect(s.personality).toBe('friendly');
     expect(s.model).toBe('gpt-6-astra');
-    expect(s.model_reasoning_effort).toBe('medium');
+    expect(s.model_reasoning_effort).toBe('low');
     expect(s.notify).toEqual([]);
     expect(s.orchestrator_mcp_enabled).toBe(true);
     expect(s.features).toEqual({});

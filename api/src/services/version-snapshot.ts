@@ -207,7 +207,7 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
       const clientTarget = () =>
         get(`client_version${suffix}`) ??
         (engine === ENGINE_CODEX ? get('client_version') : undefined) ??
-        (engine === ENGINE_GROK ? GROK_MIN_CLIENT_VERSION : null);
+        (engine === ENGINE_GROK ? 'latest' : null);
       let rawClient = clientTarget();
       const usesReleaseCache = isLatestAlias(rawClient);
       if (usesReleaseCache && deps.refreshLatestClientVersion) {
@@ -224,7 +224,11 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
         engine === ENGINE_GROK && value !== null ? coerceGrokVersionToMinimum(value) : value;
       const clientOverride = effectiveVersion(exactLock ?? explicitOverride);
       return {
-        client_version: effectiveVersion(resolveClientVersion(rawClient, map, engine)),
+        // Grok follows the latest release unless pinned; if the release cache is empty
+        // (first boot, upstream down) the native floor is the safe target.
+        client_version: effectiveVersion(
+          resolveClientVersion(rawClient, map, engine) ?? (engine === ENGINE_GROK ? GROK_MIN_CLIENT_VERSION : null),
+        ),
         client_version_override: clientOverride,
         client_version_enforce_exact:
           exactLock !== null || flagValue(get(`client_version_enforce_exact${suffix}`), false),

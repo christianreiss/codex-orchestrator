@@ -59,7 +59,7 @@ export function isClientVersionStale(fetchedAt: string | null | undefined, now =
  */
 export const CODEX_MIN_CLIENT_VERSION = '0.125.0';
 
-/** Native config baseline, including `[ui].timestamps` introduced in 1.0.50. */
+/** Native config floor (`[ui].timestamps`, 1.0.50). Not a target: Grok follows the latest release unless pinned. */
 export const GROK_MIN_CLIENT_VERSION = '1.0.50';
 
 export class ClientVersionsService {
@@ -81,7 +81,7 @@ export class ClientVersionsService {
     ]);
     return {
       client_version: engine === 'grok'
-        ? coerceGrokVersionToMinimum(lock.value ?? client ?? GROK_MIN_CLIENT_VERSION)
+        ? coerceGrokVersionToMinimum(lock.value ?? client ?? 'latest')
         : client,
       wrapper_version: wrapper,
       client_version_checked_at: checkedAt,

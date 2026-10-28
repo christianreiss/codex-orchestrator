@@ -111,8 +111,11 @@ siblings, other engines and body/sha256 snapshots.
 
 ## Open limits
 
-- CGX-6: raise the Grok fleet target above 1.0.50 only on an explicit operator decision.
-- U-1 (Astra effort) and the stored-config scan for provider overrides that 0.165 will not load need
+- CGX-6: operator decided on 2026-10-28 to unpin and follow the latest Grok Build (code default `latest`,
+  1.0.50 stays the floor). A production `client_version_grok` or `client_version_lock_grok` row still wins
+  until Settings → Grok version is set to Latest.
+- U-1 (Astra effort): operator decided `low` on 2026-10-28 (code default; stored fleet/host values are
+  untouched). The stored-config scan for provider overrides that 0.165 will not load needs
   production database access; CDX-2 only blocks new input and rendering.
 - The live-session proof of the Grok hook move (hooks in the private `managed_config.toml`) is pending;
   it was proven with `inspect --json` against 1.0.50 and 1.0.70 only.

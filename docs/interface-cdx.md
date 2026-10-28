@@ -515,13 +515,15 @@ Codex CLI model and its model-dependent persistent effort. The endpoint writes
 Codex's native top-level `config.toml` keys, `model` and
 `model_reasoning_effort`, into the canonical Codex config document; this matches
 the official Codex config schema rather than introducing wrapper-only names.
-The fleet starts on `gpt-6-astra` at its native `medium` effort.
+The fleet starts on `gpt-6-astra` at `low` effort (operator decision 2026-10-28; the
+native Codex 0.164.0 catalog still reports `medium` for it). Per-host and Engines
+editor overrides win.
 
 | Models | Persistent efforts | Default effort |
 |---|---|---|
 | `gpt-6.1-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-6.1-terra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
-| `gpt-6-astra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
+| `gpt-6-astra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-6-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | `gpt-6-luna` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
 | `gpt-5.6-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
@@ -557,7 +559,7 @@ effort list do not replace it. The earlier cache and bundled release omitted
 Terra, so a missing earlier cache entry is not retirement evidence. Existing
 GPT-5.6 Terra stays available; the opt-in latest-family policy resolves it to
 GPT-6.1 Terra without rewriting stored selections. Fleet default remains Astra
-at medium. Native context metadata reports 500,000 default / 872,000 maximum;
+at low. Native context metadata reports 500,000 default / 872,000 maximum;
 Codex owns dynamic context selection, and the fleet adds no fixed context override.
 
 The GET response's `catalog` is the machine-readable source of truth for these

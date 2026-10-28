@@ -1,6 +1,6 @@
 /** Fleet defaults for new Codex configs and OpenAI-compatible requests. */
 export const DEFAULT_CODEX_MODEL = 'gpt-6-astra';
-export const DEFAULT_CODEX_REASONING_EFFORT = 'medium';
+export const DEFAULT_CODEX_REASONING_EFFORT = 'low';
 
 export const FORCE_UPGRADE_MODEL = DEFAULT_CODEX_MODEL;
 /** Compatibility export; actual migrations preserve valid effort or use the successor default. */
