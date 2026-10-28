@@ -117,6 +117,22 @@ function liveSuccessor(owner: OwnerRuntime, snapshot: OwnerStateSnapshot, sessio
   });
 }
 
+/**
+ * The holder, or a successor resumed from the same native transcript, is
+ * attached right now. Unlike {@link holderReleasable} there is no grace: a
+ * holder that is merely still inside its reconnect grace is not attached.
+ */
+export function holderAttached(owner: OwnerRuntime, snapshot: OwnerStateSnapshot, sessionId: string | null): boolean {
+  if (!sessionId) return false;
+  const session = snapshot.sessions.get(sessionId);
+  if (!session) return false;
+  if (!session.endedAt && sessionAttached(owner, snapshot, sessionId)) return true;
+  if (!session.agentBusAddressId || !session.upstreamSessionId) return false;
+  return snapshot.sessions.by('agentBusAddressId', session.agentBusAddressId).some((next) =>
+    next.id !== session.id && !next.endedAt && next.upstreamSessionId === session.upstreamSessionId &&
+    sessionAttached(owner, snapshot, next.id));
+}
+
 /** The holder session is gone and nobody can continue its work: release what it holds. */
 export function holderReleasable(
   owner: OwnerRuntime,

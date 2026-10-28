@@ -636,3 +636,90 @@ describe('archivableClones', () => {
     expect(picked.map((row) => row.id)).toEqual(['idle']);
   });
 });
+
+describe('peer declarations of registrations whose owner is not attached', () => {
+  const edit = (h: ReturnType<typeof setup>, apply: (draft: ReturnType<typeof h.state.begin>) => void) => {
+    const draft = h.state.begin();
+    apply(draft);
+    const revision = h.state.revision();
+    h.state.publish(draft.seal({ ...revision, sequence: revision.sequence + 1n }));
+  };
+  // A second, attached agent in its own linked worktree of the same clone.
+  const joiner = async (h: ReturnType<typeof setup>) => {
+    const id = randomUUID(), address = randomUUID(), token = 'joiner-native';
+    await mutateOwnerState(h.owner, { kind: 'test.joiner-native', payload: {}, prepare(ctx) {
+      const session = ctx.snapshot.sessions.get(h.sessionId)!;
+      ctx.draft.upsert('agentSessions', { ...session, id, cwd: '/repo-b', endedAt: null, bindingGeneration: 1, agentBusAddressId: address, upstreamSessionId: randomUUID(), bridgeTokenHash: sha256(token) });
+      const row = ctx.snapshot.addresses.get(session.agentBusAddressId!)!;
+      ctx.draft.upsert('agentBusAddresses', { ...row, id: address, address: 'agent:' + address, currentSessionId: id, bindingGeneration: 1 });
+      return null;
+    } });
+    h.presence.attach({ connectionId: randomUUID(), hostId: 1, username: 'root', scope: { topic: 'session', session_id: id, binding_generation: 1, native_instance_id: randomUUID() } });
+    const as = <T>(run: () => Promise<T>) => withNativePrincipal({ sessionId: id, bridgeToken: token }, run);
+    await as(() => h.git.register({ worktree_path: '/repo-b', clone_dir: '/repo/.git', repo_root: '/repo-b', engine: 'codex', username: 'root', branch: 'task-b' }, h.host));
+    return { id, token, as, join: () => as(() => h.git.join({ worktree_path: '/repo-b', target_branch: 'main', paths: ['src/x.ts'] }, h.host)) };
+  };
+  const declare = async (h: ReturnType<typeof setup>) => {
+    const as = <T>(run: () => Promise<T>) => withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, run);
+    const registered = await as(() => h.git.register({ worktree_path: '/repo', clone_dir: '/repo/.git', repo_root: '/repo', engine: 'codex', username: 'root', branch: 'work' }, h.host));
+    await as(() => h.git.join({ worktree_path: '/repo', target_branch: 'main', paths: ['src'] }, h.host));
+    return String(registered.worktree_id);
+  };
+
+  it('reports owner_restart declarations of absent owners as stale after an API restart, and counts them again once the owner reattaches', async () => {
+    const h = setup();
+    const peer = await declare(h);
+    // API restart: bootstrap marks every registration uncertain/owner_restart
+    // and nobody has reattached yet.
+    edit(h, (draft) => draft.upsert('gitWorktrees', { ...draft.table('gitWorktrees').get(peer)!, status: 'uncertain', uncertaintyReason: 'owner_restart' }));
+    h.live.detach();
+    const b = await joiner(h);
+    const joined = await b.join();
+    expect(joined.peer_overlap).toEqual([]);
+    expect(joined.stale_peer_overlap).toEqual([
+      expect.objectContaining({ worktree_id: peer, worktree_path: '/repo', paths: ['src/x.ts'], status: 'uncertain', uncertainty_reason: 'owner_restart' }),
+    ]);
+    // Still within the grace: the registration itself keeps its exclusion.
+    expect(h.state.snapshot().table('gitWorktrees').get(peer)).toMatchObject({ status: 'uncertain', uncertaintyReason: 'owner_restart' });
+
+    await h.service.claims.acquire(b.id, b.token, { client_request_id: randomUUID(), purpose: 'stale peer merge', resources: [{ kind: 'path', host_id: 1, path: '/repo-b' }, { kind: 'git', host_id: 1, common_dir: '/repo/.git', branch: 'main' }] });
+    const merge = await b.as(() => h.git.requestMerge({ worktree_path: '/repo-b', target_branch: 'main', client_request_id: randomUUID(), changed_paths: ['src/x.ts'] }, h.host));
+    expect(merge).toMatchObject({ verdict: 'allow', overlap: [], peer_overlap: [], reason: 'No lease is held on this branch and no declared paths overlap.' });
+    expect(merge.stale_peer_overlap).toEqual([expect.objectContaining({ worktree_id: peer, paths: ['src/x.ts'] })]);
+    await b.as(() => h.git.release({ worktree_path: '/repo-b' }, h.host));
+
+    // The same native instance reattaches without restoring the row yet: its
+    // declarations count again.
+    h.attach();
+    const again = await b.join();
+    expect(again.peer_overlap).toEqual([expect.objectContaining({ worktree_id: peer, paths: ['src/x.ts'] })]);
+    expect(again.stale_peer_overlap).toBeUndefined();
+  });
+
+  it('counts a disconnected registration while a same-transcript successor is attached, not while that successor is merely within grace', async () => {
+    const h = setup();
+    const peer = await declare(h);
+    h.live.detach();
+    const next = await resumeNativeFixture(h.owner, h.presence, h.sessionId);
+    await h.git.reconcileOwned();
+    expect(h.state.snapshot().table('gitWorktrees').get(peer)).toMatchObject({ status: 'uncertain', uncertaintyReason: 'disconnected' });
+    const b = await joiner(h);
+    const attached = await b.join();
+    expect(attached.peer_overlap).toEqual([expect.objectContaining({ worktree_id: peer })]);
+    expect(attached.stale_peer_overlap).toBeUndefined();
+    next.live.detach();
+    const detached = await b.join();
+    expect(h.state.snapshot().table('gitWorktrees').get(peer)?.status).toBe('uncertain');
+    expect(detached.peer_overlap).toEqual([]);
+    expect(detached.stale_peer_overlap).toEqual([expect.objectContaining({ worktree_id: peer, uncertainty_reason: 'disconnected' })]);
+  });
+
+  it('keeps an attached active peer counting', async () => {
+    const h = setup();
+    const peer = await declare(h);
+    const b = await joiner(h);
+    const joined = await b.join();
+    expect(joined.peer_overlap).toEqual([expect.objectContaining({ worktree_id: peer, paths: ['src/x.ts'] })]);
+    expect(joined.stale_peer_overlap).toBeUndefined();
+  });
+});

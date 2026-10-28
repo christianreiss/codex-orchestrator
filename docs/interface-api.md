@@ -1088,6 +1088,17 @@ All three engine config GET/store routes share the revision contract: `revision`
   (`[{worktree_id, worktree_path, username, branch, paths}]`), and the reason
   names each peer worktree and its overlapping paths; an otherwise uncontended
   request stays `allow` by `policy`.
+  In owner mode an `uncertain` registration counts as a peer only while its
+  owner is attached: the registering session (or its legacy drain), or a
+  successor resumed from the same native transcript. A merely disconnected
+  holder still inside the reconnect grace does not — otherwise, after an API
+  restart, every `owner_restart` registration would isolate each new joiner for
+  the whole grace. Such possibly stale declarations stay out of `peer_overlap`,
+  `overlap`, the reason and notice recipients, and are reported separately as
+  `stale_peer_overlap` (the `peer_overlap` fields plus `status` and
+  `uncertainty_reason`; present only when non-empty) on `git_join` and on a fresh
+  merge verdict. The registration itself keeps its path exclusion until it is
+  restored or abandoned.
   Each listed worktree's `branch` and `head_sha` are the snapshot its agent last
   reported, never a live read; `head_observed_at` (additive, nullable) is when
   that `head_sha` was reported. `git_register` sets both (an omitted `head_sha`
@@ -1118,7 +1129,7 @@ All three engine config GET/store routes share the revision contract: `revision`
   **Agent notifications.** With Messaging enabled, routine registration, scope,
   and module bookkeeping remains available through audit, WebSocket invalidation
   and `git_list`; it does not broadcast to ordinary native sessions. `git_join`
-  still returns `peer_overlap`. Scope/branch changes and reported merges notify
+  still returns `peer_overlap` (and `stale_peer_overlap`, see above). Scope/branch changes and reported merges notify
   only exactly bound current waiters on affected target branches, including the
   previous branch on a scope change. Merge requests notify overlapping owners and
   the current holder; changed decisions/blockers, releases and expiry preserve
