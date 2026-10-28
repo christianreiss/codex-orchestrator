@@ -272,7 +272,9 @@ func claudeSettingsPermissionMode() (mode string, model string) {
 }
 
 // modelLikelySupportsAutoMode screens out the families upstream names as
-// unsupported -- Sonnet 4.5, Opus 4.5, Haiku and claude-3. It deliberately does
+// unsupported -- Sonnet 4.5, Opus 4.5, Haiku 4.5 and claude-3. Haiku 5.5 (and the
+// bare "haiku" alias, which resolves to it) supports auto mode, so Haiku is not
+// screened by family; only its 4.5 and claude-3 generations match. It deliberately does
 // not encode a version matrix: the supported set moves, and a wrapper that
 // asserted it would drift into lying. An unknown model is treated as supported so
 // this warns about what is known, never about what it merely fails to recognise.
@@ -281,7 +283,7 @@ func modelLikelySupportsAutoMode(model string) bool {
 	if m == "" {
 		return true
 	}
-	for _, unsupported := range []string{"haiku", "claude-3", "-4-5", "4.5"} {
+	for _, unsupported := range []string{"claude-3", "-4-5", "4.5"} {
 		if strings.Contains(m, unsupported) {
 			return false
 		}

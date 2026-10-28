@@ -133,3 +133,61 @@ func TestUnsupportedNativeSchemaSkipsWithoutFailure(t *testing.T) {
 		t.Fatalf("%+v %v", r, err)
 	}
 }
+
+// Codex 0.165 creates memories_v2_1.sqlite for memory-enabled profiles. It uses
+// the same stage1_outputs layout as memories_1, so it is a supported database
+// with the same per-thread cleanup, alone or beside the v1 file.
+func TestCodexMemoriesV2DatabaseIsSupported(t *testing.T) {
+	const mem = `CREATE TABLE stage1_outputs(thread_id TEXT PRIMARY KEY,summary TEXT);INSERT INTO stage1_outputs VALUES('` + idOld + `','x'),('keep-me','y');`
+	for name, files := range map[string][]string{
+		"v2 only": {"memories_v2_1.sqlite"},
+		"both":    {"memories_1.sqlite", "memories_v2_1.sqlite"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			old := fileAt(t, root, "sessions/x/rollout-date-"+idOld+".jsonl", 40)
+			createDB(t, filepath.Join(root, "state_5.sqlite"), codex0162State+`INSERT INTO threads VALUES('`+idOld+`','',0,0,0);`)
+			for _, f := range files {
+				createDB(t, filepath.Join(root, f), mem)
+			}
+			r, err := Run(context.Background(), opts(root, "codex", testServer()))
+			if err != nil || r.Outcome != "completed" || r.Deleted != 1 {
+				t.Fatalf("%+v %v", r, err)
+			}
+			exists(t, old, false)
+			for _, f := range files {
+				db, err := openTestDB(filepath.Join(root, f))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var n, kept int
+				db.QueryRow(`SELECT count(*) FROM stage1_outputs WHERE thread_id=?`, idOld).Scan(&n)
+				db.QueryRow(`SELECT count(*) FROM stage1_outputs WHERE thread_id='keep-me'`).Scan(&kept)
+				db.Close()
+				if n != 0 || kept != 1 {
+					t.Fatalf("%s: removed-thread rows=%d, unrelated rows=%d", f, n, kept)
+				}
+			}
+		})
+	}
+}
+
+// A memories_v2_1 with a layout cxx does not know still fails closed, and a
+// version we do not list (memories_v2_2) is not silently accepted.
+func TestCodexMemoriesV2UnknownLayoutSkips(t *testing.T) {
+	root := t.TempDir()
+	old := fileAt(t, root, "sessions/x/rollout-date-"+idOld+".jsonl", 40)
+	createDB(t, filepath.Join(root, "state_5.sqlite"), codex0162State+`INSERT INTO threads VALUES('`+idOld+`','',0,0,0);`)
+	createDB(t, filepath.Join(root, "memories_v2_1.sqlite"), `CREATE TABLE stage1_outputs(id TEXT);`)
+	r, err := Run(context.Background(), opts(root, "codex", testServer()))
+	if err != nil || r.Outcome != "skipped" || r.Reason != "unsupported_native_database" || !strings.Contains(r.Detail, "memories_v2_1.sqlite/stage1_outputs: missing thread_id") {
+		t.Fatalf("%+v %v", r, err)
+	}
+	exists(t, old, true)
+
+	root = t.TempDir()
+	createDB(t, filepath.Join(root, "memories_v2_2.sqlite"), `CREATE TABLE stage1_outputs(thread_id TEXT);`)
+	if r, err = Run(context.Background(), opts(root, "codex", testServer())); err != nil || r.Reason != "unsupported_native_database" {
+		t.Fatalf("%+v %v", r, err)
+	}
+}

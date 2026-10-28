@@ -117,7 +117,7 @@ func (d database) require(table string, cols ...string) error {
 	return nil
 }
 
-var codexSupportedDatabases = map[string]bool{"state_5.sqlite": true, "thread_history_1.sqlite": true, "goals_1.sqlite": true, "queue_1.sqlite": true, "logs_2.sqlite": true, "memories_1.sqlite": true}
+var codexSupportedDatabases = map[string]bool{"state_5.sqlite": true, "thread_history_1.sqlite": true, "goals_1.sqlite": true, "queue_1.sqlite": true, "logs_2.sqlite": true, "memories_1.sqlite": true, "memories_v2_1.sqlite": true}
 var versionedDatabase = regexp.MustCompile(`^([a-z][a-z_]*?)_([0-9]+)\.sqlite$`)
 
 // supersededDatabase reports whether name is an older version of a supported
@@ -195,7 +195,8 @@ func nativeDatabases(root, engine string) ([]database, error) {
 			err = d.require("thread_items", "thread_id")
 		case "logs_2.sqlite":
 			err = d.require("logs", "thread_id")
-		case "memories_1.sqlite":
+		case "memories_1.sqlite", "memories_v2_1.sqlite":
+			// Codex 0.165 memory v2 reuses the v1 stage1_outputs layout.
 			err = d.require("stage1_outputs", "thread_id")
 		case "session_search.sqlite":
 			err = d.require("session_docs", "session_id", "title", "content")
