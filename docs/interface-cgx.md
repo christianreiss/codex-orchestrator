@@ -302,10 +302,15 @@ decoding Brotli. It does not run npm lifecycle scripts. A verified private CLI
 lives below `~/.cxx/engines/grok`; updates retain the previous installation.
 Grok's native self-updater is disabled for managed processes.
 
-Version 1.0.50 is the native settings floor (`ui.timestamps` requires it).
-Stored older fleet targets, global locks and host pins remain available as
-historical preferences, but API snapshots and the wrapper installer resolve
-their effective target to at least 1.0.50. The version settings page displays
+Version 1.0.50 is the native settings floor (`ui.timestamps` requires it), not a
+target. With no stored fleet target the server follows the latest released
+Grok Build (`latest`: npm `@xai-official/grok`, same one-hour cache as Claude
+Code); operator decision 2026-10-28, replacing the earlier 1.0.50 pin. While no
+release is cached the floor is served. An exact fleet lock or host pin still
+wins (`POST /admin/grok/version`; selecting Latest stores `latest` and clears
+the lock). Stored older fleet targets, global locks and host pins remain
+available as historical preferences, but API snapshots and the wrapper
+installer resolve their effective target to at least 1.0.50. The version settings page displays
 this minimum. A launch with an already installed older binary fails before
 config sync or account leasing and names `cgx update` (or a supported
 `CGX_GROK_BIN`) as the remedy. Update policy and explicit binary overrides

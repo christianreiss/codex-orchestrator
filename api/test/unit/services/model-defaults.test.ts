@@ -91,7 +91,7 @@ describe('ModelDefaultsService', () => {
     expect(codex).toMatchObject({
       engine: 'codex',
       model: 'gpt-6-astra',
-      reasoning_effort: 'medium',
+      reasoning_effort: 'low',
     });
     expect(codex.catalog).toEqual([
       {
@@ -108,7 +108,7 @@ describe('ModelDefaultsService', () => {
       {
         model: 'gpt-6-astra',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-        default_effort: 'medium',
+        default_effort: 'low',
       },
       {
         model: 'gpt-6-sol',

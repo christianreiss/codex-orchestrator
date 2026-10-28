@@ -3,7 +3,6 @@ import {
   CACHE_TTL_SECONDS,
   ClientVersionsService,
   CODEX_MIN_CLIENT_VERSION,
-  GROK_MIN_CLIENT_VERSION,
   coerceGrokVersionToMinimum,
   isSupportedGrokVersion,
   isClientVersionStale,
@@ -531,11 +530,11 @@ describe('Grok version isolation', () => {
     expect(settings.set).not.toHaveBeenCalled();
     expect(settings.store.get('github_release_grok-cli')).toEqual(cached);
   });
-  it('uses the reviewed baseline without creating a forced global lock', async () => {
+  it('follows the latest release by default without creating a forced global lock', async () => {
     const settings = makeSettings({ client_version_codex: '0.137.0', client_version_lock: '0.136.0' });
     const summary = await new ClientVersionsService(settings as never).versionSummary('grok');
     expect(summary).toMatchObject({
-      client_version: GROK_MIN_CLIENT_VERSION,
+      client_version: 'latest',
       client_version_lock: null,
       client_version_enforce_exact: false,
     });

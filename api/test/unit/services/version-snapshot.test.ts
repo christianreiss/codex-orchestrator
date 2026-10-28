@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   applyHostClientVersionPin,
   applyHostVersionPolicy,
@@ -245,7 +245,7 @@ describe('applyHostClientVersionPin', () => {
 });
 
 describe('Grok snapshot isolation', () => {
-  it('starts at the verified baseline and shares only wrapper metadata', async () => {
+  it('falls back to the native floor while no release is cached and shares only wrapper metadata', async () => {
     const service = createVersionSnapshotService({
       db: makeDb([
         { name: 'client_version', version: '0.137.0' },
@@ -264,6 +264,19 @@ describe('Grok snapshot isolation', () => {
       wrapper_version: '0.8.0',
       cgx_silent: false,
     });
+  });
+  it('follows the cached latest release when no Grok target is stored', async () => {
+    const fetched = '2026-10-28T09:00:00Z';
+    const refresh = vi.fn(async () => {});
+    const service = createVersionSnapshotService({
+      db: makeDb([
+        { name: 'github_release_grok-cli', version: JSON.stringify({ name: 'grok-cli', version: '1.0.70', fetched_at: fetched }) },
+      ]),
+      installationId: null,
+      refreshLatestClientVersion: refresh,
+    });
+    expect(await service.summary('grok')).toMatchObject({ client_version: '1.0.70', client_version_fetched_at: fetched });
+    expect(refresh).toHaveBeenCalledWith('grok');
   });
   it('reads only Grok latest metadata and runner state', async () => {
     const fetched = '2026-10-01T09:00:00Z';

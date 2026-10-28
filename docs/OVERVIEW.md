@@ -742,7 +742,7 @@ status stays available. See [installation](INSTALL.md#instance-management).
   short-lived bearer). The task-oriented console deliberately exposes the
   supported model controls only in `/admin/engines`, so it never creates a
   second generic config/settings owner. New advanced payloads default to
-  `model = "gpt-6-astra"` with `model_reasoning_effort = "medium"`,
+  `model = "gpt-6-astra"` with `model_reasoning_effort = "low"`,
   `personality = "friendly"`, `[features].apps = true`,
   `[features].fast_mode = true`, `[features].memories = true`, and
   `[features].multi_agent = true`; `guardian_approval`, `js_repl`,

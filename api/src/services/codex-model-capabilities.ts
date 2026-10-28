@@ -14,11 +14,13 @@ export const MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>
 /**
  * `default_reasoning_level` as reported by the Codex CLI model catalog.
  * Verified against codex-cli 0.164.0 models_cache.json, 2026-10-26.
+ * Exception: `gpt-6-astra` is `low` by operator decision (2026-10-28), matching
+ * the 0.165.0 bundled catalog; per-host and fleet overrides still win.
  */
 export const CODEX_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string>> = {
   'gpt-6.1-sol': 'low',
   'gpt-6.1-terra': 'low',
-  'gpt-6-astra': 'medium',
+  'gpt-6-astra': 'low',
   'gpt-6-sol': 'medium',
   'gpt-6-luna': 'medium',
   'gpt-5.6-sol': 'low',

@@ -26,7 +26,7 @@ describe('public Codex GPT-6.1 Terra', () => {
     expect(resolveRequestedModel(model)).toBe(model);
     expect(buildModelList().data.map(entry => entry.id)).toContain(model);
     const db = createDbFake();
-    expect(await new ModelDefaultsService(db as never).get('codex')).toMatchObject({ model: 'gpt-6-astra', reasoning_effort: 'medium' });
+    expect(await new ModelDefaultsService(db as never).get('codex')).toMatchObject({ model: 'gpt-6-astra', reasoning_effort: 'low' });
     expect(db.inserts).toHaveLength(0);
     const backend = createGatewayBackends({ db: db as never, env: {} as never, keyring: {} as never }).get('codex');
     expect(await backend.models.resolve(model)).toBe(model);

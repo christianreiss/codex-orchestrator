@@ -18,8 +18,10 @@ describe('known Codex model migrations', () => {
 
   it.each(['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.2', 'gpt-5.5', 'gpt-5.3-codex-spark'])('preserves compatible efforts for %s and defaults invalid efforts', old => {
     expect(normalizeStoredCodexEffort('low', old)).toBe('low');
-    expect(normalizeStoredCodexEffort('minimal', old)).toBe(old === 'gpt-5.5' ? 'low' : 'medium');
-    expect(normalizeStoredCodexEffort(null, old)).toBe(old === 'gpt-5.5' ? 'low' : 'medium');
+    // gpt-5.5 -> 6.1 Sol and gpt-5.2 / spark -> Astra default to `low`; 5.4 -> Sol and 5.4-mini -> Luna to `medium`.
+    const fallback = ['gpt-5.4', 'gpt-5.4-mini'].includes(old) ? 'medium' : 'low';
+    expect(normalizeStoredCodexEffort('minimal', old)).toBe(fallback);
+    expect(normalizeStoredCodexEffort(null, old)).toBe(fallback);
   });
 
   it('defaults an incompatible retired-mini effort and preserves current/custom selections', () => {
