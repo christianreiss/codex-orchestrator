@@ -2183,6 +2183,12 @@ export class GitDirectorService {
       host_id: clone.hostId,
       fqdn: host?.fqdn ?? null,
       repo_root: clone.repoRoot,
+      clone_dir: clone.cloneDir,
+      // clone_dir is the identity that claims and leases are matched on. Equal to
+      // the checkout root means the caller passed --show-toplevel, not --git-common-dir.
+      ...(clone.cloneDir === clone.repoRoot
+        ? { clone_dir_hint: 'clone_dir equals repo_root; pass git rev-parse --git-common-dir (usually <toplevel>/.git) so resource claims using that common_dir match this registration' }
+        : {}),
       remote_url: clone.remoteUrl,
       remote_key: clone.remoteKey,
       last_seen_at: clone.lastSeenAt,

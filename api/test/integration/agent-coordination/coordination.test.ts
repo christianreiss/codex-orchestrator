@@ -515,6 +515,13 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       changed_paths: ['a.ts'],
     };
     await expect(director.requestMerge(args, host)).rejects.toThrow('Acquire live path');
+    // The refusal names what is missing and which clone_dir the claim must use.
+    const refusal = director.requestMerge(args, host);
+    await expect(refusal).rejects.toMatchObject({
+      code: 'resource_claim_required',
+      extra: { registered_clone_dir: source + '/.git' },
+    });
+    await expect(refusal).rejects.toThrow(`git common_dir=${source}/.git branch=main`);
     const claim = await service.claims.acquire(a.id, a.token, {
       purpose: 'merge moved worktree',
       client_request_id: randomUUID(),
@@ -532,6 +539,23 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       outcome: 'completed',
       reason: 'test completed',
     });
+  });
+  it('hints when clone_dir was registered as the checkout root instead of the git common dir', async () => {
+    const root = `/tmp/hint-root-${suffix}`;
+    const a = await register('codex', root);
+    const db = handle!.db;
+    await db
+      .insert(versions)
+      .values({ name: 'git_director_enabled', version: '1', updatedAt: new Date().toISOString() })
+      .onDuplicateKeyUpdate({ set: { version: '1' } });
+    const director = new GitDirectorService({ db, settings: new SettingsService(db) });
+    const base = { worktree_path: root, repo_root: root, username: a.id, engine: 'codex', branch: 'main' };
+    const wrong = await director.register({ ...base, clone_dir: root }, host);
+    expect(wrong.clone).toMatchObject({ clone_dir: root });
+    expect(String((wrong.clone as Record<string, unknown>).clone_dir_hint)).toContain('git-common-dir');
+    const right = await director.register({ ...base, clone_dir: root + '/.git' }, host);
+    expect(right.clone).toMatchObject({ clone_dir: root + '/.git' });
+    expect(right.clone).not.toHaveProperty('clone_dir_hint');
   });
   it('names an unbound registration as the merge blocker and allows the same request after binding', async () => {
     const launch = `/tmp/unbound-launch-${suffix}`,

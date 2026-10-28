@@ -114,18 +114,24 @@ export async function guardGitMutation(
           liveClaim(c),
       )
       .flatMap((c) => c.resources as Resource[]);
-    const covered = resources.every((r) =>
+    const isCovered = (r: Resource) =>
       own.some((a) => {
         if (!overlaps(a, r)) return false;
         if (a.kind === 'path' && r.kind === 'path')
           return r.path === a.path || r.path.startsWith(a.path === '/' ? '/' : a.path + '/');
         return true;
-      }),
-    );
-    if (!covered)
+      });
+    const missing = resources.filter((r) => !isCovered(r));
+    if (missing.length)
       throw new ConflictError(
-        'Acquire live path and target-branch claims before requesting this merge',
+        'Acquire live path and target-branch claims before requesting this merge. Missing: ' +
+          missing
+            .map((r) => (r.kind === 'git' ? `git common_dir=${r.common_dir} branch=${r.branch}` : r.kind === 'path' ? `path ${r.path}` : r.kind))
+            .join('; ') +
+          `. The git claim must use this registration's clone_dir (${clone.cloneDir}); if your claim names the real ` +
+          '`git rev-parse --git-common-dir` (usually <toplevel>/.git), re-register the worktree with that clone_dir.',
         'resource_claim_required',
+        { missing, registered_clone_dir: clone.cloneDir },
       );
   }
 }
