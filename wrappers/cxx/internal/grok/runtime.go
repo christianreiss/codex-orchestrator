@@ -71,7 +71,28 @@ type Runtime struct {
 	effective                             string
 	sessionLease                          *ipc.Lock
 	privateDirectory                      *PrivateDirectory
+	// Warnings are launch notices for degraded but working private homes.
+	Warnings []string
 }
+
+// Native home assets carried into the private GROK_HOME, decided against the
+// Grok Build 1.0.50 and 1.0.70 home contract (docs/interface-cgx.md).
+var (
+	// Shared by directory link: user-authored content or native state that
+	// must persist; no native sandbox profile refuses these links.
+	runtimeLinkedAssets = []string{"sessions", "worktrees", "memory", "memory-v2", "rules", "skills", "commands", "personas", "roles", "agents", "plugins", "installed-plugins", "plugin-data", "marketplace-cache", "workflows"}
+	// Built-in bundle caches stay linked so updates persist, but every
+	// write-denying sandbox profile refuses a linked cache; see Configure.
+	runtimeBundleAssets = []string{"bundled", "bundles"}
+	// Read-only snapshots. Native replaces these by atomic rename and a
+	// sandbox requires real files, so a link would neither persist nor start.
+	// Trust, grants and policy decided in a private session are never written
+	// back to the operator's store; auth, credentials and account-bound sync
+	// caches are never carried.
+	runtimeCopiedAssets = []string{"AGENTS.md", "CLAUDE.md", "Claude.md", "claude.md", "GROK.md", "config.toml", "pager.toml", "lsp.json",
+		"requirements.toml", "managed_config.toml", "managed_config.sig.json", "managed_identity.sig.json",
+		"sandbox.toml", "sandbox_grants.toml", "trusted_folders.toml", "trusted-plugins", "trusted-hook-projects", "hooks-paths", "disabled-hooks"}
+)
 
 func nativeProjection(raw json.RawMessage) (map[string]json.RawMessage, string, Credential, error) {
 	var envelope struct {
@@ -172,7 +193,7 @@ func NewRuntime(baseHome string, cfg *config.Config, client *orchestrator.Client
 		r.Close()
 		return nil, err
 	}
-	for _, name := range []string{"sessions", "worktrees", "memory", "memory-v2", "rules", "skills", "commands", "personas", "agents", "bundled", "plugins"} {
+	for _, name := range append(append([]string(nil), runtimeLinkedAssets...), runtimeBundleAssets...) {
 		path := filepath.Join(baseHome, name)
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			if name != "sessions" {
@@ -191,7 +212,7 @@ func NewRuntime(baseHome string, cfg *config.Config, client *orchestrator.Client
 			return nil, err
 		}
 	}
-	for _, name := range []string{"AGENTS.md", "CLAUDE.md", "Claude.md", "claude.md", "GROK.md", "config.toml", "requirements.toml", "managed-config.toml", "trusted-plugins", "trusted-hook-projects"} {
+	for _, name := range runtimeCopiedAssets {
 		if err := copyOptional(filepath.Join(baseHome, name), filepath.Join(r.Home, name)); err != nil {
 			r.Close()
 			return nil, err
@@ -247,6 +268,11 @@ func copyOptional(source, dest string) error {
 		return err
 	}
 	defer f.Close()
+	if info, err := f.Stat(); err != nil {
+		return err
+	} else if !info.Mode().IsRegular() {
+		return nil
+	}
 	raw, err := io.ReadAll(io.LimitReader(f, (16<<20)+1))
 	if err != nil {
 		return err
@@ -661,15 +687,193 @@ func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool, 
 	if err := AtomicWrite(filepath.Join(r.Home, "config.toml"), []byte(data), 0o600); err != nil {
 		return err
 	}
+	var args []string
+	if len(launchArgs) > 0 {
+		args = launchArgs[0]
+	}
+	if r.sandboxProfileSelected(m, args) {
+		r.materializeBundles()
+	}
 	if portal {
-		hook := map[string]any{"hooks": map[string]any{"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": shellQuote(executable) + " agent native-session"}}}},
-			"StopFailure":   []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": shellQuote(executable) + " agent watchdog-event", "timeout": 5}}}},
-			"StopCancelled": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": shellQuote(executable) + " agent watchdog-event", "timeout": 5}}}},
-			"SessionEnd":    []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": shellQuote(executable) + " agent watchdog-event", "timeout": 5}}}}}}
-		body, _ := json.Marshal(hook)
-		return AtomicWrite(filepath.Join(r.Home, "hooks", "cxx-receiver.json"), body, 0o600)
+		return r.installLifecycleHooks(executable)
 	}
 	return nil
+}
+
+func receiverHooks(executable string) map[string]any {
+	watchdog := func() []any {
+		return []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": shellQuote(executable) + " agent watchdog-event", "timeout": 5}}}}
+	}
+	return map[string]any{"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": shellQuote(executable) + " agent native-session"}}}},
+		"StopFailure": watchdog(), "StopCancelled": watchdog(), "SessionEnd": watchdog()}
+}
+
+// installLifecycleHooks renders the fleet receiver and watchdog hooks into the
+// private managed_config.toml. Grok 1.0.64+ holds back user hooks (hooks/,
+// config.toml) until a folder is trusted, but loads managed_config.toml hooks
+// before trust; 1.0.50 reads the same layer. Folder trust itself is unchanged,
+// and organization content in the copied snapshot is merged, never replaced.
+// An unreadable organization file stays byte-for-byte; the hooks then fall
+// back to the trust-gated user layer and the launch says so.
+func (r *Runtime) installLifecycleHooks(executable string) error {
+	hooks := receiverHooks(executable)
+	path := filepath.Join(r.Home, "managed_config.toml")
+	merged, err := mergeManagedHooks(path, hooks)
+	if err == nil {
+		return AtomicWrite(path, merged, 0o600)
+	}
+	r.Warnings = append(r.Warnings, "Grok managed_config.toml is unreadable ("+err.Error()+"); fleet session hooks load as user hooks and wait for folder trust")
+	body, _ := json.Marshal(map[string]any{"hooks": hooks})
+	return AtomicWrite(filepath.Join(r.Home, "hooks", "cxx-receiver.json"), body, 0o600)
+}
+
+func mergeManagedHooks(path string, hooks map[string]any) ([]byte, error) {
+	m := map[string]any{}
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, errors.New("unavailable")
+	}
+	if len(bytes.TrimSpace(raw)) > 0 {
+		tree, err := toml.LoadBytes(raw)
+		if err != nil {
+			return nil, errors.New("invalid TOML")
+		}
+		m = tree.ToMap()
+	}
+	existing, _ := m["hooks"].(map[string]any)
+	if existing == nil {
+		if _, ok := m["hooks"]; ok {
+			return nil, errors.New("hooks is not a table")
+		}
+		existing = map[string]any{}
+	}
+	for event, groups := range hooks {
+		current, ok := existing[event].([]any)
+		if !ok && existing[event] != nil {
+			return nil, errors.New("hooks." + event + " is not an array")
+		}
+		existing[event] = append(current, groups.([]any)...)
+	}
+	m["hooks"] = existing
+	tree, err := toml.TreeFromMap(m)
+	if err != nil {
+		return nil, errors.New("not representable")
+	}
+	data, err := tree.ToTomlString()
+	if err != nil {
+		return nil, errors.New("not representable")
+	}
+	return []byte(data), nil
+}
+
+// sandboxProfileSelected reports whether any native source may select a
+// sandbox profile other than off. Unknown or non-string values count as
+// selected: copying a bundle cache is always safe, linking one is not.
+func (r *Runtime) sandboxProfileSelected(m map[string]any, args []string) bool {
+	values := []any{os.Getenv("GROK_SANDBOX"), os.Getenv("GROK_SANDBOX_PROFILE"), nativeargs.Value("grok", args, "--sandbox"), sandboxProfile(m)}
+	for _, path := range []string{filepath.Join(r.Home, "requirements.toml"), filepath.Join(r.Home, "managed_config.toml"), "/etc/grok/requirements.toml", "/etc/grok/managed_config.toml"} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if tree, err := toml.LoadBytes(raw); err == nil {
+			values = append(values, sandboxProfile(tree.ToMap()))
+		}
+	}
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		if text, ok := value.(string); ok {
+			if profile := strings.ToLower(strings.TrimSpace(text)); profile == "" || profile == "off" {
+				continue
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func sandboxProfile(m map[string]any) any {
+	table, _ := m["sandbox"].(map[string]any)
+	return table["profile"]
+}
+
+// materializeBundles replaces linked built-in bundle caches with private
+// copies; Grok 1.0.70 refuses to start any write-denying sandbox profile on a
+// linked cache. A failed copy leaves the cache absent, which native treats as
+// "no downloaded built-ins", rather than refusing the launch.
+func (r *Runtime) materializeBundles() {
+	for _, name := range runtimeBundleAssets {
+		dest := filepath.Join(r.Home, name)
+		if info, err := os.Lstat(dest); err != nil || info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+		if err := os.Remove(dest); err != nil {
+			r.Warnings = append(r.Warnings, "Grok "+name+" cache stays linked; a sandbox profile may refuse to start")
+			continue
+		}
+		if err := copyTree(filepath.Join(r.BaseHome, name), dest); err != nil {
+			_ = os.RemoveAll(dest)
+			r.Warnings = append(r.Warnings, "Grok "+name+" cache unavailable under the sandbox profile: "+err.Error())
+		}
+	}
+}
+
+const (
+	copyTreeMaxBytes   = 512 << 20
+	copyTreeMaxEntries = 50000
+)
+
+// copyTree copies regular files and directories, preserving permission bits
+// (bundled skills ship executable scripts). Links inside the tree are skipped.
+func copyTree(source, dest string) error {
+	root, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		return err
+	}
+	var total int64
+	entries := 0
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entries++; entries > copyTreeMaxEntries {
+			return errors.New("too many entries")
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, rel)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		switch {
+		case entry.IsDir():
+			return os.MkdirAll(target, info.Mode().Perm()|0o700)
+		case !info.Mode().IsRegular():
+			return nil
+		}
+		if total += info.Size(); total > copyTreeMaxBytes {
+			return errors.New("exceeds size limit")
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm()|0o600)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			out.Close()
+			return err
+		}
+		return out.Close()
+	})
 }
 
 func (r *Runtime) Environment(env []string) []string {

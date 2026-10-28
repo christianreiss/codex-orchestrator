@@ -785,6 +785,9 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	if err := rt.Configure(exe, cfg, connection.Session() != nil, args); err != nil {
 		return 1, err
 	}
+	for _, warning := range rt.Warnings {
+		fmt.Fprintf(stderr, "cgx: %s\n", warning)
+	}
 	path, err := native.FindCLI()
 	if err != nil {
 		return 1, err
