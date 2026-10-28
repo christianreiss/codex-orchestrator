@@ -17,7 +17,7 @@ import type {
 import { extractAnthropicApiKey } from '../../../src/services/claude-key-resolver.js';
 import type { ClaudeKillSwitch } from '../../../src/services/claude-kill-switch.js';
 import type { ClaudeModelsService } from '../../../src/services/claude-models.js';
-import { CLAUDE_SUPPORTED_MODELS } from '../../../src/services/claude-models.js';
+import { CLAUDE_MODEL_LINES, CLAUDE_SUPPORTED_MODELS } from '../../../src/services/claude-models.js';
 
 /**
  * Integration tests for /anthropic/v1/*. The Phase 2.8 routes are registered
@@ -141,6 +141,7 @@ function stubModelObject(id: (typeof CLAUDE_SUPPORTED_MODELS)[number]) {
     created_at: '2023-11-14T22:13:20.000Z',
     max_input_tokens: 1_000_000,
     max_tokens: 128_000,
+    line: CLAUDE_MODEL_LINES[id],
     object: 'model' as const,
     created: 1700000000,
     owned_by: 'anthropic' as const,
@@ -761,6 +762,190 @@ describe('POST /anthropic/v1/responses', () => {
       type: 'error',
       error: { type: 'invalid_request_error', code: 'unsupported_stream' },
     });
+    await app.close();
+  });
+});
+
+describe('anthropic-version 2026-10-21', () => {
+  // https://platform.claude.com/docs/en/api/versioning (fetched 2026-10-28):
+  // 2026-10-21 removes temperature/top_p/top_k and rejects an assistant
+  // `document` block and user `text` blocks with non-empty `citations`, on the
+  // Messages API and token counting. @anthropic-ai/sdk >= 1.0.0 sends it.
+  const AV2 = { 'anthropic-version': '2026-10-21' };
+  const auth = { authorization: `Bearer ${VALID_KEY}` };
+
+  function expectRemoved(r: { statusCode: number; payload: string }, messageIncludes: string) {
+    expect(r.statusCode).toBe(400);
+    const body = JSON.parse(r.payload);
+    expect(body).toMatchObject({
+      type: 'error',
+      error: { type: 'invalid_request_error', code: 'unsupported_in_api_version' },
+    });
+    expect(body.error.message).toContain(messageIncludes);
+    expect(body.error.message).toContain('2026-10-21');
+  }
+
+  it('accepts the header on /messages, /messages/count_tokens, /models and /models/{id}', async () => {
+    const adapter = stubAdapter();
+    const app = await buildApp({ adapter });
+    const msg = await app.inject({
+      method: 'POST', url: '/anthropic/v1/messages', headers: { ...auth, ...AV2 },
+      payload: { max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] },
+    });
+    expect(msg.statusCode, msg.payload).toBe(200);
+    expect(JSON.parse(msg.payload)).toMatchObject({ type: 'message' });
+    const count = await app.inject({
+      method: 'POST', url: '/anthropic/v1/messages/count_tokens', headers: { ...auth, ...AV2 },
+      payload: { messages: [{ role: 'user', content: 'hi' }] },
+    });
+    expect(count.statusCode, count.payload).toBe(200);
+    const list = await app.inject({ method: 'GET', url: '/anthropic/v1/models', headers: { ...auth, ...AV2 } });
+    expect(list.statusCode, list.payload).toBe(200);
+    const one = await app.inject({ method: 'GET', url: '/anthropic/v1/models/claude-opus-5', headers: { ...auth, ...AV2 } });
+    expect(one.statusCode, one.payload).toBe(200);
+    await app.close();
+  });
+
+  it('lists 2026-10-21 among the supported versions when the header is unknown', async () => {
+    const app = await buildApp();
+    const r = await app.inject({
+      method: 'GET', url: '/anthropic/v1/models', headers: { ...auth, 'anthropic-version': '2099-01-01' },
+    });
+    expect(r.statusCode).toBe(400);
+    const body = JSON.parse(r.payload);
+    expect(body).toMatchObject({ type: 'error', error: { type: 'invalid_request_error', code: 'invalid_anthropic_version' } });
+    expect(body.error.message).toContain('2026-10-21');
+    await app.close();
+  });
+
+  for (const param of ['temperature', 'top_p', 'top_k'] as const) {
+    it(`rejects ${param} on /messages and /messages/count_tokens, even at its default value`, async () => {
+      const adapter = stubAdapter();
+      adapter.lastCall = undefined;
+      const app = await buildApp({ adapter });
+      for (const value of [1, 0.5, null]) {
+        for (const url of ['/anthropic/v1/messages', '/anthropic/v1/messages/count_tokens']) {
+          const r = await app.inject({
+            method: 'POST', url, headers: { ...auth, ...AV2 },
+            payload: { max_tokens: 64, [param]: value, messages: [{ role: 'user', content: 'hi' }] },
+          });
+          expectRemoved(r, param);
+        }
+      }
+      expect(adapter.lastCall).toBeUndefined();
+      await app.close();
+    });
+  }
+
+  it('rejects a document block placed directly in an assistant message', async () => {
+    const app = await buildApp();
+    for (const url of ['/anthropic/v1/messages', '/anthropic/v1/messages/count_tokens']) {
+      const r = await app.inject({
+        method: 'POST', url, headers: { ...auth, ...AV2 },
+        payload: {
+          max_tokens: 64,
+          messages: [
+            { role: 'user', content: 'hi' },
+            {
+              role: 'assistant',
+              content: [{ type: 'document', source: { type: 'text', media_type: 'text/plain', data: 'x' } }],
+            },
+            { role: 'user', content: 'and?' },
+          ],
+        },
+      });
+      expectRemoved(r, 'messages.1.content.0');
+      expect(JSON.parse(r.payload).error.message).toContain('document');
+    }
+    await app.close();
+  });
+
+  it('rejects user text blocks with non-empty citations, directly or inside a search_result', async () => {
+    const app = await buildApp();
+    const citation = { type: 'char_location', cited_text: 'x', document_index: 0, start_char_index: 0, end_char_index: 1 };
+    const cases = [
+      { content: [{ type: 'text', text: 'quoted', citations: [citation] }], path: 'messages.0.content.0' },
+      {
+        content: [{
+          type: 'search_result', source: 'https://example.test', title: 't',
+          content: [{ type: 'text', text: 'quoted', citations: [citation] }],
+        }],
+        path: 'messages.0.content.0.content.0',
+      },
+    ];
+    for (const { content, path } of cases) {
+      for (const url of ['/anthropic/v1/messages', '/anthropic/v1/messages/count_tokens']) {
+        const r = await app.inject({
+          method: 'POST', url, headers: { ...auth, ...AV2 },
+          payload: { max_tokens: 64, messages: [{ role: 'user', content }] },
+        });
+        expectRemoved(r, path);
+        expect(JSON.parse(r.payload).error.message).toContain('citations');
+      }
+    }
+    await app.close();
+  });
+
+  it('still accepts assistant citations and an empty user citations array', async () => {
+    const adapter = stubAdapter();
+    const app = await buildApp({ adapter });
+    const citation = { type: 'char_location', cited_text: 'x', document_index: 0, start_char_index: 0, end_char_index: 1 };
+    const r = await app.inject({
+      method: 'POST', url: '/anthropic/v1/messages', headers: { ...auth, ...AV2 },
+      payload: {
+        max_tokens: 64,
+        messages: [
+          { role: 'user', content: [{ type: 'text', text: 'question', citations: [] }] },
+          { role: 'assistant', content: [{ type: 'text', text: 'answer', citations: [citation] }] },
+          { role: 'user', content: 'follow-up' },
+        ],
+      },
+    });
+    expect(r.statusCode, r.payload).toBe(200);
+    expect(adapter.lastCall?.messages).toHaveLength(3);
+    await app.close();
+  });
+
+  it('leaves 2023-06-01 unchanged: sampling parameters still reach the backend', async () => {
+    const adapter = stubAdapter();
+    const app = await buildApp({ adapter });
+    const r = await app.inject({
+      method: 'POST', url: '/anthropic/v1/messages', headers: { ...auth, ...AV },
+      payload: {
+        max_tokens: 64, temperature: 0.2, top_p: 0.9, top_k: 5,
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi', citations: [{ type: 'char_location' }] }] }],
+      },
+    });
+    expect(r.statusCode, r.payload).toBe(200);
+    expect(adapter.lastCall?.params).toMatchObject({ temperature: 0.2, top_p: 0.9, top_k: 5 });
+    const doc = await app.inject({
+      method: 'POST', url: '/anthropic/v1/messages', headers: { ...auth, ...AV },
+      payload: {
+        max_tokens: 64,
+        messages: [
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', content: [{ type: 'document', source: { type: 'text', media_type: 'text/plain', data: 'x' } }] },
+        ],
+      },
+    });
+    // The pre-existing backend limitation, not the version rule.
+    expect(JSON.parse(doc.payload)).toMatchObject({ error: { code: 'unsupported_content_block' } });
+    await app.close();
+  });
+
+  it('does not apply the Messages-API removals to the legacy /complete and /responses shims', async () => {
+    const adapter = stubAdapter();
+    const app = await buildApp({ adapter });
+    const complete = await app.inject({
+      method: 'POST', url: '/anthropic/v1/complete', headers: { ...auth, ...AV2 },
+      payload: { prompt: 'hi', temperature: 0.2 },
+    });
+    expect(complete.statusCode, complete.payload).toBe(200);
+    const responses = await app.inject({
+      method: 'POST', url: '/anthropic/v1/responses', headers: { ...auth, ...AV2 },
+      payload: { input: 'hi', temperature: 0.2 },
+    });
+    expect(responses.statusCode, responses.payload).toBe(200);
     await app.close();
   });
 });
