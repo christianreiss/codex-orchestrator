@@ -71,13 +71,13 @@ func TestPermissionReadFailsQuiet(t *testing.T) {
 }
 
 func TestAutoModeModelScreen(t *testing.T) {
-	for _, m := range []string{"claude-opus-5", "claude-sonnet-5", "claude-fable-5", ""} {
+	for _, m := range []string{"claude-opus-5", "claude-sonnet-5", "claude-fable-5", "claude-haiku-5-5", "claude-haiku-5-5[1m]", "haiku", "Haiku", ""} {
 		if !modelLikelySupportsAutoMode(m) {
 			t.Errorf("%q should be treated as auto-capable", m)
 		}
 	}
 	// The families upstream names as unsupported.
-	for _, m := range []string{"claude-haiku-4-5-20251001", "claude-3-opus", "claude-sonnet-4-5", "claude-opus-4.5"} {
+	for _, m := range []string{"claude-haiku-4-5-20251001", "claude-haiku-4-5", "claude-haiku-4.5", "claude-3-5-haiku-latest", "claude-3-opus", "claude-sonnet-4-5", "claude-opus-4.5"} {
 		if modelLikelySupportsAutoMode(m) {
 			t.Errorf("%q is documented as not supporting auto mode", m)
 		}
