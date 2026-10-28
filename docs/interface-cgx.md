@@ -194,7 +194,9 @@ Launches refuse when the baked host FQDN does not match the hostname
 (`GROK_ALLOW_FQDN_MISMATCH=1` overrides). A launch whose `/auth` host engine set differs from the
 baked one requests background maintenance immediately, so an engine an operator
 enabled or disabled is provisioned on this launch (cdx parity). Maintenance appends `alias grok='cgx'` to
-existing `~/.bashrc`/`~/.zshrc`, as cdx and clx do for their engines.
+existing `~/.bashrc`/`~/.zshrc`, as cdx and clx do for their engines. From cxx 0.9.143 a
+development build (version `dev`) queues no launch-time maintenance and never installs,
+repoints or retires the shared `cxx-agent` worker unit automatically (cdx parity; feedback 3e2df8d1).
 
 ### Native argument boundaries (Grok Build 1.0.70)
 

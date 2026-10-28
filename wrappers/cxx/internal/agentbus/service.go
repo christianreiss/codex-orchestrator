@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/buildinfo"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 )
@@ -206,8 +207,29 @@ func RemoveService(stdout, stderr io.Writer) error {
 }
 
 // EnsureService installs and starts the managed background worker idempotently.
+// It is the automatic path (update and maintenance); the unit it writes points
+// at the running binary, so a development build leaves the shared unit alone
+// (feedback 3e2df8d1). An operator's explicit `cxx agent service install`
+// still installs from any build.
 func EnsureService(stdout, stderr io.Writer) error {
+	if !automaticServiceAllowed(stderr) {
+		return nil
+	}
 	return runServiceCommand([]string{"install"}, stdout, stderr)
+}
+
+// automaticServiceAllowed reports whether the running binary may install,
+// repoint or retire the shared per-user worker on its own. Only a versioned
+// build may; a `go build` (version "dev") is a throwaway that must not take
+// over the unit the installed cxx owns. The skip is explained on stderr.
+func automaticServiceAllowed(stderr io.Writer) bool {
+	if buildinfo.Release() {
+		return true
+	}
+	if stderr != nil {
+		fmt.Fprintf(stderr, "cxx agent: development build (version %q) leaves the shared %s service unchanged; run 'cxx agent service install' explicitly to point it at this binary\n", buildinfo.Version, serviceName)
+	}
+	return false
 }
 
 func serviceStatus() (map[string]any, error) {

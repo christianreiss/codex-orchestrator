@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/buildinfo"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
@@ -259,6 +260,9 @@ func TestServiceRepairIsBoundedByCoordinatorCancellation(t *testing.T) {
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 60 &\nwait\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	oldVersion := buildinfo.Version
+	t.Cleanup(func() { buildinfo.Version = oldVersion })
+	buildinfo.Version = "0.9.142" // A development build skips the repair entirely.
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	started := time.Now()

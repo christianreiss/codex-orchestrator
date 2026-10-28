@@ -443,6 +443,18 @@ errors go to `serve.log` in that directory; the part written during the failed a
 shown, bounded to 400 printable characters on one line, in the error a managed command
 prints. Socket mode is 0600. A filesystem lock elects
 one owner; only that owner removes a stale socket. No TCP listener is exposed.
+
+Each server (and each deep scope) gets its own `cxx-comm-<hash>` directory. From cxx
+0.9.143, resolving a socket also sweeps that runtime root at most once an hour (a
+`.cxx-comm-sweep` stamp; one stat otherwise; at most 256 candidates a pass): a
+directory is removed only when it is private and this user's, unchanged for an hour,
+holds nothing but lock files, sockets and logs, every lock in it (`owner.lock`,
+`sync-*.lock`, `auth-*.lock`) can be taken and no socket in it answers. The sweep holds
+those locks while it renames the directory to `.cxx-comm-reap-*` and then deletes it;
+the next user re-creates the directory. A lock acquisition that opened a file the sweep
+then unlinked notices that the path names a different file and opens it again, so two
+holders never split one lock (feedback 3e2df8d1: 558 abandoned directories, about 70 a
+day). Go test binaries never sweep automatically.
 Each process holds a local streaming lease; a surviving client restarts a crashed
 owner. The last lease starts a five-minute idle period, after which the owner
 closes its socket and exits (the next managed call starts a new one). Status checks do not

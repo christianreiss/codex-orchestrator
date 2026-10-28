@@ -823,6 +823,10 @@ Clock corrections and malformed state cannot postpone work indefinitely.
 helper commands are individually capped at 20 seconds, including during rollback. Schedule/service failures remain visible
 and do not suppress the enabled engine ticks. Auto-update off skips binary
 replacement and has no schedule; launch-time maintenance keeps content/auth sync.
+From cxx 0.9.143 a development build (version `dev`, a plain `go build`) queues no
+launch-time maintenance: the coordinator runs from the requesting binary and would
+point the user's schedule and worker unit at it (feedback 3e2df8d1). The installed
+release resumes on its next launch; `cxx cron run` remains an explicit choice.
 
 Unattended Codex installs verified GitHub assets into a separate private prefix
 under `~/.cxx/engines/codex`, including its matching code-mode companion, validates
@@ -1178,7 +1182,12 @@ the server refuses with `agent_messaging_relay_not_persistent` exits 0 and is no
 restarted; so does one whose signed config stays unreadable or expired for 5
 minutes. Run as root, `install` also retires other accounts' legacy workers and
 their `cxx-agent.service` where the server says they may not run one (see
-[host runtime policy](host-runtime-policy.md)).
+[host runtime policy](host-runtime-policy.md)). From cxx 0.9.143 the automatic
+ensure (maintenance and `cxx update`) of a development build (a plain `go build`,
+version `dev`; every bakery or `make` build carries MAJOR.MINOR.PATCH) leaves the
+unit unchanged and prints a note: it neither installs, repoints nor retires it, so a
+scratch build cannot point the user's worker at a throwaway path (feedback 3e2df8d1).
+An explicit `cxx agent service install` still installs from any build.
 
 Delivery is FIFO per target and at-least-once until native execution starts.
 Queued messages default to a 24-hour TTL, accept 60 seconds through seven days,
