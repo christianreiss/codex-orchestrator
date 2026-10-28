@@ -1379,6 +1379,28 @@ func TestCoordinatorSummaryMatchesRecordedMaintenanceOutcome(t *testing.T) {
 	}
 }
 
+func TestOrphanReaperRunsBeforeEachHousekeeping(t *testing.T) {
+	stubCoordinator(t)
+	oldHousekeeping, oldReap := runHousekeeping, reapOrphans
+	t.Cleanup(func() { runHousekeeping, reapOrphans = oldHousekeeping, oldReap })
+	var calls []string
+	reapOrphans = func(_ context.Context, cfg *config.Config, _ io.Writer) error {
+		calls = append(calls, "reap:"+cfg.Engine)
+		return nil
+	}
+	runHousekeeping = func(_ context.Context, cfg *config.Config, _ io.Writer) error {
+		calls = append(calls, "housekeeping:"+cfg.Engine)
+		return nil
+	}
+	if err := Run(context.Background(), nil, false, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	want := "reap:codex housekeeping:codex reap:claude housekeeping:claude"
+	if got := strings.Join(calls, " "); got != want {
+		t.Fatalf("order %q, want %q", got, want)
+	}
+}
+
 func TestNonRootKeepsAnotherAccountsSystemSchedule(t *testing.T) {
 	dir := t.TempDir()
 	foreign := filepath.Join(dir, "cxx-managed")

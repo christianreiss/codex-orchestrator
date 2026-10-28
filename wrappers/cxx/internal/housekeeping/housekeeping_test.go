@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -152,13 +154,37 @@ func TestNativeGuardAndProcessSkip(t *testing.T) {
 	if err != nil || r.Outcome != "skipped" {
 		t.Fatalf("guard %+v %v", r, err)
 	}
+	// Linux names the holder of the fence (this test process).
+	if runtime.GOOS == "linux" && !strings.Contains(r.Detail, fmt.Sprintf("held by pid %d", os.Getpid())) {
+		t.Fatalf("guard skip names no holder: %+v", r)
+	}
 	guard.Release()
 	o.Busy = func(string) (bool, error) { return true, nil }
+	o.BusyDetail = func(string) string { return "pid 42 grok agent leader up 130h0m0s" }
 	r, err = Run(context.Background(), o)
-	if err != nil || r.Reason != "native_process_active" {
+	if err != nil || r.Reason != "native_process_active" || r.Detail != "pid 42 grok agent leader up 130h0m0s" {
 		t.Fatalf("process %+v %v", r, err)
 	}
+	var line strings.Builder
+	render(&line, r)
+	if !strings.Contains(line.String(), "(native_process_active: pid 42 grok agent leader") {
+		t.Fatalf("skip line hides the process: %q", line.String())
+	}
 	exists(t, old, true)
+}
+
+func TestDescribeArgvHidesFlagsAndPrompts(t *testing.T) {
+	for argv, want := range map[string]string{
+		"/x/grok\x00agent\x00leader\x00--no-exit-on-disconnect": "grok agent leader",
+		"/x/grok\x00--leader-socket\x00/s":                      "grok",
+		"claude\x00-p\x00secret prompt":                         "claude",
+		"codex\x00Fix the bug in auth.go":                       "codex",
+		"cxx\x00communicator\x00serve\x00--config\x00/c":        "cxx communicator serve",
+	} {
+		if got := describeArgv(strings.Split(argv, "\x00")); got != want {
+			t.Fatalf("describeArgv(%q) = %q, want %q", argv, got, want)
+		}
+	}
 }
 func TestAmbiguousReservationRecovery(t *testing.T) {
 	root := t.TempDir()

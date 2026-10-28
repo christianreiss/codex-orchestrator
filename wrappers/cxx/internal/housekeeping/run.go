@@ -60,7 +60,17 @@ type Options struct {
 	Server            Server
 	Now               time.Time
 	Busy              func(string) (bool, error)
+	// BusyDetail names the processes behind a busy result (optional).
+	BusyDetail func(string) string
 }
+
+func (o Options) busyDetail() string {
+	if o.BusyDetail == nil {
+		return ""
+	}
+	return o.BusyDetail(o.Engine)
+}
+
 type move struct {
 	Original   string    `json:"original"`
 	Quarantine string    `json:"quarantine"`
@@ -175,6 +185,9 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 	}
 	if o.Busy == nil {
 		o.Busy = nativeBusy
+		if o.BusyDetail == nil {
+			o.BusyDetail = nativeBusyDetail
+		}
 	}
 	if _, e := os.Lstat(o.Root); os.IsNotExist(e) {
 		r.Outcome = "absent"
@@ -190,6 +203,7 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 	if e != nil {
 		r.Outcome = "skipped"
 		r.Reason = "active_launch_or_maintenance"
+		r.Detail = lockHolders(filepath.Join(o.Root, ".cxx-housekeeping.lock"))
 		return r, nil
 	}
 	defer lock.Release()
@@ -206,6 +220,7 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 		if e != nil {
 			r.Outcome = "skipped"
 			r.Reason = "active_native_runtime"
+			r.Detail = lockHolders(filepath.Join(o.Root, ".cgx-sessions.lock"))
 			return r, nil
 		}
 		defer nativeLock.Release()
@@ -275,6 +290,9 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 		busy, e := o.Busy(o.Engine)
 		if e != nil || busy {
 			r.Reason = "native_process_active"
+			if busy {
+				r.Detail = o.busyDetail()
+			}
 			return r, e
 		}
 		if _, e = o.Server.Reserve(ctx, j.Token); e != nil {
@@ -324,6 +342,7 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 		r.Outcome = "dry_run"
 		if busy {
 			r.Reason = "native_process_active; deletion deferred"
+			r.Detail = o.busyDetail()
 		}
 		return r, nil
 	}
@@ -334,6 +353,7 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 	if busy {
 		r.Outcome = "skipped"
 		r.Reason = "native_process_active"
+		r.Detail = o.busyDetail()
 		return r, nil
 	}
 	if len(chosen) > 0 {
@@ -355,6 +375,9 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 			// leaving a journal that would block a legitimate native launch.
 			releaseErr := completeJournal(ctx, o.Root, journalPath, &j, dbs, o.Server)
 			r.Outcome, r.Reason = "skipped", "native_process_active"
+			if busy {
+				r.Detail = o.busyDetail()
+			}
 			return r, errors.Join(e, releaseErr)
 		}
 		sessions, e = scan(o.Root, o.Engine)

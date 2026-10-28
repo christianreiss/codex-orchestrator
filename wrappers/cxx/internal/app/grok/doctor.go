@@ -15,6 +15,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grokreap"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/pelletier/go-toml"
 )
@@ -121,6 +122,7 @@ func doctorReport(in doctorInput) terminalui.DoctorReport {
 	if state, err := native.StateDir(); err == nil {
 		row("Leader logs", terminalui.ToneOK, filepath.Join(state, "leader-logs"))
 	}
+	row(leftoversCheck())
 	row(cronCheck())
 	session := "local"
 	if os.Getenv("SSH_TTY") != "" || os.Getenv("SSH_CONNECTION") != "" {
@@ -216,6 +218,31 @@ func diskCheck(home string) (string, terminalui.Tone, string) {
 		tone = terminalui.ToneWarn
 	}
 	return "Disk", tone, fmt.Sprintf("%dMB free", freeMB)
+}
+
+// leftoverPreview is the reaper's read-only dry run (no locks, no signals).
+var leftoverPreview = grokreap.Preview
+
+// leftoversCheck reports what the cron reaper would remove. Orphaned leaders
+// and stale runtimes warn: they defer session housekeeping and pin an old
+// engine version. Old leader logs alone are routine.
+func leftoversCheck() (string, terminalui.Tone, string) {
+	r, err := leftoverPreview()
+	if errors.Is(err, grokreap.ErrUnsupported) {
+		return "Leftovers", terminalui.ToneOK, "not inspected on this platform"
+	}
+	if err != nil {
+		return "Leftovers", terminalui.ToneWarn, "inspection failed: " + err.Error()
+	}
+	leaders, runtimes, logs := r.Pending()
+	if leaders+runtimes+logs == 0 {
+		return "Leftovers", terminalui.ToneOK, "none"
+	}
+	tone := terminalui.ToneOK
+	if leaders+runtimes > 0 {
+		tone = terminalui.ToneWarn
+	}
+	return "Leftovers", tone, fmt.Sprintf("%d orphaned leader(s), %d stale runtime dir(s), %d old leader log(s); cron reaps them (preview: cxx housekeeping reap --dry-run)", leaders, runtimes, logs)
 }
 
 func cronCheck() (string, terminalui.Tone, string) {
