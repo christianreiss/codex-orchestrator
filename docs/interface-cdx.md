@@ -189,6 +189,20 @@ UUIDs are read only from an actual resume command, including
 `exec --model MODEL resume UUID` and its `e` alias. Shared options and image
 values before a nested command retain their native cardinality.
 
+From the 2026-10-28 maintenance run (Codex 0.165.0), the nested
+`exec resume` / `exec fork` commands follow their own `-i/--image <FILE>`
+declaration (`num_args = 1`): each occurrence takes exactly one path, so
+`exec resume -i a.png UUID` resumes `UUID`. Root/TUI `resume`/`fork`, `exec`
+before the nested command and every other command keep the shared `1..` list,
+so `resume -i a.png UUID` and `exec -i a.png resume UUID` still read `UUID` (and
+`resume`) as image paths, matching the native parser. The shared value table
+also covers `queue --thread/--message`, `migrate-rollouts --thread`, and the
+value options of the utility and refused commands (`sandbox`, `mcp add|login`,
+`app-server`, `exec-server`, `cloud`, `plugin add`); a unit test pins it to the
+0.165.0 help corpus and an opt-in `NATIVE_CODEX_ORACLE` test compares it with a
+live binary. Readers do not interpret those utility commands' semantics; the
+table only keeps their values (including command- or flag-shaped ones) opaque.
+
 Direct public `app-server`, `exec-server`, `remote-control`, `agents` and `--remote`
 invocations are refused before configuration/auth work: their independent or
 external processes do not inherit the wrapper's private account/auth broker,
@@ -436,7 +450,7 @@ and a received file is untrusted input. Both are byte-identical across engines
 and are rendered last, in that order.
 
 
-**Model Class Check.** The fleet switch `model_tier_check_enabled` (default on; `GET`/`POST /admin/model-tier-check`, Settings → Agents) appends a final `model_tiers` section to managed AGENTS.md/CLAUDE.md/Grok AGENTS.md for Codex, Claude and Grok. It names the host's configured model and tier (host override, then fleet config, then engine default; Claude reports none when unpinned) and a tier table of the latest, non-disabled models of the host's active engines (`activeHostEngines`, so fleet-suspended engines are never recommended). Tiers live in `api/src/services/model-tiers.ts`: 1 Haiku/Luna; 2 Terra/Grok 4.5, 4.6; 3 Sonnet/Opus/Sol/Grok 4.7 and 4.7-build-fast; 4 Fable/Astra (Sonnet moved 2 → 3 on 2026-10-28). An agent one tier below the task states `Underclassed: …` with a recommended model and proceeds; two or more tiers below, it stops before starting, reports that line and finishes accepted work as `blocked` unless the operator explicitly asked this model to proceed. Classify the whole assignment before task-specific scouting or planning, by the judgment it needs rather than its keywords: read-only scouting, including “scout and prepare”, takes the tier of the decisions it feeds. All four task definitions remain visible even when a host has no model at that tier. An override must explicitly acknowledge the identified mismatch; model selection or the original task request does not count. Tier 3/4 work states task tier, model tier and a reason. This is agent guidance, not runtime admission enforcement. Only a concrete session model overrides the configured model; a generic “GPT-6” label does not make configured Luna unknown. An unknown model never aborts. Changes apply on the next sync.
+**Model Class Check.** The fleet switch `model_tier_check_enabled` (default on; `GET`/`POST /admin/model-tier-check`, Settings → Agents) appends a final `model_tiers` section to managed AGENTS.md/CLAUDE.md/Grok AGENTS.md for Codex, Claude and Grok. It names the host's configured model and tier (host override, then fleet config, then engine default; Claude reports none when unpinned) and a tier table of the latest, non-disabled models of the host's active engines (`activeHostEngines`, so fleet-suspended engines are never recommended). Tiers live in `api/src/services/model-tiers.ts` (operator ruling 2026-10-28, five tiers): 1 Haiku/Luna/Grok 4.5; 2 Terra/Grok 4.6, 4.7 and 4.7-build-fast; 3 Sonnet/Sol; 4 Opus; 5 Fable/Astra. An agent one tier below the task states `Underclassed: …` with a recommended model and proceeds; two or more tiers below, it stops before starting, reports that line and finishes accepted work as `blocked` unless the operator explicitly asked this model to proceed. Classify the whole assignment before task-specific scouting or planning, by the judgment it needs rather than its keywords: read-only scouting, including “scout and prepare”, takes the tier of the decisions it feeds. All four task definitions remain visible even when a host has no model at that tier. An override must explicitly acknowledge the identified mismatch; model selection or the original task request does not count. Tier 3+ work states task tier, model tier and a reason. This is agent guidance, not runtime admission enforcement. Only a concrete session model overrides the configured model; a generic “GPT-6” label does not make configured Luna unknown. An unknown model never aborts. Changes apply on the next sync.
 
 ## Profile files (cxx 0.9.6)
 
@@ -517,10 +531,13 @@ The fleet starts on `gpt-6-astra` at its native `medium` effort.
 `gpt-5.4-mini` was retired upstream on 2026-08-31 and is no longer offered; a
 stored override naming it heals to `gpt-6-luna`, the current documented
 replacement. `gpt-5.4` heals to `gpt-6-sol`. Known retired selections preserve
-a compatible effort; otherwise they use the successor's native default. `gpt-5.5` is
-already deprecated and hidden in the native catalog: it is no longer offered,
-before its 2026-10-14T19:00:00Z retirement. Stored selections heal to the catalog
-replacement `gpt-6.1-sol`, preserving a valid effort (otherwise using `low`).
+a compatible effort; otherwise they use the successor's native default. `gpt-5.5`
+was retired for ChatGPT sign-in at 2026-10-14T19:00:00Z and is no longer offered
+(the bundled 0.165.0 catalog still lists it with an upgrade nudge, because API-key
+sessions keep it). Stored selections heal to `gpt-6.1-sol`, preserving a valid
+effort (otherwise using `low`). A catalog `upgrade` block alone is not a
+deprecation: the GPT-5.6 rows carry one (to GPT-6 Sol/Luna) with no retirement
+date and remain offered until official deprecation evidence exists.
 This covers fleet settings, host overrides, profile sidecars, review/subagent
 models, and memory extraction/consolidation models; unknown custom provider IDs
 remain untouched. The eight current rows and their efforts were verified against
@@ -823,6 +840,10 @@ Clock corrections and malformed state cannot postpone work indefinitely.
 helper commands are individually capped at 20 seconds, including during rollback. Schedule/service failures remain visible
 and do not suppress the enabled engine ticks. Auto-update off skips binary
 replacement and has no schedule; launch-time maintenance keeps content/auth sync.
+From cxx 0.9.143 a development build (version `dev`, a plain `go build`) queues no
+launch-time maintenance: the coordinator runs from the requesting binary and would
+point the user's schedule and worker unit at it (feedback 3e2df8d1). The installed
+release resumes on its next launch; `cxx cron run` remains an explicit choice.
 
 Unattended Codex installs verified GitHub assets into a separate private prefix
 under `~/.cxx/engines/codex`, including its matching code-mode companion, validates
@@ -1178,7 +1199,12 @@ the server refuses with `agent_messaging_relay_not_persistent` exits 0 and is no
 restarted; so does one whose signed config stays unreadable or expired for 5
 minutes. Run as root, `install` also retires other accounts' legacy workers and
 their `cxx-agent.service` where the server says they may not run one (see
-[host runtime policy](host-runtime-policy.md)).
+[host runtime policy](host-runtime-policy.md)). From cxx 0.9.143 the automatic
+ensure (maintenance and `cxx update`) of a development build (a plain `go build`,
+version `dev`; every bakery or `make` build carries MAJOR.MINOR.PATCH) leaves the
+unit unchanged and prints a note: it neither installs, repoints nor retires it, so a
+scratch build cannot point the user's worker at a throwaway path (feedback 3e2df8d1).
+An explicit `cxx agent service install` still installs from any build.
 
 Delivery is FIFO per target and at-least-once until native execution starts.
 Queued messages default to a 24-hour TTL, accept 60 seconds through seven days,
@@ -1957,13 +1983,63 @@ This is agent-executed guidance shared by all three engines, adopted on the next
 sync/launch, not wrapper-enforced automation. See
 [Automatic repository delivery](interface-api.md#automatic-repository-delivery).
 
+## Native configuration maintenance (Codex 0.165.0)
+
+Audited on 2026-10-28 against release `rust-v0.165.0`, commit
+`360319d8dee62d87e2d59fc0c21805d79519cfed`. The vendored
+[schema](https://raw.githubusercontent.com/openai/codex/rust-v0.165.0/codex-rs/core/config.schema.json)
+is byte-identical to the hosted official schema, SHA-256
+`bc14a890a74c7f9a4eb83d772550fe8813c7f389f44c1f18499f0ce24a8e4a60`.
+Root keys and removed/deprecated feature switches are unchanged from 0.164.0
+(`codex features list` on 0.165.0, diffed against `CODEX_RETIRED_FEATURE_KEYS`).
+The Engines JSON and profile editors accept the new feature switches
+`guardianv3` (boolean or `{ enabled }`), `guardian_recorded_items`,
+`tui_multi_backend` (all under development, default off) and
+`prediction_preserve_parent_tools` (stable, default on), plus
+`auto_review.timeout_ms` (Guardian review budget; native default 90,000, `0`
+waits without a deadline). Configuring any of them, including false/0, or
+selecting the new built-in Vertex provider with `model_provider = "gcp"` raises
+the host native floor to 0.165.0 at root or profile level. The fleet enables
+none of them implicitly and manages no GCP credentials; Vertex authentication
+remains host-local (gcloud or a provider `auth` command), like Amazon Bedrock.
+
+Built-in model providers follow the native loader rules, which stop every launch
+at config load when violated. They are enforced on input, on profile sidecars and
+on the final render-equivalent document:
+
+- `model_providers.openai`, `.ollama` and `.lmstudio` are reserved and cannot be
+  overridden, not even with an empty table. Use a custom ID such as
+  `openai-custom` and select it with `model_provider`. IDs are exact-case; legacy
+  `ollama-chat` and every other custom ID keep their native meaning.
+- `model_providers.amazon-bedrock` and `.amazon-bedrock-runtime` may change only
+  `base_url`, `auth`, `http_headers` and `aws` (`profile`, `region`,
+  `credential_export`, `auth_refresh`).
+- `model_providers.gcp` may change only `base_url`, `auth` and `http_headers`.
+- `aws` is accepted only on the two Bedrock IDs.
+
+As natively, a field set to its default (`name = ""`, `wire_api = "responses"`
+or a false capability flag) is not an override. Errors name the field, never its
+value. The `model_providers.gcp` map key itself is not version-gated: map names
+stay opaque, and its 0.165.0 field limits apply for every client version because
+the fleet targets the latest stable release. On 0.164.0 such an entry was an
+ordinary custom provider; one with other fields now fails validation instead of
+breaking 0.165 hosts at load. A saved document that violates these rules stays
+readable in the admin editor with a `validation_error` and blocks host rendering
+for that engine until it is corrected; it is not rewritten or dropped (no
+migration). Other provider runtime rules (credential source conflicts, AWS
+command constraints) remain native checks.
+
+The parser regression ran the rendered root and profile documents through the
+managed 0.165.0 binary in a disposable `CODEX_HOME` (`features list` and
+`--profile <name> mcp list`) without login, inference or session changes; the reserved-ID,
+Bedrock, GCP and `aws` cases above reproduce the native accept/reject results.
+
 ## Native configuration maintenance (Codex 0.164.0)
 
 Audited on 2026-10-26 against release `rust-v0.164.0`, commit
-`6aaac694803004a63c6f393d153c96d22521a6b9`. The vendored
-[schema](https://raw.githubusercontent.com/openai/codex/rust-v0.164.0/codex-rs/core/config.schema.json)
-is byte-identical to the current official schema, SHA-256
-`ea611ee3f12a6df314b3e49585015ec6e2ebc7c3f072ccbf63c21306a4cdb5dc`.
+`6aaac694803004a63c6f393d153c96d22521a6b9`. The vendored schema was then
+[the 0.164.0 schema](https://raw.githubusercontent.com/openai/codex/rust-v0.164.0/codex-rs/core/config.schema.json),
+SHA-256 `ea611ee3f12a6df314b3e49585015ec6e2ebc7c3f072ccbf63c21306a4cdb5dc`.
 The existing Engines JSON editor and profile editor support the new TUI presets
 and `open_presets` binding, model-request hooks, remote-plugin provisioning
 metadata, EMA OAuth authentication methods and IdP secrets, MITM v2 fields,
@@ -2053,7 +2129,7 @@ injected into individual profiles. Existing sessions are not restarted by the sw
 
 `POST /admin/config/render` and `/admin/config/store` accept the optional
 `settings.native_settings` JSON object. It uses the official native config
-schema, currently vendored from the 0.164.0 release as documented above.
+schema, currently vendored from the 0.165.0 release as documented above.
 The preceding 0.163.0 audit established the retained authoring architecture.
 The JSON schema covers native root settings and nested settings including agents,
 apps, hooks, browser/desktop controls, history, service tiers, providers, MCP
@@ -2067,7 +2143,7 @@ compaction options, new code-mode/credential/connector/output/subagent feature
 switches, `multi_agent_v2.disable_native_tools` and `preserve_fork_prefix`, plugin
 `_default.enabled`, the global leader key, clearing selection after copy,
 Windows `allow_mxc`, government-cloud notice visibility and expanded realtime
-voices. The schema reference in the editor identifies 0.163.0. These options remain supported alongside 0.164.0 additions; the current
+voices. The schema reference in the editor identifies 0.165.0. These options remain supported alongside 0.164.0 and 0.165.0 additions; the current
 async-compaction default remains native and opt-in as described above.
 
 The API rejects invalid types, unknown schema properties, unsafe object keys,

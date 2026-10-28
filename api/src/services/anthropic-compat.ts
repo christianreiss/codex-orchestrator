@@ -374,6 +374,109 @@ export function extractParams(
 }
 
 /**
+ * `anthropic-version` values this surface accepts, newest first. `2026-10-21`
+ * is the default of @anthropic-ai/sdk >= 1.0.0 and the other official SDK
+ * majors released with it.
+ */
+export const ANTHROPIC_API_VERSIONS = ['2026-10-21', '2023-06-01', '2023-01-01'] as const;
+export type AnthropicApiVersion = (typeof ANTHROPIC_API_VERSIONS)[number];
+
+export function isAnthropicApiVersion(value: unknown): value is AnthropicApiVersion {
+  return typeof value === 'string' && (ANTHROPIC_API_VERSIONS as readonly string[]).includes(value);
+}
+
+const VERSION_2026_10_21 = '2026-10-21';
+const REMOVED_SAMPLING_PARAMS = ['temperature', 'top_p', 'top_k'] as const;
+
+function removedInVersion(message: string, param: string): ApiError {
+  return new ApiError(message, {
+    status: 400,
+    code: 'unsupported_in_api_version',
+    type: 'invalid_request_error',
+    param,
+  });
+}
+
+function hasNonEmptyCitations(block: Record<string, unknown>): boolean {
+  return Array.isArray(block.citations) && block.citations.length > 0;
+}
+
+function rawContentBlocks(content: unknown): unknown[] {
+  if (Array.isArray(content)) return content;
+  // The gateway also tolerates one bare block object; check it the same way.
+  if (content && typeof content === 'object') return [content];
+  return [];
+}
+
+/**
+ * Request rules an API version adds on the Messages API and token counting,
+ * checked on the raw body before normalization (which would otherwise reject
+ * a document with the generic backend error or drop `citations` silently).
+ *
+ * `2026-10-21` (platform.claude.com/docs/en/api/versioning and
+ * /api/migration-2026-10-21, fetched 2026-10-28) returns 400 for:
+ * - `temperature`, `top_p` or `top_k`, even at the default value (a JSON
+ *   `null` counts as sent, as everywhere else in this surface);
+ * - a `document` block placed directly in an `assistant` message;
+ * - a `text` block with a non-empty `citations` array in a `user` message,
+ *   directly or inside a `search_result` block.
+ * Earlier versions are unchanged. The check is wire-level, so it applies to
+ * whichever backend engine answers the surface.
+ */
+export function assertMessagesRequestForApiVersion(
+  version: AnthropicApiVersion,
+  payload: Record<string, unknown>,
+): void {
+  if (version !== VERSION_2026_10_21) return;
+  for (const param of REMOVED_SAMPLING_PARAMS) {
+    if (payload[param] !== undefined) {
+      throw removedInVersion(
+        `${param}: This parameter is not supported in anthropic-version ${VERSION_2026_10_21}. Remove it, or send anthropic-version: 2023-06-01 to keep using it.`,
+        param,
+      );
+    }
+  }
+  if (!Array.isArray(payload.messages)) return;
+  payload.messages.forEach((entry, i) => {
+    if (!entry || typeof entry !== 'object') return;
+    const message = entry as Record<string, unknown>;
+    const role = normalizeRole(message.role);
+    rawContentBlocks(message.content).forEach((raw, j) => {
+      if (!raw || typeof raw !== 'object') return;
+      const block = raw as Record<string, unknown>;
+      const type = typeof block.type === 'string' ? block.type.toLowerCase().trim() : '';
+      const path = `messages.${i}.content.${j}`;
+      if (role === 'assistant' && type === 'document') {
+        throw removedInVersion(
+          `${path}: A document block cannot be placed directly in an assistant message in anthropic-version ${VERSION_2026_10_21}. Send documents in user messages.`,
+          path,
+        );
+      }
+      if (role !== 'user') return;
+      if (type === 'text' && hasNonEmptyCitations(block)) {
+        throw removedInVersion(
+          `${path}: A text block in a user message cannot carry citations in anthropic-version ${VERSION_2026_10_21}. Remove citations from the block.`,
+          path,
+        );
+      }
+      if (type === 'search_result') {
+        rawContentBlocks(block.content).forEach((inner, k) => {
+          if (!inner || typeof inner !== 'object') return;
+          const text = inner as Record<string, unknown>;
+          if (text.type === 'text' && hasNonEmptyCitations(text)) {
+            const innerPath = `${path}.content.${k}`;
+            throw removedInVersion(
+              `${innerPath}: A text block in a user message cannot carry citations in anthropic-version ${VERSION_2026_10_21}. Remove citations from the block.`,
+              innerPath,
+            );
+          }
+        });
+      }
+    });
+  });
+}
+
+/**
  * Validate the final (post system-hoist) conversation the way the real
  * Messages API does: non-empty and only `user`/`assistant` roles. Throws
  * ApiError(400) on the first violation.

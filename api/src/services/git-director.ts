@@ -76,9 +76,30 @@ export const GIT_DIRECTOR_ENABLED_FLAG = 'git_director_enabled';
 
 function nativeRegistrationRequired(message: string, workspaceMismatch = false) {
   const recovery = workspaceMismatch
-    ? ' Bind the actual absolute checkout and common directory with agent_context_update before registering a nested repository or worktree.'
+    ? ' Bind the actual absolute checkout and common directory with agent_context_update before registering a linked worktree or a checkout outside your bound one. A separate repository nested inside your bound checkout (e.g. a submodule) registers directly when you pass its own clone_dir (`git rev-parse --path-format=absolute --git-common-dir` run inside it).'
     : ' Run cxx communicator status; use the original managed native process and its private MCP broker, then retry. agent_self or naming alone does not establish connection proof.';
   return new ConflictError(message + recovery, 'git_director_owner_required');
+}
+
+/**
+ * A connection-owned registration that is not `active` (an API restart marks it
+ * `uncertain`/`owner_restart`, a dropped native connection `disconnected`) can
+ * still pass the exact-owner proof. Name that state instead of letting the
+ * merge fall through to a claim refusal or a "worktree changed" race error.
+ */
+function registrationNotActive(worktree: GitWorktree): ConflictError {
+  const state = worktree.status + (worktree.uncertaintyReason ? ` (${worktree.uncertaintyReason})` : '');
+  const cause = worktree.uncertaintyReason === 'owner_restart'
+    ? ' because the orchestrator restarted'
+    : worktree.uncertaintyReason === 'disconnected' ? ' because its native connection dropped' : '';
+  return new ConflictError(
+    `This worktree registration is ${state}${cause}, so it cannot request a merge lease. ` +
+      'From this same session re-run git_register for this worktree_path (same clone_dir, current branch and head_sha) ' +
+      'or git_join it to restore the registration, renew any uncertain resource claims with ' +
+      'resource_claim_status({claim_id,renew:true}), then retry the same client_request_id.',
+    'git_director_owner_uncertain',
+    { status: worktree.status, uncertainty_reason: worktree.uncertaintyReason ?? null },
+  );
 }
 
 /** Optional `versions` row naming the model used for contended verdicts. */
@@ -897,7 +918,7 @@ export class GitDirectorService {
 
       const address = provenance
         ? remoteAddress((await remoteGitOwner(tx, provenance, this.snapshot(tx))).session)
-        : await this.resolveAddress(tx, host, requestedUsername, engine, worktreePath, now);
+        : await this.resolveAddress(tx, host, requestedUsername, engine, worktreePath, now, args.clone_dir === undefined ? null : cloneDir);
       const username = requestedUsername ?? address?.username ?? 'unknown';
       const owner = ownerRuntimeFor(tx), state = this.snapshot(tx);
       const session = address ? state?.sessions.get(address.sessionId) : undefined;
@@ -1058,11 +1079,17 @@ export class GitDirectorService {
       await this.sweepExpired(tx, now);
       const { clone, worktree } = await this.requireWorktree(tx, host, worktreePath, now);
       const expiresAt = isoOffsetSeconds(REGISTRATION_TTL_SECONDS, new Date(now));
+      // requireWorktree proved the exact owning session (the same proof a
+      // same-session git_register needs), so join restores an uncertain row —
+      // status AND reason together, never "active (owner_restart)" — and says so.
+      const restored = worktree.status !== 'active'
+        ? { status: worktree.status, uncertainty_reason: worktree.uncertaintyReason ?? null } : null;
       await this.updateRows(tx, 'gitWorktrees', [worktree.id], {
           task: task ?? worktree.task,
           targetBranch: targetBranch ?? worktree.targetBranch,
           declaredPaths: paths ?? worktree.declaredPaths,
           status: 'active',
+          uncertaintyReason: null,
           ...(this.snapshot(tx) ? {} : { heartbeatAt: now, expiresAt }),
           updatedAt: now,
         });
@@ -1077,6 +1104,7 @@ export class GitDirectorService {
       }
       return {
         joined: true,
+        ...(restored ? { restored_registration: restored } : {}),
         peer_overlap: peerOverlap,
         clone: this.cloneWire(clone, host),
         worktree_id: worktree.id,
@@ -1157,6 +1185,16 @@ export class GitDirectorService {
       const owning = await this.cloneForWorktree(this.deps.db, host, normalizePath(worktreePath));
       clones = owning ? [owning] : [];
     }
+    // Narrowing filters, applied within the scope: a busy host lists hundreds
+    // of unrelated clones, and the pre-work question is about one repository.
+    const remoteFilter = optionalString(args, 'remote_url');
+    if (remoteFilter) {
+      const normalized = normalizeRemote(remoteFilter);
+      const key = normalized ? sha256(normalized) : null;
+      clones = clones.filter((row) => row.remoteKey !== null && row.remoteKey === key);
+    }
+    const cloneDirFilter = optionalString(args, 'clone_dir');
+    if (cloneDirFilter) clones = clones.filter((row) => row.cloneDir === normalizePath(cloneDirFilter));
     clones.sort((a, b) => a.lastSeenAt < b.lastSeenAt ? 1 : -1);
 
     // Summary by default, full on request. A narrowed `clone` scope is one
@@ -1287,6 +1325,8 @@ export class GitDirectorService {
       if (observedRequest && (observedRequest.completedAt || observedRequest.verdict !== 'wait'))
         return { request: observedRequest, replayed: true as const, brief: null };
       const { clone, worktree } = await this.requireWorktree(tx, host, worktreePath, now);
+      // Before the claim guard: its refusal would otherwise mask this cause.
+      if (this.snapshot(tx) && worktree.status !== 'active') throw registrationNotActive(worktree);
       await guardGitMutation(tx, clone, worktree, targetBranch, changedPaths, this.snapshot(tx));
       if (this.snapshot(tx)) this.requireRegistrationProof(worktree);
 
@@ -1399,13 +1439,27 @@ export class GitDirectorService {
       if (existing && (updateRequestId === null || JSON.stringify(existing) !== JSON.stringify(decision.observedRequest)))
         return this.requestWire(existing, { replayed: true }, tx);
       const [worktree] = (this.rows(tx, 'gitWorktrees')?.filter(row => row.id === decision.worktree.id) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, decision.worktree.id)));
-      if (!worktree || worktree.status !== 'active' || worktree.cloneId !== clone.id || worktree.worktreePath !== worktreePath ||
-        (this.snapshot(tx) ? !this.registrationProof(worktree) : !(Date.parse(worktree.expiresAt) > Date.parse(now2))) ||
-        worktree.username !== decision.worktree.username || worktree.engine !== decision.worktree.engine ||
-        worktree.agentBusAddressId !== decision.worktree.agentBusAddressId ||
-        worktree.agentSessionId !== decision.worktree.agentSessionId ||
-        worktree.agentBindingGeneration !== decision.worktree.agentBindingGeneration)
-        throw new ConflictError('Worktree changed while the merge was being judged', 'git_director_worktree_changed');
+      // Name what moved: callers otherwise guess (often "stale HEAD", which is
+      // not compared here at all) and retry blind.
+      const changed: Array<[string, string]> = !worktree ? [['registration', 'registration removed']] : [
+        ...(worktree.status !== 'active' ? [['status', `status ${worktree.status}${worktree.uncertaintyReason ? ` (${worktree.uncertaintyReason})` : ''}`] as [string, string]] : []),
+        ...(worktree.cloneId !== clone.id ? [['clone', 'clone mapping'] as [string, string]] : []),
+        ...(worktree.worktreePath !== worktreePath ? [['worktree_path', 'worktree_path'] as [string, string]] : []),
+        ...((this.snapshot(tx) ? !this.registrationProof(worktree) : !(Date.parse(worktree.expiresAt) > Date.parse(now2)))
+          ? [[this.snapshot(tx) ? 'ownership_proof' : 'expires_at', this.snapshot(tx) ? 'native ownership proof lost' : 'registration expired'] as [string, string]] : []),
+        ...(worktree.username !== decision.worktree.username || worktree.engine !== decision.worktree.engine ||
+          worktree.agentBusAddressId !== decision.worktree.agentBusAddressId ||
+          worktree.agentSessionId !== decision.worktree.agentSessionId ||
+          worktree.agentBindingGeneration !== decision.worktree.agentBindingGeneration
+          ? [['binding', 'owner binding (username/engine/session) re-registered'] as [string, string]] : []),
+      ];
+      if (!worktree || changed.length)
+        throw new ConflictError(
+          `Worktree registration changed while the merge was being judged: ${changed.map(([, text]) => text).join('; ')}. ` +
+            'HEAD is not part of this check. Re-run git_register for this worktree_path from the owning session, then retry the same client_request_id.',
+          'git_director_worktree_changed',
+          { changed: changed.map(([field]) => field) },
+        );
       await guardGitMutation(tx, clone, worktree, targetBranch, changedPaths, this.snapshot(tx));
       if (this.snapshot(tx)) this.requireRegistrationProof(worktree);
 
@@ -1883,6 +1937,24 @@ export class GitDirectorService {
       (row) => row.hostId === input.host.id && row.cloneKey === input.cloneKey,
     );
     if (existing) {
+      // remote_key groups clones and scopes repository notices. A re-register
+      // with a remote naming a different repository (a typo, or another remote
+      // than origin) must not silently re-home a clone that agents are using;
+      // a genuine move is accepted once nobody is registered in it.
+      if (input.remoteKey && existing.remoteKey && input.remoteKey !== existing.remoteKey) {
+        const live = (this.rows(tx, 'gitWorktrees') ?? await tx.select().from(gitWorktrees)
+          .where(and(eq(gitWorktrees.cloneId, existing.id), inArray(gitWorktrees.status, ['active', 'uncertain']))))
+          .filter((row) => row.cloneId === existing.id && ['active', 'uncertain'].includes(row.status));
+        if (live.length)
+          throw new ConflictError(
+            `This clone (${existing.cloneDir}) is recorded with remote_url ${existing.remoteUrl ?? '(unknown)'}, and ` +
+              `${input.remoteUrl} names a different repository. Pass the output of \`git remote get-url origin\`, or omit ` +
+              'remote_url to keep the recorded one. If origin really moved, every live registration in this clone ' +
+              `(${live.length}) must git_release with deregister:true first.`,
+            'git_director_remote_mismatch',
+            { recorded_remote_url: existing.remoteUrl, remote_url: input.remoteUrl, live_registrations: live.length },
+          );
+      }
       await this.updateRows(tx, 'gitClones', [existing.id], {
           repoRoot: input.repoRoot,
           remoteUrl: input.remoteUrl ?? existing.remoteUrl,
@@ -1932,6 +2004,7 @@ export class GitDirectorService {
     engine: string | null,
     worktreePath: string,
     now: string,
+    explicitCloneDir: string | null = null,
   ): Promise<{ id: string; username: string; sessionId: string; generation: number } | null> {
     if (!engine) return null;
     const cwdHash = sha256(worktreePath);
@@ -1939,7 +2012,17 @@ export class GitDirectorService {
     if(snapshot&&owner){
       const principal=currentNativePrincipal();if(!principal)throw nativeRegistrationRequired('Authenticated native session required for registration');
       const {session}=ownedBridge(snapshot,principal.sessionId,principal.bridgeToken),workspace=readWorkspace(session.workspace);
-      if(session.hostId!==host.id||session.engine!==engine||username&&session.username!==username||(workspace?.git_root??workspace?.cwd??session.cwd)!==worktreePath)throw nativeRegistrationRequired('Registration differs from authenticated native session', true);
+      const root=workspace?.git_root??workspace?.cwd??session.cwd;
+      // A separate repository nested inside the bound checkout (a submodule or
+      // vendored clone) may be registered without moving the session: the path
+      // lies inside the workspace this session proved, and its explicit
+      // clone_dir must name a different repository than the checkout's own
+      // common dir (and not the nested toplevel, the usual clone_dir mistake).
+      // Exclusion is unchanged: a live registration owned by anyone else
+      // still refuses below, and claims still guard the merge.
+      const nested=Boolean(workspace?.git_root&&workspace.git_common_dir&&root!=='/'&&worktreePath.startsWith(root+'/')&&
+        explicitCloneDir&&explicitCloneDir!==normalizePath(workspace.git_common_dir)&&explicitCloneDir!==worktreePath);
+      if(session.hostId!==host.id||session.engine!==engine||username&&session.username!==username||(root!==worktreePath&&!nested))throw nativeRegistrationRequired('Registration differs from authenticated native session', true);
       const attachment=nativeClaimAttachment(owner,session),address=session.agentBusAddressId?snapshot.addresses.get(session.agentBusAddressId):undefined;
       if((!attachment&&!legacyDrainFor(owner)?.session(session.id,session.bindingGeneration))||address?.currentSessionId!==session.id||address.bindingGeneration!==session.bindingGeneration)return null;
       this.ownedContext.getStore()?.checks.push(current=>{const checked=ownedBridge(current,principal.sessionId,principal.bridgeToken).session;if(checked.bindingGeneration!==session.bindingGeneration)throw new ConflictError('Native binding changed','git_director_owner_uncertain');});

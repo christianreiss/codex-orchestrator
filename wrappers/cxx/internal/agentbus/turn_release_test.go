@@ -148,6 +148,117 @@ func TestStopAfterReleaseDoesNotRingWhatTheReceiverWillDeliver(t *testing.T) {
 	}
 }
 
+// Feedback b0f9361b (2026-10-28): a busy coordinator was rung at Stop with "call
+// agent_listen", which returned status automatic and no body, while the block
+// itself kept the turn running and so kept the after-turn claim gate shut.
+// With turn-gated delivery the receiver pushes pending mail once the turn ends;
+// the Stop hook must let it end instead of blocking.
+func TestStopDoesNotBlockMailTheReceiverPushesAfterTheTurn(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(envSessionID, "88888888-8888-4888-8888-888888888888")
+	box := &mailbox{Pending: []mailboxEntry{{MessageID: "next", From: mailboxPeer{Alias: "Thekla"}}}}
+	var quiet bytes.Buffer
+	if err := emitHook(&quiet, hookEventStop, box, &turnEnd{receiverReady: true, afterTurn: true}); err != nil {
+		t.Fatal(err)
+	}
+	if quiet.Len() != 0 {
+		t.Fatalf("the receiver delivers after Stop; blocking only delays it: %s", quiet.String())
+	}
+	// Nothing was rung, so the next prompt still announces it.
+	if fresh, _ := unrung(hookEventPrompt, box); len(fresh) != 1 {
+		t.Fatalf("a suppressed Stop must not consume the prompt ring, fresh=%d", len(fresh))
+	}
+	// Without turn-gated delivery (an older owner or server) the ring stays.
+	var out bytes.Buffer
+	if err := emitHook(&out, hookEventStop, box, &turnEnd{receiverReady: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"decision":"block"`) {
+		t.Fatalf("an older owner must keep the Stop ring: %s", out.String())
+	}
+}
+
+func TestPromptRingSaysMailArrivesAfterTheTurn(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(envSessionID, "99999999-9999-4999-8999-999999999999")
+	box := &mailbox{Pending: []mailboxEntry{{MessageID: "m-1", From: mailboxPeer{Alias: "Thekla"}}, {MessageID: "m-2", From: mailboxPeer{Alias: "Irmtrud"}}}}
+	var out bytes.Buffer
+	if err := emitHook(&out, hookEventPrompt, box, &turnEnd{receiverReady: true, afterTurn: true}); err != nil {
+		t.Fatal(err)
+	}
+	var hook map[string]any
+	if err := json.Unmarshal(out.Bytes(), &hook); err != nil {
+		t.Fatalf("hook output is not JSON: %v (%q)", err, out.String())
+	}
+	specific, _ := hook["hookSpecificOutput"].(map[string]any)
+	context, _ := specific["additionalContext"].(string)
+	for _, want := range []string{"Thekla", "Irmtrud", "after the current turn ends", "delivery_timing", "does not help"} {
+		if !strings.Contains(context, want) {
+			t.Fatalf("after-turn ring lacks %q: %q", want, context)
+		}
+	}
+	if strings.Contains(context, "To answer, call `agent_listen`") {
+		t.Fatalf("after-turn ring still sends the model to agent_listen for a body: %q", context)
+	}
+	if human, _ := hook["systemMessage"].(string); !strings.Contains(human, "after this turn") {
+		t.Fatalf("the operator should learn when the call lands: %q", human)
+	}
+}
+
+// A delivery the model read stays held when its release failed; then only
+// agent_listen reopens reception, so that ring keeps pointing at it.
+func TestStopStillRingsWhileAReadDeliveryIsHeld(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(envSessionID, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+	box := &mailbox{Pending: []mailboxEntry{{MessageID: "next", From: mailboxPeer{Alias: "Thekla"}}}}
+	var out bytes.Buffer
+	end := &turnEnd{receiverReady: true, afterTurn: true, stillHeld: []heldDelivery{{MessageID: "read-1", Kind: "informational"}}}
+	if err := emitHook(&out, hookEventStop, box, end); err != nil {
+		t.Fatal(err)
+	}
+	var hook map[string]any
+	if err := json.Unmarshal(out.Bytes(), &hook); err != nil {
+		t.Fatalf("hook output is not JSON: %v (%q)", err, out.String())
+	}
+	reason, _ := hook["reason"].(string)
+	if hook["decision"] != "block" || !strings.Contains(reason, "agent_listen") || !strings.Contains(reason, "once") {
+		t.Fatalf("held delivery ring must name a single agent_listen: %v", hook)
+	}
+}
+
+// The header promise: a ringer that cannot record what it rang must not block,
+// or every Stop rings and blocks again.
+func TestStopDoesNotBlockWhenTheLedgerCannotBeWritten(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home-is-a-file")
+	if err := os.WriteFile(home, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv(envSessionID, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+	box := &mailbox{Pending: []mailboxEntry{{MessageID: "m-1", From: mailboxPeer{Alias: "Thekla"}}}}
+	var out bytes.Buffer
+	if err := emitHook(&out, hookEventStop, box, nil); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("an unrecorded Stop ring would block every turn end: %s", out.String())
+	}
+}
+
+func TestHeldReportCarriesTurnGating(t *testing.T) {
+	client := &sessionClient{id: "launch"}
+	tracker := newChannelTracker(client)
+	tracker.receiver = &autoReceiver{client: client, tracker: tracker, connected: true, sources: []string{"peer"}, lastBeatOK: time.Now(), gate: "thread_working", gateSince: time.Now(), deliveryTimingV1: true}
+	report := tracker.heldReport()
+	if !report.ReceiverReady || !report.DeliveryAfterTurn {
+		t.Fatalf("held report = %+v", report)
+	}
+	tracker.receiver.deliveryTimingV1 = false
+	if tracker.heldReport().DeliveryAfterTurn {
+		t.Fatal("a receiver without turn-gated delivery must not claim it")
+	}
+}
+
 func TestStopRingsOnceAboutReadWorkThatBlocksReception(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(envSessionID, "55555555-5555-4555-8555-555555555555")

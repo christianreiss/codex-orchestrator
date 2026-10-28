@@ -1,4 +1,4 @@
-import { needsCodex164 } from './codex-native-capabilities.js';
+import { needsCodex164, needsCodex165 } from './codex-native-capabilities.js';
 import type { Host } from '../db/schema.js';
 import { ValidationError } from '../http/errors.js';
 import type { Engine } from '../util/engine.js';
@@ -72,12 +72,31 @@ function grokNativeMinimum(native: Record<string, unknown>, observed?: string, i
   return minimum;
 }
 
+/**
+ * `features.zdr_access_enabled` is consumed through 1.0.63 and absent from the
+ * 1.0.64+ binaries (npm archive bisect, 2026-10-28). It still works on the
+ * 1.0.50 fleet baseline, so it is gated per observed host instead of rejected.
+ */
+const GROK_ZDR_REMOVED_IN = '1.0.64';
+function grokZdrApplies(native: Record<string, unknown>, observed: string): boolean {
+  if (Object.hasOwn(record(native.features), 'zdr_access_enabled')) return true;
+  return Array.isArray(native.version_overrides) && native.version_overrides.some(layer => {
+    const patch = record(layer);
+    if ((typeof patch.minimum_version === 'string' && versionCompare(observed, patch.minimum_version) < 0)
+      || (typeof patch.maximum_version === 'string' && versionCompare(observed, patch.maximum_version) > 0)) return false;
+    return Object.hasOwn(record(patch.features), 'zdr_access_enabled');
+  });
+}
+
 export function assertNativeConfigSupport(settings: unknown, host: Host | null, engine: Engine): void {
   if (!host) return;
   if (engine === 'grok') {
     const native = record(record(settings).native_settings);
     const raw = host.grokClientVersion;
     const observed = typeof raw === 'string' ? raw.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] : undefined;
+    if (observed && versionCompare(observed, GROK_ZDR_REMOVED_IN) >= 0 && grokZdrApplies(native, observed)) {
+      throw new ValidationError(`grok native setting features.zdr_access_enabled was removed in Grok Build ${GROK_ZDR_REMOVED_IN}; observed ${observed}. Remove it, or keep it for older hosts in a version_overrides layer with maximum_version = "1.0.63", then retry sync.`, { param: 'settings.native_settings.features.zdr_access_enabled' });
+    }
     const minimum = grokNativeMinimum(native, observed);
     if (minimum && (!observed || versionCompare(observed, minimum) < 0)) {
       throw new ValidationError(`grok native settings require CLI ${minimum} or newer; observed ${observed ?? 'unreported'}. Run cgx update (or cron run to report an already installed version), then retry sync.`, { param: 'settings.native_settings' });
@@ -92,12 +111,13 @@ export function assertNativeConfigSupport(settings: unknown, host: Host | null, 
     ? value.profiles.flatMap(profile => [record(profile), record(record(profile).native_settings)]) : [])];
   const codex163 = engine === 'codex' && scopes.some(needsCodex163);
   const codex164 = engine === 'codex' && scopes.some(needsCodex164);
-  if (!root && !profile && !codex163 && !codex164) return;
+  const codex165 = engine === 'codex' && scopes.some(needsCodex165);
+  if (!root && !profile && !codex163 && !codex164 && !codex165) return;
   const raw = engine === 'codex' ? host.clientVersion : host.claudeClientVersion;
   const observed = typeof raw === 'string' ? raw.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] : undefined;
   const claudeNestedNamespaces = engine === 'claude'
     && Object.hasOwn(record(record(value.native_settings).sandbox), 'allowNestedUserNamespaces');
-  const minimum = codex164 ? '0.164.0' : codex163 ? '0.163.0' : claudeNestedNamespaces ? '2.1.305' : NATIVE_CONFIG_MIN_VERSIONS[engine];
+  const minimum = codex165 ? '0.165.0' : codex164 ? '0.164.0' : codex163 ? '0.163.0' : claudeNestedNamespaces ? '2.1.305' : NATIVE_CONFIG_MIN_VERSIONS[engine];
   if (!observed || versionCompare(observed, minimum) < 0) {
     throw new ValidationError(`${engine} native settings require CLI ${minimum} or newer; observed ${observed ?? 'unreported'}. Run ${engine === 'codex' ? 'cdx' : 'clx'} update (or cron run to report an already installed version), then retry sync.`, {
       param: root ? 'settings.native_settings' : profile ? 'settings.profiles' : 'settings',

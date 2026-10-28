@@ -24,6 +24,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/buildinfo"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/housekeeping"
@@ -282,6 +283,13 @@ func maintenanceSummary(outcome string, finishErr error) string {
 }
 
 func defaultEnsureAgentService(ctx context.Context, canonical string, stdout, stderr io.Writer) error {
+	// canonical is this build's own path. A development build (`go build` in a
+	// scratch directory) would repoint the user's shared worker unit at itself
+	// (feedback 3e2df8d1); leave the unit to the installed release instead.
+	if !buildinfo.Release() {
+		fmt.Fprintf(stderr, "cxx background worker: development build (version %q) leaves the shared cxx-agent service unchanged; run 'cxx agent service install' explicitly to point it at this binary\n", buildinfo.Version)
+		return nil
+	}
 	serviceCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(serviceCtx, canonical, "agent", "service", "install")

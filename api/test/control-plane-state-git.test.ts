@@ -374,6 +374,127 @@ it.each(['codex','claude','grok'] as const)('%s explains missing native Git proo
  expect(h.state.snapshot().table('gitWorktrees').all()).toHaveLength(0);
 });
 
+describe('Git Director feedback sweep (registration state, remotes, nesting, list filters)', () => {
+  const as = <T>(h: ReturnType<typeof setup>, run: () => Promise<T>) =>
+    withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, run);
+  const edit = (h: ReturnType<typeof setup>, apply: (draft: ReturnType<typeof h.state.begin>) => void) => {
+    const draft = h.state.begin();
+    apply(draft);
+    const revision = h.state.revision();
+    h.state.publish(draft.seal({ ...revision, sequence: revision.sequence + 1n }));
+  };
+  const claimRepo = (h: ReturnType<typeof setup>, root = '/repo', commonDir = '/repo/.git') =>
+    h.service.claims.acquire(h.sessionId, h.token, {
+      client_request_id: randomUUID(),
+      purpose: 'feedback sweep',
+      resources: [
+        { kind: 'path', host_id: 1, path: root },
+        { kind: 'git', host_id: 1, common_dir: commonDir, branch: 'main' },
+      ],
+    });
+  const base = { worktree_path: '/repo', clone_dir: '/repo/.git', repo_root: '/repo', engine: 'codex', username: 'root', branch: 'work' };
+  const withWorkspace = (h: ReturnType<typeof setup>) =>
+    mutateOwnerState(h.owner, { kind: 'test.workspace', payload: {}, prepare(ctx) {
+      ctx.draft.upsert('agentSessions', { ...ctx.snapshot.sessions.get(h.sessionId)!, workspace: {
+        cwd: '/repo', git_status: 'repository', git_root: '/repo', git_common_dir: '/repo/.git', branch: 'work', head_sha: null, repository_key: null,
+      } });
+      return null;
+    } });
+
+  it('names an uncertain registration on merge, and git_join restores it completely (a4ce60ec, 2b7d13fe)', async () => {
+    const h = setup();
+    await claimRepo(h);
+    const registered = await as(h, () => h.git.register(base, h.host));
+    const id = String(registered.worktree_id);
+    edit(h, (draft) => draft.upsert('gitWorktrees', { ...draft.table('gitWorktrees').get(id)!, status: 'uncertain', uncertaintyReason: 'owner_restart' }));
+    const ask = () => as(h, () => h.git.requestMerge({ worktree_path: '/repo', target_branch: 'main', client_request_id: 'same-id', changed_paths: ['src/a.ts'] }, h.host));
+    await expect(ask()).rejects.toMatchObject({
+      code: 'git_director_owner_uncertain',
+      message: expect.stringMatching(/uncertain \(owner_restart\)[\s\S]*git_register/),
+    });
+    const joined = await as(h, () => h.git.join({ worktree_path: '/repo', target_branch: 'main' }, h.host));
+    expect(joined.restored_registration).toEqual({ status: 'uncertain', uncertainty_reason: 'owner_restart' });
+    const row = h.state.snapshot().table('gitWorktrees').get(id)!;
+    expect(row.status).toBe('active');
+    expect(row.uncertaintyReason).toBeNull();
+    expect((await ask()).verdict).toBe('allow');
+    const again = await as(h, () => h.git.join({ worktree_path: '/repo' }, h.host));
+    expect(again.restored_registration).toBeUndefined();
+  });
+
+  it('git_director_worktree_changed names the recorded field that changed while judging (5d35864a)', async () => {
+    const h = setup();
+    await claimRepo(h);
+    let id = '';
+    const judge = { model: 'fixture', judge: async () => {
+      edit(h, (draft) => draft.upsert('gitWorktrees', { ...draft.table('gitWorktrees').get(id)!, status: 'uncertain', uncertaintyReason: 'disconnected' }));
+      return { verdict: 'wait' as const, reason: 'fixture' };
+    } };
+    const deps = (h.git as unknown as { deps: { db: Database; settings: SettingsService } }).deps;
+    const git = new GitDirectorService({ db: deps.db, settings: deps.settings, judge });
+    id = String((await as(h, () => git.register(base, h.host))).worktree_id);
+    const first = await as(h, () => git.requestMerge({ worktree_path: '/repo', target_branch: 'main', client_request_id: randomUUID(), changed_paths: ['src/a.ts'] }, h.host));
+    expect(first.verdict).toBe('allow');
+    await expect(as(h, () => git.requestMerge({ worktree_path: '/repo', target_branch: 'main', client_request_id: randomUUID(), changed_paths: ['src/a.ts'] }, h.host))).rejects.toMatchObject({
+      code: 'git_director_worktree_changed',
+      message: expect.stringContaining('status uncertain (disconnected)'),
+      extra: expect.objectContaining({ changed: expect.arrayContaining(['status']) }),
+    });
+  });
+
+  it('refuses to replace a live clone remote with a different repository (00c4d271)', async () => {
+    const h = setup();
+    const real = 'ssh://git@git.alpha-labs.net:2222/eulotorium/nekoma2.git';
+    await as(h, () => h.git.register({ ...base, remote_url: real }, h.host));
+    const clone = () => h.state.snapshot().table('gitClones').all()[0]!;
+    const key = clone().remoteKey;
+    await expect(as(h, () => h.git.register({ ...base, remote_url: 'ssh://git@git@git.alpha-labs.net:2222/eulotorium/nekoma2.git' }, h.host))).rejects.toMatchObject({
+      code: 'git_director_remote_mismatch',
+      message: expect.stringContaining(real),
+    });
+    expect(clone().remoteKey).toBe(key);
+    expect(clone().remoteUrl).toBe(real);
+    // Another spelling of the same repository is not a change.
+    await as(h, () => h.git.register({ ...base, remote_url: 'https://git.alpha-labs.net/eulotorium/nekoma2' }, h.host));
+    expect(clone().remoteKey).toBe(key);
+    // With no live registration left, a genuine move is accepted.
+    await as(h, () => h.git.release({ worktree_path: '/repo', deregister: true }, h.host));
+    await as(h, () => h.git.register({ ...base, remote_url: 'https://example.test/moved/repo.git' }, h.host));
+    expect(clone().remoteKey).not.toBe(key);
+  });
+
+  it('registers a nested repository below the bound checkout without rebinding (054da397)', async () => {
+    const h = setup();
+    await withWorkspace(h);
+    await as(h, () => h.git.register(base, h.host));
+    const nested = await as(h, () => h.git.register({ ...base, worktree_path: '/repo/MD', clone_dir: '/repo/MD/.git', repo_root: '/repo/MD', branch: 'master' }, h.host));
+    expect(nested).toMatchObject({ registered: true, agent_address_bound: true });
+    // Same repository below the root, or a sibling path, still needs agent_context_update.
+    for (const args of [
+      { ...base, worktree_path: '/repo/sub', clone_dir: '/repo/.git' },
+      { worktree_path: '/repo/sub', repo_root: '/repo/sub', engine: 'codex', username: 'root' },
+      { ...base, worktree_path: '/repository/MD', clone_dir: '/repository/MD/.git' },
+    ])
+      await expect(as(h, () => h.git.register(args, h.host))).rejects.toMatchObject({ code: 'git_director_owner_required' });
+    await claimRepo(h, '/repo/MD', '/repo/MD/.git');
+    expect((await as(h, () => h.git.requestMerge({ worktree_path: '/repo/MD', target_branch: 'main', client_request_id: randomUUID(), changed_paths: ['x.md'] }, h.host))).verdict).toBe('allow');
+    expect(h.state.snapshot().table('gitWorktrees').all().filter((row) => row.status === 'active')).toHaveLength(2);
+  });
+
+  it('filters git_list by remote_url and clone_dir (ee7397de)', async () => {
+    const h = setup();
+    await withWorkspace(h);
+    await as(h, () => h.git.register({ ...base, remote_url: 'git@example.test:org/parent.git' }, h.host));
+    await as(h, () => h.git.register({ ...base, worktree_path: '/repo/MD', clone_dir: '/repo/MD/.git', repo_root: '/repo/MD', remote_url: 'https://example.test/org/md' }, h.host));
+    expect((await h.git.list({}, h.host)).total).toBe(2);
+    const byRemote = await h.git.list({ remote_url: 'https://example.test/org/parent' }, h.host);
+    expect(byRemote).toMatchObject({ total: 1, clones: [expect.objectContaining({ clone_dir: '/repo/.git' })] });
+    const byDir = await h.git.list({ clone_dir: '/repo/MD/.git/' }, h.host);
+    expect(byDir).toMatchObject({ total: 1, clones: [expect.objectContaining({ clone_dir: '/repo/MD/.git' })] });
+    expect((await h.git.list({ remote_url: 'https://example.test/org/none' }, h.host)).total).toBe(0);
+  });
+});
+
 describe('offline Git registration owners', () => {
   const GRACE = 5 * 60_000;
   const foreign = async (h: ReturnType<typeof setup>) => {

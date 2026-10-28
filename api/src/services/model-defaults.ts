@@ -15,7 +15,7 @@ import {
   SUPPORTED_MODELS,
 } from './config-normalizer.js';
 import { claudeSessionEfforts } from './claude-effort.js';
-import { CLAUDE_DEFAULT_MODEL, CLAUDE_SUPPORTED_MODELS } from './claude-models.js';
+import { CLAUDE_DEFAULT_MODEL, CLAUDE_MODEL_MIN_CLI_VERSIONS, CLAUDE_SUPPORTED_MODELS } from './claude-models.js';
 import { ClientConfigService } from './client-config.js';
 import { withClientConfigWriteLock, type ConfigWriteContext } from './client-config-lock.js';
 import { ENGINE_CLAUDE, ENGINE_GROK, type Engine } from '../util/engine.js';
@@ -72,6 +72,7 @@ const CLAUDE_CATALOG: readonly ModelDefaultsCatalogEntry[] = CLAUDE_SUPPORTED_MO
     model,
     persistent_efforts: [...efforts],
     default_effort: defaultEffort,
+    ...(CLAUDE_MODEL_MIN_CLI_VERSIONS[model] ? { min_cli_version: CLAUDE_MODEL_MIN_CLI_VERSIONS[model] } : {}),
   };
 });
 

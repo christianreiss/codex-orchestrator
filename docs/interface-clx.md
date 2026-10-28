@@ -146,7 +146,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 ### Native command maintenance (cxx 0.9.66)
 
 The native dispatch and flag grammar were checked against Claude Code
-**2.1.310** on 2026-10-26 and the
+**2.1.312** on 2026-10-28 and the
 [official CLI reference](https://code.claude.com/docs/en/cli-reference).
 `purge` is forwarded as a native maintenance command; it retains its native
 confirmation and `--dry-run` behavior. Recognized native maintenance commands
@@ -598,7 +598,7 @@ Transfer sections, which follow it on the same terms (orchestrator MCP usable
 plus `git_director_enabled` / `transfers_module_enabled`) and close the block.
 
 
-**Model Class Check.** The fleet switch `model_tier_check_enabled` (default on; `GET`/`POST /admin/model-tier-check`, Settings → Agents) appends a final `model_tiers` section to managed AGENTS.md/CLAUDE.md/Grok AGENTS.md for Codex, Claude and Grok. It names the host's configured model and tier (host override, then fleet config, then engine default; Claude reports none when unpinned) and a tier table of the latest, non-disabled models of the host's active engines (`activeHostEngines`, so fleet-suspended engines are never recommended). Tiers live in `api/src/services/model-tiers.ts`: 1 Haiku/Luna; 2 Terra/Grok 4.5, 4.6; 3 Sonnet/Opus/Sol/Grok 4.7 and 4.7-build-fast; 4 Fable/Astra (Sonnet moved 2 → 3 on 2026-10-28). An agent one tier below the task states `Underclassed: …` with a recommended model and proceeds; two or more tiers below, it stops before starting, reports that line and finishes accepted work as `blocked` unless the operator explicitly asked this model to proceed. Classify the whole assignment before task-specific scouting or planning, by the judgment it needs rather than its keywords: read-only scouting, including “scout and prepare”, takes the tier of the decisions it feeds. All four task definitions remain visible even when a host has no model at that tier. An override must explicitly acknowledge the identified mismatch; model selection or the original task request does not count. Tier 3/4 work states task tier, model tier and a reason. This is agent guidance, not runtime admission enforcement. Only a concrete session model overrides the configured model; a generic “GPT-6” label does not make configured Luna unknown. An unknown model never aborts. Changes apply on the next sync.
+**Model Class Check.** The fleet switch `model_tier_check_enabled` (default on; `GET`/`POST /admin/model-tier-check`, Settings → Agents) appends a final `model_tiers` section to managed AGENTS.md/CLAUDE.md/Grok AGENTS.md for Codex, Claude and Grok. It names the host's configured model and tier (host override, then fleet config, then engine default; Claude reports none when unpinned) and a tier table of the latest, non-disabled models of the host's active engines (`activeHostEngines`, so fleet-suspended engines are never recommended). Tiers live in `api/src/services/model-tiers.ts` (operator ruling 2026-10-28, five tiers): 1 Haiku/Luna/Grok 4.5; 2 Terra/Grok 4.6, 4.7 and 4.7-build-fast; 3 Sonnet/Sol; 4 Opus; 5 Fable/Astra. An agent one tier below the task states `Underclassed: …` with a recommended model and proceeds; two or more tiers below, it stops before starting, reports that line and finishes accepted work as `blocked` unless the operator explicitly asked this model to proceed. Classify the whole assignment before task-specific scouting or planning, by the judgment it needs rather than its keywords: read-only scouting, including “scout and prepare”, takes the tier of the decisions it feeds. All four task definitions remain visible even when a host has no model at that tier. An override must explicitly acknowledge the identified mismatch; model selection or the original task request does not count. Tier 3+ work states task tier, model tier and a reason. This is agent guidance, not runtime admission enforcement. Only a concrete session model overrides the configured model; a generic “GPT-6” label does not make configured Luna unknown. An unknown model never aborts. Changes apply on the next sync.
 
 ## Startup sequence
 
@@ -985,7 +985,24 @@ the fleet-managed keys (`model`, `modelSettings.<model>.effortLevel`, the compat
 legacy `effortLevel`, `mcpServers.<name>`, `env.<VAR>`, `statusLine`,
 `hooks.<Event>`, `permissions.{allow,ask,deny}`, `permissions.defaultMode`,
 `advisorModel`) and `owned_paths` are the leaf-granular dot-paths the fleet owns
-this run.
+this run. An optional `omitted: [{ path, value, reason }]` lists configured
+values withheld for this host because Claude Code would ignore them; wrappers
+ignore it, and the withheld key is not owned, so a previously written value is
+removed.
+
+Structured `advisorModel` accepts the native advisor aliases `opus`, `sonnet`
+and `fable` (case-insensitive) or a full Claude catalog model ID such as
+`claude-opus-5-5`; known legacy IDs are canonicalized. Store and preview reject
+with HTTP 422 (`param: settings.advisorModel`) an unknown value, an advisor
+whose native `advisor_rank` is below 2, or a session model whose rank exceeds the
+advisor's, because Claude Code would silently run without an advisor. Unknown
+ranks remain permissive, matching the native gate. `native_settings.advisorModel`
+may name custom IDs; it is checked only against the same rank rule
+(`param: native_settings.advisorModel`). Host rendering checks the effective
+host model, including a `claude_model_override`: an advisor that host's model
+outranks is omitted for that host only and reported in `omitted`, while the
+stored fleet value is unchanged. A stored invalid value stays visible as an admin
+read `validation_error` instead of being normalized away.
 
 ### Additional native user settings
 
@@ -1016,7 +1033,7 @@ Desktop 3.6556.0 or newer reads it; accepting it in a CLI settings parser would
 not make it functional in managed CLI sessions.
 
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
-checked against Claude Code 2.1.310 on 2026-10-26. Validation rejects unknown
+checked against Claude Code 2.1.312 on 2026-10-28. Validation rejects unknown
 root keys and fields in fixed nested objects, invalid types/enums, malformed
 hook events and handlers, and unsafe JSON keys with HTTP 422. Diagnostics name
 the full `native_settings` path, including array indices; literal dotted keys
@@ -1039,8 +1056,12 @@ Deprecated keys `includeCoAuthoredBy`, `disableArtifact`, `voiceEnabled`,
 `keybindingFlavor`, `taskOutputMaxChars`, `ignorePatterns`,
 `permissionExplainerEnabled`, and `teammateDefaultModel` are rejected with
 replacement/removal guidance. `model` and top-level `effortLevel` belong in the
-existing model controls. `apiKeyHelper` and `autoUpdatesChannel` cannot be set
-here because managed authentication and fleet version selection own them.
+existing model controls. `apiKeyHelper`, `autoUpdatesChannel` and
+`minimumVersion` cannot be set here because managed authentication and fleet
+version selection own them: managed launches disable native updates and refuse
+native install/update, so `minimumVersion` would have no effect. Idempotent
+migration 0115 removes stored `native_settings.minimumVersion` values without
+touching siblings or historical body/hash snapshots.
 Managed-only policy keys return an actionable scope error; putting them in user
 settings would not apply them. Global preferences that belong in `~/.claude.json`
 are also rejected by this user-settings field.
@@ -1065,7 +1086,7 @@ before applying its replacement leaves.
 The public picker and inference gateway now include Haiku 5.5 and the still-active
 Opus 4.6 and Opus 4.5 (`claude-opus-4-5-20251101`). Selecting Opus 4.6 no longer
 silently upgrades it to 4.8. Haiku 5.5 has a 1M context window and 128k output
-limit; use Claude Code 2.1.293 or later. The runner image pins 2.1.310. Restricted
+limit; use Claude Code 2.1.293 or later. The runner image pins 2.1.312. Restricted
 Mythos models remain outside the public catalog; plan/provider entitlements are
 still checked upstream.
 
@@ -1074,15 +1095,65 @@ deprecated Sonnet 4.5 (replacement: Sonnet 5.5). This also covers native
 `modelSettings`, fallback/advisor/allowlist models, picker entries, model
 remappings, model environment variables, and hook models. Explicit current
 per-model settings win when an old entry migrates onto the same model. Unknown
-custom deployment IDs remain intact. The API-key auth probe uses active Haiku
+custom deployment IDs remain intact.
+
+Since 2026-10-28 every retired or deprecated Sonnet ID (Sonnet 3, 3.5, 3.7, 4
+including `claude-sonnet-4-0` and `claude-sonnet-4-20250514`, and 4.5) migrates
+to `claude-sonnet-5-5`, the "Recommended replacement" on the
+[deprecations page](https://platform.claude.com/docs/en/about-claude/model-deprecations)
+checked that day. This applies to fleet and host model values, native model
+fields, the signed per-host `claude_model_override`, latest-family replacements
+and the `/anthropic/v1` gateway. Sonnet 5 and Sonnet 5.5 accept the same
+persistent efforts, so a stored effort is kept; a migrated value without one
+runs at Sonnet 5.5's CLI default (`medium`, filled in for host overrides). An already stored `claude-sonnet-5`
+is active and stays unchanged: earlier migrations cannot be told apart from a
+deliberate choice. No database migration is needed because legacy values
+normalize on store and render. The API-key auth probe uses active Haiku
 4.5 with a small output budget and no thinking, replacing the retired Sonnet 4
 probe; OAuth probes continue through the native CLI.
 
 Sources: [Claude Code models and effort](https://code.claude.com/docs/en/model-config),
 [model lifecycle](https://platform.claude.com/docs/en/about-claude/model-deprecations),
-and the installed Claude Code 2.1.296 first-party model catalog. API and CLI effort
+and the installed Claude Code 2.1.296 first-party model catalog (re-checked
+against 2.1.312 on 2026-10-28). API and CLI effort
 are separate contracts: Opus 4.5 has no CLI effort control, and Sonnet 5.5's CLI
 default is `medium` even though its API default is `high`.
+
+### Claude model CLI minimums
+
+[Model configuration](https://code.claude.com/docs/en/model-config) (checked
+2026-10-28) documents per-model Claude Code floors: Fable 5.1 **2.1.257**,
+Opus 5.5 **2.1.280**, Sonnet 5.5 **2.1.284** and Haiku 5.5 **2.1.293**; older
+CLIs do not support these models. No minimum is invented for other catalog
+models, tier aliases (`sonnet`, `opus`, ...) or custom provider IDs. A retired
+ID that migrates to one of these models inherits its floor; `[1m]` does not
+change the model.
+
+- **Catalog.** `GET /admin/model-defaults/claude` entries carry
+  `min_cli_version`. A host's signed launch catalog omits entries whose floor
+  exceeds its reported `claude_client_version` (an unreported version counts as
+  too old). Fleet defaults stay authorable before any host reports.
+- **Host override and delivery.** An incompatible `claude_model_override` is
+  rejected with HTTP 422 and upgrade guidance; clearing is always allowed.
+  Host config/settings delivery checks the effective root model (host override,
+  else fleet model, after latest-family mapping) against the reported version
+  and fails with the same guidance until the host updates; on the sync bundle
+  that fails the whole response. The signed wrapper config
+  (`/wrapper/v2/config`), `clx update` and `clx cron run` stay available. The
+  installed version is recorded only by `POST /cron/report` (update or cron
+  run), not by sync, so recovery is: update or cron run, then sync.
+- **Wrapper (cxx).** The launchpad probes the installed Claude binary and marks
+  incompatible choices unavailable instead of falling back to another model.
+  A root Claude launch (including `cxx native claude` and `clx run`) resolves the
+  model as native would — `--model`, then the host override exported as
+  `ANTHROPIC_MODEL`, then an inherited `ANTHROPIC_MODEL`, then `settings.json`
+  or `--settings` `model` — and, when that model has a floor, refuses with exit
+  2 before touching auth, settings or the session guard. The check probes the
+  binary that would actually run, so a `CLX_CLAUDE_BIN` override is gated too.
+  Native subcommands (`update`, `install`, `doctor`, `auth`, `mcp`, ...) and
+  help/version are never gated. The wrapper keeps the four floors built in so
+  an older signed catalog without `min_cli_version` still enforces them. An
+  `ANTHROPIC_MODEL` inside the settings `env` block is not considered.
 
 ### Structured settings
 
@@ -1265,7 +1336,16 @@ on their evidence.
 The same provisioning appends a ringer to the managed `hooks.Stop` and
 `hooks.UserPromptSubmit` entries: `cxx agent poll --hook <event> 2>/dev/null ||
 true`. These hooks provide a fallback ring when automatic reception is unavailable;
-healthy native Channels can deliver between turns. The command prints nothing
+healthy native Channels can deliver between turns. With a ready turn-gated
+receiver (`delivery_timing_v1`) the ring does not send the model to
+`agent_listen`: a `UserPromptSubmit` ring says the listed messages arrive after
+the current turn ends (only `delivery_timing: "immediate"` mail can land
+mid-turn) and that listening does not fetch a body, and the `Stop` hook does not
+ring or block for pending mail at all, because the receiver pushes it at exactly
+that boundary and a blocking `Stop` would keep the turn running, and the claim
+gate shut, for another round. A `Stop` ring that cannot be recorded in the per-session
+ring ledger is dropped rather than emitted, so it can never block every turn end.
+The command prints nothing
 when there is nothing to report or the
 orchestrator is unreachable, and `|| true` keeps a wrapper too old to know
 `agent poll` from blocking every turn. Operator-configured hooks for the same
@@ -1292,7 +1372,10 @@ the server refuses with `agent_messaging_relay_not_persistent` exits 0 and is no
 restarted; so does one whose signed config stays unreadable or expired for 5
 minutes. Run as root, `install` also retires other accounts' legacy workers and
 their `cxx-agent.service` where the server says they may not run one (see
-[host runtime policy](host-runtime-policy.md)).
+[host runtime policy](host-runtime-policy.md)). From cxx 0.9.143 a development
+build (version `dev`) neither queues launch-time maintenance nor lets the automatic
+ensure install, repoint or retire the unit; it prints a note instead, and an explicit
+`cxx agent service install` still works (cdx parity; feedback 3e2df8d1).
 
 Delivery is FIFO per target and at-least-once until native execution starts.
 Queued messages default to a 24-hour TTL, accept 60 seconds through seven days,
@@ -1493,7 +1576,11 @@ later message, schedule wakes included, until a human typed. Accepted work and a
 open Portal instruction are never released this way; the hook rings once
 (`decision: block` on Stop) naming them and the tool that finishes them. After a
 release on a ready receiver the hook does not ring pending mail, because the
-receiver now pushes it, waking an idle session. An owner from an older wrapper, a
+receiver now pushes it, waking an idle session. The owner's held report also
+carries `delivery_after_turn`; when set, a `Stop` with nothing read still held
+skips the pending ring too (see the ringer paragraph above), while a read
+delivery whose release failed still rings once with a single `agent_listen`.
+An owner from an older wrapper, a
 missing transcript, or any owner error leaves the hook's previous behaviour
 unchanged. A later `agent_reply` to a released message still works: the server
 accepts claim-less replies to completed informational messages. Codex and Grok
@@ -1509,7 +1596,12 @@ instead of a fixed string: `status: "automatic"` with `receiver.state: "ready"` 
 the current `claim_gate` (`open`, `held_delivery`, `portal_pending`, or
 `thread_<status>` for a busy Codex thread; anything but `open` only delays delivery
 and is the normal state of a working agent; a non-`open` gate also carries a
-plain-text `claim_gate_note` saying so), or `status: "receiver_unavailable"`
+plain-text `claim_gate_note` saying so). On a turn-gated Claude receiver
+(`delivery_timing_v1`) its message states that `agent_listen` never returns a
+body, that queued messages arrive after the current turn ends unless sent
+`immediate`, and that calling it again in the same turn fetches nothing; a
+`delivery_pending` answer likewise says the delivery may appear only after the
+turn. It returns `status: "receiver_unavailable"` instead
 when the receiver never registered (a starting receiver gets five seconds) or its
 heartbeat is older than 45 seconds. The model must not yield expecting a delivery in
 that case, and must tell the user instead. The receiver's own connection state is

@@ -137,7 +137,7 @@ test("Claude nested namespaces stay opt-in and can be previewed, changed and rem
   await expect(card).toContainText("It defaults to false");
   await expect(card).toContainText("escape the sandbox");
   await expect(card).toContainText("Desktop-only sshHostCommands");
-  await expect(card.getByRole("link", { name: "Claude 2.1.310 settings" })).toBeVisible();
+  await expect(card.getByRole("link", { name: "Claude 2.1.312 settings" })).toBeVisible();
   expect(shared.configs.claude.settings.native_settings).not.toHaveProperty("sandbox");
   for (const allowNestedUserNamespaces of [false, true]) {
     const native = { sandbox: { enabled: true, allowNestedUserNamespaces }, env: { LOCAL_SIBLING: "kept" } };

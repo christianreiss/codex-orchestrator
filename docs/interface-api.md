@@ -533,7 +533,7 @@ Suspending an engine keeps everything; *destroy* removes it from every host.
 - `GET /host/lane` — returns Codex-only lane steering metadata for the calling host. Explicit Claude hints return `422`; a host without Codex enabled returns `403 engine_disabled`. Requires host API key + IP binding and applies insecure-window checks. Response includes `lane_preference` (`normal`/`null`) and `effective_lane:"normal"`; a stored legacy `spark` preference reads as `null`.
 - `POST /host/lane` — Codex-only; rejects Claude hints and Codex-disabled hosts before changing lane or insecure-window state. Set/clear host lane preference with body `{ lane: "normal" | null }` (use `null` to clear; the retired `"spark"` sent by wrapper <= 0.9.5 is accepted and stored as `null`). Requires host API key + IP binding and applies insecure-window checks. Changes affect wrapper lane steering on the next `cdx` run.
 - OpenAI-compatible API:
-  - Native execution failures return `502 runner_failed`; the runner retains the last 500 characters of its diagnostic so a CLI banner cannot hide the provider error. The bundled Codex 0.164.0 runner must be rebuilt/recreated when upgrading from 0.154.0 to serve `gpt-6.1-sol` with ChatGPT credentials; successful key validation and model listing alone do not verify generation.
+  - Native execution failures return `502 runner_failed`; the runner retains the last 500 characters of its diagnostic so a CLI banner cannot hide the provider error. The bundled Codex 0.165.0 runner must be rebuilt/recreated when upgrading from 0.154.0 to serve `gpt-6.1-sol` with ChatGPT credentials; successful key validation and model listing alone do not verify generation.
   - Gateway execution uses `AUTH_RUNNER_EXEC_TIMEOUT` (default 600 seconds), independently of the 8-second `AUTH_RUNNER_TIMEOUT` credential-probe budget. The runner enforces a 600-second maximum.
   - `POST /v1/chat/completions` — OpenAI-compatible chat completions. `messages[].content` may be a plain string or an OpenAI-style content-part array. Text parts plus `image_url` / `input_image` parts are normalized and forwarded to the runner, which materializes image URLs or base64 `data:` URLs into real `codex exec --image` attachments. Non-streaming returns a standard `chat.completion` object. Streaming now emits SDK-compatible `chat.completion.chunk` SSE payloads with `choices[].delta.content` and a final `[DONE]`. `model` must be one of the shared supported Codex models returned by `/v1/models`; when omitted, the API resolves the default from the saved main config model and falls back to `versions.cdx_model`.
   - `POST /v1/responses` — minimal OpenAI-compatible Responses API compatibility adapter for non-streaming clients. Accepts `input` as a string, a bare content-part array, or a message-style array plus optional `instructions`, maps the request onto the backend chat flow, and returns a `response` object with `output[0].content[0].type="output_text"`. Text parts plus `image_url` / `input_image` parts are supported, including base64 `data:` URLs. `stream:true` is currently rejected on this endpoint. `model` uses the same strict allowlist and default-resolution behavior as chat completions.
@@ -543,10 +543,11 @@ Suspending an engine keeps everything; *destroy* removes it from every host.
   - `GET /v1/models/{model}` — retrieves a single model object. Legacy aliases resolve to their current id; an empty or unknown id returns `404 model_not_found`.
   - `OPTIONS /v1/*` — CORS preflight for every OpenAI-compatible route; returns 204.
 - Anthropic-compatible API (see [Anthropic-compatible API](#anthropic-compatible-api) section below for full details):
-  - `POST /anthropic/v1/messages` — Anthropic-compatible Messages API. Accepts `messages` with `role`/`content`, optional `model`, `system` (string or text-block array), `stream`, `max_tokens`, `temperature`, `top_p`, `top_k`. System messages in the `messages` array are extracted and handled separately per Anthropic convention; a top-level `system` block array is flattened into one string. Content can be a string or an array of content blocks (text, image). Non-streaming returns an Anthropic message format response. Streaming returns Server-Sent Events with event types: `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`. Authentication requires a Claude API key via `Authorization: Bearer sk-ant-...` or `x-api-key: sk-ant-...`.
+  - `POST /anthropic/v1/messages` — Anthropic-compatible Messages API. Accepts `messages` with `role`/`content`, optional `model`, `system` (string or text-block array), `stream`, `max_tokens`, `temperature`, `top_p`, `top_k` (the last three only under `anthropic-version` `2023-06-01`/`2023-01-01`; see the `/anthropic/v1` version rules below). System messages in the `messages` array are extracted and handled separately per Anthropic convention; a top-level `system` block array is flattened into one string. Content can be a string or an array of content blocks (text, image). Non-streaming returns an Anthropic message format response. Streaming returns Server-Sent Events with event types: `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`. Authentication requires a Claude API key via `Authorization: Bearer sk-ant-...` or `x-api-key: sk-ant-...`.
   - `POST /anthropic/v1/messages/count_tokens` — token-count estimate for a prospective request. Takes the same `messages` / `system` / `tools` shape as `/anthropic/v1/messages` but does not require `max_tokens`, and returns `{input_tokens}`. The runner shells out to the `claude` CLI rather than a raw model endpoint, so the count is a character-based estimate and will not match the real API exactly.
   - `POST /anthropic/v1/completions` — Anthropic-compatible text completion endpoint. Accepts `prompt` and optional `model`. Returns completion in Anthropic format.
   - `POST /anthropic/v1/complete` — the upstream spelling of `POST /anthropic/v1/completions`; same handler, same body and response.
+  - `anthropic-version` — required on every `/anthropic/v1/*` request: `2026-10-21` (the `@anthropic-ai/sdk` >= 1.0.0 default), `2023-06-01` or `2023-01-01`; anything else is 400 `invalid_anthropic_version`. Under `2026-10-21`, `POST /anthropic/v1/messages` and `/messages/count_tokens` return 400 `invalid_request_error` / `unsupported_in_api_version` for `temperature`, `top_p` or `top_k` (any value, `null` included), a `document` block directly in an `assistant` message, and a `user` `text` block with non-empty `citations` (directly or inside `search_result`), per platform.claude.com/docs/en/api/versioning (checked 2026-10-28). The check is surface-level and runs before backend work, so it applies to every backend engine; older versions are unchanged, and the `/complete`, `/completions` and `/responses` shims take no version-specific body rules.
   - `GET /anthropic/v1/models` — lists available Claude models (`claude-fable-5-1`, `claude-fable-5`, `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5-5`, `claude-sonnet-5`, `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-5-5`, `claude-opus-4-6`, `claude-opus-4-5-20251101`, `claude-haiku-4-5-20251001`) in the Anthropic Models API shape; Sonnet 5 is the default (Sonnet 5.5 is supported, not yet the default).
   - `GET /anthropic/v1/models/{model_id}` — retrieves a single model object; unknown ids return `404 not_found_error`.
   - `POST /anthropic/v1/responses` — Minimal Responses API compatibility adapter for non-streaming clients. Accepts `input` (string, content-part array, or message-style array) plus optional `instructions`. Maps the request onto the Claude Messages backend and returns an OpenAI-compatible `response` object. `stream: true` is rejected.
@@ -744,7 +745,7 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `POST /admin/openai/keys/{id}/toggle` — enable or disable an OpenAI API key. Body: `{active: bool}`.
 - `DELETE /admin/openai/keys/{id}` — delete an OpenAI API key.
 - `GET /admin/claude/state` / `POST /admin/claude/state` — read/set persisted `claude_api_disabled` flag (toggles Anthropic-compatible API independently). `settings.read` / `settings.manage`. See [Admin: Claude management](#admin-claude-management) for full details.
-- `GET /admin/model-defaults/{engine}` — read the fleet CLI model defaults for `codex`, `claude`, or `grok`. Returns `{status:"ok", engine, model, reasoning_effort, catalog:[{model, persistent_efforts, default_effort}]}`; the catalog is the authoritative model-dependent selector contract. GET is read-only: if no engine config row exists it reports the effective catalog default (Codex Astra/medium, Claude Sonnet 5/high, or Grok `grok-4.7`/high) without creating a row. Codex model defaults are Astra/GPT-6 Sol/GPT-6 Luna/Terra/GPT-5.6 Luna `medium` and GPT-6.1 Sol/GPT-5.6 Sol `low` (the retired Spark model is no longer in the catalog); its accepted effort sets match the per-host contract above. Grok's catalog is `grok-4.7`, `grok-4.7-build-fast`, and `grok-4.6` (`low`/`medium`/`high`/`xhigh`) plus `grok-4.5` (`low`/`medium`/`high`), all defaulting to `high`.
+- `GET /admin/model-defaults/{engine}` — read the fleet CLI model defaults for `codex`, `claude`, or `grok`. Returns `{status:"ok", engine, model, reasoning_effort, catalog:[{model, persistent_efforts, default_effort, min_cli_version?}]}`; the catalog is the authoritative model-dependent selector contract, and `min_cli_version` (Codex Terra; Claude Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5) is the documented native CLI floor. GET is read-only: if no engine config row exists it reports the effective catalog default (Codex Astra/medium, Claude Sonnet 5/high, or Grok `grok-4.7`/high) without creating a row. Codex model defaults are Astra/GPT-6 Sol/GPT-6 Luna/Terra/GPT-5.6 Luna `medium` and GPT-6.1 Sol/GPT-5.6 Sol `low` (the retired Spark model is no longer in the catalog); its accepted effort sets match the per-host contract above. Grok's catalog is `grok-4.7`, `grok-4.7-build-fast`, and `grok-4.6` (`low`/`medium`/`high`/`xhigh`) plus `grok-4.5` (`low`/`medium`/`high`), all defaulting to `high`.
 - For Grok only, the model-defaults response also includes `context_window` and each catalog entry adds `context_windows: [256000, 500000]` and `default_context_window: 256000`. POST additionally accepts `context_window?: number|null`: omission preserves the saved window (256000 on a new config), `null` resets to the catalog default, and other values return HTTP 422. The canonical structured setting renders as `[model."<effective-model>"].context_window` in native Grok TOML, including when a host overrides the model. Model/effort-only callers remain compatible; Codex and Claude reject this field. The selected window is included in the `admin.model_defaults` audit event.
 - `POST /admin/model-defaults/{engine}` — set the fleet CLI defaults. Strict body: `{model: string, reasoning_effort?: string|null}`. Omitted/null effort selects the model's `default_effort`; unsupported engines, models, efforts, or extra fields return HTTP 422 `validation_failed`. Codex persists `model` / `model_reasoning_effort`; Claude stores the abstract fleet `model` / `effortLevel` and renders native `modelSettings[canonicalModel].effortLevel`; older models also receive the compatible top-level key. Claude persistent capabilities are Fable 5/5.1, Opus 5, Opus 4.8, and Sonnet 5 `low|medium|high|xhigh` (default `high`); Opus/Sonnet/Haiku 5.5 have the same set with default `medium`; Opus 4.7 defaults to `xhigh`; Opus/Sonnet 4.6 support `low|medium|high` (default `high`); Opus 4.5 and Haiku 4.5 have no native effort value (`null`, so managed effort keys are removed). This follows the native CLI settings schemas: Codex effort is model-dependent, while Claude Code persists only `low|medium|high|xhigh`; its `max` effort is session-only and is intentionally not offered here.
 - `GET /admin/claude/keys` — list all Claude API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
@@ -755,7 +756,7 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `POST /admin/claude/version` — set the fleet Claude Code version policy. Body `{selection: "latest"|"auto"|"<x.y.z>"}`; `latest`/`auto` clear the lock and refresh from upstream.
 - `GET /admin/claude/config` — Claude `settings.json` builder state: the stored sub-blocks plus the baked document and canonical `revision` (string, or `null` when missing).
 - `POST /admin/claude/config/render` — render `{settings}` into the baked `settings.json` without storing it.
-- `POST /admin/claude/config/store` — store `{settings, expected_revision?: string|null}` as the served Claude config. The shared atomic revision contract below applies; optional `sha256` remains a legacy rendered-content check.
+- `POST /admin/claude/config/store` — store `{settings, expected_revision?: string|null}` as the served Claude config. The shared atomic revision contract below applies; optional `sha256` remains a legacy rendered-content check. Render and store return 422 for an `advisorModel` (`settings.advisorModel`, or the rank rule on `native_settings.advisorModel`) that Claude Code would ignore: unknown values, advisor rank below 2, or a session model that outranks the advisor (see [interface-clx.md](interface-clx.md#settingsjson-sub-blocks-deep-merge-non-clobbering)).
 - Claude artifacts, where `{kind}` is `subagent`, `command`, or `output-style` (plural/alias spellings accepted); hosts read the same set through `/claude/{kind}`:
   - `GET /admin/claude/{kind}` — list artifacts of that kind, soft-deleted entries included.
   - `GET /admin/claude/{kind}/{slug}` — one artifact with its frontmatter and body; unknown slugs return `404 artifact_not_found`.
@@ -764,7 +765,7 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `GET /admin/claude/settings` / `POST /admin/claude/settings` — read/set the separate Anthropic-compatible API proxy defaults (`default_model`, `max_tokens`). These values do not change the Claude Code fleet `model` / `effortLevel` managed by `/admin/model-defaults/claude`. Gated as authored content (`content.read` / `content.manage`), not as a fleet setting. Supported models: `claude-fable-5-1`, `claude-fable-5`, `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5-5`, `claude-sonnet-5` (default), `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-5-5`, `claude-opus-4-6`, `claude-opus-4-5-20251101`, `claude-haiku-4-5-20251001`.
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set ChatGPT quota policy (`hard_fail` boolean), the warn/kill threshold (`limit_percent`, integer 50–100), and optional weekly partitioning (`week_partition`: `0|off`, `7`, or `5`). When `false`, `cdx` warns once usage meets the configured limit but still launches Codex; when `true`, exceeding the limit blocks execution. A non-zero `week_partition` adds a daily allowance bar in `cdx` (derived from the weekly window) that obeys the same warn/deny policy.
 - `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set fleet-wide wrapper quiet mode (`silent` boolean). When enabled, `cdx` suppresses boot info/warn logs and only emits errors.
-- `GET /admin/model-tier-check` / `POST /admin/model-tier-check` — read/set the default-on Model Class Check (`enabled` boolean). When enabled, served AGENTS.md/CLAUDE.md/Grok AGENTS.md end with a `model_tiers` section: configured model and tier, the tier table of the host's active engines, and model tier guidance (one-tier gap warns; two or more stops before scouting/planning unless explicitly overridden after acknowledging the mismatch; whole-stack assessment is Tier 4) (logged as `admin.model_tier_check`).
+- `GET /admin/model-tier-check` / `POST /admin/model-tier-check` — read/set the default-on Model Class Check (`enabled` boolean). When enabled, served AGENTS.md/CLAUDE.md/Grok AGENTS.md end with a `model_tiers` section: configured model and tier, the tier table of the host's active engines, and model tier guidance (one-tier gap warns; two or more stops before scouting/planning unless explicitly overridden after acknowledging the mismatch; read-only scouting takes the tier of the decisions it feeds; five tiers) (logged as `admin.model_tier_check`).
 - `GET /admin/api-keys-in-chat` / `POST /admin/api-keys-in-chat` — read/set the default-off cross-engine chat-key policy (`enabled` boolean). When enabled, served AGENTS.md/CLAUDE.md tells agents to accept operator-supplied API keys without generic security lectures while avoiding unnecessary echoing, persistence, or use outside the requested task.
 - `GET /admin/agents-generation-mode` / `POST /admin/agents-generation-mode` — read/set the fleet-wide master switch for how the canonical middle of AGENTS.md/CLAUDE.md is produced. Body/response `mode` is one of `managed` (default: the composed policy modules plus custom instructions), `manual` (the stored document verbatim), or `off` (the generated modules are dropped and only the operator's custom instructions remain). Unknown values are rejected with `422 validation_failed`; an unrecognized *stored* value reads back as `managed`, so a settings row this build cannot parse never strips prose fleet-wide. The switch is applied when a document is rendered, not when it is stored — `POST /admin/agents/store` keeps writing the full module selection at every mode, so flipping back restores it without a new version. No position suppresses the mandatory policy block or the managed feature block. Also reported as `generation_mode` on `GET /admin/agents`.
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set fleet-wide reverse DNS enforcement (`enabled` boolean). When enabled (or per-host override enabled), `/auth` requires a forward A/AAAA match and reverse PTR match for the calling IP.
@@ -807,7 +808,7 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `POST /admin/config/render` — validate and render a `settings` payload into TOML without persisting it. Returns `content`, `sha256`, `size_bytes`, normalized `settings` and separate profile previews. Unknown, removed or invalid authored feature values receive HTTP 422 with a field path before normalization can discard them; explicit supported legacy aliases migrate to canonical fields.
 - `POST /admin/config/store` — persist validated canonical Codex configuration built from `settings`. Optional `expected_revision` atomically guards the full saved document (see below). Optional `sha256` retains its legacy saved-content check. Returns `status:ok`, `change` (`created` | `updated` | `unchanged`), `revision`, `sha256`, `updated_at`, `size_bytes`, `content`, and normalized `settings`.
 
-All three Engines editors accept engine-specific `settings.native_settings`, with server validation/preview and exact ownership on host sync. Current coverage is Codex 0.163.0, Claude Code 2.1.301 and Grok Build 1.0.60. Codex 0.163-only options conditionally require that native version, including profile-only values; existing extensions retain their 0.162.1 floor. Claude's extension floor remains 2.1.296, including `idleCompaction` (introduced earlier). Update/report routes remain usable before a gated sync. See [configuration scopes](NATIVE_CONFIG_SCOPES.md) and the engine interfaces for precise types and native policy boundaries. Migrations 0071/0072 repair confirmed obsolete or invalid saved settings; saved `content`/`sha256` remain historical snapshots until the next normal save, while host configurations and previews render the repaired settings.
+All three Engines editors accept engine-specific `settings.native_settings`, with server validation/preview and exact ownership on host sync. Current coverage is Codex 0.165.0, Claude Code 2.1.312 and Grok Build 1.0.70 (runner pins match). Codex options introduced in 0.163.0, 0.164.0 or 0.165.0 conditionally require that native version, including profile-only values; built-in model provider overrides that the native loader refuses (reserved `openai`/`ollama`/`lmstudio`, unsupported Bedrock/GCP fields, `aws` outside Bedrock) are rejected with HTTP 422 naming the field; existing extensions retain their 0.162.1 floor. Claude's extension floor remains 2.1.296, including `idleCompaction` (introduced earlier), or 2.1.305 when `sandbox.allowNestedUserNamespaces` is set. Update/report routes remain usable before a gated sync. See [configuration scopes](NATIVE_CONFIG_SCOPES.md) and the engine interfaces for precise types and native policy boundaries. Migrations 0071/0072/0110/0115 repair confirmed obsolete, invalid or fleet-owned (native updater) saved settings; saved `content`/`sha256` remain historical snapshots until the next normal save, while host configurations and previews render the repaired settings.
 
 All three engine config GET/store routes share the revision contract: `revision` identifies the latest immutable `client_config_documents` row, independently of the rendered-content `sha256`. Send `expected_revision` with the value read by the editor; explicit `null` requires that no config exists. An omitted guard preserves legacy callers. A mismatch returns HTTP 409 `config_revision_conflict` with `expected_revision` and `current_revision`; reload and review before retrying. Invalid revision values return 422. Settings-only edits allocate a new revision even when `sha256` stays the same; unchanged saves retain the revision. The engine-specific range lock covers read, comparison and insertion, including an empty head; model-default updates use the same lock for their full read/merge/write operation. `settings.changed` is published only after a successful commit.
 
@@ -921,7 +922,12 @@ All three engine config GET/store routes share the revision contract: `revision`
   holder and ownership mode. Legacy `timed` cards retain their deadline and are
   reclaimed atomically on the next board mutation after expiry. Current
   `connection` cards do not expire on silence or disconnect; they remain uncertain
-  until their original owner or an operator releases them. Delivery to hosts is MCP-only
+  until their original owner or an operator releases them. A native card command
+  is checked against its authenticated session: a supplied `worktree_path` must
+  be the session's bound workspace (`git_root` or `cwd` from
+  `agent_context_update`, else the launch cwd, as for `git_register`) and a
+  supplied `username`/`engine` its own, else `409 card_identity_mismatch` with
+  `fields` naming each difference. Delivery to hosts is MCP-only
   (`project_board_list`, `project_card_create`, `project_card_claim`,
   `project_card_move`, `project_card_release`, `project_card_update`,
   `project_card_get`). Advisory throughout: a role that does not match a lane
@@ -982,7 +988,23 @@ All three engine config GET/store routes share the revision contract: `revision`
   supplies it; missing or ambiguous matches remain unbound. The address must also
   match the worktree directory (session `workspace.git_root`/`cwd`), so an agent
   that launched in the original checkout binds a linked worktree only after
-  `agent_context_update` moves its scope there. Registration replies carry
+  `agent_context_update` moves its scope there. One exception keeps a parent
+  binding: a separate repository nested inside the session's
+  `workspace.git_root` (a submodule or vendored clone) registers directly when
+  `clone_dir` is passed explicitly and names neither the parent's
+  `workspace.git_common_dir` nor the nested toplevel itself; a linked worktree
+  of the parent, or any path outside it, still needs `agent_context_update`
+  (`git_director_owner_required`). `clone_dir` must be
+  `git rev-parse --path-format=absolute --git-common-dir`: merge guards match a
+  git claim's `common_dir` against it, and a registration whose `clone_dir`
+  equals `repo_root` carries `clone_dir_hint`. A `remote_url` whose normalized
+  key differs from the one recorded for an existing clone is refused with
+  `git_director_remote_mismatch` (409, extra `recorded_remote_url`,
+  `remote_url`, `live_registrations`) while that clone has any `active` or
+  `uncertain` registration, so a typo cannot re-home a clone in use; other
+  spellings of the same repository are accepted, and a genuine move is accepted
+  once every live registration has released with `deregister: true`.
+  Registration replies carry
   `agent_address_bound` (as in `git_list`) and, when false, a `binding_hint`
   naming that repair. An unbound registration cannot have claims attributed to
   it: when only live active claims block a merge and the worktree has no live
@@ -1021,6 +1043,19 @@ All three engine config GET/store routes share the revision contract: `revision`
   uncertain registration, no live lease and no registration retired in the last 24 hours unless `include_idle: true`
   (`idle_omitted` counts them; scope `clone` always shows its clone). Owner-mode merge grants expire after 15 minutes and
   `git_merge_status` never extends them; an expired grant requires a new request.
+  An API restart marks connection-owned registrations `uncertain`/`owner_restart`.
+  A `git_merge_request`/`git_merge_status` on a registration that is not
+  `active` is refused before the claim guard with `git_director_owner_uncertain`
+  (extra `status`, `uncertainty_reason`), naming the state and the recovery:
+  from the exact owning session, re-run `git_register` or call `git_join`, renew
+  uncertain claims, retry the same `client_request_id`. `git_join` by the exact
+  owning session restores such a registration to `active` and clears
+  `uncertainty_reason` together (never `active` with a stale reason), reporting
+  `restored_registration: {status, uncertainty_reason}`. When the registration
+  changes while an arbiter judged the request, `git_director_worktree_changed`
+  names what changed in its message and in extra `changed` (`status`, `clone`,
+  `worktree_path`, `ownership_proof`/`expires_at`, `binding`); HEAD is not part of
+  that check.
   `git_join` preserves declared paths when `paths` is omitted; an explicit
   `paths: []` clears previous write scope for read-only work.
   A merge decision compares the request's `changed_paths` with two sets, using
@@ -1063,7 +1098,12 @@ All three engine config GET/store routes share the revision contract: `revision`
   `worktrees_truncated`), `lease_count`, `leases` (id, worktree, branch,
   verdict, expiry; no reason or overlap) and `stale_count` (capped at 25).
   `detail: "full"` restores the complete entries (declared paths, lease reasons
-  and overlap, `stale` rows). `scope: "clone"` defaults to `full`.
+  and overlap, `stale` rows). `scope: "clone"` defaults to `full`. Optional
+  narrowing filters apply within any scope, before paging and `total`:
+  `remote_url` keeps clones whose recorded remote normalizes to the same
+  repository (ssh/scp/https spellings match; clones without a recorded remote
+  never match) and `clone_dir` keeps the clone with that exact git common dir.
+  Neither requires a registration. Without them the default page is unchanged.
   **Agent notifications.** With Messaging enabled, routine registration, scope,
   and module bookkeeping remains available through audit, WebSocket invalidation
   and `git_list`; it does not broadcast to ordinary native sessions. `git_join`
@@ -1301,9 +1341,9 @@ The orchestrator does not meter request frequency and does not generate local ra
 
 ## Anthropic-compatible API
 
-- `POST /anthropic/v1/messages` — Anthropic-compatible Messages API. `messages[].content` may be a plain string or an Anthropic-style content-block array. Non-streaming returns a standard `message` object. Streaming emits `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, and `message_stop` SSE events. `model` must be one of the supported Claude models returned by `GET /anthropic/v1/models`; when omitted, the API resolves the default from the proxy's `default_model` (`/admin/claude/settings`). Supported body parameters: `messages` (required), `model` (optional), `system` (optional string or text-block array), `stream` (optional bool), `max_tokens` (required, as upstream: missing → 400 `missing_max_tokens`; present but not an integer >= 1 → 400 `invalid_max_tokens`; validated but not enforced, since the `claude` CLI has no output-length flag), `temperature` (optional float 0-1), `top_p` (optional float 0-1), `top_k` (optional int), `stop_sequences` (optional string array). An unknown `model` returns 404 `not_found_error`; an admin-disabled one returns 403 `permission_error`.
+- `POST /anthropic/v1/messages` — Anthropic-compatible Messages API. `messages[].content` may be a plain string or an Anthropic-style content-block array. Non-streaming returns a standard `message` object. Streaming emits `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, and `message_stop` SSE events. `model` must be one of the supported Claude models returned by `GET /anthropic/v1/models`; when omitted, the API resolves the default from the proxy's `default_model` (`/admin/claude/settings`). Supported body parameters: `messages` (required), `model` (optional), `system` (optional string or text-block array), `stream` (optional bool), `max_tokens` (required, as upstream: missing → 400 `missing_max_tokens`; present but not an integer >= 1 → 400 `invalid_max_tokens`; validated but not enforced, since the `claude` CLI has no output-length flag), `temperature` (optional float 0-1), `top_p` (optional float 0-1), `top_k` (optional int), `stop_sequences` (optional string array). `temperature`/`top_p`/`top_k` are accepted under `anthropic-version` `2023-06-01`/`2023-01-01` only; under `2026-10-21` they, an assistant `document` block and user `text` blocks with non-empty `citations` return 400 `unsupported_in_api_version` (also on `/messages/count_tokens`). An unknown `model` returns 404 `not_found_error`; an admin-disabled one returns 403 `permission_error`.
 - `POST /anthropic/v1/completions` — legacy Anthropic text completions endpoint. `model` uses the same strict allowlist and default-resolution behavior as messages.
-- `GET /anthropic/v1/models` — lists the supported Claude model ids from the shared config/model allowlist used by the Anthropic-compatible API: `claude-fable-5-1`, `claude-fable-5`, `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5-5`, `claude-sonnet-5`, `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-5-5`, `claude-opus-4-6`, `claude-opus-4-5-20251101`, `claude-haiku-4-5-20251001`. Response uses the Anthropic Models API envelope (`data[].type`/`display_name`/`created_at` plus `has_more`/`first_id`/`last_id`); the OpenAI-shaped `object`/`created`/`owned_by` fields are retained as deprecated aliases.
+- `GET /anthropic/v1/models` — lists the supported Claude model ids from the shared config/model allowlist used by the Anthropic-compatible API: `claude-fable-5-1`, `claude-fable-5`, `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5-5`, `claude-sonnet-5`, `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-5-5`, `claude-opus-4-6`, `claude-opus-4-5-20251101`, `claude-haiku-4-5-20251001`. Response uses the Anthropic Models API envelope (`data[].type`/`display_name`/`created_at`/`line` plus `has_more`/`first_id`/`last_id`); `line` is the catalog's model line (`opus`, `sonnet`, `haiku`, `fable`) for the Claude backend and `null` for models of another backend engine serving the surface; the OpenAI-shaped `object`/`created`/`owned_by` fields are retained as deprecated aliases.
 - `GET /anthropic/v1/models/{model_id}` — retrieves a single model object. Legacy ids resolve to their current-generation replacement; unknown ids return 404 `not_found_error`.
 - `POST /anthropic/v1/responses` — Minimal Responses API compatibility adapter for non-streaming clients. Body: `{ input: string|array, instructions?: string, model?: string, stream?: bool }`. When `stream` is `true`, the API returns HTTP 400 with code `unsupported_stream`. The `input` parameter accepts a plain string, a bare content-part array (e.g. `[{type:"input_text", text:"..."}]`), or a message-style array (e.g. `[{type:"message", role:"user", content:"..."}]`). Optional `instructions` are injected as a `system` message. Maps the request onto the Messages backend and returns an OpenAI-compatible `response` object with `output[0].content[0].type="output_text"`. Model uses the same Claude model allowlist; omitted models resolve to Sonnet 5.
 - `POST /anthropic/v1/embeddings` — Placeholder endpoint. Anthropic does not support embeddings; returns HTTP 501 with `{type: "error", error: {type: "not_implemented", message: "Embeddings are not supported by the Anthropic backend", code: "not_implemented"}}`.
@@ -3147,8 +3187,9 @@ Host-authenticated `POST /host/daemon/migration` accepts `{request_id: UUID, com
 ## Fleet model policy
 
 The managed Agents preview and native launch catalog share the capability classes
-in `model-tiers.ts`. The [2026-10-26 tier review](model-tiers.md) records Grok
-4.7 and its subscription Fast variant as Tier 3, and Grok 4.6/4.5 as Tier 2.
+in `model-tiers.ts`. The [2026-10-28 operator ruling](model-tiers.md) sets five tiers:
+Haiku/Luna/Grok 4.5 at 1; Terra and Grok 4.6, 4.7 and its subscription Fast variant at 2;
+Sonnet and Sol at 3; Opus at 4; Fable and Astra at 5.
 These are fleet task-routing judgments supported by provider evidence; model
 availability, selected effort and account entitlement retain their own controls.
 
@@ -3183,6 +3224,11 @@ agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduce
 `agent_context_get/update`, `agent_room_list/read/send`, and
 `resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
 The feature starts disabled and never grants permission for the reserved action.
+Waiting claims queue in arrival order: earlier overlapping waiters appear in
+`blockers` with `state: "waiting"`, and release, operator resolution and
+reconciliation grant waiters server-side in that order. The claimant receives one
+non-waking `CLAIM/1` notice when its waiting claim becomes active, or when an
+operator releases it while it is still waiting.
 
 Native engine children may share this authenticated launch binding; distinct child
 transcripts/worktrees do not provide independent identity. Parent coordination owns
@@ -3646,6 +3692,18 @@ strict rendered root/profile settings require Codex 0.159.0 or newer, after late
 family mapping. Signed bootstrap remains available for update/recovery. See
 [the Codex availability contract](interface-cdx.md#gpt-61-terra-native-availability).
 
+Claude defaults and signed launch catalogs carry the same optional field for
+Fable 5.1 (2.1.257), Opus 5.5 (2.1.280), Sonnet 5.5 (2.1.284) and Haiku 5.5
+(2.1.293); the observed version is the host's reported `claude_client_version`,
+never the Codex `client_version` or a desired pin. `POST /admin/hosts/{id}/model`
+rejects a `claude_model_override` (after retired-ID migration and latest-family
+mapping) whose minimum the reported Claude version does not meet, with HTTP 422
+naming `clx update`; clearing it always works. Claude config and settings
+delivery for a host checks the effective root model the same way. The signed
+wrapper config, update and `POST /cron/report` stay available; a host recovers
+with `clx update` or `clx cron run`, then syncs. See
+[Claude model availability](interface-clx.md#claude-model-cli-minimums).
+
 ## External task supervision (cxx 0.9.139)
 
 See [Fleet task supervisor](agent-supervisor.md) for the disabled-by-default fleet
@@ -3657,4 +3715,4 @@ Applies equally to Codex, Claude and Grok; native resume stays engine-specific.
 - `GET /admin/agent-supervisor` — read configured/effective state, work states, outstanding dependencies and incident budgets; optional `target=agent:UUID`. Requires `agent_messaging.read`.
 - `POST /admin/agent-supervisor/state` — set `{enabled:boolean}`. Requires `agent_messaging.manage`; disabling stops supervisor-owned future recovery.
 - `POST /admin/agent-supervisor/pause` — pause `{target,version}` with an optimistic work-state version. Requires `agent_messaging.manage`.
-- `POST /host/agent-sessions/{id}/agent-messaging/work-state` — current bridge only: `{}` reads state; `{task_key,state,reason?,waiting_for?,message_id?,coordinator?,version?}` reports current work. See [the supervisor contract](agent-supervisor.md).
+- `POST /host/agent-sessions/{id}/agent-messaging/work-state` — current bridge only: `{}` reads state; `{state,task_key?,message_id?,reason?,waiting_for?,coordinator?,version?}` reports current work (`task_key` or `message_id` required; the key derives as `message:<id>` when omitted). See [the supervisor contract](agent-supervisor.md).

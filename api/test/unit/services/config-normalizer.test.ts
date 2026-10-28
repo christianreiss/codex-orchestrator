@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { ClientConfigService } from '../../../src/services/client-config.js';
+import { clientConfigDocuments } from '../../../src/db/schema.js';
+import { createDbFake } from '../../helpers/db-fake.js';
 import {
   ADVISOR_MODEL_ALIASES,
   claudeAdvisorPairIsValid,
@@ -97,7 +100,7 @@ describe('config-normalizer constants', () => {
   it('maps legacy Claude models onto current gate ids', () => {
     expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-opus-20240229']).toBe('claude-opus-4-8');
     expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-opus-4-20250514']).toBe('claude-opus-4-8');
-    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-5-sonnet-20241022']).toBe('claude-sonnet-5');
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-5-sonnet-20241022']).toBe('claude-sonnet-5-5');
     expect(CLAUDE_LEGACY_MODEL_UPGRADES['claude-3-haiku-20240307']).toBe('claude-haiku-4-5-20251001');
   });
 
@@ -210,7 +213,7 @@ describe('Claude stored model migration', () => {
 describe('normalizeClaudeAdvisorModel', () => {
   it('exposes the tier alias allowlist', () => {
     // Haiku5.5 now has advisor rank4, but the native advisor picker still
-    // offers only ["fable","opus","sonnet"] in Claude Code2.1.296.
+    // offers only ["fable","opus","sonnet"] in Claude Code 2.1.312.
     expect(ADVISOR_MODEL_ALIASES).toEqual(['opus', 'sonnet', 'fable']);
   });
   it('accepts the tier aliases case-insensitively and trims', () => {
@@ -239,17 +242,55 @@ describe('normalizeClaudeAdvisorModel', () => {
     expect(claudeAdvisorPairIsValid('claude-opus-5', 'claude-future-9')).toBe(true);
   });
 
-  it('drops an advisorModel the session model cannot use', () => {
+  it('keeps a stored pair the session model cannot use visible instead of dropping it', () => {
     expect(normalizeSettings({ model: 'claude-sonnet-5', advisorModel: 'opus' },
       { applyCodexDefaults: false }).advisorModel).toBe('opus');
+    // Read normalization is tolerant; authoring rejects and host rendering omits and reports.
     expect(normalizeSettings({ model: 'claude-opus-5', advisorModel: 'sonnet' },
-      { applyCodexDefaults: false }).advisorModel).toBeUndefined();
+      { applyCodexDefaults: false }).advisorModel).toBe('sonnet');
   });
-  it('rejects non-alias values and empty/off (-> null)', () => {
-    expect(normalizeClaudeAdvisorModel('claude-opus-4-8')).toBeNull();
+  it('accepts catalog full model IDs (canonicalizing legacy ones) and rejects others (-> null)', () => {
+    expect(normalizeClaudeAdvisorModel('claude-opus-4-8')).toBe('claude-opus-4-8');
+    expect(normalizeClaudeAdvisorModel(' Claude-Opus-5-5 ')).toBe('claude-opus-5-5');
+    expect(normalizeClaudeAdvisorModel('claude-opus-4-1')).toBe('claude-opus-4-8');
+    expect(normalizeClaudeAdvisorModel('claude-haiku-5-5')).toBe('claude-haiku-5-5');
     expect(normalizeClaudeAdvisorModel('gpt-5')).toBeNull();
+    expect(normalizeClaudeAdvisorModel('claude-opus-5-5[1m]')).toBeNull();
     expect(normalizeClaudeAdvisorModel('')).toBeNull();
     expect(normalizeClaudeAdvisorModel(undefined)).toBeNull();
+  });
+});
+
+describe('Claude advisorModel authoring', () => {
+  const render = (settings: Record<string, unknown>) => new ClientConfigService({} as never).render(settings, 'claude');
+  it('stores and renders aliases and full model IDs the native CLI accepts', () => {
+    expect(render({ model: 'claude-sonnet-5', advisorModel: 'claude-opus-5-5' }).settings.advisorModel).toBe('claude-opus-5-5');
+    expect(render({ model: 'claude-sonnet-5', advisorModel: 'Fable' }).settings.advisorModel).toBe('fable');
+    // Unknown session ranks stay permissive, like the native gate.
+    expect(render({ model: 'my-proxy/model', advisorModel: 'sonnet' }).settings.advisorModel).toBe('sonnet');
+    expect(render({ model: 'claude-sonnet-5', advisorModel: '' }).settings).not.toHaveProperty('advisorModel');
+  });
+  it.each([
+    [{ advisorModel: 'gpt-5' }, 'settings.advisorModel', 'unknown advisor model "gpt-5"; use opus, sonnet, fable or a full Claude model ID'],
+    [{ advisorModel: 'haiku' }, 'settings.advisorModel', 'unknown advisor model "haiku"'],
+    [{ advisorModel: 42 }, 'settings.advisorModel', 'expected a model alias or ID string'],
+    [{ model: 'claude-sonnet-5', advisorModel: 'claude-haiku-4-5-20251001' }, 'settings.advisorModel', 'claude-haiku-4-5-20251001 cannot act as an advisor (advisor rank 1, minimum 2); Claude Code would run without an advisor'],
+    [{ model: 'claude-opus-5', advisorModel: 'sonnet' }, 'settings.advisorModel', 'session model claude-opus-5 outranks advisor sonnet (rank 7 > 6); Claude Code would run without an advisor'],
+    [{ model: 'claude-fable-5-1', native_settings: { advisorModel: 'opus' } }, 'native_settings.advisorModel', 'session model claude-fable-5-1 outranks advisor opus'],
+    [{ native_settings: { advisorModel: 'claude-haiku-4-5' } }, 'native_settings.advisorModel', 'cannot act as an advisor'],
+  ])('rejects %j on save instead of silently dropping it', (settings, param, message) => {
+    expect(() => render(settings)).toThrow(expect.objectContaining({ status: 422, param, message: expect.stringContaining(message) }));
+  });
+  it('keeps unknown native advisor IDs permissive, like the native rank gate', () => {
+    expect(render({ model: 'claude-opus-5', native_settings: { advisorModel: 'vendor/custom-advisor' } }).settings.native_settings)
+      .toEqual({ advisorModel: 'vendor/custom-advisor' });
+  });
+  it('reports a stored invalid value on admin reads instead of normalizing it away', async () => {
+    const db = createDbFake();
+    db.tables.set(clientConfigDocuments, [{ id: 1, engine: 'claude', settings: { model: 'claude-opus-5', advisorModel: 'sonnet' }, body: '{}\n', sha256: '0'.repeat(64), updatedAt: '2026-10-28T00:00:00Z' }]);
+    const fetched = await new ClientConfigService(db as never).adminFetch('claude');
+    expect(fetched.settings).toMatchObject({ advisorModel: 'sonnet' });
+    expect(fetched.validation_error).toMatchObject({ param: 'settings.advisorModel', message: expect.stringContaining('outranks') });
   });
 });
 
@@ -401,11 +442,12 @@ describe('normalizeSettings()', () => {
     expect(s.notify).toEqual(['mailto:a@b', 'webhook']);
   });
 
-  it('attaches a valid advisorModel and omits it when off/invalid', () => {
+  it('attaches advisorModel, omits it when off and keeps unknown stored values for correction', () => {
     expect(normalizeSettings({ advisorModel: 'opus' }).advisorModel).toBe('opus');
     expect(normalizeSettings({ advisorModel: 'OPUS' }).advisorModel).toBe('opus');
     expect(normalizeSettings({}).advisorModel).toBeUndefined();
-    expect(normalizeSettings({ advisorModel: 'gpt-5' }).advisorModel).toBeUndefined();
+    expect(normalizeSettings({ advisorModel: '  ' }).advisorModel).toBeUndefined();
+    expect(normalizeSettings({ advisorModel: 'gpt-5' }).advisorModel).toBe('gpt-5');
   });
 
   it('attaches a compatible Claude effortLevel and omits incompatible values', () => {

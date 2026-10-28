@@ -147,7 +147,7 @@ type flags struct {
 // made `clx sessions` hang as a literal prompt. Failing fast with "unknown
 // subcommand" is the honest answer.
 //
-// Re-synced against `claude --help` on claude-cli 2.1.296, 2026-10-12. Every
+// Re-synced against `claude --help` on claude-cli 2.1.312, 2026-10-28. Every
 // name below is one the upstream binary really parses — `config`, `login` and
 // `logout` no longer appear in its Commands list but still resolve and exit 0,
 // so they stay for operators who type them.

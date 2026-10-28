@@ -116,6 +116,7 @@ func socketPath(base string) (string, error) {
 		return "", err
 	}
 	if socketLength(root) <= socketPathLimit() {
+		maybeSweepRuntimeRoot(root)
 		return socketPathIn(root, base, "")
 	}
 	short := filepath.Join("/tmp", fmt.Sprintf("cxx-%d", os.Getuid()))
@@ -125,6 +126,7 @@ func socketPath(base string) (string, error) {
 	if socketLength(short) > socketPathLimit() {
 		return "", errors.New("communicator socket path is too long for this platform")
 	}
+	maybeSweepRuntimeRoot(short)
 	return socketPathIn(short, base, root)
 }
 

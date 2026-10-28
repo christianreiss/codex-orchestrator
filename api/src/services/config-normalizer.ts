@@ -30,7 +30,7 @@ import { createHash } from 'node:crypto';
 import { ValidationError } from '../http/errors.js';
 import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, validateCodexFeatureDocument, validateCodexMcpOAuthSemantics, type CodexApprovalPolicy } from './codex-native-settings.js';
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
-import { CLAUDE_LEGACY_MODEL_UPGRADES as CLAUDE_MODEL_UPGRADES, CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_ENV_KEYS, normalizeClaudeModelReference } from './claude-models.js';
+import { CLAUDE_LEGACY_MODEL_UPGRADES as CLAUDE_MODEL_UPGRADES, CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_ENV_KEYS, CLAUDE_SUPPORTED_MODELS, normalizeClaudeModelReference } from './claude-models.js';
 import { normalizeClaudeNativeSettings } from './claude-native-settings.js';
 import { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
 import { MODEL_REASONING_EFFORTS, CODEX_MODEL_DEFAULT_REASONING_EFFORTS } from './codex-model-capabilities.js';
@@ -38,19 +38,23 @@ export { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, FORCE_UPGRADE_MODE
 
 /**
  * Codex model ids the fleet offers. Derived from the CLI's own catalog
- * (`models_cache.json`): an entry belongs here iff `visibility == "list"` and
- * `upgrade == null`. `gpt-reserve` and `codex-auto-review` are `visibility:
- * hide` and stay out; a model that grows an `upgrade` block is deprecated
- * upstream and moves to LEGACY_MODEL_UPGRADES.
+ * (`models_cache.json`): an entry belongs here iff it is `visibility == "list"`
+ * and not officially deprecated or retired. `gpt-reserve` and
+ * `codex-auto-review` are `visibility: hide` and stay out. A catalog `upgrade`
+ * block is only an upgrade nudge, not a deprecation: the GPT-5.6 family carries
+ * one (to GPT-6 Sol/Luna) with `retirement_at: null` and remains supported. A
+ * model moves to LEGACY_MODEL_UPGRADES only on official deprecation/retirement
+ * evidence (models page, changelog or a retirement date).
  *
  * Deliberately NOT filtered on the catalog's `supported_in_api` flag: that
  * describes OpenAI's platform API, and this list also feeds `/v1/models`, which
  * is served by the codex runner shelling out to `codex exec` under ChatGPT
  * auth, so an entry with `supported_in_api: false` would still be servable.
  *
- * Verified against models_cache.json from codex-cli 0.164.0, 2026-10-26.
- * GPT-5.5 is already hidden and deprecated, before its October 14 retirement;
- * the fleet migrates it now to the catalog replacement, GPT-6.1 Sol.
+ * Verified against models_cache.json from codex-cli 0.164.0, 2026-10-26, and
+ * the bundled 0.165.0 catalog (same listed set plus `gpt-5.5`), 2026-10-28.
+ * GPT-5.5 was retired for ChatGPT sign-in on 2026-10-14 (still listed in the
+ * bundled catalog for API-key sessions); the fleet migrates it to GPT-6.1 Sol.
  */
 export const SUPPORTED_MODELS: readonly string[] = [
   'gpt-6.1-sol',
@@ -506,13 +510,11 @@ export function normalizeSettings(
   if (permissionMode) out.permissionMode = permissionMode;
   const env = normalizeClaudeEnv(settings.env);
   if (env) out.env = env;
-  // Drop an advisor the session model cannot actually use. Shipping it would
-  // put a key on every host that the CLI silently ignores (see
-  // claudeAdvisorPairIsValid for the two gates and what they log).
-  const advisorModel = normalizeClaudeAdvisorModel(settings.advisorModel);
-  if (advisorModel && claudeAdvisorPairIsValid(settings.model, advisorModel)) {
-    out.advisorModel = advisorModel;
-  }
+  // Keep an unknown or unusable stored advisor visible: authoring rejects it
+  // (validateClaudeAdvisorAuthoring) and host rendering omits and reports it
+  // for the effective host model (renderClaudeSettingsPartial).
+  const rawAdvisor = normalizeString(settings.advisorModel);
+  if (rawAdvisor !== null) out.advisorModel = normalizeClaudeAdvisorModel(rawAdvisor) ?? rawAdvisor;
   const effortLevel = normalizeClaudeEffortLevel(settings.effortLevel, model);
   if (effortLevel) out.effortLevel = effortLevel;
 
@@ -533,7 +535,7 @@ export const ADVISOR_MODEL_ALIASES = ['opus', 'sonnet', 'fable'] as const;
 
 /**
  * `advisor_rank` exactly as baked into the claude-cli model catalog (read out of
- * the 2.1.296 binary, 2026-10-12). The CLI uses it for two separate gates:
+ * the 2.1.312 binary, 2026-10-28). The CLI uses it for two separate gates:
  *
  *   var fZr = 2
  *   function Mtn(e){ ...; let t = HXe(e); return t !== void 0 && t >= fZr }
@@ -569,7 +571,7 @@ export const CLAUDE_MIN_ADVISOR_RANK = 2;
  * (`aliases:{opus:{default:"claude-opus-5-5"},sonnet:{default:"claude-sonnet-5-5"},
  * fable:{default:"claude-fable-5-1"}}`). `haiku` remains absent from ADVISOR_MODEL_ALIASES: although Haiku 5.5
  * now has rank 4, the native advisor picker still offers only
- * `["fable","opus","sonnet"]` in Claude Code 2.1.296.
+ * `["fable","opus","sonnet"]` in Claude Code 2.1.312.
  */
 export const CLAUDE_ADVISOR_ALIAS_TARGETS: Readonly<Record<string, string>> = {
   opus: 'claude-opus-5-5',
@@ -590,28 +592,70 @@ function advisorRank(model: string | null): number | undefined {
  * this table has not learned about yet must not be rejected here either.
  */
 export function claudeAdvisorPairIsValid(model: unknown, advisorModel: unknown): boolean {
+  return claudeAdvisorRankProblem(model, advisorModel) === null;
+}
+
+/** Why the native rank gates would skip this advisor, or null when they would not (unknown ranks pass). */
+export function claudeAdvisorRankProblem(model: unknown, advisorModel: unknown): string | null {
   const advisor = normalizeString(advisorModel);
-  if (advisor === null) return true;
+  if (advisor === null) return null;
   const advisorRankValue = advisorRank(advisor);
-  if (advisorRankValue === undefined) return true;
-  if (advisorRankValue < CLAUDE_MIN_ADVISOR_RANK) return false;
-  const baseRankValue = advisorRank(normalizeString(model));
-  if (baseRankValue === undefined) return true;
-  return baseRankValue <= advisorRankValue;
+  if (advisorRankValue === undefined) return null;
+  if (advisorRankValue < CLAUDE_MIN_ADVISOR_RANK) {
+    return `${advisor} cannot act as an advisor (advisor rank ${advisorRankValue}, minimum ${CLAUDE_MIN_ADVISOR_RANK}); Claude Code would run without an advisor`;
+  }
+  const session = normalizeString(model);
+  const baseRankValue = advisorRank(session);
+  if (baseRankValue === undefined || baseRankValue <= advisorRankValue) return null;
+  return `session model ${session} outranks advisor ${advisor} (rank ${baseRankValue} > ${advisorRankValue}); Claude Code would run without an advisor`;
 }
 
 /**
- * Claude settings.json `advisorModel` key (experimental advisor tool). Restricts
- * to the tier alias set; anything else (including empty / off) -> null so the
- * key is omitted and the wrapper removes it on the host. Intentionally NOT
- * routed through normalizeClaudeModel, which is a pass-through and would not
- * enforce the alias allowlist.
+ * Why the structured `advisorModel` would be inert for `model`: an unknown value
+ * (neither a native advisor alias nor a catalog model ID) or a failed rank gate.
+ */
+export function claudeAdvisorProblem(model: unknown, advisorModel: string): string | null {
+  const advisor = normalizeClaudeAdvisorModel(advisorModel);
+  if (advisor === null) {
+    return `unknown advisor model ${JSON.stringify(advisorModel)}; use ${ADVISOR_MODEL_ALIASES.join(', ')} or a full Claude model ID`;
+  }
+  return claudeAdvisorRankProblem(model, advisor);
+}
+
+/**
+ * Reject an advisor at save/preview time instead of letting it disappear later.
+ * Stored-data normalization stays tolerant; host rendering omits and reports.
+ * `native_settings.advisorModel` may name custom IDs, so only the rank gate applies.
+ */
+export function validateClaudeAdvisorAuthoring(raw: unknown): void {
+  const settings = asRecord(raw);
+  const model = normalizeClaudeModel(settings.model);
+  const structured = settings.advisorModel;
+  if (structured !== undefined && structured !== null && typeof structured !== 'string') {
+    throw new ValidationError('settings.advisorModel: expected a model alias or ID string', { param: 'settings.advisorModel' });
+  }
+  const advisor = normalizeString(structured);
+  const problem = advisor === null ? null : claudeAdvisorProblem(model, advisor);
+  if (problem) throw new ValidationError(`settings.advisorModel: ${problem}`, { param: 'settings.advisorModel' });
+  const native = asRecord(settings.native_settings).advisorModel;
+  const nativeProblem = typeof native === 'string' ? claudeAdvisorRankProblem(model, normalizeClaudeModelReference(native)) : null;
+  if (nativeProblem) throw new ValidationError(`native_settings.advisorModel: ${nativeProblem}`, { param: 'native_settings.advisorModel' });
+}
+
+/**
+ * Claude settings.json `advisorModel` key (experimental advisor tool): one of
+ * the native advisor aliases (lowercased) or a full model ID from the Claude
+ * catalog (legacy IDs canonicalized), which the CLI also accepts. Anything else
+ * (including empty) -> null. Intentionally NOT routed through
+ * normalizeClaudeModel, which is a pass-through for custom IDs.
  */
 export function normalizeClaudeAdvisorModel(value: unknown): string | null {
   const s = normalizeString(value);
   if (s === null) return null;
   const lower = s.toLowerCase();
-  return (ADVISOR_MODEL_ALIASES as readonly string[]).includes(lower) ? lower : null;
+  if ((ADVISOR_MODEL_ALIASES as readonly string[]).includes(lower)) return lower;
+  const canonical = normalizeClaudeModelReference(lower);
+  return (CLAUDE_SUPPORTED_MODELS as readonly string[]).includes(canonical) ? canonical : null;
 }
 
 /** Claude settings.json `env` block: a flat string map. Coerces scalars. */

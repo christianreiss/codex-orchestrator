@@ -21,7 +21,7 @@ import { createRunnerValidationService } from './runner-validation.js';
 import { createRunnerClient } from './runner-client.js';
 import { createGrokAuthOwner } from './grok-auth-owner.js';
 import { createGrokModelsService, GROK_MODEL_CONTEXT_TOKENS } from './grok-models.js';
-import { createClaudeModelsService, modelObject as claudeModelObject, type ClaudeModel } from './claude-models.js';
+import { createClaudeModelsService, modelObject as claudeModelObject, type ClaudeModel, type ClaudeModelLine } from './claude-models.js';
 import { buildModelObject, OPENAI_MODELS, resolveRequestedModel, UnsupportedModelError } from './openai-models.js';
 import { assertControlsSupported, capabilitiesFor } from './transport-capabilities.js';
 import { API_SURFACES, createSurfaceRouting, identityRouting, type ApiSurfaceId, type SurfaceRouting } from './api-surfaces.js';
@@ -40,6 +40,8 @@ export interface GatewayModelInfo {
   owned_by: string;
   max_input_tokens?: number;
   max_tokens?: number;
+  /** Anthropic Models API model line; absent for models that belong to none. */
+  line?: ClaudeModelLine | null;
 }
 
 export interface GatewayBackendModels {
@@ -243,6 +245,7 @@ function claudeModels(ctx: GatewayContext): GatewayBackendModels {
       owned_by: object.owned_by,
       max_input_tokens: object.max_input_tokens,
       max_tokens: object.max_tokens,
+      line: object.line,
     };
   };
   return {
@@ -326,6 +329,9 @@ export function anthropicModelObject(info: GatewayModelInfo): { id: string } & R
     created_at: new Date(info.created * 1000).toISOString(),
     ...(info.max_input_tokens !== undefined ? { max_input_tokens: info.max_input_tokens } : {}),
     ...(info.max_tokens !== undefined ? { max_tokens: info.max_tokens } : {}),
+    // `ModelLine or null` upstream: always present, null when the backend's
+    // model belongs to no Anthropic line (Codex, Grok), never inferred.
+    line: info.line ?? null,
     object: 'model',
     created: info.created,
     owned_by: info.owned_by,

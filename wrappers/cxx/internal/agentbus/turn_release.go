@@ -59,6 +59,10 @@ type heldReport struct {
 	Held                  []heldDelivery `json:"held"`
 	ReceiverReady         bool           `json:"receiver_ready"`
 	CoordinationReception bool           `json:"coordination_reception,omitempty"`
+	// DeliveryAfterTurn means a default (after_turn) message is claimed only
+	// once the native turn is proven idle, so nothing but an `immediate` one can
+	// land mid-turn. An older owner omits it, which keeps the previous ring.
+	DeliveryAfterTurn bool `json:"delivery_after_turn,omitempty"`
 }
 
 type releaseReport struct {
@@ -87,6 +91,7 @@ func (t *channelTracker) heldReport() heldReport {
 		}
 		r.mu.Unlock()
 		report.ReceiverReady = r.health()["state"] == "ready"
+		report.DeliveryAfterTurn = r.deliversAfterTurn()
 		report.CoordinationReception = r.coordinationEnabled()
 	}
 	return report
@@ -151,6 +156,28 @@ type turnEnd struct {
 	// blocked is set while accepted work or a Portal instruction is still held.
 	// Reception stays paused behind it, and agent_listen cannot change that.
 	blocked bool
+	// afterTurn mirrors heldReport.DeliveryAfterTurn.
+	afterTurn bool
+}
+
+// pushesPending reports that the receiver will deliver pending mail on its own,
+// so ringing it would only send the model to agent_listen for nothing.
+//
+// After a release on a ready receiver that holds nothing read, reception has
+// just reopened. And with turn-gated delivery a Stop is exactly the boundary the
+// receiver waits for: blocking it keeps the turn running, which keeps the claim
+// gate shut and pushes delivery a full turn later (feedback b0f9361b). A held
+// delivery the model has not read yet is still in Claude Code's queue and starts
+// the next turn by itself; only a read one whose release failed, or held work,
+// keeps reception shut past Stop.
+func (e *turnEnd) pushesPending(event string) bool {
+	if e == nil || !e.receiverReady || len(e.stillHeld) > 0 {
+		return false
+	}
+	if e.released > 0 {
+		return true
+	}
+	return event == hookEventStop && e.afterTurn && !e.blocked
 }
 
 // releaseAtTurnEnd runs in the hook process. It asks the launch's receiver owner
@@ -178,7 +205,7 @@ func releaseAtTurnEnd(transcriptPath string, timeout time.Duration) *turnEnd {
 			release = append(release, h.MessageID)
 		}
 	}
-	end := &turnEnd{receiverReady: held.ReceiverReady}
+	end := &turnEnd{receiverReady: held.ReceiverReady, afterTurn: held.DeliveryAfterTurn}
 	coordination := held.CoordinationReception
 	remaining := held.Held
 	if len(release) > 0 {
@@ -186,6 +213,7 @@ func releaseAtTurnEnd(transcriptPath string, timeout time.Duration) *turnEnd {
 		if err := ownerPost(ctx, owner, ownerReleasePath, release, &out); err == nil {
 			end.released = len(out.Released)
 			end.receiverReady = out.ReceiverReady
+			end.afterTurn = out.DeliveryAfterTurn
 			remaining = out.Held
 			coordination = out.CoordinationReception
 		}

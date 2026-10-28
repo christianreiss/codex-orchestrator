@@ -72,6 +72,16 @@ func (r *autoReceiver) immediateClaimAllowed(gate string) bool {
 	return true
 }
 
+// deliversAfterTurn reports that this Claude channel receiver claims default
+// (after_turn) messages only once the turn is proven idle: while the model works,
+// only an `immediate` message can reach it, so neither agent_listen nor a ring
+// can bring the rest in earlier.
+func (r *autoReceiver) deliversAfterTurn() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.deliveryTimingV1 && r.queue == nil
+}
+
 func (r *autoReceiver) deliverImmediate(id, content string) (string, error) {
 	r.mu.Lock()
 	queue := r.queue

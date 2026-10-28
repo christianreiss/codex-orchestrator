@@ -176,10 +176,10 @@ func nativeOptions(args []string) (options, error) {
 	}
 	o := options{configPath: path, command: "run", args: append([]string(nil), args...), skipBoot: true}
 	command, at := nativeargs.Command("grok", args)
+	if refusal := managedNativeRefusal(args); refusal == installRefusal {
+		return options{}, errors.New(installRefusal)
+	}
 	if !isHelpPassthrough(args) && !nativeAnyFlag(args, "--version") {
-		if command == "update" || command == "upgrade" || command == "install" {
-			return options{}, errors.New("Grok installation is fleet-managed; use cgx update")
-		}
 		if command == "login" || command == "logout" {
 			if err := nativeargs.ValidateAuth("grok", args); err != nil {
 				return options{}, err
@@ -202,6 +202,44 @@ func nativeOptions(args []string) (options, error) {
 	return o, nil
 }
 
+const (
+	installRefusal = "Grok installation is fleet-managed; use cgx update"
+	setupRefusal   = "grok setup fetches and installs organization managed configuration into the native home; that configuration is host-owned and a managed session's private home is discarded at exit, so it is not supported here; native --help remains available"
+	authRefusal    = "%s requests a native Grok sign-in, but managed sessions use the fleet-owned subscription login; use cgx login; native --help remains available"
+)
+
+// managedNativeRefusal names native argv a managed run must not execute:
+// install/update/upgrade (whatever their options, e.g. `update --version V`),
+// `setup` (its output would land in the discarded private home) and native
+// sign-in requests. Help and a root version request (--version before any
+// subcommand, which native answers before parsing the rest, or `version`)
+// still pass through; option values spelled like these stay values.
+func managedNativeRefusal(args []string) string {
+	if isHelpPassthrough(args) || nativeVersionCommand(args) {
+		return ""
+	}
+	command, at := nativeargs.Command("grok", args)
+	root := args
+	if at >= 0 {
+		root = args[:at]
+	}
+	if nativeAnyFlag(root, "--version") {
+		return ""
+	}
+	switch command {
+	case "update", "upgrade", "install":
+		return installRefusal
+	case "setup":
+		return setupRefusal
+	}
+	for _, flag := range []string{"--force-login", "--oauth", "--reauth"} {
+		if nativeFlag(args, flag) {
+			return fmt.Sprintf(authRefusal, flag)
+		}
+	}
+	return ""
+}
+
 func runOptions(o options, stdout, stderr io.Writer) int {
 	if o.command == "auth-reconcile" {
 		fmt.Fprintln(stderr, "cgx auth-reconcile: unsupported; Grok credentials are server-owned")
@@ -216,6 +254,14 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 		PrintWrapperHelp(stdout, terminalui.DetectCapsFor(stdout, "auto"))
 		return 0
 	}
+	// Only `run` carries native argv; --execute words are a prompt that is sent
+	// through --prompt-file and must not be read as native commands or flags.
+	if o.command == "run" {
+		if refusal := managedNativeRefusal(o.args); refusal != "" {
+			fmt.Fprintln(stderr, "cgx:", refusal)
+			return 2
+		}
+	}
 	ctx, cancel := nativeprocess.NotifyContext(context.Background())
 	defer cancel()
 	if o.command == "run" && len(o.args) > 0 && (nativeAnyFlag(o.args, "--version") || nativeVersionCommand(o.args) || isHelpPassthrough(o.args)) {
@@ -226,7 +272,7 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 		}
 		return execute(ctx, path, o.args, native.NativeEnv(os.Environ()), stdout, stderr)
 	}
-	if o.command == "run" || o.command == "execute" {
+	if o.command == "run" {
 		if service := nativeargs.UnsupportedService("grok", o.args); service != "" {
 			fmt.Fprintf(stderr, "cgx: %s requires a separate managed auth/session lifecycle and is not supported; native --help remains available\n", service)
 			return 2
@@ -784,6 +830,9 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	}
 	if err := rt.Configure(exe, cfg, connection.Session() != nil, args); err != nil {
 		return 1, err
+	}
+	for _, warning := range rt.Warnings {
+		fmt.Fprintf(stderr, "cgx: %s\n", warning)
 	}
 	path, err := native.FindCLI()
 	if err != nil {

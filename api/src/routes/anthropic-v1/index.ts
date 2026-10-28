@@ -38,6 +38,9 @@ import {
   type RunnerClaudeAdapter,
 } from '../../services/adapters/runner-claude.js';
 import {
+  ANTHROPIC_API_VERSIONS,
+  assertMessagesRequestForApiVersion,
+  isAnthropicApiVersion,
   estimateTokenCount,
   extractParams,
   extractSystemMessages,
@@ -184,6 +187,7 @@ export async function registerAnthropicCompatRoutes(
       keyResolver.preHandler,
       backendEnabledHook(deps),
       versionHeaderHook(),
+      messagesVersionRulesHook(),
     ],
     handler: async (req, reply) => runGeneration(reply, async (signal) => {
       const { backend, adapter, models } = await deps.backend(req);
@@ -243,6 +247,7 @@ export async function registerAnthropicCompatRoutes(
       keyResolver.preHandler,
       backendEnabledHook(deps),
       versionHeaderHook(),
+      messagesVersionRulesHook(),
     ],
     handler: async (req) => {
       const { models } = await deps.backend(req);
@@ -455,18 +460,36 @@ function requestIdHook() {
   };
 }
 
-const SUPPORTED_ANTHROPIC_VERSIONS = new Set(['2023-06-01', '2023-01-01']);
+function headerVersion(req: FastifyRequest): string | undefined {
+  const raw = req.headers['anthropic-version'];
+  return Array.isArray(raw) ? raw[0] : raw;
+}
 
 function versionHeaderHook() {
   return async function checkAnthropicVersion(req: FastifyRequest) {
-    const raw = req.headers['anthropic-version'];
-    const version = Array.isArray(raw) ? raw[0] : raw;
-    if (!version || !SUPPORTED_ANTHROPIC_VERSIONS.has(version)) {
+    const version = headerVersion(req);
+    if (!isAnthropicApiVersion(version)) {
       throw new ApiError(
-        `anthropic-version: "${version ?? ''}" is not a supported version. Use one of: ${Array.from(SUPPORTED_ANTHROPIC_VERSIONS).join(', ')}`,
+        `anthropic-version: "${version ?? ''}" is not a supported version. Use one of: ${ANTHROPIC_API_VERSIONS.join(', ')}`,
         { status: 400, code: 'invalid_anthropic_version', type: 'invalid_request_error' },
       );
     }
+  };
+}
+
+/**
+ * Per-version body rules of the Messages API and token counting. Runs after
+ * `versionHeaderHook` and before any backend work, so the rules hold for
+ * every backend engine serving the surface. The legacy `/complete`,
+ * `/completions` and `/responses` shims are not Messages API endpoints and
+ * keep their behaviour under every accepted version.
+ */
+function messagesVersionRulesHook() {
+  return async function checkMessagesVersionRules(req: FastifyRequest) {
+    const version = headerVersion(req);
+    if (!isAnthropicApiVersion(version)) return;
+    const payload = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+    assertMessagesRequestForApiVersion(version, payload);
   };
 }
 

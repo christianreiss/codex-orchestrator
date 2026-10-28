@@ -203,6 +203,11 @@ func runCaptureWithHeldAuthLeaseUsing(
 		if err != nil {
 			return 1, nil, err
 		}
+		// After the policy rewrite, before any session guard, credential read or
+		// native start: an unsupported model must not touch auth or settings.
+		if err := CheckModelSupport(ctx, cfg, args); err != nil {
+			return 2, nil, err
+		}
 	}
 	guard, guardErr := sessionguard.Launch("claude")
 	if guardErr != nil {

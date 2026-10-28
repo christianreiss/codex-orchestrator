@@ -135,6 +135,17 @@ describe('Grok native settings', () => {
     [{ ui: { scroll_speed: 101 } }, 'expected 1–100'],
     [{ session: { load_envrc: null } }, 'null is not supported'],
     [{ cli: { auto_update: true } }, 'fleet version policy'],
+    [{ cli: { required_minimum_version: '9.9.9' } }, 'native_settings.cli.required_minimum_version: updates are owned by the fleet version policy; a required version outside the fleet target makes every managed launch refuse to start'],
+    [{ cli: { required_maximum_version: '1.0.0' } }, 'native_settings.cli.required_maximum_version: updates are owned by the fleet version policy; a required version'],
+    [{ cli: { channel: 'alpha' } }, 'native_settings.cli.channel: updates are owned by the fleet version policy'],
+    [{ cli: { minimum_version: '1.0.60' } }, 'native_settings.cli.minimum_version: updates are owned'],
+    [{ cli: { maximum_version: '1.0.60' } }, 'native_settings.cli.maximum_version: updates are owned'],
+    [{ cli: { npm_registry: 'https://registry.invalid' } }, 'native_settings.cli.npm_registry: updates are owned'],
+    [{ cli: { installer: 'npm' } }, 'native_settings.cli.installer: updates are owned'],
+    [{ version_overrides: [{ maximum_version: '1.0.70', cli: { required_minimum_version: '1.0.70' } }] }, 'native_settings.cli.required_minimum_version: updates are owned'],
+    [{ compat: { claude: { sessions: true } } }, 'native_settings.compat.claude.sessions: staged in Grok Build without a consumer; it has no effect, omit this setting'],
+    [{ compat: { codex: { sessions: false } } }, 'native_settings.compat.codex.sessions: staged'],
+    [{ version_overrides: [{ compat: { cursor: { sessions: true } } }] }, 'native_settings.compat.cursor.sessions: staged'],
     [{ cli: { use_leader: false } }, 'private leader'],
     [{ auth: { auth_provider_command: 'other' } }, 'managed subscription runtime'],
     [{ endpoints: { models_list_url: 'https://other.invalid' } }, 'managed subscription runtime'],
@@ -146,6 +157,15 @@ describe('Grok native settings', () => {
     [{ version_overrides: [{ models: { default: 'grok-4.7' } }] }, 'use settings.model'],
   ])('rejects invalid/deprecated/inert input %#', (value, error) => {
     expect(() => normalizeGrokNativeSettings(value)).toThrow(error);
+  });
+
+  it('keeps fleet-compatible update and compat siblings, including ZDR access below 1.0.64', () => {
+    const input = {
+      cli: { auto_update: false, show_tips: false },
+      compat: { claude: { skills: false, hooks: true }, codex: { skills: true } },
+      features: { zdr_access_enabled: true, lsp_tools: true },
+    };
+    expect(normalizeGrokNativeSettings(input)).toEqual(input);
   });
 
   it.each(['core', 'all', 'none'])('accepts native shell inheritance %s', inherit => {

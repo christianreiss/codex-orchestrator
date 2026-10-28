@@ -4,8 +4,8 @@ The Engines page authors fleet **user defaults**: Codex `config.toml` and named
 profile sidecars, Claude `settings.json`, and Grok `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
-can be authored centrally. Coverage was reviewed on 2026-10-26 against Codex
-0.164.0, Claude Code 2.1.310 and Grok Build 1.0.70.
+can be authored centrally. Coverage was reviewed against Codex 0.165.0
+(2026-10-28), Claude Code 2.1.312 (2026-10-28) and Grok Build 1.0.70 (2026-10-26).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -18,7 +18,12 @@ not disable externally provisioned policy. Config editors do not distribute
 referenced files. A path setting can be authored centrally while its referenced
 file must already exist where the native engine expects it. Authentication,
 account refresh, updater selection and managed MCP ownership continue through
-their existing fleet controls.
+their existing fleet controls. Native updater keys are therefore rejected in the
+user-settings editors with that reason: Claude `autoUpdatesChannel` and
+`minimumVersion`; Grok `cli.auto_update = true`, `cli.channel`,
+`cli.minimum_version`, `cli.maximum_version`, `cli.required_minimum_version`,
+`cli.required_maximum_version`, `cli.npm_registry` and `cli.installer` (root and
+`version_overrides`). Migration 0115 removed previously stored values.
 
 Use the official native mechanisms for the separate scopes:
 
@@ -51,8 +56,14 @@ values retain the 0.162.1 floor. New 0.164.0 fields require 0.164.0 only
 when configured: TUI presets/open-presets binding, model-request hooks, hook
 content trust metadata, remote-plugin provisioning metadata, new feature
 switches/runtime-agent options, EMA token authentication methods/IdP secrets
-and MITM version/scoped ports/schemes/credential placeholders. Both root and
-profile fields are checked; map names remain opaque. Claude native settings require
+and MITM version/scoped ports/schemes/credential placeholders. New 0.165.0
+fields require 0.165.0 only when configured: the `guardianv3`,
+`guardian_recorded_items`, `prediction_preserve_parent_tools` and
+`tui_multi_backend` feature switches, `auto_review.timeout_ms`, and
+`model_provider = "gcp"`. Both root and profile fields are checked; map names
+remain opaque, so a `model_providers.gcp` entry is not gated, but its native
+built-in field limits are enforced for every version (see
+[Codex 0.165 maintenance](interface-cdx.md#native-configuration-maintenance-codex-01650)). Claude native settings require
 2.1.296, or 2.1.305 when `native_settings.sandbox.allowNestedUserNamespaces`
 is present (including `false`). This opt-in boolean defaults to false; true
 allows sandbox escape and disables the sandbox as a security boundary. Only

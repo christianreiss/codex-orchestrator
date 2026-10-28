@@ -73,7 +73,7 @@ The config builder exposes current Codex feature flags under **Security & Featur
 Legacy compatibility:
 - Dropped feature keys: `apply_patch_freeform`, `apply_patch_preserve_line_endings`, `apps_mcp_path_override`, `code_mode_buffered_exec`, `codex_git_commit`, `collaboration_modes`, `elevated_windows_sandbox`, `enable_fanout`, `experimental_windows_sandbox`, `external_migration`, `guardian_ext`, `image_detail_original`, `item_ids`, `js_repl`, `js_repl_tools_only`, `local_thread_store_shared_compression`, `multi_agent_mode`, `personality`, `plugin_hooks`, `realtime_conversation`, `stable_environment_tools`, `worktrees`, `remote_compaction_v2`, `remote_control`, `remote_models`, `request_rule`, `resize_all_images`, `responses_websockets`, `responses_websockets_v2`, `search_tool`, `send_async_message`, `shell_zsh_fork`, `skill_env_var_dependency_prompt`, `sqlite`, `steer`, `terminal_resize_reflow`, `tool_search`, `tool_search_always_defer_mcp_tools`, `transcript_v2`, `tui_app_server`, `unavailable_dummy_tools`, `undo`, `unified_exec_zsh_fork`, `use_legacy_landlock`, `use_linux_sandbox_bwrap`, `web_search_cached`, `web_search_request`, `workspace_owner_usage_nudge`, `enable_experimental_windows_sandbox`, `request_permissions`, `voice_transcription`, `web_search`, `codex_hooks`.
 - Historical structured settings drop these retired keys. New structured input rejects removed/inert controls; only the boolean web-search aliases and `codex_hooks` retain value-preserving migration to current controls. An explicit canonical setting wins.
-- The list was rechecked against Codex 0.164.0 on 2026-10-26 and includes both removed and deprecated switches. Migration 0071 removes `shell_zsh_fork` and migration 0109 removes `realtime_conversation`, `stable_environment_tools` and `worktrees` from saved root/profile documents; new input rejects them. Structured feature tables remain intact. Strict `native_settings` authoring requires canonical keys.
+- The list was rechecked against Codex 0.165.0 (`codex features list`) on 2026-10-28, unchanged from 0.164.0, and includes both removed and deprecated switches. Migration 0071 removes `shell_zsh_fork` and migration 0109 removes `realtime_conversation`, `stable_environment_tools` and `worktrees` from saved root/profile documents; new input rejects them. Structured feature tables remain intact. Strict `native_settings` authoring requires canonical keys.
 
 ## Security toggles
 
@@ -189,6 +189,7 @@ The builder can also set:
 
 - `model_provider` — top-level `config.toml` key that maps to `codex --config model_provider=...` (e.g. `openai` or `oss`). Leave blank to inherit client defaults.
 - `local_provider` — used alongside `model_provider=oss` to select the local provider (e.g. `lmstudio` or `ollama`). Stored/accepted under this name for API back-compat, but upstream renamed the `config.toml` key to `oss_provider`; codex-cli 0.156.1 reports a literal `local_provider = "…"` as unrecognized (confirmed live, 2026-09-23). `client-config.ts`'s renderer writes it out as `oss_provider` — see `renderToml`'s `RENAMED_SCALAR_RENDER_KEYS`.
+- `model_provider = "gcp"` selects the built-in Vertex provider and requires Codex 0.165.0 on the host. Provider definitions live in `native_settings.model_providers`; built-in IDs follow the native loader rules (reserved `openai`/`ollama`/`lmstudio`, limited Bedrock/GCP overrides, `aws` only on Bedrock) — see [Codex 0.165 maintenance](interface-cdx.md#native-configuration-maintenance-codex-01650).
 
 ## When to update
 
@@ -206,7 +207,7 @@ The builder can also set:
 ## Current native Codex settings
 
 The API accepts `settings.native_settings` as a native JSON configuration object. It is
-validated against the vendored official Codex 0.164.0 schema (retrieved 2026-10-26),
+validated against the vendored official Codex 0.165.0 schema (retrieved 2026-10-28),
 then rendered as TOML with nested tables and arrays intact. Unknown schema fields,
 invalid types and removed/deprecated keys return a validation error. This includes
 agents, hooks, apps, service tiers, permission profiles, TUI, history, providers,

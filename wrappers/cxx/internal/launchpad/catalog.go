@@ -174,7 +174,8 @@ func menu(engine string, cfg *config.Config, src Sources) []Model {
 			if _, exists := findModel(models, id); exists || config.ModelMinimum(engine, id, catalog) == "" {
 				continue
 			}
-			reason := id + " is unavailable in the signed catalog; run cdx update or cdx cron run to refresh it"
+			command := map[string]string{config.EngineCodex: "cdx", config.EngineClaude: "clx", config.EngineGrok: "cgx"}[engine]
+			reason := id + " is unavailable in the signed catalog; run " + command + " update or " + command + " cron run to refresh it"
 			if err := config.CheckModelVersion(engine, id, observed, catalog); err != nil {
 				reason = err.Error()
 			}

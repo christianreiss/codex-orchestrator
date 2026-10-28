@@ -1,8 +1,8 @@
 /**
- * Codex 0.164.0 native configuration, audited 2026-10-26.
- * Schema: https://learn.chatgpt.com/docs/config-schema.json (redirect target of
- * https://developers.openai.com/codex/config-schema.json).
- * Original SHA-256: ea611ee3f12a6df314b3e49585015ec6e2ebc7c3f072ccbf63c21306a4cdb5dc.
+ * Codex 0.165.0 native configuration, audited 2026-10-28.
+ * Schema: https://raw.githubusercontent.com/openai/codex/rust-v0.165.0/codex-rs/core/config.schema.json
+ * (byte-identical to https://learn.chatgpt.com/docs/config-schema.json on that date).
+ * Original SHA-256: bc14a890a74c7f9a4eb83d772550fe8813c7f389f44c1f18499f0ce24a8e4a60.
  * Feature retirement comes from `codex features list`, not the schema: upstream
  * deliberately retains removed keys in that schema for compatibility.
  */
@@ -180,6 +180,7 @@ function validateCodexNativeSemantics(out: NativeSettings, path: string): void {
     }
   }
   validateCodexMcpOAuthSemantics(nativeRecord(out.mcp_servers), path);
+  validateCodexModelProviders(nativeRecord(out.model_providers), path);
   for (const [name, value] of Object.entries(nativeRecord(out.permissions))) {
     const network = nativeRecord(nativeRecord(value).network);
     if (Object.hasOwn(network, 'mitm')) {
@@ -191,6 +192,42 @@ function validateCodexNativeSemantics(out: NativeSettings, path: string): void {
     && (typeof idp.client_secret !== 'string' || idp.client_secret.trim() === '')) {
     const field = `${path}.mcp_enterprise_managed_auth.idp.${Object.hasOwn(idp, 'token_endpoint_auth_method') ? 'token_endpoint_auth_method' : 'client_secret'}`;
     throw new ValidationError(`${field}: token authentication requires a nonempty IdP client_secret`, { param: field });
+  }
+}
+
+const reservedProviderIds = new Set(['openai', 'ollama', 'lmstudio']);
+const bedrockProviderIds = new Set(['amazon-bedrock', 'amazon-bedrock-runtime']);
+/** Serde defaults of `ModelProviderInfo`; every other field is an Option. */
+const providerFieldDefaults: Readonly<Record<string, unknown>> = {
+  name: '', wire_api: 'responses', requires_openai_auth: false,
+  supports_websockets: false, supports_standalone_web_search: false,
+};
+
+/**
+ * Built-in provider rules from `merge_configured_model_providers` in
+ * codex-rs/model-provider-info (rust-v0.165.0) and the config loader. Each
+ * violation stops every native launch at config load. Exact-case IDs only;
+ * other (custom) IDs keep their native meaning and are never renamed.
+ */
+function validateCodexModelProviders(providers: NativeSettings, path: string): void {
+  for (const [id, value] of Object.entries(providers)) {
+    const field = `${path}.model_providers.${id}`;
+    if (reservedProviderIds.has(id)) {
+      throw new ValidationError(`${field}: built-in provider ${id} cannot be overridden; Codex refuses to load reserved model_providers IDs (openai, ollama, lmstudio). Use a custom provider ID such as ${id}-custom and select it with model_provider`, { param: field });
+    }
+    const provider = nativeRecord(value);
+    const bedrock = bedrockProviderIds.has(id);
+    if (Object.hasOwn(provider, 'aws') && !bedrock) {
+      throw new ValidationError(`${field}.aws: provider aws is only supported for amazon-bedrock or amazon-bedrock-runtime`, { param: `${field}.aws` });
+    }
+    if (!bedrock && id !== 'gcp') continue;
+    const allowed = bedrock ? ['base_url', 'auth', 'http_headers', 'aws'] : ['base_url', 'auth', 'http_headers'];
+    for (const key of Object.keys(provider)) {
+      if (allowed.includes(key) || (Object.hasOwn(providerFieldDefaults, key) && provider[key] === providerFieldDefaults[key])) continue;
+      throw new ValidationError(`${field}.${key}: the built-in ${id} provider only supports changing ${bedrock
+        ? 'base_url, auth, http_headers, aws.profile, aws.region, aws.credential_export and aws.auth_refresh'
+        : 'base_url, auth and http_headers'}; use a custom provider ID for other provider fields`, { param: `${field}.${key}` });
+    }
   }
 }
 

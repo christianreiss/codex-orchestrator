@@ -1,5 +1,6 @@
 import type { ModelPolicy } from './model-policy.js';
 import { assertCodexSettingsModelSupport } from './codex-model-support.js';
+import { assertClaudeSettingsModelSupport } from './claude-model-support.js';
 import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import type { Json } from '../control-plane/commands.js';
 /**
@@ -63,6 +64,9 @@ import {
   normalizeReasoningEffortForModel,
   normalizeSettings,
   validateCodexFeatureAuthoring,
+  validateClaudeAdvisorAuthoring,
+  claudeAdvisorProblem,
+  claudeAdvisorRankProblem,
   normalizeStoredModel,
   normalizeClaudeModel,
   normalizeClaudeEffortLevel,
@@ -578,6 +582,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     engine,
   );
   if (engine === ENGINE_CODEX) assertCodexSettingsModelSupport(settingsWithOverrides, opts.host, opts.modelPolicy);
+  if (engine === ENGINE_CLAUDE) assertClaudeSettingsModelSupport(settingsWithOverrides, opts.host, opts.modelPolicy);
   const normalized =
     engine === ENGINE_GROK
       ? normalizeGrokSettings(settingsWithOverrides)
@@ -1217,10 +1222,32 @@ function managedRingerHooks(): Record<string, unknown[]> {
  */
 const WRAPPER_COMMAND_ALLOW = ['Bash(clx:*)', 'Bash(cxx:*)'];
 
+/** A configured setting the renderer withheld because it would be inert for this render. */
+export interface ClaudeSettingOmission {
+  path: string;
+  value: string;
+  reason: string;
+}
+
+/**
+ * The structured advisor wins over the native one; either is withheld (not
+ * rewritten) when the effective session model would make Claude Code skip it.
+ * Host renders apply host model overrides before this, so the check is per host.
+ */
+function claudeAdvisorOmissions(settings: NormalizedSettings, partial: Record<string, unknown>): ClaudeSettingOmission[] {
+  if (settings.advisorModel) {
+    const reason = claudeAdvisorProblem(settings.model, settings.advisorModel);
+    return reason ? [{ path: 'advisorModel', value: settings.advisorModel, reason }] : [];
+  }
+  const native = partial['advisorModel'];
+  const reason = typeof native === 'string' ? claudeAdvisorRankProblem(settings.model, native) : null;
+  return reason ? [{ path: 'native_settings.advisorModel', value: native as string, reason }] : [];
+}
+
 export function renderClaudeSettingsPartial(
   settings: NormalizedSettings,
   opts: { agentMessagingEnabled?: boolean; messagingServer?: string } = {},
-): { partial: Record<string, unknown>; owned_paths: string[] } {
+): { partial: Record<string, unknown>; owned_paths: string[]; omitted?: ClaudeSettingOmission[] } {
   const partial = withClaudeModelEffort(settings);
   const owned = claudeNativeOwnedPaths(partial);
   if (settings.model) {
@@ -1319,13 +1346,22 @@ export function renderClaudeSettingsPartial(
   perms['defaultMode'] = settings.permissionMode ?? perms['defaultMode'] ?? DEFAULT_CLAUDE_PERMISSION_MODE;
   owned.push('permissions.defaultMode');
   partial['permissions'] = perms;
-  if (settings.advisorModel) {
+  const omitted = claudeAdvisorOmissions(settings, partial);
+  if (omitted.length > 0) {
+    // Not owned either, so the wrapper removes a value it wrote earlier.
+    delete partial['advisorModel'];
+  } else if (settings.advisorModel) {
     partial['advisorModel'] = settings.advisorModel;
     owned.push('advisorModel');
   }
   return {
     partial,
-    owned_paths: [...new Set(owned)].filter((path) => !owned.some((parent) => path.startsWith(`${parent}.`))),
+    owned_paths: [...new Set(owned)].filter(
+      (path) =>
+        !owned.some((parent) => path.startsWith(`${parent}.`)) &&
+        (path !== 'advisorModel' || 'advisorModel' in partial),
+    ),
+    ...(omitted.length > 0 && { omitted }),
   };
 }
 
@@ -1380,10 +1416,13 @@ export function renderClaudeSettingsPartialForHost(opts: HostRenderOptions): {
   owned_paths: string[];
   sha256: string;
   clamped: ClaudePermissionClamp | null;
+  omitted?: ClaudeSettingOmission[];
 } {
   assertNativeConfigSupport(opts.settings, opts.host, ENGINE_CLAUDE);
+  const withHostModel = applyHostModelOverrides(asRecord(opts.settings), opts.host, ENGINE_CLAUDE);
+  assertClaudeSettingsModelSupport(withHostModel, opts.host, opts.modelPolicy);
   const posture = applyPostureToSettings(
-    applyHostModelOverrides(asRecord(opts.settings), opts.host, ENGINE_CLAUDE),
+    withHostModel,
     opts.securityLevels,
     ENGINE_CLAUDE,
   );
@@ -1404,7 +1443,7 @@ export function renderClaudeSettingsPartialForHost(opts: HostRenderOptions): {
     managedMcpToken: opts.managedMcpToken,
     agentMessagingEnabled: opts.agentMessagingEnabled,
   });
-  const { partial, owned_paths } = renderClaudeSettingsPartial(withManaged, {
+  const { partial, owned_paths, omitted } = renderClaudeSettingsPartial(withManaged, {
     agentMessagingEnabled: opts.agentMessagingEnabled,
     messagingServer: claudeMessagingServerFor(opts.host?.claudeWrapperVersion),
   });
@@ -1455,7 +1494,13 @@ export function renderClaudeSettingsPartialForHost(opts: HostRenderOptions): {
     owned_paths.push('statusLine');
   }
   const json = JSON.stringify(partial, null, 2) + '\n';
-  return { partial, owned_paths, sha256: createHash('sha256').update(json).digest('hex'), clamped };
+  return {
+    partial,
+    owned_paths,
+    sha256: createHash('sha256').update(json).digest('hex'),
+    clamped,
+    ...(omitted && { omitted }),
+  };
 }
 
 export function normalizeHomePath(
@@ -1606,6 +1651,7 @@ export class ClientConfigService {
 
   render(settingsInput: unknown, engine: Engine = ENGINE_CODEX): RenderResult {
     if (engine === ENGINE_CODEX) validateCodexFeatureAuthoring(settingsInput);
+    if (engine === ENGINE_CLAUDE) validateClaudeAdvisorAuthoring(settingsInput);
     const normalized =
       engine === ENGINE_GROK
         ? normalizeGrokSettings(settingsInput)

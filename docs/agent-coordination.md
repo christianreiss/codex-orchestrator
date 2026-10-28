@@ -32,8 +32,12 @@ successfully; a sanitized warning records the failure. It does not discard the
 confirmed launch identity. Authentication, authorization and stale binding errors
 still fail registration. Refresh unavailable context with `agent_context_get`;
 an unavailable snapshot grants no resources and never bypasses the identity gate.
-`agent_context_get` refreshes the snapshot; `agent_context_update` changes workspace
-or sets/clears `project_slug`. Changing a subprocess cwd does not change membership.
+`agent_context_get` refreshes the complete snapshot; `agent_context_update` changes workspace
+or sets/clears `project_slug` and answers with a compact acknowledgement: `workspace`,
+`repository_key`, room headers (no member lists), only the claims owned by the session
+or by sessions in its non-host (repository/project) rooms, `claims_total` and
+`claims_omitted`. Read `agent_context_get` for every member and all visible claims.
+Changing a subprocess cwd does not change membership.
 
 Each active session joins a host room and a project room. A normalized network
 remote identifies a repository across hosts; a repository without a network remote
@@ -123,7 +127,33 @@ transfers ownership. After 120 seconds without an answer a waiting Git/path clai
 reports `isolation_available`; create a new worktree from the recorded HEAD,
 leave dirty changes in place, update context, cancel the waiting claim and acquire
 resources for the new worktree. A system resource never becomes available merely
-because nobody answered. If owners release, polling can grant the waiting claim.
+because nobody answered.
+
+Waiting claims queue in arrival order (`created_at`, then `id`; the server keeps
+`created_at` strictly increasing across waiting claims). Each claim is blocked by
+overlapping active/uncertain claims and by overlapping waiting claims ahead of it,
+which appear in `blockers` with `state: "waiting"`. A new acquisition queues behind
+every existing overlapping waiter, so an owner that releases and immediately
+re-acquires cannot overtake a waiter. One exception keeps a holder from
+deadlocking against its own grant: a claim whose contested resources are all
+covered by the same session's live active claims does not queue behind waiters,
+because those waiters are queued behind that holder anyway. Consequence: a holder
+that acquires its next claim on the same resource before releasing the current one
+keeps the slot ahead of waiters; release first to hand it on. Earlier waiters are not
+sent a `CLAIM/1` conflict notice and cannot answer `wait`/`isolate`. A waiter whose
+owner is not continuously connected neither blocks nor is granted; it keeps its
+arrival position for when its original attachment returns. The queue is strict
+FIFO among overlapping claims: a waiter also waits behind an earlier waiter that
+is itself blocked by a claim it does not share.
+
+The server grants the queue: release, operator resolution and reconciliation
+(including the session-ended release of an uncertain claim) promote every eligible
+waiter in arrival order inside the same commit, so the freed resource is never
+open to a later acquisition first. Polling `resource_claim_status` applies the same
+rule. Each waiting→active transition sends the claimant one non-waking `CLAIM/1`
+presence notice naming the claim; an operator releasing a waiting claim sends its
+claimant one `CLAIM/1` notice with the reason. The waiter's own cancellation sends
+nothing.
 
 New owned claims use a proven native connection (`ownership_mode: connection`),
 not a renewable 60-second lease. Their public `expires_at` is null while the exact
@@ -225,7 +255,7 @@ claims for explicit resolution. Production rollout requires its own authorizatio
 
 ## Claim and workspace refinements (2026-10-24)
 
-Legacy timed waiting claims begin with a 180-second expiry and may renew without authorizing a write; new connection-owned claims retain their native attachment fence. Negotiation remains 120 seconds; uncertain claims cannot be taken over; only the proven reconnect/completed-transcript recovery described above may renew them. Blockers include purpose, resources, owner address/name and, for uncertain outcomes, the supported audited operator endpoint `/admin/agent-messaging/scopes/resolve`. Owner metadata is loaded only for overlapping claims. A live same-session Git lease does not block its own claims.
+Legacy timed waiting claims begin with a 180-second expiry and may renew without authorizing a write; new connection-owned claims retain their native attachment fence. Negotiation remains 120 seconds; uncertain claims cannot be taken over; only the proven reconnect/completed-transcript recovery described above may renew them. Blockers include overlapping waiting claims ahead in arrival order (`state: "waiting"`; a legacy timed waiter only until its expiry). Without the owner runtime the legacy path applies that order on acquire and status only: its waiters are granted by their own polling and receive no grant notice. Blockers carry purpose, resources, owner address/name and, for uncertain outcomes, the supported audited operator endpoint `/admin/agent-messaging/scopes/resolve`. Owner metadata is loaded only for overlapping claims. A live same-session Git lease does not block its own claims.
 
 Unmanaged SSH targets use `{kind:"remote",fqdn:"mx1.example.org",service:"mail"}`. FQDN case and one trailing dot normalize. The operator's literal canonical FQDN is the shared key across caller hosts; DNS aliases/IPs are not inferred. `service:"*"` reserves all services of that FQDN. These claims do not create fleet membership or access credentials, and do not permit worktree isolation on a system target.
 

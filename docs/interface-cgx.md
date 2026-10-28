@@ -194,7 +194,9 @@ Launches refuse when the baked host FQDN does not match the hostname
 (`GROK_ALLOW_FQDN_MISMATCH=1` overrides). A launch whose `/auth` host engine set differs from the
 baked one requests background maintenance immediately, so an engine an operator
 enabled or disabled is provisioned on this launch (cdx parity). Maintenance appends `alias grok='cgx'` to
-existing `~/.bashrc`/`~/.zshrc`, as cdx and clx do for their engines.
+existing `~/.bashrc`/`~/.zshrc`, as cdx and clx do for their engines. From cxx 0.9.143 a
+development build (version `dev`) queues no launch-time maintenance and never installs,
+repoints or retires the shared `cxx-agent` worker unit automatically (cdx parity; feedback 3e2df8d1).
 
 ### Native argument boundaries (Grok Build 1.0.70)
 
@@ -228,6 +230,36 @@ existing external leader/relay cannot inherit this launch's private leased-accou
 broker, session identity and teardown. Native `--help` remains available;
 normal managed sessions retain their wrapper-owned private leader. No public
 worker registration or background service is enabled by this support boundary.
+
+From the 2026-10-28 maintenance run (Grok Build 1.0.70) the same boundary covers:
+
+- `leader worker …`, which 1.0.70 documents as "Run the same commands as
+  `grok worker`", is refused like `worker`. `leader list|info|kill`, a
+  `leader --debug-file worker list` value and `leader worker --help` are unchanged.
+- Native install/update/upgrade is refused whatever its options are. `update
+  --version <VERSION>` installs that version natively; only a root `--version`
+  before any subcommand (native prints it before parsing the rest, so
+  `--version update` is a version request) or the `version` command passes
+  through. The refusal applies to native entry and to `cgx run update …` /
+  `cgx install` alike, before signed config, leasing or a native exec.
+- `setup` (with or without `--json`) is refused: it fetches organization managed
+  configuration with the leased account and installs it into the managed
+  session's private home, which is discarded at exit. Organization managed
+  configuration is host-owned (see [native config scopes](NATIVE_CONFIG_SCOPES.md));
+  install it with vendor tooling outside managed sessions.
+- Native sign-in requests are refused with `cgx login` guidance: hidden root
+  `--force-login` ("show the login screen even when credentials are already
+  available"), root `--oauth` (it only selects the native login method) and
+  `agent --reauth` / `----reauthenticate`. Managed auth is server-owned and
+  supplied through `cxx grok-auth`; a native login would write a second
+  credential into the discarded private home. `grok login --oauth` keeps its
+  existing route to `cgx login`, and option values spelled like these flags stay
+  values. Open limit: whether 1.0.70 would actually start an OAuth/device flow
+  for these flags while `auth_provider_command` is set was not probed (it needs
+  a live login); the refusal is correct either way.
+- Only `run` argv is classified. `cgx --execute` words are a prompt passed
+  through `--prompt-file`, so a prompt such as `worker start` or `setup` is no
+  longer refused as a native command.
 
 ## Emergency mode (cxx 0.9.141)
 
@@ -337,8 +369,10 @@ operator supplies them; support does not turn experimental features on.
 
 The field/type registry is audited against Grok Build **1.0.70**, selected by
 the official stable-pointer distribution and npm latest. The verified native
-binary reports the embedded label `alpha` (`grok 1.0.70 (f50904eaee6c) [alpha]`);
-distribution selection and embedded build channel are separate observations.
+binary prints `grok 1.0.70 (f50904eaee6c)` in a clean home and `grok version --json`
+reports `"channel":"unknown"`; a channel suffix such as `[alpha]` comes from local
+install or config state, not from the build, so distribution selection and channel label
+are separate observations.
 The audit uses its bundled complete reference (SHA-256 `ebd97fec98bb00bfdfa37befddf31dd8a14e3f277db887c7b643888867865db7`).
 The older [public source reference](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md)
 is supplemented by the matching bundled configuration, hooks and status-line guides and
@@ -433,6 +467,25 @@ fleet; incompatible native settings are rejected instead of silently ignored.
 Native `version_overrides` accept validated version bounds and ordinary native
 patches. Conditional model, posture and MCP changes are rejected because those
 layers would bypass the corresponding fleet controls.
+
+Native updater policy is fleet-owned. Besides `cli.auto_update = true`, root and
+version-override layers reject `cli.channel`, `cli.minimum_version`,
+`cli.maximum_version`, `cli.npm_registry` and `cli.installer` (managed launches
+never run the native updater) and `cli.required_minimum_version` /
+`cli.required_maximum_version` (a bound outside the fleet target would make every
+managed launch refuse to start). `compat.claude|codex|cursor.sessions` is
+rejected as inert: the bundled compat guide documents it as staged with no
+consumer. Idempotent migration 0115 removes these exact stored paths from root
+and version-override layers; unrelated siblings, other engines and historical
+body/hash pairs remain intact.
+
+`features.zdr_access_enabled` disappeared from the binary in 1.0.64 (bisect of
+the SHA512-verified npm archives 1.0.60–1.0.70) but still works on the 1.0.50
+baseline, so it stays accepted and stored. Host sync refuses it, naming the
+observed version, for a host that reports 1.0.64 or newer when the key is at the
+root or in a layer applicable to that version. Unreported hosts are not blocked
+by this check. To keep it for older hosts, move it into a layer with
+`maximum_version = "1.0.63"`, which newer hosts skip.
 
 `owned_paths` remains a string array. Existing paths keep their dotted encoding;
 ambiguous nested paths use `json:["model","grok-4.7","extra_headers","X.Team"]`.
@@ -631,12 +684,46 @@ Sharing the operator's original home could silently switch managed accounts.
 
 The original home remains the logical account-guard scope. Sessions share the
 original **sessions root** so UUID/title resume, `--continue`, transcripts, and
-prompt history remain available. Recognized user config, rules, skills, commands,
-personas, agents, plugins, and hooks are preserved by an explicit asset allowlist;
-auth files, auth locks, and MCP credentials are never shared into the managed
-runtime. Fleet hooks live in a real owned hooks directory with user hooks copied
-alongside them. Direct credential overrides and metered-key fallbacks are removed
-from managed subprocess environments.
+prompt history remain available. The rest of the original home reaches the
+private one through an explicit allowlist (`runtime.go`), decided per class
+against the Grok Build 1.0.50 and 1.0.70 home contract:
+
+| Class | Entries | Why |
+| --- | --- | --- |
+| Linked | `sessions worktrees memory memory-v2 rules skills commands personas roles agents plugins installed-plugins plugin-data marketplace-cache workflows` | User content or native state that must persist. No native sandbox profile refuses these links. |
+| Linked, copied under a sandbox | `bundled bundles` (built-in bundle caches) | Linked so bundle updates persist. Grok 1.0.70 refuses every write-denying sandbox profile (`workspace`, `read-only`, `strict` and custom profiles) on a linked cache ("symlink component"). When `--sandbox`, `GROK_SANDBOX`, the merged `[sandbox] profile` or a requirements/managed layer selects anything but `off`, the launch uses a private copy instead. |
+| Read-only snapshot | `config.toml AGENTS.md CLAUDE.md Claude.md claude.md GROK.md pager.toml lsp.json requirements.toml managed_config.toml managed_config.sig.json managed_identity.sig.json sandbox.toml sandbox_grants.toml trusted_folders.toml trusted-plugins trusted-hook-projects hooks-paths disabled-hooks`, plus `hooks/*.json` | Native replaces these files by atomic rename, so a link would not persist a change. Sandbox profiles also refuse linked protected files. The signature sidecars keep a synced `requirements.toml` signed. |
+| Never carried | `auth.json`, auth locks, `mcp_credentials.json`, `settings_cache.json`, `models_cache.json`, `managed_config_cache.json`, `managed_config_refresh.json`, `agent_id`, `version.json`, `bin/`, `downloads/`, `logs/`, `grove/`, `worktrees.db`, `extensions` and lock files | Credentials, or caches and sync state bound to the operator's own account. The leased account rebuilds them. Grove's daemon lifetime is unverified. |
+
+Folder trust is the operator's own. The private home sees the original
+`trusted_folders.toml` (including explicit untrust), so user, project, plugin and
+agent hooks, project MCP/LSP servers and project instructions follow the
+decisions already made. The fleet grants no trust and never changes
+`[folder_trust]`. A folder trusted inside a managed session stays trusted for
+that session only; a private session never writes the operator's trust store,
+sandbox grants or policy files. To persist trust, run the native binary
+directly, outside managed entry, once in that folder. After the first `cgx`
+launch has installed it, `"$(cat ~/.cgx/state/grok-bin)" --trust inspect`
+records trust in the original store without starting a session.
+
+The fleet receiver and watchdog hooks (`SessionStart` → `cxx agent
+native-session`; `StopFailure`, `StopCancelled`, `SessionEnd` → `cxx agent
+watchdog-event`) are merged into the private `managed_config.toml`. Grok 1.0.64+
+holds back user hooks in untrusted folders. It loads `managed_config.toml` hooks
+before trust, so receiver binding does not depend on folder trust. Grok 1.0.50
+reads the same layer. Organization content in the snapshot is merged, not
+replaced; the native order stays `managed_config.toml` < `config.toml` <
+`requirements.toml`. A user-level managed file is distribution, not
+enforcement: the operator can still disable these hooks, and an
+organization's `allow_managed_hooks_only` pin skips them. If the copied
+`managed_config.toml` cannot be parsed, it stays byte-for-byte. The hooks then
+fall back to `hooks/cxx-receiver.json` and the launch prints that they wait for
+folder trust. Earlier runtimes copied a hyphenated
+`managed-config.toml` that no native release reads, dropped `trusted_folders.toml`,
+`sandbox.toml` and `pager.toml`, and linked `bundled`.
+
+Direct credential overrides and metered-key fallbacks are removed from managed
+subprocess environments.
 
 Managed runtimes disable Grok's implicit Claude and Cursor MCP imports through
 their private config and process environment. This prevents another engine's
@@ -1319,7 +1406,7 @@ reflection does not authorize fixes or deployments. The manifest is published vi
 requires the API change and the host's next instructions sync. This is agent guidance,
 not a runtime completion hook or a background schedule.
 
-**Model Class Check.** The fleet switch `model_tier_check_enabled` (default on; `GET`/`POST /admin/model-tier-check`, Settings → Agents) appends a final `model_tiers` section to managed AGENTS.md/CLAUDE.md/Grok AGENTS.md for Codex, Claude and Grok. It names the host's configured model and tier (host override, then fleet config, then engine default; Claude reports none when unpinned) and a tier table of the latest, non-disabled models of the host's active engines (`activeHostEngines`, so fleet-suspended engines are never recommended). Tiers live in `api/src/services/model-tiers.ts`: 1 Haiku/Luna; 2 Terra/Grok 4.5, 4.6; 3 Sonnet/Opus/Sol/Grok 4.7 and 4.7-build-fast; 4 Fable/Astra (Sonnet moved 2 → 3 on 2026-10-28). An agent one tier below the task states `Underclassed: …` with a recommended model and proceeds; two or more tiers below, it stops before starting, reports that line and finishes accepted work as `blocked` unless the operator explicitly asked this model to proceed. Classify the whole assignment before task-specific scouting or planning, by the judgment it needs rather than its keywords: read-only scouting, including “scout and prepare”, takes the tier of the decisions it feeds. All four task definitions remain visible even when a host has no model at that tier. An override must explicitly acknowledge the identified mismatch; model selection or the original task request does not count. Tier 3/4 work states task tier, model tier and a reason. This is agent guidance, not runtime admission enforcement. Only a concrete session model overrides the configured model; a generic “GPT-6” label does not make configured Luna unknown. An unknown model never aborts. Changes apply on the next sync.
+**Model Class Check.** The fleet switch `model_tier_check_enabled` (default on; `GET`/`POST /admin/model-tier-check`, Settings → Agents) appends a final `model_tiers` section to managed AGENTS.md/CLAUDE.md/Grok AGENTS.md for Codex, Claude and Grok. It names the host's configured model and tier (host override, then fleet config, then engine default; Claude reports none when unpinned) and a tier table of the latest, non-disabled models of the host's active engines (`activeHostEngines`, so fleet-suspended engines are never recommended). Tiers live in `api/src/services/model-tiers.ts` (operator ruling 2026-10-28, five tiers): 1 Haiku/Luna/Grok 4.5; 2 Terra/Grok 4.6, 4.7 and 4.7-build-fast; 3 Sonnet/Sol; 4 Opus; 5 Fable/Astra. An agent one tier below the task states `Underclassed: …` with a recommended model and proceeds; two or more tiers below, it stops before starting, reports that line and finishes accepted work as `blocked` unless the operator explicitly asked this model to proceed. Classify the whole assignment before task-specific scouting or planning, by the judgment it needs rather than its keywords: read-only scouting, including “scout and prepare”, takes the tier of the decisions it feeds. All four task definitions remain visible even when a host has no model at that tier. An override must explicitly acknowledge the identified mismatch; model selection or the original task request does not count. Tier 3+ work states task tier, model tier and a reason. This is agent guidance, not runtime admission enforcement. Only a concrete session model overrides the configured model; a generic “GPT-6” label does not make configured Luna unknown. An unknown model never aborts. Changes apply on the next sync.
 
 The independent central inbox provides `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim` and `feedback_update` across Codex, Claude and Grok. The fleet switch `feedback_enabled` defaults off, hides tools during discovery and blocks calls while disabled. Enable it under Feedback in the WebUI (`/admin/feedback/state`); managed AGENTS.md/CLAUDE.md/Grok AGENTS.md dynamically gain the workflow on the next sync only when usable managed MCP configuration exists. Disabling removes that section on sync without changing canonical authored rules or deleting reports.
 

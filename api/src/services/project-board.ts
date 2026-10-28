@@ -9,6 +9,7 @@ import { stageUpdate, stageDelete } from '../control-plane/state/rows.js';
 import { stageProjectEvent } from '../control-plane/state/projects.js';
 import type { Json } from '../control-plane/commands.js';
 import { ownerPresence } from '../control-plane/presence.js';
+import { readWorkspace } from './agent-messaging/workspace.js';
 const boardCommand = new AsyncLocalStorage<OwnerMutationContext>();
 const boardPrincipals = new WeakMap<OwnerMutationContext,NativePrincipal>();
 /**
@@ -605,9 +606,15 @@ export class ProjectBoardService {
     const owner=ownerRuntimeFor(this.deps.db)!;const principal=supplied??(boardCommand.getStore()?boardPrincipals.get(boardCommand.getStore()!):undefined)??currentNativePrincipal();
     if(!principal)throw new ConflictError('Authenticated native session required for card ownership','card_identity_required');
     const {session}=ownedBridge(owner.state.snapshot(),principal.sessionId,principal.bridgeToken);
-    if(session.hostId!==actor.hostId||actor.engine&&session.engine!==actor.engine||actor.username&&session.username!==actor.username||actor.worktreePath&&session.cwd!==actor.worktreePath)throw new ConflictError('Card actor differs from authenticated native session','card_identity_mismatch');
+    // The session's location is its bound workspace (agent_context_update rebinds
+    // it; session.cwd stays the launch directory), resolved exactly as the Git
+    // Director does. A bound session may name its checkout root or its cwd.
+    const workspace=readWorkspace(session.workspace),worktree=workspace?.git_root??workspace?.cwd??session.cwd;
+    const worktreePaths=workspace?[...new Set([workspace.git_root,workspace.cwd].filter((path):path is string=>Boolean(path)))]:[session.cwd];
+    const fields=[...(session.hostId!==actor.hostId?['host']:[]),...(actor.engine&&session.engine!==actor.engine?['engine']:[]),...(actor.username&&session.username!==actor.username?['username']:[]),...(actor.worktreePath&&!worktreePaths.includes(actor.worktreePath)?['worktree_path']:[])];
+    if(fields.length)throw new ConflictError(`Card actor differs from authenticated native session: ${fields.join(', ')}`,'card_identity_mismatch',{fields,session:{engine:session.engine,username:session.username,worktree_paths:worktreePaths}});
     const instances=new Set(ownerPresence(owner).session(session.id,session.bindingGeneration,'session').map(a=>a.scope.native_instance_id).filter(Boolean));if(instances.size!==1)throw new ConflictError('Exactly one proven native instance required','card_connection_required');const attachment=nativeClaimAttachment(owner,session);if(!attachment?.scope.native_instance_id)throw new ConflictError('Attached native instance required for card ownership','card_connection_required');
-    actor.username=session.username;actor.worktreePath=session.cwd;actor.engine=session.engine;
+    actor.username=session.username;actor.worktreePath=worktree;actor.engine=session.engine;
     return {session,instance:attachment.scope.native_instance_id};
   }
   private claimConnected(card:CoordProjectCard):boolean{const owner=ownerRuntimeFor(this.deps.db);if(!owner||!card.claimSessionId||card.claimBindingGeneration===null||!card.claimNativeInstanceId)return false;return ownerPresence(owner).session(card.claimSessionId,card.claimBindingGeneration,'session').some(a=>a.scope.native_instance_id===card.claimNativeInstanceId);}

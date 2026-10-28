@@ -16,8 +16,8 @@ import { ApiError } from '../http/errors.js';
 export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-5';
 
 /**
- * Public, non-deprecated Claude models verified 2026-10-12 against the vendor
- * lifecycle table and Claude Code 2.1.296's first-party native catalog.
+ * Public, non-deprecated Claude models verified 2026-10-28 against the vendor
+ * lifecycle table and Claude Code 2.1.312's first-party native catalog.
  * Restricted-access Mythos models are not general fleet choices. Account and
  * provider restrictions still apply; catalog membership does not grant access.
  */
@@ -42,16 +42,21 @@ export type ClaudeModel = (typeof CLAUDE_SUPPORTED_MODELS)[number];
 /**
  * Legacy / vendor-public-id aliases that map onto our short ids. Keeps the
  * Anthropic SDK's "current generation" model names working out of the box.
+ * Successors follow the "Recommended replacement" column of
+ * https://platform.claude.com/docs/en/about-claude/model-deprecations (checked
+ * 2026-10-28): every retired or deprecated Sonnet maps to `claude-sonnet-5-5`,
+ * Opus to `claude-opus-4-8`, Haiku and Claude 1/Instant to Haiku 4.5. Active
+ * models (including an already stored `claude-sonnet-5`) are never rewritten.
  */
 export const CLAUDE_LEGACY_MODEL_UPGRADES: Record<string, ClaudeModel> = {
   'claude-3-opus-20240229': 'claude-opus-4-8',
-  'claude-3-5-sonnet-20240620': 'claude-sonnet-5',
-  'claude-3-5-sonnet-20241022': 'claude-sonnet-5',
-  'claude-3-5-sonnet-latest': 'claude-sonnet-5',
+  'claude-3-5-sonnet-20240620': 'claude-sonnet-5-5',
+  'claude-3-5-sonnet-20241022': 'claude-sonnet-5-5',
+  'claude-3-5-sonnet-latest': 'claude-sonnet-5-5',
   'claude-3-haiku-20240307': 'claude-haiku-4-5-20251001',
   'claude-3-5-haiku-latest': 'claude-haiku-4-5-20251001',
   'claude-opus-4-20250514': 'claude-opus-4-8',
-  'claude-sonnet-4-20250514': 'claude-sonnet-5',
+  'claude-sonnet-4-20250514': 'claude-sonnet-5-5',
   'claude-sonnet-4-5': 'claude-sonnet-5-5',
   'claude-sonnet-4-5-20250929': 'claude-sonnet-5-5',
   'claude-sonnet-4-5-latest': 'claude-sonnet-5-5',
@@ -61,10 +66,10 @@ export const CLAUDE_LEGACY_MODEL_UPGRADES: Record<string, ClaudeModel> = {
   'claude-sonnet-4-0': 'claude-sonnet-5-5',
   'claude-3-7-sonnet-20250219': 'claude-sonnet-5-5',
   'claude-3-7-sonnet': 'claude-sonnet-5-5',
-  'claude-3-5-sonnet': 'claude-sonnet-5',
+  'claude-3-5-sonnet': 'claude-sonnet-5-5',
   'claude-3-5-haiku': 'claude-haiku-4-5-20251001',
   'claude-3-7-sonnet-latest': 'claude-sonnet-5-5',
-  'claude-3-sonnet-20240229': 'claude-sonnet-5',
+  'claude-3-sonnet-20240229': 'claude-sonnet-5-5',
   'claude-3-5-haiku-20241022': 'claude-haiku-4-5-20251001',
   'claude-2.0': 'claude-opus-4-8',
   'claude-2.1': 'claude-opus-4-8',
@@ -119,9 +124,34 @@ export const CLAUDE_MODEL_METADATA: Record<
   'claude-haiku-4-5-20251001': { displayName: 'Claude Haiku 4.5', maxInputTokens: 200_000, maxTokens: 64_000 },
 };
 
+/** Model lines the Anthropic Models API documents for its nullable `line` field. */
+export type ClaudeModelLine = 'haiku' | 'sonnet' | 'opus' | 'fable' | 'mythos';
+
 /**
- * Persisted native effort levels, verified against Claude Code 2.1.296 and
- * code.claude.com/docs/en/model-config on 2026-10-12. `max` is session-only.
+ * Models API `line` per catalog model. Explicit catalog data, never parsed
+ * from the id: platform.claude.com/docs/en/api/models/list (fetched
+ * 2026-10-28) says clients must not infer a line from the `id`. Exhaustive by
+ * type, so a new catalog model cannot ship without one.
+ */
+export const CLAUDE_MODEL_LINES: Readonly<Record<ClaudeModel, ClaudeModelLine>> = {
+  'claude-fable-5-1': 'fable',
+  'claude-fable-5': 'fable',
+  'claude-opus-5-5': 'opus',
+  'claude-opus-5': 'opus',
+  'claude-opus-4-8': 'opus',
+  'claude-sonnet-5-5': 'sonnet',
+  'claude-sonnet-5': 'sonnet',
+  'claude-opus-4-7': 'opus',
+  'claude-sonnet-4-6': 'sonnet',
+  'claude-haiku-5-5': 'haiku',
+  'claude-opus-4-6': 'opus',
+  'claude-opus-4-5-20251101': 'opus',
+  'claude-haiku-4-5-20251001': 'haiku',
+};
+
+/**
+ * Persisted native effort levels, verified against Claude Code 2.1.312 and
+ * code.claude.com/docs/en/model-config on 2026-10-28. `max` is session-only.
  * API effort support is not a CLI capability: Opus 4.5 has no native effort
  * control, and Opus/Sonnet 4.6 stop at `high` for persisted settings.
  */
@@ -139,6 +169,18 @@ export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly st
   'claude-opus-4-6': ['low', 'medium', 'high'],
   'claude-opus-4-5-20251101': [],
   'claude-haiku-4-5-20251001': [],
+};
+
+/**
+ * Native Claude Code availability, not an API model minimum. Source:
+ * https://code.claude.com/docs/en/model-config, checked 2026-10-28. No minimum
+ * is invented for other catalog models, aliases or custom provider ids.
+ */
+export const CLAUDE_MODEL_MIN_CLI_VERSIONS: Readonly<Record<string, string>> = {
+  'claude-fable-5-1': '2.1.257',
+  'claude-opus-5-5': '2.1.280',
+  'claude-sonnet-5-5': '2.1.284',
+  'claude-haiku-5-5': '2.1.293',
 };
 
 /** Native CLI defaults, independent of API request defaults and account policy. */
@@ -179,6 +221,8 @@ export interface ClaudeModelObject {
   created_at: string;
   max_input_tokens: number;
   max_tokens: number;
+  /** Models API model line (`opus`, `sonnet`, ...); see {@link CLAUDE_MODEL_LINES}. */
+  line: ClaudeModelLine;
   /** @deprecated OpenAI-compat alias for `type`. */
   object: 'model';
   /** @deprecated OpenAI-compat unix-seconds alias for `created_at`. */
@@ -352,6 +396,7 @@ export function modelObject(id: ClaudeModel): ClaudeModelObject {
     created_at: new Date(created * 1000).toISOString(),
     max_input_tokens: meta.maxInputTokens,
     max_tokens: meta.maxTokens,
+    line: CLAUDE_MODEL_LINES[id],
     object: 'model',
     created,
     owned_by: 'anthropic',

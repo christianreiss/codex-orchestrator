@@ -50,6 +50,20 @@
     return { ...option, disabled: !supported };
   }));
   const codexUpgradeNeeded = $derived(codexModels.some(option => option.disabled));
+  // Claude's documented per-model floors arrive in the catalog; the observed
+  // version is the host's reported Claude CLI, never Codex's or a desired pin.
+  const claudeDefaults = modelDefaultsQuery("claude");
+  const claudeModels = $derived(CLAUDE_MODEL_OPTIONS.map(option => {
+    const minimum = $claudeDefaults.data?.catalog?.find(entry => entry.model === option.value)?.min_cli_version;
+    const observed = host.claude_client_version?.match(/\b(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?/);
+    const required = minimum?.split(".").map(Number);
+    const supported = !minimum || Boolean(observed && required && (
+      Number(observed[1]) > required[0] || Number(observed[1]) === required[0] && (
+      Number(observed[2]) > required[1] || Number(observed[2]) === required[1] && (
+      Number(observed[3]) > required[2] || Number(observed[3]) === required[2] && !observed[4]))));
+    return { ...option, disabled: !supported };
+  }));
+  const claudeUpgradeNeeded = $derived(claudeModels.some(option => option.disabled));
   let agentsOpen = $state(false);
 
   const model = (engine: "codex" | "claude" | "grok") => (value: string | null) => runQuiet($modelOverride.mutateAsync({ id, engine, model: value }));
@@ -73,7 +87,10 @@
     {#if engines.includes("claude")}
       <EnginePanel engine="claude" digest={digest(host.claude_canonical_digest)}>
         <OverridePopover label="Version" override={host.claude_client_version_override} inheritedValue={host.claude_client_version} inheritedLabel="detected" placeholder={overview?.versions.claude_version ?? "1.0.0"} pending={$claudeVersion.isPending} onSave={(v) => runQuiet($claudeVersion.mutateAsync({ id, version: v }))} />
-        <OverridePopover label="Model" override={host.claude_model_override} options={CLAUDE_MODEL_OPTIONS} pending={$modelOverride.isPending} onSave={model("claude")} />
+        <OverridePopover label="Model" override={host.claude_model_override} options={claudeModels} pending={$modelOverride.isPending} onSave={model("claude")} />
+        {#if claudeUpgradeNeeded}
+          <p class="text-body-sm text-muted-foreground">Some Claude models need a newer Claude Code than this host reports. Run clx update on this host, or cron run to report an installed version.</p>
+        {/if}
       </EnginePanel>
     {/if}
     {#if engines.includes("grok")}

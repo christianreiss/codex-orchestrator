@@ -5,6 +5,7 @@ import {
   CLAUDE_LEGACY_MODEL_UPGRADES,
   CLAUDE_SUPPORTED_MODELS,
   createClaudeModelsService,
+  normalizeClaudeModelReference,
 } from '../../../src/services/claude-models.js';
 import type { Database } from '../../../src/db/client.js';
 
@@ -69,7 +70,35 @@ describe('claude-models', () => {
     expect(await svc.resolveRequestedModel('CLAUDE-SONNET-5')).toBe('claude-sonnet-5');
     expect(await svc.resolveRequestedModel('claude-opus-4-7')).toBe('claude-opus-4-7');
     expect(await svc.resolveRequestedModel('CLAUDE-SONNET-4-6')).toBe('claude-sonnet-4-6');
-    expect(await svc.resolveRequestedModel('claude-3-5-sonnet-latest')).toBe('claude-sonnet-5');
+    expect(await svc.resolveRequestedModel('claude-3-5-sonnet-latest')).toBe('claude-sonnet-5-5');
+  });
+
+  // platform.claude.com/docs/en/about-claude/model-deprecations, checked 2026-10-28:
+  // every retired Sonnet names claude-sonnet-5-5 as its recommended replacement.
+  it.each([
+    'claude-3-sonnet-20240229',
+    'claude-3-5-sonnet-20240620',
+    'claude-3-5-sonnet-20241022',
+    'claude-3-5-sonnet-latest',
+    'claude-3-5-sonnet',
+    'claude-3-7-sonnet-20250219',
+    'claude-3-7-sonnet',
+    'claude-3-7-sonnet-latest',
+    'claude-sonnet-4-20250514',
+    'claude-sonnet-4-0',
+    'claude-sonnet-4-5',
+    'claude-sonnet-4-5-20250929',
+    'claude-sonnet-4-5-latest',
+  ])('migrates retired or deprecated Sonnet %s to the official successor', async (id) => {
+    expect(CLAUDE_LEGACY_MODEL_UPGRADES[id]).toBe('claude-sonnet-5-5');
+    expect(normalizeClaudeModelReference(id.toUpperCase() + '[1m]')).toBe('claude-sonnet-5-5[1m]');
+    expect(await createClaudeModelsService(fakeDb()).resolveRequestedModel(id)).toBe('claude-sonnet-5-5');
+  });
+
+  it('never reinterprets an already stored active Sonnet 5 or custom ids', () => {
+    expect(normalizeClaudeModelReference('claude-sonnet-5')).toBe('claude-sonnet-5');
+    expect(normalizeClaudeModelReference('claude-sonnet-5[1m]')).toBe('claude-sonnet-5[1m]');
+    expect(normalizeClaudeModelReference('my-provider/claude-3-5-sonnet')).toBe('my-provider/claude-3-5-sonnet');
   });
 
   it('keeps active pinned predecessors and canonicalizes their short aliases', async () => {

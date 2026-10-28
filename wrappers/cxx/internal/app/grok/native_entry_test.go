@@ -32,6 +32,10 @@ func TestNativeOptionsPreserveCLIGrammar(t *testing.T) {
 			t.Fatalf("native %s lost central auth owner: %+v %v", command, o, err)
 		}
 	}
+	// login's own --oauth is not the refused root sign-in request.
+	if o, err := nativeOptions([]string{"login", "--oauth"}); err != nil || o.command != "login" || !reflect.DeepEqual(o.args, []string{"--oauth"}) {
+		t.Fatalf("native login --oauth lost central auth owner: %+v %v", o, err)
+	}
 }
 
 func TestNativeFlagClassificationIgnoresLiteralValues(t *testing.T) {
@@ -120,6 +124,117 @@ func TestNativeServiceRefusalPrecedesConfig(t *testing.T) {
 		var out, stderr bytes.Buffer
 		if code := RunNative(args, &out, &stderr); code != 2 || !strings.Contains(stderr.String(), "separate managed auth/session lifecycle") {
 			t.Fatalf("%q: %d %s", args, code, stderr.String())
+		}
+	}
+}
+
+// Grok Build 1.0.70 `update --version <VERSION>` installs that version; only a
+// root --version before any subcommand (or `version`) is a version request.
+func TestNativeUpdateOptionsCannotBypassFleetInstall(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, args := range [][]string{
+		{"update", "--version", "1.0.73"}, {"update", "--version=1.0.73"},
+		{"--debug", "update", "--version", "1.0.73"}, {"install", "--version", "x"},
+		{"upgrade", "--version", "x"}, {"update", "--check"}, {"update", "--alpha"},
+		{"update", "--stable"}, {"update", "--force-reinstall"},
+	} {
+		if o, err := nativeOptions(args); err == nil || !strings.Contains(err.Error(), "fleet-managed") {
+			t.Fatalf("%q bypassed fleet-managed install: %+v %v", args, o, err)
+		}
+	}
+	for _, args := range [][]string{{"--version"}, {"version", "--json"}, {"--version", "update"}, {"update", "--version", "x", "--help"}} {
+		if o, err := nativeOptions(args); err != nil || o.command != "run" {
+			t.Fatalf("version/help %q refused: %+v %v", args, o, err)
+		}
+	}
+}
+
+func stubGrokCLI(t *testing.T) (marker string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GROK_HOME", filepath.Join(home, ".grok"))
+	marker = filepath.Join(home, "native-ran")
+	cli := filepath.Join(home, "vendor-grok")
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > '"+marker+"'\nprintf '%s\\n' \"$@\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CGX_GROK_BIN", cli)
+	return marker
+}
+
+// Refusals run before signed config, leasing or a native exec, for both the
+// native entry and `cgx run …` / `cgx <native command>`.
+func TestManagedNativeRefusalsPrecedeConfigAndNativeExec(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"leader", "worker", "start"}, "separate managed auth/session lifecycle"},
+		{[]string{"--debug", "leader", "worker", "start"}, "separate managed auth/session lifecycle"},
+		{[]string{"leader", "worker", "controller", "--pool", "x"}, "separate managed auth/session lifecycle"},
+		{[]string{"update", "--version", "1.0.73"}, "fleet-managed"},
+		{[]string{"setup"}, "organization managed configuration"},
+		{[]string{"setup", "--json"}, "organization managed configuration"},
+		{[]string{"--debug", "setup"}, "organization managed configuration"},
+		{[]string{"--force-login"}, "cgx login"},
+		{[]string{"--oauth", "hello"}, "cgx login"},
+		{[]string{"agent", "--reauth", "stdio"}, "cgx login"},
+		{[]string{"agent", "----reauthenticate", "stdio"}, "cgx login"},
+	} {
+		for _, entry := range []struct {
+			name string
+			run  func([]string, *bytes.Buffer, *bytes.Buffer) int
+		}{
+			{"native", func(a []string, o, e *bytes.Buffer) int { return RunNative(a, o, e) }},
+			{"cgx run", func(a []string, o, e *bytes.Buffer) int { return Run(append([]string{"run"}, a...), o, e) }},
+		} {
+			marker := stubGrokCLI(t)
+			var out, stderr bytes.Buffer
+			code := entry.run(tc.args, &out, &stderr)
+			if code == 0 || !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("%s %q: code=%d stderr=%q", entry.name, tc.args, code, stderr.String())
+			}
+			if _, err := os.Stat(marker); err == nil {
+				t.Fatalf("%s %q reached the native binary", entry.name, tc.args)
+			}
+		}
+	}
+	// `cgx install` / `cgx setup` reach the same managed run as native argv.
+	for _, args := range [][]string{{"install"}, {"setup"}} {
+		stubGrokCLI(t)
+		var out, stderr bytes.Buffer
+		if code := Run(args, &out, &stderr); code != 2 {
+			t.Fatalf("cgx %q: code=%d stderr=%q", args, code, stderr.String())
+		}
+	}
+}
+
+func TestManagedNativeRefusalsKeepHelpVersionAndValues(t *testing.T) {
+	for _, args := range [][]string{{"leader", "worker", "--help"}, {"setup", "--help"}, {"--force-login", "--help"}, {"--version", "update"}, {"agent", "--reauth", "stdio", "--help"}} {
+		marker := stubGrokCLI(t)
+		var out, stderr bytes.Buffer
+		if code := RunNative(args, &out, &stderr); code != 0 || out.String() != strings.Join(args, "\n")+"\n" {
+			t.Fatalf("%q: code=%d stdout=%q stderr=%q", args, code, out.String(), stderr.String())
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatalf("%q did not reach native help/version", args)
+		}
+	}
+	for _, args := range [][]string{{"--model", "--force-login"}, {"-p", "--oauth"}, {"--print=--force-login"}, {"agent", "--model", "--reauth", "stdio"}, {"--add-dir", "setup"}, {"leader", "--debug-file", "worker", "list"}, {"leader", "list"}} {
+		if refusal := managedNativeRefusal(args); refusal != "" {
+			t.Fatalf("value %q refused: %s", args, refusal)
+		}
+	}
+	// --execute words are a prompt (sent through --prompt-file), never native argv.
+	for _, prompt := range [][]string{{"setup"}, {"worker", "start"}, {"update", "--version", "x"}, {"--force-login"}} {
+		stubGrokCLI(t)
+		var out, stderr bytes.Buffer
+		Run(append([]string{"--execute"}, prompt...), &out, &stderr)
+		for _, refusal := range []string{"separate managed", "fleet-managed", "organization managed", "cgx login"} {
+			if strings.Contains(stderr.String(), refusal) {
+				t.Fatalf("execute prompt %q refused as native argv: %s", prompt, stderr.String())
+			}
 		}
 	}
 }

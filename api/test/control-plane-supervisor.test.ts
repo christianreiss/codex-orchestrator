@@ -115,6 +115,40 @@ describe('external fleet task supervisor', () => {
       f.service.report(a.id, f.token, { task_key: 'one', state: 'completed', version: before.version + 1 }),
     ).rejects.toThrow('changed');
   });
+  describe('task_key derivation', () => {
+    async function ownedMessage(f: ReturnType<typeof fixture>, addressId: string) {
+      await f.service.tick();
+      await f.service.tick(new Date(Date.parse(f.now) + 601000));
+      return f.state
+        .snapshot()
+        .messages.all()
+        .find((m) => m.senderAddressId === addressId || m.targetAddressId === addressId)!;
+    }
+    it('derives the task key from the work message when task_key is omitted', async () => {
+      const f = fixture(),
+        a = f.agents[0]!,
+        message = await ownedMessage(f, a.addressId);
+      await f.service.report(a.id, f.token, { state: 'working', message_id: message.id });
+      expect(f.state.snapshot().table('agentWorkStates').get(a.addressId)!.taskKey).toBe(
+        `message:${message.id}`,
+      );
+    });
+    it('keeps the current task key for a wait without task_key', async () => {
+      const f = fixture(),
+        a = f.agents[0]!,
+        message = await ownedMessage(f, a.addressId);
+      await f.service.report(a.id, f.token, { task_key: 'stable', state: 'working' });
+      await f.service.report(a.id, f.token, { state: 'waiting_agent', message_id: message.id });
+      expect(f.state.snapshot().table('agentWorkStates').get(a.addressId)!.taskKey).toBe('stable');
+    });
+    it('names both task_key and message_id when neither is supplied', async () => {
+      const f = fixture(),
+        a = f.agents[0]!;
+      await expect(f.service.report(a.id, f.token, { state: 'working' })).rejects.toThrow(
+        /task_key or message_id/,
+      );
+    });
+  });
   it('starts an immutable two-hour incident on capacity, including before the first scan', async () => {
     const f = fixture(),
       a = f.agents[0]!,
