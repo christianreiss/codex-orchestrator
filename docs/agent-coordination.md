@@ -32,8 +32,12 @@ successfully; a sanitized warning records the failure. It does not discard the
 confirmed launch identity. Authentication, authorization and stale binding errors
 still fail registration. Refresh unavailable context with `agent_context_get`;
 an unavailable snapshot grants no resources and never bypasses the identity gate.
-`agent_context_get` refreshes the snapshot; `agent_context_update` changes workspace
-or sets/clears `project_slug`. Changing a subprocess cwd does not change membership.
+`agent_context_get` refreshes the complete snapshot; `agent_context_update` changes workspace
+or sets/clears `project_slug` and answers with a compact acknowledgement: `workspace`,
+`repository_key`, room headers (no member lists), only the claims owned by the session
+or by sessions in its non-host (repository/project) rooms, `claims_total` and
+`claims_omitted`. Read `agent_context_get` for every member and all visible claims.
+Changing a subprocess cwd does not change membership.
 
 Each active session joins a host room and a project room. A normalized network
 remote identifies a repository across hosts; a repository without a network remote

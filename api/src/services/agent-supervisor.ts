@@ -39,7 +39,7 @@ const address = z
   .transform((v) => v.slice(6).toLowerCase());
 export const workStateInput = z
   .object({
-    task_key: z.string().trim().min(1).max(255),
+    task_key: z.string().trim().min(1).max(255).optional(),
     state: z.enum(['working', 'waiting_agent', 'waiting_user', 'completed', 'canceled']),
     reason: z.string().trim().max(1000).nullable().optional(),
     waiting_for: address.nullable().optional(),
@@ -48,6 +48,10 @@ export const workStateInput = z
     version: z.number().int().positive().optional(),
   })
   .strict()
+  .refine((v) => !!v.task_key || !!v.message_id, {
+    message: 'A state report needs task_key or message_id (the task key then derives from the work message)',
+    path: ['task_key'],
+  })
   .refine(
     (v) => v.state !== 'waiting_agent' || !!v.waiting_for || !!v.message_id,
     'A wait needs an agent or work message',
@@ -203,11 +207,18 @@ export class AgentSupervisor {
           if (peer && !ctx.draft.table('agentBusAddresses').get(peer))
             throw new ConflictError('Unknown agent');
         const now = new Date().toISOString(),
-          sameTask =
-            !!old && old.nativeSessionId === current.upstreamSessionId && old.taskKey === input.task_key;
+          // An explicit key wins. A wait without one continues the current task of this
+          // native session (its message_id names the awaited work, not a new task);
+          // otherwise the work message identifies the task.
+          taskKey =
+            input.task_key ??
+            (input.state === 'waiting_agent' && old?.nativeSessionId === current.upstreamSessionId
+              ? old.taskKey
+              : `message:${input.message_id}`),
+          sameTask = !!old && old.nativeSessionId === current.upstreamSessionId && old.taskKey === taskKey;
         const patch = {
           state: input.state,
-          taskKey: input.task_key,
+          taskKey,
           reason: input.reason ?? null,
           waitingForAddressId: input.state === 'waiting_agent' ? waiting : null,
           waitingForMessageId: input.state === 'waiting_agent' ? (input.message_id ?? null) : null,

@@ -13,12 +13,23 @@ const absolute = z
   )
   .transform((v) => posix.normalize(v).replace(/\/+$/, '') || '/');
 export const resourceSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('remote'),
-    fqdn: z.string().trim().toLowerCase().transform((v) => v.replace(/\.$/, ''))
-      .pipe(z.string().max(253).regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/)),
-    service: z.string().trim().min(1).max(255),
-  }).strict(),
+  z
+    .object({
+      kind: z.literal('remote'),
+      fqdn: z
+        .string()
+        .trim()
+        .toLowerCase()
+        .transform((v) => v.replace(/\.$/, ''))
+        .pipe(
+          z
+            .string()
+            .max(253)
+            .regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
+        ),
+      service: z.string().trim().min(1).max(255),
+    })
+    .strict(),
   z.object({ kind: z.literal('path'), host_id: z.number().int().positive(), path: absolute }).strict(),
   z
     .object({
@@ -41,8 +52,13 @@ export const resourceSchema = z.discriminatedUnion('kind', [
 ]);
 export type Resource = z.infer<typeof resourceSchema>;
 export function overlaps(a: Resource, b: Resource): boolean {
-  if (a.kind === 'remote' || b.kind === 'remote') return a.kind === 'remote' && b.kind === 'remote' &&
-    a.fqdn === b.fqdn && (a.service === b.service || a.service === '*' || b.service === '*');
+  if (a.kind === 'remote' || b.kind === 'remote')
+    return (
+      a.kind === 'remote' &&
+      b.kind === 'remote' &&
+      a.fqdn === b.fqdn &&
+      (a.service === b.service || a.service === '*' || b.service === '*')
+    );
   if (a.host_id !== b.host_id || a.kind !== b.kind) return false;
   if (a.kind === 'path' && b.kind === 'path')
     return (
@@ -63,6 +79,36 @@ export function repositoryIdentity(session: { hostId: number; cwd: string; works
   return w?.repository_key
     ? `repo:${w.repository_key}`
     : `local:${session.hostId}:${sha256(w?.git_common_dir ?? w?.cwd ?? session.cwd)}`;
+}
+type ContextRoom = { kind: string; id: string; members?: unknown; next_member_offset?: unknown };
+type ContextClaim = { session_id?: unknown; scope_ids?: string[] };
+/**
+ * Compact acknowledgement for `context/update`. The full snapshot of a busy host
+ * (host room with every member, every fleet claim) can exceed a client's output
+ * limit. The acknowledgement keeps the workspace, the repository key, room headers and
+ * only the claims this session owns or that belong to a session in one of its
+ * non-host (repository/project) rooms. `context/get` stays the complete read.
+ */
+export function compactContextAck<T extends { rooms: ContextRoom[]; claims: ContextClaim[] }>(
+  full: T,
+  session: { id: string; hostId: number; cwd: string; workspace: unknown },
+) {
+  const { rooms, claims, ...rest } = full;
+  const own = new Set(rooms.filter((r) => r.kind !== 'host').map((r) => r.id));
+  const relevant = claims.filter(
+    (c) => c.session_id === session.id || (c.scope_ids ?? []).some((id) => own.has(id)),
+  );
+  return {
+    ...rest,
+    repository_key: repositoryIdentity(session),
+    rooms: rooms.map(({ members: _members, next_member_offset: _next, ...room }) => room) as Array<
+      Omit<T['rooms'][number], 'members' | 'next_member_offset'>
+    >,
+    claims: relevant as T['claims'],
+    claims_total: claims.length,
+    claims_omitted: claims.length - relevant.length,
+    detail: 'agent_context_get returns every room member and all visible claims',
+  };
 }
 export const acquireSchema = z
   .object({

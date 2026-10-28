@@ -163,6 +163,29 @@ describe('connection-owned coordination claims', () => {
     expect(command).not.toHaveBeenCalled();
     expect(h.select).not.toHaveBeenCalled();
   });
+  it('acknowledges a context update compactly while context reads stay complete', async () => {
+    const h = setup();
+    const claim = await h.service.claims.acquire(h.sessionId, h.token, {
+      client_request_id: randomUUID(),
+      purpose: 'edit owner fixture',
+      resources: [{ kind: 'path', path: '/repo' }],
+    });
+    const ack = await h.service.update(h.sessionId, h.token, {
+      workspace: { cwd: '/repo/wt', git_status: 'none', git_root: null, git_common_dir: null },
+    });
+    expect(ack.workspace).toMatchObject({ cwd: '/repo/wt' });
+    expect(ack.repository_key).toMatch(/^local:1:/);
+    expect(ack.rooms.length).toBeGreaterThan(0);
+    for (const room of ack.rooms) {
+      expect(room).toHaveProperty('member_count');
+      expect(room).not.toHaveProperty('members');
+    }
+    expect(ack.claims_total).toBe(1);
+    expect(ack.claims.map((c) => c.id)).toEqual([claim.id]);
+    expect(ack.claims_omitted).toBe(0);
+    const full = await h.service.context(h.sessionId, h.token);
+    expect(full.rooms[0]).toHaveProperty('members');
+  });
   it('retains disconnected exclusion and recovers only exact native process proof', async () => {
     const h = setup();
     const result = await h.service.claims.acquire(h.sessionId, h.token, {
