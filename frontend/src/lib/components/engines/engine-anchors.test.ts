@@ -26,6 +26,11 @@ describe("tabEngineForHash", () => {
     assert.equal(tabEngineForHash("#claude-danger"), "claude");
     assert.equal(tabEngineForHash("#claude-client"), "claude");
     assert.equal(tabEngineForHash("#codex-native-settings"), "codex");
+    assert.equal(tabEngineForHash("#codex-async-compaction"), "codex");
+    assert.equal(tabEngineForHash("#cdx-silent"), "codex");
+  });
+  it("opens the Codex Advanced disclosure for async compaction", () => {
+    assert.equal(advancedEngineForHash("#codex-async-compaction"), "codex");
   });
   it("keeps the current tab for page-level and unknown anchors", () => {
     for (const hash of ["#engine-state", "#defaults", "#nope", ""]) assert.equal(tabEngineForHash(hash), null, hash);

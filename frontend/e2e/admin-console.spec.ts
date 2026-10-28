@@ -314,7 +314,7 @@ test("quick settings support keyboard selection, mobile layout, themes, and pale
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.keyboard.press("Control+K");
   await page.getByRole("combobox", { name: "Search fleet and commands" }).fill("Engines");
-  await expect(page.getByRole("option", { name: /Go to Engines/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: /^Go to Engines(?! \/)/ })).toBeVisible();
 });
 
 test("every canonical destination deep-links into a bounded desktop workspace", async ({ page }) => {
