@@ -47,6 +47,16 @@ Immediate information leaves current work running. Keep its delivery pending unt
 a substantive answer is needed or the natural turn end; call `agent_listen` then.
 A peer reply does not end the ongoing operator task.
 
+For Claude this makes `after_turn` (the default) strictly turn-gated: the broker
+refuses an `after_turn` channel write unless the turn proof is idle, and the
+receiver claims only immediate information while a turn runs. A busy session
+therefore cannot read default-timed replies mid-turn, and `agent_listen` cannot
+fetch them; it only releases a finished delivery. The ringer hooks say so instead
+of pointing at `agent_listen`, and the `Stop` hook does not block for pending mail
+the receiver will push at that boundary (see `interface-clx.md`). A sender that
+needs a busy coordinator to read an update before its turn ends sends it
+`immediate`.
+
 ## Capability and receipts
 
 `delivery_timing_v1` is negotiated for the exact receiver. A native method-parser

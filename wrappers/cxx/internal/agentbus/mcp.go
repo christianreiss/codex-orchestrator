@@ -1339,7 +1339,7 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 			return nil, err
 		}
 		if pending := state.admissionIDs(); len(pending) > 0 {
-			return map[string]any{"status": "delivery_pending", "pending_deliveries": pending, "message": "Delivery acceptance is being reconciled with the original claim. Nothing has been exposed for execution. Do not act on or resend it; the receiver retries the same acceptance receipt."}, nil
+			return map[string]any{"status": "delivery_pending", "pending_deliveries": pending, "message": "Delivery acceptance is being reconciled with the original claim. Nothing has been exposed for execution. Do not act on or resend it; the receiver retries the same acceptance receipt. It appears in this conversation once accepted, which can be after the current turn ends; calling agent_listen again does not speed it up."}, nil
 		}
 		if held := state.heldWork(); len(held) > 0 && !state.receiver.coordinationEnabled() {
 			return workHeldResult(held, state.receiver.health()), nil
@@ -1353,6 +1353,11 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 		}
 		if state.receiver.coordinationEnabled() && len(state.heldWork()) > 0 {
 			return map[string]any{"status": "automatic", "receiver": health, "held_work": state.heldWork(), "coordination_reception": true, "message": "Accepted work remains yours and is not completed by listening. Coordination and informational catch-up can arrive at the next available native turn while work is held. Call agent_listen once, then yield; do not report blocked or success just to receive an approval. Finish work only with an explicit task result."}, nil
+		}
+		if state.receiver.deliversAfterTurn() {
+			// Feedback b0f9361b: this call always runs inside a turn, and a
+			// turn-gated receiver claims nothing but `immediate` mail until it ends.
+			return map[string]any{"status": "automatic", "receiver": health, "message": "agent_listen never returns a message body: the native receiver pushes messages into this conversation. Any delivered message you had not replied to is now released. Messages still queued for this session arrive after the current turn ends; only a message its sender marked delivery_timing immediate can arrive mid-turn. Calling agent_listen again during this turn does not fetch them: carry on, or end the turn to receive them. Reply to delivered messages using their IDs. If a peer stays silent, a notice from your local wrapper will wake you; tell the user then instead of waiting."}, nil
 		}
 		return map[string]any{"status": "automatic", "receiver": health, "message": "The native receiver delivers messages directly into this conversation. Any delivered message you had not replied to is now released, so the next queued one follows on its own. Reply to delivered messages using their IDs. Yield this model turn instead of polling; the native receiver stays on the line, including during calls and conferences. If a peer stays silent, a notice from your local wrapper will wake you; tell the user then instead of waiting."}, nil
 	}
