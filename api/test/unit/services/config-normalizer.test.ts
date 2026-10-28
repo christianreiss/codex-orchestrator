@@ -210,7 +210,7 @@ describe('Claude stored model migration', () => {
 describe('normalizeClaudeAdvisorModel', () => {
   it('exposes the tier alias allowlist', () => {
     // Haiku5.5 now has advisor rank4, but the native advisor picker still
-    // offers only ["fable","opus","sonnet"] in Claude Code2.1.296.
+    // offers only ["fable","opus","sonnet"] in Claude Code 2.1.312.
     expect(ADVISOR_MODEL_ALIASES).toEqual(['opus', 'sonnet', 'fable']);
   });
   it('accepts the tier aliases case-insensitively and trims', () => {

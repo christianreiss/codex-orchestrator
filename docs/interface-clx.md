@@ -146,7 +146,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 ### Native command maintenance (cxx 0.9.66)
 
 The native dispatch and flag grammar were checked against Claude Code
-**2.1.310** on 2026-10-26 and the
+**2.1.312** on 2026-10-28 and the
 [official CLI reference](https://code.claude.com/docs/en/cli-reference).
 `purge` is forwarded as a native maintenance command; it retains its native
 confirmation and `--dry-run` behavior. Recognized native maintenance commands
@@ -1016,7 +1016,7 @@ Desktop 3.6556.0 or newer reads it; accepting it in a CLI settings parser would
 not make it functional in managed CLI sessions.
 
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
-checked against Claude Code 2.1.310 on 2026-10-26. Validation rejects unknown
+checked against Claude Code 2.1.312 on 2026-10-28. Validation rejects unknown
 root keys and fields in fixed nested objects, invalid types/enums, malformed
 hook events and handlers, and unsafe JSON keys with HTTP 422. Diagnostics name
 the full `native_settings` path, including array indices; literal dotted keys
@@ -1065,7 +1065,7 @@ before applying its replacement leaves.
 The public picker and inference gateway now include Haiku 5.5 and the still-active
 Opus 4.6 and Opus 4.5 (`claude-opus-4-5-20251101`). Selecting Opus 4.6 no longer
 silently upgrades it to 4.8. Haiku 5.5 has a 1M context window and 128k output
-limit; use Claude Code 2.1.293 or later. The runner image pins 2.1.310. Restricted
+limit; use Claude Code 2.1.293 or later. The runner image pins 2.1.312. Restricted
 Mythos models remain outside the public catalog; plan/provider entitlements are
 still checked upstream.
 
@@ -1093,7 +1093,8 @@ probe; OAuth probes continue through the native CLI.
 
 Sources: [Claude Code models and effort](https://code.claude.com/docs/en/model-config),
 [model lifecycle](https://platform.claude.com/docs/en/about-claude/model-deprecations),
-and the installed Claude Code 2.1.296 first-party model catalog. API and CLI effort
+and the installed Claude Code 2.1.296 first-party model catalog (re-checked
+against 2.1.312 on 2026-10-28). API and CLI effort
 are separate contracts: Opus 4.5 has no CLI effort control, and Sonnet 5.5's CLI
 default is `medium` even though its API default is `high`.
 

@@ -16,8 +16,8 @@ import { ApiError } from '../http/errors.js';
 export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-5';
 
 /**
- * Public, non-deprecated Claude models verified 2026-10-12 against the vendor
- * lifecycle table and Claude Code 2.1.296's first-party native catalog.
+ * Public, non-deprecated Claude models verified 2026-10-28 against the vendor
+ * lifecycle table and Claude Code 2.1.312's first-party native catalog.
  * Restricted-access Mythos models are not general fleet choices. Account and
  * provider restrictions still apply; catalog membership does not grant access.
  */
@@ -125,8 +125,8 @@ export const CLAUDE_MODEL_METADATA: Record<
 };
 
 /**
- * Persisted native effort levels, verified against Claude Code 2.1.296 and
- * code.claude.com/docs/en/model-config on 2026-10-12. `max` is session-only.
+ * Persisted native effort levels, verified against Claude Code 2.1.312 and
+ * code.claude.com/docs/en/model-config on 2026-10-28. `max` is session-only.
  * API effort support is not a CLI capability: Opus 4.5 has no native effort
  * control, and Opus/Sonnet 4.6 stop at `high` for persisted settings.
  */
