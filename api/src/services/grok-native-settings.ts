@@ -69,6 +69,8 @@ function patternMatches(pattern: string[], path: string[]): boolean {
 
 // Removed in Grok 1.0.51; other memory_v2 tuning fields still have native consumers.
 const removedMemory = new Set(['embedding', 'initial_injection', 'search', 'session', 'watcher']);
+// Native `cli` updater policy; fleet version selection owns it (migration 0115 removes stored values).
+const updatePolicyKeys = ['channel', 'minimum_version', 'maximum_version', 'required_minimum_version', 'required_maximum_version', 'npm_registry', 'installer'];
 const removedMemoryV2 = new Set(['automatic_dream_enabled', 'capture_enabled', 'capture_status_enabled', 'file_writes_enabled', 'manual_dream_enabled', 'rollout']);
 
 function validate(value: unknown, path: string[], candidates = fields): void {
@@ -79,6 +81,10 @@ function validate(value: unknown, path: string[], candidates = fields): void {
   if (path.length === 2 && ((path[0] === 'ui' && path[1] === 'simple_mode')
     || (path[0] === 'memory_v2' && path[1] === 'compact_index_enabled'))) {
     fail(path, 'retired and has no effect; omit this setting');
+  }
+  // The bundled compat guide documents session import as staged: no scanner consumes it.
+  if (path.length === 3 && path[0] === 'compat' && path[2] === 'sessions') {
+    fail(path, 'staged in Grok Build without a consumer; it has no effect, omit this setting');
   }
   const matching = candidates.filter(field => field.parts.length >= path.length && patternMatches(field.parts, path));
   const exact = matching.find(field => field.parts.length === path.length);
@@ -133,6 +139,15 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
   }
   const cli = grokRecord(value.cli);
   if (cli.auto_update === true) fail(['cli', 'auto_update'], 'updates are owned by the fleet version policy');
+  // Managed processes never run the native updater, so these only steer an
+  // updater that is off; the required_* bounds additionally refuse to start.
+  for (const key of updatePolicyKeys) {
+    if (key in cli) {
+      fail(['cli', key], key.startsWith('required_')
+        ? 'updates are owned by the fleet version policy; a required version outside the fleet target makes every managed launch refuse to start'
+        : 'updates are owned by the fleet version policy; managed launches never run the native updater');
+    }
+  }
   if (cli.use_leader === false) fail(['cli', 'use_leader'], 'the managed receiver requires its private leader');
   const endpoints = grokRecord(value.endpoints);
   for (const key of ['models_base_url', 'models_list_url', 'cli_chat_proxy_base_url']) {

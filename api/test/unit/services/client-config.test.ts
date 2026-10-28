@@ -404,12 +404,48 @@ describe('client-config: renderClaudeSettingsPartial advisorModel', () => {
     expect(owned_paths).toContain('advisorModel');
   });
 
-  it('omits advisorModel from partial and owned_paths when off/invalid', () => {
-    const { partial, owned_paths } = renderClaudeSettingsPartial(
+  it('omits an unknown advisorModel from partial and owned_paths and reports it', () => {
+    const { partial, owned_paths, omitted } = renderClaudeSettingsPartial(
       normalizeSettings({ advisorModel: 'gpt-5' }, { applyCodexDefaults: false }),
     );
     expect(partial).not.toHaveProperty('advisorModel');
     expect(owned_paths).not.toContain('advisorModel');
+    expect(omitted).toEqual([{ path: 'advisorModel', value: 'gpt-5', reason: expect.stringContaining('unknown advisor model') }]);
+  });
+
+  it('renders a full model ID advisor', () => {
+    const { partial, owned_paths, omitted } = renderClaudeSettingsPartial(
+      normalizeSettings({ model: 'claude-sonnet-5', advisorModel: 'claude-opus-5-5' }, { applyCodexDefaults: false, engine: 'claude' }),
+    );
+    expect(partial.advisorModel).toBe('claude-opus-5-5');
+    expect(owned_paths).toContain('advisorModel');
+    expect(omitted).toBeUndefined();
+  });
+
+  const hostRender = (settings: Record<string, unknown>, claudeModelOverride: string | null) => renderClaudeSettingsPartialForHost({
+    settings, host: { claudeModelOverride, claudeClientVersion: '2.1.310', claudeWrapperVersion: '0.9.140' } as never, baseUrl: null, apiKey: null,
+  });
+
+  it('omits only for the host whose model override breaks the pair, reports it and keeps the stored value', () => {
+    const settings = { model: 'claude-sonnet-5', advisorModel: 'sonnet' };
+    const stored = structuredClone(settings);
+    expect(hostRender(settings, null).partial.advisorModel).toBe('sonnet');
+    const overridden = hostRender(settings, 'claude-opus-5-5');
+    expect(overridden.partial.model).toBe('claude-opus-5-5');
+    expect(overridden.partial).not.toHaveProperty('advisorModel');
+    expect(overridden.owned_paths).not.toContain('advisorModel');
+    expect(overridden.omitted).toEqual([{ path: 'advisorModel', value: 'sonnet', reason: expect.stringContaining('session model claude-opus-5-5 outranks advisor sonnet') }]);
+    expect(settings).toEqual(stored);
+  });
+
+  it('applies the same host gate to native advisorModel', () => {
+    const settings = { model: 'claude-sonnet-5', native_settings: { advisorModel: 'claude-sonnet-5-5', language: 'german' } };
+    expect(hostRender(settings, null).partial.advisorModel).toBe('claude-sonnet-5-5');
+    const overridden = hostRender(settings, 'claude-fable-5-1');
+    expect(overridden.partial).not.toHaveProperty('advisorModel');
+    expect(overridden.partial.language).toBe('german');
+    expect(overridden.owned_paths).not.toContain('advisorModel');
+    expect(overridden.omitted).toEqual([{ path: 'native_settings.advisorModel', value: 'claude-sonnet-5-5', reason: expect.stringContaining('outranks') }]);
   });
 });
 

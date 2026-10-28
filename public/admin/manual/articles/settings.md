@@ -188,7 +188,7 @@ The **Claude client settings** editor at `/engines#claude-client` (inside the Cl
 
 | Field | Notes |
 |---|---|
-| `advisorModel` | Dropdown — Off, Opus, Sonnet, Fable (`ADVISOR_MODELS`; Haiku is not offered because Claude Code's own advisor picker ranks it below every model it could advise); marked experimental. The pair is validated against the binary's rule that the advisor must rank at or above the fleet model. |
+| `advisorModel` | Dropdown — Off, Opus, Sonnet, Fable (`ADVISOR_MODELS`; Haiku is not offered because Claude Code's own advisor picker ranks it below every model it could advise); marked experimental. Saving rejects (422) an unknown value or a pair that breaks the binary's rule that the advisor must rank at or above the fleet model; a stored full model ID such as `claude-opus-5-5` is kept and shown as is. A host model override that breaks the pair omits the key for that host only. |
 | `env` | Key-value pairs written to the `env` block. |
 | `permissionMode` | Dropdown of `CLAUDE_PERMISSION_MODES`; writes `permissions.defaultMode` in the delivered settings.json. Fleet default is `'auto'` (`DEFAULT_CLAUDE_PERMISSION_MODE`) — every managed host auto-approves tool calls unless pinned to `'default'` or another mode. |
 | `permissions` | Allow, ask, and deny lists. |

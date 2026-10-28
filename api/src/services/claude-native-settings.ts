@@ -25,6 +25,8 @@ const reserved: Readonly<Record<string, string>> = {
   effortLevel: 'Use the reasoning effort control, or modelSettings for per-model defaults.',
   apiKeyHelper: 'Authentication is owned by the managed launch and overrides apiKeyHelper.',
   autoUpdatesChannel: 'Native updates are disabled; use the fleet Claude version control.',
+  // Only constrains native auto-updates and `claude update`, both off under managed launches.
+  minimumVersion: 'Native updates are disabled; use the fleet Claude version control.',
   sshHostCommands: 'Only Claude Desktop 3.6556.0 or newer reads this setting; configure it through Desktop user or managed settings, not fleet CLI defaults.',
 };
 const forbiddenKeys = new Set(['__proto__', 'prototype', 'constructor']);

@@ -424,11 +424,14 @@ The bootstrap bundle returns `claude_settings: {sha256, partial, owned_paths}`.
 - `mcpServers.*` owned paths are split out and merged into `~/.claude.json`
   (user-scope MCP); managed MCP names are tracked in
   `~/.clx/state/managed-mcp.json`.
-- `advisorModel` is only written for the tier aliases the server accepts
-  (`ADVISOR_MODEL_ALIASES` in `config-normalizer.ts`: `opus`, `sonnet`,
-  `fable` — `haiku` is refused because Claude Code's own advisor picker ranks it
-  below every model it could advise); any other value is treated as off and the
-  key is omitted (and cleaned up via the stale-path removal on a later run).
+- `advisorModel` accepts the native advisor aliases `opus`, `sonnet` and
+  `fable` (`ADVISOR_MODEL_ALIASES` in `config-normalizer.ts`; the `haiku` alias
+  is not offered by Claude Code's own advisor picker) or a full Claude catalog
+  model ID. Saving an unknown value or a pair Claude Code would skip (advisor
+  rank below 2, or a session model that outranks the advisor) fails with a 422
+  that names the reason. When a host's model override makes the pair unusable,
+  only that host omits the key (stale-path removal cleans up an earlier value)
+  and the sync response reports it under `claude_settings.omitted`.
 - `permissions.defaultMode` is **always** emitted by the server — when no
   fleet setting pins a value it defaults to `"auto"`
   (`DEFAULT_CLAUDE_PERMISSION_MODE` in `config-normalizer.ts`). It rides the
