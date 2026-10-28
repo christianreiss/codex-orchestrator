@@ -38,7 +38,7 @@ Base URL: `/anthropic/v1/`. All Anthropic endpoints use the Anthropic error enve
 
 Every `/anthropic/v1/*` response carries a `request-id: req_<hex>` header (distinct from this gateway's own general-purpose `x-request-id`) for diagnostics. The gateway does not add request-rate-limit headers or enforce a per-key RPM budget.
 
-**Protocol requirements**: `anthropic-version` header is required on every request (one of `2023-06-01`, `2023-01-01`); missing or unrecognized values return 400 `invalid_anthropic_version`.
+**Protocol requirements**: `anthropic-version` header is required on every request (one of `2026-10-21`, `2023-06-01`, `2023-01-01`); missing or unrecognized values return 400 `invalid_anthropic_version`. `2026-10-21` is what `@anthropic-ai/sdk` 1.0.0 and later (and the other official SDK majors released with it) send by default. Under `2026-10-21`, `POST /anthropic/v1/messages` and `POST /anthropic/v1/messages/count_tokens` apply the upstream removals ([versioning](https://platform.claude.com/docs/en/api/versioning), [migration guide](https://platform.claude.com/docs/en/api/migration-2026-10-21), checked 2026-10-28) and return 400 `invalid_request_error` with code `unsupported_in_api_version` for: any `temperature`, `top_p` or `top_k` (even at the default value; a JSON `null` counts as sent); a `document` block placed directly in an `assistant` message; a `text` block with a non-empty `citations` array in a `user` message, directly or inside a `search_result` block. Assistant citations and an empty `citations` array stay accepted. These checks run at the surface before any backend work, so they hold for whichever engine backs `/anthropic/v1`. `2023-06-01` and `2023-01-01` keep the previous behaviour. The legacy `/complete`, `/completions` and `/responses` shims are not Messages API endpoints and accept `2026-10-21` without these body rules.
 
 **Supported models**: `claude-fable-5-1`, `claude-fable-5`, `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5-5`, `claude-sonnet-5` (default), `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`. Legacy model names (e.g. `claude-3-opus-20240229`, `claude-sonnet-4-20250514`) are silently upgraded to current catalog equivalents.
 
@@ -54,9 +54,9 @@ Anthropic-compatible Messages API.
 | `model` | string | no | Model id. Defaults to admin-configured default (`claude-sonnet-5`). |
 | `system` | string \| array | no | System prompt. Accepts a plain string or an Anthropic block array (`[{type:"text", text:"..."}]`); block arrays are flattened by joining with a blank line. Per-block `cache_control` is accepted and ignored — this gateway has no prompt cache. |
 | `max_tokens` | integer | **yes** | Maximum tokens to generate, matching upstream. Missing → 400 `missing_max_tokens`; present but not an integer ≥ 1 → 400 `invalid_max_tokens`. Validated but **not enforced**: the Claude Code CLI this backend shells out to has no output-length flag, so an accepted value is not forwarded or bounded. |
-| `temperature` | float | no | Sampling temperature (0-1). |
-| `top_p` | float | no | Nucleus sampling (0-1). |
-| `top_k` | integer | no | Top-k sampling. |
+| `temperature` | float | no | Sampling temperature (0-1). `anthropic-version` `2023-06-01`/`2023-01-01` only; removed in `2026-10-21` (400 `unsupported_in_api_version`). |
+| `top_p` | float | no | Nucleus sampling (0-1). Same version rule as `temperature`. |
+| `top_k` | integer | no | Top-k sampling. Same version rule as `temperature`. |
 | `stop_sequences` | string[] | no | Stop sequences. |
 | `stream` | boolean | no | Enable SSE streaming. |
 | `tools` / `tool_choice` | array / object | no | **Not supported.** A non-empty `tools` array returns 400 `tools_not_supported` rather than silently generating a text-only reply — see "Known deviations" below. |
@@ -174,9 +174,9 @@ List available Claude models, in the Anthropic Models API shape (`type` / `displ
 ```json
 {
   "data": [
-    {"type": "model", "id": "claude-fable-5", "display_name": "Claude Fable 5", "created_at": "2026-01-01T00:00:00.000Z", "max_input_tokens": 1000000, "max_tokens": 128000, "object": "model", "created": 1234567890, "owned_by": "anthropic"},
-    {"type": "model", "id": "claude-opus-5", "display_name": "Claude Opus 5", "created_at": "2026-01-01T00:00:00.000Z", "max_input_tokens": 1000000, "max_tokens": 128000, "object": "model", "created": 1234567890, "owned_by": "anthropic"},
-    {"type": "model", "id": "claude-opus-4-8", "display_name": "Claude Opus 4.8", "created_at": "2026-01-01T00:00:00.000Z", "max_input_tokens": 1000000, "max_tokens": 128000, "object": "model", "created": 1234567890, "owned_by": "anthropic"}
+    {"type": "model", "id": "claude-fable-5", "display_name": "Claude Fable 5", "created_at": "2026-01-01T00:00:00.000Z", "max_input_tokens": 1000000, "max_tokens": 128000, "line": "fable", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
+    {"type": "model", "id": "claude-opus-5", "display_name": "Claude Opus 5", "created_at": "2026-01-01T00:00:00.000Z", "max_input_tokens": 1000000, "max_tokens": 128000, "line": "opus", "object": "model", "created": 1234567890, "owned_by": "anthropic"},
+    {"type": "model", "id": "claude-opus-4-8", "display_name": "Claude Opus 4.8", "created_at": "2026-01-01T00:00:00.000Z", "max_input_tokens": 1000000, "max_tokens": 128000, "line": "opus", "object": "model", "created": 1234567890, "owned_by": "anthropic"}
   ],
   "has_more": false,
   "first_id": "claude-fable-5",
@@ -187,7 +187,7 @@ List available Claude models, in the Anthropic Models API shape (`type` / `displ
 
 Full catalog: `claude-fable-5-1`, `claude-fable-5`, `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5-5`, `claude-sonnet-5`, `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001` (admin-disabled models are omitted).
 
-`object` (envelope and per entry), `created`, and `owned_by` are **deprecated** OpenAI-shaped aliases retained for older clients of this gateway; they are not part of the Anthropic wire format. `created_at` is a fixed placeholder (`2026-01-01T00:00:00.000Z`) — this gateway does not track vendor release dates, but the value is stable across polls. The upstream `capabilities` tree is **not** served (it would have to be fabricated), so a client that indexes into `model.capabilities[...]` will fail.
+`object` (envelope and per entry), `created`, and `owned_by` are **deprecated** OpenAI-shaped aliases retained for older clients of this gateway; they are not part of the Anthropic wire format. `created_at` is a fixed placeholder (`2026-01-01T00:00:00.000Z`) — this gateway does not track vendor release dates, but the value is stable across polls. The upstream `capabilities` tree is **not** served (it would have to be fabricated), so a client that indexes into `model.capabilities[...]` will fail. `line` follows the upstream `ModelLine or null` field (`haiku`, `sonnet`, `opus`, `fable`, `mythos`): Claude backend entries carry the line recorded for each model in the Claude catalog (`api/src/services/claude-models.ts`; never parsed from the id); when another backend engine serves `/anthropic/v1`, its models belong to no Anthropic line and carry `line: null`. `lifecycle`, `deprecated_at` and `retires_at` are not served.
 
 #### `GET /anthropic/v1/models/{model_id}`
 
@@ -221,7 +221,7 @@ All Anthropic endpoint errors use this envelope (distinct from the OpenAI `{"err
 
 | Status | Error type | When |
 |---|---|---|
-| 400 | `invalid_request_error` | Missing/invalid parameters, `unsupported_stream`, `invalid_max_tokens`, `missing_max_tokens`, `invalid_anthropic_version`, `empty_messages`, `invalid_message_role`, `invalid_message_role_sequence`, `tools_not_supported` |
+| 400 | `invalid_request_error` | Missing/invalid parameters, `unsupported_stream`, `invalid_max_tokens`, `missing_max_tokens`, `invalid_anthropic_version`, `unsupported_in_api_version` (a construct removed in the requested `anthropic-version`), `empty_messages`, `invalid_message_role`, `invalid_message_role_sequence`, `tools_not_supported` |
 | 401 | `authentication_error` | Missing or invalid API key |
 | 403 | `permission_error` | Model disabled by administrator (`model_disabled`) |
 | 404 | `not_found_error` | Unknown model id (`model_not_found`), unmatched route |

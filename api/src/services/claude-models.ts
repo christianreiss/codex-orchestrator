@@ -119,6 +119,31 @@ export const CLAUDE_MODEL_METADATA: Record<
   'claude-haiku-4-5-20251001': { displayName: 'Claude Haiku 4.5', maxInputTokens: 200_000, maxTokens: 64_000 },
 };
 
+/** Model lines the Anthropic Models API documents for its nullable `line` field. */
+export type ClaudeModelLine = 'haiku' | 'sonnet' | 'opus' | 'fable' | 'mythos';
+
+/**
+ * Models API `line` per catalog model. Explicit catalog data, never parsed
+ * from the id: platform.claude.com/docs/en/api/models/list (fetched
+ * 2026-10-28) says clients must not infer a line from the `id`. Exhaustive by
+ * type, so a new catalog model cannot ship without one.
+ */
+export const CLAUDE_MODEL_LINES: Readonly<Record<ClaudeModel, ClaudeModelLine>> = {
+  'claude-fable-5-1': 'fable',
+  'claude-fable-5': 'fable',
+  'claude-opus-5-5': 'opus',
+  'claude-opus-5': 'opus',
+  'claude-opus-4-8': 'opus',
+  'claude-sonnet-5-5': 'sonnet',
+  'claude-sonnet-5': 'sonnet',
+  'claude-opus-4-7': 'opus',
+  'claude-sonnet-4-6': 'sonnet',
+  'claude-haiku-5-5': 'haiku',
+  'claude-opus-4-6': 'opus',
+  'claude-opus-4-5-20251101': 'opus',
+  'claude-haiku-4-5-20251001': 'haiku',
+};
+
 /**
  * Persisted native effort levels, verified against Claude Code 2.1.296 and
  * code.claude.com/docs/en/model-config on 2026-10-12. `max` is session-only.
@@ -179,6 +204,8 @@ export interface ClaudeModelObject {
   created_at: string;
   max_input_tokens: number;
   max_tokens: number;
+  /** Models API model line (`opus`, `sonnet`, ...); see {@link CLAUDE_MODEL_LINES}. */
+  line: ClaudeModelLine;
   /** @deprecated OpenAI-compat alias for `type`. */
   object: 'model';
   /** @deprecated OpenAI-compat unix-seconds alias for `created_at`. */
@@ -352,6 +379,7 @@ export function modelObject(id: ClaudeModel): ClaudeModelObject {
     created_at: new Date(created * 1000).toISOString(),
     max_input_tokens: meta.maxInputTokens,
     max_tokens: meta.maxTokens,
+    line: CLAUDE_MODEL_LINES[id],
     object: 'model',
     created,
     owned_by: 'anthropic',

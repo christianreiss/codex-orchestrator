@@ -14,6 +14,7 @@ import {
   type GatewayWiring,
 } from '../../../src/services/gateway-backends.js';
 import { OPENAI_DEFAULT_MODEL } from '../../../src/services/openai-models.js';
+import { CLAUDE_MODEL_LINES, type ClaudeModel } from '../../../src/services/claude-models.js';
 import type { OpenAiKeyService } from '../../../src/services/openai-keys.js';
 import type { ClaudeKeyResolver } from '../../../src/services/claude-key-resolver.js';
 import type { ClaudeKillSwitch } from '../../../src/services/claude-kill-switch.js';
@@ -50,7 +51,10 @@ const KEYS: Record<string, string> = { codex: 'sk-cdx-test', claude: 'sk-ant-tes
 function stubModels(engine: 'claude' | 'grok'): GatewayBackendModels {
   const ids = CATALOGS[engine];
   const owner = engine === 'claude' ? 'anthropic' : 'xai';
-  const info = (id: string) => ({ id, display_name: id, created: 1_767_225_600, owned_by: owner });
+  const info = (id: string) => ({
+    id, display_name: id, created: 1_767_225_600, owned_by: owner,
+    ...(engine === 'claude' ? { line: CLAUDE_MODEL_LINES[id as ClaudeModel] } : {}),
+  });
   return {
     async resolve(value) {
       const id = typeof value === 'string' ? value.trim() : '';
@@ -273,6 +277,39 @@ describe('any-to-any gateway routing', () => {
   }
 
   for (const backend of BACKENDS) {
+    it(`/anthropic/v1 applies anthropic-version 2026-10-21 at the surface when served by ${backend}`, async () => {
+      const { app, runner, dispatched } = await harness(backend);
+      try {
+        const headers = { 'x-api-key': KEYS.claude, 'anthropic-version': '2026-10-21' };
+        const ok = await app.inject({
+          method: 'POST', url: '/anthropic/v1/messages', headers,
+          payload: { max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] },
+        });
+        expect(ok.statusCode, ok.body).toBe(200);
+        expect(dispatched().engine).toBe(backend);
+        expect(runner).toHaveBeenCalledTimes(1);
+        for (const param of ['temperature', 'top_p', 'top_k']) {
+          const removed = await app.inject({
+            method: 'POST', url: '/anthropic/v1/messages', headers,
+            payload: { max_tokens: 64, [param]: 1, messages: [{ role: 'user', content: 'hi' }] },
+          });
+          expect(removed.statusCode).toBe(400);
+          expect(removed.json()).toMatchObject({ type: 'error', error: { type: 'invalid_request_error', code: 'unsupported_in_api_version' } });
+        }
+        expect(runner).toHaveBeenCalledTimes(1);
+        const count = await app.inject({ method: 'POST', url: '/anthropic/v1/messages/count_tokens', headers, payload: { messages: [{ role: 'user', content: 'hi' }] } });
+        expect(count.statusCode, count.body).toBe(200);
+        const models = await app.inject({ url: '/anthropic/v1/models', headers });
+        expect(models.statusCode, models.body).toBe(200);
+        for (const model of models.json().data) expect(model).toHaveProperty('line');
+        // Only the Claude backend's catalog carries Anthropic model lines.
+        for (const model of models.json().data) {
+          if (backend === 'claude') expect(model.line).toBe(CLAUDE_MODEL_LINES[model.id as ClaudeModel]);
+          else expect(model.line).toBeNull();
+        }
+      } finally { await close(app); }
+    });
+
     it(`rejects malformed stream values before executing ${backend} on every generation route`, async () => {
       const { app, runner } = await harness(backend);
       try {
