@@ -323,6 +323,7 @@ The config:
     "relay_poll_seconds": 25,
     "queued_ttl_seconds": 86400,
     "channel_preview_enabled": false,
+    "capacity_continue_enabled": false,
     "listen_enabled": false
   },
   "wrapper": {
@@ -1377,6 +1378,31 @@ reconnected (feedback df5c9be9). `-32601` "not supported yet" now counts as an
 empty history. A Codex build without `thread/turns/list` (`-32600` "unknown
 variant" or any other `-32601`) falls back to the full read. Any other read error
 still blocks admission.
+
+### Capacity auto-continue (cxx 0.9.140)
+
+Codex sessions sporadically end a turn with `Selected model is at capacity. Please
+try a different model.` The turn is `failed`, the TUI goes idle and nothing resumes it.
+With signed `agent_messaging.capacity_continue_enabled` (baked for Codex hosts exactly
+when `receiver_enabled` is, so revoking the receiver revokes this) the receiver queues
+a "continue" prompt through the same `thread/queue/add` path as peer deliveries; it
+never starts a turn itself. The signed file is re-read on every use.
+
+- **Trigger:** newest turn `failed` with an error containing `at capacity` or
+  `overloaded`. Rate-limit, usage-limit and quota-limit errors are excluded and keep the
+  watchdog/quota path; `interrupted` (user stop), authentication/billing and other
+  failures never continue.
+- **Backoff:** 15s doubling to a 5 minute cap, at most 8 consecutive attempts; the budget
+  resets when a turn completes. A structured provider retry hint later than the backoff is
+  honored; one more than 15 minutes out ends auto-continue. Detection runs on the 15 second
+  receiver tick, so the first continue lands about 15-30 seconds after the failure.
+- **Guards:** fires only while the failed turn is still the newest one (the user has not
+  typed anything), the thread is `idle`, and the toggle is on.
+- **Watchdog:** while retrying, a live watchdog gets progress pings only, so the server does
+  not terminate/resume the child underneath. On exhaustion `failure=capacity` is reported as before.
+- **Scope:** interactive Codex launches with a receiver only (TTY, `--remote` not supplied).
+  Headless `cdx execute` and the persistent worker keep their own capacity handling. Claude
+  and Grok are intentionally unchanged.
 
 ## Multiple provider accounts (cxx 0.9.7)
 

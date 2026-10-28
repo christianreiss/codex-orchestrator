@@ -967,6 +967,7 @@ describe('wrapper-config', () => {
       expect(payload.host.fleet_disabled_engines).toEqual(['claude']);
       expect(payload.agent_messaging.enabled).toBe(false);
       expect(payload.agent_messaging.receiver_enabled).toBe(false);
+      expect(payload.agent_messaging.capacity_continue_enabled).toBe(false);
       expect(payload.agent_messaging.channel_preview_enabled).toBe(false);
       expect(payload.host.agent_messaging_enabled).toBe(false);
     });
@@ -976,6 +977,8 @@ describe('wrapper-config', () => {
       expect(payload.host.fleet_disabled_engines).toEqual(['claude']);
       expect(payload.agent_messaging.enabled).toBe(true);
       expect(payload.agent_messaging.receiver_enabled).toBe(true);
+      // Codex-only: the same host's Claude config must not carry the grant.
+      expect(payload.agent_messaging.capacity_continue_enabled).toBe(true);
     });
 
     it('omits the field entirely while every engine is on', async () => {

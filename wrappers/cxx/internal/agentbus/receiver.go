@@ -43,9 +43,12 @@ type autoReceiver struct {
 	lastPong                   time.Time
 	pendingPing                string
 	queue                      nativeDelivery
-	boundNativeID              string
-	nativeDeliveryID           string
-	sessionName                sessionNameReporter
+	aed                        capacityContinuer
+	// capacityContinueEnabled overrides the signed-config read in tests.
+	capacityContinueEnabled func() bool
+	boundNativeID           string
+	nativeDeliveryID        string
+	sessionName             sessionNameReporter
 	// connected, lastBeatOK, gate and gateSince are this process's own account of
 	// whether it can wake the session. They exist so agent_listen can tell "on the
 	// line" from "the line is dead" without a server round trip: a model that
@@ -445,6 +448,9 @@ func (r *autoReceiver) connection(parent context.Context) error {
 					return err
 				}
 				if err := r.observeFailure(ctx, nativeID); err != nil {
+					return err
+				}
+				if err := r.fireCapacityContinue(ctx, time.Now()); err != nil {
 					return err
 				}
 			}

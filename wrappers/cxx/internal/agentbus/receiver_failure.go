@@ -11,24 +11,39 @@ import (
 // A failed native turn cannot keep renewing work forever merely because the
 // interactive session and its MCP process remain open.
 func (r *autoReceiver) observeFailure(ctx context.Context, nativeID string) error {
-	observed, ok := r.queue.(interface {
+	var (
+		failure, retry, turnID string
+		transient              bool
+		err                    error
+	)
+	if gate, ok := r.queue.(capacityContinueGate); ok {
+		failure, retry, transient, turnID, err = gate.observeLatestFailure()
+		r.aed.noteCompleted(gate.completedTurn())
+	} else if observed, ok := r.queue.(interface {
 		watchdogFailure() (string, string, error)
-	})
-	if !ok {
+	}); ok {
+		failure, retry, err = observed.watchdogFailure()
+	} else {
 		return nil
+	}
+	if err != nil || failure == "" {
+		return err
 	}
 	var policy struct {
 		Watchdog json.RawMessage `json:"watchdog"`
 	}
 	protected := r.client.post(ctx, "watchdog/get", map[string]any{}, &policy) == nil && len(policy.Watchdog) > 0 && string(policy.Watchdog) != "null"
-	failure, retry, err := observed.watchdogFailure()
-	if err != nil || failure == "" {
-		return err
-	}
+	// While the auto-continue is retrying, the watchdog only gets a progress
+	// ping: a capacity failure would let the server terminate and resume the
+	// child underneath the retry. Exhaustion reports the failure as before.
+	retrying := failure == "capacity" && transient && r.capacityContinueOn() && r.aed.arm(time.Now(), turnID, retry)
 	if protected || failure == "capacity" || failure == "user_stop" || failure == "blocked" {
-		body := map[string]any{"last_progress_at": time.Now().UTC().Format(time.RFC3339Nano), "failure": failure, "native_session_id": nativeID}
-		if retry != "" {
-			body["retry_not_before"] = retry
+		body := map[string]any{"last_progress_at": time.Now().UTC().Format(time.RFC3339Nano), "native_session_id": nativeID}
+		if !retrying {
+			body["failure"] = failure
+			if retry != "" {
+				body["retry_not_before"] = retry
+			}
 		}
 		_ = r.client.sessionPost(ctx, "watchdog/activity", body, nil)
 	}

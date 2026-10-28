@@ -222,7 +222,10 @@ type ModelCatalogEntry struct {
 // decodes to Enabled=false, keeping old signed configs dormant.
 type AgentMessaging struct {
 	ReceiverEnabled       bool `json:"receiver_enabled,omitempty"`
-	Enabled               bool `json:"enabled"`
+	// CapacityContinueEnabled lets the Codex receiver queue a "continue" after a
+	// turn fails with a transient model-capacity error. Codex only.
+	CapacityContinueEnabled bool `json:"capacity_continue_enabled,omitempty"`
+	Enabled             bool `json:"enabled"`
 	RelayPollSeconds      int  `json:"relay_poll_seconds,omitempty"`
 	QueuedTTLSeconds      int  `json:"queued_ttl_seconds,omitempty"`
 	ChannelPreviewEnabled bool `json:"channel_preview_enabled,omitempty"`

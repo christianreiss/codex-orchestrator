@@ -1,3 +1,7 @@
+# 2026-10-28
+
+- **cxx 0.9.140 — Codex capacity auto-continue:** when an interactive Codex turn fails with `Selected model is at capacity` (or `overloaded`), the receiver now queues a "continue" prompt after a 15s→5min backoff (max 8 consecutive attempts, reset by a completed turn) instead of leaving the session idle. Rate/usage/quota limits, user stops and auth failures never continue, and a live watchdog is kept from terminating the child mid-retry. Controlled by the signed `agent_messaging.capacity_continue_enabled` grant (follows `receiver_enabled`, Codex only). See [Capacity auto-continue](docs/interface-cdx.md#capacity-auto-continue-cxx-09140).
+
 # 2026-10-27
 
 - Expand Chatty administration with confirmed workflow-definition, agent-role, retention, quota-policy and supervisor-configuration mutations, read access to workflow runs, and current handoff destinations. Preserve the boundary against host work dispatch and task recovery activation. Bind new mutations to owner-state snapshots and durable receipts.

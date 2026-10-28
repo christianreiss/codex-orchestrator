@@ -123,6 +123,8 @@ export interface WrapperConfigPayload {
     queued_ttl_seconds: number;
     channel_preview_enabled: boolean;
     receiver_enabled: boolean;
+    /** Codex only: the receiver re-queues "continue" after a transient model-capacity failure. */
+    capacity_continue_enabled: boolean;
     listen_enabled: boolean;
   };
   wrapper: {
@@ -634,6 +636,9 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         queued_ttl_seconds: 86_400,
         channel_preview_enabled: engine === 'claude' && fleet[engine] && (messagingBaked || portalEnabled),
         receiver_enabled: engineActive && (messagingBaked || portalEnabled),
+        // Follows the receiver grant: the continue is injected through the same
+        // app-server queue, so revoking the receiver revokes it too.
+        capacity_continue_enabled: engine === 'codex' && engineActive && (messagingBaked || portalEnabled),
         // The model-initiated receive plane (`agent_listen`), which direct messaging
         // needs to keep an agent on the line. It mirrors the fleet switch
         // because that switch is deliberately the only Agent Messaging switch;

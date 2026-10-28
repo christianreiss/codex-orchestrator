@@ -21,7 +21,10 @@ type nativeQueue struct {
 	conn             *websocket.Conn
 	sequence         int
 	lastWatchdogTurn string
-	thread           string
+	// lastCompletedTurn is the newest completed turn seen; a change means the
+	// session made progress, which resets the auto-continue attempt budget.
+	lastCompletedTurn string
+	thread            string
 }
 
 func openNativeQueue(ctx context.Context, socket string) (*nativeQueue, error) {
@@ -244,27 +247,52 @@ func (q *nativeQueue) latestTurn() (*nativeTurn, error) {
 }
 
 func (q *nativeQueue) watchdogFailure() (string, string, error) {
+	failure, retry, _, err := q.watchdogFailureDetail()
+	return failure, retry, err
+}
+
+// transientCapacityError is a provider-side "try again shortly" failure. Rate,
+// usage and quota limits stay out: re-poking those only burns attempts until
+// the account resets, and the watchdog/quota path owns them.
+func transientCapacityError(lowered string) bool {
+	if strings.Contains(lowered, "rate_limit") || strings.Contains(lowered, "usage limit") || strings.Contains(lowered, "quota limit") {
+		return false
+	}
+	return strings.Contains(lowered, "at capacity") || strings.Contains(lowered, "overloaded")
+}
+
+// watchdogFailureDetail is watchdogFailure plus whether a capacity failure is
+// transient and the id of the failed turn, which the auto-continue keys on.
+func (q *nativeQueue) watchdogFailureDetail() (string, string, bool, error) {
+	failure, retry, transient, _, err := q.observeLatestFailure()
+	return failure, retry, transient, err
+}
+
+func (q *nativeQueue) observeLatestFailure() (failure, retry string, transient bool, turnID string, err error) {
 	turn, err := q.latestTurn()
 	if err != nil || turn == nil {
-		return "", "", err
+		return "", "", false, "", err
 	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	if turn.Status == "completed" {
+		q.lastCompletedTurn = turn.ID
+	}
 	if turn.ID == q.lastWatchdogTurn || (turn.Status != "failed" && turn.Status != "interrupted") {
-		return "", "", nil
+		return "", "", false, "", nil
 	}
 	q.lastWatchdogTurn = turn.ID
 	if turn.Status == "interrupted" {
-		return "user_stop", "", nil
+		return "user_stop", "", false, turn.ID, nil
 	}
 	text := strings.ToLower(string(turn.Error))
 	if strings.Contains(text, "at capacity") || strings.Contains(text, "rate_limit") || strings.Contains(text, "overloaded") || strings.Contains(text, "usage limit") || strings.Contains(text, "quota limit") {
-		return "capacity", scheduleRetryAt(string(turn.Error), time.Now()), nil
+		return "capacity", scheduleRetryAt(string(turn.Error), time.Now()), transientCapacityError(text), turn.ID, nil
 	}
 	if strings.Contains(text, "authentication") || strings.Contains(text, "billing") || strings.Contains(text, "invalid_api_key") {
-		return "blocked", "", nil
+		return "blocked", "", false, turn.ID, nil
 	}
-	return "crash", "", nil
+	return "crash", "", false, turn.ID, nil
 }
 
 // sendImmediate uses the native steering precondition documented by the installed

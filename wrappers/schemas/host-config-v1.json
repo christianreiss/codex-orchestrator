@@ -123,6 +123,7 @@
         "queued_ttl_seconds": { "type": "integer", "minimum": 60, "maximum": 604800 },
         "channel_preview_enabled": { "type": "boolean", "default": false },
         "receiver_enabled": { "type": "boolean", "default": false },
+        "capacity_continue_enabled": { "type": "boolean", "default": false },
         "listen_enabled": { "type": "boolean", "default": false }
       }
     },
