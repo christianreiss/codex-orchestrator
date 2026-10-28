@@ -128,6 +128,57 @@ func TestCodex0165ValueOptionCorpus(t *testing.T) {
 	}
 }
 
+// Grok Build 1.0.70 `leader worker` runs the full `grok worker` grammar; the
+// Cursor-worker refusal must follow it while option values stay data.
+func TestGrokLeaderWorkerIsRefusedLikeWorker(t *testing.T) {
+	for _, tc := range []struct {
+		args    []string
+		service string
+	}{
+		{[]string{"leader", "worker", "start"}, "leader worker"},
+		{[]string{"--debug", "leader", "worker", "start"}, "leader worker"},
+		{[]string{"leader", "worker", "controller", "--pool", "x"}, "leader worker"},
+		{[]string{"leader", "--debug", "worker", "status"}, "leader worker"},
+		{[]string{"leader", "list"}, ""},
+		{[]string{"leader", "info", "worker"}, ""},
+		{[]string{"leader", "--debug-file", "worker", "list"}, ""},
+		{[]string{"leader", "help", "worker"}, ""},
+		// The model value is "leader"; native then dispatches the worker command.
+		{[]string{"--model", "leader", "worker"}, "worker"},
+		{[]string{"--add-dir", "worker", "leader", "list"}, ""},
+	} {
+		if got := UnsupportedService("grok", tc.args); got != tc.service {
+			t.Errorf("%q service %q want %q", tc.args, got, tc.service)
+		}
+	}
+}
+
+// Auth-forcing native flags are boolean; their aliases share one canonical name
+// and option values spelled like them stay values.
+func TestGrokAuthForcingFlagsAreKnownBooleans(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		name string
+		want bool
+	}{
+		{[]string{"--force-login"}, "--force-login", true},
+		{[]string{"--oauth", "hello"}, "--oauth", true},
+		{[]string{"agent", "--reauth", "stdio"}, "--reauth", true},
+		{[]string{"agent", "----reauthenticate", "stdio"}, "--reauth", true},
+		{[]string{"--model", "--force-login"}, "--force-login", false},
+		{[]string{"-p", "--oauth"}, "--oauth", false},
+		{[]string{"--print=--force-login"}, "--force-login", false},
+		{[]string{"agent", "--model", "--reauth", "stdio"}, "--reauth", false},
+	} {
+		if got := Has("grok", tc.args, tc.name); got != tc.want {
+			t.Errorf("%q has %s = %v want %v", tc.args, tc.name, got, tc.want)
+		}
+	}
+	if command, _ := Command("grok", []string{"--force-login", "setup"}); command != "setup" {
+		t.Fatalf("boolean --force-login consumed a command: %q", command)
+	}
+}
+
 // Opt-in: NATIVE_CODEX_ORACLE=/path/to/codex compares every value-taking option
 // of the live native help with the shared table (no auth, throwaway home).
 func TestCodexValueOptionHelpOracle(t *testing.T) {

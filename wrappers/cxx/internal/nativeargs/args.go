@@ -118,6 +118,9 @@ func init() {
 		{"--always-approve", "--yolo", "--dangerously-skip-permissions"},
 		{"--version", "-v", "-V"},
 		{"--help", "-h"},
+		// Native sign-in requests (root --force-login hidden, --oauth; agent --reauth).
+		{"--force-login"}, {"--oauth"},
+		{"--reauth", "----reauthenticate"},
 	} {
 		add(grok, 0, names...)
 	}
@@ -328,9 +331,26 @@ func UnsupportedService(engine string, args []string) string {
 		if command == "cursor-worker" || command == "worker" {
 			return command
 		}
+		// Grok Build 1.0.70 `leader worker` runs the same commands as `worker`.
+		if command == "leader" && firstPositional(engine, args, at+1) == "worker" {
+			return "leader worker"
+		}
 		if Has(engine, args, "--leader-socket") {
 			return "--leader-socket"
 		}
+	}
+	return ""
+}
+
+// firstPositional returns the first argument at or after from that is not an
+// option or an option value, stopping at `--`.
+func firstPositional(engine string, args []string, from int) string {
+	for i := from; i < len(args) && args[i] != "--"; i++ {
+		if args[i] != "-" && strings.HasPrefix(args[i], "-") {
+			i = ValueEnd(engine, args, i)
+			continue
+		}
+		return args[i]
 	}
 	return ""
 }
