@@ -994,7 +994,12 @@ All three engine config GET/store routes share the revision contract: `revision`
   `client_request_id`. Uncertain or expired claims keep the generic
   reserved/uncertain refusal. Live bound sessions
   survive registration TTL. Connection-owned registrations become uncertain on
-  disconnect and retain exclusion; legacy timed registrations retain their
+  disconnect and retain exclusion until the owning session ends: the
+  coordination tick then releases `uncertain` claims (`disconnected` /
+  `owner_restart`) of ended sessions itself (audit `agent_coordination.session_ended_release`,
+  announcement reason `session_ended`), unless a live successor on the same
+  transcript could still continue them or the owner reported the outcome
+  `unknown`; legacy timed registrations retain their
   compatibility rules. Owner-mode merge grants expire after 15 minutes and
   `git_merge_status` never extends them; an expired grant requires a new request.
   `git_join` preserves declared paths when `paths` is omitted; an explicit

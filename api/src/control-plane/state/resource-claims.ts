@@ -8,6 +8,7 @@ import { ownedMessagingHost, ownedEngineState } from './messaging.js';
 import { activeHostEngines } from '../../services/host-engine-policy.js';
 import type { Engine } from '../../util/engine.js';
 import { stageUpdate } from './rows.js';
+import { adminAudit } from './admin.js';
 import {
   stageScopeEvent,
   coordinationPresent,
@@ -97,8 +98,31 @@ export function stageClaimAnnouncement(
   for (const member of ctx.draft.table('agentScopeMembers').by('sessionId', sessionId))
     stageScopeEvent(ctx, keyring, member.scopeId, 'claim', sessionId, body);
 }
+/**
+ * An uncertain claim protects an operation that might still be running. Once the
+ * owning session is terminal (`endedAt`; a planned reboot never sets it) its
+ * bridge is refused and no native process can continue the operation under this
+ * claim, so keeping it only blocks everyone else. Only the connection-loss
+ * reasons qualify: an outcome the owner reported as unknown stays uncertain.
+ * A live successor on the same transcript may still continue the claim through
+ * `resource_claim_status({renew:true})`, so it keeps the claim until it ends too.
+ */
+export function claimOwnerEnded(snapshot: OwnerStateSnapshot, claim: StateRow<'agentResourceClaims'>): boolean {
+  if (claim.state !== 'uncertain' || !['disconnected', 'owner_restart'].includes(claim.uncertaintyReason ?? '')) return false;
+  const session = snapshot.sessions.get(claim.sessionId);
+  if (!session) return true;
+  if (!session.endedAt) return false;
+  return !(
+    session.agentBusAddressId &&
+    session.upstreamSessionId &&
+    snapshot.sessions
+      .by('agentBusAddressId', session.agentBusAddressId)
+      .some((next) => next.id !== session.id && !next.endedAt && next.upstreamSessionId === session.upstreamSessionId)
+  );
+}
 export function claimReconciliationNeeded(owner: OwnerRuntime, snapshot: OwnerStateSnapshot): boolean {
   return snapshot.claims.all().some((claim) => {
+    if (claimOwnerEnded(snapshot, claim)) return true;
     if (claim.state === 'active') return !claimContinuouslyHeld(owner, snapshot, claim);
     if (
       claim.ownershipMode !== 'connection' ||
@@ -131,6 +155,24 @@ export function stageClaimReconciliation(
         claim_id: claim.id,
         action: 'uncertain',
         purpose: claim.purpose,
+      });
+      changed = true;
+    } else if (claimOwnerEnded(snapshot, claim)) {
+      stageUpdate(ctx, 'agentResourceClaims', claim.id, {
+        state: 'released',
+        uncertaintyReason: null,
+        updatedAt: new Date().toISOString(),
+      });
+      stageClaimAnnouncement(ctx, keyring, claim.sessionId, {
+        claim_id: claim.id,
+        action: 'released',
+        reason: 'session_ended',
+        purpose: claim.purpose,
+      });
+      adminAudit(ctx, 'agent_coordination.session_ended_release', {
+        claim_id: claim.id,
+        session_id: claim.sessionId,
+        previous_reason: claim.uncertaintyReason,
       });
       changed = true;
     } else if (

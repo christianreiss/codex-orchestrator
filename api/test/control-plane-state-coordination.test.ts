@@ -194,6 +194,66 @@ describe('connection-owned coordination claims', () => {
     expect(h.state.snapshot().claims.get(result.id)?.state).toBe('uncertain');
     expect(h.select).not.toHaveBeenCalled();
   });
+  describe('ended owners', () => {
+    const endSession = (h: ReturnType<typeof setup>) => {
+      const draft = h.state.begin(), revision = h.state.revision();
+      draft.upsert('agentSessions', { ...draft.table('agentSessions').get(h.sessionId)!, endedAt: new Date().toISOString() });
+      h.state.publish(draft.seal({ ...revision, sequence: revision.sequence + 1n }));
+    };
+    const claimed = async (h: ReturnType<typeof setup>) => {
+      const claim = await h.service.claims.acquire(h.sessionId, h.token, {
+        client_request_id: randomUUID(),
+        purpose: 'abandoned operation',
+        resources: [{ kind: 'path', host_id: 1, path: '/repo' }],
+      });
+      h.live.detach();
+      await h.service.reconcileOwned();
+      expect(h.state.snapshot().claims.get(claim.id)?.state).toBe('uncertain');
+      return claim;
+    };
+    it('keeps a disconnected claim of a session that is still alive uncertain', async () => {
+      const h = setup(), claim = await claimed(h);
+      await h.service.reconcileOwned();
+      expect(h.state.snapshot().claims.get(claim.id)).toMatchObject({ state: 'uncertain', uncertaintyReason: 'disconnected' });
+    });
+    it('releases the uncertain claim once its session has ended, without an operator', async () => {
+      const h = setup(), claim = await claimed(h);
+      endSession(h);
+      await h.service.reconcileOwned();
+      expect(h.state.snapshot().claims.get(claim.id)).toMatchObject({ state: 'released', uncertaintyReason: null });
+      const blockers = h.state.snapshot().claims.all().filter((row) => ['active', 'uncertain'].includes(row.state));
+      expect(blockers).toEqual([]);
+    });
+    it('releases an active claim of an ended session in two steps (uncertain, then released)', async () => {
+      const h = setup();
+      const claim = await h.service.claims.acquire(h.sessionId, h.token, {
+        client_request_id: randomUUID(),
+        purpose: 'ended while active',
+        resources: [{ kind: 'path', host_id: 1, path: '/repo' }],
+      });
+      endSession(h);
+      await h.service.reconcileOwned();
+      await h.service.reconcileOwned();
+      expect(h.state.snapshot().claims.get(claim.id)?.state).toBe('released');
+    });
+    it('keeps the claim while a live successor on the same transcript can still continue it', async () => {
+      const h = setup(), claim = await claimed(h);
+      const next = await resumeNativeFixture(h.owner, h.presence, h.sessionId);
+      await h.service.reconcileOwned();
+      expect(h.state.snapshot().claims.get(claim.id)).toMatchObject({ state: 'uncertain', sessionId: h.sessionId });
+      await h.service.claims.status(next.id, next.token, { claim_id: claim.id, renew: true });
+      expect(h.state.snapshot().claims.get(claim.id)).toMatchObject({ state: 'active', sessionId: next.id });
+    });
+    it('never releases an outcome the owner reported as unknown, even after the session ended', async () => {
+      const h = setup(), claim = await claimed(h);
+      const draft = h.state.begin(), revision = h.state.revision();
+      draft.upsert('agentResourceClaims', { ...draft.table('agentResourceClaims').get(claim.id)!, uncertaintyReason: 'reported_unknown' });
+      h.state.publish(draft.seal({ ...revision, sequence: revision.sequence + 1n }));
+      endSession(h);
+      await h.service.reconcileOwned();
+      expect(h.state.snapshot().claims.get(claim.id)).toMatchObject({ state: 'uncertain', uncertaintyReason: 'reported_unknown' });
+    });
+  });
 });
 
 describe('captured timed claim drain', () => {
