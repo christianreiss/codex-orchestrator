@@ -102,6 +102,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     db: ctx.db,
     settings: new SettingsService(ctx.db),
     freshSeconds: ctx.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,
+    cloneArchiveDays: ctx.env.GIT_DIRECTOR_CLONE_ARCHIVE_DAYS,
     judge: createRunnerGitDirectorJudge({
       adapter: createRunnerClaudeAdapter({
         env: ctx.env,

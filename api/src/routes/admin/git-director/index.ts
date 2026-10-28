@@ -60,6 +60,7 @@ export async function registerAdminGitDirectorRoutes(
     db: ctx.db,
     settings: new SettingsService(ctx.db),
     freshSeconds: ctx.env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS,
+    cloneArchiveDays: ctx.env.GIT_DIRECTOR_CLONE_ARCHIVE_DAYS,
   });
   const events = new AdminEventsService(ctx.db);
   const adminSpa = adminSpaHtmlPreHandler(ctx);

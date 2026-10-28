@@ -970,6 +970,54 @@ describe.skipIf(!handle)('git director against a real database', () => {
     expect((listed[0]!['stale'] as Array<Record<string, unknown>>).map((w) => w['status'])).toEqual(['abandoned']);
   });
 
+  it('archives a dormant clone and revives the same row when its agent returns', async () => {
+    const DAY = 86_400_000;
+    const at = (ms: number) => new GitDirectorService({ db, settings: new SettingsService(db), now: () => new Date(Date.now() + ms).toISOString(), cloneArchiveDays: 14 });
+    const first = await register(MAIN_WT);
+    const cloneId = (first.clone as Record<string, unknown>).clone_id;
+    await requestMerge(MAIN_WT, ['dormant.ts']);
+    await svc.release({ worktree_path: MAIN_WT, deregister: true }, host);
+    const archivedAt = async () => rowsOf(await exec(`SELECT archived_at FROM git_clones WHERE id = '${cloneId}'`))[0]?.archived_at ?? null;
+
+    await at(13 * DAY).list({}, host);
+    expect(await archivedAt()).toBeNull();
+    const later = at(15 * DAY);
+    const hidden = await later.list({ include_idle: true }, host);
+    expect(await archivedAt()).not.toBeNull();
+    expect(hidden).toMatchObject({ clones: [], archived_omitted: 1 });
+    expect((await later.list({ include_archived: true }, host)).clones).toMatchObject([{ clone_id: cloneId, archived_at: await archivedAt() }]);
+    expect(await later.adminClones()).toEqual([]);
+    // Nothing is deleted: the registration and its merge history stay.
+    expect(rowsOf(await exec(`SELECT id FROM git_worktrees WHERE clone_id = '${cloneId}'`))).toHaveLength(1);
+    expect(rowsOf(await exec(`SELECT id FROM git_merge_requests WHERE clone_id = '${cloneId}'`))).toHaveLength(1);
+
+    // Re-registering without clone_dir finds the archived mapping instead of
+    // minting a second clone keyed on the worktree path.
+    const back = await later.register({ worktree_path: MAIN_WT, branch: 'main', username: 'chris' }, host);
+    expect(back).toMatchObject({ registered: true, clone_unarchived: true, worktree_id: first.worktree_id });
+    expect((back.clone as Record<string, unknown>).clone_id).toBe(cloneId);
+    expect(await archivedAt()).toBeNull();
+    expect(rowsOf(await exec(`SELECT id FROM git_clones WHERE host_id = ${host.id}`))).toHaveLength(1);
+
+    // A retired registration coming back through git_join revives its clone too.
+    await later.release({ worktree_path: MAIN_WT, deregister: true }, host);
+    const muchLater = at(30 * DAY);
+    await muchLater.list({}, host);
+    expect(await archivedAt()).not.toBeNull();
+    const joined = await muchLater.join({ worktree_path: MAIN_WT, task: 'back again' }, host);
+    expect((joined.clone as Record<string, unknown>).clone_id).toBe(cloneId);
+    expect(await archivedAt()).toBeNull();
+    expect((await muchLater.list({}, host)).clones).toMatchObject([{ clone_id: cloneId }]);
+  });
+
+  it('does not archive a clone while a registration is live', async () => {
+    await register(MAIN_WT);
+    const later = new GitDirectorService({ db, settings: new SettingsService(db), now: () => new Date(Date.now() + 30 * 86_400_000).toISOString() });
+    await later.list({}, host);
+    // The silent registration expires on this pass; the clone stays listed until a later one.
+    expect(rowsOf(await exec(`SELECT archived_at FROM git_clones WHERE host_id = ${host.id}`))[0]?.archived_at).toBeNull();
+  });
+
   it('applies its migration twice without error', async () => {
     for (const file of MIGRATIONS) {
       for (const stmt of splitSqlStatements(readFileSync(file, 'utf8'))) await exec(stmt);

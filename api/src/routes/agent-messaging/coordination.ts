@@ -26,7 +26,7 @@ export function registerCoordinationRoutes(
 ) {
   const service = new AgentCoordination(ctx.db, ctx.env, ctx.keyring, messaging);
   const audit = createAdminEventsService(ctx.db);
-  const director = new GitDirectorService({ db: ctx.db, settings: new SettingsService(ctx.db), notifications: new GitDirectorNotifications(messaging) });
+  const director = new GitDirectorService({ db: ctx.db, settings: new SettingsService(ctx.db), notifications: new GitDirectorNotifications(messaging), cloneArchiveDays: ctx.env.GIT_DIRECTOR_CLONE_ARCHIVE_DAYS });
   const bridge = (req: FastifyRequest) => {
     const token = req.headers['x-agent-bridge-token'];
     if (typeof token !== 'string' || !token) throw new UnauthorizedError('Bridge credential required');
