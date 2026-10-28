@@ -213,9 +213,13 @@ export async function recordHostContact(
   const owner = ownerRuntimeFor(db);
   if (owner) {
     owner.assertOwner();
+    // An MCP session token authenticates the host without presenting its API
+    // key, so `host.apiKey` is empty: there is no key to hash. Rotation is still
+    // caught below by comparing the row's apiKeyHash with the authenticated one.
+    const keyless = host.apiKey === '';
     const readCurrent = () => {
       const row = owner.state.snapshot().hosts.get(host.id);
-      if (!row || row.credentialLookupHash !== hashApiKey(host.apiKey))
+      if (!row || (!keyless && row.credentialLookupHash !== hashApiKey(host.apiKey)))
         throw new UnauthorizedError('Host key changed', 'invalid_api_key');
       const current = requestHost(row, host.apiKey);
       validateContact(current, host, now);
@@ -231,7 +235,7 @@ export async function recordHostContact(
       payload: { hostId: host.id, at: now.toISOString() },
       prepare(ctx) {
         const row = ctx.draft.table('hosts').get(host.id);
-        if (!row || row.credentialLookupHash !== hashApiKey(host.apiKey))
+        if (!row || (!keyless && row.credentialLookupHash !== hashApiKey(host.apiKey)))
           throw new UnauthorizedError('Host key changed', 'invalid_api_key');
         const current = requestHost(row, host.apiKey);
         validateContact(current, host, now);
