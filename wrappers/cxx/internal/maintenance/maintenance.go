@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/buildinfo"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 )
@@ -143,12 +144,11 @@ func request(engine, configPath string, force bool) error {
 	if engine != config.EngineCodex && engine != config.EngineClaude && engine != config.EngineGrok {
 		return errors.New("unknown maintenance engine")
 	}
-	// Unit/integration binaries must never recursively launch their test runner.
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	if strings.HasSuffix(exe, ".test") {
+	if !automaticAllowed(exe) {
 		return nil
 	}
 	dir, err := stateDir()
@@ -160,6 +160,17 @@ func request(engine, configPath string, force bool) error {
 		return err
 	}
 	return requestAt(dir, time.Now().UTC(), force, func() error { return spawn(exe, dir, env, !force) })
+}
+
+// automaticAllowed decides whether a launch may queue upkeep from exe.
+// Unit/integration binaries must never recursively launch their test runner.
+// Upkeep runs from the requesting binary and points the user's schedule and
+// shared worker unit at it, so a development build (`go build`, version "dev")
+// in a scratch directory must not queue it either (feedback 3e2df8d1); the
+// installed release does that on its next launch. `cxx cron run` stays
+// available for an explicit run.
+func automaticAllowed(exe string) bool {
+	return !strings.HasSuffix(exe, ".test") && buildinfo.Release()
 }
 
 func requestAt(dir string, now time.Time, force bool, start func() error) error {

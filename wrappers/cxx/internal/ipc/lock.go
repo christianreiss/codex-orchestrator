@@ -189,6 +189,32 @@ func acquirePath(path string, operation int, writeOwner bool, dirMode, fileMode 
 	if path == "" {
 		return nil, errors.New("lock path is empty")
 	}
+	// A file unlinked between open and flock (the communicator's runtime sweep
+	// removes idle lock files) would be a lock nobody else can see. Hold only
+	// the file the path still names; a replaced one is opened again.
+	for attempt := 0; ; attempt++ {
+		lock, err := acquirePathOnce(path, operation, writeOwner, dirMode, fileMode)
+		if err != nil || lock.namesPath(path) {
+			return lock, err
+		}
+		_ = lock.Release()
+		if attempt == 8 {
+			return nil, fmt.Errorf("lock %s keeps being replaced", path)
+		}
+	}
+}
+
+// namesPath reports whether the held file is still the one at path.
+func (l *Lock) namesPath(path string) bool {
+	held, err := l.f.Stat()
+	if err != nil {
+		return false
+	}
+	named, err := os.Lstat(path)
+	return err == nil && os.SameFile(held, named)
+}
+
+func acquirePathOnce(path string, operation int, writeOwner bool, dirMode, fileMode os.FileMode) (*Lock, error) {
 	if err := os.MkdirAll(filepath.Dir(path), dirMode); err != nil {
 		return nil, err
 	}

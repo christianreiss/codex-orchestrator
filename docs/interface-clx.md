@@ -1292,7 +1292,10 @@ the server refuses with `agent_messaging_relay_not_persistent` exits 0 and is no
 restarted; so does one whose signed config stays unreadable or expired for 5
 minutes. Run as root, `install` also retires other accounts' legacy workers and
 their `cxx-agent.service` where the server says they may not run one (see
-[host runtime policy](host-runtime-policy.md)).
+[host runtime policy](host-runtime-policy.md)). From cxx 0.9.143 a development
+build (version `dev`) neither queues launch-time maintenance nor lets the automatic
+ensure install, repoint or retire the unit; it prints a note instead, and an explicit
+`cxx agent service install` still works (cdx parity; feedback 3e2df8d1).
 
 Delivery is FIFO per target and at-least-once until native execution starts.
 Queued messages default to a 24-hour TTL, accept 60 seconds through seven days,
