@@ -3640,7 +3640,9 @@ never the Codex `client_version` or a desired pin. `POST /admin/hosts/{id}/model
 rejects a `claude_model_override` (after retired-ID migration and latest-family
 mapping) whose minimum the reported Claude version does not meet, with HTTP 422
 naming `clx update`; clearing it always works. Claude config and settings
-delivery for a host checks the effective root model the same way. See
+delivery for a host checks the effective root model the same way. The signed
+wrapper config, update and `POST /cron/report` stay available; a host recovers
+with `clx update` or `clx cron run`, then syncs. See
 [Claude model availability](interface-clx.md#claude-model-cli-minimums).
 
 ## External task supervision (cxx 0.9.139)

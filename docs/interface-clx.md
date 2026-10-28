@@ -1116,9 +1116,11 @@ change the model.
   rejected with HTTP 422 and upgrade guidance; clearing is always allowed.
   Host config/settings delivery checks the effective root model (host override,
   else fleet model, after latest-family mapping) against the reported version
-  and fails with the same guidance until the host updates. Signed bootstrap,
-  `clx update` and `clx cron run` stay available, so an old client can update and
-  report its version, then sync.
+  and fails with the same guidance until the host updates; on the sync bundle
+  that fails the whole response. The signed wrapper config
+  (`/wrapper/v2/config`), `clx update` and `clx cron run` stay available. The
+  installed version is recorded only by `POST /cron/report` (update or cron
+  run), not by sync, so recovery is: update or cron run, then sync.
 - **Wrapper (cxx).** The launchpad probes the installed Claude binary and marks
   incompatible choices unavailable instead of falling back to another model.
   A root Claude launch (including `cxx native claude` and `clx run`) resolves the
