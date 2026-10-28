@@ -189,6 +189,20 @@ UUIDs are read only from an actual resume command, including
 `exec --model MODEL resume UUID` and its `e` alias. Shared options and image
 values before a nested command retain their native cardinality.
 
+From the 2026-10-28 maintenance run (Codex 0.165.0), the nested
+`exec resume` / `exec fork` commands follow their own `-i/--image <FILE>`
+declaration (`num_args = 1`): each occurrence takes exactly one path, so
+`exec resume -i a.png UUID` resumes `UUID`. Root/TUI `resume`/`fork`, `exec`
+before the nested command and every other command keep the shared `1..` list,
+so `resume -i a.png UUID` and `exec -i a.png resume UUID` still read `UUID` (and
+`resume`) as image paths, matching the native parser. The shared value table
+also covers `queue --thread/--message`, `migrate-rollouts --thread`, and the
+value options of the utility and refused commands (`sandbox`, `mcp add|login`,
+`app-server`, `exec-server`, `cloud`, `plugin add`); a unit test pins it to the
+0.165.0 help corpus and an opt-in `NATIVE_CODEX_ORACLE` test compares it with a
+live binary. Readers do not interpret those utility commands' semantics; the
+table only keeps their values (including command- or flag-shaped ones) opaque.
+
 Direct public `app-server`, `exec-server`, `remote-control`, `agents` and `--remote`
 invocations are refused before configuration/auth work: their independent or
 external processes do not inherit the wrapper's private account/auth broker,

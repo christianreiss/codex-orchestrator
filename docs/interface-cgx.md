@@ -231,6 +231,36 @@ broker, session identity and teardown. Native `--help` remains available;
 normal managed sessions retain their wrapper-owned private leader. No public
 worker registration or background service is enabled by this support boundary.
 
+From the 2026-10-28 maintenance run (Grok Build 1.0.70) the same boundary covers:
+
+- `leader worker …`, which 1.0.70 documents as "Run the same commands as
+  `grok worker`", is refused like `worker`. `leader list|info|kill`, a
+  `leader --debug-file worker list` value and `leader worker --help` are unchanged.
+- Native install/update/upgrade is refused whatever its options are. `update
+  --version <VERSION>` installs that version natively; only a root `--version`
+  before any subcommand (native prints it before parsing the rest, so
+  `--version update` is a version request) or the `version` command passes
+  through. The refusal applies to native entry and to `cgx run update …` /
+  `cgx install` alike, before signed config, leasing or a native exec.
+- `setup` (with or without `--json`) is refused: it fetches organization managed
+  configuration with the leased account and installs it into the managed
+  session's private home, which is discarded at exit. Organization managed
+  configuration is host-owned (see [native config scopes](NATIVE_CONFIG_SCOPES.md));
+  install it with vendor tooling outside managed sessions.
+- Native sign-in requests are refused with `cgx login` guidance: hidden root
+  `--force-login` ("show the login screen even when credentials are already
+  available"), root `--oauth` (it only selects the native login method) and
+  `agent --reauth` / `----reauthenticate`. Managed auth is server-owned and
+  supplied through `cxx grok-auth`; a native login would write a second
+  credential into the discarded private home. `grok login --oauth` keeps its
+  existing route to `cgx login`, and option values spelled like these flags stay
+  values. Open limit: whether 1.0.70 would actually start an OAuth/device flow
+  for these flags while `auth_provider_command` is set was not probed (it needs
+  a live login); the refusal is correct either way.
+- Only `run` argv is classified. `cgx --execute` words are a prompt passed
+  through `--prompt-file`, so a prompt such as `worker start` or `setup` is no
+  longer refused as a native command.
+
 ## Emergency mode (cxx 0.9.141)
 
 `cxx emergency grok [--] [native arguments]` execs the plain native `grok` with

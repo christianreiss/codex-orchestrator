@@ -18,7 +18,7 @@ type spec struct {
 	arity arity
 }
 
-// Sources: Codex rust-v0.164.0 SharedCliOptions/TuiCli and Grok Build 1.0.70
+// Sources: Codex rust-v0.165.0 SharedCliOptions/TuiCli/exec cli.rs and Grok Build 1.0.70
 // help/PagerArgs. Comma-delimited vectors take one argv value unless num_args
 // explicitly says otherwise. An attached/equal value ends a variadic occurrence.
 var codex = map[string]spec{}
@@ -49,6 +49,19 @@ func init() {
 		{"--experimental_client-id"},
 		{"--listen"}, {"--staging-dir"},
 		{"--thread-source"}, {"--cyber-access-program"}, {"--color"}, {"--base"}, {"--commit"}, {"--title"},
+		// Codex 0.165.0 queue/migrate-rollouts and utility or refused commands.
+		// Readers stop interpreting semantics there, but values stay opaque.
+		{"--thread"}, {"--message"}, {"--max-mib-per-second"},
+		{"--permission-profile", "-P"}, {"--sandbox-state-json"}, {"--sandbox-state-readable-root"},
+		{"--env"}, {"--url"}, {"--bearer-token-env-var"}, {"--scopes"},
+		{"--oauth-client-id"}, {"--oauth-client-secret"}, {"--oauth-client-registration"}, {"--oauth-resource"},
+		{"--startup-client-info"}, {"--cloud-skills-snapshot"}, {"--code-mode-host"},
+		{"--ws-auth"}, {"--ws-token-file"}, {"--ws-token-sha256"}, {"--ws-shared-secret-file"}, {"--ws-issuer"}, {"--ws-audience"}, {"--ws-max-clock-skew-seconds"},
+		{"--linux-sandbox-pid-namespace"}, {"--concurrent-requests"}, {"--remote-transport"}, {"--environment-id"}, {"--name"},
+		{"--aws-profile"}, {"--aws-region"}, {"--aws-service"},
+		{"--attempts"}, {"--attempt"}, {"--branch"}, {"--limit"}, {"--cursor"},
+		// `plugin add -m` shares -m (and its required arity) with --model.
+		{"--marketplace"},
 	} {
 		add(codex, required, names...)
 	}
@@ -105,6 +118,9 @@ func init() {
 		{"--always-approve", "--yolo", "--dangerously-skip-permissions"},
 		{"--version", "-v", "-V"},
 		{"--help", "-h"},
+		// Native sign-in requests (root --force-login hidden, --oauth; agent --reauth).
+		{"--force-login"}, {"--oauth"},
+		{"--reauth", "----reauthenticate"},
 	} {
 		add(grok, 0, names...)
 	}
@@ -160,6 +176,13 @@ func Option(engine string, args []string, at int) (name, value string, end int) 
 	if s.arity == optional && at+1 < len(args) && (args[at+1] == "-" || !strings.HasPrefix(args[at+1], "-")) {
 		return name, args[at+1], at + 1
 	}
+	if s.arity == variadic && engine != "grok" && s.name == "--image" && codexNestedSessionAt(args, at) {
+		// Codex exec resume|fork declare -i/--image with num_args = 1.
+		if at+1 < len(args) && args[at+1] != "--" {
+			return name, args[at+1], at + 1
+		}
+		return
+	}
 	if s.arity == variadic {
 		for end+1 < len(args) && (args[end+1] == "-" || !strings.HasPrefix(args[end+1], "-")) {
 			end++
@@ -170,6 +193,21 @@ func Option(engine string, args []string, at int) (name, value string, end int) 
 	}
 	return
 }
+
+// codexNestedSessionAt reports whether args[at] belongs to a nested
+// `exec|e resume|fork` command. Only the strict prefix is classified, so an
+// image list before the nested command keeps its shared 1.. cardinality and the
+// recursion through Command/Option always works on a shorter slice.
+func codexNestedSessionAt(args []string, at int) bool {
+	prefix := args[:at]
+	command, index := Command("codex", prefix)
+	if command != "exec" && command != "e" {
+		return false
+	}
+	nested, _ := Command("codex", prefix[index+1:])
+	return nested == "resume" || nested == "fork"
+}
+
 func ValueEnd(engine string, args []string, at int) int {
 	_, _, end := Option(engine, args, at)
 	return end
@@ -293,9 +331,26 @@ func UnsupportedService(engine string, args []string) string {
 		if command == "cursor-worker" || command == "worker" {
 			return command
 		}
+		// Grok Build 1.0.70 `leader worker` runs the same commands as `worker`.
+		if command == "leader" && firstPositional(engine, args, at+1) == "worker" {
+			return "leader worker"
+		}
 		if Has(engine, args, "--leader-socket") {
 			return "--leader-socket"
 		}
+	}
+	return ""
+}
+
+// firstPositional returns the first argument at or after from that is not an
+// option or an option value, stopping at `--`.
+func firstPositional(engine string, args []string, from int) string {
+	for i := from; i < len(args) && args[i] != "--"; i++ {
+		if args[i] != "-" && strings.HasPrefix(args[i], "-") {
+			i = ValueEnd(engine, args, i)
+			continue
+		}
+		return args[i]
 	}
 	return ""
 }
