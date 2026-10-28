@@ -11,11 +11,13 @@ Accepted work messages establish persistent sender/worker dependencies. Claimed
 workflow tasks establish worker/coordinator dependencies. One coordinator can have
 several outstanding dependencies. An agent can explicitly report its current task
 with `agent_work_state`; empty arguments read its state. Required write fields:
-`task_key` and `state` (`working`, `waiting_agent`, `waiting_user`, `completed`,
-`canceled`). Optional fields: `reason`, `waiting_for` (canonical `agent:UUID`),
-`message_id`, `coordinator`, and optimistic `version`. A wait needs an agent or a
-work message. Only participants can reference a work message. Task keys identify
-actual tasks; keep them stable during recovery and use a new key for new work.
+`state` (`working`, `waiting_agent`, `waiting_user`, `completed`, `canceled`) and
+`task_key` or `message_id`. Optional fields: `reason`, `waiting_for` (canonical
+`agent:UUID`), `coordinator`, and optimistic `version`. A report without `task_key`
+derives it from `message_id` as `message:<id>`; a `waiting_agent` report without
+`task_key` continues the current task of the same native session. A wait needs an
+agent or a work message. Only participants can reference a work message. Task keys
+identify actual tasks; keep them stable during recovery and use a new key for new work.
 
 Native children sharing a fleet binding leave task-state reports to their parent.
 Reporting state is idempotent for an unchanged body. It is not a work-result receipt.

@@ -1382,4 +1382,4 @@ activation, compatibility, protection and no-backup offline maintenance.
 - `GET /admin/agent-supervisor` — read configured/effective state, work states, outstanding dependencies and incident budgets; optional `target=agent:UUID`. Requires `agent_messaging.read`.
 - `POST /admin/agent-supervisor/state` — set `{enabled:boolean}`. Requires `agent_messaging.manage`; disabling stops supervisor-owned future recovery.
 - `POST /admin/agent-supervisor/pause` — pause `{target,version}` with an optimistic work-state version. Requires `agent_messaging.manage`.
-- `POST /host/agent-sessions/{id}/agent-messaging/work-state` — current bridge only: `{}` reads state; `{task_key,state,reason?,waiting_for?,message_id?,coordinator?,version?}` reports current work. See [the supervisor contract](agent-supervisor.md).
+- `POST /host/agent-sessions/{id}/agent-messaging/work-state` — current bridge only: `{}` reads state; `{state,task_key?,message_id?,reason?,waiting_for?,coordinator?,version?}` reports current work (`task_key` or `message_id` required; the key derives as `message:<id>` when omitted). See [the supervisor contract](agent-supervisor.md).
