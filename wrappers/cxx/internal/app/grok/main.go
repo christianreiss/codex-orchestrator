@@ -858,9 +858,9 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			case <-refreshCtx.Done():
 				return
 			case <-ticker.C:
-				callCtx, cancel := context.WithTimeout(refreshCtx, 6*time.Second)
-				err := rt.Refresh(callCtx)
-				cancel()
+				// A 404 is re-checked before it counts: a lease without a live
+				// provider attachment answers it for under a second at a time.
+				err := rt.RefreshConfirmed(refreshCtx, 6*time.Second)
 				if native.FatalAuthError(err) {
 					select {
 					case authFailure <- errGrokAuthEnded:

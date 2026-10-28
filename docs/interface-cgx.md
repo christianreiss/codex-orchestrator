@@ -680,6 +680,19 @@ that generation. Pending/ambiguous renewal returns a typed error, never the same
 failed generation. Host startup needs 600 seconds of lifetime; runner/gateway
 execution needs its timeout plus the native 300-second buffer (maximum 900).
 
+**Revoked-lease detection and 404 re-check.** The wrapper ends a managed session
+when the lease check answers 401, 409 (except `communicator_outcome_unknown`) or
+404; 401 and 409 stay immediate. A connection-mode lease also answers
+404 `Account session not found` for the short window in which its provider
+attachment is redialing (the attachment redials every second), so a 404 only
+counts as revoked after it was re-checked: three more checks, 1.5 seconds apart
+(about 4.5 seconds), must all answer 404. Any other answer ends the
+re-check and is classified as usual (200 or 5xx keeps the session, 401 ends it
+at once), and ending the session context aborts it. This applies to both the
+wrapper's readiness loop (`internal/grok`, `RefreshConfirmed`) and the
+communicator's auth sync (`internal/communicator`, `ConfirmNotFound`). The
+server answer is unchanged.
+
 ## Isolated managed lifecycle
 
 A managed launch uses a private runtime `GROK_HOME`, auth path, and leader socket.

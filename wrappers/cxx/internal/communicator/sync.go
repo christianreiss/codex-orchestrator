@@ -308,7 +308,11 @@ func (s *server) runSync(ctx context.Context, in SyncRequest) SyncResult {
 		return SyncResult{Primed: s.primedLocked(scopeID(in.Job))}
 	}
 	if in.Operation == "auth" || in.IncludeAuth {
-		return s.executeSync(ctx, in)
+		out := s.executeSync(ctx, in)
+		if in.Operation == "auth" {
+			out = s.confirmGrokNotFound(ctx, in, out, s.executeSync)
+		}
+		return out
 	}
 	key := coalesceKey(in)
 	s.mu.Lock()
@@ -474,7 +478,9 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 		case out.Error != nil:
 			state.auth.State = "error"
 			state.auth.Error = "Auth synchronization failed; inspect local doctor"
-			state.auth.Fatal = in.Job.Engine == "grok" && revokedGrokAuth(out.Error.HTTP)
+			// A 404 is not final here: confirmGrokNotFound re-checks it and sets
+			// Fatal only if the lease still has no live provider attachment.
+			state.auth.Fatal = in.Job.Engine == "grok" && revokedGrokAuth(out.Error.HTTP) && !grokSessionNotFound(out.Error.HTTP)
 		case out.Deferred:
 			state.auth.State = "deferred"
 		case out.Adopted:
@@ -526,6 +532,49 @@ func syncLocks(in SyncRequest) (content, auth bool) {
 	default:
 		return true, false
 	}
+}
+
+// grokNotFoundRecheck is the production policy for confirmGrokNotFound.
+var grokNotFoundRecheck RecheckPolicy
+
+// grokSessionNotFound is the 404 class a lease answers while its provider
+// attachment is redialing (see ConfirmNotFound).
+func grokSessionNotFound(raw json.RawMessage) bool {
+	var failure struct{ StatusCode int }
+	return json.Unmarshal(raw, &failure) == nil && failure.StatusCode == 404
+}
+
+// syncResultError adapts a failed SyncResult to ConfirmNotFound.
+type syncResultError struct{ result SyncResult }
+
+func (e *syncResultError) Error() string { return e.result.Error.Message }
+
+func isGrokSyncNotFound(err error) bool {
+	var failed *syncResultError
+	return errors.As(err, &failed) && failed.result.Error != nil && grokSessionNotFound(failed.result.Error.HTTP)
+}
+
+// confirmGrokNotFound runs after a Grok auth operation. A 404 is re-checked by
+// repeating the operation; only a 404 that persists marks the auth Fatal
+// (revoked). Any other answer replaces the result and is classified as before.
+func (s *server) confirmGrokNotFound(ctx context.Context, in SyncRequest, out SyncResult, execute func(context.Context, SyncRequest) SyncResult) SyncResult {
+	if in.Job.Engine != "grok" || out.Error == nil || !grokSessionNotFound(out.Error.HTTP) {
+		return out
+	}
+	err := ConfirmNotFound(ctx, grokNotFoundRecheck, func(c context.Context) error {
+		out = execute(c, in)
+		if out.Error == nil {
+			return nil
+		}
+		return &syncResultError{out}
+	}, isGrokSyncNotFound)
+	if err != nil && isGrokSyncNotFound(err) {
+		s.mu.Lock()
+		s.stateLocked(in.Job).auth.Fatal = true
+		s.mu.Unlock()
+		s.notifyLocal()
+	}
+	return out
 }
 
 func revokedGrokAuth(raw json.RawMessage) bool {

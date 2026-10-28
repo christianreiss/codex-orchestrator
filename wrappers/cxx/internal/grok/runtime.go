@@ -439,6 +439,37 @@ func (r *Runtime) Refresh(ctx context.Context) error {
 	return err
 }
 
+// sessionNotFoundRecheck is the production policy; tests substitute a fake clock.
+var sessionNotFoundRecheck communicator.RecheckPolicy
+
+// SessionNotFound reports the server's 404 "Account session not found", which a
+// connection-mode lease answers while its provider attachment is redialing.
+func SessionNotFound(err error) bool {
+	var httpErr *orchestrator.HTTPError
+	return errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusNotFound
+}
+
+// RefreshConfirmed is Refresh for the session's readiness loop. A 404 is
+// re-checked (communicator.NotFoundRechecks times, NotFoundRecheckSpacing apart)
+// before it is returned, so FatalAuthError sees it only when it persisted. Any
+// other answer, including 401 and 409, is returned at once; cancelling ctx ends
+// the wait promptly. Each call is bounded by callTimeout.
+func (r *Runtime) RefreshConfirmed(ctx context.Context, callTimeout time.Duration) error {
+	return confirmRefresh(ctx, sessionNotFoundRecheck, func(c context.Context) error {
+		callCtx, cancel := context.WithTimeout(c, callTimeout)
+		defer cancel()
+		return r.Refresh(callCtx)
+	})
+}
+
+func confirmRefresh(ctx context.Context, policy communicator.RecheckPolicy, call func(context.Context) error) error {
+	err := call(ctx)
+	if !SessionNotFound(err) {
+		return err
+	}
+	return communicator.ConfirmNotFound(ctx, policy, call, SessionNotFound)
+}
+
 func FatalAuthError(err error) bool {
 	var httpErr *orchestrator.HTTPError
 	if !errors.As(err, &httpErr) {
