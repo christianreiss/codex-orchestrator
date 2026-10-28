@@ -5,9 +5,13 @@ export interface ChattyStatus {
   visible: boolean; ready: boolean; enabled: boolean; knowledge_version: string;
   engines: Array<{ engine: Engine; ready: boolean; reason: string | null; default_model: string | null; models: Array<{ id: string; display_name: string }> }>;
 }
+/** Server-resolved reply elements; `path` is base-relative and built from an allowlisted template. */
+export type ChattyElement =
+  | { type: 'link'; kind: string; label: string; path: string }
+  | { type: 'suggestion'; text: string };
 export interface ChattyEvent {
   id: number; kind: string; runId: string | null; createdAt: string;
-  body: { text?: string; id?: string; tool?: string; description?: string; arguments?: unknown; before?: unknown; result?: unknown; href?: string; status?: string; engine?: string; model?: string; options?: string[]; sources?: Array<{ id: string; title: string; heading: string; href: string; body: string }> };
+  body: { text?: string; id?: string; tool?: string; description?: string; arguments?: unknown; before?: unknown; result?: unknown; href?: string; status?: string; engine?: string; model?: string; options?: string[]; sources?: Array<{ id: string; title: string; heading: string; href: string; body: string }>; elements?: ChattyElement[]; elements_omitted?: number };
 }
 export interface ChattySnapshot {
   generation: number; selection: Selection; events: ChattyEvent[]; has_older: boolean;

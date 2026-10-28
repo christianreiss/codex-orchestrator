@@ -2,14 +2,18 @@
   import { toStore } from 'svelte/store';
   import { onMount, tick } from 'svelte';
   import { page } from '$app/state';
+  import { goto } from '$app/navigation';
+  import { base } from '$app/paths';
   import { Dialog } from 'bits-ui';
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { authStore } from '$lib/stores/auth';
   import { engineLabel } from '$lib/constants/engines';
   import { api } from '$lib/api/client';
-  import { chattyKeys, fetchChattyStatus, fetchChattySession, chattyContext, type ChattyEvent, type Engine } from '$lib/api/chatty';
+  import { chattyKeys, fetchChattyStatus, fetchChattySession, chattyContext, type ChattyElement, type ChattyEvent, type Engine } from '$lib/api/chatty';
   import MarkdownBody from '$lib/components/portal/MarkdownBody.svelte';
-  import { Minus, Send, Square, Trash2 } from '@lucide/svelte';
+  import { Button } from '$lib/components/ui/button';
+  import { chattyPath, isPlainClick, latestAnswerId } from './elements';
+  import { ArrowRight, BookOpen, FolderKanban, Library, MessageSquarePlus, Minus, Send, Server, Square, Trash2, UserRoundCog, Waypoints } from '@lucide/svelte';
 
   const qc = useQueryClient();
   let open = $state(false);
@@ -30,6 +34,18 @@
   const canSend = $derived(!!$status.data?.ready && !busy && (!active || active.status === 'waiting_input'));
   const pending = (event: ChattyEvent) => event.body.status === 'pending' && active?.status === 'waiting_confirmation' && active.id === event.runId && !events.some(e => e.kind === 'result' && e.body.id === event.body.id);
   const refresh = () => qc.invalidateQueries({ queryKey: chattyKeys.session });
+  const latestAnswer = $derived(latestAnswerId(events));
+  type LinkElement = Extract<ChattyElement, { type: 'link' }>;
+  const links = (event: ChattyEvent) => (event.body.elements ?? []).filter((e): e is LinkElement => e?.type === 'link' && typeof e.label === 'string' && !!chattyPath(e.path));
+  const suggestions = (event: ChattyEvent) => (event.body.elements ?? []).flatMap((e) => (e?.type === 'suggestion' && typeof e.text === 'string' && e.text.trim() ? [e.text] : []));
+  const linkIcons: Record<string, typeof ArrowRight> = { host: Server, project: FolderKanban, skill: Library, subagent: Library, command: Library, 'output-style': Library, workflow: Waypoints, workflow_run: Waypoints, account: UserRoundCog, manual: BookOpen };
+  /** Client-side navigation keeps the shell, and with it this conversation; the full-screen phone panel minimizes so the destination is visible. */
+  async function navigate(event: MouseEvent, path: string) {
+    if (!isPlainClick(event)) return;
+    event.preventDefault();
+    await goto(`${base}${path}`);
+    if (window.matchMedia('(max-width: 767px)').matches) open = false;
+  }
   async function operation(fn: () => Promise<unknown>) {
     busy = true; error = '';
     try { await fn(); await refresh(); } catch (e) { error = e instanceof Error ? e.message : 'Chatty konnte die Anfrage nicht abschließen.'; }
@@ -132,6 +148,30 @@
               {:else if event.kind === 'answer' || event.kind === 'question'}
                 <p class="mb-1 text-body-sm font-semibold">Chatty{event.body.engine ? ` · ${event.body.engine}` : ''}{event.body.model ? ` · ${event.body.model}` : ''}</p>
                 <MarkdownBody text={event.body.text ?? ''}/>
+                {#if event.kind === 'answer'}
+                  {@const eventLinks = links(event)}
+                  {@const eventSuggestions = event.id === latestAnswer ? suggestions(event) : []}
+                  {#if eventLinks.length}
+                    <div class="mt-3 flex flex-wrap gap-2" role="group" aria-label="Verweise aus Chattys Antwort">
+                      {#each eventLinks as link (link.path)}
+                        {@const Icon = linkIcons[link.kind] ?? ArrowRight}
+                        <Button href={`${base}${link.path}`} variant="outline" class="chatty-element max-w-full justify-start text-left" onclick={(e: MouseEvent) => void navigate(e, link.path)}>
+                          <Icon size={16} aria-hidden="true" class="shrink-0"/><span class="min-w-0 break-words">{link.label}</span>
+                        </Button>
+                      {/each}
+                    </div>
+                  {/if}
+                  {#if eventSuggestions.length}
+                    <div class="mt-3 flex flex-wrap gap-2" role="group" aria-label="Vorgeschlagene Rückfragen">
+                      {#each eventSuggestions as suggestion (suggestion)}
+                        <button type="button" class="chatty-element chatty-suggestion" disabled={!canSend} onclick={() => void send(suggestion)}>
+                          <MessageSquarePlus size={16} aria-hidden="true" class="shrink-0"/><span class="min-w-0 break-words">{suggestion}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                  {#if event.body.elements_omitted}<p class="mt-2 text-body-sm text-muted-foreground">{event.body.elements_omitted === 1 ? 'Ein Verweis' : `${event.body.elements_omitted} Verweise`} konnte{event.body.elements_omitted === 1 ? '' : 'n'} nicht geprüft werden und {event.body.elements_omitted === 1 ? 'wurde' : 'wurden'} weggelassen.</p>{/if}
+                {/if}
                 {#each event.body.sources ?? [] as source}<details class="mt-2 text-body-sm"><summary class="cursor-pointer underline">{source.heading || source.title}</summary><pre class="mt-2 whitespace-pre-wrap">{source.body}</pre></details>{/each}
                 {#if event.kind === 'question' && active?.id === event.runId && active.status === 'waiting_input'}<div class="mt-2 flex flex-wrap gap-2">{#each event.body.options ?? [] as option}<button class="rounded-md border p-2" disabled={!canSend} onclick={() => void send(option)}>{option}</button>{/each}</div>{/if}
               {:else if event.kind === 'action'}
@@ -167,6 +207,11 @@
   .selection-button[aria-pressed="true"] { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
   .selection-button:disabled { cursor: not-allowed; opacity: .5; }
   .selection-button:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+  .chatty-suggestion { display: inline-flex; max-width: 100%; align-items: center; gap: .5rem; min-height: 2.25rem; border: 1px dashed hsl(var(--input)); border-radius: var(--radius-sm); background: hsl(var(--background)); padding: .375rem .75rem; text-align: left; font-size: .875rem; line-height: 1.25rem; transition: background-color var(--dur, .12s); }
+  .chatty-suggestion:hover:not(:disabled) { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
+  .chatty-suggestion:disabled { cursor: not-allowed; opacity: .5; }
+  .chatty-suggestion:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+  @media (any-pointer: coarse) { :global(.chatty-element) { min-height: 44px; } }
   :global(.chatty-launcher) { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 40; width: 52px; height: 52px; border-radius: var(--radius); color: hsl(var(--primary)); background: hsl(var(--background)); border: 1px solid hsl(var(--border)); box-shadow: var(--shadow-pop); padding: 4px; }
   :global(.chatty-launcher:focus-visible), :global(.icon-button:focus-visible) { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
   :global(.chatty-panel) { position: fixed; right: 1.25rem; bottom: 5.25rem; z-index: 50; width: min(420px, calc(100vw - 2rem)); height: min(640px, calc(100dvh - 7rem)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--background)); color: hsl(var(--foreground)); box-shadow: var(--shadow-pop); }

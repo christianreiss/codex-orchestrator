@@ -27,7 +27,7 @@ when needed; selection is locked during active work. Minimize, stop and new chat
 also live in the chat. The trash button
 starts a new conversation with one click, without confirmation, and focuses the
 empty message field. Enter sends;
-Shift+Enter inserts a newline. The settings card on `/admin/engines#chatty`
+Shift+Enter inserts a newline. The settings card on `/admin/settings#chatty`
 controls availability, engine priority and concurrency. Deactivation stops active
 model calls. The API kill switch also suspends the worker.
 
@@ -91,6 +91,48 @@ Chatty is an application administrator, not a system runner. It cannot start hos
 tasks or workflow runs, create/reactivate schedules, enable task recovery or
 start daemon sessions. MCP descriptions in its knowledge are explanatory data,
 not permission to invoke the full fleet MCP surface.
+
+## Rich replies: links and suggestions
+
+An answer can carry up to eight elements, rendered under the text: console
+buttons (at most six) and follow-up suggestions (at most four). The model writes
+only symbolic references such as `{"type":"link","kind":"host","ref":"example.com"}`
+or `{"type":"suggestion","text":"Ist example.com online?"}`. It never writes a URL,
+path or label; a field like `href` or `label` invalidates the element.
+
+`api/src/services/chatty/elements.ts` resolves each reference server-side:
+
+| Kind | Reference | Destination | Read capability |
+| --- | --- | --- | --- |
+| `host` | FQDN or numeric ID; internal hosts never resolve | `/hosts/<id>` | `hosts.read` |
+| `project` | slug, optional `view` board/documents/reports/activity | `/projects/<slug>[/<view>]` | `projects.read` |
+| `skill`, `subagent`, `command`, `output-style` | slug, not deleted | `/library/<type>/<slug>` | `content.read` |
+| `workflow` / `workflow_run` | definition slug / run UUID | `/workflows/definitions/<slug>`, `/workflows/runs/<id>` | `workflows.read` |
+| `account` | numeric ID, not being removed | `/accounts` (no detail route exists) | `auth.read_metadata` |
+| `manual` | shipped manual article slug | `/manual/<slug>` | `admin.read` |
+| `page` | a fixed page name such as `settings`, `chatty`, `limits`, `engine-state` | the registered console route | page-specific |
+
+The resolver checks that the entity exists and that the acting admin's role holds
+the capability, then builds the path from that template and the label from the
+stored name (control and bidirectional characters removed, bounded length). A final
+pattern accepts only known console route prefixes; no scheme, host, `..` or `//`
+can survive. Text in tool output, host names or documents therefore cannot create a
+destination outside this set. The `ui_links_check` tool runs the same resolver so
+the model can confirm a reference before answering, for example to answer "Habe
+ich einen Host example.com?" from real data.
+
+If an answer contains a reference the server refuses, the run gets one correction
+turn telling the model to answer without it, so the text does not promise a
+missing button. Anything still refused afterwards is dropped and counted in
+`elements_omitted`; the panel says so. Resolved elements are stored with the
+encrypted answer event, appear on reload and in other tabs, and Clear deletes them.
+
+The panel navigates with the SvelteKit router (`paths.base` added on the client;
+modified clicks open a new tab). The desktop panel stays open; the full-screen
+phone panel minimizes so the destination is visible, and reopening shows the same
+conversation. Only the latest answer offers its suggestions; a suggestion is sent
+as an ordinary user message and cannot approve an action. Mutations still go
+through the confirmation card below; there are no action buttons in answers.
 
 ## Execution and confirmations
 

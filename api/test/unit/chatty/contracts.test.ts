@@ -22,7 +22,16 @@ describe('Chatty contracts', () => {
       kind: 'answer',
       text: 'Hallo',
       sources: [],
+      elements: [],
     });
+    expect(
+      modelResponseSchema.safeParse({ kind: 'answer', text: 'x', elements: Array.from({ length: 13 }, () => ({})) })
+        .success,
+    ).toBe(false);
+    expect(
+      modelResponseSchema.safeParse({ kind: 'question', text: 'x', elements: [{ type: 'suggestion', text: 'y' }] })
+        .success,
+    ).toBe(false);
   });
   it('validates context identifiers rather than accepting arbitrary page content', () => {
     expect(

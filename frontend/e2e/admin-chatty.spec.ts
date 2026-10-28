@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import type { Selection } from '../src/lib/api/chatty';
+import { CHATTY_RICH_EVENTS, installFixtures } from './admin-fixtures';
 
 test('Chatty gates availability, persists the conversation and confirms concrete changes', async ({ page }) => {
   let generation = 1;
@@ -120,6 +121,60 @@ test('Chatty gates availability, persists the conversation and confirms concrete
   await page.getByRole('button', { name: 'Chatty öffnen' }).click();
   await expect(page.getByText('Chatty ist gerade nicht verfügbar.', { exact: false })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Nachricht senden' })).toBeDisabled();
+});
+
+test('Chatty answers carry verified console links and follow-up suggestions', async ({ page }) => {
+  let events: unknown[] = [...CHATTY_RICH_EVENTS];
+  const sent: string[] = [];
+  await installFixtures(page, (path, body) => {
+    if (path === '/admin/chatty/status') return { visible: true, ready: true, enabled: true, knowledge_version: 'test', engines: [{ engine: 'codex', ready: true, reason: null, default_model: 'test', models: [{ id: 'test', display_name: 'Test' }] }] };
+    if (path === '/admin/chatty/session') return { generation: 1, selection: { engine: null, model: null }, events, active: null, has_older: false };
+    if (path === '/admin/chatty/messages') {
+      const text = (body as { text: string }).text; sent.push(text);
+      events = [...events, { id: 5, kind: 'user', runId: 'run-next', createdAt: '2026-10-28T08:02:00Z', body: { text } }];
+      return { id: 'run-next', status: 'queued' };
+    }
+    return undefined;
+  });
+  await page.route('**/admin/chatty/events', route => route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' }));
+  await page.goto('/admin/hosts');
+  await page.getByRole('button', { name: 'Chatty öffnen' }).click();
+  const dialog = page.getByRole('dialog');
+  const links = dialog.getByRole('group', { name: 'Verweise aus Chattys Antwort' });
+  await expect(links.getByRole('link')).toHaveCount(2);
+  const host = links.getByRole('link', { name: 'Host console.example.test öffnen' });
+  await expect(host).toHaveAttribute('href', '/admin/hosts/1');
+  await expect(links.getByRole('link', { name: /^Hilfe: Hosts/ })).toHaveAttribute('href', '/admin/manual/hosts');
+  for (const label of ['Externer Link', 'Doppelte Basis', 'Skript', 'Alte Rückfrage']) await expect(dialog.getByText(label)).toHaveCount(0);
+  await expect(dialog.getByText('Ein Verweis konnte nicht geprüft werden und wurde weggelassen.')).toBeVisible();
+  const audit = await new AxeBuilder({ page }).include('[role="dialog"]').analyze();
+  expect(audit.violations).toEqual([]);
+  await page.screenshot({ path: '/tmp/chatty-rich-elements-desktop.png' });
+
+  // Keyboard activation navigates in place; the desktop panel and its conversation stay open.
+  await host.focus();
+  await host.press('Enter');
+  await expect(page).toHaveURL(/\/admin\/hosts\/1$/);
+  await expect(dialog).toBeVisible();
+  await expect(host).toBeVisible();
+
+  // A suggestion sends exactly its visible text as the next message.
+  await dialog.getByRole('group', { name: 'Vorgeschlagene Rückfragen' }).getByRole('button', { name: 'Ist console.example.test aktuell?' }).click();
+  await expect.poll(() => sent).toEqual(['Ist console.example.test aktuell?']);
+  await expect(dialog.getByRole('group', { name: 'Vorgeschlagene Rückfragen' })).toHaveCount(0);
+
+  // On a phone the full-screen panel minimizes after navigation and reopens with the same conversation.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const manual = links.getByRole('link', { name: /^Hilfe: Hosts/ });
+  const bounds = await manual.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: '/tmp/chatty-rich-elements-mobile.png' });
+  await manual.click();
+  await expect(page).toHaveURL(/\/admin\/manual\/hosts$/);
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'Chatty öffnen' }).click();
+  await expect(page.getByRole('dialog').getByRole('link', { name: 'Host console.example.test öffnen' })).toBeVisible();
 });
 
 for (const role of ['owner', 'viewer']) {
