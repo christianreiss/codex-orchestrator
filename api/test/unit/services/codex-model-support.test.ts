@@ -29,6 +29,7 @@ describe('Codex native model compatibility', () => {
     expect(modelDefaultsCatalog('codex').find(entry=>entry.model===model)?.min_cli_version).toBe('0.159.0');
     for(const version of [null,'0.158.0']) expect(modelLaunchCatalog('codex',undefined,version).models.map(entry=>entry.model)).not.toContain(model);
     expect(modelLaunchCatalog('codex',undefined,'0.159.0').models.find(entry=>entry.model===model)?.min_cli_version).toBe('0.159.0');
-    for(const engine of ['claude','grok'] as const) expect(modelLaunchCatalog(engine,undefined,null)).toEqual(modelLaunchCatalog(engine));
+    // Claude now carries its own documented minimums (claude-model-support.test.ts).
+    expect(modelLaunchCatalog('grok',undefined,null)).toEqual(modelLaunchCatalog('grok'));
   });
 });

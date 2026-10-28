@@ -535,7 +535,7 @@ export const ADVISOR_MODEL_ALIASES = ['opus', 'sonnet', 'fable'] as const;
 
 /**
  * `advisor_rank` exactly as baked into the claude-cli model catalog (read out of
- * the 2.1.296 binary, 2026-10-12). The CLI uses it for two separate gates:
+ * the 2.1.312 binary, 2026-10-28). The CLI uses it for two separate gates:
  *
  *   var fZr = 2
  *   function Mtn(e){ ...; let t = HXe(e); return t !== void 0 && t >= fZr }
@@ -571,7 +571,7 @@ export const CLAUDE_MIN_ADVISOR_RANK = 2;
  * (`aliases:{opus:{default:"claude-opus-5-5"},sonnet:{default:"claude-sonnet-5-5"},
  * fable:{default:"claude-fable-5-1"}}`). `haiku` remains absent from ADVISOR_MODEL_ALIASES: although Haiku 5.5
  * now has rank 4, the native advisor picker still offers only
- * `["fable","opus","sonnet"]` in Claude Code 2.1.296.
+ * `["fable","opus","sonnet"]` in Claude Code 2.1.312.
  */
 export const CLAUDE_ADVISOR_ALIAS_TARGETS: Readonly<Record<string, string>> = {
   opus: 'claude-opus-5-5',

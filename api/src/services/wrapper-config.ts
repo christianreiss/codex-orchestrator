@@ -30,6 +30,7 @@ import { readFleetEngineState } from './engine-switch.js';
 import { effectiveSkillDigest } from './skill-provenance.js';
 import { readModelPolicy, type ModelPolicy } from './model-policy.js';
 import { modelLaunchCatalog } from './model-defaults.js';
+import { normalizeClaudeModelReference } from './claude-models.js';
 import { isTruthyFlagValue } from './settings.js';
 import { withSpan, type TraceSpan } from '../observability/tracing.js';
 
@@ -420,9 +421,10 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     if (engine === 'claude') {
       return {
         silent: opts.silent,
-        claude_model_override: host.claudeModelOverride ?? null,
+        // Older rows may hold a raw retired ID; the wrapper exports it as ANTHROPIC_MODEL.
+        claude_model_override: host.claudeModelOverride ? normalizeClaudeModelReference(host.claudeModelOverride) : null,
         admin_theme_hint: opts.adminTheme,
-        model_catalog: modelLaunchCatalog(engine, policy),
+        model_catalog: modelLaunchCatalog(engine, policy, host.claudeClientVersion),
         ...(policy.latest_only ? { model_policy: policy } : {}),
       };
     }

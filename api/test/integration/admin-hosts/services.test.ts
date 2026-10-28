@@ -811,3 +811,38 @@ describe('Terra host override installed-version boundary', () => {
    await expect(svc.setModelOverrides(registered.host.id,{model_override:null})).resolves.toMatchObject({modelOverride:null});
  });
 });
+
+describe('Claude host override installed-version boundary', () => {
+  it.each([null, '2.1.283', '2.1.284 (Claude Code)'])('checks observed %s without blocking clearing or older models', async version => {
+    const mock = createMockDb();
+    const svc = new HostManagementService({ db: mock.db, env: buildEnv(), keyring: await buildKeyring(), events: makeAdminEventsWriter(mock.db) });
+    const registered = await svc.register({ fqdn: 'claude-version.test', engines: ['claude'] });
+    const row = mock.rows('hosts')[0]!;
+    row.claude_client_version = version;
+    row.client_version = '0.165.0'; // The Codex version is never evidence for Claude.
+    const set = (model: string | null) => svc.setModelOverrides(registered.host.id, { claude_model_override: model, includeClaudeOverride: true });
+    if (version?.startsWith('2.1.284')) await expect(set('claude-sonnet-5-5')).resolves.toBeDefined();
+    else await expect(set('claude-sonnet-5-5')).rejects.toThrow(/2\.1\.284.*clx update/);
+    // A retired id resolves to Sonnet 5.5 and therefore needs the same version.
+    if (!version?.startsWith('2.1.284')) await expect(set('claude-sonnet-4-20250514')).rejects.toThrow(/claude-sonnet-5-5/);
+    await expect(set('claude-sonnet-5')).resolves.toBeDefined();
+    await expect(set(null)).resolves.toBeDefined();
+    expect(mock.rows('hosts')[0]!.claude_model_override).toBeNull();
+  });
+});
+
+describe('Claude host override legacy migration', () => {
+  it.each([
+    ['claude-sonnet-4-20250514', 'claude-sonnet-5-5'],
+    ['claude-3-5-sonnet-latest[1m]', 'claude-sonnet-5-5[1m]'],
+    ['claude-sonnet-5', 'claude-sonnet-5'],
+    ['vendor/custom-deployment', 'vendor/custom-deployment'],
+  ])('stores %s as %s', async (input, stored) => {
+    const mock = createMockDb();
+    const svc = new HostManagementService({ db: mock.db, env: buildEnv(), keyring: await buildKeyring(), events: makeAdminEventsWriter(mock.db) });
+    const registered = await svc.register({ fqdn: 'claude-legacy.test', engines: ['claude'] });
+    mock.rows('hosts')[0]!.claude_client_version = '2.1.312';
+    await svc.setModelOverrides(registered.host.id, { claude_model_override: input, includeClaudeOverride: true });
+    expect(mock.rows('hosts')[0]!.claude_model_override).toBe(stored);
+  });
+});

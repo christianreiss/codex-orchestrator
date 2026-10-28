@@ -68,11 +68,11 @@ RUN set -euo pipefail; \
     npm --version
 
 # --- Claude Code CLI (exact latest-normal release, verified) ---
-# Latest normal release as of 2026-10-26; vendor conservative stable is 2.1.308.
+# Latest normal release as of 2026-10-28; vendor conservative stable is 2.1.308.
 # No `|| true`. The previous form installed whatever npm served that minute and
 # swallowed the failure, so a registry hiccup produced an image that claimed
 # dual-engine readiness with no `claude` on PATH at all.
-ARG CLAUDE_CODE_VERSION=2.1.310
+ARG CLAUDE_CODE_VERSION=2.1.312
 RUN set -euo pipefail; \
     npm install -g --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
     command -v claude >/dev/null || { echo "claude not on PATH after install" >&2; exit 1; }; \

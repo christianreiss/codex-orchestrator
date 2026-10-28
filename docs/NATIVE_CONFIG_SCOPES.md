@@ -5,7 +5,7 @@ profile sidecars, Claude `settings.json`, and Grok `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
 can be authored centrally. Coverage was reviewed against Codex 0.165.0
-(2026-10-28), Claude Code 2.1.310 and Grok Build 1.0.70 (2026-10-26).
+(2026-10-28), Claude Code 2.1.312 (2026-10-28) and Grok Build 1.0.70 (2026-10-26).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |

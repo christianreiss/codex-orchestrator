@@ -24,12 +24,12 @@ The image bundles:
 - Grok Build 1.0.70 from the official `@xai-official/grok-linux-{x64,arm64}` native package, installed by `install-grok.mjs` using Node's built-in Brotli decoder.
 
 - The Codex CLI (default `rust-v0.165.0`, musl builds; see `CODEX_TAG` in `runner/Dockerfile`). The pin has to stay in step with the fleet's codex target so probes and gateway requests run the same model catalog as real hosts. Confirmed on 2026-10-15: 0.154.0 rejects `gpt-6.1-sol` with ChatGPT credentials; 0.162.1 completes the same prompt with the same refresh-stripped credentials. Override via build args `CODEX_TAG`, `CODEX_VERSION`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`, `CODEX_SHA256_AMD64`, `CODEX_SHA256_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
-- Node.js 22.14.0 plus `@anthropic-ai/claude-code@2.1.310` (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
+- Node.js 22.14.0 plus `@anthropic-ai/claude-code@2.1.312` (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
 
 Codex and Node archives are checked against pinned SHA256 digests. The official Grok native package is pinned to 1.0.70 with separate Linux amd64/arm64 sha512 integrity digests, verified against the exact
 platform dependencies of `@xai-official/grok@1.0.70` on 2026-10-26, and only `package/bin/grok.br` is decoded; npm lifecycle scripts are never run. All three CLIs must report the expected version after installation; a missing, unreadable, or mismatched binary fails the build. There is no `|| true`. The base image is pinned by multi-arch index digest — `scripts/update-base-images.sh` refreshes that pin and the Node/Codex checksums together.
 
-These are runner execution pins, separate from host minimum-version and private-install fallback policies. Claude 2.1.310 tracks the latest normal release reviewed on 2026-10-26; the vendor conservative `stable` channel remains 2.1.308. Codex 0.165.0 is its reviewed stable release (2026-10-28). Grok 1.0.70 is the official stable-pointer/npm-latest selection, although the verified binary reports `[alpha]`; distribution selection and embedded build label are recorded separately.
+These are runner execution pins, separate from host minimum-version and private-install fallback policies. Claude 2.1.312 tracks the latest normal release reviewed on 2026-10-28; the vendor conservative `stable` channel remains 2.1.308. Codex 0.165.0 is its reviewed stable release (2026-10-28). Grok 1.0.70 is the official stable-pointer/npm-latest selection, although the verified binary reports `[alpha]`; distribution selection and embedded build label are recorded separately.
 
 The image records what it installed in `RUNNER_CODEX_VERSION`, `RUNNER_CLAUDE_VERSION`, and `RUNNER_GROK_VERSION`, and names the engines it must have in `RUNNER_REQUIRED_ENGINES` (`codex,claude,grok`). `entrypoint.sh` and `app.py` both refuse to start when one of those is absent or has drifted, so a runner can never advertise an engine it cannot actually run.
 
@@ -100,8 +100,8 @@ Returns what the image actually carries, probed once at import:
     "claude": {
       "available": true,
       "binary": "/usr/local/bin/claude",
-      "version": "2.1.310",
-      "expected_version": "2.1.310",
+      "version": "2.1.312",
+      "expected_version": "2.1.312",
       "version_matches": true,
       "detail": "ready"
     },

@@ -146,7 +146,7 @@ Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitl
 ### Native command maintenance (cxx 0.9.66)
 
 The native dispatch and flag grammar were checked against Claude Code
-**2.1.310** on 2026-10-26 and the
+**2.1.312** on 2026-10-28 and the
 [official CLI reference](https://code.claude.com/docs/en/cli-reference).
 `purge` is forwarded as a native maintenance command; it retains its native
 confirmation and `--dry-run` behavior. Recognized native maintenance commands
@@ -1033,7 +1033,7 @@ Desktop 3.6556.0 or newer reads it; accepting it in a CLI settings parser would
 not make it functional in managed CLI sessions.
 
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
-checked against Claude Code 2.1.310 on 2026-10-26. Validation rejects unknown
+checked against Claude Code 2.1.312 on 2026-10-28. Validation rejects unknown
 root keys and fields in fixed nested objects, invalid types/enums, malformed
 hook events and handlers, and unsafe JSON keys with HTTP 422. Diagnostics name
 the full `native_settings` path, including array indices; literal dotted keys
@@ -1086,7 +1086,7 @@ before applying its replacement leaves.
 The public picker and inference gateway now include Haiku 5.5 and the still-active
 Opus 4.6 and Opus 4.5 (`claude-opus-4-5-20251101`). Selecting Opus 4.6 no longer
 silently upgrades it to 4.8. Haiku 5.5 has a 1M context window and 128k output
-limit; use Claude Code 2.1.293 or later. The runner image pins 2.1.310. Restricted
+limit; use Claude Code 2.1.293 or later. The runner image pins 2.1.312. Restricted
 Mythos models remain outside the public catalog; plan/provider entitlements are
 still checked upstream.
 
@@ -1095,15 +1095,65 @@ deprecated Sonnet 4.5 (replacement: Sonnet 5.5). This also covers native
 `modelSettings`, fallback/advisor/allowlist models, picker entries, model
 remappings, model environment variables, and hook models. Explicit current
 per-model settings win when an old entry migrates onto the same model. Unknown
-custom deployment IDs remain intact. The API-key auth probe uses active Haiku
+custom deployment IDs remain intact.
+
+Since 2026-10-28 every retired or deprecated Sonnet ID (Sonnet 3, 3.5, 3.7, 4
+including `claude-sonnet-4-0` and `claude-sonnet-4-20250514`, and 4.5) migrates
+to `claude-sonnet-5-5`, the "Recommended replacement" on the
+[deprecations page](https://platform.claude.com/docs/en/about-claude/model-deprecations)
+checked that day. This applies to fleet and host model values, native model
+fields, the signed per-host `claude_model_override`, latest-family replacements
+and the `/anthropic/v1` gateway. Sonnet 5 and Sonnet 5.5 accept the same
+persistent efforts, so a stored effort is kept; a migrated value without one
+runs at Sonnet 5.5's CLI default (`medium`, filled in for host overrides). An already stored `claude-sonnet-5`
+is active and stays unchanged: earlier migrations cannot be told apart from a
+deliberate choice. No database migration is needed because legacy values
+normalize on store and render. The API-key auth probe uses active Haiku
 4.5 with a small output budget and no thinking, replacing the retired Sonnet 4
 probe; OAuth probes continue through the native CLI.
 
 Sources: [Claude Code models and effort](https://code.claude.com/docs/en/model-config),
 [model lifecycle](https://platform.claude.com/docs/en/about-claude/model-deprecations),
-and the installed Claude Code 2.1.296 first-party model catalog. API and CLI effort
+and the installed Claude Code 2.1.296 first-party model catalog (re-checked
+against 2.1.312 on 2026-10-28). API and CLI effort
 are separate contracts: Opus 4.5 has no CLI effort control, and Sonnet 5.5's CLI
 default is `medium` even though its API default is `high`.
+
+### Claude model CLI minimums
+
+[Model configuration](https://code.claude.com/docs/en/model-config) (checked
+2026-10-28) documents per-model Claude Code floors: Fable 5.1 **2.1.257**,
+Opus 5.5 **2.1.280**, Sonnet 5.5 **2.1.284** and Haiku 5.5 **2.1.293**; older
+CLIs do not support these models. No minimum is invented for other catalog
+models, tier aliases (`sonnet`, `opus`, ...) or custom provider IDs. A retired
+ID that migrates to one of these models inherits its floor; `[1m]` does not
+change the model.
+
+- **Catalog.** `GET /admin/model-defaults/claude` entries carry
+  `min_cli_version`. A host's signed launch catalog omits entries whose floor
+  exceeds its reported `claude_client_version` (an unreported version counts as
+  too old). Fleet defaults stay authorable before any host reports.
+- **Host override and delivery.** An incompatible `claude_model_override` is
+  rejected with HTTP 422 and upgrade guidance; clearing is always allowed.
+  Host config/settings delivery checks the effective root model (host override,
+  else fleet model, after latest-family mapping) against the reported version
+  and fails with the same guidance until the host updates; on the sync bundle
+  that fails the whole response. The signed wrapper config
+  (`/wrapper/v2/config`), `clx update` and `clx cron run` stay available. The
+  installed version is recorded only by `POST /cron/report` (update or cron
+  run), not by sync, so recovery is: update or cron run, then sync.
+- **Wrapper (cxx).** The launchpad probes the installed Claude binary and marks
+  incompatible choices unavailable instead of falling back to another model.
+  A root Claude launch (including `cxx native claude` and `clx run`) resolves the
+  model as native would — `--model`, then the host override exported as
+  `ANTHROPIC_MODEL`, then an inherited `ANTHROPIC_MODEL`, then `settings.json`
+  or `--settings` `model` — and, when that model has a floor, refuses with exit
+  2 before touching auth, settings or the session guard. The check probes the
+  binary that would actually run, so a `CLX_CLAUDE_BIN` override is gated too.
+  Native subcommands (`update`, `install`, `doctor`, `auth`, `mcp`, ...) and
+  help/version are never gated. The wrapper keeps the four floors built in so
+  an older signed catalog without `min_cli_version` still enforces them. An
+  `ANTHROPIC_MODEL` inside the settings `env` block is not considered.
 
 ### Structured settings
 

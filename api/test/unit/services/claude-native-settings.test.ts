@@ -203,6 +203,27 @@ describe('Claude native user settings', () => {
     expect(JSON.parse(new ClientConfigService({} as never).render({ native_settings: native }, 'claude').content)).toMatchObject(result);
   });
 
+  it('merges retired Sonnet entries onto Sonnet 5.5 while an explicit 5.5 entry and stored Sonnet 5 win', () => {
+    const native = {
+      modelSettings: {
+        'claude-sonnet-4-20250514': { effortLevel: 'xhigh', autoCompactWindow: 400000 },
+        'claude-sonnet-5-5': { effortLevel: 'low' },
+        'claude-sonnet-5': { effortLevel: 'high' },
+      },
+      fallbackModel: ['claude-3-5-sonnet-20241022', 'claude-sonnet-5'],
+    };
+    const result = normalizeClaudeNativeSettings(native);
+    expect(result.modelSettings).toEqual({
+      'claude-sonnet-5-5': { effortLevel: 'low', autoCompactWindow: 400000 },
+      'claude-sonnet-5': { effortLevel: 'high' },
+    });
+    expect(result.fallbackModel).toEqual(['claude-sonnet-5-5', 'claude-sonnet-5']);
+    expect(normalizeClaudeNativeSettings(result)).toEqual(result);
+    const rendered = JSON.parse(new ClientConfigService({} as never).render({ model: 'claude-sonnet-5', native_settings: native }, 'claude').content);
+    expect(rendered.model).toBe('claude-sonnet-5');
+    expect(JSON.parse(new ClientConfigService({} as never).render({ model: 'claude-3-5-sonnet-20241022', effortLevel: 'xhigh' }, 'claude').content)).toMatchObject({ model: 'claude-sonnet-5-5', modelSettings: { 'claude-sonnet-5-5': { effortLevel: 'xhigh' } } });
+  });
+
   it('preserves opt-in features through normalization, stored settings and both renders', () => {
     const native = {
       modelSettings: { 'claude-opus-5-5': { effortLevel: 'high', maxEffortLevel: 'xhigh', autoCompactWindow: 300000 } },

@@ -46,7 +46,7 @@ var claudeTopLevelSubcommands = map[string]struct{}{
 	"upgrade":     {},
 }
 
-// Native root parser flags verified against Claude Code 2.1.310 on 2026-10-26.
+// Native root parser flags verified against Claude Code 2.1.312 on 2026-10-28.
 // Required, optional and variadic values have different consumption rules: a
 // command-looking value must never become a subcommand or an auth operation.
 var claudeGlobalOptionsWithValue = map[string]struct{}{

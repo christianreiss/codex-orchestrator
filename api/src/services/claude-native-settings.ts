@@ -73,7 +73,7 @@ function jsonCopy(value: unknown, path: string, depth = 0): unknown {
   return fail(path, 'expected a JSON value');
 }
 
-// Public fixed-object grammar, verified against the 2.1.310 native schema and
+// Public fixed-object grammar, verified against the 2.1.312 native schema and
 // https://code.claude.com/docs/en/{settings-reference,hooks,plugins/marketplace-reference}.
 // Maps deliberately validate their values without interpreting names as paths.
 const text = z.string();

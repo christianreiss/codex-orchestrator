@@ -1,4 +1,4 @@
-/** Public user-scope settings from Claude Code 2.1.310, verified 2026-10-26.
+/** Public user-scope settings from Claude Code 2.1.312, verified 2026-10-28.
  * Source: https://code.claude.com/docs/en/settings-reference
  * Only key names, JSON types and fixed enum values are recorded here. Native
  * settings remain opt-in; this registry does not activate any feature.

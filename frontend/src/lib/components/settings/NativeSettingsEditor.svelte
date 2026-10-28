@@ -24,7 +24,7 @@
   const parse = (text: string) => profiles ? parseNativeProfiles(text) : parseNativeSettings(text);
   const references = {
     codex: { version: "0.165.0", url: "https://developers.openai.com/codex/config-reference/" },
-    claude: { version: "2.1.310", url: "https://code.claude.com/docs/en/settings-reference" },
+    claude: { version: "2.1.312", url: "https://code.claude.com/docs/en/settings-reference" },
     grok: { version: "1.0.70", url: "https://docs.x.ai/build/settings/reference" },
   };
   const qc = useQueryClient();
