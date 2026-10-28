@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -236,6 +236,62 @@ describe("STATIC_COMMANDS", () => {
     const hrefs = DEEP_NAV.map((entry) => entry.href);
     for (const hash of ["#security", "#appearance", "#devices"]) assert.ok(hrefs.includes(`/account${hash}`));
     assert.ok(!hrefs.some((href) => /^\/account\/(password|passkeys|theme|devices)/.test(href)));
+  });
+});
+
+describe("engine settings are searchable", () => {
+  const anchorsModule: string = "../engines/engine-anchors.ts";
+  const componentsDir = fileURLToPath(new URL("..", import.meta.url));
+  const enginesPage = fileURLToPath(new URL("../../../routes/(providers)/engines/+page.svelte", import.meta.url));
+
+  /** A simplified form of the palette's match: the query is a substring of the label, description or a keyword. */
+  function search(query: string): string[] {
+    const needle = query.toLowerCase();
+    return STATIC_COMMANDS.filter((cmd) =>
+      [cmd.label, cmd.description ?? "", ...(cmd.keywords ?? [])].some((text) => text.toLowerCase().includes(needle)),
+    ).map((cmd) => cmd.id);
+  }
+
+  function readSvelte(dir: string): string {
+    return readdirSync(dir, { withFileTypes: true })
+      .map((e) => (e.isDirectory() ? readSvelte(join(dir, e.name)) : e.name.endsWith(".svelte") ? readFileSync(join(dir, e.name), "utf8") : ""))
+      .join("\n");
+  }
+
+  it("finds Codex async compaction by English and German terms", () => {
+    for (const term of ["compaction", "async", "compact", "kompakt", "kompaktierung"]) {
+      assert.ok(
+        search(term).includes("deep:/engines?engine=codex#codex-async-compaction"),
+        `"${term}" does not reach the async compaction setting`,
+      );
+    }
+  });
+
+  it("sends every /engines entry to the tab and disclosure that hold its anchor", async () => {
+    const { advancedEngineForHash, tabEngineForHash } = (await import(anchorsModule)) as typeof import("../engines/engine-anchors");
+    const entries = DEEP_NAV.filter((entry) => entry.href.startsWith("/engines"));
+    assert.ok(entries.length >= 8, `only ${entries.length} /engines entries`);
+    for (const entry of entries) {
+      const [path, hash = ""] = entry.href.split("#");
+      const engine = new URLSearchParams(path.split("?")[1] ?? "").get("engine");
+      if (hash === "engine-state") {
+        assert.equal(engine, null, entry.href);
+        continue;
+      }
+      assert.equal(tabEngineForHash(hash), engine, `${entry.href}: query engine disagrees with the anchor's tab`);
+      // Inside the collapsed Advanced disclosure the hash must open it first, or it scrolls nowhere.
+      assert.equal(advancedEngineForHash(hash), engine, `${entry.href}: anchor is not routed to Advanced`);
+    }
+  });
+
+  it("targets ids that exist in the page source", () => {
+    const source = readSvelte(componentsDir);
+    for (const id of ["codex-async-compaction", "cdx-silent", "claude-client"]) {
+      assert.ok(source.includes(`id="${id}"`), `no element with id="${id}"`);
+    }
+    assert.ok(readFileSync(enginesPage, "utf8").includes('id="engine-state"'));
+    // The per-engine ids are template literals; check the template instead of the expansion.
+    assert.ok(source.includes('`${engine}-${profiles ? "profile" : "native"}-settings`'));
   });
 });
 

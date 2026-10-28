@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { base } from "$app/paths";
@@ -32,7 +32,10 @@
     void goto(`?engine=${engine}`, { replaceState: true, noScroll: true, keepFocus: true });
   }
 
+  let followedHash = "";
+
   async function follow(hash: string) {
+    followedHash = hash;
     // Sections that moved to /limits and /settings keep their old bookmarks working.
     const moved = movedAnchorTarget(hash);
     if (moved) return void goto(`${base}${moved}`, { replaceState: true });
@@ -50,6 +53,13 @@
       setTimeout(() => requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: "start" })), delay);
     }
   }
+
+  // A client-side navigation to another section of this page (the command palette's
+  // `goto`) changes the URL without firing `hashchange`, so follow the router's hash too.
+  $effect(() => {
+    const hash = page.url.hash;
+    untrack(() => { if (hash && hash !== followedHash) void follow(hash); });
+  });
 
   onMount(() => {
     void follow(location.hash);

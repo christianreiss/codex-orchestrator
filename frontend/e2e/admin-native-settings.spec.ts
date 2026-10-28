@@ -109,6 +109,22 @@ test("Codex compaction is read-only without content.manage", async ({ page }) =>
   await expect(toggle).not.toBeChecked(); await expect(toggle).toBeDisabled(); expect(shared.writes).toEqual([]);
 });
 
+test("the command palette finds Async compaction and opens its collapsed section, from another tab too", async ({ page }) => {
+  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines?engine=claude");
+  await selectEngine(page, "claude");
+  for (const term of ["compaction", "kompakt"]) {
+    await page.keyboard.press("ControlOrMeta+k");
+    await page.getByRole("combobox", { name: "Search fleet and commands" }).fill(term);
+    await page.getByLabel("Navigation", { exact: true }).getByRole("option", { name: /Codex async compaction/ }).click();
+    await expect(page).toHaveURL(/\/engines\?engine=codex#codex-async-compaction$/);
+    await expect(page.getByRole("tab", { name: "Codex" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#codex-advanced")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("switch", { name: "Async compaction", exact: true })).toBeInViewport();
+    // Leave the section so the second term starts from a different tab again.
+    await selectEngine(page, "claude");
+  }
+});
+
 test("native JSON validates, previews and saves each engine without losing separate settings", async ({ page }) => {
   const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["codex", "claude", "grok"]);
   for (const engine of ["codex", "claude", "grok"] as Engine[]) {
