@@ -12,7 +12,7 @@ import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '..
 import type { OwnerStateSnapshot } from '../control-plane/state/store.js';
 import { stageUpdate } from '../control-plane/state/rows.js';
 import { nativeClaimAttachment } from '../control-plane/state/resource-claims.js';
-import { holderReleasable } from '../control-plane/state/owner-liveness.js';
+import { holderAttached, holderReleasable } from '../control-plane/state/owner-liveness.js';
 import { activeHostEngines } from './host-engine-policy.js';
 import { ownedMessagingHost, ownedEngineState, ownedBridge } from '../control-plane/state/messaging.js';
 import type { Json } from '../control-plane/commands.js';
@@ -245,6 +245,51 @@ export function peerDeclarationOverlap(
     });
   }
   return out;
+}
+
+/**
+ * Overlap with an `uncertain` registration whose owner is not attached (and has
+ * no attached same-transcript successor): typically every registration right
+ * after an API restart, or a peer whose connection dropped and has not come
+ * back. Advisory only — it may be released at the end of the reconnect grace.
+ */
+export interface StalePeerOverlap extends PeerOverlap {
+  status: string;
+  uncertainty_reason: string | null;
+}
+
+interface PeerDeclaration {
+  worktree_id: string;
+  worktree_path: string;
+  username: string;
+  branch: string | null;
+  declared_paths: string[];
+  status: string;
+  uncertainty_reason: string | null;
+  /** Uncertain and nobody attached to continue it: reported, never counted. */
+  possibly_stale: boolean;
+}
+
+/**
+ * {@link peerDeclarationOverlap} split by liveness: `peerOverlap` counts
+ * (active peers, and uncertain ones whose owner is attached), while
+ * `stalePeerOverlap` names possibly stale declarations so they stay visible
+ * without blocking or isolating anybody.
+ */
+function splitPeerDeclarationOverlap(
+  changedPaths: readonly string[],
+  peers: readonly PeerDeclaration[],
+): { peerOverlap: PeerOverlap[]; stalePeerOverlap: StalePeerOverlap[] } {
+  const stale = peers.filter((peer) => peer.possibly_stale);
+  const byId = new Map(stale.map((peer) => [peer.worktree_id, peer]));
+  return {
+    peerOverlap: peerDeclarationOverlap(changedPaths, peers.filter((peer) => !peer.possibly_stale)),
+    stalePeerOverlap: peerDeclarationOverlap(changedPaths, stale).map((hit) => ({
+      ...hit,
+      status: byId.get(hit.worktree_id)!.status,
+      uncertainty_reason: byId.get(hit.worktree_id)!.uncertainty_reason,
+    })),
+  };
 }
 
 function cleanPaths(raw: unknown): string[] {
@@ -1097,15 +1142,16 @@ export class GitDirectorService {
       const previousPaths = readPaths(worktree.declaredPaths).sort();
       const nextPaths = [...(paths ?? previousPaths)].sort();
       const nextTarget = targetBranch ?? worktree.targetBranch;
-      const peerOverlap = peerDeclarationOverlap(nextPaths, await this.livePeerDeclarations(tx, clone.id, [worktree.id], nextTarget ?? '', now));
+      const { peerOverlap, stalePeerOverlap } = splitPeerDeclarationOverlap(nextPaths, await this.livePeerDeclarations(tx, clone.id, [worktree.id], nextTarget ?? '', now));
       if (nextTarget !== worktree.targetBranch || JSON.stringify(nextPaths) !== JSON.stringify(previousPaths)) {
-        const previousOverlap = peerDeclarationOverlap(previousPaths, await this.livePeerDeclarations(tx, clone.id, [worktree.id], worktree.targetBranch ?? '', now));
+        const previousOverlap = splitPeerDeclarationOverlap(previousPaths, await this.livePeerDeclarations(tx, clone.id, [worktree.id], worktree.targetBranch ?? '', now)).peerOverlap;
         await this.notify(tx, { kind: 'work_scope_changed', clone, worktree, targetBranch: nextTarget, previousTargetBranch: worktree.targetBranch, audience: 'repository', detail: { previous_paths: previousPaths, paths: nextPaths, previous_peer_overlap: previousOverlap, peer_overlap: peerOverlap } });
       }
       return {
         joined: true,
         ...(restored ? { restored_registration: restored } : {}),
         peer_overlap: peerOverlap,
+        ...(stalePeerOverlap.length ? { stale_peer_overlap: stalePeerOverlap } : {}),
         clone: this.cloneWire(clone, host),
         worktree_id: worktree.id,
         task: task ?? worktree.task,
@@ -1478,7 +1524,10 @@ export class GitDirectorService {
       // Live peers' git_join declarations are reported, not arbitrated (see
       // resolveVerdict). Before this, a peer without the lease never counted and
       // the reason claimed "no declared paths overlap" over its declarations.
-      const peerOverlap = peerDeclarationOverlap(
+      // Possibly stale peers (uncertain, owner not attached) stay out of the
+      // reason, the stored `overlap` and the notice recipients; the fresh
+      // response still names them as `stale_peer_overlap`.
+      const { peerOverlap, stalePeerOverlap } = splitPeerDeclarationOverlap(
         changedPaths,
         await this.livePeerDeclarations(tx, clone.id, [worktree.id, holderRow?.worktreeId ?? null], targetBranch, now2),
       );
@@ -1545,6 +1594,7 @@ export class GitDirectorService {
           holder: holderWorktree,
           queueDepth: queued.length,
           peerOverlap,
+          stalePeerOverlap,
         }, tx);
       }
       try {
@@ -1578,6 +1628,7 @@ export class GitDirectorService {
         holder: holderWorktree,
         queueDepth: queued.length,
         peerOverlap,
+        stalePeerOverlap,
       }, tx);
     });
   }
@@ -2206,6 +2257,14 @@ export class GitDirectorService {
    * checked against a merge request: active, unexpired, not excluded (the
    * requester and the lease holder, whose declarations already count as holder
    * paths), with declared paths, and aimed at this target branch or at none.
+   *
+   * Owner mode keeps `uncertain` registrations here (exclusion is kept for an
+   * owner that may reconnect), but one whose owner is not attached right now —
+   * neither the registering session nor a same-transcript successor, nor a
+   * legacy drain still protecting it — is flagged `possibly_stale`. After an
+   * API restart every registration is `uncertain (owner_restart)`, and counting
+   * them all would make a dead peer's declarations isolate every new joiner for
+   * the whole reconnect grace.
    */
   private async livePeerDeclarations(
     tx: GitDirectorDb,
@@ -2213,9 +2272,12 @@ export class GitDirectorService {
     excludeWorktreeIds: ReadonlyArray<string | null>,
     targetBranch: string,
     now: string,
-  ): Promise<
-    Array<{ worktree_id: string; worktree_path: string; username: string; branch: string | null; declared_paths: string[] }>
-  > {
+  ): Promise<PeerDeclaration[]> {
+    const snapshot = this.snapshot(tx);
+    const owner = snapshot ? ownerRuntimeFor(this.deps.db) : undefined;
+    const possiblyStale = (row: GitWorktree) =>
+      Boolean(snapshot && owner && row.status === 'uncertain' &&
+        !this.registrationProof(row, snapshot) && !holderAttached(owner, snapshot, row.agentSessionId));
     const rows = this.rows(tx, 'gitWorktrees') ?? await tx
       .select()
       .from(gitWorktrees)
@@ -2236,6 +2298,9 @@ export class GitDirectorService {
         username: row.username,
         branch: row.branch,
         declared_paths: readPaths(row.declaredPaths),
+        status: row.status,
+        uncertainty_reason: row.uncertaintyReason ?? null,
+        possibly_stale: possiblyStale(row),
       }))
       .filter((row) => row.declared_paths.length > 0)
       .sort((a, b) => (a.worktree_path < b.worktree_path ? -1 : 1));
@@ -2448,6 +2513,7 @@ export class GitDirectorService {
       holder?: GitWorktree | null;
       queueDepth?: number;
       peerOverlap?: readonly PeerOverlap[];
+      stalePeerOverlap?: readonly StalePeerOverlap[];
     },
     revisionDb: GitDirectorDb = this.deps.db,
   ): Promise<Record<string, unknown>> {
@@ -2482,6 +2548,7 @@ export class GitDirectorService {
     // Only on a fresh decision: the stored row keeps the union in `overlap`, not
     // the per-peer breakdown, so a replay omits this rather than inventing it.
     if (extra.peerOverlap) out.peer_overlap = extra.peerOverlap.map((peer) => ({ ...peer }));
+    if (extra.stalePeerOverlap?.length) out.stale_peer_overlap = extra.stalePeerOverlap.map((peer) => ({ ...peer }));
     return out;
   }
 }

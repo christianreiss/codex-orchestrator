@@ -1868,7 +1868,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'git_join',
         description:
-          'Declare what you are about to do in a worktree you have already registered: the task, the branch you intend to merge into, and the paths you expect to write. Registration is where you are; this is what you plan to change. The paths matter — they are what lets the Director tell a later requester exactly which files you are both touching instead of just making them wait. Called by the owning session on a registration that went uncertain (orchestrator restart or dropped connection), it restores it and reports restored_registration with the previous status.',
+          'Declare what you are about to do in a worktree you have already registered: the task, the branch you intend to merge into, and the paths you expect to write. Registration is where you are; this is what you plan to change. The paths matter — they are what lets the Director tell a later requester exactly which files you are both touching instead of just making them wait. Called by the owning session on a registration that went uncertain (orchestrator restart or dropped connection), it restores it and reports restored_registration with the previous status. peer_overlap names live peers whose declared paths overlap yours; stale_peer_overlap names uncertain registrations whose owner is not attached (for example right after an orchestrator restart) — possibly stale, advisory only.',
         inputSchema: {
           type: 'object',
           properties: {
