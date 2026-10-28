@@ -112,7 +112,7 @@ Die folgenden Auditkriterien gelten vollständig für jeden Engine-Auftrag.
 - Prüfe pro Modell erlaubte Efforts, Default, Persistenz und native Schlüssel.
   Trenne persistierbare Einstellungen von Session-Flags und API-Parametern.
   Separate Produktmodi sind keine zusätzlichen Effort-Stufen.
-- Pflege das Modell-Tiering in `api/src/services/model-tiers.ts` (Tier 1–4,
+- Pflege das Modell-Tiering in `api/src/services/model-tiers.ts` (Tier 1–5,
   engineübergreifend). Jedes neue Katalogmodell erhält ein Tier; prüfe bestehende
   Zuordnungen gegen die aktuelle Positionierung des Anbieters (Benchmarks,
   vorgesehener Einsatz, Preisklasse). Eine Umstufung braucht eine belegte

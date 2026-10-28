@@ -23,18 +23,18 @@ describe('modelTier', () => {
   it.each([
     [ENGINE_CLAUDE, 'claude-haiku-5-5', 1],
     [ENGINE_CLAUDE, 'claude-sonnet-5', 3],
-    [ENGINE_CLAUDE, 'claude-opus-5-5[1m]', 3],
-    [ENGINE_CLAUDE, 'opus', 3],
-    [ENGINE_CLAUDE, 'claude-fable-5-1', 4],
+    [ENGINE_CLAUDE, 'claude-opus-5-5[1m]', 4],
+    [ENGINE_CLAUDE, 'opus', 4],
+    [ENGINE_CLAUDE, 'claude-fable-5-1', 5],
     [ENGINE_CODEX, 'gpt-6-luna', 1],
     [ENGINE_CODEX, 'gpt-5.6-terra', 2],
     [ENGINE_CODEX, 'gpt-6.1-terra', 2],
     [ENGINE_CODEX, 'gpt-6.1-sol', 3],
-    [ENGINE_CODEX, 'gpt-6-astra', 4],
-    [ENGINE_GROK, 'grok-4.5', 2],
+    [ENGINE_CODEX, 'gpt-6-astra', 5],
+    [ENGINE_GROK, 'grok-4.5', 1],
     [ENGINE_GROK, 'grok-4.6', 2],
-    [ENGINE_GROK, 'grok-4.7-build-fast', 3],
-    [ENGINE_GROK, 'grok-4.7', 3],
+    [ENGINE_GROK, 'grok-4.7-build-fast', 2],
+    [ENGINE_GROK, 'grok-4.7', 2],
   ] as const)('%s %s is Tier %d', (engine, model, tier) => {
     expect(modelTier(engine, model)).toBe(tier);
   });
@@ -53,19 +53,22 @@ describe('buildModelTierTable', () => {
   it('lists only the latest models of the active engines in canonical order', () => {
     const table = buildModelTierTable([ENGINE_GROK, ENGINE_CLAUDE], latest);
     expect(table.flatMap((row) => row.models.map((entry) => entry.engine))).not.toContain(ENGINE_CODEX);
-    expect(table.find((row) => row.tier === 2)).toBeUndefined();
-    expect(table.find((row) => row.tier === 3)?.models).toEqual([
-      { engine: ENGINE_CLAUDE, model: 'claude-opus-5-5' },
-      { engine: ENGINE_CLAUDE, model: 'claude-sonnet-5-5' },
+    expect(table.find((row) => row.tier === 2)?.models).toEqual([
       { engine: ENGINE_GROK, model: 'grok-4.7' },
       { engine: ENGINE_GROK, model: 'grok-4.7-build-fast' },
+    ]);
+    expect(table.find((row) => row.tier === 3)?.models).toEqual([
+      { engine: ENGINE_CLAUDE, model: 'claude-sonnet-5-5' },
+    ]);
+    expect(table.find((row) => row.tier === 4)?.models).toEqual([
+      { engine: ENGINE_CLAUDE, model: 'claude-opus-5-5' },
     ]);
     expect(table.flatMap((row) => row.models.map((entry) => entry.model))).not.toContain('grok-4.6');
   });
 
   it('omits empty tiers', () => {
     const table = buildModelTierTable([ENGINE_GROK], latest);
-    expect(table.map((row) => row.tier)).toEqual([3]);
+    expect(table.map((row) => row.tier)).toEqual([2]);
     expect(buildModelTierTable([], latest)).toEqual([]);
   });
 });
@@ -75,7 +78,7 @@ describe('renderModelTierGuidance', () => {
 
   it('names the configured model and its tier', () => {
     const text = renderModelTierGuidance(table, { engine: ENGINE_CODEX, model: 'gpt-6-astra' });
-    expect(text).toContain("configured codex model is `gpt-6-astra` (Tier 4)");
+    expect(text).toContain("configured codex model is `gpt-6-astra` (Tier 5)");
     expect(text).toContain('| 1 | ');
     expect(text).toContain('`gpt-6-luna`');
     expect(text).toContain('| 2 | ');
@@ -97,7 +100,7 @@ describe('renderModelTierGuidance', () => {
     const text = renderModelTierGuidance(
       buildModelTierTable([engine], { [engine]: [models[engine]] }), { engine, model: models[engine] },
     );
-    for (const tier of [1, 2, 3, 4]) expect(text).toContain(`| ${tier} |`);
+    for (const tier of [1, 2, 3, 4, 5]) expect(text).toContain(`| ${tier} |`);
     expect(text).not.toContain('Whole-stack cleanup assessment is Tier 4');
     expect(text).toContain('takes the tier of the decisions it feeds');
     expect(text).toContain('`scout and prepare`');

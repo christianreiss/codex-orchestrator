@@ -1494,7 +1494,7 @@ Only current models resolves that family to GPT-6.1 Terra without rewriting the
 stored choice. Native CLI and provider API effort contracts remain separate.
 See `interface-api.md` → Fleet model policy.
 
-Model Class Check guidance rates the whole assignment before scouting or planning. Read-only scouting takes the tier of the decisions it feeds and is not Tier 4 by default; all four task definitions remain visible on hosts with only lower-tier models. Two-tier gaps stop unless the operator explicitly overrides the identified mismatch. This is agent guidance, not runtime enforcement.
+Model Class Check guidance rates the whole assignment before scouting or planning. Read-only scouting takes the tier of the decisions it feeds and is not Tier 5 by default; all five task definitions remain visible on hosts with only lower-tier models. Two-tier gaps stop unless the operator explicitly overrides the identified mismatch. This is agent guidance, not runtime enforcement.
 
 Managed session exit uses one terminal portal request with a four-second shared
 remote budget for all engines. Exit hooks hand watchdog evidence to the local
