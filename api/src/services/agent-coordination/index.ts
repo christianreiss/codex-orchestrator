@@ -39,7 +39,7 @@ import {
 import { isFreshPresenceTimestamp } from '../agent-presence.js';
 import { messagingHostEligible, messagingHostEligibleAt } from '../agent-messaging/eligibility.js';
 import { activeHostEngines, readFleetEngineState, type FleetEngineState } from '../engine-switch.js';
-import { repositoryIdentity, roomReadSchema, roomSendSchema } from './model.js';
+import { compactContextAck, repositoryIdentity, roomReadSchema, roomSendSchema } from './model.js';
 import { ResourceClaims } from './claims.js';
 import { coordinationTickInput } from './idle-tick.js';
 
@@ -475,9 +475,9 @@ export class AgentCoordination {
           }
         }
         stageScopeReconciliation(ctx,owner,this.keyring); stageClaimReconciliation(ctx,owner,this.keyring);
-        return scopeSnapshot(owner,ctx.draft.view(),session,claim => ownedClaimView(claim,owner)) as Json;
+        return compactContextAck(scopeSnapshot(owner,ctx.draft.view(),session,claim => ownedClaimView(claim,owner)),session) as Json;
       }});
-      wsPublisher.publish('agent_coordination.changed',{}); return result as ReturnType<typeof scopeSnapshot>;
+      wsPublisher.publish('agent_coordination.changed',{}); return result as ReturnType<typeof compactContextAck<ReturnType<typeof scopeSnapshot>>>;
     }
     const result = await this.run(id, token, async (tx, session) => {
       if (body.workspace) {
@@ -510,7 +510,7 @@ export class AgentCoordination {
         }
       }
       await this.reconcile(tx);
-      return this.snapshot(tx, session);
+      return compactContextAck(await this.snapshot(tx, session), session!);
     });
     wsPublisher.publish('agent_coordination.changed', {});
     return result;
