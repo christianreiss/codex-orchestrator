@@ -101,8 +101,11 @@ export async function guardGitMutation(
         '.' + CLAIM_RECOVERY_GUIDANCE,
       'resource_claim_conflict',
       { claim_ids: conflicts.map((c) => c.id), blockers: conflicts.map((c) => ({
-        id: c.id, session_id: c.sessionId, state: c.state, purpose: c.purpose, resources: c.resources,
-      })), recovery_path: '/admin/agent-messaging/scopes/resolve', operator_required: true },
+        id: c.id, session_id: c.sessionId, state: c.state, uncertainty_reason: c.uncertaintyReason ?? null, purpose: c.purpose, resources: c.resources,
+      })), recovery_path: '/admin/agent-messaging/scopes/resolve',
+      // Connection-loss claims release themselves once their owner stays offline;
+      // only an outcome the owner reported as unknown needs an operator.
+      operator_required: conflicts.some((c) => c.state === 'uncertain' && c.uncertaintyReason === 'reported_unknown') },
     );
   if (session && (flag?.version === '1' || session.hostId !== clone.hostId)) {
     const own = held

@@ -1,6 +1,7 @@
 import { withNativePrincipal } from '../../control-plane/state/native-principal.js';
 import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { ownerPresence } from '../../control-plane/presence.js';
+import { livenessDueAt } from '../../control-plane/state/owner-liveness.js';
 import { GitDirectorNotifications } from '../../services/git-director/notifications.js';
 import { normalizePath } from '../../services/git-director.js';
 import { SettingsService } from '../../services/settings.js';
@@ -153,13 +154,19 @@ export function registerCoordinationRoutes(
   });
   const owner = ownerRuntimeFor(ctx.db);
   if (owner) {
-    const key = 'coordination:event', pendingKey = 'coordination:pending', gitKey='coordination:git-expiry';
+    const key = 'coordination:event', pendingKey = 'coordination:pending', gitKey='coordination:git-expiry', livenessKey='coordination:liveness';
     let closed = false, running: Promise<void> | undefined, again = false;
     const armPending = () => {
       const snapshot=owner.state.snapshot();
       owner.deadlines.cancel(gitKey);
       const leases=snapshot.table('gitMergeRequests').all().filter(row=>row.verdict==='allow'&&!row.completedAt&&row.leaseExpiresAt).map(row=>Date.parse(row.leaseExpiresAt!)).filter(Number.isFinite);
       if(leases.length)owner.deadlines.schedule(gitKey,Math.max(Date.now()+1,Math.min(...leases)),run);
+      // Grace periods elapse without any state or presence change, so they need
+      // their own wake-up. The floor stops a due item that something else still
+      // holds (a present successor, an armed reboot) from spinning the tick.
+      owner.deadlines.cancel(livenessKey);
+      const liveness=livenessDueAt(owner,snapshot,ctx.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS*1000);
+      if(liveness!==null)owner.deadlines.schedule(livenessKey,Math.max(Date.now()+30_000,liveness),run);
       if(snapshot.setting('agent_coordination_enabled')!=='1'||snapshot.setting('agent_messaging_enabled')!=='1'){owner.deadlines.cancel(pendingKey);return;}
       const due = owner.state.snapshot().table('agentScopeEvents').all().filter(row => row.dispatched === 0).map(row => Date.parse(row.createdAt)+2000).filter(Number.isFinite);
       owner.deadlines.cancel(pendingKey);
@@ -187,7 +194,7 @@ export function registerCoordinationRoutes(
     });
     const unsubscribePresence=ownerPresence(owner).subscribe(schedule);
     schedule();
-    app.addHook('onClose',async()=>{closed=true;unsubscribeState();unsubscribePresence();owner.deadlines.cancel(key);owner.deadlines.cancel(pendingKey);owner.deadlines.cancel(gitKey);await running;});
+    app.addHook('onClose',async()=>{closed=true;unsubscribeState();unsubscribePresence();owner.deadlines.cancel(key);owner.deadlines.cancel(pendingKey);owner.deadlines.cancel(gitKey);owner.deadlines.cancel(livenessKey);await running;});
     return;
   }
   // Reconciliation follows the events that change its input. The fallback only

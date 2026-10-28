@@ -68,6 +68,7 @@ function setup(engine: 'codex' | 'claude' | 'grok' = 'codex') {
         bridgeTokenHash: sha256(token),
         hostAuthFingerprint: sha256(key),
         bridgeExpiresAt: '2099-01-01T00:00:00Z',
+        heartbeatAt: now,
         endedAt: null,
         upstreamSessionId: null,
         adapterCapabilities: { scope_protocol_version: 1 },
@@ -349,6 +350,14 @@ describe('exact transcript Git continuation', () => {
       expect(fresh.verdict).toBe('allow');
       expect(fresh.request_id).not.toBe(lease.request_id);
       await withNativePrincipal({ sessionId: next.id, bridgeToken: next.token }, () => h.git.release({ worktree_path: '/repo', deregister: true }, h.host));
+    } else if (scenario === 'foreign-transcript') {
+      // The original lifecycle ended and nobody can continue its transcript:
+      // its registration is abandoned and its lease reclaimed, so the path is
+      // free for any session rather than wedged until an operator evicts it.
+      expect(h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))?.status).toBe('abandoned');
+      expect(h.state.snapshot().table('gitMergeRequests').get(String(lease.request_id))?.verdict).toBe('expired');
+      expect(await register()).toMatchObject({ registered: true });
+      expect(h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))?.agentSessionId).toBe(next.id);
     } else {
       await expect(register()).rejects.toThrow('retains exclusion');
       expect(h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))?.agentSessionId).toBe(h.sessionId);
@@ -483,5 +492,52 @@ describe('Git Director feedback sweep (registration state, remotes, nesting, lis
     const byDir = await h.git.list({ clone_dir: '/repo/MD/.git/' }, h.host);
     expect(byDir).toMatchObject({ total: 1, clones: [expect.objectContaining({ clone_dir: '/repo/MD/.git' })] });
     expect((await h.git.list({ remote_url: 'https://example.test/org/none' }, h.host)).total).toBe(0);
+  });
+});
+
+describe('offline Git registration owners', () => {
+  const GRACE = 5 * 60_000;
+  const foreign = async (h: ReturnType<typeof setup>) => {
+    const id = randomUUID(), address = randomUUID(), token = 'foreign-native';
+    await mutateOwnerState(h.owner, { kind: 'test.foreign-native', payload: {}, prepare(ctx) {
+      const session = ctx.snapshot.sessions.get(h.sessionId)!;
+      ctx.draft.upsert('agentSessions', { ...session, id, agentBusAddressId: address, upstreamSessionId: randomUUID(), bridgeTokenHash: sha256(token) });
+      const row = ctx.snapshot.addresses.get(session.agentBusAddressId!)!;
+      ctx.draft.upsert('agentBusAddresses', { ...row, id: address, address: 'agent:' + address, currentSessionId: id });
+      return null;
+    } });
+    h.presence.attach({ connectionId: randomUUID(), hostId: 1, username: 'root', scope: { topic: 'session', session_id: id, binding_generation: 1, native_instance_id: randomUUID() } });
+    return { id, token };
+  };
+  it('abandons the registration of an owner offline past the grace, reclaims its lease and frees the path', async () => {
+    const h = setup(), args = { worktree_path: '/repo', clone_dir: '/repo/.git', engine: 'codex', username: 'root', branch: 'work' };
+    await h.service.claims.acquire(h.sessionId, h.token, { client_request_id: randomUUID(), purpose: 'merge fixture', resources: [{ kind: 'path', host_id: 1, path: '/repo' }, { kind: 'git', host_id: 1, common_dir: '/repo/.git', branch: 'main' }] });
+    const registered = await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.register(args, h.host));
+    const lease = await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.requestMerge({ worktree_path: '/repo', target_branch: 'main', client_request_id: randomUUID(), changed_paths: ['src/main.ts'] }, h.host));
+    expect(lease.verdict).toBe('allow');
+    h.live.detach();
+    await h.git.reconcileOwned();
+    const row = () => h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))!;
+    expect(row()).toMatchObject({ status: 'uncertain', uncertaintyReason: 'disconnected' });
+    const other = await foreign(h);
+    await expect(withNativePrincipal({ sessionId: other.id, bridgeToken: other.token }, () => h.git.register(args, h.host))).rejects.toThrow('retains exclusion');
+    const later = new GitDirectorService({ db: h.fake as unknown as Database, settings: new SettingsService(h.fake as unknown as Database), now: () => new Date(Date.now() + GRACE + 30_000).toISOString() });
+    await later.reconcileOwned();
+    expect(row()).toMatchObject({ status: 'abandoned' });
+    expect(row().releasedAt).not.toBeNull();
+    expect(h.state.snapshot().table('gitMergeRequests').get(String(lease.request_id))).toMatchObject({ verdict: 'expired' });
+    expect(h.state.snapshot().sessions.get(h.sessionId)?.endedAt).toBeNull();
+    expect(await withNativePrincipal({ sessionId: other.id, bridgeToken: other.token }, () => h.git.register(args, h.host))).toMatchObject({ registered: true });
+    expect(row()).toMatchObject({ status: 'active', agentSessionId: other.id });
+  });
+  it('keeps the registration of an owner that reconnected', async () => {
+    const h = setup(), args = { worktree_path: '/repo', clone_dir: '/repo/.git', engine: 'codex', username: 'root', branch: 'work' };
+    const registered = await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.register(args, h.host));
+    h.live.detach();
+    await h.git.reconcileOwned();
+    h.attach();
+    const later = new GitDirectorService({ db: h.fake as unknown as Database, settings: new SettingsService(h.fake as unknown as Database), now: () => new Date(Date.now() + 10 * GRACE).toISOString() });
+    await later.reconcileOwned();
+    expect(h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))?.status).toBe('uncertain');
   });
 });

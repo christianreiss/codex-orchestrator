@@ -4,6 +4,7 @@ import type { Json } from '../../control-plane/commands.js';
 import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '../../control-plane/state/runtime.js';
 import { coordinationSession, stageScopeReconciliation, scopeSnapshot, scopeMembers, scopeMemberView, requireScopeMembership, stageScopeEvent, stageScopeDispatch } from '../../control-plane/state/coordination.js';
 import { claimReconciliationNeeded, stageClaimReconciliation, ownedClaimView } from '../../control-plane/state/resource-claims.js';
+import { livenessReconciliationNeeded, stageOwnerLiveness } from '../../control-plane/state/session-abandonment.js';
 import { sha256 } from '../../security/hash.js';
 import { sessionTaskTitles } from '../agent-messaging/task-titles.js';
 import { randomUUID } from 'node:crypto';
@@ -70,13 +71,18 @@ export class AgentCoordination {
     const [v] = await tx.select().from(versions).where(eq(versions.name, COORDINATION_ENABLED));
     return v?.version === '1';
   }
-  async reconcileOwned(): Promise<void> {
+  /**
+   * `now` is injectable so tests can step past the reconnect grace; production
+   * always passes the wall clock. Liveness runs first: a session finalized as
+   * abandoned here releases its claims in the same commit.
+   */
+  async reconcileOwned(now = Date.now()): Promise<void> {
     const owner = ownerRuntimeFor(this.db)!; owner.assertOwner();
     const snapshot = owner.state.snapshot(), draft = owner.state.begin();
     const preview: OwnerMutationContext = { snapshot, draft, revision: { epoch: snapshot.revision.epoch, sequence: snapshot.revision.sequence + 1n }, write() {}, effect() { throw new Error('Reconciliation must not dispatch external effects'); } };
-    if (!stageScopeReconciliation(preview, owner, this.keyring) && !claimReconciliationNeeded(owner,snapshot)) return;
+    if (!stageScopeReconciliation(preview, owner, this.keyring) && !claimReconciliationNeeded(owner,snapshot,now) && !livenessReconciliationNeeded(owner,snapshot,this.env,now)) return;
     await mutateOwnerState(owner,{ kind: 'coordination.reconcile', payload: {}, prepare: ctx => {
-      stageScopeReconciliation(ctx,owner,this.keyring); stageClaimReconciliation(ctx,owner,this.keyring); return null;
+      stageOwnerLiveness(ctx,owner,this.keyring,this.env,now); stageScopeReconciliation(ctx,owner,this.keyring); stageClaimReconciliation(ctx,owner,this.keyring,now); return null;
     } });
   }
   async state() {

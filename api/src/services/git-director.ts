@@ -12,6 +12,7 @@ import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '..
 import type { OwnerStateSnapshot } from '../control-plane/state/store.js';
 import { stageUpdate } from '../control-plane/state/rows.js';
 import { nativeClaimAttachment } from '../control-plane/state/resource-claims.js';
+import { holderReleasable } from '../control-plane/state/owner-liveness.js';
 import { activeHostEngines } from './host-engine-policy.js';
 import { ownedMessagingHost, ownedEngineState, ownedBridge } from '../control-plane/state/messaging.js';
 import type { Json } from '../control-plane/commands.js';
@@ -49,7 +50,7 @@ import { lockClaimGate, guardGitMutation } from './agent-coordination/git-guard.
  * Messaging off.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   adminEvents,
@@ -303,6 +304,8 @@ function optionalString(args: Record<string, unknown>, key: string, max = 1024):
 /** Default and ceiling page sizes for `git_list`; see {@link summarizeCloneEntry}. */
 const LIST_SUMMARY_DEFAULT_LIMIT = 20;
 const LIST_MAX_LIMIT = 100;
+/** A clone whose last registration retired this recently is not yet idle. */
+const IDLE_RECENT_RELEASE_MS = 86_400_000;
 const LIST_SUMMARY_WORKTREE_CAP = 25;
 const LIST_SUMMARY_TASK_CHARS = 120;
 
@@ -631,12 +634,39 @@ export class GitDirectorService {
   private async sweepExpired(db: GitDirectorDb, now: string, apply = true): Promise<boolean> {
     const snapshot = this.snapshot(db);
     if (snapshot) {
-      const uncertain = snapshot.table('gitWorktrees').by('status', 'active').filter(row => !this.registrationProof(row, snapshot));
-      const expired = snapshot.table('gitMergeRequests').by('verdict', 'allow').filter(row => !row.completedAt && isExpired(row.leaseExpiresAt, now));
-      if (!apply) return Boolean(uncertain.length || expired.length);
+      const owner = ownerRuntimeFor(this.deps.db)!;
+      const gone = (row: GitWorktree) => holderReleasable(owner, snapshot, row.agentSessionId, Date.parse(now));
+      const lostProof = snapshot.table('gitWorktrees').by('status', 'active').filter(row => !this.registrationProof(row, snapshot));
+      // An uncertain registration is exclusion kept for an owner that may
+      // reconnect. Once that owner is gone (ended, or offline past the
+      // reconnect grace) and no same-transcript successor is present, nothing
+      // can come back for it: abandon it, which frees the path for every other
+      // session, and take its open merge requests with it. A row that only now
+      // lost its proof to an already-gone owner skips the uncertain step.
+      const abandoned = [
+        ...snapshot.table('gitWorktrees').by('status', 'uncertain').filter(row =>
+          ['disconnected', 'owner_restart'].includes(row.uncertaintyReason ?? '') && gone(row)),
+        ...lostProof.filter(gone),
+      ];
+      const abandonedIds = new Set(abandoned.map(row => row.id));
+      const uncertain = lostProof.filter(row => !abandonedIds.has(row.id));
+      const orphaned = snapshot.table('gitMergeRequests').all().filter(row => !row.completedAt && abandonedIds.has(row.worktreeId));
+      const expired = snapshot.table('gitMergeRequests').by('verdict', 'allow').filter(row => !row.completedAt && !abandonedIds.has(row.worktreeId) && isExpired(row.leaseExpiresAt, now));
+      if (!apply) return Boolean(uncertain.length || abandoned.length || expired.length);
       for (const row of uncertain) {
         await this.updateRows(db, 'gitWorktrees', [row.id], { status: 'uncertain', uncertaintyReason: 'disconnected', updatedAt: now });
         this.publish(db, 'worktree', row.cloneId);
+      }
+      for (const request of orphaned) {
+        await this.updateRows(db, 'gitMergeRequests', [request.id], request.verdict === 'allow'
+          ? { verdict: 'expired', completedAt: now, reason: 'Lease reclaimed: the holding agent is no longer registered in this clone.', updatedAt: now }
+          : { verdict: 'withdrawn', completedAt: now, reason: 'Withdrawn: the requesting agent went offline and its registration was abandoned.', updatedAt: now });
+      }
+      for (const row of abandoned) {
+        await this.updateRows(db, 'gitWorktrees', [row.id], { status: 'abandoned', releasedAt: now, updatedAt: now });
+        this.publish(db, 'expiry', row.cloneId);
+        const live = orphaned.filter(request => request.worktreeId === row.id);
+        await this.notify(db, { kind: 'registration_abandoned', clone: snapshot.table('gitClones').get(row.cloneId), worktree: row, audience: 'branch', includeActor: true, detail: { recheck_required: true, withdrawn_requests: live.map(request => request.id) } });
       }
       for (const row of expired) {
         await this.updateRows(db, 'gitMergeRequests', [row.id], { verdict: 'expired', completedAt: now, updatedAt: now });
@@ -1182,6 +1212,26 @@ export class GitDirectorService {
       if (at > 0) clones.unshift(...clones.splice(at, 1));
     }
 
+    // A clone nobody is registered in and no lease holds is history, not
+    // occupancy: hundreds of them (one per scratch clone ever registered) made
+    // a fleet page 155 KB. They stay readable with include_idle or scope clone.
+    // A registration retired within the last day still keeps its clone listed,
+    // so "someone was just here and was reclaimed" is not hidden (staleWire).
+    let idleOmitted = 0;
+    if (scope !== 'clone' && args.include_idle !== true) {
+      const recent = new Date(Date.parse(now) - IDLE_RECENT_RELEASE_MS).toISOString();
+      const busy = new Set([
+        ...(this.rows(this.deps.db, 'gitWorktrees') ?? await this.deps.db.select({ cloneId: gitWorktrees.cloneId, status: gitWorktrees.status, releasedAt: gitWorktrees.releasedAt }).from(gitWorktrees).where(or(inArray(gitWorktrees.status, ['active', 'uncertain']), gte(gitWorktrees.releasedAt, recent))))
+          .filter((row) => row.status === 'active' || row.status === 'uncertain' || (row.releasedAt ?? '') >= recent).map((row) => row.cloneId),
+        ...(this.rows(this.deps.db, 'gitMergeRequests') ?? await this.deps.db.select({ cloneId: gitMergeRequests.cloneId, verdict: gitMergeRequests.verdict, completedAt: gitMergeRequests.completedAt }).from(gitMergeRequests).where(and(eq(gitMergeRequests.verdict, 'allow'), isNull(gitMergeRequests.completedAt))))
+          .filter((row) => row.verdict === 'allow' && !row.completedAt).map((row) => row.cloneId),
+      ]);
+      const own = worktreePath ? await this.cloneForWorktree(this.deps.db, host, normalizePath(worktreePath)) : null;
+      const kept = clones.filter((row) => busy.has(row.id) || row.id === own?.id);
+      idleOmitted = clones.length - kept.length;
+      clones = kept;
+    }
+
     const total = clones.length;
     const out: Array<Record<string, unknown>> = [];
     for (const clone of clones.slice(offset, offset + limit)) {
@@ -1206,6 +1256,7 @@ export class GitDirectorService {
       limit,
       truncated,
       next_offset: truncated ? offset + out.length : null,
+      idle_omitted: idleOmitted,
     };
   }
 
