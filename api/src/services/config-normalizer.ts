@@ -38,19 +38,23 @@ export { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, FORCE_UPGRADE_MODE
 
 /**
  * Codex model ids the fleet offers. Derived from the CLI's own catalog
- * (`models_cache.json`): an entry belongs here iff `visibility == "list"` and
- * `upgrade == null`. `gpt-reserve` and `codex-auto-review` are `visibility:
- * hide` and stay out; a model that grows an `upgrade` block is deprecated
- * upstream and moves to LEGACY_MODEL_UPGRADES.
+ * (`models_cache.json`): an entry belongs here iff it is `visibility == "list"`
+ * and not officially deprecated or retired. `gpt-reserve` and
+ * `codex-auto-review` are `visibility: hide` and stay out. A catalog `upgrade`
+ * block is only an upgrade nudge, not a deprecation: the GPT-5.6 family carries
+ * one (to GPT-6 Sol/Luna) with `retirement_at: null` and remains supported. A
+ * model moves to LEGACY_MODEL_UPGRADES only on official deprecation/retirement
+ * evidence (models page, changelog or a retirement date).
  *
  * Deliberately NOT filtered on the catalog's `supported_in_api` flag: that
  * describes OpenAI's platform API, and this list also feeds `/v1/models`, which
  * is served by the codex runner shelling out to `codex exec` under ChatGPT
  * auth, so an entry with `supported_in_api: false` would still be servable.
  *
- * Verified against models_cache.json from codex-cli 0.164.0, 2026-10-26.
- * GPT-5.5 is already hidden and deprecated, before its October 14 retirement;
- * the fleet migrates it now to the catalog replacement, GPT-6.1 Sol.
+ * Verified against models_cache.json from codex-cli 0.164.0, 2026-10-26, and
+ * the bundled 0.165.0 catalog (same listed set plus `gpt-5.5`), 2026-10-28.
+ * GPT-5.5 was retired for ChatGPT sign-in on 2026-10-14 (still listed in the
+ * bundled catalog for API-key sessions); the fleet migrates it to GPT-6.1 Sol.
  */
 export const SUPPORTED_MODELS: readonly string[] = [
   'gpt-6.1-sol',

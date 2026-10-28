@@ -7,7 +7,7 @@ The runner also pins Claude Code 2.1.310 (latest normal release reviewed on
 1.0.70 (the official stable-pointer/npm-latest selection; its native binary labels
 itself `alpha`). These image pins do not change host minimum-version policy.
 
-The bundled Codex CLI is pinned to 0.164.0, matching the fleet catalog. Older
+The bundled Codex CLI is pinned to 0.165.0, matching the fleet catalog. Older
 0.154.0 runners reject `gpt-6.1-sol` with ChatGPT credentials even while
 `/health` and the gateway's `/v1/models` return success. A runner update requires
 rebuilding and recreating the `auth-runner` service; restarting the API alone

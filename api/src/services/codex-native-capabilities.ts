@@ -1,6 +1,15 @@
-/** Exact 0.164.0 field paths; map identifiers are never interpreted as paths. */
+/** Exact 0.164.0/0.165.0 field paths; map identifiers are never interpreted as paths. */
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+const features165 = ['guardian_recorded_items', 'guardianv3', 'prediction_preserve_parent_tools', 'tui_multi_backend'];
+
+/** The built-in `gcp` provider is new in 0.165.0. A `model_providers.gcp` entry
+ * stays opaque (its 0.165 field limits are enforced for every version instead). */
+export function needsCodex165(value: Record<string, unknown>): boolean {
+  return features165.some(key => Object.hasOwn(record(value.features), key))
+    || Object.hasOwn(record(value.auto_review), 'timeout_ms')
+    || value.model_provider === 'gcp';
 }
 const newFeatures = ['app_server_websocket_compression', 'executor_capability_discovery_v2',
   'mcp_tool_list_changed', 'multi_env_copy_file', 'runtime_agent_instances',
