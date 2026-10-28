@@ -320,7 +320,7 @@ export class HostAgentsService {
     if (settings && this.publicBaseUrl && apiKey) {
       rendered = renderTomlForHost({
         settings,
-        modelPolicy: engine === ENGINE_CODEX ? await readModelPolicy(this.db, engine) : undefined,
+        modelPolicy: engine === ENGINE_CODEX || engine === ENGINE_CLAUDE ? await readModelPolicy(this.db, engine) : undefined,
         host,
         baseUrl: this.publicBaseUrl,
         apiKey,
@@ -391,6 +391,7 @@ export class HostAgentsService {
       host.status === 'active' && (await this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false));
     const rendered = renderClaudeSettingsPartialForHost({
       settings,
+      modelPolicy: await readModelPolicy(this.db, ENGINE_CLAUDE),
       host,
       baseUrl: this.publicBaseUrl,
       apiKey,

@@ -1098,6 +1098,40 @@ against 2.1.312 on 2026-10-28). API and CLI effort
 are separate contracts: Opus 4.5 has no CLI effort control, and Sonnet 5.5's CLI
 default is `medium` even though its API default is `high`.
 
+### Claude model CLI minimums
+
+[Model configuration](https://code.claude.com/docs/en/model-config) (checked
+2026-10-28) documents per-model Claude Code floors: Fable 5.1 **2.1.257**,
+Opus 5.5 **2.1.280**, Sonnet 5.5 **2.1.284** and Haiku 5.5 **2.1.293**; older
+CLIs do not support these models. No minimum is invented for other catalog
+models, tier aliases (`sonnet`, `opus`, ...) or custom provider IDs. A retired
+ID that migrates to one of these models inherits its floor; `[1m]` does not
+change the model.
+
+- **Catalog.** `GET /admin/model-defaults/claude` entries carry
+  `min_cli_version`. A host's signed launch catalog omits entries whose floor
+  exceeds its reported `claude_client_version` (an unreported version counts as
+  too old). Fleet defaults stay authorable before any host reports.
+- **Host override and delivery.** An incompatible `claude_model_override` is
+  rejected with HTTP 422 and upgrade guidance; clearing is always allowed.
+  Host config/settings delivery checks the effective root model (host override,
+  else fleet model, after latest-family mapping) against the reported version
+  and fails with the same guidance until the host updates. Signed bootstrap,
+  `clx update` and `clx cron run` stay available, so an old client can update and
+  report its version, then sync.
+- **Wrapper (cxx).** The launchpad probes the installed Claude binary and marks
+  incompatible choices unavailable instead of falling back to another model.
+  A root Claude launch (including `cxx native claude` and `clx run`) resolves the
+  model as native would — `--model`, then the host override exported as
+  `ANTHROPIC_MODEL`, then an inherited `ANTHROPIC_MODEL`, then `settings.json`
+  or `--settings` `model` — and, when that model has a floor, refuses with exit
+  2 before touching auth, settings or the session guard. The check probes the
+  binary that would actually run, so a `CLX_CLAUDE_BIN` override is gated too.
+  Native subcommands (`update`, `install`, `doctor`, `auth`, `mcp`, ...) and
+  help/version are never gated. The wrapper keeps the four floors built in so
+  an older signed catalog without `min_cli_version` still enforces them. An
+  `ANTHROPIC_MODEL` inside the settings `env` block is not considered.
+
 ### Structured settings
 
 - `/admin/engines` and `GET/POST /admin/model-defaults/claude` own the fleet

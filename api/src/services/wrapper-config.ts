@@ -424,7 +424,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         // Older rows may hold a raw retired ID; the wrapper exports it as ANTHROPIC_MODEL.
         claude_model_override: host.claudeModelOverride ? normalizeClaudeModelReference(host.claudeModelOverride) : null,
         admin_theme_hint: opts.adminTheme,
-        model_catalog: modelLaunchCatalog(engine, policy),
+        model_catalog: modelLaunchCatalog(engine, policy, host.claudeClientVersion),
         ...(policy.latest_only ? { model_policy: policy } : {}),
       };
     }

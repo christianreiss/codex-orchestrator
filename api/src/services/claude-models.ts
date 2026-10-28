@@ -146,6 +146,18 @@ export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly st
   'claude-haiku-4-5-20251001': [],
 };
 
+/**
+ * Native Claude Code availability, not an API model minimum. Source:
+ * https://code.claude.com/docs/en/model-config, checked 2026-10-28. No minimum
+ * is invented for other catalog models, aliases or custom provider ids.
+ */
+export const CLAUDE_MODEL_MIN_CLI_VERSIONS: Readonly<Record<string, string>> = {
+  'claude-fable-5-1': '2.1.257',
+  'claude-opus-5-5': '2.1.280',
+  'claude-sonnet-5-5': '2.1.284',
+  'claude-haiku-5-5': '2.1.293',
+};
+
 /** Native CLI defaults, independent of API request defaults and account policy. */
 export const CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string | null>> = {
   'claude-fable-5-1': 'high',

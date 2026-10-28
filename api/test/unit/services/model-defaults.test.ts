@@ -146,6 +146,7 @@ describe('ModelDefaultsService', () => {
     expect(claude.catalog).toEqual([
       {
         model: 'claude-fable-5-1',
+        min_cli_version: '2.1.257',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
         default_effort: 'high',
       },
@@ -156,6 +157,7 @@ describe('ModelDefaultsService', () => {
       },
       {
         model: 'claude-opus-5-5',
+        min_cli_version: '2.1.280',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
         default_effort: 'medium',
       },
@@ -171,6 +173,7 @@ describe('ModelDefaultsService', () => {
       },
       {
         model: 'claude-sonnet-5-5',
+        min_cli_version: '2.1.284',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
         default_effort: 'medium',
       },
@@ -189,7 +192,7 @@ describe('ModelDefaultsService', () => {
         persistent_efforts: ['low', 'medium', 'high'],
         default_effort: 'high',
       },
-      { model: 'claude-haiku-5-5', persistent_efforts: ['low', 'medium', 'high', 'xhigh'], default_effort: 'medium' },
+      { model: 'claude-haiku-5-5', min_cli_version: '2.1.293', persistent_efforts: ['low', 'medium', 'high', 'xhigh'], default_effort: 'medium' },
       { model: 'claude-opus-4-6', persistent_efforts: ['low', 'medium', 'high'], default_effort: 'high' },
       { model: 'claude-opus-4-5-20251101', persistent_efforts: [], default_effort: null },
       {

@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
+import { CLAUDE_MODEL_MIN_CLI_VERSIONS } from '../../../src/services/claude-models.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHash, createPrivateKey, createPublicKey, sign as cryptoSign } from 'node:crypto';
@@ -496,7 +497,7 @@ describe('wrapper config golden fixtures', () => {
       const result = await bake({ ...fixture, rows: { ...fixture.rows, latestOnly: true } });
       const options = result.payload.engine_options as { model_policy: { latest_only: boolean; latest_models: string[]; replacements: Record<string, string> }; model_catalog: { models: { model: string }[] } };
       expect(options.model_policy.latest_only).toBe(true);
-      expect(options.model_catalog.models.map(entry => entry.model).sort()).toEqual(options.model_policy.latest_models.filter(model => fixture.engine !== 'codex' || model !== 'gpt-6.1-terra').sort());
+      expect(options.model_catalog.models.map(entry => entry.model).sort()).toEqual(options.model_policy.latest_models.filter(model => (fixture.engine !== 'codex' || model !== 'gpt-6.1-terra') && (fixture.engine !== 'claude' || !Object.hasOwn(CLAUDE_MODEL_MIN_CLI_VERSIONS, model))).sort());
       expect(Object.keys(options.model_policy.replacements).length).toBeGreaterThan(options.model_policy.latest_models.length);
     }
   });

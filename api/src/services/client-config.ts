@@ -1,5 +1,6 @@
 import type { ModelPolicy } from './model-policy.js';
 import { assertCodexSettingsModelSupport } from './codex-model-support.js';
+import { assertClaudeSettingsModelSupport } from './claude-model-support.js';
 import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import type { Json } from '../control-plane/commands.js';
 /**
@@ -578,6 +579,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     engine,
   );
   if (engine === ENGINE_CODEX) assertCodexSettingsModelSupport(settingsWithOverrides, opts.host, opts.modelPolicy);
+  if (engine === ENGINE_CLAUDE) assertClaudeSettingsModelSupport(settingsWithOverrides, opts.host, opts.modelPolicy);
   const normalized =
     engine === ENGINE_GROK
       ? normalizeGrokSettings(settingsWithOverrides)
@@ -1382,8 +1384,10 @@ export function renderClaudeSettingsPartialForHost(opts: HostRenderOptions): {
   clamped: ClaudePermissionClamp | null;
 } {
   assertNativeConfigSupport(opts.settings, opts.host, ENGINE_CLAUDE);
+  const withHostModel = applyHostModelOverrides(asRecord(opts.settings), opts.host, ENGINE_CLAUDE);
+  assertClaudeSettingsModelSupport(withHostModel, opts.host, opts.modelPolicy);
   const posture = applyPostureToSettings(
-    applyHostModelOverrides(asRecord(opts.settings), opts.host, ENGINE_CLAUDE),
+    withHostModel,
     opts.securityLevels,
     ENGINE_CLAUDE,
   );

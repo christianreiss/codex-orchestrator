@@ -1,5 +1,6 @@
 import { readModelPolicy } from './model-policy.js';
 import { assertCodexModelVersion } from './codex-model-support.js';
+import { assertClaudeModelVersion } from './claude-model-support.js';
 import {persistAuditLog} from './audit-log.js';
 import { projectHostDeletion } from '../control-plane/state/deletion.js';
 import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/state/runtime.js';
@@ -1202,6 +1203,9 @@ export class HostManagementService {
       patch.claudeModelOverride = payload.claude_model_override
         ? normalizeClaudeModelReference(payload.claude_model_override) || null
         : null;
+      if (patch.claudeModelOverride) {
+        assertClaudeModelVersion(patch.claudeModelOverride, host.claudeClientVersion, 'claude_model_override', await readModelPolicy(this.db, ENGINE_CLAUDE));
+      }
     }
     if (payload.grok_model_override !== undefined) {
       const value = payload.grok_model_override?.trim() ?? '';

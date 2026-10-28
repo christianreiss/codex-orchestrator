@@ -46,11 +46,14 @@ func runLaunchpad(stdout, stderr io.Writer) (code int, ok bool) {
 		},
 		Installed: engineInstalled,
 		Version: func(engine string) string {
-			if engine != config.EngineCodex {
+			if engine != config.EngineCodex && engine != config.EngineClaude {
 				return ""
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
+			if engine == config.EngineClaude {
+				return claude.Version(ctx)
+			}
 			return codex.Version(ctx)
 		},
 		Local: launchpad.LocalPreferences,

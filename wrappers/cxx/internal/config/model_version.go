@@ -28,12 +28,33 @@ func NativeVersionAtLeast(observed, minimum string) bool {
 	return a[4] == "" || b[4] != ""
 }
 
-// ModelMinimum preserves the known Terra floor even with an older signed JSON
-// catalog. No minimum is invented for other models or custom provider IDs.
+// claudeModelMinimums are the documented native Claude Code floors
+// (code.claude.com/docs/en/model-config, checked 2026-10-28).
+var claudeModelMinimums = map[string]string{
+	"claude-fable-5-1":  "2.1.257",
+	"claude-opus-5-5":   "2.1.280",
+	"claude-sonnet-5-5": "2.1.284",
+	"claude-haiku-5-5":  "2.1.293",
+}
+
+// claudeCatalogModel strips Claude's case-insensitive `[1m]` context modifier;
+// the window does not change which model, and so which CLI floor, applies.
+func claudeCatalogModel(model string) string {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.TrimSuffix(model, "[1m]")
+}
+
+// ModelMinimum preserves the known Terra and Claude floors even with an older
+// signed JSON catalog. No minimum is invented for other models, aliases or
+// custom provider IDs.
 func ModelMinimum(engine, model string, catalog *ModelCatalog) string {
 	minimum := ""
 	if engine == EngineCodex && strings.TrimSpace(model) == "gpt-6.1-terra" {
 		minimum = "0.159.0"
+	}
+	if engine == EngineClaude {
+		model = claudeCatalogModel(model)
+		minimum = claudeModelMinimums[model]
 	}
 	if catalog != nil {
 		for _, entry := range catalog.Models {
