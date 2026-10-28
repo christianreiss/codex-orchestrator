@@ -283,6 +283,14 @@ describe.skipIf(!handle)('Chatty durable lifecycle (isolated MySQL)', () => {
     const second = vi.mocked(co.inference.run).mock.calls[1]![0] as string;
     expect(second).toContain('could not be verified');
     expect(second).toContain('missing.example');
+    // A follow-up turn sees the earlier answer text but not its resolved buttons.
+    const next = await store.submit(actor, input('Und ist er online?'));
+    await co.tick();
+    await waitFor(next.id, 'succeeded');
+    const followUp = vi.mocked(co.inference.run).mock.calls[2]![0] as string;
+    expect(followUp).toContain('Ja, example.com ist registriert.');
+    expect(followUp).not.toContain('/hosts/42');
+    expect(followUp).not.toContain('elements_omitted');
   });
   it('resolves host buttons from real rows and never for internal or unknown hosts', async () => {
     const visible = `${prefix}.example.com`;

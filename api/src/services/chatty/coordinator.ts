@@ -70,6 +70,16 @@ function bounded(value: unknown, limit = 16000) {
       };
 }
 
+/**
+ * Earlier answers return to the model without their resolved buttons: a stored
+ * label/path is not the request shape, and imitating it would only be refused.
+ */
+function contextEvent<T extends { body: Record<string, unknown> }>(event: T): T {
+  if (!('elements' in event.body) && !('elements_omitted' in event.body)) return event;
+  const { elements: _elements, elements_omitted: _omitted, ...body } = event.body;
+  return { ...event, body };
+}
+
 const CHATTY_IDLE_RECHECK_MS = 30_000;
 export class ChattyCoordinator {
   readonly store: ChattyStore;
@@ -194,7 +204,9 @@ export class ChattyCoordinator {
   private async initialize(run: Run, state: RunState) {
     if (state.messages.length) return;
     const input = this.store.open<{ text: string; context?: ChattyContext }>(run.inputEnc);
-    const past = (await this.store.events(run.userId, run.generation)).filter((e) => e.runId !== run.id);
+    const past = (await this.store.events(run.userId, run.generation))
+      .filter((e) => e.runId !== run.id)
+      .map(contextEvent);
     const older = past
       .slice(0, -12)
       .map((e) => ({ role: e.kind, excerpt: JSON.stringify(e.body).slice(0, 240) }));
@@ -286,6 +298,7 @@ export class ChattyCoordinator {
     );
     return {
       events: events
+        .map(contextEvent)
         .filter((e) => JSON.stringify(e.body).toLowerCase().includes(query.toLowerCase()))
         .slice(-20),
       before: events[0]?.id ?? null,
