@@ -921,7 +921,12 @@ All three engine config GET/store routes share the revision contract: `revision`
   holder and ownership mode. Legacy `timed` cards retain their deadline and are
   reclaimed atomically on the next board mutation after expiry. Current
   `connection` cards do not expire on silence or disconnect; they remain uncertain
-  until their original owner or an operator releases them. Delivery to hosts is MCP-only
+  until their original owner or an operator releases them. A native card command
+  is checked against its authenticated session: a supplied `worktree_path` must
+  be the session's bound workspace (`git_root` or `cwd` from
+  `agent_context_update`, else the launch cwd, as for `git_register`) and a
+  supplied `username`/`engine` its own, else `409 card_identity_mismatch` with
+  `fields` naming each difference. Delivery to hosts is MCP-only
   (`project_board_list`, `project_card_create`, `project_card_claim`,
   `project_card_move`, `project_card_release`, `project_card_update`,
   `project_card_get`). Advisory throughout: a role that does not match a lane
