@@ -1540,6 +1540,21 @@ New wrappers refuse an old server's probe without injecting it into the conversa
 The legacy server acknowledgment endpoint accepts matching previously delivered
 receipts without renewing health; new wrappers no longer expose `agent_receiver_ack`.
 
+From cxx 0.9.142 a Claude session that has not yet received any prompt still claims
+deliveries. The turn proof of a new epoch starts `unknown` and only a `Stop` made it
+`idle`, so a fresh session sat at claim gate `thread_other` until a human typed.
+A SessionStart with `source` `startup`, `resume` or `clear` now arms an idle boundary
+(`compact` never does: it can fire inside a running turn, and a SessionStart after a
+turn was observed never arms). The broker applies it as a later lifecycle event, not at
+SessionStart itself: the receiver's activity observer pins the first sequence it sees to
+`unknown` and the server accepts an idle proof only on top of a stored epoch, so the
+observer's first poll (`observer: true`) sees the unknown bootstrap and its next poll
+sees `idle`. The readiness probe's own poll neither advances nor consumes it. The
+`native-session` hook reports the SessionStart to the broker after binding the identity,
+because the parallel activity hook is refused until that identity exists. After an MCP
+subprocess restart at a never-used prompt the new observer pins the cached idle and the
+session waits for its next turn, as for any restarted observer.
+
 Claude keeps its native TUI and receives `notifications/claude/channel`. A temporary
 per-launch plugin named `cxx-receiver` adds a SessionStart identity hook without
 replacing user hooks or settings; it handles new sessions, continue/resume pickers

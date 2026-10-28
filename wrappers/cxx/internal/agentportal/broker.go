@@ -58,6 +58,9 @@ type Broker struct {
 	hookActivityNativeID string
 	turnProof            ClaudeTurnProof
 	turnProofNativeID    string
+	// sessionIdle: 1 after a startup/resume/clear SessionStart, 2 once an
+	// observer has polled the resulting unknown proof; see activityHook.
+	sessionIdle int
 }
 
 func (s *Session) StartBroker(parent context.Context) (*Broker, error) {

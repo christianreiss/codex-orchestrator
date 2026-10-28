@@ -109,7 +109,7 @@ func (r *autoReceiver) observeActivity(ctx context.Context, engine, nativeID, ge
 		a := activityObservation{State: "unknown", Source: source}
 		var err error
 		if engine == "claude" {
-			err = r.client.receiver(ctx, "activity-hook", map[string]any{"native_session_id": nativeID}, &a)
+			err = r.client.receiver(ctx, "activity-hook", agentportal.ActivityHook{NativeID: nativeID, Observer: true}, &a)
 		} else {
 			if reader == nil {
 				reader, err = openActivityReader(ctx, engine, nativeID)

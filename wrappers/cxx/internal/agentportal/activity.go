@@ -26,6 +26,9 @@ type ActivityHook struct {
 	Tool     string `json:"tool,omitempty"`
 	// Source is SessionStart's startup|resume|clear|compact; empty elsewhere.
 	Source string `json:"source,omitempty"`
+	// Observer marks a poll from the receiver's activity loop, the one reader that
+	// pins its first sequence and reports to the server.
+	Observer bool `json:"observer,omitempty"`
 }
 
 func ClaudeActivity(h ActivityHook) ActivityObservation {
@@ -68,7 +71,11 @@ func (b *Broker) activityHook(w http.ResponseWriter, raw []byte) {
 		b.hookActivityNativeID = h.NativeID
 	}
 	instance, binding := b.nativeTurnIdentity()
-	proof := b.updateClaudeTurnProof(h.NativeID, instance, binding, turnProofEvent(h))
+	// No turn has been observed in this epoch (or the idle boundary is already
+	// armed): the only state a SessionStart may legitimately turn into idle.
+	quiet := b.turnProof.Epoch == "" || b.turnProofNativeID != b.nativeID || b.turnProof.Sequence <= 1 || b.sessionIdle > 0
+	proof := b.updateClaudeTurnProof(h.NativeID, instance, binding, h.Event)
+	proof = b.advanceSessionIdle(h, proof, instance, binding, quiet)
 	a := b.hookActivity
 	if b.hookActivityAt.IsZero() || b.hookActivityNativeID != b.nativeID || (h.NativeID != "" && h.NativeID != b.nativeID) {
 		a = ActivityObservation{State: "unknown", Source: "claude-hooks"}
@@ -96,20 +103,45 @@ type ClaudeTurnProof struct {
 	BindingGeneration int    `json:"binding_generation"`
 }
 
-// turnSessionIdle is a SessionStart that proves an idle prompt: Claude has not
-// started a turn yet, so no Stop will ever announce it. Without it a session
-// that never receives a first message stays `unknown` and no delivery is claimed.
-// compact is excluded: it can fire inside a running turn, so it proves nothing.
-const turnSessionIdle = "SessionStart:idle"
+// turnSessionIdle is the lifecycle event that marks a session sitting at its
+// first idle prompt. No Stop ever announces it, so a session that has not yet
+// received a message would stay `unknown` and claim nothing.
+const turnSessionIdle = "SessionIdle"
 
-func turnProofEvent(h ActivityHook) string {
-	if h.Event == "SessionStart" {
+// advanceSessionIdle turns startup/resume/clear into an idle boundary, but only
+// after an observer has seen the epoch's unknown bootstrap: the server accepts an
+// idle proof only on top of a stored epoch, and the observer pins the first
+// sequence it sees to unknown. So SessionStart arms (1), the observer's first poll
+// sees it (2), and its next poll applies idle; other readers (the receiver's
+// readiness probe) neither advance nor consume it. compact can fire inside a running turn and
+// never arms, a SessionStart after a turn was observed never arms, and any later
+// lifecycle event disarms. Caller holds nativeMu.
+func (b *Broker) advanceSessionIdle(h ActivityHook, proof ClaudeTurnProof, instance string, binding int, quiet bool) ClaudeTurnProof {
+	switch {
+	case h.Event == "SessionStart":
+		// Two parallel SessionStart hooks report the same start; keep the first arming.
+		armed := b.sessionIdle
+		b.sessionIdle = 0
 		switch h.Source {
 		case "startup", "resume", "clear":
-			return turnSessionIdle
+			if quiet {
+				b.sessionIdle = max(armed, 1)
+			}
+		}
+	case h.Event != "":
+		b.sessionIdle = 0
+	case !h.Observer:
+	case b.sessionIdle == 1:
+		b.sessionIdle = 2
+	case b.sessionIdle == 2:
+		if proof.State == "unknown" {
+			proof = b.updateClaudeTurnProof(h.NativeID, instance, binding, turnSessionIdle)
+		}
+		if proof.State != "unknown" {
+			b.sessionIdle = 0
 		}
 	}
-	return h.Event
+	return proof
 }
 
 func (b *Broker) nativeTurnIdentity() (string, int) {

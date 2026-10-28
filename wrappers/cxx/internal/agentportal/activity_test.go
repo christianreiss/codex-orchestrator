@@ -106,19 +106,61 @@ func TestClaudeTurnProofRetainsStopBeyondActivityTTLAndRejectsKnownResets(t *tes
 	}
 }
 
-func TestClaudeSessionStartProvesIdleBeforeFirstPrompt(t *testing.T) {
-	instance := "11111111-1111-4111-8111-111111111111"
-	for source, want := range map[string]string{"startup": "idle", "resume": "idle", "clear": "idle", "compact": "unknown", "": "unknown"} {
-		b := &Broker{session: &Session{Engine: "claude"}, nativeID: "native"}
-		p := b.updateClaudeTurnProof("native", instance, 7, turnProofEvent(ActivityHook{Event: "SessionStart", Source: source}))
-		if p.State != want {
-			t.Fatal(source, p)
+func TestClaudeSessionStartBecomesIdleOnlyAfterAnObserverSawTheBootstrap(t *testing.T) {
+	hook := func(b *Broker, event, source string) ClaudeTurnProof {
+		t.Helper()
+		body, _ := json.Marshal(ActivityHook{NativeID: "native", Event: event, Source: source, Observer: event == ""})
+		recorder := httptest.NewRecorder()
+		b.activityHook(recorder, body)
+		var a ActivityObservation
+		if recorder.Code != 200 || json.Unmarshal(recorder.Body.Bytes(), &a) != nil || a.TurnProof == nil {
+			t.Fatalf("%d %s", recorder.Code, recorder.Body.String())
+		}
+		return *a.TurnProof
+	}
+	for source, wantIdle := range map[string]bool{"startup": true, "resume": true, "clear": true, "compact": false, "": false} {
+		b := claudeTurnBrokerFixture(t)
+		start := hook(b, "SessionStart", source)
+		// A readiness probe (not the observer) must not use up the observation step.
+		probe, _ := json.Marshal(ActivityHook{NativeID: "native"})
+		for i := 0; i < 3; i++ {
+			b.activityHook(httptest.NewRecorder(), probe)
+		}
+		first := hook(b, "", "")
+		second := hook(b, "", "")
+		third := hook(b, "", "")
+		if start.State != "unknown" || first.State != "unknown" || first.Epoch != start.Epoch {
+			t.Fatal(source, start, first)
+		}
+		if wantIdle != (second.State == "idle") || second.Epoch != first.Epoch {
+			t.Fatal(source, wantIdle, second)
+		}
+		// The observer pins the first sequence it saw to unknown, so idle has to be a later one.
+		if wantIdle && second.Sequence <= first.Sequence {
+			t.Fatal(source, first, second)
+		}
+		if third != second {
+			t.Fatal("idle must be stable once reached", second, third)
 		}
 	}
-	b := &Broker{session: &Session{Engine: "claude"}, nativeID: "native"}
-	b.updateClaudeTurnProof("native", instance, 7, "UserPromptSubmit")
-	if p := b.updateClaudeTurnProof("native", instance, 7, turnProofEvent(ActivityHook{Event: "SessionStart", Source: "startup"})); p.State != "active" {
-		t.Fatal("late SessionStart downgraded an active turn", p)
+	// Two parallel SessionStart hooks report one start and must not disarm each other.
+	b := claudeTurnBrokerFixture(t)
+	hook(b, "SessionStart", "startup")
+	hook(b, "SessionStart", "startup")
+	hook(b, "", "")
+	if p := hook(b, "", ""); p.State != "idle" {
+		t.Fatal(p)
+	}
+	// A turn observed before the boundary is never turned idle, even by a late SessionStart.
+	b = claudeTurnBrokerFixture(t)
+	hook(b, "SessionStart", "startup")
+	hook(b, "", "")
+	hook(b, "UserPromptSubmit", "")
+	hook(b, "SessionStart", "startup")
+	for i := 0; i < 4; i++ {
+		if p := hook(b, "", ""); p.State == "idle" {
+			t.Fatal("late SessionStart reported idle inside a turn", p)
+		}
 	}
 }
 
