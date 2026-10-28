@@ -21,12 +21,12 @@ RUN apt-get update \
 #
 # The SHA256s are the release assets' published digests. A tag can be moved;
 # a digest cannot, so the download is verified before anything is unpacked.
-ARG CODEX_TAG=rust-v0.164.0
-ARG CODEX_VERSION=0.164.0
+ARG CODEX_TAG=rust-v0.165.0
+ARG CODEX_VERSION=0.165.0
 ARG CODEX_ASSET_AMD64=codex-x86_64-unknown-linux-musl.tar.gz
 ARG CODEX_ASSET_ARM64=codex-aarch64-unknown-linux-musl.tar.gz
-ARG CODEX_SHA256_AMD64=90dd0b03b28afcb7fa733a4f73b413db2916a47347efd43fb669cc1c774ee8e4
-ARG CODEX_SHA256_ARM64=29a507a2a3fd8f6cd94b96b762d281d299d15d7902dee6132d314b78cf9108eb
+ARG CODEX_SHA256_AMD64=be635d3486a5bd060d0fff582ae6d30160280c31344dd85719707fa920e187f0
+ARG CODEX_SHA256_ARM64=6522e056d0be7f531da915c9a81ae05bc70811b782542499cc0a9776d3abf5d3
 ARG TARGETARCH
 RUN set -euo pipefail; \
     arch="${TARGETARCH:-amd64}"; \
