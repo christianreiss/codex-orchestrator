@@ -65,6 +65,7 @@ function setup(beforeCommit: () => Promise<void> = async () => {}) {
         bridgeTokenHash: sha256(token),
         hostAuthFingerprint: sha256(key),
         bridgeExpiresAt: '2099-01-01T00:00:00Z',
+        heartbeatAt: now,
         endedAt: null,
         upstreamSessionId: null,
         adapterCapabilities: { scope_protocol_version: 1 },
@@ -390,5 +391,91 @@ describe('explicit same-transcript claim continuation', () => {
       await expect(recover()).rejects.toThrow();
       expect(h.state.snapshot().claims.get(claim.id)?.sessionId).toBe(h.sessionId);
     }
+  });
+});
+
+describe('offline owners', () => {
+  const GRACE = 5 * 60_000;
+  const edit = (h: ReturnType<typeof setup>, apply: (draft: ReturnType<typeof h.state.begin>) => void) => {
+    const draft = h.state.begin(), revision = h.state.revision();
+    apply(draft);
+    h.state.publish(draft.seal({ ...revision, sequence: revision.sequence + 1n }));
+  };
+  const disconnected = async (h: ReturnType<typeof setup>) => {
+    const claim = await h.service.claims.acquire(h.sessionId, h.token, {
+      client_request_id: randomUUID(),
+      purpose: 'operation of an agent that goes offline',
+      resources: [{ kind: 'path', host_id: 1, path: '/repo' }],
+    });
+    h.live.detach();
+    await h.service.reconcileOwned();
+    expect(h.state.snapshot().claims.get(claim.id)?.state).toBe('uncertain');
+    return claim;
+  };
+  it('keeps a disconnected claim through the reconnect grace and releases it after, without the session ending', async () => {
+    const h = setup(), claim = await disconnected(h);
+    await h.service.reconcileOwned(Date.now() + GRACE - 30_000);
+    expect(h.state.snapshot().claims.get(claim.id)).toMatchObject({ state: 'uncertain', uncertaintyReason: 'disconnected' });
+    await h.service.reconcileOwned(Date.now() + GRACE + 30_000);
+    expect(h.state.snapshot().claims.get(claim.id)).toMatchObject({ state: 'released', uncertaintyReason: null });
+    expect(h.state.snapshot().sessions.get(h.sessionId)?.endedAt).toBeNull();
+  });
+  it('never releases the claim of an owner that reconnected, however long ago it first dropped', async () => {
+    const h = setup(), claim = await disconnected(h);
+    h.attach();
+    await h.service.reconcileOwned(Date.now() + 10 * GRACE);
+    expect(h.state.snapshot().claims.get(claim.id)?.state).toBe('uncertain');
+  });
+  it('releases a waiting claim of a holder that is gone', async () => {
+    const h = setup(), claim = await disconnected(h);
+    edit(h, (draft) => draft.upsert('agentResourceClaims', { ...draft.table('agentResourceClaims').get(claim.id)!, state: 'waiting', uncertaintyReason: null }));
+    await h.service.reconcileOwned(Date.now() + GRACE + 30_000);
+    expect(h.state.snapshot().claims.get(claim.id)?.state).toBe('released');
+  });
+  it('keeps a reported-unknown outcome for an operator even when the owner is long gone', async () => {
+    const h = setup(), claim = await disconnected(h);
+    edit(h, (draft) => draft.upsert('agentResourceClaims', { ...draft.table('agentResourceClaims').get(claim.id)!, uncertaintyReason: 'reported_unknown' }));
+    await h.service.reconcileOwned(Date.now() + 100 * GRACE);
+    expect(h.state.snapshot().claims.get(claim.id)).toMatchObject({ state: 'uncertain', uncertaintyReason: 'reported_unknown' });
+  });
+  it('finalizes a crashed session as abandoned once its bridge lapsed and releases its claims in the same commit', async () => {
+    const h = setup(), claim = await disconnected(h);
+    const ttl = loadTestEnv().AGENT_PORTAL_BRIDGE_TTL_SECONDS * 1000;
+    edit(h, (draft) => draft.upsert('agentSessions', { ...draft.table('agentSessions').get(h.sessionId)!, bridgeExpiresAt: new Date(Date.now() - 1000).toISOString() }));
+    await h.service.reconcileOwned(Date.now() + ttl - 60_000);
+    expect(h.state.snapshot().sessions.get(h.sessionId)?.endedAt).toBeNull();
+    await h.service.reconcileOwned(Date.now() + ttl + 60_000);
+    const session = h.state.snapshot().sessions.get(h.sessionId)!;
+    expect(session.endedAt).not.toBeNull();
+    expect(session.status).toBe('failed');
+    expect(h.state.snapshot().claims.get(claim.id)?.state).toBe('released');
+  });
+  it('gives an interactive session that advertises suspend recovery a day before finalizing it', async () => {
+    const h = setup();
+    const ttl = loadTestEnv().AGENT_PORTAL_BRIDGE_TTL_SECONDS * 1000;
+    h.live.detach();
+    edit(h, (draft) => draft.upsert('agentSessions', {
+      ...draft.table('agentSessions').get(h.sessionId)!,
+      invocationKind: 'interactive',
+      adapterCapabilities: { scope_protocol_version: 1, suspend_recovery_version: 1 },
+      bridgeExpiresAt: new Date(Date.now() - 1000).toISOString(),
+    }));
+    await h.service.reconcileOwned(Date.now() + ttl + 60_000);
+    expect(h.state.snapshot().sessions.get(h.sessionId)?.endedAt).toBeNull();
+    await h.service.reconcileOwned(Date.now() + 25 * 3600_000);
+    expect(h.state.snapshot().sessions.get(h.sessionId)?.endedAt).not.toBeNull();
+  });
+  it('restamps a connected session last-seen so it survives an API restart, and leaves a fresh one alone', async () => {
+    const h = setup();
+    await h.service.reconcileOwned();
+    const before = h.state.snapshot().sessions.get(h.sessionId)!.heartbeatAt;
+    const command = vi.spyOn(h.owner, 'execute');
+    await h.service.reconcileOwned(Date.now() + 60_000);
+    expect(command).not.toHaveBeenCalled();
+    const later = Date.now() + 11 * 60_000;
+    await h.service.reconcileOwned(later);
+    const after = h.state.snapshot().sessions.get(h.sessionId)!.heartbeatAt;
+    expect(Date.parse(after)).toBeGreaterThan(Date.parse(before));
+    expect(Date.parse(after)).toBe(later);
   });
 });

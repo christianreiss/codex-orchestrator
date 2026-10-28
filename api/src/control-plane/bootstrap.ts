@@ -16,6 +16,7 @@ import { hydrateOwnerState } from './state/hydrate.js';
 import { bindOwnerRuntime, type OwnerRuntime } from './state/runtime.js';
 import { ConnectionPresence, bindOwnerPresence } from './presence.js';
 import { trackHostActivity, stopHostActivity } from './state/host-activity.js';
+import { trackSessionActivity, stopSessionActivity } from './state/owner-liveness.js';
 import { ConnectionCredentials } from './credentials.js';
 import { LegacyDrainRegistry, captureLegacyDrainManifest } from './legacy-drain.js';
 import { readLegacyCutoverManifest, filterLegacyCutoverManifest } from './legacy-cutover.js';
@@ -161,6 +162,7 @@ export async function createOwnedControlPlane(options: {
       stopBoard();
       stopStateEvents();
       stopHostActivity(runtime);
+      stopSessionActivity(runtime);
       legacyDrain.close();
       credentials.close();
       deadlines.close();
@@ -168,6 +170,8 @@ export async function createOwnedControlPlane(options: {
     });
     ownership.ready();
     trackHostActivity(runtime);
+    // Before any attachment: the reconnect and boot graces are measured from here.
+    trackSessionActivity(runtime);
     stopBoard = trackBoardOwnership(runtime);
     stopStateEvents = publishOwnerStateChanges(runtime);
     return {
@@ -190,6 +194,7 @@ export async function createOwnedControlPlane(options: {
         stopStateEvents();
         await commands.drain();
         stopHostActivity(runtime);
+        stopSessionActivity(runtime);
         legacyDrain.close();
         credentials.close();
         deadlines.close();

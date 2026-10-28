@@ -993,14 +993,33 @@ All three engine config GET/store routes share the revision contract: `revision`
   `username`, `engine` and current `head_sha` and retry the same
   `client_request_id`. Uncertain or expired claims keep the generic
   reserved/uncertain refusal. Live bound sessions
-  survive registration TTL. Connection-owned registrations become uncertain on
-  disconnect and retain exclusion until the owning session ends: the
-  coordination tick then releases `uncertain` claims (`disconnected` /
-  `owner_restart`) of ended sessions itself (audit `agent_coordination.session_ended_release`,
-  announcement reason `session_ended`), unless a live successor on the same
-  transcript could still continue them or the owner reported the outcome
-  `unknown`; legacy timed registrations retain their
-  compatibility rules. Owner-mode merge grants expire after 15 minutes and
+  survive registration TTL. Connection-owned claims and registrations become
+  uncertain on disconnect (or `owner_restart` after an API start) and keep
+  exclusion only while their owner can come back: the owner holds nothing once
+  its session has ended or it has been disconnected for the reconnect grace of
+  5 minutes, measured from the last moment it was attached and never before
+  the API has been up that long (`api/src/control-plane/state/owner-liveness.ts`).
+  The coordination tick,
+  woken by a `coordination:liveness` deadline, then releases its `uncertain`
+  and `waiting` claims (audit `agent_coordination.session_ended_release` or
+  `agent_coordination.owner_offline_release`, announcement reason
+  `session_ended` / `owner_offline`) and the Director marks its registration
+  `abandoned`, expires its merge grant and withdraws its other open requests
+  (notice `registration_abandoned`), which frees the `worktree_path` for any
+  session. Kept: anything a successor on the same native transcript that is
+  present (attached or within its own grace) can still continue, and claims
+  whose owner reported the outcome `unknown` (operator resolve only).
+  The same tick finalizes owner-mode sessions that never finished: a session
+  with no attachment whose bridge credential lapsed ends as `failed` with the
+  `server:abandoned` event (so a returning wrapper's `agent_session_finished`
+  says abandoned) once it has been offline for `AGENT_PORTAL_BRIDGE_TTL_SECONDS`,
+  or for 24 hours when it is interactive and advertises
+  `suspend_recovery_version: 1`; armed reboot handoffs and `reboot_wait` are
+  exempt. While attached, a session's `heartbeat_at` is restamped every
+  10 minutes so last-seen survives an API restart. Legacy timed registrations
+  retain their compatibility rules. `git_list` omits clones with no active or
+  uncertain registration, no live lease and no registration retired in the last 24 hours unless `include_idle: true`
+  (`idle_omitted` counts them; scope `clone` always shows its clone). Owner-mode merge grants expire after 15 minutes and
   `git_merge_status` never extends them; an expired grant requires a new request.
   `git_join` preserves declared paths when `paths` is omitted; an explicit
   `paths: []` clears previous write scope for read-only work.

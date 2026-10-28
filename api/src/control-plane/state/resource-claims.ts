@@ -9,6 +9,7 @@ import { activeHostEngines } from '../../services/host-engine-policy.js';
 import type { Engine } from '../../util/engine.js';
 import { stageUpdate } from './rows.js';
 import { adminAudit } from './admin.js';
+import { holderReleasable, OWNER_RECONNECT_GRACE_MS } from './owner-liveness.js';
 import {
   stageScopeEvent,
   coordinationPresent,
@@ -99,30 +100,37 @@ export function stageClaimAnnouncement(
     stageScopeEvent(ctx, keyring, member.scopeId, 'claim', sessionId, body);
 }
 /**
- * An uncertain claim protects an operation that might still be running. Once the
- * owning session is terminal (`endedAt`; a planned reboot never sets it) its
- * bridge is refused and no native process can continue the operation under this
- * claim, so keeping it only blocks everyone else. Only the connection-loss
- * reasons qualify: an outcome the owner reported as unknown stays uncertain.
- * A live successor on the same transcript may still continue the claim through
- * `resource_claim_status({renew:true})`, so it keeps the claim until it ends too.
+ * An uncertain claim protects an operation that might still be running, but
+ * only while its owner can still come back to finish it. A holder whose session
+ * ended, or that has been offline past the reconnect grace (owner-liveness.ts),
+ * runs nothing under this claim, so keeping it only blocks everyone else. That
+ * covers a crashed agent that is never finalized as well as one that exited.
+ * A waiting claim of a gone holder reserves nothing and is released too. Only
+ * the connection-loss reasons qualify: an outcome the owner reported as
+ * unknown stays uncertain for an operator. A live successor on the same
+ * transcript may still continue the claim through
+ * `resource_claim_status({renew:true})`, so it keeps the claim while present.
  */
-export function claimOwnerEnded(snapshot: OwnerStateSnapshot, claim: StateRow<'agentResourceClaims'>): boolean {
-  if (claim.state !== 'uncertain' || !['disconnected', 'owner_restart'].includes(claim.uncertaintyReason ?? '')) return false;
-  const session = snapshot.sessions.get(claim.sessionId);
-  if (!session) return true;
-  if (!session.endedAt) return false;
-  return !(
-    session.agentBusAddressId &&
-    session.upstreamSessionId &&
-    snapshot.sessions
-      .by('agentBusAddressId', session.agentBusAddressId)
-      .some((next) => next.id !== session.id && !next.endedAt && next.upstreamSessionId === session.upstreamSessionId)
-  );
+export function claimOwnerGone(
+  owner: OwnerRuntime,
+  snapshot: OwnerStateSnapshot,
+  claim: StateRow<'agentResourceClaims'>,
+  now = Date.now(),
+): boolean {
+  if (
+    claim.state !== 'waiting' &&
+    (claim.state !== 'uncertain' || !['disconnected', 'owner_restart'].includes(claim.uncertaintyReason ?? ''))
+  )
+    return false;
+  return holderReleasable(owner, snapshot, claim.sessionId, now);
 }
-export function claimReconciliationNeeded(owner: OwnerRuntime, snapshot: OwnerStateSnapshot): boolean {
+export function claimReconciliationNeeded(
+  owner: OwnerRuntime,
+  snapshot: OwnerStateSnapshot,
+  now = Date.now(),
+): boolean {
   return snapshot.claims.all().some((claim) => {
-    if (claimOwnerEnded(snapshot, claim)) return true;
+    if (claimOwnerGone(owner, snapshot, claim, now)) return true;
     if (claim.state === 'active') return !claimContinuouslyHeld(owner, snapshot, claim);
     if (
       claim.ownershipMode !== 'connection' ||
@@ -141,6 +149,7 @@ export function stageClaimReconciliation(
   ctx: OwnerMutationContext,
   owner: OwnerRuntime,
   keyring: Keyring,
+  now = Date.now(),
 ): boolean {
   let changed = false;
   for (const claim of ctx.draft.table('agentResourceClaims').all()) {
@@ -157,21 +166,23 @@ export function stageClaimReconciliation(
         purpose: claim.purpose,
       });
       changed = true;
-    } else if (claimOwnerEnded(snapshot, claim)) {
+    } else if (claimOwnerGone(owner, snapshot, claim, now)) {
+      const ended = Boolean(snapshot.sessions.get(claim.sessionId)?.endedAt) || !snapshot.sessions.get(claim.sessionId);
       stageUpdate(ctx, 'agentResourceClaims', claim.id, {
         state: 'released',
         uncertaintyReason: null,
-        updatedAt: new Date().toISOString(),
+        updatedAt: new Date(now).toISOString(),
       });
       stageClaimAnnouncement(ctx, keyring, claim.sessionId, {
         claim_id: claim.id,
         action: 'released',
-        reason: 'session_ended',
+        reason: ended ? 'session_ended' : 'owner_offline',
         purpose: claim.purpose,
       });
-      adminAudit(ctx, 'agent_coordination.session_ended_release', {
+      adminAudit(ctx, ended ? 'agent_coordination.session_ended_release' : 'agent_coordination.owner_offline_release', {
         claim_id: claim.id,
         session_id: claim.sessionId,
+        previous_state: claim.state,
         previous_reason: claim.uncertaintyReason,
       });
       changed = true;
@@ -232,7 +243,16 @@ export function ownedClaimBlockers(
       generation: claim.generation,
       owner_address: address?.address ?? null,
       owner_name: session?.launchName ?? null,
-      ...(claim.state === 'uncertain'
+      ...(claim.state === 'uncertain' && claim.uncertaintyReason !== 'reported_unknown'
+        ? {
+            recovery: {
+              automatic: true,
+              release_after_offline_seconds: OWNER_RECONNECT_GRACE_MS / 1000,
+              instruction:
+                'The owner lost its connection. It can recover the claim by reconnecting; if it stays offline, the claim is released automatically. Never take over an uncertain resource.',
+            },
+          }
+        : claim.state === 'uncertain'
         ? {
             recovery: {
               method: 'POST',
