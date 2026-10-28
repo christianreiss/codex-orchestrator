@@ -50,7 +50,7 @@ import { lockClaimGate, guardGitMutation } from './agent-coordination/git-guard.
  * Messaging off.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   adminEvents,
@@ -117,6 +117,20 @@ export const GIT_DIRECTOR_DEFAULT_MODEL = 'claude-sonnet-5';
 export const REGISTRATION_TTL_SECONDS = 3600;
 export const LEASE_TTL_SECONDS = 900;
 
+/**
+ * How long a clone may sit with nobody registered in it, no open merge request
+ * and no activity at all before the sweep archives it (`archived_at`). Every
+ * scratch checkout an agent ever registered (`/tmp/worktrees/…`) used to stay
+ * in the registry forever. Archiving is soft and reversible: nothing is
+ * deleted, `git_list` hides the clone unless `include_archived` is set, and a
+ * returning `git_register` (or a retired registration coming back) revives the
+ * same row with its history. Fourteen days matches the default audit and
+ * receipt retention, is far beyond any registration lifetime, and is long
+ * enough that a checkout left over a holiday is still listed when its owner
+ * comes back. Override with `GIT_DIRECTOR_CLONE_ARCHIVE_DAYS`.
+ */
+export const CLONE_ARCHIVE_DEFAULT_DAYS = 14;
+
 /** Cap on reported path lists, so one enormous diff cannot bloat a row or a prompt. */
 const MAX_PATHS = 500;
 const MAX_TASK_LENGTH = 2000;
@@ -175,6 +189,8 @@ export interface GitDirectorServiceDeps {
    * without it both fall back to the same shared default.
    */
   freshSeconds?: number;
+  /** Idle window before a clone is archived; callers pass `GIT_DIRECTOR_CLONE_ARCHIVE_DAYS`. */
+  cloneArchiveDays?: number;
   notifications?: GitDirectorNotifications;
 }
 
@@ -382,6 +398,52 @@ function isExpired(at: string | null | undefined, now: string): boolean {
   const current = parseIso(now);
   if (!deadline || !current) return false;
   return deadline.getTime() <= current.getTime();
+}
+
+/**
+ * Clones the sweep should archive. A clone qualifies only when it is not
+ * archived, nobody holds a registration in it (`active` or `uncertain` — an
+ * uncertain one is exclusion kept for an owner that may reconnect), no merge
+ * request in it is still open (a lease or a queued wait), and nothing about it
+ * has moved for `archiveDays`. "Moved" is the newest of the clone's own
+ * `last_seen_at`/`updated_at` and every timestamp its registrations and
+ * requests carry: `last_seen_at` alone is only bumped by `git_register`, so a
+ * connection-owned session registered three weeks ago and released an hour
+ * ago would otherwise vanish while its release is still news. An unparseable
+ * `last_seen_at` never archives.
+ */
+export function archivableClones(
+  clones: readonly GitClone[],
+  worktrees: ReadonlyArray<Pick<GitWorktree, 'cloneId' | 'status' | 'heartbeatAt' | 'releasedAt' | 'updatedAt'>>,
+  requests: ReadonlyArray<Pick<GitMergeRequest, 'cloneId' | 'completedAt' | 'updatedAt'>>,
+  now: string,
+  archiveDays: number,
+): GitClone[] {
+  const cutoff = Date.parse(now) - archiveDays * 86_400_000;
+  if (!Number.isFinite(cutoff)) return [];
+  const blocked = new Set<string>();
+  const latest = new Map<string, number>();
+  const touch = (cloneId: string, ...stamps: Array<string | null | undefined>) => {
+    for (const stamp of stamps) {
+      const at = stamp ? Date.parse(stamp) : NaN;
+      if (Number.isFinite(at) && at > (latest.get(cloneId) ?? -Infinity)) latest.set(cloneId, at);
+    }
+  };
+  for (const row of worktrees) {
+    if (row.status === 'active' || row.status === 'uncertain') blocked.add(row.cloneId);
+    touch(row.cloneId, row.heartbeatAt, row.releasedAt, row.updatedAt);
+  }
+  for (const row of requests) {
+    if (!row.completedAt) blocked.add(row.cloneId);
+    touch(row.cloneId, row.completedAt, row.updatedAt);
+  }
+  return clones.filter((clone) => {
+    if (clone.archivedAt || blocked.has(clone.id)) return false;
+    const seen = Date.parse(clone.lastSeenAt);
+    if (!Number.isFinite(seen)) return false;
+    touch(clone.id, clone.lastSeenAt, clone.updatedAt);
+    return (latest.get(clone.id) ?? seen) < cutoff;
+  });
 }
 
 export interface GitDirectorModuleState {
@@ -652,7 +714,11 @@ export class GitDirectorService {
       const uncertain = lostProof.filter(row => !abandonedIds.has(row.id));
       const orphaned = snapshot.table('gitMergeRequests').all().filter(row => !row.completedAt && abandonedIds.has(row.worktreeId));
       const expired = snapshot.table('gitMergeRequests').by('verdict', 'allow').filter(row => !row.completedAt && !abandonedIds.has(row.worktreeId) && isExpired(row.leaseExpiresAt, now));
-      if (!apply) return Boolean(uncertain.length || abandoned.length || expired.length);
+      // Every clone and registration row is hydrated (only completed merge
+      // history is trimmed, and only the newest of it can matter here).
+      const archive = archivableClones(snapshot.table('gitClones').all(), snapshot.table('gitWorktrees').all(),
+        snapshot.table('gitMergeRequests').all(), now, this.cloneArchiveDays);
+      if (!apply) return Boolean(uncertain.length || abandoned.length || expired.length || archive.length);
       for (const row of uncertain) {
         await this.updateRows(db, 'gitWorktrees', [row.id], { status: 'uncertain', uncertaintyReason: 'disconnected', updatedAt: now });
         this.publish(db, 'worktree', row.cloneId);
@@ -673,7 +739,8 @@ export class GitDirectorService {
         await this.notify(db, { kind: 'lease_expired', clone: snapshot.table('gitClones').get(row.cloneId), requestId: row.id, targetBranch: row.targetBranch, audience: 'branch' });
         this.publish(db, 'lease', row.cloneId);
       }
-      return Boolean(uncertain.length || expired.length);
+      await this.archiveClones(db, archive, now);
+      return Boolean(uncertain.length || expired.length || archive.length);
     }
     const active = (
       await db
@@ -714,8 +781,12 @@ export class GitDirectorService {
       (row) => !reclaimedWorktrees.has(row.worktreeId) && isExpired(row.leaseExpiresAt, now),
     );
 
-    const changed = abandoned.length + timedOut.length + orphaned.length + staleLeases.length > 0;
+    // Registrations retired in this same pass still read as `active` here, so
+    // their clone archives on a later sweep rather than in the same breath.
+    const archive = await this.legacyArchivableClones(db, now, apply);
+    const changed = abandoned.length + timedOut.length + orphaned.length + staleLeases.length + archive.length > 0;
     if (!apply) return changed;
+    await this.archiveClones(db, archive, now);
     if (abandoned.length > 0) {
       await this.updateRows(db, 'gitWorktrees', abandoned.map((row) => row.id), { status: 'abandoned', releasedAt: now, updatedAt: now });
     }
@@ -751,6 +822,52 @@ export class GitDirectorService {
       await this.notify(db, { kind: 'lease_expired', clone, worktree, targetBranch: request.targetBranch, requestId: request.id, audience: 'branch', includeActor: true, detail: { recheck_required: true } });
     }
     return changed;
+  }
+
+  private get cloneArchiveDays(): number {
+    const days = this.deps.cloneArchiveDays;
+    return days !== undefined && Number.isFinite(days) && days >= 1 ? days : CLONE_ARCHIVE_DEFAULT_DAYS;
+  }
+
+  /**
+   * SQL counterpart of the owner-state scan: only clones last registered
+   * before the cutoff can qualify, so the per-clone reads stay bounded by the
+   * dormant set rather than the whole history. Rows are locked when applying,
+   * like every other row this sweep rewrites.
+   */
+  private async legacyArchivableClones(db: GitDirectorDb, now: string, lock: boolean): Promise<GitClone[]> {
+    const cutoff = new Date(Date.parse(now) - this.cloneArchiveDays * 86_400_000).toISOString();
+    const query = db.select().from(gitClones).where(and(isNull(gitClones.archivedAt), lt(gitClones.lastSeenAt, cutoff)));
+    const candidates = await (lock ? query.for('update') : query);
+    if (candidates.length === 0) return [];
+    const ids = candidates.map((row) => row.id);
+    const [worktrees, requests] = await Promise.all([
+      db.select({ cloneId: gitWorktrees.cloneId, status: gitWorktrees.status, heartbeatAt: gitWorktrees.heartbeatAt, releasedAt: gitWorktrees.releasedAt, updatedAt: gitWorktrees.updatedAt })
+        .from(gitWorktrees).where(inArray(gitWorktrees.cloneId, ids)),
+      db.select({ cloneId: gitMergeRequests.cloneId, completedAt: gitMergeRequests.completedAt, updatedAt: gitMergeRequests.updatedAt })
+        .from(gitMergeRequests).where(inArray(gitMergeRequests.cloneId, ids)),
+    ]);
+    return archivableClones(candidates, worktrees, requests, now, this.cloneArchiveDays);
+  }
+
+  /**
+   * Archive, never delete. No notice goes out: by construction nobody is
+   * registered in the clone, so there is no audience; the console and any
+   * open listing are invalidated instead.
+   */
+  private async archiveClones(db: GitDirectorDb, clones: readonly GitClone[], now: string): Promise<void> {
+    for (const clone of clones) {
+      await this.updateRows(db, 'gitClones', [clone.id], { archivedAt: now, updatedAt: now });
+      this.publish(db, 'archive', clone.id);
+    }
+  }
+
+  /** A returning agent is evidence the clone is in use again. */
+  private async reviveClone(tx: GitDirectorDb, clone: GitClone, now: string): Promise<GitClone> {
+    if (!clone.archivedAt) return clone;
+    await this.updateRows(tx, 'gitClones', [clone.id], { archivedAt: null, lastSeenAt: now, updatedAt: now });
+    this.publish(tx, 'clone', clone.id);
+    return { ...clone, archivedAt: null, lastSeenAt: now, updatedAt: now };
   }
 
   /**
@@ -867,17 +984,19 @@ export class GitDirectorService {
 
       // A refresh may omit clone_dir. Preserve the existing canonical mapping;
       // the server cannot discover a remote checkout's common directory itself.
+      // An archived clone still counts: the agent is returning to it, and
+      // falling back to worktree_path would mint a second clone beside it.
       if (args.clone_dir === undefined) {
         const view = this.snapshot(tx);
-        const mappings = view ? view.table('gitWorktrees').all().filter(row => row.hostId === host.id && row.worktreeHash === worktreeHash && row.status !== 'superseded').flatMap(row => { const clone = view.table('gitClones').get(row.cloneId); return clone && !clone.archivedAt ? [{clone}] : []; }) : await tx.select({ clone: gitClones }).from(gitWorktrees)
+        const mappings = view ? view.table('gitWorktrees').all().filter(row => row.hostId === host.id && row.worktreeHash === worktreeHash && row.status !== 'superseded').flatMap(row => { const clone = view.table('gitClones').get(row.cloneId); return clone ? [{clone}] : []; }) : await tx.select({ clone: gitClones }).from(gitWorktrees)
           .innerJoin(gitClones, eq(gitWorktrees.cloneId, gitClones.id))
           .where(and(eq(gitWorktrees.hostId, host.id), eq(gitWorktrees.worktreeHash, worktreeHash),
-            ne(gitWorktrees.status, 'superseded'), isNull(gitClones.archivedAt)));
+            ne(gitWorktrees.status, 'superseded')));
         const dirs = [...new Set(mappings.map((r) => r.clone.cloneDir))];
         if (dirs.length > 1) throw new ConflictError('Multiple clone mappings exist; pass the absolute clone_dir from git rev-parse --git-common-dir', 'git_director_worktree_ambiguous');
         if (dirs[0]) cloneDir = dirs[0];
       }
-      const clone = await this.upsertCloneLocked(tx, {
+      const { clone, unarchived } = await this.upsertCloneLocked(tx, {
         host,
         cloneKey: sha256(cloneDir),
         cloneDir,
@@ -945,7 +1064,7 @@ export class GitDirectorService {
           await this.updateRows(tx, 'gitWorktrees', [existing.id], { ...patch, updatedAt: now });
           this.publish(tx, 'worktree', clone.id);
         }
-        return { registered: true, superseded_registrations: supersededRegistrations, rebound: false,
+        return { registered: true, ...(unarchived ? { clone_unarchived: true } : {}), superseded_registrations: supersededRegistrations, rebound: false,
           clone: this.cloneWire(clone,host), worktree_id: existing.id, worktree_path: worktreePath,
           ...bindingWire(address), expires_at: this.registrationExpiresAt(existing), ownership_mode: 'timed',
           presence_source: 'legacy_drain', peers: await this.peerWire(tx,clone.id,existing.id,now) };
@@ -985,7 +1104,7 @@ export class GitDirectorService {
         });
         this.publish(tx, 'worktree', clone.id);
         return {
-          registered: true,
+          registered: true, ...(unarchived ? { clone_unarchived: true } : {}),
           superseded_registrations: supersededRegistrations,
           rebound: false,
           clone: this.cloneWire(clone, host),
@@ -1048,7 +1167,7 @@ export class GitDirectorService {
       if (resume) this.ownedContext.getStore()!.ctx.write(owned => persistAuditLog(owned, { hostId: host.id, engine, action: 'git_registration.resumed', details: JSON.stringify({ worktree_id: existing.id, previous_session_id: existing.agentSessionId, session_id: session!.id, withdrawn_request_ids: reboundRequests.map(r => r.id) }), createdAt: now }));
       if (rebound) await this.notify(tx, { kind: 'registration_rebound', clone, worktree: existing, audience: 'owners', includeActor: true, detail: { withdrawn_request_ids: reboundRequests.map(r => r.id) } });
       return {
-        registered: true,
+        registered: true, ...(unarchived ? { clone_unarchived: true } : {}),
         superseded_registrations: supersededRegistrations,
         rebound,
         withdrawn_request_ids: reboundRequests.map(r => r.id),
@@ -1174,7 +1293,7 @@ export class GitDirectorService {
     const hostRows = this.snapshot()?.hosts.all() ?? await this.deps.db.select({ id: hosts.id, fqdn: hosts.fqdn }).from(hosts);
     const fqdnById = new Map(hostRows.map((row) => [row.id, row.fqdn]));
 
-    let clones = allClones.filter((row) => !row.archivedAt);
+    let clones = [...allClones];
     if (scope === 'host') clones = clones.filter((row) => row.hostId === host.id);
     if (scope === 'clone') {
       if (!worktreePath) {
@@ -1197,6 +1316,19 @@ export class GitDirectorService {
     if (cloneDirFilter) clones = clones.filter((row) => row.cloneDir === normalizePath(cloneDirFilter));
     clones.sort((a, b) => a.lastSeenAt < b.lastSeenAt ? 1 : -1);
 
+    // Archived clones (dormant past GIT_DIRECTOR_CLONE_ARCHIVE_DAYS) are hidden
+    // unless asked for, counted after the scope and narrowing filters so the
+    // number answers "how many more would this query show". The caller's own
+    // checkout and an explicit scope "clone" are always shown.
+    const includeArchived = args.include_archived === true;
+    const ownClone = worktreePath && scope !== 'clone' ? await this.cloneForWorktree(this.deps.db, host, normalizePath(worktreePath)) : null;
+    let archivedOmitted = 0;
+    if (scope !== 'clone' && !includeArchived) {
+      const kept = clones.filter((row) => !row.archivedAt || row.id === ownClone?.id);
+      archivedOmitted = clones.length - kept.length;
+      clones = kept;
+    }
+
     // Summary by default, full on request. A narrowed `clone` scope is one
     // checkout the caller named, so it keeps the full entry unless told otherwise.
     const detailRaw = String(args.detail ?? '').trim().toLowerCase();
@@ -1206,9 +1338,8 @@ export class GitDirectorService {
 
     // The caller's own checkout leads the page, so the pre-work question is
     // answered on page one however many clones the host has.
-    if (worktreePath && scope !== 'clone') {
-      const own = await this.cloneForWorktree(this.deps.db, host, normalizePath(worktreePath));
-      const at = own ? clones.findIndex((row) => row.id === own.id) : -1;
+    if (ownClone) {
+      const at = clones.findIndex((row) => row.id === ownClone.id);
       if (at > 0) clones.unshift(...clones.splice(at, 1));
     }
 
@@ -1226,8 +1357,8 @@ export class GitDirectorService {
         ...(this.rows(this.deps.db, 'gitMergeRequests') ?? await this.deps.db.select({ cloneId: gitMergeRequests.cloneId, verdict: gitMergeRequests.verdict, completedAt: gitMergeRequests.completedAt }).from(gitMergeRequests).where(and(eq(gitMergeRequests.verdict, 'allow'), isNull(gitMergeRequests.completedAt))))
           .filter((row) => row.verdict === 'allow' && !row.completedAt).map((row) => row.cloneId),
       ]);
-      const own = worktreePath ? await this.cloneForWorktree(this.deps.db, host, normalizePath(worktreePath)) : null;
-      const kept = clones.filter((row) => busy.has(row.id) || row.id === own?.id);
+      // Asking for archived clones is asking for idle ones: they are idle by definition.
+      const kept = clones.filter((row) => busy.has(row.id) || row.id === ownClone?.id || Boolean(row.archivedAt));
       idleOmitted = clones.length - kept.length;
       clones = kept;
     }
@@ -1257,6 +1388,7 @@ export class GitDirectorService {
       truncated,
       next_offset: truncated ? offset + out.length : null,
       idle_omitted: idleOmitted,
+      archived_omitted: archivedOmitted,
     };
   }
 
@@ -1926,7 +2058,7 @@ export class GitDirectorService {
       remoteKey: string | null;
       now: string;
     },
-  ): Promise<GitClone> {
+  ): Promise<{ clone: GitClone; unarchived: boolean }> {
     const rows = this.rows(tx, 'gitClones') ?? await tx
       .select()
       .from(gitClones)
@@ -1963,13 +2095,19 @@ export class GitDirectorService {
           archivedAt: null,
           updatedAt: input.now,
         });
+      // Re-registering is how an archived clone comes back: same row, same
+      // registrations and merge history, visible to git_list again.
+      if (existing.archivedAt) this.publish(tx, 'clone', existing.id);
       return {
-        ...existing,
-        repoRoot: input.repoRoot,
-        remoteUrl: input.remoteUrl ?? existing.remoteUrl,
-        remoteKey: input.remoteKey ?? existing.remoteKey,
-        lastSeenAt: input.now,
-        archivedAt: null,
+        clone: {
+          ...existing,
+          repoRoot: input.repoRoot,
+          remoteUrl: input.remoteUrl ?? existing.remoteUrl,
+          remoteKey: input.remoteKey ?? existing.remoteKey,
+          lastSeenAt: input.now,
+          archivedAt: null,
+        },
+        unarchived: Boolean(existing.archivedAt),
       };
     }
     const clone: GitClone = {
@@ -1989,7 +2127,7 @@ export class GitDirectorService {
     };
     await this.insertRow(tx, 'gitClones', clone);
     this.publish(tx, 'clone', clone.id);
-    return clone;
+    return { clone, unarchived: false };
   }
 
   /**
@@ -2142,10 +2280,13 @@ export class GitDirectorService {
       );
     }
     const clones = this.rows(tx, 'gitClones') ?? (this.rows(tx, 'gitClones')?.filter(row => row.id === worktree.cloneId) ?? await tx.select().from(gitClones).where(eq(gitClones.id, worktree.cloneId)).limit(1));
-    const clone = clones.find((row) => row.id === worktree.cloneId);
-    if (!clone) throw new NotFoundError('Clone not found', 'git_director_clone_not_found');
+    const found = clones.find((row) => row.id === worktree.cloneId);
+    if (!found) throw new NotFoundError('Clone not found', 'git_director_clone_not_found');
 
-    if (this.snapshot(tx)) { this.requireRegistrationProof(worktree, true); return { clone, worktree }; }
+    // Callers go on to (re)activate this registration, and an archived clone
+    // must never hold one, so the clone comes back with it.
+    if (this.snapshot(tx)) { this.requireRegistrationProof(worktree, true); return { clone: await this.reviveClone(tx, found, now), worktree }; }
+    const clone = await this.reviveClone(tx, found, now);
     const expiresAt = isoOffsetSeconds(REGISTRATION_TTL_SECONDS, new Date(now));
     await this.updateRows(tx, 'gitWorktrees', [worktree.id], { status: 'active', heartbeatAt: now, expiresAt, releasedAt: null, updatedAt: now });
     return {
@@ -2326,6 +2467,7 @@ export class GitDirectorService {
       remote_url: clone.remoteUrl,
       remote_key: clone.remoteKey,
       last_seen_at: clone.lastSeenAt,
+      ...(clone.archivedAt ? { archived_at: clone.archivedAt } : {}),
     };
   }
 

@@ -1041,7 +1041,18 @@ All three engine config GET/store routes share the revision contract: `revision`
   10 minutes so last-seen survives an API restart. Legacy timed registrations
   retain their compatibility rules. `git_list` omits clones with no active or
   uncertain registration, no live lease and no registration retired in the last 24 hours unless `include_idle: true`
-  (`idle_omitted` counts them; scope `clone` always shows its clone). Owner-mode merge grants expire after 15 minutes and
+  (`idle_omitted` counts them; scope `clone` always shows its clone). A clone with no `active`/`uncertain`
+  registration, no open merge request (lease or wait) and no activity (its `last_seen_at`/`updated_at`, or any
+  registration's or request's timestamps) for `GIT_DIRECTOR_CLONE_ARCHIVE_DAYS` (default 14) is **archived** by the
+  same read/tick sweep, inside the same serialized owner command (or locked SQL transaction) as the rest of the
+  sweep: `git_clones.archived_at` is set and nothing is deleted. Archived clones are hidden from `git_list` (even
+  with `include_idle`), the console listing and the AGENTS.md clone count; `git_list` reports them as
+  `archived_omitted` and lists them with `include_archived: true` (entries then carry `archived_at`). The caller's
+  own checkout and scope `clone` are always shown. A returning agent needs no extra step: `git_register` for the
+  same clone (also when `clone_dir` is omitted, which resolves through the archived mapping) or a `git_join`/heartbeat
+  that brings a retired registration back revives the same clone row with its registrations and merge history;
+  `git_register` then reports `clone_unarchived: true`. Path exclusion is unchanged: an archived clone by definition
+  holds no live registration. Owner-mode merge grants expire after 15 minutes and
   `git_merge_status` never extends them; an expired grant requires a new request.
   An API restart marks connection-owned registrations `uncertain`/`owner_restart`.
   A `git_merge_request`/`git_merge_status` on a registration that is not

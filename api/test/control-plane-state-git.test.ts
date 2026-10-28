@@ -17,7 +17,7 @@ import {
   type PreparedOwnerState,
 } from '../src/control-plane/state/store.js';
 import { bindOwnerRuntime, type OwnerRuntime } from '../src/control-plane/state/runtime.js';
-import { GitDirectorService } from '../src/services/git-director.js';
+import { GitDirectorService, archivableClones } from '../src/services/git-director.js';
 import { SettingsService } from '../src/services/settings.js';
 import { AgentCoordination } from '../src/services/agent-coordination/index.js';
 import type { AgentMessagingService } from '../src/services/agent-messaging.js';
@@ -539,5 +539,100 @@ describe('offline Git registration owners', () => {
     const later = new GitDirectorService({ db: h.fake as unknown as Database, settings: new SettingsService(h.fake as unknown as Database), now: () => new Date(Date.now() + 10 * GRACE).toISOString() });
     await later.reconcileOwned();
     expect(h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))?.status).toBe('uncertain');
+  });
+});
+
+describe('dormant clone archiving', () => {
+  const DAY = 86_400_000;
+  const principal = <T>(h: ReturnType<typeof setup>, run: () => Promise<T>) => withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, run);
+  function clocked(h: ReturnType<typeof setup>, start = Date.now()) {
+    let at = start;
+    const git = new GitDirectorService({ db: h.fake as unknown as Database, settings: new SettingsService(h.fake as unknown as Database), now: () => new Date(at).toISOString(), cloneArchiveDays: 14 });
+    return { git, advance: (ms: number) => { at += ms; }, clone: () => h.state.snapshot().table('gitClones').all()[0]! };
+  }
+  const args = { worktree_path: '/repo', clone_dir: '/repo/.git', repo_root: '/repo', engine: 'codex', username: 'root', branch: 'work' };
+
+  it('archives a clone idle past the window, hides it, and revives the same row on git_register', async () => {
+    const h = setup(), c = clocked(h);
+    const first = await principal(h, () => c.git.register(args, h.host));
+    await principal(h, () => c.git.release({ worktree_path: '/repo', deregister: true }, h.host));
+    c.advance(13 * DAY);
+    await c.git.reconcileOwned();
+    expect(c.clone().archivedAt).toBeNull();
+    c.advance(2 * DAY);
+    const hidden = await c.git.list({}, h.host);
+    expect(c.clone().archivedAt).not.toBeNull();
+    expect(hidden).toMatchObject({ clones: [], total: 0, archived_omitted: 1 });
+    expect((await c.git.list({ scope: 'fleet', include_idle: true }, h.host)).clones).toEqual([]);
+    const shown = await c.git.list({ include_archived: true }, h.host);
+    expect(shown.archived_omitted).toBe(0);
+    expect(shown.clones).toMatchObject([{ clone_id: c.clone().id, archived_at: c.clone().archivedAt }]);
+    expect((await c.git.adminClones()).length).toBe(0);
+    expect(await c.git.availableCount(h.host)).toBe(0);
+    // Persisted by the owner command's row write; nothing is deleted.
+    const archivedAt = c.clone().archivedAt;
+    expect(h.fake.updates.some((u) => u.table === schema.gitClones && u.set.archivedAt === archivedAt)).toBe(true);
+    expect(h.fake.deletes.filter((d) => d.table === schema.gitClones || d.table === schema.gitWorktrees)).toEqual([]);
+    expect(h.state.snapshot().table('gitWorktrees').get(String(first.worktree_id))?.status).toBe('released');
+
+    // The returning agent omits clone_dir: the archived mapping is still found,
+    // so the same clone and registration come back instead of a new clone keyed on the path.
+    const { clone_dir: _omit, ...withoutCloneDir } = args;
+    void _omit;
+    const again = await principal(h, () => c.git.register(withoutCloneDir, h.host));
+    expect(again).toMatchObject({ registered: true, clone_unarchived: true, worktree_id: first.worktree_id });
+    expect((again.clone as Record<string, unknown>).clone_id).toBe((first.clone as Record<string, unknown>).clone_id);
+    expect(h.state.snapshot().table('gitClones').all()).toHaveLength(1);
+    expect(c.clone().archivedAt).toBeNull();
+    expect(h.fake.updates.some((u) => u.table === schema.gitClones && u.set.archivedAt === null)).toBe(true);
+    expect((await c.git.list({}, h.host)).clones).toHaveLength(1);
+  });
+
+  it('never archives a clone that holds a registration, and counts a recent release as activity', async () => {
+    const h = setup(), c = clocked(h);
+    await principal(h, () => c.git.register(args, h.host));
+    c.advance(30 * DAY);
+    await c.git.reconcileOwned();
+    expect(c.clone().archivedAt).toBeNull();
+    // Registered 30 days ago (last_seen_at), released just now: not dormant.
+    await principal(h, () => c.git.release({ worktree_path: '/repo', deregister: true }, h.host));
+    c.advance(DAY);
+    await c.git.reconcileOwned();
+    expect(c.clone().archivedAt).toBeNull();
+    c.advance(14 * DAY);
+    await c.git.reconcileOwned();
+    expect(c.clone().archivedAt).not.toBeNull();
+  });
+
+  it('reads without a command when nothing is due', async () => {
+    const h = setup(), c = clocked(h);
+    await principal(h, () => c.git.register(args, h.host));
+    await principal(h, () => c.git.release({ worktree_path: '/repo', deregister: true }, h.host));
+    const command = vi.spyOn(h.owner, 'execute');
+    await c.git.list({}, h.host);
+    expect(command).not.toHaveBeenCalled();
+    c.advance(15 * DAY);
+    await c.git.list({}, h.host);
+    expect(command).toHaveBeenCalledTimes(1);
+    await c.git.list({}, h.host);
+    expect(command).toHaveBeenCalledTimes(1);
+    expect(h.select).not.toHaveBeenCalled();
+  });
+});
+
+describe('archivableClones', () => {
+  const now = '2026-10-28T00:00:00.000Z';
+  const clone = (id: string, lastSeenAt: string, archivedAt: string | null = null) =>
+    ({ id, hostId: 1, cloneKey: id, cloneDir: '/' + id, repoRoot: '/' + id, remoteUrl: null, remoteKey: null, defaultBranch: null,
+      firstSeenAt: lastSeenAt, lastSeenAt, archivedAt, createdAt: lastSeenAt, updatedAt: lastSeenAt });
+  const old = '2026-10-01T00:00:00Z';
+  it('needs no live registration, no open request and no recent activity', () => {
+    const clones = [clone('idle', old), clone('active', old), clone('uncertain', old), clone('waiting', old), clone('recent', old), clone('fresh', '2026-10-20T00:00:00Z'), clone('done', old, '2026-10-10T00:00:00Z'), clone('broken', 'not-a-date')];
+    const wt = (cloneId: string, status: string, at = old) => ({ cloneId, status, heartbeatAt: at, releasedAt: status === 'released' ? at : null, updatedAt: at });
+    const picked = archivableClones(clones,
+      [wt('idle', 'released'), wt('active', 'active'), wt('uncertain', 'uncertain'), wt('recent', 'released', '2026-10-27T00:00:00Z')],
+      [{ cloneId: 'waiting', completedAt: null, updatedAt: old }, { cloneId: 'idle', completedAt: old, updatedAt: old }],
+      now, 14);
+    expect(picked.map((row) => row.id)).toEqual(['idle']);
   });
 });

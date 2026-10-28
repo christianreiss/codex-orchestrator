@@ -176,6 +176,11 @@ const schema = z
     AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS: intish(45).pipe(z.number().int().positive()),
     AGENT_PORTAL_RELAY_FRESH_SECONDS: intish(60).pipe(z.number().int().positive()),
 
+    // Git Director clones with no live registration, no open merge request and
+    // no activity for this many days are archived (hidden from git_list and the
+    // console; a returning git_register revives them). See git-director.ts.
+    GIT_DIRECTOR_CLONE_ARCHIVE_DAYS: intish(14).pipe(z.number().int().min(1).max(3650)),
+
     // Cross-site origins (comma-separated) allowed to make credentialed CORS
     // requests against admin/host routes. Empty by default: those routes are
     // same-origin only. Does not affect /v1 and /anthropic/v1, which stay
