@@ -191,6 +191,12 @@ func TestNativeResumeIdentityUsesOptionBoundaries(t *testing.T) {
 		{"codex", []string{"--image", "resume", id}, ""},
 		{"codex", []string{"e", "resume", "--", id}, id},
 		{"codex", []string{"exec", "--model", "foo", "resume", id}, id},
+		// Codex 0.165.0: nested exec resume takes one image; TUI resume keeps a list.
+		{"codex", []string{"exec", "resume", "-i", "a.png", id, "continue"}, id},
+		{"codex", []string{"e", "resume", "--image", "a.png", id}, id},
+		{"codex", []string{"exec", "resume", id, "-i", "a.png"}, id},
+		{"codex", []string{"resume", "-i", "a.png", id}, ""},
+		{"codex", []string{"exec", "-i", "a.png", "resume", id}, ""},
 		{"grok", []string{"--debug", "--resume=" + id}, id},
 		{"grok", []string{"--print", "--resume=" + id}, ""},
 		{"grok", []string{"--load", id}, id},
