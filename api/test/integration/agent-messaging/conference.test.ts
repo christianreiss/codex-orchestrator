@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   agentBusAddresses,
@@ -103,13 +103,13 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     await handle?.pool.end();
   });
 
-  async function register(engine: Engine, label: string): Promise<AgentIdentity> {
+  async function register(engine: Engine, label: string, cwd?: string): Promise<AgentIdentity> {
     const sessionId = randomUUID();
     const bridgeToken = randomBytes(32).toString('base64url');
     const result = await service.registerSession(host, {
       engine,
       username: `${PREFIX}-${label}`,
-      cwd: `/tmp/${PREFIX}/${label}`,
+      cwd: cwd ?? `/tmp/${PREFIX}/${label}`,
       invocationKind: 'interactive',
       sessionId,
       bridgeToken,
@@ -804,6 +804,165 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     // An already seated invitee cannot bypass liveness through the UUID path.
     await expect(service.joinConference(member.sessionId, member.bridgeToken, { conferenceId })).rejects.toMatchObject({
       code: 'agent_messaging_conference_chair_not_listening',
+    });
+  });
+
+
+  describe('open-or-join (join_existing)', () => {
+    const SHARED = `/tmp/${PREFIX}/shared-checkout`;
+    const openOrJoin = (agent: AgentIdentity, topic = 'Discuss together and agree') =>
+      service.openConference(agent.sessionId, agent.bridgeToken, { topic, joinExisting: true });
+    const rooms = async () =>
+      await db
+        .select()
+        .from(agentBusConferences)
+        .innerJoin(agentBusAddresses, eq(agentBusAddresses.id, agentBusConferences.ownerAddressId))
+        .where(eq(agentBusAddresses.hostId, host.id));
+    const openRooms = async () => (await rooms()).filter((row) => row.agent_bus_conferences.status === 'open');
+
+    it('puts seven simultaneous callers in one room, one chair and six participants', async () => {
+      const agents = await Promise.all(
+        Array.from({ length: 7 }, (_, n) => register(n % 2 ? 'claude' : 'codex', `racer-${n}`, SHARED)),
+      );
+      const topics = ['Discuss together and agree', '  discuss TOGETHER   and agree ', 'Discuss together and agree'];
+      const answers = await Promise.all(agents.map((agent, n) => openOrJoin(agent, topics[n % topics.length])));
+
+      expect(new Set(answers.map((answer) => answer.conference_id)).size).toBe(1);
+      expect(answers.filter((answer) => answer.role === 'owner')).toHaveLength(1);
+      const joined = answers.filter((answer) => answer.joined === true);
+      expect(joined).toHaveLength(6);
+      for (const answer of joined) {
+        expect(answer).toMatchObject({ role: 'participant', reused: true, pin: null });
+        // A participant is told who chairs and is never handed the PIN.
+        expect((answer.chair as Record<string, unknown>).address).toBeTruthy();
+      }
+      const chairAnswer = answers.find((answer) => answer.role === 'owner')!;
+      expect(String(chairAnswer.pin)).toMatch(/^[0-9]{4}$/);
+
+      expect(await openRooms()).toHaveLength(1);
+      const roster = await service.conferenceRoster(agents[0]!.sessionId, agents[0]!.bridgeToken, String(chairAnswer.conference_id));
+      expect(roster.members as unknown[]).toHaveLength(7);
+    });
+
+    it('turns a lost race on the rendezvous key into a join, not a second room', async () => {
+      const winner = await register('claude', 'race-winner', SHARED);
+      const loser = await register('codex', 'race-loser', SHARED);
+      const first = await openOrJoin(winner, 'race');
+      // The loser looked before the winner committed: its lookup finds nothing, so
+      // its INSERT hits the unique key. The retry must find the winner and join.
+      const coordinator = (service as unknown as { conference: { findRendezvousRoomLocked: (...args: unknown[]) => Promise<unknown> } }).conference;
+      const lookup = vi.spyOn(coordinator, 'findRendezvousRoomLocked').mockImplementationOnce(async () => null);
+      try {
+        const answer = await openOrJoin(loser, 'race');
+        expect(answer).toMatchObject({ conference_id: first.conference_id, joined: true, role: 'participant', pin: null });
+        expect(lookup).toHaveBeenCalledTimes(2);
+      } finally {
+        lookup.mockRestore();
+      }
+      expect(await openRooms()).toHaveLength(1);
+    });
+
+    it('is idempotent: a seated caller asking again is not charged a second HELLO', async () => {
+      const chair = await register('claude', 'idem-chair', SHARED);
+      const peer = await register('codex', 'idem-peer', SHARED);
+      const first = await openOrJoin(chair);
+      const joined = await openOrJoin(peer);
+      const again = await openOrJoin(peer);
+      expect(joined.conference_id).toBe(first.conference_id);
+      expect(again).toMatchObject({ conference_id: first.conference_id, joined: true, role: 'participant' });
+      expect((await memberRow(String(first.conference_id), peer.addressId))?.messageCount).toBe(1);
+      const chairAgain = await openOrJoin(chair);
+      expect(chairAgain).toMatchObject({ conference_id: first.conference_id, reused: true, joined: false, role: 'owner', pin: first.pin });
+    });
+
+    it('does not cross repository identities', async () => {
+      const here = await register('claude', 'here', SHARED);
+      const elsewhere = await register('claude', 'elsewhere', `/tmp/${PREFIX}/other-checkout`);
+      const a = await openOrJoin(here);
+      const b = await openOrJoin(elsewhere);
+      expect(b.conference_id).not.toBe(a.conference_id);
+      expect(b).toMatchObject({ joined: false, role: 'owner' });
+    });
+
+    it('matches the topic exactly after normalization, never loosely', async () => {
+      const one = await register('claude', 'topic-one', SHARED);
+      const two = await register('claude', 'topic-two', SHARED);
+      const a = await openOrJoin(one, 'release plan');
+      const b = await openOrJoin(two, 'release plan v2');
+      expect(b.conference_id).not.toBe(a.conference_id);
+    });
+
+    it('never joins a room that was not opened for rendezvous, nor lists it to an outsider', async () => {
+      const chair = await register('claude', 'private-chair', SHARED);
+      const outsider = await register('claude', 'outsider', SHARED);
+      const privateRoom = await service.openConference(chair.sessionId, chair.bridgeToken, { topic: 'Discuss together and agree' });
+      const answer = await openOrJoin(outsider);
+      expect(answer.conference_id).not.toBe(privateRoom.conference_id);
+      expect(answer).toMatchObject({ joined: false, role: 'owner' });
+      expect(await memberRow(String(privateRoom.conference_id), outsider.addressId)).toBeUndefined();
+      expect((await service.listConferences(outsider.sessionId, outsider.bridgeToken)).conferences).toHaveLength(1);
+    });
+
+    it('joins the invitation the caller already holds when its topic matches', async () => {
+      const chair = await register('claude', 'inviter', SHARED);
+      const invitee = await register('codex', 'invited', `/tmp/${PREFIX}/unrelated-checkout`);
+      const opened = await service.openConference(chair.sessionId, chair.bridgeToken, { topic: 'Pick the schema' });
+      await service.inviteToConference(chair.sessionId, chair.bridgeToken, { conferenceId: String(opened.conference_id), to: [invitee.address] });
+      const answer = await openOrJoin(invitee, 'pick the SCHEMA');
+      expect(answer).toMatchObject({ conference_id: opened.conference_id, joined: true, role: 'participant', pin: null });
+      expect((await memberRow(String(opened.conference_id), invitee.addressId))?.state).toBe('seated');
+    });
+
+    it('requires a topic, since the topic is the whole key', async () => {
+      const agent = await register('claude', 'no-topic', SHARED);
+      await expect(service.openConference(agent.sessionId, agent.bridgeToken, { joinExisting: true })).rejects.toMatchObject({ status: 422 });
+      await expect(service.openConference(agent.sessionId, agent.bridgeToken, { joinExisting: true, topic: '   ' })).rejects.toMatchObject({ status: 422 });
+    });
+
+    it('reports a full room instead of opening a rival', async () => {
+      const chair = await register('claude', 'full-chair', SHARED);
+      const peer = await register('claude', 'full-peer', SHARED);
+      const late = await register('claude', 'full-late', SHARED);
+      await service.openConference(chair.sessionId, chair.bridgeToken, { topic: 'tiny', maxMembers: 2, joinExisting: true });
+      await openOrJoin(peer, 'tiny');
+      await expect(openOrJoin(late, 'tiny')).rejects.toMatchObject({ code: 'agent_messaging_conference_full' });
+      expect(await openRooms()).toHaveLength(1);
+    });
+
+    it('reports a chair that is not listening instead of opening a rival', async () => {
+      const chair = await register('claude', 'deaf-chair', SHARED);
+      const peer = await register('claude', 'deaf-peer', SHARED);
+      await openOrJoin(chair, 'deaf');
+      await db.update(agentBusAddresses).set({ receiveHeartbeatAt: '1970-01-01T00:00:00Z' }).where(eq(agentBusAddresses.id, chair.addressId));
+      await db.update(agentSessions).set({ receiver: null }).where(eq(agentSessions.id, chair.sessionId));
+      await expect(openOrJoin(peer, 'deaf')).rejects.toMatchObject({ code: 'agent_messaging_conference_chair_not_listening' });
+      expect(await openRooms()).toHaveLength(1);
+    });
+
+    it('releases the key with the room, so the topic can be convened again', async () => {
+      const chair = await register('claude', 'again-chair', SHARED);
+      const peer = await register('claude', 'again-peer', SHARED);
+      const first = await openOrJoin(chair, 'again');
+      await service.adjournConference(chair.sessionId, chair.bridgeToken, { conferenceId: String(first.conference_id), force: true });
+      const second = await openOrJoin(peer, 'again');
+      expect(second.conference_id).not.toBe(first.conference_id);
+      expect(second).toMatchObject({ joined: false, role: 'owner' });
+      const chair2 = await register('codex', 'again-chair-2', SHARED);
+      expect((await openOrJoin(chair2, 'again')).conference_id).toBe(second.conference_id);
+      // An expired room frees its key too, even though nothing adjourned it explicitly.
+      await db.update(agentBusConferences).set({ deadlineAt: '2000-01-01T00:00:00.000Z' }).where(eq(agentBusConferences.id, String(second.conference_id)));
+      const third = await register('claude', 'again-third', SHARED);
+      expect((await openOrJoin(third, 'again')).conference_id).not.toBe(second.conference_id);
+    });
+
+    it('leaves ordinary open untouched: no key, rooms stay independent', async () => {
+      const a = await register('claude', 'plain-a', SHARED);
+      const b = await register('claude', 'plain-b', SHARED);
+      const roomA = await service.openConference(a.sessionId, a.bridgeToken, { topic: 'same' });
+      const roomB = await service.openConference(b.sessionId, b.bridgeToken, { topic: 'same' });
+      expect(roomA.conference_id).not.toBe(roomB.conference_id);
+      expect(roomA).toMatchObject({ joined: false, role: 'owner' });
+      expect((await conferenceRow(String(roomA.conference_id)))?.rendezvousKey).toBeNull();
     });
   });
 

@@ -553,11 +553,12 @@ func toolCatalogJSON() []byte {
 		tool("agent_listen", "Release a finished delivery and check reception. With an automatic receiver, call once and yield on status automatic; never poll. On receiver_unavailable, report the failure instead of waiting. Only manual reception waits up to 25 seconds and returns a delivery. Finish accepted work with agent_task_result or agent_reply with task_result before listening again.", map[string]any{
 			"wait_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 25},
 		}, nil),
-		tool("agent_conf_open", "Open a conference and become its chair. Mints a room PIN that many agents may dial, and returns this agent's own address. Only the chair may dispatch tasks and adjourn.", map[string]any{
-			"topic":       map[string]any{"type": "string", "maxLength": 255},
-			"purpose":     map[string]any{"type": "string", "maxLength": 1024},
-			"ttl_seconds": map[string]any{"type": "integer", "minimum": 300, "maximum": 21600},
-			"max_members": map[string]any{"type": "integer", "minimum": 2, "maximum": 8},
+		tool("agent_conf_open", "Open a conference and become its chair. Mints a room PIN that many agents may dial, and returns this agent's own address. Only the chair may dispatch tasks and adjourn. Pass join_existing=true with a topic when several agents were given the same prompt and must end up in ONE room: in a single atomic step you join the live room for that topic in your repository if one exists (as a participant: joined=true, role=participant, no PIN), otherwise you open it and become chair. Safe to call concurrently and repeatedly. Only rooms opened with join_existing are found this way; rooms you were never invited to stay invisible.", map[string]any{
+			"topic":         map[string]any{"type": "string", "maxLength": 255, "description": "Required with join_existing. Matched after trimming, collapsing whitespace and ignoring case; nothing looser."},
+			"purpose":       map[string]any{"type": "string", "maxLength": 1024},
+			"ttl_seconds":   map[string]any{"type": "integer", "minimum": 300, "maximum": 21600},
+			"max_members":   map[string]any{"type": "integer", "minimum": 2, "maximum": 8},
+			"join_existing": map[string]any{"type": "boolean", "description": "Open-or-join: join the live room for this topic in your repository, else open it. Default false (always open or reuse your own room)."},
 		}, nil),
 		tool("agent_conf_invite", "Chair only. Invite agent addresses or aliases into the conference. A detached address can be woken by its relay; an attached session receives through its automatic receiver or manual agent_listen. Returns one result per address; delivery is per member, not all-or-nothing.", map[string]any{
 			"conference_id": map[string]any{"type": "string"},
@@ -573,7 +574,7 @@ func toolCatalogJSON() []byte {
 		tool("agent_conf_roster", "List conference members with their host, engine, role, declared purpose, delivery mode and whether each is seated or away on a task.", map[string]any{
 			"conference_id": map[string]any{"type": "string"},
 		}, []string{"conference_id"}),
-		tool("agent_conf_list", "List the live conferences this agent chairs, is invited to, or sits in, with role, member state, member count and message budget. Check it before agent_conf_open so you join a room already waiting for you instead of opening a parallel one. Membership-scoped: rooms you were never invited to are not listed.", map[string]any{}, nil),
+		tool("agent_conf_list", "List the live conferences this agent chairs, is invited to, or sits in, with role, member state, member count and message budget. Check it before agent_conf_open so you join a room already waiting for you instead of opening a parallel one; when several agents share one prompt, call agent_conf_open with join_existing=true and a topic instead of checking first. Membership-scoped: rooms you were never invited to are not listed.", map[string]any{}, nil),
 		tool("agent_conf_say", "Speak in the conference. The chair broadcasts to every seated member, or to one named member. A participant may only address the chair; there is no direct participant-to-participant path. Returns one result per recipient. A progress message does not finish held work; use agent_task_result or agent_reply with task_result when the task is done.", map[string]any{
 			"conference_id": map[string]any{"type": "string"},
 			"content":       map[string]any{"type": "string", "maxLength": maxBodyBytes},
@@ -1193,9 +1194,15 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		return agentListen(ctx, client, channelState, args)
 	case "agent_conf_open":
 		body := map[string]any{}
-		copyOptional(args, body, "topic", "purpose", "ttl_seconds", "max_members")
+		copyOptional(args, body, "topic", "purpose", "ttl_seconds", "max_members", "join_existing")
 		if err := client.post(ctx, "conf/open", body, &out); err != nil {
 			return nil, err
+		}
+		// Open-or-join that landed in an existing room answers the invite, like agent_conf_join.
+		if joined, _ := out["joined"].(bool); joined {
+			if err := channelState.completeConference(ctx, stringArg(out, "conference_id")); err != nil {
+				return nil, err
+			}
 		}
 		return out, nil
 	case "agent_conf_invite":

@@ -387,6 +387,7 @@ describe('migrations against the test baseline', () => {
       'agent_bus_messages.delivery_timing',
       'companion_pairings.device_id',
       'companion_devices.read_sync_protocol',
+      'agent_bus_conferences.rendezvous_key',
     ]);
   });
 

@@ -127,6 +127,16 @@ export function normalizeOptionalText(value: unknown, maxBytes: number): string 
   return normalized;
 }
 
+/**
+ * The topic as a rendezvous key sees it: case, surrounding space and runs of
+ * whitespace do not make two agents' "discuss together" different topics. Nothing
+ * looser than that -- no stemming, no prefix match -- or two unrelated rooms
+ * would silently merge.
+ */
+export function normalizeConferenceTopicKey(topic: string): string {
+  return topic.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
 export function normalizeUuid(value: unknown, param: string): string {
   const normalized = String(value ?? '').trim().toLowerCase();
   if (!UUID_RE.test(normalized)) throw new ValidationError(`${param} must be a UUID`, { param });
