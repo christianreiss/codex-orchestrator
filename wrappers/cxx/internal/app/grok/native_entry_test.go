@@ -32,6 +32,10 @@ func TestNativeOptionsPreserveCLIGrammar(t *testing.T) {
 			t.Fatalf("native %s lost central auth owner: %+v %v", command, o, err)
 		}
 	}
+	// login's own --oauth is not the refused root sign-in request.
+	if o, err := nativeOptions([]string{"login", "--oauth"}); err != nil || o.command != "login" || !reflect.DeepEqual(o.args, []string{"--oauth"}) {
+		t.Fatalf("native login --oauth lost central auth owner: %+v %v", o, err)
+	}
 }
 
 func TestNativeFlagClassificationIgnoresLiteralValues(t *testing.T) {
