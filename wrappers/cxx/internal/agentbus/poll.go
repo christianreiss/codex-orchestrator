@@ -153,11 +153,11 @@ func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error 
 	if ringHooksDisabled() {
 		return nil
 	}
-	if end != nil && end.released > 0 && len(end.stillHeld) == 0 && end.receiverReady {
-		// Reception just reopened on a healthy receiver: what is pending will be
-		// pushed into the conversation, waking it if idle. Ringing it as well
-		// would send the model to agent_listen, which releases that next message
-		// before it has been read.
+	if end.pushesPending(event) {
+		// A healthy receiver will push what is pending into the conversation,
+		// waking it if idle. Ringing it as well would send the model to
+		// agent_listen, which releases that next message before it has been read,
+		// or block a Stop the receiver is waiting for (see pushesPending).
 		box = &mailbox{Missed: box.Missed}
 	}
 	fresh, ledger := unrung(event, box)
@@ -186,7 +186,7 @@ func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error 
 	if len(fresh) == 0 && authContext == "" && contentContext == "" && heldText == "" {
 		return nil
 	}
-	summary := ringSummary(fresh, end != nil && end.blocked)
+	summary := ringSummary(fresh, end.ringMode())
 	if heldText != "" {
 		if summary.context != "" {
 			summary.context += "\n"
@@ -217,8 +217,11 @@ func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error 
 		summary.human += "Fleet content updated"
 	}
 	// Only commit the ledger once the ring is certain to be emitted, so a write
-	// that fails here cannot silently swallow a call.
-	ledger.commit()
+	// that fails here cannot silently swallow a call. A Stop ring that could not
+	// be recorded is dropped instead: it would block every later turn end too.
+	if !ledger.commit() && event == hookEventStop {
+		return nil
+	}
 
 	if event == hookEventPrompt {
 		if err := writeJSON(stdout, map[string]any{
@@ -249,12 +252,38 @@ type ringText struct {
 	human   string
 }
 
-// blocked means this session still holds accepted work or a Portal
-// instruction. The pending messages then queue behind it, and the usual advice
-// to call agent_listen is wrong: listen cannot release work, and telling a
-// model it "releases anything you were holding" is how a coordinator ended its
-// own still-running request as unknown on 2026-10-14.
-func ringSummary(fresh []mailboxEntry, blocked bool) ringText {
+// ringMode picks what a pending-mail ring tells the model to do.
+type ringMode int
+
+const (
+	// ringListen: agent_listen claims (manual) or reopens reception (a read
+	// delivery still held). Also the fallback when the owner is unknown or old.
+	ringListen ringMode = iota
+	// ringBlocked: this session still holds accepted work or a Portal
+	// instruction. The pending messages then queue behind it, and the usual
+	// advice to call agent_listen is wrong: listen cannot release work, and
+	// telling a model it "releases anything you were holding" is how a
+	// coordinator ended its own still-running request as unknown on 2026-10-14.
+	ringBlocked
+	// ringAfterTurn: a healthy turn-gated receiver pushes the messages once this
+	// turn ends. agent_listen cannot fetch a body mid-turn; a coordinator that
+	// was told to call it did so repeatedly and got nothing (feedback b0f9361b).
+	ringAfterTurn
+)
+
+func (e *turnEnd) ringMode() ringMode {
+	switch {
+	case e == nil:
+		return ringListen
+	case e.blocked:
+		return ringBlocked
+	case e.receiverReady && e.afterTurn && len(e.stillHeld) == 0:
+		return ringAfterTurn
+	}
+	return ringListen
+}
+
+func ringSummary(fresh []mailboxEntry, mode ringMode) ringText {
 	var pending, missed []mailboxEntry
 	for _, entry := range fresh {
 		if entry.MessageID == "" {
@@ -273,24 +302,35 @@ func ringSummary(fresh []mailboxEntry, blocked bool) ringText {
 			}
 			agent.WriteString("\n")
 		}
-		if blocked {
+		switch mode {
+		case ringBlocked:
 			agent.WriteString(
 				"\nThis is a ring, not the message. It is queued behind accepted work or an operator Portal " +
 					"instruction you still hold, and arrives on its own once that is answered: report work with " +
 					"`agent_task_result` (or `agent_reply` with task_result) and Portal instructions with " +
 					"`agent_receiver_reply`, but only when they are actually finished. `agent_listen` does not release " +
 					"them. If the work is still running, carry on; this will not ring again.\n")
-		} else {
+		case ringAfterTurn:
+			agent.WriteString(
+				"\nThis is a ring, not the message. The automatic receiver pushes these into this conversation " +
+					"after the current turn ends; only a message its sender marked `delivery_timing: \"immediate\"` " +
+					"can arrive while you are working. `agent_listen` returns no message body, so calling it now " +
+					"does not help. To read them sooner, finish your turn; otherwise carry on.\n")
+		default:
 			agent.WriteString(
 				"\nThis is a ring, not the message: the body is only released when you collect it. " +
-					"To answer, call `agent_listen`: with the automatic receiver it releases any informational " +
-					"message you were holding and the message is delivered into this conversation; otherwise it " +
-					"claims the message and binds this session receive-capable. To decline, say so and carry on; " +
+					"To answer, call `agent_listen` once: with the automatic receiver it releases the message " +
+					"you were holding, and the next one is pushed into this conversation (after the current turn " +
+					"ends when delivery is turn-gated); otherwise it claims the message and binds this session " +
+					"receive-capable. Calling it repeatedly does not help. To decline, say so and carry on; " +
 					"it will not ring again.\n")
 		}
 		fmt.Fprintf(&human, "☎ %s waiting from %s", plural(len(pending), "call", "calls"), pending[0].From.name())
 		if len(pending) > 1 {
 			fmt.Fprintf(&human, " and %d more", len(pending)-1)
+		}
+		if mode == ringAfterTurn {
+			human.WriteString(" (delivered after this turn)")
 		}
 	}
 	if len(missed) > 0 {
@@ -402,18 +442,23 @@ func (l *ringLedger) mark(key string) bool {
 	return true
 }
 
-func (l *ringLedger) commit() {
+// commit records what was staged. It reports false only when something new
+// could not be written, so the caller can refuse to block on an unrecorded ring.
+func (l *ringLedger) commit() bool {
 	if !l.enabled || !l.added {
-		return
+		return true
 	}
 	if len(l.order) > ringLedgerLimit {
 		l.order = l.order[len(l.order)-ringLedgerLimit:]
 	}
 	if err := os.MkdirAll(filepath.Dir(l.path), 0o700); err != nil {
-		return
+		return false
 	}
-	_ = os.WriteFile(l.path, []byte(strings.Join(l.order, "\n")+"\n"), 0o600)
+	if err := os.WriteFile(l.path, []byte(strings.Join(l.order, "\n")+"\n"), 0o600); err != nil {
+		return false
+	}
 	pruneRingLedgers(filepath.Dir(l.path))
+	return true
 }
 
 func ringLedgerPath() (string, error) {

@@ -67,6 +67,35 @@ func TestAutomaticListenNeverCompletesHeldWork(t *testing.T) {
 	}
 }
 
+// Feedback b0f9361b (2026-10-28): mid-turn agent_listen answered "automatic"
+// with claim_gate thread_working and no body, and the model kept calling it.
+// The answer must say the queued messages land only after this turn ends.
+func TestAutomaticListenSaysQueuedMailWaitsForTheTurnEnd(t *testing.T) {
+	var posted []string
+	var bodies []map[string]any
+	c := heldWorkClient(t, &posted, &bodies)
+	tracker := newChannelTracker(c)
+	tracker.receiver = &autoReceiver{client: c, tracker: tracker, connected: true, sources: []string{"peer"}, lastBeatOK: time.Now(), gate: "thread_working", gateSince: time.Now(), deliveryTimingV1: true}
+	out, err := agentListen(context.Background(), c, tracker, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, _ := out["message"].(string)
+	if out["status"] != "automatic" || !strings.Contains(msg, "after the current turn ends") || !strings.Contains(msg, "never returns a message body") || !strings.Contains(msg, "does not fetch") {
+		t.Fatalf("automatic listen does not explain turn-gated delivery: %v", out)
+	}
+	// An ungated receiver keeps the plain yield guidance.
+	tracker.receiver.deliveryTimingV1 = false
+	tracker.receiver.gate = "open"
+	out, err = agentListen(context.Background(), c, tracker, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg, _ := out["message"].(string); strings.Contains(msg, "after the current turn ends") || !strings.Contains(msg, "Yield this model turn") {
+		t.Fatalf("ungated listen message = %q", msg)
+	}
+}
+
 func TestManualListenDoesNotClaimOrCompleteBehindHeldWork(t *testing.T) {
 	var posted []string
 	var bodies []map[string]any

@@ -1265,7 +1265,16 @@ on their evidence.
 The same provisioning appends a ringer to the managed `hooks.Stop` and
 `hooks.UserPromptSubmit` entries: `cxx agent poll --hook <event> 2>/dev/null ||
 true`. These hooks provide a fallback ring when automatic reception is unavailable;
-healthy native Channels can deliver between turns. The command prints nothing
+healthy native Channels can deliver between turns. With a ready turn-gated
+receiver (`delivery_timing_v1`) the ring does not send the model to
+`agent_listen`: a `UserPromptSubmit` ring says the listed messages arrive after
+the current turn ends (only `delivery_timing: "immediate"` mail can land
+mid-turn) and that listening does not fetch a body, and the `Stop` hook does not
+ring or block for pending mail at all, because the receiver pushes it at exactly
+that boundary and a blocking `Stop` would keep the turn running, and the claim
+gate shut, for another round. A `Stop` ring that cannot be recorded in the per-session
+ring ledger is dropped rather than emitted, so it can never block every turn end.
+The command prints nothing
 when there is nothing to report or the
 orchestrator is unreachable, and `|| true` keeps a wrapper too old to know
 `agent poll` from blocking every turn. Operator-configured hooks for the same
@@ -1493,7 +1502,11 @@ later message, schedule wakes included, until a human typed. Accepted work and a
 open Portal instruction are never released this way; the hook rings once
 (`decision: block` on Stop) naming them and the tool that finishes them. After a
 release on a ready receiver the hook does not ring pending mail, because the
-receiver now pushes it, waking an idle session. An owner from an older wrapper, a
+receiver now pushes it, waking an idle session. The owner's held report also
+carries `delivery_after_turn`; when set, a `Stop` with nothing read still held
+skips the pending ring too (see the ringer paragraph above), while a read
+delivery whose release failed still rings once with a single `agent_listen`.
+An owner from an older wrapper, a
 missing transcript, or any owner error leaves the hook's previous behaviour
 unchanged. A later `agent_reply` to a released message still works: the server
 accepts claim-less replies to completed informational messages. Codex and Grok
@@ -1509,7 +1522,12 @@ instead of a fixed string: `status: "automatic"` with `receiver.state: "ready"` 
 the current `claim_gate` (`open`, `held_delivery`, `portal_pending`, or
 `thread_<status>` for a busy Codex thread; anything but `open` only delays delivery
 and is the normal state of a working agent; a non-`open` gate also carries a
-plain-text `claim_gate_note` saying so), or `status: "receiver_unavailable"`
+plain-text `claim_gate_note` saying so). On a turn-gated Claude receiver
+(`delivery_timing_v1`) its message states that `agent_listen` never returns a
+body, that queued messages arrive after the current turn ends unless sent
+`immediate`, and that calling it again in the same turn fetches nothing; a
+`delivery_pending` answer likewise says the delivery may appear only after the
+turn. It returns `status: "receiver_unavailable"` instead
 when the receiver never registered (a starting receiver gets five seconds) or its
 heartbeat is older than 45 seconds. The model must not yield expecting a delivery in
 that case, and must tell the user instead. The receiver's own connection state is
