@@ -378,7 +378,11 @@ describe('waiting claim queue', () => {
     expect(stateOf(h, fourth.id)).toBe('active');
   });
 
-  it('keeps nested claims of the current holder from deadlocking behind its own waiters', async () => {
+  it('lets the holder re-enter its own resource before releasing it, keeping its slot ahead of waiters', async () => {
+    // Deliberate trade-off: a nested (or shared parent/child) claim on resources the
+    // session already holds must not deadlock behind waiters queued on that grant.
+    // The consequence: acquiring the next claim before releasing the current one
+    // keeps the slot; only release-then-acquire hands it to the queue.
     const h = setup(undefined, 1), [b] = h.peers;
     const outer = await acquire(h, h.sessionId, h.token);
     const waiting = await acquire(h, b!.id, b!.token);

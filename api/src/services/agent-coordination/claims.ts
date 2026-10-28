@@ -436,7 +436,7 @@ export class ResourceClaims {
         if (claim.state === 'released') return ownedClaimView(claim, owner) as Json;
         const updated = stageUpdate(ctx,'agentResourceClaims',claim.id,{ state, uncertaintyReason: state === 'uncertain' ? 'reported_unknown' : null, updatedAt: new Date().toISOString() });
         stageClaimAnnouncement(ctx,this.core.keyring,claim.sessionId,{ action: state, claim_id: claim.id, reason: body.reason, ...(operatorId ? { operator_id: operatorId } : {}) });
-        if (!session && claim.state === 'waiting') stageWaitingClaimRefusal(ctx,this.core.keyring,claim,body.reason);
+        if (!session && claim.state === 'waiting' && state === 'released') stageWaitingClaimRefusal(ctx,this.core.keyring,claim,body.reason);
         // Hand freed resources to the queue in the same commit, before any later acquisition.
         stageClaimPromotion(ctx,owner,this.core.keyring);
         return ownedClaimView(updated, owner) as Json;

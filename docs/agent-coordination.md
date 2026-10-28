@@ -133,7 +133,9 @@ every existing overlapping waiter, so an owner that releases and immediately
 re-acquires cannot overtake a waiter. One exception keeps a holder from
 deadlocking against its own grant: a claim whose contested resources are all
 covered by the same session's live active claims does not queue behind waiters,
-because those waiters are queued behind that holder anyway. Earlier waiters are not
+because those waiters are queued behind that holder anyway. Consequence: a holder
+that acquires its next claim on the same resource before releasing the current one
+keeps the slot ahead of waiters; release first to hand it on. Earlier waiters are not
 sent a `CLAIM/1` conflict notice and cannot answer `wait`/`isolate`. A waiter whose
 owner is not continuously connected neither blocks nor is granted; it keeps its
 arrival position for when its original attachment returns. The queue is strict
@@ -249,7 +251,7 @@ claims for explicit resolution. Production rollout requires its own authorizatio
 
 ## Claim and workspace refinements (2026-10-24)
 
-Legacy timed waiting claims begin with a 180-second expiry and may renew without authorizing a write; new connection-owned claims retain their native attachment fence. Negotiation remains 120 seconds; uncertain claims cannot be taken over; only the proven reconnect/completed-transcript recovery described above may renew them. Blockers include overlapping waiting claims ahead in arrival order (`state: "waiting"`; a legacy timed waiter only until its expiry) and carry purpose, resources, owner address/name and, for uncertain outcomes, the supported audited operator endpoint `/admin/agent-messaging/scopes/resolve`. Owner metadata is loaded only for overlapping claims. A live same-session Git lease does not block its own claims.
+Legacy timed waiting claims begin with a 180-second expiry and may renew without authorizing a write; new connection-owned claims retain their native attachment fence. Negotiation remains 120 seconds; uncertain claims cannot be taken over; only the proven reconnect/completed-transcript recovery described above may renew them. Blockers include overlapping waiting claims ahead in arrival order (`state: "waiting"`; a legacy timed waiter only until its expiry). Without the owner runtime the legacy path applies that order on acquire and status only: its waiters are granted by their own polling and receive no grant notice. Blockers carry purpose, resources, owner address/name and, for uncertain outcomes, the supported audited operator endpoint `/admin/agent-messaging/scopes/resolve`. Owner metadata is loaded only for overlapping claims. A live same-session Git lease does not block its own claims.
 
 Unmanaged SSH targets use `{kind:"remote",fqdn:"mx1.example.org",service:"mail"}`. FQDN case and one trailing dot normalize. The operator's literal canonical FQDN is the shared key across caller hosts; DNS aliases/IPs are not inferred. `service:"*"` reserves all services of that FQDN. These claims do not create fleet membership or access credentials, and do not permit worktree isolation on a system target.
 
