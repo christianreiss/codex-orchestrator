@@ -105,12 +105,19 @@ describe.skipIf(!handle)('24h server history retention', { timeout: 120_000 }, (
   });
   it.each(['codex','claude','grok'] as const)('purges ended %s identities including rebooted sessions and stale notices', async engine => {
     const a = await agent(engine);
+    const heldSlots = async () => {
+      const [result] = await db!.execute(sql`SELECT name_key FROM agent_name_pool WHERE current_session_id=${a.id}`);
+      return (result as unknown as unknown[]).length;
+    };
+    const hadSlot = await heldSlots();
     await end(a, 'rebooted');
     await db!.execute(sql`INSERT INTO agent_chat_notices (id,session_id,severity,payload_enc,event_id,created_at) VALUES (${randomUUID()},${a.id},'warning','redacted',1,${old})`);
     await portal.purgeExpired();
     await retention.purge(instant);
     expect(await exists('agent_sessions', a.id)).toBe(false);
     expect(await exists('agent_bus_addresses', a.address.id)).toBe(false);
+    // The name lease is deleted with the address; the pool slot must not keep pointing at it.
+    if (hadSlot) expect(await heldSlots()).toBe(0);
   });
   it('preserves a paused explicit job and its native identity', async () => {
     const a = await agent();

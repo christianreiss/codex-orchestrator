@@ -714,6 +714,19 @@ export class ServerRetentionService {
           sql`DELETE FROM agent_bus_subscriptions WHERE subscriber_address_id = ${id} OR topic = CONCAT('agent:', ${id})`,
         );
         await tx.execute(sql`DELETE FROM agent_bus_publications WHERE sender_address_id = ${id}`);
+        // A pool slot keeps pointing at its last session; deleting the lease without
+        // releasing the slot would leave it taken forever and drain the name pool.
+        const heldSlots = (
+          await rows<{ id: string }>(
+            tx,
+            sql`SELECT p.name_key AS id FROM agent_name_pool p JOIN agent_name_leases l ON l.name_key = p.name_key AND l.session_id = p.current_session_id WHERE l.address_id = ${id}`,
+          )
+        ).map((slot) => slot.id);
+        for (const nameKey of heldSlots)
+          await tx.execute(sql`UPDATE agent_name_pool SET current_session_id = NULL WHERE name_key = ${nameKey}`);
+        this.projection?.patchWhere('agentNamePool', (row) => heldSlots.includes(row.nameKey), {
+          currentSessionId: null,
+        });
         await tx.execute(sql`DELETE FROM agent_name_leases WHERE address_id = ${id}`);
         await tx.execute(
           sql`UPDATE agent_role_assignments SET status = 'ended', active_address_id = NULL, ended_at = ${cutoff}, end_reason = 'retention' WHERE address_id = ${id} AND status = 'active'`,
