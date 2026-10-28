@@ -188,6 +188,7 @@ func reportActivityHook(stdin io.Reader) error {
 		SessionID string `json:"session_id"`
 		Event     string `json:"hook_event_name"`
 		Tool      string `json:"tool_name"`
+		Source    string `json:"source"`
 	}
 	if err := json.NewDecoder(io.LimitReader(stdin, 1<<20)).Decode(&h); err != nil {
 		return err
@@ -199,7 +200,7 @@ func reportActivityHook(stdin io.Reader) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return client.receiver(ctx, "activity-hook", agentportal.ActivityHook{NativeID: h.SessionID, Event: h.Event, Tool: h.Tool}, nil)
+	return client.receiver(ctx, "activity-hook", agentportal.ActivityHook{NativeID: h.SessionID, Event: h.Event, Tool: h.Tool, Source: h.Source}, nil)
 }
 
 // Turn boundaries must outlive the broker's bounded serialized channel callback.

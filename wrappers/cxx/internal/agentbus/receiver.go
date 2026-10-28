@@ -970,6 +970,13 @@ func reportNativeSession(stdin io.Reader, stdout io.Writer) error {
 	if err := client.receiver(context.Background(), "native", map[string]string{"native_session_id": input.SessionID}, nil); err != nil {
 		return err
 	}
+	if claude {
+		// Parallel SessionStart hooks race: the activity hook is refused until
+		// this identity is bound, so report the idle prompt from here, after it.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = client.receiver(ctx, "activity-hook", agentportal.ActivityHook{NativeID: input.SessionID, Event: "SessionStart", Source: input.Source}, nil)
+		cancel()
+	}
 	if claude && (input.Source == "resume" || input.Source == "compact") {
 		// Best effort: a role lookup that fails leaves the prompt unchanged.
 		if anchor := roleAnchor(context.Background(), client, input.Source); anchor != "" {

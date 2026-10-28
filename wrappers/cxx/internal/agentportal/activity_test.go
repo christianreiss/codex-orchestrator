@@ -106,6 +106,22 @@ func TestClaudeTurnProofRetainsStopBeyondActivityTTLAndRejectsKnownResets(t *tes
 	}
 }
 
+func TestClaudeSessionStartProvesIdleBeforeFirstPrompt(t *testing.T) {
+	instance := "11111111-1111-4111-8111-111111111111"
+	for source, want := range map[string]string{"startup": "idle", "resume": "idle", "clear": "idle", "compact": "unknown", "": "unknown"} {
+		b := &Broker{session: &Session{Engine: "claude"}, nativeID: "native"}
+		p := b.updateClaudeTurnProof("native", instance, 7, turnProofEvent(ActivityHook{Event: "SessionStart", Source: source}))
+		if p.State != want {
+			t.Fatal(source, p)
+		}
+	}
+	b := &Broker{session: &Session{Engine: "claude"}, nativeID: "native"}
+	b.updateClaudeTurnProof("native", instance, 7, "UserPromptSubmit")
+	if p := b.updateClaudeTurnProof("native", instance, 7, turnProofEvent(ActivityHook{Event: "SessionStart", Source: "startup"})); p.State != "active" {
+		t.Fatal("late SessionStart downgraded an active turn", p)
+	}
+}
+
 func TestClaudeChannelDeliveryNeverCallsOwnerWithoutNativeProof(t *testing.T) {
 	b := &Broker{session: &Session{ID: "fixture", Engine: "claude"}, nativeID: "native"}
 	request := httptest.NewRequest("POST", "/receiver/channel-deliver", nil)

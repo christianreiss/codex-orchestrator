@@ -30,6 +30,11 @@ func TestNativeSessionHookDecodesBothEngineSpellings(t *testing.T) {
 				if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 					t.Error(err)
 				}
+				// Claude's SessionStart also reports the idle prompt, after the identity.
+				if req.URL.Path == "/host/agent-sessions/session/receiver/activity-hook" && body["event"] == "SessionStart" && body["native_session_id"] == "native-session" {
+					_, _ = io.WriteString(w, `{}`)
+					return
+				}
 				if req.URL.Path != "/host/agent-sessions/session/receiver/native" || body["native_session_id"] != "native-session" {
 					t.Errorf("unexpected native identity: %s %v", req.URL.Path, body)
 				}

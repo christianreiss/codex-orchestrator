@@ -24,6 +24,8 @@ type ActivityHook struct {
 	NativeID string `json:"native_session_id"`
 	Event    string `json:"event"`
 	Tool     string `json:"tool,omitempty"`
+	// Source is SessionStart's startup|resume|clear|compact; empty elsewhere.
+	Source string `json:"source,omitempty"`
 }
 
 func ClaudeActivity(h ActivityHook) ActivityObservation {
@@ -66,7 +68,7 @@ func (b *Broker) activityHook(w http.ResponseWriter, raw []byte) {
 		b.hookActivityNativeID = h.NativeID
 	}
 	instance, binding := b.nativeTurnIdentity()
-	proof := b.updateClaudeTurnProof(h.NativeID, instance, binding, h.Event)
+	proof := b.updateClaudeTurnProof(h.NativeID, instance, binding, turnProofEvent(h))
 	a := b.hookActivity
 	if b.hookActivityAt.IsZero() || b.hookActivityNativeID != b.nativeID || (h.NativeID != "" && h.NativeID != b.nativeID) {
 		a = ActivityObservation{State: "unknown", Source: "claude-hooks"}
@@ -92,6 +94,22 @@ type ClaudeTurnProof struct {
 	State             string `json:"state"`
 	NativeInstanceID  string `json:"native_instance_id"`
 	BindingGeneration int    `json:"binding_generation"`
+}
+
+// turnSessionIdle is a SessionStart that proves an idle prompt: Claude has not
+// started a turn yet, so no Stop will ever announce it. Without it a session
+// that never receives a first message stays `unknown` and no delivery is claimed.
+// compact is excluded: it can fire inside a running turn, so it proves nothing.
+const turnSessionIdle = "SessionStart:idle"
+
+func turnProofEvent(h ActivityHook) string {
+	if h.Event == "SessionStart" {
+		switch h.Source {
+		case "startup", "resume", "clear":
+			return turnSessionIdle
+		}
+	}
+	return h.Event
 }
 
 func (b *Broker) nativeTurnIdentity() (string, int) {
@@ -132,6 +150,11 @@ func (b *Broker) updateClaudeTurnProof(native, instance string, binding int, eve
 		switch event {
 		case "Stop":
 			b.turnProof.State = "idle"
+		case turnSessionIdle:
+			// Never downgrade a turn already observed as active.
+			if b.turnProof.State == "unknown" {
+				b.turnProof.State = "idle"
+			}
 		case "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "Elicitation", "ElicitationResult":
 			b.turnProof.State = "active"
 		default:
