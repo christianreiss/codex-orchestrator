@@ -18,6 +18,7 @@ import {
   type ChattyTool,
   type ToolContext,
 } from './tools.js';
+import { capabilityChecker, databaseLookups, resolveElements, type ElementLookups } from './elements.js';
 import { loadKnowledge, searchKnowledge, sourceView, type KnowledgeBundle } from './knowledge.js';
 import {
   SYSTEM_PROMPT,
@@ -75,18 +76,25 @@ export class ChattyCoordinator {
   readonly inference: ChattyInference;
   readonly tools: ChattyTool[];
   readonly knowledge: KnowledgeBundle;
+  readonly elementLookups: (c: ToolContext) => ElementLookups;
   private active = new Map<string, AbortController>();
   private tickRunning = false;
   /** After an empty check, ticks skip the read until this time unless a submit wakes them. */
   private idleUntil = 0;
   constructor(
     readonly ctx: RouteContext,
-    options: { inference?: ChattyInference; tools?: ChattyTool[]; knowledge?: KnowledgeBundle } = {},
+    options: {
+      inference?: ChattyInference;
+      tools?: ChattyTool[];
+      knowledge?: KnowledgeBundle;
+      elementLookups?: (c: ToolContext) => ElementLookups;
+    } = {},
   ) {
     this.store = new ChattyStore(ctx.db, ctx.keyring, () => this.wake());
     this.inference = options.inference ?? new ChattyInference(ctx);
     this.tools = options.tools ?? administrationTools();
     this.knowledge = options.knowledge ?? loadKnowledge();
+    this.elementLookups = options.elementLookups ?? ((c) => databaseLookups(c));
   }
   stop(id?: string) {
     for (const [key, signal] of this.active) if (!id || key === id) signal.abort();
@@ -378,6 +386,26 @@ export class ChattyCoordinator {
         const model = { engine: result.engine, model: result.model, fallback: result.fallback };
         const response = result.response;
         if (response.kind === 'answer') {
+          const user = await this.store.authorize({ userId: run.userId, sessionId: run.adminSessionId });
+          const { elements, rejected } = await resolveElements(
+            response.elements ?? [],
+            capabilityChecker(user.accessLevel),
+            this.elementLookups(this.toolContext(run)),
+          );
+          // One correction turn: an answer must not promise a button the server refused.
+          if (rejected.length && !state.elementsRetried) {
+            state.elementsRetried = true;
+            state.messages.push({
+              role: 'tool',
+              content: {
+                error:
+                  'These answer elements could not be verified and were removed. Answer again without them and do not mention them as links or buttons.',
+                rejected,
+              },
+            });
+            await this.store.update(run, state, 'running', Date.now() - start);
+            continue;
+          }
           const sources = response.sources
             .filter((id) => state.sources.includes(id))
             .map((id) => this.knowledge.sources.find((s) => s.id === id))
@@ -385,7 +413,13 @@ export class ChattyCoordinator {
             .map(sourceView);
           await this.store.update(run, state, 'succeeded', Date.now() - start, {
             kind: 'answer',
-            data: { text: response.text, sources, ...model },
+            data: {
+              text: response.text,
+              sources,
+              elements,
+              ...(rejected.length ? { elements_omitted: rejected.length } : {}),
+              ...model,
+            },
           });
           return;
         }

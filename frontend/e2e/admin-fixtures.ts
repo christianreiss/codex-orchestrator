@@ -143,6 +143,38 @@ export const CANONICAL_DESTINATIONS = [
   { path: "/account", heading: "Account", title: "Account" },
 ] as const;
 
+/**
+ * A Chatty conversation whose latest answer carries server-resolved rich elements
+ * for the fixture host (`/admin/hosts/1/detail`). The earlier answer's suggestion
+ * and the tampered entries must never render.
+ */
+export const CHATTY_RICH_EVENTS = [
+  { id: 1, kind: "user", runId: "run-old", createdAt: "2026-10-28T08:00:00Z", body: { text: "Hallo" } },
+  { id: 2, kind: "answer", runId: "run-old", createdAt: "2026-10-28T08:00:01Z", body: { text: "Hallo! Wie kann ich helfen?", engine: "codex", model: "test", elements: [{ type: "suggestion", text: "Alte Rückfrage" }] } },
+  { id: 3, kind: "user", runId: "run", createdAt: "2026-10-28T08:01:00Z", body: { text: "Habe ich einen Host console.example.test?" } },
+  {
+    id: 4,
+    kind: "answer",
+    runId: "run",
+    createdAt: "2026-10-28T08:01:05Z",
+    body: {
+      text: "Ja, **console.example.test** ist registriert und online.",
+      engine: "codex",
+      model: "test",
+      sources: [],
+      elements: [
+        { type: "link", kind: "host", label: "Host console.example.test öffnen", path: "/hosts/1" },
+        { type: "link", kind: "manual", label: "Hilfe: Hosts — secure, insecure, unprovisioned", path: "/manual/hosts" },
+        { type: "link", kind: "host", label: "Externer Link", path: "https://evil.example/" },
+        { type: "link", kind: "host", label: "Doppelte Basis", path: "/admin/hosts/1" },
+        { type: "link", kind: "page", label: "Skript", path: "javascript:alert(1)" },
+        { type: "suggestion", text: "Ist console.example.test aktuell?" },
+      ],
+      elements_omitted: 1,
+    },
+  },
+];
+
 export function fixture(pathname: string): Record<string, unknown> {
   const workflow = workflowFixture(pathname);
   if (workflow) return workflow;

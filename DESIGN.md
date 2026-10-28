@@ -261,7 +261,7 @@ This is a source audit, not a live visual acceptance report. All 39 `+page.svelt
 | Unknown route / unexpected page error | Catch-all throws 404; current `+error.svelte` uses `PageShell` and `StateBlock` with retry and Overview recovery | Check title, recovery and keyboard path in the surrounding frame |
 | Sidebar, top bar (incl. live-updates, temporary-access and unhandled-reports indicators), mobile menu, hub/project navigation | App shell, registry, `HubTabs`, `ProjectTabsNav` | All destinations reachable at touch widths; no contradictory active locations; indicators hidden at zero and without the read capability |
 | Cmd/Ctrl-K, global search, shortcuts help | Command palette, search modal, shortcuts components | Focus entry/exit, no results, accessible selection; shortcuts do not intercept typing |
-| Chatty assistant | Shared shell assistant and chatty components | Availability/role gates, drafts, errors and confirmation of concrete changes |
+| Chatty assistant | Shared shell assistant and chatty components | Availability/role gates, drafts, errors and confirmation of concrete changes; server-verified answer links (navigate in place, phone panel minimizes) and latest-answer suggestion chips |
 | Client/session detail and attachments | Portal components inside Agents | Directory, retained chats, attention, timeline, composer, uploads, remote sessions, close/reconnect states |
 | Host creation, quick VM, seed auth and insecure approval popup | Host sheets/dialogs and shared `SeedAuthPanel` | One auth upload UI; focus return, pending/error, safety consequences |
 | Project About/settings, card editor, report creation/detail | Project and report sheets/dialogs | Preserve originating selection and draft; destructive scope clear |
@@ -402,6 +402,23 @@ Success removes the one-time QR/code and offers Done. Existing centralized live
 invalidation refreshes devices; unavailable live updates offer manual Check status.
 Expiry and status/create failures remain visible with recovery. Applicable rules:
 NAV-3, VIS-3/4, INT-3/4/5/6/7, ACC-1/3/4. No exception.
+
+### Chatty rich replies slice (2026-10-28)
+
+Chatty answers may end with console links and suggested follow-up questions. Links
+reuse the shared outline `Button` as real anchors with a kind icon and a
+server-built label and path (the client adds `paths.base`, refuses anything that is
+not a base-relative console path and leaves modified clicks to the browser). They
+navigate with the router; the desktop panel stays open, the full-screen phone panel
+minimizes so the destination is visible and reopens on the same conversation.
+Suggestions are dashed native buttons offered only under the latest answer
+(INT-8: an older chip cannot answer a newer state); one sends its visible text as
+the next message and is disabled while a request is active. Both groups are named
+`role="group"` regions, wrap at 390 px and reach 44 px on coarse pointers. Refused
+references produce a muted inline note rather than a silent gap. Applicable rules:
+NAV-1, VIS-1/3/4, INT-5/6/8 and ACC-1/3/4. No exception. Playwright covers desktop
+and 390 px layout, keyboard activation, an Axe scan of the panel and tampered
+payloads; manual screen-reader and independent usability review remain separate.
 
 ### Task-supervision slice (2026-10-27)
 

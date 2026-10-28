@@ -12,7 +12,10 @@ import {
   versions,
   skills,
   clientConfigDocuments,
+  hosts,
 } from '../../../src/db/schema.js';
+import { databaseLookups, resolveElements } from '../../../src/services/chatty/elements.js';
+import { randomBytes } from 'node:crypto';
 import { ChattyStore, now, later } from '../../../src/services/chatty/store.js';
 import { ChattyCoordinator } from '../../../src/services/chatty/coordinator.js';
 import {
@@ -158,7 +161,7 @@ describe.skipIf(!handle)('Chatty durable lifecycle (isolated MySQL)', () => {
     expect(store.open(row.inputEnc)).toBeNull();
     expect(store.open(row.stateEnc)).toBeNull();
   });
-  function coordinator(tool: ChattyTool | ChattyTool[], responses: unknown[]) {
+  function coordinator(tool: ChattyTool | ChattyTool[], responses: unknown[], options: { elementLookups?: ChattyCoordinator['elementLookups'] } = {}) {
     const inference = {
       availability: vi.fn().mockResolvedValue([
         {
@@ -181,6 +184,7 @@ describe.skipIf(!handle)('Chatty durable lifecycle (isolated MySQL)', () => {
         inference: inference as never,
         tools: Array.isArray(tool) ? tool : [tool],
         knowledge: { version: 'test', sources: [] },
+        ...options,
       },
     );
   }
@@ -230,6 +234,84 @@ describe.skipIf(!handle)('Chatty durable lifecycle (isolated MySQL)', () => {
     } finally {
       claim.mockRestore();
       transaction.mockRestore();
+    }
+  });
+  it('stores only verified answer elements and gives an unverifiable reference one correction turn', async () => {
+    const lookups = () => ({
+      host: async (ref: string) => (ref === 'example.com' ? { id: 42, fqdn: 'example.com' } : null),
+      project: async () => null,
+      skill: async () => null,
+      artifact: async () => null,
+      workflow: async () => null,
+      workflowRun: async () => null,
+      account: async () => null,
+      manual: async (slug: string) => (slug === 'hosts' ? { slug, title: 'Hosts' } : null),
+    });
+    const co = coordinator(
+      tool,
+      [
+        { kind: 'answer', text: 'Hier ist er.', sources: [], elements: [{ type: 'link', kind: 'host', ref: 'missing.example' }] },
+        {
+          kind: 'answer',
+          text: 'Ja, example.com ist registriert.',
+          sources: [],
+          elements: [
+            { type: 'link', kind: 'host', ref: 'example.com' },
+            { type: 'link', kind: 'manual', ref: 'hosts' },
+            { type: 'link', kind: 'host', ref: 'example.com', href: 'https://evil.example' },
+            { type: 'suggestion', text: 'Ist example.com online?' },
+          ],
+        },
+      ],
+      { elementLookups: lookups },
+    );
+    const request = await store.submit(actor, input('Habe ich einen Host example.com?'));
+    await co.tick();
+    await waitFor(request.id, 'succeeded');
+    const events = await store.events(actor.userId, 1);
+    const answers = events.filter((e) => e.runId === request.id && e.kind === 'answer');
+    expect(answers).toHaveLength(1);
+    expect(answers[0]!.body).toMatchObject({
+      text: 'Ja, example.com ist registriert.',
+      elements: [
+        { type: 'link', kind: 'host', label: 'Host example.com öffnen', path: '/hosts/42' },
+        { type: 'link', kind: 'manual', label: 'Hilfe: Hosts', path: '/manual/hosts' },
+        { type: 'suggestion', text: 'Ist example.com online?' },
+      ],
+      elements_omitted: 1,
+    });
+    const second = vi.mocked(co.inference.run).mock.calls[1]![0] as string;
+    expect(second).toContain('could not be verified');
+    expect(second).toContain('missing.example');
+  });
+  it('resolves host buttons from real rows and never for internal or unknown hosts', async () => {
+    const visible = `${prefix}.example.com`;
+    const internal = `${prefix}-runner.internal`;
+    const insert = (fqdn: string, internalRole: string | null) =>
+      db.insert(hosts).values({ fqdn, internalRole, apiKey: randomBytes(32).toString('hex'), engines: 'codex', status: 'active', secure: 1, createdAt: now(), updatedAt: now() });
+    await insert(visible, null);
+    await insert(internal, 'chatty');
+    try {
+      const id = (await db.select({ id: hosts.id }).from(hosts).where(eq(hosts.fqdn, visible)))[0]!.id;
+      const lookups = databaseLookups({ db, keyring: testKeyring(), env: loadTestEnv(), actor } as ToolContext);
+      const { elements, rejected } = await resolveElements(
+        [
+          { type: 'link', kind: 'host', ref: visible.toUpperCase() },
+          { type: 'link', kind: 'host', ref: internal },
+          { type: 'link', kind: 'host', ref: `${prefix}.missing.example` },
+          { type: 'link', kind: 'host', ref: "x' OR '1'='1" },
+          { type: 'link', kind: 'manual', ref: 'hosts' },
+        ],
+        () => true,
+        lookups,
+      );
+      expect(elements).toEqual([
+        { type: 'link', kind: 'host', label: `Host ${visible} öffnen`, path: `/hosts/${id}` },
+        { type: 'link', kind: 'manual', label: 'Hilfe: Hosts — secure, insecure, unprovisioned', path: '/manual/hosts' },
+      ]);
+      expect(rejected.map((r) => r.index)).toEqual([1, 2, 3]);
+    } finally {
+      await db.delete(hosts).where(inArray(hosts.fqdn, [visible, internal]));
     }
   });
   it('requires a concrete confirmation and records the domain change with its receipt atomically', async () => {

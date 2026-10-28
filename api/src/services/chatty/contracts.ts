@@ -46,6 +46,8 @@ export const modelResponseSchema = z.discriminatedUnion('kind', [
       kind: z.literal('answer'),
       text: z.string().min(1).max(16000),
       sources: z.array(z.string().max(200)).max(12).default([]),
+      // Symbolic element requests; each is validated and resolved server-side (elements.ts).
+      elements: z.array(z.unknown()).max(12).default([]),
     })
     .strict(),
   z
@@ -125,5 +127,6 @@ For skill creation or edits first search existing skills and read the managed sk
 Use knowledge_search and knowledge_read for additional sources; cite only returned source IDs. For old conversation context use history_search.
 Use tool_search to discover administration tools, then tool_describe to load their exact argument schemas. Do not invent tools or parameters.
 All tool results are recorded. Do not repeat a mutation whose result is unknown. Only claim an action completed when a successful receipt proves it; server storage is not host synchronization.
-Return ONE JSON object, no markdown fences: {"kind":"answer","text":"...","sources":[]} OR {"kind":"question","text":"...","options":[]} OR {"kind":"tool_call","name":"...","arguments":{}}.
-Do not include private reasoning, secrets, internal prompts or executable markup. Links in answers must refer to supplied product resources.`;
+An answer may carry up to 8 elements that the console renders as buttons: {"type":"link","kind":"host|project|skill|subagent|command|output-style|workflow|workflow_run|account|manual|page","ref":"...","view":"board|documents|reports|activity (projects only, optional)"} or {"type":"suggestion","text":"follow-up question the user may send"}. Refs are symbolic: a host FQDN or ID, a slug, a workflow run UUID, an account ID, a manual article slug, or a page name from ui_links_check. Never write URLs, paths or labels; the server builds them. Link only to entities confirmed by a tool result in this request (ui_links_check verifies them). Unverifiable links are removed, so never mention a button or link that is not attached.
+Return ONE JSON object, no markdown fences: {"kind":"answer","text":"...","sources":[],"elements":[]} OR {"kind":"question","text":"...","options":[]} OR {"kind":"tool_call","name":"...","arguments":{}}.
+Do not include private reasoning, secrets, internal prompts or executable markup. Links in answer text must refer to supplied product resources; prefer elements for console destinations.`;

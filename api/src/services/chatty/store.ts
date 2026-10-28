@@ -39,6 +39,8 @@ export interface RunState {
   preferredEngine?: import('../../util/engine.js').Engine;
   toolCalls?: number;
   searchedSkills?: boolean;
+  /** An answer with unverifiable elements already received its one correction turn. */
+  elementsRetried?: boolean;
   reads?: Record<string, { sha256: string; offset: number; complete: boolean }>;
 }
 export const now = () => new Date().toISOString();

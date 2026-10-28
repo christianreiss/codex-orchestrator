@@ -2,6 +2,7 @@ import { visibleHost } from '../internal-hosts.js';
 import { z } from 'zod';
 import { define } from './tool-definition.js';
 import { handoffTool } from './handoff-tools.js';
+import { linksCheckTool } from './elements.js';
 import { workflowTools } from './workflow-tools.js';
 import { roleRetentionTools } from './role-retention-tools.js';
 import { quotaTools } from './quota-tools.js';
@@ -853,6 +854,7 @@ export function administrationTools(): ChattyTool[] {
         }).list(),
     ),
     handoffTool(),
+    linksCheckTool(),
   );
   tools.push(...workflowTools(), ...roleRetentionTools(), ...quotaTools(), ...supervisorTools());
   return tools;

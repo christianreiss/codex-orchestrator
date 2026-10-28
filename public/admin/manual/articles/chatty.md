@@ -1,8 +1,8 @@
 ---
 title: Chatty administration assistant
 section: Admin workspace
-verified: 2026-10-27
-sources: api/src/services/chatty/tools.ts, api/src/services/chatty/contracts.ts, api/src/services/chatty/coordinator.ts, api/src/services/chatty/owner-actions.ts, api/src/services/chatty/workflow-tools.ts, api/src/services/chatty/role-retention-tools.ts, api/src/services/chatty/quota-tools.ts, api/src/services/chatty/supervisor-tools.ts, api/src/services/chatty/handoff-tools.ts, api/src/services/chatty/surface-inventory.json, api/src/services/chatty/knowledge.ts
+verified: 2026-10-28
+sources: api/src/services/chatty/tools.ts, api/src/services/chatty/contracts.ts, api/src/services/chatty/coordinator.ts, api/src/services/chatty/owner-actions.ts, api/src/services/chatty/workflow-tools.ts, api/src/services/chatty/role-retention-tools.ts, api/src/services/chatty/quota-tools.ts, api/src/services/chatty/supervisor-tools.ts, api/src/services/chatty/handoff-tools.ts, api/src/services/chatty/elements.ts, api/src/services/chatty/surface-inventory.json, api/src/services/chatty/knowledge.ts
 ---
 
 # Chatty administration assistant
@@ -39,6 +39,21 @@ A successful action receipt proves the recorded product operation. It does not
 prove that a host has synchronized. A retention-run receipt confirms the cleanup
 request was admitted; ask for its run status before treating deletion as complete.
 
+## Links and suggestions in answers
+
+An answer can end with buttons. "Habe ich einen Host example.com?" can be answered
+with "Ja" plus a **Host example.com öffnen** button; other buttons open a project,
+skill, workflow, run, the Accounts page, a console page or a help article. Chips
+with a speech-bubble icon are suggested follow-up questions: selecting one sends
+exactly that text as your next message. Only the newest answer offers them.
+
+Chatty names the target, and the server checks that it exists and that your role
+may read it before it builds the button and its label. She cannot produce external
+links. When a reference cannot be verified, the button is left out and the answer
+notes it. On a phone the panel minimizes after you follow a link; reopen it to
+continue the same conversation. Buttons only navigate: changes still require the
+confirmation card.
+
 ## Application administration boundary
 
 Chatty does not run shell commands, launch agents or workflow runs, dispatch host
@@ -54,6 +69,7 @@ product state comes from tools, rather than documentation excerpts.
 ## Source references
 
 - api/src/services/chatty/tools.ts — typed tool registry and capabilities.
+- api/src/services/chatty/elements.ts — answer link/suggestion resolution and allowlist.
 - api/src/services/chatty/owner-actions.ts — confirmed target checks and receipts.
 - api/src/services/chatty/surface-inventory.json — callable, interactive and excluded routes.
 - api/src/services/chatty/knowledge.ts — maintained source corpus.

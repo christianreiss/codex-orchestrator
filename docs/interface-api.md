@@ -2784,6 +2784,19 @@ request. 503 means no usable AI access. Queue admission has no success semantics
 only a committed action receipt proves a mutation. Detailed lifecycle, supported
 tools, exclusions and rollout requirements: [Chatty](chatty.md).
 
+An `answer` event body may carry `elements` (and `elements_omitted`, a count of
+references the server refused). Each element is server-built:
+`{type:"link", kind, label, path}` or `{type:"suggestion", text}`. `kind` is one of
+`host`, `project`, `skill`, `subagent`, `command`, `output-style`, `workflow`,
+`workflow_run`, `account`, `manual` or `page`. `path` is relative to the console
+base (`/hosts/7`, not `/admin/hosts/7`) and comes only from a fixed route template;
+`label` is derived from the stored entity name, never from model output. The model
+names targets symbolically; a reference resolves only when the entity exists, is
+not internal and the caller's role holds its read capability. Elements are stored
+encrypted with the event, follow reload/multi-tab snapshots and are deleted by
+`DELETE /admin/chatty/session`. A suggestion is sent as an ordinary user message;
+it never approves an action.
+
 The typed administration registry includes confirmed mutations for workflow
 definitions, roles/proposals, quota policies/scaling, server retention and fleet
 supervisor configuration. Workflow runs and recovery are observable; launching
