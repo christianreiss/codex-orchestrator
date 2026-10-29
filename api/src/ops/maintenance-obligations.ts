@@ -54,6 +54,15 @@ export function messagingMaintenanceObligations(
           message.leaseUntil ? 0 : 86_400_000,
         ),
       );
+    // A vanished relay incarnation never reports its held work; settle it after
+    // the reconnect grace so a successor relay process can register.
+    const relayGone = facts.relayHeldWorkGoneAt(snapshot, message);
+    if (relayGone !== null)
+      work.push({
+        key: `message:relay:${message.id}`,
+        dueAt: Number.isFinite(relayGone) ? relayGone : 0,
+        revision: message.updatedAt,
+      });
     if (
       message.kind === 'presence_notice' &&
       ['queued', 'leased', 'accepted', 'batched'].includes(message.status)

@@ -7,6 +7,7 @@ import { messagingMaintenanceObligations } from '../../../src/ops/maintenance-ob
 const stamp = '2026-10-24T10:00:00.000Z';
 const facts = {
   relayConnected: () => false,
+  relayHeldWorkGoneAt: () => null,
   sessionConnected: () => false,
   receiverConnected: () => false,
   revision: () => '1',
@@ -39,6 +40,25 @@ describe('indexed messaging maintenance', () => {
       { id: 'lease', status: 'leased', ownershipMode: 'connection' },
     ]);
     expect(messagingMaintenanceObligations(state, facts)).toEqual([{ key: 'message:accepted:old', dueAt: Date.parse(stamp) + 86_400_000, revision: stamp }]);
+  });
+  it('schedules relay-held connection work at the relay holder\'s gone time and nothing while attached', () => {
+    const state = snapshot([
+      { id: 'relay-accepted', status: 'accepted', ownershipMode: 'connection', leaseUntil: null, leaseOwner: 'relay:r:1' },
+      { id: 'relay-leased', status: 'leased', ownershipMode: 'connection', leaseUntil: null, leaseOwner: 'relay:r:1' },
+      { id: 'attached', status: 'accepted', ownershipMode: 'connection', leaseUntil: null, leaseOwner: 'relay:a:1' },
+      { id: 'session', status: 'accepted', ownershipMode: 'connection', leaseUntil: null, leaseOwner: 'session:s' },
+    ]);
+    const gone = Date.parse(stamp) + 300_000;
+    const relayFacts = {
+      ...facts,
+      relayHeldWorkGoneAt: (_: unknown, message: { leaseOwner: string | null }) =>
+        message.leaseOwner === 'relay:r:1' ? gone : null,
+    };
+    expect(messagingMaintenanceObligations(state, relayFacts).sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: 'message:relay:relay-accepted', dueAt: gone, revision: stamp },
+      { key: 'message:relay:relay-leased', dueAt: gone, revision: stamp },
+    ]);
+    expect(messagingMaintenanceObligations(state, { ...facts, relayHeldWorkGoneAt: () => -Infinity }).map((w) => w.dueAt)).toEqual([0, 0, 0, 0]);
   });
   it.each(['queued', 'batched', 'leased', 'accepted'])('preserves %s presence notice pruning for missing, ended and replaced bindings', (status) => {
     const state = snapshot(['missing', 'ended', 'replaced', 'live'].map((targetSessionId) => ({

@@ -27,6 +27,7 @@ import {
   ownedEngineState,
 } from '../state/messaging.js';
 import { ownerPresence } from '../presence.js';
+import { relayHolderGoneAt } from '../state/owner-liveness.js';
 import { stageUpdate } from '../state/rows.js';
 import { ownedCredentialDeadline } from '../credentials.js';
 import type { Engine } from '../../util/engine.js';
@@ -107,11 +108,26 @@ export async function registerOwnedRelay(
         .find((r) => r.username === username);
       if (existing && ownerPresence(owner).hasRelay(existing.id))
         throw new ConflictError('Relay instance still connected', 'agent_messaging_relay_attached');
-      if (existing && existing.instanceId !== instanceId && held(s, existing.id, existing.generation))
-        throw new ConflictError(
-          'Previous relay work has an unresolved outcome',
-          'agent_messaging_relay_uncertain',
+      if (existing && existing.instanceId !== instanceId && held(s, existing.id, existing.generation)) {
+        // Owner maintenance settles the predecessor's held work once its exact
+        // process has been detached for the reconnect grace; name that moment.
+        const settles = relayHolderGoneAt(
+          owner,
+          s,
+          `relay:${existing.id}:${existing.generation}`,
+          existing.instanceId,
         );
+        throw new ConflictError(
+          'Previous relay work has an unresolved outcome; it is settled after the previous relay process has been offline for the reconnect grace',
+          'agent_messaging_relay_uncertain',
+          {
+            relay_id: existing.id,
+            generation: existing.generation,
+            settles_after:
+              settles === null ? null : new Date(Math.max(settles, Date.now())).toISOString(),
+          },
+        );
+      }
       const now = new Date().toISOString(),
         expiresAt = new Date(Date.now() + AGENT_MESSAGING_RELAY_TOKEN_SECONDS * 1000).toISOString();
       const generation = existing

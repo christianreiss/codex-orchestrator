@@ -1856,7 +1856,14 @@ host, target address and native transcript checks. Ordinary relays require an ex
 username match and cannot acquire daemon semantics by adding the suffix.
 
 - `POST /host/agent-relays/register` — register/replace the per-user relay and
-  return its id, generation, token, expiry, and polling interval.
+  return its id, generation, token, expiry, and polling interval. A different
+  instance while the previous one is attached answers `409
+  agent_messaging_relay_attached`; while the previous generation still holds
+  `leased`/`accepted`/`reboot_hold` work it answers `409
+  agent_messaging_relay_uncertain` with `relay_id`, `generation` and
+  `settles_after` in the error object (when owner maintenance settles the held
+  `leased`/`accepted` work, see the acceptance rules below; `reboot_hold`
+  follows its reboot handoff expiry).
 - `POST /host/agent-relays/{id}/heartbeat` — renew relay heartbeat and token
   expiry. Under the in-memory owner the token deadline is connection-derived:
   it is extended only while the relay holds its `relay` state-stream attachment
@@ -1920,6 +1927,19 @@ work, a lost completion acknowledgement or eligibility shutdown preserves an
 uncertain outcome rather than replaying work automatically. Legacy timed accepted
 lease expiry becomes `ambiguous`; connection-owned work retains its claim through
 disconnect/restart until authoritative completion or explicit resolution.
+Relay-held work is the bounded exception, because every relay worker process
+registers with a new instance id and no successor can ever report its
+predecessor's work. Once the exact relay incarnation holding a `leased` or
+`accepted` delivery has been detached for the owner reconnect grace (5 minutes,
+measured from the later of its last attachment and owner start), or its relay
+row/generation/instance no longer matches the lease, owner maintenance settles
+that work with `last_error_code: relay_instance_lost`: `accepted` becomes
+`ambiguous` and keeps its lease identity (it is never replayed); `leased` work,
+which the relay acknowledges as accepted before it starts a native process,
+returns to `queued` (or becomes `expired` past its TTL, or `dead` when attempts
+are exhausted). A host-daemon session running that delivery is released as on
+`peer_finished`. Accepted claims of a captured legacy-drain relay stay protected
+while their drain proof is live.
 Only an owner/admin may explicitly redrive a `dead` or `ambiguous` message; the
 redrive is a new queued row and conversation sequence linked by
 `redrive_of_message_id`, while the terminal original remains unchanged.

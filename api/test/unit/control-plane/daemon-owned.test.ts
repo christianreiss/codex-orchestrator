@@ -24,6 +24,13 @@ import {
   heartbeatOwnedRelay,
 } from '../../../src/control-plane/streams/relay.js';
 import { mutateOwnerState } from '../../../src/control-plane/state/runtime.js';
+import {
+  OWNER_RECONNECT_GRACE_MS,
+  stopSessionActivity,
+  trackSessionActivity,
+} from '../../../src/control-plane/state/owner-liveness.js';
+import { maintainOwnedMessaging } from '../../../src/services/agent-messaging/owned-maintenance.js';
+import { recordMessagingRowChange } from '../../../src/control-plane/state/messaging-totals.js';
 import { recordOwnedNativeReceipt } from '../../../src/control-plane/streams/native-control.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -312,6 +319,127 @@ describe('connection-owned daemon commands', () => {
       wrapperVersion: 'test',
     });
     expect(reattached.generation).toBe(generation);
+  });
+  async function vanishedRelayFixture() {
+    vi.useFakeTimers();
+    const h = harness();
+    trackSessionActivity(h.runtime);
+    const host = h.fake.tables.get(schema.hosts)![0] as typeof schema.hosts.$inferSelect;
+    const instance = randomUUID(),
+      address = randomUUID(),
+      accepted = randomUUID(),
+      leased = randomUUID();
+    const registration = await registerOwnedRelay(h.runtime, host, {
+      username: 'user',
+      instanceId: instance,
+      wrapperVersion: 'test',
+      capabilities: { control_state_protocol: 1 },
+    });
+    const id = String(registration.relay_id),
+      generation = Number(registration.generation),
+      scope = { topic: 'relay' as const, relay_id: id, native_instance_id: instance, binding_generation: generation };
+    const attachment = h.presence.attach({ connectionId: 'relay-proof', hostId: 1, username: 'user', scope });
+    const held = (messageId: string, status: string) => ({
+      id: messageId,
+      kind: 'request',
+      sourceEngine: 'codex',
+      targetEngine: 'codex',
+      targetAddressId: address,
+      status,
+      attempts: 1,
+      leaseOwner: `relay:${id}:${generation}`,
+      claimId: randomUUID(),
+      relayGeneration: generation,
+      ownershipMode: 'connection',
+      ownerInstanceId: instance,
+      leaseUntil: null,
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await mutateOwnerState(h.runtime, {
+      kind: 'fixture.held',
+      payload: {},
+      prepare(c) {
+        for (const row of [held(accepted, 'accepted'), held(leased, 'leased')]) {
+          recordMessagingRowChange(c.draft, 'agentBusMessages', null, row);
+          c.draft.upsert('agentBusMessages', row as never);
+        }
+        return null;
+      },
+    });
+    const successor = () =>
+      registerOwnedRelay(h.runtime, host, {
+        username: 'user',
+        instanceId: randomUUID(),
+        wrapperVersion: 'test',
+        capabilities: { control_state_protocol: 1 },
+      });
+    return { h, host, id, instance, generation, scope, attachment, accepted, leased, successor };
+  }
+  it('settles a vanished relay instance\'s held work after the reconnect grace so a successor registers (feedback 068b9f9b)', async () => {
+    const f = await vanishedRelayFixture();
+    try {
+      f.attachment.detach();
+      const detachedAt = Date.now();
+      // The refusal itself is unchanged: a new process never adopts held work.
+      // It names the holder and when the owner settles its work.
+      await expect(f.successor()).rejects.toMatchObject({
+        code: 'agent_messaging_relay_uncertain',
+        extra: {
+          relay_id: f.id,
+          generation: f.generation,
+          settles_after: new Date(detachedAt + OWNER_RECONNECT_GRACE_MS).toISOString(),
+        },
+      });
+      await vi.advanceTimersByTimeAsync(OWNER_RECONNECT_GRACE_MS - 1000);
+      await maintainOwnedMessaging(f.h.runtime);
+      expect(f.h.state.snapshot().messages.get(f.accepted)?.status).toBe('accepted');
+      expect(f.h.state.snapshot().messages.get(f.leased)?.status).toBe('leased');
+      await expect(f.successor()).rejects.toThrow('unresolved');
+      await vi.advanceTimersByTimeAsync(2000);
+      await maintainOwnedMessaging(f.h.runtime);
+      const accepted = f.h.state.snapshot().messages.get(f.accepted)!,
+        leased = f.h.state.snapshot().messages.get(f.leased)!;
+      // Accepted work may have run: uncertain-final, lease identity retained.
+      expect(accepted).toMatchObject({
+        status: 'ambiguous',
+        lastErrorCode: 'relay_instance_lost',
+        leaseOwner: `relay:${f.id}:${f.generation}`,
+      });
+      expect(accepted.ambiguousAt).toBeTruthy();
+      // The relay accepts before it starts a native process, so offered work never ran.
+      expect(leased).toMatchObject({
+        status: 'queued',
+        lastErrorCode: 'relay_instance_lost',
+        leaseOwner: null,
+        claimId: null,
+        ownerInstanceId: null,
+      });
+      const next = await f.successor();
+      expect(next.generation).toBe(f.generation + 1);
+    } finally {
+      stopSessionActivity(f.h.runtime);
+    }
+  });
+  it('keeps held work for the exact relay process that reattaches within the grace', async () => {
+    const f = await vanishedRelayFixture();
+    try {
+      f.attachment.detach();
+      await vi.advanceTimersByTimeAsync(OWNER_RECONNECT_GRACE_MS - 1000);
+      const again = f.h.presence.attach({ connectionId: 'relay-proof-2', hostId: 1, username: 'user', scope: f.scope });
+      await vi.advanceTimersByTimeAsync(OWNER_RECONNECT_GRACE_MS * 3);
+      await maintainOwnedMessaging(f.h.runtime);
+      expect(f.h.state.snapshot().messages.get(f.accepted)?.status).toBe('accepted');
+      expect(f.h.state.snapshot().messages.get(f.leased)?.status).toBe('leased');
+      // A short drop after a long attachment restarts the grace from the detach.
+      again.detach();
+      await vi.advanceTimersByTimeAsync(OWNER_RECONNECT_GRACE_MS - 1000);
+      await maintainOwnedMessaging(f.h.runtime);
+      expect(f.h.state.snapshot().messages.get(f.accepted)?.status).toBe('accepted');
+      await expect(f.successor()).rejects.toThrow('unresolved');
+    } finally {
+      stopSessionActivity(f.h.runtime);
+    }
   });
   it('keeps all three receiver engines ready by attachment with no periodic durable writes', async () => {
     for (const [engine, protocol] of [

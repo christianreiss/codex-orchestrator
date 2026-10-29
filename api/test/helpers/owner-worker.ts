@@ -34,6 +34,7 @@ export async function ownerWorkerFixture(seed: StateSeed = {}) {
     retention,
     facts: {
       relayConnected: () => false,
+      relayHeldWorkGoneAt: () => null,
       sessionConnected: () => false,
       receiverConnected: () => false,
       revision: () => '1',

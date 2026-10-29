@@ -26,7 +26,7 @@ describe('retention lifecycle invalidation',()=>{
     const runtime={state,deadlines,assertOwner:vi.fn()} as unknown as OwnerRuntime;
     bindOwnerRetention(runtime,index);
     const run=vi.fn(async()=>({observed:true as const}));
-    const facts={revision:()=>String(state.revision().sequence),relayConnected:()=>false,sessionConnected:()=>false,receiverConnected:()=>false,conferenceHasPendingDeliveries:()=>false};
+    const facts={revision:()=>String(state.revision().sequence),relayConnected:()=>false,relayHeldWorkGoneAt:()=>null,sessionConnected:()=>false,receiverConnected:()=>false,conferenceHasPendingDeliveries:()=>false};
     const worker=createOwnerWorker(runtime,{name:'history-proof',tables:PORTAL_MAINTENANCE_TABLES,select:snapshot=>[...portalObligations(snapshot,facts,0),...index.obligations()],subscribe:cb=>index.subscribe(cb),run,error:errors});
     const all=vi.spyOn(EntityView.prototype,'all');
     function update(patch:Partial<StateRow<'agentSessions'>>) {
