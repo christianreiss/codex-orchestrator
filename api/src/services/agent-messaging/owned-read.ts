@@ -197,6 +197,7 @@ export function peekOwnedMailbox(
         message_id: row.id,
         conversation_id: row.conversationId,
         kind: row.kind,
+        delivery_class: row.deliveryClass,
         from,
         expires_at: row.expiresAt,
       });

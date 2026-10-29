@@ -1343,7 +1343,16 @@ the current turn ends (only `delivery_timing: "immediate"` mail can land
 mid-turn) and that listening does not fetch a body, and the `Stop` hook does not
 ring or block for pending mail at all, because the receiver pushes it at exactly
 that boundary and a blocking `Stop` would keep the turn running, and the claim
-gate shut, for another round. A `Stop` ring that cannot be recorded in the per-session
+gate shut, for another round. After cxx 0.9.144 this holds for any ready receiver
+that holds no work, Portal instruction or read-but-unreleased delivery, with or
+without negotiated turn gating (such a receiver claims on its next tick either
+way), and `Stop` never blocks for `presence_notice`, `publication`, `digest` or
+`progress`/`notice`-class mail, which needs no answer. A `Stop` still blocks for
+unread mail that needs an answer when the receiver is not ready or the owner
+cannot be reached. Each message rings at most once per event, and at most three
+`Stop` blocks are issued per session within five minutes (the rest are left for
+the next `UserPromptSubmit` ring), so a conference of quick replies cannot cost one
+empty turn per peer. A `Stop` ring that cannot be recorded in the per-session
 ring ledger is dropped rather than emitted, so it can never block every turn end.
 The command prints nothing
 when there is nothing to report or the

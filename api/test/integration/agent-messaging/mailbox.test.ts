@@ -132,6 +132,8 @@ describe.skipIf(!handle)('mailbox peek against a real database', { timeout: 120_
     expect((pending[0]!.from as Record<string, unknown>).address).toBe(caller.address);
     expect((pending[0]!.from as Record<string, unknown>).fqdn).toBe(HOST_FQDN);
     expect(pending[0]!.expires_at).toBeTruthy();
+    // The Stop hook uses the class to avoid blocking a turn for mail that needs no answer.
+    expect(pending[0]!.delivery_class).toBe('information');
   });
 
   it('takes no lease and changes nothing — peeking is not claiming', async () => {

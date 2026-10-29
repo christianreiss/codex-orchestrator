@@ -919,6 +919,7 @@ export class AgentMessagingService {
           message_id: row.message.id,
           conversation_id: row.message.conversationId,
           kind: row.message.kind,
+          delivery_class: row.message.deliveryClass,
           from,
           expires_at: row.message.expiresAt,
         });
