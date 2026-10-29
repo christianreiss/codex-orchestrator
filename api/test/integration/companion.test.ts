@@ -181,6 +181,9 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       read_sync_protocol: 1,
       room_notifications_protocol: 1,
       room_delta_protocol: 1,
+      reactions_protocol: 1,
+      pins_protocol: 1,
+      search_protocol: 1,
       actor: `admin:${userId}`,
     });
     await db.update(adminUsers).set({ accessLevel: 'viewer' }).where(eq(adminUsers.id, userId));

@@ -104,5 +104,20 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
   if (!/ADD COLUMN permission_mode VARCHAR\(16\) NULL/i.test(permissionMode))
     throw new Error('Migration 0118 must declare host_daemon_sessions.permission_mode; cannot project the bootstrap schema');
   tables.get('host_daemon_sessions')!.add('permission_mode');
+  // Migration 0119 adds room reactions and pins.
+  const annotations = splitSqlStatements(
+    readFileSync(resolve(import.meta.dirname, '../../src/db/migrations/0119_room_reactions_pins.sql'), 'utf8'),
+  ).flatMap((statement) => {
+    const name = /^CREATE TABLE IF NOT EXISTS ([a-z_]+)/i.exec(statement)?.[1];
+    if (!name) return [];
+    tables.set(name, new Set([...statement.matchAll(/^\s+([a-z_]+)\s+(?:char|varchar)\b/gim)].map((m) => m[1]!)));
+    return [name];
+  });
+  if (
+    annotations.join() !== 'agent_room_reactions,agent_room_pins' ||
+    [...tables.get('agent_room_reactions')!].join() !== 'room_id,event_id,actor,emoji,created_at' ||
+    [...tables.get('agent_room_pins')!].join() !== 'room_id,event_id,pinned_by,pinned_at'
+  )
+    throw new Error('Migration 0119 room annotation inventory changed; cannot project the bootstrap schema');
   return tables;
 }

@@ -540,6 +540,12 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/agent-messaging/chats/send': cap('agent_messaging.manage'),
   'POST /admin/agent-messaging/chats/create': cap('agent_messaging.manage'),
   'POST /admin/agent-messaging/chats/manage': cap('agent_messaging.manage'),
+  // Reactions and pins change shared state like sending; the handler also requires reveal_content.
+  'POST /admin/agent-messaging/chats/:roomId/events/:eventId/reactions': cap('agent_messaging.manage'),
+  'POST /admin/agent-messaging/chats/:roomId/events/:eventId/pin': cap('agent_messaging.manage'),
+  'GET /admin/agent-messaging/chats/:roomId/pins': cap('agent_messaging.reveal_content'),
+  // Direct chats in the results additionally require agent_portal.reveal_transcript.
+  'GET /admin/agent-messaging/search': cap('agent_messaging.reveal_content'),
   'POST /admin/agent-messaging/chats/:roomId/attachments': cap('agent_messaging.manage'),
   'POST /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/chunks': cap('agent_messaging.manage'),
   'POST /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/seal': cap('agent_messaging.manage'),

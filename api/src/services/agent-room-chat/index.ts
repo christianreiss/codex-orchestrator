@@ -17,6 +17,8 @@ import {
   agentRoomEvents,
   agentRoomAgentReads,
   agentRoomOperations,
+  agentRoomPins,
+  agentRoomReactions,
   agentRoomReads,
   agentScopeEvents,
   agentScopeMembers,
@@ -46,6 +48,19 @@ import type { AgentMessagingDb } from '../agent-messaging/types.js';
 import { recordRoomChange, roomChangeBounds, roomChangesAfter, roomCursorExpired, roomHeadsAfter } from './changes.js';
 import { enqueueRoomReadSync } from '../companion/room-reads.js';
 import { ROOM_CHANGE_HEAD_SETTING, roomHead } from '../../control-plane/state/room-heads.js';
+import {
+  attachReactions,
+  eventReactions,
+  pinRows,
+  pinnedIds,
+  planPin,
+  planReaction,
+  plainSnippet,
+  requireRoomEvent,
+  roomPinSchema,
+  roomReactionSchema,
+  summarizeReactions,
+} from './annotations.js';
 import {
   roomCreateSchema,
   roomManageSchema,
@@ -365,6 +380,170 @@ export class AgentRoomChat {
         }));
   }
   /**
+   * Operator reads carry reactions per event and the room's pinned event ids. Agent bridge
+   * reads stay unchanged: the wrapper tools do not expose annotations.
+   */
+  private async annotations(
+    tx: AgentMessagingDb,
+    actor: RoomActor,
+    session: AgentSession | null,
+    roomId: string,
+    events: RoomEvent[],
+    canonical?: ReadonlySet<string>,
+  ): Promise<{ pinned?: string[] }> {
+    if (session || !actor.adminId) return {};
+    // Only canonical room events carry `reactions`; adapted legacy history cannot be annotated.
+    await attachReactions(tx, canonical ? events.filter((e) => canonical.has(e.id)) : events, actorKey(actor, session));
+    return { pinned: await pinnedIds(tx, roomId) };
+  }
+  /**
+   * Operator reaction toggle on a canonical room event of an open room. Set semantics
+   * (`on` ensures, `!on` removes), so a retry with the same `client_request_id` is
+   * idempotent by construction. Appends a `reaction` change row when something changed.
+   */
+  async react(actor: RoomActor, input: unknown) {
+    const body = roomReactionSchema.parse(input);
+    if (!actor.adminId) throw new ForbiddenError('Operator permission required');
+    const key = `admin:${actor.adminId}`;
+    const owned = this.owned();
+    const result = owned
+      ? await owned.react(actor, body)
+      : await this.run(actor, async (tx) => {
+          const room = await this.room(tx, body.room_id);
+          if (room.status !== 'open') throw new ConflictError('This conversation is closed or disabled');
+          await requireRoomEvent(tx, room.id, body.event_id);
+          const plan = planReaction(await eventReactions(tx, body.event_id), key, body, nowIso());
+          if ('insert' in plan && plan.insert)
+            await tx
+              .insert(agentRoomReactions)
+              .values(plan.insert)
+              .onDuplicateKeyUpdate({ set: { createdAt: sql`created_at` } });
+          if ('remove' in plan && plan.remove)
+            await tx
+              .delete(agentRoomReactions)
+              .where(
+                and(
+                  eq(agentRoomReactions.eventId, body.event_id),
+                  eq(agentRoomReactions.actor, key),
+                  eq(agentRoomReactions.emoji, body.emoji),
+                ),
+              );
+          if (plan.changed) await recordRoomChange(tx, room.id, 'reaction', body.event_id);
+          return {
+            room_id: room.id,
+            event_id: body.event_id,
+            emoji: body.emoji,
+            on: body.on,
+            changed: plan.changed,
+            reactions: summarizeReactions(plan.after, key),
+          };
+        });
+    if (result.changed) wsPublisher.publish('agent_room_chat.changed', { room_id: body.room_id });
+    return result;
+  }
+  /**
+   * Pin (`on`) or unpin a canonical room event of an open room; at most 20 pins per room.
+   * Idempotent through the room operation receipt: a retry returns the original result.
+   */
+  async pin(actor: RoomActor, input: unknown) {
+    const body = roomPinSchema.parse(input);
+    const owned = this.owned();
+    const result = owned
+      ? await owned.pin(actor, body)
+      : await this.operation(actor, body, async (tx) => {
+          const room = await this.room(tx, body.room_id);
+          if (room.status !== 'open') throw new ConflictError('This conversation is closed or disabled');
+          await requireRoomEvent(tx, room.id, body.event_id);
+          const plan = planPin(await pinRows(tx, room.id), `admin:${actor.adminId}`, body, nowIso());
+          if ('insert' in plan && plan.insert) await tx.insert(agentRoomPins).values(plan.insert);
+          if ('remove' in plan && plan.remove)
+            await tx
+              .delete(agentRoomPins)
+              .where(and(eq(agentRoomPins.roomId, room.id), eq(agentRoomPins.eventId, body.event_id)));
+          if (plan.changed) await recordRoomChange(tx, room.id, 'pin', body.event_id);
+          return {
+            room_id: room.id,
+            event_id: body.event_id,
+            on: body.on,
+            changed: plan.changed,
+            pinned: plan.after.map((p) => p.eventId),
+          };
+        });
+    if (result.changed) wsPublisher.publish('agent_room_chat.changed', { room_id: body.room_id });
+    return result as { room_id: string; event_id: string; on: boolean; changed: boolean; pinned: string[] };
+  }
+  /**
+   * Rooms an operator may search: every group, conference and scope room (operators are not
+   * bound by agent membership), or the one requested room after an access check. `null`
+   * while agent messaging is disabled.
+   */
+  async searchRooms(actor: RoomActor, roomId?: string): Promise<Map<string, string> | null> {
+    if (!actor.adminId) throw new ForbiddenError('Operator permission required');
+    const owned = this.owned();
+    if (owned ? owned.snapshot().setting('agent_messaging_enabled') !== '1' : !(await this.bus.isEnabled())) return null;
+    if (roomId) {
+      const { room } = await this.access(actor, roomId);
+      return new Map([[room.id, room.title]]);
+    }
+    if (owned) {
+      const snapshot = owned.snapshot();
+      return new Map([
+        ...snapshot.table('agentBusGroups').all().map((g) => [g.id, g.title] as [string, string]),
+        ...snapshot.table('agentBusConferences').all().map((c) => [c.id, c.topic ?? 'Untitled conference'] as [string, string]),
+        ...snapshot.table('agentScopes').all().map((s) => [s.id, s.title] as [string, string]),
+      ]);
+    }
+    const [groups, conferences, scopes] = await Promise.all([
+      this.db.select({ id: agentBusGroups.id, title: agentBusGroups.title }).from(agentBusGroups),
+      this.db.select({ id: agentBusConferences.id, title: agentBusConferences.topic }).from(agentBusConferences),
+      this.db.select({ id: agentScopes.id, title: agentScopes.title }).from(agentScopes),
+    ]);
+    return new Map([
+      ...groups.map((g) => [g.id, g.title] as [string, string]),
+      ...conferences.map((c) => [c.id, c.title ?? 'Untitled conference'] as [string, string]),
+      ...scopes.map((s) => [s.id, s.title] as [string, string]),
+    ]);
+  }
+  /** Pinned events of a room with plain snippets (newest pin first). Requires content access. */
+  async pins(actor: RoomActor, roomId: string) {
+    if (!actor.adminId) throw new ForbiddenError('Operator permission required');
+    return this.run(actor, async (tx, session) => {
+      const owned = this.owned();
+      const room = owned ? owned.access(actor, roomId).room : await this.room(tx, roomId, session);
+      const rows = await pinRows(tx, room.id);
+      const events = rows.length
+        ? await tx
+            .select()
+            .from(agentRoomEvents)
+            .where(and(eq(agentRoomEvents.roomId, room.id), inArray(agentRoomEvents.id, rows.map((r) => r.eventId))))
+        : [];
+      const decoded = new Map(events.map((row) => [row.id, this.decode(row)]));
+      if (owned) owned.access(actor, roomId);
+      return {
+        room_id: room.id,
+        pins: rows.map((p) => {
+          const event = decoded.get(p.eventId);
+          return {
+            event_id: p.eventId,
+            pinned_by: p.pinnedBy,
+            pinned_at: p.pinnedAt,
+            event: event
+              ? {
+                  id: event.id,
+                  created_at: event.created_at,
+                  actor: event.actor,
+                  name: event.name,
+                  kind: event.kind,
+                  snippet: plainSnippet(event.content ?? ''),
+                  attachments: event.attachments?.length ?? 0,
+                }
+              : null,
+          };
+        }),
+      };
+    });
+  }
+  /**
    * Delta read: room changes after `after` (agent_room_changes.seq). Returns the changed
    * events (new ones, and parents whose receipts changed), the current room with members and
    * read positions, and `next_after`. `resync: true` means the cursor predates retention: read
@@ -392,9 +571,11 @@ export class AgentRoomChat {
         .map((r) => this.decode(r))
         .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
       await this.deliveries(tx, events);
+      const annotations = await this.annotations(tx, actor, session, room.id, events);
       const marks = await tx.select().from(agentRoomAgentReads).where(eq(agentRoomAgentReads.roomId, room.id));
       if (owned) owned.access(actor, body.room_id);
       return {
+        ...annotations,
         room: {
           ...room,
           ...(await this.readState(tx, actor, session, room.id)),
@@ -610,6 +791,7 @@ export class AgentRoomChat {
       events.sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
       const candidates = events.slice(0, body.limit);
       await this.deliveries(tx, candidates);
+      const annotations = await this.annotations(tx, actor, session, room.id, candidates, new Set(rows.map((r) => r.id)));
       // Include delivery metadata in the byte budget; never truncate an event
       // or advance the cursor past an event omitted from this response.
       const page = readMessagePage(candidates, (event) => event, { room, next_before: null }).messages.reverse();
@@ -639,6 +821,7 @@ export class AgentRoomChat {
         }
       }
       return {
+        ...annotations,
         room: {
           ...room,
           ...(await this.readState(tx, actor, session, room.id)),
@@ -1097,6 +1280,8 @@ export class AgentRoomChat {
             rows.map((r) => r.id),
           ),
         );
+        await tx.delete(agentRoomReactions).where(inArray(agentRoomReactions.eventId, rows.map((r) => r.id)));
+        await tx.delete(agentRoomPins).where(inArray(agentRoomPins.eventId, rows.map((r) => r.id)));
         await tx.delete(agentRoomChanges).where(
           inArray(
             agentRoomChanges.refId,

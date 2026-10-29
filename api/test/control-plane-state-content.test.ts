@@ -19,7 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as schema from '../src/db/schema.js';
 import type { Database } from '../src/db/client.js';
-import type { StateSeed } from '../src/control-plane/state/catalog.js';
+import { OWNED_TABLE_NAMES, type StateSeed } from '../src/control-plane/state/catalog.js';
 import { CommandExecutor } from '../src/control-plane/commands.js';
 import type { PersistenceTransaction } from '../src/control-plane/persistence.js';
 import { DeadlineQueue } from '../src/control-plane/deadlines.js';
@@ -236,6 +236,64 @@ describe('owner canonical content metadata', () => {
     // A repeated read of the same history writes nothing new.
     await service.read(agent, { room_id: roomId });
     expect(inserts()).toHaveLength(1);
+  });
+
+  it('keeps room reactions and pins cold, logs their changes and returns them on operator reads', async () => {
+    const h = setup(),
+      bus = { isEnabled: async () => true } as AgentMessagingService,
+      service = new AgentRoomChat(h.db, loadTestEnv(), testKeyring(), bus),
+      operator = { adminId: 7, name: 'Operator' },
+      other = { adminId: 8, name: 'Other' };
+    const roomId = String(
+      (await service.create(operator, { client_request_id: randomUUID(), kind: 'group', title: 'Annotated' })).room_id,
+    );
+    const sent = await service.send(operator, { room_id: roomId, client_request_id: randomUUID(), content: 'Ship the release' });
+    const changes = (kind: string) =>
+      h.fake.inserts.filter((i) => i.table === schema.agentRoomChanges && (i.values as { kind: string }).kind === kind);
+    const reaction = { room_id: roomId, event_id: sent.id, emoji: '👍', on: true, client_request_id: randomUUID() };
+    expect(await service.react(operator, reaction)).toMatchObject({
+      changed: true,
+      reactions: [{ emoji: '👍', count: 1, mine: true }],
+    });
+    // A retry is a no-op by construction: no second row, no second change.
+    expect((await service.react(operator, reaction)).changed).toBe(false);
+    await service.react(other, { ...reaction, client_request_id: randomUUID() });
+    expect(h.fake.inserts.filter((i) => i.table === schema.agentRoomReactions)).toHaveLength(2);
+    expect(changes('reaction')).toHaveLength(2);
+    expect(changes('reaction')[0]!.values).toMatchObject({ roomId, refId: sent.id });
+    // Cold: nothing reaches owner RAM.
+    expect(OWNED_TABLE_NAMES).not.toContain('agentRoomReactions');
+    expect(OWNED_TABLE_NAMES).not.toContain('agentRoomPins');
+    const read = await service.read(operator, { room_id: roomId });
+    expect(read.events.find((e) => e.id === sent.id)?.reactions).toEqual([{ emoji: '👍', count: 2, mine: true }]);
+    expect(read.pinned).toEqual([]);
+    const pinRequest = { room_id: roomId, event_id: sent.id, on: true, client_request_id: randomUUID() };
+    expect(await service.pin(operator, pinRequest)).toMatchObject({ changed: true, pinned: [sent.id] });
+    // The operation receipt replays the original result; a changed body under the same id conflicts.
+    expect(await service.pin(operator, pinRequest)).toMatchObject({ changed: true, pinned: [sent.id] });
+    await expect(service.pin(operator, { ...pinRequest, on: false })).rejects.toThrow('Operation retry differs');
+    expect(h.fake.inserts.filter((i) => i.table === schema.agentRoomPins)).toHaveLength(1);
+    expect(changes('pin')).toHaveLength(1);
+    expect((await service.read(other, { room_id: roomId })).pinned).toEqual([sent.id]);
+    expect(await service.pins(operator, roomId)).toEqual({
+      room_id: roomId,
+      pins: [
+        {
+          event_id: sent.id,
+          pinned_by: 'admin:7',
+          pinned_at: expect.any(String),
+          event: expect.objectContaining({ id: sent.id, snippet: 'Ship the release', name: 'Operator' }),
+        },
+      ],
+    });
+    await service.react(operator, { ...reaction, on: false, client_request_id: randomUUID() });
+    const after = await service.read(operator, { room_id: roomId });
+    expect(after.events.find((e) => e.id === sent.id)?.reactions).toEqual([{ emoji: '👍', count: 1, mine: false }]);
+    await expect(
+      service.react(operator, { ...reaction, event_id: randomUUID(), client_request_id: randomUUID() }),
+    ).rejects.toMatchObject({ status: 404, code: 'room_event_not_found' });
+    // Agents never author reactions or pins.
+    await expect(service.react({ sessionId: h.sessionId, token: h.token }, reaction)).rejects.toMatchObject({ status: 403 });
   });
 
   it('commits project content and event cursors together without retaining bodies', async () => {

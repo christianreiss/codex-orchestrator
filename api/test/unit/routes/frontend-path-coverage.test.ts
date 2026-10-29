@@ -59,6 +59,7 @@ const RUNTIME_PATH_CALLERS: Record<string, string> = {
   'frontend/src/lib/components/portal/ChatUploads.svelte': 'attachmentBase selects session or shared-room upload/delete paths; server tests verify room and author binding.',
   'frontend/src/lib/components/portal/NewRoom.svelte': 'roomRoot targets the registered shared-chat create endpoint, exercised by admin-room-chats browser tests.',
   'frontend/src/lib/components/portal/RoomConversation.svelte': 'roomRoot builds shared-chat read/seen/send/manage operations; browser and MySQL tests cover these paths.',
+  'frontend/src/lib/components/portal/MessageSearch.svelte': 'searchPath builds GET /admin/agent-messaging/search with an encoded query string; room-chat route tests cover the admin search route.',
   'frontend/src/lib/portal/chat-files.ts': 'attachmentBase selects session or room uploads, chunks and sealing; room API and existing attachment tests exercise the contracts.',
 
   'frontend/src/lib/api/nativeSettings.ts': 'Engine selects /admin/config, /admin/claude/config or /admin/grok/config; the table below executes GET plus POST /render and /store for every engine and checks registered routes.',

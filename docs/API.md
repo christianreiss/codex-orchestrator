@@ -944,7 +944,7 @@ Device credentials expire after one year; pairing again creates a new device.
 - `GET /companion/v1/projects` — `projects.read`; `{board_enabled,projects:[{slug,title,description,updated_at}]}` without archived projects.
 - `GET /companion/v1/projects/:slug/board` — `projects.read`; `{project,columns:[{id,key,title,card_count,wip_limit,over_wip,truncated,cards:[{id,number,title,labels,priority,due_at,status,blocked_reason,assignee,updated_at}]}]}`; card `status` is `blocked|claimed|waiting|open`, `assignee` `{username,host,role}` or null. Card details are omitted; a disabled board is 409 `project_board_disabled`.
 - `POST /companion/v1/feedback` — `feedback.manage`; `{client_request_id,type,title,description,component?,priority?}` (strict) files orchestrator feedback through the `feedback_submit` service as the operator (`source.surface:"companion"`). 201 `{feedback:{id,status,title,component,created_at},replayed:false}`; a same-body retry is 200 `replayed:true`, a different body 409. Text only.
-- `GET /companion/v1/me` — identity, current capabilities, public Firebase configuration, notification preference, and followed session IDs. Also `read_sync_protocol: 1`, `room_notifications_protocol: 1`, `room_delta_protocol: 1` and `actor: "admin:<id>"` (the operator's room actor key; room events with this `actor` are the operator's own). R4 adds `remote_stop_protocol`, `permission_mode_protocol`, `workflows_protocol`, `schedules_protocol`, `quota_push_protocol`, `git_director_protocol`, `project_board_protocol` and `feedback_protocol`, each `1`.
+- `GET /companion/v1/me` — identity, current capabilities, public Firebase configuration, notification preference, and followed session IDs. Also `read_sync_protocol: 1`, `room_notifications_protocol: 1`, `room_delta_protocol: 1` and `actor: "admin:<id>"` (the operator's room actor key; room events with this `actor` are the operator's own). R4 adds `remote_stop_protocol`, `permission_mode_protocol`, `workflows_protocol`, `schedules_protocol`, `quota_push_protocol`, `git_director_protocol`, `project_board_protocol` and `feedback_protocol`, each `1`. R5 adds `reactions_protocol`, `pins_protocol` and `search_protocol`, each `1`.
 - `PATCH /companion/v1/device` — optional `fcm_token` (nullable), `notifications` boolean, `visible_session_id` (nullable UUID; a room id while a room is on screen suppresses that room's pushes); updates last-seen time. Visible-session suppression expires after 45 seconds.
 - `DELETE /companion/v1/device` — self-revoke on logout.
 - `GET /companion/v1/agents` — portal snapshot (`agents`, `generated_at`, `timings`), using `agent_portal.read`. With transcript permission, includes per-agent `preview: {summary,cursor,created_at} | null`: one sentence of at most 160 Unicode characters, prioritizing the open question or attention notice, otherwise the latest reply. Independent `reply_cursor` is the latest `assistant_message` event ID (0 when none), including retained offline/finished conversations; without transcript permission both preview and reply cursor are null. The preview cursor is not a reply-read watermark.
@@ -1274,6 +1274,10 @@ Shared room APIs use existing agent-messaging read/manage/reveal-content capabil
 - `POST /admin/agent-messaging/chats/send`
 - `POST /admin/agent-messaging/chats/create`
 - `POST /admin/agent-messaging/chats/manage`
+- `POST /admin/agent-messaging/chats/:roomId/events/:eventId/reactions` — `agent_messaging.manage` and `agent_messaging.reveal_content`; reaction toggle (below).
+- `POST /admin/agent-messaging/chats/:roomId/events/:eventId/pin` — the same two capabilities; pin or unpin (below).
+- `GET /admin/agent-messaging/chats/:roomId/pins` — `agent_messaging.reveal_content`; pinned messages with snippets.
+- `GET /admin/agent-messaging/search` — `agent_messaging.reveal_content`; bounded conversation search (below); direct chats additionally need `agent_portal.reveal_transcript`.
 - `POST /host/agent-sessions/:id/agent-messaging/chats/list`
 - `POST /host/agent-sessions/:id/agent-messaging/chats/read`
 - `POST /host/agent-sessions/:id/agent-messaging/chats/send`
@@ -1290,6 +1294,45 @@ Shared room APIs use existing agent-messaging read/manage/reveal-content capabil
 
 Create accepts client_request_id, kind (group/conference), title, description, members (address UUIDs) and duration_minutes (5–360; default 60). Read accepts room_id, optional opaque before cursor and limit (1–100). Send accepts room_id, client_request_id, content, attachments, optional reply_to event UUID, recipients (address UUIDs) or ask_all. Agents may post contributions but cannot request a new answer round. Seen accepts room_id and through (timestamp). Manage accepts room_id, client_request_id, action (invite/remove/close) and address_id for membership changes. Retries retain the exact payload and UUID. Operator conference ownership is an admin identity, not a fabricated native session.
 
+**Reactions, pins and search (migration 0119).** Operators react to and pin canonical
+room events of open rooms; adapted legacy history (scope events, old conference
+transcripts) carries no `reactions` field and accepts neither. Room events are never
+edited or deleted. A reaction toggle `{emoji, on, client_request_id}` (exactly one emoji
+grapheme, at most 16 UTF-8 bytes) has set semantics: `on:true` ensures the operator's
+reaction, `on:false` removes it, a repeat changes nothing; it returns `{room_id,
+event_id, emoji, on, changed, reactions:[{emoji,count,mine}]}`. Limits: 10 own and 20
+distinct emoji per event (`409 reaction_limit`). Pin `{on, client_request_id}` returns
+`{room_id, event_id, on, changed, pinned:[event_id…]}`; at most 20 pins per room (`409
+room_pin_limit`); a retry with the same `client_request_id` replays the original
+result and a different body under it is `409`. An unknown or foreign event is `404
+room_event_not_found`; a closed room is `409`. Both write an `agent_room_changes` row
+(`reaction` / `pin`, `ref_id` = event id) and publish `agent_room_chat.changed`; 60
+toggles per minute per operator or device (`429 rate_limited`, `Retry-After`).
+Operator room reads (`chats/read`, delta reads) add `reactions` to each canonical event
+and a top-level `pinned` (event ids, newest pin first); agent bridge reads are
+unchanged. `GET …/pins` returns `{room_id, pins:[{event_id, pinned_by, pinned_at,
+event:{id, created_at, actor, name, kind, snippet, attachments}|null}]}` (`snippet` at
+most 200 characters).
+
+Search `?q=&scope=all|rooms|direct&room_id=&cursor=&limit=` (`q` 2–200 characters after
+whitespace collapsing, `limit` 1–50, default 20; `room_id` narrows to one room and is
+invalid with `scope=direct`) scans at most the newest 2000 events the operator may
+read, newest first, for at most 2 seconds, decrypting in memory; there is no index.
+Matching is a case-insensitive literal substring. Rooms are every group, conference and
+scope room; direct chats are the retained Portal sessions in `user_message`,
+`assistant_message` and `waiting_input` events. `scope=all` skips a source the caller
+may not read or whose module is off; naming it explicitly is `403` or `503`. The result
+is `{results:[{scope:"room"|"direct", conversation_key ("room:<id>"|"agent:<id>"),
+conversation_id, title, event_id, event_cursor?, created_at, actor, author, snippet,
+highlights:[{start,length}]}], next_cursor, truncated, scanned, scopes}`. `snippet` is ±60
+characters around the first match with `…` where cut; `highlights` are UTF-16 code-unit
+offsets into it. `truncated:true` means the scan bound or time budget ended the page:
+continue with `next_cursor`, which resumes the scan where it stopped (`null` when
+nothing older remains). The cursor is bound to `scope` and `room_id` (`422` otherwise).
+20 searches per minute per operator or device. Query text and content are never logged,
+stored or audited; the audit event `conversation_search.performed` records only scope
+and counts.
+
 ### Model catalog policy
 
 `GET /admin/model-policy/:engine` reads the engine's catalog filtering policy. `PUT /admin/model-policy/:engine` accepts only `{ "latest_only": boolean }`, records the setting and returns the effective policy. Both routes require an admin session; capability enforcement follows the route inventory. Engines are `codex`, `claude` and `grok`.
@@ -1305,6 +1348,10 @@ All results use the standard envelope and `Cache-Control: no-store`.
 - `POST /companion/v1/rooms/read` — `agent_messaging.reveal_content`; `{room_id,before?,limit?}` returns `{room,events,next_before,next_after}`; `room` adds the operator's `read_at` and `unread`. With `{room_id,after}` (a previous `next_after`, number or decimal string; exclusive with `before`) it is a delta read returning `{room,resync:false,events,changes:[{seq,kind,ref_id}],next_after,has_more}` — `events` are new events plus parents whose receipts changed — or `{room_id,resync:true,next_after}` when the cursor predates change-log retention (read in full, then continue). Delta reads never move read positions. Reads are audited without message bodies. `room.members[].read_through` is the newest room event time that agent has been shown through `chats/read` (null if never); an agent's own read advances it, an operator's never does.
 - `POST /companion/v1/rooms/seen` — `agent_messaging.reveal_content`; `{room_id,through}` advances the existing monotonic operator read timestamp, clamped to server time. `through` is the newest seen event's exact `created_at` (millisecond precision). An advance enqueues a silent `kind:room_read` push (`room_id`, `read_at`, `conversation_key`) to the operator's other devices with `read_sync_protocol:1`.
 - `GET /companion/v1/rooms/changes` — `agent_messaging.read`; `?after=<seq>` returns `{enabled,rooms:[{room_id,seq}],next_after,resync,has_more}`: rooms with `agent_room_changes` rows after the cursor and each room's newest sequence.
+- `POST /companion/v1/rooms/:roomId/events/:eventId/reactions` — `agent_messaging.manage` and `agent_messaging.reveal_content`; `{emoji,on,client_request_id}`, the shared reaction toggle (see Shared conversations).
+- `POST /companion/v1/rooms/:roomId/events/:eventId/pin` — the same two capabilities; `{on,client_request_id}`, the shared pin contract.
+- `GET /companion/v1/rooms/:roomId/pins` — `agent_messaging.reveal_content`; pinned messages with snippets.
+- `GET /companion/v1/search` — `agent_messaging.reveal_content` (direct chats also `agent_portal.reveal_transcript`); the shared bounded search. Own remote sessions use their remote conversation id in `conversation_key`, as in `/companion/v1/agents`.
 - `GET /companion/v1/rooms/:roomId/notifications` — `agent_messaging.read`; returns `{room_id,mode}` for this device (`default` when unset). The room must be visible to the operator.
 - `PUT /companion/v1/rooms/:roomId/notifications` — `agent_messaging.read`; `{mode:"follow"|"default"|"mute"}` stores this device's room push mode (`default` deletes the row) and returns `{room_id,mode}`.
 - `POST /companion/v1/rooms/send` — `agent_messaging.manage` and `agent_messaging.reveal_content`; the shared room send contract (`room_id`, `client_request_id`, `content`, optional attachment IDs, `reply_to`, `recipients` or `ask_all`). Uses the paired operator identity and existing idempotency/delivery semantics.

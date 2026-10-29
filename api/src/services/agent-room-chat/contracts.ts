@@ -89,4 +89,6 @@ export interface RoomEvent {
   reply_to?: string;
   kind: string;
   deliveries?: { address_id: string; status: string }[];
+  /** Operator reads only (0119): emoji in order of first use, `mine` for the reading operator. */
+  reactions?: { emoji: string; count: number; mine: boolean }[];
 }

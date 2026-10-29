@@ -439,6 +439,22 @@ No exception. Playwright covers desktop and 390 px, Escape, typed confirmation, 
 changed target, tampered payloads and Axe on the panel and the settled dialog. Dark
 mode, manual screen-reader and independent usability review were not performed.
 
+### Room reactions, pins and search slice (2026-10-29)
+
+`RoomConversation` adds reactions and pins to canonical room events and
+`MessageSearch` adds a search sheet to the Agents directory header. Reaction chips are
+buttons with `aria-pressed` and a spoken label ("👍 2 reactions, including
+yours. Remove yours"); the picker is the shared `Popover` with eight quick picks. Pin and Unpin sit
+in the message actions; a pinned strip under the room header opens a `Sheet` listing
+pinned messages with "Show in conversation" (focuses the article) and Unpin. The pin
+action is disabled with an explanation at the 20-pin limit. Toggle results come from
+the server response, never an optimistic guess, and failures show inline (INT-5/6).
+Search runs on submit only, shows scope, highlights with `<mark>`, states truncation
+plainly and pages with "Search older messages". Applicable rules: NAV-3, VIS-1/4,
+INT-2/5/6 and ACC-1/2/3/4. No exception. Automated checks (svelte-check, unit tests,
+build) ran; browser, Axe, dark mode, 390 px and assistive-technology review were not
+performed.
+
 ### Task-supervision slice (2026-10-27)
 
 Settings owns the fleet supervisor switch. Agent details and the Settings incident

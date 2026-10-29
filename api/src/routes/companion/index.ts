@@ -8,6 +8,7 @@ import { attachCompanion } from '../../services/companion/presence.js';
 import { chatMetadataSchema } from '../../services/agent-chat/contracts.js';
 import { registerCompanionRooms } from './rooms.js';
 import { registerCompanionTools } from './tools.js';
+import { registerCompanionSearch } from './search.js';
 import { companionToolsDeps } from '../../services/companion/tools.js';
 import { AgentRoomChat } from '../../services/agent-room-chat/index.js';
 import { createAgentMessagingService } from '../../services/agent-messaging.js';
@@ -192,6 +193,12 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       read: () => companionQuotas(ctx),
     });
     registerCompanionRooms(app, ctx);
+    registerCompanionSearch(app, ctx, {
+      auth,
+      rooms,
+      portal,
+      aliases: async (userId, sessions) => (await remote.project(userId, sessions)).aliases,
+    });
     registerCompanionTools(app, companionToolsDeps(ctx, devices, remote.daemon));
     app.get(
       '/companion/v1/ws',
@@ -229,6 +236,10 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         git_director_protocol: 1,
         project_board_protocol: 1,
         feedback_protocol: 1,
+        // R5 (C6): room reactions, pins and bounded conversation search.
+        reactions_protocol: 1,
+        pins_protocol: 1,
+        search_protocol: 1,
         // The operator's room actor key: room events with this `actor` are the operator's own.
         actor: `admin:${user.id}`,
         name: user.name,

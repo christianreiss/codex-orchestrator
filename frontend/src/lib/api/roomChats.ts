@@ -1,5 +1,6 @@
 import { api } from "./client";
 import type { UploadItem } from "$lib/portal/chat-files";
+import type { ReactionSummary } from "$lib/portal/room-annotations";
 export interface RoomMember {
   id: string;
   name: string;
@@ -35,11 +36,15 @@ export interface RoomEvent {
   attachments: string[];
   reply_to?: string;
   deliveries?: { address_id: string; status: string }[];
+  /** Canonical room events only; absent on older servers. */
+  reactions?: ReactionSummary[];
 }
 export interface RoomHistory {
   room: ChatRoom;
   events: RoomEvent[];
   next_before: string | null;
+  /** Pinned event ids, newest pin first; absent on older servers. */
+  pinned?: string[];
 }
 export interface RoomSend {
   room_id: string;

@@ -299,6 +299,8 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/agent-messaging/chats/:roomId/attachments',
       'POST /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/chunks',
       'POST /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/seal',
+      'POST /admin/agent-messaging/chats/:roomId/events/:eventId/reactions',
+      'POST /admin/agent-messaging/chats/:roomId/events/:eventId/pin',
       'DELETE /admin/agent-messaging/chats/:roomId/attachments/:attachmentId',
       'POST /admin/agent-sessions/:id/attachments',
       'POST /admin/agent-sessions/:id/attachments/:attachmentId/chunks',
